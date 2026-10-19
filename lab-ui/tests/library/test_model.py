@@ -1012,6 +1012,25 @@ class State(Built):
         for over in ({**ended, "progress": 1}, {**ended, "settled": True}, {**ended, "ok": False}):
             self.assertEqual(set(self.progress(explicit=["kafka"], containers=checking, job=over).values()), {None})
 
+    def test_a_playground_on_images_older_than_it_asks_starts_when_it_has_versions_to_switch_to(self):
+        """The row keeps its warning; its Start is not blocked, and says what the switch makes again. Without a tested version to go to,
+        the Images page is the way, as it was."""
+        welcome, gateway = self.project["playgrounds"]["welcome"], self.project["services"]["apim-gateway"]
+        gateway.update(raw_image="graviteesource/apim-gateway:${APIM_VERSION:-4.12.20}", tag="4.12.20")
+        welcome["requires"] = {"images": {"APIM_VERSION": "4.13.0-alpha.3"}}
+        welcome["tested"] = [{"APIM_VERSION": "4.13.0-alpha.5"}]
+        item = self.item("playground", "welcome", containers=CORE)
+        self.assertEqual((item["action"]["enabled"], item["action"]["reason"]), (True, None))
+        self.assertEqual((item["note"], item["note_tone"]), (model.NEWER, "warn"), "the warning stays")
+        self.assertEqual(item["untested"]["to"], {"APIM_VERSION": "4.13.0-alpha.5"})
+        self.assertTrue(item["untested"]["required"], "it cannot start on what it has: no Start anyway")
+        self.assertIn("apim-gateway", [row["id"] for row in item["untested"]["recreates"]], "what runs on that component is made again")
+        welcome["tested"] = []
+        item = self.item("playground", "welcome", containers=CORE)
+        self.assertFalse(item["action"]["enabled"])
+        self.assertIn("4.13.0-alpha.3", item["action"]["reason"])
+        self.assertIsNone(item["untested"])
+
     def test_playground_counts_its_seed_once_it_ran(self):
         running = {**CORE, **healthy("agent-lens", "hello-app")}
         cases = ((None, "running", ""), (exited(0), "running", ""), (exited(1), "issue", "Seed exited (1)"))

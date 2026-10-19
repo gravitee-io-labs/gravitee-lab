@@ -691,9 +691,16 @@ function chooseVersions(item, label, dialog, versions) {
     rows: versions.images.map((one) => ({ name: one.name, from: one.have, to: one.tested || "",
       tag: one.tested ? (one.goes_back ? "Goes back" : "") : "Not tested", danger: !!one.tested })) };
   const anyway = { value: false, label: `${label} anyway`, sub: goes.length ? "Keep these versions" : "" };
-  const options = goes.length ? [anyway, { value: true, label: "Switch to the tested versions", sub: "Save them, then start",
-    warn: back ? "Data a newer version wrote may not open on an older one" : "" }] : [anyway];
-  return effectsDialog({ title: `${label} ${item.name}`, steps: planRows(dialog || {}), compare, options,
+  const swap = { value: true, label: "Switch to the tested versions", sub: "Save them, then start",
+    warn: back ? "Data a newer version wrote may not open on an older one" : "" };
+  // A playground that asks a minimum of an image cannot start on the one it has: there is only the switch, and what it makes again is said
+  const options = versions.required ? [swap] : goes.length ? [anyway, swap] : [anyway];
+  const known = new Set((dialog?.restarts || []).map((row) => row.id));
+  const shown = versions.required && versions.recreates?.length
+    ? { ...dialog, restarts: [...(dialog?.restarts || []), ...versions.recreates.filter((row) => !known.has(row.id))],
+        hints: { ...dialog?.hints, restarts: "Recreated with the new versions" } }
+    : dialog || {};
+  return effectsDialog({ title: `${label} ${item.name}`, steps: planRows(shown), compare, options,
     action: (chosen) => (chosen ? `Switch and ${label.toLowerCase()}` : `${label} anyway`), danger: (chosen) => chosen && back });
 }
 

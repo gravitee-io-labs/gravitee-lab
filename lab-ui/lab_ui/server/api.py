@@ -279,6 +279,7 @@ def start_playground(req, pid):
         if images_to and images_to["to"]:
             images.save(found, images_to["to"])
             found = project.load()
+            more["switched"] = True   # and what of the platform runs behind them is made again with the start
     return playgrounds.start(found, pid, accept, **more, **where)
 
 

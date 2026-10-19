@@ -632,6 +632,17 @@ class Playgrounds(Case):
         self.assertEqual(ran(steps)[1][0], [*COMPOSE, "up", "-d", "--no-deps", "agent-lens",
                                             "apim-gateway", "hello-app", "seed"])
 
+    def test_a_start_that_switched_the_versions_makes_again_the_platform_that_runs_behind_them(self):
+        """Without it a Start takes what the playground configures only, and the rest of the platform stays on the versions it had."""
+        self.patch(plugins, "install_steps", lambda project, product, names: ([], [], {}))
+        self.state = on(self.project, playground="welcome")
+        self.containers = {**running(*CORE), "mongodb": {**running("x")["x"], "config_hash": "old"}}
+        self.saved.return_value = {"hashes": {"mongodb": "saved"}, "images": {}}
+        playgrounds.start(self.project, "welcome", [])
+        self.assertNotIn(["service", "mongodb"], self.started(self.jobs)[2]["changes"]["start"], "a plain start leaves it to the Stack")
+        playgrounds.start(self.project, "welcome", [], switched=True)
+        self.assertIn(["service", "mongodb"], self.started(self.jobs)[2]["changes"]["start"])
+
     def test_jobs_are_named_as_their_buttons(self):
         # Turned on while its app runs outside the Lab UI; turned off while nothing of it runs
         self.containers = running(*CORE, "agent-lens", "hello-app")

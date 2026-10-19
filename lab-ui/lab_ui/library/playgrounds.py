@@ -627,10 +627,10 @@ def _place_checks(project, pid, place):
 # Jobs: start, re-seed, stop
 # ---------------------------------------------------------------------------------------------------------------------
 
-def _plan(project, state, now, pid, do, accept, fresh=False):
+def _plan(project, state, now, pid, do, accept, fresh=False, also=()):
     """The plan of a start or a stop (`now`: _now()), refused when it cannot run as the page showed it: blocked, or
-    stopping or turning off something else that was not accepted."""
-    plan = layers.plan(project, state, now[0], "playground", pid, do, fresh=fresh, behind=now[1])
+    stopping or turning off something else that was not accepted. `also`: what a start makes again besides its own."""
+    plan = layers.plan(project, state, now[0], "playground", pid, do, fresh=fresh, behind=now[1], also=also)
     layers.check(project, plan, accept)
     return plan
 
@@ -674,20 +674,21 @@ def _follow_seed(project, playground):
     return follow
 
 
-def start(project, pid, accept, place=None, remove=False):
+def start(project, pid, accept, place=None, remove=False, switched=False):
     """Starts a playground. While it is off, or on and never seeded, or its seed failed (layers.fresh), the start
     sets it up: its add-ons, the plugins it needs, its apps and services with what of the platform they need, the
     whole platform while none of it runs ("Platform, apps and services" when the platform starts too), then its
     seed. On and seeded, it runs again like an add-on: what of it does not run, without a build, without its seed
     (Re-seed seeds it again). Its job is named as its button: "Start Acme Bakery", "Turn on …". For a place besides
     This machine it is _deploy's. `remove`: the playground that this one stops has what it created deleted first, as its
-    own stop would (it is kept otherwise)."""
+    own stop would (it is kept otherwise). `switched`: the stack was just taken to the versions the playground was tested with, so
+    the whole platform that runs behind them is made again with it, as the stack's Apply would."""
     if _remote(place):
         return _deploy(project, pid, accept, place, False, remove)
     playground = layers.lookup(project, "playground", pid)
     state, now = layers.current(project), _now(project)
     fresh = _fresh(project, state, playground, now)
-    plan = _plan(project, state, now, pid, "start", accept, fresh)
+    plan = _plan(project, state, now, pid, "start", accept, fresh, now[1] if switched else ())
     delete = _leaving(project, state, plan, remove)
     title = f"{plan['label']} {playground['name']}"
     if not fresh:

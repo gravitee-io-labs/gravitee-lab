@@ -454,6 +454,33 @@ class Plans(Case):
         welcome["requires"] = {"images": {"NOT_USED_VERSION": "9"}}
         self.assertIsNone(layers.too_old(self.project, welcome))
 
+    def test_the_versions_it_was_tested_with_cure_what_keeps_a_playground_from_starting(self):
+        """Its Start can then switch the stack to them, instead of waiting for a visit to the Images page."""
+        welcome = self.project["playgrounds"]["welcome"]
+        gateway = self.project["services"]["apim-gateway"]
+        gateway.update(raw_image="graviteesource/apim-gateway:${APIM_VERSION:-4.12.20}", tag="4.12.20")
+        welcome["requires"] = {"images": {"APIM_VERSION": "4.13.0-alpha.3"}}
+        welcome["tested"] = [{"APIM_VERSION": "4.13.0-alpha.5"}]
+        found = layers.untested(self.project, welcome)
+        self.assertTrue(layers.switchable(self.project, welcome, found))
+        # Nothing tested to go to, or a tested version that is not enough: the images page is the only way
+        welcome["tested"] = []
+        self.assertFalse(layers.switchable(self.project, welcome, layers.untested(self.project, welcome)))
+        self.assertFalse(layers.switchable(self.project, welcome, {"images": [], "to": {"AM_VERSION": "4.13.0"}}), "another image")
+        # Nothing lacking: nothing to cure
+        gateway["tag"] = "4.13.0-alpha.5"
+        self.assertFalse(layers.switchable(self.project, welcome, None))
+
+    def test_a_start_that_just_switched_the_versions_makes_again_what_runs_behind_them(self):
+        """`also`: the platform's services that run behind what was saved are recreated with the start, as the stack's Apply would."""
+        state = on(self.project)
+        plain = layers.plan(self.project, state, up(), "playground", "welcome", "start", behind={"hello-app"})
+        switched = layers.plan(self.project, state, up(), "playground", "welcome", "start", behind={"hello-app"},
+                               also={"apim-gateway", "mongodb", "not-a-service"})   # the gateway is a restart of the playground already
+        self.assertEqual({row["id"] for row in switched["restarts"]} - {row["id"] for row in plain["restarts"]},
+                         {"mongodb"}, "what is not there already, and none the project does not have")
+        self.assertEqual(sorted(row["id"] for row in switched["restarts"]), sorted(set(row["id"] for row in switched["restarts"])))
+
     def test_a_preview_is_tested_only_as_it_is_and_a_release_with_the_releases_of_its_minor_version(self):
         welcome, gateway = self.project["playgrounds"]["welcome"], self.project["services"]["apim-gateway"]
         gateway.update(raw_image="graviteeio/apim-gateway:${APIM_VERSION:-4.12.20}")

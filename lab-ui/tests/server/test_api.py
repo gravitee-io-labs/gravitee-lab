@@ -1309,7 +1309,7 @@ class PlaceRoutes(LabUI):
         self.patch(api.tested, "untested", return_value={"images": [], "to": {"APIM_VERSION": "4.13.0-alpha.3"}})
         self.request("POST", "/api/playgrounds/welcome/start", {"accept": [], "tested": True})
         saved.assert_called_once_with(PROJECT, {"APIM_VERSION": "4.13.0-alpha.3"})
-        self.calls["start"].assert_called_once_with(PROJECT, "welcome", [])
+        self.calls["start"].assert_called_once_with(PROJECT, "welcome", [], switched=True)   # what runs behind them is made again too
         # Without it, or on a place, the saved versions are left as they are
         saved.reset_mock()
         self.request("POST", "/api/playgrounds/welcome/start", {"accept": []})

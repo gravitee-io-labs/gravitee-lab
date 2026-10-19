@@ -506,14 +506,26 @@ def _note(c, unit, state, on, is_up, plan, failure, services):
         or (_said(f"Also in {twin['name']}", target={"kind": unit["kind"], "id": twin["id"]}) if twin else _said())
 
 
-def _action(c, plan, blocked=None):
+def _action(c, plan, blocked=None, cured=False):
     """An action of a row, from the plan of its start or its stop. Its label says what the click does to the item:
     Start, Stop, Turn on, Turn off. It asks first (`dialog`: layers.dialog, the rows of its plan) when it does more than
-    that (layers.asks). `blocked`: why it cannot run, in the words of the row's own note (the settings an add-on lacks)."""
-    reason = blocked or plan["blocked"] or (None if c["project"]["core_loaded"] else f"{paths.CORE_FILE} does not load") \
+    that (layers.asks). `blocked`: why it cannot run, in the words of the row's own note (the settings an add-on lacks). `cured`: the
+    plan is blocked by images older than a playground needs, and its Start switches the stack to the versions it was tested
+    with: the row keeps its note, and the button starts."""
+    reason = blocked or (None if cured else plan["blocked"]) or (None if c["project"]["core_loaded"] else f"{paths.CORE_FILE} does not load") \
         or c["wait"]
     return {"do": plan["do"], "label": plan["label"], "enabled": not reason, "reason": reason,
             "dialog": layers.dialog(plan) if layers.asks(plan) else None}
+
+
+def _untested(c, playground):
+    """tested.untested() of a playground for its page: `required` when the images it would start on are older than it asks (its Start
+    switches them, it cannot start anyway), and `recreates`, the rows of the running services that switching them makes again."""
+    found = tested.untested(c["project"], playground)
+    if not found:
+        return None
+    running = [name for name in images.changing(c["project"], found["to"]) if c["services"][name]["state"]["running"]]
+    return {**found, "required": bool(layers.needed(c["project"], playground)), "recreates": layers.service_rows(c["project"], running)}
 
 
 def seed_failed(states, playground):
@@ -616,6 +628,8 @@ def _item(c, unit, state, on, is_up, services):
     do = "stop" if state["key"] == "stopping" or retry or stuck or (lacking and is_up) \
         or (on and state["key"] in ("running", "starting", "partly")) else "start"
     plan = _plan(c, kind, uid, do)
+    cured = bool(kind == "playground" and do == "start" and plan["blocked"] and plan["blocked"] == layers.too_old(c["project"], unit)
+                 and layers.switchable(c["project"], unit, tested.untested(c["project"], unit)))
     # Its own note names the settings it lacks (_note, without a plan), and is why its Start waits
     note = _note(c, unit, state, on, is_up, None if lacking else plan, failure, services)
     unset, gateway = c["state"].get("unset", {}).get(uid, []), lacking and _lacks_gateway(c, unit)
@@ -644,7 +658,7 @@ def _item(c, unit, state, on, is_up, services):
             # The kinds of platform it can run on besides this machine, as its files say (each place says why it cannot),
             # and where it runs now when that is not this machine: the kind of platform, from the on file
             "deploys_to": unit.get("deploys_to") or [], "runs_on": _runs_on(c, kind, unit),
-            **note, "links": _links(c, services), "action": _action(c, plan, blocked),
+            **note, "links": _links(c, services), "action": _action(c, plan, blocked, cured),
             "secondary": _action(c, _plan(c, kind, uid, "stop")) if offers else None,
             "failed_job": failure["id"] if failure else None, "login": (failure or {}).get("login")}
 
@@ -733,7 +747,7 @@ def _playground(c, playground, addons, created):
             "addons": _named(project["addons"], playground["addons"]), "includes": playground["includes"],
             "created": created.get(uid, []),
             # The images it would start on that it was never tested with, and the versions it was (layers.untested)
-            "untested": tested.untested(project, playground),
+            "untested": _untested(c, playground),
             # What it holds in the places besides This machine (`created` is This machine's)
             "deployed": c["deployed"].get(uid, []), "brings": _brings(c, playground["apps"]),
             "recreates": _recreates(c, playground["apps"]),

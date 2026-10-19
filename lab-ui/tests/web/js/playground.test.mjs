@@ -879,6 +879,18 @@ test("a start on images it was never tested with offers to start anyway or to sw
   second = false;
   await answer(false);
   assert.equal(await warned, null);
+  // A playground that asks a minimum of an image cannot start on the one it has: the one option is the switch, and the services that
+  // the switch makes again are in the steps, with the plan's own restarts once each
+  const need = { ...versions, required: true, recreates: [{ kind: "service", id: "apim-gateway", name: "Gateway (API Management)" },
+    { kind: "service", id: "apim-management-api", name: "Management API (API Management)" }] };
+  const must = confirmStart(other, "Start", dialogOf({ restarts: [{ kind: "service", id: "apim-gateway", name: "Gateway (API Management)" }] }), { versions: need });
+  await flush();
+  assert.equal(picks.querySelectorAll("input").length, 1, "no choice: no Start anyway");
+  assert.equal(text(page.ids["choice-ok"]), "Switch and start");
+  assert.deepEqual(effects().steps.find(([label]) => label === "Restarts")?.[1], ["Gateway (API Management) Container", "Management API (API Management) Container"],
+    "the gateway once, then what the switch makes again");
+  await answer(true);
+  assert.deepEqual(await must, { accept: [], remove: false, tested: true });
   // An image with no tested version to go to is marked, and there is nothing to switch to: the one option is to start anyway
   const alone = confirmStart(other, "Start", dialogOf({}), { versions: { images: [{ ...versions.images[0], have: "4.13.0-alpha.5", tested: null }], to: {} } });
   await flush();

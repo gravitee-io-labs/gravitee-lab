@@ -417,15 +417,29 @@ def enough(unit, variable, tag, wanted):
                                         for version in unit.get("tested") or [] if version.get(variable))
 
 
-def needed(project, unit):
-    """Every image a playground needs a later version of than the one saved (`requires.images`), as [(the name of its
-    component, the version it needs at least)], in the order of its `requires`."""
+def _lacking(project, unit):
+    """[(variable, the name of its component, the version it needs at least)] of every image a playground needs a later version
+    of than the one saved (`requires.images`), in the order of its `requires`."""
     found = []
     for variable, wanted in ((unit.get("requires") or {}).get("images") or {}).items():
         saved = saved_image(project, variable)
         if saved and not enough(unit, variable, saved[0], wanted):
-            found.append((saved[1], wanted))
+            found.append((variable, saved[1], wanted))
     return found
+
+
+def needed(project, unit):
+    """Every image a playground needs a later version of than the one saved (`requires.images`), as [(the name of its
+    component, the version it needs at least)], in the order of its `requires`."""
+    return [(name, wanted) for _, name, wanted in _lacking(project, unit)]
+
+
+def switchable(project, unit, found):
+    """Whether the versions a playground was tested with (`found`, untested()) are what it lacks: it asks a minimum of an image that
+    is older, and each one of those has a tested version that meets it. Its Start can then switch the stack to them, and says so."""
+    lacking = _lacking(project, unit)
+    to = (found or {}).get("to") or {}
+    return bool(lacking) and all(variable in to and enough(unit, variable, to[variable], wanted) for variable, _, wanted in lacking)
 
 
 VARIANT = re.compile(r"-(?:debian|alpine|slim)$")   # the base an image is built on: not part of its version
@@ -987,14 +1001,15 @@ def _on_their_platforms(project, state):
     return {**project, **{key: {**project[key], **units} for key, units in found.items()}} if found else project
 
 
-def plan(project, state, up, kind, uid, do, fresh=False, behind=frozenset(), place=None):
+def plan(project, state, up, kind, uid, do, fresh=False, behind=frozenset(), place=None, also=frozenset()):
     """What starting or stopping an add-on, a setup or a playground changes, said before it runs (ROWS): rows of {kind,
     id, name} that start, stop (they run), are turned off (they are on and do not run), are kept or restart; the
     services its commands remove and start (`services`); the reason it cannot run (`blocked`); the on file it leads
     to (`playground`, `explicit`); the keys of the rows that are the item itself (`itself`): a setup's add-ons are the
     setup, but those that were turned on by themselves when it stops; and the word of its button (`label`). `state`
     is current(), `up` what runs (model.up()). `fresh`: a playground's start that sets it up, its seed included.
-    `behind`: the services that run behind what is saved (model.behind).
+    `behind`: the services that run behind what is saved (model.behind). `also`: services a start makes again besides, as the stack's
+    Apply would: the whole platform that runs behind what a Start just saved (playgrounds.start's `switched`).
 
     `place`: where a start deploys. None, or This machine (MACHINE, by its id or as a place), is the plan above, as it
     always was, and so is every stop. A remote place, {id, name, gateway, here, serving}, makes the plan of a lab
@@ -1030,8 +1045,8 @@ def plan(project, state, up, kind, uid, do, fresh=False, behind=frozenset(), pla
     swap = remote and gateway["id"] in up["addons"] and not place.get("here")
     if do == "start":
         named = {row["id"] for row in restarts} | set(gateway["services"] if swap else ())
-        restarts = sorted(restarts + [_service_row(project, name) for name in _late(project, kind, unit, behind)
-                                      if name not in named], key=lambda row: row["id"])
+        later = dict.fromkeys([*_late(project, kind, unit, behind), *sorted(set(also) & set(project["services"]))])
+        restarts = sorted(restarts + [_service_row(project, name) for name in later if name not in named], key=lambda row: row["id"])
         if swap:   # made again with this place's token, as one row
             restarts.insert(0, _row("addon", gateway["id"], gateway["name"]))
     fresh = fresh and (kind, do) == ("playground", "start")
