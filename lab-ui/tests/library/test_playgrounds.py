@@ -438,6 +438,15 @@ class Playgrounds(Case):
                             ("4.13.1-alpha.1", True), ("4.12.20", False), ("latest", True)):
             self.assertEqual(layers.at_least(tag, "4.13.0-alpha.3"), enough, tag)
 
+    def test_a_build_that_is_no_release_is_met_by_that_build_only(self):
+        """requires.images may name a build (amp-demo-latest, master-latest): it has no numbers to order, so the saved tag is that
+        build or it is not. It once raised a TypeError that no page could draw."""
+        for tag, wanted, enough in (("amp-demo-latest", "amp-demo-latest", True), ("amp-demo-latest-debian", "amp-demo-latest", True),
+                                    ("4.12.20", "amp-demo-latest", False), ("latest", "amp-demo-latest", False),
+                                    ("master-latest", "amp-demo-latest", False), ("master-latest", "master-latest", True)):
+            self.assertEqual(layers.at_least(tag, wanted), enough, (tag, wanted))
+        self.assertEqual((layers.or_later("4.13"), layers.or_later("amp-demo-latest")), (" or later", ""))
+
     def test_docker_memory_when_it_is_short(self):
         self.patch(plugins, "installed", lambda project, product: {"bundled": {"gravitee-policy-x": {}},
                                                                     "bundled_error": None, "ext": {},
