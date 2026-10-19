@@ -503,13 +503,13 @@
           {
             "parameters": {
               "restricted_file_extensions": [
-                ".pem",
-                ".key",
-                ".p12",
-                ".pfx",
-                ".jks",
-                ".keystore",
-                ".csr"
+                "*.pem",
+                "*.key",
+                "*.p12",
+                "*.pfx",
+                "*.jks",
+                "*.keystore",
+                "*.csr"
               ]
             },
             "type": "file_extension_restriction"
