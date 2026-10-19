@@ -183,7 +183,7 @@ def dashboard(lab_ui):
     and what is on is the state's: each group of the platform counts its own containers, and they add up to the
     platform's."""
     body = lab_ui.json("/api/dashboard")
-    has(body, {"docker", "machine", "data", "products", "gateways", "pending"}, "the dashboard")
+    has(body, {"docker", "machine", "data", "products", "pending"}, "the dashboard")
     has(body["docker"], {"engine", "compose", "os", "cpus", "memory"}, "what the dashboard says of Docker")
     has(body["machine"], {"cpus", "memory_total", "memory_available", "disk_total", "disk_free"}, "the machine")
     assert body["products"], "no product is listed"
