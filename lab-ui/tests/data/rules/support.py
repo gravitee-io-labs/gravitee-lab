@@ -178,6 +178,7 @@ class WithGit(Case):
         repo.mkdir()
         self.git(repo, "init", "-q", "--template=")
         self.git(repo, "symbolic-ref", "HEAD", "refs/heads/main")
+        self.git(repo, "config", "gc.auto", "0")   # no background clean-up writing under .git while a test measures it
         for path, content in (files or {}).items():
             self.put(repo, path, content)
         if commit and files:
