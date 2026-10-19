@@ -365,7 +365,7 @@ class Fixtures(Base):
                           "rules": [{"type": "file_path_restriction", "parameters": {"restricted_file_paths": [
                               "**/.env", "**/.env.local", "**/.state/**", "**/secrets/**"]}},
                                     {"type": "file_extension_restriction", "parameters": {"restricted_file_extensions": [
-                                        ".pem", ".key", ".p12", ".pfx", ".jks", ".keystore", ".csr"]}},
+                                        "*.pem", "*.key", "*.p12", "*.pfx", "*.jks", "*.keystore", "*.csr"]}},
                                     {"type": "max_file_size", "parameters": {"max_file_size": 5}}]}, loaded["push"])
         self.assertEqual({"name": "catalog-protected-paths", "target": "push", "enforcement": "active",
                           "bypass_actors": [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}],
@@ -1080,6 +1080,17 @@ class Audit(Base):
         found = scene.finding("rules.bypass", solo=True)
         self.assertEqual((WARN, None), (found.status, found.fix))
 
+    def test_the_template_says_dot_pem_and_github_is_asked_for_star_dot_pem(self):
+        """GitHub refuses a push ruleset whose extensions do not start with `*.` (422): the managed file keeps the extensions as a
+        person writes them, and the ruleset that is requested and compared has them the way GitHub has them."""
+        real = Path(settings.__file__).resolve().parents[2] / "templates" / "catalog" / "managed" / ".github" / "rulesets"
+        template = json.loads((real / "push.json").read_text(encoding="utf-8"))
+        rule = next(rule for rule in template["rules"] if rule["type"] == "file_extension_restriction")
+        self.assertTrue(all(each.startswith(".") for each in rule["parameters"]["restricted_file_extensions"]))
+        loaded = settings.load_rulesets(real)[0]["push"]
+        rule = next(rule for rule in loaded["rules"] if rule["type"] == "file_extension_restriction")
+        self.assertTrue(all(each.startswith("*.") for each in rule["parameters"]["restricted_file_extensions"]))
+
     @covers("rules.push")
     def test_rules_push(self):
         self.assertEqual(OK, Scene("org-private").finding("rules.push").status)
@@ -1098,7 +1109,7 @@ class Audit(Base):
         self.assertEqual((FAIL, "no push ruleset named catalog-push"), (found.status, found.now))
         self.assertEqual(("POST", "repos/acme-labs/lab-internal/rulesets"), requests_of(found)[0][:2])
         for edit, text in ((lambda rule: rule["parameters"].update(max_file_size=50) if rule["type"] == "max_file_size" else None, "max_file_size=50"),
-                           (lambda rule: rule["parameters"]["restricted_file_extensions"].remove(".pem")
+                           (lambda rule: rule["parameters"]["restricted_file_extensions"].remove("*.pem")
                             if rule["type"] == "file_extension_restriction" else None, "restricted_file_extensions="),
                            (lambda rule: rule["parameters"]["restricted_file_paths"].remove("**/.env")
                             if rule["type"] == "file_path_restriction" else None, "restricted_file_paths=")):

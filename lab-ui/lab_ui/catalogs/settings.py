@@ -358,6 +358,16 @@ def request(method: str, path: str, body: Any = None, **more) -> dict:
 
 # ---------------------------------------------------------------- the template
 
+def _in_githubs_form(body: dict) -> None:
+    """GitHub refuses a ruleset whose restricted file extensions do not start with `*.` (a 422, and the push ruleset never exists),
+    and lists them that way. The template says `.pem` as a person does: it is asked for, and compared, as `*.pem`."""
+    for rule in body["rules"]:
+        params = rule.get("parameters") if isinstance(rule, dict) and rule.get("type") == "file_extension_restriction" else None
+        if isinstance(params, dict) and isinstance(params.get("restricted_file_extensions"), list):
+            params["restricted_file_extensions"] = ["*" + each if isinstance(each, str) and each.startswith(".") else each
+                                                    for each in params["restricted_file_extensions"]]
+
+
 def load_rulesets(folder: Optional[Path] = None) -> Tuple[Dict[str, dict], str]:
     """({key: ruleset}, "") from the Lab's template with `_managed` taken off, or ({}, why not). Only the four files of the
     template are read, and a link that leads out of the folder is not followed."""
@@ -378,6 +388,7 @@ def load_rulesets(folder: Optional[Path] = None) -> Tuple[Dict[str, dict], str]:
                     body.get("target") not in ("branch", "tag", "push") or not isinstance(body.get("rules"), list):
                 return {}, f"{name} is not a ruleset"
             body.pop("_managed", None)
+            _in_githubs_form(body)
             found[key] = body
     except (OSError, ValueError) as error:
         return {}, f"the rulesets of the template could not be read ({type(error).__name__})"
