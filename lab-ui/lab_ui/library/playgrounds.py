@@ -346,7 +346,7 @@ def _image_checks(project, playground):
         tag = project["services"][component["services"][0]]["tag"]
         name = f"{component['detail'] or component['owner']['name']} {wanted}"
         if not layers.enough(playground, key, tag, wanted):
-            yield dict(_line(name, "warn", f"Current: {tag}"), help=f"Choose {wanted} or later on the Images page",
+            yield dict(_line(name, "warn", f"Current: {tag}"), help=f"Choose {wanted}{layers.or_later(wanted)} on the Images page",
                        variable=key)
         elif key in untested:
             yield dict(_line(name, "warn", f"Not tested: {tag}"), help=_tested_help(untested.pop(key)), variable=key)

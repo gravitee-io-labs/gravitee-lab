@@ -573,7 +573,7 @@ function causeLine(cause) {
   }
   if (cause.kind === "image") return cause.built ? [...who, "Image built again"] : [...who, "Image", { code: cause.tag }, "changed"];
   if (cause.kind === "settings") return [...who, { lead: "Settings changed" }, ...chips(cause.settings)];
-  if (cause.kind === "needs") return [{ who: cause.name }, { code: cause.version }, "or later"];
+  if (cause.kind === "needs") return [{ who: cause.name }, { code: cause.version }, ...(/\d/.test(cause.version) ? ["or later"] : [])];
   if (cause.kind === "unset") return chips(cause.settings);
   if (cause.kind === "license") return [{ lead: "Uses" }, cause.features.join(", ")];
   if (cause.kind === "catalog") return [catalogNeed(cause).line];

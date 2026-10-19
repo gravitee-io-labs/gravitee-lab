@@ -359,8 +359,11 @@ def at_least(tag, wanted):
     its release, so 4.13.0-alpha.5 is not a 4.13 (nor a 4.13.0), and a version asked in release form is met by a release.
     A wanted pre-release orders the previews of its version too: 4.13.0-alpha.2 is before 4.13.0-alpha.3, itself before
     4.13.0-beta.1 and 4.13.0; a later version, a preview included, is after them all (4.14.0-alpha.1 is a 4.13). A tag
-    without numbers (latest) says nothing of its version: it is taken as fine."""
+    without numbers (latest) says nothing of its version: it is taken as fine. A version asked that has no numbers
+    (amp-demo-latest, a build and not a release) is not ordered: it is that build or it is not."""
     have, want = _version(tag), _version(wanted)
+    if not want:
+        return VARIANT.sub("", str(tag)) == VARIANT.sub("", str(wanted))
     if not have:
         return True
     size = max(len(have[0]), len(want[0]))
@@ -521,10 +524,15 @@ def untested(project, unit, recorded=(), image_id=None):
     return {"images": found, "to": {one["variable"]: one["tested"] for one in found if one["tested"]}}
 
 
+def or_later(wanted):
+    """The words after a minimum: a release is asked "or later", a build that is no release (amp-demo-latest) is asked as it is."""
+    return " or later" if _version(wanted) else ""
+
+
 def too_old(project, unit):
     """Every image a playground needs a later version of than the one saved (`requires.images`), in one sentence, as its
     Start says it; None when every one is recent enough."""
-    lacking = [f"{name} {wanted} or later" for name, wanted in needed(project, unit)]
+    lacking = [f"{name} {wanted}{or_later(wanted)}" for name, wanted in needed(project, unit)]
     if not lacking:
         return None
     listed = " and ".join([", ".join(lacking[:-1]), lacking[-1]] if len(lacking) > 1 else lacking)
