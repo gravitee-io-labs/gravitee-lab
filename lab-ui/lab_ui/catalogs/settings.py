@@ -47,6 +47,7 @@ DOCKER_PATTERNS = ("docker/*",)
 
 # The Lab's own copy of the rulesets: the managed files of the template, applied as they are
 RULESETS = Path(__file__).resolve().parents[2] / "templates" / "catalog" / "managed" / ".github" / "rulesets"
+PUSH_RULE_TYPES = ("file_path_restriction", "file_extension_restriction", "max_file_size", "max_file_path_length")
 RULESET_FILES = {"main": "default-branch.json", "tags": "tags.json", "push": "push.json", "paths": "protected-paths.json"}
 RULESET_LIMIT = 64 * 1024
 
@@ -1085,7 +1086,10 @@ class _Audit:
         self.add("rules.checks", OK)
 
     def bypass(self, effective):
-        ids = sorted({rule["ruleset_id"] for rule in effective if is_int(rule.get("ruleset_id"))})
+        # GitHub lists the rules of push rulesets among those of the branch; who may push past them is no way to merge a pull
+        # request, and the standard gives an administrator exactly that for the files that run with a token
+        ids = sorted({rule["ruleset_id"] for rule in effective
+                      if is_int(rule.get("ruleset_id")) and rule["type"] not in PUSH_RULE_TYPES})
         actors, hidden = [], ""
         for number in ids:
             reply = self.detail(number)

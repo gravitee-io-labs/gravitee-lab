@@ -1063,6 +1063,23 @@ class Audit(Base):
         self.tag_ruleset(scene, bypass_actors=[{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}])
         self.assertEqual(OK, scene.finding("rules.tags").status)
 
+    def test_the_bypass_of_a_push_ruleset_is_no_bypass_of_the_pull_request(self):
+        """GitHub lists the rules of the push rulesets among those of the branch: on an internal repository the administrator who
+        may change the files that run with a token must not read as someone who may merge past the review."""
+        solo = {"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}
+        scene = Scene("public-standard")
+        detail = copy.deepcopy(scene.get("/rulesets/1001").body)
+        detail["bypass_actors"] = [solo]
+        scene.set("/rulesets/1001", detail)
+        scene.set("/rulesets/1004", {"id": 1004, "name": "catalog-protected-paths", "target": "push", "enforcement": "active",
+                                     "bypass_actors": [{**solo, "bypass_mode": "always"}], "rules": []})
+        rules = copy.deepcopy(scene.get("/rules/branches/main").body)
+        rules.append({"type": "file_path_restriction", "ruleset_id": 1004, "ruleset_source_type": "Repository",
+                      "ruleset_source": "acme-labs/lab-hub", "parameters": {"restricted_file_paths": [".github/**"]}})
+        scene.set("/rules/branches/main", rules)
+        found = scene.finding("rules.bypass", solo=True)
+        self.assertEqual((WARN, None), (found.status, found.fix))
+
     @covers("rules.push")
     def test_rules_push(self):
         self.assertEqual(OK, Scene("org-private").finding("rules.push").status)
