@@ -418,5 +418,6 @@ def remove(records):
     am.connect()
     for x in mine:
         path = f"{am.env_url}/domains/{x['id']}" if x["kind"] == "domain" else f"{am.env_url}/domains/{x['domain']}/{PATHS[x['kind']]}/{x['id']}"
-        am.api.delete(path)
+        # AM 4.12 answers 500 to the deletion of a protected resource that does not say its type (the seed makes MCP servers)
+        am.api.delete(path, **({"params": {"type": "MCP_SERVER"}} if x["kind"] == "protected-resource" else {}))
         log(SECTION, f"✓ Deleted {x['kind'].replace('-', ' ')} '{x['name']}'")
