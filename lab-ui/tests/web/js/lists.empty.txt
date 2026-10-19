@@ -1,0 +1,765 @@
+=== playgrounds: downloading ===
+<section>
+  <div class="page-head">
+    <h1>
+      "Playgrounds"
+    <div class="page-actions">
+      <button class="btn" data-new="">
+        <svg aria-hidden="true">
+          <use href="#i-plus">
+        "New playground"
+  <div class="card list-card">
+    <div class="list-tools" hidden="">
+      <label class="search grow">
+        <svg aria-hidden="true">
+          <use href="#i-search">
+        <input type="search" data-filter="q" placeholder="Search…" aria-label="Search the playgrounds" autocomplete="off">
+      <div class="list-filters">
+        <button class="combo-btn" data-categories="" aria-haspopup="dialog">
+          <span class="sr-only">
+            "Category:"
+          <span class="value">
+            "All categories"
+          <svg aria-hidden="true">
+            <use href="#i-chevron">
+        <label class="toggle-chip">
+          <input type="checkbox" data-running="">
+          "Running"
+        <label class="toggle-chip">
+          <input type="checkbox" data-starred="">
+          "Starred"
+    <div class="list-head list-grid">
+      <span>
+      <span>
+        "Playground"
+      <span>
+        "State"
+      <span>
+        "Category"
+      <span>
+    <ul class="list-rows">
+    <div class="empty" role="status" data-content="downloading">
+      <span class="loading">
+        <span class="spinner">
+        <span class="tip">
+          <button type="button" class="tip-btn " aria-label="Downloading: From github.com/example/catalog">
+            <span>
+              "Downloading"
+            <svg aria-hidden="true">
+              <use href="#i-info">
+          <span class="tip-text" role="tooltip" aria-hidden="true">
+            <span>
+              "From github.com/example/catalog"
+      <span class="progress" data-progress="content" role="progressbar" aria-valuemin="0" aria-valuemax="100" hidden="">
+        <span>
+    <div class="empty" hidden="">
+      "No matches"
+      <button class="btn" data-clear="">
+        "Clear filters"
+    <div class="pager" hidden="">
+      <span>
+        "1–0 of 0"
+      <button class="icon-btn prev" data-page="-1" disabled="" aria-label="Previous page">
+        <svg aria-hidden="true">
+          <use href="#i-chevron">
+      <button class="icon-btn next" data-page="1" disabled="" aria-label="Next page">
+        <svg aria-hidden="true">
+          <use href="#i-chevron">
+=== setups: downloading ===
+<section>
+  <div class="page-head">
+    <h1>
+      "Setups"
+    <div class="page-actions">
+      <button class="btn" data-new="">
+        <svg aria-hidden="true">
+          <use href="#i-plus">
+        "New setup"
+  <div class="card list-card">
+    <div class="list-tools" hidden="">
+      <label class="search grow">
+        <svg aria-hidden="true">
+          <use href="#i-search">
+        <input type="search" data-filter="q" placeholder="Search…" aria-label="Search the setups" autocomplete="off">
+      <div class="list-filters">
+        <button class="combo-btn" data-categories="" aria-haspopup="dialog">
+          <span class="sr-only">
+            "Category:"
+          <span class="value">
+            "All categories"
+          <svg aria-hidden="true">
+            <use href="#i-chevron">
+        <label class="toggle-chip">
+          <input type="checkbox" data-running="">
+          "Running"
+        <label class="toggle-chip">
+          <input type="checkbox" data-starred="">
+          "Starred"
+    <div class="list-head list-grid">
+      <span>
+      <span>
+        "Setup"
+      <span>
+        "State"
+      <span>
+        "Category"
+      <span>
+    <ul class="list-rows">
+    <div class="empty" role="status" data-content="downloading">
+      <span class="loading">
+        <span class="spinner">
+        <span class="tip">
+          <button type="button" class="tip-btn " aria-label="Downloading: From github.com/example/catalog">
+            <span>
+              "Downloading"
+            <svg aria-hidden="true">
+              <use href="#i-info">
+          <span class="tip-text" role="tooltip" aria-hidden="true">
+            <span>
+              "From github.com/example/catalog"
+      <span class="progress" data-progress="content" role="progressbar" aria-valuemin="0" aria-valuemax="100" hidden="">
+        <span>
+    <div class="empty" hidden="">
+      "No matches"
+      <button class="btn" data-clear="">
+        "Clear filters"
+    <div class="pager" hidden="">
+      <span>
+        "1–0 of 0"
+      <button class="icon-btn prev" data-page="-1" disabled="" aria-label="Previous page">
+        <svg aria-hidden="true">
+          <use href="#i-chevron">
+      <button class="icon-btn next" data-page="1" disabled="" aria-label="Next page">
+        <svg aria-hidden="true">
+          <use href="#i-chevron">
+=== addons: downloading ===
+<section>
+  <div class="page-head">
+    <h1>
+      "Add-ons"
+    <div class="page-actions">
+      <button class="btn" data-new="">
+        <svg aria-hidden="true">
+          <use href="#i-plus">
+        "New add-on"
+  <div class="card list-card">
+    <div class="list-tools" hidden="">
+      <label class="search grow">
+        <svg aria-hidden="true">
+          <use href="#i-search">
+        <input type="search" data-filter="q" placeholder="Search…" aria-label="Search the add-ons" autocomplete="off">
+      <div class="list-filters">
+        <button class="combo-btn" data-categories="" aria-haspopup="dialog">
+          <span class="sr-only">
+            "Category:"
+          <span class="value">
+            "All categories"
+          <svg aria-hidden="true">
+            <use href="#i-chevron">
+        <label class="toggle-chip">
+          <input type="checkbox" data-running="">
+          "Running"
+        <label class="toggle-chip">
+          <input type="checkbox" data-starred="">
+          "Starred"
+    <div class="list-head list-grid">
+      <span>
+      <span>
+        "Add-on"
+      <span>
+        "State"
+      <span>
+        "Category"
+      <span>
+    <ul class="list-rows">
+    <div class="empty" role="status" data-content="downloading">
+      <span class="loading">
+        <span class="spinner">
+        <span class="tip">
+          <button type="button" class="tip-btn " aria-label="Downloading: From github.com/example/catalog">
+            <span>
+              "Downloading"
+            <svg aria-hidden="true">
+              <use href="#i-info">
+          <span class="tip-text" role="tooltip" aria-hidden="true">
+            <span>
+              "From github.com/example/catalog"
+      <span class="progress" data-progress="content" role="progressbar" aria-valuemin="0" aria-valuemax="100" hidden="">
+        <span>
+    <div class="empty" hidden="">
+      "No matches"
+      <button class="btn" data-clear="">
+        "Clear filters"
+    <div class="pager" hidden="">
+      <span>
+        "1–0 of 0"
+      <button class="icon-btn prev" data-page="-1" disabled="" aria-label="Previous page">
+        <svg aria-hidden="true">
+          <use href="#i-chevron">
+      <button class="icon-btn next" data-page="1" disabled="" aria-label="Next page">
+        <svg aria-hidden="true">
+          <use href="#i-chevron">
+=== playgrounds: failed ===
+<section>
+  <div class="page-head">
+    <h1>
+      "Playgrounds"
+    <div class="page-actions">
+      <button class="btn" data-new="">
+        <svg aria-hidden="true">
+          <use href="#i-plus">
+        "New playground"
+  <div class="card list-card">
+    <div class="list-tools" hidden="">
+      <label class="search grow">
+        <svg aria-hidden="true">
+          <use href="#i-search">
+        <input type="search" data-filter="q" placeholder="Search…" aria-label="Search the playgrounds" autocomplete="off">
+      <div class="list-filters">
+        <button class="combo-btn" data-categories="" aria-haspopup="dialog">
+          <span class="sr-only">
+            "Category:"
+          <span class="value">
+            "All categories"
+          <svg aria-hidden="true">
+            <use href="#i-chevron">
+        <label class="toggle-chip">
+          <input type="checkbox" data-running="">
+          "Running"
+        <label class="toggle-chip">
+          <input type="checkbox" data-starred="">
+          "Starred"
+    <div class="list-head list-grid">
+      <span>
+      <span>
+        "Playground"
+      <span>
+        "State"
+      <span>
+        "Category"
+      <span>
+    <ul class="list-rows">
+    <div class="empty" role="status" data-content="failed">
+      <span>
+        "Cannot reach github.com. Check your connection, then try again."
+      <button type="button" class="btn" data-content-act="retry" data-catalog="gravitee">
+        "Try again"
+    <div class="empty" hidden="">
+      "No matches"
+      <button class="btn" data-clear="">
+        "Clear filters"
+    <div class="pager" hidden="">
+      <span>
+        "1–0 of 0"
+      <button class="icon-btn prev" data-page="-1" disabled="" aria-label="Previous page">
+        <svg aria-hidden="true">
+          <use href="#i-chevron">
+      <button class="icon-btn next" data-page="1" disabled="" aria-label="Next page">
+        <svg aria-hidden="true">
+          <use href="#i-chevron">
+=== playgrounds: no catalog ===
+<section>
+  <div class="page-head">
+    <h1>
+      "Playgrounds"
+    <div class="page-actions">
+      <button class="btn" data-new="">
+        <svg aria-hidden="true">
+          <use href="#i-plus">
+        "New playground"
+  <div class="card list-card">
+    <div class="list-tools" hidden="">
+      <label class="search grow">
+        <svg aria-hidden="true">
+          <use href="#i-search">
+        <input type="search" data-filter="q" placeholder="Search…" aria-label="Search the playgrounds" autocomplete="off">
+      <div class="list-filters">
+        <button class="combo-btn" data-categories="" aria-haspopup="dialog">
+          <span class="sr-only">
+            "Category:"
+          <span class="value">
+            "All categories"
+          <svg aria-hidden="true">
+            <use href="#i-chevron">
+        <label class="toggle-chip">
+          <input type="checkbox" data-running="">
+          "Running"
+        <label class="toggle-chip">
+          <input type="checkbox" data-starred="">
+          "Starred"
+    <div class="list-head list-grid">
+      <span>
+      <span>
+        "Playground"
+      <span>
+        "State"
+      <span>
+        "Category"
+      <span>
+    <ul class="list-rows">
+    <div class="empty" role="status" data-content="none">
+      <span>
+        "No catalog added"
+      <button type="button" class="btn" data-content-act="add" data-catalog="gravitee">
+        "Add Gravitee public"
+    <div class="empty" hidden="">
+      "No matches"
+      <button class="btn" data-clear="">
+        "Clear filters"
+    <div class="pager" hidden="">
+      <span>
+        "1–0 of 0"
+      <button class="icon-btn prev" data-page="-1" disabled="" aria-label="Previous page">
+        <svg aria-hidden="true">
+          <use href="#i-chevron">
+      <button class="icon-btn next" data-page="1" disabled="" aria-label="Next page">
+        <svg aria-hidden="true">
+          <use href="#i-chevron">
+=== playgrounds: no catalog, none to offer ===
+<section>
+  <div class="page-head">
+    <h1>
+      "Playgrounds"
+    <div class="page-actions">
+      <button class="btn" data-new="">
+        <svg aria-hidden="true">
+          <use href="#i-plus">
+        "New playground"
+  <div class="card list-card">
+    <div class="list-tools" hidden="">
+      <label class="search grow">
+        <svg aria-hidden="true">
+          <use href="#i-search">
+        <input type="search" data-filter="q" placeholder="Search…" aria-label="Search the playgrounds" autocomplete="off">
+      <div class="list-filters">
+        <button class="combo-btn" data-categories="" aria-haspopup="dialog">
+          <span class="sr-only">
+            "Category:"
+          <span class="value">
+            "All categories"
+          <svg aria-hidden="true">
+            <use href="#i-chevron">
+        <label class="toggle-chip">
+          <input type="checkbox" data-running="">
+          "Running"
+        <label class="toggle-chip">
+          <input type="checkbox" data-starred="">
+          "Starred"
+    <div class="list-head list-grid">
+      <span>
+      <span>
+        "Playground"
+      <span>
+        "State"
+      <span>
+        "Category"
+      <span>
+    <ul class="list-rows">
+    <div class="empty" role="status" data-content="none">
+      <span>
+        "No catalog added"
+      <a class="btn" href="#/catalogs">
+        "Browse catalogs"
+    <div class="empty" hidden="">
+      "No matches"
+      <button class="btn" data-clear="">
+        "Clear filters"
+    <div class="pager" hidden="">
+      <span>
+        "1–0 of 0"
+      <button class="icon-btn prev" data-page="-1" disabled="" aria-label="Previous page">
+        <svg aria-hidden="true">
+          <use href="#i-chevron">
+      <button class="icon-btn next" data-page="1" disabled="" aria-label="Next page">
+        <svg aria-hidden="true">
+          <use href="#i-chevron">
+=== playgrounds: nothing of its kind ===
+<section>
+  <div class="page-head">
+    <h1>
+      "Playgrounds"
+    <div class="page-actions">
+      <button class="btn" data-new="">
+        <svg aria-hidden="true">
+          <use href="#i-plus">
+        "New playground"
+  <div class="card list-card">
+    <div class="list-tools" hidden="">
+      <label class="search grow">
+        <svg aria-hidden="true">
+          <use href="#i-search">
+        <input type="search" data-filter="q" placeholder="Search…" aria-label="Search the playgrounds" autocomplete="off">
+      <div class="list-filters">
+        <button class="combo-btn" data-categories="" aria-haspopup="dialog">
+          <span class="sr-only">
+            "Category:"
+          <span class="value">
+            "All categories"
+          <svg aria-hidden="true">
+            <use href="#i-chevron">
+        <label class="toggle-chip">
+          <input type="checkbox" data-running="">
+          "Running"
+        <label class="toggle-chip">
+          <input type="checkbox" data-starred="">
+          "Starred"
+    <div class="list-head list-grid">
+      <span>
+      <span>
+        "Playground"
+      <span>
+        "State"
+      <span>
+        "Category"
+      <span>
+    <ul class="list-rows">
+    <div class="empty" role="status" data-content="ready">
+      "No playground yet"
+    <div class="empty" hidden="">
+      "No matches"
+      <button class="btn" data-clear="">
+        "Clear filters"
+    <div class="pager" hidden="">
+      <span>
+        "1–0 of 0"
+      <button class="icon-btn prev" data-page="-1" disabled="" aria-label="Previous page">
+        <svg aria-hidden="true">
+          <use href="#i-chevron">
+      <button class="icon-btn next" data-page="1" disabled="" aria-label="Next page">
+        <svg aria-hidden="true">
+          <use href="#i-chevron">
+=== setups: nothing of its kind ===
+<section>
+  <div class="page-head">
+    <h1>
+      "Setups"
+    <div class="page-actions">
+      <button class="btn" data-new="">
+        <svg aria-hidden="true">
+          <use href="#i-plus">
+        "New setup"
+  <div class="card list-card">
+    <div class="list-tools" hidden="">
+      <label class="search grow">
+        <svg aria-hidden="true">
+          <use href="#i-search">
+        <input type="search" data-filter="q" placeholder="Search…" aria-label="Search the setups" autocomplete="off">
+      <div class="list-filters">
+        <button class="combo-btn" data-categories="" aria-haspopup="dialog">
+          <span class="sr-only">
+            "Category:"
+          <span class="value">
+            "All categories"
+          <svg aria-hidden="true">
+            <use href="#i-chevron">
+        <label class="toggle-chip">
+          <input type="checkbox" data-running="">
+          "Running"
+        <label class="toggle-chip">
+          <input type="checkbox" data-starred="">
+          "Starred"
+    <div class="list-head list-grid">
+      <span>
+      <span>
+        "Setup"
+      <span>
+        "State"
+      <span>
+        "Category"
+      <span>
+    <ul class="list-rows">
+    <div class="empty" role="status" data-content="ready">
+      "No setup yet"
+    <div class="empty" hidden="">
+      "No matches"
+      <button class="btn" data-clear="">
+        "Clear filters"
+    <div class="pager" hidden="">
+      <span>
+        "1–0 of 0"
+      <button class="icon-btn prev" data-page="-1" disabled="" aria-label="Previous page">
+        <svg aria-hidden="true">
+          <use href="#i-chevron">
+      <button class="icon-btn next" data-page="1" disabled="" aria-label="Next page">
+        <svg aria-hidden="true">
+          <use href="#i-chevron">
+=== addons: nothing of its kind ===
+<section>
+  <div class="page-head">
+    <h1>
+      "Add-ons"
+    <div class="page-actions">
+      <button class="btn" data-new="">
+        <svg aria-hidden="true">
+          <use href="#i-plus">
+        "New add-on"
+  <div class="card list-card">
+    <div class="list-tools" hidden="">
+      <label class="search grow">
+        <svg aria-hidden="true">
+          <use href="#i-search">
+        <input type="search" data-filter="q" placeholder="Search…" aria-label="Search the add-ons" autocomplete="off">
+      <div class="list-filters">
+        <button class="combo-btn" data-categories="" aria-haspopup="dialog">
+          <span class="sr-only">
+            "Category:"
+          <span class="value">
+            "All categories"
+          <svg aria-hidden="true">
+            <use href="#i-chevron">
+        <label class="toggle-chip">
+          <input type="checkbox" data-running="">
+          "Running"
+        <label class="toggle-chip">
+          <input type="checkbox" data-starred="">
+          "Starred"
+    <div class="list-head list-grid">
+      <span>
+      <span>
+        "Add-on"
+      <span>
+        "State"
+      <span>
+        "Category"
+      <span>
+    <ul class="list-rows">
+    <div class="empty" role="status" data-content="ready">
+      "No add-on yet"
+    <div class="empty" hidden="">
+      "No matches"
+      <button class="btn" data-clear="">
+        "Clear filters"
+    <div class="pager" hidden="">
+      <span>
+        "1–0 of 0"
+      <button class="icon-btn prev" data-page="-1" disabled="" aria-label="Previous page">
+        <svg aria-hidden="true">
+          <use href="#i-chevron">
+      <button class="icon-btn next" data-page="1" disabled="" aria-label="Next page">
+        <svg aria-hidden="true">
+          <use href="#i-chevron">
+=== playgrounds: downloading, an item of this machine ===
+<section>
+  <div class="page-head">
+    <h1>
+      "Playgrounds"
+    <div class="page-actions">
+      <button class="btn" data-new="">
+        <svg aria-hidden="true">
+          <use href="#i-plus">
+        "New playground"
+  <div class="card list-card">
+    <div class="list-tools">
+      <label class="search grow">
+        <svg aria-hidden="true">
+          <use href="#i-search">
+        <input type="search" data-filter="q" placeholder="Search…" aria-label="Search the playgrounds" autocomplete="off">
+      <div class="list-filters">
+        <button class="combo-btn" data-categories="" aria-haspopup="dialog">
+          <span class="sr-only">
+            "Category:"
+          <span class="value">
+            "All categories"
+          <svg aria-hidden="true">
+            <use href="#i-chevron">
+        <label class="toggle-chip">
+          <input type="checkbox" data-running="">
+          "Running"
+        <label class="toggle-chip">
+          <input type="checkbox" data-starred="">
+          "Starred"
+    <div class="list-head list-grid">
+      <span>
+      <span>
+        "Playground"
+      <span>
+        "State"
+      <span>
+        "Category"
+      <span>
+    <div class="empty" role="status" data-content="downloading" data-line="">
+      <span class="loading">
+        <span class="spinner">
+        <span class="tip">
+          <button type="button" class="tip-btn " aria-label="Downloading: From github.com/example/catalog">
+            <span>
+              "Downloading"
+            <svg aria-hidden="true">
+              <use href="#i-info">
+          <span class="tip-text" role="tooltip" aria-hidden="true">
+            <span>
+              "From github.com/example/catalog"
+      <span class="progress" data-progress="content" role="progressbar" aria-valuemin="0" aria-valuemax="100" hidden="">
+        <span>
+    <ul class="list-rows">
+      <li class="list-item" data-key="local/scratch">
+        <div class="list-row list-grid">
+          <button type="button" class="s-toggle" data-toggle="" aria-label="Scratch" aria-controls="detail-local-scratch" aria-keyshortcuts="S" aria-expanded="false">
+            <svg aria-hidden="true">
+              <use href="#i-chevron">
+          <span class="list-main">
+            <strong class="list-name" data-tip="Scratch" data-tip-cut="">
+              "Scratch"
+            <span class="list-marks">
+              <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Scratch">
+                <svg aria-hidden="true">
+                  <use href="#i-star">
+              <span class="pill">
+                "Personal"
+            <span class="list-sub">
+              <span class="list-desc" data-tip="Scratch for the demo" data-tip-cut="">
+                "Scratch for the demo"
+          <span class="list-state">
+            <span class="status muted">
+              <span class="dot-status off" aria-hidden="true">
+              <span class="status-word">
+                "Off"
+          <span class="list-cat">
+            "Demo"
+          <span class="list-actions">
+            <a class="btn" href="#/playgrounds/local/scratch" aria-label="Open Scratch">
+              "Open"
+            <button class="btn pbtn act" data-act-for="playground:local/scratch" data-act="" data-busy="" aria-label="Start Scratch">
+              <span class="pbtn-wrap">
+                <span class="pbtn-face">
+                  <svg aria-hidden="true">
+                    <use href="#i-play">
+                  <span>
+                    "Start"
+                <span class="pbtn-side" aria-hidden="true">
+                  <span class="pbtn-fill">
+                  <span class="pbtn-text">
+                    <span>
+                      <span class="spinner">
+                      <span class="pbtn-mark">
+                      <span>
+            <span class="row-icons">
+              <button class="icon-btn" data-file="playgrounds/local/scratch/compose.yml" data-tip="Edit playgrounds/local/scratch/compose.yml" aria-label="Edit playgrounds/local/scratch/compose.yml">
+                <svg aria-hidden="true">
+                  <use href="#i-file">
+              <span class="icon-gap">
+              <button class="icon-btn" data-more="" data-tip="More" aria-label="More for Scratch" aria-haspopup="true">
+                <svg aria-hidden="true">
+                  <use href="#i-more">
+        <div class="list-detail" id="detail-local-scratch" hidden="">
+    <div class="empty" hidden="">
+      "No matches"
+      <button class="btn" data-clear="">
+        "Clear filters"
+    <div class="pager" hidden="">
+      <span>
+        "1–1 of 1"
+      <button class="icon-btn prev" data-page="-1" disabled="" aria-label="Previous page">
+        <svg aria-hidden="true">
+          <use href="#i-chevron">
+      <button class="icon-btn next" data-page="1" disabled="" aria-label="Next page">
+        <svg aria-hidden="true">
+          <use href="#i-chevron">
+=== playgrounds: failed, an item of this machine ===
+<section>
+  <div class="page-head">
+    <h1>
+      "Playgrounds"
+    <div class="page-actions">
+      <button class="btn" data-new="">
+        <svg aria-hidden="true">
+          <use href="#i-plus">
+        "New playground"
+  <div class="card list-card">
+    <div class="list-tools">
+      <label class="search grow">
+        <svg aria-hidden="true">
+          <use href="#i-search">
+        <input type="search" data-filter="q" placeholder="Search…" aria-label="Search the playgrounds" autocomplete="off">
+      <div class="list-filters">
+        <button class="combo-btn" data-categories="" aria-haspopup="dialog">
+          <span class="sr-only">
+            "Category:"
+          <span class="value">
+            "All categories"
+          <svg aria-hidden="true">
+            <use href="#i-chevron">
+        <label class="toggle-chip">
+          <input type="checkbox" data-running="">
+          "Running"
+        <label class="toggle-chip">
+          <input type="checkbox" data-starred="">
+          "Starred"
+    <div class="list-head list-grid">
+      <span>
+      <span>
+        "Playground"
+      <span>
+        "State"
+      <span>
+        "Category"
+      <span>
+    <div class="empty" role="status" data-content="failed" data-line="">
+      <span>
+        "Cannot reach github.com. Check your connection, then try again."
+      <button type="button" class="btn" data-content-act="retry" data-catalog="gravitee">
+        "Try again"
+    <ul class="list-rows">
+      <li class="list-item" data-key="local/scratch">
+        <div class="list-row list-grid">
+          <button type="button" class="s-toggle" data-toggle="" aria-label="Scratch" aria-controls="detail-local-scratch" aria-keyshortcuts="S" aria-expanded="false">
+            <svg aria-hidden="true">
+              <use href="#i-chevron">
+          <span class="list-main">
+            <strong class="list-name" data-tip="Scratch" data-tip-cut="">
+              "Scratch"
+            <span class="list-marks">
+              <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Scratch">
+                <svg aria-hidden="true">
+                  <use href="#i-star">
+              <span class="pill">
+                "Personal"
+            <span class="list-sub">
+              <span class="list-desc" data-tip="Scratch for the demo" data-tip-cut="">
+                "Scratch for the demo"
+          <span class="list-state">
+            <span class="status muted">
+              <span class="dot-status off" aria-hidden="true">
+              <span class="status-word">
+                "Off"
+          <span class="list-cat">
+            "Demo"
+          <span class="list-actions">
+            <a class="btn" href="#/playgrounds/local/scratch" aria-label="Open Scratch">
+              "Open"
+            <button class="btn pbtn act" data-act-for="playground:local/scratch" data-act="" data-busy="" aria-label="Start Scratch">
+              <span class="pbtn-wrap">
+                <span class="pbtn-face">
+                  <svg aria-hidden="true">
+                    <use href="#i-play">
+                  <span>
+                    "Start"
+                <span class="pbtn-side" aria-hidden="true">
+                  <span class="pbtn-fill">
+                  <span class="pbtn-text">
+                    <span>
+                      <span class="spinner">
+                      <span class="pbtn-mark">
+                      <span>
+            <span class="row-icons">
+              <button class="icon-btn" data-file="playgrounds/local/scratch/compose.yml" data-tip="Edit playgrounds/local/scratch/compose.yml" aria-label="Edit playgrounds/local/scratch/compose.yml">
+                <svg aria-hidden="true">
+                  <use href="#i-file">
+              <span class="icon-gap">
+              <button class="icon-btn" data-more="" data-tip="More" aria-label="More for Scratch" aria-haspopup="true">
+                <svg aria-hidden="true">
+                  <use href="#i-more">
+        <div class="list-detail" id="detail-local-scratch" hidden="">
+    <div class="empty" hidden="">
+      "No matches"
+      <button class="btn" data-clear="">
+        "Clear filters"
+    <div class="pager" hidden="">
+      <span>
+        "1–1 of 1"
+      <button class="icon-btn prev" data-page="-1" disabled="" aria-label="Previous page">
+        <svg aria-hidden="true">
+          <use href="#i-chevron">
+      <button class="icon-btn next" data-page="1" disabled="" aria-label="Next page">
+        <svg aria-hidden="true">
+          <use href="#i-chevron">

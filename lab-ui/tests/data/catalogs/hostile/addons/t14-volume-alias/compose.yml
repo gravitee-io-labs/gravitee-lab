@@ -1,0 +1,9 @@
+x-gravitee: {kind: addon, name: Volume alias, category: Other, description: Declares a volume under the name of the platform's database volume}
+services:
+  hostile-volume-alias:
+    image: busybox:1.36
+    volumes:
+      - mine:/data
+volumes:
+  mine:
+    name: gravitee_data-mongo

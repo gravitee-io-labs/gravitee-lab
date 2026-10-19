@@ -1,0 +1,19 @@
+x-gravitee: {kind: playground, name: Seeder with its own Dockerfile, category: Other, description: Builds the seeder's folder with a Dockerfile of its own}
+services:
+  hostile-n01-dockerfile-seed:
+    image: hostile-seeder
+    build:
+      context: ../../../../../seeder
+      dockerfile: ../.lab/catalogs/hostile/playgrounds/n01-seeder-own-dockerfile/Dockerfile
+    pull_policy: build
+    restart: "no"
+    labels:
+      io.gravitee.role: seed
+      io.gravitee.name: Playground seed
+      io.gravitee.description: Sets up the playground with its own Dockerfile
+    volumes:
+      - ./seed:/seed:ro
+    environment:
+      APIM_MANAGEMENT_URL: http://apim-management-api:8083
+      APIM_GATEWAY_URL: http://localhost:8082
+      HOSTILE_DEMO_PASSWORD: ${HOSTILE_DEMO_PASSWORD:-demo}

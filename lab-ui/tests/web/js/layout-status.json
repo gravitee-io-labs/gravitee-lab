@@ -1,0 +1,94 @@
+{
+ "ready": {
+  "phase": "ready",
+  "notice": {
+   "id": "2026-10-17T10:00:00Z",
+   "title": "Lab updated",
+   "text": "",
+   "rows": [
+    {
+     "key": "personal",
+     "label": "Now personal",
+     "items": [
+      "scratch"
+     ],
+     "hint": "Not in a catalog"
+    },
+    {
+     "key": "kept",
+     "label": "Kept aside",
+     "items": [
+      "ledger"
+     ],
+     "hint": "Your changes, in .lab/migration/kept"
+    },
+    {
+     "key": "turned_off",
+     "label": "Turned off",
+     "items": [
+      "old-demo"
+     ],
+     "hint": "Needs a catalog"
+    },
+    {
+     "key": "not_moved",
+     "label": "Not moved",
+     "items": [
+      "addons/README.md"
+     ],
+     "hint": "Files stay where they were"
+    }
+   ],
+   "moved": [
+    {
+     "kind": "addon",
+     "id": "echo"
+    },
+    {
+     "kind": "playground",
+     "id": "shop"
+    }
+   ],
+   "button": "Close"
+  }
+ },
+ "restart": {
+  "key": "restart",
+  "label": "Restart needed",
+  "items": [
+   "echo"
+  ],
+  "hint": "Their folders moved"
+ },
+ "waiting": {
+  "phase": "waiting",
+  "notice": {
+   "id": null,
+   "title": "Lab updated",
+   "text": "",
+   "rows": [
+    {
+     "key": "settings",
+     "label": "Settings",
+     "items": [
+      "Not changed"
+     ],
+     "hint": ""
+    }
+   ],
+   "moved": [],
+   "button": "Close"
+  }
+ },
+ "failed": {
+  "phase": "failed",
+  "notice": {
+   "id": null,
+   "title": "Lab updated",
+   "text": "Could not move your settings. Nothing was deleted.",
+   "rows": [],
+   "moved": [],
+   "button": "Try again"
+  }
+ }
+}

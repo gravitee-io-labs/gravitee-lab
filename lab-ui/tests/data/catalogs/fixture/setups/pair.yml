@@ -1,0 +1,8 @@
+x-gravitee:
+  kind: setup
+  name: Pair
+  category: Other
+  description: Echo and the ledger of the partner catalog
+include:
+  - ../addons/echo/compose.yml
+  - ../../partner/addons/ledger/compose.yml

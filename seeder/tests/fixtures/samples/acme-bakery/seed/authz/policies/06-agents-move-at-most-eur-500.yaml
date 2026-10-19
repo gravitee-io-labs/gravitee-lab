@@ -1,0 +1,8 @@
+# `context.agent` is there only when an agent acts for the user: Alice moves EUR 600 herself, Ace may not do it for her.
+# A hard cap: nothing asks for approval
+name: Agents move at most EUR 500
+status: DEPLOYED
+policy: |
+  @id("Agents move at most EUR 500")
+  forbid (principal, action == Action::"<server>.transfer_funds", resource in MCPServer::"<server>")
+    when { context has agent && context has amount && context.amount > 500 };

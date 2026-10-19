@@ -1,0 +1,7 @@
+name: Acme Bakery traffic
+description: "The traffic generator: a few calls a minute so the dashboards and logs have something to show"
+
+settings:
+  app:
+    type: SIMPLE
+    client_id: acme-bakery-traffic   # the Access Management client of the generator: the A2A plan accepts a token only for a subscribed application

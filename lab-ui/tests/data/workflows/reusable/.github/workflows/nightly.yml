@@ -1,0 +1,26 @@
+# Managed by the Lab catalog standard 1: change it with catalog.py upgrade, in a pull request a maintainer reads.
+# The reusable form: the jobs live in the Lab, at the commit named below, which must be the commit of lab.ref in .github/standard.json.
+# This job holds the union of the permissions the jobs of the Lab's workflow use, and each of those jobs asks for its own part only.
+name: Nightly
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  nightly:
+    uses: OWNER/gravitee-lab/.github/workflows/catalog-nightly.yml@0123456789abcdef0123456789abcdef01234567
+    permissions:
+      contents: read
+      packages: read
+      issues: write
+    secrets:
+      LAB_DEPLOY_KEY: ${{ secrets.LAB_DEPLOY_KEY }}

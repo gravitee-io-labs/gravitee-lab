@@ -1,0 +1,5 @@
+x-gravitee: {kind: addon, name: Volumes from, category: Other, description: Mounts the volumes of another service}
+services:
+  hostile-volumes-from:
+    image: busybox:1.36
+    volumes_from: [mongodb]

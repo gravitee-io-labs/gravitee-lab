@@ -1,0 +1,45 @@
+{
+  "config": {
+    "name": "gravitee",
+    "networks": {
+      "default": {
+        "ipam": {},
+        "name": "gravitee_default"
+      },
+      "own": {
+        "ipam": {},
+        "name": "gravitee_own"
+      }
+    },
+    "services": {},
+    "volumes": {
+      "clean-data": {
+        "name": "gravitee_clean-data"
+      }
+    }
+  },
+  "error": null,
+  "files": {
+    "p-pair.yml": "x-gravitee: {kind: setup, name: Pair, category: Other, description: Two add-ons of the catalog together}\n\ninclude:\n  - ../addons/p-clean-addon/compose.yml\n  - ../addons/h-secrets-rw/compose.yml\n"
+  },
+  "overlaid": {},
+  "own": [],
+  "unit": {
+    "id": "@hostile/p-pair",
+    "includes": [
+      ".lab/catalogs/hostile/addons/p-clean-addon/compose.yml",
+      ".lab/catalogs/hostile/addons/h-secrets-rw/compose.yml"
+    ],
+    "kind": "setup",
+    "meta": {
+      "category": "Other",
+      "description": "Two add-ons of the catalog together",
+      "kind": "setup",
+      "name": "Pair"
+    },
+    "name": "Pair",
+    "references": [],
+    "seed": null,
+    "seed_references": []
+  }
+}

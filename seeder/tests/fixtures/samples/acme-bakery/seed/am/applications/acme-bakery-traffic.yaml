@@ -1,0 +1,34 @@
+# The traffic generator and the seed's own check sign Alice, Bob and Tina in with the password grant, which AM gives to the WEB
+# type. The web app has an application of its own, without this grant
+name: "Acme Bakery traffic"
+description: "The traffic generator and the seed's check: they sign Alice, Bob and Tina in with their password"
+type: "WEB"
+
+clientId: "acme-bakery-traffic"
+clientSecret: "${TRAFFIC_CLIENT_SECRET}"
+
+# AM asks for one on every WEB application. This one has no redirect flow, so nothing ever redirects to it
+redirectUris:
+  - "${BAKERY_WEB_URL}/callback"
+
+scopes:
+  - "openid"
+  - "profile"
+  - "email"
+
+oauth:
+  grantTypes:
+    - "password"
+  responseTypes: []              # no redirect flow
+  # The same claims as Acme Bakery web: the gateway reads them from the token of whoever signed in
+  tokenCustomClaims:
+    - claimName: "username"
+      claimValue: "{#context.attributes['user']['username']}"
+    - claimName: "role"
+      claimValue: "{#context.attributes['user']['additionalInformation']['role']}"
+    - claimName: "customer_id"
+      claimValue: "{#context.attributes['user']['additionalInformation']['customer_id']}"
+    - claimName: "accounts"
+      claimValue: "{#context.attributes['user']['additionalInformation']['accounts']}"
+    - claimName: "name"
+      claimValue: "{#context.attributes['user']['additionalInformation']['name']}"

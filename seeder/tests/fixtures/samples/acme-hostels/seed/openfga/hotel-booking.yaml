@@ -1,0 +1,52 @@
+name: Hotel Booking Authorization Model
+model: |+
+  model
+    schema 1.1
+
+  type user
+
+  type hotel
+    relations
+      define admin: [user, hotel#admin]
+      define guest: [user, hotel#guest]
+
+  type room
+    relations
+      define can_book: [user] or guest from hotel or admin from hotel
+      define hotel: [hotel]
+
+  type booking
+    relations
+      define can_cancel: owner or admin from hotel
+      define can_view: owner or admin from hotel
+      define hotel: [hotel]
+      define owner: [user, hotel#guest]
+      define room: [room]
+
+tuples:
+  # John is a guest of two hotels
+  - user: user:john.doe@gravitee.io
+    relation: guest
+    object: hotel:grand-london
+  - user: user:john.doe@gravitee.io
+    relation: guest
+    object: hotel:chateau-paris
+
+  # Each booking belongs to a hotel
+  - user: hotel:grand-london
+    relation: hotel
+    object: booking:BK-0001
+  - user: hotel:chateau-paris
+    relation: hotel
+    object: booking:BK-0002
+  - user: hotel:imperial-tokyo
+    relation: hotel
+    object: booking:BK-0005
+
+  # John owns two bookings, and BK-0005 is not one of them, so he may not view it
+  - user: user:john.doe@gravitee.io
+    relation: owner
+    object: booking:BK-0001
+  - user: user:john.doe@gravitee.io
+    relation: owner
+    object: booking:BK-0002

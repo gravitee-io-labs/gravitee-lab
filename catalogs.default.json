@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "catalogs": [
+    {
+      "id": "gravitee",
+      "name": "Gravitee public",
+      "description": "Playgrounds, setups and add-ons of the Lab",
+      "url": "https://github.com/gravitee-io-labs/gravitee-lab-public-catalog.git",
+      "branch": "main"
+    }
+  ]
+}

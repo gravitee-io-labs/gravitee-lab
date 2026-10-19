@@ -1,0 +1,4 @@
+x-gravitee: {kind: addon, name: Absolute include, category: Other, description: Includes a file of this machine}
+
+include:
+  - /etc/passwd

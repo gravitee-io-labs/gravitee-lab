@@ -1,0 +1,12 @@
+x-gravitee: {kind: addon, name: Older, category: Other, description: Written for an older Lab}
+services:
+  lab-old-older:
+    image: busybox:${LAB_OLD_OLDER_VERSION:-1.36}   # Image version
+    container_name: gio-lab-old-older
+    restart: unless-stopped
+    command: ["httpd", "-f", "-p", "80"]
+    ports: ["127.0.0.1:8198:80"]   # HTTP
+    labels:
+      io.gravitee.name: Older
+      io.gravitee.description: A container written for an older Lab
+    networks: [internal]

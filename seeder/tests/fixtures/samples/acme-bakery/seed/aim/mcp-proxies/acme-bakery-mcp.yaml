@@ -1,0 +1,172 @@
+# The bank's MCP server behind the gateway: sign-in with Access Management, a rate limit, the tools each role sees and an
+# authorization check on every tool call. <slug> is the slug the catalog gave the MCP server named here, the prefix of
+# every tool in the access rules.
+server: Acme Bakery MCP
+
+# What the Automation API takes, as it gives it back: the introspection path is the one beneath the issuer
+automation:
+  hrid: acme-bakery-mcp-proxy
+  entityId: mcp-proxy.acme-bakery
+  name: Acme Bakery MCP
+  description: The bank's tools, for signed-in people and agents
+  contextPath: /acme-bakery/mcp
+  mode: PROXY
+  proxy:
+    serverUrl: ${BAKERY_MCP_URL}          # the bare origin: with a trailing slash, /acme-bakery/mcp/ answers 404
+  state: STARTED
+  identityProviders:
+    - name: acme-am
+      type: OAUTH2_GENERIC
+      issuerUrl: ${AM_GATEWAY_URL}/acme-bakery
+      introspectionEndpoint: /oauth/introspect
+      introspectionEndpointMethod: POST
+      clientId: acme-bakery-mcp
+      clientSecret: "${MCP_RESOURCE_SECRET}"
+  plans:
+    - name: Bank users
+      security: {type: OAUTH2, provider: acme-am}
+  flows:
+    # The proxy hands any path under its own to the server, and the server has a route that is not MCP (the web app resets
+    # the data there, with a token that is in the compose file). A signed-in customer would reach it, so only the root answers
+    - name: Only the MCP endpoint
+      selectors: [{type: CONDITION, condition: "{#request.pathInfo != '' && #request.pathInfo != '/'}"}]
+      request:
+        - name: Nothing else is served
+          description: Answers 404 to any path that is not the MCP endpoint
+          policy: mock
+          configuration:
+            status: "404"
+            content: '{"message":"Not Found","http_status_code":404}'   # JSON, as the gateway's own refusals: a tools/list filter reads the answer of this flow too
+            headers: [{name: Content-Type, value: application/json}]
+
+    - name: Rate limit
+      selectors: [{type: MCP, methods: [tools/call]}]
+      request:
+        # The rate limit stores each counter under the id of a subscription, which this plan does not have: without one the
+        # shared counter store refuses the update and the gateway logs an error with a stack trace every few seconds. The person
+        # stands in for the subscription
+        - name: Counter owner
+          description: Names the person a rate limit counts for
+          policy: policy-assign-attributes
+          configuration:
+            scope: REQUEST
+            attributes:
+              # The person: the local part of the username claim (an entity id cannot hold an @), else the subject
+              - name: gravitee.attribute.user-id
+                value: &principal "{#jsonPath(#context.attributes['oauth.payload'], '$.username') != null ? #jsonPath(#context.attributes['oauth.payload'], '$.username').split('@')[0] : #context.attributes['user']}"
+        - name: 30 calls a minute per user
+          description: Lets each person make 30 tool calls a minute
+          policy: rate-limit
+          configuration:
+            async: true                 # the strict counter silently counts nothing on a plan that has no subscriptions
+            addHeaders: true
+            rate:
+              limit: 30
+              periodTime: 1
+              periodTimeUnit: MINUTES
+              key: *principal
+
+    - name: Visible tools
+      selectors: [{type: MCP, methods: [tools/list]}]
+      request:
+        - name: Tools by role
+          description: Offers a teller every tool and a customer all but freeze_card
+          policy: mcp-acl
+          configuration:
+            authorizations:
+              - condition: "{#jsonPath(#context.attributes['oauth.payload'], '$.role') == 'teller'}"
+                authorizedFeatures:
+                  - {type: TOOLS, methods: [TOOLS_LIST], patternType: ANY}
+              - condition: "{#jsonPath(#context.attributes['oauth.payload'], '$.role') == 'customer'}"
+                authorizedFeatures:
+                  - {type: TOOLS, methods: [TOOLS_LIST], patternType: LITERAL, patternValue: list_accounts}
+                  - {type: TOOLS, methods: [TOOLS_LIST], patternType: LITERAL, patternValue: get_balance}
+                  - {type: TOOLS, methods: [TOOLS_LIST], patternType: LITERAL, patternValue: list_transactions}
+                  - {type: TOOLS, methods: [TOOLS_LIST], patternType: LITERAL, patternValue: transfer_funds}
+                  - {type: TOOLS, methods: [TOOLS_LIST], patternType: LITERAL, patternValue: get_exchange_rate}
+                  - {type: TOOLS, methods: [TOOLS_LIST], patternType: LITERAL, patternValue: simulate_loan}
+                  - {type: TOOLS, methods: [TOOLS_LIST], patternType: LITERAL, patternValue: find_branches}
+
+    - name: Authorization
+      selectors: [{type: MCP, methods: [tools/call]}]
+      request:
+        # The check judges what the tool will use: transfer_funds reads from_account and the others account_id, so each
+        # is read from where its tool reads it. The amount is rounded up to a whole unit and made an integer: a
+        # decimal or a string (600.0, "600") is not comparable in a policy, and a rule that cannot be evaluated does not apply.
+        - name: Read tool arguments
+          description: Reads the account, customer, card and amount out of a tool call for the check that follows
+          policy: policy-assign-attributes
+          configuration:
+            scope: REQUEST
+            attributes:
+              - name: authz_account_id
+                value: "{#context.attributes['mcp_tool_name'] == 'transfer_funds' ? #jsonPath(#request.content, '$.params.arguments.from_account') : #jsonPath(#request.content, '$.params.arguments.account_id')}"
+              - name: authz_customer_id
+                value: "{#jsonPath(#request.content, '$.params.arguments.customer_id')}"
+              - name: authz_card_id
+                value: "{#jsonPath(#request.content, '$.params.arguments.card_id')}"
+              - name: authz_amount
+                value: "{#jsonPath(#request.content, '$.params.arguments.amount') != null ? T(java.lang.Math).min(T(java.lang.Math).ceil(#jsonPath(#request.content, '$.params.arguments.amount')), 1000000000000d).longValue() : null}"
+        - name: Fine-Grained Authorization
+          description: Asks the policy engine whether this person, or the agent acting for them, may call this tool on this data
+          policy: authz-pep
+          configuration:
+            subjectType: User
+            subjectExpr: *principal
+            subjectPropertiesExpr:
+              - {name: role, value: "{#jsonPath(#context.attributes['oauth.payload'], '$.role')}"}
+              - {name: customer_id, value: "{#jsonPath(#context.attributes['oauth.payload'], '$.customer_id')}"}
+              - {name: accounts, value: "{#jsonPath(#context.attributes['oauth.payload'], '$.accounts')}"}
+            actionExpr: &tool "{#context.attributes['mcp_tool_name'] != null ? '<slug>.' + #context.attributes['mcp_tool_name'] : ''}"
+            resourceType: MCPTool
+            resourceExpr: *tool
+            contextExpr:
+              - {name: account_id, value: "{#context.attributes['authz_account_id']}"}
+              - {name: customer_id, value: "{#context.attributes['authz_customer_id']}"}
+              - {name: card_id, value: "{#context.attributes['authz_card_id']}"}
+              - {name: amount, value: "{#context.attributes['authz_amount']}"}
+            agentResolution: AUTO       # the agent acting for the person, from the token's act claim
+            denyStatus: 403
+            denyMessage: Not allowed by ACME authorization policy
+            logDecisions: true
+            evalTimeoutMs: 250
+            noSnapshotPolicy: RETRY_THEN_DENY
+            noSnapshotMaxWaitMs: 3000
+            noSnapshotRetryDelayMs: 100
+
+# What the Automation API cannot carry, set on the proxy after it
+securityConfiguration:                  # keys merged into the security of a plan, by plan name
+  Bank users:
+    extractPayload: true                # without it every claim is empty: the tools list is empty and every call is refused
+
+responseTemplates:                      # what a client reads when the authorization refuses: a JSON-RPC error that names the action
+  GAPL_AUTHZ:
+    "*/*":
+      statusCode: 403
+      headers: {Content-Type: application/json}
+      body: |-
+        {"jsonrpc":"2.0","id":null,"error":{"code":-32001,"message":"Not allowed by ACME authorization policy","data":{"action":"{#parameters['action']}","subject":"{#parameters['subjectId']}","requestId":"{#parameters['requestId']}"}}}
+
+readTimeout: 60000                      # a call that waits for a model or a tool outlives the 10 s default
+
+analytics:                              # what the gateway records, set through APIM: the Automation API has no field for it. The calls with their payloads, and as traces
+  logging:
+    mode: {entrypoint: true, endpoint: true}
+    phase: {request: true, response: true}
+    content: {headers: false, payload: true}   # no headers: they hold the bearer token of the caller
+  tracing: {enabled: true, verbose: true}
+  otelLogs: {enabled: true}
+
+supportedProtocolVersions: ["2025-11-25", "2026-07-28"]    # what clients may speak
+endpointProtocolVersions: ["2025-11-25"]                   # what the gateway speaks to the server
+
+# What the gateway must answer before the seed ends: every person is offered the tools their role allows. Where the tools of
+# a role are a control (seed/controls.yaml), the count is the one while it is on and the one while it is off
+ready:
+  token:
+    url: ${AM_GATEWAY_URL}/acme-bakery/oauth/token
+    client: acme-bakery-traffic
+    secret: "${TRAFFIC_CLIENT_SECRET}"
+  users:
+    - {username: alice@acme-bakery.test, password: "${BANK_DEMO_PASSWORD}", tools: {protected: 7, unprotected: 8}}   # a customer does not see freeze_card while the tools of a role are protected
+    - {username: tina@acme-bakery.test, password: "${BANK_DEMO_PASSWORD}", tools: 8}

@@ -1,0 +1,72 @@
+{
+  "config": {
+    "name": "gravitee",
+    "networks": {
+      "default": {
+        "ipam": {},
+        "name": "gravitee_default"
+      }
+    },
+    "services": {
+      "hostile-n02-seed": {
+        "build": {
+          "context": "@ROOT@/seeder",
+          "dockerfile": "Dockerfile"
+        },
+        "command": null,
+        "entrypoint": null,
+        "environment": {
+          "APIM_TOKEN": ""
+        },
+        "image": "hostile-seeder",
+        "labels": {
+          "io.gravitee.description": "Sets up the playground in API Management",
+          "io.gravitee.name": "Playground seed",
+          "io.gravitee.role": "seed"
+        },
+        "networks": {
+          "default": null
+        },
+        "pull_policy": "build",
+        "restart": "no",
+        "volumes": [
+          {
+            "bind": {},
+            "read_only": true,
+            "source": "@ROOT@/.lab/catalogs/hostile/playgrounds/n02-seed-reads-token/seed",
+            "target": "/seed",
+            "type": "bind"
+          }
+        ]
+      }
+    },
+    "volumes": {}
+  },
+  "error": null,
+  "files": {
+    "compose.yml": "x-gravitee: {kind: playground, name: Seed reads a token, category: Other, description: Seed data that reads the token of a deploy}\nservices:\n  hostile-n02-seed:\n    image: hostile-seeder\n    build: ../../../../../seeder\n    pull_policy: build\n    restart: \"no\"\n    labels:\n      io.gravitee.role: seed\n      io.gravitee.name: Playground seed\n      io.gravitee.description: Sets up the playground in API Management\n    volumes:\n      - ./seed:/seed:ro\n    environment:\n      APIM_TOKEN: ${HOSTILE_TOKEN:-}\n"
+  },
+  "overlaid": {},
+  "own": [
+    "hostile-n02-seed"
+  ],
+  "unit": {
+    "id": "@hostile/n02-seed-reads-token",
+    "includes": [],
+    "kind": "playground",
+    "meta": {
+      "category": "Other",
+      "description": "Seed data that reads the token of a deploy",
+      "kind": "playground",
+      "name": "Seed reads a token"
+    },
+    "name": "Seed reads a token",
+    "references": [
+      "HOSTILE_TOKEN"
+    ],
+    "seed": null,
+    "seed_references": [
+      "APIM_TOKEN"
+    ]
+  }
+}

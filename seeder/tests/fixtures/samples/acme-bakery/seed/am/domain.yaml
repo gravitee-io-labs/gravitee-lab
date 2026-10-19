@@ -1,0 +1,73 @@
+name: acme-bakery
+description: Acme Bakery customers and tellers, the web app and Ace, its AI agent
+
+# Sent as is to PATCH /domains/{id}
+settings:
+  oidc:
+    redirectUriStrictMatching: true  # a redirect URI is one of the registered ones, exactly: AM otherwise takes a longer path or a query after it
+    clientRegistrationSettings:      # a new domain refuses http and localhost redirect URIs
+      allowLocalhostRedirectUri: true
+      allowHttpSchemeRedirectUri: true
+  # A new domain has token exchange off, and turning on only `enabled` lets any agent mint a token that is the user
+  # (impersonation): Ace may only act for the user, so it is delegation alone
+  tokenExchangeSettings:
+    enabled: true
+    allowDelegation: true
+    allowImpersonation: false
+    maxDelegationDepth: 25
+    allowedSubjectTokenTypes:
+      - urn:ietf:params:oauth:token-type:access_token
+      - urn:ietf:params:oauth:token-type:refresh_token
+      - urn:ietf:params:oauth:token-type:id_token
+      - urn:ietf:params:oauth:token-type:jwt
+    allowedRequestedTokenTypes:
+      - urn:ietf:params:oauth:token-type:access_token
+      - urn:ietf:params:oauth:token-type:id_token
+    allowedActorTokenTypes:
+      - urn:ietf:params:oauth:token-type:access_token
+      - urn:ietf:params:oauth:token-type:id_token
+      - urn:ietf:params:oauth:token-type:jwt
+    idJagSettings:
+      laxValidation: false
+    tokenExchangeOAuthSettings:
+      inherited: false
+      scopeHandling: downscoping
+
+# additionalInformation is what the tokens carry (see the applications); AM adds fields of its own at the first sign-in
+users:
+  - username: alice@acme-bakery.test
+    email: alice@acme-bakery.test
+    firstName: Alice
+    lastName: Martin
+    password: "${BANK_DEMO_PASSWORD}"
+    additionalInformation:
+      role: customer
+      customer_id: C-1001
+      accounts: [ACC-1001, ACC-1002]
+      name: Alice Martin
+  - username: bob@acme-bakery.test
+    email: bob@acme-bakery.test
+    firstName: Bob
+    lastName: Chen
+    password: "${BANK_DEMO_PASSWORD}"
+    additionalInformation:
+      role: customer
+      customer_id: C-2001
+      accounts: [ACC-2001]
+      name: Bob Chen
+  - username: tina@acme-bakery.test
+    email: tina@acme-bakery.test
+    firstName: Tina
+    lastName: Torres
+    password: "${BANK_DEMO_PASSWORD}"
+    additionalInformation:
+      role: teller
+      name: Tina Torres
+
+groups:
+  - name: customers
+    description: People who bank with ACME
+    members: [alice@acme-bakery.test, bob@acme-bakery.test]
+  - name: tellers
+    description: ACME staff who help customers
+    members: [tina@acme-bakery.test]

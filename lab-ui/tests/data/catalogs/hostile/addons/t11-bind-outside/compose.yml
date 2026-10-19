@@ -1,0 +1,6 @@
+x-gravitee: {kind: addon, name: Bind outside, category: Other, description: Mounts a folder of the user's home}
+services:
+  hostile-outside:
+    image: busybox:1.36
+    volumes:
+      - ${HOME}/.aws:/root/.aws:ro

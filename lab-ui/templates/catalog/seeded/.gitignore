@@ -1,0 +1,21 @@
+# Files of one machine: settings, state, keys and certificates never enter the repository
+.env
+.env.*
+!.env.example
+.state/
+secrets/
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.crt
+*.csr
+*.srl
+
+# Made by make index, kept as an artifact of every CI run
+catalog.json
+
+.DS_Store
+__pycache__/

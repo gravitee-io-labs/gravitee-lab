@@ -1,0 +1,7 @@
+# The gateway rounds a fraction up to a whole unit before it asks, so below 1 means zero or less
+name: No zero or negative transfer
+status: DEPLOYED
+policy: |
+  @id("No zero or negative transfer")
+  forbid (principal, action == Action::"<server>.transfer_funds", resource in MCPServer::"<server>")
+    when { context has amount && context.amount < 1 };

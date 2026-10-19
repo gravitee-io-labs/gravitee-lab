@@ -1,0 +1,9 @@
+x-gravitee: {kind: addon, name: External volume, category: Other, description: Mounts a volume that exists outside the project}
+services:
+  hostile-external-volume:
+    image: busybox:1.36
+    volumes:
+      - shared:/shared
+volumes:
+  shared:
+    external: true

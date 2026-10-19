@@ -1,0 +1,45 @@
+# The bank's MCP server as AM sees it. Its client is what the gateway introspects tokens with: it can introspect the
+# tokens of every client of the domain, the web app's and Ace's.
+name: "Acme Bakery MCP"
+description: "The bank's accounts, cards and public tools"
+type: "MCP_SERVER"
+
+resourceIdentifiers:
+  - "${APIM_GATEWAY_URL}/acme-bakery/mcp"
+
+clientId: "acme-bakery-mcp"
+clientSecret: "${MCP_RESOURCE_SECRET}"
+
+tools:
+  - key: "list_accounts"
+    description: "Lists the accounts of a customer"
+    type: "MCP_TOOL"
+    scopes: []
+  - key: "get_balance"
+    description: "Returns the balance of an account"
+    type: "MCP_TOOL"
+    scopes: []
+  - key: "list_transactions"
+    description: "Lists the latest transactions of an account"
+    type: "MCP_TOOL"
+    scopes: []
+  - key: "transfer_funds"
+    description: "Moves money between two accounts"
+    type: "MCP_TOOL"
+    scopes: []
+  - key: "freeze_card"
+    description: "Freezes a payment card (tellers)"
+    type: "MCP_TOOL"
+    scopes: []
+  - key: "get_exchange_rate"
+    description: "Gives the exchange rate between two currencies"
+    type: "MCP_TOOL"
+    scopes: []
+  - key: "simulate_loan"
+    description: "Simulates the monthly payment of a loan"
+    type: "MCP_TOOL"
+    scopes: []
+  - key: "find_branches"
+    description: "Finds the branches of a city"
+    type: "MCP_TOOL"
+    scopes: []

@@ -1,0 +1,11 @@
+x-gravitee-catalog:
+  schema: 1
+  id: fixture
+  name: Fixture catalog
+  description: Synthetic units for the tests of the Lab
+  version: 1.0.0
+  lab: 1
+  license: AGPL-3.0-only
+  requires:
+    catalogs:
+      partner: {name: Partner fixture, url: "https://example.invalid/partner.git", min: 1.0.0}

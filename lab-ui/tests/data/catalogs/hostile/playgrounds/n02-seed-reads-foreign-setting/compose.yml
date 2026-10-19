@@ -1,0 +1,13 @@
+x-gravitee: {kind: playground, name: Seed reads a foreign setting, category: Other, description: Seed data that reads a setting of another tool}
+services:
+  hostile-n02f-seed:
+    image: hostile-seeder
+    build: ../../../../../seeder
+    pull_policy: build
+    restart: "no"
+    labels:
+      io.gravitee.role: seed
+      io.gravitee.name: Playground seed
+      io.gravitee.description: Sets up the playground in API Management
+    volumes:
+      - ./seed:/seed:ro

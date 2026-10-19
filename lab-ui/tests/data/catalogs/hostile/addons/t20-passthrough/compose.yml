@@ -1,0 +1,6 @@
+x-gravitee: {kind: addon, name: Passed-through setting, category: Other, description: Passes a variable of the shell to its container}
+services:
+  hostile-passthrough:
+    image: busybox:1.36
+    environment:
+      - AWS_SECRET_ACCESS_KEY

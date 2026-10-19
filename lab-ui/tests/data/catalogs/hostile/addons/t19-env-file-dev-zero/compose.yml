@@ -1,0 +1,6 @@
+x-gravitee: {kind: addon, name: Endless env file, category: Other, description: Reads an endless file as its environment}
+
+services:
+  hostile-env-file:
+    image: busybox:1.36
+    env_file: /dev/zero

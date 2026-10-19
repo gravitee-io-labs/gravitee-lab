@@ -1,0 +1,203 @@
+# Demo secrets shared by every container that needs them; change one in the shell or in playgrounds/acme-hostels/.env
+x-hotels-secrets:
+  demo-password: &demo-password ${ACME_HOSTELS_DEMO_PASSWORD:-HelloWorld@123}                        # Password of John Doe
+  agent-client-secret: &agent-client-secret ${ACME_HOSTELS_AGENT_CLIENT_SECRET:-hotel-ai-agent}      # Secret of the hotel agent's application in Access Management
+  mcp-resource-secret: &mcp-resource-secret ${ACME_HOSTELS_MCP_RESOURCE_SECRET:-hotel-mcp}          # Secret of the booking MCP server's resource in Access Management; letters, digits and dashes only
+  apim-password: &apim-password ${ACME_HOSTELS_APIM_PASSWORD:-admin}                                # Password of user admin in API Management
+  am-password: &am-password ${ACME_HOSTELS_AM_PASSWORD:-adminadmin}                                 # Password of user admin in Access Management
+
+x-gravitee:
+  kind: playground
+  name: Acme Hostels
+  category: AI
+  description: Exposure, security and governance of an AI agent, its LLM and its MCP tools
+  tags: [AI Agents, LLM Proxy, MCP, A2A, Guard Rails, Authorization, OpenFGA]
+  source: https://github.com/acme/hostels
+  duration: 30 min
+  first_start: 10 min
+  requires:
+    images:
+      APIM_VERSION: "4.12"
+      AM_VERSION: "4.12"
+    plugins:
+      apim: [gravitee-policy-interrupt]
+    license:
+      - am-authorizationengine-openfga
+      - am-authorization-gateway-handler-authzen
+      - apim-reporter-tcp                   # the AI Agent Lens, which the website shows
+    host:
+      - name: Ollama with qwen3:0.6b
+        check: http://localhost:11434/api/tags
+        expect: qwen3:0.6b
+        help: Install Ollama (ollama.com/download), then run `ollama pull qwen3:0.6b`; the containers must be able to reach it (Troubleshooting, Ollama)
+      - name: Hugging Face (the gateway's AI models)
+        check: https://huggingface.co
+        help: The gateway downloads its AI models (129 MB) from huggingface.co when it first deploys the LLM proxy. Without access the seed ends with a timeout
+  consoles: [apim-management-ui, gamma-ui]
+  accounts:
+    - for: "Acme Hostels website: John Doe (guest)"
+      username: john.doe@gravitee.io
+      password: *demo-password
+    - for: Gamma and API Management consoles
+      username: admin
+      password: *apim-password
+    - for: Access Management console
+      username: admin
+      password: *am-password
+
+x-hotels-healthcheck: &healthcheck
+  interval: 5s
+  timeout: 3s
+  retries: 20
+
+include:
+  - ../../addons/agent-lens/compose.yml        # The website shows its live diagram of the agent's calls
+  - ../../addons/openfga/compose.yml                # Decides which bookings a guest may see
+  - ../../addons/mcp-lens/compose.yml          # Lists the agent's tools
+  - ../../addons/reader-ui/compose.yml           # Shows the semantic cache
+
+services:
+
+  acme-hostels-backend:
+    image: ghcr.io/gravitee-io-labs/gravitee-lab/acme-hostels-backend:latest
+    build: https://github.com/acme/hostels.git#99fe20daed1d5d13d51a10c23abe4f1b05cb04fa:acme-hostel-api   # Pinned to an upstream commit, so the image does not change unannounced
+    pull_policy: ${ACME_HOSTELS_PULL_POLICY:-build}   # build: build it here at each start; always: pull it, build it here if it cannot be pulled
+    container_name: gio-acme-hostels-backend
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8121:8000"   # The hotels' REST API, unprotected: calling it skips the gateway
+    labels:
+      io.gravitee.name: Acme Hostels REST API
+      io.gravitee.description: The hotels' REST API, which the gateway protects and exposes as MCP tools
+      io.gravitee.console.acme-hostels-backend.name: Acme Hostels REST API docs
+      io.gravitee.console.acme-hostels-backend.url: http://localhost:8121/docs
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "curl", "-fs", "http://localhost:8000/health"]
+    networks:
+      - internal
+
+  acme-hostels-agent:
+    image: ghcr.io/gravitee-io-labs/gravitee-lab/acme-hostels-agent:latest
+    build:
+      context: https://github.com/acme/hostels.git#99fe20daed1d5d13d51a10c23abe4f1b05cb04fa
+      dockerfile: hotel-agent/Dockerfile
+    pull_policy: ${ACME_HOSTELS_PULL_POLICY:-build}
+    container_name: gio-acme-hostels-agent
+    restart: unless-stopped
+    depends_on:
+      acme-hostels-backend:
+        condition: service_healthy
+      apim-gateway:
+        condition: service_healthy
+      am-gateway:
+        condition: service_healthy
+      acme-hostels-seed:
+        condition: service_completed_successfully   # It signs in and lists its tools as it starts, so the seed comes first
+    environment:
+      AGENT_SERVER_PORT: "8001"                                          # The port it listens on
+      LLM_BASE_URL: http://apim-gateway:8082/llm-proxy                   # The LLM proxy
+      LLM_MODEL: ollama:qwen3:0.6b                                       # Provider and model on the LLM proxy
+      LLM_TEMPERATURE: "0.3"
+      MCP_HTTP_URLS: http://apim-gateway:8082/hotels/mcp                 # The MCP server API, behind the hotels' REST API
+      AM_TOKEN_URL: http://am-gateway:8092/acme-hostels/oauth/token       # Token endpoint of the Access Management domain
+      AM_CLIENT_ID: hotel-ai-agent                                       # Its application in Access Management
+      AM_CLIENT_SECRET: *agent-client-secret                             # ACME_HOSTELS_AGENT_CLIENT_SECRET
+    labels:
+      io.gravitee.name: Hotel AI agent
+      io.gravitee.description: The assistant that answers guests, through the gateway
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/.well-known/agent-card.json')"]
+    networks:
+      - internal
+
+  acme-hostels-web:
+    image: ghcr.io/gravitee-io-labs/gravitee-lab/acme-hostels-web:latest
+    build: https://github.com/acme/hostels.git#99fe20daed1d5d13d51a10c23abe4f1b05cb04fa:acme-hostel-website
+    pull_policy: ${ACME_HOSTELS_PULL_POLICY:-build}
+    container_name: gio-acme-hostels-web
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8120:80"   # The website
+    environment:
+      AGENT_CARD_URL: http://localhost:8082/hotel-agent/.well-known/agent-card.json         # The agent's card on the gateway's A2A proxy, as your browser reaches it
+      OIDC_URL: http://localhost:8092/acme-hostels/oidc/.well-known/openid-configuration     # OpenID configuration of the Access Management domain, as your browser reaches it
+      CLIENT_ID: acme-hostels                                                                # Its application in Access Management
+      REDIRECT_URI: http://localhost:8120/                                                  # Where Access Management sends the guest back
+    labels:
+      io.gravitee.name: Acme Hostels website
+      io.gravitee.description: The hotels' website, where guests chat with the agent
+      io.gravitee.console.acme-hostels-web.name: Acme Hostels
+      io.gravitee.console.acme-hostels-web.url: http://localhost:8120
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
+    networks:
+      - internal
+
+  acme-hostels-seed:
+    image: ghcr.io/gravitee-io-labs/gravitee-lab/seeder:latest
+    build: ../../seeder
+    pull_policy: ${ACME_HOSTELS_PULL_POLICY:-build}
+    container_name: gio-acme-hostels-seed
+    restart: "no"
+    depends_on:
+      apim-management-api:
+        condition: service_healthy
+      am-management-api:
+        condition: service_healthy
+      apim-gateway:
+        condition: service_healthy
+      openfga:
+        condition: service_healthy
+    volumes:
+      - ./seed:/seed:ro
+      - ./.state:/state   # What the seed created, to remove it later
+    environment:
+      APIM_MANAGEMENT_URL: http://apim-management-api:8083
+      APIM_USERNAME: admin
+      APIM_PASSWORD: *apim-password
+      AM_MANAGEMENT_URL: http://am-management-api:8093
+      AM_USERNAME: admin
+      AM_PASSWORD: *am-password
+      OPENFGA_API_URL: http://openfga:8180                  # The OpenFGA API, as the seed reaches it
+      OPENFGA_URL: http://openfga:8180                      # OpenFGA, as Access Management reaches it
+      APIM_GATEWAY_URL: http://localhost:8082               # The gateway, as you reach it and as it reaches itself
+      GATEWAY_INTERNAL_URL: http://apim-gateway:8082        # The gateway, as the seed reaches it
+      GATEWAY_READY_TIMEOUT: ${ACME_HOSTELS_GATEWAY_READY_TIMEOUT:-300}   # Seconds the seed waits for the gateway to serve each API (the first start downloads the AI models)
+      AM_GATEWAY_URL: http://am-gateway:8092                # Access Management, as the gateway reaches it
+      HOTELS_BACKEND_URL: http://acme-hostels-backend:8000   # The hotels' REST API
+      HOTELS_AGENT_URL: http://acme-hostels-agent:8001       # The hotel agent
+      HOTELS_WEB_URL: http://localhost:8120                 # The website, as your browser reaches it
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}   # Ollama, as the gateway reaches it
+      REDIS_URL: redis://redis:6379                         # The core's Redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redispassword}      # The core's Redis password
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}                   # Optional Google AI Studio key for the LLM proxy's Gemini model; empty stores a placeholder
+      DEMO_PASSWORD: *demo-password
+      AGENT_CLIENT_SECRET: *agent-client-secret
+      MCP_RESOURCE_SECRET: *mcp-resource-secret
+    labels:
+      io.gravitee.name: Playground seed
+      io.gravitee.description: Sets up the hotels' APIs, applications, guest and authorization model on the platform
+      io.gravitee.role: seed
+    networks:
+      - internal
+
+  apim-gateway:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # Ollama on this machine, also on Linux
+    volumes:
+      - data-acme-hostels-gateway-models:/opt/graviteeio-gateway/models   # The AI models downloaded on first start (129 MB)
+    environment:
+      # The classes the booking filter's script uses to call Access Management, after the core's entries 0 and 1
+      gravitee_groovy_whitelist_list_2: class java.net.URL
+      gravitee_groovy_whitelist_list_3: class java.net.URLConnection
+      gravitee_groovy_whitelist_list_4: class sun.net.www.protocol.http.HttpURLConnection
+      gravitee_groovy_whitelist_list_5: class java.io.OutputStream
+      gravitee_groovy_whitelist_list_6: class java.io.InputStreamReader
+      gravitee_groovy_whitelist_list_7: class java.io.BufferedReader
+      gravitee_groovy_whitelist_list_8: class java.lang.StringBuilder
+
+volumes:
+  data-acme-hostels-gateway-models:

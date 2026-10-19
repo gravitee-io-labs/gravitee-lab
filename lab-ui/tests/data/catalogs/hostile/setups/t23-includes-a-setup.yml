@@ -1,0 +1,4 @@
+x-gravitee: {kind: setup, name: Includes a setup, category: Other, description: Includes another setup, which a setup may not}
+
+include:
+  - p-pair.yml

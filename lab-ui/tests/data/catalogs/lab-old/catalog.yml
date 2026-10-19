@@ -1,0 +1,8 @@
+x-gravitee-catalog:
+  schema: 1
+  id: lab-old
+  name: Older Lab fixture
+  description: A catalog written for a Lab that is no longer read
+  version: 1.0.0
+  lab: 0
+  license: AGPL-3.0-only

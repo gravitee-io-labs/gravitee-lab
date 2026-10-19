@@ -1,0 +1,9 @@
+x-gravitee: {kind: addon, name: External network, category: Other, description: Joins a network that exists outside the project}
+services:
+  hostile-network:
+    image: busybox:1.36
+    networks: [outside]
+networks:
+  outside:
+    external: true
+    name: bridge

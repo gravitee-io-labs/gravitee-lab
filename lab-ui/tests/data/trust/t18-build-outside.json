@@ -1,0 +1,48 @@
+{
+  "config": {
+    "name": "gravitee",
+    "networks": {
+      "default": {
+        "ipam": {},
+        "name": "gravitee_default"
+      }
+    },
+    "services": {
+      "hostile-build-outside": {
+        "build": {
+          "context": "@ROOT@",
+          "dockerfile": "Dockerfile"
+        },
+        "command": null,
+        "entrypoint": null,
+        "networks": {
+          "default": null
+        }
+      }
+    },
+    "volumes": {}
+  },
+  "error": null,
+  "files": {
+    "compose.yml": "x-gravitee: {kind: addon, name: Build outside, category: Other, description: Builds from the folder of the project}\nservices:\n  hostile-build-outside:\n    build: ../../../../..\n"
+  },
+  "overlaid": {},
+  "own": [
+    "hostile-build-outside"
+  ],
+  "unit": {
+    "id": "@hostile/t18-build-outside",
+    "includes": [],
+    "kind": "addon",
+    "meta": {
+      "category": "Other",
+      "description": "Builds from the folder of the project",
+      "kind": "addon",
+      "name": "Build outside"
+    },
+    "name": "Build outside",
+    "references": [],
+    "seed": null,
+    "seed_references": []
+  }
+}

@@ -1,0 +1,9 @@
+x-gravitee: {kind: playground, name: External console, category: Other, description: A console that is not on this machine}
+services:
+  hostile-web:
+    image: busybox:1.36
+    ports: ["127.0.0.1:8395:80"]
+    labels:
+      io.gravitee.name: Web
+      io.gravitee.console.hostile-web.name: Web
+      io.gravitee.console.hostile-web.url: http://example.invalid

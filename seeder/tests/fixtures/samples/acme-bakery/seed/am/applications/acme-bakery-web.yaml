@@ -1,0 +1,41 @@
+# The web app signs the persona in with the authorization code flow and PKCE: Access Management's own login page opens in a
+# popup, and the app's server exchanges the code, with its secret and the verifier. The password grant is not given to it
+name: "Acme Bakery web"
+description: "Acme Bakery web app: signs Alice, Bob and Tina in at Access Management's login page"
+type: "WEB"
+
+clientId: "acme-bakery-web"
+clientSecret: "${WEB_CLIENT_SECRET}"
+
+# Exact addresses, one for each way to open the app
+redirectUris:
+  - "${BAKERY_WEB_URL}/callback"
+  - "${BAKERY_WEB_LOOPBACK_URL}/callback"
+
+scopes:
+  - "openid"
+  - "profile"
+  - "email"
+
+skipConsent: true                # the bank's own app: the person is not asked to approve it after the password
+
+oauth:
+  grantTypes:
+    - "authorization_code"
+    - "refresh_token"
+  responseTypes:
+    - "code"
+  pkce: true                     # a challenge is required, and only S256 is accepted
+  # What the gateway reads from the token (accounts stays an array). Ace carries the same claims: a delegated token takes
+  # them from the application that exchanges, not from the user's own token
+  tokenCustomClaims:
+    - claimName: "username"
+      claimValue: "{#context.attributes['user']['username']}"
+    - claimName: "role"
+      claimValue: "{#context.attributes['user']['additionalInformation']['role']}"
+    - claimName: "customer_id"
+      claimValue: "{#context.attributes['user']['additionalInformation']['customer_id']}"
+    - claimName: "accounts"
+      claimValue: "{#context.attributes['user']['additionalInformation']['accounts']}"
+    - claimName: "name"
+      claimValue: "{#context.attributes['user']['additionalInformation']['name']}"

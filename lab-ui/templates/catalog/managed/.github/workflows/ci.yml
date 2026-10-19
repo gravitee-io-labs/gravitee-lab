@@ -1,0 +1,179 @@
+# Managed by the Lab catalog standard 3: change it with catalog.py upgrade, in a pull request a maintainer reads.
+# The untrusted lane. It runs the code of every pull request, forks included, so its token only reads and it writes nothing. It
+# holds no secret but the read key of the Lab, which exists only while the Lab is private (a fork never gets it). In the order it
+# fails fastest:
+#   static   the shape of the tree, the secrets, the files, the Lab's own check with its trust policy, what the change touches, and
+#            whether every image it pulls exists
+#   seed     the seed files of the playgrounds that changed, read as the seeder reads them, and the catalog's own tests when it has some
+#   compile  the apps build on each architecture (a Mac runs arm64), pass their tests in their image with no network, and what
+#            does not need the platform starts and answers its health check
+#   result   the one check a ruleset asks for
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Everything that reads files and runs nothing of the change. Each step runs even when an earlier one failed, so that one run lists
+  # everything to fix; the job fails at the end if any did
+  static:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      units: ${{ steps.plan.outputs.units }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+      seed: ${{ steps.plan.outputs.seed }}
+      compile: ${{ steps.plan.outputs.compile }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: catalog
+          fetch-depth: 0   # a secret in a commit of the pull request stays reachable after a squash merge: every commit is read
+          persist-credentials: false
+      - uses: ./catalog/.github/actions/lab
+        with:
+          key: ${{ secrets.LAB_DEPLOY_KEY }}
+      - name: Catalogs it needs
+        env:
+          NEEDS_DEPLOY_KEY: ${{ secrets.NEEDS_DEPLOY_KEY }}
+        run: python3 -I lab/lab-ui/catalog.py ci needs catalog
+      - id: check
+        name: Check
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: python3 -I lab/lab-ui/catalog.py check catalog --ci --base "$BASE"
+      - name: Secrets in every commit
+        if: ${{ !cancelled() }}
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: python3 -I lab/lab-ui/catalog.py ci gitleaks catalog --base "$BASE"
+      - id: plan
+        name: What the change touches
+        if: ${{ !cancelled() }}
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.sha }}
+        run: python3 -I lab/lab-ui/catalog.py ci plan catalog --event "$EVENT" --base "$BASE" --head "$HEAD" --github-output
+      # Compose runs here, so only on a tree that the check accepted
+      - name: Every image exists in its registry
+        if: ${{ !cancelled() && steps.check.outcome == 'success' && steps.plan.outcome == 'success' }}
+        env:
+          UNITS: ${{ steps.plan.outputs.units }}
+        run: python3 -I lab/lab-ui/catalog.py ci manifests catalog --units "$UNITS"
+      - name: Index
+        if: ${{ !cancelled() }}
+        run: python3 -I lab/lab-ui/catalog.py index catalog --out catalog.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: catalog-index
+          path: catalog.json
+          if-no-files-found: ignore
+
+  # Python 3.14 and the seeder's requirements, which the Lab pins: nothing the change wrote is installed. The catalog's own tests, when
+  # it has a tests/ folder (the default catalog does), are plain unittest, need no network and no secret, and find the seeder's helpers
+  seed:
+    needs: static
+    if: ${{ needs.static.outputs.seed == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: catalog
+          persist-credentials: false
+      - uses: ./catalog/.github/actions/lab
+        with:
+          key: ${{ secrets.LAB_DEPLOY_KEY }}
+          compose: "false"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - run: python -m pip install --quiet --disable-pip-version-check -r lab/seeder/requirements.txt
+      - run: python lab/seeder/seedlint.py catalog/playgrounds --format github
+      - name: The catalog's own tests
+        if: ${{ !cancelled() && hashFiles('catalog/tests/**') != '' }}
+        env:
+          PYTHONPATH: lab/seeder
+        run: python -m unittest discover -s catalog/tests
+
+  # Build, test, start. The Dockerfiles of the change run here, so no secret and no registry login reaches this job
+  compile:
+    name: compile (${{ matrix.arch }})
+    needs: static
+    if: ${{ needs.static.outputs.compile == 'true' }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.static.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: catalog
+          persist-credentials: false
+      - uses: ./catalog/.github/actions/lab
+        with:
+          key: ${{ secrets.LAB_DEPLOY_KEY }}
+      - id: build
+        name: Build the apps
+        env:
+          UNITS: ${{ needs.static.outputs.units }}
+          PLATFORM: ${{ matrix.platform }}
+        run: python3 -I lab/lab-ui/catalog.py ci build catalog --units "$UNITS" --platform "$PLATFORM" --ci
+      - name: Test the apps in their images
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          UNITS: ${{ needs.static.outputs.units }}
+        run: python3 -I lab/lab-ui/catalog.py ci test catalog --units "$UNITS" --ci
+      - name: Start what does not need the platform
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          UNITS: ${{ needs.static.outputs.units }}
+        run: python3 -I lab/lab-ui/catalog.py ci smoke catalog --units "$UNITS" --ci
+
+  # The one check a ruleset asks for. It runs whatever happened. It fails when static failed, when the plan did not answer, and when a
+  # job the plan asked for did not end in success: a job skipped by its own condition had nothing to do, one skipped by a failure
+  # before it is behind that failure
+  result:
+    name: Catalog CI result
+    needs: [static, seed, compile]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - env:
+          STATIC: ${{ needs.static.result }}
+          SEED: ${{ needs.seed.result }}
+          COMPILE: ${{ needs.compile.result }}
+          WANT_SEED: ${{ needs.static.outputs.seed }}
+          WANT_COMPILE: ${{ needs.static.outputs.compile }}
+          MATRIX: ${{ needs.static.outputs.matrix }}
+        run: |
+          echo "static: $STATIC, seed: $SEED (asked: $WANT_SEED), compile: $COMPILE (asked: $WANT_COMPILE)"
+          fail() { echo "::error::$1"; exit 1; }
+          # An empty answer is not "not asked": a plan that wrote nothing must not turn the check green
+          for answer in "$WANT_SEED" "$WANT_COMPILE"; do
+            case "$answer" in true | false) ;; *) fail "The plan gave no answer: open the job static" ;; esac
+          done
+          [ "$STATIC" = success ] || fail "The checks did not end well: open the red job above"
+          [ "$WANT_COMPILE" != true ] || [ -n "$MATRIX" ] || fail "The plan asked for a build and named no architecture"
+          for job in "seed:$SEED:$WANT_SEED" "compile:$COMPILE:$WANT_COMPILE"; do
+            IFS=: read -r name result asked <<< "$job"
+            if [ "$asked" = true ]; then
+              [ "$result" = success ] || fail "The job $name ended $result"
+            else
+              [ "$result" = skipped ] || [ "$result" = success ] || fail "The job $name ended $result"
+            fi
+          done

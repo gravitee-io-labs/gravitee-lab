@@ -1,0 +1,4 @@
+x-gravitee: {kind: playground, name: Own terminal, category: Other, description: A terminal in a service of the playground, terminal: hostile-terminal-shell}
+services:
+  hostile-terminal-shell:
+    image: busybox:1.36

@@ -1,0 +1,176 @@
+# Managed by the Lab catalog standard 3: change it with catalog.py upgrade, in a pull request a maintainer reads.
+# End to end, for the maintainers: each item a change touches starts on a machine with no lab, with the platform and a license, and
+# has to work, as `make e2e` does in the Lab. It is the one workflow that holds the license, and it is always the workflow of main:
+# a pull request is data for it, never code.
+#   workflow_dispatch   a maintainer who has read a pull request runs it on main, with the number of the pull request and the commit
+#                       they read. The plan refuses a head that moved, and a change to .github/, .catalog/, Makefile or catalog.yml
+#   schedule            every item, every night, from the main branch alone
+# There is no push trigger and no branch to push a pull request's commit to: a push runs every workflow of the pushed commit, with
+# the secrets of the repository, and a workflow file added by a foreign commit would start with no approval at all.
+# The platform asks for 10 GB of memory and a standard runner of a private repository has 8: it needs a public repository (16 GB) or a
+# larger runner. Do not store the license in a repository whose plan has no environment secrets: a repository secret would reach every
+# workflow.
+name: E2E
+
+on:
+  schedule:
+    - cron: "43 3 * * *"
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "The number of the pull request to try (empty: the main branch)"
+        default: ""
+      sha:
+        description: "The commit of that pull request you read: 40 characters"
+        default: ""
+      items:
+        description: "What to try: changed (since main), all, or items as kind:id separated by spaces"
+        default: changed
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.event_name }}-${{ inputs.pr || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      count: ${{ steps.plan.outputs.count }}
+    steps:
+      # Before any checkout: a pull request is tried from main, and what names it is a number and a commit
+      - name: The inputs are what they say
+        env:
+          PR: ${{ inputs.pr }}
+          SHA: ${{ inputs.sha }}
+          REF: ${{ github.ref }}
+        run: |
+          fail() { echo "::error title=$1::$2"; exit 1; }
+          [[ $PR =~ ^([0-9]{1,7})?$ ]] || fail E2E04 "pr is the number of a pull request. Fix: write digits only."
+          if [ -n "$PR" ]; then
+            [[ $SHA =~ ^[0-9a-f]{40}$ ]] || fail E2E04 "sha is the commit of the pull request you read, 40 hexadecimal characters."
+            [ "$REF" = refs/heads/main ] || fail E2E02 "A pull request is tried from the workflow of main. Fix: run this workflow on main."
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: catalog
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./catalog/.github/actions/lab
+        with:
+          key: ${{ secrets.LAB_DEPLOY_KEY }}
+      # The pull request, as data: its files are read by the plan and tried from a folder of their own, and never run as a workflow
+      - if: ${{ inputs.pr != '' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/pull/${{ inputs.pr }}/head
+          path: change
+          fetch-depth: 0
+          persist-credentials: false
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          PR: ${{ inputs.pr }}
+          SHA: ${{ inputs.sha }}
+          ITEMS: ${{ inputs.items }}
+        run: |
+          set -f   # what is typed is split into words below, and no word is a pattern for files
+          change=()
+          [ -z "$PR" ] || change=(--change change --sha "$SHA")
+          case "$EVENT" in
+            schedule) python3 -I lab/lab-ui/catalog.py ci e2e-plan catalog --all --github-output ;;
+            *)
+              case "$ITEMS" in
+                all) python3 -I lab/lab-ui/catalog.py ci e2e-plan catalog "${change[@]}" --all --github-output ;;
+                changed | "") python3 -I lab/lab-ui/catalog.py ci e2e-plan catalog "${change[@]}" --changed --github-output ;;
+                # Words after `--`, never an option and never a command: the plan checks that each one names an item
+                *) python3 -I lab/lab-ui/catalog.py ci e2e-plan catalog "${change[@]}" --github-output --items -- $ITEMS ;;
+              esac ;;
+          esac
+
+  e2e:
+    name: ${{ matrix.name }}
+    needs: plan
+    if: ${{ needs.plan.outputs.count != '0' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: ${{ github.event_name == 'schedule' && 'e2e-nightly' || 'e2e' }}
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: catalog
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./catalog/.github/actions/lab
+        with:
+          key: ${{ secrets.LAB_DEPLOY_KEY }}
+      - if: ${{ inputs.pr != '' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/pull/${{ inputs.pr }}/head
+          path: change
+          fetch-depth: 0
+          persist-credentials: false
+      # The head can move between the plan and this job: the commit that was read is checked again
+      - name: The change is the one that was read
+        if: ${{ inputs.pr != '' }}
+        env:
+          SHA: ${{ inputs.sha }}
+        run: python3 -I lab/lab-ui/catalog.py ci e2e-gate catalog --change change --sha "$SHA"
+      # The images of the platform and a database take the room a runner has: what it comes with and the lab does not use goes
+      - name: Make room
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY"
+          df -h /
+      - name: Make the lab's files and give it the license
+        working-directory: lab
+        env:
+          GRAVITEE_LICENSE: ${{ secrets.GRAVITEE_LICENSE }}
+        run: |
+          [ -n "$GRAVITEE_LICENSE" ] || { echo "::error::The secret GRAVITEE_LICENSE is not set in this environment"; exit 1; }
+          make init
+          printf '\nGRAVITEE_LICENSE=%s\n' "$GRAVITEE_LICENSE" >> .env
+      # Not `make e2e`: make answers 2 for any recipe that fails, and 2 here is "not tried" (a setting only a person can give), which is a
+      # warning, where 1 is a failure
+      - name: Try it
+        working-directory: lab
+        env:
+          ITEM: ${{ matrix.item }}
+          TESTED: ${{ matrix.tested }}
+          FROM: ${{ inputs.pr != '' && 'change' || 'catalog' }}
+        run: |
+          python3 -I lab-ui/catalog.py link "../$FROM"
+          set +e
+          python3 -I lab-ui/server.py --e2e "$ITEM" ${TESTED:+--tested "$TESTED"}
+          code=$?
+          [ "$code" -eq 2 ] && exit 0
+          exit "$code"
+
+  result:
+    name: E2E result
+    needs: [plan, e2e]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - env:
+          PLAN: ${{ needs.plan.result }}
+          E2E: ${{ needs.e2e.result }}
+          COUNT: ${{ needs.plan.outputs.count }}
+        run: |
+          echo "plan: $PLAN, e2e: $E2E, jobs: $COUNT"
+          [ "$PLAN" = success ] || { echo "::error::The plan did not end well"; exit 1; }
+          [[ $COUNT =~ ^[0-9]+$ ]] || { echo "::error::The plan gave no count"; exit 1; }
+          case "$E2E" in
+            success) ;;
+            skipped) [ "$COUNT" = 0 ] || { echo "::error::A job that had to run was skipped"; exit 1; } ;;
+            *) echo "::error::A job ended $E2E"; exit 1 ;;
+          esac

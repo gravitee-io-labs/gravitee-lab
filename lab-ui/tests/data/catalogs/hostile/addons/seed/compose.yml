@@ -1,0 +1,6 @@
+x-gravitee: {kind: addon, name: Named like seed data, category: Other, description: Reads an endless file as its environment, in a folder called seed}
+
+services:
+  hostile-seed-named:
+    image: busybox:1.36
+    env_file: /dev/zero

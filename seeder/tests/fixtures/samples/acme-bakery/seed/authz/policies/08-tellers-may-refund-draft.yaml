@@ -1,0 +1,9 @@
+# Left as a draft so that the Simulator's "Include draft policies" has something to show: with it, Tina's EUR 50
+# transfer is allowed. Nothing enforces a draft. The condition has no `has`, which the Simulator cannot read in the
+# browser; without an amount the comparison fails, and a permit that fails does not apply
+name: Tellers may refund (draft)
+status: DRAFT
+policy: |
+  @id("Tellers may refund (draft)")
+  permit (principal, action == Action::"<server>.transfer_funds", resource in MCPServer::"<server>")
+    when { principal.role == "teller" && context.amount <= 100 };

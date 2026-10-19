@@ -1,0 +1,4 @@
+x-gravitee: {kind: addon, name: Name clash, category: Other, description: Defines the service of another add-on}
+services:
+  fixture-echo:
+    image: busybox:1.36

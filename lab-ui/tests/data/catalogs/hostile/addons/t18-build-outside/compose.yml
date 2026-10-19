@@ -1,0 +1,4 @@
+x-gravitee: {kind: addon, name: Build outside, category: Other, description: Builds from the folder of the project}
+services:
+  hostile-build-outside:
+    build: ../../../../..

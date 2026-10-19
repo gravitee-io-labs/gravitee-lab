@@ -1,0 +1,8 @@
+name: fixture-shop
+description: The customers of the shop
+
+users:
+  - username: dana@shop.example.test
+    email: dana@shop.example.test
+    firstName: Dana
+    lastName: Fixture

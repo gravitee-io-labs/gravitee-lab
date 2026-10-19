@@ -1,0 +1,21 @@
+{
+  "config": null,
+  "error": "open @ROOT@/addons/other/compose.yml: no such file or directory",
+  "files": {
+    "compose.yml": "x-gravitee: {kind: addon, name: Include outside, category: Other, description: Includes a file of the project}\n\ninclude:\n  - ../../../../../addons/other/compose.yml\n"
+  },
+  "overlaid": {},
+  "own": [],
+  "unit": {
+    "id": "@hostile/t23-include-outside",
+    "includes": [
+      "addons/other/compose.yml"
+    ],
+    "kind": "addon",
+    "meta": {},
+    "name": "t23-include-outside",
+    "references": [],
+    "seed": null,
+    "seed_references": []
+  }
+}

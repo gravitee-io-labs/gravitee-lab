@@ -1,0 +1,4 @@
+x-gravitee: {kind: addon, name: Build from a branch, category: Other, description: Builds from a repository at a branch, not a commit}
+services:
+  hostile-build-remote:
+    build: https://example.invalid/app.git#main

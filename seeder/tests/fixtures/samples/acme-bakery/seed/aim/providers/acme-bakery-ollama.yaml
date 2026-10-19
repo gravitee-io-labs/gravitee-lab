@@ -1,0 +1,18 @@
+# Ollama on the host. The models are declared, not scanned: the platform does not call a private address to list them,
+# and a price on each one is what makes the budgets of the AI workspace move
+name: Acme Bakery Ollama
+slug: acme-bakery-ollama
+visibility: EVERYONE
+credential: Acme Bakery Ollama key
+connection:
+  type: openai-compatible
+  targetUri: ${OLLAMA_URL}/v1                      # where Gravitee reaches Ollama
+models:
+  - name: qwen3:1.7b
+    taskType: CHAT
+    summary: Small local model that runs Ace and the AI workspace
+    pricingOverride: {inputPer1M: 50, outputPer1M: 50, currency: USD}   # a demo price, not a real one
+  - name: qwen3:0.6b
+    taskType: CHAT
+    summary: Smaller local model for short answers
+    pricingOverride: {inputPer1M: 20, outputPer1M: 20, currency: USD}

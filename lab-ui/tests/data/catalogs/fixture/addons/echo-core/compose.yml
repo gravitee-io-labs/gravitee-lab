@@ -1,0 +1,10 @@
+x-gravitee: {kind: addon, name: Echo with the gateway, category: Other, description: Echo wired to the gateway of the core}
+include:
+  - ../../addons/echo/compose.yml
+services:
+  apim-gateway:
+    environment:
+      FIXTURE_ECHO_URL: http://fixture-echo:80
+    depends_on:
+      fixture-echo:
+        condition: service_started

@@ -1,0 +1,3 @@
+# The bank's REST API as tools of the catalog. The API is made by seed/apim and publishes its OpenAPI page, which
+# is where the tools come from. Without this file the playground has no tools made of an API
+api: Acme Bakery Open API

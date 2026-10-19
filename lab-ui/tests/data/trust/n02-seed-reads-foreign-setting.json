@@ -1,0 +1,67 @@
+{
+  "config": {
+    "name": "gravitee",
+    "networks": {
+      "default": {
+        "ipam": {},
+        "name": "gravitee_default"
+      }
+    },
+    "services": {
+      "hostile-n02f-seed": {
+        "build": {
+          "context": "@ROOT@/seeder",
+          "dockerfile": "Dockerfile"
+        },
+        "command": null,
+        "entrypoint": null,
+        "image": "hostile-seeder",
+        "labels": {
+          "io.gravitee.description": "Sets up the playground in API Management",
+          "io.gravitee.name": "Playground seed",
+          "io.gravitee.role": "seed"
+        },
+        "networks": {
+          "default": null
+        },
+        "pull_policy": "build",
+        "restart": "no",
+        "volumes": [
+          {
+            "bind": {},
+            "read_only": true,
+            "source": "@ROOT@/.lab/catalogs/hostile/playgrounds/n02-seed-reads-foreign-setting/seed",
+            "target": "/seed",
+            "type": "bind"
+          }
+        ]
+      }
+    },
+    "volumes": {}
+  },
+  "error": null,
+  "files": {
+    "compose.yml": "x-gravitee: {kind: playground, name: Seed reads a foreign setting, category: Other, description: Seed data that reads a setting of another tool}\nservices:\n  hostile-n02f-seed:\n    image: hostile-seeder\n    build: ../../../../../seeder\n    pull_policy: build\n    restart: \"no\"\n    labels:\n      io.gravitee.role: seed\n      io.gravitee.name: Playground seed\n      io.gravitee.description: Sets up the playground in API Management\n    volumes:\n      - ./seed:/seed:ro\n"
+  },
+  "overlaid": {},
+  "own": [
+    "hostile-n02f-seed"
+  ],
+  "unit": {
+    "id": "@hostile/n02-seed-reads-foreign-setting",
+    "includes": [],
+    "kind": "playground",
+    "meta": {
+      "category": "Other",
+      "description": "Seed data that reads a setting of another tool",
+      "kind": "playground",
+      "name": "Seed reads a foreign setting"
+    },
+    "name": "Seed reads a foreign setting",
+    "references": [],
+    "seed": null,
+    "seed_references": [
+      "SOME_OTHER_TOOL_TOKEN"
+    ]
+  }
+}

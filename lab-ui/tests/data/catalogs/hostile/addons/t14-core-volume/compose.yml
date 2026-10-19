@@ -1,0 +1,6 @@
+x-gravitee: {kind: addon, name: Core volume, category: Other, description: Mounts a volume of the platform's database}
+services:
+  hostile-core-volume:
+    image: busybox:1.36
+    volumes:
+      - data-mongo:/data

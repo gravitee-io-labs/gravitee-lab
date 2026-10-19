@@ -1,0 +1,3 @@
+name: Shop
+password: ${HOSTILE_DEMO_PASSWORD}
+url: ${APIM_GATEWAY_URL}

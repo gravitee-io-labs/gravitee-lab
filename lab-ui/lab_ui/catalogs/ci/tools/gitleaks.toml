@@ -1,0 +1,13 @@
+# The Lab's own configuration of gitleaks, the one `catalog.py ci gitleaks` gives the scan of every pull request (standard 5.5).
+# Left alone, gitleaks reads .gitleaks.toml and .gitleaksignore from the repository it scans, so a pull request that added an
+# allow-all file would silence the scan that judges it. This file is mounted read-only from the Lab at the pinned commit; what
+# a catalog may skip is decided here, by a maintainer, in a reviewed change to the Lab, and nowhere else.
+# This file adds no exception of its own. `useDefault` brings the rules of the pinned image, and with them the allowlist of its own
+# default configuration (as its documentation says: generated and vendored places such as lock files, images, `vendor/` and
+# `node_modules/`, and `gitleaks.toml`): that one is part of the image, not of this file, and no setting here removes it. The
+# Python scanner of `catalog.py check` reads every text file of the catalog wherever it stands, so those places are not unread;
+# a rehearsal plants a token in each of them to see which the broad net skips.
+title = "Gravitee Lab catalog standard"
+
+[extend]
+useDefault = true

@@ -1,0 +1,762 @@
+{
+  "_capture": {
+    "compose": "5.6.0",
+    "note": "written by tests/data/regen.py"
+  },
+  "license_variable": "GRAVITEE_LICENSE",
+  "name": "gravitee",
+  "networks": {
+    "edge": {
+      "ipam": {},
+      "name": "gravitee_edge"
+    },
+    "internal": {
+      "ipam": {},
+      "name": "gravitee_internal"
+    }
+  },
+  "services": {
+    "alert-engine": {
+      "command": null,
+      "container_name": "gio-alert-engine",
+      "entrypoint": null,
+      "environment": {
+        "gravitee_ingesters_ws_authentication_users_admin": "adminadmin",
+        "gravitee_license_key": "",
+        "gravitee_services_core_http_authentication_users_admin": "adminadmin",
+        "gravitee_services_core_http_host": "localhost"
+      },
+      "healthcheck": {
+        "interval": "5s",
+        "retries": 20,
+        "start_period": "30s",
+        "test": [
+          "CMD-SHELL",
+          "curl -sf -u admin:adminadmin http://localhost:18072/_node/health | grep -Eq '\"healthy\" *: *true'"
+        ],
+        "timeout": "3s"
+      },
+      "image": "graviteeio/ae-engine:3.0.2",
+      "labels": {
+        "io.gravitee.description": "Evaluates alert rules and triggers notifications; needs an Enterprise license",
+        "io.gravitee.group": "Alert Engine",
+        "io.gravitee.license": "required",
+        "io.gravitee.name": "Alert Engine"
+      },
+      "networks": {
+        "internal": null
+      },
+      "restart": "unless-stopped"
+    },
+    "am-gateway": {
+      "command": null,
+      "container_name": "gio-am-gateway",
+      "depends_on": {
+        "am-management-api": {
+          "condition": "service_healthy",
+          "required": true
+        },
+        "mongodb": {
+          "condition": "service_healthy",
+          "required": true
+        }
+      },
+      "entrypoint": null,
+      "environment": {
+        "gravitee_ds_mongodb_host": "mongodb",
+        "gravitee_license_key": "",
+        "gravitee_plugins_path_0": "$${gravitee.home}/plugins",
+        "gravitee_plugins_path_1": "$${gravitee.home}/plugins-ext",
+        "gravitee_services_core_http_authentication_users_admin": "adminadmin",
+        "gravitee_services_core_http_host": "localhost"
+      },
+      "healthcheck": {
+        "interval": "5s",
+        "retries": 20,
+        "start_period": "30s",
+        "test": [
+          "CMD-SHELL",
+          "curl -sf -u admin:adminadmin http://localhost:18092/_node/health | grep -Eq '\"healthy\" *: *true'"
+        ],
+        "timeout": "3s"
+      },
+      "image": "graviteeio/am-gateway:4.12.7",
+      "labels": {
+        "io.gravitee.description": "Authenticates users and issues tokens",
+        "io.gravitee.group": "Access Management",
+        "io.gravitee.name": "Gateway"
+      },
+      "networks": {
+        "edge": null,
+        "internal": null
+      },
+      "ports": [
+        {
+          "host_ip": "127.0.0.1",
+          "mode": "ingress",
+          "protocol": "tcp",
+          "published": "8092",
+          "target": 8092
+        }
+      ],
+      "restart": "unless-stopped",
+      "volumes": [
+        {
+          "bind": {},
+          "source": "@ROOT@/plugins/am",
+          "target": "/opt/graviteeio-am-gateway/plugins-ext",
+          "type": "bind"
+        }
+      ]
+    },
+    "am-management-api": {
+      "command": null,
+      "container_name": "gio-am-management-api",
+      "depends_on": {
+        "mongodb": {
+          "condition": "service_healthy",
+          "required": true
+        }
+      },
+      "entrypoint": null,
+      "environment": {
+        "gravitee_ds_mongodb_host": "mongodb",
+        "gravitee_license_key": "",
+        "gravitee_plugins_path_0": "$${gravitee.home}/plugins",
+        "gravitee_plugins_path_1": "$${gravitee.home}/plugins-ext",
+        "gravitee_services_core_http_authentication_users_admin": "adminadmin",
+        "gravitee_services_core_http_host": "localhost"
+      },
+      "healthcheck": {
+        "interval": "5s",
+        "retries": 20,
+        "start_period": "30s",
+        "test": [
+          "CMD-SHELL",
+          "curl -sf -u admin:adminadmin http://localhost:18093/_node/health | grep -Eq '\"healthy\" *: *true'"
+        ],
+        "timeout": "3s"
+      },
+      "image": "graviteeio/am-management-api:4.12.7",
+      "labels": {
+        "io.gravitee.description": "Backend of the Access Management console",
+        "io.gravitee.group": "Access Management",
+        "io.gravitee.name": "Management API"
+      },
+      "networks": {
+        "edge": null,
+        "internal": null
+      },
+      "ports": [
+        {
+          "host_ip": "127.0.0.1",
+          "mode": "ingress",
+          "protocol": "tcp",
+          "published": "8093",
+          "target": 8093
+        }
+      ],
+      "restart": "unless-stopped",
+      "volumes": [
+        {
+          "bind": {},
+          "source": "@ROOT@/plugins/am",
+          "target": "/opt/graviteeio-am-management-api/plugins-ext",
+          "type": "bind"
+        }
+      ]
+    },
+    "am-management-ui": {
+      "command": null,
+      "container_name": "gio-am-management-ui",
+      "depends_on": {
+        "am-management-api": {
+          "condition": "service_healthy",
+          "required": true
+        }
+      },
+      "entrypoint": null,
+      "environment": {
+        "MGMT_API_URL": "http://localhost:8093",
+        "MGMT_UI_URL": "http://localhost:8081"
+      },
+      "healthcheck": {
+        "interval": "5s",
+        "retries": 20,
+        "start_period": "30s",
+        "test": [
+          "CMD-SHELL",
+          "curl -fsS -o /dev/null http://localhost:8080/ || wget -q --spider http://localhost:8080/"
+        ],
+        "timeout": "3s"
+      },
+      "image": "graviteeio/am-management-ui:4.12.7",
+      "labels": {
+        "io.gravitee.console.am.name": "AM Console",
+        "io.gravitee.console.am.url": "http://localhost:8081",
+        "io.gravitee.description": "Console to manage identity providers, applications and users",
+        "io.gravitee.group": "Access Management",
+        "io.gravitee.name": "AM Console"
+      },
+      "networks": {
+        "edge": null
+      },
+      "ports": [
+        {
+          "host_ip": "127.0.0.1",
+          "mode": "ingress",
+          "protocol": "tcp",
+          "published": "8081",
+          "target": 8080
+        }
+      ],
+      "restart": "unless-stopped"
+    },
+    "apim-gateway": {
+      "command": null,
+      "container_name": "gio-apim-gateway",
+      "depends_on": {
+        "apim-management-api": {
+          "condition": "service_healthy",
+          "required": true
+        },
+        "elasticsearch": {
+          "condition": "service_healthy",
+          "required": true
+        },
+        "mongodb": {
+          "condition": "service_healthy",
+          "required": true
+        },
+        "redis": {
+          "condition": "service_healthy",
+          "required": true
+        }
+      },
+      "entrypoint": null,
+      "environment": {
+        "GIO_MAX_MEM": "1g",
+        "GIO_MIN_MEM": "512m",
+        "gravitee_alerts_alertengine_enabled": "true",
+        "gravitee_alerts_alertengine_ws_discovery": "true",
+        "gravitee_alerts_alertengine_ws_endpoints_0": "http://alert-engine:8072",
+        "gravitee_alerts_alertengine_ws_security_password": "adminadmin",
+        "gravitee_alerts_alertengine_ws_security_username": "admin",
+        "gravitee_ds_elastic_host": "elasticsearch",
+        "gravitee_ds_mongodb_host": "mongodb",
+        "gravitee_gamma_enabled": "true",
+        "gravitee_groovy_whitelist_list_0": "class java.util.Base64",
+        "gravitee_groovy_whitelist_list_1": "class groovy.util.Base64",
+        "gravitee_groovy_whitelist_mode": "append",
+        "gravitee_license_key": "",
+        "gravitee_plugins_path_0": "$${gravitee.home}/plugins",
+        "gravitee_plugins_path_1": "$${gravitee.home}/plugins-ext",
+        "gravitee_repositories_ratelimit_redis_host": "redis",
+        "gravitee_repositories_ratelimit_redis_password": "redispassword",
+        "gravitee_repositories_ratelimit_redis_port": "6379",
+        "gravitee_repositories_ratelimit_type": "redis",
+        "gravitee_servers_0_alpn": "true",
+        "gravitee_servers_0_id": "http",
+        "gravitee_servers_0_port": "8082",
+        "gravitee_servers_0_type": "http",
+        "gravitee_servers_1_alpn": "true",
+        "gravitee_servers_1_id": "https",
+        "gravitee_servers_1_port": "8443",
+        "gravitee_servers_1_secured": "true",
+        "gravitee_servers_1_ssl_clientAuth": "request",
+        "gravitee_servers_1_ssl_keystore_password": "gravitee",
+        "gravitee_servers_1_ssl_keystore_path": "/opt/graviteeio-gateway/mtls/server.p12",
+        "gravitee_servers_1_ssl_keystore_type": "pkcs12",
+        "gravitee_servers_1_ssl_truststore_path": "/opt/graviteeio-gateway/mtls/ca.pem",
+        "gravitee_servers_1_ssl_truststore_type": "pem",
+        "gravitee_servers_1_type": "http",
+        "gravitee_services_core_http_authentication_users_admin": "adminadmin",
+        "gravitee_services_core_http_host": "localhost",
+        "gravitee_services_metrics_enabled": "true"
+      },
+      "healthcheck": {
+        "interval": "5s",
+        "retries": 20,
+        "start_period": "30s",
+        "test": [
+          "CMD-SHELL",
+          "curl -sf -u admin:adminadmin http://localhost:18082/_node/health | grep -Eq '\"healthy\" *: *true'"
+        ],
+        "timeout": "3s"
+      },
+      "image": "graviteeio/apim-gateway:4.12.20-debian",
+      "labels": {
+        "io.gravitee.description": "Routes API traffic and applies policies",
+        "io.gravitee.group": "API Management",
+        "io.gravitee.name": "Gateway"
+      },
+      "networks": {
+        "edge": null,
+        "internal": null
+      },
+      "ports": [
+        {
+          "host_ip": "127.0.0.1",
+          "mode": "ingress",
+          "protocol": "tcp",
+          "published": "8082",
+          "target": 8082
+        },
+        {
+          "host_ip": "127.0.0.1",
+          "mode": "ingress",
+          "protocol": "tcp",
+          "published": "8443",
+          "target": 8443
+        }
+      ],
+      "restart": "unless-stopped",
+      "volumes": [
+        {
+          "bind": {},
+          "source": "@ROOT@/plugins/apim",
+          "target": "/opt/graviteeio-gateway/plugins-ext",
+          "type": "bind"
+        },
+        {
+          "bind": {},
+          "read_only": true,
+          "source": "@ROOT@/certs/mtls/server.p12",
+          "target": "/opt/graviteeio-gateway/mtls/server.p12",
+          "type": "bind"
+        },
+        {
+          "bind": {},
+          "read_only": true,
+          "source": "@ROOT@/certs/mtls/ca.pem",
+          "target": "/opt/graviteeio-gateway/mtls/ca.pem",
+          "type": "bind"
+        }
+      ]
+    },
+    "apim-management-api": {
+      "command": null,
+      "container_name": "gio-apim-management-api",
+      "depends_on": {
+        "elasticsearch": {
+          "condition": "service_healthy",
+          "required": true
+        },
+        "mongodb": {
+          "condition": "service_healthy",
+          "required": true
+        }
+      },
+      "entrypoint": null,
+      "environment": {
+        "GIO_MAX_MEM": "512m",
+        "GIO_MIN_MEM": "256m",
+        "gravitee_alerts_alertengine_enabled": "true",
+        "gravitee_alerts_alertengine_ws_discovery": "true",
+        "gravitee_alerts_alertengine_ws_endpoints_0": "http://alert-engine:8072",
+        "gravitee_alerts_alertengine_ws_security_password": "adminadmin",
+        "gravitee_alerts_alertengine_ws_security_username": "admin",
+        "gravitee_ds_elastic_host": "elasticsearch",
+        "gravitee_ds_mongodb_host": "mongodb",
+        "gravitee_gamma_enabled": "true",
+        "gravitee_installation_api_url": "http://localhost:8083",
+        "gravitee_installation_standalone_console_url": "http://localhost:8084",
+        "gravitee_installation_standalone_gamma-console_url": "http://localhost:8086",
+        "gravitee_installation_standalone_portal_url": "http://localhost:8085",
+        "gravitee_installation_type": "standalone",
+        "gravitee_license_key": "",
+        "gravitee_modules_aim_catalog_mcp-discovery_allow-private-endpoints": "true",
+        "gravitee_plugins_path_0": "$${gravitee.home}/plugins",
+        "gravitee_plugins_path_1": "$${gravitee.home}/plugins-ext",
+        "gravitee_portal_entrypoint": "http://localhost:8082",
+        "gravitee_portal_next_access_enabled": "true",
+        "gravitee_services_core_http_authentication_users_admin": "adminadmin",
+        "gravitee_services_core_http_host": "localhost"
+      },
+      "healthcheck": {
+        "interval": "5s",
+        "retries": 20,
+        "start_period": "30s",
+        "test": [
+          "CMD-SHELL",
+          "curl -sf -u admin:adminadmin http://localhost:18083/_node/health | grep -Eq '\"healthy\" *: *true'"
+        ],
+        "timeout": "3s"
+      },
+      "image": "graviteeio/apim-management-api:4.12.20",
+      "labels": {
+        "io.gravitee.description": "Backend of the API Management consoles and Gamma",
+        "io.gravitee.group": "API Management",
+        "io.gravitee.name": "Management API"
+      },
+      "networks": {
+        "edge": null,
+        "internal": null
+      },
+      "ports": [
+        {
+          "host_ip": "127.0.0.1",
+          "mode": "ingress",
+          "protocol": "tcp",
+          "published": "8083",
+          "target": 8083
+        }
+      ],
+      "restart": "unless-stopped",
+      "volumes": [
+        {
+          "bind": {},
+          "source": "@ROOT@/plugins/apim",
+          "target": "/opt/graviteeio-management-api/plugins-ext",
+          "type": "bind"
+        }
+      ]
+    },
+    "apim-management-ui": {
+      "command": [
+        "/bin/sh",
+        "-c",
+        "sed -i -e '/X-Frame-Options/d' -e \"/localhost:9000/!s|frame-ancestors 'self'|& http://localhost:9000 http://127.0.0.1:9000|\" /etc/nginx/conf.d/*.conf; for f in $$(grep -L gravitee-lab.js /etc/nginx/conf.d/*.conf); do sed -i -e \"/location \\/ {/i location = /gravitee-lab.js { alias /gravitee-lab.js; }\" -e \"/location \\/ {/a sub_filter </head> '<script src=/gravitee-lab.js></script></head>';\" \"$$f\"; done; sh /check_ip_config.sh; sh /run.sh"
+      ],
+      "container_name": "gio-apim-management-ui",
+      "depends_on": {
+        "apim-management-api": {
+          "condition": "service_healthy",
+          "required": true
+        }
+      },
+      "entrypoint": null,
+      "environment": {
+        "MGMT_API_URL": "http://localhost:8083/management/organizations/DEFAULT/environments/DEFAULT/"
+      },
+      "healthcheck": {
+        "interval": "5s",
+        "retries": 20,
+        "start_period": "30s",
+        "test": [
+          "CMD-SHELL",
+          "curl -fsS -o /dev/null http://localhost:8080/ || wget -q --spider http://localhost:8080/"
+        ],
+        "timeout": "3s"
+      },
+      "image": "graviteeio/apim-management-ui:4.12.20",
+      "labels": {
+        "io.gravitee.console.apim.legacy": "true",
+        "io.gravitee.console.apim.name": "APIM Console",
+        "io.gravitee.console.apim.url": "http://localhost:8084",
+        "io.gravitee.description": "Console to design, publish and monitor APIs",
+        "io.gravitee.group": "API Management",
+        "io.gravitee.name": "APIM Console"
+      },
+      "networks": {
+        "edge": null
+      },
+      "ports": [
+        {
+          "host_ip": "127.0.0.1",
+          "mode": "ingress",
+          "protocol": "tcp",
+          "published": "8084",
+          "target": 8080
+        }
+      ],
+      "restart": "unless-stopped",
+      "volumes": [
+        {
+          "bind": {},
+          "read_only": true,
+          "source": "@ROOT@/lab-ui/frames/location.js",
+          "target": "/gravitee-lab.js",
+          "type": "bind"
+        }
+      ]
+    },
+    "apim-portal-ui": {
+      "command": null,
+      "container_name": "gio-apim-portal-ui",
+      "depends_on": {
+        "apim-management-api": {
+          "condition": "service_healthy",
+          "required": true
+        }
+      },
+      "entrypoint": null,
+      "environment": {
+        "ALLOWED_FRAME_ANCESTOR_URLS": "http://localhost:8084",
+        "FRAME_PROTECTION_ENABLED": "false",
+        "PORTAL_API_URL": "http://localhost:8083/portal/environments/DEFAULT"
+      },
+      "healthcheck": {
+        "interval": "5s",
+        "retries": 20,
+        "start_period": "30s",
+        "test": [
+          "CMD-SHELL",
+          "curl -fsS -o /dev/null http://localhost:8080/ || wget -q --spider http://localhost:8080/"
+        ],
+        "timeout": "3s"
+      },
+      "image": "graviteeio/apim-portal-ui:4.12.20",
+      "labels": {
+        "io.gravitee.console.portal-legacy.legacy": "true",
+        "io.gravitee.console.portal-legacy.name": "Classic Developer Portal",
+        "io.gravitee.console.portal-legacy.url": "http://localhost:8085",
+        "io.gravitee.console.portal.name": "Developer Portal",
+        "io.gravitee.console.portal.url": "http://localhost:8085/next/",
+        "io.gravitee.description": "Portal where developers discover and subscribe to APIs",
+        "io.gravitee.group": "API Management",
+        "io.gravitee.name": "Developer Portal"
+      },
+      "networks": {
+        "edge": null
+      },
+      "ports": [
+        {
+          "host_ip": "127.0.0.1",
+          "mode": "ingress",
+          "protocol": "tcp",
+          "published": "8085",
+          "target": 8080
+        }
+      ],
+      "restart": "unless-stopped"
+    },
+    "elasticsearch": {
+      "command": null,
+      "container_name": "gio-elasticsearch",
+      "entrypoint": null,
+      "environment": {
+        "ES_JAVA_OPTS": "-Xms512m -Xmx512m",
+        "bootstrap.memory_lock": "true",
+        "cluster.name": "elasticsearch",
+        "discovery.type": "single-node",
+        "xpack.security.enabled": "false"
+      },
+      "healthcheck": {
+        "interval": "5s",
+        "retries": 20,
+        "start_period": "30s",
+        "test": [
+          "CMD-SHELL",
+          "curl -sf 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s'"
+        ],
+        "timeout": "3s"
+      },
+      "image": "docker.elastic.co/elasticsearch/elasticsearch:9.5.2",
+      "labels": {
+        "io.gravitee.description": "Stores analytics and logs of API traffic",
+        "io.gravitee.group": "Databases",
+        "io.gravitee.image.tags": "library/elasticsearch",
+        "io.gravitee.name": "Elasticsearch"
+      },
+      "networks": {
+        "internal": null
+      },
+      "ports": [
+        {
+          "host_ip": "127.0.0.1",
+          "mode": "ingress",
+          "protocol": "tcp",
+          "published": "9200",
+          "target": 9200
+        }
+      ],
+      "restart": "unless-stopped",
+      "ulimits": {
+        "memlock": {
+          "hard": -1,
+          "soft": -1
+        },
+        "nofile": 65536
+      },
+      "volumes": [
+        {
+          "source": "data-elasticsearch",
+          "target": "/usr/share/elasticsearch/data",
+          "type": "volume",
+          "volume": {}
+        }
+      ]
+    },
+    "gamma-ui": {
+      "command": [
+        "/bin/sh",
+        "-c",
+        "sed -i -e '/X-Frame-Options/d' -e \"/localhost:9000/!s|frame-ancestors 'self'|& http://localhost:9000 http://127.0.0.1:9000|\" /etc/nginx/conf.d/*.conf; for f in $$(grep -L gravitee-lab.js /etc/nginx/conf.d/*.conf); do sed -i -e \"/location \\/ {/i location = /gravitee-lab.js { alias /gravitee-lab.js; }\" -e \"/location \\/ {/a sub_filter </head> '<script src=/gravitee-lab.js></script></head>';\" \"$$f\"; done; sh /check_ip_config.sh; sh /run.sh"
+      ],
+      "container_name": "gio-gamma-ui",
+      "depends_on": {
+        "apim-management-api": {
+          "condition": "service_healthy",
+          "required": true
+        }
+      },
+      "entrypoint": null,
+      "environment": {
+        "GAMMA_API_URL": "http://localhost:8083/gamma",
+        "GAMMA_CONSOLE_BASE_HREF": "/",
+        "HTTP_PORT": "8080",
+        "SERVER_NAME": "localhost"
+      },
+      "healthcheck": {
+        "interval": "5s",
+        "retries": 20,
+        "start_period": "30s",
+        "test": [
+          "CMD-SHELL",
+          "curl -fsS -o /dev/null http://localhost:8080/ || wget -q --spider http://localhost:8080/"
+        ],
+        "timeout": "3s"
+      },
+      "image": "graviteeio/gamma-ui:4.12.20",
+      "labels": {
+        "io.gravitee.console.gamma.name": "Gamma Console",
+        "io.gravitee.console.gamma.url": "http://localhost:8086",
+        "io.gravitee.description": "Console to manage agents, models and MCP servers",
+        "io.gravitee.group": "API Management",
+        "io.gravitee.name": "Gamma Console"
+      },
+      "networks": {
+        "edge": null
+      },
+      "ports": [
+        {
+          "host_ip": "127.0.0.1",
+          "mode": "ingress",
+          "protocol": "tcp",
+          "published": "8086",
+          "target": 8080
+        }
+      ],
+      "restart": "unless-stopped",
+      "volumes": [
+        {
+          "bind": {},
+          "read_only": true,
+          "source": "@ROOT@/lab-ui/frames/location.js",
+          "target": "/gravitee-lab.js",
+          "type": "bind"
+        }
+      ]
+    },
+    "mongodb": {
+      "command": null,
+      "container_name": "gio-mongodb",
+      "entrypoint": null,
+      "environment": {
+        "GLIBC_TUNABLES": "glibc.pthread.rseq=1"
+      },
+      "healthcheck": {
+        "interval": "5s",
+        "retries": 20,
+        "start_period": "30s",
+        "test": [
+          "CMD-SHELL",
+          "mongosh --quiet --eval 'db.runCommand({ping:1}).ok' | grep -q 1"
+        ],
+        "timeout": "3s"
+      },
+      "image": "mongo:8.0.29",
+      "labels": {
+        "io.gravitee.description": "Stores APIs, applications and configuration",
+        "io.gravitee.group": "Databases",
+        "io.gravitee.name": "MongoDB"
+      },
+      "networks": {
+        "internal": null
+      },
+      "ports": [
+        {
+          "host_ip": "127.0.0.1",
+          "mode": "ingress",
+          "protocol": "tcp",
+          "published": "27017",
+          "target": 27017
+        }
+      ],
+      "restart": "unless-stopped",
+      "volumes": [
+        {
+          "source": "data-mongo",
+          "target": "/data/db",
+          "type": "volume",
+          "volume": {}
+        }
+      ]
+    },
+    "redis": {
+      "command": [
+        "redis-server",
+        "--requirepass",
+        "redispassword"
+      ],
+      "container_name": "gio-redis",
+      "entrypoint": null,
+      "healthcheck": {
+        "interval": "5s",
+        "retries": 20,
+        "start_period": "30s",
+        "test": [
+          "CMD-SHELL",
+          "redis-cli -a redispassword --no-auth-warning ping | grep -q PONG"
+        ],
+        "timeout": "3s"
+      },
+      "image": "redis:8.10.1-alpine",
+      "labels": {
+        "io.gravitee.description": "Stores gateway rate limit counters",
+        "io.gravitee.group": "Databases",
+        "io.gravitee.name": "Redis"
+      },
+      "networks": {
+        "internal": null
+      },
+      "ports": [
+        {
+          "host_ip": "127.0.0.1",
+          "mode": "ingress",
+          "protocol": "tcp",
+          "published": "6379",
+          "target": 6379
+        }
+      ],
+      "restart": "unless-stopped",
+      "volumes": [
+        {
+          "source": "data-redis",
+          "target": "/data",
+          "type": "volume",
+          "volume": {}
+        }
+      ]
+    }
+  },
+  "variables": [
+    "AE_REGISTRY",
+    "AE_VERSION",
+    "AM_REGISTRY",
+    "AM_VERSION",
+    "APIM_GATEWAY_REGISTRY",
+    "APIM_GATEWAY_VERSION",
+    "APIM_REGISTRY",
+    "APIM_VERSION",
+    "ELASTICSEARCH_VERSION",
+    "GRAVITEE_LICENSE",
+    "INTERNAL_API_PASSWORD",
+    "MONGODB_VERSION",
+    "MTLS_KEYSTORE_PASSWORD",
+    "REDIS_PASSWORD",
+    "REDIS_VERSION"
+  ],
+  "volumes": {
+    "data-elasticsearch": {
+      "name": "gravitee_data-elasticsearch"
+    },
+    "data-mongo": {
+      "name": "gravitee_data-mongo"
+    },
+    "data-redis": {
+      "name": "gravitee_data-redis"
+    }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "config": null,
+  "error": null,
+  "files": {
+    "compose.yml": "x-gravitee: {kind: addon, name: Absolute include, category: Other, description: Includes a file of this machine}\n\ninclude:\n  - /etc/passwd\n"
+  },
+  "never_compose": true,
+  "overlaid": {},
+  "own": [],
+  "unit": {
+    "id": "@hostile/t19-absolute-include",
+    "includes": [
+      null
+    ],
+    "kind": "addon",
+    "meta": {},
+    "name": "Absolute include",
+    "references": [],
+    "seed": null,
+    "seed_references": []
+  }
+}

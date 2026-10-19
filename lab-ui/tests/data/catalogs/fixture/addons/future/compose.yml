@@ -1,0 +1,15 @@
+x-gravitee:
+  kind: addon
+  name: Future
+  category: Other
+  description: Written for a Lab that does not exist yet
+  requires: {lab: 99}
+services:
+  fixture-future:
+    image: busybox:${FIXTURE_FUTURE_VERSION:-1.36}   # Image version
+    container_name: gio-fixture-future
+    restart: unless-stopped
+    command: ["httpd", "-f", "-p", "80"]
+    ports: ["127.0.0.1:8194:80"]   # HTTP
+    labels: {io.gravitee.name: Future, io.gravitee.description: A container written for a later Lab}
+    networks: [internal]

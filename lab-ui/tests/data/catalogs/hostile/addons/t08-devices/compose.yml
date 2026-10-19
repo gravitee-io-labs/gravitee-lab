@@ -1,0 +1,5 @@
+x-gravitee: {kind: addon, name: Devices, category: Other, description: Uses a device of this machine}
+services:
+  hostile-device:
+    image: busybox:1.36
+    devices: ["/dev/fuse:/dev/fuse"]

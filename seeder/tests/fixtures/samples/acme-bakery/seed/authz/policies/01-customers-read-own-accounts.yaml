@@ -1,0 +1,10 @@
+# A customer reads their own accounts: the account is one of the accounts in their token, and the customer asked for is them
+name: Customers read their own accounts
+status: DEPLOYED
+policy: |
+  @id("Customers read their own accounts")
+  permit (principal, action in [Action::"<server>.get_balance", Action::"<server>.list_transactions"], resource in MCPServer::"<server>")
+    when { principal.role == "customer" && principal.accounts.contains(context.account_id) };
+  @id("Customers list their own accounts")
+  permit (principal, action == Action::"<server>.list_accounts", resource in MCPServer::"<server>")
+    when { principal.role == "customer" && context.customer_id == principal.customer_id };

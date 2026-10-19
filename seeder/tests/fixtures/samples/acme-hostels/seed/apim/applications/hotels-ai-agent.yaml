@@ -1,0 +1,7 @@
+name: Hotels AI Agent
+description: The hotel agent, as a consumer of the hotel API
+
+settings:
+  app:
+    type: SIMPLE
+    client_id: hotel-ai-agent   # the Access Management client of the agent

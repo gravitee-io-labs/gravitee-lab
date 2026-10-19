@@ -1,0 +1,37 @@
+# The protections the lessons teach. The files of this seed say the protected state: their steps are enabled, their policy
+# deployed. On every run the seed brings each control below to the state of the mode (ACME_BAKERY_PROTECTIONS, SEED_PROTECTIONS
+# for the seed): "off" disables the steps and leaves the policy undeployed, for the lesson to switch on; "on" enables them all.
+# A control names a step as its seed file does, and a policy by its name; the console labels a step by its policy and shows
+# the file's description. A name that matches nothing stops the seed. The other steps of a flow stay on in both modes.
+
+pii:                                # lesson 2: an IBAN reaches the model in clear
+  api: Acme Bakery LLM
+  flow: Prompt
+  steps:
+    request: [PII filtering (financial_account)]
+
+guard:                              # lesson 2: a prompt injection is answered
+  api: Acme Bakery LLM
+  flow: Prompt
+  steps:
+    request: [Prompt guard rails (question)]
+
+tools:                              # lesson 3: every role is offered every tool
+  mcp-proxy: Acme Bakery MCP
+  flow: Visible tools
+  steps:
+    request: [Tools by role]
+
+pep:                                # lesson 4: any signed-in person reads any account through Ace
+  mcp-proxy: Acme Bakery MCP
+  flow: Authorization
+  steps:
+    request: [Fine-Grained Authorization]
+
+cap:                                # lesson 5: an agent moves any amount while the policy is not deployed
+  policy: Agents move at most EUR 500
+
+router:                             # lesson 6: a team spends on the large model until its budget is gone
+  workspace: Acme Bakery Teams
+  steps:
+    request: [Spend-aware routing]

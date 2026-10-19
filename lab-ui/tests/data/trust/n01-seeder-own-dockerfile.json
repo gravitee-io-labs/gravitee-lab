@@ -1,0 +1,75 @@
+{
+  "config": {
+    "name": "gravitee",
+    "networks": {
+      "default": {
+        "ipam": {},
+        "name": "gravitee_default"
+      }
+    },
+    "services": {
+      "hostile-n01-dockerfile-seed": {
+        "build": {
+          "context": "@ROOT@/seeder",
+          "dockerfile": "../.lab/catalogs/hostile/playgrounds/n01-seeder-own-dockerfile/Dockerfile"
+        },
+        "command": null,
+        "entrypoint": null,
+        "environment": {
+          "APIM_GATEWAY_URL": "http://localhost:8082",
+          "APIM_MANAGEMENT_URL": "http://apim-management-api:8083",
+          "HOSTILE_DEMO_PASSWORD": "demo"
+        },
+        "image": "hostile-seeder",
+        "labels": {
+          "io.gravitee.description": "Sets up the playground with its own Dockerfile",
+          "io.gravitee.name": "Playground seed",
+          "io.gravitee.role": "seed"
+        },
+        "networks": {
+          "default": null
+        },
+        "pull_policy": "build",
+        "restart": "no",
+        "volumes": [
+          {
+            "bind": {},
+            "read_only": true,
+            "source": "@ROOT@/.lab/catalogs/hostile/playgrounds/n01-seeder-own-dockerfile/seed",
+            "target": "/seed",
+            "type": "bind"
+          }
+        ]
+      }
+    },
+    "volumes": {}
+  },
+  "error": null,
+  "files": {
+    "compose.yml": "x-gravitee: {kind: playground, name: Seeder with its own Dockerfile, category: Other, description: Builds the seeder's folder with a Dockerfile of its own}\nservices:\n  hostile-n01-dockerfile-seed:\n    image: hostile-seeder\n    build:\n      context: ../../../../../seeder\n      dockerfile: ../.lab/catalogs/hostile/playgrounds/n01-seeder-own-dockerfile/Dockerfile\n    pull_policy: build\n    restart: \"no\"\n    labels:\n      io.gravitee.role: seed\n      io.gravitee.name: Playground seed\n      io.gravitee.description: Sets up the playground with its own Dockerfile\n    volumes:\n      - ./seed:/seed:ro\n    environment:\n      APIM_MANAGEMENT_URL: http://apim-management-api:8083\n      APIM_GATEWAY_URL: http://localhost:8082\n      HOSTILE_DEMO_PASSWORD: ${HOSTILE_DEMO_PASSWORD:-demo}\n"
+  },
+  "overlaid": {},
+  "own": [
+    "hostile-n01-dockerfile-seed"
+  ],
+  "unit": {
+    "id": "@hostile/n01-seeder-own-dockerfile",
+    "includes": [],
+    "kind": "playground",
+    "meta": {
+      "category": "Other",
+      "description": "Builds the seeder's folder with a Dockerfile of its own",
+      "kind": "playground",
+      "name": "Seeder with its own Dockerfile"
+    },
+    "name": "Seeder with its own Dockerfile",
+    "references": [
+      "HOSTILE_DEMO_PASSWORD"
+    ],
+    "seed": null,
+    "seed_references": [
+      "APIM_GATEWAY_URL",
+      "HOSTILE_DEMO_PASSWORD"
+    ]
+  }
+}

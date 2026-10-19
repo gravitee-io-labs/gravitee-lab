@@ -1,0 +1,33 @@
+name: Feature request
+description: An idea for an add-on, a setup, a playground or the Lab UI
+labels: [enhancement]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: What it is about
+      options:
+        - Add-on
+        - Setup
+        - Playground
+        - Lab UI
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: need
+    attributes:
+      label: What you want to do
+      description: The scenario you cannot run today, or what is hard to do
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you would like
+      description: How the lab could help, as far as you have thought of it
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do today
+      description: Any workaround, or another way you considered

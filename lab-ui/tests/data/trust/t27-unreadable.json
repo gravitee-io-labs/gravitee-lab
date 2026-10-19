@@ -1,0 +1,19 @@
+{
+  "config": null,
+  "error": "failed to parse @ROOT@/.lab/catalogs/hostile/addons/t27-unreadable/compose.yml: go-yaml load error in parser (while parsing a flow node) at L3.C1: did not find expected node content",
+  "files": {
+    "compose.yml": "x-gravitee: {kind: addon, name: Unreadable, category: Other, description: Does not parse}\nservices: [\n"
+  },
+  "overlaid": {},
+  "own": [],
+  "unit": {
+    "id": "@hostile/t27-unreadable",
+    "includes": [],
+    "kind": "addon",
+    "meta": {},
+    "name": "t27-unreadable",
+    "references": [],
+    "seed": null,
+    "seed_references": []
+  }
+}

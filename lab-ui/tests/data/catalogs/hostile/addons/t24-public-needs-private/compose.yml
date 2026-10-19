@@ -1,0 +1,4 @@
+x-gravitee: {kind: addon, name: Public needs private, category: Other, description: Includes an add-on of a private catalog}
+
+include:
+  - ../../../partner/addons/ledger/compose.yml

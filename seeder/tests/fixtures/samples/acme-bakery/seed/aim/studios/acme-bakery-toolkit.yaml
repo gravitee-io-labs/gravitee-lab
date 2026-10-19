@@ -1,0 +1,33 @@
+# The public tools of the bank and its REST API as MCP tools, under one endpoint. Delete this file and the seed makes no
+# studio: it needs the Gamma modules of API Management 4.13 or later and a license that includes them.
+name: Acme Bakery Toolkit
+description: The bank's public tools and its REST API as MCP tools
+contextPath: /acme-bakery/toolkit
+supportedProtocolVersions: ["2025-03-26", "2025-06-18", "2025-11-25", "2026-07-28"]   # 2026-07-28 for the clients that speak it
+
+# The authorization check, run on every tool call: a call that no policy permits is denied. A tool of an MCP server is judged
+# by <server slug>.<tool>, whatever its alias; one made from the API by the name a client sees, so its alias here. The
+# policies "Public tools for everyone signed in" and "Open API tools for everyone signed in" name those seven.
+fga: true
+
+plan:
+  name: Bank users
+  security:
+    type: OAUTH2_GENERIC
+    configuration:
+      name: acme-am
+      issuerUrl: ${AM_GATEWAY_URL}/acme-bakery
+      introspectionEndpoint: ${AM_GATEWAY_URL}/acme-bakery/oauth/introspect
+      introspectionEndpointMethod: POST
+      clientId: acme-bakery-mcp
+      clientSecret: "${MCP_RESOURCE_SECRET}"
+      scopes: []
+
+tools:
+  - {server: Acme Bakery MCP, tool: get_exchange_rate}
+  - {server: Acme Bakery MCP, tool: simulate_loan}
+  - {server: Acme Bakery MCP, tool: find_branches}
+  - {api: Acme Bakery Open API, tool: listBranches, alias: list_branches}
+  - {api: Acme Bakery Open API, tool: getBranch, alias: get_branch}
+  - {api: Acme Bakery Open API, tool: listRates, alias: list_rates}
+  - {api: Acme Bakery Open API, tool: getRate, alias: get_rate}

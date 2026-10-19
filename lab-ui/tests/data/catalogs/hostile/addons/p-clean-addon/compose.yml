@@ -1,0 +1,30 @@
+x-gravitee: {kind: addon, name: Clean add-on, category: Other, description: Every construct a catalog may use}
+
+services:
+  hostile-clean:
+    image: busybox:1.36
+    build: .
+    pull_policy: build
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8397:80"
+    environment:
+      HOSTILE_GREETING: ${HOSTILE_GREETING:-hello}
+      INTERNAL_API_PASSWORD: ${INTERNAL_API_PASSWORD:-adminadmin}
+      VERSION_TAG: ${HOSTILE_CLEAN_VERSION:-1}
+    volumes:
+      - ./config.yml:/etc/clean.yml:ro
+      - ./.state:/state
+      - ./secrets:/run/secrets
+      - clean-data:/data
+    networks: [internal, own]
+    labels:
+      io.gravitee.name: Clean
+      io.gravitee.console.hostile-clean.name: Clean
+      io.gravitee.console.hostile-clean.url: http://localhost:8397
+    healthcheck:
+      test: ["CMD", "true"]
+volumes:
+  clean-data: {}
+networks:
+  own: {}

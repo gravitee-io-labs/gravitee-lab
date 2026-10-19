@@ -1,0 +1,6 @@
+x-gravitee: {kind: addon, name: Bind of the Lab's state, category: Other, description: Mounts the settings of the Lab}
+services:
+  hostile-lab-state:
+    image: busybox:1.36
+    volumes:
+      - ../../../../../.env:/in/env:ro

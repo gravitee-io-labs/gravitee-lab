@@ -1,0 +1,6 @@
+x-gravitee: {kind: addon, name: Build with extra access, category: Other, description: Builds with the SSH agent of this machine}
+services:
+  hostile-build-ssh:
+    build:
+      context: .
+      ssh: [default]

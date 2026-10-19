@@ -1,0 +1,9 @@
+x-gravitee: {kind: addon, name: Overlay with a volume of its own, category: Other, description: Keeps the gateway's models in a volume it declares}
+
+services:
+  apim-gateway:
+    volumes:
+      - data-hostile-models:/opt/graviteeio-gateway/models
+
+volumes:
+  data-hostile-models: {}

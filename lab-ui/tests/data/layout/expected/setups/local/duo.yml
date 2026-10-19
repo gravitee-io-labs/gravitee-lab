@@ -1,0 +1,4 @@
+x-gravitee: {kind: setup, name: Duo, description: Echo with its core}
+include:
+  - ../../fixture/addons/echo/compose.yml
+  - ../../fixture/addons/echo-core/compose.yml

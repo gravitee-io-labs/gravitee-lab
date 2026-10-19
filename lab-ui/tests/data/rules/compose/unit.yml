@@ -1,0 +1,24 @@
+x-gravitee:
+  kind: playground
+  name: Shop
+
+x-app: &app
+  pull_policy: ${SHOP_PULL_POLICY:-build}
+
+services:
+  shop-api:
+    <<: *app
+    image: ${SHOP_REGISTRY:-ghcr.io/acme/hub}/shop-api:${SHOP_VERSION:-latest}
+    build: ./apps/api
+  shop-web:
+    <<: *app
+    image: ghcr.io/acme/hub/shop-web:latest
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+  shop-seed:
+    <<: *app
+    image: ghcr.io/lab/seeder:latest
+    build: ../../../../../seeder
+  shop-db:
+    image: postgres:16

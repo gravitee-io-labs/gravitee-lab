@@ -1,0 +1,4 @@
+# The last line that matches a file decides who owns it, and one approval from any owner on that line is enough.
+# The maintainers own everything; the second line says so for the files that run with a token.
+*                       @dobl1
+/.github/               @dobl1

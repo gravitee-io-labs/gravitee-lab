@@ -1,0 +1,6 @@
+x-gravitee: {kind: addon, name: Foreign gateway, category: Other, description: Says it runs the gateway of a platform, gateway: {platform: cloud, service: hostile-gateway, token: HOSTILE_GATEWAY_TOKEN}}
+services:
+  hostile-gateway:
+    image: busybox:1.36
+    environment:
+      HOSTILE_GATEWAY_TOKEN: ${HOSTILE_GATEWAY_TOKEN:-}

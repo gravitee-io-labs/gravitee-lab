@@ -1,0 +1,15 @@
+x-gravitee: {kind: playground, name: Seed reads a token, category: Other, description: Seed data that reads the token of a deploy}
+services:
+  hostile-n02-seed:
+    image: hostile-seeder
+    build: ../../../../../seeder
+    pull_policy: build
+    restart: "no"
+    labels:
+      io.gravitee.role: seed
+      io.gravitee.name: Playground seed
+      io.gravitee.description: Sets up the playground in API Management
+    volumes:
+      - ./seed:/seed:ro
+    environment:
+      APIM_TOKEN: ${HOSTILE_TOKEN:-}

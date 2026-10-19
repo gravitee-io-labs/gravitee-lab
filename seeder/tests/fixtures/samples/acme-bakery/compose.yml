@@ -1,0 +1,336 @@
+# Demo secrets shared by every container that needs them; change one in the shell or in playgrounds/acme-bakery/.env
+x-bank-secrets:
+  demo-password: &demo-password ${ACME_BAKERY_DEMO_PASSWORD:-HelloWorld@123}                             # Password of Alice, Bob and Tina
+  web-client-secret: &web-client-secret ${ACME_BAKERY_WEB_CLIENT_SECRET:-acme-bakery-web}                  # Secret of the acme-bakery-web application in Access Management (the web app's sign-in)
+  traffic-client-secret: &traffic-client-secret ${ACME_BAKERY_TRAFFIC_CLIENT_SECRET:-acme-bakery-traffic}  # Secret of the acme-bakery-traffic application in Access Management (traffic generator and seed)
+  ace-client-secret: &ace-client-secret ${ACME_BAKERY_ACE_CLIENT_SECRET:-ace-agent}                      # Secret of Ace's application in Access Management
+  mcp-resource-secret: &mcp-resource-secret ${ACME_BAKERY_MCP_RESOURCE_SECRET:-acme-bakery-mcp}            # Secret of the MCP server's resource in Access Management
+  ace-llm-key: &ace-llm-key ${ACME_BAKERY_ACE_LLM_API_KEY:-acme-ace-llm-key}                             # API key of Ace on the LLM proxy
+  dev-llm-key: &dev-llm-key ${ACME_BAKERY_DEV_LLM_API_KEY:-acme-dev-llm-key}                             # API key of the Developers plan on the LLM proxy
+  traffic-llm-key: &traffic-llm-key ${ACME_BAKERY_TRAFFIC_LLM_API_KEY:-acme-traffic-llm-key}             # API key of the Traffic plan on the LLM proxy
+  admin-token: &admin-token ${ACME_BAKERY_ADMIN_TOKEN:-acme-bakery-admin}                                  # Token that allows resetting the bank's data
+  apim-password: &apim-password ${ACME_BAKERY_APIM_PASSWORD:-admin}                                      # Password of user admin in API Management
+  am-password: &am-password ${ACME_BAKERY_AM_PASSWORD:-adminadmin}                                       # Password of user admin in Access Management
+
+# Administrator login for the seed, the web app and the traffic generator
+x-bank-platform-login: &platform-login
+  APIM_USERNAME: admin
+  APIM_PASSWORD: *apim-password
+
+x-gravitee:
+  kind: playground
+  name: Acme Bakery
+  category: AI
+  description: Protection of an AI agent in production with Gravitee Gamma, one lesson at a time
+  tags: [Gamma, AI Agents, LLM Proxy, MCP, Guard Rails, Authorization, Budgets, Tracing]
+  duration: 35 min
+  first_start: 10 min
+  requires:
+    images:
+      APIM_VERSION: "4.13.0-alpha.5"
+      AM_VERSION: "4.13.0-alpha.9"   # a pre-release (alpha) build of 4.13: a bare 4.13 is the release, which comes after them
+    license:
+      - gamma-aim-module
+      - apim-mcp-proxy-reactor              # the MCP proxy, and its mcp-acl policy
+      - gamma-authz-module
+      - gamma-authz-reactor
+      - gamma-authz-policy-pep
+      - gamma-authz-service-pdp
+      - gamma-aim-entrypoint-mcp-studio     # MCP Studio and the tools of a REST API
+      - gamma-aim-endpoint-tools-mcp
+      - gamma-aim-endpoint-tools-http
+    host:
+      - name: Ollama with qwen3:1.7b
+        check: http://localhost:11434/api/tags
+        expect: qwen3:1.7b
+        help: Install Ollama (ollama.com/download), then run `ollama pull qwen3:1.7b`; the containers must be able to reach it (Troubleshooting, Ollama)
+      - name: Ollama with qwen3:0.6b
+        check: http://localhost:11434/api/tags
+        expect: qwen3:0.6b
+        help: Run `ollama pull qwen3:0.6b`; the containers must be able to reach Ollama (Troubleshooting, Ollama)
+      - name: Hugging Face (the gateway's AI models)
+        check: https://huggingface.co
+        help: The gateway downloads its AI models (129 MB) from huggingface.co when it first deploys the LLM proxy. Without access the seed ends with a timeout
+  tested:                                   # the versions it was built and checked on: the latest published, until 4.13 is stable
+    - APIM_VERSION: "4.13.0-alpha.5"        # its core carries the 4.13.0-alpha.9 libraries
+      APIM_REGISTRY: graviteeio
+      AM_VERSION: "4.13.0-alpha.9"
+      AM_REGISTRY: graviteeio
+  consoles: [bakery-web, gamma-ui]
+  accounts:
+    - for: "Acme Bakery: Alice (customer)"
+      username: alice@acme-bakery.test
+      password: *demo-password
+    - for: "Acme Bakery: Bob (customer)"
+      username: bob@acme-bakery.test
+      password: *demo-password
+    - for: "Acme Bakery: Tina (teller)"
+      username: tina@acme-bakery.test
+      password: *demo-password
+    - for: "Acme Bakery LLM proxy: Developers key"
+      key: *dev-llm-key
+    - for: Gamma and API Management consoles
+      username: admin
+      password: *apim-password
+    - for: Access Management console
+      username: admin
+      password: *am-password
+
+x-bank-healthcheck: &healthcheck
+  interval: 5s
+  timeout: 3s
+  retries: 20
+
+include:
+  - ../../addons/gamma-spans/compose.yml          # Gamma Spans
+
+services:
+
+  bakery-mcp:
+    image: ghcr.io/gravitee-io-labs/gravitee-lab/bakery-mcp:latest
+    build: ./apps/bakery-mcp
+    pull_policy: ${ACME_BAKERY_PULL_POLICY:-build}   # build: build it here at each start; always: pull it, build it here if it cannot be pulled
+    container_name: gio-bakery-mcp
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8111:8000"   # The MCP server, unprotected: calling it here skips the gateway
+    environment:
+      ADMIN_TOKEN: *admin-token   # Token required by POST /admin/reset
+      ALLOWED_HOSTS: bakery-mcp,localhost,127.0.0.1,[::1]   # The host names it answers to
+    labels:
+      io.gravitee.name: Acme Bakery MCP server
+      io.gravitee.description: The bank's tools, served over MCP
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+    networks:
+      - internal
+
+  bakery-agent:
+    image: ghcr.io/gravitee-io-labs/gravitee-lab/bakery-agent:latest
+    build: ./apps/bakery-agent
+    pull_policy: ${ACME_BAKERY_PULL_POLICY:-build}
+    container_name: gio-bakery-agent
+    restart: unless-stopped
+    depends_on:
+      apim-gateway:
+        condition: service_healthy
+      am-gateway:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8112:8000"   # Ace, behind the gateway's A2A proxy
+    environment:
+      LLM_URL: http://apim-gateway:8082/acme-bakery/llm       # The LLM proxy
+      LLM_MODEL: acme-chat                                  # Alias of qwen3:1.7b on the LLM proxy
+      LLM_API_KEY: *ace-llm-key                             # ACME_BAKERY_ACE_LLM_API_KEY
+      MCP_URL: http://apim-gateway:8082/acme-bakery/mcp       # The MCP proxy, without a trailing slash
+      DELEGATION: "on"                                      # Ace acts for the signed-in user, with a token exchanged in Access Management
+      AM_TOKEN_URL: http://am-gateway:8092/acme-bakery/oauth/token   # Token endpoint of the Access Management domain
+      AGENT_CLIENT_ID: ace-agent                            # Ace's application in Access Management
+      AGENT_CLIENT_SECRET: *ace-client-secret               # ACME_BAKERY_ACE_CLIENT_SECRET
+      PUBLIC_URL: http://localhost:8082/acme-bakery/ace/      # Where clients call Ace (the A2A proxy)
+      ALLOWED_HOSTS: bakery-agent,localhost,127.0.0.1,[::1]   # The host names it answers to
+    labels:
+      io.gravitee.name: Ace
+      io.gravitee.description: The AI assistant that answers customers, through the gateway
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+    networks:
+      - internal
+
+  bakery-agent-direct:
+    image: ghcr.io/gravitee-io-labs/gravitee-lab/bakery-agent:latest
+    pull_policy: never
+    container_name: gio-bakery-agent-direct
+    restart: unless-stopped
+    depends_on:
+      bakery-mcp:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8114:8000"   # Ace with no gateway, identity or policy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # Lets the container reach Ollama on this machine, also on Linux
+    environment:
+      LLM_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}/v1   # Ollama itself, with no LLM proxy; OLLAMA_URL is where Ollama listens
+      LLM_MODEL: qwen3:1.7b                                 # Ollama model name
+      MCP_URL: http://bakery-mcp:8000/                        # The MCP server itself, with no MCP proxy
+      DELEGATION: "off"                                     # No token exchange: the user's token is forwarded as is
+      PUBLIC_URL: http://localhost:8114/                    # Where clients call this Ace
+      ALLOWED_HOSTS: bakery-agent-direct,localhost,127.0.0.1,[::1]   # The host names it answers to
+    labels:
+      io.gravitee.name: Ace without the gateway
+      io.gravitee.description: The same assistant, called directly with no gateway, identity or policy
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+    networks:
+      - internal
+
+  bakery-web:
+    image: ghcr.io/gravitee-io-labs/gravitee-lab/bakery-web:latest
+    build: ./apps/bakery-web
+    pull_policy: ${ACME_BAKERY_PULL_POLICY:-build}
+    container_name: gio-bakery-web
+    restart: unless-stopped
+    depends_on:
+      apim-gateway:
+        condition: service_healthy
+      am-gateway:
+        condition: service_healthy
+      apim-management-api:
+        condition: service_healthy
+      bakery-mcp:
+        condition: service_healthy
+      bakery-agent-direct:
+        condition: service_healthy
+      bakery-traffic:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8110:8000"   # The web app
+    environment:
+      <<: *platform-login
+      BANK_DEMO_PASSWORD: *demo-password
+      WEB_CLIENT_SECRET: *web-client-secret
+      AM_AUTHORIZE_URL: http://localhost:8092/acme-bakery/oauth/authorize   # Login page of the Access Management domain, as your browser reaches it
+      AM_TOKEN_URL: http://am-gateway:8092/acme-bakery/oauth/token   # Token endpoint of the Access Management domain
+      ACE_URL: http://apim-gateway:8082/acme-bakery/ace/      # Ace behind the gateway (A2A proxy)
+      ACE_DIRECT_URL: http://bakery-agent-direct:8000/        # Ace with no gateway, for the Direct setting
+      MCP_URL: http://apim-gateway:8082/acme-bakery/mcp       # The MCP proxy, without a trailing slash
+      MCP_DIRECT_URL: http://bakery-mcp:8000/                 # The MCP server itself, for the Direct setting and data reset
+      LLM_URL: http://apim-gateway:8082/acme-bakery/llm       # The LLM proxy, for the Developers view
+      DEV_LLM_API_KEY: *dev-llm-key
+      GATEWAY_URL: http://apim-gateway:8082                 # The gateway
+      APIM_MANAGEMENT_URL: http://apim-management-api:8083  # The management API, which also serves Gamma
+      GAMMA_URL: http://localhost:8086                      # The Gamma console, as your browser reaches it
+      TRAFFIC_URL: http://bakery-traffic:8000                 # The traffic generator's control port
+      ADMIN_TOKEN: *admin-token                             # ACME_BAKERY_ADMIN_TOKEN
+    labels:
+      io.gravitee.name: Acme Bakery web app
+      io.gravitee.description: The bank's web app, where customers chat with Ace
+      io.gravitee.console.bakery-web.name: Acme Bakery
+      io.gravitee.console.bakery-web.url: http://localhost:8110
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+    networks:
+      - internal
+
+  bakery-api:
+    image: ghcr.io/gravitee-io-labs/gravitee-lab/bakery-api:latest
+    build: ./apps/bakery-api
+    pull_policy: ${ACME_BAKERY_PULL_POLICY:-build}
+    container_name: gio-bakery-api
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8113:8000"   # The bank's open REST API, which MCP Studio can turn into tools
+    labels:
+      io.gravitee.name: Acme Bakery open API
+      io.gravitee.description: The bank's open REST API, which MCP Studio can turn into tools
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+    networks:
+      - internal
+
+  bakery-traffic:
+    image: ghcr.io/gravitee-io-labs/gravitee-lab/bakery-traffic:latest
+    build: ./apps/bakery-traffic
+    pull_policy: ${ACME_BAKERY_PULL_POLICY:-build}
+    container_name: gio-bakery-traffic
+    restart: unless-stopped
+    depends_on:
+      apim-gateway:
+        condition: service_healthy
+      am-gateway:
+        condition: service_healthy
+      apim-management-api:
+        condition: service_healthy
+    environment:
+      <<: *platform-login
+      BANK_DEMO_PASSWORD: *demo-password
+      TRAFFIC_CLIENT_SECRET: *traffic-client-secret
+      TRAFFIC_LLM_API_KEY: *traffic-llm-key
+      GATEWAY_URL: http://apim-gateway:8082                 # The gateway
+      APIM_MANAGEMENT_URL: http://apim-management-api:8083  # The management API, which also serves Gamma
+      PROTECTIONS: ${ACME_BAKERY_PROTECTIONS:-off}            # off: the lessons switch the protections on; on: everything protected from the start. Save & apply restarts the traffic generator, Re-seed puts the protections in the new state
+      TRAFFIC: ${ACME_BAKERY_TRAFFIC:-on}                     # off starts it paused, until the web app's Presenter view resumes it
+      TRAFFIC_RATE: ${ACME_BAKERY_TRAFFIC_RATE:-1}            # How fast it sends, from 0.1 to 10; 1 is one scenario every 2 minutes
+    labels:
+      io.gravitee.name: Acme Bakery traffic
+      io.gravitee.description: Sends a steady trickle of customer and developer calls through the gateway
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+    networks:
+      - internal
+
+  bakery-seed:
+    image: ghcr.io/gravitee-io-labs/gravitee-lab/seeder:latest
+    build: ../../seeder
+    pull_policy: ${ACME_BAKERY_PULL_POLICY:-build}
+    container_name: gio-bakery-seed
+    restart: "no"
+    depends_on:
+      apim-management-api:
+        condition: service_healthy
+      am-management-api:
+        condition: service_healthy
+      apim-gateway:
+        condition: service_healthy
+      am-gateway:
+        condition: service_healthy
+      bakery-mcp:
+        condition: service_healthy
+      bakery-agent:
+        condition: service_healthy
+      bakery-api:
+        condition: service_healthy
+    volumes:
+      - ./seed:/seed:ro
+      - ./.state:/state   # What the seed created, to remove it later
+    environment:
+      <<: *platform-login
+      APIM_MANAGEMENT_URL: http://apim-management-api:8083
+      AM_MANAGEMENT_URL: http://am-management-api:8093
+      AM_USERNAME: admin
+      AM_PASSWORD: *am-password
+      APIM_GATEWAY_URL: http://localhost:8082               # The gateway, as you reach it
+      GATEWAY_INTERNAL_URL: http://apim-gateway:8082        # The gateway, as the seed reaches it
+      GATEWAY_READY_TIMEOUT: ${ACME_BAKERY_GATEWAY_READY_TIMEOUT:-300}  # Seconds the seed waits for the gateway to serve each API (the first start downloads the AI models)
+      AM_GATEWAY_URL: http://am-gateway:8092                # Access Management, as the gateway reaches it
+      AM_PUBLIC_URL: http://localhost:8092                  # Access Management, as your browser reaches it
+      BAKERY_MCP_URL: http://bakery-mcp:8000                    # The MCP server, without a trailing slash
+      BAKERY_AGENT_URL: http://bakery-agent:8000                # Ace
+      BAKERY_API_URL: http://bakery-api:8000                    # The open API
+      BAKERY_WEB_URL: http://localhost:8110                   # The web app, as your browser reaches it
+      BAKERY_WEB_LOOPBACK_URL: http://127.0.0.1:8110          # The same, by IP address
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}   # Ollama, as the gateway reaches it
+      REDIS_URL: redis://redis:6379                         # The core's Redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redispassword}      # The core's Redis password
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}                   # Optional Google AI Studio key: with one, the catalog gets a Gemini provider; empty seeds none
+      SEED_PROTECTIONS: ${ACME_BAKERY_PROTECTIONS:-off}       # State the seed puts the protections in (off or on)
+      BANK_DEMO_PASSWORD: *demo-password
+      WEB_CLIENT_SECRET: *web-client-secret
+      TRAFFIC_CLIENT_SECRET: *traffic-client-secret
+      ACE_CLIENT_SECRET: *ace-client-secret
+      MCP_RESOURCE_SECRET: *mcp-resource-secret
+      ACE_LLM_API_KEY: *ace-llm-key
+      DEV_LLM_API_KEY: *dev-llm-key
+      LLM_PROBE_KEY: *dev-llm-key                           # Key the seed uses to check the Developers plan cache
+      TRAFFIC_LLM_API_KEY: *traffic-llm-key
+    labels:
+      io.gravitee.name: Playground seed
+      io.gravitee.description: Sets up the bank's APIs, applications and identity on the platform
+      io.gravitee.role: seed
+    networks:
+      - internal
+
+  apim-gateway:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # Ollama on this machine, also on Linux
+    volumes:
+      - data-acme-bakery-gateway-models:/opt/graviteeio-gateway/models   # The AI models downloaded on first start (129 MB)
+
+volumes:
+  data-acme-bakery-gateway-models:

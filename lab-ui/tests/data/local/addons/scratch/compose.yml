@@ -1,0 +1,14 @@
+x-gravitee: {kind: addon, name: Scratch, category: Other, description: Notepad of this machine that brings Echo}
+include:
+  - ../../../fixture/addons/echo/compose.yml
+services:
+  scratch-notes:
+    image: busybox:${SCRATCH_NOTES_VERSION:-1.36}   # Image version
+    container_name: gio-scratch-notes
+    restart: unless-stopped
+    command: ["httpd", "-f", "-p", "80"]
+    ports: ["127.0.0.1:8196:80"]   # HTTP
+    labels:
+      io.gravitee.name: Scratch
+      io.gravitee.description: A notepad of this machine
+    networks: [internal]

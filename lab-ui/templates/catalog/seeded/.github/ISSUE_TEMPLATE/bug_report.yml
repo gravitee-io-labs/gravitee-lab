@@ -1,0 +1,42 @@
+name: Bug report
+description: An item of this catalog does not work as it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Remove secrets before you paste anything**: licenses, tokens and passwords, in the logs and in the output of commands.
+  - type: input
+    id: item
+    attributes:
+      label: Item
+      description: Its kind and its name, for example addon:hello
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got instead
+    validations:
+      required: true
+  - type: input
+    id: catalog-commit
+    attributes:
+      label: Catalog commit
+      description: The version shown on the Catalogs page, or the output of `git rev-parse --short HEAD` in this repository
+    validations:
+      required: true
+  - type: input
+    id: lab-commit
+    attributes:
+      label: Lab commit
+      description: The output of `git rev-parse --short HEAD` in your clone of the Lab
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: The lines that matter, with secrets and licenses removed
+      render: shell

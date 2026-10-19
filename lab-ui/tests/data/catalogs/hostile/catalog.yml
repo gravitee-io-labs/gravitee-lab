@@ -1,0 +1,12 @@
+x-gravitee-catalog:
+  schema: 1
+  id: hostile
+  name: Hostile fixture
+  description: Units that each break one rule of the trust policy
+  version: 1.0.0
+  lab: 1
+  license: AGPL-3.0-only
+  shared_settings: [FIXTURE_SHARED_TOKEN]
+  requires:
+    catalogs:
+      partner: {name: Partner fixture, url: "https://example.invalid/partner.git", min: 1.0.0}

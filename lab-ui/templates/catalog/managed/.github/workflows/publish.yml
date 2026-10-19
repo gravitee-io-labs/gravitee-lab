@@ -1,0 +1,186 @@
+# Managed by the Lab catalog standard 3: change it with catalog.py upgrade, in a pull request a maintainer reads.
+# The trusted lane. The only workflow that writes packages and releases, and it runs only on the main branch and on a release tag:
+# what a pull request writes never reaches it. Nothing has to be pulled: the default builds every image from the files, and a pull
+# that is refused builds too. A person who wants the images sets `<ID>_PULL_POLICY=always`.
+#   main      the images whose files changed since the last successful run, as :sha-<7> and :latest (the tip of main)
+#   v1.4.0    every image, as :1.4.0 (immutable) and :sha-<7>, then a GitHub release with notes, catalog.json and images.json
+# A commit is published only when its `Catalog CI result` passed. The jobs that write wait in the environment `publish`: on a public
+# repository, or a plan that has environments, a maintainer adds required reviewers and limits it to main and v* tags there. Nothing
+# here is published unless catalog.yml names a registry in `images`.
+name: Publish
+
+on:
+  push:
+    branches: [main]
+    tags: ["v[0-9]*.[0-9]*.[0-9]*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A run is never canceled once started: canceling one that pushes would leave :latest and :sha- of different builds. A run that waits
+# behind another is dropped when a third arrives, so the plan never trusts `before`: it diffs from the last run that succeeded
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Where the plan has no rule against a force push, this is how it is seen: people pin commits, and a rewritten main takes them away.
+  # Nothing is published from a rewritten history
+  guard:
+    if: ${{ github.ref_type == 'branch' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - env:
+          FORCED: ${{ github.event.forced }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          [ "$FORCED" != true ] || { echo "::error title=PB07::main was force-pushed, it was at $BEFORE: the commits people pinned are gone. Fix: restore it from that commit, then run catalog.py repo-settings."; exit 1; }
+
+  # Whether this ref may publish, and what to build. A branch waits for the CI result of its commit (it does not run the rules a
+  # third time); a tag is gated: its version is the catalog's, its commit is on main, its checks ended well. A fork builds nothing:
+  # the images are the catalog's own
+  plan:
+    needs: guard
+    if: ${{ !cancelled() && contains(fromJSON('["success","skipped"]'), needs.guard.result) && !github.event.repository.fork }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      checks: read
+      actions: read
+    outputs:
+      images: ${{ steps.plan.outputs.images }}
+      count: ${{ steps.plan.outputs.count }}
+      attest: ${{ steps.plan.outputs.attest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: catalog
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./catalog/.github/actions/lab
+        with:
+          key: ${{ secrets.LAB_DEPLOY_KEY }}
+      - id: plan
+        name: Whether this ref may publish, and what to build
+        env:
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+          PRIVATE: ${{ github.event.repository.private }}
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -I lab/lab-ui/catalog.py ci publish-plan catalog --ref "$REF" --sha "$SHA" --repository "$REPOSITORY" --private "$PRIVATE" --github-output
+
+  # amd64 and arm64 in one push, with QEMU: a publish is rare (pull requests build on the real architectures, so what is published was
+  # already proven on both). The images of a tag that already exist are not built again. There is no build cache: it would need the
+  # runtime token of Actions in the one job that holds the registry login
+  images:
+    needs: plan
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.count != '0' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    environment: publish
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      records: ${{ steps.publish.outputs.records }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: catalog
+          persist-credentials: false
+      - uses: ./catalog/.github/actions/lab
+        with:
+          key: ${{ secrets.LAB_DEPLOY_KEY }}
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      # REGISTRY_TOKEN exists only as a secret of the environment `publish`, and only in the hardened option (section 4.9); without it
+      # the job's own token is the password
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}
+      - id: publish
+        env:
+          IMAGES: ${{ needs.plan.outputs.images }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+        run: python3 -I lab/lab-ui/catalog.py ci publish catalog --images "$IMAGES" --ref "$REF" --sha "$SHA" --records records.json --github-output
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: records
+          path: records.json
+          retention-days: 7
+
+  # GitHub keeps artifact attestations for public repositories on every plan, and for private ones on Enterprise Cloud only. The
+  # provenance and the SBOM that BuildKit attaches to each image are in the registry either way
+  attest:
+    needs: [plan, images]
+    if: ${{ !cancelled() && needs.plan.outputs.attest == 'true' && needs.images.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: publish
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        record: ${{ fromJSON(needs.images.outputs.records || '[]') }}
+    steps:
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ matrix.record.name }}
+          subject-digest: ${{ matrix.record.digest }}
+          push-to-registry: true
+
+  # A tag: the GitHub release, with notes made from the commit subjects (what the Lab's Update dialog shows too). It runs only when
+  # the jobs before it ended in success or had nothing to do: a canceled or timed-out job is not "not a failure"
+  release:
+    needs: [plan, images, attest]
+    if: ${{ !cancelled() && github.ref_type == 'tag' && needs.plan.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.images.result) && contains(fromJSON('["success","skipped"]'), needs.attest.result) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: publish
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: catalog
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./catalog/.github/actions/lab
+        with:
+          key: ${{ secrets.LAB_DEPLOY_KEY }}
+      - if: ${{ needs.plan.outputs.count != '0' }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: records
+          path: records
+      # The Lab's Python runs here with no token in its environment
+      - name: The notes and the index
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          python3 -I lab/lab-ui/catalog.py index catalog --out catalog.json
+          python3 -I lab/lab-ui/catalog.py ci release-notes catalog --tag "$TAG" --records records --notes notes.md --images images.json
+      # A draft first, the assets attached, then published: an immutable release keeps the assets it had when it was published
+      - name: The release
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --title "$TAG" --notes-file notes.md catalog.json images.json
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false

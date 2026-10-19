@@ -1,0 +1,26 @@
+x-gravitee: {kind: playground, name: Clean playground, category: Other, description: A playground whose seed is the Lab's own}
+services:
+  hostile-clean-app:
+    image: busybox:1.36
+    ports: ["127.0.0.1:8396:80"]
+    environment:
+      HOSTILE_LOGIN: demo
+  hostile-clean-seed:
+    image: hostile-seeder
+    build: ../../../../../seeder
+    pull_policy: build
+    restart: "no"
+    labels:
+      io.gravitee.role: seed
+      io.gravitee.name: Playground seed
+      io.gravitee.description: Sets up the playground in API Management
+    depends_on:
+      apim-management-api:
+        condition: service_healthy
+    volumes:
+      - ./seed:/seed:ro
+      - ./.state:/state
+    environment:
+      APIM_MANAGEMENT_URL: http://apim-management-api:8083
+      APIM_GATEWAY_URL: http://localhost:8082
+      HOSTILE_DEMO_PASSWORD: ${HOSTILE_DEMO_PASSWORD:-demo}

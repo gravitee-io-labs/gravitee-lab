@@ -1,0 +1,51 @@
+{
+  "config": {
+    "name": "gravitee",
+    "networks": {
+      "default": {
+        "ipam": {},
+        "name": "gravitee_default"
+      }
+    },
+    "services": {
+      "hostile-build-ssh": {
+        "build": {
+          "context": "@ROOT@/.lab/catalogs/hostile/addons/t18-build-extra-access",
+          "dockerfile": "Dockerfile",
+          "ssh": [
+            "default"
+          ]
+        },
+        "command": null,
+        "entrypoint": null,
+        "networks": {
+          "default": null
+        }
+      }
+    },
+    "volumes": {}
+  },
+  "error": null,
+  "files": {
+    "compose.yml": "x-gravitee: {kind: addon, name: Build with extra access, category: Other, description: Builds with the SSH agent of this machine}\nservices:\n  hostile-build-ssh:\n    build:\n      context: .\n      ssh: [default]\n"
+  },
+  "overlaid": {},
+  "own": [
+    "hostile-build-ssh"
+  ],
+  "unit": {
+    "id": "@hostile/t18-build-extra-access",
+    "includes": [],
+    "kind": "addon",
+    "meta": {
+      "category": "Other",
+      "description": "Builds with the SSH agent of this machine",
+      "kind": "addon",
+      "name": "Build with extra access"
+    },
+    "name": "Build with extra access",
+    "references": [],
+    "seed": null,
+    "seed_references": []
+  }
+}

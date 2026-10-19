@@ -1,0 +1,19 @@
+x-gravitee: {kind: playground, name: Trip demo, category: Other, description: "Playground of this machine that tries Echo",
+             tags: [Gateway], duration: 5 min, first_start: 1 min}
+include:
+  - ../../setups/duo.yml
+  - "../../../fixture/addons/echo/compose.yml"   # shared
+services:
+  trip-demo-seed:
+    image: registry.example.invalid/lab/seeder
+    build: ../../../../../seeder
+    container_name: gio-trip-demo-seed
+    restart: "no"
+    volumes:
+      - ./seed:/seed:ro
+      - ./.state:/state
+      - ../../../../../certs/mtls:/certs:ro
+    env_file:
+      - ./.env
+    command: seed --from https://example.invalid/a/../b
+    networks: [internal]

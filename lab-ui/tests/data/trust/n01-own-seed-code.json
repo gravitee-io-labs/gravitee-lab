@@ -1,0 +1,65 @@
+{
+  "config": {
+    "name": "gravitee",
+    "networks": {
+      "default": {
+        "ipam": {},
+        "name": "gravitee_default"
+      }
+    },
+    "services": {
+      "hostile-n01-seed": {
+        "build": {
+          "context": "@ROOT@/.lab/catalogs/hostile/playgrounds/n01-own-seed-code/seed-image",
+          "dockerfile": "Dockerfile"
+        },
+        "command": null,
+        "entrypoint": null,
+        "image": "busybox:1.36",
+        "labels": {
+          "io.gravitee.description": "Sets up the playground with its own code",
+          "io.gravitee.name": "Playground seed",
+          "io.gravitee.role": "seed"
+        },
+        "networks": {
+          "default": null
+        },
+        "pull_policy": "build",
+        "restart": "no",
+        "volumes": [
+          {
+            "bind": {},
+            "read_only": true,
+            "source": "@ROOT@/.lab/catalogs/hostile/playgrounds/n01-own-seed-code/seed",
+            "target": "/seed",
+            "type": "bind"
+          }
+        ]
+      }
+    },
+    "volumes": {}
+  },
+  "error": null,
+  "files": {
+    "compose.yml": "x-gravitee: {kind: playground, name: Own seed code, category: Other, description: A seed service built from the playground's own folder}\nservices:\n  hostile-n01-seed:\n    image: busybox:1.36\n    build: ./seed-image\n    pull_policy: build\n    restart: \"no\"\n    labels:\n      io.gravitee.role: seed\n      io.gravitee.name: Playground seed\n      io.gravitee.description: Sets up the playground with its own code\n    volumes:\n      - ./seed:/seed:ro\n"
+  },
+  "overlaid": {},
+  "own": [
+    "hostile-n01-seed"
+  ],
+  "unit": {
+    "id": "@hostile/n01-own-seed-code",
+    "includes": [],
+    "kind": "playground",
+    "meta": {
+      "category": "Other",
+      "description": "A seed service built from the playground's own folder",
+      "kind": "playground",
+      "name": "Own seed code"
+    },
+    "name": "Own seed code",
+    "references": [],
+    "seed": null,
+    "seed_references": []
+  }
+}

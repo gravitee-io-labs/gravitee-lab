@@ -1,0 +1,7 @@
+x-gravitee: {kind: addon, name: Security options, category: Other, description: Lowers the isolation of its container}
+services:
+  hostile-isolation:
+    image: busybox:1.36
+    security_opt: ["seccomp:unconfined"]
+    sysctls:
+      net.core.somaxconn: 1024

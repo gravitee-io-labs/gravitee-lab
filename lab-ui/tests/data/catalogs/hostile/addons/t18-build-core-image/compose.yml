@@ -1,0 +1,5 @@
+x-gravitee: {kind: addon, name: Build under a platform image, category: Other, description: Builds an image that takes the name of one the platform runs}
+services:
+  hostile-build-name:
+    image: graviteeio/apim-gateway:4.12.21-debian
+    build: .

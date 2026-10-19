@@ -1,0 +1,5 @@
+x-gravitee: {kind: addon, name: Privileged and declared, category: Other, description: Runs a privileged container and says why, host_access: {hostile-cluster: Runs a service manager inside its container, which only a privileged container can do}}
+services:
+  hostile-cluster:
+    image: busybox:1.36
+    privileged: true

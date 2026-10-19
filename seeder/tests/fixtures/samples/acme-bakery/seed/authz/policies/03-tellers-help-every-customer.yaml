@@ -1,0 +1,10 @@
+# Tellers read every customer's accounts and freeze cards. They do not move customer money
+name: Tellers help every customer
+status: DEPLOYED
+policy: |
+  @id("Tellers help every customer")
+  permit (principal, action in [Action::"<server>.list_accounts", Action::"<server>.get_balance", Action::"<server>.list_transactions"], resource in MCPServer::"<server>")
+    when { principal.role == "teller" };
+  @id("Tellers freeze cards")
+  permit (principal, action == Action::"<server>.freeze_card", resource in MCPServer::"<server>")
+    when { principal.role == "teller" };

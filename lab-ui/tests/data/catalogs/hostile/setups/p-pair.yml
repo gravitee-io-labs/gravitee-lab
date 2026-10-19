@@ -1,0 +1,5 @@
+x-gravitee: {kind: setup, name: Pair, category: Other, description: Two add-ons of the catalog together}
+
+include:
+  - ../addons/p-clean-addon/compose.yml
+  - ../addons/h-secrets-rw/compose.yml

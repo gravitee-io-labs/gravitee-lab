@@ -1,0 +1,4 @@
+x-gravitee: {kind: addon, name: Include outside, category: Other, description: Includes a file of the project}
+
+include:
+  - ../../../../../addons/other/compose.yml

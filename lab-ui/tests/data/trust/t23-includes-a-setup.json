@@ -1,0 +1,45 @@
+{
+  "config": {
+    "name": "gravitee",
+    "networks": {
+      "default": {
+        "ipam": {},
+        "name": "gravitee_default"
+      },
+      "own": {
+        "ipam": {},
+        "name": "gravitee_own"
+      }
+    },
+    "services": {},
+    "volumes": {
+      "clean-data": {
+        "name": "gravitee_clean-data"
+      }
+    }
+  },
+  "error": null,
+  "files": {
+    "t23-includes-a-setup.yml": "x-gravitee: {kind: setup, name: Includes a setup, category: Other, description: Includes another setup, which a setup may not}\n\ninclude:\n  - p-pair.yml\n"
+  },
+  "overlaid": {},
+  "own": [],
+  "unit": {
+    "id": "@hostile/t23-includes-a-setup",
+    "includes": [
+      ".lab/catalogs/hostile/setups/p-pair.yml"
+    ],
+    "kind": "setup",
+    "meta": {
+      "category": "Other",
+      "description": "Includes another setup",
+      "kind": "setup",
+      "name": "Includes a setup",
+      "which a setup may not": null
+    },
+    "name": "Includes a setup",
+    "references": [],
+    "seed": null,
+    "seed_references": []
+  }
+}

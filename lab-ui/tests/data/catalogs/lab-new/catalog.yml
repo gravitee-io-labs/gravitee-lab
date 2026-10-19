@@ -1,0 +1,8 @@
+x-gravitee-catalog:
+  schema: 1
+  id: lab-new
+  name: Newer Lab fixture
+  description: A catalog written for a Lab that does not exist yet
+  version: 1.0.0
+  lab: 99
+  license: AGPL-3.0-only

@@ -1,0 +1,2 @@
+x-gravitee: {kind: addon, name: Unreadable, category: Other, description: Does not parse}
+services: [

@@ -1,0 +1,79 @@
+{
+  "config": {
+    "name": "gravitee",
+    "networks": {
+      "default": {
+        "ipam": {},
+        "name": "gravitee_default"
+      }
+    },
+    "services": {
+      "hostile-n01-entrypoint-seed": {
+        "build": {
+          "context": "@ROOT@/seeder",
+          "dockerfile": "Dockerfile"
+        },
+        "command": null,
+        "entrypoint": [
+          "sh",
+          "-c",
+          "python /seed/seed.py"
+        ],
+        "environment": {
+          "APIM_GATEWAY_URL": "http://localhost:8082",
+          "APIM_MANAGEMENT_URL": "http://apim-management-api:8083",
+          "HOSTILE_DEMO_PASSWORD": "demo"
+        },
+        "image": "hostile-seeder",
+        "labels": {
+          "io.gravitee.description": "Sets up the playground with its own entrypoint",
+          "io.gravitee.name": "Playground seed",
+          "io.gravitee.role": "seed"
+        },
+        "networks": {
+          "default": null
+        },
+        "pull_policy": "build",
+        "restart": "no",
+        "volumes": [
+          {
+            "bind": {},
+            "read_only": true,
+            "source": "@ROOT@/.lab/catalogs/hostile/playgrounds/n01-seeder-entrypoint/seed",
+            "target": "/seed",
+            "type": "bind"
+          }
+        ]
+      }
+    },
+    "volumes": {}
+  },
+  "error": null,
+  "files": {
+    "compose.yml": "x-gravitee: {kind: playground, name: Seeder with its own entrypoint, category: Other, description: Runs the seeder's folder with a command of its own}\nservices:\n  hostile-n01-entrypoint-seed:\n    image: hostile-seeder\n    build: ../../../../../seeder\n    pull_policy: build\n    restart: \"no\"\n    entrypoint: [\"sh\", \"-c\", \"python /seed/seed.py\"]\n    labels:\n      io.gravitee.role: seed\n      io.gravitee.name: Playground seed\n      io.gravitee.description: Sets up the playground with its own entrypoint\n    volumes:\n      - ./seed:/seed:ro\n    environment:\n      APIM_MANAGEMENT_URL: http://apim-management-api:8083\n      APIM_GATEWAY_URL: http://localhost:8082\n      HOSTILE_DEMO_PASSWORD: ${HOSTILE_DEMO_PASSWORD:-demo}\n"
+  },
+  "overlaid": {},
+  "own": [
+    "hostile-n01-entrypoint-seed"
+  ],
+  "unit": {
+    "id": "@hostile/n01-seeder-entrypoint",
+    "includes": [],
+    "kind": "playground",
+    "meta": {
+      "category": "Other",
+      "description": "Runs the seeder's folder with a command of its own",
+      "kind": "playground",
+      "name": "Seeder with its own entrypoint"
+    },
+    "name": "Seeder with its own entrypoint",
+    "references": [
+      "HOSTILE_DEMO_PASSWORD"
+    ],
+    "seed": null,
+    "seed_references": [
+      "APIM_GATEWAY_URL",
+      "HOSTILE_DEMO_PASSWORD"
+    ]
+  }
+}

@@ -1,0 +1,5 @@
+x-gravitee: {kind: addon, name: All interfaces, category: Other, description: Publishes a port to the network}
+services:
+  hostile-port:
+    image: busybox:1.36
+    ports: ["8199:80"]

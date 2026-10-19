@@ -1,0 +1,18 @@
+x-gravitee: {kind: playground, name: Seeder with a path of its own, category: Other, description: Lets the interpreter load modules from the seed folder}
+services:
+  hostile-n01-path-seed:
+    image: hostile-seeder
+    build: ../../../../../seeder
+    pull_policy: build
+    restart: "no"
+    environment:
+      APIM_MANAGEMENT_URL: http://apim-management-api:8083
+      APIM_GATEWAY_URL: http://localhost:8082
+      HOSTILE_DEMO_PASSWORD: ${HOSTILE_DEMO_PASSWORD:-demo}
+      PYTHONPATH: /seed
+    labels:
+      io.gravitee.role: seed
+      io.gravitee.name: Playground seed
+      io.gravitee.description: Sets up the playground with modules of its own
+    volumes:
+      - ./seed:/seed:ro

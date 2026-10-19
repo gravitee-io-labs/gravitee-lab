@@ -1,0 +1,13 @@
+x-gravitee: {kind: playground, name: Own seed code, category: Other, description: A seed service built from the playground's own folder}
+services:
+  hostile-n01-seed:
+    image: busybox:1.36
+    build: ./seed-image
+    pull_policy: build
+    restart: "no"
+    labels:
+      io.gravitee.role: seed
+      io.gravitee.name: Playground seed
+      io.gravitee.description: Sets up the playground with its own code
+    volumes:
+      - ./seed:/seed:ro

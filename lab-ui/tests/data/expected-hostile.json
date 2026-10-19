@@ -1,0 +1,1738 @@
+{
+  "h-cross-catalog-env-ro": {
+    "closure": [
+      "addon:h-cross-catalog-env-ro"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Mounts files outside its folder",
+      "Depends on private content"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [
+        "partner"
+      ],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "blocked"
+  },
+  "h-cross-catalog-secrets-ro": {
+    "closure": [
+      "addon:h-cross-catalog-secrets-ro"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Mounts files outside its folder",
+      "Depends on private content"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [
+        "partner"
+      ],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "blocked"
+  },
+  "h-privileged-declared": {
+    "closure": [
+      "addon:h-privileged-declared"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Runs with full privileges"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": [
+        {
+          "label": "hostile-cluster",
+          "service": "hostile-cluster",
+          "what": [
+            "runs privileged"
+          ],
+          "why": "Runs a service manager inside its container"
+        }
+      ]
+    },
+    "verdict": "blocked",
+    "when_listed": []
+  },
+  "h-secrets-rw": {
+    "closure": [
+      "addon:h-secrets-rw"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "ok"
+  },
+  "h-sibling-bind-ro": {
+    "closure": [
+      "addon:h-sibling-bind-ro",
+      "addon:h-sibling-source"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "ok"
+  },
+  "h-sibling-bind-rw": {
+    "closure": [
+      "addon:h-sibling-bind-rw",
+      "addon:h-sibling-source"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Writes to its own folder"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "blocked"
+  },
+  "h-sibling-source": {
+    "closure": [
+      "addon:h-sibling-source"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "ok"
+  },
+  "n01-own-seed-code": {
+    "closure": [
+      "playground:n01-own-seed-code"
+    ],
+    "notes": [
+      "Brings its own seed code"
+    ],
+    "ports": [],
+    "reasons": [],
+    "surface": {
+      "builds": [
+        {
+          "service": "hostile-n01-seed",
+          "source": "local"
+        }
+      ],
+      "core": [],
+      "images": [],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": "custom",
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "ok"
+  },
+  "n01-seeder-entrypoint": {
+    "closure": [
+      "playground:n01-seeder-entrypoint"
+    ],
+    "notes": [
+      "Brings its own seed code"
+    ],
+    "ports": [],
+    "reasons": [],
+    "surface": {
+      "builds": [
+        {
+          "service": "hostile-n01-entrypoint-seed",
+          "source": "local"
+        }
+      ],
+      "core": [],
+      "images": [],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": "custom",
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "ok"
+  },
+  "n01-seeder-own-dockerfile": {
+    "closure": [
+      "playground:n01-seeder-own-dockerfile"
+    ],
+    "notes": [
+      "Brings its own seed code"
+    ],
+    "ports": [],
+    "reasons": [],
+    "surface": {
+      "builds": [
+        {
+          "service": "hostile-n01-dockerfile-seed",
+          "source": "local"
+        }
+      ],
+      "core": [],
+      "images": [],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": "custom",
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "ok"
+  },
+  "n01-seeder-pythonpath": {
+    "closure": [
+      "playground:n01-seeder-pythonpath"
+    ],
+    "notes": [
+      "Brings its own seed code"
+    ],
+    "ports": [],
+    "reasons": [],
+    "surface": {
+      "builds": [
+        {
+          "service": "hostile-n01-path-seed",
+          "source": "local"
+        }
+      ],
+      "core": [],
+      "images": [],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": "custom",
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "ok"
+  },
+  "n02-seed-reads-foreign-setting": {
+    "closure": [
+      "playground:n02-seed-reads-foreign-setting"
+    ],
+    "notes": [
+      "Seed data reads a token"
+    ],
+    "ports": [],
+    "reasons": [
+      "Reads settings that are not its own: SOME_OTHER_TOOL_TOKEN"
+    ],
+    "surface": {
+      "builds": [
+        {
+          "service": "hostile-n02f-seed",
+          "source": "local"
+        }
+      ],
+      "core": [],
+      "images": [],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": "official",
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "blocked"
+  },
+  "n02-seed-reads-token": {
+    "closure": [
+      "playground:n02-seed-reads-token"
+    ],
+    "notes": [
+      "Seed data reads a token"
+    ],
+    "ports": [],
+    "reasons": [],
+    "surface": {
+      "builds": [
+        {
+          "service": "hostile-n02-seed",
+          "source": "local"
+        }
+      ],
+      "core": [],
+      "images": [],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": "official",
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "ok"
+  },
+  "n03-external-console": {
+    "closure": [
+      "playground:n03-external-console"
+    ],
+    "notes": [
+      "Some of its addresses are not on this machine, so they are not opened"
+    ],
+    "ports": [
+      8395
+    ],
+    "reasons": [],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [
+        8395
+      ],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "ok"
+  },
+  "n04-foreign-gateway": {
+    "closure": [
+      "addon:n04-foreign-gateway"
+    ],
+    "notes": [
+      "Its gateway is not used: the Cloud pages do not offer it"
+    ],
+    "ports": [],
+    "reasons": [],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "ok"
+  },
+  "n05-foreign-terminal": {
+    "closure": [
+      "playground:n05-foreign-terminal"
+    ],
+    "notes": [
+      "Its terminal is not offered by this catalog"
+    ],
+    "ports": [],
+    "reasons": [],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "ok"
+  },
+  "p-clean-addon": {
+    "closure": [
+      "addon:p-clean-addon"
+    ],
+    "notes": [],
+    "ports": [
+      8397
+    ],
+    "reasons": [],
+    "surface": {
+      "builds": [
+        {
+          "service": "hostile-clean",
+          "source": "local"
+        }
+      ],
+      "core": [],
+      "images": [],
+      "needs": [],
+      "plugins": [],
+      "ports": [
+        8397
+      ],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "ok"
+  },
+  "p-clean-playground": {
+    "closure": [
+      "playground:p-clean-playground"
+    ],
+    "notes": [],
+    "ports": [
+      8396
+    ],
+    "reasons": [],
+    "surface": {
+      "builds": [
+        {
+          "service": "hostile-clean-seed",
+          "source": "local"
+        }
+      ],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [
+        8396
+      ],
+      "reads": [],
+      "seed": "official",
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "ok"
+  },
+  "p-overlay-ok": {
+    "closure": [
+      "addon:p-overlay-ok"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [],
+    "surface": {
+      "builds": [],
+      "core": [
+        {
+          "keys": [
+            "depends_on",
+            "environment",
+            "extra_hosts",
+            "labels",
+            "ports",
+            "volumes"
+          ],
+          "label": "Gateway",
+          "service": "apim-gateway"
+        }
+      ],
+      "images": [],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "ok"
+  },
+  "p-overlay-volume": {
+    "closure": [
+      "addon:p-overlay-volume"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [],
+    "surface": {
+      "builds": [],
+      "core": [
+        {
+          "keys": [
+            "volumes"
+          ],
+          "label": "Gateway",
+          "service": "apim-gateway"
+        }
+      ],
+      "images": [],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "ok"
+  },
+  "p-pair": {
+    "closure": [
+      "setup:p-pair",
+      "addon:h-secrets-rw",
+      "addon:p-clean-addon"
+    ],
+    "notes": [],
+    "ports": [
+      8397
+    ],
+    "reasons": [],
+    "surface": {
+      "builds": [
+        {
+          "service": "hostile-clean",
+          "source": "local"
+        }
+      ],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [
+        8397
+      ],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "ok"
+  },
+  "p-terminal": {
+    "closure": [
+      "playground:p-terminal"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": "hostile-terminal-shell",
+      "uses_machine": []
+    },
+    "verdict": "ok"
+  },
+  "seed": {
+    "closure": [
+      "addon:seed"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Reads files outside its folder"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "blocked"
+  },
+  "t01-unknown-service-key": {
+    "closure": [
+      "addon:t01-unknown-service-key"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Uses a Compose feature the Lab does not check: models"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "blocked"
+  },
+  "t03-privileged": {
+    "closure": [
+      "addon:t03-privileged"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Runs with full privileges"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": [
+        {
+          "label": "hostile-privileged",
+          "service": "hostile-privileged",
+          "what": [
+            "runs privileged"
+          ],
+          "why": ""
+        }
+      ]
+    },
+    "verdict": "blocked",
+    "when_listed": [
+      "Uses this machine without saying why: hostile-privileged"
+    ]
+  },
+  "t04-api-socket": {
+    "closure": [
+      "addon:t04-api-socket"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Reaches Docker from inside a container"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": [
+        {
+          "label": "hostile-api-socket",
+          "service": "hostile-api-socket",
+          "what": [
+            "reaches Docker"
+          ],
+          "why": ""
+        }
+      ]
+    },
+    "verdict": "blocked",
+    "when_listed": [
+      "Uses this machine without saying why: hostile-api-socket"
+    ]
+  },
+  "t05-provider": {
+    "closure": [
+      "addon:t05-provider"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Runs a program on this machine"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": [
+        {
+          "label": "hostile-provider",
+          "service": "hostile-provider",
+          "what": [
+            "runs a program on this machine"
+          ],
+          "why": ""
+        }
+      ]
+    },
+    "verdict": "blocked",
+    "when_listed": [
+      "Uses this machine without saying why: hostile-provider"
+    ]
+  },
+  "t06-host-network": {
+    "closure": [
+      "addon:t06-host-network"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Uses the host network (network_mode)"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": [
+        {
+          "label": "hostile-host",
+          "service": "hostile-host",
+          "what": [
+            "shares the network of this machine",
+            "shares the processes of this machine"
+          ],
+          "why": ""
+        }
+      ]
+    },
+    "verdict": "blocked",
+    "when_listed": [
+      "Uses this machine without saying why: hostile-host"
+    ]
+  },
+  "t07-cap-add": {
+    "closure": [
+      "addon:t07-cap-add"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Adds Linux capabilities"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": [
+        {
+          "label": "hostile-capability",
+          "service": "hostile-capability",
+          "what": [
+            "adds the capabilities SYS_ADMIN"
+          ],
+          "why": ""
+        }
+      ]
+    },
+    "verdict": "blocked",
+    "when_listed": [
+      "Uses this machine without saying why: hostile-capability"
+    ]
+  },
+  "t08-devices": {
+    "closure": [
+      "addon:t08-devices"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Uses devices of this machine"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": [
+        {
+          "label": "hostile-device",
+          "service": "hostile-device",
+          "what": [
+            "reaches the devices of this machine"
+          ],
+          "why": ""
+        }
+      ]
+    },
+    "verdict": "blocked",
+    "when_listed": [
+      "Uses this machine without saying why: hostile-device"
+    ]
+  },
+  "t09-security-opt": {
+    "closure": [
+      "addon:t09-security-opt"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Lowers container isolation"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": [
+        {
+          "label": "hostile-isolation",
+          "service": "hostile-isolation",
+          "what": [
+            "lowers its isolation"
+          ],
+          "why": ""
+        }
+      ]
+    },
+    "verdict": "blocked",
+    "when_listed": [
+      "Uses this machine without saying why: hostile-isolation"
+    ]
+  },
+  "t10-docker-socket": {
+    "closure": [
+      "addon:t10-docker-socket"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Mounts the Docker socket"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": [
+        {
+          "label": "hostile-socket",
+          "service": "hostile-socket",
+          "what": [
+            "mounts the Docker socket"
+          ],
+          "why": ""
+        }
+      ]
+    },
+    "verdict": "blocked",
+    "when_listed": [
+      "Uses this machine without saying why: hostile-socket"
+    ]
+  },
+  "t11-bind-lab-state": {
+    "closure": [
+      "addon:t11-bind-lab-state"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Mounts files outside its folder"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "blocked"
+  },
+  "t11-bind-outside": {
+    "closure": [
+      "addon:t11-bind-outside"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Mounts files outside its folder",
+      "Reads settings that are not its own: HOME"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": [
+        {
+          "label": "hostile-outside",
+          "service": "hostile-outside",
+          "what": [
+            "mounts ~/.aws of this machine"
+          ],
+          "why": ""
+        }
+      ]
+    },
+    "verdict": "blocked",
+    "when_listed": [
+      "Reads settings that are not its own: HOME",
+      "Uses this machine without saying why: hostile-outside"
+    ]
+  },
+  "t12-bind-writable": {
+    "closure": [
+      "addon:t12-bind-writable"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Writes to its own folder"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "blocked"
+  },
+  "t13-volumes-from": {
+    "closure": [
+      "addon:t13-volumes-from"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Uses a Compose feature the Lab does not check: volumes_from",
+      "Mounts a volume that is not its own"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "blocked"
+  },
+  "t14-core-volume": {
+    "closure": [
+      "addon:t14-core-volume"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Mounts a volume that is not its own"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "blocked"
+  },
+  "t14-external-volume": {
+    "closure": [
+      "addon:t14-external-volume"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Mounts a volume that is not its own"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "blocked"
+  },
+  "t14-volume-alias": {
+    "closure": [
+      "addon:t14-volume-alias"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Mounts a volume that is not its own"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "blocked"
+  },
+  "t15-alias-hijack": {
+    "closure": [
+      "addon:t15-alias-hijack"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Joins a network that is not the Lab's"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "blocked"
+  },
+  "t15-external-network": {
+    "closure": [
+      "addon:t15-external-network"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Joins a network that is not the Lab's"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "blocked"
+  },
+  "t16-secret-file": {
+    "closure": [
+      "addon:t16-secret-file"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Reads files outside its folder"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "blocked"
+  },
+  "t17-all-interfaces": {
+    "closure": [
+      "addon:t17-all-interfaces"
+    ],
+    "notes": [],
+    "ports": [
+      8199
+    ],
+    "reasons": [
+      "Publishes a port to the network"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [
+        8199
+      ],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "blocked"
+  },
+  "t18-build-core-image": {
+    "closure": [
+      "addon:t18-build-core-image"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Builds with extra access"
+    ],
+    "surface": {
+      "builds": [
+        {
+          "service": "hostile-build-name",
+          "source": "local"
+        }
+      ],
+      "core": [],
+      "images": [],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "blocked"
+  },
+  "t18-build-extra-access": {
+    "closure": [
+      "addon:t18-build-extra-access"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Builds with extra access"
+    ],
+    "surface": {
+      "builds": [
+        {
+          "service": "hostile-build-ssh",
+          "source": "local"
+        }
+      ],
+      "core": [],
+      "images": [],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "blocked"
+  },
+  "t18-build-outside": {
+    "closure": [
+      "addon:t18-build-outside"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Builds from outside its folder"
+    ],
+    "surface": {
+      "builds": [
+        {
+          "service": "hostile-build-outside",
+          "source": "local"
+        }
+      ],
+      "core": [],
+      "images": [],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "blocked"
+  },
+  "t18-build-remote-unpinned": {
+    "closure": [
+      "addon:t18-build-remote-unpinned"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Builds from an unpinned source"
+    ],
+    "surface": {
+      "builds": [
+        {
+          "service": "hostile-build-remote",
+          "source": "example.invalid/app"
+        }
+      ],
+      "core": [],
+      "images": [],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "blocked"
+  },
+  "t19-absolute-include": {
+    "closure": [
+      "addon:t19-absolute-include"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Includes content from outside the catalog"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "blocked"
+  },
+  "t19-env-file-dev-zero": {
+    "closure": [
+      "addon:t19-env-file-dev-zero"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Reads files outside its folder"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "blocked"
+  },
+  "t20-declared-setting": {
+    "closure": [
+      "addon:t20-declared-setting"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [
+        "FIXTURE_SHARED_TOKEN"
+      ],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "ok"
+  },
+  "t20-foreign-setting": {
+    "closure": [
+      "addon:t20-foreign-setting"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Reads settings that are not its own: SOME_OTHER_TOOL_TOKEN"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "blocked"
+  },
+  "t20-passthrough": {
+    "closure": [
+      "addon:t20-passthrough"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Reads settings that are not its own: AWS_SECRET_ACCESS_KEY"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "blocked"
+  },
+  "t21-name-clash": {
+    "closure": [
+      "addon:t21-name-clash"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Same name as Echo"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "blocked"
+  },
+  "t22-overlay-core-volume": {
+    "closure": [
+      "addon:t22-overlay-core-volume"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Changes Gateway beyond adding settings"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [
+        {
+          "keys": [
+            "volumes"
+          ],
+          "label": "Gateway",
+          "service": "apim-gateway"
+        }
+      ],
+      "images": [],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "blocked"
+  },
+  "t22-overlay-too-much": {
+    "closure": [
+      "addon:t22-overlay-too-much"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Changes Gateway beyond adding settings"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [
+        {
+          "keys": [
+            "command",
+            "volumes"
+          ],
+          "label": "Gateway",
+          "service": "apim-gateway"
+        }
+      ],
+      "images": [],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "blocked"
+  },
+  "t23-include-outside": {
+    "closure": [
+      "addon:t23-include-outside"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Includes content from outside the catalog",
+      "Cannot be read: open addons/other/compose.yml: no such file or directory"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "blocked"
+  },
+  "t23-includes-a-setup": {
+    "closure": [
+      "setup:t23-includes-a-setup",
+      "setup:p-pair",
+      "addon:h-secrets-rw",
+      "addon:p-clean-addon"
+    ],
+    "notes": [],
+    "ports": [
+      8397
+    ],
+    "reasons": [
+      "Includes content from outside the catalog"
+    ],
+    "surface": {
+      "builds": [
+        {
+          "service": "hostile-clean",
+          "source": "local"
+        }
+      ],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [
+        8397
+      ],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "blocked"
+  },
+  "t24-public-needs-private": {
+    "closure": [
+      "addon:t24-public-needs-private"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Depends on private content"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [],
+      "needs": [
+        "partner"
+      ],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "blocked"
+  },
+  "t25-needs-blocked": {
+    "closure": [
+      "addon:t25-needs-blocked",
+      "addon:t12-bind-writable"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Needs Writable bind, which is blocked"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "blocked"
+  },
+  "t26-newer-lab": {
+    "closure": [
+      "addon:t26-newer-lab"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Needs Lab level 99, this Lab reads 1 to 1"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "blocked"
+  },
+  "t27-unreadable": {
+    "closure": [
+      "addon:t27-unreadable"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Cannot be read: failed to parse addons/t27-unreadable/compose.yml: go-yaml load error in parser (while parsing a flow node) at L3.C1: did not find expected node content"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "blocked"
+  }
+}

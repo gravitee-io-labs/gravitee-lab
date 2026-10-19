@@ -1,0 +1,91 @@
+# Managed by the Lab catalog standard 3: change it with catalog.py upgrade, in a pull request a maintainer reads.
+# Every week, on the main branch: what changes while nobody pushes. The newest Lab still reads the catalog, the standard files are the
+# newest Lab's, the links of the guides answer, the rules of the main branch are still the standard's, and the images that were
+# published have no fixable critical flaw. The newest Lab is code nobody has read yet, so the job that runs it holds nothing: no token,
+# no package access. A run that fails opens an issue, or adds to the one that is open.
+name: Nightly
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  # The newest Lab: a compatibility signal, with nothing to steal
+  verify-latest:
+    if: ${{ !github.event.repository.fork }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: catalog
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./catalog/.github/actions/lab
+        with:
+          key: ${{ secrets.LAB_DEPLOY_KEY }}
+          latest: "true"
+      # A standard that fell behind counts as a failure here (SD03), where a pull request only warns
+      - name: The newest Lab reads the catalog
+        run: python3 -I lab/lab-ui/catalog.py check catalog --ci --error SD03
+      - name: The links of the guides and the READMEs answer
+        if: ${{ !cancelled() }}
+        run: python3 -I lab/lab-ui/catalog.py ci links catalog
+
+  # The Lab at the commit the catalog pins, with the read access to packages that the audit and the scan need
+  verify-pinned:
+    if: ${{ !github.event.repository.fork }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: catalog
+          persist-credentials: false
+      - uses: ./catalog/.github/actions/lab
+        with:
+          key: ${{ secrets.LAB_DEPLOY_KEY }}
+      - name: The rules of the main branch are the standard's
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: python3 -I lab/lab-ui/catalog.py repo-settings "$REPOSITORY" --effective-only
+      - name: The published images have no fixable critical flaw
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -I lab/lab-ui/catalog.py ci scan-published catalog
+
+  report:
+    needs: [verify-latest, verify-pinned]
+    if: ${{ always() && (contains(fromJSON('["failure","cancelled"]'), needs.verify-latest.result) || contains(fromJSON('["failure","cancelled"]'), needs.verify-pinned.result)) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh label create nightly --repo "$GITHUB_REPOSITORY" --color B60205 --description "The nightly run failed" 2>/dev/null || true
+          open=$(gh issue list --repo "$GITHUB_REPOSITORY" --label nightly --state open --json number --jq '.[0].number // empty')
+          body="The nightly run failed on $(date -u +%F): $RUN"
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --label nightly --title "The nightly run fails" --body "$body"
+          fi

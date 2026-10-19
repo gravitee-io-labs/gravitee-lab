@@ -1,0 +1,5 @@
+x-gravitee: {kind: addon, name: Capabilities, category: Other, description: Adds a Linux capability}
+services:
+  hostile-capability:
+    image: busybox:1.36
+    cap_add: [SYS_ADMIN]

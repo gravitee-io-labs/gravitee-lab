@@ -1,0 +1,8 @@
+x-gravitee: {kind: addon, name: Unknown service key, category: Other, description: Uses a key of a service that the Lab does not check}
+services:
+  hostile-models:
+    image: busybox:1.36
+    models: [m]
+models:
+  m:
+    model: ai/smollm2

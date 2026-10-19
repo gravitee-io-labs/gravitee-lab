@@ -1,0 +1,5 @@
+x-gravitee: {kind: addon, name: Privileged, category: Other, description: Runs a container with full privileges}
+services:
+  hostile-privileged:
+    image: busybox:1.36
+    privileged: true

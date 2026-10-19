@@ -1,0 +1,55 @@
+{
+  "config": {
+    "name": "gravitee",
+    "networks": {
+      "default": {
+        "ipam": {},
+        "name": "gravitee_default"
+      }
+    },
+    "services": {
+      "hostile-gateway": {
+        "command": null,
+        "entrypoint": null,
+        "environment": {
+          "HOSTILE_GATEWAY_TOKEN": ""
+        },
+        "image": "busybox:1.36",
+        "networks": {
+          "default": null
+        }
+      }
+    },
+    "volumes": {}
+  },
+  "error": null,
+  "files": {
+    "compose.yml": "x-gravitee: {kind: addon, name: Foreign gateway, category: Other, description: Says it runs the gateway of a platform, gateway: {platform: cloud, service: hostile-gateway, token: HOSTILE_GATEWAY_TOKEN}}\nservices:\n  hostile-gateway:\n    image: busybox:1.36\n    environment:\n      HOSTILE_GATEWAY_TOKEN: ${HOSTILE_GATEWAY_TOKEN:-}\n"
+  },
+  "overlaid": {},
+  "own": [
+    "hostile-gateway"
+  ],
+  "unit": {
+    "id": "@hostile/n04-foreign-gateway",
+    "includes": [],
+    "kind": "addon",
+    "meta": {
+      "category": "Other",
+      "description": "Says it runs the gateway of a platform",
+      "gateway": {
+        "platform": "cloud",
+        "service": "hostile-gateway",
+        "token": "HOSTILE_GATEWAY_TOKEN"
+      },
+      "kind": "addon",
+      "name": "Foreign gateway"
+    },
+    "name": "Foreign gateway",
+    "references": [
+      "HOSTILE_GATEWAY_TOKEN"
+    ],
+    "seed": null,
+    "seed_references": []
+  }
+}

@@ -1,0 +1,180 @@
+{
+  "config": {
+    "name": "gravitee",
+    "networks": {},
+    "services": {
+      "apim-gateway": {
+        "command": [
+          "sh",
+          "-c",
+          "id"
+        ],
+        "container_name": "gio-apim-gateway",
+        "depends_on": {
+          "apim-management-api": {
+            "condition": "service_healthy",
+            "required": true
+          },
+          "elasticsearch": {
+            "condition": "service_healthy",
+            "required": true
+          },
+          "mongodb": {
+            "condition": "service_healthy",
+            "required": true
+          },
+          "redis": {
+            "condition": "service_healthy",
+            "required": true
+          }
+        },
+        "entrypoint": null,
+        "environment": {
+          "GIO_MAX_MEM": "1g",
+          "GIO_MIN_MEM": "512m",
+          "gravitee_alerts_alertengine_enabled": "true",
+          "gravitee_alerts_alertengine_ws_discovery": "true",
+          "gravitee_alerts_alertengine_ws_endpoints_0": "http://alert-engine:8072",
+          "gravitee_alerts_alertengine_ws_security_password": "adminadmin",
+          "gravitee_alerts_alertengine_ws_security_username": "admin",
+          "gravitee_ds_elastic_host": "elasticsearch",
+          "gravitee_ds_mongodb_host": "mongodb",
+          "gravitee_gamma_enabled": "true",
+          "gravitee_groovy_whitelist_list_0": "class java.util.Base64",
+          "gravitee_groovy_whitelist_list_1": "class groovy.util.Base64",
+          "gravitee_groovy_whitelist_mode": "append",
+          "gravitee_license_key": "",
+          "gravitee_plugins_path_0": "$${gravitee.home}/plugins",
+          "gravitee_plugins_path_1": "$${gravitee.home}/plugins-ext",
+          "gravitee_repositories_ratelimit_redis_host": "redis",
+          "gravitee_repositories_ratelimit_redis_password": "redispassword",
+          "gravitee_repositories_ratelimit_redis_port": "6379",
+          "gravitee_repositories_ratelimit_type": "redis",
+          "gravitee_servers_0_alpn": "true",
+          "gravitee_servers_0_id": "http",
+          "gravitee_servers_0_port": "8082",
+          "gravitee_servers_0_type": "http",
+          "gravitee_servers_1_alpn": "true",
+          "gravitee_servers_1_id": "https",
+          "gravitee_servers_1_port": "8443",
+          "gravitee_servers_1_secured": "true",
+          "gravitee_servers_1_ssl_clientAuth": "request",
+          "gravitee_servers_1_ssl_keystore_password": "gravitee",
+          "gravitee_servers_1_ssl_keystore_path": "/opt/graviteeio-gateway/mtls/server.p12",
+          "gravitee_servers_1_ssl_keystore_type": "pkcs12",
+          "gravitee_servers_1_ssl_truststore_path": "/opt/graviteeio-gateway/mtls/ca.pem",
+          "gravitee_servers_1_ssl_truststore_type": "pem",
+          "gravitee_servers_1_type": "http",
+          "gravitee_services_core_http_authentication_users_admin": "adminadmin",
+          "gravitee_services_core_http_host": "localhost",
+          "gravitee_services_metrics_enabled": "true"
+        },
+        "healthcheck": {
+          "interval": "5s",
+          "retries": 20,
+          "start_period": "30s",
+          "test": [
+            "CMD-SHELL",
+            "curl -sf -u admin:adminadmin http://localhost:18082/_node/health | grep -Eq '\"healthy\" *: *true'"
+          ],
+          "timeout": "3s"
+        },
+        "image": "graviteeio/apim-gateway:4.12.20-debian",
+        "labels": {
+          "io.gravitee.description": "Routes API traffic and applies policies",
+          "io.gravitee.group": "API Management",
+          "io.gravitee.name": "Gateway"
+        },
+        "networks": {
+          "edge": null,
+          "internal": null
+        },
+        "ports": [
+          {
+            "host_ip": "127.0.0.1",
+            "mode": "ingress",
+            "protocol": "tcp",
+            "published": "8082",
+            "target": 8082
+          },
+          {
+            "host_ip": "127.0.0.1",
+            "mode": "ingress",
+            "protocol": "tcp",
+            "published": "8443",
+            "target": 8443
+          }
+        ],
+        "restart": "unless-stopped",
+        "volumes": [
+          {
+            "bind": {},
+            "source": "@ROOT@/plugins/apim",
+            "target": "/opt/graviteeio-gateway/plugins-ext",
+            "type": "bind"
+          },
+          {
+            "bind": {},
+            "read_only": true,
+            "source": "@ROOT@/certs/mtls/server.p12",
+            "target": "/opt/graviteeio-gateway/mtls/server.p12",
+            "type": "bind"
+          },
+          {
+            "bind": {},
+            "read_only": true,
+            "source": "@ROOT@/certs/mtls/ca.pem",
+            "target": "/opt/graviteeio-gateway/mtls/ca.pem",
+            "type": "bind"
+          },
+          {
+            "bind": {},
+            "source": "/",
+            "target": "/host",
+            "type": "bind"
+          }
+        ]
+      }
+    },
+    "volumes": {}
+  },
+  "error": null,
+  "files": {
+    "compose.yml": "x-gravitee: {kind: addon, name: Overlay too much, category: Other, description: Replaces the command of the gateway and mounts the host}\n\nservices:\n  apim-gateway:\n    command: [\"sh\", \"-c\", \"id\"]\n    volumes:\n      - /:/host\n"
+  },
+  "overlaid": {
+    "apim-gateway": {
+      "command": [
+        "sh",
+        "-c",
+        "id"
+      ],
+      "volumes": [
+        {
+          "bind": {
+            "create_host_path": true
+          },
+          "source": "/",
+          "target": "/host",
+          "type": "bind"
+        }
+      ]
+    }
+  },
+  "own": [],
+  "unit": {
+    "id": "@hostile/t22-overlay-too-much",
+    "includes": [],
+    "kind": "addon",
+    "meta": {
+      "category": "Other",
+      "description": "Replaces the command of the gateway and mounts the host",
+      "kind": "addon",
+      "name": "Overlay too much"
+    },
+    "name": "Overlay too much",
+    "references": [],
+    "seed": null,
+    "seed_references": []
+  }
+}

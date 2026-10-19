@@ -1,0 +1,252 @@
+/* =============================================================================
+   Gravitee Lab: colors, reset, page layout and the sidebar
+   ============================================================================= */
+
+/* Gravitee brand (gravitee.io): Flame #ea3527, Sunlight #ff8b00, Char #230e0e,
+   warm whites #faf1ec / #f7f1ed, Midnight Oil #0d0b16, Emerald #52de79, Turquoise #22a3b3 */
+:root {
+  /* Surfaces and text: the page, a card, two quiet fills; hairlines; four text roles */
+  --bg: #f8f4f1;
+  --surface: #ffffff;
+  --surface-2: #f6f0ec;
+  --surface-3: #efe7e2;
+  --border: #ece4df;
+  --border-strong: #ddd3cd;
+  --field-line: #988a86;    /* the edge of a field, its only boundary: 3.3:1 on --surface, 3:1 on --bg */
+  --text: #230e0e;
+  --text-2: #4d3b3a;
+  --muted: #73625e;         /* 4.7:1 on --surface-3, the darkest fill it sits on */
+  --accent: #ea3527;
+  --accent-2: #ff8b00;      /* in both themes */
+  --accent-soft: #fdeae6;
+  --accent-text: #ffffff;   /* in both themes */
+  --accent-ink: #c2281c;    /* the accent as text: 5.4:1 on --surface, 4.9:1 on --bg */
+  /* The fill of the primary button, its gradient's two ends: white on it is 5.5:1 and 4.5:1, in both themes */
+  --accent-fill: #c9281c; --accent-fill-2: #d4440f;
+  /* Status roles: a foreground, its soft background, its line. Text in the foreground is 4.5:1 at least on its background and
+     on the surfaces (measured in DESIGN.md). Neutral is --text-2 on --surface-3 with --border-strong. */
+  --ok: #167c43;      --ok-soft: #e1f5e8;
+  --warn: #a45600;    --warn-soft: #fff0dc;
+  --err: #a8201a;     --err-soft: #fbe3e1;
+  --info: #0b6a78;    --info-soft: #dff2f4;
+  --ok-line: color-mix(in srgb, var(--ok) 18%, var(--ok-soft));
+  --warn-line: color-mix(in srgb, var(--warn) 18%, var(--warn-soft));
+  --err-line: color-mix(in srgb, var(--err) 18%, var(--err-soft));
+  --info-line: color-mix(in srgb, var(--info) 18%, var(--info-soft));
+  --run: #1a8796;
+  --off: #9a8d89;           /* a dot of what is off: 3.2:1 on --surface, a mark that says a state alone (a product's) */
+  --hl: #ffe066; --hl-text: #16181d;   /* what a search found in a text, in both themes */
+  --log-bg: #fdfbfa;
+  /* Elevation: a control, a card, a popover or a menu, a dialog */
+  --shadow-sm: 0 1px 2px rgb(35 14 14 / .05);
+  --shadow: 0 1px 2px rgb(35 14 14 / .04), 0 6px 20px rgb(35 14 14 / .05);
+  --shadow-md: 0 1px 3px rgb(35 14 14 / .06), 0 8px 24px rgb(35 14 14 / .10);
+  --shadow-lg: 0 12px 40px rgb(35 14 14 / .16), 0 2px 6px rgb(35 14 14 / .06);
+  /* Radii: a card, a popover or a menu, a control, a choice inside a control, a pill */
+  --radius: 14px; --r-pop: 10px; --r-control: 8px; --r-inner: 6px; --r-pill: 999px;
+  /* Space: a gap is one of these */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px; --sp-6: 32px;
+  --gap: var(--sp-4);   /* between blocks */
+  --pad: var(--sp-4);   /* inside cards: titles, rows, cells and toolbars share this left edge */
+  /* Type: five sizes, each with its line; three weights. Mono is for versions, tags, settings and identifiers. */
+  --fs-1: 12px;   --lh-1: 16px;   /* caption: column heads, pills, tooltips, chips, labels of a figure */
+  --fs-2: 13px;   --lh-2: 18px;   /* secondary: notes, descriptions, popovers, muted lines */
+  --fs-3: 13.5px; --lh-3: 20px;   /* body: names, controls, values */
+  --fs-4: 15px;   --lh-4: 22px;   /* a card's title, a figure */
+  --fs-5: 20px;   --lh-5: 28px;   /* a page's title */
+  --fw-1: 400; --fw-2: 550; --fw-3: 620;   /* regular, medium, strong */
+  /* Heights: a control, a choice inside one, a pill; an option of a list that opens; the heads and rows of a table */
+  --h-control: 32px; --h-inner: 26px; --h-pill: 24px; --h-option: 36px;
+  --field-pad: 12px;   /* the left side of a field (a picker), so that a value shown as text among fields starts where theirs do */
+  --h-head: 32px; --h-row: 56px; --h-row-2: 48px; --h-row-3: 40px;
+  /* The hover of a row of any table, and the veil under a dialog */
+  --row-hover: color-mix(in srgb, var(--surface-2) 70%, transparent);
+  --backdrop: rgb(10 12 16 / .45);
+  /* Motion: hovers and popovers, larger moves, the glide of a measure (a bar, a fill), the wait before a bubble opens on hover */
+  --dur-1: .12s; --dur-2: .2s; --dur-3: .6s; --delay: .15s; --ease: cubic-bezier(.2, 0, 0, 1);
+  --label: 80px; /* the label of a line that says a label and its value */
+  --head: 74px;  /* a page's head, which stays in view: --sp-5 above, a 34px line, --gap below */
+  --sans: system-ui, -apple-system, "Segoe UI", Inter, sans-serif;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+
+/* Dark: the system's choice, unless the theme button chose otherwise */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d0b16; --surface: #15131f; --surface-2: #1b1926; --surface-3: #23202e; --border: #262333; --border-strong: #332f41; --field-line: #6e6680;
+    --text: #faf1ec; --text-2: #cdc4c1; --muted: #958b9d; --accent: #f04a35; --accent-soft: #3a1a1c; --accent-ink: #f04a35;
+    --ok: #52de79; --ok-soft: #13301f; --run: #3cc3d3; --warn: #ffa53a; --warn-soft: #3a2810;
+    --err: #ff6b62; --err-soft: #3d1618; --info: #5fcfdc; --info-soft: #0f2b30; --off: #6a6379; --log-bg: #100e19;
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / .35); --shadow: 0 1px 2px rgb(0 0 0 / .35);
+    --shadow-md: 0 0 0 1px rgb(255 255 255 / .02), 0 10px 30px rgb(0 0 0 / .55); --shadow-lg: 0 16px 50px rgb(0 0 0 / .6);
+    --backdrop: rgb(0 0 0 / .6);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d0b16; --surface: #15131f; --surface-2: #1b1926; --surface-3: #23202e; --border: #262333; --border-strong: #332f41; --field-line: #6e6680;
+    --text: #faf1ec; --text-2: #cdc4c1; --muted: #958b9d; --accent: #f04a35; --accent-soft: #3a1a1c; --accent-ink: #f04a35;
+    --ok: #52de79; --ok-soft: #13301f; --run: #3cc3d3; --warn: #ffa53a; --warn-soft: #3a2810;
+    --err: #ff6b62; --err-soft: #3d1618; --info: #5fcfdc; --info-soft: #0f2b30; --off: #6a6379; --log-bg: #100e19;
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / .35); --shadow: 0 1px 2px rgb(0 0 0 / .35);
+    --shadow-md: 0 0 0 1px rgb(255 255 255 / .02), 0 10px 30px rgb(0 0 0 / .55); --shadow-lg: 0 16px 50px rgb(0 0 0 / .6);
+    --backdrop: rgb(0 0 0 / .6);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start;
+  background: var(--bg);
+  color: var(--text);
+  font: var(--fs-3)/var(--lh-3) var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3 { margin: 0; font-weight: var(--fw-3); letter-spacing: -.012em; }
+h1 { font-size: var(--fs-5); }
+h2 { font-size: var(--fs-4); }
+p { margin: 0; }
+code { font-family: var(--mono); }
+svg { width: 16px; height: 16px; flex: none; }
+[hidden] { display: none !important; }
+.sprite { position: absolute; }
+button { font: inherit; color: inherit; }
+/* Where the keyboard is: one neutral ring everywhere (the accent would read as an error, and vanish on a primary
+   button), shown for the keyboard only. A control the keyboard reaches is never left under the head that stays in view. */
+:focus-visible { outline: 2px solid var(--text-2); outline-offset: 2px; }
+html { scroll-padding-top: var(--head); }
+main:focus { outline: none; }
+/* The first stop of the keyboard on every page: past the menu, to the page */
+.skip {
+  position: fixed; top: 8px; left: 8px; z-index: 80; padding: 6px 12px; border-radius: var(--r-control);
+  background: var(--surface); color: var(--text); box-shadow: var(--shadow-md); font-weight: var(--fw-2); text-decoration: none;
+  transform: translateY(-200%);
+}
+.skip:focus-visible { transform: none; }
+
+.sub { color: var(--muted); font-size: var(--fs-2); }
+/* Words for a screen reader only: a label that the layout says by its place */
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.muted { color: var(--muted); }
+/* What a field says while it is empty, in the muted tone of the page in both themes (the browser's own gray is too faint on dark) */
+::placeholder { color: var(--muted); opacity: 1; }
+.ok-text { color: var(--ok); font-weight: var(--fw-3); }
+.err-text { color: var(--err); font-weight: var(--fw-3); }
+/* The name of a section: of the menu, a card, a list, a popover */
+.nav-label, .stack-sep, .pg-side h3, .pg-main h3, .pg-prep h4, .file-group, .link-section, .combo-group,
+.job-group, .job-log-head, .pick-group h3, .welcome h3 {
+  font-size: var(--fs-1); line-height: var(--lh-1); font-weight: var(--fw-2); color: var(--muted);
+}
+
+@keyframes pulse { 50% { opacity: .35; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pop-in { from { opacity: 0; transform: translateY(-4px) scale(.99); } }
+@keyframes sheet-in { from { transform: translateY(16px); opacity: 0; } }
+
+/* --- Layout -------------------------------------------------------------------------- */
+
+/* The space next to the menu is the container the pages adapt to */
+main { width: 100%; max-width: 1920px; margin: 0 auto; padding: 0 24px 24px; container-type: inline-size; }
+
+/* The head of a page: its title, then its actions. It stays in view, so that they are within reach wherever the
+   page is scrolled; what else stays in view sticks under it, --head from the top. */
+.page-head {
+  position: sticky; top: 0; z-index: 30; display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  flex-wrap: wrap; padding: var(--sp-5) 0 var(--gap); background: var(--bg);
+}
+.page-head > :first-child { min-height: 34px; display: flex; align-items: center; }   /* a title alone sits on the middle of the actions of the other pages */
+.page-title { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; min-width: 0; }
+/* A head with one action keeps it on the line of its title, at its right, however narrow: its badge wraps under the title */
+.page-head:has(> .page-actions[data-lean]) { flex-wrap: nowrap; align-items: flex-start; }
+.page-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* A running playground next to its UIs has the whole width: no cap, a narrow margin. Only while its page is the one on screen:
+   the others keep the page's own width. */
+main:has(#page-playground.fill:not([hidden])) { max-width: none; }
+
+/* Full-window pages (Logs): no page scroll, one area scrolls inside */
+body:has(.page.fill:not([hidden])) { height: 100dvh; }
+body:has(.page.fill:not([hidden])) main { height: 100dvh; min-height: 0; display: flex; flex-direction: column; }
+.page.fill { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* Before the first state: no page, one line or one card in its place (core.js) */
+body.booting main > .page { display: none; }
+.boot:empty { display: none; }
+.boot { padding-top: var(--sp-6); }
+.boot-card { display: grid; justify-items: center; gap: var(--sp-3); max-width: 480px; margin: 0 auto; padding: var(--sp-6) var(--sp-5); text-align: center; }
+.page.fill .grow { flex: 1; min-height: 0; }
+
+/* --- Sidebar ------------------------------------------------------------------------- */
+
+/* It is as high as the window and scrolls inside when the window is shorter than what it holds (a page zoomed in, a phone held
+   sideways): every page and the platform's state stay within reach */
+.sidebar {
+  position: sticky; top: 0; z-index: 30; height: 100dvh; width: 228px; display: flex; flex-direction: column; gap: var(--sp-4);
+  padding: 16px 12px; background: var(--surface); border-right: 1px solid var(--border); transition: width var(--dur-2) var(--ease);
+  overflow: hidden auto; overscroll-behavior: contain;
+}
+.brand { display: flex; align-items: center; gap: 10px; padding: 0 6px; min-width: 0; }
+.logo { width: 28px; height: 27px; flex: none; display: block; }
+.brand-text { display: flex; flex-direction: column; line-height: 1.15; white-space: nowrap; }
+.brand-text strong { font-size: var(--fs-4); font-weight: var(--fw-3); }
+.brand-text span { font-size: var(--fs-1); color: var(--muted); }
+
+.nav { display: flex; flex-direction: column; gap: 2px; flex: none; }
+.nav-item {
+  display: flex; align-items: center; gap: 10px; height: var(--h-control); padding: 0 10px; border-radius: var(--r-control);
+  color: var(--text-2); font-weight: var(--fw-2); text-decoration: none; white-space: nowrap;
+  transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
+}
+.nav-item svg { color: var(--muted); }
+.nav-item:hover { background: var(--surface-2); color: var(--text); }
+/* The current page: its tint, its icon in the accent and its name in the strong weight, which says it without color too */
+.nav-item[aria-current="page"] { background: color-mix(in srgb, var(--accent) 10%, var(--accent-soft)); color: var(--text); font-weight: var(--fw-3); }
+.nav-item[aria-current="page"] svg { color: var(--accent); }
+.nav-label { padding: 14px 10px 4px; }
+
+.sidebar-foot { margin-top: auto; display: flex; flex-direction: column; gap: 8px; flex: none; }
+.sidebar-tools { display: flex; gap: 2px; }
+#sidebar-toggle { margin-left: auto; }
+
+/* The platform's state, the one place it is said on every page: the state chip (components.css, 24 px) in a target of 32 px that leads
+   to Containers. Then, while a job runs or once one failed, the activity chip, a control of 32 px with a pill's look. */
+.health { display: flex; align-items: center; min-width: 0; height: var(--h-control); padding: 0 var(--sp-1); border-radius: var(--r-control); text-decoration: none; }
+.health:hover { background: var(--surface-2); }
+.health > .state { min-width: 0; max-width: 100%; }
+/* A text too long for the chip gives way ("docker-compose.yml does not load"): its tooltip says it in full */
+#health-text { overflow: hidden; text-overflow: ellipsis; }
+.activity {
+  display: flex; align-items: center; gap: var(--sp-2); height: var(--h-control); padding: 0 var(--sp-3);
+  border-radius: var(--r-pill); font-size: var(--fs-2); font-weight: var(--fw-2); white-space: nowrap;
+  background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border); cursor: pointer;
+}
+#activity-text { overflow: hidden; text-overflow: ellipsis; }
+.activity:hover { background: var(--surface-3); }
+.activity-icon { width: 8px; height: 8px; border-radius: 50%; background: var(--off); flex: none; }
+.activity.running { background: var(--warn-soft); color: var(--warn); border-color: var(--warn-line); }
+.activity.running .activity-icon { width: 12px; height: 12px; margin-inline: -2px; background: none; }   /* the spinner, on the dot's axis */
+.activity.ok .activity-icon { background: var(--ok); }
+.activity.failed { background: var(--err-soft); color: var(--err); border-color: var(--err-line); }
+.activity.failed .activity-icon { background: var(--err); }
+
+/* Collapsed: icons only. A narrow window always has it (sidebar.js), so that the lists keep their columns. */
+body.nav-collapsed .sidebar { width: 64px; }
+body.nav-collapsed :is(.brand-text, .nav-item span, #health-text, #activity-text, .activity .progress) { display: none; }
+/* A section's name becomes the line that separates it from the one above: the Dashboard, first of the menu, has none of its own */
+body.nav-collapsed .nav-label { height: 1px; margin: 8px 12px; padding: 0; background: var(--border); font-size: 0; }
+body.nav-collapsed :is(.brand, .nav-item, .health, .activity) { justify-content: center; padding: 0; }
+body.nav-collapsed .health > .state { gap: 0; padding: 0 9px; }   /* its dot alone, in a round pill */
+body.nav-collapsed .sidebar-tools { flex-direction: column; align-items: center; gap: 4px; }
+body.nav-collapsed #sidebar-toggle { margin-left: 0; }
+
+/* Narrow windows: the menu stays collapsed, it has no toggle */
+@media (max-width: 1100px) {
+  #sidebar-toggle { display: none; }
+  main { padding: 0 16px 16px; }
+}
+/* A short or narrow window (a phone, a page zoomed to 400 %): the head scrolls with the page, so that it never covers it */
+@media (max-height: 520px), (max-width: 480px) {
+  .page-head { position: static; }
+  html { scroll-padding-top: 0; }
+}

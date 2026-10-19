@@ -1,0 +1,46 @@
+{
+  "config": {
+    "name": "gravitee",
+    "networks": {
+      "default": {
+        "ipam": {},
+        "name": "gravitee_default"
+      }
+    },
+    "services": {
+      "hostile-terminal-shell": {
+        "command": null,
+        "entrypoint": null,
+        "image": "busybox:1.36",
+        "networks": {
+          "default": null
+        }
+      }
+    },
+    "volumes": {}
+  },
+  "error": null,
+  "files": {
+    "compose.yml": "x-gravitee: {kind: playground, name: Own terminal, category: Other, description: A terminal in a service of the playground, terminal: hostile-terminal-shell}\nservices:\n  hostile-terminal-shell:\n    image: busybox:1.36\n"
+  },
+  "overlaid": {},
+  "own": [
+    "hostile-terminal-shell"
+  ],
+  "unit": {
+    "id": "@hostile/p-terminal",
+    "includes": [],
+    "kind": "playground",
+    "meta": {
+      "category": "Other",
+      "description": "A terminal in a service of the playground",
+      "kind": "playground",
+      "name": "Own terminal",
+      "terminal": "hostile-terminal-shell"
+    },
+    "name": "Own terminal",
+    "references": [],
+    "seed": null,
+    "seed_references": []
+  }
+}

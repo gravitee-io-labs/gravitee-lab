@@ -1,0 +1,4 @@
+x-gravitee: {kind: addon, name: Needs a blocked add-on, category: Other, description: Includes an add-on that is blocked}
+
+include:
+  - ../../addons/t12-bind-writable/compose.yml

@@ -1,0 +1,18 @@
+x-gravitee: {kind: playground, name: Seeder with its own entrypoint, category: Other, description: Runs the seeder's folder with a command of its own}
+services:
+  hostile-n01-entrypoint-seed:
+    image: hostile-seeder
+    build: ../../../../../seeder
+    pull_policy: build
+    restart: "no"
+    entrypoint: ["sh", "-c", "python /seed/seed.py"]
+    labels:
+      io.gravitee.role: seed
+      io.gravitee.name: Playground seed
+      io.gravitee.description: Sets up the playground with its own entrypoint
+    volumes:
+      - ./seed:/seed:ro
+    environment:
+      APIM_MANAGEMENT_URL: http://apim-management-api:8083
+      APIM_GATEWAY_URL: http://localhost:8082
+      HOSTILE_DEMO_PASSWORD: ${HOSTILE_DEMO_PASSWORD:-demo}

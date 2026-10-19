@@ -1,0 +1,9 @@
+x-gravitee: {kind: addon, name: Alias of a platform service, category: Other, description: Answers to the name of the management API}
+
+services:
+  hostile-alias:
+    image: busybox:1.36
+    networks:
+      internal:
+        aliases:
+          - apim-management-api

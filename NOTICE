@@ -1,0 +1,18 @@
+Gravitee Lab
+Copyright (C) 2026 Gravitee
+
+Initial repository: https://github.com/gravitee-io-labs/gravitee-lab
+Maker: Gravitee. Created by Dorian Blanc.
+
+This project is free software under the GNU Affero General Public License, version 3 (see LICENSE).
+
+Attribution (additional term under section 7(b) of that license): anyone who copies, modifies or redistributes this
+project, or lets others use it over a network, keeps this NOTICE and the attribution above (the initial repository and
+its maker) in the source, and in the documentation or user interface that credits the project.
+
+Use outside the terms of the AGPL, for example inside a closed-source commercial product or service, needs a separate
+commercial license from the maker.
+
+Docker images, Gravitee products and other third-party software that the lab runs keep their own licenses.
+The logos of Claude, Codex (OpenAI) and Cursor in the Lab UI come from Simple Icons (CC0 1.0). They name the product a button
+opens and belong to their owners, who do not sponsor or endorse this project.

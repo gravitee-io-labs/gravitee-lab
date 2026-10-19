@@ -1,0 +1,6 @@
+x-gravitee: {kind: addon, name: Foreign setting, category: Other, description: Reads a setting of another tool}
+services:
+  hostile-foreign:
+    image: busybox:1.36
+    environment:
+      OTHER_TOKEN: ${SOME_OTHER_TOOL_TOKEN:-}

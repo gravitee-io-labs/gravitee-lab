@@ -1,0 +1,4 @@
+x-gravitee: {kind: addon, name: Newer Lab, category: Other, description: Was written for a Lab that does not exist yet, requires: {lab: 99}}
+services:
+  hostile-newer:
+    image: busybox:1.36

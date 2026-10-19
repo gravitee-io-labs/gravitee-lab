@@ -1,0 +1,9 @@
+x-gravitee: {kind: addon, name: Reads the settings of another catalog, category: Other, description: Reads the .env of an add-on of another catalog}
+
+include:
+  - ../../../partner/addons/ledger/compose.yml
+services:
+  hostile-stranger-env:
+    image: busybox:1.36
+    volumes:
+      - ../../../partner/addons/ledger/.env:/in/env:ro

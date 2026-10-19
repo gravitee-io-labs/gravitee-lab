@@ -1,0 +1,7 @@
+# `context has amount` keeps out a transfer whose amount the gateway could not read as a number
+name: Customers move their own money
+status: DEPLOYED
+policy: |
+  @id("Customers move their own money")
+  permit (principal, action == Action::"<server>.transfer_funds", resource in MCPServer::"<server>")
+    when { principal.role == "customer" && principal.accounts.contains(context.account_id) && context has amount };

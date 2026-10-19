@@ -1,0 +1,76 @@
+{
+  "config": {
+    "name": "gravitee",
+    "networks": {
+      "default": {
+        "ipam": {},
+        "name": "gravitee_default"
+      }
+    },
+    "services": {
+      "hostile-n01-path-seed": {
+        "build": {
+          "context": "@ROOT@/seeder",
+          "dockerfile": "Dockerfile"
+        },
+        "command": null,
+        "entrypoint": null,
+        "environment": {
+          "APIM_GATEWAY_URL": "http://localhost:8082",
+          "APIM_MANAGEMENT_URL": "http://apim-management-api:8083",
+          "HOSTILE_DEMO_PASSWORD": "demo",
+          "PYTHONPATH": "/seed"
+        },
+        "image": "hostile-seeder",
+        "labels": {
+          "io.gravitee.description": "Sets up the playground with modules of its own",
+          "io.gravitee.name": "Playground seed",
+          "io.gravitee.role": "seed"
+        },
+        "networks": {
+          "default": null
+        },
+        "pull_policy": "build",
+        "restart": "no",
+        "volumes": [
+          {
+            "bind": {},
+            "read_only": true,
+            "source": "@ROOT@/.lab/catalogs/hostile/playgrounds/n01-seeder-pythonpath/seed",
+            "target": "/seed",
+            "type": "bind"
+          }
+        ]
+      }
+    },
+    "volumes": {}
+  },
+  "error": null,
+  "files": {
+    "compose.yml": "x-gravitee: {kind: playground, name: Seeder with a path of its own, category: Other, description: Lets the interpreter load modules from the seed folder}\nservices:\n  hostile-n01-path-seed:\n    image: hostile-seeder\n    build: ../../../../../seeder\n    pull_policy: build\n    restart: \"no\"\n    environment:\n      APIM_MANAGEMENT_URL: http://apim-management-api:8083\n      APIM_GATEWAY_URL: http://localhost:8082\n      HOSTILE_DEMO_PASSWORD: ${HOSTILE_DEMO_PASSWORD:-demo}\n      PYTHONPATH: /seed\n    labels:\n      io.gravitee.role: seed\n      io.gravitee.name: Playground seed\n      io.gravitee.description: Sets up the playground with modules of its own\n    volumes:\n      - ./seed:/seed:ro\n"
+  },
+  "overlaid": {},
+  "own": [
+    "hostile-n01-path-seed"
+  ],
+  "unit": {
+    "id": "@hostile/n01-seeder-pythonpath",
+    "includes": [],
+    "kind": "playground",
+    "meta": {
+      "category": "Other",
+      "description": "Lets the interpreter load modules from the seed folder",
+      "kind": "playground",
+      "name": "Seeder with a path of its own"
+    },
+    "name": "Seeder with a path of its own",
+    "references": [
+      "HOSTILE_DEMO_PASSWORD"
+    ],
+    "seed": null,
+    "seed_references": [
+      "APIM_GATEWAY_URL",
+      "HOSTILE_DEMO_PASSWORD"
+    ]
+  }
+}

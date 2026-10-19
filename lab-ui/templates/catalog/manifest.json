@@ -1,0 +1,132 @@
+{
+  "level": 3,
+  "files": [
+    {"path": ".catalog/standard.mk", "class": "managed", "since": 1, "when": "always", "scope": "full"},
+    {"path": ".github/dependabot.yml", "class": "managed", "since": 1, "when": "always", "scope": "full"},
+    {"path": ".github/actions/lab/action.yml", "class": "managed", "since": 1, "when": "always", "scope": "full"},
+    {"path": ".github/workflows/ci.yml", "class": "managed", "since": 1, "when": "always", "scope": "full"},
+    {"path": ".github/workflows/nightly.yml", "class": "managed", "since": 2, "when": "always", "scope": "full"},
+    {"path": ".github/workflows/publish.yml", "class": "managed", "since": 3, "when": "images", "scope": "full"},
+    {"path": ".github/workflows/e2e.yml", "class": "managed", "since": 3, "when": "module:e2e", "scope": "full"},
+    {"path": ".github/rulesets/default-branch.json", "class": "managed", "since": 1, "when": "always", "scope": "full"},
+    {"path": ".github/rulesets/tags.json", "class": "managed", "since": 1, "when": "always", "scope": "full"},
+    {"path": ".github/rulesets/push.json", "class": "managed", "since": 1, "when": "always", "scope": "full"},
+    {"path": ".github/rulesets/protected-paths.json", "class": "managed", "since": 1, "when": "always", "scope": "full"},
+    {"path": "catalog.yml", "class": "seeded", "since": 1, "when": "always", "scope": "both"},
+    {"path": "README.md", "class": "seeded", "since": 1, "when": "always", "scope": "both", "local": "local/README.md"},
+    {"path": "LICENSE", "class": "seeded", "since": 1, "when": "always", "scope": "both", "license": true},
+    {"path": "SECURITY.md", "class": "seeded", "since": 1, "when": "always", "scope": "full"},
+    {"path": "CONTRIBUTING.md", "class": "seeded", "since": 1, "when": "always", "scope": "full"},
+    {"path": "REVIEWING.md", "class": "seeded", "since": 1, "when": "always", "scope": "full"},
+    {"path": "AGENTS.md", "class": "seeded", "since": 1, "when": "always", "scope": "full"},
+    {"path": "CLAUDE.md", "class": "seeded", "since": 1, "when": "always", "scope": "full"},
+    {"path": "Makefile", "class": "seeded", "since": 1, "when": "always", "scope": "both", "local": "local/Makefile"},
+    {"path": ".gitignore", "class": "seeded", "since": 1, "when": "always", "scope": "both"},
+    {"path": ".gitattributes", "class": "seeded", "since": 1, "when": "always", "scope": "full"},
+    {"path": ".editorconfig", "class": "seeded", "since": 1, "when": "always", "scope": "full"},
+    {"path": ".github/standard.json", "class": "seeded", "since": 1, "when": "always", "scope": "full", "tool": "standard.json"},
+    {"path": ".github/CODEOWNERS", "class": "seeded", "since": 1, "when": "always", "scope": "full"},
+    {"path": ".github/PULL_REQUEST_TEMPLATE.md", "class": "seeded", "since": 1, "when": "always", "scope": "full"},
+    {"path": ".github/ISSUE_TEMPLATE/config.yml", "class": "seeded", "since": 1, "when": "always", "scope": "full"},
+    {"path": ".github/ISSUE_TEMPLATE/bug_report.yml", "class": "seeded", "since": 1, "when": "always", "scope": "full"},
+    {"path": ".github/ISSUE_TEMPLATE/new_item.yml", "class": "seeded", "since": 1, "when": "always", "scope": "full"},
+    {"path": "addons/hello/compose.yml", "class": "sample", "since": 1, "when": "always", "scope": "both", "source": "addons/hello/compose.yml"},
+    {"path": "addons/hello/README.md", "class": "sample", "since": 1, "when": "always", "scope": "both", "source": "addons/hello/README.md"}
+  ],
+  "removed": [],
+  "edits": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "below": 2,
+      "from": [
+        "#   compile  the apps build on each architecture (a Mac runs arm64), pass their tests in their image with no network, and what",
+        "#            does not need the platform starts and answers its health check"
+      ],
+      "to": [
+        "#   compile  the apps build on each architecture (a Mac runs arm64) and pass their tests in their image with no network"
+      ]
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "below": 2,
+      "from": [
+        "  # Build, test, start. The Dockerfiles of the change run here, so no secret and no registry login reaches this job"
+      ],
+      "to": [
+        "  # Build and test. The Dockerfiles of the change run here, so no secret and no registry login reaches this job"
+      ]
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "below": 2,
+      "from": [
+        "      - name: Start what does not need the platform",
+        "        if: ${{ !cancelled() && steps.build.outcome == 'success' }}",
+        "        env:",
+        "          UNITS: ${{ needs.static.outputs.units }}",
+        "        run: python3 -I lab/lab-ui/catalog.py ci smoke catalog --units \"$UNITS\" --ci"
+      ],
+      "to": []
+    },
+    {
+      "path": ".github/workflows/nightly.yml",
+      "below": 3,
+      "from": [
+        "# Every week, on the main branch: what changes while nobody pushes. The newest Lab still reads the catalog, the standard files are the",
+        "# newest Lab's, the links of the guides answer, the rules of the main branch are still the standard's, and the images that were",
+        "# published have no fixable critical flaw. The newest Lab is code nobody has read yet, so the job that runs it holds nothing: no token,",
+        "# no package access. A run that fails opens an issue, or adds to the one that is open."
+      ],
+      "to": [
+        "# Every week, on the main branch: what changes while nobody pushes. The newest Lab still reads the catalog, the standard files are the",
+        "# newest Lab's, the links of the guides answer, and the rules of the main branch are still the standard's. The newest Lab is code nobody",
+        "# has read yet, so the job that runs it holds nothing: no token, no package access. A run that fails opens an issue, or adds to the",
+        "# one that is open."
+      ]
+    },
+    {
+      "path": ".github/workflows/nightly.yml",
+      "below": 3,
+      "from": [
+        "  # The Lab at the commit the catalog pins, with the read access to packages that the audit and the scan need"
+      ],
+      "to": [
+        "  # The Lab at the commit the catalog pins, with the read access to packages that the audit needs"
+      ]
+    },
+    {
+      "path": ".github/workflows/nightly.yml",
+      "below": 3,
+      "from": [
+        "      - name: The published images have no fixable critical flaw",
+        "        if: ${{ !cancelled() }}",
+        "        env:",
+        "          GH_TOKEN: ${{ github.token }}",
+        "        run: python3 -I lab/lab-ui/catalog.py ci scan-published catalog"
+      ],
+      "to": []
+    }
+  ],
+  "notes": {
+    "1": {
+      "summary": "The shared files, the lab action, Dependabot, CODEOWNERS and the pull request template, the four rulesets as data, and ci.yml with static (which fetches the catalogs this one needs), seed, compile and result.",
+      "manual": ["Give the repository its Lab key while the Lab is private: make settings prints the commands.",
+        "A catalog that requires another, while that one is private: name it under needs in .github/standard.json and give the repository its read key, NEEDS_DEPLOY_KEY."],
+      "settings": ["Apply the rulesets and the repository settings: make settings APPLY=1 shows the requests, and make settings APPLY=1 YES=1 makes them."],
+      "urgent": false
+    },
+    "2": {
+      "summary": "Adds nightly.yml, which runs every week (the newest Lab, standard drift, the links of the guides, the rules of the main branch, one issue), and starts what needs no platform in compile.",
+      "manual": [],
+      "settings": ["Keep the workflow Nightly enabled: make settings shows its state."],
+      "urgent": false
+    },
+    "3": {
+      "summary": "Adds publish.yml (rendered once catalog.yml sets images, nothing is published before), the e2e.yml module (--with e2e), and the scan of the published images in nightly.yml.",
+      "manual": ["To publish images, set images in catalog.yml to ghcr.io/OWNER/REPO and name each image ghcr.io/OWNER/REPO/UNIT-APP, then run catalog.py upgrade again.",
+        "For the e2e.yml module, store GRAVITEE_LICENSE only as a secret of the environments e2e and e2e-nightly, never as a repository secret."],
+      "settings": ["Create the environments publish, e2e and e2e-nightly the same way: repo-settings shows what is missing."],
+      "urgent": false
+    }
+  }
+}

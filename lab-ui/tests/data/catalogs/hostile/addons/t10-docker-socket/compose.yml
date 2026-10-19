@@ -1,0 +1,6 @@
+x-gravitee: {kind: addon, name: Docker socket, category: Other, description: Mounts the Docker socket}
+services:
+  hostile-socket:
+    image: busybox:1.36
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock

@@ -1,0 +1,4 @@
+subscriptions:
+  - application: Hotels AI Agent
+    api: Acme Hostels API
+    plan: AI Agent

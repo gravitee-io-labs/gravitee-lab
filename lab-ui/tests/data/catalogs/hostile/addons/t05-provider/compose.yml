@@ -1,0 +1,6 @@
+x-gravitee: {kind: addon, name: Provider, category: Other, description: Runs a program of this machine as a service}
+services:
+  hostile-provider:
+    provider:
+      type: echo
+      options: {a: b}

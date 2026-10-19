@@ -1,0 +1,7 @@
+x-gravitee: {kind: addon, name: Overlay too much, category: Other, description: Replaces the command of the gateway and mounts the host}
+
+services:
+  apim-gateway:
+    command: ["sh", "-c", "id"]
+    volumes:
+      - /:/host

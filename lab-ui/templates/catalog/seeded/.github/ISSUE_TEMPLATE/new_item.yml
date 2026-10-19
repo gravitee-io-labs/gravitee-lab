@@ -1,0 +1,27 @@
+name: New item
+description: Propose an add-on, a setup or a playground
+labels: [enhancement]
+body:
+  - type: input
+    id: item
+    attributes:
+      label: Item
+      description: Its kind and the name you would give it, for example playground:mock-bank
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: What it shows, and for whom
+    validations:
+      required: true
+  - type: dropdown
+    id: help
+    attributes:
+      label: Will you open the pull request
+      options:
+        - Yes
+        - I need help
+        - No, I am only asking
+    validations:
+      required: true

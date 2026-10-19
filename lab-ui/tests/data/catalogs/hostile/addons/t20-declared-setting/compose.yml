@@ -1,0 +1,6 @@
+x-gravitee: {kind: addon, name: Declared setting, category: Other, description: Reads a setting that its catalog declares}
+services:
+  hostile-declared:
+    image: busybox:1.36
+    environment:
+      SHARED_TOKEN: ${FIXTURE_SHARED_TOKEN:-}

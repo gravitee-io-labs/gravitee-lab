@@ -1,0 +1,15 @@
+# The permits of a customer say what is allowed; this says no to the rest by name, so that Decisions shows a forbid that
+# names the rule where it would show "No applicable policy". Each condition is the opposite of a permit's (the customer
+# asked for is not them, the account is not theirs), so it never overrules one. Tellers and the public tools are left
+# out. The proxy reads the account of a transfer from from_account, so account_id is the account the call acts on.
+# The first condition has no `has` guard so that the Simulator, which cannot read `has`, can evaluate it in the browser:
+# without a customer_id the comparison fails, and a forbid that fails is skipped, as the guard would have done
+name: Customers see only their own accounts
+status: DEPLOYED
+policy: |
+  @id("Customers see only their own accounts")
+  forbid (principal, action == Action::"<server>.list_accounts", resource in MCPServer::"<server>")
+    when { principal.role == "customer" && context.customer_id != principal.customer_id };
+  @id("Customers use only their own accounts")
+  forbid (principal, action in [Action::"<server>.get_balance", Action::"<server>.list_transactions", Action::"<server>.transfer_funds"], resource in MCPServer::"<server>")
+    when { principal.role == "customer" && context has account_id && !principal.accounts.contains(context.account_id) };

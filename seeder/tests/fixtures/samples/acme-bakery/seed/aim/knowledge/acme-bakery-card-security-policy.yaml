@@ -1,0 +1,25 @@
+# The same text as the resource acme://policies/card-security of the bank's MCP server (apps/bakery-mcp/policies.py),
+# as a document of the catalog: a test of the seeder compares them
+entityId: acme-bakery-card-security-policy
+source: Acme Bakery                        # names the environment's source of hand-made items, if the seed has to make it
+name: Acme Bakery card security policy
+description: What to do when a card is lost or stolen, how to keep a card safe and how to report a charge
+content: |
+  # Acme Bakery card security policy
+
+  ## A lost or stolen card
+
+  Tell Acme Bakery at once. A teller freezes the card in seconds and a replacement is sent free of charge. A frozen
+  card refuses every payment and withdrawal. Only bank staff can freeze a card: the assistant does not offer it to
+  customers.
+
+  ## Keeping a card safe
+
+  - Never share your PIN or the one-time codes you receive. Acme Bakery staff never ask for them.
+  - Contactless payments are limited to EUR 50 each; the card asks for its PIN from time to time.
+  - An online payment above EUR 30 is confirmed in the Acme Bakery app.
+
+  ## A charge you do not recognize
+
+  Report it within 13 months. An unauthorized payment is refunded by the end of the next business day while the
+  dispute is investigated.

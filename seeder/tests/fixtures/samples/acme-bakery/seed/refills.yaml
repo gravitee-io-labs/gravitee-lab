@@ -1,0 +1,8 @@
+# What the lessons spend, put back on every run: a Re-seed gives these members their whole budget again, so that a lesson can be
+# tried as often as it is taught. A budget is a rolling period and nothing but time gives it back. Only the counters named here
+# are deleted, and only those of this member.
+
+hackathon:                          # lesson 6: a click on "Spend the Hackathon budget" uses most of the sandbox's hour
+  workspace: Acme Bakery Teams
+  member: team-hackathon            # the source id of the member, as the workspace file lists it
+  counters: cost                    # what it spent of its cost budget

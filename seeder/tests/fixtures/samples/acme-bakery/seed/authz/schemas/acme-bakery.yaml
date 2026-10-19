@@ -1,0 +1,22 @@
+# What a request to the bank's tools can hold, for the policy editor: decisions do not depend on it
+name: Acme Bakery
+schema: |
+  entity Group {};
+  entity User in [Group] {
+    username?: String,
+    name?: String,
+    role?: String,
+    customer_id?: String,
+    accounts?: Set<String>
+  };
+  entity AgentIdentity {};
+  entity MCPServer {};
+  entity MCPTool in [MCPServer] {};
+  action "<server>.list_accounts" appliesTo { principal: [User, AgentIdentity], resource: [MCPTool], context: { customer_id?: String } };
+  action "<server>.get_balance" appliesTo { principal: [User, AgentIdentity], resource: [MCPTool], context: { account_id?: String } };
+  action "<server>.list_transactions" appliesTo { principal: [User, AgentIdentity], resource: [MCPTool], context: { account_id?: String } };
+  action "<server>.transfer_funds" appliesTo { principal: [User, AgentIdentity], resource: [MCPTool], context: { account_id?: String, amount?: Long, agent?: AgentIdentity } };
+  action "<server>.freeze_card" appliesTo { principal: [User, AgentIdentity], resource: [MCPTool], context: { card_id?: String } };
+  action "<server>.get_exchange_rate" appliesTo { principal: [User, AgentIdentity], resource: [MCPTool], context: {} };
+  action "<server>.simulate_loan" appliesTo { principal: [User, AgentIdentity], resource: [MCPTool], context: {} };
+  action "<server>.find_branches" appliesTo { principal: [User, AgentIdentity], resource: [MCPTool], context: {} };

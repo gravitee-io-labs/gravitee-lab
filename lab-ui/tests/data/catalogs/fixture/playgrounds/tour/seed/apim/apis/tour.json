@@ -1,0 +1,49 @@
+{
+  "api": {
+    "definitionVersion": "V4",
+    "type": "PROXY",
+    "name": "Tour",
+    "description": "One API behind the gateway",
+    "apiVersion": "1.0",
+    "state": "STARTED",
+    "visibility": "PRIVATE",
+    "lifecycleState": "PUBLISHED",
+    "listeners": [
+      {
+        "type": "HTTP",
+        "paths": [{"path": "/tour/", "overrideAccess": false}],
+        "entrypoints": [{"type": "http-proxy", "qos": "AUTO", "configuration": {}}]
+      }
+    ],
+    "endpointGroups": [
+      {
+        "name": "Tour backend",
+        "type": "http-proxy",
+        "loadBalancer": {"type": "ROUND_ROBIN"},
+        "endpoints": [
+          {
+            "name": "tour-backend",
+            "type": "http-proxy",
+            "weight": 1,
+            "inheritConfiguration": true,
+            "configuration": {"target": "${FIXTURE_TOUR_BACKEND_URL}"}
+          }
+        ]
+      }
+    ],
+    "flows": []
+  },
+  "plans": [
+    {
+      "definitionVersion": "V4",
+      "name": "Public",
+      "description": "Open access, no key",
+      "security": {"type": "KEY_LESS", "configuration": {}},
+      "mode": "STANDARD",
+      "order": 1,
+      "status": "PUBLISHED",
+      "type": "API",
+      "validation": "MANUAL"
+    }
+  ]
+}

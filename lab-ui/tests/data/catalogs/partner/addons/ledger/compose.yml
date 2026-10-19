@@ -1,0 +1,13 @@
+x-gravitee: {kind: addon, name: Ledger, category: Other, description: Keeps the entries of a partner}
+services:
+  partner-ledger:
+    image: busybox:${PARTNER_LEDGER_VERSION:-1.36}   # Image version
+    container_name: gio-partner-ledger
+    restart: unless-stopped
+    command: ["httpd", "-f", "-p", "80"]
+    ports: ["127.0.0.1:8192:80"]   # HTTP
+    environment: {PARTNER_LEDGER_CURRENCY: "${PARTNER_LEDGER_CURRENCY:-EUR}"}   # Currency of the entries
+    labels:
+      io.gravitee.name: Ledger
+      io.gravitee.description: Keeps the entries of a partner
+    networks: [internal]

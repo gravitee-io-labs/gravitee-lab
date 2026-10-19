@@ -1,0 +1,202 @@
+# Spend, safety and authorization of the bank's AI gateway on one page, built only on what the gateway reports: requests,
+# tokens and cost by consumer and model, what the guard rails (400), the sign-in (401), the policies (403) and the limits
+# (429) refused, and the verdicts of the authorization checks. The grid has 24 columns (layout version 2).
+id: acme-bakery-ai-spend-and-safety
+title: Acme Bakery - AI spend and safety
+description: Spend by consumer and model, what the gateway refused, and the authorization decisions
+timeRange: {type: relative, period: 1h}   # the templates open on 7 days, where a fresh machine shows one spike at the edge
+
+filters:
+  - {name: API, label: API, operator: IN, value: [], editable: true}
+
+widgets:
+  - id: key-metrics
+    title: Key metrics
+    type: metric-group
+    # Only the AI proxies count: the dashboard is shared by the whole environment
+    filters: [&ai {field: API_TYPE, label: API type, operator: in, value: [LLM, MCP, A2A]}]
+    items:
+      - {metric: HTTP_REQUESTS, measure: COUNT, label: Requests, category: Traffic, sentiment: neutral}
+      - {metric: HTTP_ERROR_RATE, measure: PERCENTAGE, label: Error rate, category: Traffic, sentiment: lower-is-better}
+      - {metric: HTTP_GATEWAY_LATENCY, measure: P95, label: P95 gateway latency, category: Traffic, sentiment: lower-is-better}
+      - {metric: LLM_PROMPT_TOTAL_TOKEN, measure: COUNT, label: Total, category: Tokens, sentiment: neutral}
+      - {metric: LLM_PROMPT_TOKEN_TOTAL_COST, measure: COUNT, label: Total, category: Cost (USD), sentiment: neutral}
+    layout: {x: 0, y: 0, cols: 24, rows: 2, version: 2}
+
+  # What the gateway refuses, by the status it answers
+  - id: no-valid-token
+    title: No valid token
+    type: metric
+    metric: HTTP_REQUESTS
+    measure: COUNT
+    label: HTTP 401
+    filters: [*ai, {field: HTTP_STATUS, label: Status, operator: eq, value: ["401"]}]
+    layout: {x: 0, y: 2, cols: 6, rows: 2, version: 2}
+  - id: prompts-blocked
+    title: Prompts blocked
+    type: metric
+    metric: HTTP_REQUESTS
+    measure: COUNT
+    label: HTTP 400
+    filters: [*ai, {field: HTTP_STATUS, label: Status, operator: eq, value: ["400"]}]
+    layout: {x: 6, y: 2, cols: 6, rows: 2, version: 2}
+  - id: tool-calls-denied
+    title: Tool calls denied
+    type: metric
+    metric: HTTP_REQUESTS
+    measure: COUNT
+    label: HTTP 403
+    filters: [*ai, {field: HTTP_STATUS, label: Status, operator: eq, value: ["403"]}]
+    layout: {x: 12, y: 2, cols: 6, rows: 2, version: 2}
+  - id: calls-limited
+    title: Calls limited
+    type: metric
+    metric: HTTP_REQUESTS
+    measure: COUNT
+    label: HTTP 429
+    filters: [*ai, {field: HTTP_STATUS, label: Status, operator: eq, value: ["429"]}]
+    layout: {x: 18, y: 2, cols: 6, rows: 2, version: 2}
+
+  - id: consumers
+    title: Consumers
+    description: Cost, tokens and requests of each application. A team's application carries the team's name.
+    type: table
+    by: [APPLICATION]
+    columns:
+      - {metric: LLM_PROMPT_TOKEN_TOTAL_COST, measure: COUNT, label: Cost, format: number, pinned: true}   # rounded: a sum of floats would show 0.28794000000000003
+      - {metric: LLM_PROMPT_TOTAL_TOKEN, measure: COUNT, label: Tokens, format: compact}
+      - {metric: HTTP_REQUESTS, measure: COUNT, label: Requests, format: compact}
+      - metric: HTTP_ERROR_RATE
+        measure: PERCENTAGE
+        label: Error rate
+        thresholds: [{color: red, op: gte, value: 5}, {color: amber, op: gte, value: 1}]
+    sort: {columnId: "LLM_PROMPT_TOKEN_TOTAL_COST:COUNT", order: DESC}
+    limit: 50
+    showTotals: true
+    rowMarker: number
+    filters: [*ai]
+    layout: {x: 0, y: 4, cols: 14, rows: 5, version: 2}
+  - id: cost-by-model
+    title: Cost by model
+    type: doughnut
+    by: [LLM_PROXY_MODEL]
+    metric: LLM_PROMPT_TOKEN_TOTAL_COST
+    measure: COUNT
+    valueLabel: Cost
+    centerTotal: true
+    centerLabel: Cost (USD)
+    limit: 5
+    sorts: [{measure: COUNT, order: DESC}]
+    filters: [*ai]
+    layout: {x: 14, y: 4, cols: 10, rows: 5, version: 2}
+
+  - id: cost-and-tokens-over-time
+    title: Cost and tokens over time
+    type: cartesian
+    series:
+      - {metric: LLM_PROMPT_TOTAL_TOKEN, measure: COUNT, representation: bar, axisId: right, unit: tokens}
+      - {metric: LLM_PROMPT_TOKEN_TOTAL_COST, measure: COUNT, representation: line, axisId: left, unit: USD, curveType: monotone}
+    filters: [*ai]
+    layout: {x: 0, y: 9, cols: 16, rows: 4, version: 2}
+  - id: cost-by-consumer
+    title: Cost by consumer
+    type: doughnut
+    by: [APPLICATION]
+    metric: LLM_PROMPT_TOKEN_TOTAL_COST
+    measure: COUNT
+    valueLabel: Cost
+    centerTotal: true
+    centerLabel: Cost (USD)
+    limit: 5
+    sorts: [{measure: COUNT, order: DESC}]
+    filters: [*ai]
+    layout: {x: 16, y: 9, cols: 8, rows: 4, version: 2}
+
+  - id: refused-over-time
+    title: Refused requests over time
+    description: Every status from 400 up, each its own color
+    type: cartesian
+    series:
+      - {metric: HTTP_REQUESTS, measure: COUNT, representation: bar, by: [HTTP_STATUS], stackId: status, unit: req}
+    filters: [*ai, &refused {field: HTTP_STATUS, label: Status, operator: gte, value: ["400"]}]
+    layout: {x: 0, y: 13, cols: 16, rows: 4, version: 2}
+  - id: refused-by-api
+    title: Refused requests by API
+    description: Each API with its statuses on hover
+    type: doughnut
+    by: [API, HTTP_STATUS]
+    metric: HTTP_REQUESTS
+    measure: COUNT
+    valueLabel: Requests
+    centerTotal: true
+    centerLabel: Refused
+    filters: [*ai, *refused]
+    layout: {x: 16, y: 13, cols: 8, rows: 4, version: 2}
+
+  # The verdicts of the authorization checks are recorded apart from the requests: their own record type
+  - id: decisions-over-time
+    title: Authorization decisions over time
+    description: What the policies decided on each tool call, with the time they took
+    type: cartesian
+    series:
+      - metric: AUTHZ_DECISIONS
+        measure: COUNT
+        representation: bar
+        by: [AUTHZ_DECISION]
+        stackId: decision
+        axisId: left
+        unit: dec
+        colorByGroup: {PERMIT: var(--success), NOT_APPLICABLE: var(--muted-foreground), FORBID: var(--destructive)}
+      - {metric: AUTHZ_EVAL_DURATION, measure: P95, representation: line, axisId: right, unit: ms, curveType: monotone}
+    filters: [&decisions {field: RECORD_TYPE, label: Record type, operator: eq, value: [AUTHZ_DECISION]}]
+    layout: {x: 0, y: 17, cols: 16, rows: 4, version: 2}
+  - id: decision-mix
+    title: Decision mix
+    type: doughnut
+    by: [AUTHZ_DECISION]
+    metric: AUTHZ_DECISIONS
+    measure: COUNT
+    centerTotal: true
+    centerLabel: Decisions
+    filters: [*decisions]
+    layout: {x: 16, y: 17, cols: 8, rows: 4, version: 2}
+
+  - id: top-denied-actions
+    title: Top denied actions
+    type: breakdown
+    variant: list
+    ratioMode: max
+    sortByValue: desc
+    limit: 5
+    compact: true
+    by: [AUTHZ_ACTION]
+    metric: AUTHZ_FORBIDS
+    measure: COUNT
+    sorts: [{measure: COUNT, order: DESC}]
+    filters: [*decisions]
+    layout: {x: 0, y: 21, cols: 12, rows: 4, version: 2}
+  - id: top-denied-people
+    title: Top denied people
+    type: breakdown
+    variant: list
+    ratioMode: max
+    sortByValue: desc
+    limit: 5
+    compact: true
+    by: [AUTHZ_SUBJECT_ID]
+    metric: AUTHZ_FORBIDS
+    measure: COUNT
+    sorts: [{measure: COUNT, order: DESC}]
+    filters: [*decisions]
+    layout: {x: 12, y: 21, cols: 12, rows: 4, version: 2}
+
+  - id: gateway-latency
+    title: What the gateway adds
+    description: Time the gateway itself takes, percentiles
+    type: cartesian
+    series:
+      - {metric: HTTP_GATEWAY_LATENCY, measure: P90, representation: line, unit: ms, curveType: monotone}
+      - {metric: HTTP_GATEWAY_LATENCY, measure: P95, representation: line, unit: ms, curveType: monotone}
+      - {metric: HTTP_GATEWAY_LATENCY, measure: P99, representation: line, unit: ms, curveType: monotone}
+    filters: [*ai]
+    layout: {x: 0, y: 25, cols: 24, rows: 4, version: 2}

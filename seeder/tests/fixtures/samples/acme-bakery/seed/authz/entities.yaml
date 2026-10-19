@@ -1,0 +1,56 @@
+# What the policies are about.
+#
+# The ids of the server and of its tools are made of the slug the catalog gave the server, which the seed reads back:
+# the server "Acme Bakery MCP" is `acme-bakery-mcp`, its tool get_balance `acme-bakery-mcp.get_balance`.
+server: Acme Bakery MCP   # its name in the AI catalog
+tools:
+  - list_accounts
+  - get_balance
+  - list_transactions
+  - transfer_funds
+  - freeze_card
+  - get_exchange_rate
+  - simulate_loan
+  - find_branches
+
+groups:
+  customers: Customers
+  tellers: Tellers
+
+# The id is the local part of the username: an entity id cannot hold an "@", and the gateway builds the id of the user who
+# asks the same way. The attributes are the claims of the token, which the gateway sends with each request: where both
+# exist, the token's win
+users:
+  - id: alice
+    group: customers
+    attributes:
+      _displayName: Alice Martin
+      username: alice@acme-bakery.test
+      name: Alice Martin
+      role: customer
+      customer_id: C-1001
+      accounts: [ACC-1001, ACC-1002]
+  - id: bob
+    group: customers
+    attributes:
+      _displayName: Bob Chen
+      username: bob@acme-bakery.test
+      name: Bob Chen
+      role: customer
+      customer_id: C-2001
+      accounts: [ACC-2001]
+  - id: tina
+    group: tellers
+    attributes:
+      _displayName: Tina Torres
+      username: tina@acme-bakery.test
+      name: Tina Torres
+      role: teller
+
+# So that the Simulator can name Ace as the acting agent. Its id is made of the client id, as the gateway makes the id of the
+# agent it finds in a token
+agents:
+  - clientId: ace-agent
+    attributes:
+      _displayName: Ace
+      agentType: HOSTED_DELEGATED

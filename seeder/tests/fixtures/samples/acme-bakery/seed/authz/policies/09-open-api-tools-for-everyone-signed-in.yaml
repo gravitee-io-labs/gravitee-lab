@@ -1,0 +1,7 @@
+# The tools the Studio makes from the bank's REST API. They belong to no MCP server, and the Studio asks about them by the
+# name a client sees, which is their alias in seed/aim/studios: rename one there and this list has to follow
+name: Open API tools for everyone signed in
+status: DEPLOYED
+policy: |
+  @id("Open API tools for everyone signed in")
+  permit (principal, action in [Action::"list_branches", Action::"get_branch", Action::"list_rates", Action::"get_rate"], resource is MCPTool);

@@ -1,0 +1,18 @@
+x-gravitee:
+  kind: addon
+  name: Echo twin
+  category: Other
+  description: Second echo that wants the port of the first
+  conflicts:
+    echo: Both publish port 8191
+services:
+  fixture-echo-twin:
+    image: busybox:${FIXTURE_ECHO_TWIN_VERSION:-1.36}   # Image version
+    container_name: gio-fixture-echo-twin
+    restart: unless-stopped
+    command: ["httpd", "-f", "-p", "80"]
+    ports: ["127.0.0.1:8191:80"]   # HTTP
+    labels:
+      io.gravitee.name: Echo twin
+      io.gravitee.description: Answers on the port of Echo
+    networks: [internal]

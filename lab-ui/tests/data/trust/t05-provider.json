@@ -1,0 +1,44 @@
+{
+  "config": {
+    "name": "gravitee",
+    "networks": {},
+    "services": {
+      "hostile-provider": {
+        "command": null,
+        "entrypoint": null,
+        "provider": {
+          "options": {
+            "a": [
+              "b"
+            ]
+          },
+          "type": "echo"
+        }
+      }
+    },
+    "volumes": {}
+  },
+  "error": null,
+  "files": {
+    "compose.yml": "x-gravitee: {kind: addon, name: Provider, category: Other, description: Runs a program of this machine as a service}\nservices:\n  hostile-provider:\n    provider:\n      type: echo\n      options: {a: b}\n"
+  },
+  "overlaid": {},
+  "own": [
+    "hostile-provider"
+  ],
+  "unit": {
+    "id": "@hostile/t05-provider",
+    "includes": [],
+    "kind": "addon",
+    "meta": {
+      "category": "Other",
+      "description": "Runs a program of this machine as a service",
+      "kind": "addon",
+      "name": "Provider"
+    },
+    "name": "Provider",
+    "references": [],
+    "seed": null,
+    "seed_references": []
+  }
+}

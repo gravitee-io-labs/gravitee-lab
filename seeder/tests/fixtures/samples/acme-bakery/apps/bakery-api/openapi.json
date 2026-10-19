@@ -1,0 +1,294 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Acme Bakery open API",
+    "version": "1.0.0",
+    "description": "The branches and the exchange rates of Acme Bakery. Public data: read only, no authentication."
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Branches",
+      "description": "Where to find Acme Bakery"
+    },
+    {
+      "name": "Rates",
+      "description": "What Acme Bakery exchanges currencies at"
+    }
+  ],
+  "paths": {
+    "/branches": {
+      "get": {
+        "operationId": "listBranches",
+        "tags": ["Branches"],
+        "summary": "List branches",
+        "description": "List the Acme Bakery branches with their address and opening hours, all of them or only those of one city.",
+        "parameters": [
+          {
+            "name": "city",
+            "in": "query",
+            "required": false,
+            "description": "City to list the branches of, such as Lyon. Leave it out to list every branch.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The branches, possibly none",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BranchList"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/branches/{id}": {
+      "get": {
+        "operationId": "getBranch",
+        "tags": ["Branches"],
+        "summary": "Get a branch",
+        "description": "Get one Acme Bakery branch from its id, as listBranches gives it.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Branch id, a city and a district in lower case, such as paris-opera",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The branch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Branch"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No branch has this id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rates": {
+      "get": {
+        "operationId": "listRates",
+        "tags": ["Rates"],
+        "summary": "List exchange rates",
+        "description": "List what one unit of a currency is worth in every other supported currency.",
+        "parameters": [
+          {
+            "name": "base",
+            "in": "query",
+            "required": false,
+            "description": "3-letter code of the currency to convert from. Defaults to EUR.",
+            "schema": {
+              "type": "string",
+              "enum": ["EUR", "USD", "GBP", "CHF", "JPY", "CAD", "SEK"],
+              "default": "EUR"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The rates of the base currency",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The base currency is not supported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rates/{base}/{quote}": {
+      "get": {
+        "operationId": "getRate",
+        "tags": ["Rates"],
+        "summary": "Get an exchange rate",
+        "description": "Get the exchange rate between two currencies: 1 base = rate quote. \"USD/JPY\" means base USD, quote JPY.",
+        "parameters": [
+          {
+            "name": "base",
+            "in": "path",
+            "required": true,
+            "description": "3-letter code of the currency to convert from",
+            "schema": {
+              "type": "string",
+              "enum": ["EUR", "USD", "GBP", "CHF", "JPY", "CAD", "SEK"]
+            }
+          },
+          {
+            "name": "quote",
+            "in": "path",
+            "required": true,
+            "description": "3-letter code of the currency to convert to",
+            "schema": {
+              "type": "string",
+              "enum": ["EUR", "USD", "GBP", "CHF", "JPY", "CAD", "SEK"]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The rate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rate"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "One of the currencies is not supported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Branch": {
+        "type": "object",
+        "required": ["id", "name", "city", "address", "hours"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "paris-opera"
+          },
+          "name": {
+            "type": "string",
+            "example": "Acme Bakery Opera"
+          },
+          "city": {
+            "type": "string",
+            "example": "Paris"
+          },
+          "address": {
+            "type": "string",
+            "example": "12 Rue des Exemples, 75009 Paris"
+          },
+          "hours": {
+            "type": "string",
+            "example": "Mon-Fri 09:00-18:00, Sat 09:00-13:00"
+          }
+        }
+      },
+      "BranchList": {
+        "type": "object",
+        "required": ["count", "branches"],
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "branches": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Branch"
+            }
+          }
+        }
+      },
+      "CurrencyCode": {
+        "type": "string",
+        "enum": ["EUR", "USD", "GBP", "CHF", "JPY", "CAD", "SEK"]
+      },
+      "Rate": {
+        "type": "object",
+        "required": ["base", "quote", "rate", "date"],
+        "properties": {
+          "base": {
+            "$ref": "#/components/schemas/CurrencyCode"
+          },
+          "quote": {
+            "$ref": "#/components/schemas/CurrencyCode"
+          },
+          "rate": {
+            "type": "number",
+            "description": "How many units of the quote currency one unit of the base currency is worth"
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
+      "RateList": {
+        "type": "object",
+        "required": ["base", "date", "rates"],
+        "properties": {
+          "base": {
+            "$ref": "#/components/schemas/CurrencyCode"
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "rates": {
+            "type": "object",
+            "description": "The rate of every other currency, by 3-letter code",
+            "additionalProperties": {
+              "type": "number"
+            }
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": ["error", "message"],
+        "properties": {
+          "error": {
+            "type": "string",
+            "example": "not_found"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

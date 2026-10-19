@@ -1,0 +1,6 @@
+x-gravitee: {kind: addon, name: Sibling source, category: Other, description: An add-on whose folder another unit of the catalog reads}
+services:
+  hostile-source:
+    image: busybox:1.36
+    volumes:
+      - ./secrets:/run/secrets:ro

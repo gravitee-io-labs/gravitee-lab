@@ -1,0 +1,6 @@
+# What Gamma's Agent Identity page lists: the agents of one AM domain. Gamma has a single link to Access Management for
+# the whole environment, and the seed only sets it up or points it at this playground's own domain, never at another
+# one that works.
+domain: acme-bakery
+# An account of that name that the seed did not make stops the seed: it is never adopted
+serviceAccount: gamma-service-account   # made with the organization owner role and a token that does not expire when Gamma has no link yet; not made when AM_TOKEN is set

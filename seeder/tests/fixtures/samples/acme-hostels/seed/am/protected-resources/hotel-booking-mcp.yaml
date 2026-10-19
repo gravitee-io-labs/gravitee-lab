@@ -1,0 +1,21 @@
+# The booking MCP server as Access Management sees it. Its client is what the gateway's booking filter signs in with, to
+# ask the AuthZEN endpoint whether a guest may see a booking.
+name: Hotel Booking
+description: The hotel search and booking tools
+type: MCP_SERVER
+
+resourceIdentifiers:
+  - "${APIM_GATEWAY_URL}/hotels/mcp"
+
+clientId: hotel-mcp
+clientSecret: "${MCP_RESOURCE_SECRET}"
+
+tools:
+  - key: searchHotels
+    description: Search and filter hotels across all cities
+    type: MCP_TOOL
+    scopes: []
+  - key: listBookings
+    description: Returns a list of bookings
+    type: MCP_TOOL
+    scopes: []

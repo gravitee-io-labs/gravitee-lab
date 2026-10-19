@@ -1,0 +1,29 @@
+# Managed by the Lab catalog standard 1: change it with catalog.py upgrade, in a pull request a maintainer reads.
+# The reusable form: the jobs live in the Lab, at the commit named below, which must be the commit of lab.ref in .github/standard.json.
+# This job holds the union of the permissions the jobs of the Lab's workflow use, and each of those jobs asks for its own part only.
+name: Publish
+
+on:
+  push:
+    branches: [main]
+    tags: ["v[0-9]*.[0-9]*.[0-9]*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    uses: OWNER/gravitee-lab/.github/workflows/catalog-publish.yml@0123456789abcdef0123456789abcdef01234567
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write
+      checks: read
+    secrets:
+      LAB_DEPLOY_KEY: ${{ secrets.LAB_DEPLOY_KEY }}

@@ -1,0 +1,7 @@
+x-gravitee: {kind: addon, name: Ledger, category: Other, description: A stand-in for an add-on of another catalog}
+services:
+  partner-ledger:
+    image: busybox:1.36
+    ports: ["127.0.0.1:8192:80"]
+    volumes:
+      - ./secrets:/run/secrets:ro

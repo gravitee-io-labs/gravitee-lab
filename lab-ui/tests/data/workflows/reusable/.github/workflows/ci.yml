@@ -1,0 +1,36 @@
+# Managed by the Lab catalog standard 1: change it with catalog.py upgrade, in a pull request a maintainer reads.
+# The reusable form: the jobs live in the Lab, at the commit named below, which must be the commit of lab.ref in .github/standard.json.
+# The check a ruleset asks for is the job `result` of this file, named as it is in the inline form.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ci:
+    uses: OWNER/gravitee-lab/.github/workflows/catalog-ci.yml@0123456789abcdef0123456789abcdef01234567
+    secrets:
+      LAB_DEPLOY_KEY: ${{ secrets.LAB_DEPLOY_KEY }}
+
+  result:
+    name: Catalog CI result
+    needs: ci
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - env:
+          CALLED: ${{ needs.ci.result }}
+        run: |
+          echo "ci: $CALLED"
+          [ "$CALLED" = success ] || { echo "::error::The checks did not end well: open the red job above"; exit 1; }

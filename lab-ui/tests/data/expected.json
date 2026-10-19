@@ -1,0 +1,237 @@
+{
+  "addon:@partner/ledger": {
+    "verdict": "ok",
+    "reasons": [],
+    "notes": [],
+    "surface": {
+      "images": ["busybox"],
+      "builds": [],
+      "ports": [8192],
+      "core": [],
+      "reads": [],
+      "plugins": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": [],
+      "needs": []
+    },
+    "closure": ["addon:@partner/ledger"],
+    "ports": [8192],
+    "lint": []
+  },
+  "addon:cluster": {
+    "verdict": "ok",
+    "reasons": [],
+    "notes": [],
+    "surface": {
+      "images": ["busybox"],
+      "builds": [],
+      "ports": [],
+      "core": [],
+      "reads": [],
+      "plugins": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": [
+        {"service": "fixture-cluster", "label": "Fixture cluster", "what": ["runs privileged"], "why": "Runs a service manager inside its container, which only a privileged container can do"}
+      ],
+      "needs": []
+    },
+    "closure": ["addon:cluster"],
+    "ports": [],
+    "lint": []
+  },
+  "addon:echo": {
+    "verdict": "ok",
+    "reasons": [],
+    "notes": [],
+    "surface": {
+      "images": ["busybox"],
+      "builds": [],
+      "ports": [8191],
+      "core": [],
+      "reads": [],
+      "plugins": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": [],
+      "needs": []
+    },
+    "closure": ["addon:echo"],
+    "ports": [8191],
+    "lint": []
+  },
+  "addon:echo-core": {
+    "verdict": "ok",
+    "reasons": [],
+    "notes": [],
+    "surface": {
+      "images": [],
+      "builds": [],
+      "ports": [],
+      "core": [
+        {"service": "apim-gateway", "label": "Gateway", "keys": ["depends_on", "environment"]}
+      ],
+      "reads": [],
+      "plugins": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": [],
+      "needs": []
+    },
+    "closure": ["addon:echo-core", "addon:echo"],
+    "ports": [8191],
+    "lint": []
+  },
+  "addon:echo-twin": {
+    "verdict": "ok",
+    "reasons": [],
+    "notes": [],
+    "surface": {
+      "images": ["busybox"],
+      "builds": [],
+      "ports": [8191],
+      "core": [],
+      "reads": [],
+      "plugins": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": [],
+      "needs": []
+    },
+    "closure": ["addon:echo-twin"],
+    "ports": [8191],
+    "lint": []
+  },
+  "addon:future": {
+    "verdict": "blocked",
+    "reasons": ["Needs Lab level 99, this Lab reads 1 to 1"],
+    "notes": [],
+    "surface": {
+      "images": ["busybox"],
+      "builds": [],
+      "ports": [8194],
+      "core": [],
+      "reads": [],
+      "plugins": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": [],
+      "needs": []
+    },
+    "closure": ["addon:future"],
+    "ports": [8194],
+    "lint": []
+  },
+  "addon:gateway": {
+    "verdict": "ok",
+    "reasons": [],
+    "notes": [],
+    "surface": {
+      "images": ["busybox"],
+      "builds": [],
+      "ports": [8195],
+      "core": [],
+      "reads": ["gateway token"],
+      "plugins": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": [],
+      "needs": []
+    },
+    "closure": ["addon:gateway"],
+    "ports": [8195],
+    "lint": []
+  },
+  "addon:port-core": {
+    "verdict": "ok",
+    "reasons": [],
+    "notes": [],
+    "surface": {
+      "images": ["busybox"],
+      "builds": [],
+      "ports": [8082],
+      "core": [],
+      "reads": [],
+      "plugins": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": [],
+      "needs": []
+    },
+    "closure": ["addon:port-core"],
+    "ports": [8082],
+    "lint": ["publishes port 8082, like docker-compose.yml"]
+  },
+  "setup:pair": {
+    "verdict": "blocked",
+    "reasons": ["Depends on private content"],
+    "notes": [],
+    "surface": {
+      "images": [],
+      "builds": [],
+      "ports": [],
+      "core": [],
+      "reads": [],
+      "plugins": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": [],
+      "needs": ["partner"]
+    },
+    "closure": ["setup:pair", "addon:@partner/ledger", "addon:echo"],
+    "ports": [8191, 8192],
+    "lint": [],
+    "variants": {
+      "partner public": {
+        "verdict": "ok",
+        "reasons": []
+      }
+    }
+  },
+  "playground:shop": {
+    "verdict": "ok",
+    "reasons": [],
+    "notes": [],
+    "surface": {
+      "images": [],
+      "builds": [
+        {"service": "fixture-shop-web", "source": "local"},
+        {"service": "fixture-shop-seed", "source": "local"}
+      ],
+      "ports": [8193],
+      "core": [],
+      "reads": [],
+      "plugins": [],
+      "seed": "official",
+      "shell": null,
+      "uses_machine": [],
+      "needs": []
+    },
+    "closure": ["playground:shop"],
+    "ports": [8193],
+    "lint": []
+  },
+  "playground:tour": {
+    "verdict": "ok",
+    "reasons": [],
+    "notes": [],
+    "surface": {
+      "images": [],
+      "builds": [
+        {"service": "fixture-tour-seed", "source": "local"}
+      ],
+      "ports": [],
+      "core": [],
+      "reads": [],
+      "plugins": [],
+      "seed": "official",
+      "shell": null,
+      "uses_machine": [],
+      "needs": []
+    },
+    "closure": ["playground:tour"],
+    "ports": [],
+    "lint": []
+  }
+}

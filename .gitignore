@@ -1,0 +1,78 @@
+# Secrets and credentials: the core's and each add-on's settings, keys, keystores and the certificates made with them
+.env
+.env.*
+!.env.example
+/addons/*/secrets/
+*.key
+*.pem
+*.jks
+*.p12
+*.crt
+*.csr
+*.srl
+
+# What this machine keeps: what is on and starred, the plugins added, the personal add-ons, setups and playgrounds,
+# and what a playground created
+/.lab/
+/plugins/
+/addons/local/
+/setups/local/
+/playgrounds/local/
+/playgrounds/*/.state/
+
+# Backups of a data volume, should one be made inside the clone
+*.tgz
+
+# Scratch files of the Lab UI
+.*.check.yml
+.*.effects.yml
+.*.tmp
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.directory
+.fuse_hidden*
+.nfs*
+
+# Editors
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+*.sublime-workspace
+.fleet/
+
+# Personal files of AI agents
+CLAUDE.local.md
+AGENTS.local.md
+.claude/settings.local.json
+.claude/worktrees/
+.playwright-mcp/

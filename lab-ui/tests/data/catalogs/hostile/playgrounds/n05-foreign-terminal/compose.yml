@@ -1,0 +1,4 @@
+x-gravitee: {kind: playground, name: Foreign terminal, category: Other, description: A terminal in a service of the platform, terminal: apim-gateway}
+services:
+  hostile-n05-shell:
+    image: busybox:1.36

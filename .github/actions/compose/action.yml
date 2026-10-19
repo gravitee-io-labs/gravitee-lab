@@ -1,0 +1,17 @@
+name: Docker Compose 5
+description: Installs the Compose release the lab needs, newer than the one on the runner
+
+inputs:
+  version:
+    description: The Compose release to install, or latest for the newest
+    default: v5.0.1
+
+runs:
+  using: composite
+  steps:
+    # An add-on or a playground changes core services from an included file, which Compose accepts from 5.0 on
+    - uses: docker/setup-compose-action@54042514f505b273907334ae2b9cdbb9a0213c1a # v2.4.0
+      with:
+        version: ${{ inputs.version }}
+    - run: docker compose version
+      shell: bash

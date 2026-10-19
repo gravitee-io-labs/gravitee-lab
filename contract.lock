@@ -1,0 +1,144 @@
+contract 1
+contract_min 1
+core.service alert-engine health=yes networks=internal since=1
+core.service am-gateway port=8092 health=yes networks=edge,internal since=1
+core.service am-management-api port=8093 health=yes networks=edge,internal since=1
+core.service am-management-ui port=8080 health=yes networks=edge since=1
+core.service apim-gateway port=8082,8443 health=yes networks=edge,internal since=1
+core.service apim-management-api port=8083 health=yes networks=edge,internal since=1
+core.service apim-management-ui port=8080 health=yes networks=edge since=1
+core.service apim-portal-ui port=8080 health=yes networks=edge since=1
+core.service elasticsearch port=9200 health=yes networks=internal since=1
+core.service gamma-ui port=8080 health=yes networks=edge since=1
+core.service mongodb port=27017 health=yes networks=internal since=1
+core.service redis port=6379 health=yes networks=internal since=1
+core.network edge since=1
+core.network internal since=1
+core.variable GRAVITEE_LICENSE since=1
+core.variable INTERNAL_API_PASSWORD since=1
+core.variable MTLS_KEYSTORE_PASSWORD since=1
+core.variable REDIS_PASSWORD since=1
+core.image_variable AE_REGISTRY since=1
+core.image_variable AE_VERSION since=1
+core.image_variable AM_REGISTRY since=1
+core.image_variable AM_VERSION since=1
+core.image_variable APIM_GATEWAY_REGISTRY since=1
+core.image_variable APIM_GATEWAY_VERSION since=1
+core.image_variable APIM_REGISTRY since=1
+core.image_variable APIM_VERSION since=1
+core.image_variable ELASTICSEARCH_VERSION since=1
+core.image_variable MONGODB_VERSION since=1
+core.image_variable REDIS_VERSION since=1
+core.category AI since=1
+core.category API since=1
+core.category Event since=1
+core.category "Gravitee Platform" since=1
+core.category Observability since=1
+core.category Other since=1
+unit.key x-gravitee.accounts kinds=any since=1
+unit.key x-gravitee.category kinds=any since=1
+unit.key x-gravitee.conflicts kinds=any since=1
+unit.key x-gravitee.consoles kinds=any since=1
+unit.key x-gravitee.description kinds=any since=1
+unit.key x-gravitee.duration kinds=any since=1
+unit.key x-gravitee.first_start kinds=any since=1
+unit.key x-gravitee.gateway kinds=addon since=1
+unit.key x-gravitee.host_access kinds=any since=1
+unit.key x-gravitee.kind kinds=any since=1
+unit.key x-gravitee.name kinds=any since=1
+unit.key x-gravitee.requires kinds=any since=1
+unit.key x-gravitee.requires.host kinds=any since=1
+unit.key x-gravitee.requires.images kinds=any since=1
+unit.key x-gravitee.requires.lab kinds=any since=1
+unit.key x-gravitee.requires.license kinds=any since=1
+unit.key x-gravitee.requires.plugins kinds=any since=1
+unit.key x-gravitee.source kinds=any since=1
+unit.key x-gravitee.tags kinds=any since=1
+unit.key x-gravitee.terminal kinds=playground since=1
+unit.key x-gravitee.tested kinds=playground since=1
+label io.gravitee.console.<id>.legacy since=1
+label io.gravitee.console.<id>.name since=1
+label io.gravitee.console.<id>.url since=1
+label io.gravitee.description since=1
+label io.gravitee.group since=1
+label io.gravitee.image.tags since=1
+label io.gravitee.license since=1
+label io.gravitee.name since=1
+label io.gravitee.role since=1
+seed.folder aim since=1
+seed.folder aim/agents since=1
+seed.folder aim/api-tools since=1
+seed.folder aim/credentials since=1
+seed.folder aim/dashboards since=1
+seed.folder aim/governance since=1
+seed.folder aim/knowledge since=1
+seed.folder aim/mcp-proxies since=1
+seed.folder aim/mcp-servers since=1
+seed.folder aim/models since=1
+seed.folder aim/providers since=1
+seed.folder aim/skills since=1
+seed.folder aim/studios since=1
+seed.folder aim/workspaces since=1
+seed.folder am since=1
+seed.folder am/applications since=1
+seed.folder am/protected-resources since=1
+seed.folder apim since=1
+seed.folder apim/apis since=1
+seed.folder apim/applications since=1
+seed.folder apim/subscriptions since=1
+seed.folder authz since=1
+seed.folder authz/policies since=1
+seed.folder authz/schemas since=1
+seed.folder environments since=1
+seed.folder k8s since=1
+seed.folder openfga since=1
+seed.file aim/governance/approvals.yaml since=1
+seed.file aim/governance/compliance.yaml since=1
+seed.file am/domain.yaml since=1
+seed.file am/gamma-link.yaml since=1
+seed.file apim/settings.yaml since=1
+seed.file authz/entities.yaml since=1
+seed.file authz/schema.yaml since=1
+seed.file controls.yaml since=1
+seed.file refills.yaml since=1
+seed.setting AIM_AUTOMATION_URL since=1
+seed.setting AIM_GAMMA_URL since=1
+seed.setting AM_ENV since=1
+seed.setting AM_MANAGEMENT_URL since=1
+seed.setting AM_ORG since=1
+seed.setting AM_PASSWORD since=1
+seed.setting AM_PUBLIC_URL since=1
+seed.setting AM_TOKEN since=1
+seed.setting AM_USERNAME since=1
+seed.setting APIM_ENV since=1
+seed.setting APIM_MANAGEMENT_PATH since=1
+seed.setting APIM_MANAGEMENT_URL since=1
+seed.setting APIM_ORG since=1
+seed.setting APIM_PASSWORD since=1
+seed.setting APIM_PORTAL_PATH since=1
+seed.setting APIM_TOKEN since=1
+seed.setting APIM_USERNAME since=1
+seed.setting GAMMA_AM_URL since=1
+seed.setting GATEWAY_INTERNAL_URL since=1
+seed.setting GATEWAY_READY_TIMEOUT since=1
+seed.setting GATEWAY_SYNC_SECONDS since=1
+seed.setting KUBECONFIG since=1
+seed.setting LLM_PROBE_KEY since=1
+seed.setting OPENFGA_API_URL since=1
+seed.setting READY_TIMEOUT since=1
+seed.setting REDIS_PASSWORD since=1
+seed.setting REDIS_URL since=1
+seed.setting SEED_DIR since=1
+seed.setting SEED_PROTECTIONS since=1
+seed.setting SEED_WAIT_GATEWAY since=1
+seed.setting SEED_WORKERS since=1
+seed.setting STATE_DIR since=1
+frame.message gravitee-lab:action since=1
+frame.message gravitee-lab:location since=1
+frame.message gravitee-lab:open since=1
+frame.message gravitee-lab:ready since=1
+anchor lab-ui port=9000 hosts=127.0.0.1,localhost since=1
+anchor plugins/am since=1
+anchor plugins/apim since=1
+anchor seeder since=1
+guide.block run since=1

@@ -1,0 +1,5 @@
+name: Public tools for everyone signed in
+status: DEPLOYED
+policy: |
+  @id("Public tools for everyone signed in")
+  permit (principal, action in [Action::"<server>.get_exchange_rate", Action::"<server>.simulate_loan", Action::"<server>.find_branches"], resource in MCPServer::"<server>");

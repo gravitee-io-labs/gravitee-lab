@@ -1,0 +1,12 @@
+x-gravitee: {kind: addon, name: Port of the core, category: Other, description: Container that wants a port the core publishes}
+services:
+  fixture-port-core:
+    image: busybox:${FIXTURE_PORT_CORE_VERSION:-1.36}   # Image version
+    container_name: gio-fixture-port-core
+    restart: unless-stopped
+    command: ["httpd", "-f", "-p", "80"]
+    ports: ["127.0.0.1:8082:80"]   # HTTP, on the port of the gateway of the core
+    labels:
+      io.gravitee.name: Port of the core
+      io.gravitee.description: Wants the port of the gateway of the core
+    networks: [internal]

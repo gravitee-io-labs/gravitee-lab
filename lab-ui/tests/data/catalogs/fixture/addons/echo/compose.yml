@@ -1,0 +1,15 @@
+x-gravitee: {kind: addon, name: Echo, category: Other, description: Answers every request with the one it received}
+services:
+  fixture-echo:
+    image: busybox:${FIXTURE_ECHO_VERSION:-1.36}   # Image version
+    container_name: gio-fixture-echo
+    restart: unless-stopped
+    command: ["httpd", "-f", "-p", "80"]
+    ports: ["127.0.0.1:8191:80"]   # HTTP
+    environment: {FIXTURE_ECHO_GREETING: "${FIXTURE_ECHO_GREETING:-hello}"}   # What it says first
+    labels:
+      io.gravitee.name: Echo
+      io.gravitee.description: Answers with the request it got
+      io.gravitee.console.fixture-echo.name: Echo
+      io.gravitee.console.fixture-echo.url: http://localhost:8191
+    networks: [internal]

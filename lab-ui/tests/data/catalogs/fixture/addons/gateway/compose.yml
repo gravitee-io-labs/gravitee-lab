@@ -1,0 +1,16 @@
+x-gravitee:
+  kind: addon
+  name: Fixture gateway
+  category: Other
+  description: Runs the gateway of a platform on this machine
+  gateway: {platform: cloud, service: fixture-gateway, token: FIXTURE_GATEWAY_TOKEN}
+services:
+  fixture-gateway:
+    image: busybox:${FIXTURE_GATEWAY_VERSION:-1.36}   # Image version
+    container_name: gio-fixture-gateway
+    restart: unless-stopped
+    command: ["httpd", "-f", "-p", "80"]
+    ports: ["127.0.0.1:8195:80"]   # HTTP entrypoint
+    environment: {FIXTURE_GATEWAY_TOKEN: "${FIXTURE_GATEWAY_TOKEN}"}   # Token of the gateway, written by the Gravitee Cloud page
+    labels: {io.gravitee.name: Fixture gateway, io.gravitee.description: The gateway of a platform}
+    networks: [edge, internal]

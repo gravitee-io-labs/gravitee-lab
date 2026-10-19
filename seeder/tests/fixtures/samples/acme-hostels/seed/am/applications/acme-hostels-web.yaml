@@ -1,0 +1,31 @@
+# The website: a single-page app that signs guests in with the authorization code flow and PKCE, so it has no secret
+name: Acme Hostels website
+description: The hotel website, where guests chat with the agent
+type: BROWSER
+
+clientId: acme-hostels
+
+redirectUris:
+  - "${HOTELS_WEB_URL}/"
+
+scopes:
+  - openid
+  - profile
+  - email
+
+oauth:
+  grantTypes:
+    - authorization_code
+  tokenEndpointAuthMethod: none
+  pkce: true
+  tokenValidity:
+    accessToken: 7200
+    refreshToken: 14400
+    idToken: 14400
+  tokenCustomClaims:
+    - tokenType: access_token
+      claimName: email
+      claimValue: "{#context.attributes['user']['email']}"
+    - tokenType: access_token
+      claimName: preferred_username
+      claimValue: "{#context.attributes['user']['email']}"

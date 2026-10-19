@@ -1,0 +1,27 @@
+# Ace is a hosted agent that acts for the signed-in user. Its kind gives it the authorization_code, client_credentials and
+# token exchange grants. The secret is chosen here: the Agent Identity page would generate one and show it once.
+name: "Ace"
+description: "Acme Bakery's AI assistant"
+type: "AGENT"
+kind: "HOSTED_DELEGATED"
+
+clientId: "ace-agent"
+clientSecret: "${ACE_CLIENT_SECRET}"
+
+redirectUris:
+  - "${BAKERY_WEB_URL}/callback"
+
+oauth:
+  # The same claims as Acme Bakery web, or the delegated token Ace gets for a user carries none of them and every rule
+  # that reads one denies
+  tokenCustomClaims:
+    - claimName: "username"
+      claimValue: "{#context.attributes['user']['username']}"
+    - claimName: "role"
+      claimValue: "{#context.attributes['user']['additionalInformation']['role']}"
+    - claimName: "customer_id"
+      claimValue: "{#context.attributes['user']['additionalInformation']['customer_id']}"
+    - claimName: "accounts"
+      claimValue: "{#context.attributes['user']['additionalInformation']['accounts']}"
+    - claimName: "name"
+      claimValue: "{#context.attributes['user']['additionalInformation']['name']}"

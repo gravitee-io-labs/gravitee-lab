@@ -1,0 +1,55 @@
+# The bank's teams use models through one governed entrypoint, each person with a budget of their own. The router sends a
+# person to `smart` while less than half of their budget is spent, then to `lite`.
+name: Acme Bakery Teams
+version: "1.0"
+description: Models for the bank's teams, with a budget for each person
+
+budgets:                              # the workspace starts with the first one
+  - name: Customer care
+    dollars: 5
+    period: DAY
+  - name: Fraud analytics
+    dollars: 2
+    period: DAY
+  # The budget that runs out. A long answer costs about $0.022 on smart and $0.009 on lite, and the gateway holds back an
+  # estimate of the next call before it lets it through: two smart answers (the router moves to lite at 50%), seven lite
+  # ones, then a 429 before the whole amount is spent
+  - name: Hackathon sandbox
+    dollars: 0.12
+    period: HOUR
+    requestRate: {limit: 20, period: MINUTE}
+
+components:
+  - provider: acme-bakery-ollama        # the slug of the provider in the catalog
+    prefixPolicy: NO_PREFIX           # callers ask for `smart`, never for the provider's name
+    models:
+      - {name: "qwen3:1.7b", aliases: [smart]}
+      - {name: "qwen3:0.6b", aliases: [lite]}
+
+router:
+  request:
+    - policy: ai-routing
+      name: Spend-aware routing
+      condition: "{#context.attributes['gravitee.attribute.llm.kind'] == 'PROMPT'}"   # only chat: embeddings keep their model
+      configuration:
+        budgetMeasure: COST_CONSUMED_PERCENT
+        onUnknownBudget: ROUTE_LAST_BAND
+        onEmptyCandidates: KEEP_REQUESTED_MODEL
+        bands:
+          - {name: Plenty left, below: 50, candidates: [{model: smart}]}
+          - {name: Running low, candidates: [{model: lite}]}
+
+analytics:                            # prompts and answers show in the logs: use the fake IBAN of the guide
+  enabled: true
+  logging:
+    mode: {entrypoint: true, endpoint: true}
+    phase: {request: true, response: true}
+    content: {headers: false, payload: true}   # no headers: they hold the team's key
+  tracing: {enabled: true, verbose: true}      # a call has its trace in Gamma (the router's steps are in it), like the calls of the proxies
+  otelLogs: {enabled: true}
+
+members:
+  - {sourceId: team-care, firstname: Customer care, lastname: team, email: team-care@acme-bakery.test, budget: Customer care}
+  - {sourceId: team-fraud, firstname: Fraud analytics, lastname: team, email: team-fraud@acme-bakery.test, budget: Fraud analytics}
+  - {sourceId: team-hackathon, firstname: Hackathon, lastname: team, email: team-hackathon@acme-bakery.test, budget: Hackathon sandbox}
+  - {source: memory, sourceId: admin, budget: Fraud analytics, optional: true}   # the presenter: found, never created

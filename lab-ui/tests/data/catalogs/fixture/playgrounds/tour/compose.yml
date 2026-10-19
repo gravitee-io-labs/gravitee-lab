@@ -1,0 +1,16 @@
+x-gravitee: {kind: playground, name: Tour, category: API, description: "One API exposed by the gateway, on this machine or in a platform",
+             tags: [REST API, Gateway], duration: 5 min, first_start: 1 min}
+services:
+  fixture-tour-seed:
+    image: __SEEDER_IMAGE__
+    build: ../../../../../seeder
+    pull_policy: ${FIXTURE_TOUR_PULL_POLICY:-build}   # build: build it here at each start; always: pull it, build it here if it cannot be pulled
+    container_name: gio-fixture-tour-seed
+    restart: "no"
+    labels: {io.gravitee.role: seed, io.gravitee.name: Playground seed, io.gravitee.description: Sets up the tour in API Management}
+    depends_on: {apim-management-api: {condition: service_healthy}}
+    volumes: ["./seed:/seed:ro", "./.state:/state"]   # What the seed holds, and what it created
+    environment:
+      APIM_MANAGEMENT_URL: "http://apim-management-api:8083"
+      FIXTURE_TOUR_BACKEND_URL: "https://backend.example.invalid"   # The API behind the gateway
+    networks: [internal]

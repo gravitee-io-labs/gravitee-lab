@@ -1,0 +1,4 @@
+# Ace, registered from its agent card. The seed reads the card: the platform reads one only from a public address
+entityId: acme-bakery-ace
+source: Acme Bakery                        # names the environment's source of hand-made items, if the seed has to make it
+url: ${BAKERY_AGENT_URL}                   # where the card is, at /.well-known/agent-card.json

@@ -1,0 +1,4 @@
+# LF on every platform: scripts, Dockerfiles and the Makefile break with CRLF
+* text=auto eol=lf
+*.png binary
+*.p12 binary

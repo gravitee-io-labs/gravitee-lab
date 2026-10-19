@@ -1,0 +1,13 @@
+# The model as the AI Models page shows a catalog model: with its context window, capabilities and price filled in,
+# which a model that only a provider declares does not have
+entityId: acme-bakery-qwen3-1-7b
+source: Acme Bakery                        # names the environment's source of hand-made items, if the seed has to make it
+definition:
+  name: Acme Bakery Qwen3 1.7B
+  queryName: qwen3:1.7b                  # what is sent to Ollama
+  provider: acme-bakery-ollama
+  family: qwen3
+  contextWindow: 40960
+  capabilities: [text, reasoning, function-calling]
+  pricing: {inputPer1M: 50, outputPer1M: 50, currency: USD}   # the demo price of the provider's model
+  description: Small local model that runs Ace and the AI workspace

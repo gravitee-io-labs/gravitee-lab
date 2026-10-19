@@ -1,0 +1,486 @@
+{
+  "api": {
+    "definitionVersion": "V4",
+    "type": "LLM_PROXY",
+    "id": "00000000-0000-4000-8000-acb100000001",
+    "name": "Acme Bakery LLM",
+    "apiVersion": "1.0",
+    "description": "The models behind Ace and the bank's developers: prompt guard rails, PII masking, token limits, semantic cache",
+    "state": "STARTED",
+    "lifecycleState": "PUBLISHED",
+    "visibility": "PRIVATE",
+    "labels": [
+      "acme-bakery"
+    ],
+    "tags": [],
+    "listeners": [
+      {
+        "type": "HTTP",
+        "paths": [
+          {
+            "path": "/acme-bakery/llm/",
+            "overrideAccess": false
+          }
+        ],
+        "entrypoints": [
+          {
+            "type": "llm-proxy",
+            "qos": "AUTO",
+            "configuration": {
+              "enforceUsage": true,
+              "injectTokenHeaders": true,
+              "imageInputFilter": "STRIP",
+              "audioInputFilter": "STRIP",
+              "videoInputFilter": "STRIP",
+              "fileInputFilter": "STRIP"
+            }
+          }
+        ]
+      }
+    ],
+    "endpointGroups": [
+      {
+        "name": "llm-proxy.acme-bakery-llm",
+        "type": "llm-proxy",
+        "loadBalancer": {
+          "type": "ROUND_ROBIN"
+        },
+        "sharedConfiguration": "{\"http\": {\"version\": \"HTTP_1_1\", \"connectTimeout\": 3000, \"readTimeout\": 60000, \"idleTimeout\": 60000, \"maxConcurrentConnections\": 20, \"keepAlive\": true, \"keepAliveTimeout\": 30000, \"pipelining\": false, \"useCompression\": true, \"followRedirects\": false, \"propagateClientAcceptEncoding\": false, \"propagateClientHost\": false}}",
+        "endpoints": [
+          {
+            "name": "ollama",
+            "type": "llm-proxy",
+            "weight": 1,
+            "inheritConfiguration": true,
+            "services": {},
+            "secondary": false,
+            "tenants": [],
+            "configuration": {
+              "provider": "OPEN_AI_COMPATIBLE",
+              "target": "${OLLAMA_URL}/v1",
+              "models": [
+                {
+                  "name": "qwen3:1.7b",
+                  "aliases": [
+                    "acme-chat"
+                  ],
+                  "inputPrice": 50.0,
+                  "outputPrice": 50.0,
+                  "parametersOverride": "{\"reasoning_effort\": \"none\"}"
+                },
+                {
+                  "name": "qwen3:0.6b",
+                  "aliases": [
+                    "acme-lite"
+                  ],
+                  "inputPrice": 20.0,
+                  "outputPrice": 20.0,
+                  "parametersOverride": "{\"reasoning_effort\": \"none\"}"
+                }
+              ],
+              "modelGovernance": {
+                "prefixPolicy": {
+                  "policy": "NO_PREFIX"
+                },
+                "aliasOnly": false,
+                "modelPattern": ""
+              },
+              "authentication": {
+                "type": "NONE"
+              }
+            }
+          }
+        ],
+        "services": {}
+      }
+    ],
+    "flowExecution": {
+      "mode": "DEFAULT",
+      "matchRequired": false
+    },
+    "flows": [
+      {
+        "name": "Prompt",
+        "enabled": true,
+        "selectors": [
+          {
+            "type": "CONDITION",
+            "condition": "{#context.attributes['gravitee.attribute.llm.kind'] == 'PROMPT' || #context.attributes['gravitee.attribute.llm.kind'] == 'TOOL_CALL'}"
+          }
+        ],
+        "request": [
+          {
+            "name": "Prompt guard rails (question)",
+            "enabled": true,
+            "policy": "ai-prompt-guard-rails",
+            "configuration": {
+              "resourceName": "guardrails-model",
+              "promptPreset": "ALL_PROMPTS",
+              "contentChecks": "MALICIOUS",
+              "sensitivityThreshold": 0.7,
+              "requestPolicy": "BLOCK_REQUEST"
+            },
+            "description": "Blocks jailbreaks and prompt injection in what the user asks",
+            "condition": "{#context.attributes['gravitee.attribute.llm.kind'] == 'PROMPT'}"
+          },
+          {
+            "name": "PII filtering (financial_account)",
+            "enabled": true,
+            "policy": "pii-filtering",
+            "configuration": {
+              "resourceName": "pii-model",
+              "categories": [
+                "FINANCIAL_ACCOUNT"
+              ],
+              "threshold": 0.85,
+              "skipResponsePayloadFiltering": false
+            },
+            "description": "Masks account numbers such as an IBAN before the model sees them and in what it answers"
+          },
+          {
+            "name": "Prompt guard rails (tool result)",
+            "enabled": true,
+            "policy": "ai-prompt-guard-rails",
+            "configuration": {
+              "resourceName": "guardrails-model",
+              "promptPreset": "ALL_PROMPTS",
+              "contentChecks": "MALICIOUS",
+              "sensitivityThreshold": 0.9,
+              "requestPolicy": "BLOCK_REQUEST"
+            },
+            "description": "Blocks jailbreaks and prompt injection hidden in what a tool returns",
+            "condition": "{#context.attributes['gravitee.attribute.llm.kind'] == 'TOOL_CALL'}"
+          },
+          {
+            "name": "PII filtering (email+phone+government_id)",
+            "enabled": true,
+            "policy": "pii-filtering",
+            "configuration": {
+              "resourceName": "pii-model",
+              "categories": [
+                "EMAIL",
+                "PHONE",
+                "GOVERNMENT_ID"
+              ],
+              "threshold": 0.5,
+              "skipResponsePayloadFiltering": false
+            },
+            "description": "Masks email addresses, phone numbers and ID numbers before the model sees them and in what it answers"
+          },
+          {
+            "name": "Can this answer be cached?",
+            "enabled": true,
+            "policy": "policy-assign-attributes",
+            "configuration": {
+              "scope": "REQUEST",
+              "attributes": [
+                {
+                  "name": "acme.cacheable",
+                  "value": "{#jsonPath(#request.content, '$.tools') == null && #jsonPath(#request.content, '$.input[?(@.role==\"user\")].content[0].text').toString() matches '(?s)[^0-9]*'}"
+                }
+              ]
+            },
+            "description": "Generic questions only: no digits, no tools",
+            "condition": "{#context.attributes['plan'] == '00000000-0000-4000-8000-acb1000a0002' || #context.attributes['plan'] == '00000000-0000-4000-8000-acb1000a0003'}"
+          },
+          {
+            "name": "Semantic cache",
+            "enabled": true,
+            "policy": "ai-semantic-caching",
+            "configuration": {
+              "modelName": "embedding",
+              "vectorStoreName": "vector-store",
+              "promptPreset": "PENDING_USER_PROMPT",
+              "cacheCondition": "{#response.status >= 200 && #response.status < 300}",
+              "parameters": [
+                {
+                  "key": "retrieval_context_key",
+                  "value": "{#context.attributes['api']}_{#context.attributes['plan']}",
+                  "encode": true
+                }
+              ]
+            },
+            "condition": "{(#context.attributes['plan'] == '00000000-0000-4000-8000-acb1000a0002' || #context.attributes['plan'] == '00000000-0000-4000-8000-acb1000a0003') && #context.attributes['acme.cacheable'] == true}",
+            "description": "Answers a question already asked, without calling the model"
+          }
+        ],
+        "response": [
+          {
+            "name": "PII filtering",
+            "enabled": true,
+            "policy": "pii-filtering",
+            "configuration": {
+              "resourceName": "pii-model",
+              "categories": [
+                "EMAIL",
+                "PHONE",
+                "FINANCIAL_ACCOUNT",
+                "GOVERNMENT_ID"
+              ],
+              "threshold": 0.9,
+              "skipResponsePayloadFiltering": false
+            },
+            "description": "Masks email addresses, phone numbers, account numbers and ID numbers in what the model answers"
+          },
+          {
+            "name": "Semantic cache",
+            "enabled": true,
+            "policy": "ai-semantic-caching",
+            "configuration": {
+              "modelName": "embedding",
+              "vectorStoreName": "vector-store",
+              "promptPreset": "PENDING_USER_PROMPT",
+              "cacheCondition": "{#response.status >= 200 && #response.status < 300}",
+              "parameters": [
+                {
+                  "key": "retrieval_context_key",
+                  "value": "{#context.attributes['api']}_{#context.attributes['plan']}",
+                  "encode": true
+                }
+              ]
+            },
+            "condition": "{(#context.attributes['plan'] == '00000000-0000-4000-8000-acb1000a0002' || #context.attributes['plan'] == '00000000-0000-4000-8000-acb1000a0003') && #context.attributes['acme.cacheable'] == true}",
+            "description": "Answers a question already asked, without calling the model"
+          }
+        ],
+        "subscribe": [],
+        "publish": [],
+        "entrypointConnect": [],
+        "interact": [],
+        "tags": []
+      }
+    ],
+    "resources": [
+      {
+        "name": "guardrails-model",
+        "type": "ai-model-text-classification",
+        "enabled": true,
+        "configuration": "{\"model\": {\"type\": \"GRAVITEE_LLAMA_PROMPT_GUARD_22M_MODEL\"}}"
+      },
+      {
+        "name": "pii-model",
+        "type": "ai-model-token-classification",
+        "enabled": true,
+        "configuration": "{\"model\": {\"type\": \"GRAVITEE_BERT_SMALL_PII_DETECTION\"}}"
+      },
+      {
+        "name": "embedding",
+        "type": "ai-model-text-embedding",
+        "enabled": true,
+        "configuration": "{\"modelProvider\": {\"provider\": \"bertOnnx\", \"model\": {\"type\": \"XENOVA_ALL_MINILM_L6_V2\"}, \"poolingMode\": \"MEAN\", \"padding\": true}}"
+      },
+      {
+        "name": "vector-store",
+        "type": "ai-vector-store-redis",
+        "enabled": true,
+        "configuration": "{\"properties\": {\"embeddingSize\": 384, \"maxResults\": 1, \"similarity\": \"COSINE\", \"threshold\": 0.9, \"indexType\": \"HNSW\", \"readOnly\": false, \"allowEviction\": true, \"evictTime\": 1, \"evictTimeUnit\": \"HOURS\"}, \"redisConfig\": {\"url\": \"${REDIS_URL}\", \"password\": \"${REDIS_PASSWORD:-}\", \"index\": \"acme_bakery_llm_cache\", \"prefix\": \"acme-bakery-llm\", \"scoreField\": \"score\", \"query\": \"@retrieval_context_key:{\\n\\t$retrieval_context_key\\n}=>[\\n\\tKNN $max_results @vector $vector AS score\\n]\", \"vectorStoreConfig\": {\"vectorType\": \"FLOAT32\", \"initialCapacity\": 5, \"blockSize\": 10, \"M\": 16, \"efConstruction\": 200, \"efRuntime\": 10, \"epsilon\": 0.01}}}"
+      }
+    ],
+    "analytics": {
+      "enabled": true,
+      "logging": {
+        "mode": {
+          "endpoint": true,
+          "entrypoint": true
+        },
+        "phase": {
+          "request": true,
+          "response": true
+        },
+        "content": {
+          "headers": false,
+          "payload": true,
+          "messageHeaders": false,
+          "messagePayload": false,
+          "messageMetadata": false
+        }
+      },
+      "tracing": {
+        "enabled": true,
+        "verbose": true
+      },
+      "otelLogs": {
+        "enabled": true
+      }
+    }
+  },
+  "plans": [
+    {
+      "definitionVersion": "V4",
+      "id": "00000000-0000-4000-8000-acb1000a0001",
+      "name": "Ace agent",
+      "description": "The Ace agent: 1,000,000 tokens an hour",
+      "mode": "STANDARD",
+      "status": "PUBLISHED",
+      "validation": "AUTO",
+      "order": 1,
+      "tags": [],
+      "characteristics": [],
+      "excludedGroups": [],
+      "commentRequired": false,
+      "security": {
+        "type": "API_KEY",
+        "configuration": {
+          "source": "BEARER",
+          "enableCustomApiKeyHeader": false,
+          "propagateApiKey": false
+        }
+      },
+      "flows": [
+        {
+          "name": "Prompt",
+          "enabled": true,
+          "selectors": [
+            {
+              "type": "CONDITION",
+              "condition": "{#context.attributes['gravitee.attribute.llm.kind'] == 'PROMPT' || #context.attributes['gravitee.attribute.llm.kind'] == 'TOOL_CALL'}"
+            }
+          ],
+          "request": [
+            {
+              "name": "Token budget (Ace agent)",
+              "enabled": true,
+              "policy": "token-ratelimit",
+              "configuration": {
+                "strategy": "FALLBACK_PASS_THROUGH",
+                "addHeaders": true,
+                "rate": {
+                  "limit": 1000000,
+                  "periodTime": 1,
+                  "periodTimeUnit": "HOURS",
+                  "resetStrategy": "ROLLING",
+                  "key": "{#context.attributes['application']}"
+                }
+              },
+              "description": "1,000,000 tokens per hour for each application"
+            }
+          ],
+          "response": [],
+          "subscribe": [],
+          "publish": [],
+          "entrypointConnect": [],
+          "interact": [],
+          "tags": []
+        }
+      ]
+    },
+    {
+      "definitionVersion": "V4",
+      "id": "00000000-0000-4000-8000-acb1000a0002",
+      "name": "Developers",
+      "description": "Developers trying models: 3,000 tokens a minute, generic answers cached",
+      "mode": "STANDARD",
+      "status": "PUBLISHED",
+      "validation": "AUTO",
+      "order": 2,
+      "tags": [],
+      "characteristics": [],
+      "excludedGroups": [],
+      "commentRequired": false,
+      "security": {
+        "type": "API_KEY",
+        "configuration": {
+          "source": "BEARER",
+          "enableCustomApiKeyHeader": false,
+          "propagateApiKey": false
+        }
+      },
+      "flows": [
+        {
+          "name": "Prompt",
+          "enabled": true,
+          "selectors": [
+            {
+              "type": "CONDITION",
+              "condition": "{#context.attributes['gravitee.attribute.llm.kind'] == 'PROMPT' || #context.attributes['gravitee.attribute.llm.kind'] == 'TOOL_CALL'}"
+            }
+          ],
+          "request": [
+            {
+              "name": "Token budget (Developers)",
+              "enabled": true,
+              "policy": "token-ratelimit",
+              "configuration": {
+                "strategy": "FALLBACK_PASS_THROUGH",
+                "addHeaders": true,
+                "rate": {
+                  "limit": 3000,
+                  "periodTime": 1,
+                  "periodTimeUnit": "MINUTES",
+                  "resetStrategy": "ROLLING",
+                  "key": "{#context.attributes['application']}"
+                }
+              },
+              "description": "3,000 tokens per minute for each application"
+            }
+          ],
+          "response": [],
+          "subscribe": [],
+          "publish": [],
+          "entrypointConnect": [],
+          "interact": [],
+          "tags": []
+        }
+      ]
+    },
+    {
+      "definitionVersion": "V4",
+      "id": "00000000-0000-4000-8000-acb1000a0003",
+      "name": "Traffic",
+      "description": "The traffic generator: 3,000 tokens a minute, generic answers cached",
+      "mode": "STANDARD",
+      "status": "PUBLISHED",
+      "validation": "AUTO",
+      "order": 3,
+      "tags": [],
+      "characteristics": [],
+      "excludedGroups": [],
+      "commentRequired": false,
+      "security": {
+        "type": "API_KEY",
+        "configuration": {
+          "source": "BEARER",
+          "enableCustomApiKeyHeader": false,
+          "propagateApiKey": false
+        }
+      },
+      "flows": [
+        {
+          "name": "Prompt",
+          "enabled": true,
+          "selectors": [
+            {
+              "type": "CONDITION",
+              "condition": "{#context.attributes['gravitee.attribute.llm.kind'] == 'PROMPT' || #context.attributes['gravitee.attribute.llm.kind'] == 'TOOL_CALL'}"
+            }
+          ],
+          "request": [
+            {
+              "name": "Token budget (Traffic)",
+              "enabled": true,
+              "policy": "token-ratelimit",
+              "configuration": {
+                "strategy": "FALLBACK_PASS_THROUGH",
+                "addHeaders": true,
+                "rate": {
+                  "limit": 3000,
+                  "periodTime": 1,
+                  "periodTimeUnit": "MINUTES",
+                  "resetStrategy": "ROLLING",
+                  "key": "{#context.attributes['application']}"
+                }
+              },
+              "description": "3,000 tokens per minute for each application"
+            }
+          ],
+          "response": [],
+          "subscribe": [],
+          "publish": [],
+          "entrypointConnect": [],
+          "interact": [],
+          "tags": []
+        }
+      ]
+    }
+  ]
+}

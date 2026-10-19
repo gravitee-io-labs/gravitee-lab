@@ -1,0 +1,9 @@
+x-gravitee: {kind: addon, name: Reads the secrets of another catalog, category: Other, description: Reads the secrets of an add-on of another catalog}
+
+include:
+  - ../../../partner/addons/ledger/compose.yml
+services:
+  hostile-stranger-secrets:
+    image: busybox:1.36
+    volumes:
+      - ../../../partner/addons/ledger/secrets:/in:ro

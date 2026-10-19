@@ -1,0 +1,101 @@
+{
+  "api": {
+    "definitionVersion": "V4",
+    "type": "PROXY",
+    "id": "00000000-0000-4000-8000-acb300000001",
+    "name": "Acme Bakery Open API",
+    "apiVersion": "1.0",
+    "description": "Branches and exchange rates of Acme Bakery, with their OpenAPI documentation",
+    "state": "STARTED",
+    "lifecycleState": "PUBLISHED",
+    "visibility": "PUBLIC",
+    "labels": [
+      "acme-bakery"
+    ],
+    "tags": [],
+    "listeners": [
+      {
+        "type": "HTTP",
+        "paths": [
+          {
+            "path": "/acme-bakery/open/",
+            "overrideAccess": false
+          }
+        ],
+        "pathMappings": [],
+        "entrypoints": [
+          {
+            "type": "http-proxy",
+            "qos": "AUTO",
+            "configuration": {}
+          }
+        ]
+      }
+    ],
+    "endpointGroups": [
+      {
+        "name": "default-group",
+        "type": "http-proxy",
+        "loadBalancer": {
+          "type": "ROUND_ROBIN"
+        },
+        "sharedConfiguration": "{\"http\": {\"version\": \"HTTP_1_1\", \"connectTimeout\": 3000, \"readTimeout\": 10000, \"idleTimeout\": 60000, \"maxConcurrentConnections\": 20, \"keepAlive\": true, \"keepAliveTimeout\": 30000, \"pipelining\": false, \"useCompression\": true, \"followRedirects\": false, \"propagateClientAcceptEncoding\": false, \"propagateClientHost\": false}, \"proxy\": {\"enabled\": false, \"useSystemProxy\": false}, \"ssl\": {\"trustAll\": false, \"hostnameVerifier\": true, \"trustStore\": {\"type\": \"\"}, \"keyStore\": {\"type\": \"\"}}}",
+        "endpoints": [
+          {
+            "name": "bakery-api",
+            "type": "http-proxy",
+            "weight": 1,
+            "inheritConfiguration": true,
+            "configuration": {
+              "target": "${BAKERY_API_URL}"
+            },
+            "services": {},
+            "secondary": false,
+            "tenants": []
+          }
+        ],
+        "services": {}
+      }
+    ],
+    "flowExecution": {
+      "mode": "DEFAULT",
+      "matchRequired": false
+    },
+    "flows": [],
+    "analytics": {
+      "enabled": true
+    }
+  },
+  "plans": [
+    {
+      "definitionVersion": "V4",
+      "id": "00000000-0000-4000-8000-acb3000a0001",
+      "name": "Open",
+      "description": "No key, no token",
+      "mode": "STANDARD",
+      "type": "API",
+      "status": "PUBLISHED",
+      "validation": "AUTO",
+      "order": 1,
+      "tags": [],
+      "characteristics": [],
+      "excludedGroups": [],
+      "commentRequired": false,
+      "flows": [],
+      "security": {
+        "type": "KEY_LESS",
+        "configuration": {}
+      }
+    }
+  ],
+  "pages": [
+    {
+      "name": "OpenAPI",
+      "type": "SWAGGER",
+      "order": 0,
+      "published": true,
+      "visibility": "PUBLIC",
+      "content": "{\n  \"openapi\": \"3.0.3\",\n  \"info\": {\n    \"title\": \"Acme Bakery open API\",\n    \"version\": \"1.0.0\",\n    \"description\": \"The branches and the exchange rates of Acme Bakery. Public data: read only, no authentication.\"\n  },\n  \"servers\": [\n    {\n      \"url\": \"/\"\n    }\n  ],\n  \"tags\": [\n    {\n      \"name\": \"Branches\",\n      \"description\": \"Where to find Acme Bakery\"\n    },\n    {\n      \"name\": \"Rates\",\n      \"description\": \"What Acme Bakery exchanges currencies at\"\n    }\n  ],\n  \"paths\": {\n    \"/branches\": {\n      \"get\": {\n        \"operationId\": \"listBranches\",\n        \"tags\": [\"Branches\"],\n        \"summary\": \"List branches\",\n        \"description\": \"List the Acme Bakery branches with their address and opening hours, all of them or only those of one city.\",\n        \"parameters\": [\n          {\n            \"name\": \"city\",\n            \"in\": \"query\",\n            \"required\": false,\n            \"description\": \"City to list the branches of, such as Lyon. Leave it out to list every branch.\",\n            \"schema\": {\n              \"type\": \"string\"\n            }\n          }\n        ],\n        \"responses\": {\n          \"200\": {\n            \"description\": \"The branches, possibly none\",\n            \"content\": {\n              \"application/json\": {\n                \"schema\": {\n                  \"$ref\": \"#/components/schemas/BranchList\"\n                }\n              }\n            }\n          }\n        }\n      }\n    },\n    \"/branches/{id}\": {\n      \"get\": {\n        \"operationId\": \"getBranch\",\n        \"tags\": [\"Branches\"],\n        \"summary\": \"Get a branch\",\n        \"description\": \"Get one Acme Bakery branch from its id, as listBranches gives it.\",\n        \"parameters\": [\n          {\n            \"name\": \"id\",\n            \"in\": \"path\",\n            \"required\": true,\n            \"description\": \"Branch id, a city and a district in lower case, such as paris-opera\",\n            \"schema\": {\n              \"type\": \"string\"\n            }\n          }\n        ],\n        \"responses\": {\n          \"200\": {\n            \"description\": \"The branch\",\n            \"content\": {\n              \"application/json\": {\n                \"schema\": {\n                  \"$ref\": \"#/components/schemas/Branch\"\n                }\n              }\n            }\n          },\n          \"404\": {\n            \"description\": \"No branch has this id\",\n            \"content\": {\n              \"application/json\": {\n                \"schema\": {\n                  \"$ref\": \"#/components/schemas/Error\"\n                }\n              }\n            }\n          }\n        }\n      }\n    },\n    \"/rates\": {\n      \"get\": {\n        \"operationId\": \"listRates\",\n        \"tags\": [\"Rates\"],\n        \"summary\": \"List exchange rates\",\n        \"description\": \"List what one unit of a currency is worth in every other supported currency.\",\n        \"parameters\": [\n          {\n            \"name\": \"base\",\n            \"in\": \"query\",\n            \"required\": false,\n            \"description\": \"3-letter code of the currency to convert from. Defaults to EUR.\",\n            \"schema\": {\n              \"type\": \"string\",\n              \"enum\": [\"EUR\", \"USD\", \"GBP\", \"CHF\", \"JPY\", \"CAD\", \"SEK\"],\n              \"default\": \"EUR\"\n            }\n          }\n        ],\n        \"responses\": {\n          \"200\": {\n            \"description\": \"The rates of the base currency\",\n            \"content\": {\n              \"application/json\": {\n                \"schema\": {\n                  \"$ref\": \"#/components/schemas/RateList\"\n                }\n              }\n            }\n          },\n          \"400\": {\n            \"description\": \"The base currency is not supported\",\n            \"content\": {\n              \"application/json\": {\n                \"schema\": {\n                  \"$ref\": \"#/components/schemas/Error\"\n                }\n              }\n            }\n          }\n        }\n      }\n    },\n    \"/rates/{base}/{quote}\": {\n      \"get\": {\n        \"operationId\": \"getRate\",\n        \"tags\": [\"Rates\"],\n        \"summary\": \"Get an exchange rate\",\n        \"description\": \"Get the exchange rate between two currencies: 1 base = rate quote. \\\"USD/JPY\\\" means base USD, quote JPY.\",\n        \"parameters\": [\n          {\n            \"name\": \"base\",\n            \"in\": \"path\",\n            \"required\": true,\n            \"description\": \"3-letter code of the currency to convert from\",\n            \"schema\": {\n              \"type\": \"string\",\n              \"enum\": [\"EUR\", \"USD\", \"GBP\", \"CHF\", \"JPY\", \"CAD\", \"SEK\"]\n            }\n          },\n          {\n            \"name\": \"quote\",\n            \"in\": \"path\",\n            \"required\": true,\n            \"description\": \"3-letter code of the currency to convert to\",\n            \"schema\": {\n              \"type\": \"string\",\n              \"enum\": [\"EUR\", \"USD\", \"GBP\", \"CHF\", \"JPY\", \"CAD\", \"SEK\"]\n            }\n          }\n        ],\n        \"responses\": {\n          \"200\": {\n            \"description\": \"The rate\",\n            \"content\": {\n              \"application/json\": {\n                \"schema\": {\n                  \"$ref\": \"#/components/schemas/Rate\"\n                }\n              }\n            }\n          },\n          \"404\": {\n            \"description\": \"One of the currencies is not supported\",\n            \"content\": {\n              \"application/json\": {\n                \"schema\": {\n                  \"$ref\": \"#/components/schemas/Error\"\n                }\n              }\n            }\n          }\n        }\n      }\n    }\n  },\n  \"components\": {\n    \"schemas\": {\n      \"Branch\": {\n        \"type\": \"object\",\n        \"required\": [\"id\", \"name\", \"city\", \"address\", \"hours\"],\n        \"properties\": {\n          \"id\": {\n            \"type\": \"string\",\n            \"example\": \"paris-opera\"\n          },\n          \"name\": {\n            \"type\": \"string\",\n            \"example\": \"Acme Bakery Opera\"\n          },\n          \"city\": {\n            \"type\": \"string\",\n            \"example\": \"Paris\"\n          },\n          \"address\": {\n            \"type\": \"string\",\n            \"example\": \"12 Rue des Exemples, 75009 Paris\"\n          },\n          \"hours\": {\n            \"type\": \"string\",\n            \"example\": \"Mon-Fri 09:00-18:00, Sat 09:00-13:00\"\n          }\n        }\n      },\n      \"BranchList\": {\n        \"type\": \"object\",\n        \"required\": [\"count\", \"branches\"],\n        \"properties\": {\n          \"count\": {\n            \"type\": \"integer\"\n          },\n          \"branches\": {\n            \"type\": \"array\",\n            \"items\": {\n              \"$ref\": \"#/components/schemas/Branch\"\n            }\n          }\n        }\n      },\n      \"CurrencyCode\": {\n        \"type\": \"string\",\n        \"enum\": [\"EUR\", \"USD\", \"GBP\", \"CHF\", \"JPY\", \"CAD\", \"SEK\"]\n      },\n      \"Rate\": {\n        \"type\": \"object\",\n        \"required\": [\"base\", \"quote\", \"rate\", \"date\"],\n        \"properties\": {\n          \"base\": {\n            \"$ref\": \"#/components/schemas/CurrencyCode\"\n          },\n          \"quote\": {\n            \"$ref\": \"#/components/schemas/CurrencyCode\"\n          },\n          \"rate\": {\n            \"type\": \"number\",\n            \"description\": \"How many units of the quote currency one unit of the base currency is worth\"\n          },\n          \"date\": {\n            \"type\": \"string\",\n            \"format\": \"date\"\n          }\n        }\n      },\n      \"RateList\": {\n        \"type\": \"object\",\n        \"required\": [\"base\", \"date\", \"rates\"],\n        \"properties\": {\n          \"base\": {\n            \"$ref\": \"#/components/schemas/CurrencyCode\"\n          },\n          \"date\": {\n            \"type\": \"string\",\n            \"format\": \"date\"\n          },\n          \"rates\": {\n            \"type\": \"object\",\n            \"description\": \"The rate of every other currency, by 3-letter code\",\n            \"additionalProperties\": {\n              \"type\": \"number\"\n            }\n          }\n        }\n      },\n      \"Error\": {\n        \"type\": \"object\",\n        \"required\": [\"error\", \"message\"],\n        \"properties\": {\n          \"error\": {\n            \"type\": \"string\",\n            \"example\": \"not_found\"\n          },\n          \"message\": {\n            \"type\": \"string\"\n          }\n        }\n      }\n    }\n  }\n}\n"
+    }
+  ]
+}

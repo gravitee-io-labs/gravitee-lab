@@ -1,0 +1,6 @@
+name: Acme Bakery developers
+description: Developers trying the bank's models from the web app's Developers view
+
+settings:
+  app:
+    type: SIMPLE

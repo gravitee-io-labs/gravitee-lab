@@ -1,0 +1,36 @@
+{
+  "config": {
+    "name": "gravitee",
+    "networks": {
+      "default": {
+        "ipam": {},
+        "name": "gravitee_default"
+      }
+    },
+    "services": {},
+    "volumes": {}
+  },
+  "error": null,
+  "files": {
+    "compose.yml": "x-gravitee: {kind: addon, name: Public needs private, category: Other, description: Includes an add-on of a private catalog}\n\ninclude:\n  - ../../../partner/addons/ledger/compose.yml\n"
+  },
+  "overlaid": {},
+  "own": [],
+  "unit": {
+    "id": "@hostile/t24-public-needs-private",
+    "includes": [
+      ".lab/catalogs/partner/addons/ledger/compose.yml"
+    ],
+    "kind": "addon",
+    "meta": {
+      "category": "Other",
+      "description": "Includes an add-on of a private catalog",
+      "kind": "addon",
+      "name": "Public needs private"
+    },
+    "name": "Public needs private",
+    "references": [],
+    "seed": null,
+    "seed_references": []
+  }
+}

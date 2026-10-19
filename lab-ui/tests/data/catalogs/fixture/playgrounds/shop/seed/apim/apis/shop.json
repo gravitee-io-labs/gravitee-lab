@@ -1,0 +1,59 @@
+{
+  "api": {
+    "definitionVersion": "V4",
+    "type": "PROXY",
+    "name": "Shop",
+    "description": "The products of the shop",
+    "apiVersion": "1.0",
+    "state": "STARTED",
+    "visibility": "PRIVATE",
+    "lifecycleState": "PUBLISHED",
+    "listeners": [
+      {
+        "type": "HTTP",
+        "paths": [{"path": "/shop/", "overrideAccess": false}],
+        "entrypoints": [{"type": "http-proxy", "qos": "AUTO", "configuration": {}}]
+      }
+    ],
+    "endpointGroups": [
+      {
+        "name": "Shop backend",
+        "type": "http-proxy",
+        "loadBalancer": {"type": "ROUND_ROBIN"},
+        "endpoints": [
+          {
+            "name": "shop-backend",
+            "type": "http-proxy",
+            "weight": 1,
+            "inheritConfiguration": true,
+            "configuration": {"target": "${FIXTURE_SHOP_URL}"}
+          }
+        ]
+      }
+    ],
+    "flows": [
+      {
+        "name": "Count the calls",
+        "enabled": true,
+        "selectors": [{"type": "HTTP", "path": "/", "pathOperator": "STARTS_WITH"}],
+        "request": [
+          {"name": "Count", "policy": "fixture-policy", "enabled": true, "configuration": {}}
+        ],
+        "response": []
+      }
+    ]
+  },
+  "plans": [
+    {
+      "definitionVersion": "V4",
+      "name": "Public",
+      "description": "Open access, no key",
+      "security": {"type": "KEY_LESS", "configuration": {}},
+      "mode": "STANDARD",
+      "order": 1,
+      "status": "PUBLISHED",
+      "type": "API",
+      "validation": "MANUAL"
+    }
+  ]
+}

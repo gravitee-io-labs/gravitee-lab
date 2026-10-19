@@ -1,0 +1,7 @@
+tests
+**/__pycache__
+**/*.pyc
+testkit.py
+seedlint.py
+lab_seeder/testkit.py
+lab_seeder/seedlint.py

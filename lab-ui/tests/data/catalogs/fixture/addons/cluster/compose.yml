@@ -1,0 +1,16 @@
+x-gravitee:
+  kind: addon
+  name: Fixture cluster
+  category: Other
+  description: Runs a container that needs full privileges
+  host_access:
+    fixture-cluster: Runs a service manager inside its container, which only a privileged container can do
+services:
+  fixture-cluster:
+    image: busybox:${FIXTURE_CLUSTER_VERSION:-1.36}   # Image version
+    container_name: gio-fixture-cluster
+    restart: unless-stopped
+    command: ["httpd", "-f", "-p", "80"]
+    privileged: true
+    labels: {io.gravitee.name: Fixture cluster, io.gravitee.description: A privileged container}
+    networks: [internal]

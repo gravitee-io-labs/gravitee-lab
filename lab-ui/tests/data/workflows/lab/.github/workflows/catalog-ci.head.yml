@@ -1,0 +1,13 @@
+# Generated from lab-ui/templates/catalog/managed/.github/workflows/ci.yml by lab_ui/catalogs/workflows.py: do not edit.
+name: Catalog CI
+
+on:
+  workflow_call:
+    secrets:
+      LAB_DEPLOY_KEY:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:

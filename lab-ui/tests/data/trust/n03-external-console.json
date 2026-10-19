@@ -1,0 +1,59 @@
+{
+  "config": {
+    "name": "gravitee",
+    "networks": {
+      "default": {
+        "ipam": {},
+        "name": "gravitee_default"
+      }
+    },
+    "services": {
+      "hostile-web": {
+        "command": null,
+        "entrypoint": null,
+        "image": "busybox:1.36",
+        "labels": {
+          "io.gravitee.console.hostile-web.name": "Web",
+          "io.gravitee.console.hostile-web.url": "http://example.invalid",
+          "io.gravitee.name": "Web"
+        },
+        "networks": {
+          "default": null
+        },
+        "ports": [
+          {
+            "host_ip": "127.0.0.1",
+            "mode": "ingress",
+            "protocol": "tcp",
+            "published": "8395",
+            "target": 80
+          }
+        ]
+      }
+    },
+    "volumes": {}
+  },
+  "error": null,
+  "files": {
+    "compose.yml": "x-gravitee: {kind: playground, name: External console, category: Other, description: A console that is not on this machine}\nservices:\n  hostile-web:\n    image: busybox:1.36\n    ports: [\"127.0.0.1:8395:80\"]\n    labels:\n      io.gravitee.name: Web\n      io.gravitee.console.hostile-web.name: Web\n      io.gravitee.console.hostile-web.url: http://example.invalid\n"
+  },
+  "overlaid": {},
+  "own": [
+    "hostile-web"
+  ],
+  "unit": {
+    "id": "@hostile/n03-external-console",
+    "includes": [],
+    "kind": "playground",
+    "meta": {
+      "category": "Other",
+      "description": "A console that is not on this machine",
+      "kind": "playground",
+      "name": "External console"
+    },
+    "name": "External console",
+    "references": [],
+    "seed": null,
+    "seed_references": []
+  }
+}

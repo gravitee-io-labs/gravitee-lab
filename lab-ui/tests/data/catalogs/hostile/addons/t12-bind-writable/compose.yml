@@ -1,0 +1,6 @@
+x-gravitee: {kind: addon, name: Writable bind, category: Other, description: Writes to its own folder}
+services:
+  hostile-writable:
+    image: busybox:1.36
+    volumes:
+      - ./data:/data

@@ -1,0 +1,40 @@
+{
+  "_managed": "Managed by the Lab catalog standard 1: change it with catalog.py upgrade, in a pull request a maintainer reads.",
+  "name": "catalog-push",
+  "target": "push",
+  "enforcement": "active",
+  "bypass_actors": [],
+  "rules": [
+    {
+      "type": "file_path_restriction",
+      "parameters": {
+        "restricted_file_paths": [
+          "**/.env",
+          "**/.env.local",
+          "**/.state/**",
+          "**/secrets/**"
+        ]
+      }
+    },
+    {
+      "type": "file_extension_restriction",
+      "parameters": {
+        "restricted_file_extensions": [
+          ".pem",
+          ".key",
+          ".p12",
+          ".pfx",
+          ".jks",
+          ".keystore",
+          ".csr"
+        ]
+      }
+    },
+    {
+      "type": "max_file_size",
+      "parameters": {
+        "max_file_size": 5
+      }
+    }
+  ]
+}

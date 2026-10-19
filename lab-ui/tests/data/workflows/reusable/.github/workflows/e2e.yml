@@ -1,0 +1,36 @@
+# Managed by the Lab catalog standard 1: change it with catalog.py upgrade, in a pull request a maintainer reads.
+# The reusable form: the jobs live in the Lab, at the commit named below, which must be the commit of lab.ref in .github/standard.json.
+# In a called workflow the inputs are the callee's own, so the three of the dispatch are passed on by name.
+name: E2E
+
+on:
+  schedule:
+    - cron: "43 3 * * *"
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "The number of the pull request to try (empty: the main branch)"
+        default: ""
+      sha:
+        description: "The commit of that pull request you read: 40 characters"
+        default: ""
+      items:
+        description: "What to try: changed (since main), all, or items as kind:id separated by spaces"
+        default: changed
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.event_name }}-${{ inputs.pr || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  e2e:
+    uses: OWNER/gravitee-lab/.github/workflows/catalog-e2e.yml@0123456789abcdef0123456789abcdef01234567
+    with:
+      pr: ${{ inputs.pr }}
+      sha: ${{ inputs.sha }}
+      items: ${{ inputs.items }}
+    secrets:
+      LAB_DEPLOY_KEY: ${{ secrets.LAB_DEPLOY_KEY }}

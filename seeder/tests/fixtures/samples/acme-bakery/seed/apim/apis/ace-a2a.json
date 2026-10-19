@@ -1,0 +1,138 @@
+{
+  "api": {
+    "definitionVersion": "V4",
+    "type": "A2A_PROXY",
+    "id": "00000000-0000-4000-8000-acb200000001",
+    "name": "Ace",
+    "apiVersion": "1.0",
+    "description": "Acme Bakery's AI assistant, reached with the signed-in user's own token",
+    "state": "STARTED",
+    "lifecycleState": "PUBLISHED",
+    "visibility": "PUBLIC",
+    "labels": [
+      "acme-bakery"
+    ],
+    "tags": [],
+    "listeners": [
+      {
+        "type": "HTTP",
+        "paths": [
+          {
+            "path": "/acme-bakery/ace/",
+            "overrideAccess": false
+          }
+        ],
+        "entrypoints": [
+          {
+            "type": "a2a-proxy",
+            "qos": "AUTO",
+            "configuration": {}
+          }
+        ]
+      }
+    ],
+    "endpointGroups": [
+      {
+        "name": "default-group",
+        "type": "a2a-proxy",
+        "loadBalancer": {
+          "type": "ROUND_ROBIN"
+        },
+        "sharedConfiguration": "{\"http\": {\"version\": \"HTTP_1_1\", \"connectTimeout\": 3000, \"readTimeout\": 60000, \"idleTimeout\": 60000, \"maxConcurrentConnections\": 20, \"keepAlive\": true, \"keepAliveTimeout\": 30000, \"pipelining\": false, \"useCompression\": true, \"followRedirects\": false, \"propagateClientAcceptEncoding\": false, \"propagateClientHost\": false}}",
+        "endpoints": [
+          {
+            "name": "default",
+            "type": "a2a-proxy",
+            "weight": 1,
+            "inheritConfiguration": true,
+            "configuration": {
+              "target": "${BAKERY_AGENT_URL}"
+            },
+            "services": {},
+            "secondary": false,
+            "tenants": []
+          }
+        ],
+        "services": {}
+      }
+    ],
+    "resources": [
+      {
+        "name": "acme-bakery-am",
+        "type": "oauth2",
+        "enabled": true,
+        "configuration": {
+          "authorizationServerUrl": "${AM_GATEWAY_URL}/acme-bakery",
+          "introspectionEndpoint": "/oauth/introspect",
+          "introspectionEndpointMethod": "POST",
+          "useClientAuthorizationHeader": true,
+          "clientAuthorizationHeaderName": "Authorization",
+          "clientAuthorizationHeaderScheme": "Basic",
+          "clientId": "acme-bakery-mcp",
+          "clientSecret": "${MCP_RESOURCE_SECRET}",
+          "tokenIsSuppliedByFormUrlEncoded": true,
+          "tokenFormUrlEncodedName": "token",
+          "userClaim": "sub"
+        }
+      }
+    ],
+    "flowExecution": {
+      "mode": "DEFAULT",
+      "matchRequired": false
+    },
+    "flows": [],
+    "analytics": {
+      "enabled": true,
+      "logging": {
+        "mode": {
+          "endpoint": true,
+          "entrypoint": true
+        },
+        "phase": {
+          "request": true,
+          "response": true
+        },
+        "content": {
+          "headers": false,
+          "payload": true,
+          "messageHeaders": false,
+          "messagePayload": false,
+          "messageMetadata": false
+        }
+      },
+      "tracing": {
+        "enabled": true,
+        "verbose": true
+      },
+      "otelLogs": {
+        "enabled": true
+      }
+    }
+  },
+  "plans": [
+    {
+      "definitionVersion": "V4",
+      "id": "00000000-0000-4000-8000-acb2000a0001",
+      "name": "Bank users",
+      "description": "Signed-in bank users: a token that Access Management introspects",
+      "mode": "STANDARD",
+      "type": "API",
+      "status": "PUBLISHED",
+      "validation": "AUTO",
+      "order": 1,
+      "tags": [],
+      "characteristics": [],
+      "excludedGroups": [],
+      "commentRequired": false,
+      "flows": [],
+      "security": {
+        "type": "OAUTH2",
+        "configuration": {
+          "oauthResource": "acme-bakery-am",
+          "extractPayload": true,
+          "checkRequiredScopes": false
+        }
+      }
+    }
+  ]
+}

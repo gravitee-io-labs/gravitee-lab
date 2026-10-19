@@ -1,0 +1,7 @@
+name: Acme Bakery web
+description: "The bank's web app: signs users in at Access Management and talks to Ace"
+
+settings:
+  app:
+    type: SIMPLE
+    client_id: acme-bakery-web   # the Access Management client of the web app: the A2A plan accepts a token only for a subscribed application

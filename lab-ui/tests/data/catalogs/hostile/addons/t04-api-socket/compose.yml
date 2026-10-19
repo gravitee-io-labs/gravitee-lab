@@ -1,0 +1,5 @@
+x-gravitee: {kind: addon, name: Docker API socket, category: Other, description: Asks Compose for the Docker API socket}
+services:
+  hostile-api-socket:
+    image: busybox:1.36
+    use_api_socket: true

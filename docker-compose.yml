@@ -1,0 +1,432 @@
+name: gravitee
+
+x-gravitee:
+  name: Gravitee Platform
+  groups: [API Management, Access Management, Alert Engine, Databases]
+  categories: [Gravitee Platform, AI, Event, API, Observability, Other]
+  contract: 1       # The newest level of what units rely on (docs/contract.md): grows with every addition to it
+  contract_min: 1   # The oldest level still read: grows when something is removed or changed
+  seeder:
+    image: ghcr.io/gravitee-io-labs/gravitee-lab/seeder   # The seeder image, built from ./seeder: the only image a seed service may have
+
+x-license: &license
+  gravitee_license_key: ${GRAVITEE_LICENSE:-}   # Enterprise license (base64)
+
+x-plugins: &plugins
+  gravitee_plugins_path_0: $${gravitee.home}/plugins
+  gravitee_plugins_path_1: $${gravitee.home}/plugins-ext
+
+x-internal-api: &internal-api
+  gravitee_services_core_http_host: localhost
+  gravitee_services_core_http_authentication_users_admin: ${INTERNAL_API_PASSWORD:-adminadmin}   # Password of user admin on the internal APIs and on the link to the Alert Engine
+
+x-apim-datasources: &apim-datasources
+  gravitee_ds_mongodb_host: mongodb
+  gravitee_ds_elastic_host: elasticsearch
+
+x-am-datasources: &am-datasources
+  gravitee_ds_mongodb_host: mongodb
+
+x-alert-engine-client: &alert-engine-client
+  gravitee_alerts_alertengine_enabled: "true"
+  gravitee_alerts_alertengine_ws_discovery: "true"
+  gravitee_alerts_alertengine_ws_endpoints_0: http://alert-engine:8072
+  gravitee_alerts_alertengine_ws_security_username: admin
+  gravitee_alerts_alertengine_ws_security_password: ${INTERNAL_API_PASSWORD:-adminadmin}
+
+x-healthcheck: &healthcheck
+  interval: 5s
+  timeout: 3s
+  retries: 20
+  start_period: 30s
+
+x-ui-healthcheck: &ui-healthcheck
+  <<: *healthcheck
+  test: ["CMD-SHELL", "curl -fsS -o /dev/null http://localhost:8080/ || wget -q --spider http://localhost:8080/"]
+
+x-ui-frames: &ui-frames
+  - /bin/sh
+  - -c
+  - >-
+    sed -i -e '/X-Frame-Options/d' -e "/localhost:9000/!s|frame-ancestors 'self'|& http://localhost:9000 http://127.0.0.1:9000|" /etc/nginx/conf.d/*.conf;
+    for f in $$(grep -L gravitee-lab.js /etc/nginx/conf.d/*.conf); do
+    sed -i -e "/location \/ {/i location = /gravitee-lab.js { alias /gravitee-lab.js; }"
+    -e "/location \/ {/a sub_filter </head> '<script src=/gravitee-lab.js></script></head>';" "$$f"; done;
+    sh /check_ip_config.sh; sh /run.sh
+
+services:
+
+  # Databases
+
+  mongodb:
+    image: mongo:${MONGODB_VERSION:-8.0.29}
+    container_name: gio-mongodb
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:27017:27017"   # MongoDB
+    volumes:
+      - data-mongo:/data/db
+    environment:
+      GLIBC_TUNABLES: glibc.pthread.rseq=1   # Without it, MongoDB 8.0 refuses to start on Linux kernel 6.19 or newer (SERVER-121912)
+    labels:
+      io.gravitee.name: MongoDB
+      io.gravitee.description: Stores APIs, applications and configuration
+      io.gravitee.group: Databases
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.runCommand({ping:1}).ok' | grep -q 1"]
+    networks:
+      - internal
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTICSEARCH_VERSION:-9.5.2}
+    container_name: gio-elasticsearch
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9200:9200"   # HTTP API
+    volumes:
+      - data-elasticsearch:/usr/share/elasticsearch/data
+    environment:
+      cluster.name: elasticsearch
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      bootstrap.memory_lock: "true"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile: 65536
+    labels:
+      io.gravitee.name: Elasticsearch
+      io.gravitee.description: Stores analytics and logs of API traffic
+      io.gravitee.group: Databases
+      io.gravitee.image.tags: library/elasticsearch
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD-SHELL", "curl -sf 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s'"]
+    networks:
+      - internal
+
+  redis:
+    image: redis:${REDIS_VERSION:-8.10.1-alpine}
+    container_name: gio-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:-redispassword}   # Redis password
+    ports:
+      - "127.0.0.1:6379:6379"   # Redis
+    volumes:
+      - data-redis:/data
+    labels:
+      io.gravitee.name: Redis
+      io.gravitee.description: Stores gateway rate limit counters
+      io.gravitee.group: Databases
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD-SHELL", "redis-cli -a ${REDIS_PASSWORD:-redispassword} --no-auth-warning ping | grep -q PONG"]
+    networks:
+      - internal
+
+  # Alert Engine
+
+  alert-engine:
+    image: ${AE_REGISTRY:-graviteeio}/ae-engine:${AE_VERSION:-3.0.2}
+    container_name: gio-alert-engine
+    restart: unless-stopped
+    environment:
+      <<: [*license, *internal-api]
+      gravitee_ingesters_ws_authentication_users_admin: ${INTERNAL_API_PASSWORD:-adminadmin}   # The password the gateway and the Management API connect with
+    labels:
+      io.gravitee.name: Alert Engine
+      io.gravitee.description: Evaluates alert rules and triggers notifications; needs an Enterprise license
+      io.gravitee.license: required   # Not started without a usable license: the Lab UI says so
+      io.gravitee.group: Alert Engine
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD-SHELL", "curl -sf -u admin:${INTERNAL_API_PASSWORD:-adminadmin} http://localhost:18072/_node/health | grep -Eq '\"healthy\" *: *true'"]
+    networks:
+      - internal
+
+  # API Management
+
+  apim-management-api:
+    image: ${APIM_REGISTRY:-graviteeio}/apim-management-api:${APIM_VERSION:-4.12.20}
+    container_name: gio-apim-management-api
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8083:8083"   # Management API
+    volumes:
+      - ./plugins/apim:/opt/graviteeio-management-api/plugins-ext
+    environment:
+      <<: [*license, *plugins, *internal-api, *apim-datasources, *alert-engine-client]
+
+      # Features
+      gravitee_gamma_enabled: "true"
+      gravitee_portal_next_access_enabled: "true"
+
+      # URLs
+      gravitee_installation_type: standalone
+      gravitee_installation_api_url: http://localhost:8083
+      gravitee_installation_standalone_console_url: http://localhost:8084
+      gravitee_installation_standalone_portal_url: http://localhost:8085
+      gravitee_installation_standalone_gamma-console_url: http://localhost:8086
+      gravitee_portal_entrypoint: http://localhost:8082
+
+      # Modules
+      gravitee_modules_aim_catalog_mcp-discovery_allow-private-endpoints: "true"   # Allow private endpoints in MCP server, model and agent discovery
+
+      # JVM heap
+      GIO_MIN_MEM: 256m
+      GIO_MAX_MEM: 512m
+    labels:
+      io.gravitee.name: Management API
+      io.gravitee.description: Backend of the API Management consoles and Gamma
+      io.gravitee.group: API Management
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD-SHELL", "curl -sf -u admin:${INTERNAL_API_PASSWORD:-adminadmin} http://localhost:18083/_node/health | grep -Eq '\"healthy\" *: *true'"]
+    networks:
+      - edge
+      - internal
+
+  apim-gateway:
+    image: ${APIM_GATEWAY_REGISTRY:-${APIM_REGISTRY:-graviteeio}}/apim-gateway:${APIM_GATEWAY_VERSION:-${APIM_VERSION:-4.12.20}-debian}
+    container_name: gio-apim-gateway
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      apim-management-api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8082:8082"   # HTTP entrypoint
+      - "127.0.0.1:8443:8443"   # HTTPS / mTLS entrypoint
+    volumes:
+      - ./plugins/apim:/opt/graviteeio-gateway/plugins-ext
+      # The server keystore and the CA certificate, not the folder: the CA key and the client key stay off the gateway
+      - ./certs/mtls/server.p12:/opt/graviteeio-gateway/mtls/server.p12:ro
+      - ./certs/mtls/ca.pem:/opt/graviteeio-gateway/mtls/ca.pem:ro
+    environment:
+      <<: [*license, *plugins, *internal-api, *apim-datasources, *alert-engine-client]
+
+      # JVM heap
+      GIO_MIN_MEM: 512m
+      GIO_MAX_MEM: 1g
+
+      # Metrics
+      gravitee_services_metrics_enabled: "true"
+
+      # Features
+      gravitee_gamma_enabled: "true"
+
+      # HTTP server
+      gravitee_servers_0_id: http
+      gravitee_servers_0_type: http
+      gravitee_servers_0_port: "8082"
+      gravitee_servers_0_alpn: "true"
+
+      # HTTPS server, client certificate requested (mTLS)
+      gravitee_servers_1_id: https
+      gravitee_servers_1_type: http
+      gravitee_servers_1_port: "8443"
+      gravitee_servers_1_alpn: "true"
+      gravitee_servers_1_secured: "true"
+      gravitee_servers_1_ssl_clientAuth: request
+      gravitee_servers_1_ssl_keystore_type: pkcs12
+      gravitee_servers_1_ssl_keystore_path: /opt/graviteeio-gateway/mtls/server.p12
+      gravitee_servers_1_ssl_keystore_password: ${MTLS_KEYSTORE_PASSWORD:-gravitee}   # Password of certs/mtls/server.p12, set by make certs when it creates it
+      gravitee_servers_1_ssl_truststore_type: pem
+      gravitee_servers_1_ssl_truststore_path: /opt/graviteeio-gateway/mtls/ca.pem
+
+      # Rate limit storage (Redis)
+      gravitee_repositories_ratelimit_type: redis
+      gravitee_repositories_ratelimit_redis_host: redis
+      gravitee_repositories_ratelimit_redis_port: "6379"
+      gravitee_repositories_ratelimit_redis_password: ${REDIS_PASSWORD:-redispassword}
+
+      # Groovy whitelist
+      gravitee_groovy_whitelist_mode: append
+      gravitee_groovy_whitelist_list_0: class java.util.Base64
+      gravitee_groovy_whitelist_list_1: class groovy.util.Base64
+    labels:
+      io.gravitee.name: Gateway
+      io.gravitee.description: Routes API traffic and applies policies
+      io.gravitee.group: API Management
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD-SHELL", "curl -sf -u admin:${INTERNAL_API_PASSWORD:-adminadmin} http://localhost:18082/_node/health | grep -Eq '\"healthy\" *: *true'"]
+    networks:
+      - edge
+      - internal
+
+  gamma-ui:
+    image: ${APIM_REGISTRY:-graviteeio}/gamma-ui:${APIM_VERSION:-4.12.20}
+    container_name: gio-gamma-ui
+    restart: unless-stopped
+    command: *ui-frames
+    volumes:
+      - ./lab-ui/frames/location.js:/gravitee-lab.js:ro   # tells the Lab UI which page it is on (Reload)
+    depends_on:
+      apim-management-api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8086:8080"   # Web UI
+    environment:
+      GAMMA_API_URL: http://localhost:8083/gamma
+      GAMMA_CONSOLE_BASE_HREF: /
+      HTTP_PORT: "8080"
+      SERVER_NAME: localhost
+    labels:
+      io.gravitee.name: Gamma Console
+      io.gravitee.description: Console to manage agents, models and MCP servers
+      io.gravitee.group: API Management
+      io.gravitee.console.gamma.name: Gamma Console
+      io.gravitee.console.gamma.url: http://localhost:8086
+    healthcheck: *ui-healthcheck
+    networks:
+      - edge
+
+  apim-portal-ui:
+    image: ${APIM_REGISTRY:-graviteeio}/apim-portal-ui:${APIM_VERSION:-4.12.20}
+    container_name: gio-apim-portal-ui
+    restart: unless-stopped
+    depends_on:
+      apim-management-api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8085:8080"   # Web UI
+    environment:
+      PORTAL_API_URL: http://localhost:8083/portal/environments/DEFAULT
+      FRAME_PROTECTION_ENABLED: "false"
+      ALLOWED_FRAME_ANCESTOR_URLS: http://localhost:8084
+    labels:
+      io.gravitee.name: Developer Portal
+      io.gravitee.description: Portal where developers discover and subscribe to APIs
+      io.gravitee.group: API Management
+      io.gravitee.console.portal.name: Developer Portal
+      io.gravitee.console.portal.url: http://localhost:8085/next/
+      io.gravitee.console.portal-legacy.name: Classic Developer Portal
+      io.gravitee.console.portal-legacy.url: http://localhost:8085
+      io.gravitee.console.portal-legacy.legacy: "true"
+    healthcheck: *ui-healthcheck
+    networks:
+      - edge
+
+  apim-management-ui:
+    image: ${APIM_REGISTRY:-graviteeio}/apim-management-ui:${APIM_VERSION:-4.12.20}
+    container_name: gio-apim-management-ui
+    restart: unless-stopped
+    command: *ui-frames
+    volumes:
+      - ./lab-ui/frames/location.js:/gravitee-lab.js:ro   # tells the Lab UI which page it is on (Reload)
+    depends_on:
+      apim-management-api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8084:8080"   # Web UI
+    environment:
+      MGMT_API_URL: http://localhost:8083/management/organizations/DEFAULT/environments/DEFAULT/
+    labels:
+      io.gravitee.name: APIM Console
+      io.gravitee.description: Console to design, publish and monitor APIs
+      io.gravitee.group: API Management
+      io.gravitee.console.apim.name: APIM Console
+      io.gravitee.console.apim.url: http://localhost:8084
+      io.gravitee.console.apim.legacy: "true"
+    healthcheck: *ui-healthcheck
+    networks:
+      - edge
+
+  # Access Management
+
+  am-management-api:
+    image: ${AM_REGISTRY:-graviteeio}/am-management-api:${AM_VERSION:-4.12.7}
+    container_name: gio-am-management-api
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8093:8093"   # Management API
+    volumes:
+      - ./plugins/am:/opt/graviteeio-am-management-api/plugins-ext
+    environment:
+      <<: [*license, *plugins, *internal-api, *am-datasources]
+    labels:
+      io.gravitee.name: Management API
+      io.gravitee.description: Backend of the Access Management console
+      io.gravitee.group: Access Management
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD-SHELL", "curl -sf -u admin:${INTERNAL_API_PASSWORD:-adminadmin} http://localhost:18093/_node/health | grep -Eq '\"healthy\" *: *true'"]
+    networks:
+      - edge
+      - internal
+
+  am-gateway:
+    image: ${AM_REGISTRY:-graviteeio}/am-gateway:${AM_VERSION:-4.12.7}
+    container_name: gio-am-gateway
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      am-management-api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8092:8092"   # Gateway
+    volumes:
+      - ./plugins/am:/opt/graviteeio-am-gateway/plugins-ext
+    environment:
+      <<: [*license, *plugins, *internal-api, *am-datasources]
+    labels:
+      io.gravitee.name: Gateway
+      io.gravitee.description: Authenticates users and issues tokens
+      io.gravitee.group: Access Management
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD-SHELL", "curl -sf -u admin:${INTERNAL_API_PASSWORD:-adminadmin} http://localhost:18092/_node/health | grep -Eq '\"healthy\" *: *true'"]
+    networks:
+      - edge
+      - internal
+
+  am-management-ui:
+    image: ${AM_REGISTRY:-graviteeio}/am-management-ui:${AM_VERSION:-4.12.7}
+    container_name: gio-am-management-ui
+    restart: unless-stopped
+    depends_on:
+      am-management-api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8081:8080"   # Web UI
+    environment:
+      MGMT_API_URL: http://localhost:8093
+      MGMT_UI_URL: http://localhost:8081
+    labels:
+      io.gravitee.name: AM Console
+      io.gravitee.description: Console to manage identity providers, applications and users
+      io.gravitee.group: Access Management
+      io.gravitee.console.am.name: AM Console
+      io.gravitee.console.am.url: http://localhost:8081
+    healthcheck: *ui-healthcheck
+    networks:
+      - edge
+
+# Volumes and networks
+
+volumes:
+  data-mongo:
+  data-elasticsearch:
+  data-redis:
+
+networks:
+  edge:       # What users and API consumers reach: gateways, consoles, management APIs
+  internal:   # Databases and supporting services

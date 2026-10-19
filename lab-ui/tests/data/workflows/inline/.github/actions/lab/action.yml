@@ -1,0 +1,61 @@
+# Managed by the Lab catalog standard 1: change it with catalog.py upgrade, in a pull request a maintainer reads.
+name: Lab
+description: Checks out the Lab this catalog is written for, at the commit .github/standard.json names, checks that it is the Lab's own, and installs Compose 5
+
+inputs:
+  key:
+    description: The read-only deploy key of the Lab while its repository is private (empty once it is public)
+    required: false
+    default: ""
+  latest:
+    description: "true: the default branch of the Lab instead of the commit standard.json names (the nightly compatibility run)"
+    required: false
+    default: "false"
+  compose:
+    description: "false: a job that runs no Compose"
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    # standard.json names the Lab. It is read and checked here, each value as a whole string (a line-oriented test such as grep lets a
+    # second line through), so that what reaches the checkout below is a repository name and a full commit and nothing else
+    - id: lab
+      shell: bash
+      working-directory: catalog
+      env:
+        LATEST: ${{ inputs.latest }}
+      run: |
+        fail() { echo "::error file=.github/standard.json,title=SD04::$1"; exit 1; }
+        repository=$(jq -r '.lab.repository // empty' .github/standard.json)
+        ref=$(jq -r '.lab.ref // empty' .github/standard.json)
+        [ "$LATEST" != true ] || ref=
+        [[ $repository =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ && $repository != *..* ]] \
+          || fail "lab.repository must be OWNER/NAME of the Lab, letters, digits and . _ - only. Fix: write it in .github/standard.json."
+        [[ $LATEST == true || $ref =~ ^[0-9a-f]{40}$ ]] \
+          || fail "lab.ref must be a full commit of the Lab, 40 hexadecimal characters. Fix: catalog.py upgrade --lab-ref COMMIT."
+        printf 'repository=%s\nref=%s\n' "$repository" "$ref" >> "$GITHUB_OUTPUT"
+    - id: checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: ${{ steps.lab.outputs.repository }}
+        ref: ${{ steps.lab.outputs.ref }}
+        ssh-key: ${{ inputs.key }}
+        path: lab
+        fetch-depth: 0   # the whole history, to tell below that the commit is the Lab's own
+        persist-credentials: false
+    - if: ${{ failure() && steps.checkout.outcome == 'failure' }}
+      shell: bash
+      run: |
+        echo "::error title=SD07::The Lab could not be fetched. This is the repository's settings, not your change: a maintainer will run it again. Fix (maintainers): while the Lab is private this repository needs the secret LAB_DEPLOY_KEY (also as a Dependabot secret; a fork's pull request never has it), and .github/standard.json must name a commit that exists."
+    # A commit that exists only in a fork of the Lab would look like a pin of the Lab once the Lab is public: it must be on the Lab's main
+    - if: ${{ inputs.latest != 'true' }}
+      shell: bash
+      env:
+        REF: ${{ steps.lab.outputs.ref }}
+      run: |
+        git -C lab merge-base --is-ancestor "$REF" refs/remotes/origin/main \
+          || { echo "::error file=.github/standard.json,title=SD11::The Lab commit ${REF:0:7} is not on the Lab's main branch. Fix: pin a commit of the Lab's main (catalog.py upgrade --lab-ref COMMIT)."; exit 1; }
+    - if: ${{ inputs.compose == 'true' }}
+      uses: ./lab/.github/actions/compose

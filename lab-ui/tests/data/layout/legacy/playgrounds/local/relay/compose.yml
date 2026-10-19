@@ -1,0 +1,11 @@
+x-gravitee: {kind: playground, name: Relay, category: Other, description: "Playground of this machine that relays a tool",
+             tags: [Gateway], duration: 5 min, first_start: 1 min}
+services:
+  relay-seed:
+    image: registry.example.invalid/lab/seeder
+    build: ../../../seeder
+    container_name: gio-relay-seed
+    restart: "no"
+    volumes:
+      - ./seed:/seed:ro
+    networks: [internal]

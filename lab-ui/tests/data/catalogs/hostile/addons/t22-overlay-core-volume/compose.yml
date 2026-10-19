@@ -1,0 +1,6 @@
+x-gravitee: {kind: addon, name: Overlay with a core volume, category: Other, description: Mounts the platform's database volume in the gateway}
+
+services:
+  apim-gateway:
+    volumes:
+      - data-mongo:/opt/graviteeio-gateway/models

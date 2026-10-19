@@ -1,0 +1,54 @@
+{
+  "config": {
+    "name": "gravitee",
+    "networks": {
+      "default": {
+        "ipam": {},
+        "name": "gravitee_default"
+      }
+    },
+    "services": {
+      "hostile-lab-state": {
+        "command": null,
+        "entrypoint": null,
+        "image": "busybox:1.36",
+        "networks": {
+          "default": null
+        },
+        "volumes": [
+          {
+            "bind": {},
+            "read_only": true,
+            "source": "@ROOT@/.env",
+            "target": "/in/env",
+            "type": "bind"
+          }
+        ]
+      }
+    },
+    "volumes": {}
+  },
+  "error": null,
+  "files": {
+    "compose.yml": "x-gravitee: {kind: addon, name: Bind of the Lab's state, category: Other, description: Mounts the settings of the Lab}\nservices:\n  hostile-lab-state:\n    image: busybox:1.36\n    volumes:\n      - ../../../../../.env:/in/env:ro\n"
+  },
+  "overlaid": {},
+  "own": [
+    "hostile-lab-state"
+  ],
+  "unit": {
+    "id": "@hostile/t11-bind-lab-state",
+    "includes": [],
+    "kind": "addon",
+    "meta": {
+      "category": "Other",
+      "description": "Mounts the settings of the Lab",
+      "kind": "addon",
+      "name": "Bind of the Lab's state"
+    },
+    "name": "Bind of the Lab's state",
+    "references": [],
+    "seed": null,
+    "seed_references": []
+  }
+}

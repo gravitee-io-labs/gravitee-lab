@@ -1,0 +1,7 @@
+portalNext:
+  access:
+    enabled: true
+plan:
+  security:
+    customApiKey:        # a subscription can ask for the key the apps already send
+      enabled: true

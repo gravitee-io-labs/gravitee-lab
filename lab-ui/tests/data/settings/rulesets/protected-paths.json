@@ -1,0 +1,29 @@
+{
+  "_managed": "Managed by the Lab catalog standard 1: change it with catalog.py upgrade, in a pull request a maintainer reads.",
+  "name": "catalog-protected-paths",
+  "target": "push",
+  "enforcement": "active",
+  "bypass_actors": [
+    {
+      "actor_id": 5,
+      "actor_type": "RepositoryRole",
+      "bypass_mode": "always"
+    }
+  ],
+  "rules": [
+    {
+      "type": "file_path_restriction",
+      "parameters": {
+        "restricted_file_paths": [
+          ".github/workflows/**",
+          ".github/actions/**",
+          ".github/rulesets/**",
+          ".github/CODEOWNERS",
+          ".github/standard.json",
+          ".catalog/**",
+          "Makefile"
+        ]
+      }
+    }
+  ]
+}

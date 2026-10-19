@@ -1,0 +1,7 @@
+# A forbid beats every permit: nobody moves more than this, whoever asks
+name: No transfer above 10,000
+status: DEPLOYED
+policy: |
+  @id("No transfer above 10,000")
+  forbid (principal, action == Action::"<server>.transfer_funds", resource in MCPServer::"<server>")
+    when { context has amount && context.amount > 10000 };

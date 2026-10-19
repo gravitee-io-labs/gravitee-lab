@@ -1,0 +1,20 @@
+# A model in the cloud, for the catalog only: nothing routes to it. Seeded with a real key only (GEMINI_API_KEY): Gamma
+# tests the key against Google as it creates the provider
+needs: GEMINI_API_KEY
+name: Acme Bakery Gemini
+slug: acme-bakery-gemini
+visibility: EVERYONE
+credential: Acme Bakery Gemini key
+connection:
+  type: gemini
+  targetUri: https://generativelanguage.googleapis.com/v1beta
+models:
+  - name: gemini-3.5-flash-lite
+    sourceModelId: models/gemini-3.5-flash-lite
+    taskType: CHAT
+    registryRef: {templateId: google, modelId: gemini-3.5-flash-lite}   # its price and summary come from the registry
+  - name: gemini-3.8-flash
+    sourceModelId: models/gemini-3.8-flash
+    taskType: CHAT
+    summary: Gemini 3.8 Flash
+    pricingOverride: {inputPer1M: 0.75, outputPer1M: 3.75, currency: USD}   # the registry does not know this one yet

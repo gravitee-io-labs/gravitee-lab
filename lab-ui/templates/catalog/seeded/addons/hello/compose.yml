@@ -1,0 +1,20 @@
+x-gravitee:
+  kind: addon
+  name: Hello
+  description: A page that says it is running
+  category: Other
+
+services:
+  __CATALOG_ID__-hello:
+    image: traefik/whoami:${__CATALOG_ENV___HELLO_VERSION:-v1.11.0}   # Version of the image
+    container_name: gio-__CATALOG_ID__-hello
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8199:80"   # The page
+    labels:
+      io.gravitee.name: Hello
+      io.gravitee.description: Answers with the request it received
+      io.gravitee.console.hello.name: Hello
+      io.gravitee.console.hello.url: http://localhost:8199
+    networks:
+      - internal

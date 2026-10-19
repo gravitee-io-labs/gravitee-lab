@@ -1,0 +1,9 @@
+x-gravitee: {kind: addon, name: Writes to a sibling, category: Other, description: Writes to the folder of the add-on it includes}
+
+include:
+  - ../../addons/h-sibling-source/compose.yml
+services:
+  hostile-writer:
+    image: busybox:1.36
+    volumes:
+      - ../h-sibling-source/secrets:/out

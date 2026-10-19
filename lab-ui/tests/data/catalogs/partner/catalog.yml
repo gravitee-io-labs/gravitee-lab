@@ -1,0 +1,8 @@
+x-gravitee-catalog:
+  schema: 1
+  id: partner
+  name: Partner fixture
+  description: Synthetic units that another catalog includes
+  version: 2.0.0
+  lab: 1
+  license: AGPL-3.0-only

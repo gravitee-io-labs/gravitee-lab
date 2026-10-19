@@ -1,0 +1,15 @@
+[
+  {"about": "an item that can run", "unit": {"blocked": null, "needs_catalogs": [], "compat": "ok"}, "why": ""},
+  {"about": "blocked, one reason", "unit": {"blocked": {"reasons": ["Mounts the Docker socket"]}, "needs_catalogs": [], "compat": "ok"},
+   "why": "Mounts the Docker socket"},
+  {"about": "blocked, three reasons, in the order the verdict gives them", "unit": {"blocked": {"reasons": ["Mounts the Docker socket", "Runs with full privileges", "Publishes a port to the network"]}, "needs_catalogs": [], "compat": "ok"},
+   "why": "Mounts the Docker socket; Runs with full privileges; Publishes a port to the network"},
+  {"about": "needs a catalog that is not added", "unit": {"blocked": null, "needs_catalogs": [{"id": "partner-bank", "name": "Partner Bank", "reason": "missing"}], "compat": "ok"},
+   "why": "Needs Partner Bank"},
+  {"about": "needs two catalogs, one known only by its id", "unit": {"blocked": null, "needs_catalogs": [{"id": "partner-bank", "name": "Partner Bank", "reason": "missing"}, {"id": "ledger-co", "reason": "old"}], "compat": "ok"},
+   "why": "Needs Partner Bank, ledger-co"},
+  {"about": "needs a newer Lab", "unit": {"blocked": null, "needs_catalogs": [], "compat": "new"}, "why": "Needs a newer Lab"},
+  {"about": "written for an older Lab", "unit": {"blocked": null, "needs_catalogs": [], "compat": "old"}, "why": "Was written for an older Lab"},
+  {"about": "everything at once, in the server's order", "unit": {"blocked": {"reasons": ["Mounts the Docker socket"]}, "needs_catalogs": [{"id": "partner-bank", "name": "Partner Bank", "reason": "missing"}], "compat": "new"},
+   "why": "Mounts the Docker socket; Needs Partner Bank; Needs a newer Lab"}
+]

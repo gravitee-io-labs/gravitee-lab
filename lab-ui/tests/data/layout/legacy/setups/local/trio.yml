@@ -1,0 +1,4 @@
+x-gravitee: {kind: setup, name: Trio, description: Duo and the twin}
+include:
+  - ./duo.yml   # the same folder
+  - ../../addons/echo-twin/compose.yml   # the traces

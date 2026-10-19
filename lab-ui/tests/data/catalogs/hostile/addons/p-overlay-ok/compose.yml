@@ -1,0 +1,16 @@
+x-gravitee: {kind: addon, name: Overlay that adds settings, category: Other, description: Adds settings to the gateway and nothing else}
+
+services:
+  apim-gateway:
+    environment:
+      HOSTILE_OVERLAY: "on"
+    extra_hosts:
+      - "overlay.invalid:127.0.0.1"
+    labels:
+      hostile.overlay: "yes"
+    volumes:
+      - ./overlay.yml:/etc/overlay.yml:ro
+    ports:
+      - "127.0.0.1:8398:8398"
+    depends_on:
+      - redis

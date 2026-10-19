@@ -1,0 +1,36 @@
+{
+  "config": {
+    "name": "gravitee",
+    "networks": {
+      "default": {
+        "ipam": {},
+        "name": "gravitee_default"
+      }
+    },
+    "services": {},
+    "volumes": {}
+  },
+  "error": null,
+  "files": {
+    "compose.yml": "x-gravitee: {kind: addon, name: Needs a blocked add-on, category: Other, description: Includes an add-on that is blocked}\n\ninclude:\n  - ../../addons/t12-bind-writable/compose.yml\n"
+  },
+  "overlaid": {},
+  "own": [],
+  "unit": {
+    "id": "@hostile/t25-needs-blocked",
+    "includes": [
+      ".lab/catalogs/hostile/addons/t12-bind-writable/compose.yml"
+    ],
+    "kind": "addon",
+    "meta": {
+      "category": "Other",
+      "description": "Includes an add-on that is blocked",
+      "kind": "addon",
+      "name": "Needs a blocked add-on"
+    },
+    "name": "Needs a blocked add-on",
+    "references": [],
+    "seed": null,
+    "seed_references": []
+  }
+}

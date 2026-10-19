@@ -1,0 +1,1109 @@
+/* =============================================================================
+   Gravitee Lab: what is specific to a page or a dialog
+   ============================================================================= */
+
+/* --- Dashboard ------------------------------------------------------------------------ */
+
+/* In the order of what a person asks: the head, then two columns (the platform's card, its products and a row for Gravitee Cloud, and
+   what else is on), then the resources, one line that unfolds. The cards stand side by side, three to two, when the page is wide enough for the rows of the platform
+   and of the catalog to hold their grids (1150 px of page); under it they are one over the other, each as wide as the page. A card is
+   as high as its content: the two do not stretch to one height. The cards are containers of their own, so that their rows adapt to
+   their width. Spacing is the scale of base.css: 4, 8, 12, 16, 24; a card's padding is 16, the cards are 24 apart, the controls of a
+   row 8 or 12 apart. Every cell of a row is centered on its middle. */
+.dash { display: flex; flex-direction: column; gap: var(--sp-5); }
+.dash-pair { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: var(--sp-5); }
+@container (min-width: 1150px) { .dash-pair { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); } }
+.dash-card { display: flex; flex-direction: column; min-width: 0; container: dash / inline-size; }
+/* Every card of the page has one head: its title (and what it is about, muted), then its buttons, which keep their words; a card too
+   narrow for both puts the buttons under the title */
+.dash-card > .card-head { justify-content: flex-start; }   /* its buttons at its end, what is about it after its title */
+.dash-card > .card-head > h2 { min-width: 0; }
+.dash-license:empty { display: none; }
+.dash-idle .list-name { color: var(--muted); }   /* the services of this machine of a product that runs in the Cloud */
+.dash-card > .list-tools { border-top: 1px solid var(--border); }
+.dash-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-left: auto; }
+.dash-tools .btn .muted { margin-left: var(--sp-1); font-variant-numeric: tabular-nums; }
+.dash-rows { display: flex; flex-direction: column; }
+.dash-row { border-top: 1px solid var(--border); color: inherit; text-decoration: none; }
+:is(.dash-product, .dash-cloud, .dash-item):hover { background: var(--row-hover); }
+.dash-clip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.dash-card .tip-btn:not(.pill) { min-width: 0; font: inherit; text-transform: inherit; letter-spacing: inherit; }
+.dash-card .tip-btn:not(.pill, .state):is(:hover, :focus-visible) > :first-child:not(svg) { text-decoration: underline dotted; text-underline-offset: 3px; }   /* a pill hovers a shade deeper instead */
+
+/* The platform: a row for each product, then one for Gravitee Cloud, on four columns: what it is, its version (the accounts of the Cloud),
+   what to see to (how many hybrid gateways), what to do. The first two are a share of the card between a floor and a ceiling, the third
+   takes what is left, the last is as wide as its buttons, which keep their padding. The first is never narrower than API Management's
+   name with where it runs after it, its segmented control of two icons. The Cloud's name has the room of a product's dot before it, and
+   so has the head of the first column, so that every name starts at the same place, under its head, a product's dot in the margin before
+   it; the row of a product's services of this machine, under its row in the Cloud, has its dot under that name. Every row is 56 px. */
+.dash-product, .dash-cloud, .dash-heads {
+  display: grid; grid-template-columns: clamp(208px, 22%, 220px) clamp(156px, 20%, 200px) minmax(0, 1fr) max-content;
+  column-gap: var(--sp-3); align-items: center; padding: 0 var(--pad);
+}
+.dash-product > *, .dash-cloud > *, .dash-heads > * { min-width: 0; }
+.dash-heads { height: var(--h-head); border-top: 1px solid var(--border); }
+.dash-product, .dash-cloud { min-height: var(--h-row); }
+.dash-name { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+.dash-cloud > .dash-name, .dash-heads > :first-child, .dash-local > .dash-name { padding-left: calc(9px + var(--sp-2)); }
+.dash-name .list-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-dot { display: inline-flex; flex: none; }
+.dash-ver, .dash-upd { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; min-height: var(--h-pill); white-space: nowrap; }   /* a cell keeps its line while it waits for what it says */
+.s-version.muted { color: var(--muted); }
+.dash-open { display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-2); }
+.dash-full { display: none; align-items: center; justify-content: flex-end; gap: var(--sp-2); }
+.dash-compact { display: flex; }
+.dash-open .btn { flex: none; }
+.dash-compact > .btn { min-width: 88px; }   /* Open, to a console or its menu: one width */
+.dash-open .btn > .dash-clip { max-width: 180px; }   /* a console's long name is cut, and said whole to a screen reader */
+.dash-update { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.dash-mark, .dash-wait { display: inline-grid; place-items: center; flex: none; }
+.dash-mark svg { width: 14px; height: 14px; }
+.dash-mark svg[data-i="info"] { color: var(--muted); }
+.dash-row .list-note { font-size: inherit; }
+.dash-row .text-link { text-decoration: none; }
+.dash-row .text-link:hover { text-decoration: underline; }
+/* In a platform card of 1012 px or more every console is a button; narrower, one Open button */
+@container dash (min-width: 1012px) {
+  .dash-full { display: flex; }
+  .dash-compact { display: none; }
+}
+
+/* Gravitee Cloud: the accounts, muted and cut; how many hybrid gateways they have, a name that leads to the Gravitee Cloud page and opens
+   their list on hover and focus ("No gateway" muted); else what keeps it from saying so, whose words wrap rather than being cut */
+.dash-account { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; color: var(--muted); }
+.dash-count { white-space: nowrap; }
+.dash-count:not([data-tip]) { color: var(--muted); }
+.dash-cloud > .dash-upd { white-space: normal; }
+
+/* The catalog, in the anatomy of a list's row on two lines: its kind, its name with its star, and under them its state and its badges
+   (what the list says of an item: why it cannot start, that it was started outside the Lab UI, Apply needed), then two slots of a fixed
+   width that keep their place when what they hold is absent: its Start or Stop, the lists' own button, and its Settings. A badge too long
+   for its line is cut, its tooltip saying it whole. A name is plain text: it is underlined when it is hovered or focused. */
+.dash-item {
+  display: grid; grid-template-columns: 16px minmax(0, 1fr) 104px var(--h-inner); grid-template-areas: "kind name act set" "kind sub act set";
+  column-gap: var(--sp-3); row-gap: 2px; align-items: center; align-content: center; min-height: var(--h-row); padding: var(--sp-1) var(--pad);   /* 56 px with its hairline */
+}
+.dash-kind { grid-area: kind; display: grid; place-items: center; color: var(--muted); }
+.dash-nameline { grid-area: name; display: flex; align-items: center; gap: var(--sp-1); min-width: 0; }
+.dash-nameline .list-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Under the name: the state, then the badges, which are never cut: when they do not fit beside the state they go under it */
+.dash-sub-line { grid-area: sub; display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); min-width: 0; font-size: var(--fs-2); }
+.dash-sub-line > .status { flex: none; }
+.dash-marks { flex-wrap: wrap; row-gap: var(--sp-1); }
+.dash-slot { display: flex; align-items: center; justify-content: flex-end; }
+.dash-act { grid-area: act; }
+.dash-act .btn.act { min-width: 104px; }   /* "Stopping 100%" fits: a restart, rarer, takes a few pixels more while it works */
+.dash-set { grid-area: set; }
+.dash-slot .tip-btn.blocker { width: var(--h-inner); height: var(--h-inner); }
+.dash-slot .icon-btn { --btn-h: var(--h-inner); width: var(--h-inner); color: var(--muted); }   /* a row's icon, as on the lists */
+.dash-empty { border-top: 1px solid var(--border); }   /* the empty block of a card, under its tools */
+/* The search takes the whole line of a narrow card, the filters under it; from 600 px they share one line */
+.dash-card .search.grow { flex: 1 1 100%; min-width: 0; }
+.dash-card .list-tools .combo-btn { width: 128px; }
+@container dash (min-width: 600px) { .dash-card .search.grow { flex: 1 1 0; min-width: 160px; } }
+
+/* Resources: one line by default, 36 px with the edge of its card: its toggle and its name, then the figures in words (CPU, Memory),
+   Docker's versions muted at its end while the line has 720 px; a click anywhere on it, or Enter and Space on its toggle,
+   unfolds it. What does not fit goes on a second line, under the toggle: a phone has two. Unfolded, the line keeps its toggle and
+   its name, and the METRIC STRIP (DESIGN.md) is under it, 64 px: a section for each measure, apart by hairlines, its label over its figure
+   (the value, then what it is of, muted, on one baseline), its chart filling the rest of the section, all centered on the
+   strip's middle; what Docker stores is a figure of its own, with no chart, and the versions of Docker last, a section of the same
+   anatomy that takes what is left. CPU and Memory have one width, wide enough for a line and the numbers of its scale. A narrower page puts
+   CPU and Memory on one line, Storage and Docker under; a phone, one section over the other. It unfolds quickly, and at once with reduced motion. */
+.dash-resources { --cell: 330px; padding: 0; overflow: hidden; }
+.dash-res-head {
+  container: res-line / inline-size; display: flex; flex-wrap: wrap; align-items: center; column-gap: var(--sp-4); min-height: 34px;
+  padding: var(--sp-1) var(--pad) var(--sp-1) calc(var(--pad) - var(--sp-1)); cursor: pointer; user-select: none;
+}
+.dash-resources:not(.open) .dash-res-head { border-radius: inherit; }
+.dash-res-head:hover { background: var(--row-hover); }
+.dash-res-head:has(.dash-res-toggle:focus-visible) { outline: 2px solid var(--text-2); outline-offset: -2px; }
+.dash-res-title { flex: none; font-size: var(--fs-4); line-height: var(--lh-4); }
+.dash-res-toggle {
+  display: inline-flex; align-items: center; gap: var(--sp-1); padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer;
+}
+.dash-res-toggle:focus-visible { outline: none; }
+/* Its figures are items of the line itself, so that what does not fit goes on the next line, under the toggle */
+.dash-res-sum { display: contents; }
+.dash-resources.open .dash-res-sum > * { display: none; }   /* the strip says the figures */
+.dash-res-item { flex: none; white-space: nowrap; line-height: var(--lh-3); }
+.dash-res-label { color: var(--muted); }
+.dash-res-value { font-weight: var(--fw-2); font-variant-numeric: tabular-nums; }
+.dash-res-docker { display: flex; flex: 0 1 auto; gap: var(--sp-2); min-width: 0; margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: var(--lh-3); }
+@container res-line (max-width: 719px) { .dash-res-docker { display: none; } }
+/* The strip, folded to nothing: hidden from the pointer, the keyboard and a screen reader once it is closed */
+.dash-res-body {
+  display: grid; grid-template-rows: 0fr; visibility: hidden;
+  transition: grid-template-rows var(--dur-2) var(--ease), visibility 0s linear var(--dur-2);
+}
+.dash-resources.open .dash-res-body { grid-template-rows: 1fr; visibility: visible; transition: grid-template-rows var(--dur-2) var(--ease), visibility 0s; }
+@media (prefers-reduced-motion: reduce) { .dash-res-body, .dash-resources.open .dash-res-body { transition: none; } }
+.dash-res-cells {
+  display: grid; grid-template-columns: var(--cell) var(--cell) max-content minmax(max-content, 1fr); align-items: stretch;
+  min-height: 0; overflow: hidden; box-shadow: inset 0 1px 0 var(--border);
+}
+.dash-cell {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "label viz" "value viz";
+  align-items: center; align-content: center; column-gap: var(--sp-4); row-gap: 0; min-width: 0; min-height: 64px; padding: var(--sp-3) var(--pad);
+}
+.dash-cell + .dash-cell { box-shadow: inset 1px 0 0 var(--border); }
+.dash-label { grid-area: label; align-self: end; line-height: var(--lh-1); }
+.dash-figure { grid-area: value; display: flex; align-items: baseline; gap: var(--sp-2); min-width: 0; white-space: nowrap; }
+.dash-cell.dash-engine { grid-template-columns: auto; grid-template-areas: "label" "value"; }
+.dash-value { font-size: var(--fs-4); line-height: var(--lh-4); font-weight: var(--fw-3); letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.dash-of, .dash-unused { font-size: var(--fs-2); white-space: nowrap; }
+.dash-of { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* Storage: its label over its figure, what is unused after it, and Refresh at the end. A line of words: no chart, no bar. */
+.dash-cell.dash-storage { grid-template-columns: auto auto; grid-template-areas: "label tail" "value tail"; justify-content: start; column-gap: var(--sp-5); }
+.dash-tail { grid-area: tail; display: inline-flex; align-items: center; gap: var(--sp-2); }
+.dash-unused { display: inline-flex; }
+.dash-unused .tip-btn { gap: 6px; }
+/* The load's label says which containers weigh most: its popover opens on the label, which shows its mark and takes no more room */
+.dash-weigh .tip-btn { gap: 6px; padding: 0; color: inherit; font: inherit; }
+/* The memory of Docker running out: its figure warms, then reddens, before a container is killed for want of it */
+[data-value][data-level="warn"] { color: var(--warn); }
+[data-value][data-level="err"] { color: var(--err); }
+/* A live chart: its line and a round dot at its right edge, no fill under it. Its path is moved by the page at each frame. The line and
+   the dot have strokes that do not scale, so that they keep their weight and the dot stays round at any width. */
+/* A chart has the numbers of its scale beside it, the top of it and zero, and a guide at each: what a line says is read against them. */
+.dash-plot { grid-area: viz; align-self: center; display: flex; align-items: stretch; gap: var(--sp-2); min-width: 0; height: 28px; }
+.dash-axis { display: flex; flex: none; flex-direction: column; justify-content: space-between; color: var(--muted); font-size: var(--fs-1); line-height: 1; text-align: right; font-variant-numeric: tabular-nums; }
+.dash-chart { flex: 1; width: 0; min-width: 60px; height: 100%; overflow: visible; color: var(--text-2); }
+.chart-guide { fill: none; stroke: var(--border); stroke-width: 1px; stroke-dasharray: 2 3; vector-effect: non-scaling-stroke; }
+.chart-line, .chart-dot { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.chart-line { stroke-width: 1.5px; }
+.chart-dot { stroke: var(--text); stroke-width: 6px; }
+/* A narrower page: the two charts share a line and are as wide as it lets them, Storage and Docker the one under; a phone, a section over the other */
+@container (max-width: 1259px) {
+  .dash-res-cells { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .dash-cell:nth-child(n+3) { box-shadow: inset 0 1px 0 var(--border); }
+  .dash-cell.dash-engine { box-shadow: inset 1px 0 0 var(--border), inset 0 1px 0 var(--border); }
+}
+@container (max-width: 639px) {
+  .dash-res-cells { grid-template-columns: minmax(0, 1fr); }
+  .dash-cell + .dash-cell, .dash-cell.dash-engine { grid-column: auto; box-shadow: inset 0 1px 0 var(--border); }
+  .dash-cell.dash-storage { grid-template-columns: minmax(0, 1fr) auto; justify-content: stretch; }
+}
+
+/* A platform card narrower than 640 px has no columns: a row is two lines, its name and what to do, then its version (the Cloud's
+   accounts) and its status (how many gateways), as the heads are gone. Narrower than 420 px a row is three lines, and a card's head and
+   the catalog's filters are rows of equal buttons. */
+@container dash (max-width: 639px) {
+  .dash-heads { display: none; }
+  .dash-product, .dash-cloud {
+    grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name open" "ver upd"; column-gap: var(--sp-2); row-gap: var(--sp-1); padding-block: var(--sp-3);
+  }
+  .dash-name { grid-area: name; }
+  .dash-open { grid-area: open; }
+  .dash-ver { grid-area: ver; }
+  .dash-upd { grid-area: upd; }
+  .dash-open:empty { display: none; }
+}
+@container dash (max-width: 419px) {
+  /* A product's name has its line whole, its Open on the line of its version */
+  .dash-product { grid-template-areas: "name name" "ver open" "upd upd"; }
+  /* A row whose version is the picker of an environment has it on a line of its own, then its state, then its action: each whole */
+  .dash-product:has(.core-env) { grid-template-areas: "name name" "ver ver" "upd upd" "open open"; }
+  /* The buttons of a head share its line when their words fit with their sides, else each takes a line */
+  .dash-tools { width: 100%; margin-left: 0; }
+  .dash-tools > .btn { flex: 1 1 max-content; }
+  .dash-card .list-filters { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
+  .dash-card .list-filters .combo-btn { grid-column: 1 / -1; width: 100%; max-width: none; }
+  .dash-card .list-filters .toggle-chip { justify-content: center; }
+  /* An item: its name on the whole first line, its state and its badges on the second, its buttons on a third at its right end */
+  .dash-item { grid-template-areas: "kind name name name" "kind sub sub sub" "kind . act set"; row-gap: var(--sp-1); padding-block: var(--sp-3); }
+  .dash-kind { align-self: start; margin-top: 2px; }   /* on the line of the name */
+}
+
+/* --- Stack ---------------------------------------------------------------------------- */
+
+/* Services on the left, what to open on the right; one column, what to open first, when the services would no
+   longer show in full next to it */
+.stack-layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: var(--gap); align-items: start; }
+/* On a wide screen, what to open gets its names in full */
+@container (min-width: 1500px) { .stack-layout { grid-template-columns: minmax(0, 1fr) 360px; } }
+.side { min-width: 0; }
+@container (max-width: 1299px) {
+  .stack-layout { grid-template-columns: 1fr; }
+  .side { order: -1; }
+}
+
+/* One row per product or add-on, expanding to its containers. Every row shares the same columns: its name and the badges of
+   what the server notes, its state (the state component, "Partly running" and "Keeps restarting" fit), the versions shown
+   (--version-width, set by the page), three ports, an uptime; the last one holds the six icons of a row, and ends where a row
+   of a list ends. */
+.cols {
+  display: grid; grid-template-columns: 22px minmax(200px, 1fr) 148px var(--version-width, 116px) 128px 72px 156px;
+  align-items: center; column-gap: var(--sp-3); padding: 0 var(--sp-3) 0 calc(var(--pad) - 4px);
+}
+.cols > * { min-width: 0; }
+.cols > .row-icons { justify-content: flex-end; }
+.groups { list-style: none; margin: 0; padding: 0; }
+/* The core's line: its toggle, its name and license, its files where a group has them. The add-ons' band under its groups is a
+   line of the same kind, without the files, on no tint: a section inside the core's */
+.core-sep { min-height: var(--h-row-3); padding-block: var(--sp-1); }
+.core-name { grid-column: 2 / -2; display: flex; align-items: center; gap: var(--sp-2); }
+.group { border-bottom: 1px solid var(--border); }
+.group:last-child { border-bottom: 0; }
+.group-row { min-height: var(--h-row-2); }
+/* The name, then its badges 8 px after it; the ring of a focused badge has room */
+.s-name { display: flex; align-items: center; gap: var(--sp-2); white-space: nowrap; overflow: hidden; padding: 4px 0 4px 4px; margin: -4px 0 -4px -4px; }
+.s-name > * { flex: none; }
+/* What gives way when the line is long: the id of a container, then a badge, cut with an ellipsis */
+.s-name > :is(.c-id, .pill.note, .tip) { flex: 0 1 auto; min-width: 0; }
+.s-name > .g-name { flex: 0 1 auto; }   /* last, the name itself, on a phone */
+.s-name > .c-id { overflow: hidden; text-overflow: ellipsis; }
+.g-name { font-weight: var(--fw-3); min-width: 0; overflow: clip; overflow-clip-margin: 4px; text-overflow: ellipsis; }   /* the ring of its link shows */
+.s-state { display: flex; align-items: center; min-width: 0; font-size: var(--fs-2); line-height: var(--lh-2); }
+.s-uptime { color: var(--muted); font-size: var(--fs-1); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Containers: indented under their group, lighter */
+.containers { list-style: none; margin: 0; padding: 0 0 var(--sp-1); }
+.container { min-height: var(--h-row-3); font-size: var(--fs-2); }
+.container .s-name { padding-left: 18px; }
+.c-name { color: var(--text-2); }
+.c-id { font-family: var(--mono); font-size: var(--fs-1); color: var(--muted); }
+.container:hover { background: var(--row-hover); }
+.container:hover .c-name { color: var(--text); }
+
+/* Narrower, the ports and the uptime leave first, as the category of a list does, so that a name keeps its badges; then a
+   name, the dot of its state and its icons are left */
+@container (max-width: 1100px) {
+  .cols { grid-template-columns: 22px minmax(180px, 1fr) 132px var(--version-width, 116px) 156px; }
+  .cols > :is(:nth-child(5), :nth-child(6)):not(.row-icons) { display: none; }
+}
+@container (max-width: 760px) {
+  .cols { grid-template-columns: 22px minmax(0, 1fr) auto auto; }
+  .cols > :is(:nth-child(4), :nth-child(5), :nth-child(6)):not(.row-icons) { display: none; }
+  .s-state .status-word { display: none; }
+  .cols .row-icons .icon-gap { display: none; }   /* on a phone a name needs the room more than the icons their places */
+  .core-name { flex-wrap: wrap; row-gap: var(--sp-1); min-width: 0; }
+}
+/* On a phone a row is two lines: the name with its badge under it when they do not fit, and its state at the right; then its
+   icons under the name. The heads go, as the rows say what each is. */
+@container (max-width: 520px) {
+  .stack-head { display: none; }
+  .cols:not(.core-sep) { grid-template-columns: 22px minmax(0, 1fr) auto; row-gap: var(--sp-1); padding-block: var(--sp-2); }
+  .cols:not(.core-sep) .s-name { flex-wrap: wrap; row-gap: var(--sp-1); white-space: normal; }
+  .cols:not(.core-sep) .s-name > :is(.g-name, .c-name, .c-id) { white-space: nowrap; }
+  .cols:not(.core-sep) > .row-icons { grid-column: 2 / -1; justify-content: flex-start; }
+}
+
+
+/* --- A playground's page --------------------------------------------------------------- */
+
+/* Breadcrumb in the page title */
+.crumb { color: var(--muted); text-decoration: none; font-weight: var(--fw-2); }
+.crumb:hover { color: var(--accent-ink); }
+.crumb-sep { margin: 0 10px; color: var(--border-strong); font-weight: var(--fw-1); }
+/* The page's title after the list it is in: one line, the crumb as large as the title, the star after it */
+.pg-heading { flex-wrap: nowrap; gap: 0; }
+.crumbs { display: flex; align-items: center; font-size: var(--fs-5); line-height: var(--lh-5); }
+.pg-heading h1 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#pg-star { display: inline-flex; margin-left: 8px; }
+
+.pg-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.pg-side h3, .pg-main h3 { margin: 0 0 8px; }
+
+/* Details */
+.pg-details { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: var(--gap); align-items: start; }
+.pg-main { padding: var(--sp-5); display: grid; gap: var(--sp-3); }
+.pg-main h3 { margin-top: 8px; }
+.pg-lead { font-size: var(--fs-4); line-height: 1.55; color: var(--text); }
+.pg-chapters { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.pg-chapters li::marker { color: var(--muted); font-variant-numeric: tabular-nums; }
+.pg-meta { display: flex; gap: 18px; padding-top: 12px; border-top: 1px solid var(--border); color: var(--muted); font-size: var(--fs-2); }
+
+.pg-prep { padding: var(--pad); display: flex; flex-direction: column; gap: 16px; position: sticky; top: var(--head); }
+.pg-prep-group { display: grid; gap: 8px; }
+.pg-prep-group + .pg-prep-group { margin-top: var(--sp-3); padding-top: var(--sp-3); border-top: 1px solid var(--border); }
+.pg-prep-group h4 { margin: 0; }
+.pg-prep-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+/* One row: icon, name, what happens to it on the right; details under the name */
+.pg-prep-item { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; column-gap: 10px; row-gap: 4px; align-items: baseline; font-size: var(--fs-2); }
+.pg-prep-icon { display: flex; align-self: center; }
+.pg-prep-icon svg { width: 14px; height: 14px; }
+.pg-prep-item.warn .pg-prep-icon { color: var(--warn); }
+.pg-prep-item.auto .pg-prep-icon { color: var(--muted); }
+.pg-prep-item.ok .pg-prep-icon { color: var(--ok); }
+.pg-prep-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pg-prep-action { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: var(--fs-2); white-space: nowrap; }
+/* The key of the settings that answer a line, after what happens to it: quiet, in the height of the line */
+.pg-prep-action .icon-btn { --btn-h: 22px; width: 22px; margin: -4px -4px -4px 0; color: var(--muted); }
+.pg-prep-action .btn { margin-block: -7px; }   /* a button of its words, in the height of the line */
+.pg-prep-item.warn .pg-prep-name { white-space: normal; }   /* what needs attention is said whole */
+.pg-prep-action .icon-btn svg { width: 14px; height: 14px; }
+.pg-prep-more { grid-column: 2 / -1; display: grid; gap: 4px; }
+.pg-prep-more .sub { font-size: var(--fs-1); }
+.pg-prep-help { font-size: var(--fs-2); color: var(--text-2); }
+.pg-prep-help code { font-size: var(--fs-1); background: var(--surface-2); padding: 1px 5px; border-radius: 5px; }
+.pg-start-btn { width: 100%; }
+.pg-start-note { margin: -6px 0 0; font-size: var(--fs-1); text-align: center; }
+/* Why Start is off, in full: the note of a row is one clipped line, this one wraps under the button */
+.pg-start-note .list-note { display: block; overflow: visible; white-space: normal; }
+
+/* Session: progress */
+.pg-progress { margin-bottom: var(--gap); }
+.pg-progress.failed { border-color: color-mix(in srgb, var(--err) 45%, var(--border)); }
+.pg-progress h2 { margin-right: auto; }   /* the seconds, and Cancel while it runs, at the right end */
+.pg-phases { list-style: none; margin: 0; padding: 0 var(--pad) var(--pad); display: grid; gap: 2px; }
+.pg-phase { position: relative; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 7px 0; }
+.pg-phase + .pg-phase { border-top: 1px dashed var(--border); }
+.pg-phase-icon { display: flex; justify-content: center; padding-top: 1px; }
+.pg-phase-icon svg { width: 15px; height: 15px; }
+.pg-phase.done .pg-phase-icon { color: var(--ok); }
+.pg-phase.failed .pg-phase-icon { color: var(--err); }
+.pg-phase.canceled .pg-phase-icon { color: var(--muted); }   /* nothing went wrong */
+.pg-phase.current .pg-phase-icon { color: var(--accent); }
+.pg-phase-detail:empty { display: none; }
+.pg-phase-detail { margin-top: 2px; font-family: var(--mono); font-size: var(--fs-1); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* How far the running phase is: under its name and its last line, in the row's own padding */
+.pg-phase > .progress { position: absolute; grid-column: 2 / -1; inset: auto 0 2px; }
+.pg-progress-foot { display: flex; gap: 8px; justify-content: flex-end; padding: 0 var(--pad) var(--pad); }
+
+/* The guide to read before a start, with its accounts beside it */
+.pg-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 340px; overflow: clip; }
+/* The guide under the details, before a start: with its accounts beside it, else across the card */
+.pg-read { margin-top: var(--gap); min-height: calc(100dvh - var(--head) - var(--gap)); }   /* a short page still comes up under the head */
+.pg-read.alone { grid-template-columns: minmax(0, 1fr); }
+.pg-read.alone .guide { border-right: 0; }
+/* The side stays in view while the guide scrolls, under the page's head. Its longest list, the services, scrolls
+   within it, a shade at the edge where more follows: what to open and the logins never leave the screen. */
+.pg-side { position: sticky; top: var(--head); align-self: start; max-height: calc(100dvh - var(--head));
+  display: flex; flex-direction: column; }
+.pg-side section { padding: var(--sp-3) var(--pad); flex: none; }
+.pg-side .pg-side-services { flex: 0 1 auto; min-height: 140px; overflow: auto;
+  background: linear-gradient(var(--surface), var(--surface)) bottom / 100% 24px no-repeat local,
+    linear-gradient(transparent, color-mix(in srgb, var(--text) 10%, transparent)) bottom / 100% 14px no-repeat scroll; }
+.pg-side section + section { border-top: 1px solid var(--border); }
+.pg-side .link { padding: 0 6px; margin: 0 -6px; height: var(--h-control); }
+.pg-service { display: grid; grid-template-columns: 7px minmax(0, 1fr) auto; align-items: center; gap: 10px; font-size: var(--fs-2); }
+/* A place a seed put what it created in: its name, what is there, and the button that deletes it */
+.pg-place { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px; font-size: var(--fs-2); }
+.pg-place-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pg-account { display: grid; gap: 4px; }
+.pg-cred { display: flex; align-items: center; gap: 4px; }
+.pg-cred-label { width: 64px; flex: none; color: var(--muted); font-size: var(--fs-1); }
+.pg-cred code { font-size: var(--fs-2); }
+
+/* The guide is the left panel of the split and the UIs the right one; the page does not scroll (.fill: the card takes what
+   is left under the head) and each panel scrolls by itself. Without the room for both side by side (.rows), the same two
+   panels are rows, the guide over the UIs, and the divider is gone. */
+#page-playground.fill > #pg-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.pg-split { flex: 1; min-height: 360px; display: grid; overflow: clip; grid-template: minmax(0, 1fr) / var(--guide-w, 600px) 8px minmax(0, 1fr); }
+.pg-split.rows { grid-template: minmax(0, 2fr) minmax(0, 3fr) / minmax(0, 1fr); }
+.pg-split.rows .pg-divider { display: none; }
+.pg-split.rows .pg-uis { border-top: 1px solid var(--border); }
+.pg-split .pg-pane { min-width: 0; min-height: 0; overflow: auto; }
+.pg-split .guide { border-right: 0; padding-top: 0; }   /* next to the UIs the page selector is the top of the panel, below */
+.pg-split.dragging { cursor: col-resize; user-select: none; }
+.pg-split.dragging iframe, .pg-split.dragging-term iframe { pointer-events: none; }   /* the pointer stays with the divider over a frame */
+.pg-split.dragging-term { cursor: row-resize; user-select: none; }
+
+/* The divider: a line between the panels with a grip, which shows when the pointer or the keyboard is on it. Its grab
+   zone reaches into the UIs' panel, wider than the line; at an end of its travel the cursor shows the way it can go. */
+.pg-divider { position: relative; z-index: 1; cursor: col-resize; touch-action: none; border-inline: 1px solid var(--border); }
+.pg-divider::before { content: ""; position: absolute; inset: 0 -4px 0 0; }
+.pg-divider[data-edge="min"] { cursor: e-resize; }
+.pg-divider[data-edge="max"] { cursor: w-resize; }
+.pg-divider::after {
+  content: ""; position: absolute; inset: 50% 1px auto; height: 40px; transform: translateY(-50%); border-radius: 2px;
+  background: var(--border-strong);
+}
+.pg-divider:hover, .pg-split.dragging .pg-divider { background: var(--surface-2); }
+.pg-divider:hover::after { background: var(--muted); }
+.pg-split.dragging .pg-divider::after { background: var(--text-2); }
+.pg-divider:focus-visible { outline: 0; background: var(--surface-3); border-inline-color: var(--text-2); }
+.pg-divider:focus-visible::after { background: var(--text-2); }
+@media (prefers-reduced-motion: no-preference) {
+  .pg-divider, .pg-divider::after { transition: background var(--dur-1) var(--ease); }
+}
+
+/* The UIs: the tabs and what applies to the one on screen, then its panel, which fills the rest */
+.pg-uis { display: flex; flex-direction: column; }
+.pg-split .pg-uis { overflow: hidden; }
+.pg-bar { display: flex; align-items: center; gap: 12px; flex: none; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+/* A tab keeps its name, whole: the ones that do not fit in a row go on the next, as in any segmented control */
+.pg-bar .segmented { min-width: 0; }
+.pg-bar [role="tab"] { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.tab-alert { display: inline-flex; flex: none; color: var(--warn); }
+.tab-alert svg { width: 13px; height: 13px; }
+.pg-tools { display: flex; flex: none; gap: 2px; margin-left: auto; }
+.pg-panels { position: relative; flex: 1; min-height: 0; }
+.pg-split .pg-panel { position: absolute; inset: 0; }
+.pg-split .pg-side { display: block; max-height: none; overflow: auto; align-self: stretch; }   /* it fills its panel, which the terminal may shorten: start would give it its content's height */
+.pg-split .pg-side .pg-side-services { overflow: visible; background: none; }
+.pg-panel iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+/* The terminal, under the UIs: a divider like the guide's, turned across, a bar with its fold button, and the shell, which
+   takes the height it was given (--term-h). Folded, only the divider and the bar are left. */
+.pg-term { flex: none; display: flex; flex-direction: column; background: var(--surface); height: calc(var(--term-h, 240px) + 8px + var(--h-control)); }
+.pg-term.folded { height: auto; }
+.pg-term-divider { position: relative; z-index: 1; flex: none; height: 8px; cursor: row-resize; touch-action: none; border-block: 1px solid var(--border); }
+.pg-term-divider::before { content: ""; position: absolute; inset: -4px 0 0; }
+.pg-term-divider[data-edge="min"] { cursor: n-resize; }
+.pg-term-divider[data-edge="max"] { cursor: s-resize; }
+.pg-term-divider::after { content: ""; position: absolute; inset: 1px auto 1px 50%; width: 40px; transform: translateX(-50%); border-radius: 2px; background: var(--border-strong); }
+.pg-term-divider:hover, .pg-split.dragging-term .pg-term-divider { background: var(--surface-2); }
+.pg-term-divider:hover::after { background: var(--muted); }
+.pg-split.dragging-term .pg-term-divider::after { background: var(--text-2); }
+.pg-term-divider:focus-visible { outline: 0; background: var(--surface-3); border-block-color: var(--text-2); }
+.pg-term-divider:focus-visible::after { background: var(--text-2); }
+.pg-term.folded .pg-term-divider { cursor: default; pointer-events: none; }
+.pg-term.folded .pg-term-divider::after { display: none; }
+.pg-term-bar { display: flex; flex: none; align-items: center; justify-content: space-between; height: var(--h-control); padding: 0 6px 0 12px; }
+.pg-term-title { display: inline-flex; align-items: center; gap: 8px; color: var(--text-2); font-weight: var(--fw-2); }
+.pg-term-title svg { width: 14px; height: 14px; }
+.pg-term-bar .icon-btn.up svg { transform: rotate(180deg); }
+.pg-term-body { position: relative; flex: 1; min-height: 0; background: var(--surface); }
+.pg-term.folded .pg-term-body { display: none; }
+.pg-term-screen { position: absolute; inset: 0 0 0 12px; }
+.pg-term-notice { background: var(--surface); }
+@media (prefers-reduced-motion: no-preference) {
+  .pg-term-divider, .pg-term-divider::after { transition: background var(--dur-1) var(--ease); }
+}
+.pg-wait { position: absolute; inset: 0; display: grid; place-items: center; }
+.pg-notice {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; padding: 24px; text-align: center; color: var(--text-2);
+}
+.pg-notice p { margin: 0; }
+.pg-notice .pg-service { grid-template-columns: auto auto auto; font-size: var(--fs-4); }
+.pg-notice p + .sub { margin-top: -8px; }   /* the reason belongs to the line above */
+
+/* The guide: markdown, written for reading. Text of 15 px on a 1.7 line that takes the whole width of its panel (padding
+   keeps it comfortable), one rhythm of space between blocks (--flow), a title that opens each page and sub-headings that
+   open its parts, bullets that read one action a line, calm callouts, and nothing glued to what is above it. */
+.guide { --flow: 16px; --media: 56em; padding: 20px 28px 36px; font-size: 15px; line-height: 1.7; color: var(--text-2); min-width: 0;
+  border-right: 1px solid var(--border); overflow-wrap: break-word; }
+.guide > :first-child { margin-top: 0; }
+.guide :is(p, ul, ol, blockquote, table, pre, figure, hr) { margin: 0 0 var(--flow); }
+/* A picture or a diagram is not text: it grows with the panel up to --media, not across a screen */
+.guide :is(figure, p:has(> img)) { max-width: var(--media); }
+.guide :is(h1, h2, h3, h4, h5, h6) { color: var(--text); text-wrap: balance; }
+.guide h1 { font-size: 24px; line-height: 1.25; letter-spacing: -.02em; margin: 0 0 12px; }
+.guide h2 { font-size: 20px; line-height: 1.3; letter-spacing: -.015em; margin: 40px 0 10px; padding-top: 20px; border-top: 1px solid var(--border); }
+/* In pages: the section a page is opens it, as the guide's title opens the first; the lines after it, which say why, are the lead */
+.guide-page > :is(h1, h2):first-child { font-size: 24px; line-height: 1.25; letter-spacing: -.02em; margin: 0 0 12px; padding-top: 0; border-top: 0; }
+.guide-page > :is(h1, h2):first-child + p { font-size: 16.5px; line-height: 1.6; color: var(--text); }
+.guide h3 { font-size: 16.5px; line-height: 1.4; font-weight: 650; letter-spacing: -.01em; margin: 32px 0 8px; }
+.guide :is(h4, h5, h6) { font-size: 11.5px; line-height: 1.4; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+  margin: 24px 0 6px; }
+.guide :is(h3, h4, h5, h6) + :is(p, ul, ol) { margin-top: 0; }
+.guide-nav { display: flex; align-items: center; gap: 6px; margin: -4px 0 20px; }
+.guide-nav .combo-btn { max-width: 380px; min-width: 0; }
+.guide-nav .icon-btn { flex: none; }
+.guide-nav .combo-btn .value { font-family: inherit; font-size: var(--fs-2); }
+.guide-count { margin-left: auto; font-variant-numeric: tabular-nums; white-space: nowrap; }
+@container (max-width: 520px) { .guide-count { display: none; } }   /* the picker says the step already */
+.guide-prev svg { transform: rotate(90deg); }
+.guide-next svg { transform: rotate(-90deg); }
+.guide-foot { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 40px; padding-top: 20px;
+  border-top: 1px solid var(--border); }
+.guide-link { display: grid; gap: 2px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 10px;
+  font-size: var(--fs-3); color: var(--text); text-decoration: none; line-height: 1.4; transition: border-color var(--dur-1) var(--ease), background var(--dur-1) var(--ease); }
+.guide-link:hover { border-color: var(--border-strong); background: var(--surface-2); }
+.guide-link.guide-next { text-align: right; }
+.guide-link .sub { font-size: var(--fs-1); }
+.guide :is(a.guide-link, .guide-nav a.icon-btn) { color: var(--text); text-decoration: none; }
+/* Next to the UIs, the page selector is a bar as high as theirs, which stays at the top of the guide's panel as it scrolls */
+.pg-split .guide-nav {
+  position: sticky; top: 0; z-index: 2; box-sizing: border-box; height: 49px; margin: 0 -28px 24px; padding: 0 28px;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+}
+/* Lists: real bullets and numbers in the margin of the text, one item a line of space apart, a list in a list close under its item */
+.guide :is(ul, ol) { padding-left: 1.5em; }
+.guide li { padding-left: 2px; }
+.guide li + li { margin-top: 6px; }
+.guide li::marker { color: var(--muted); }
+.guide ol > li::marker { color: var(--text-2); font-weight: 650; font-variant-numeric: tabular-nums; }
+.guide li > :is(ul, ol) { margin: 6px 0 0; }
+.guide li > p { margin: 0 0 6px; }
+.guide li > :is(p, ul, ol):last-child { margin-bottom: 0; }
+/* A checklist: its boxes in place of the bullets */
+.guide li:has(> input[type="checkbox"]) { list-style: none; }
+.guide li > input[type="checkbox"] { margin: 0 8px 0 -22px; vertical-align: -1px; accent-color: var(--accent); }
+.guide a { color: var(--accent-ink); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); }
+.guide a:hover { text-decoration-color: currentColor; }
+.guide strong { color: var(--text); font-weight: 650; }
+/* An action link: the Lab's button with its play icon, in the line it was written in without making it taller, and room
+   around it for its focus ring */
+.guide .guide-action { margin: -5px 3px; vertical-align: baseline; }
+.guide .guide-action:focus-visible { outline-offset: 1px; }
+.guide-action svg { color: var(--accent); }
+/* A block to run: its button is in the corner of the block, which keeps its text clear of it */
+.guide-code { position: relative; margin: 0 0 var(--flow); }
+.guide-code pre { margin: 0; }
+.guide code.lab-run { padding-right: 84px; }
+.guide .guide-run { position: absolute; top: 6px; right: 6px; --btn-h: 26px; --btn-pad: 8px; }
+.guide-run svg { color: var(--accent); }
+.guide :is(code, kbd) { font-size: .86em; color: var(--text); background: var(--surface-2); padding: .08em .38em; border: 1px solid var(--border);
+  border-radius: 6px; overflow-wrap: anywhere; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.guide hr { border: 0; border-top: 1px solid var(--border); margin: 32px 0; }
+.guide img { display: block; max-width: 100%; height: auto; margin: 4px 0 var(--flow); border: 1px solid var(--border); border-radius: 10px; }
+/* A callout: a quote is a quiet note on a tint of its own, not an alarm */
+.guide blockquote { padding: 12px 16px; border: 1px solid var(--border); border-left: 3px solid var(--border-strong); background: var(--surface-2);
+  border-radius: 4px 10px 10px 4px; color: var(--text-2); }
+.guide blockquote > * { margin: 0; }
+.guide blockquote > * + * { margin-top: 8px; }
+/* A table is for reference: a header, light rules, cells that wrap */
+.guide table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13.5px; line-height: 1.5; border: 1px solid var(--border);
+  border-radius: 10px; overflow: hidden; }
+.guide th { background: var(--surface-2); color: var(--muted); font-size: 11.5px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; }
+.guide th, .guide td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.guide tbody tr:last-child > td, .guide table > tr:last-child > td { border-bottom: 0; }
+/* A code block, and the whole guide as it is written when its libraries cannot load */
+.guide pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 12.5px/1.6 var(--mono); }
+.guide pre code { display: block; padding: 12px 14px; font-size: 12.5px; border-radius: 10px; overflow-wrap: anywhere; }   /* one box, not a word's look on each line */
+/* A diagram (```mermaid), in the page's colors whatever the theme: its own style is set aside. The names in
+   [class~=…] are Mermaid's, in the SVG it draws. */
+.diagram { margin: 8px 0 24px; overflow-x: auto; text-align: center; }
+.diagram svg { display: block; width: 100%; height: auto; margin: 0 auto; }   /* not an icon: its own size, up to the page's width */
+.diagram [class~="node"] :is(rect, polygon, circle, path) { fill: var(--surface-2) !important; stroke: var(--border-strong) !important; }
+.diagram [class~="cluster"] rect { fill: none !important; stroke: var(--accent) !important; stroke-dasharray: 4 3; }
+.diagram :is(text, span, p) { fill: var(--text) !important; color: var(--text) !important; }
+.diagram [class~="cluster-label"] :is(text, span, p) { fill: var(--accent) !important; color: var(--accent) !important; }
+.diagram path[class~="flowchart-link"] { stroke: var(--muted) !important; }
+.diagram marker path { fill: var(--muted) !important; stroke: var(--muted) !important; }
+.diagram :is([class~="edgeLabel"], [class~="labelBkg"], [class~="edgeLabel"] p) { background: var(--surface) !important; }
+
+@container (max-width: 1000px) {
+  .pg-details { grid-template-columns: 1fr; }
+  .pg-prep { position: static; }
+}
+/* The guide to read before a start, too narrow for its accounts beside it: what to open, the logins and the services come
+   first, in columns, then the guide */
+@container (max-width: 900px) {
+  .pg-workspace { grid-template-columns: 1fr; }
+  .pg-workspace .guide { border-right: 0; }
+  .pg-workspace .pg-side { order: -1; position: static; max-height: none; display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); border-bottom: 1px solid var(--border); }
+  .pg-workspace .pg-side section + section { border-top: 0; }
+  .pg-workspace .pg-side .pg-side-services { overflow: visible; background: none; }
+}
+
+/* --- Logs ------------------------------------------------------------------------------- */
+
+.logs-card { display: flex; flex-direction: column; }
+/* Two tools rows: what is read, then how it is shown */
+.logs-card .list-tools + .list-tools { padding-top: 0; }
+/* The second row: the levels, then at the right end how the lines are shown */
+.levels, .log-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.log-controls { margin-left: auto; }
+/* A level counts its lines, and takes their color while it is on */
+.levels b { font-weight: var(--fw-3); font-variant-numeric: tabular-nums; opacity: .8; }
+.levels.idle b { display: none; }
+.toggle-chip.lv-error:has(input:checked) { color: var(--err); }
+.toggle-chip.lv-warn:has(input:checked) { color: var(--warn); }
+.toggle-chip.lv-info:has(input:checked) { color: var(--run); }
+.levels .toggle-chip svg { flex: none; width: 13px; height: 13px; margin-right: -2px; }
+
+.log-view { overflow: auto; padding: 6px 0; border-top: 1px solid var(--border); background: var(--log-bg); }
+.log-line { display: flex; gap: 12px; padding: 0 16px; white-space: pre; font: 12.3px/1.6 var(--mono); }
+.log-view.wrap .log-line { white-space: pre-wrap; word-break: break-word; }
+.log-line:hover { background: var(--surface-2); }
+.log-line .ts { color: var(--muted); flex: none; }
+.log-view.no-ts .log-line .ts { display: none; }
+/* The name of the service, as wide as the longest of those chosen (--svc-width, set by the page) */
+.log-line .svc { flex: none; width: var(--svc-width, 160px); overflow: hidden; text-overflow: ellipsis; font-weight: var(--fw-3); }
+.log-line .msg { min-width: 0; color: var(--text-2); }
+.log-line.ERROR { background: color-mix(in srgb, var(--err-soft) 60%, transparent); }
+.log-line.ERROR .msg { color: var(--err); }
+.log-line.WARN .msg { color: var(--warn); }
+.log-line.cont .ts, .log-line.cont .svc { visibility: hidden; }
+.log-line.restarted .msg { color: var(--muted); }   /* where a container started again: not a line it wrote */
+mark { background: var(--hl); color: var(--hl-text); border-radius: 2px; padding: 0 1px; }
+.log-status { padding: 8px var(--pad); border-top: 1px solid var(--border); font-size: var(--fs-2); color: var(--muted); }
+.log-wrong { margin: 0; padding: 0 var(--pad) var(--sp-2); }   /* a search that is no valid pattern, under the tools */
+.log-status:empty { display: none; }
+
+/* On a narrow page the controls go under the levels, and start at the left there */
+@container (max-width: 664px) {
+  .log-controls { margin-left: 0; }
+}
+/* On a phone the options of the search go under its text, in the same field: the text keeps the whole line */
+@container (max-width: 520px) {
+  .logs-card .search.grow { flex-wrap: wrap; height: auto; padding-block: 3px; row-gap: 2px; }
+  .logs-card .search.grow > input { flex: 1 1 calc(100% - 34px - var(--h-inner)); height: 26px; }   /* its clear button on its line */
+}
+
+/* --- Images ---------------------------------------------------------------------------- */
+
+/* The registry that asks for a login: its state, then its button */
+.registry-login { display: flex; align-items: center; gap: 8px; }
+
+/* The columns of the Images table: the registry, the state, then the version at the right end. Narrower, the registry
+   moves under the version first (below), then the table scrolls sideways: the name keeps at least 148px. */
+.table.images { table-layout: fixed; min-width: 768px; }
+.table.images th:nth-child(2) { width: 256px; }   /* a registry, then the component it follows */
+.table.images th:nth-child(3) { width: 256px; }   /* "Apply needed" and "Not pulled", "Running" and "Started by hand", on one line */
+/* A version, then the component it follows: a tag with its variant ("4.13.0-alpha.3-debian") shows whole next to it.
+   A field takes its whole cell, the registry under the version as wide as it. */
+.table.images th:nth-child(4) { width: 358px; }
+.table.images .combo-btn { max-width: none; }
+.source-label { color: var(--text-2); font-family: var(--sans); font-size: var(--fs-2); }   /* a registry by its name: words, in its field or as a field's value */
+
+/* A value that follows another component's, in its field: the value, then whose it is in muted words, which give way first */
+.combo-btn .source-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.combo-btn:has(> .follow-of) > :is(.value, .source-label) { flex: 0 1 auto; }
+.follow-of { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: var(--fs-2); }
+
+/* The sections of Images, named as the Stack names its own. One folds: its name is a button. Folded, it sums up
+   what is on. */
+.table .section td { height: auto; padding: 0; border: 0; }
+.table.images tr:last-child .stack-sep { border-bottom: 0; }
+.fold-summary {
+  flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin-left: 8px;
+  font-size: var(--fs-2); font-weight: var(--fw-1); letter-spacing: 0; text-transform: none; color: var(--text-2);
+}
+.fold-summary code { font-size: var(--fs-1); color: var(--muted); }
+
+/* Before the name would get less than about 260px, the registry moves under the version, where it can still be seen
+   and changed. Its column folds to nothing rather than go: the third-party band spans the four columns. */
+.registry-under { display: none; }
+@container (max-width: 1100px) {
+  .table.images :is(th, td):nth-child(2) { width: 0; padding: 0; border: 0; visibility: hidden; }
+  .table.images td:nth-child(4) { padding-block: 8px; }
+  .table.images td .registry-under { display: flex; margin-top: 6px; }
+  .table.images th .registry-under { display: inline; }
+}
+
+/* --- Plugins -------------------------------------------------------------------------- */
+
+.table.plugins { table-layout: fixed; min-width: 740px; }   /* narrower, the table scrolls sideways: the name keeps its room */
+.table.plugins th:nth-child(1) { width: 48px; }
+.table.plugins th:nth-child(3) { width: 150px; }
+.table.plugins th:nth-child(4) { width: 268px; }   /* "Bundled" and "Needs a license" on one line */
+.table.plugins th:nth-child(5) { width: 220px; }
+.table.plugins td { overflow: hidden; }
+.table.plugins input:is(:disabled, [aria-disabled="true"]) { opacity: .55; cursor: default; }
+.table.plugins .list-name > * { margin-left: 6px; }   /* "EE", after the name */
+.plugin-artifact { font-family: var(--mono); font-size: var(--fs-1); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.version-cell { white-space: nowrap; }
+.version-cell .combo-btn { max-width: none; }
+/* Next to the collapsed menu the category leaves, as on the lists: the filter still chooses it */
+@container (max-width: 900px) {
+  .table.plugins :is(th, td):nth-child(3) { display: none; }
+}
+/* In the page head, a product that holds changes while another one is on screen: the dot of an unsaved file */
+.segmented .unsaved { margin-left: 6px; }
+
+/* --- Gravitee Cloud ------------------------------------------------------------------- */
+
+/* A card for each account: who it is and whether it answers, then its environments in one table. The card is a container of its own,
+   so that the table adapts to the room it has: four columns from 940 px, then the name and its action over two cells, then one
+   over the other. */
+.plat-runs { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); min-width: 0; }   /* where API Management runs, as on the Dashboard */
+.plat-cards { display: grid; gap: var(--gap); }
+.plat-card { container: plat / inline-size; overflow: hidden; }
+.plat-body { min-width: 0; }
+.plat-head { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; min-height: 64px; padding: var(--sp-3) var(--pad); }
+.plat-mark { display: grid; place-items: center; flex: none; width: var(--h-control); height: var(--h-control); border-radius: var(--r-control); background: var(--surface-2); color: var(--text-2); }
+.plat-id { display: grid; flex: 1 1 200px; min-width: 0; }
+.plat-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-4); line-height: var(--lh-4); font-weight: var(--fw-3); }
+.plat-host { color: var(--muted); font-size: var(--fs-2); line-height: var(--lh-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plat-state { display: flex; align-items: center; flex: none; }
+.plat-tools { display: flex; align-items: center; gap: var(--sp-2); flex: none; }
+.plat-more-btn { min-width: 80px; }
+.plat-more-btn svg { color: var(--muted); }
+
+/* The environments: one grid for the labels and every row, so that the states line up from one row to the next. The columns keep to what
+   they need, and a row is followed by its hover. A cell is a state and, under it, what to know of it. */
+.plat-table { border-top: 1px solid var(--border); }
+.plat-table > :last-child > :last-child { border-bottom: 0; }
+.plat-grid, .plat-gw-grid {
+  display: grid; align-items: center; column-gap: 12px; padding: 0 var(--pad);
+  grid-template-columns: minmax(120px, 260px) minmax(210px, 1fr) minmax(210px, 1fr) 248px;
+}
+.plat-grid > *, .plat-gw-grid > * { min-width: 0; }
+.plat-heads { height: var(--h-head); border-bottom: 1px solid var(--border); font-size: var(--fs-1); line-height: var(--lh-1); font-weight: var(--fw-2); color: var(--muted); }
+.plat-row { min-height: var(--h-row); border-bottom: 1px solid var(--border); }
+.plat-row:hover { background: var(--row-hover); }
+.plat-quiet { min-height: var(--h-row-2); }   /* 8 px around its 32 px Set up */
+.plat-env { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--fw-3); }
+.plat-quiet .plat-env { grid-column: 1 / -2; color: var(--text-2); font-weight: var(--fw-2); }
+.plat-gateway, .plat-deploys, .plat-gw-cell { display: grid; align-content: center; min-width: 0; }
+.plat-cell { display: grid; gap: 2px; align-content: center; min-width: 0; }
+.plat-cell > .status { min-width: 0; }
+.plat-actions { grid-column: -2 / -1; display: flex; justify-content: flex-end; gap: 8px; }
+.plat-primary { min-width: 160px; }
+.plat-more-gap { flex: none; width: 80px; }   /* the place of More in a row without one */
+.plat-label { display: none; }
+.plat-info { color: var(--muted); }
+.plat-info svg { width: 13px; height: 13px; }
+/* What opens the other environments of an account: a quiet line at the foot of the table */
+.plat-toggle {
+  display: flex; align-items: center; gap: 8px; width: 100%; height: var(--h-row-3); padding: 0 var(--pad); border: 0; border-top: 1px solid var(--border);
+  background: none; color: var(--muted); font-weight: var(--fw-2); text-align: left; cursor: pointer;
+}
+.plat-toggle:hover { background: var(--row-hover); color: var(--text); }
+.plat-toggle:focus-visible { outline-offset: -2px; }
+.plat-toggle svg { width: 14px; height: 14px; transition: transform var(--dur-2) var(--ease); }
+.plat-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
+/* How many gateways an environment has, after the state of the one it uses: quiet words that lead to the list of the account's gateways */
+.plat-count { padding: 0; border: 0; border-radius: var(--r-inner); background: none; color: var(--muted); font: inherit; white-space: nowrap; cursor: pointer; }
+.plat-count:is(:hover, :focus-visible) { color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; }
+
+/* The hybrid gateways of an account, under its environments: a band, then a table of its own, a gateway a row of 48 px (a line with its
+   32 px buttons), its name under the names of the environments and its actions in their column. Version and domains are mono. */
+.plat-gws { border-top: 1px solid var(--border); }
+.plat-gw-band { letter-spacing: 0; scroll-margin-top: var(--head); }
+.plat-gw-grid { grid-template-columns: minmax(120px, 260px) minmax(96px, .6fr) minmax(150px, 1fr) minmax(64px, .4fr) minmax(140px, 1.4fr) 248px; }
+.plat-gw-table { border-top: 0; }
+.plat-gw-row { min-height: var(--h-row-2); border-bottom: 1px solid var(--border); }
+.plat-gw-row:last-child { border-bottom: 0; }
+.plat-gw-row:hover { background: var(--row-hover); }
+.plat-gw-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+
+/* An account that cannot list its environments, or that has none: the notice, inside the card under its head. The page before it has
+   any card: its mark, what is missing and the one way to it. */
+.plat-notice { padding: var(--sp-3) var(--pad); border-top: 1px solid var(--border); }
+.plat-lonely > .plat-notice { border-top: 0; }
+/* What loads, drawn as the rows it will be */
+.plat-lonely:has(> .plat-table) { overflow: hidden; }
+.plat-lonely > .plat-table { border-top: 0; }
+.plat-skel { display: grid; grid-template-columns: 1fr 1.5fr 1.3fr; align-items: center; gap: 12px; height: var(--h-row); padding: 0 var(--pad); border-bottom: 1px solid var(--border); }
+.plat-skel > span { height: 10px; border-radius: 999px; background: var(--surface-3); animation: pulse 1.2s infinite; }
+.plat-skel > :nth-child(1) { width: 60%; }
+.plat-skel > :nth-child(3) { width: 70%; }
+
+/* Connect account: the line that says an Account ID is wrong, and the options of a Cloud other than Europe's, folded. The pictures of
+   the console fold the same way on a phone. */
+.field-note.err { color: var(--err); }
+.more-options { margin-top: var(--sp-3); }
+.more-options > summary, .connect-toggle {
+  display: inline-flex; align-items: center; gap: var(--sp-1); margin-left: calc(var(--label) + 12px); color: var(--muted);
+  font-size: var(--fs-2); line-height: var(--lh-2); cursor: pointer; list-style: none; border-radius: var(--r-inner);
+}
+.more-options > summary::-webkit-details-marker { display: none; }
+.more-options > summary:hover, .connect-toggle:hover { color: var(--text); }
+.more-options > summary svg, .connect-toggle svg { width: 14px; height: 14px; transform: rotate(-90deg); transition: transform var(--dur-1) var(--ease); }
+.more-options[open] > summary svg, .connect-toggle[aria-expanded="true"] svg { transform: none; }
+
+/* Connect Gravitee Cloud, and Set up: at the left what to do and the fields, in one column that scrolls by itself, sections apart by a
+   hairline; at the right the picture of the console, whole, as large as the room it has */
+.connect-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 400px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+.connect-fields { min-width: 0; overflow-y: auto; overscroll-behavior: contain; padding: var(--pad); }
+.connect-section { display: grid; gap: var(--sp-4); min-width: 0; margin: 0; padding: 0; border: 0; }
+.connect-section:not([hidden]) ~ .connect-section:not([hidden]) { margin-top: var(--sp-5); padding-top: var(--sp-5); border-top: 1px solid var(--border); }
+.connect-fields .field { grid-template-columns: minmax(0, 1fr); gap: 6px; margin: 0; }
+.connect-fields .field-note { margin: 0; padding-left: 0; }
+.connect-fields .more-options { margin: 0; }
+.connect-fields .more-options > summary { margin-left: 0; }
+.connect-fields .more-options > .field { margin-top: var(--sp-3); }
+.connect-open { display: grid; justify-items: start; gap: var(--sp-2); }
+.connect-ask { margin: 0 0 var(--sp-2); color: var(--text-2); font-size: var(--fs-2); }
+.connect-register { color: var(--muted); font-size: var(--fs-2); }
+.connect-steps { gap: var(--sp-3); }
+.connect-steps .step-body { display: block; padding-top: 1px; color: var(--text-2); }
+.connect-steps .step[data-shot] { cursor: pointer; }
+.connect-steps .step[data-shot]:hover .step-body { color: var(--text); }
+.connect-steps .step.shown .step-num { background: var(--text); color: var(--surface); }
+.use-head { display: flex; align-items: center; gap: var(--sp-2); }
+.use-pick { display: flex; align-items: center; gap: var(--sp-2); font-weight: var(--fw-2); cursor: pointer; }
+.use-fields { display: grid; gap: var(--sp-4); min-width: 0; }
+.connect-guide { display: flex; flex-direction: column; min-width: 0; min-height: 0; margin: 0; padding: var(--pad); border-left: 1px solid var(--border); background: var(--bg); }
+.connect-toggle { margin-left: 0; padding: 0; border: 0; background: none; font-family: inherit; }
+.connect-shots { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: var(--sp-3); }
+.connect-shots > .segmented { align-self: flex-start; }
+.connect-shot { position: relative; flex: 1; min-height: 0; }
+.connect-shot > img {
+  position: absolute; top: 0; left: 0; width: auto; height: auto; max-width: 100%; max-height: 100%;
+  border: 1px solid var(--border); border-radius: var(--radius);
+}
+@media (min-width: 601px) { .connect-toggle { display: none; } }
+/* Narrow: the pictures under the fields, the body scrolls as one; on a phone they are folded until asked */
+@media (max-width: 860px) {
+  .connect-body { display: block; overflow-y: auto; overscroll-behavior: contain; }
+  .connect-fields { overflow: visible; }
+  .connect-guide { gap: var(--sp-3); border-left: 0; border-top: 1px solid var(--border); }
+  .connect-toggle { align-self: flex-start; }
+  .connect-shots, .connect-shot { flex: none; }
+  .connect-shot > img { position: static; width: 100%; height: auto; max-height: none; }
+}
+@media (max-width: 600px) {
+  .connect-guide:has(> .connect-toggle[aria-expanded="false"]) > .connect-shots { display: none; }
+}
+
+@container plat (max-width: 939px) {
+  .plat-grid, .plat-gw-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+  .plat-heads { display: none; }
+  .plat-row:not(.plat-quiet) { padding-top: 12px; padding-bottom: 12px; row-gap: 8px; }
+  .plat-env { grid-column: 1; grid-row: 1; align-self: center; }
+  .plat-quiet { align-items: center; }
+  .plat-quiet .plat-env { grid-column: 1; }
+  .plat-actions { grid-column: 2; grid-row: 1; padding: 0; }
+  .plat-gateway { grid-column: 1; grid-row: 2; }
+  .plat-deploys { grid-column: 2; grid-row: 2; }
+  .plat-gateway, .plat-deploys, .plat-gw-cell { grid-template-columns: 72px minmax(0, 1fr); column-gap: 12px; align-content: start; padding: 0; }
+  /* A gateway: its name and its actions, then its environment and its state, then its version and its domains, each after its label,
+     which is wider than an environment's: Environment */
+  .plat-gw-row { padding-top: 12px; padding-bottom: 12px; row-gap: 8px; }
+  .plat-gw-cell { grid-template-columns: 96px minmax(0, 1fr); align-items: center; }
+  .plat-gw-cell > .plat-cell { min-height: var(--h-pill); }   /* a state that opens a popover is as high as one that does not */
+  .plat-gw-env { grid-column: 1; grid-row: 2; }
+  .plat-gw-state { grid-column: 2; grid-row: 2; }
+  .plat-gw-ver { grid-column: 1; grid-row: 3; }
+  .plat-gw-dom { grid-column: 2; grid-row: 3; }
+  .plat-label { display: flex; align-items: center; gap: 4px; flex: none; height: 20px; color: var(--muted); font-size: var(--fs-2); }
+}
+@container plat (max-width: 599px) {
+  .plat-mark { display: none; }
+  /* The name has its line, the host and the state share the next, then the buttons */
+  .plat-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; row-gap: 4px; }
+  .plat-id { display: contents; }
+  .plat-name { grid-column: 1 / -1; }
+  .plat-host { grid-column: 1; grid-row: 2; }
+  .plat-state { grid-column: 2; grid-row: 2; }
+  .plat-tools { grid-column: 1 / -1; margin-top: 8px; }
+  .plat-tools > .btn { flex: 1 1 0; }
+  .plat-grid, .plat-gw-grid { grid-template-columns: minmax(0, 1fr); }
+  .plat-quiet { grid-template-columns: minmax(0, 1fr) auto; }
+  .plat-env, .plat-gateway, .plat-deploys, .plat-gw-cell { grid-column: 1; grid-row: auto; }
+  .plat-gw-cell :is(.status, .status-word) { white-space: normal; }   /* a state too long for a phone wraps rather than being cut */
+  .plat-actions { grid-column: 1; grid-row: auto; justify-content: stretch; }
+  .plat-quiet .plat-actions { grid-column: 2; }
+  .plat-primary { min-width: 0; flex: 1 1 0; }
+  .plat-more-btn { flex: none; }
+  .plat-more-gap { display: none; }
+}
+
+/* --- Catalogs ------------------------------------------------------------------------- */
+
+/* The facts of an open row (the lists' panels): "Uses this machine" is the longest label, and an address too long for its panel breaks
+   rather than going past it */
+#page-catalogs { --label: 124px; }
+#page-catalogs .panel-fact code { min-width: 0; overflow-wrap: anywhere; }
+/* ... but on a phone the lists' own label column leaves the value the width it needs */
+@container (max-width: 599px) { #page-catalogs { --label: 80px; } }
+/* A list of sentences in a row of an effects dialog takes the width the row has, each line cut with an ellipsis, not the width of its longest */
+.choice-items > .step-items { flex: 1; min-width: 0; grid-template-columns: minmax(0, 1fr); }
+/* Show changes: a unified diff, the files that changed beside it (the editor's list and column). Added lines in green, removed in red. */
+#catalog-files { grid-template-columns: minmax(0, 1fr); }   /* a long path is cut in its column, with its status after it */
+.diff { flex: 1; min-height: 0; margin: 0; padding: var(--sp-3) 0; overflow: auto; font: 12px/1.55 var(--mono); color: var(--text-2); }
+.diff > span { display: block; padding: 0 var(--pad); white-space: pre; }
+.diff-add { background: var(--ok-soft); color: var(--ok); }
+.diff-del { background: var(--err-soft); color: var(--err); }
+.diff-hunk, .diff-meta { color: var(--muted); }
+
+/* --- Editor: compose files and settings (popup) ----------------------------------------- */
+
+/* The editor fills the window */
+.editor-dialog, .license-dialog {
+  width: min(1600px, calc(100vw - 48px)); height: calc(100dvh - 48px); max-width: none; max-height: none; padding: 0; overflow: hidden;
+}
+/* The license is a column of facts and a list of packs, as long as the window is high and wide enough for 1360 px */
+.license-dialog { width: min(1360px, calc(100vw - 48px)); height: calc(100dvh - 48px); }
+/* A large dialog is a column: its head, then what fills it */
+:is(.editor-dialog, .license-dialog, .welcome-dialog)[open] { display: flex; flex-direction: column; }
+.compose { flex: 1; min-height: 0; display: grid; grid-template-columns: 250px minmax(0, 1fr); }
+
+.compose-files { display: flex; flex-direction: column; overflow: hidden auto; border-right: 1px solid var(--border); background: var(--bg); }
+.file-list { list-style: none; margin: 0; padding: 0 8px 8px; display: grid; gap: 2px; }
+/* A section's name, then its files indented under it, closer to it than to the section above */
+.file-group { padding: 14px 10px 2px; }
+.file-item {
+  display: flex; align-items: center; gap: 9px; width: calc(100% - 8px); margin-left: 8px; padding: 6px 10px; border: 0; border-radius: 8px;
+  background: none; color: var(--text-2); text-align: left; cursor: pointer;
+}
+.file-item:hover { background: var(--surface-2); color: var(--text); }
+.file-item.active { background: var(--accent-soft); color: var(--text); font-weight: var(--fw-3); }
+.file-item svg { width: 15px; height: 15px; flex: none; }
+.file-item .name { flex: 1; min-width: 0; font-family: var(--mono); font-size: var(--fs-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.compose-editor { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.editor-bar { flex-wrap: wrap; }
+.editor-file { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.editor-file svg { color: var(--muted); width: 15px; height: 15px; }
+.editor-file code { font-size: var(--fs-2); font-weight: var(--fw-3); }
+.editor-status { display: flex; align-items: center; gap: 7px; font-size: var(--fs-2); color: var(--muted); }
+.editor-status.ok { color: var(--ok); }
+.editor-status.err { color: var(--err); }
+.editor-status svg { width: 14px; height: 14px; }
+.editor-actions { display: flex; align-items: center; gap: 8px; }
+.editor-host { flex: 1; min-height: 0; position: relative; }
+/* A markdown file as it reads: the guide of a playground's page, over the width of its pane */
+.editor-preview { flex: 1; min-height: 0; overflow: auto; }
+.editor-preview .guide { padding: 24px 32px 40px; border-right: 0; }
+.editor-loading { position: absolute; inset: 0; display: grid; place-items: center; }
+/* The text area that stands in for the editor when it cannot load */
+.editor-plain {
+  position: absolute; inset: 0; width: 100%; height: 100%; padding: 10px var(--pad); border: 0; outline: 0; resize: none;
+  background: var(--surface); color: var(--text); font: 13px/20px var(--mono); tab-size: 2; white-space: pre;
+}
+
+.problems { max-height: 150px; overflow: auto; border-top: 1px solid var(--border); background: var(--log-bg); padding: 4px 0; }
+.problem {
+  display: flex; align-items: flex-start; gap: 9px; width: 100%; padding: 6px var(--pad); border: 0; background: none;
+  font-size: var(--fs-2); color: var(--text-2); text-align: left; cursor: pointer;
+}
+.problem:hover { background: var(--surface-2); }
+.problem svg { width: 14px; height: 14px; flex: none; margin-top: 2px; color: var(--err); }
+.problem.warning svg { color: var(--warn); }
+.problem .where { font-family: var(--mono); color: var(--muted); flex: none; }
+
+/* .env: secrets and add-on settings as a form */
+.env-form { flex: 1; min-height: 0; overflow: auto; padding: var(--sp-4) var(--pad) var(--sp-5); display: grid; align-content: start; gap: var(--sp-5); }
+.env-section h3 { margin: 0 0 var(--sp-1); font-size: var(--fs-2); font-weight: var(--fw-3); }
+/* The fields of a form, as a dialog's: what a setting is for as its label, its name in .env under it, then its field; hairlines between
+   the rows, as between the rows of a table, no box for each */
+.env-row { display: grid; grid-template-columns: minmax(200px, 2fr) minmax(0, 3fr); align-items: center; gap: var(--sp-2) var(--sp-4); min-height: var(--h-row); padding: var(--sp-2) 0; }
+.env-row + .env-row { border-top: 1px solid var(--border); }
+.env-row label { display: grid; gap: 2px; min-width: 0; }
+.env-what { color: var(--text-2); font-size: var(--fs-2); line-height: var(--lh-2); }
+.env-key { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-1); line-height: var(--lh-1); color: var(--muted); }
+.env-row .search { padding-right: 2px; }
+.env-row .search input { font-family: var(--mono); font-size: var(--fs-2); }
+.env-row .search input::placeholder { font-family: var(--sans); color: var(--muted); }
+.env-row .masked input { -webkit-text-security: disc; }
+.env-row .search .icon-btn { width: 26px; height: 26px; }
+.env-row .search .icon-btn svg { width: 14px; height: 14px; }   /* the eye and the copy button alike */
+.platform-dialog .search .icon-btn { width: 26px; height: 26px; flex: none; }   /* the eye of a secret, as in the settings */
+.platform-dialog .search .icon-btn svg { width: 14px; height: 14px; }
+/* The license in one line, in the column of its field: the last one, whether the label is beside or above. Its dot
+   is small, without a ring, and still: a license that expires soon is a warning, nothing on its way. */
+.env-license { grid-column-end: -1; display: flex; align-items: center; flex-wrap: wrap; gap: 2px 8px; font-size: var(--fs-2); color: var(--muted); }
+.env-license .dot-status { width: 6px; height: 6px; box-shadow: none; animation: none; }
+.env-row.changed :is(.env-what, .env-key) { color: var(--warn); }
+
+@media (max-width: 900px) {
+  .compose { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+  .compose-files { max-height: 200px; border-right: 0; border-bottom: 1px solid var(--border); }
+  .env-row { grid-template-columns: 1fr; gap: 6px; }
+}
+
+/* --- License ---------------------------------------------------------------------------- */
+
+/* The dialog's head ends with what leads elsewhere (the images to pull, the settings), then its cross; the expiry
+   before them gives way, on one line */
+.license-tools { display: flex; align-items: center; gap: 8px; flex: none; }
+.license-dialog .dialog-head > .sub { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.license { flex: 1; min-height: 0; display: grid; grid-template-columns: 430px minmax(0, 1fr); --label: 96px; }
+/* Its facts: the label and value lines of a dialog, each on one line */
+.license > .facts { margin: 0; padding: var(--pad); gap: 10px; border-right: 1px solid var(--border); align-content: start; overflow: auto; }
+/* Without a license model there are no packs: the facts alone, in a dialog of their size */
+/* With no license: one line, then two cards of one height whose buttons sit at the same line at the bottom */
+.license.none { grid-template-columns: minmax(0, 1fr); align-content: start; }
+.license.none .license-packs, .license.none > .facts { display: none; }
+.license.none > #license-cta { padding: var(--sp-5); }
+#license-cta:empty { display: none; }   /* with a license it holds nothing, and must not take the cell of the packs */
+.license-intro { margin: 0 0 var(--sp-4); color: var(--muted); }
+.license-cta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; gap: var(--sp-4); }
+.cta-card { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-2); padding: var(--sp-4); border: 1px solid var(--border); border-radius: var(--r-pop); background: var(--surface); }
+.cta-card h3 { margin: var(--sp-1) 0 0; font-size: var(--fs-3); }
+.cta-card p { margin: 0; color: var(--muted); font-size: var(--fs-2); }
+.cta-icon { display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--r-control); background: var(--surface-2); color: var(--text-2); }
+.cta-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: auto; padding-top: var(--sp-2); }
+@media (max-width: 640px) { .license-cta { grid-template-columns: minmax(0, 1fr); } }
+.license-dialog.compact { width: min(680px, calc(100vw - 48px)); height: fit-content; max-height: calc(100dvh - 48px); }
+.license-dialog.compact .license { grid-template-columns: minmax(0, 1fr); }
+.license-dialog.compact .license > .facts { border-right: 0; }
+.license-packs { display: flex; flex-direction: column; min-height: 0; }
+.license-packs .packs { flex: 1; overflow: auto; }
+.facts > .empty { display: block; }   /* one line in place of the facts, not a label and its value */
+/* A license given: a file chosen or dropped, or its text, above the facts it changes */
+.license-form { flex: none; display: grid; grid-template-columns: minmax(0, 640px); padding: 4px var(--pad) var(--pad);
+  border-bottom: 1px solid var(--border); --label: 96px; }
+.license-drop { display: flex; align-items: center; gap: 8px; min-width: 0; height: 40px; padding: 0 6px 0 12px;
+  border: 1px dashed var(--border-strong); border-radius: 8px; color: var(--muted); }
+.license-drop > svg { width: 14px; height: 14px; flex: none; }
+.license-drop > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.license-drop.chosen { color: var(--text); border-style: solid; }
+.license-drop.over { border-color: var(--text-2); background: var(--surface-2); }
+.license-form textarea { font-family: var(--mono); font-size: var(--fs-1); }
+.license-form .dialog-actions { align-items: center; }
+.license-form .dialog-actions > .text-link { margin-right: auto; }
+.facts dd { min-width: 0; white-space: nowrap; overflow: hidden; }
+.facts dd > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; }   /* a value gives way, never its pill */
+.facts dd > .pill { flex: none; }
+.facts .text-link { justify-self: start; margin-top: 4px; }
+
+.packs { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--border); }
+.pack { border-bottom: 1px solid var(--border); }
+.pack:last-child { border-bottom: 0; }
+.pack-row { display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 0 var(--pad) 0 calc(var(--pad) - 4px); }
+.pack-row .s-toggle { width: 22px; }
+.pack-name { font-weight: var(--fw-3); }
+.pack.off .pack-name { color: var(--muted); font-weight: var(--fw-2); }
+.pack-meta { margin-left: auto; color: var(--muted); font-size: var(--fs-2); }
+.lic { display: inline-flex; flex: none; }
+.lic svg { width: 14px; height: 14px; }
+.lic.yes { color: var(--ok); }
+.lic.no { color: var(--muted); }
+.features { list-style: none; margin: 0; padding: 0 0 8px; }
+/* A feature: its check, its name, and the plugins that need it, at the right of the name when they fit and under it when
+   they do not. The name breaks where it must (a long id breaks anywhere): nothing goes past the edge, whatever the width */
+.feature { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-height: 32px;
+  padding: 4px var(--pad) 4px calc(var(--pad) + 28px); }
+.feature code { flex: 0 1 auto; min-width: 0; font-size: var(--fs-1); overflow-wrap: anywhere; }
+.feature-plugins { display: flex; flex: 1 1 auto; flex-wrap: wrap; gap: 4px; justify-content: flex-end; min-width: 0; max-width: 100%; }
+.feature-plugins .pill { max-width: 100%; font-family: var(--mono); font-weight: var(--fw-2); font-size: var(--fs-1); overflow-wrap: anywhere; white-space: normal; height: auto; min-height: var(--h-pill); }
+
+@media (max-width: 800px) {
+  .license { grid-template-columns: 1fr; overflow: auto; }
+  .license > .facts { border-right: 0; border-bottom: 1px solid var(--border); }
+  .license-packs .packs { overflow: visible; }
+}
+
+/* --- How Gravitee Lab works ------------------------------------------------------------ */
+
+.welcome-dialog { width: min(1040px, 94vw); max-height: calc(100dvh - 48px); padding: 0; }
+.welcome { overflow: auto; padding: 18px var(--pad) 6px; color: var(--text-2); line-height: 1.55; }
+.welcome h3 { margin: 24px 0 8px; }
+.welcome > :first-child { margin-top: 0; }   /* the first title sits under the head at the body's padding, not 24 px lower */
+.welcome p { margin: 0 0 10px; }
+.welcome code { font-size: var(--fs-1); }
+.welcome-lead { font-size: var(--fs-4); }
+.welcome-start { margin: 0 0 10px; }
+
+/* Where API Management runs, in the welcome dialog: two cards of one choice, a radio each, side by side, one over the other on a phone. What is chosen has the
+   edge of a field, as a checked segment has; the keyboard's ring is the card's. */
+.core-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-3); }
+.core-card {
+  position: relative; display: grid; grid-template-columns: 32px minmax(0, 1fr); align-items: start; gap: var(--sp-3);
+  padding: var(--sp-4) 40px var(--sp-4) var(--sp-4); border: 1px solid var(--border); border-radius: var(--r-pop); background: var(--surface); cursor: pointer;
+}
+.core-card:hover:not([aria-disabled="true"]) { border-color: var(--border-strong); }
+.core-card > input { position: absolute; top: var(--sp-4); right: var(--sp-4); }
+.core-card:has(input:checked) { border-color: var(--field-line); box-shadow: inset 0 0 0 1px var(--field-line); }
+.core-card:has(input:focus-visible) { outline: 2px solid var(--text-2); outline-offset: 2px; }
+.core-card-text { display: grid; gap: 2px; min-width: 0; font-size: var(--fs-2); line-height: var(--lh-2); }
+.core-card-text strong { color: var(--text); font-size: var(--fs-3); line-height: var(--lh-3); }
+.core-card-where { display: flex; margin-top: var(--sp-1); min-width: 0; }
+.core-card-where .pill { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.core-more { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); margin-top: var(--sp-3); }
+.welcome-core { margin-bottom: var(--sp-2); }
+@media (max-width: 640px) { .core-cards { grid-template-columns: minmax(0, 1fr); } }
+.welcome .welcome-source { margin-top: 20px; }
+
+/* The layers as they stack: each one on the wider one below it, the core at the base */
+.layers { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 6px; }
+.layer {
+  display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 14px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--surface);
+}
+.layer:nth-child(1) { margin-inline: 48px; }
+.layer:nth-child(2) { margin-inline: 32px; }
+.layer:nth-child(3) { margin-inline: 16px; }
+.layer:last-child { background: var(--surface-2); border-color: var(--border-strong); }
+.layer-icon { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; background: var(--surface-3); color: var(--text-2); }
+.layer-text { display: grid; gap: 1px; font-size: var(--fs-2); }
+.layer-text strong { color: var(--text); font-size: var(--fs-3); }
+.layer > :is(code, .muted) { color: var(--muted); white-space: nowrap; }
+.layer-parts { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.flow .pill code { font-size: var(--fs-1); }
+
+/* What a Start or a Stop goes through, step after step */
+.flow { list-style: none; margin: 4px 0 12px; padding: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 0; }
+.flow li { display: flex; align-items: center; }
+.flow li + li::before { content: "→"; margin: 0 8px; color: var(--muted); }
+.welcome-code { margin: 0 0 4px; white-space: pre; overflow-x: auto; line-height: 1.6; }   /* a snippet that keeps its lines, and scrolls inside its box on a phone: the dialog does not */
+/* "Where to go": sentences with links, which flow as text, not as the value and copy button of a dialog's line */
+.welcome .pairs dd { display: block; }
+.welcome-actions { margin-top: 0; padding: 12px var(--pad); border-top: 1px solid var(--border); }
+/* What to do first, at the left of its buttons: without a license, the line that leads to it */
+.welcome-license { margin-right: auto; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: var(--fs-2); }
+@media (max-width: 640px) {
+  .layers .layer { grid-template-columns: 32px minmax(0, 1fr); margin-inline: 0; }
+  .layer > :is(code, .muted) { display: none; }
+}

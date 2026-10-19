@@ -1,0 +1,7 @@
+name: Ace
+description: The bank's AI assistant, as a consumer of the LLM proxy
+
+settings:
+  app:
+    type: SIMPLE
+    client_id: ace-agent   # the Access Management client of the agent

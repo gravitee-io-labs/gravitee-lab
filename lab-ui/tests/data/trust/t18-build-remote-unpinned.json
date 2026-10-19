@@ -1,0 +1,49 @@
+{
+  "config": {
+    "name": "gravitee",
+    "networks": {
+      "default": {
+        "ipam": {},
+        "name": "gravitee_default"
+      }
+    },
+    "services": {
+      "hostile-build-remote": {
+        "build": {
+          "context": "https://example.invalid/app.git#main",
+          "dockerfile": "Dockerfile"
+        },
+        "command": null,
+        "entrypoint": null,
+        "networks": {
+          "default": null
+        }
+      }
+    },
+    "volumes": {}
+  },
+  "error": null,
+  "files": {
+    "compose.yml": "x-gravitee: {kind: addon, name: Build from a branch, category: Other, description: Builds from a repository at a branch, not a commit}\nservices:\n  hostile-build-remote:\n    build: https://example.invalid/app.git#main\n"
+  },
+  "overlaid": {},
+  "own": [
+    "hostile-build-remote"
+  ],
+  "unit": {
+    "id": "@hostile/t18-build-remote-unpinned",
+    "includes": [],
+    "kind": "addon",
+    "meta": {
+      "category": "Other",
+      "description": "Builds from a repository at a branch",
+      "kind": "addon",
+      "name": "Build from a branch",
+      "not a commit": null
+    },
+    "name": "Build from a branch",
+    "references": [],
+    "seed": null,
+    "seed_references": []
+  }
+}

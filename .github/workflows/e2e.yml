@@ -1,0 +1,161 @@
+# End to end for a change of the engine: the catalog this engine lists first (CATALOG_REPOSITORY) is started on a machine with no lab, on the
+# engine as the change leaves it, and its canary has to work (the items its catalog.yml names). The engine holds no item, so a change that
+# touches nothing every item shares (documentation, the page) runs nothing. The run itself is e2e-run.yml, which each catalog calls for
+# its own changes; docs/maintaining.md says how to set both up.
+#
+# What runs when, and why:
+#   pull_request  a branch of this repository starts the jobs by itself, and the e2e job waits for a maintainer to approve the environment
+#                 `e2e`, who has read the change first. A fork's pull request runs the plan and the images alone: it never gets a secret
+#   dispatch      how a fork's change is tried, or the canary on the main branch. A maintainer who has read the pull request runs this
+#                 workflow on main with its number and the commit they read; the plan refuses a head that moved. The pull request is
+#                 checked out as data of a workflow that is always main's: a push of a foreign commit to a branch of this repository
+#                 would run every workflow in it with the secrets, and is not how a change is tried
+#   schedule      the canary every night, on the main branches of the engine and of the catalog. The environment `e2e-nightly` holds the
+#                 license and no reviewer, and is for main only
+# The check to require is `E2E result`, the job `result` of this file. The call to e2e-run.yml shows as `try / E2E result`, a name
+# nothing requires.
+name: E2E
+
+on:
+  pull_request:
+  schedule:
+    - cron: "23 3 * * *"
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "The number of the pull request of this repository to try (empty: the main branch)"
+        default: ""
+      sha:
+        description: "The commit of that pull request you read: 40 characters"
+        default: ""
+      items:
+        description: "What to try: canary, or items as kind:id separated by spaces"
+        default: canary
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.event_name }}-${{ inputs.pr || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # What the run is told, from an event and from what a maintainer typed: checked before anything is checked out
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      lab_ref: ${{ steps.prepare.outputs.lab_ref }}
+      catalog_ref: ${{ steps.prepare.outputs.catalog_ref }}
+      items: ${{ steps.prepare.outputs.items }}
+      base: ${{ steps.prepare.outputs.base }}
+      expect_sha: ${{ steps.prepare.outputs.expect_sha }}
+      skip: ${{ steps.prepare.outputs.skip }}
+    steps:
+      - id: prepare
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          HEAD: ${{ github.sha }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          PR: ${{ inputs.pr }}
+          SHA: ${{ inputs.sha }}
+          ITEMS: ${{ inputs.items }}
+          CATALOG_REPOSITORY: ${{ vars.CATALOG_REPOSITORY }}
+          CATALOG_REF: ${{ vars.CATALOG_REF }}
+          E2E_ENABLED: ${{ vars.E2E_ENABLED }}
+        run: |
+          fail() { echo "::error title=$1::$2"; exit 1; }
+          [[ $PR =~ ^([0-9]{1,7})?$ ]] || fail E2E04 "pr is the number of a pull request. Fix: write digits only."
+          if [ -n "$PR" ]; then
+            [[ $SHA =~ ^[0-9a-f]{40}$ ]] || fail E2E04 "sha is the commit of the pull request you read, 40 hexadecimal characters."
+            [ "$REF" = refs/heads/main ] || fail E2E02 "A pull request is tried from the workflow of main. Fix: run this workflow on main."
+          fi
+          lab_ref=$HEAD expect_sha="" base=$BASE catalog_ref=$CATALOG_REF items=changed skip=false
+          case "$EVENT" in
+            pull_request) ;;
+            schedule) items=canary catalog_ref="" ;;
+            *)
+              items=${ITEMS:-canary}
+              if [ -n "$PR" ]; then lab_ref=refs/pull/$PR/head expect_sha=$SHA; fi ;;
+          esac
+          words='^[A-Za-z0-9:@/._ -]+$'
+          [[ ${#items} -le 500 && $items =~ $words ]] || fail E2E04 "items are canary, or items written kind:id and separated by spaces."
+          [[ $CATALOG_REF =~ ^[A-Za-z0-9_.][A-Za-z0-9._/-]{0,99}$ || -z $CATALOG_REF ]] || fail E2E04 "CATALOG_REF is a commit or a branch."
+          if [ "$E2E_ENABLED" != true ]; then
+            echo "::notice title=E2E not tried::The variable E2E_ENABLED is not true: end to end starts containers with the license, which only the environment e2e holds: see docs/maintaining.md"
+            skip=true
+          elif [ -z "$CATALOG_REPOSITORY" ]; then
+            echo "::notice title=E2E not tried::The variable CATALOG_REPOSITORY is not set, so there is no catalog to try this engine on: see docs/maintaining.md"
+            skip=true
+          fi
+          {
+            echo "lab_ref=$lab_ref"
+            echo "catalog_ref=$catalog_ref"
+            echo "items=$items"
+            echo "base=$base"
+            echo "expect_sha=$expect_sha"
+            echo "skip=$skip"
+          } >> "$GITHUB_OUTPUT"
+
+  try:
+    needs: prepare
+    if: needs.prepare.outputs.skip != 'true'
+    uses: ./.github/workflows/e2e-run.yml
+    with:
+      lab-repository: ${{ github.repository }}
+      lab-ref: ${{ needs.prepare.outputs.lab_ref }}
+      catalog-repository: ${{ vars.CATALOG_REPOSITORY }}
+      catalog-ref: ${{ needs.prepare.outputs.catalog_ref }}
+      change: engine
+      items: ${{ needs.prepare.outputs.items }}
+      base: ${{ needs.prepare.outputs.base }}
+      expect-sha: ${{ needs.prepare.outputs.expect_sha }}
+    secrets:
+      CATALOG_DEPLOY_KEY: ${{ secrets.CATALOG_DEPLOY_KEY }}
+
+  # The check to read, under the name it has always had. A job that calls a workflow is shown as `try / E2E result`, so this one is
+  # the engine's own: it passes when the run did, and when there was no catalog to try. A fork's pull request has none, as the run has
+  # none: its change is tried by a dispatch
+  result:
+    name: E2E result
+    needs: [prepare, try]
+    if: >-
+      always() &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - env:
+          PREPARE: ${{ needs.prepare.result }}
+          SKIP: ${{ needs.prepare.outputs.skip }}
+          TRY: ${{ needs.try.result }}
+        run: |
+          echo "inputs: $PREPARE, run: $TRY"
+          [ "$PREPARE" = success ] || { echo "::error::The inputs were refused"; exit 1; }
+          [ "$SKIP" != true ] || { echo "::notice::There is no catalog to try, so nothing was tried"; exit 0; }
+          [ "$TRY" = success ] || { echo "::error::The run ended $TRY"; exit 1; }
+
+  # A night that fails opens an issue, or adds to the one that is open
+  nightly:
+    needs: [prepare, try]
+    if: >-
+      always() && github.event_name == 'schedule' &&
+      (needs.prepare.result == 'failure' || needs.try.result == 'failure' || needs.try.result == 'cancelled')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh label create e2e-nightly --repo "$GITHUB_REPOSITORY" --color B60205 --description "The nightly end-to-end run failed" 2>/dev/null || true
+          open=$(gh issue list --repo "$GITHUB_REPOSITORY" --label e2e-nightly --state open --json number --jq '.[0].number // empty')
+          body="The nightly end-to-end run failed on $(date -u +%F): $RUN"
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --label e2e-nightly --title "The nightly end-to-end run fails" --body "$body"
+          fi

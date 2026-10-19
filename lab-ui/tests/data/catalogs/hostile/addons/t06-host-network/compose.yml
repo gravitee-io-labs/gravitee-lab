@@ -1,0 +1,6 @@
+x-gravitee: {kind: addon, name: Host network, category: Other, description: Shares the network and the processes of this machine}
+services:
+  hostile-host:
+    image: busybox:1.36
+    network_mode: host
+    pid: host

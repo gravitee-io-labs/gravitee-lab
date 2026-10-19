@@ -1,0 +1,7 @@
+# The bank's MCP server. The seed reads what it offers (its tools, prompts and resources) itself: the platform does
+# not discover a private address. The access policies name its tools after the entity id, which is made of the name
+# the server gives itself, so the seed stops when that name is not this one
+name: Acme Bakery MCP
+entityId: mcp-server.acme-bakery-mcp
+endpoint: ${BAKERY_MCP_URL}                # what the gateway calls, and what the seed discovers from
+description: Accounts, cards, transfers and public tools of Acme Bakery, which Ace uses on behalf of a customer

@@ -1,0 +1,89 @@
+# Demo secrets shared by the account, the app and the seed; change one in the shell or in playgrounds/shop/.env
+x-shop-secrets:
+  customer-password: &customer-password ${FIXTURE_SHOP_CUSTOMER_PASSWORD:-fixture-dana}   # Password of Dana
+  customer-key: &customer-key ${FIXTURE_SHOP_CUSTOMER_KEY:-fixture-shop-key}   # API key of the shop's customers
+  apim-password: &apim-password ${FIXTURE_SHOP_APIM_PASSWORD:-admin}   # Password of user admin in API Management
+  am-password: &am-password ${FIXTURE_SHOP_AM_PASSWORD:-adminadmin}   # Password of user admin in Access Management
+
+x-gravitee:
+  kind: playground
+  name: Shop
+  category: API
+  description: Protection of a shop's API by the gateway, one lesson at a time
+  tags: [REST API, Access Management]
+  duration: 15 min
+  first_start: 3 min
+  requires:
+    images:
+      APIM_VERSION: "4.12"
+    license:
+      - fixture-feature
+    plugins:
+      apim: [fixture-policy]
+  tested:
+    - APIM_VERSION: "4.12.0"
+  consoles: [fixture-shop-web, apim-management-ui]
+  accounts:
+    - for: "Shop: Dana (customer)"
+      username: dana@shop.example.test
+      password: *customer-password
+    - for: "Shop API: customer key"
+      key: *customer-key
+    - for: API Management console
+      username: admin
+      password: *apim-password
+
+services:
+
+  fixture-shop-web:
+    image: registry.example.invalid/lab/fixture-shop-web:latest
+    build: ./apps/web
+    pull_policy: ${FIXTURE_SHOP_PULL_POLICY:-build}   # build: build it here at each start; always: pull it, build it here if it cannot be pulled
+    container_name: gio-fixture-shop-web
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8193:8000"   # The shop's web page
+    environment:
+      ALLOWED_HOSTS: fixture-shop-web,localhost,127.0.0.1,[::1]   # The host names it answers to
+      SHOP_CUSTOMER_KEY: *customer-key
+    labels:
+      io.gravitee.name: Shop
+      io.gravitee.description: The web page of the shop, which calls its API through the gateway
+      io.gravitee.console.fixture-shop-web.name: Shop
+      io.gravitee.console.fixture-shop-web.url: http://localhost:8193
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8000/"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - internal
+
+  fixture-shop-seed:
+    image: __SEEDER_IMAGE__
+    build: ../../../../../seeder
+    pull_policy: ${FIXTURE_SHOP_PULL_POLICY:-build}
+    container_name: gio-fixture-shop-seed
+    restart: "no"
+    depends_on:
+      apim-management-api:
+        condition: service_healthy
+      am-management-api:
+        condition: service_healthy
+    volumes:
+      - ./seed:/seed:ro
+      - ./.state:/state   # What the seed created, to remove it later
+    environment:
+      APIM_MANAGEMENT_URL: http://apim-management-api:8083
+      APIM_USERNAME: admin
+      APIM_PASSWORD: *apim-password
+      AM_MANAGEMENT_URL: http://am-management-api:8093
+      AM_USERNAME: admin
+      AM_PASSWORD: *am-password
+      FIXTURE_SHOP_URL: http://fixture-shop-web:8000   # The shop, as the gateway reaches it
+    labels:
+      io.gravitee.name: Playground seed
+      io.gravitee.description: Sets up the shop's API in API Management and its customers in Access Management
+      io.gravitee.role: seed
+    networks:
+      - internal

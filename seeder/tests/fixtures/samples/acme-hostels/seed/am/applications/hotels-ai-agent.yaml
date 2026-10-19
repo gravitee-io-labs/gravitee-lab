@@ -1,0 +1,25 @@
+# The hotel agent: it gets its own token with client_credentials, and exchanges the guest's token for a delegated one
+name: Hotels AI Agent
+description: The hotel agent, which acts for the guest who chats with it
+type: SERVICE
+
+clientId: hotel-ai-agent
+clientSecret: "${AGENT_CLIENT_SECRET}"
+
+oauth:
+  grantTypes:
+    - urn:ietf:params:oauth:grant-type:token-exchange
+    - client_credentials
+  tokenEndpointAuthMethod: client_secret_basic
+  pkce: false
+  tokenExchange:
+    inherited: true
+    scopeHandling: downscoping
+  tokenValidity:
+    accessToken: 7200
+    refreshToken: 14400
+    idToken: 14400
+  tokenCustomClaims:
+    - tokenType: access_token
+      claimName: email
+      claimValue: "{#context.attributes['user']['username']}"

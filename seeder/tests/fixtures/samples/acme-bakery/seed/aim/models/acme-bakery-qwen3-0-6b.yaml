@@ -1,0 +1,12 @@
+# The lighter model, which the AI workspace falls back to when a team has spent half of its budget
+entityId: acme-bakery-qwen3-0-6b
+source: Acme Bakery                        # names the environment's source of hand-made items, if the seed has to make it
+definition:
+  name: Acme Bakery Qwen3 0.6B
+  queryName: qwen3:0.6b                  # what is sent to Ollama
+  provider: acme-bakery-ollama
+  family: qwen3
+  contextWindow: 40960
+  capabilities: [text, reasoning, function-calling]
+  pricing: {inputPer1M: 20, outputPer1M: 20, currency: USD}   # the demo price of the provider's model
+  description: Smaller local model for short answers
