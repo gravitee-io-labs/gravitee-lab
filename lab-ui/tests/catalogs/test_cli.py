@@ -1220,6 +1220,10 @@ class Service(Tool):
                 "  Breaks: Demo (needs Old)", "  Changes: Acme Bakery (port 8141)", "  Cannot run: X (Publishes a port to the network)",
                 "Run it again with --yes to apply it."])
             calls.clear()
+            plan.update(version_from="1.4.0", release=None, whatsnew=["Add the ledger"])
+            out = self.run_tool("update", "hub")[1].splitlines()
+            self.assertEqual((out[0], out[-2]), ("From 9f1c2ab to c4d5e6f, version 1.4.0 → 1.5.0 (unreleased)", "  New: Add the ledger"))
+            calls.clear()
             self.run_tool("update", "hub", "--yes")
             self.assertEqual(calls, [("hub", True, None, False), ("hub", False, "t1", False)])
             calls.clear()

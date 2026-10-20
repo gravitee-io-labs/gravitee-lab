@@ -12,7 +12,8 @@ of the items is in [the format of add-ons, setups and playgrounds](units.md) and
 5. [Try it in the Lab](#try-it-in-the-lab)
 6. [The CI of a catalog](#the-ci-of-a-catalog)
 7. [Securing the repository](#securing-the-repository)
-8. [Releases and keeping in step](#releases-and-keeping-in-step)
+8. [Releases](#releases)
+9. [Keeping in step](#keeping-in-step)
 
 ## Start
 
@@ -49,7 +50,7 @@ x-gravitee-catalog:
   id: acme            # the name the Lab shows in lists and uses to key what you set
   name: Acme hub
   description: Demos for Gravitee Lab
-  version: 0.1.0      # raise it with make release when items change in a way people should notice
+  version: 0.1.0      # the version of the next release: make release raises it
   lab: 1              # the contract level of the Lab this catalog was checked against
   license: AGPL-3.0-only
 ```
@@ -138,13 +139,46 @@ administration rights, never deletes anything, and a plan without rules, such as
 The standard asks for no CLA. Commits are squashed on merge, with the pull request title as the message and no trailer. A
 commit that names a tool as its author is refused (`CR01`).
 
-## Releases and keeping in step
+## Releases
+
+The Lab offers people the releases of your catalog, not its main branch ([Versions](catalogs.md#versions)). A pull request you
+merge reaches nobody until you release it: merge as often as you like, and release when what is on main is worth an update.
+A catalog that has never made a release is followed commit by commit, which suits its first days; the first tag ends that.
+
+A release takes two steps, because the rules of `main` forbid a commit pushed to it:
 
 ```bash
-python3 lab-ui/catalog.py release 0.2.0 --tag
+make release VERSION=1.1.0
 ```
 
-edits `version:` and nothing else, and refuses a dirty tree, a branch that is behind and a version that is not greater.
+makes the branch `release/1.1.0` with `version:` raised in `catalog.yml` and nothing else, and prints the lines that push it and
+open its pull request (`python3 lab-ui/catalog.py release 1.1.0 --pr` opens it with `gh`). It refuses a dirty tree, a branch
+that is behind `origin/main` and a version that is not greater than the last tag. Once that pull request is merged:
+
+```bash
+make release VERSION=1.1.0 TAG=1
+```
+
+makes the annotated tag `v1.1.0` on `origin/main`, after checking that `catalog.yml` there says `1.1.0`, and prints the line that
+pushes it. An administrator pushes it. With `images` set, `publish.yml` then publishes the images and a GitHub release whose
+notes list the items that are new, changed (with the titles of the pull requests that changed them) and removed. Every Lab sees
+the release at its next check, and its Update dialog says *1.0.0 → 1.1.0* with those same lines as What's new: write pull request
+titles for the people who will read them there.
+
+A release is a promise that `v1.1.0` is always the same files. Never move or delete a tag that was pushed: a Lab that installed
+it says the catalog was rewritten, and its people must confirm an update they cannot judge. Fix a release with the next one.
+
+To see what is merged and not released yet:
+
+```bash
+python3 lab-ui/catalog.py ci unreleased .
+```
+
+says which items changed since the last tag and the version to release (`--format json` for a script, `--ci` for the summary of
+a workflow, with the notes the next release would have). It always exits 0: what you release, and when, is your choice.
+
+## Keeping in step
+
 The Lab pins the standard's files by commit in `.github/standard.json`; when the standard moves,
 
 ```bash

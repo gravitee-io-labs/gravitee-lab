@@ -23,6 +23,10 @@ future registry. Nothing is read from the network.
 
 Exit 0 it wrote them, 2 it cannot (a tag this clone does not have, records that are not what `publish` writes).
 
+`catalog.py ci unreleased PATH` is the same notes from the last release to HEAD: what the Lab does not offer yet, since it offers a
+catalog's releases and not its main branch. It says so (a warning in `--format github`, the notes in the summary with `--ci`) and
+exits 0: a change merged and not released is a choice of the owners, not a fault. 2 when git cannot read the clone.
+
 Python 3.9 and later, standard library only."""
 
 import json
@@ -46,6 +50,7 @@ SPECIAL = re.compile(r"([\\`*_{}\[\]<>()#+!|~])")
 LINKISH = re.compile(r"@|://|www\.|^#\d|^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+#\d", re.I)
 SHOWN = 160
 NAME_SHOWN = 40
+VERSION = re.compile(r"(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})")
 
 
 class Release(NamedTuple):
@@ -80,15 +85,16 @@ def plain(text: str) -> str:
     return " ".join(out)
 
 
-def tags_before(root: str, sha: str, tag: str) -> Optional[str]:
-    """The greatest `vX.Y.Z` tag below `tag` that leads to `sha`, or None. Tags that are not three numbers are not releases."""
+def tags_before(root: str, sha: str, tag: Optional[str]) -> Optional[str]:
+    """The greatest `vX.Y.Z` tag below `tag` (any, when None) that leads to `sha`, or None. Tags that are not three numbers are not
+    releases."""
     try:
         done = gitx.run(["tag", "--list", "--merged", sha, "v*"], cwd=os.path.realpath(root), env=trees.QUIET, timeout=60)
     except (gitx.CatalogError, gitx.OutputLimit):
         raise Unavailable("git could not list the tags of this clone") from None
     if done.code != 0:
         raise Unavailable("git could not list the tags that lead to " + sha[:7])
-    here = version_of(tag)
+    here = version_of(tag) if tag else (1 << 30,) * 3
     older = []
     for name in done.out.decode("utf-8", "replace").split("\n"):
         name = name.strip()
@@ -113,9 +119,17 @@ def gather(root: str, tag: str, seams: Optional[dict] = None) -> Release:
     if git_dir is None:
         raise Unavailable(f"{report.printable(root)} is not a git repository")
     previous = tags_before(root, sha, tag)
+    tree, (new, changed, removed) = between(root, git_dir, previous, sha, seams)
+    meta = catalog_meta(tree.text("catalog.yml") or "")
+    return Release(tag, sha, previous, trees.resolve(root, "refs/tags/" + previous) if previous else None, meta.get("name", ""),
+                   meta.get("version", "") or tag[1:], meta.get("lab", ""), new, changed, removed)
+
+
+def between(root: str, git_dir: str, previous: Optional[str], sha: str, seams: dict):
+    """(the tree at `sha`, (new, changed, removed)): the units of `sha` against those of the tag `previous` (every unit is new without
+    one), and the notes of each unit that changed."""
     previous_sha = trees.resolve(root, "refs/tags/" + previous) if previous else None
     tree, now = units_at(git_dir, sha)
-    meta = catalog_meta(tree.text("catalog.yml") or "")
     before = units_at(git_dir, previous_sha)[1] if previous_sha else {}
     new = sorted(unit.key for unit in set(now) - set(before))
     removed = sorted(unit.key for unit in set(before) - set(now))
@@ -123,7 +137,7 @@ def gather(root: str, tag: str, seams: Optional[dict] = None) -> Release:
     if previous_sha:
         moved = planning.changed_files(root, previous_sha, sha)
         if moved is None:
-            raise Unavailable("git could not say what changed between " + previous + " and " + tag)
+            raise Unavailable("git could not say what changed between " + previous + " and " + sha[:7])
         touched = {planning.unit_of(path) for path in moved} - {None}
         keys = sorted(unit.key for unit in touched & set(now) & set(before))
         try:
@@ -132,8 +146,7 @@ def gather(root: str, tag: str, seams: Optional[dict] = None) -> Release:
         except (gitx.CatalogError, ValueError) as error:
             raise Unavailable("git could not read the commits of the units that changed: "
                               + report.printable(getattr(error, "message", None) or str(error))) from None
-    return Release(tag, sha, previous, previous_sha, meta.get("name", ""), meta.get("version", "") or tag[1:], meta.get("lab", ""),
-                   new, changed, removed)
+    return tree, (new, changed, removed)
 
 
 def notes_text(found: Release) -> str:
@@ -155,6 +168,22 @@ def notes_text(found: Release) -> str:
     if not (found.new or found.changed or found.removed):
         lines += ["No add-on, setup or playground changed.", ""]
     return "\n".join(lines).rstrip("\n") + "\n"
+
+
+def unreleased_text(previous: Optional[str], new: List[str], changed: List[Tuple[str, List[str]]], removed: List[str],
+                    version: str = "") -> str:
+    """One line for a person: what changed since the release `previous`, and the command that releases it; empty when nothing did.
+    With no release, the version catalog.yml says is the one to tag."""
+    keys = new + [key for key, _ in changed] + removed
+    if previous is None:
+        return ("No release yet: the Lab offers the newest commit of main until there is one. Release it: make release VERSION="
+                f"{version or '1.0.0'} TAG=1")
+    if not keys:
+        return ""
+    major, minor, _ = version_of(previous)
+    shown = ", ".join(keys[:10]) + (f" and {len(keys) - 10} more" if len(keys) > 10 else "")
+    return (f"{len(keys)} {'item' if len(keys) == 1 else 'items'} changed since {previous} and the Lab does not offer "
+            f"{'it' if len(keys) == 1 else 'them'} until the next release: {shown}. Release: make release VERSION={major}.{minor + 1}.0")
 
 
 def read_records(where: str) -> List[dict]:
@@ -228,4 +257,35 @@ def main(argv, out, err, **seams) -> int:
     return 0
 
 
-__all__ = ["Release", "gather", "images_text", "main", "notes_text", "plain", "read_records", "tags_before", "version_of"]
+@entry
+def unreleased_main(argv, out, err, **seams) -> int:
+    """`ci unreleased`."""
+    found = parser("unreleased", "What changed since the last release, which the Lab does not offer yet.")
+    args = parsed(found, argv)
+    if not os.path.isdir(args.path):
+        raise Usage(f"{report.printable(args.path)} is not a folder")
+    root = os.path.abspath(args.path)
+    git_dir = trees.git_dir_of(root)
+    sha = trees.resolve(root, "HEAD") if git_dir else None
+    if sha is None:
+        raise Unavailable(f"{report.printable(root)} is not a git repository with a commit")
+    previous = tags_before(root, sha, None)
+    tree, (new, changed, removed) = between(root, git_dir, previous, sha, seams)
+    meta = catalog_meta(tree.text("catalog.yml") or "")
+    version = meta.get("version", "") if isinstance(meta.get("version"), str) and VERSION.fullmatch(meta["version"]) else ""
+    line = unreleased_text(previous, new, changed, removed, version)
+    if args.format == "json":
+        out.write(json.dumps({"changed": [key for key, _ in changed], "new": new, "previous": previous, "removed": removed},
+                             indent=2, sort_keys=True, ensure_ascii=True) + "\n")
+    elif line and args.format == "github":   # a catalog with no release is one way to be: said, not warned of
+        out.write(f"::{'notice' if previous is None else 'warning'} title=Unreleased::{line.replace('%', '%25')}\n")
+    else:
+        out.write((line or f"Nothing changed since {previous}.") + "\n")
+    if args.ci and line:
+        write_summary("### Not released yet\n\n" + line + "\n\n" + notes_text(Release(
+            "HEAD", sha, previous, None, meta.get("name", ""), "(next)", meta.get("lab", ""), new, changed, removed)))
+    return 0
+
+
+__all__ = ["Release", "between", "gather", "images_text", "main", "notes_text", "plain", "read_records", "tags_before",
+           "unreleased_main", "unreleased_text", "version_of"]
