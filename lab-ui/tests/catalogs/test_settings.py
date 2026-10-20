@@ -790,7 +790,16 @@ class Audit(Base):
         self.assertIn("gh secret set LAB_DEPLOY_KEY --repo acme-labs/lab-internal --app dependabot", found.fix)
         self.assertEqual("LAB_DEPLOY_KEY is in no store", Scene("user-private-free").finding("lab.key").now)
         self.assertIn("--repo OWNER/LAB", Scene("user-private-free").finding("lab.key").fix)       # the Lab is not known
-        self.assertIn("A public Lab needs no key", Scene("public-standard").finding("lab.key").fix)
+        # A public catalog, or a private one of a public Lab, needs no key: one that is there is to remove, none is nothing to do
+        public = Scene("public-standard").finding("lab.key")
+        self.assertEqual((NA, "the Lab is public: no key reads it"), (public.status, public.now))
+        scene = Scene("org-private")
+        scene.table["GET repos/acme-labs/lab"] = Reply(200, {"private": False})
+        self.assertIn("A public Lab needs no key", scene.finding("lab.key").fix)
+        for store in ("actions", "dependabot"):
+            scene.set(f"/{store}/secrets", {"total_count": 0, "secrets": []})
+        found = scene.finding("lab.key")
+        self.assertEqual((NA, "the Lab is public: no key reads it"), (found.status, found.now))
         # A standard.json is whatever a contributor merged: nothing of it reaches a command that is not a name
         scene = Scene("org-private")
         scene.sets_standard(lab={"repository": "x; rm -rf ~", "ref": "0" * 40})

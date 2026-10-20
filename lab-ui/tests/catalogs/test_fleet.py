@@ -164,7 +164,7 @@ class Audit(Fleet):
         row = [line for line in lines if line.startswith("  rules.push ")][0]
         self.assertEqual(["rules.push", "-", "-", "n.a.", "ok"], row.split())
         self.assertEqual(["repo.merge", "-", "-", "ok", "ok"], [line for line in lines if line.startswith("  repo.merge ")][0].split())
-        self.assertIn("acme-labs/lab-hub: 27 ok, 2 n.a., 4 manual", lines)
+        self.assertIn("acme-labs/lab-hub: 27 ok, 3 n.a., 3 manual", lines)
         self.assertIn("acme-labs/lab-internal: 29 ok, 1 n.a., 4 manual", lines)
         self.assertEqual([], [call for call in runner.calls if call[0] != "GET"])
         self.assertEqual(text, fleet.render_audit(fleet.audit_fleet("acme-labs", self.hub([listed("acme-labs/lab-internal"), listed("acme-labs/lab-hub"),

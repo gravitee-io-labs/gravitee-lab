@@ -960,7 +960,10 @@ class _Audit:
     def lab_key(self):
         standard = self.standard()
         lab = standard.lab if standard is not None and standard.lab else "OWNER/LAB"
-        if self.public:
+        # The key reads the Lab: whether one is needed is the Lab's visibility, not this repository's
+        if self.public or self.lab_is_public() is True:
+            if self.secret_state.endswith("in no store"):
+                return self.add("lab.key", NA, now="the Lab is public: no key reads it", applies=False)
             return self.add("lab.key", MANUAL, now=self.secret_state,
                             fix="A public Lab needs no key: remove LAB_DEPLOY_KEY from both stores and the deploy key "
                                 "from the Lab repository")
