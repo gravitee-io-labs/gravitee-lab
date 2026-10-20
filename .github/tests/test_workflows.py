@@ -23,6 +23,7 @@ WORKFLOWS = [file for file in FILES if file.parent.name == "workflows"]
 INDENT = re.compile(r"^( *)")
 E2E = ROOT / ".github" / "workflows" / "e2e.yml"           # the engine's own: a change of the engine tried on a catalog
 RUN = ROOT / ".github" / "workflows" / "e2e-run.yml"       # the run, which the engine and each catalog call
+CI = ROOT / ".github" / "workflows" / "ci.yml"
 SHA = "0123456789abcdef0123456789abcdef01234567"
 BASH = shutil.which("bash")
 
@@ -211,7 +212,7 @@ class RunTest(unittest.TestCase):
 
     def test_the_check_to_read_waits_for_everything_and_runs_even_when_it_failed(self):
         body = self.jobs["result"]
-        self.assertIn("name: E2E result", body)
+        self.assertIn("name: Result", body)
         self.assertIn("needs: [plan, manifests, e2e]", body)
         self.assertIn("always()", body)
         self.assertIn("A job that had to run was skipped", body)
@@ -317,7 +318,7 @@ class EngineCallerTest(unittest.TestCase):
         self.assertIn("The variable CATALOG_REPOSITORY is not set", self.text)
 
     def test_the_check_to_require_is_a_job_of_this_file_named_as_it_always_was(self):
-        """A job that calls a workflow shows as `try / E2E result`, the callee's name behind the caller's: the name that the
+        """A job that calls a workflow shows as `Run / Result`, the callee's name behind the caller's: the name that the
         documentation, a ruleset and the audit of the settings ask for is this file's own job, which always reports."""
         self.assertEqual(list(self.jobs), ["prepare", "try", "result", "nightly"])
         body = self.jobs["result"]
@@ -631,6 +632,63 @@ class EngineResultTest(ShellTest):
         self.assertIn("::error::The inputs were refused", done.stdout)
         done = self.execute(self.text, {"PREPARE": "success", "SKIP": "true", "TRY": "skipped"})
         self.assertIn("::notice::There is no catalog to try, so nothing was tried", done.stdout)
+
+
+class NamesTest(unittest.TestCase):
+    """What GitHub shows is read by people: every job and every step of the engine's workflows and actions, and of the managed
+    files a catalog gets, has a name in words (an unnamed step shows as `Run actions/checkout@<commit>`)."""
+
+    def test_every_job_and_every_step_is_named(self):
+        managed = ROOT / "lab-ui" / "templates" / "catalog" / "managed" / ".github"
+        for path in [*FILES, *sorted(managed.glob("workflows/*.yml")), *sorted(managed.glob("actions/*/action.yml"))]:
+            text = path.read_text(encoding="utf-8")
+            with self.subTest(file=path.relative_to(ROOT).as_posix()):
+                steps = unnamed_steps(text)
+                self.assertTrue(steps[0], "steps are read")
+                self.assertEqual(steps[1], [], "every step has a name")
+                if path.parent.name == "workflows":
+                    for job, block in jobs(text).items():
+                        self.assertRegex(block, r"(?m)^    name: \S", f"the job {job} has a name")
+
+
+def unnamed_steps(text):
+    """(how many steps, the first line of each one with no name) of a workflow or an action: a step is an item of a `steps:` list."""
+    lines, count, unnamed, depth = text.split("\n"), 0, [], None
+    for i, line in enumerate(lines):
+        found = re.match(r"^( *)steps:\s*$", line)
+        if found:
+            depth = len(found.group(1))
+            continue
+        item = re.match(r"^( *)- \S", line)
+        if depth is not None and line.strip() and len(line) - len(line.lstrip()) <= depth and not item:
+            depth = None
+        if depth is None or not item or len(item.group(1)) <= depth:
+            continue
+        indent, block = len(item.group(1)), [line]
+        for rest in lines[i + 1:]:
+            if rest.strip() and len(rest) - len(rest.lstrip()) <= indent:
+                break
+            block.append(rest)
+        count += 1
+        if not re.match(r"^ *- name: ", line) and not any(re.match(r"^ {%d}name: " % (indent + 2), each) for each in block[1:]):
+            unnamed.append(line.strip())
+    return count, unnamed
+
+
+class CiResultTest(ShellTest):
+    """`CI result`, the check a ruleset asks for: it waits for every other job of ci.yml, and passes only when all ended in success."""
+
+    def test_it_waits_for_every_other_job(self):
+        found = jobs(CI.read_text(encoding="utf-8"))
+        needs = re.search(r"(?m)^    needs: \[(.+)\]$", found["result"]).group(1).split(", ")
+        self.assertEqual(sorted(needs), sorted(name for name in found if name != "result"))
+        self.assertIn("if: ${{ always() }}", found["result"])
+
+    def test_it_fails_on_anything_but_success(self):
+        text = script(step_with(jobs(CI.read_text(encoding="utf-8"))["result"], "RESULTS"))
+        for results, wanted in (("success success", 0), ("success failure", 1), ("cancelled", 1), ("success skipped", 1)):
+            with self.subTest(results=results):
+                self.assertEqual(self.execute(text, {"RESULTS": results}).returncode, wanted)
 
 
 class ReaderTest(unittest.TestCase):

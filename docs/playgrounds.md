@@ -163,11 +163,11 @@ the same name: once it moved, it is not tested any more. These are what worked h
 them, add a set to `tested` in its file, or share the playground, which writes the latest of them into its copy when the file declares none.
 A playground that judges no image keeps its start all the same, as a run with no version: Share asks for one. A playground that declares no set and asks no minimum of an image is not judged. One that asks a minimum is judged on that image: a version that is not a release, and that it does not name, is not tested, unless it started well here.
 
-*Before you start* says what is not tested on the line of that image (`Not tested: amp-demo-latest`, with the version it was
-tested with). Start asks first, on This machine, with each image that differs on one line (*Component*, the version it has *Now*, the one it was
-*Tested with*), then two choices: *Start anyway*, or *Switch to the tested versions*, which saves the images of the latest set that
-differ and starts. A line that goes back to an older version, or from one that says nothing of its version, is marked *Goes back*, and
-the switch says in the danger tone that the data a newer version wrote (Mongo, an application type) may not open on the older one. An image that neither a set nor `requires.images` names is not judged. Add a set when the playground is checked on other versions, and leave the
+Its Start then offers the start that goes to the versions it was tested with, as when the images saved are older than it asks: the
+warning beside Start shows each image as it is (*Current*) and as it was *Tested*, and the dialog has the same steps, *Changes versions*
+(or *Goes back*, in the danger tone, when a version would go back to an older one: the data a newer version wrote, Mongo or an application
+type, may not open on it), then what restarts. *Switch and start* saves the images of the latest set that differ and starts; *Start
+without switching* starts on the images as they are. *Before you start* says it on the line of each image (*Can go to … at start*). An image that neither a set nor `requires.images` names is not judged. Add a set when the playground is checked on other versions, and leave the
 older ones: they stay tested. `make check` says when a name is not the version variable of an image.
 
 ### `include`

@@ -88,7 +88,7 @@ reads such a catalog together with the one it needs, and refuses to read it alon
 "needs": {"gravitee": {"repository": "owner/catalog", "ref": "<a full commit>"}}
 ```
 
-The `static` job fetches it with `catalog.py ci needs`, using the secret `NEEDS_DEPLOY_KEY`: a read-only deploy key of that
+The **Checks** job fetches it with `catalog.py ci needs`, using the secret `NEEDS_DEPLOY_KEY`: a read-only deploy key of that
 repository, stored like `LAB_DEPLOY_KEY` in the Actions and the Dependabot stores. `make settings` audits both. Move the commit
 by hand when the other catalog moves.
 
@@ -107,11 +107,10 @@ The managed workflows run on every pull request and every push to `main`:
 
 | Job | What it proves |
 |---|---|
-| static | The rules of the standard and the Lab's policy: `catalog.py check` |
-| seed | The seed files of the playgrounds |
-| compile | The images a unit builds, built for the architectures listed in `catalog.yml`, and the tests of its apps |
-| smoke | The units that do not need the platform start and answer their health check (a step of compile) |
-| result | One check, `Catalog CI result`, that fails when any job it needs failed or was skipped |
+| Checks | The rules of the standard and the Lab's policy (`catalog.py check`), the secrets in every commit, what the change touches, and that every image it pulls exists |
+| Seed files | The seed files of the playgrounds, and the catalog's own tests |
+| Apps | The images a unit builds, built for the architectures listed in `catalog.yml`, the tests of its apps, and the units that do not need the platform, which start and answer their health check |
+| Catalog CI result | The one check a merge waits for: it fails when any job it needs failed or was skipped |
 
 A pull request runs with no secret and a read-only token, from the contributor's own copy of the workflows being refused if
 it differs from the managed ones: a contribution cannot change the CI that judges it. Two more workflows run apart from the
@@ -119,7 +118,7 @@ pull requests:
 
 | Workflow | When | What it does |
 |---|---|---|
-| `nightly.yml` | Every week, on `main` | The newest Lab still reads the catalog, the standard files are the newest Lab's, the links of the guides answer, the rules of `main` are still the standard's, and the published images have no fixable critical flaw. A run that fails opens an issue, or adds to the one that is open |
+| `nightly.yml` | Every night, on `main` | The newest Lab still reads the catalog, the standard files are the newest Lab's, the links of the guides answer, the rules of `main` are still the standard's, and the published images have no fixable critical flaw. A run that fails opens an issue, or adds to the one that is open |
 | `publish.yml` | A push to `main` and a release tag | Builds and publishes the images that changed, and a GitHub release on a tag. It exists only once `catalog.yml` sets `images`: until then nothing is published |
 
 `catalog.py new --with e2e` adds `e2e.yml`, the end-to-end run, which needs a license. When the standard moves,

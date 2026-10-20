@@ -1,4 +1,4 @@
-# Managed by the Lab catalog standard 3: change it with catalog.py upgrade, in a pull request a maintainer reads.
+# Managed by the Lab catalog standard 4: change it with catalog.py upgrade, in a pull request a maintainer reads.
 # The trusted lane. The only workflow that writes packages and releases, and it runs only on the main branch and on a release tag:
 # what a pull request writes never reaches it. Nothing has to be pulled: the default builds every image from the files, and a pull
 # that is refused builds too. A person who wants the images sets `<ID>_PULL_POLICY=always`.
@@ -28,11 +28,13 @@ jobs:
   # Where the plan has no rule against a force push, this is how it is seen: people pin commits, and a rewritten main takes them away.
   # Nothing is published from a rewritten history
   guard:
+    name: Main was not rewritten
     if: ${{ github.ref_type == 'branch' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - env:
+      - name: Check that main was not rewritten
+        env:
           FORCED: ${{ github.event.forced }}
           BEFORE: ${{ github.event.before }}
         run: |
@@ -42,6 +44,7 @@ jobs:
   # third time); a tag is gated: its version is the catalog's, its commit is on main, its checks ended well. A fork builds nothing:
   # the images are the catalog's own
   plan:
+    name: Plan
     needs: guard
     if: ${{ !cancelled() && contains(fromJSON('["success","skipped"]'), needs.guard.result) && !github.event.repository.fork }}
     runs-on: ubuntu-24.04
@@ -55,12 +58,14 @@ jobs:
       count: ${{ steps.plan.outputs.count }}
       attest: ${{ steps.plan.outputs.attest }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out the catalog
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: catalog
           fetch-depth: 0
           persist-credentials: false
-      - uses: ./catalog/.github/actions/lab
+      - name: Check out the Lab
+        uses: ./catalog/.github/actions/lab
         with:
           key: ${{ secrets.LAB_DEPLOY_KEY }}
       - id: plan
@@ -77,6 +82,7 @@ jobs:
   # already proven on both). The images of a tag that already exist are not built again. There is no build cache: it would need the
   # runtime token of Actions in the one job that holds the registry login
   images:
+    name: Images
     needs: plan
     if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.count != '0' }}
     runs-on: ubuntu-24.04
@@ -88,29 +94,36 @@ jobs:
     outputs:
       records: ${{ steps.publish.outputs.records }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out the catalog
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: catalog
           persist-credentials: false
-      - uses: ./catalog/.github/actions/lab
+      - name: Check out the Lab
+        uses: ./catalog/.github/actions/lab
         with:
           key: ${{ secrets.LAB_DEPLOY_KEY }}
-      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       # REGISTRY_TOKEN exists only as a secret of the environment `publish`, and only in the hardened option (section 4.9); without it
       # the job's own token is the password
-      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+      - name: Sign in to the registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}
-      - id: publish
+      - name: Build and push the images
+        id: publish
         env:
           IMAGES: ${{ needs.plan.outputs.images }}
           REF: ${{ github.ref }}
           SHA: ${{ github.sha }}
         run: python3 -I lab/lab-ui/catalog.py ci publish catalog --images "$IMAGES" --ref "$REF" --sha "$SHA" --records records.json --github-output
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - name: Keep the records
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: records
           path: records.json
@@ -119,6 +132,7 @@ jobs:
   # GitHub keeps artifact attestations for public repositories on every plan, and for private ones on Enterprise Cloud only. The
   # provenance and the SBOM that BuildKit attaches to each image are in the registry either way
   attest:
+    name: Attestations
     needs: [plan, images]
     if: ${{ !cancelled() && needs.plan.outputs.attest == 'true' && needs.images.result == 'success' }}
     runs-on: ubuntu-24.04
@@ -134,12 +148,14 @@ jobs:
       matrix:
         record: ${{ fromJSON(needs.images.outputs.records || '[]') }}
     steps:
-      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+      - name: Sign in to the registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}
-      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+      - name: Attest the image
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-name: ${{ matrix.record.name }}
           subject-digest: ${{ matrix.record.digest }}
@@ -148,6 +164,7 @@ jobs:
   # A tag: the GitHub release, with notes made from the commit subjects (what the Lab's Update dialog shows too). It runs only when
   # the jobs before it ended in success or had nothing to do: a canceled or timed-out job is not "not a failure"
   release:
+    name: Release
     needs: [plan, images, attest]
     if: ${{ !cancelled() && github.ref_type == 'tag' && needs.plan.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.images.result) && contains(fromJSON('["success","skipped"]'), needs.attest.result) }}
     runs-on: ubuntu-24.04
@@ -156,15 +173,18 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out the catalog
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: catalog
           fetch-depth: 0
           persist-credentials: false
-      - uses: ./catalog/.github/actions/lab
+      - name: Check out the Lab
+        uses: ./catalog/.github/actions/lab
         with:
           key: ${{ secrets.LAB_DEPLOY_KEY }}
-      - if: ${{ needs.plan.outputs.count != '0' }}
+      - name: Get the records
+        if: ${{ needs.plan.outputs.count != '0' }}
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: records

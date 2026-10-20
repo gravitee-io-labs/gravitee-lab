@@ -55,9 +55,9 @@ catalog runs the same test (`e2e-run.yml`) for its own changes. It proves what t
      and the runners share theirs, so that a heavy day can hit its limit.
 3. **Actions settings** (Settings > Actions > General): *Require approval for all outside collaborators*, and leave *Send write tokens* and
    *Send secrets to workflows from pull requests* off. Keep the default workflow permission at *Read repository contents*.
-4. **Branch protection** on `main`: require these checks, `check`, `check (Compose latest)`, each `lab-ui` job (Python 3.9 and 3.14, four shards each), `seeder`,
-   `tooling`, `images`, `lint` and `E2E result`. `E2E result` fails when anything ended wrong, passes when there was nothing to try
-   (documentation, say), and waits while a maintainer has not approved.
+4. **Branch protection** on `main`: require two checks, `CI result` and `E2E result`. `CI result` passes when every job of the CI
+   workflow ended in success. `E2E result` fails when anything ended wrong, passes when there was nothing to try (documentation, say),
+   and waits while a maintainer has not approved.
 5. **A `CODEOWNERS` file** that sends `.github/`, `docker-compose.yml`, `seeder/`, `lab-ui/` and `Makefile` to the maintainers, so that a
    change to what runs with the license is read by one of them. The names are yours to give:
 
