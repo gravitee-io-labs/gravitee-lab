@@ -949,6 +949,66 @@ class History(Case):
         self.assertEqual(raised.exception.code, "not_catalog")
 
 
+class Offering(History):
+    """offer: the releases of a catalog that makes them, the commits of one that makes none."""
+
+    def tag(self, name, commit):
+        gitfixture.git("tag", "-f", name, commit, repo=self.repo)
+
+    def offer(self, contract=1, contract_min=1):
+        bare.fetch(self.address, "main", self.store)
+        return manifest.offer(self.store, bare.resolve(self.store, "tip"), contract, contract_min)
+
+    def test_a_catalog_with_no_release_is_offered_its_newest_commit_as_before(self):
+        self.push({"addons/a/README.md": "x\n"})
+        found = self.offer()
+        self.assertEqual((found.commit, found.tip, found.release), (self.commits[-1], "ok", None))
+        self.assertEqual(found.levels, self.levels())
+
+    def test_a_catalog_with_releases_is_offered_the_greatest_and_not_the_commits_after_it(self):
+        self.tag("v1.0.0", self.commits[0])
+        self.push({"catalog.yml": catalog_yml(1, "1.1.0")}, "Release 1.1.0")
+        self.tag("v1.1.0", self.commits[-1])
+        self.push({"addons/a/README.md": "x\n"}, "Not released yet")
+        found = self.offer()
+        self.assertEqual((found.commit, found.tip, found.release), (self.commits[1], "ok", "1.1.0"))
+        self.assertEqual(found.levels, [(self.commits[1], 1), (self.commits[0], 1)])
+        self.assertEqual(manifest.releases(self.store, self.commits[0]), [(self.commits[0], 1, "1.0.0")])
+
+    def test_a_tag_its_catalog_file_does_not_agree_with_is_no_release(self):
+        self.push({"addons/a/README.md": "x\n"})
+        self.tag("v2.0.0", self.commits[-1])   # the file still says 1.0.0
+        self.assertEqual(self.offer().release, None, "a catalog with no release: its newest commit")
+        self.tag("v1.0.0", self.commits[0])
+        self.assertEqual(self.offer()[:3], (self.commits[0], "ok", "1.0.0"))
+
+    def test_a_release_for_a_newer_lab_leaves_the_greatest_this_lab_reads_and_says_a_newer_one_exists(self):
+        self.tag("v1.0.0", self.commits[0])
+        self.push({"catalog.yml": catalog_yml(2, "2.0.0")})
+        self.tag("v2.0.0", self.commits[-1])
+        self.assertEqual(self.offer()[:3], (self.commits[0], "new", "1.0.0"))
+        self.assertEqual(self.offer(2, 1)[:3], (self.commits[1], "ok", "2.0.0"))
+        found = self.offer(3, 3)
+        self.assertEqual(found[:3], (None, "old", None))
+        self.assertEqual(manifest.no_commit(found.levels, 3, 3).code, "lab_old")
+
+    def test_a_released_catalog_whose_tip_has_no_catalog_file_is_not_a_catalog(self):
+        self.tag("v1.0.0", self.commits[0])
+        self.push({"catalog.yml": None})
+        with self.assertRaises(registry.CatalogError) as raised:
+            self.offer()
+        self.assertEqual(raised.exception.code, "not_catalog")
+
+    def test_release_of_says_whether_a_commit_is_the_release_of_its_version(self):
+        self.push({"addons/a/README.md": "x\n"})
+        self.tag("v1.0.0", self.commits[0])
+        self.offer()
+        self.assertEqual(manifest.release_of(self.store, self.commits[0], "1.0.0"), "1.0.0")
+        self.assertIsNone(manifest.release_of(self.store, self.commits[1], "1.0.0"), "a commit after it")
+        self.assertIsNone(manifest.release_of(self.store, None, "1.0.0"))
+        self.assertIsNone(manifest.release_of(self.store, self.commits[0], None))
+
+
 # ---------------------------------------------------------------------------------------------------------------------
 # The index
 # ---------------------------------------------------------------------------------------------------------------------

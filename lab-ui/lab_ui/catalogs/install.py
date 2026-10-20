@@ -63,6 +63,7 @@ MANIFEST_LIMIT = 32 * 1024 * 1024   # as the registry reads one
 DEEP = 40   # how far down an install is looked into for its machine files
 WALK_LIMIT = 50000   # entries looked at in a folder catalog before it is `too_large`
 ROOTS_LIMIT = 20   # the root commits a lock entry holds (registry): more are not recorded
+WHATSNEW = 30   # the lines of What's new an update says: five for each item, as the notes of a release, up to this
 
 _NS = re.compile(paths.NS)
 _REMOVED = re.compile(r"\.removed-({ns})-([0-9]{{8}}T[0-9]{{6}}Z)".format(ns=paths.NS))
@@ -923,7 +924,8 @@ def commit_add(staged: Staged, address: gitx.Address, branch: Optional[str], aud
         _step("add:pending")
         registry.set_lock(ns, pin=None, previous=None, tip=tip, roots=sorted(roots), audience=audience,
                           installed=None, checked=None, error=None,
-                          pending={"op": "add", "from": None, "to": staged.commit}, **_lock_fields(meta))
+                          pending={"op": "add", "from": None, "to": staged.commit}, **_lock_fields(meta),
+                          release=manifest.release_of(final, staged.commit, meta["version"]))
         with _exclusive():
             _step("add:install")
             _place(ns, staged)
@@ -1111,11 +1113,12 @@ def plan_update(ns: str, target: str, context: Optional[dict] = None) -> dict:
     else the plan. The candidate tree is staged in full at `.stage-<ns>` for the caller to judge. The plan: {ns, op
     (update, or undo when `target` is `lock.previous`), from, to, tip, name, version, lab, adds, updates, removes (unit
     keys `kind:name`), files {add, change, remove}, touched (what changed in each unit, `store.changed_parts`), rewritten,
-    held (the changed or removed units that are on), whatsnew (the subjects of the commits that touched the units it adds,
-    changes or removes), ignored, kept (the files written), stage, meta (the validated
-    catalog.yml of the candidate), context}. `rewritten`: the history is not the one installed (the roots differ, or the
-    pin is not an ancestor of the target; for a Go back, the two are not one history), unless the new roots are the ones
-    in `context["vouched"]`. `context["on"]`, an iterable or a function: the units that are on or up, which the hold
+    held (the changed or removed units that are on), release (the version of the release `target` is, or None), whatsnew
+    (what is new in the units it changes, adds or removes, unit by unit, as the notes of a release say it: `store.notes`,
+    each subject once), ignored, kept (the files written), stage, meta (the validated catalog.yml of the candidate), context}.
+    `rewritten`: the history is not the one installed (the roots differ, or the pin is not an ancestor of the target; for a
+    Go back, the two are not one history), unless the new roots are the ones in `context["vouched"]`; or `context["moved"]`,
+    the release installed is a tag the owners moved to the target since, which an update does not take silently either. `context["on"]`, an iterable or a function: the units that are on or up, which the hold
     rule adds to those the on file turns on. `context["contract"]`, `{contract, contract_min}`: the level this Lab reads; a
     version written for another is refused (`lab_new`, `lab_old`) whatever `pick` made of it, the staged folder cleared. The
     plan is applied by `apply_update`, which asks again."""
@@ -1157,14 +1160,13 @@ def plan_update(ns: str, target: str, context: Optional[dict] = None) -> dict:
                  "change": sorted(path for path in set(now) & set(old["files"])
                                   if (now[path].oid, now[path].mode)
                                   != (_rec(old["files"], path).get("oid"), _rec(old["files"], path).get("mode")))}
-        rewritten = _rewritten(ns, store_path, held, target, context, op)
-        folders = sorted({_folder(key) for key in adds + updates + removes}) or [manifest.FILE]
-        news = bare.log(store_path, held["pin"], target, folders) if op == "update" else []
+        rewritten = _rewritten(ns, store_path, held, target, context, op) or (op == "update" and bool(context.get("moved")))
+        news = _whatsnew(store_path, held["pin"], target, updates + adds + removes) if op == "update" else []
         touched = bare.changed_parts(files["add"] + files["change"] + files["remove"])
         return {"ns": ns, "op": op, "from": held["pin"], "to": target, "tip": held.get("tip"), "name": meta["name"],
                 "version": meta["version"], "lab": meta["lab"], "adds": adds, "updates": updates, "removes": removes,
                 "files": files, "touched": touched, "rewritten": rewritten, "held": _held(ns, updates + removes, context),
-                "whatsnew": news, "ignored": ignored, "kept": kept, "stage": os.fspath(registry.stage_dir(ns)),
+                "release": manifest.release_of(store_path, target, meta["version"]), "whatsnew": news, "ignored": ignored, "kept": kept, "stage": os.fspath(registry.stage_dir(ns)),
                 "meta": meta, "context": context}
 
 
@@ -1178,10 +1180,12 @@ def _rewritten(ns, store_path, held, target, context, op="update") -> bool:
     return (not joined or roots != sorted(held.get("roots") or [])) and not (vouched and roots == vouched)
 
 
-def _folder(key):
-    """The path in the catalog that a unit key stands for, for `git log`."""
-    kind, _, name = key.partition(":")
-    return f"setups/{name}.yml" if kind == "setup" else f"{bare.FOLDERS[kind]}/{name}"
+def _whatsnew(store_path, old, new, keys, limit=WHATSNEW):
+    """What's new of an update: the notes of the units it touches (`store.notes`), their subjects one after the other, each
+    once, at most `limit`; with no unit touched, those of catalog.yml."""
+    lines = [subject for _, subjects in bare.notes(store_path, old, new, keys) for subject in subjects] if keys \
+        else bare.log(store_path, old, new, [manifest.FILE])
+    return list(dict.fromkeys(lines))[:limit]
 
 
 def _only(folder, rel, going) -> bool:
@@ -1276,6 +1280,8 @@ def _roll(ns, frm, to, label, meta=None):
     else:
         found = registry.scan(bare.read(store_path, to, manifest.FILE) or b"")
         fields = {key: found[key] for key in ("name", "version", "lab") if key in found}
+    if frm != to:   # the release a pin is, said when it moves: a repair keeps what was said, even of a tag moved since
+        fields["release"] = manifest.release_of(store_path, to, fields.get("version"))
     _step(f"{label}:lock")
     registry.set_lock(ns, pin=to, installed=_utc(), error=None, pending=None, **change, **fields)
     _step(f"{label}:refs")

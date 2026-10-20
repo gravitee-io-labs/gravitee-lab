@@ -6,10 +6,11 @@ The notes come from two deterministic sources and nothing else:
 
 - **the units added or removed**: the units of the tree at the previous tag and at this one, compared;
 - **for each unit that changed**: up to five commit subjects, clipped to 160 characters, of `git log --format=%s <previous>..<tag> --
-  <the unit's folder>`. That is the function the Lab's Update dialog calls for "What's new" (`store.log`: merges, `Bump`, `Merge` and
-  `Revert` commits left out, control and format characters removed, the `(#N)` a squash adds dropped, clipped to 160), so the pull
-  request title, which a squash makes the subject, is the contract: a plain imperative sentence, and what a person reads on GitHub is
-  what the Update dialog showed them.
+  <the unit's folder>`. That is the function the Lab's Update dialog calls for "What's new" (`store.notes`, unit by unit `store.log`:
+  merges, `Bump`, `Merge` and `Revert` commits left out, control and format characters removed, the `(#N)` a squash adds dropped,
+  clipped to 160), and an update from one release to the next reads the same commits, so the pull request title, which a squash
+  makes the subject, is the contract: a plain imperative sentence, and what a person reads on GitHub is what the Update dialog
+  shows them.
 
 Layout: `## {name} {version}`, `Lab level {lab}`, then `### New`, `### Changed` (by unit) and `### Removed`, each only when it has
 something. The previous tag is the greatest `vX.Y.Z` below this one that leads to it; the first release has none, and every unit is new.
@@ -96,11 +97,6 @@ def tags_before(root: str, sha: str, tag: str) -> Optional[str]:
     return max(older)[1] if older else None
 
 
-def folder_of(unit: planning.Unit) -> str:
-    """The place in the tree whose commits a unit's notes are made of: its folder, or the file of a setup."""
-    return f"setups/{unit.name}.yml" if unit.kind == "setup" else f"{unit.kind}s/{unit.name}"
-
-
 def units_at(git_dir: str, sha: str):
     """The tree at a commit and its units: {Unit: compose file}."""
     tree = trees.GitTree(git_dir, sha)
@@ -129,14 +125,13 @@ def gather(root: str, tag: str, seams: Optional[dict] = None) -> Release:
         if moved is None:
             raise Unavailable("git could not say what changed between " + previous + " and " + tag)
         touched = {planning.unit_of(path) for path in moved} - {None}
-        log = seams.get("log") or store.log
-        for unit in sorted(touched & set(now) & set(before), key=lambda each: each.key):
-            try:
-                subjects = log(git_dir, previous_sha, sha, [folder_of(unit)], SUBJECTS)
-            except (gitx.CatalogError, ValueError) as error:
-                raise Unavailable("git could not read the commits of " + unit.key + ": "
-                                  + report.printable(getattr(error, "message", None) or str(error))) from None
-            changed.append((unit.key, list(subjects)))
+        keys = sorted(unit.key for unit in touched & set(now) & set(before))
+        try:
+            changed = [(key, list(subjects)) for key, subjects in (seams.get("notes") or store.notes)(git_dir, previous_sha, sha,
+                                                                                                         keys, SUBJECTS)]
+        except (gitx.CatalogError, ValueError) as error:
+            raise Unavailable("git could not read the commits of the units that changed: "
+                              + report.printable(getattr(error, "message", None) or str(error))) from None
     return Release(tag, sha, previous, previous_sha, meta.get("name", ""), meta.get("version", "") or tag[1:], meta.get("lab", ""),
                    new, changed, removed)
 
