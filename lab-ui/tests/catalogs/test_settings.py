@@ -271,6 +271,19 @@ class Transport(Case):
         self.assertEqual([], calls)
 
 
+class OwnWorkflows(unittest.TestCase):
+    """The Lab's own workflows run under the list of actions it sets on a repository: GitHub's own, docker/*, and its own."""
+
+    def test_every_action_the_lab_uses_is_on_its_list(self):
+        root = Path(__file__).resolve().parents[3] / ".github"
+        used = {match.group(1) for path in root.rglob("*.y*ml")
+                for match in re.finditer(r"^\s*-?\s*uses:\s*([^\s@#]+)", path.read_text(encoding="utf-8"), re.M)}
+        self.assertTrue(used, "the workflows are read")
+        for action in sorted(used):
+            if not action.startswith("./"):
+                self.assertTrue(action.split("/")[0] in ("actions", "github") or settings.within(action, settings.DOCKER_PATTERNS), action)
+
+
 class PlanLimits(unittest.TestCase):
     """`n.a.` is for exactly the refusals that GitHub words as limits of the plan."""
 
