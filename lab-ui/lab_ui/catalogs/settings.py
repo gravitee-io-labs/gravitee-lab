@@ -1083,9 +1083,13 @@ class _Audit:
         in_template = [c["context"] for c in map(as_dict, as_list(params.get("required_status_checks")))
                        if isinstance(c.get("context"), str)]
         names = self.options["required_checks"] or in_template
+        # The rule's title names the checks it asks for: those given (--required-check) rather than the template's
+        title = None if names == in_template else (
+            f"The check{'s' if len(names) > 1 else ''} {' and '.join(clean(name, 100) for name in names)}, run by GitHub Actions, "
+            f"pass{'' if len(names) > 1 else 'es'} first, on an up to date branch")
         instances = by_type.get("required_status_checks", [])
         if not instances:
-            return self.add("rules.checks", FAIL, now="missing", fix=fix)
+            return self.add("rules.checks", FAIL, title, now="missing", fix=fix)
         bound = {(plain(as_dict(c).get("context")), plain(as_dict(c).get("integration_id"))) for item in instances
                  for c in as_list(item.get("required_status_checks"))}
         problems = []
@@ -1096,8 +1100,8 @@ class _Audit:
         flags = {key: value for key, value in params.items() if key != "required_status_checks"}
         problems += _unmet("required_status_checks", flags, instances)
         if problems:
-            return self.add("rules.checks", FAIL, now="; ".join(problems), fix=fix)
-        self.add("rules.checks", OK)
+            return self.add("rules.checks", FAIL, title, now="; ".join(problems), fix=fix)
+        self.add("rules.checks", OK, title)
 
     def bypass(self, effective):
         # GitHub lists the rules of push rulesets among those of the branch; who may push past them is no way to merge a pull

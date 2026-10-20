@@ -950,6 +950,9 @@ class Audit(Base):
         # --required-check: the engine audits its own check
         scene = Scene("public-standard")
         self.assertEqual("E2E result is not required", scene.finding("rules.checks", required_checks=["E2E result"]).now)
+        self.assertEqual("The checks CI result and E2E result, run by GitHub Actions, pass first, on an up to date branch",
+                         scene.finding("rules.checks", required_checks=["CI result", "E2E result"]).title, "the title names them")
+        self.assertIn("Catalog CI result", scene.finding("rules.checks").title)
         self.weaken(scene, "required_status_checks", required_status_checks=[
             {"context": "Catalog CI result", "integration_id": 15368}, {"context": "E2E result", "integration_id": 15368}])
         self.assertEqual(OK, scene.finding("rules.checks", required_checks=["E2E result", "Catalog CI result"]).status)
