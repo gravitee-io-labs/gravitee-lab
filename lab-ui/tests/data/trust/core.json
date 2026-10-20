@@ -482,8 +482,8 @@
       },
       "entrypoint": null,
       "environment": {
-        "ALLOWED_FRAME_ANCESTOR_URLS": "http://localhost:8084",
-        "FRAME_PROTECTION_ENABLED": "false",
+        "ALLOWED_FRAME_ANCESTOR_URLS": "http://localhost:8084 http://localhost:9000 http://127.0.0.1:9000",
+        "FRAME_PROTECTION_ENABLED": "true",
         "PORTAL_API_URL": "http://localhost:8083/portal/environments/DEFAULT"
       },
       "healthcheck": {

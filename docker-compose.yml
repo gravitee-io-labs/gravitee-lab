@@ -306,8 +306,8 @@ services:
       - "127.0.0.1:8085:8080"   # Web UI
     environment:
       PORTAL_API_URL: http://localhost:8083/portal/environments/DEFAULT
-      FRAME_PROTECTION_ENABLED: "false"
-      ALLOWED_FRAME_ANCESTOR_URLS: http://localhost:8084
+      FRAME_PROTECTION_ENABLED: "true"
+      ALLOWED_FRAME_ANCESTOR_URLS: http://localhost:8084 http://localhost:9000 http://127.0.0.1:9000   # The APIM Console, and the Lab UI, which frames the portal next to a guide
     labels:
       io.gravitee.name: Developer Portal
       io.gravitee.description: Portal where developers discover and subscribe to APIs

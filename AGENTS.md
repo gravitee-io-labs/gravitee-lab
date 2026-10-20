@@ -105,7 +105,8 @@ on top of it and change its services only by the keys they need.
   in code. The variables: [images and versions](docs/configuration.md#images-and-versions).
 - `x-ui-frames` is the `command` of the consoles that the Lab UI shows in frames next to a guide. It removes
   `X-Frame-Options` and lets `http://localhost:9000` frame the page. A platform service listed in a playground's
-  `consoles` needs it.
+  `consoles` needs it, or a setting of its own that names `http://localhost:9000` and `http://127.0.0.1:9000` as the pages that
+  may frame it (the Developer Portal's `ALLOWED_FRAME_ANCESTOR_URLS`), which is better when the image has one.
 - Every published port binds `127.0.0.1` and has a comment that says what it is. `edge` carries what users and API
   consumers reach, `internal` the databases and supporting services.
 

@@ -620,7 +620,7 @@ class Playgrounds(Machine):
     """The UIs, the terminal and the seed of a playground, on a machine whose platform has a portal and whose playground
     brings an add-on."""
 
-    def playground(self, meta=None, inspector_console=False, command=None, **more):
+    def playground(self, meta=None, inspector_console=False, command=None, environment=None, **more):
         """What is wrong with the playground `welcome` once its x-gravitee says `meta` too."""
         console = {"io.gravitee.console.inspector.name": "Inspector", "io.gravitee.console.inspector.url": "http://localhost:9002"}
         website = {"io.gravitee.console.website.name": "Website", "io.gravitee.console.website.url": "http://localhost:8000"}
@@ -636,7 +636,7 @@ class Playgrounds(Machine):
 
         def platform(core):
             core["services"]["apim-portal-ui"] = service("graviteeio/apim-portal-ui:4.12", "Portal", labels=portal,
-                                                         command=command or [])
+                                                         command=command or [], environment=environment or {})
             core["x-gravitee"]["groups"] = ["API Management"]
         self.machine([inspector, welcome], core=platform, guides={"welcome": "## 1. One\n"}, **more)
         self.patch(check, "_guide", return_value=[])
@@ -680,7 +680,8 @@ class Playgrounds(Machine):
         pages = " ".join(frames.PAGES)
         framed = [part.replace("{pages}", pages) for part in PORTAL_COMMAND]
         message = ("x-gravitee.consoles: apim-portal-ui is shown in a frame, so its command must name "
-                   f"{' and '.join(frames.PAGES)} and remove X-Frame-Options (x-ui-frames in docker-compose.yml)")
+                   f"{' and '.join(frames.PAGES)} and remove X-Frame-Options (x-ui-frames in docker-compose.yml), "
+                   "or a setting of it must name them as the pages that may frame it")
         shown = {"consoles": ["acme-website", "apim-portal-ui"]}
         self.assertEqual(self.playground(meta=shown, command=framed), [])
         self.assertEqual(self.playground(meta=shown, command=" ".join(framed)), [])   # Compose may print it as one text
@@ -689,6 +690,10 @@ class Playgrounds(Machine):
                         ["sh", "-c", f"s|self|& {pages}|"]):
             with self.subTest(command=command):
                 self.assertEqual(self.playground(meta=shown, command=command), [message])
+        # A setting of its own that names the pages is enough: the portal is configured, not patched
+        for pages, expected in ((" ".join(frames.PAGES), []), (frames.PAGES[0], [message])):
+            with self.subTest(setting=pages):
+                self.assertEqual(self.playground(meta=shown, environment={"ALLOWED_FRAME_ANCESTOR_URLS": "http://localhost:8084 " + pages}), expected)
         # Only the consoles listed are asked, and only the platform's: an app answers for its own headers
         self.assertEqual(self.playground(meta={"consoles": []}), [])
         self.assertEqual(self.playground(meta={"consoles": ["acme-website"]}, command=None), [])
