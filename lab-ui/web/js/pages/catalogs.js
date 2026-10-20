@@ -73,12 +73,13 @@ function stateHtml(row) {
 function actions(row) {
   const off = (why) => (why ? ` aria-disabled="true" data-why="${esc(why)}"` : "");
   const git = noGit() ? NO_GIT : "";
-  // Another request at work on the row holds its buttons (the button of Update says its own at work: that is its paint)
-  const other = requested(row) === "update" ? "" : working(row);
+  // Another request at work on the row holds its buttons (the button of Update says its own at work, the check that comes first too: that is
+  // its paint)
+  const other = ["update", "check"].includes(requested(row)) ? "" : working(row);
   const at = `catalog-op:${row.id}`;
   let button = "";
   if (row.kind === "suggested") button = actionButton({ key: `catalog-op:${row.id ?? row.url}`, verb: "add", label: "Add", cls: "act", attrs: `data-add aria-label="${esc(`Add ${row.name}`)}"${off(git)}` });
-  else if (updates(row)) button = actionButton({ key: at, verb: "update", label: "Update", cls: "act", attrs: `data-update aria-label="${esc(`Update ${row.name}`)}"${off(other)}` });
+  else if (updates(row)) button = actionButton({ key: at, verb: ["update", "check"], label: "Update", cls: "act", attrs: `data-update aria-label="${esc(`Update ${row.name}`)}"${off(other)}` });
   else if (retries(row)) button = `<button type="button" class="btn act" data-retry aria-label="${esc(`Try again, ${row.name}`)}"${off(git || working(row))}>Try again</button>`;
   const more = menu(row).length
     ? `<button class="icon-btn" data-more data-tip="More" aria-label="${esc(`More for ${row.name}`)}" aria-haspopup="true">${icon("more")}</button>` : GAP;

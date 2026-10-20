@@ -1457,7 +1457,7 @@ class Reading(Remote):
         found = store.log(self.store, self.tip, tip, ["addons/echo"])
         self.assertEqual(found[0], "Padded subject")
         self.assertEqual(found[1], "Two spaces [31m red and bidi")
-        self.assertTrue(70 < len(found[2]) <= 80, len(found[2]))
+        self.assertTrue(150 < len(found[2]) <= 160, len(found[2]))
         self.assertTrue(found[2].startswith("Make the thing") and found[2].endswith("…"))
         for subject in found:
             self.assertFalse(re.search(r"[\x00-\x1f\x7f‮]", subject), repr(subject))

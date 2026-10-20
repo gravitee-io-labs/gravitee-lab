@@ -277,8 +277,13 @@ test("a request on a row says so in its state from the click, not from the next 
   await flush();
   // Drawn by the notification alone: no poll, no render called here
   assert.equal(cells(row("Acme Hub")).state, "Checking");
+  // The button of Update says the check at work, as it says its own: a second request on the row is not started by it
   const update = row("Acme Hub").querySelector("[data-update]");
-  assert.deepEqual([isOff(update), offWhy(update)], [true, "Checking"], "a second request on the row is not started by its button");
+  assert.deepEqual([update.classList.contains("busy"), text(update.querySelector(".pbtn-text"))], [true, "Checking…"]);
+  const sent = server.calls.length;
+  click(update);
+  await flush();
+  assert.equal(server.calls.length, sent);
   assert.deepEqual(menuOf("Acme Hub"), [["Check again", "Checking"], ["Stop checking automatically", "Checking"], ["Open repository", ""], ["Copy address", ""],
     ["Go back to previous version", "Checking"], ["Remove", "Checking"]], "its entries wait and say why; the ones that ask nothing of the Lab do not");
   wait.release();
@@ -293,7 +298,7 @@ test("a request on a row says so in its state from the click, not from the next 
   assert.deepEqual([isOff(row("Later").querySelector("[data-retry]")), offWhy(row("Later").querySelector("[data-retry]"))], [true, "Checking"]);
 });
 
-test("the check of a plan reads on the row as Checking where the menu asked (Go back, Remove) and as Updating where the button of Update did", async () => {
+test("the check of a plan reads on the row as Checking wherever it was asked (Go back, Remove, the button of Update), and the button says so too", async () => {
   const wait = hold();
   show([GIT("update", { id: hub(), has_previous: true, held: { update: "", remove: "", undo: "" } })]);
   server.answers[at("/undo")] = () => wait.held.then(() => PLAN());
@@ -308,7 +313,7 @@ test("the check of a plan reads on the row as Checking where the menu asked (Go 
   server.answers[at("/update")] = () => again.held.then(() => PLAN());
   click(row("Acme Hub").querySelector("[data-update]"));
   await flush();
-  assert.equal(cells(row("Acme Hub")).state, "Updating");
+  assert.deepEqual([cells(row("Acme Hub")).state, text(row("Acme Hub").querySelector("[data-update] .pbtn-text"))], ["Checking", "Checking…"]);
   again.release();
   await settle();
   shut();
@@ -923,7 +928,7 @@ test("a word that is the name of something in the language is a word like anothe
   shut();
   await updating(PLAN({ changes: [{ id: "x", name: "Acme Bakery", fact: "constructor", value: "v" }, { id: "y", name: "Mock bank", fact: "reads", value: "toString" }] }));
   const changes = adding().querySelectorAll("#catalog-rows .choice-row").find((r) => text(r.querySelector(".choice-row-label")) === "Changes");
-  assert.deepEqual(changes.querySelectorAll(".step-name").map(text), ["Acme Bakery: constructor v", "Mock bank now reads toString"]);
+  assert.deepEqual(changes.querySelectorAll(".step-items li").map(text), ["Acme Bakery: constructor v", "Mock bank now reads toString"]);
   server.answers[at("/changes")] = { files: [{ path: "a.yml", status: "constructor", diff: null }] };
   click(secondary());
   await settle();
@@ -944,7 +949,7 @@ test("an item that is Blocked and also uses this machine counts once under Canno
   shut();
   await updating(PLAN({ uses_machine: [{ id: "kubernetes", name: "Kubernetes", what: ["runs privileged"] }], blocked: [k3s] }));
   assert.equal(rowsOf().pop()[0], "Cannot run");
-  assert.equal(adding().querySelectorAll("#catalog-rows .choice-row").pop().querySelectorAll(".pill").length, 1);
+  assert.equal(adding().querySelectorAll("#catalog-rows .choice-row").pop().querySelectorAll(".step-items li").length, 1);
   shut();
 });
 
@@ -956,12 +961,14 @@ test("more than four lines fold under a line that counts them", async () => {
   shut();
 });
 
-test("a row folded under its count keeps its hint: what the row says about its names is not lost when they are many", async () => {
-  // Removes says "No longer in the catalog" of its names, however many they are
-  await updating(PLAN({ removes: ["One", "Two", "Three", "Four", "Five"].map((name) => ({ name })), breaks: [], changes: [], blocked: [], updates: [], adds: [], whatsnew: [] }));
-  const fold = adding().querySelector("#catalog-rows details.choice-row");
-  assert.deepEqual([text(fold.querySelector(".choice-row-label")), text(fold.querySelector(".choice-summary"))], ["Removes", "5 itemsNo longer in the catalog"]);
-  assert.equal(fold.querySelector(".choice-summary .muted").tag, "span");
+test("the items of a plan are a list, every one of them on its line with its kind, under the hint of the row, however many they are", async () => {
+  // Removes says "No longer in the catalog" of its names
+  await updating(PLAN({ removes: ["One", "Two", "Three", "Four", "Five"].map((name, i) => ({ kind: i ? "addon" : "playground", name })), breaks: [], changes: [], blocked: [], updates: [], adds: [], whatsnew: [] }));
+  assert.equal(adding().querySelector("#catalog-rows details.choice-row"), null, "nothing of a plan is folded away");
+  const removes = adding().querySelectorAll("#catalog-rows .choice-row").find((r) => text(r.querySelector(".choice-row-label")) === "Removes");
+  assert.deepEqual([text(removes.querySelector(".choice-row-label")), text(removes.querySelector(".choice-items > .muted"))], ["Removes", "No longer in the catalog"]);
+  assert.deepEqual(removes.querySelectorAll(".step-items li").map((li) => [text(li.querySelector(".step-name")), text(li.querySelector(".step-kind"))]),
+    [["One", "Playground"], ["Two", "Add-on"], ["Three", "Add-on"], ["Four", "Add-on"], ["Five", "Add-on"]]);
   shut();
 });
 
@@ -1254,19 +1261,19 @@ async function updating(plan, more = {}, route = "update") {
 }
 const buttons = () => adding().querySelectorAll(".dialog-actions .btn").map(face);
 
-test("Update says what changes before it does: the version, who changes, what comes and goes, what breaks, what is new, what cannot run; Cancel, Show changes, Update", async () => {
+test("Update says what changes before it does: the version, what is new, who changes, what comes and goes, what breaks, what cannot run; Cancel, Show changes, Update", async () => {
   await updating(PLAN());
   assert.deepEqual(server.calls.map((c) => [c.path, c.body]), [[at("/update"), { check: true }]]);
   assert.deepEqual([adding().hasAttribute("open"), heading(), onScreen()], [true, "Update Acme Hub", "effects"]);
   assert.deepEqual(rowsOf(), [
     ["Version", "1.5.0"],
-    ["Updates", "Acme Bakery"],
-    ["Adds", "Ledger"],
-    ["Removes", "Old No longer in the catalog"],
-    ["Breaks", "Demo Needs Old"],
-    ["Changes", "Acme Bakery now publishes port 8141"],
     ["What's new", "Add the ledger"],
-    ["Cannot run", "X Publishes a port to the network"],
+    ["Updates", "Acme Bakery Playground"],
+    ["Adds", "Ledger Add-on"],
+    ["Removes", "No longer in the catalog Old Add-on"],
+    ["Breaks", "Demo Needs Old Playground"],
+    ["Changes", "Acme Bakery now publishes port 8141"],
+    ["Cannot run", "X Publishes a port to the network Add-on"],
   ]);
   assert.deepEqual(buttons(), ["Cancel", "Show changes", "Update"]);
   const update = primary();
@@ -1278,7 +1285,7 @@ test("Update says what changes before it does: the version, who changes, what co
 
 test("a row is left out when it has nothing: a plan that only adds says only that", async () => {
   await updating(PLAN({ updates: [], removes: [], breaks: [], changes: [], whatsnew: [], blocked: [] }));
-  assert.deepEqual(rowsOf(), [["Version", "1.5.0"], ["Adds", "Ledger"]]);
+  assert.deepEqual(rowsOf(), [["Version", "1.5.0"], ["Adds", "Ledger Add-on"]]);
   shut();
 });
 
@@ -1474,7 +1481,7 @@ test("every growth of power is a line of Changes in the Lab's words", async () =
     change("reads", "license"), change("reads", "gateway token"), change("plugins", "apim"), change("seed", "custom"), change("host", "runs privileged", "Kubernetes"),
     change("host", "mounts the Docker socket", "Console")] }));
   const changes = adding().querySelectorAll("#catalog-rows .choice-row").find((r) => text(r.querySelector(".choice-row-label")) === "Changes");
-  assert.deepEqual(changes.querySelectorAll(".step-name").map(text), ["Acme Bakery now publishes port 8141", "Mock bank now builds from github.com/acme/mock", "Acme Bakery now changes the API Management gateway",
+  assert.deepEqual(changes.querySelectorAll(".step-items li").map(text), ["Acme Bakery now publishes port 8141", "Mock bank now builds from github.com/acme/mock", "Acme Bakery now changes the API Management gateway",
     "Acme Bakery now reads your Gravitee license", "Acme Bakery now reads your Gravitee Cloud gateway token", "Acme Bakery now installs plugins for apim",
     "Acme Bakery now runs a custom seed", "Kubernetes now runs privileged", "Console now mounts the Docker socket"]);
   shut();

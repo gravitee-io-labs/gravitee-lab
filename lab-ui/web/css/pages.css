@@ -879,8 +879,11 @@ mark { background: var(--hl); color: var(--hl-text); border-radius: 2px; padding
 #page-catalogs .panel-fact code { min-width: 0; overflow-wrap: anywhere; }
 /* ... but on a phone the lists' own label column leaves the value the width it needs */
 @container (max-width: 599px) { #page-catalogs { --label: 80px; } }
-/* A list of sentences in a row of an effects dialog takes the width the row has, each line cut with an ellipsis, not the width of its longest */
-.choice-items > .step-items { flex: 1; min-width: 0; grid-template-columns: minmax(0, 1fr); }
+/* A list in a row of an effects dialog (the items of a plan, its sentences) takes the width the row has, under the hint of the row. A
+   sentence is said whole, on the lines it takes; a long list scrolls in its frame, its next line cut to say there is more. */
+.choice-items:has(> .step-items) { flex-direction: column; align-items: stretch; gap: 6px; }
+.choice-items > .step-items { min-width: 0; grid-template-columns: minmax(0, 1fr); max-height: 218px; overflow: auto; overscroll-behavior: contain; }
+.choice-items > .step-items > li { overflow-wrap: anywhere; }
 /* Show changes: a unified diff, the files that changed beside it (the editor's list and column). Added lines in green, removed in red. */
 #catalog-files { grid-template-columns: minmax(0, 1fr); }   /* a long path is cut in its column, with its status after it */
 .diff { flex: 1; min-height: 0; margin: 0; padding: var(--sp-3) 0; overflow: auto; font: 12px/1.55 var(--mono); color: var(--text-2); }

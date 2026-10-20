@@ -920,7 +920,7 @@ dialog::backdrop { background: var(--backdrop, rgb(10 12 16 / .45)); backdrop-fi
 @media (max-width: 480px) { .choice-row { grid-template-columns: minmax(0, 1fr); gap: 4px; } }
 /* Many items: one line that counts them, which opens on a list of one line each, the count in a column of its own */
 .choice-more { display: block; }
-.choice-more > summary { display: grid; grid-template-columns: var(--label) minmax(0, 1fr); gap: 10px; align-items: baseline; cursor: pointer; list-style: none; }
+.choice-more > summary { display: grid; grid-template-columns: var(--label) minmax(0, 1fr); gap: 10px; align-items: baseline; border-radius: var(--r-inner); cursor: pointer; list-style: none; }
 .choice-more > summary::-webkit-details-marker { display: none; }
 .choice-summary { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; color: var(--text-2); }
 .choice-summary svg { width: 14px; height: 14px; transform: rotate(-90deg); transition: transform var(--dur-2) var(--ease); }
@@ -929,6 +929,7 @@ dialog::backdrop { background: var(--backdrop, rgb(10 12 16 / .45)); backdrop-fi
 .choice-detail { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 2px 16px; margin: 10px 0 0; padding: 10px 12px;
   list-style: none; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .choice-detail > li { display: grid; grid-template-columns: 3ch minmax(0, 1fr); gap: 8px; align-items: baseline; }
+.choice-detail > li:not(:has(> b)) { grid-template-columns: minmax(0, 1fr); }   /* a list of names only: no column for a count */
 .choice-detail b { text-align: right; font-weight: var(--fw-3); font-variant-numeric: tabular-nums; }
 .choice-detail span { color: var(--text-2); overflow-wrap: anywhere; }
 /* A single option is what the dialog says, without a frame; the steps that several share come before the choice */
@@ -957,11 +958,13 @@ dialog::backdrop { background: var(--backdrop, rgb(10 12 16 / .45)); backdrop-fi
 }
 .step-items > li + li { border-top: 1px solid var(--border); }
 .step-name { min-width: 0; overflow-wrap: anywhere; font-weight: var(--fw-2); }   /* a long one (a version and its registry) goes on, whole */
+.step-name .muted { font-weight: var(--fw-1); }   /* what is said of it, after it */
 .step-kind { flex: none; color: var(--muted); font-size: var(--fs-1); }
 .choice-text > .steps + .choice-row { margin-top: 4px; }
 
 /* A new add-on, setup or playground: its fields and what it includes, or the prompt that has an AI agent write it */
 .create-dialog { width: min(880px, 94vw); }
+.catalog-dialog { width: min(720px, 94vw); }   /* a catalog's Add, Update and Go back: a label, then names that read across with their kind */
 .agent-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 /* The three that create an item are large: the form and the prompt have the same height, the buttons at the foot of both. The checklist
    takes the height the fields leave and is the one thing that scrolls */
