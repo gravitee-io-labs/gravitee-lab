@@ -662,9 +662,9 @@ def _pull_policy(unit, project):
 
 def _frameable(service):
     """Whether the Lab UI's pages may frame a console of the platform: its command lets them (x-ui-frames) and drops
-    X-Frame-Options, which would refuse every page but its own."""
+    X-Frame-Options, which would refuse every page but its own, or a setting of its own names them as the pages that may."""
     command = service.get("command") or ""
-    return all(page in command for page in frames.PAGES) and "X-Frame-Options" in command
+    return bool(service.get("lets_frame")) or (all(page in command for page in frames.PAGES) and "X-Frame-Options" in command)
 
 
 def _consoles(playground, project):
@@ -688,7 +688,8 @@ def _consoles(playground, project):
             yield f"x-gravitee.consoles: {name} is not a service with a console that this playground runs"
         elif owner[0] == "platform" and not _frameable(service):
             yield (f"x-gravitee.consoles: {name} is shown in a frame, so its command must name "
-                   f"{' and '.join(frames.PAGES)} and remove X-Frame-Options (x-ui-frames in docker-compose.yml)")
+                   f"{' and '.join(frames.PAGES)} and remove X-Frame-Options (x-ui-frames in docker-compose.yml), "
+                   "or a setting of it must name them as the pages that may frame it")
 
 
 def _terminal(playground, project):

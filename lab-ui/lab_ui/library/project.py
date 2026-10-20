@@ -27,7 +27,7 @@ from pathlib import Path, PurePosixPath
 
 from ..docker import compose, envfiles
 from . import layout
-from ..gravitee import license, platforms
+from ..gravitee import frames, license, platforms
 from .. import paths
 from ..catalogs import registry, resolve, trust
 from ..paths import CORE_FILE, ENV_FILE, KINDS, LAB_DIR, ROOT
@@ -1180,6 +1180,8 @@ def _service(name, written, running, owner, project_name):
             "oneshot": restart == "no" and not ports,
             "depends_on": sorted(running.get("depends_on") or {}),   # what Compose starts first
             "command": " ".join(command) if isinstance(command, list) else str(command),
+            # A setting of its own names the Lab UI's pages: how a UI that is configured, not patched, lets them frame it
+            "lets_frame": any(all(page in str(value) for page in frames.PAGES) for value in (running.get("environment") or {}).values()),
             "built": bool(running.get("build")), "pull_policy": running.get("pull_policy"),
             "role": labels.get("io.gravitee.role"),
             "needs_license": labels.get(LICENSE_LABEL) == "required"}
