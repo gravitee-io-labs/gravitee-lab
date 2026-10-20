@@ -63,6 +63,15 @@ test("an action link becomes a button with its play icon and the text of the lin
   assert.equal(out.textContent, "Click Leak an IBAN.");
 });
 
+test("an action that opens something to look at has an eye, one that does something a play", async () => {
+  const out = await render('<p><a href="action:open-plans">See the plans</a> <a href="action:send-order">Send</a></p>');
+  const [look, play] = out.querySelectorAll("button");
+  assert.equal(look.querySelector("svg use").getAttribute("href"), "#i-eye");
+  assert.equal(look.className, "btn guide-action look");
+  assert.equal(play.querySelector("svg use").getAttribute("href"), "#i-play");
+  assert.equal(play.className, "btn guide-action");
+});
+
 test("every action link of a page is a button, and the other links are left alone", async () => {
   const out = await render(`<ul><li><a href="action:ask-ace-accounts">Ask Ace</a> and <a href="action:ask-ace-direct">without the gateway</a></li>
     <li><a href="http://localhost:8086" target="_blank" rel="noopener">Gamma</a></li><li><a href="#/playgrounds/acme-bakery/2">Next</a></li></ul>`);
