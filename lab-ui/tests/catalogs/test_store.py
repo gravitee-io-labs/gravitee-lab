@@ -1451,6 +1451,10 @@ class Reading(Remote):
                                when=gitfixture.BASE_TIME + 5000).strip()
         self.assertEqual(store.log(self.store, self.tip, merge, ["addons/echo"]), ["Side work"])
 
+    def test_a_subject_loses_the_number_of_its_pull_request(self):
+        tip = self.commits("Fix the guide (#4)", "Name issue #12 in the text (#13)", "(#7)")
+        self.assertEqual(store.log(self.store, self.tip, tip, ["addons/echo"]), ["Name issue #12 in the text", "Fix the guide"])
+
     def test_a_subject_is_cleaned_and_clipped(self):
         long = "Make the thing that the people use do more of what they asked for in the first place " * 2
         tip = self.commits(long, "Two\tspaces\x1b[31m red\x07 and‮ bidi", "   Padded   subject   ")

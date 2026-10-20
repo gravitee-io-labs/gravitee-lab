@@ -928,7 +928,7 @@ test("a word that is the name of something in the language is a word like anothe
   shut();
   await updating(PLAN({ changes: [{ id: "x", name: "Acme Bakery", fact: "constructor", value: "v" }, { id: "y", name: "Mock bank", fact: "reads", value: "toString" }] }));
   const changes = adding().querySelectorAll("#catalog-rows .choice-row").find((r) => text(r.querySelector(".choice-row-label")) === "Changes");
-  assert.deepEqual(changes.querySelectorAll(".step-items li").map(text), ["Acme Bakery: constructor v", "Mock bank now reads toString"]);
+  assert.deepEqual(changes.querySelectorAll(".choice-lines li").map(text), ["Acme Bakery: constructor v", "Mock bank now reads toString"]);
   server.answers[at("/changes")] = { files: [{ path: "a.yml", status: "constructor", diff: null }] };
   click(secondary());
   await settle();
@@ -1481,7 +1481,7 @@ test("every growth of power is a line of Changes in the Lab's words", async () =
     change("reads", "license"), change("reads", "gateway token"), change("plugins", "apim"), change("seed", "custom"), change("host", "runs privileged", "Kubernetes"),
     change("host", "mounts the Docker socket", "Console")] }));
   const changes = adding().querySelectorAll("#catalog-rows .choice-row").find((r) => text(r.querySelector(".choice-row-label")) === "Changes");
-  assert.deepEqual(changes.querySelectorAll(".step-items li").map(text), ["Acme Bakery now publishes port 8141", "Mock bank now builds from github.com/acme/mock", "Acme Bakery now changes the API Management gateway",
+  assert.deepEqual(changes.querySelectorAll(".choice-lines li").map(text), ["Acme Bakery now publishes port 8141", "Mock bank now builds from github.com/acme/mock", "Acme Bakery now changes the API Management gateway",
     "Acme Bakery now reads your Gravitee license", "Acme Bakery now reads your Gravitee Cloud gateway token", "Acme Bakery now installs plugins for apim",
     "Acme Bakery now runs a custom seed", "Kubernetes now runs privileged", "Console now mounts the Docker socket"]);
   shut();

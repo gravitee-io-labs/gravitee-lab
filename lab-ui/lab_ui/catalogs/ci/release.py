@@ -7,8 +7,9 @@ The notes come from two deterministic sources and nothing else:
 - **the units added or removed**: the units of the tree at the previous tag and at this one, compared;
 - **for each unit that changed**: up to five commit subjects, clipped to 160 characters, of `git log --format=%s <previous>..<tag> --
   <the unit's folder>`. That is the function the Lab's Update dialog calls for "What's new" (`store.log`: merges, `Bump`, `Merge` and
-  `Revert` commits left out, control and format characters removed, clipped to 160), so the pull request title, which a squash makes the
-  subject, is the contract: a plain imperative sentence, and what a person reads on GitHub is what the Update dialog showed them.
+  `Revert` commits left out, control and format characters removed, the `(#N)` a squash adds dropped, clipped to 160), so the pull
+  request title, which a squash makes the subject, is the contract: a plain imperative sentence, and what a person reads on GitHub is
+  what the Update dialog showed them.
 
 Layout: `## {name} {version}`, `Lab level {lab}`, then `### New`, `### Changed` (by unit) and `### Removed`, each only when it has
 something. The previous tag is the greatest `vX.Y.Z` below this one that leads to it; the first release has none, and every unit is new.

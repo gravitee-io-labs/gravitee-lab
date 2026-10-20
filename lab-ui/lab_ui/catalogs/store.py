@@ -674,7 +674,8 @@ def log(store, old: Optional[str], new: str, folders: List[str], limit: int = 5)
     """The subjects of the commits from `old` (not included; None for all) to `new` that touched `folders`, newest
     first, merges left out, those that start with `Bump `, `Merge ` or `Revert ` dropped (dependency bots and merge
     commits are noise to a person), at most `limit`, each with its control and format characters (escape sequences, bidi
-    overrides) removed, its white space collapsed and clipped to 160: a subject of a sentence is shown whole."""
+    overrides) removed, its white space collapsed, without the number of the pull request a squash ends it with ("(#4)", which
+    leads nowhere where it is read) and clipped to 160: a subject of a sentence is shown whole."""
     span = _rev(new) if not old else f"{_rev(old)}..{_rev(new)}"
     paths = [_pathspec(folder) for folder in folders]
     out = _git(store, "log", "--no-merges", "--max-count=200", "--format=%s", span, "--", *paths).out
@@ -682,6 +683,7 @@ def log(store, old: Optional[str], new: str, folders: List[str], limit: int = 5)
     for line in out.decode("utf-8", "replace").splitlines():
         text = " ".join("".join(" " if unicodedata.category(c) == "Cc" else c for c in line
                                 if unicodedata.category(c) != "Cf").split())
+        text = re.sub(r"\s*\(#\d+\)$", "", text)
         if text and not re.match(r"(Bump|Merge|Revert) ", text):
             subjects.append(_clip(text, 160))
         if len(subjects) >= limit:

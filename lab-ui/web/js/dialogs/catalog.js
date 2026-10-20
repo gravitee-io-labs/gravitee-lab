@@ -78,8 +78,8 @@ function row(r) {
   return `<div class="choice-row${r.tone === "danger" ? " danger" : ""}"><span class="choice-row-label">${esc(r.label)}</span><span class="choice-items">${value}</span></div>`;
 }
 
-// A list of sentences, one to a line, each said whole (what is new, what a change adds)
-const sentences = (lines) => `<ul class="step-items">${lines.map((line) => `<li>${esc(line)}</li>`).join("")}</ul>`;
+// A list of sentences, one to a line, each said whole (what is new, what a change adds): text, not a frame of names
+const sentences = (lines) => `<ul class="choice-lines">${lines.map((line) => `<li>${esc(line)}</li>`).join("")}</ul>`;
 
 const mark = (card, label) => tipHtml(icon("info"), card, "plat-info", label);
 
