@@ -99,27 +99,25 @@ jobs:
       - name: Run the tests
         run: .venv/bin/python -m unittest discover -s seeder/tests -t seeder
 
-  # The Lab UI runs on Python 3.9 or later and ships JavaScript that Node tests. Python 3.9 has no build for newer
-  # runner images, hence the pinned one.
-  # The suite renders many files with Compose, so it is split in four parts: the modules, largest first, are dealt out in turn.
+  # The whole suite of the Lab UI, on the newest Python, with the JavaScript that Node tests. It renders many files with Compose, so it
+  # is split in four parts that take about as long (lab-ui/tests/durations.json)
   lab-ui:
-    name: Lab UI tests (Python ${{ matrix.python }}, part ${{ matrix.part }} of 4)
+    name: Lab UI tests (part ${{ matrix.part }} of 4)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.9", "3.14"]
         part: [1, 2, 3, 4]
     steps:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Set up Python
+      - name: Set up Python 3.14
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: ${{ matrix.python }}
+          python-version: "3.14"
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -132,10 +130,35 @@ jobs:
         env:
           PART: ${{ matrix.part }}
 
+  # The Lab UI promises Python 3.9 or later, the python3 a Mac comes with. A feature of a newer Python fails as the module is
+  # imported, so every module is imported on it; then make check, which is how a person starts, and the quicker tests (the whole
+  # suite runs above, on the newest Python)
+  lab-ui-oldest:
+    name: Lab UI on Python 3.9
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python 3.9
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.9"
+      - name: Install Compose
+        uses: ./.github/actions/compose
+      - name: Every module imports
+        run: python lab-ui/tests/run.py --imports
+      - name: make check passes
+        run: make check
+      - name: Run the quicker tests
+        run: python lab-ui/tests/run.py -j 2 --quick
+
   # The one check a ruleset asks for, with E2E result: every job above ended in success
   result:
     name: CI result
-    needs: [lint, compose, repository, seeder, lab-ui]
+    needs: [lint, compose, repository, seeder, lab-ui, lab-ui-oldest]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5

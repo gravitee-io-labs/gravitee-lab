@@ -34,6 +34,14 @@ class Shards(unittest.TestCase):
         self.times({"a": "slow"})
         self.assertEqual(run.durations(), {})
 
+    def test_the_quicker_modules_are_those_under_the_limit_and_a_new_one_is_in(self):
+        self.times({"slow": run.QUICK + 1, "fast": 1.0, "edge": run.QUICK})
+        self.assertEqual(run.quick(["slow", "fast", "edge", "new"]), ["fast", "new"])
+
+    def test_every_module_of_the_lab_ui_imports(self):
+        with mock.patch("sys.stdout"):
+            self.assertEqual(run.imports(), 0)
+
     def test_the_file_names_modules_that_exist(self):
         found = set(run.modules())
         self.assertLessEqual(set(run.durations()), found, "a module that is gone is taken out of durations.json (--time)")
