@@ -1,5 +1,5 @@
 {
-  "level": 4,
+  "level": 5,
   "files": [
     {"path": ".catalog/standard.mk", "class": "managed", "since": 1, "when": "always", "scope": "full"},
     {"path": ".github/dependabot.yml", "class": "managed", "since": 1, "when": "always", "scope": "full"},
@@ -35,6 +35,30 @@
   ],
   "removed": [],
   "edits": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "below": 5,
+      "from": [
+        "#   Checks       the shape of the tree, the secrets, the files, the Lab's own check with its trust policy, what the change touches,",
+        "#                whether every image it pulls exists, and on a push to main what is merged and not released yet"
+      ],
+      "to": [
+        "#   Checks       the shape of the tree, the secrets, the files, the Lab's own check with its trust policy, what the change touches, and",
+        "#                whether every image it pulls exists"
+      ]
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "below": 5,
+      "from": [
+        "      # The Lab offers the releases of a catalog, not its main branch: what was merged since the last tag reaches nobody yet. A warning",
+        "      # and the notes of the next release in the summary, never a failure",
+        "      - name: Not released yet",
+        "        if: ${{ !cancelled() && github.event_name == 'push' }}",
+        "        run: python3 -I lab/lab-ui/catalog.py ci unreleased catalog --ci"
+      ],
+      "to": []
+    },
     {
       "path": ".github/workflows/ci.yml",
       "below": 2,
@@ -130,6 +154,12 @@
     },
     "4": {
       "summary": "Names every job and every step in plain words (Checks, Seed files, Apps; Newest Lab, Pinned Lab; Plan, Images, Attestations, Release), and runs nightly.yml every night, as its name says, instead of every week. No file is added.",
+      "manual": [],
+      "settings": [],
+      "urgent": false
+    },
+    "5": {
+      "summary": "On a push to main, the Checks job says what is merged and not released yet: a warning, and the notes of the next release in its summary. The Lab offers releases, not main. No file is added.",
       "manual": [],
       "settings": [],
       "urgent": false

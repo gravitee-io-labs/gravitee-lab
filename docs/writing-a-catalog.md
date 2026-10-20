@@ -108,7 +108,7 @@ The managed workflows run on every pull request and every push to `main`:
 
 | Job | What it proves |
 |---|---|
-| Checks | The rules of the standard and the Lab's policy (`catalog.py check`), the secrets in every commit, what the change touches, and that every image it pulls exists |
+| Checks | The rules of the standard and the Lab's policy (`catalog.py check`), the secrets in every commit, what the change touches, and that every image it pulls exists. On a push to `main`, it also says what is merged and not released yet ([Releases](#releases)) |
 | Seed files | The seed files of the playgrounds, and the catalog's own tests |
 | Apps | The images a unit builds, built for the architectures listed in `catalog.yml`, the tests of its apps, and the units that do not need the platform, which start and answer their health check |
 | Catalog CI result | The one check a merge waits for: it fails when any job it needs failed or was skipped |
@@ -176,8 +176,9 @@ python3 ../gravitee-lab/lab-ui/catalog.py ci unreleased .
 
 says which items changed since the last tag and the command that releases them: `make release VERSION=1.1.0`, or
 `make release VERSION=1.1.0 TAG=1` once the release pull request is merged and only its tag is left. `--format json` gives the
-same for a script (`next`, `tag_only`, and the items), `--ci` the summary of a workflow, with the notes the next release would
-have. It always exits 0: what you release, and when, is your choice.
+same for a script (`next`, `tag_only`, and the items). The **Checks** job runs it with `--ci` on every push to `main`: a warning on
+the run, and the notes the next release would have in its summary. It always exits 0, and the step never fails the run: what
+you release, and when, is your choice.
 
 ## Keeping in step
 
