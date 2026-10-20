@@ -622,6 +622,7 @@ button.s-toggle:focus-visible { outline: none; }
 .list-note.warn { color: var(--warn); }
 .list-note.err { color: var(--err); }
 .list-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.list-actions .warn-slot { display: flex; width: 32px; flex: none; }   /* the warning before the Start, its place kept when there is none */
 /* Start and Stop are the state of a row: one width, at rest and at work alike ("Restarting 100%" fits), so that what
    is left of them lines up and nothing in the row moves while it works */
 .btn.act { min-width: 118px; flex: none; }
@@ -699,7 +700,7 @@ p.panel-row { padding-block: 9px; }
   .list-row > .list-actions { grid-column: 1 / -1; }
   .list-actions .btn.act { min-width: 0; }
   .list-actions .row-icons { margin-left: auto; }
-  .list-actions .row-icons .icon-gap { display: none; }
+  .list-actions .row-icons .icon-gap, .list-actions .warn-slot:empty { display: none; }
 }
 /* A hollow star that only the pointer shows takes no line of its own on a narrow card */
 @media (hover: hover) {
@@ -937,31 +938,14 @@ dialog::backdrop { background: var(--backdrop, rgb(10 12 16 / .45)); backdrop-fi
 .step-head .muted { font-size: var(--fs-1); }
 .step.danger .step-head strong, .step.danger .step-num { color: var(--err); }
 .step.danger .step-num { background: var(--err-soft); }
-.step-items { display: grid; margin: 0; padding: 0; list-style: none; border: 1px solid var(--border); border-radius: 8px; }
+.step-items { display: grid; grid-template-columns: minmax(0, 1fr); margin: 0; padding: 0; list-style: none; border: 1px solid var(--border); border-radius: 8px; }
 .step-items > li {
   display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 6px 10px; font-size: var(--fs-2);
 }
 .step-items > li + li { border-top: 1px solid var(--border); }
-.step-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--fw-2); }
+.step-name { min-width: 0; overflow-wrap: anywhere; font-weight: var(--fw-2); }   /* a long one (a version and its registry) goes on, whole */
 .step-kind { flex: none; color: var(--muted); font-size: var(--fs-1); }
 .choice-text > .steps + .choice-row { margin-top: 4px; }
-/* What each component is now and what it would become, read on one line: its name, the version it has, an arrow, the one it would
-   have, and a pill where that does harm. The options of a choice share it. */
-.compare { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, auto) 14px minmax(0, auto); column-gap: 12px; margin: 0 0 10px;
-  border: 1px solid var(--border); border-radius: 8px; font-size: var(--fs-2); }
-.compare-row { display: grid; grid-template-columns: subgrid; grid-column: 1 / -1; align-items: center; padding: 8px 12px; }
-.compare-row + .compare-row { border-top: 1px solid var(--border); }
-.compare-head { padding-block: 6px; color: var(--muted); font-size: var(--fs-1); font-weight: var(--fw-2); background: var(--surface-2); border-radius: 8px 8px 0 0; }
-.compare-head > :nth-child(2) { grid-column: 2; }
-.compare-head > :nth-child(3) { grid-column: 4; }
-.compare-name { font-weight: var(--fw-2); }
-.compare-from { color: var(--muted); font-size: var(--fs-1); overflow-wrap: anywhere; }
-.compare-row > svg { width: 14px; height: 14px; color: var(--muted); }
-.compare-to { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
-.compare-to code { font-size: var(--fs-1); overflow-wrap: anywhere; }
-/* What an option does that cannot be undone, said under it */
-.choice-warn { display: flex; align-items: center; gap: 6px; color: var(--err); font-size: var(--fs-2); }
-.choice-warn svg { flex: none; width: 14px; height: 14px; }
 
 /* A new add-on, setup or playground: its fields and what it includes, or the prompt that has an AI agent write it */
 .create-dialog { width: min(880px, 94vw); }

@@ -249,17 +249,13 @@ const effects = () => ({ title: text(page.ids["choice-title"]), action: text(pag
   steps: picks.querySelectorAll(".step").map((s) => [text(s.querySelector("strong")), s.querySelectorAll(".step-items li").map(said)]), notes: rowsOf(picks) });
 // The options of a choice: what each says, why it cannot be taken, and the rows under it
 const choices = () => picks.querySelectorAll(".choice").map((o) => [text(o.querySelector("strong")), o.querySelector(".sub") ? text(o.querySelector(".sub")) : "", rowsOf(o)]);
-// The table the two options share: [component, now, tested with, the pill that marks it], and what an option warns of
-const compared = () => picks.querySelectorAll(".compare-row").slice(1).map((r) => [text(r.querySelector(".compare-name")), text(r.querySelector(".compare-from")),
-  r.querySelector(".compare-to code") ? text(r.querySelector(".compare-to code")) : "", r.querySelector(".pill") ? text(r.querySelector(".pill")) : ""]);
-const warns = () => picks.querySelectorAll(".choice-warn").map(text);
 const settle = async () => {
   await flush();
   mock.timers.tick(600);
   await flush();
 };
-const answer = async (confirmed) => {
-  choice.returnValue = confirmed ? "ok" : "";
+const answer = async (confirmed) => {   // "alt": the second button
+  choice.returnValue = confirmed === "alt" ? "alt" : confirmed ? "ok" : "";
   choice.onclose();
   await settle();
 };
@@ -848,57 +844,36 @@ test("a start that stops a playground asks what to do with what it created, as i
   await leave();
 });
 
-test("a start on images it was never tested with offers to start anyway or to switch to the versions it was tested with", async () => {
+test("a start on images it was not tested with is the start that switches them, as when it must, with a second button that keeps them", async () => {
   await visit({});
   const other = { kind: "playground", id: "bank", name: "Acme Bakery" };
-  const versions = { images: [{ variable: "APIM_VERSION", name: "API Management", have: "amp-demo-latest", tested: "4.13.0-alpha.3" }], to: { APIM_VERSION: "4.13.0-alpha.3" } };
-  const asked = confirmStart(other, "Start", dialogOf({ starts: [{ kind: "playground", id: "bank", name: "Acme Bakery apps" }] }), { versions });
+  const row = { kind: "version", id: "APIM", name: "API Management amp-demo-latest → 4.13.0-alpha.3" };
+  const offer = dialogOf({ starts: [{ kind: "playground", id: "bank", name: "Acme Bakery apps" }], versions: [row],
+    restarts: [{ kind: "service", id: "apim-gateway", name: "Gateway (API Management)" }] });
+  const asked = confirmStart(other, "Start", dialogOf({}), { offer });
   await flush();
   assert.equal(effects().title, "Start Acme Bakery");
-  assert.deepEqual(effects().steps.map(([label]) => label), ["Starts", "Deploys to"], "the steps are the start's own");
-  assert.deepEqual(compared(), [["API Management", "amp-demo-latest", "4.13.0-alpha.3", ""]], "each component, now and as tested, on one line");
-  assert.deepEqual(choices(), [["Start anyway", "Keep these versions", []], ["Switch to the tested versions", "Save them, then start", []]]);
-  assert.deepEqual(warns(), [], "nothing goes back: nothing to warn of");
-  assert.equal(text(page.ids["choice-ok"]), "Start anyway");
-  second = true;
-  picks.onchange();
-  assert.equal(text(page.ids["choice-ok"]), "Switch and start");
+  assert.deepEqual(effects().steps.map(([label]) => label), ["Starts", "Changes versions", "Restarts", "Deploys to"], "the steps of the start that switches");
+  assert.deepEqual([text(page.ids["choice-ok"]), text(page.ids["choice-alt"]), page.ids["choice-alt"].hidden], ["Switch and start", "Start without switching", false]);
+  assert.equal(page.ids["choice-ok"].className.includes("danger"), false, "nothing goes back");
   await answer(true);
-  assert.deepEqual(await asked, { accept: [], remove: false, tested: true });
-  second = false;
-  // A stack that goes back says what the older version may not open, and its button is the dangerous one
-  const back = { images: [{ ...versions.images[0], goes_back: true }], to: versions.to };
-  const warned = confirmStart(other, "Start", dialogOf({}), { versions: back });
+  assert.deepEqual(await asked, { accept: ["version:APIM"], remove: false, switch: true });
+  // Without switching: the start's own dialog, and nothing of the versions sent back
+  const kept = confirmStart(other, "Start", dialogOf({ stops: [{ kind: "addon", id: "kafka", name: "Kafka" }] }), { offer });
   await flush();
-  assert.deepEqual(compared(), [["API Management", "amp-demo-latest", "4.13.0-alpha.3", "Goes back"]], "the line that goes back is marked");
-  assert.deepEqual(warns(), ["Data a newer version wrote may not open on an older one"], "said once, under the switch");
-  assert.equal(page.ids["choice-ok"].className.includes("danger"), false, "starting anyway is not the dangerous one");
-  second = true;
-  picks.onchange();
+  await answer("alt");
+  assert.deepEqual(await kept, { accept: ["addon:kafka"], remove: false });
+  // A switch that goes back says it in the danger tone, and its button is the dangerous one
+  const back = { ...offer, versions: [], goes_back: [{ ...row, name: "API Management master-latest → 4.13.0-alpha.3" }] };
+  const warned = confirmStart(other, "Start", dialogOf({}), { offer: back });
+  await flush();
+  assert.deepEqual(effects().steps.map(([label]) => label), ["Starts", "Goes back", "Restarts", "Deploys to"]);
   assert.equal(page.ids["choice-ok"].className.includes("danger"), true);
-  second = false;
   await answer(false);
-  assert.equal(await warned, null);
-  // An image with no tested version to go to is marked, and there is nothing to switch to: the one option is to start anyway
-  const alone = confirmStart(other, "Start", dialogOf({}), { versions: { images: [{ ...versions.images[0], have: "4.13.0-alpha.5", tested: null }], to: {} } });
-  await flush();
-  assert.deepEqual(compared(), [["API Management", "4.13.0-alpha.5", "", "Not tested"]]);
-  assert.equal(picks.querySelectorAll("input").length, 1, "no choice");
-  assert.equal(text(page.ids["choice-ok"]), "Start anyway");
-  await answer(true);
-  assert.deepEqual(await alone, { accept: [], remove: false });
-  // Starting anyway says nothing more, and canceling starts nothing
-  const anyway = confirmStart(other, "Start", dialogOf({}), { versions });
-  await flush();
-  await answer(true);
-  assert.deepEqual(await anyway, { accept: [], remove: false });
-  const canceled = confirmStart(other, "Start", dialogOf({}), { versions });
-  await flush();
-  await answer(false);
-  assert.equal(await canceled, null);
-  // Every image it was tested with: nothing to ask
-  assert.equal(await confirmStart(other, "Start", dialogOf({}), { versions: null }), undefined);
-  assert.equal(await confirmStart(other, "Start", dialogOf({}), { versions: { images: [], to: {} } }), undefined);
+  assert.equal(await warned, null, "canceled, it starts nothing");
+  // Nothing offered: the dialog of the plan is enough, a switch it makes as one of its steps included
+  assert.equal(await confirmStart(other, "Start", dialogOf({}), {}), undefined);
+  assert.equal(await confirmStart(other, "Start", dialogOf({ versions: [row] })), undefined);
   await leave();
 });
 

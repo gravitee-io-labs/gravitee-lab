@@ -355,20 +355,21 @@ function catalogItems(state) {
 
 // An item of the catalog, in the anatomy of a list's row on two lines: its kind, its name that leads to it with its star, and under it
 // its state (the lists' State) and its badges (Personal, or the catalog it comes from, and what its list says of it: why it cannot start, that it was started
-// outside the Lab UI, what runs behind what is saved, as the list's note badges); then two slots of a fixed width, which keep their
-// place when what they hold is absent: its Start or Stop, the lists' own button on its own key, and its Settings (which is its action
-// while it cannot start without them). Its consoles are on its own page and in its list: a row has no room for a third button.
+// outside the Lab UI, what runs behind what is saved, as the list's note badges); then three slots of a fixed width, which keep their
+// place when what they hold is absent: the warning of what its Start needs or does (as on the lists, just before it), its Start or Stop,
+// the lists' own button on its own key, and its Settings. Its consoles are on its own page and in its list.
 function itemRow(x) {
   const edit = x.settings?.length ? `<button class="icon-btn" data-settings="${x.kind}:${esc(x.id)}" data-tip="Settings" aria-label="${esc(`Settings ${x.name}`)}">${icon("key")}</button>` : "";
-  const stuck = startWarning(x);   // what is in the way of its Start is the warning beside it, in the slot of its Settings
+  const stuck = startWarning(x);   // what is in the way of its Start, or what it does, is the warning just before it
   const marks = `${x.personal ? '<span class="pill">Personal</span>' : ""}${stuck?.own ? "" : noteBadge(x)}`;
   return {
     key: `${x.kind}:${x.id}`, cls: "dash-row dash-item", html: `
       <span class="dash-kind" role="img" aria-label="${KIND_NAME[x.kind]}" data-tip="${KIND_NAME[x.kind]}">${icon(KIND_ICON[x.kind])}</span>
       <span class="dash-nameline"><a class="name-link list-name" href="${esc(hrefOf(x))}" data-tip="${esc(x.name)}" data-tip-cut>${esc(x.name)}</a>${x.starred ? starButton(x) : ""}</span>
       <span class="dash-sub-line">${itemState(x)}${marks ? `<span class="list-marks dash-marks">${marks}</span>` : ""}</span>
+      <span class="dash-slot dash-warn">${stuck ? stuck.html : ""}</span>
       <span class="dash-slot dash-act">${itemButton(x)}</span>
-      <span class="dash-slot dash-set">${stuck ? stuck.html : edit}</span>`,
+      <span class="dash-slot dash-set">${edit}</span>`,
   };
 }
 

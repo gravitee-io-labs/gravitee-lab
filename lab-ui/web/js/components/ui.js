@@ -112,7 +112,7 @@ export function confirmDialog({ title, text, action, danger = false, word }) {
 
 // What a line of a step names, by the kind of its row
 const KINDS = { platform: "Platform", group: "Platform", service: "Container", addon: "Add-on", setup: "Setup",
-  playground: "Playground", data: "Data", environment: "Environment" };
+  playground: "Playground", data: "Data", environment: "Environment", version: "Version" };
 
 // The rows of an effects dialog as markup, the way the dialog draws them: the rows that have items, the ones that are not notes as numbered
 // steps, the notes as lines of pills (a few) or one line that counts them (many). A dialog that is drawn again as its state changes (the notice
@@ -147,29 +147,24 @@ export const effectRows = (rows = []) => {
 // plain (`hint`); then what it leaves as it is (`note` rows: "Keeps", "Stays in Gravitee"). A step or a row without
 // items is not shown; a single step has no number. With several options, the steps they share (`steps`), then a
 // choice among them, the first one chosen, each saying in rows what it does besides, and in a muted line (`sub`) what it comes
-// to; one that does harm says it in the danger tone (`warn`). `compare` is a table that the options share, what each component is
-// now and what it would become, `{head: [what, now, then], rows: [{name, from, to, tag}]}`: a version is read against the other
-// on one line, and `tag` marks the one that does harm (a danger pill when `danger`, else a warning one; no `to`: nothing to become). An option that cannot be taken is `disabled` and says why (`reason`). Resolves with the value of the confirmed option (true when it has none), null
-// when canceled.
+// to. An option that cannot be taken is `disabled` and says why (`reason`). Resolves with the value of the confirmed option (true when
+// it has none), null when canceled. `other`, {label, value}: a second button beside the first, the same steps done another way, which
+// resolves with its value.
 // `unchosen`, a reason ("Choose where to share"), is for a choice that must be made: of several options none is chosen at first, and the button
 // waits, saying why, until one that can be taken is (Enter does nothing meanwhile), so that no key can pick for the person. It also waits,
 // with the reason of the option, for one that cannot be taken, and with the first one's reason when none can. `action` and `danger` are asked
 // with undefined while none is chosen.
-export function effectsDialog({ title, steps = [], compare = null, options, action, danger = () => false, unchosen }) {
-  const dlg = $("#choice"), ok = $("#choice-ok"), list = $("#choice-list");
+export function effectsDialog({ title, steps = [], options, action, danger = () => false, unchosen, other = null }) {
+  const dlg = $("#choice"), ok = $("#choice-ok"), list = $("#choice-list"), second = $("#choice-alt");
+  if (second) Object.assign(second, { hidden: !other, textContent: other?.label || "" });
   const single = options.length === 1, waits = unchosen !== undefined, blank = waits && !single;
-  const table = (t) => `<div class="compare" role="table"><div class="compare-row compare-head" role="row">${t.head.map((h) => `<span role="columnheader">${esc(h)}</span>`)
-    .join("")}</div>${t.rows.map((r) => `<div class="compare-row" role="row"><span class="compare-name" role="cell">${esc(r.name)}</span>
-      <code class="compare-from" role="cell">${esc(r.from)}</code>${r.to ? icon("arrow-right") : "<span></span>"}<span class="compare-to" role="cell">${
-      r.to ? `<code>${esc(r.to)}</code>` : ""}${r.tag ? `<span class="pill ${r.danger ? "err" : "warn"}">${esc(r.tag)}</span>` : ""}</span></div>`).join("")}</div>`;
   $("#choice-title").textContent = title;
   list.classList.toggle("single", single);
-  list.innerHTML = effectRows(steps) + (compare ? table(compare) : "") + options.map((o, i) => `
+  list.innerHTML = effectRows(steps) + options.map((o, i) => `
     <label class="choice ${o.disabled ? "disabled" : ""}">
       <input type="radio" name="choice" value="${i}" ${i || blank ? "" : "checked"} ${o.disabled ? "disabled" : ""}>
       <span class="choice-text">${single ? "" : `<strong>${esc(o.label)}</strong>`}
         ${o.disabled || o.sub ? `<span class="sub">${esc(o.disabled ? o.reason : o.sub)}</span>` : ""}
-        ${o.warn ? `<span class="choice-warn">${icon("alert")}${esc(o.warn)}</span>` : ""}
         ${single ? effectRows(o.rows) : (o.rows || []).filter((r) => r.items.length).map(row).join("")}</span>
     </label>`).join("");
   const picked = () => list.querySelector("input:checked"), chosen = () => (picked() ? options[picked().value].value : undefined);
@@ -193,7 +188,7 @@ export function effectsDialog({ title, steps = [], compare = null, options, acti
     dlg.returnValue = "";
     dlg.onclose = () => {
       if (waits) setOff(ok, false);
-      resolve(dlg.returnValue === "ok" && (!waits || picked()) ? chosen() ?? true : null);
+      resolve(dlg.returnValue === "alt" && other ? other.value : dlg.returnValue === "ok" && (!waits || picked()) ? chosen() ?? true : null);
     };
     dlg.showModal();
     if (single && !danger(chosen())) ok.focus();   // with a choice, the focus is on it
@@ -208,15 +203,16 @@ export async function confirmEffects(title, rows, action = title, danger = false
 }
 
 // The rows of a plan as a dialog says them, in the order its job does them: what stops (it runs, and is turned off
-// too), what is turned off (it is on and does not run), what starts, what restarts (recreated, the changes taken), and,
-// for a deploy, where it deploys; what making them again does besides, in the danger tone: what goes back to an older version
-// than the one that runs, what loses the license it runs; then what it keeps, and what the hybrid gateway serves from now on
+// too), what is turned off (it is on and does not run), what starts, the versions it changes, those that go back to an older one in the
+// danger tone, what restarts (recreated, the changes taken), and,
+// for a deploy, where it deploys; what making them again does besides, in the danger tone: what loses the license it runs; then what it keeps, and what the hybrid gateway serves from now on
 // and stops serving when a start swaps it; with API Management in the Cloud, what is not started and why (`hints`, the server's words).
 // When the item comes from another catalog than the first, where it comes from: the catalog's name, with its version as the hint (`from`,
 // the first of the rows that say what the plan leaves as it is). A row without items is not shown.
 const PLAN = [["stops", "Stops", "Turned off too"], ["turns_off", "Turns off"], ["starts", "Starts"],
-  ["restarts", "Restarts", "Recreated to take the changes"],
+  ["versions", "Changes versions", "To the ones it was tested with"],
   ["goes_back", "Goes back", "To an older version: data a newer one wrote may not open", false, "danger"],
+  ["restarts", "Restarts", "Recreated to take the changes"],
   ["loses_license", "Loses its license", "No license is saved: Enterprise features stop", false, "danger"],
   ["deploys_to", "Deploys to"], ["from", "From", "", true], ["keeps", "Keeps", "", true],
   ["serves", "Serves", "", true], ["stops_serving", "Stops serving", "", true],
@@ -226,9 +222,10 @@ export const planRows = (dialog) => PLAN.map(([part, label, hint, note, tone]) =
 // Whether a plan does something that cannot be undone by applying again: its button is then in the danger tone
 const risky = (dialog) => PLAN.some(([part, , , , tone]) => tone === "danger" && dialog[part]?.length);
 
-// What the page sends back with an action (`accept`): every row it showed that stops or turns off, as "<kind>:<id>".
-// The server makes the plan again and refuses to stop or turn off anything else.
-export const accepted = (dialog) => [...(dialog.stops || []), ...(dialog.turns_off || [])].map((row) => `${row.kind}:${row.id}`);
+// What the page sends back with an action (`accept`): every row it showed that stops, turns off or changes a version, as "<kind>:<id>".
+// The server makes the plan again and refuses to stop, turn off or change anything else.
+export const accepted = (dialog) => [...(dialog.stops || []), ...(dialog.turns_off || []), ...(dialog.versions || []),
+  ...(dialog.goes_back || []).filter((row) => row.kind === "version")].map((row) => `${row.kind}:${row.id}`);
 
 // Says what else an action starts, stops, turns off, keeps or restarts, when its plan does (`dialog`). Resolves with
 // what it may stop or turn off (accepted), null when canceled.
@@ -573,6 +570,7 @@ function causeLine(cause) {
   }
   if (cause.kind === "image") return cause.built ? [...who, "Image built again"] : [...who, "Image", { code: cause.tag }, "changed"];
   if (cause.kind === "settings") return [...who, { lead: "Settings changed" }, ...chips(cause.settings)];
+  if (cause.kind === "switch") return [...who, { versions: { running: cause.have, saved: cause.to, older: !!cause.older } }];
   if (cause.kind === "needs") return [{ who: cause.name }, { code: cause.version }, ...(/\d/.test(cause.version) ? ["or later"] : [])];
   if (cause.kind === "unset") return chips(cause.settings);
   if (cause.kind === "license") return [{ lead: "Uses" }, cause.features.join(", ")];
@@ -619,7 +617,7 @@ const rowCard = (causes) => ({ title: "Differs from what is saved", rows: [{ lin
 // A foot may depend on its cause: a function of it. Who changes what blocks an item is the owner of its catalog, or the person for a folder
 // catalog; a missing catalog is mended by the note itself, which leads to it: no foot. A kind this page does not know says none.
 const FOOT = { needs: ["Choose it on the Images page.", "Choose them on the Images page."], unset: ["Set it in its settings.", "Set them in its settings."],
-  license: ["Set a license in the license form."], catalog: [""],
+  license: ["Set a license in the license form."], catalog: [""], switch: [""],
   blocked: [(cause) => (cause.folder ? "Change it in your catalog." : cause.owner ? `Ask the owner of ${cause.owner} to change it.` : "Ask the owner to change it.")] };
 // The feet of a kind, by its own name: a kind the server writes is a word, never a property every object has ("constructor")
 const feetOf = (kind) => (Object.hasOwn(FOOT, kind) ? FOOT[kind] : null);
@@ -630,7 +628,13 @@ const footOf = ([first, ...others]) => {
   const foot = one ? it : them;
   return typeof foot === "function" ? foot(first) : foot;
 };
-const needCard = (x) => ({ title: x.note, rows: [{ lines: x.note_causes.flatMap(causeLines) }], foot: footOf(x.note_causes) });
+// A switch of versions is each image as it is and as it was tested; its foot says what Start does: goes to them when the ones saved are too
+// old, offers them when they only differ
+const SWITCH = { columns: ["Current", "Tested"], goes: "Start goes to the versions it was tested with, or choose others on the Images page.",
+  offers: "Start offers the versions it was tested with, or choose others on the Images page." };
+const needCard = (x) => (x.note_causes[0]?.kind === "switch"
+  ? { title: x.note, columns: SWITCH.columns, rows: [{ lines: x.note_causes.map(causeLine) }], foot: x.action?.offer ? SWITCH.offers : SWITCH.goes }
+  : { title: x.note, rows: [{ lines: x.note_causes.flatMap(causeLines) }], foot: footOf(x.note_causes) });
 // ... for whoever says that note elsewhere (the gateway of an environment that the add-on runs): null for a note without causes of that
 // kind (what runs behind what is saved has its own card)
 export const noteCard = (x) => (x.note_causes?.length && feetOf(x.note_causes[0]?.kind) ? needCard(x) : null);
@@ -841,8 +845,8 @@ export function blockerButton(x, fix = "") {
   else if (x.note_causes?.[0]?.kind === "unset") action = { label: "Open settings", attrs: `data-settings="${esc(`${x.kind}:${x.id}`)}"` };
   else if (fix) action = { label: "Fix it", attrs: `data-fix="${esc(fix)}"` };
   // The causes say what the explanation would repeat (the settings it lacks, the versions it needs)
-  const card = { title: x.note, text: causes ? "" : more, rows: causes?.rows || [], foot: causes?.foot, action };
-  return tipHtml(icon("alert"), card, `blocker ${x.note_tone === "err" ? "err" : ""}`.trim(), "Cannot start");
+  const card = { ...causes, title: x.note, text: causes ? "" : more, rows: causes?.rows || [], action };
+  return tipHtml(icon("alert"), card, `blocker ${x.note_tone === "err" ? "err" : ""}`.trim(), x.action?.enabled ? x.note : "Cannot start");
 }
 
 // The catalog an item comes from, as a link to its row with the version after it, for the About of an item (never next to its name).

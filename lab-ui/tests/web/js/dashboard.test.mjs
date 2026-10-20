@@ -757,7 +757,7 @@ test("under its name an item says what its list says of it: why it cannot start,
       running("addon", "jade", "Jade")],
   }) });
   // What the list says of an item is its badge after the name, as on the lists: never a line under the name. What keeps a Start from working
-  // is the warning beside its Start instead, in the slot of the Settings
+  // is the warning just before its Start instead, in a slot of its own, as on the lists
   assert.equal(section.querySelectorAll(".dash-note").length, 0);
   const badge = (row) => row.querySelector(".dash-marks .pill");
   assert.deepEqual(catalog().map((row) => [text(row.querySelector("a")), badge(row) ? tileSaid(badge(row)) : ""]),
@@ -767,7 +767,7 @@ test("under its name an item says what its list says of it: why it cannot start,
   // The reason a Start cannot be used is there to read, as well as on the button that is disabled: a keyboard cannot reach that
   const bank = catalog().find((row) => text(row.querySelector("a")) === "Acme Bakery");
   assert.equal(bank.querySelectorAll(".dash-marks .pill").length, 0, "it is not said twice");
-  assert.equal(text(bank.querySelector(".dash-set .pop-title")), why);
+  assert.equal(text(bank.querySelector(".dash-warn .pop-title")), why);
   assert.ok(isOff(bank.querySelector("button[data-act]")));
   assert.equal(offWhy(bank.querySelector("button[data-act]")), why);
   // What is not applied is the badge of the other pages, with its reason

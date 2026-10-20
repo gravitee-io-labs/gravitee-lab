@@ -70,6 +70,7 @@
           <span class="list-actions">
             <a class="btn" href="#/playgrounds/acme-hostels" aria-label="Open Acme Hostels">
               "Open"
+            <span class="warn-slot">
             <button class="btn pbtn act" data-act-for="playground:acme-hostels" data-act="" data-busy="" aria-label="Start Acme Hostels">
               <span class="pbtn-wrap">
                 <span class="pbtn-face">
@@ -116,6 +117,7 @@
           <span class="list-actions">
             <a class="btn" href="#/playgrounds/acme-bakery" aria-label="Open Acme Bakery">
               "Open"
+            <span class="warn-slot">
             <button class="btn pbtn act" data-act-for="playground:acme-bakery" data-act="" data-busy="" aria-label="Start Acme Bakery">
               <span class="pbtn-wrap">
                 <span class="pbtn-face">
@@ -162,6 +164,7 @@
           <span class="list-actions">
             <a class="btn" href="#/playgrounds/@acme-hub/ledger-demo" aria-label="Open Ledger demo">
               "Open"
+            <span class="warn-slot">
             <button class="btn pbtn act" data-act-for="playground:@acme-hub/ledger-demo" data-act="" data-busy="" aria-label="Start Ledger demo">
               <span class="pbtn-wrap">
                 <span class="pbtn-face">
@@ -236,6 +239,7 @@
           <span class="list-actions">
             <a class="btn" href="#/playgrounds/local/scratch" aria-label="Open Scratch">
               "Open"
+            <span class="warn-slot">
             <button class="btn pbtn act" data-act-for="playground:local/scratch" data-act="" data-busy="" aria-label="Start Scratch">
               <span class="pbtn-wrap">
                 <span class="pbtn-face">
@@ -342,6 +346,7 @@
           <span class="list-cat">
             "Demo"
           <span class="list-actions">
+            <span class="warn-slot">
             <button class="btn pbtn act" data-act-for="setup:messaging" data-act="" data-busy="" aria-label="Start Messaging">
               <span class="pbtn-wrap">
                 <span class="pbtn-face">
@@ -414,22 +419,23 @@
           <span class="list-cat">
             "Demo"
           <span class="list-actions">
-            <span class="tip">
-              <button type="button" class="tip-btn blocker" aria-label="Cannot start: Needs a catalog. Needs the catalog Partner Bank">
-                <svg aria-hidden="true">
-                  <use href="#i-alert">
-              <span class="tip-card" role="tooltip">
-                <span class="pop-body">
-                  <span class="pop-title">
-                    "Needs a catalog"
-                  <span class="pop-rows">
-                    <span class="pop-row">
-                      <span class="pop-line">
-                        <span class="pop-what">
-                          <span>
-                            "Needs the catalog Partner Bank"
-                  <a class="btn" href="#/catalogs">
-                    "Open"
+            <span class="warn-slot">
+              <span class="tip">
+                <button type="button" class="tip-btn blocker" aria-label="Cannot start: Needs a catalog. Needs the catalog Partner Bank">
+                  <svg aria-hidden="true">
+                    <use href="#i-alert">
+                <span class="tip-card" role="tooltip">
+                  <span class="pop-body">
+                    <span class="pop-title">
+                      "Needs a catalog"
+                    <span class="pop-rows">
+                      <span class="pop-row">
+                        <span class="pop-line">
+                          <span class="pop-what">
+                            <span>
+                              "Needs the catalog Partner Bank"
+                    <a class="btn" href="#/catalogs">
+                      "Open"
             <button class="btn pbtn act" data-act-for="setup:@acme-hub/duo" data-act="" data-busy="" aria-label="Start Duo" aria-disabled="true" data-tip="Needs the catalog Partner Bank">
               <span class="pbtn-wrap">
                 <span class="pbtn-face">
@@ -535,6 +541,7 @@
           <span class="list-cat">
             "Demo"
           <span class="list-actions">
+            <span class="warn-slot">
             <button class="btn pbtn act" data-act-for="addon:kafka" data-act="" data-busy="" aria-label="Start Kafka">
               <span class="pbtn-wrap">
                 <span class="pbtn-face">
@@ -648,30 +655,31 @@
           <span class="list-cat">
             "Demo"
           <span class="list-actions">
-            <span class="tip">
-              <button type="button" class="tip-btn blocker err" aria-label="Cannot start: Blocked. Mounts the Docker socket. Runs with full privileges. Publishes a port to the network. Ask the owner of Acme Hub to change it">
-                <svg aria-hidden="true">
-                  <use href="#i-alert">
-              <span class="tip-card" role="tooltip" aria-hidden="true">
-                <span class="pop-body">
-                  <span class="pop-title">
-                    "Blocked"
-                  <span class="pop-rows">
-                    <span class="pop-row">
-                      <span class="pop-line">
-                        <span class="pop-what">
-                          <span>
-                            "Mounts the Docker socket"
-                      <span class="pop-line">
-                        <span class="pop-what">
-                          <span>
-                            "Runs with full privileges"
-                      <span class="pop-line">
-                        <span class="pop-what">
-                          <span>
-                            "Publishes a port to the network"
-                  <span class="pop-foot">
-                    "Ask the owner of Acme Hub to change it."
+            <span class="warn-slot">
+              <span class="tip">
+                <button type="button" class="tip-btn blocker err" aria-label="Cannot start: Blocked. Mounts the Docker socket. Runs with full privileges. Publishes a port to the network. Ask the owner of Acme Hub to change it">
+                  <svg aria-hidden="true">
+                    <use href="#i-alert">
+                <span class="tip-card" role="tooltip" aria-hidden="true">
+                  <span class="pop-body">
+                    <span class="pop-title">
+                      "Blocked"
+                    <span class="pop-rows">
+                      <span class="pop-row">
+                        <span class="pop-line">
+                          <span class="pop-what">
+                            <span>
+                              "Mounts the Docker socket"
+                        <span class="pop-line">
+                          <span class="pop-what">
+                            <span>
+                              "Runs with full privileges"
+                        <span class="pop-line">
+                          <span class="pop-what">
+                            <span>
+                              "Publishes a port to the network"
+                    <span class="pop-foot">
+                      "Ask the owner of Acme Hub to change it."
             <button class="btn pbtn act" data-act-for="addon:@acme-hub/mock-bank" data-act="" data-busy="" aria-label="Start Mock bank" aria-disabled="true" data-tip="Mounts the Docker socket">
               <span class="pbtn-wrap">
                 <span class="pbtn-face">
@@ -730,6 +738,7 @@
           <span class="list-cat">
             "Demo"
           <span class="list-actions">
+            <span class="warn-slot">
             <button class="btn pbtn act" data-act-for="addon:@acme-hub/k3s" data-act="" data-busy="" aria-label="Start Kubernetes">
               <span class="pbtn-wrap">
                 <span class="pbtn-face">
@@ -856,6 +865,7 @@
           <span class="list-actions">
             <a class="btn" href="#/playgrounds/@acme-hub/ledger-demo" aria-label="Open Ledger demo">
               "Open"
+            <span class="warn-slot">
             <button class="btn pbtn act" data-act-for="playground:@acme-hub/ledger-demo" data-act="" data-busy="" aria-label="Start Ledger demo">
               <span class="pbtn-wrap">
                 <span class="pbtn-face">
@@ -988,6 +998,7 @@
           <span class="list-actions">
             <a class="btn" href="#/playgrounds/acme-hostels" aria-label="Open Acme Hostels">
               "Open"
+            <span class="warn-slot">
             <button class="btn pbtn act" data-act-for="playground:acme-hostels" data-act="" data-busy="" aria-label="Start Acme Hostels">
               <span class="pbtn-wrap">
                 <span class="pbtn-face">
@@ -1034,6 +1045,7 @@
           <span class="list-actions">
             <a class="btn" href="#/playgrounds/acme-bakery" aria-label="Open Acme Bakery">
               "Open"
+            <span class="warn-slot">
             <button class="btn pbtn act" data-act-for="playground:acme-bakery" data-act="" data-busy="" aria-label="Start Acme Bakery">
               <span class="pbtn-wrap">
                 <span class="pbtn-face">
@@ -1082,6 +1094,7 @@
           <span class="list-actions">
             <a class="btn" href="#/playgrounds/local/scratch" aria-label="Open Scratch">
               "Open"
+            <span class="warn-slot">
             <button class="btn pbtn act" data-act-for="playground:local/scratch" data-act="" data-busy="" aria-label="Start Scratch">
               <span class="pbtn-wrap">
                 <span class="pbtn-face">

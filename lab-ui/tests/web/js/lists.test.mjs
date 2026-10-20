@@ -298,6 +298,29 @@ test("what the server notes of a row comes before what its place lacks, and a St
   assert.ok(!isOff(startOf()), "what runs can be stopped");
 });
 
+test("a Start that switches the versions keeps its warning beside it, never in the State, and its card says the Start does it", () => {
+  const switching = { note: "Needs newer versions", note_tone: "warn", note_target: { kind: "image", id: null },
+    note_causes: [{ kind: "switch", services: ["API Management"], have: "4.12.20", to: "4.13.0-alpha.3", older: false }] };
+  draw(lab({ hotels: { ...switching, action: { ...ACTION("start"), warns: true } } }));
+  assert.equal(noted(), null, "nothing in the State");
+  assert.equal(blockedBy(), "Needs newer versions", "the warning beside the Start");
+  assert.ok(!isOff(startOf()), "and the Start starts");
+  const card = () => text(blockerOf().parentElement.querySelector(".tip-card"));
+  // Each image as it is and as it was tested, in the same columns whether the Start goes there or only offers to
+  assert.match(card(), /Current.*Tested.*API Management.*4\.12\.20.*4\.13\.0-alpha\.3/);
+  assert.match(card(), /Start goes to the versions it was tested with/);
+  draw(lab({ hotels: { ...switching, note: "Not tested with these versions", action: { ...ACTION("start"), warns: true, offer: { versions: [] } } } }));
+  assert.equal(blockedBy(), "Not tested with these versions");
+  assert.match(card(), /Current.*Tested.*API Management/);
+  assert.match(card(), /Start offers the versions it was tested with/);
+  // Without a version to go to it cannot start: the same warning, and the Images page is the way
+  const needs = { ...switching, note_causes: [{ kind: "needs", name: "API Management", version: "4.13.0-alpha.3" }] };
+  draw(lab({ hotels: { ...needs, action: { ...ACTION("start"), enabled: false, reason: "Needs API Management 4.13.0-alpha.3 or later" } } }));
+  assert.equal(blockedBy(), "Needs newer versions");
+  assert.ok(isOff(startOf()));
+  assert.match(card(), /Choose it on the Images page/);
+});
+
 test("the note of a place that lacks a gateway or a Cloud Token opens the form that takes it, in that place's environment", async () => {
   for (const form of page.doc.querySelectorAll("dialog form")) form.checkValidity = () => true;   // the small DOM does not validate
   const form = () => {
@@ -374,8 +397,8 @@ const settle = async () => {
   mock.timers.tick(600);
   await flush();
 };
-const answer = async (confirmed) => {
-  choice.returnValue = confirmed ? "ok" : "";
+const answer = async (confirmed) => {   // "alt": the second button
+  choice.returnValue = confirmed === "alt" ? "alt" : confirmed ? "ok" : "";
   choice.onclose();
   await settle();
 };
@@ -420,22 +443,27 @@ test("on This machine the Start of a row is what it always was: no place sent, a
   page.stored.deploy = "acme/development";
 });
 
-test("a Start on images it was never tested with asks first, and sends the switch only when it is chosen", async () => {
-  const untested = { images: [{ variable: "APIM_VERSION", name: "API Management", have: "amp-demo-latest", tested: "4.13.0-alpha.3" }],
-    to: { APIM_VERSION: "4.13.0-alpha.3" } };
+test("a Start on images it was not tested with is the Start that switches them, as when it must, with a second button that keeps them", async () => {
+  const versions = [{ kind: "version", id: "APIM", name: "API Management amp-demo-latest → 4.13.0-alpha.3" }];
+  const offer = { starts: [{ kind: "playground", id: "acme-hostels", name: "Acme Hostels apps" }], versions };
+  const hotels = { hotels: { action: { ...ACTION("start"), warns: true, offer } } };
   page.stored.deploy = "machine";
   server.dialog = null;
-  await start("acme-hostels", lab({ hotels: { untested } }), []);
-  assert.deepEqual([effects().title, effects().action], ["Start Acme Hostels", "Start anyway"]);
+  await start("acme-hostels", lab(hotels), []);
+  assert.deepEqual([effects().title, effects().action, text(page.ids["choice-alt"]), page.ids["choice-alt"].hidden],
+    ["Start Acme Hostels", "Switch and start", "Start without switching", false]);
+  assert.deepEqual(effects().steps, [["Starts", ["Acme Hostels apps Playground"]], ["Changes versions", ["API Management amp-demo-latest → 4.13.0-alpha.3 Version"]]],
+    "the steps of the start that switches");
   assert.deepEqual(posts(), [], "nothing runs before it is confirmed");
+  await answer("alt");
+  assert.deepEqual(posts(), [["/api/playgrounds/acme-hostels/start", { accept: [] }]], "without switching, the start it always was");
+  await start("acme-hostels", lab(hotels), []);
   await answer(true);
-  assert.deepEqual(posts(), [["/api/playgrounds/acme-hostels/start", { accept: [] }]]);
-  picked = 1;
-  await start("acme-hostels", lab({ hotels: { untested } }), []);
-  assert.equal(effects().action, "Switch and start");
-  await answer(true);
-  assert.deepEqual(posts(), [["/api/playgrounds/acme-hostels/start", { accept: [], tested: true }]]);
-  picked = 0;
+  assert.deepEqual(posts(), [["/api/playgrounds/acme-hostels/start", { accept: ["version:APIM"], switch: true }]], "the versions it showed");
+  // Another dialog has no second button
+  await start("acme-hostels", lab({ hotels: { action: { ...ACTION("start"), dialog: { ...offer, versions: [] } } } }), []);
+  assert.equal(page.ids["choice-alt"].hidden, true);
+  await answer(false);
   page.stored.deploy = "acme/development";
 });
 

@@ -73,12 +73,12 @@ function placeLack(x) {
 }
 
 // What keeps a Start from working is said beside the Start, never in the State: the server's note of the row when its Start is
-// refused, else what its place lacks (`own`: the server's note is the warning, so the State does not say it too). The State says what the
-// item is, and the notes that are not in the way of a start.
+// refused or does what the note warns of (`warns`: it switches versions), else what its place lacks (`own`: the server's note is the
+// warning, so the State does not say it too). The State says what the item is, and the notes that are not about its start.
 function blocker(x) {
   const a = x.action;
   if (a.do !== "start") return null;
-  if (!a.enabled) return x.note ? { note: x, fix: "", own: true } : null;
+  if (!a.enabled || a.warns) return x.note ? { note: x, fix: "", own: true } : null;
   const lack = placeLack(x);
   return lack && { ...lack, own: false };
 }
@@ -288,8 +288,9 @@ function list(kind, title, noun) {
       : x.up ? openButton(x.links, `${kind}:${x.id}`, { text: true }) : "";
     // Add-ons and playgrounds have settings, setups none: a row without keeps the slot of the key, as it keeps the
     // menu's when that has nothing to offer
+    // The warning has its slot just before the Start, kept when it is empty, so that every row's buttons stand in the same places
     const stuck = startWarning(x);
-    return `${open}${stuck ? stuck.html : ""}${itemButton(x)}
+    return `${open}<span class="warn-slot">${stuck ? stuck.html : ""}</span>${itemButton(x)}
       <span class="row-icons">${fileButtons(x, kind !== "setup")}
         ${more(x).length ? `<button class="icon-btn" data-more data-tip="More" aria-label="${esc(`More for ${x.name}`)}" aria-haspopup="true">${icon("more")}</button>` : GAP}</span>`;
   }

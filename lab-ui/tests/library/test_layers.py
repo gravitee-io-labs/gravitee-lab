@@ -454,6 +454,48 @@ class Plans(Case):
         welcome["requires"] = {"images": {"NOT_USED_VERSION": "9"}}
         self.assertIsNone(layers.too_old(self.project, welcome))
 
+    def test_a_start_goes_to_the_versions_it_was_tested_with_when_the_saved_ones_are_too_old(self):
+        """Its start is not blocked: it changes the versions (`versions`, rows the page must accept), and makes again what runs on them."""
+        welcome = self.project["playgrounds"]["welcome"]
+        gateway, access = self.project["services"]["apim-gateway"], self.project["services"]["mongodb"]
+        gateway.update(raw_image="graviteeio/apim-gateway:${APIM_VERSION:-4.12.20}", tag="4.12.20")
+        access.update(raw_image="graviteeio/am-gateway:${AM_VERSION:-4.12.7}", tag="4.12.7",
+                      owner={"kind": "platform", "id": "access-management", "name": "Access Management"})
+        welcome["requires"] = {"images": {"APIM_VERSION": "4.13.0-alpha.3", "AM_VERSION": "4.13"}}
+        welcome["tested"] = [{"APIM_VERSION": "4.13.0-alpha.1"}, {"APIM_VERSION": "4.13.0-alpha.5", "AM_VERSION": "4.13.0"}]
+        self.assertEqual(layers.switch(self.project, welcome), {"APIM_VERSION": "4.13.0-alpha.5", "AM_VERSION": "4.13.0"})
+        plan = self.plan(on(self.project), up(), "playground", "welcome", "start")
+        self.assertIsNone(plan["blocked"])
+        self.assertEqual([row["name"] for row in plan["versions"]],
+                         ["Access Management 4.12.7 → 4.13.0", f"{gateway['owner']['name']} 4.12.20 → 4.13.0-alpha.5"])
+        self.assertIn("mongodb", [row["id"] for row in plan["restarts"]], "what runs on a version that changes is made again")
+        self.assertIn("versions", layers.dialog(plan))
+        self.assertTrue(layers.asks(plan))
+        with self.assertRaisesRegex(RuntimeError, "Would also change Access Management"):
+            layers.check(self.project, plan, [])
+        layers.check(self.project, plan, [f"version:{row['id']}" for row in plan["versions"]])
+        # The latest set it was tested with does not meet what it asks, or there is none: it waits for the Images page, as it did
+        welcome["tested"] = [{"APIM_VERSION": "4.13.0-alpha.5"}]
+        self.assertIsNone(layers.switch(self.project, welcome))
+        self.assertIn("choose them on the Images page", self.plan(on(self.project), up(), "playground", "welcome", "start")["blocked"])
+        welcome["tested"] = []
+        self.assertIsNone(layers.switch(self.project, welcome))
+        # Nothing too old: nothing to switch
+        gateway["tag"], access["tag"] = "4.13.0-alpha.5", "4.13.0"
+        welcome["tested"] = [{"APIM_VERSION": "4.13.0-alpha.5", "AM_VERSION": "4.13.0"}]
+        self.assertIsNone(layers.switch(self.project, welcome))
+        self.assertNotIn("versions", self.plan(on(self.project), up(), "playground", "welcome", "start"))
+
+    def test_a_switch_takes_the_registry_of_the_versions_it_goes_to(self):
+        welcome, gateway = self.project["playgrounds"]["welcome"], self.project["services"]["apim-gateway"]
+        gateway.update(raw_image="${APIM_REGISTRY:-graviteeio}/apim-gateway:${APIM_VERSION:-4.12.20}", tag="4.12.20", registry="graviteeio")
+        welcome["requires"] = {"images": {"APIM_VERSION": "amp-demo-latest"}}
+        welcome["tested"] = [{"APIM_VERSION": "amp-demo-latest", "APIM_REGISTRY": "registry.example.test"}]
+        self.assertEqual(layers.switch(self.project, welcome), {"APIM_VERSION": "amp-demo-latest", "APIM_REGISTRY": "registry.example.test"})
+        rows = self.plan(on(self.project), up(), "playground", "welcome", "start")["versions"]
+        self.assertEqual([(row["id"], row["name"]) for row in rows],
+                         [("APIM", f"{gateway['owner']['name']} 4.12.20 → amp-demo-latest from registry.example.test")], "one row for the image")
+
     def test_a_preview_is_tested_only_as_it_is_and_a_release_with_the_releases_of_its_minor_version(self):
         welcome, gateway = self.project["playgrounds"]["welcome"], self.project["services"]["apim-gateway"]
         gateway.update(raw_image="graviteeio/apim-gateway:${APIM_VERSION:-4.12.20}")
@@ -489,15 +531,20 @@ class Plans(Case):
         gateway["tag"] = "4.14.0"
         self.assertTrue(layers.untested(self.project, welcome)["images"][0]["goes_back"])
 
-    def test_a_version_without_numbers_to_go_to_may_be_going_back(self):
-        # A playground built on a demo build: another version is a switch to a build that says nothing of its numbers
+    def test_a_build_without_numbers_is_taken_as_the_newest(self):
+        """Going to a demo build is going forward; leaving one for a release goes back: what the build wrote may not open on it."""
         welcome, gateway = self.project["playgrounds"]["welcome"], self.project["services"]["apim-gateway"]
         gateway.update(raw_image="graviteeio/apim-gateway:${APIM_VERSION:-4.12.20}", tag="4.13.0-alpha.5")
         welcome["tested"] = [{"APIM_VERSION": "amp-demo-latest"}]
         found = layers.untested(self.project, welcome)
-        self.assertEqual((found["images"][0]["tested"], found["images"][0]["goes_back"]), ("amp-demo-latest", True))
+        self.assertEqual((found["images"][0]["tested"], found["images"][0]["goes_back"]), ("amp-demo-latest", False))
         gateway["tag"] = "amp-demo-latest"
         self.assertIsNone(layers.untested(self.project, welcome), "the build it was tested on")
+        welcome["tested"] = [{"APIM_VERSION": "4.13.0-alpha.5"}]
+        self.assertTrue(layers.untested(self.project, welcome)["images"][0]["goes_back"], "from the build to a release")
+        for have, to, back in (("4.13.0", "4.12.20", True), ("4.12.20", "4.13.0", False), ("master-latest", "latest", False),
+                               ("4.13.0-debian", "4.13.0", False)):
+            self.assertEqual(layers._goes_back(have, to), back, (have, to))
 
     def test_a_set_can_name_the_registry_a_version_is_in(self):
         # A tag is in one registry: the same tag in another is not what was tested, and a switch goes to both

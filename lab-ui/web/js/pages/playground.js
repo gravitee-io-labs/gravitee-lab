@@ -679,39 +679,27 @@ export async function stopPlayground(item) {
     { key: keyOf(item), verb: "stop" });
 }
 
-// A start on images the playground was never tested with (`versions`: what the server says of them, `untested`): the versions the
-// stack has, or the latest it was tested with, when it has one for them. Resolves with true to switch the stack to those first, false to
-// start as it is, null when canceled.
-function chooseVersions(item, label, dialog, versions) {
-  // An image with nothing tested to go to is marked "Not tested" and kept. What goes back to an older version, or to one that is not known
-  // to be later, may have written data that the version it goes to cannot open: marked on its line of the table, and said once under the switch
-  const goes = versions.images.filter((one) => one.tested);
-  const back = goes.some((one) => one.goes_back);
-  const compare = { head: ["Component", "Now", "Tested with"],
-    rows: versions.images.map((one) => ({ name: one.name, from: one.have, to: one.tested || "",
-      tag: one.tested ? (one.goes_back ? "Goes back" : "") : "Not tested", danger: !!one.tested })) };
-  const anyway = { value: false, label: `${label} anyway`, sub: goes.length ? "Keep these versions" : "" };
-  const options = goes.length ? [anyway, { value: true, label: "Switch to the tested versions", sub: "Save them, then start",
-    warn: back ? "Data a newer version wrote may not open on an older one" : "" }] : [anyway];
-  return effectsDialog({ title: `${label} ${item.name}`, steps: planRows(dialog || {}), compare, options,
-    action: (chosen) => (chosen ? `Switch and ${label.toLowerCase()}` : `${label} anyway`), danger: (chosen) => chosen && back });
-}
-
-// What a start asks first: on images it was never tested with (`versions`), which to start on; when it stops another playground,
-// its steps, and what the one that goes created in Gravitee, kept or deleted as its own Stop would. Resolves with
-// {accept, remove, tested?} once confirmed, null when canceled, and undefined when there is nothing to choose: the plan's own dialog
-// says the rest.
-export async function confirmStart(item, label, dialog, { versions } = {}) {
-  const tested = versions?.images?.length ? await chooseVersions(item, label, dialog, versions) : undefined;
-  if (tested === null) return null;
-  const more = tested ? { tested: true } : {};
-  const leaving = (dialog?.keeps || []).find((row) => row.kind === "data");
+// What a start asks first. On images it was not tested with, and not older than it asks (then its own plan switches them), the server
+// offers the start that goes to those it was tested with (`offer`, its dialog): its steps, as when it must switch, with a second button
+// that starts on the images as they are. When it stops a playground that created something in Gravitee, what to do with it, as that
+// one's Stop asks. Resolves with {accept, remove, switch?} once confirmed, null when canceled, and undefined when there is nothing to
+// ask beyond the plan's own dialog.
+export async function confirmStart(item, label, dialog, { offer } = {}) {
+  let shown = dialog, more = {};
+  if (offer) {
+    const switching = await effectsDialog({ title: `${label} ${item.name}`, options: [{ value: true, rows: planRows(offer) }],
+      action: () => `Switch and ${label.toLowerCase()}`, danger: () => !!offer.goes_back?.length,
+      other: { label: `${label} without switching`, value: false } });
+    if (switching === null) return null;
+    if (switching) [shown, more] = [offer, { switch: true }];
+  }
+  const leaving = (shown?.keeps || []).find((row) => row.kind === "data");
   const gone = leaving && store.item("playground", leaving.id);
-  const choice = gone && keepOrDelete(gone, dialog);
-  if (!choice) return tested === undefined ? undefined : { accept: accepted(dialog || {}), remove: false, ...more };
+  const choice = gone && keepOrDelete(gone, shown);
+  if (!choice) return offer ? { accept: accepted(shown || {}), remove: false, ...more } : undefined;
   const deletes = await effectsDialog({ title: `${label} ${item.name}`, steps: choice.steps, options: choice.options,
     action: (chosen) => (chosen ? `${label} and delete` : label), danger: (chosen) => chosen });
-  return deletes === null ? null : { accept: accepted(dialog), remove: deletes, ...more };
+  return deletes === null ? null : { accept: accepted(shown), remove: deletes, ...more };
 }
 
 // Re-seed, or Deploy: the same job on a remote place, which holds nothing yet for a Deploy

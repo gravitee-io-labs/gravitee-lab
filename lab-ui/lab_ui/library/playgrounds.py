@@ -209,17 +209,26 @@ def _addon_checks(project, playground, now=None, restarts=(), plan=None):
         if label not in restarting:
             restarting.append(label)
     return (_platform_lines(project, plan, now[0]) + _addon_lines(project, playground, state, now[0])
-            + _effect_lines(plan, restarting))
+            + _effect_lines(plan, restarting, _offered(project, playground)))
 
 
-def _effect_lines(plan, restarting):
-    """What a start stops, turns off and restarts, besides what it starts: `restarting` are the names of what
-    restarts."""
+def _effect_lines(plan, restarting, offered=()):
+    """What a start stops, turns off, changes and restarts, besides what it starts: `restarting` are the names of what
+    restarts, `offered` the rows of the versions it offers to go to (_offered)."""
     return ([_line(row["name"], "auto", "Stops at start", {"kind": row["kind"], "id": row["id"]})
              for row in plan["stops"]]
             + [_line(row["name"], "auto", "Turned off at start", {"kind": row["kind"], "id": row["id"]})
                for row in plan["turns_off"]]
+            + [_line(row["component"], "auto", f"Goes to {row['to']} at start") for row in [*plan.get("versions", []), *plan.get("goes_back", [])]]
+            + [_line(row["component"], "auto", f"Can go to {row['to']} at start") for row in offered]
             + [_line(name, "auto", "Restarts at start") for name in restarting])
+
+
+def _offered(project, playground):
+    """The rows of the versions its start offers to go to (tested.offered), as those it goes to are (layers.switch_rows)."""
+    offered = tested.offered(project, playground)
+    forward, back = layers.switch_rows(project, offered) if offered else ([], [])
+    return forward + back
 
 
 def _plugin_checks(project, requires, up=None, fresh=True):
@@ -338,14 +347,18 @@ def _image_checks(project, playground):
     saved: below, what to choose on the Images page, before a start that would end on its seed. Then those it was
     never tested with (layers.untested), each with the version it was."""
     found = {component["id"]: component for component in images.components(project)}
-    untested = {one["variable"]: one for one in (tested.untested(project, playground) or {}).get("images", [])}
+    # The versions its Start goes to, or offers to go to: lines of what it does (_effect_lines)
+    to = layers.switch(project, playground) or tested.offered(project, playground) or {}
+    untested = {one["variable"]: one for one in (tested.untested(project, playground) or {}).get("images", []) if one["variable"] not in to}
     for key, wanted in (playground["requires"].get("images") or {}).items():
         component = found.get(key)
-        if not component:   # make check says so
+        if not component or key in to:   # make check says what is missing; what the Start changes is not something to do
+            untested.pop(key, None)
             continue
         tag = project["services"][component["services"][0]]["tag"]
         name = f"{component['detail'] or component['owner']['name']} {wanted}"
         if not layers.enough(playground, key, tag, wanted):
+            untested.pop(key, None)   # one line for the image: what it needs says what it was tested with
             yield dict(_line(name, "warn", f"Current: {tag}"), help=f"Choose {wanted}{layers.or_later(wanted)} on the Images page",
                        variable=key)
         elif key in untested:
@@ -388,15 +401,13 @@ def _host_check(spec):
 
 
 def _dialog(project, plan, restarts):
-    """What its Start says before it runs (layers.ROWS): the rows of its plan, with the services a plugin install
-    stops and starts again (`restarts`) among what restarts, and where it comes from when it comes from a catalog
-    (layers.FROM); None when it does no more than the playground."""
+    """What its Start says before it runs: the dialog of its plan, as every list says it (layers.dialog), with the services a plugin
+    install stops and starts again (`restarts`) among what restarts; None when it does no more than the playground."""
     named = {row["id"] for row in plan["restarts"]}
     loading = layers.service_rows(project, set(restarts) - named)
     if not (layers.asks(plan) or loading):
         return None
-    return {**{key: plan[key] for key in (*layers.ROWS, layers.FROM, "hints") if key in plan},
-            "restarts": sorted(plan["restarts"] + loading, key=lambda row: row["id"])}
+    return {**layers.dialog(plan), "restarts": sorted(plan["restarts"] + loading, key=lambda row: row["id"])}
 
 
 def _host_checks(playground):
@@ -627,10 +638,11 @@ def _place_checks(project, pid, place):
 # Jobs: start, re-seed, stop
 # ---------------------------------------------------------------------------------------------------------------------
 
-def _plan(project, state, now, pid, do, accept, fresh=False):
+def _plan(project, state, now, pid, do, accept, fresh=False, also=(), switching=False):
     """The plan of a start or a stop (`now`: _now()), refused when it cannot run as the page showed it: blocked, or
-    stopping or turning off something else that was not accepted."""
-    plan = layers.plan(project, state, now[0], "playground", pid, do, fresh=fresh, behind=now[1])
+    stopping, turning off or changing something else that was not accepted. `also`: what a start makes again besides its own;
+    `switching`: the person chose the versions the playground was tested with (layers.switch)."""
+    plan = layers.plan(project, state, now[0], "playground", pid, do, fresh=fresh, behind=now[1], also=also, switching=switching)
     layers.check(project, plan, accept)
     return plan
 
@@ -674,20 +686,26 @@ def _follow_seed(project, playground):
     return follow
 
 
-def start(project, pid, accept, place=None, remove=False):
+def start(project, pid, accept, place=None, remove=False, switching=False):
     """Starts a playground. While it is off, or on and never seeded, or its seed failed (layers.fresh), the start
     sets it up: its add-ons, the plugins it needs, its apps and services with what of the platform they need, the
     whole platform while none of it runs ("Platform, apps and services" when the platform starts too), then its
     seed. On and seeded, it runs again like an add-on: what of it does not run, without a build, without its seed
     (Re-seed seeds it again). Its job is named as its button: "Start Acme Bakery", "Turn on …". For a place besides
     This machine it is _deploy's. `remove`: the playground that this one stops has what it created deleted first, as its
-    own stop would (it is kept otherwise)."""
+    own stop would (it is kept otherwise). `switching`: the person chose the versions it was tested with; it goes to them anyway when the
+    ones saved are older than it asks. The versions are saved first, then what runs behind them is made again with the start."""
     if _remote(place):
         return _deploy(project, pid, accept, place, False, remove)
     playground = layers.lookup(project, "playground", pid)
     state, now = layers.current(project), _now(project)
     fresh = _fresh(project, state, playground, now)
-    plan = _plan(project, state, now, pid, "start", accept, fresh)
+    plan = _plan(project, state, now, pid, "start", accept, fresh, switching=switching)
+    if plan.get("switch"):   # the versions it was tested with first; then what runs behind them is made again with the start
+        images.save(project, plan["switch"])
+        project = projects.load()
+        state, now = layers.current(project), _now(project)
+        plan = _plan(project, state, now, pid, "start", accept, fresh, now[1])
     delete = _leaving(project, state, plan, remove)
     title = f"{plan['label']} {playground['name']}"
     if not fresh:

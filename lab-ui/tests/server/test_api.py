@@ -1304,17 +1304,16 @@ class PlaceRoutes(LabUI):
         self.calls["check"].assert_called_with(PROJECT, "welcome")
 
     def test_a_start_on_this_machine_can_go_to_the_versions_it_was_tested_with_first(self):
-        saved = self.patch(api.images, "save")
-        self.patch(api.layers, "lookup", return_value={"id": "welcome"})
-        self.patch(api.tested, "untested", return_value={"images": [], "to": {"APIM_VERSION": "4.13.0-alpha.3"}})
-        self.request("POST", "/api/playgrounds/welcome/start", {"accept": [], "tested": True})
-        saved.assert_called_once_with(PROJECT, {"APIM_VERSION": "4.13.0-alpha.3"})
-        self.calls["start"].assert_called_once_with(PROJECT, "welcome", [])
-        # Without it, or on a place, the saved versions are left as they are
-        saved.reset_mock()
+        """The page sends `switch` when the person chose the versions the playground was tested with: the start goes there first."""
+        self.request("POST", "/api/playgrounds/welcome/start", {"accept": ["version:APIM"], "switch": True})
+        self.calls["start"].assert_called_once_with(PROJECT, "welcome", ["version:APIM"], switching=True)
+        # Without it, or on a place, the start keeps the versions it has
+        self.calls["start"].reset_mock()
         self.request("POST", "/api/playgrounds/welcome/start", {"accept": []})
-        self.request("POST", "/api/playgrounds/welcome/start", {"place": self.PLACE, "tested": True})
-        saved.assert_not_called()
+        self.calls["start"].assert_called_once_with(PROJECT, "welcome", [])
+        self.calls["start"].reset_mock()
+        self.request("POST", "/api/playgrounds/welcome/start", {"place": self.PLACE, "switch": True})
+        self.assertNotIn("switching", self.calls["start"].call_args.kwargs)
 
     def test_a_place_goes_to_what_deploys_there_with_what_its_dialog_showed(self):
         self.request("GET", f"/api/playgrounds/welcome/check?place={self.PLACE}")

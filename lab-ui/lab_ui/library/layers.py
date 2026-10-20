@@ -417,15 +417,64 @@ def enough(unit, variable, tag, wanted):
                                         for version in unit.get("tested") or [] if version.get(variable))
 
 
-def needed(project, unit):
-    """Every image a playground needs a later version of than the one saved (`requires.images`), as [(the name of its
-    component, the version it needs at least)], in the order of its `requires`."""
+def _lacking(project, unit):
+    """[(variable, the name of its component, the version it needs at least)] of every image a playground needs a later version of
+    than the one saved (`requires.images`), in the order of its `requires`."""
     found = []
     for variable, wanted in ((unit.get("requires") or {}).get("images") or {}).items():
         saved = saved_image(project, variable)
         if saved and not enough(unit, variable, saved[0], wanted):
-            found.append((saved[1], wanted))
+            found.append((variable, saved[1], wanted))
     return found
+
+
+def needed(project, unit):
+    """Every image a playground needs a later version of than the one saved (`requires.images`), as [(the name of its
+    component, the version it needs at least)], in the order of its `requires`."""
+    return [(name, wanted) for _, name, wanted in _lacking(project, unit)]
+
+
+def switch(project, unit, chosen=False):
+    """The versions a playground's start takes the stack to, {variable: value}: those of the latest set it was tested with that differ
+    from the ones saved, registries included. Always when the images saved are older than it asks (`requires.images`); when they only
+    differ, if the person chose it (`chosen`). That set must give each image it lacks, and meet what it asks of each. None when there
+    is nothing to go to."""
+    lacking, tested = _lacking(project, unit), next((one for one in reversed(unit.get("tested") or []) if one), {})
+    asked = ((unit.get("requires") or {}).get("images") or {}).items()
+    if not (lacking or chosen) or not all(tested.get(variable) for variable, _, _ in lacking) \
+            or not all(enough(unit, variable, str(tested[variable]), wanted) for variable, wanted in asked if tested.get(variable)):
+        return None
+    to = {}
+    for variable, value in tested.items():
+        found = saved_setting(project, variable)
+        if found and str(found[0]) != str(value):
+            to[variable] = str(value)
+    return to or None
+
+
+def switch_rows(project, to):
+    """The rows of what a switch changes, one for each image ("API Management 4.12.20 → 4.13.0-alpha.3", with the registry it comes from
+    when that changes too), as (what goes forward or sideways, what goes back: _goes_back). `component` and `to` are for whoever says it
+    in other words (the checks of a playground's page)."""
+    from ..docker import images   # images imports this module
+    rows, back = {}, set()
+    for variable in sorted(to):
+        image = re.sub(r"_(VERSION|REGISTRY)$", "", variable)
+        version, registry = f"{image}_VERSION", f"{image}_REGISTRY"
+        found = saved_setting(project, version) or saved_setting(project, registry)
+        if image in rows or not found:
+            continue
+        words = found[1]
+        if version in to:
+            have = saved_setting(project, version)[0]
+            words += f" {have} → {to[version]}"
+            if _goes_back(have, to[version]):
+                back.add(image)
+        if registry in to:
+            words += f" from {images.registry_label(to[registry])}"
+        rows[image] = {**_row("version", image, words), "component": found[1], "to": to.get(version) or to.get(registry),
+                       "have": (saved_setting(project, version) if version in to else saved_setting(project, registry) or (None,))[0]}
+    return [row for key, row in rows.items() if key not in back], [row for key, row in rows.items() if key in back]
 
 
 VARIANT = re.compile(r"-(?:debian|alpine|slim)$")   # the base an image is built on: not part of its version
@@ -447,9 +496,13 @@ def _tested(have, tested):
 
 
 def _goes_back(have, version):
-    """Whether going to the version a playground was tested with is going back: what is there is no older, or one of them says
-    nothing of its numbers (a demo build, latest), so that what a later one wrote may not open."""
-    return not _version(version) or at_least(have, version)
+    """Whether going from the version that is saved (`have`) to another is going back, so that what the newer one wrote may not open: a
+    release before it, or a release after a build that says nothing of its numbers (latest, master-latest, amp-demo-latest), which is
+    taken as the newest. Going to such a build is going forward."""
+    found, wanted = _version(VARIANT.sub("", have or "")), _version(VARIANT.sub("", version or ""))
+    if found and wanted:
+        return VARIANT.sub("", have) != VARIANT.sub("", version) and at_least(have, version)
+    return not found and bool(wanted)
 
 
 def _recorded(project, versions, images, image_id):
@@ -690,7 +743,7 @@ def _blocked(project, state, kind, unit, do, gateway=None, up=None, going=frozen
     names = sorted(project["addons"][aid]["name"] for aid in lacking)
     if names:
         return f"{names[0]} needs settings"
-    old = too_old(project, unit) if kind == "playground" and not gateway else None
+    old = too_old(project, unit) if kind == "playground" and not gateway and not switch(project, unit) else None
     return old or _port_clash(project, state, up, kind, unit, going)
 
 
@@ -906,6 +959,13 @@ def _late(project, kind, unit, behind):
     return sorted(set(mine) & set(behind))
 
 
+def _switch_parts(project, to):
+    """What a plan says of a switch of versions: its rows, in `versions` and `goes_back` (only the parts that have some), and `switch`,
+    the values the start saves."""
+    forward, back = switch_rows(project, to)
+    return {**({"versions": forward} if forward else {}), **({"goes_back": back} if back else {}), "switch": to}
+
+
 def _remote(place):
     """Whether a place is a remote one: anything but None and This machine, given by its id or as a place."""
     return bool(place) and (place if isinstance(place, str) else place["id"]) != MACHINE
@@ -987,14 +1047,16 @@ def _on_their_platforms(project, state):
     return {**project, **{key: {**project[key], **units} for key, units in found.items()}} if found else project
 
 
-def plan(project, state, up, kind, uid, do, fresh=False, behind=frozenset(), place=None):
+def plan(project, state, up, kind, uid, do, fresh=False, behind=frozenset(), place=None, also=frozenset(), switching=False):
     """What starting or stopping an add-on, a setup or a playground changes, said before it runs (ROWS): rows of {kind,
     id, name} that start, stop (they run), are turned off (they are on and do not run), are kept or restart; the
     services its commands remove and start (`services`); the reason it cannot run (`blocked`); the on file it leads
     to (`playground`, `explicit`); the keys of the rows that are the item itself (`itself`): a setup's add-ons are the
     setup, but those that were turned on by themselves when it stops; and the word of its button (`label`). `state`
     is current(), `up` what runs (model.up()). `fresh`: a playground's start that sets it up, its seed included.
-    `behind`: the services that run behind what is saved (model.behind).
+    `behind`: the services that run behind what is saved (model.behind). `also`: services a start makes again besides its own: the
+    platform that runs behind the versions a playground's start just switched to (playgrounds.start). `switching`: the person chose to
+    take a playground to the versions it was tested with (switch); it goes there anyway when the saved ones are older than it asks.
 
     `place`: where a start deploys. None, or This machine (MACHINE, by its id or as a place), is the plan above, as it
     always was, and so is every stop. A remote place, {id, name, gateway, here, serving}, makes the plan of a lab
@@ -1030,10 +1092,18 @@ def plan(project, state, up, kind, uid, do, fresh=False, behind=frozenset(), pla
     swap = remote and gateway["id"] in up["addons"] and not place.get("here")
     if do == "start":
         named = {row["id"] for row in restarts} | set(gateway["services"] if swap else ())
-        restarts = sorted(restarts + [_service_row(project, name) for name in _late(project, kind, unit, behind)
-                                      if name not in named], key=lambda row: row["id"])
+        later = dict.fromkeys([*_late(project, kind, unit, behind), *sorted(set(also) & set(project["services"]))])
+        restarts = sorted(restarts + [_service_row(project, name) for name in later if name not in named], key=lambda row: row["id"])
         if swap:   # made again with this place's token, as one row
             restarts.insert(0, _row("addon", gateway["id"], gateway["name"]))
+    # A playground on images older than it asks: its start goes to the versions it was tested with first (`switch`), and what runs on
+    # those images is made again with it
+    to = switch(project, unit, switching) if (kind, do) == ("playground", "start") and not remote else None
+    if to:
+        from ..docker import images   # images imports this module
+        named = {row["id"] for row in restarts}
+        restarts = sorted(restarts + [_service_row(project, name) for name in images.changing(project, to)
+                                      if name in up["services"] and name not in named], key=lambda row: row["id"])
     fresh = fresh and (kind, do) == ("playground", "start")
     starts, start = _starts(project, up, kind, unit, playground, effective, restarts, fresh and not remote,
                             place["gateway"] if remote and kind != "playground" else None) \
@@ -1061,7 +1131,8 @@ def plan(project, state, up, kind, uid, do, fresh=False, behind=frozenset(), pla
             "blocked": blocked, "itself": itself, "fresh": fresh,
             "playground": playground, "explicit": sorted(explicit),
             **(_place_rows(place, (kind, uid) == ("addon", place["gateway"]), swap) if remote else {}),
-            **(_from(unit) if do == "start" else {})}
+            **(_from(unit) if do == "start" else {}),
+            **(_switch_parts(project, to) if to else {})}
 
 
 def asks(plan):
@@ -1073,13 +1144,14 @@ def asks(plan):
     return other(plan["stops"]) or other(plan["turns_off"]) or other(plan["starts"]) or bool(plan["restarts"]) \
         or any(row["kind"] == "playground" for row in plan["stops"] + plan["turns_off"]) \
         or any(row["kind"] == "addon" for row in plan["keeps"]) \
-        or bool(plan.get("deploys_to"))   # a remote place always asks: the dialog names it
+        or bool(plan.get("deploys_to")) or bool(plan.get("switch"))   # a remote place and a switch of versions always ask
 
 
 def dialog(plan):
-    """What a plan says before it runs, as the page draws it: its ROWS, and PLACE_ROWS when it is for a remote place; when the
+    """What a plan says before it runs, as the page draws it: its ROWS, the versions a start switches to, and PLACE_ROWS when it is for a
+    remote place; when the
     item comes from a catalog, the row FROM and the `hints` under it. Those two never make a dialog open (asks)."""
-    return {key: plan[key] for key in (*ROWS, *PLACE_ROWS, FROM, "hints") if key in plan}
+    return {key: plan[key] for key in (*ROWS, "versions", "goes_back", *PLACE_ROWS, FROM, "hints") if key in plan}
 
 
 def platform_starts(project, state, up):
@@ -1162,8 +1234,8 @@ def check(project, plan, accept):
     a form that left either out would skip the preflight without a word."""
     if plan["blocked"]:
         raise RuntimeError(plan["blocked"])
-    for part, verb in (("stops", "stop"), ("turns_off", "turn off")):
-        for row in plan[part]:
+    for part, verb in (("stops", "stop"), ("turns_off", "turn off"), ("versions", "change"), ("goes_back", "take back")):
+        for row in plan.get(part, []):
             named = key(row["kind"], row["id"])
             if named not in plan["itself"] and named not in accept:
                 raise RuntimeError(f"Would also {verb} {row['name']}")

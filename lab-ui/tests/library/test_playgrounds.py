@@ -400,16 +400,16 @@ class Playgrounds(Case):
         gateway.update(raw_image="graviteeio/apim-gateway:${APIM_VERSION:-4.12.20}", tag="amp-demo-latest")
         playground = {"requires": {"images": {"APIM_VERSION": "4.13.0-alpha.3"}},
                       "tested": [{"APIM_VERSION": "4.13.0-alpha.3"}]}
-        self.assertEqual(list(playgrounds._image_checks(self.project, playground)), [
-            {"name": "API Management 4.13.0-alpha.3", "state": "warn", "detail": "Not tested: amp-demo-latest",
-             "help": "Tested with 4.13.0-alpha.3", "variable": "APIM_VERSION"}])
+        # Its start offers the versions it was tested with: a line of what the start does (_offered), as when it must go there
+        self.assertEqual(list(playgrounds._image_checks(self.project, playground)), [])
+        self.assertEqual([(row["have"], row["to"]) for row in playgrounds._offered(self.project, playground)],
+                         [("amp-demo-latest", "4.13.0-alpha.3")])
         gateway["tag"] = "4.13.0-alpha.3"
         self.assertEqual(list(playgrounds._image_checks(self.project, playground))[0]["state"], "ok")
-        # An image it asks no minimum of is a line of its own once it was not tested
+        self.assertEqual(playgrounds._offered(self.project, playground), [])
+        # An image it asks no minimum of is offered too
         gateway["tag"] = "latest"
-        self.assertEqual(list(playgrounds._image_checks(self.project, {"requires": {}, "tested": playground["tested"]})), [
-            {"name": "API Management", "state": "warn", "detail": "Not tested: latest",
-             "help": "Tested with 4.13.0-alpha.3", "variable": "APIM_VERSION"}])
+        self.assertEqual(list(playgrounds._image_checks(self.project, {"requires": {}, "tested": [{"APIM_VERSION": "4.13.0-alpha.3"}]})), [])
 
     def test_a_license_needed_for_a_part_of_the_guide_says_which(self):
         # ACME Hello needs one for its authorization step only: its check says so, the whole of it when one is
@@ -631,6 +631,46 @@ class Playgrounds(Case):
         self.assertIn(["service", "apim-gateway"], more["changes"]["start"])
         self.assertEqual(ran(steps)[1][0], [*COMPOSE, "up", "-d", "--no-deps", "agent-lens",
                                             "apim-gateway", "hello-app", "seed"])
+
+    def test_a_start_on_versions_too_old_saves_those_it_was_tested_with_then_makes_again_what_runs_behind_them(self):
+        """The plan of the page changes the versions; the start saves them, and its job recreates the platform that runs behind them."""
+        self.patch(plugins, "install_steps", lambda project, product, names: ([], [], {}))
+        welcome, gateway = self.project["playgrounds"]["welcome"], self.project["services"]["apim-gateway"]
+        gateway.update(raw_image="graviteeio/apim-gateway:${APIM_VERSION:-4.12.20}", tag="4.12.20")
+        welcome["requires"] = {"images": {"APIM_VERSION": "4.13.0-alpha.3"}}
+        welcome["tested"] = [{"APIM_VERSION": "4.13.0-alpha.5"}]
+        self.containers = {**running(*CORE), "mongodb": {**running("x")["x"], "config_hash": "old"}}
+        saved = self.patch(playgrounds.images, "save")
+        reloaded = self.patch(playgrounds.projects, "load", return_value=self.project)
+        with self.assertRaisesRegex(RuntimeError, "Would also change"):   # the page did not show the switch
+            playgrounds.start(self.project, "welcome", [])
+        saved.assert_not_called()
+        # Once saved, mongodb runs behind what is saved: the start makes it again
+        def save(project, values):
+            gateway["tag"] = values["APIM_VERSION"]
+            self.saved.return_value = {"hashes": {"mongodb": "saved"}, "images": {}}
+        saved.side_effect = save
+        playgrounds.start(self.project, "welcome", ["version:APIM"])
+        saved.assert_called_once_with(self.project, {"APIM_VERSION": "4.13.0-alpha.5"})
+        reloaded.assert_called_once_with()
+        self.assertIn(["service", "mongodb"], self.started(self.jobs)[2]["changes"]["start"])
+
+    def test_what_its_start_changes_is_done_for_you_at_start_and_not_a_line_that_needs_you(self):
+        welcome, gateway = self.project["playgrounds"]["welcome"], self.project["services"]["apim-gateway"]
+        gateway.update(raw_image="graviteeio/apim-gateway:${APIM_VERSION:-4.12.20}", tag="4.12.20")
+        welcome["requires"] = {"images": {"APIM_VERSION": "4.13.0-alpha.3"}}
+        welcome["tested"] = [{"APIM_VERSION": "4.13.0-alpha.5"}]
+        self.assertEqual(list(playgrounds._image_checks(self.project, welcome)), [], "nothing needs you, not even a line that it was not tested")
+        plan = layers.plan(self.project, on(self.project), playgrounds._now(self.project)[0], "playground", "welcome", "start")
+        self.assertIn((gateway["owner"]["name"], "auto", "Goes to 4.13.0-alpha.5 at start"),
+                      [(line["name"], line["state"], line["detail"]) for line in playgrounds._effect_lines(plan, [])])
+        # The Start of the page asks what the Start of a list asks: the same dialog, the versions in it
+        self.assertEqual(playgrounds._dialog(self.project, plan, ()), layers.dialog(plan))
+        self.assertEqual([row["id"] for row in playgrounds._dialog(self.project, plan, ())["versions"]], ["APIM"])
+        # Nothing tested to go to: it needs you, once, on the Images page
+        welcome["tested"] = []
+        self.assertEqual([(line["state"], line["help"]) for line in playgrounds._image_checks(self.project, welcome)],
+                         [("warn", "Choose 4.13.0-alpha.3 or later on the Images page")])
 
     def test_jobs_are_named_as_their_buttons(self):
         # Turned on while its app runs outside the Lab UI; turned off while nothing of it runs

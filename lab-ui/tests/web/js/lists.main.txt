@@ -113,6 +113,7 @@
           <span class="list-actions">
             <a class="btn" href="#/playgrounds/acme-hostels" aria-label="Open Acme Hostels">
               "Open"
+            <span class="warn-slot">
             <button class="btn pbtn act" data-act-for="playground:acme-hostels" data-act="" data-busy="" aria-label="Start Acme Hostels">
               <span class="pbtn-wrap">
                 <span class="pbtn-face">
@@ -177,6 +178,7 @@
           <span class="list-actions">
             <a class="btn" href="#/playgrounds/acme-bakery" aria-label="Open Acme Bakery">
               "Open"
+            <span class="warn-slot">
             <button class="btn pbtn act" data-act-for="playground:acme-bakery" data-act="" data-busy="" aria-label="Start Acme Bakery">
               <span class="pbtn-wrap">
                 <span class="pbtn-face">
@@ -274,6 +276,7 @@
           <span class="list-cat">
             "Demo"
           <span class="list-actions">
+            <span class="warn-slot">
             <button class="btn pbtn act" data-act-for="setup:messaging" data-act="" data-busy="" aria-label="Start Messaging">
               <span class="pbtn-wrap">
                 <span class="pbtn-face">
@@ -400,6 +403,7 @@
           <span class="list-cat">
             "Demo"
           <span class="list-actions">
+            <span class="warn-slot">
             <button class="btn pbtn act" data-act-for="addon:kafka" data-act="" data-busy="" aria-label="Stop Kafka">
               <span class="pbtn-wrap">
                 <span class="pbtn-face">
