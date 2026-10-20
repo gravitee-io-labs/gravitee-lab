@@ -1,4 +1,4 @@
-# Managed by the Lab catalog standard 3: change it with catalog.py upgrade, in a pull request a maintainer reads.
+# Managed by the Lab catalog standard 4: change it with catalog.py upgrade, in a pull request a maintainer reads.
 name: Lab
 description: Checks out the Lab this catalog is written for, at the commit .github/standard.json names, checks that it is the Lab's own, and installs Compose 5
 

@@ -1,5 +1,5 @@
 {
-  "level": 3,
+  "level": 4,
   "files": [
     {"path": ".catalog/standard.mk", "class": "managed", "since": 1, "when": "always", "scope": "full"},
     {"path": ".github/dependabot.yml", "class": "managed", "since": 1, "when": "always", "scope": "full"},
@@ -126,6 +126,12 @@
       "manual": ["To publish images, set images in catalog.yml to ghcr.io/OWNER/REPO and name each image ghcr.io/OWNER/REPO/UNIT-APP, then run catalog.py upgrade again.",
         "For the e2e.yml module, store GRAVITEE_LICENSE only as a secret of the environments e2e and e2e-nightly, never as a repository secret."],
       "settings": ["Create the environments publish, e2e and e2e-nightly the same way: repo-settings shows what is missing."],
+      "urgent": false
+    },
+    "4": {
+      "summary": "Names every job and every step in plain words (Checks, Seed files, Apps; Newest Lab, Pinned Lab; Plan, Images, Attestations, Release), and runs nightly.yml every night, as its name says, instead of every week. No file is added.",
+      "manual": [],
+      "settings": [],
       "urgent": false
     }
   }

@@ -1,4 +1,4 @@
-# Managed by the Lab catalog standard 3: change it with catalog.py upgrade, in a pull request a maintainer reads.
+# Managed by the Lab catalog standard 4: change it with catalog.py upgrade, in a pull request a maintainer reads.
 version: 2
 
 # A new version waits a week before it is proposed: a release published to do harm is usually withdrawn within days.
