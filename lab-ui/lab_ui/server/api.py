@@ -19,7 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import URLError
 from urllib.parse import parse_qs, urlparse
 
-from ..library import check, drift, layers, layout, model, personal, playgrounds, project, starred, tested
+from ..library import check, drift, layers, layout, model, personal, playgrounds, project, starred
 from ..docker import compose, files, images, plugins, probe, terminal
 from ..gravitee import core, license, places, platforms
 from . import dashboard, stack
@@ -274,11 +274,8 @@ def start_playground(req, pid):
     accept = accepted(req)
     more = {"remove": True} if req.body.get("remove") else {}   # delete what the playground it stops created
     found, where = project.load(), at(req.body.get("place"))
-    if req.body.get("tested") and not where:   # the stack goes to the versions it was tested with first, on This machine
-        images_to = tested.untested(found, layers.lookup(found, "playground", pid))
-        if images_to and images_to["to"]:
-            images.save(found, images_to["to"])
-            found = project.load()
+    if req.body.get("switch") and not where:   # the person chose the versions it was tested with, on This machine
+        more["switching"] = True
     return playgrounds.start(found, pid, accept, **more, **where)
 
 

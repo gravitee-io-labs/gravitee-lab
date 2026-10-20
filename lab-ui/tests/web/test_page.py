@@ -169,7 +169,7 @@ class Agreements(Case):
         self.assertEqual(rows.count('">Open</a>'), 1)
         self.assertNotIn("Open Lab", rows)
         self.assertNotIn("Open Lab", (WEB / "js" / "pages" / "stack.js").read_text())
-        self.assertIn('${stuck ? stuck.html : ""}${itemButton(x)}', rows)
+        self.assertIn('<span class="warn-slot">${stuck ? stuck.html : ""}</span>${itemButton(x)}', rows)   # its own slot, just before
         self.assertIn('if (x.kind === "playground" && action.do === "stop") return stopPlayground(x);', rows)
         self.assertNotIn("router.go(`#/playgrounds", rows, "no button of a row says Start and navigates")
 

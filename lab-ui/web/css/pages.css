@@ -77,10 +77,12 @@
 
 /* The catalog, in the anatomy of a list's row on two lines: its kind, its name with its star, and under them its state and its badges
    (what the list says of an item: why it cannot start, that it was started outside the Lab UI, Apply needed), then two slots of a fixed
-   width that keep their place when what they hold is absent: its Start or Stop, the lists' own button, and its Settings. A badge too long
+   width that keep their place when what they hold is absent: the warning before its Start, its Start or Stop, the lists' own button, and
+   its Settings. A badge too long
    for its line is cut, its tooltip saying it whole. A name is plain text: it is underlined when it is hovered or focused. */
 .dash-item {
-  display: grid; grid-template-columns: 16px minmax(0, 1fr) 104px var(--h-inner); grid-template-areas: "kind name act set" "kind sub act set";
+  display: grid; grid-template-columns: 16px minmax(0, 1fr) var(--h-inner) 104px var(--h-inner);
+  grid-template-areas: "kind name warn act set" "kind sub warn act set";
   column-gap: var(--sp-3); row-gap: 2px; align-items: center; align-content: center; min-height: var(--h-row); padding: var(--sp-1) var(--pad);   /* 56 px with its hairline */
 }
 .dash-kind { grid-area: kind; display: grid; place-items: center; color: var(--muted); }
@@ -91,6 +93,7 @@
 .dash-sub-line > .status { flex: none; }
 .dash-marks { flex-wrap: wrap; row-gap: var(--sp-1); }
 .dash-slot { display: flex; align-items: center; justify-content: flex-end; }
+.dash-warn { grid-area: warn; }
 .dash-act { grid-area: act; }
 .dash-act .btn.act { min-width: 104px; }   /* "Stopping 100%" fits: a restart, rarer, takes a few pixels more while it works */
 .dash-set { grid-area: set; }
@@ -211,7 +214,7 @@
   .dash-card .list-filters .combo-btn { grid-column: 1 / -1; width: 100%; max-width: none; }
   .dash-card .list-filters .toggle-chip { justify-content: center; }
   /* An item: its name on the whole first line, its state and its badges on the second, its buttons on a third at its right end */
-  .dash-item { grid-template-areas: "kind name name name" "kind sub sub sub" "kind . act set"; row-gap: var(--sp-1); padding-block: var(--sp-3); }
+  .dash-item { grid-template-areas: "kind name name name name" "kind sub sub sub sub" "kind . warn act set"; row-gap: var(--sp-1); padding-block: var(--sp-3); }
   .dash-kind { align-self: start; margin-top: 2px; }   /* on the line of the name */
 }
 

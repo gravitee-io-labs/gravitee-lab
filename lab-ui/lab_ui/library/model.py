@@ -29,6 +29,7 @@ PLAYGROUND_KEYS = ("tags", "duration", "first_start", "source", "chapters", "gui
 LOW_MEMORY = 7.5 * 2 ** 30   # under 8 GB, Docker struggles once add-ons run with the platform
 APPLY = "Apply needed"   # what runs behind what is saved, as a row says it
 NEWER = "Needs newer versions"   # a playground whose images are older than it needs
+UNTESTED = "Not tested with these versions"   # a playground whose images are not those it was tested with
 SETTINGS = "Needs settings"   # what lacks a required setting, or brings an add-on that does
 # Why what needs a license cannot have it, as its tooltip says it
 UNUSABLE = {"unreadable": "The license cannot be read", "invalid": "The license is not signed by GraviteeSource"}
@@ -445,8 +446,8 @@ def _needs_note(unit):
             "note_causes": [dict(cause, kind="catalog") for cause in causes]}
 
 
-def _note(c, unit, state, on, is_up, plan, failure, services):
-    """One short fact about a row, the first that applies, as _said() gives it."""
+def _note(c, unit, state, on, is_up, plan, failure, services, offer=None):
+    """One short fact about a row, the first that applies, as _said() gives it. `offer`: what its start offers (_offer)."""
     key = state["key"]
     if key in ("starting", "stopping"):   # on its way, after a failure too: it is said once it is there
         return _said()
@@ -462,14 +463,20 @@ def _note(c, unit, state, on, is_up, plan, failure, services):
     said = _blocked_note(c, unit) or _needs_note(unit)
     if said:
         return said
+    # A playground whose start switches its images (older than it needs) or offers to (not those it was tested with): the same note
+    # beside its Start, each image as it is and as it was tested
+    if plan and plan.get("switch"):
+        return {**_said(NEWER, "warn", layers.too_old(c["project"], unit), target={"kind": "image", "id": None}),
+                "note_causes": _switch_causes(*layers.switch_rows(c["project"], plan["switch"]))}
+    if offer:
+        return {**_said(UNTESTED, "warn", target={"kind": "image", "id": None}), "note_causes": _switch_causes(offer.get("versions", []), offer.get("goes_back", []))}
     # A locked on file is said once, in the banner, and a move of the old layout that is not over once, by the button of each
     # row (its reason): neither is the note of every row that could start
     if plan and plan["do"] == "start" and plan["blocked"] and plan["blocked"] not in (c["state"]["locked"], layers.WAITING):
         # A playground on images older than it needs: a short label, the versions it needs in its explanation
         # leads to the Images page, where they are chosen
         if unit["kind"] == "playground" and plan["blocked"] == layers.too_old(c["project"], unit):
-            needs = [{"kind": "needs", "name": name, "version": wanted} for name, wanted in layers.needed(c["project"], unit)]
-            return {**_said(NEWER, "warn", plan["blocked"], target={"kind": "image", "id": None}), "note_causes": needs}
+            return {**_said(NEWER, "warn", plan["blocked"], target={"kind": "image", "id": None}), "note_causes": _needs(c, unit)}
         # An add-on it brings lacks settings: a short label that leads to that add-on's row, its name in the explanation
         lacking = [aid for aid, addon in c["project"]["addons"].items() if plan["blocked"] == f"{addon['name']} needs settings"]
         if lacking:
@@ -506,14 +513,38 @@ def _note(c, unit, state, on, is_up, plan, failure, services):
         or (_said(f"Also in {twin['name']}", target={"kind": unit["kind"], "id": twin["id"]}) if twin else _said())
 
 
-def _action(c, plan, blocked=None):
+def _needs(c, unit):
+    """The versions a playground needs, as the causes of its note."""
+    return [{"kind": "needs", "name": name, "version": wanted} for name, wanted in layers.needed(c["project"], unit)]
+
+
+def _switch_causes(forward, back):
+    """The causes of a note about a switch of versions: each image as it is and as it was tested, `older` when it goes back."""
+    return [{"kind": "switch", "services": [row["component"]], "have": row["have"], "to": row["to"], "older": row in back}
+            for row in forward + back]
+
+
+def _offer(c, uid, unit, plan):
+    """What a playground's start offers when the images saved are not those it was tested with, nor older than it asks (then its plan
+    switches them): the dialog of its start that goes to those it was tested with (layers.dialog), the same steps as when it must. None
+    when it offers none (tested.offered)."""
+    if unit["kind"] != "playground" or not plan or plan["do"] != "start" or plan["blocked"] or not tested.offered(c["project"], unit):
+        return None
+    switched = _plan(c, "playground", uid, "start", switching=True)
+    return layers.dialog(switched) if switched.get("switch") and not switched["blocked"] else None
+
+
+def _action(c, plan, blocked=None, offer=None):
     """An action of a row, from the plan of its start or its stop. Its label says what the click does to the item:
     Start, Stop, Turn on, Turn off. It asks first (`dialog`: layers.dialog, the rows of its plan) when it does more than
-    that (layers.asks). `blocked`: why it cannot run, in the words of the row's own note (the settings an add-on lacks)."""
+    that (layers.asks). `blocked`: why it cannot run, in the words of the row's own note (the settings an add-on lacks). `warns`: it
+    can run, and does or offers what the row's note warns of; `offer`: what it offers (_offer)."""
     reason = blocked or plan["blocked"] or (None if c["project"]["core_loaded"] else f"{paths.CORE_FILE} does not load") \
         or c["wait"]
     return {"do": plan["do"], "label": plan["label"], "enabled": not reason, "reason": reason,
-            "dialog": layers.dialog(plan) if layers.asks(plan) else None}
+            "dialog": layers.dialog(plan) if layers.asks(plan) else None,
+            # Its start does or offers what the row's note warns of (it switches versions): the note stays beside the button
+            **({"warns": True} if plan.get("switch") or offer else {}), **({"offer": offer} if offer else {})}
 
 
 def seed_failed(states, playground):
@@ -523,15 +554,15 @@ def seed_failed(states, playground):
     return bool(seed) and states[seed]["key"] == "issue" and not states[seed]["running"]
 
 
-def _plan(c, kind, uid, do):
+def _plan(c, kind, uid, do, switching=False):
     """layers.plan() of an item. A playground's start sets it up when it is off, on and never seeded, or its seed
-    failed."""
+    failed; `switching`: it goes to the versions it was tested with (layers.switch)."""
     fresh = False
     if kind == "playground":
         playground = c["project"]["playgrounds"][uid]
         states = {name: c["services"][name]["state"] for name in playground["services"]}
         fresh = layers.fresh(c["project"], c["state"], uid, c["created"].get(uid), seed_failed(states, playground))
-    return layers.plan(c["project"], c["state"], c["up"], kind, uid, do, fresh=fresh, behind=c["behind"])
+    return layers.plan(c["project"], c["state"], c["up"], kind, uid, do, fresh=fresh, behind=c["behind"], switching=switching)
 
 
 def _brings(c, names):
@@ -617,7 +648,8 @@ def _item(c, unit, state, on, is_up, services):
         or (on and state["key"] in ("running", "starting", "partly")) else "start"
     plan = _plan(c, kind, uid, do)
     # Its own note names the settings it lacks (_note, without a plan), and is why its Start waits
-    note = _note(c, unit, state, on, is_up, None if lacking else plan, failure, services)
+    offer = _offer(c, uid, unit, plan)
+    note = _note(c, unit, state, on, is_up, None if lacking else plan, failure, services, offer)
     unset, gateway = c["state"].get("unset", {}).get(uid, []), lacking and _lacks_gateway(c, unit)
     # Why a start waits, in the order of the note: the policy, a catalog that is not here, the settings, the license
     blocked = _unusable(unit) if do == "start" else None
@@ -644,7 +676,7 @@ def _item(c, unit, state, on, is_up, services):
             # The kinds of platform it can run on besides this machine, as its files say (each place says why it cannot),
             # and where it runs now when that is not this machine: the kind of platform, from the on file
             "deploys_to": unit.get("deploys_to") or [], "runs_on": _runs_on(c, kind, unit),
-            **note, "links": _links(c, services), "action": _action(c, plan, blocked),
+            **note, "links": _links(c, services), "action": _action(c, plan, blocked, offer),
             "secondary": _action(c, _plan(c, kind, uid, "stop")) if offers else None,
             "failed_job": failure["id"] if failure else None, "login": (failure or {}).get("login")}
 
@@ -732,8 +764,6 @@ def _playground(c, playground, addons, created):
             "setups": _named(project["setups"], playground["setups"]),
             "addons": _named(project["addons"], playground["addons"]), "includes": playground["includes"],
             "created": created.get(uid, []),
-            # The images it would start on that it was never tested with, and the versions it was (layers.untested)
-            "untested": tested.untested(project, playground),
             # What it holds in the places besides This machine (`created` is This machine's)
             "deployed": c["deployed"].get(uid, []), "brings": _brings(c, playground["apps"]),
             "recreates": _recreates(c, playground["apps"]),

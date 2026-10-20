@@ -132,14 +132,15 @@ export function startPlayground(item, dialog = item.action.dialog) {
   return startHere(item, shown);
 }
 
-// The Start on This machine: on images it was never tested with, its dialog offers to start anyway or to switch the stack to the
-// versions it was tested with; when it stops a playground that created something in Gravitee, to keep it or to delete it; else it is
-// what it always was
+// The Start on This machine: on images it was not tested with, its dialog is the start that switches to the versions it was tested with
+// (`offer`), or starts without; when it stops a playground that created something in Gravitee, it asks to keep it or to delete it; else
+// it is what it always was. The offer names This machine in its last step as the dialog does.
 async function startHere(item, dialog) {
-  const chosen = await confirmStart(item, item.action.label, dialog, { versions: item.untested });
+  const offer = item.action.offer && { ...item.action.offer, ...(dialog?.deploys_to ? { deploys_to: dialog.deploys_to } : {}) };
+  const chosen = await confirmStart(item, item.action.label, dialog, { offer });
   if (chosen === undefined) return runAction(item, { ...item.action, dialog });
   if (chosen === null) return;
   runJob(() => api(`/api/playgrounds/${item.id}/start`, { accept: chosen.accept, ...(chosen.remove ? { remove: true } : {}),
-    ...(chosen.tested ? { tested: true } : {}) }),
+    ...(chosen.switch ? { switch: true } : {}) }),
     { key: `playground:${item.id}`, verb: "start" });
 }

@@ -619,6 +619,7 @@
           <span class="list-actions">
             <a class="btn" href="#/playgrounds/local/scratch" aria-label="Open Scratch">
               "Open"
+            <span class="warn-slot">
             <button class="btn pbtn act" data-act-for="playground:local/scratch" data-act="" data-busy="" aria-label="Start Scratch">
               <span class="pbtn-wrap">
                 <span class="pbtn-face">
@@ -727,6 +728,7 @@
           <span class="list-actions">
             <a class="btn" href="#/playgrounds/local/scratch" aria-label="Open Scratch">
               "Open"
+            <span class="warn-slot">
             <button class="btn pbtn act" data-act-for="playground:local/scratch" data-act="" data-busy="" aria-label="Start Scratch">
               <span class="pbtn-wrap">
                 <span class="pbtn-face">

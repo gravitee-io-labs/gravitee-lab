@@ -51,6 +51,15 @@ def untested(project, playground):
     return layers.untested(project, playground, sets(playground.get("id")), image_id)
 
 
+def offered(project, playground):
+    """The versions a playground's start offers to go to (layers.switch, chosen): those it was tested with, when the ones saved are not
+    them and it did not start well on them here (untested), nor older than it asks (then its start goes there: layers.switch). None
+    otherwise."""
+    if layers.switch(project, playground) or not untested(project, playground):
+        return None
+    return layers.switch(project, playground, True)
+
+
 def variables(playground):
     """The version variables whose images a playground is judged on: those it asks a minimum of and those it declares tested."""
     return list(dict.fromkeys([*(playground["requires"].get("images") or {}),

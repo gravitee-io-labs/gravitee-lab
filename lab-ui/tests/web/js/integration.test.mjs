@@ -425,7 +425,9 @@ test("a plan says where its item comes from when the server says it: one row amo
   const plan = { starts: [{ kind: "addon", id: "kafka", name: "Kafka" }], from: [{ name: "Acme Hub" }], hints: { from: "Version 1.4.0" },
     keeps: [{ kind: "addon", id: "redis", name: "Redis" }], deploys_to: [{ kind: "environment", id: "machine", name: "This machine" }] };
   const rows = ui.planRows(plan);
-  assert.deepEqual(rows.map((row) => row.label), ["Stops", "Turns off", "Starts", "Restarts", "Goes back", "Loses its license", "Deploys to", "From", "Keeps", "Serves", "Stops serving", "Not started"]);
+  assert.deepEqual(rows.map((row) => row.label), ["Stops", "Turns off", "Starts", "Changes versions", "Goes back", "Restarts", "Loses its license", "Deploys to", "From", "Keeps", "Serves", "Stops serving", "Not started"]);
+  assert.deepEqual(ui.accepted({ stops: [{ kind: "addon", id: "a" }], versions: [{ kind: "version", id: "APIM" }] }), ["addon:a", "version:APIM"],
+    "a version it changes is sent back with what it stops: the server changes nothing the page did not show");
   const from = rows.find((row) => row.label === "From");
   assert.deepEqual([from.items.map((i) => i.name), from.hint, from.note], [["Acme Hub"], "Version 1.4.0", true], "a row that says what the plan leaves as it is");
   assert.deepEqual(ui.planRows({ starts: plan.starts }).find((row) => row.label === "From").items, [], "no catalog said: no row");

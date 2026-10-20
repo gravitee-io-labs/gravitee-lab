@@ -1012,6 +1012,41 @@ class State(Built):
         for over in ({**ended, "progress": 1}, {**ended, "settled": True}, {**ended, "ok": False}):
             self.assertEqual(set(self.progress(explicit=["kafka"], containers=checking, job=over).values()), {None})
 
+    def test_a_playground_whose_start_switches_the_versions_keeps_its_note_and_can_start(self):
+        welcome, gateway = self.project["playgrounds"]["welcome"], self.project["services"]["apim-gateway"]
+        gateway.update(raw_image="graviteeio/apim-gateway:${APIM_VERSION:-4.12.20}", tag="4.12.20")
+        welcome["requires"] = {"images": {"APIM_VERSION": "4.13.0-alpha.3"}}
+        welcome["tested"] = [{"APIM_VERSION": "4.13.0-alpha.5"}]
+        item = self.item("playground", "welcome", containers=CORE)
+        self.assertEqual((item["action"]["enabled"], item["action"].get("warns")), (True, True), "it starts, and does what its note says")
+        self.assertEqual((item["note"], item["note_tone"]), (model.NEWER, "warn"))
+        # Each image as it is and as it was tested, as when it only offers to switch
+        self.assertEqual([(cause["kind"], cause["have"], cause["to"], cause["older"]) for cause in item["note_causes"]],
+                         [("switch", "4.12.20", "4.13.0-alpha.5", False)])
+        self.assertEqual([row["id"] for row in item["action"]["dialog"]["versions"]], ["APIM"])
+        welcome["tested"] = []   # nothing to switch to: it waits for the Images page
+        item = self.item("playground", "welcome", containers=CORE)
+        self.assertEqual((item["action"]["enabled"], item["action"].get("warns"), item["note"]), (False, None, model.NEWER))
+
+    def test_a_playground_on_versions_it_was_not_tested_with_offers_the_start_that_switches_them(self):
+        welcome, gateway = self.project["playgrounds"]["welcome"], self.project["services"]["apim-gateway"]
+        gateway.update(raw_image="graviteeio/apim-gateway:${APIM_VERSION:-4.13.0-alpha.3}", tag="4.13.0-alpha.3")
+        welcome["requires"] = {"images": {"APIM_VERSION": "4.13.0-alpha.3"}}
+        welcome["tested"] = [{"APIM_VERSION": "4.13.0-alpha.5"}]
+        item = self.item("playground", "welcome", containers=CORE)
+        self.assertEqual((item["action"]["enabled"], item["action"].get("warns")), (True, True))
+        # The note of a switch it must make, in the same words: each image as it is and as it was tested
+        self.assertEqual((item["note"], item["note_tone"]), (model.UNTESTED, "warn"))
+        self.assertEqual([(cause["kind"], cause["have"], cause["to"], cause["older"]) for cause in item["note_causes"]],
+                         [("switch", "4.13.0-alpha.3", "4.13.0-alpha.5", False)])
+        # What it offers is the dialog of the start that switches: the same steps as when it must
+        offer = item["action"]["offer"]
+        self.assertEqual(([row["id"] for row in offer["versions"]], [row["id"] for row in offer["starts"]]), (["APIM"], ["welcome", "agent-lens"]))
+        self.assertNotIn("versions", item["action"]["dialog"] or {}, "its own start keeps the versions")
+        welcome["tested"] = [{"APIM_VERSION": "4.13.0-alpha.3"}]   # tested with them: nothing to say
+        item = self.item("playground", "welcome", containers=CORE)
+        self.assertEqual((item["note"], item["action"].get("warns"), item["action"].get("offer")), ("", None, None))
+
     def test_playground_counts_its_seed_once_it_ran(self):
         running = {**CORE, **healthy("agent-lens", "hello-app")}
         cases = ((None, "running", ""), (exited(0), "running", ""), (exited(1), "issue", "Seed exited (1)"))
