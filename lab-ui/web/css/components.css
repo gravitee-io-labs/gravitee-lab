@@ -562,13 +562,26 @@ button.stack-sep { display: flex; align-items: center; gap: 8px; width: 100%; bo
 /* What filters a list besides its search: at its right, and under it as one row once the line is too short */
 .list-filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
-/* The header and every row share these columns: chevron, name, state (its word and its badge: "Stopped" and "Starts with the
-   platform" fit), category, actions */
-.list-grid {
-  display: grid; grid-template-columns: 22px minmax(0, 1fr) 264px 120px 290px; column-gap: 12px; align-items: center;
-  padding: 0 12px 0 calc(var(--pad) - 4px);
-}
+/* The header and the rows of a list are one table: each row takes the columns of the table (subgrid), so that a column is as wide as
+   what it holds in any row. Its columns: an edge, the chevron, the name, the catalog, the category, the state, the actions, an edge. The
+   name takes the room left. The state is as wide as the widest of the rows (its word and its badge), never narrower than "Partly running",
+   so that a start or a stop moves nothing; it stands beside the actions that change it, which keep one width (Open with its menu, the
+   warning's slot, Start and the icons fit). The edges and their gaps are the padding of the rows. */
+.list-table { display: grid; grid-template-columns: 0 22px minmax(0, 1fr) 120px minmax(104px, auto) 330px 0; column-gap: 12px; }
+.list-rows, .list-item, .list-grid { display: grid; grid-template-columns: subgrid; }
+.list-table > *, .list-rows > *, .list-item > * { grid-column: 1 / -1; }
+.list-grid { align-items: center; }
+.list-grid > :first-child { grid-column-start: 2; }
 .list-grid > * { min-width: 0; }
+/* The catalog and the category: short words, each centered in its column. The catalog's column, before the category's, is drawn
+   only on a wide card that lists more than one catalog, and says there what the Personal mark of the name said. */
+.col-from, .col-cat { text-align: center; }
+.list-grid > .col-from { display: none; }
+@container (min-width: 1280px) {
+  .by-catalog .list-table { grid-template-columns: 0 22px minmax(0, 1fr) 136px 120px minmax(104px, auto) 330px 0; }
+  .by-catalog .list-grid > .col-from { display: block; }
+  .by-catalog .list-personal { display: none; }
+}
 .card > .stack-head:first-child { border-top: 0; }   /* the card's own edge is its top line */
 .list-head, .stack-head { height: var(--h-head); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
 .list-rows { list-style: none; margin: 0; padding: 0; }
@@ -611,7 +624,7 @@ button.s-toggle:focus-visible { outline: none; }
 .list-sub { grid-column: 1 / -1; display: flex; min-width: 0; }
 .list-sub > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .list-item.open .list-desc { display: none; }   /* the detail says it in full */
-.list-sub, .list-cat, .list-note { color: var(--muted); font-size: var(--fs-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list-sub, .list-col, .list-note { color: var(--muted); font-size: var(--fs-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .list-marks > * { flex: none; }
 /* The State cell of a row (the lists, Images, Plugins): the state, then what the server says of it as a badge, on one line, the badge
    cut before the state is */
@@ -672,18 +685,18 @@ p.panel-row { padding-block: 9px; }
 .panel-name .s-toggle { width: 14px; margin-right: -3px; }
 .panel-inner { padding-left: 44px; }
 
-@container (max-width: 1000px) {
-  .list-grid { grid-template-columns: 22px minmax(0, 1fr) 264px 290px; }
-  .list-row .list-cat, .list-head > :nth-child(4) { display: none; }
+@container (max-width: 1060px) {
+  .list-table { grid-template-columns: 0 22px minmax(0, 1fr) minmax(104px, auto) 330px 0; }
+  .list-grid > .col-cat { display: none; }
 }
 /* On a narrow card a row is lines: its name and its marks, what it is, its state and its badge (which wraps under it when it does not
    fit beside it), then its actions */
 @container (max-width: 900px) {
-  .list-grid { grid-template-columns: 22px minmax(0, 1fr); }
+  .list-table { grid-template-columns: 0 22px minmax(0, 1fr) 0; }
   .list-head > :nth-child(n + 3) { display: none; }
   .list-row { height: auto; row-gap: var(--sp-2); padding-top: var(--sp-3); padding-bottom: var(--sp-3); }
   .list-row > .s-toggle { align-self: start; }
-  .list-row > :is(.list-state, .list-actions) { grid-column: 2; }
+  .list-row > :is(.list-state, .list-actions) { grid-column: 3; }
   /* What it is, on two lines at most: a phrase cut at thirty letters says nothing */
   .list-sub { white-space: normal; }
   .list-sub > .list-desc { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; }
@@ -697,7 +710,7 @@ p.panel-row { padding-block: 9px; }
 /* On a phone a row's buttons and icons keep one line, across the row: its buttons at its left, Start or Stop as wide as its word, its
    icons at its right, no empty slot */
 @container (max-width: 520px) {
-  .list-row > .list-actions { grid-column: 1 / -1; }
+  .list-row > .list-actions { grid-column: 2 / -2; }
   .list-actions .btn.act { min-width: 0; }
   .list-actions .row-icons { margin-left: auto; }
   .list-actions .row-icons .icon-gap, .list-actions .warn-slot:empty { display: none; }

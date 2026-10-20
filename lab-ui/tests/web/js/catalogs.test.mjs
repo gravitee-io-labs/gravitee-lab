@@ -94,7 +94,7 @@ const row = (name) => items().find((li) => text(li.querySelector(".list-name")) 
 const face = (b) => text(b.querySelector(".pbtn-face") || b);
 const cells = (li) => ({
   toggle: li.querySelector(".s-toggle"), name: text(li.querySelector(".list-name")), sub: li.querySelector(".list-desc") ? text(li.querySelector(".list-desc")) : null,
-  state: li.querySelector(".status-word") ? text(li.querySelector(".status-word")) : "", items: text(li.querySelector(".list-cat")),
+  state: li.querySelector(".status-word") ? text(li.querySelector(".status-word")) : "", items: text(li.querySelector(".col-cat")),
   buttons: li.querySelectorAll(".list-actions .btn").map(face), more: li.querySelector("[data-more]"),
 });
 const detail = (li) => li.querySelector(".list-detail");
@@ -128,7 +128,7 @@ test("the page is a card of the lists' grid with its head: its title, then New c
   assert.equal(heads[0].querySelectorAll("svg").length, 0);
   assert.ok(heads[1].querySelector("svg use").getAttribute("href").endsWith("#i-plus"));
   assert.ok(section.querySelector(".card.list-card"), "the one card of the lists");
-  assert.deepEqual(section.querySelector(".list-head").children.map(text), ["", "Catalog", "State", "Items", ""]);
+  assert.deepEqual(section.querySelector(".list-head").children.map(text), ["", "Catalog", "Items", "State", ""]);
   assert.deepEqual([catalogsPage.id, catalogsPage.nav, catalogsPage.title], ["catalogs", "catalogs", "Catalogs"]);
 });
 
@@ -175,11 +175,11 @@ test("Personal is drawn only once it holds something", () => {
   assert.deepEqual(items().map((li) => text(li.querySelector(".list-name"))), ["Gravitee public"]);
 });
 
-test("a row is 56 px of the lists' grid: a toggle named for the catalog, its name and line, its state, its items, its actions", () => {
+test("a row is 56 px of the lists' grid: a toggle named for the catalog, its name and line, its items, its state, its actions", () => {
   show([FIRST()]);
   const li = items()[0], top = li.querySelector(".list-row");
   assert.ok(top.classList.contains("list-grid"));
-  assert.deepEqual(top.children.filter((c) => c.tag).map((c) => c.getAttribute("class")), ["s-toggle", "list-main", "list-state", "list-cat", "list-actions"]);
+  assert.deepEqual(top.children.filter((c) => c.tag).map((c) => c.getAttribute("class")), ["s-toggle", "list-main", "list-col col-cat", "list-state", "list-actions"]);
   const toggle = top.children[0];
   assert.deepEqual([toggle.tag, toggle.getAttribute("aria-label"), toggle.getAttribute("aria-expanded"), toggle.getAttribute("aria-controls")],
     ["button", "Gravitee public", "false", "detail-catalog-gravitee"]);

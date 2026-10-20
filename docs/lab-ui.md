@@ -66,7 +66,7 @@ setting of this machine, kept in `.lab/core.json`, out of git.
 
 Playgrounds, Setups and Add-ons are lists with a search, a category filter, the options *Running* and *Starred*, which
 combine, and, once there is more than one catalog, a catalog picker (*All catalogs*, one catalog, or *Personal*). Each row says the item's state (*Running*, *Stopped*, *Off*...) in a
-column of its own. A row opens on what the item runs and its files, from its chevron or a click anywhere on it.
+column of its own, next to its category and, on a wide window with more than one catalog, the catalog it comes from. A row opens on what the item runs and its files, from its chevron or a click anywhere on it.
 
 The menu also holds the state of the platform, the one place it is said on every page (*Platform running*, *Platform
 stopped*, *Platform issue*, whose popover says what the issue is, *Docker is not reachable*); while a job runs or once one

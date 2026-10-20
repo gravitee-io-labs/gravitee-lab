@@ -964,8 +964,8 @@ test("with items of this machine and the catalogs not there, the status is one l
   const block = status("playgrounds")[0];
   assert.deepEqual([block.hasAttribute("data-line"), tools("playgrounds")], [true, false]);
   assert.deepEqual(names("playgrounds"), ["Scratch"], "the rows are never hidden");
-  const card = sections.playgrounds.querySelector(".list-card").children.filter((child) => child.tag).map((child) => child.getAttribute("class"));
-  assert.ok(card.indexOf("list-head list-grid") < card.indexOf("empty") && card.indexOf("empty") < card.indexOf("list-rows"), "between the head of the columns and the rows");
+  const table = sections.playgrounds.querySelector(".list-table").children.filter((child) => child.tag).map((child) => child.getAttribute("class"));
+  assert.ok(table.indexOf("list-head list-grid") < table.indexOf("empty") && table.indexOf("empty") < table.indexOf("list-rows"), "between the head of the columns and the rows");
   assert.equal(status("setups")[0].hasAttribute("data-line"), false, "the lists that have none say it as a block");
   draw(mineOnly("failed"));
   assert.equal(line(status("playgrounds")[0].firstElementChild), "Cannot reach github.com. Check your connection, then try again.");

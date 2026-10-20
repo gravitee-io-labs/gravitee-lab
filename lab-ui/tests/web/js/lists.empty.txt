@@ -28,16 +28,19 @@
         <label class="toggle-chip">
           <input type="checkbox" data-starred="">
           "Starred"
-    <div class="list-head list-grid">
-      <span>
-      <span>
-        "Playground"
-      <span>
-        "State"
-      <span>
-        "Category"
-      <span>
-    <ul class="list-rows">
+    <div class="list-table">
+      <div class="list-head list-grid">
+        <span>
+        <span>
+          "Playground"
+        <span class="col-from">
+          "Catalog"
+        <span class="col-cat">
+          "Category"
+        <span>
+          "State"
+        <span>
+      <ul class="list-rows">
     <div class="empty" role="status" data-content="downloading">
       <span class="loading">
         <span class="spinner">
@@ -95,16 +98,19 @@
         <label class="toggle-chip">
           <input type="checkbox" data-starred="">
           "Starred"
-    <div class="list-head list-grid">
-      <span>
-      <span>
-        "Setup"
-      <span>
-        "State"
-      <span>
-        "Category"
-      <span>
-    <ul class="list-rows">
+    <div class="list-table">
+      <div class="list-head list-grid">
+        <span>
+        <span>
+          "Setup"
+        <span class="col-from">
+          "Catalog"
+        <span class="col-cat">
+          "Category"
+        <span>
+          "State"
+        <span>
+      <ul class="list-rows">
     <div class="empty" role="status" data-content="downloading">
       <span class="loading">
         <span class="spinner">
@@ -162,16 +168,19 @@
         <label class="toggle-chip">
           <input type="checkbox" data-starred="">
           "Starred"
-    <div class="list-head list-grid">
-      <span>
-      <span>
-        "Add-on"
-      <span>
-        "State"
-      <span>
-        "Category"
-      <span>
-    <ul class="list-rows">
+    <div class="list-table">
+      <div class="list-head list-grid">
+        <span>
+        <span>
+          "Add-on"
+        <span class="col-from">
+          "Catalog"
+        <span class="col-cat">
+          "Category"
+        <span>
+          "State"
+        <span>
+      <ul class="list-rows">
     <div class="empty" role="status" data-content="downloading">
       <span class="loading">
         <span class="spinner">
@@ -229,16 +238,19 @@
         <label class="toggle-chip">
           <input type="checkbox" data-starred="">
           "Starred"
-    <div class="list-head list-grid">
-      <span>
-      <span>
-        "Playground"
-      <span>
-        "State"
-      <span>
-        "Category"
-      <span>
-    <ul class="list-rows">
+    <div class="list-table">
+      <div class="list-head list-grid">
+        <span>
+        <span>
+          "Playground"
+        <span class="col-from">
+          "Catalog"
+        <span class="col-cat">
+          "Category"
+        <span>
+          "State"
+        <span>
+      <ul class="list-rows">
     <div class="empty" role="status" data-content="failed">
       <span>
         "Cannot reach github.com. Check your connection, then try again."
@@ -287,16 +299,19 @@
         <label class="toggle-chip">
           <input type="checkbox" data-starred="">
           "Starred"
-    <div class="list-head list-grid">
-      <span>
-      <span>
-        "Playground"
-      <span>
-        "State"
-      <span>
-        "Category"
-      <span>
-    <ul class="list-rows">
+    <div class="list-table">
+      <div class="list-head list-grid">
+        <span>
+        <span>
+          "Playground"
+        <span class="col-from">
+          "Catalog"
+        <span class="col-cat">
+          "Category"
+        <span>
+          "State"
+        <span>
+      <ul class="list-rows">
     <div class="empty" role="status" data-content="none">
       <span>
         "No catalog added"
@@ -345,16 +360,19 @@
         <label class="toggle-chip">
           <input type="checkbox" data-starred="">
           "Starred"
-    <div class="list-head list-grid">
-      <span>
-      <span>
-        "Playground"
-      <span>
-        "State"
-      <span>
-        "Category"
-      <span>
-    <ul class="list-rows">
+    <div class="list-table">
+      <div class="list-head list-grid">
+        <span>
+        <span>
+          "Playground"
+        <span class="col-from">
+          "Catalog"
+        <span class="col-cat">
+          "Category"
+        <span>
+          "State"
+        <span>
+      <ul class="list-rows">
     <div class="empty" role="status" data-content="none">
       <span>
         "No catalog added"
@@ -403,16 +421,19 @@
         <label class="toggle-chip">
           <input type="checkbox" data-starred="">
           "Starred"
-    <div class="list-head list-grid">
-      <span>
-      <span>
-        "Playground"
-      <span>
-        "State"
-      <span>
-        "Category"
-      <span>
-    <ul class="list-rows">
+    <div class="list-table">
+      <div class="list-head list-grid">
+        <span>
+        <span>
+          "Playground"
+        <span class="col-from">
+          "Catalog"
+        <span class="col-cat">
+          "Category"
+        <span>
+          "State"
+        <span>
+      <ul class="list-rows">
     <div class="empty" role="status" data-content="ready">
       "No playground yet"
     <div class="empty" hidden="">
@@ -458,16 +479,19 @@
         <label class="toggle-chip">
           <input type="checkbox" data-starred="">
           "Starred"
-    <div class="list-head list-grid">
-      <span>
-      <span>
-        "Setup"
-      <span>
-        "State"
-      <span>
-        "Category"
-      <span>
-    <ul class="list-rows">
+    <div class="list-table">
+      <div class="list-head list-grid">
+        <span>
+        <span>
+          "Setup"
+        <span class="col-from">
+          "Catalog"
+        <span class="col-cat">
+          "Category"
+        <span>
+          "State"
+        <span>
+      <ul class="list-rows">
     <div class="empty" role="status" data-content="ready">
       "No setup yet"
     <div class="empty" hidden="">
@@ -513,16 +537,19 @@
         <label class="toggle-chip">
           <input type="checkbox" data-starred="">
           "Starred"
-    <div class="list-head list-grid">
-      <span>
-      <span>
-        "Add-on"
-      <span>
-        "State"
-      <span>
-        "Category"
-      <span>
-    <ul class="list-rows">
+    <div class="list-table">
+      <div class="list-head list-grid">
+        <span>
+        <span>
+          "Add-on"
+        <span class="col-from">
+          "Catalog"
+        <span class="col-cat">
+          "Category"
+        <span>
+          "State"
+        <span>
+      <ul class="list-rows">
     <div class="empty" role="status" data-content="ready">
       "No add-on yet"
     <div class="empty" hidden="">
@@ -568,81 +595,86 @@
         <label class="toggle-chip">
           <input type="checkbox" data-starred="">
           "Starred"
-    <div class="list-head list-grid">
-      <span>
-      <span>
-        "Playground"
-      <span>
-        "State"
-      <span>
-        "Category"
-      <span>
-    <div class="empty" role="status" data-content="downloading" data-line="">
-      <span class="loading">
-        <span class="spinner">
-        <span class="tip">
-          <button type="button" class="tip-btn " aria-label="Downloading: From github.com/example/catalog">
-            <span>
-              "Downloading"
-            <svg aria-hidden="true">
-              <use href="#i-info">
-          <span class="tip-text" role="tooltip" aria-hidden="true">
-            <span>
-              "From github.com/example/catalog"
-      <span class="progress" data-progress="content" role="progressbar" aria-valuemin="0" aria-valuemax="100" hidden="">
+    <div class="list-table">
+      <div class="list-head list-grid">
         <span>
-    <ul class="list-rows">
-      <li class="list-item" data-key="local/scratch">
-        <div class="list-row list-grid">
-          <button type="button" class="s-toggle" data-toggle="" aria-label="Scratch" aria-controls="detail-local-scratch" aria-keyshortcuts="S" aria-expanded="false">
-            <svg aria-hidden="true">
-              <use href="#i-chevron">
-          <span class="list-main">
-            <strong class="list-name" data-tip="Scratch" data-tip-cut="">
-              "Scratch"
-            <span class="list-marks">
-              <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Scratch">
-                <svg aria-hidden="true">
-                  <use href="#i-star">
-              <span class="pill">
-                "Personal"
-            <span class="list-sub">
-              <span class="list-desc" data-tip="Scratch for the demo" data-tip-cut="">
-                "Scratch for the demo"
-          <span class="list-state">
-            <span class="status muted">
-              <span class="dot-status off" aria-hidden="true">
-              <span class="status-word">
-                "Off"
-          <span class="list-cat">
-            "Demo"
-          <span class="list-actions">
-            <a class="btn" href="#/playgrounds/local/scratch" aria-label="Open Scratch">
-              "Open"
-            <span class="warn-slot">
-            <button class="btn pbtn act" data-act-for="playground:local/scratch" data-act="" data-busy="" aria-label="Start Scratch">
-              <span class="pbtn-wrap">
-                <span class="pbtn-face">
+        <span>
+          "Playground"
+        <span class="col-from">
+          "Catalog"
+        <span class="col-cat">
+          "Category"
+        <span>
+          "State"
+        <span>
+      <div class="empty" role="status" data-content="downloading" data-line="">
+        <span class="loading">
+          <span class="spinner">
+          <span class="tip">
+            <button type="button" class="tip-btn " aria-label="Downloading: From github.com/example/catalog">
+              <span>
+                "Downloading"
+              <svg aria-hidden="true">
+                <use href="#i-info">
+            <span class="tip-text" role="tooltip" aria-hidden="true">
+              <span>
+                "From github.com/example/catalog"
+        <span class="progress" data-progress="content" role="progressbar" aria-valuemin="0" aria-valuemax="100" hidden="">
+          <span>
+      <ul class="list-rows">
+        <li class="list-item" data-key="local/scratch">
+          <div class="list-row list-grid">
+            <button type="button" class="s-toggle" data-toggle="" aria-label="Scratch" aria-controls="detail-local-scratch" aria-keyshortcuts="S" aria-expanded="false">
+              <svg aria-hidden="true">
+                <use href="#i-chevron">
+            <span class="list-main">
+              <strong class="list-name" data-tip="Scratch" data-tip-cut="">
+                "Scratch"
+              <span class="list-marks">
+                <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Scratch">
                   <svg aria-hidden="true">
-                    <use href="#i-play">
-                  <span>
-                    "Start"
-                <span class="pbtn-side" aria-hidden="true">
-                  <span class="pbtn-fill">
-                  <span class="pbtn-text">
+                    <use href="#i-star">
+                <span class="pill list-personal">
+                  "Personal"
+              <span class="list-sub">
+                <span class="list-desc" data-tip="Scratch for the demo" data-tip-cut="">
+                  "Scratch for the demo"
+            <span class="list-col col-from" data-tip="Personal" data-tip-cut="">
+              "Personal"
+            <span class="list-col col-cat" data-tip="Demo" data-tip-cut="">
+              "Demo"
+            <span class="list-state">
+              <span class="status muted">
+                <span class="dot-status off" aria-hidden="true">
+                <span class="status-word">
+                  "Off"
+            <span class="list-actions">
+              <a class="btn" href="#/playgrounds/local/scratch" aria-label="Open Scratch">
+                "Open"
+              <span class="warn-slot">
+              <button class="btn pbtn act" data-act-for="playground:local/scratch" data-act="" data-busy="" aria-label="Start Scratch">
+                <span class="pbtn-wrap">
+                  <span class="pbtn-face">
+                    <svg aria-hidden="true">
+                      <use href="#i-play">
                     <span>
-                      <span class="spinner">
-                      <span class="pbtn-mark">
+                      "Start"
+                  <span class="pbtn-side" aria-hidden="true">
+                    <span class="pbtn-fill">
+                    <span class="pbtn-text">
                       <span>
-            <span class="row-icons">
-              <button class="icon-btn" data-file="playgrounds/local/scratch/compose.yml" data-tip="Edit playgrounds/local/scratch/compose.yml" aria-label="Edit playgrounds/local/scratch/compose.yml">
-                <svg aria-hidden="true">
-                  <use href="#i-file">
-              <span class="icon-gap">
-              <button class="icon-btn" data-more="" data-tip="More" aria-label="More for Scratch" aria-haspopup="true">
-                <svg aria-hidden="true">
-                  <use href="#i-more">
-        <div class="list-detail" id="detail-local-scratch" hidden="">
+                        <span class="spinner">
+                        <span class="pbtn-mark">
+                        <span>
+              <span class="row-icons">
+                <button class="icon-btn" data-file="playgrounds/local/scratch/compose.yml" data-tip="Edit playgrounds/local/scratch/compose.yml" aria-label="Edit playgrounds/local/scratch/compose.yml">
+                  <svg aria-hidden="true">
+                    <use href="#i-file">
+                <span class="icon-gap">
+                <button class="icon-btn" data-more="" data-tip="More" aria-label="More for Scratch" aria-haspopup="true">
+                  <svg aria-hidden="true">
+                    <use href="#i-more">
+          <div class="list-detail" id="detail-local-scratch" hidden="">
     <div class="empty" hidden="">
       "No matches"
       <button class="btn" data-clear="">
@@ -686,72 +718,77 @@
         <label class="toggle-chip">
           <input type="checkbox" data-starred="">
           "Starred"
-    <div class="list-head list-grid">
-      <span>
-      <span>
-        "Playground"
-      <span>
-        "State"
-      <span>
-        "Category"
-      <span>
-    <div class="empty" role="status" data-content="failed" data-line="">
-      <span>
-        "Cannot reach github.com. Check your connection, then try again."
-      <button type="button" class="btn" data-content-act="retry" data-catalog="gravitee">
-        "Try again"
-    <ul class="list-rows">
-      <li class="list-item" data-key="local/scratch">
-        <div class="list-row list-grid">
-          <button type="button" class="s-toggle" data-toggle="" aria-label="Scratch" aria-controls="detail-local-scratch" aria-keyshortcuts="S" aria-expanded="false">
-            <svg aria-hidden="true">
-              <use href="#i-chevron">
-          <span class="list-main">
-            <strong class="list-name" data-tip="Scratch" data-tip-cut="">
-              "Scratch"
-            <span class="list-marks">
-              <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Scratch">
-                <svg aria-hidden="true">
-                  <use href="#i-star">
-              <span class="pill">
-                "Personal"
-            <span class="list-sub">
-              <span class="list-desc" data-tip="Scratch for the demo" data-tip-cut="">
-                "Scratch for the demo"
-          <span class="list-state">
-            <span class="status muted">
-              <span class="dot-status off" aria-hidden="true">
-              <span class="status-word">
-                "Off"
-          <span class="list-cat">
-            "Demo"
-          <span class="list-actions">
-            <a class="btn" href="#/playgrounds/local/scratch" aria-label="Open Scratch">
-              "Open"
-            <span class="warn-slot">
-            <button class="btn pbtn act" data-act-for="playground:local/scratch" data-act="" data-busy="" aria-label="Start Scratch">
-              <span class="pbtn-wrap">
-                <span class="pbtn-face">
+    <div class="list-table">
+      <div class="list-head list-grid">
+        <span>
+        <span>
+          "Playground"
+        <span class="col-from">
+          "Catalog"
+        <span class="col-cat">
+          "Category"
+        <span>
+          "State"
+        <span>
+      <div class="empty" role="status" data-content="failed" data-line="">
+        <span>
+          "Cannot reach github.com. Check your connection, then try again."
+        <button type="button" class="btn" data-content-act="retry" data-catalog="gravitee">
+          "Try again"
+      <ul class="list-rows">
+        <li class="list-item" data-key="local/scratch">
+          <div class="list-row list-grid">
+            <button type="button" class="s-toggle" data-toggle="" aria-label="Scratch" aria-controls="detail-local-scratch" aria-keyshortcuts="S" aria-expanded="false">
+              <svg aria-hidden="true">
+                <use href="#i-chevron">
+            <span class="list-main">
+              <strong class="list-name" data-tip="Scratch" data-tip-cut="">
+                "Scratch"
+              <span class="list-marks">
+                <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Scratch">
                   <svg aria-hidden="true">
-                    <use href="#i-play">
-                  <span>
-                    "Start"
-                <span class="pbtn-side" aria-hidden="true">
-                  <span class="pbtn-fill">
-                  <span class="pbtn-text">
+                    <use href="#i-star">
+                <span class="pill list-personal">
+                  "Personal"
+              <span class="list-sub">
+                <span class="list-desc" data-tip="Scratch for the demo" data-tip-cut="">
+                  "Scratch for the demo"
+            <span class="list-col col-from" data-tip="Personal" data-tip-cut="">
+              "Personal"
+            <span class="list-col col-cat" data-tip="Demo" data-tip-cut="">
+              "Demo"
+            <span class="list-state">
+              <span class="status muted">
+                <span class="dot-status off" aria-hidden="true">
+                <span class="status-word">
+                  "Off"
+            <span class="list-actions">
+              <a class="btn" href="#/playgrounds/local/scratch" aria-label="Open Scratch">
+                "Open"
+              <span class="warn-slot">
+              <button class="btn pbtn act" data-act-for="playground:local/scratch" data-act="" data-busy="" aria-label="Start Scratch">
+                <span class="pbtn-wrap">
+                  <span class="pbtn-face">
+                    <svg aria-hidden="true">
+                      <use href="#i-play">
                     <span>
-                      <span class="spinner">
-                      <span class="pbtn-mark">
+                      "Start"
+                  <span class="pbtn-side" aria-hidden="true">
+                    <span class="pbtn-fill">
+                    <span class="pbtn-text">
                       <span>
-            <span class="row-icons">
-              <button class="icon-btn" data-file="playgrounds/local/scratch/compose.yml" data-tip="Edit playgrounds/local/scratch/compose.yml" aria-label="Edit playgrounds/local/scratch/compose.yml">
-                <svg aria-hidden="true">
-                  <use href="#i-file">
-              <span class="icon-gap">
-              <button class="icon-btn" data-more="" data-tip="More" aria-label="More for Scratch" aria-haspopup="true">
-                <svg aria-hidden="true">
-                  <use href="#i-more">
-        <div class="list-detail" id="detail-local-scratch" hidden="">
+                        <span class="spinner">
+                        <span class="pbtn-mark">
+                        <span>
+              <span class="row-icons">
+                <button class="icon-btn" data-file="playgrounds/local/scratch/compose.yml" data-tip="Edit playgrounds/local/scratch/compose.yml" aria-label="Edit playgrounds/local/scratch/compose.yml">
+                  <svg aria-hidden="true">
+                    <use href="#i-file">
+                <span class="icon-gap">
+                <button class="icon-btn" data-more="" data-tip="More" aria-label="More for Scratch" aria-haspopup="true">
+                  <svg aria-hidden="true">
+                    <use href="#i-more">
+          <div class="list-detail" id="detail-local-scratch" hidden="">
     <div class="empty" hidden="">
       "No matches"
       <button class="btn" data-clear="">

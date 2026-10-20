@@ -11,6 +11,7 @@ const FIRST_LINES = 2500;
 const LEVELS = { ERROR: "Error", WARN: "Warn", INFO: "Info", DEBUG: "Debug", OTHER: "Other" };
 const TAILS = ["100", "500", "2000", "5000"];   // the last lines read of each service as the stream opens
 const NO_LINES = "No lines", NOTHING = "Nothing running";
+const PICKER_WIDTH = 480;   // the services' picker: a service's name in full and, apart from it, its container's
 // Before any service is chosen, the one thing to do, as a title and its button: the picker, open
 const CHOOSE = '<span>Choose the services to read</span><button class="btn" data-choose>Choose services</button>';
 const LEVEL_RE = /\b(ERROR|FATAL|SEVERE|WARN(?:ING)?|INFO|DEBUG|TRACE)\b/;
@@ -325,7 +326,7 @@ async function loadServing() {
 async function chooseServices() {
   await loadServing();
   Combo.open($("#log-services"), {
-    multi: true, plain: true, current: selected, empty: NOTHING,
+    multi: true, plain: true, current: selected, empty: NOTHING, width: PICKER_WIDTH,
     quick: [
       { label: "All running", values: running },
       { label: "Gravitee only", values: () => running().filter((name) => store.service(name).registry) },

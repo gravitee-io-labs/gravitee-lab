@@ -8,7 +8,7 @@
         <svg aria-hidden="true">
           <use href="#i-plus">
         "New playground"
-  <div class="card list-card">
+  <div class="card list-card by-catalog">
     <div class="list-tools">
       <label class="search grow">
         <svg aria-hidden="true">
@@ -35,234 +35,245 @@
             "All catalogs"
           <svg aria-hidden="true">
             <use href="#i-chevron">
-    <div class="list-head list-grid">
-      <span>
-      <span>
-        "Playground"
-      <span>
-        "State"
-      <span>
-        "Category"
-      <span>
-    <ul class="list-rows">
-      <li class="list-item" data-key="acme-hostels">
-        <div class="list-row list-grid">
-          <button type="button" class="s-toggle" data-toggle="" aria-label="Acme Hostels" aria-controls="detail-acme-hostels" aria-keyshortcuts="S" aria-expanded="false">
-            <svg aria-hidden="true">
-              <use href="#i-chevron">
-          <span class="list-main">
-            <strong class="list-name" data-tip="Acme Hostels" data-tip-cut="">
-              "Acme Hostels"
-            <span class="list-marks">
-              <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Acme Hostels">
-                <svg aria-hidden="true">
-                  <use href="#i-star">
-            <span class="list-sub">
-              <span class="list-desc" data-tip="Acme Hostels for the demo" data-tip-cut="">
-                "Acme Hostels for the demo"
-          <span class="list-state">
-            <span class="status muted">
-              <span class="dot-status off" aria-hidden="true">
-              <span class="status-word">
-                "Off"
-          <span class="list-cat">
-            "Demo"
-          <span class="list-actions">
-            <a class="btn" href="#/playgrounds/acme-hostels" aria-label="Open Acme Hostels">
-              "Open"
-            <span class="warn-slot">
-            <button class="btn pbtn act" data-act-for="playground:acme-hostels" data-act="" data-busy="" aria-label="Start Acme Hostels">
-              <span class="pbtn-wrap">
-                <span class="pbtn-face">
+    <div class="list-table">
+      <div class="list-head list-grid">
+        <span>
+        <span>
+          "Playground"
+        <span class="col-from">
+          "Catalog"
+        <span class="col-cat">
+          "Category"
+        <span>
+          "State"
+        <span>
+      <ul class="list-rows">
+        <li class="list-item" data-key="acme-hostels">
+          <div class="list-row list-grid">
+            <button type="button" class="s-toggle" data-toggle="" aria-label="Acme Hostels" aria-controls="detail-acme-hostels" aria-keyshortcuts="S" aria-expanded="false">
+              <svg aria-hidden="true">
+                <use href="#i-chevron">
+            <span class="list-main">
+              <strong class="list-name" data-tip="Acme Hostels" data-tip-cut="">
+                "Acme Hostels"
+              <span class="list-marks">
+                <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Acme Hostels">
                   <svg aria-hidden="true">
-                    <use href="#i-play">
-                  <span>
-                    "Start"
-                <span class="pbtn-side" aria-hidden="true">
-                  <span class="pbtn-fill">
-                  <span class="pbtn-text">
+                    <use href="#i-star">
+              <span class="list-sub">
+                <span class="list-desc" data-tip="Acme Hostels for the demo" data-tip-cut="">
+                  "Acme Hostels for the demo"
+            <span class="list-col col-from" data-tip="Gravitee public" data-tip-cut="">
+              "Gravitee public"
+            <span class="list-col col-cat" data-tip="Demo" data-tip-cut="">
+              "Demo"
+            <span class="list-state">
+              <span class="status muted">
+                <span class="dot-status off" aria-hidden="true">
+                <span class="status-word">
+                  "Off"
+            <span class="list-actions">
+              <a class="btn" href="#/playgrounds/acme-hostels" aria-label="Open Acme Hostels">
+                "Open"
+              <span class="warn-slot">
+              <button class="btn pbtn act" data-act-for="playground:acme-hostels" data-act="" data-busy="" aria-label="Start Acme Hostels">
+                <span class="pbtn-wrap">
+                  <span class="pbtn-face">
+                    <svg aria-hidden="true">
+                      <use href="#i-play">
                     <span>
-                      <span class="spinner">
-                      <span class="pbtn-mark">
+                      "Start"
+                  <span class="pbtn-side" aria-hidden="true">
+                    <span class="pbtn-fill">
+                    <span class="pbtn-text">
                       <span>
-            <span class="row-icons">
-              <button class="icon-btn" data-file="playgrounds/acme-hostels/compose.yml" data-tip="Edit playgrounds/acme-hostels/compose.yml" aria-label="Edit playgrounds/acme-hostels/compose.yml">
-                <svg aria-hidden="true">
-                  <use href="#i-file">
-              <span class="icon-gap">
-              <span class="icon-gap">
-        <div class="list-detail" id="detail-acme-hostels" hidden="">
-      <li class="list-item" data-key="acme-bakery">
-        <div class="list-row list-grid">
-          <button type="button" class="s-toggle" data-toggle="" aria-label="Acme Bakery" aria-controls="detail-acme-bakery" aria-keyshortcuts="S" aria-expanded="false">
-            <svg aria-hidden="true">
-              <use href="#i-chevron">
-          <span class="list-main">
-            <strong class="list-name" data-tip="Acme Bakery" data-tip-cut="">
-              "Acme Bakery"
-            <span class="list-marks">
-              <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Acme Bakery">
-                <svg aria-hidden="true">
-                  <use href="#i-star">
-            <span class="list-sub">
-              <span class="list-desc" data-tip="Acme Bakery for the demo" data-tip-cut="">
-                "Acme Bakery for the demo"
-          <span class="list-state">
-            <span class="status muted">
-              <span class="dot-status stopped" aria-hidden="true">
-              <span class="status-word">
-                "Stopped"
-          <span class="list-cat">
-            "Demo"
-          <span class="list-actions">
-            <a class="btn" href="#/playgrounds/acme-bakery" aria-label="Open Acme Bakery">
-              "Open"
-            <span class="warn-slot">
-            <button class="btn pbtn act" data-act-for="playground:acme-bakery" data-act="" data-busy="" aria-label="Start Acme Bakery">
-              <span class="pbtn-wrap">
-                <span class="pbtn-face">
+                        <span class="spinner">
+                        <span class="pbtn-mark">
+                        <span>
+              <span class="row-icons">
+                <button class="icon-btn" data-file="playgrounds/acme-hostels/compose.yml" data-tip="Edit playgrounds/acme-hostels/compose.yml" aria-label="Edit playgrounds/acme-hostels/compose.yml">
                   <svg aria-hidden="true">
-                    <use href="#i-play">
-                  <span>
-                    "Start"
-                <span class="pbtn-side" aria-hidden="true">
-                  <span class="pbtn-fill">
-                  <span class="pbtn-text">
+                    <use href="#i-file">
+                <span class="icon-gap">
+                <span class="icon-gap">
+          <div class="list-detail" id="detail-acme-hostels" hidden="">
+        <li class="list-item" data-key="acme-bakery">
+          <div class="list-row list-grid">
+            <button type="button" class="s-toggle" data-toggle="" aria-label="Acme Bakery" aria-controls="detail-acme-bakery" aria-keyshortcuts="S" aria-expanded="false">
+              <svg aria-hidden="true">
+                <use href="#i-chevron">
+            <span class="list-main">
+              <strong class="list-name" data-tip="Acme Bakery" data-tip-cut="">
+                "Acme Bakery"
+              <span class="list-marks">
+                <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Acme Bakery">
+                  <svg aria-hidden="true">
+                    <use href="#i-star">
+              <span class="list-sub">
+                <span class="list-desc" data-tip="Acme Bakery for the demo" data-tip-cut="">
+                  "Acme Bakery for the demo"
+            <span class="list-col col-from" data-tip="Gravitee public" data-tip-cut="">
+              "Gravitee public"
+            <span class="list-col col-cat" data-tip="Demo" data-tip-cut="">
+              "Demo"
+            <span class="list-state">
+              <span class="status muted">
+                <span class="dot-status stopped" aria-hidden="true">
+                <span class="status-word">
+                  "Stopped"
+            <span class="list-actions">
+              <a class="btn" href="#/playgrounds/acme-bakery" aria-label="Open Acme Bakery">
+                "Open"
+              <span class="warn-slot">
+              <button class="btn pbtn act" data-act-for="playground:acme-bakery" data-act="" data-busy="" aria-label="Start Acme Bakery">
+                <span class="pbtn-wrap">
+                  <span class="pbtn-face">
+                    <svg aria-hidden="true">
+                      <use href="#i-play">
                     <span>
-                      <span class="spinner">
-                      <span class="pbtn-mark">
+                      "Start"
+                  <span class="pbtn-side" aria-hidden="true">
+                    <span class="pbtn-fill">
+                    <span class="pbtn-text">
                       <span>
-            <span class="row-icons">
-              <button class="icon-btn" data-file="playgrounds/acme-bakery/compose.yml" data-tip="Edit playgrounds/acme-bakery/compose.yml" aria-label="Edit playgrounds/acme-bakery/compose.yml">
-                <svg aria-hidden="true">
-                  <use href="#i-file">
-              <span class="icon-gap">
-              <span class="icon-gap">
-        <div class="list-detail" id="detail-acme-bakery" hidden="">
-      <li class="list-item open" data-key="@acme-hub/ledger-demo">
-        <div class="list-row list-grid">
-          <button type="button" class="s-toggle" data-toggle="" aria-label="Ledger demo" aria-controls="detail--acme-hub-ledger-demo" aria-keyshortcuts="S" aria-expanded="true">
-            <svg aria-hidden="true">
-              <use href="#i-chevron">
-          <span class="list-main">
-            <strong class="list-name" data-tip="Ledger demo" data-tip-cut="">
-              "Ledger demo"
-            <span class="list-marks">
-              <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Ledger demo">
-                <svg aria-hidden="true">
-                  <use href="#i-star">
-            <span class="list-sub">
-              <span class="list-desc" data-tip="Ledger demo for the demo" data-tip-cut="">
+                        <span class="spinner">
+                        <span class="pbtn-mark">
+                        <span>
+              <span class="row-icons">
+                <button class="icon-btn" data-file="playgrounds/acme-bakery/compose.yml" data-tip="Edit playgrounds/acme-bakery/compose.yml" aria-label="Edit playgrounds/acme-bakery/compose.yml">
+                  <svg aria-hidden="true">
+                    <use href="#i-file">
+                <span class="icon-gap">
+                <span class="icon-gap">
+          <div class="list-detail" id="detail-acme-bakery" hidden="">
+        <li class="list-item open" data-key="@acme-hub/ledger-demo">
+          <div class="list-row list-grid">
+            <button type="button" class="s-toggle" data-toggle="" aria-label="Ledger demo" aria-controls="detail--acme-hub-ledger-demo" aria-keyshortcuts="S" aria-expanded="true">
+              <svg aria-hidden="true">
+                <use href="#i-chevron">
+            <span class="list-main">
+              <strong class="list-name" data-tip="Ledger demo" data-tip-cut="">
+                "Ledger demo"
+              <span class="list-marks">
+                <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Ledger demo">
+                  <svg aria-hidden="true">
+                    <use href="#i-star">
+              <span class="list-sub">
+                <span class="list-desc" data-tip="Ledger demo for the demo" data-tip-cut="">
+                  "Ledger demo for the demo"
+            <span class="list-col col-from" data-tip="Acme Hub" data-tip-cut="">
+              "Acme Hub"
+            <span class="list-col col-cat" data-tip="Demo" data-tip-cut="">
+              "Demo"
+            <span class="list-state">
+              <span class="status muted">
+                <span class="dot-status off" aria-hidden="true">
+                <span class="status-word">
+                  "Off"
+            <span class="list-actions">
+              <a class="btn" href="#/playgrounds/@acme-hub/ledger-demo" aria-label="Open Ledger demo">
+                "Open"
+              <span class="warn-slot">
+              <button class="btn pbtn act" data-act-for="playground:@acme-hub/ledger-demo" data-act="" data-busy="" aria-label="Start Ledger demo">
+                <span class="pbtn-wrap">
+                  <span class="pbtn-face">
+                    <svg aria-hidden="true">
+                      <use href="#i-play">
+                    <span>
+                      "Start"
+                  <span class="pbtn-side" aria-hidden="true">
+                    <span class="pbtn-fill">
+                    <span class="pbtn-text">
+                      <span>
+                        <span class="spinner">
+                        <span class="pbtn-mark">
+                        <span>
+              <span class="row-icons">
+                <button class="icon-btn" data-file="playgrounds/@acme-hub/ledger-demo/compose.yml" data-tip="View compose.yml" aria-label="View compose.yml">
+                  <svg aria-hidden="true">
+                    <use href="#i-file">
+                <span class="icon-gap">
+                <span class="icon-gap">
+          <div class="list-detail" id="detail--acme-hub-ledger-demo">
+            <section class="panel ">
+              <div class="panel-head">
+                <span>
+                  "About"
+              <p class="panel-row">
                 "Ledger demo for the demo"
-          <span class="list-state">
-            <span class="status muted">
-              <span class="dot-status off" aria-hidden="true">
-              <span class="status-word">
-                "Off"
-          <span class="list-cat">
-            "Demo"
-          <span class="list-actions">
-            <a class="btn" href="#/playgrounds/@acme-hub/ledger-demo" aria-label="Open Ledger demo">
-              "Open"
-            <span class="warn-slot">
-            <button class="btn pbtn act" data-act-for="playground:@acme-hub/ledger-demo" data-act="" data-busy="" aria-label="Start Ledger demo">
-              <span class="pbtn-wrap">
-                <span class="pbtn-face">
+              <div class="panel-row panel-fact">
+                <span>
+                  "Tags"
+                <span>
+                  <div class="pg-tags">
+                    <span class="pill">
+                      "demo"
+              <div class="panel-row panel-fact">
+                <span>
+                  "Duration"
+                <span>
+                  "10 min"
+              <div class="panel-row panel-fact">
+                <span>
+                  "Catalog"
+                <span>
+                  <a class="name-link" href="#/catalogs/acme-hub">
+                    "Acme Hub"
+                  <span class="muted">
+                    "1.4.0"
+        <li class="list-item" data-key="local/scratch">
+          <div class="list-row list-grid">
+            <button type="button" class="s-toggle" data-toggle="" aria-label="Scratch" aria-controls="detail-local-scratch" aria-keyshortcuts="S" aria-expanded="false">
+              <svg aria-hidden="true">
+                <use href="#i-chevron">
+            <span class="list-main">
+              <strong class="list-name" data-tip="Scratch" data-tip-cut="">
+                "Scratch"
+              <span class="list-marks">
+                <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Scratch">
                   <svg aria-hidden="true">
-                    <use href="#i-play">
-                  <span>
-                    "Start"
-                <span class="pbtn-side" aria-hidden="true">
-                  <span class="pbtn-fill">
-                  <span class="pbtn-text">
+                    <use href="#i-star">
+                <span class="pill list-personal">
+                  "Personal"
+              <span class="list-sub">
+                <span class="list-desc" data-tip="Scratch for the demo" data-tip-cut="">
+                  "Scratch for the demo"
+            <span class="list-col col-from" data-tip="Personal" data-tip-cut="">
+              "Personal"
+            <span class="list-col col-cat" data-tip="Demo" data-tip-cut="">
+              "Demo"
+            <span class="list-state">
+              <span class="status muted">
+                <span class="dot-status off" aria-hidden="true">
+                <span class="status-word">
+                  "Off"
+            <span class="list-actions">
+              <a class="btn" href="#/playgrounds/local/scratch" aria-label="Open Scratch">
+                "Open"
+              <span class="warn-slot">
+              <button class="btn pbtn act" data-act-for="playground:local/scratch" data-act="" data-busy="" aria-label="Start Scratch">
+                <span class="pbtn-wrap">
+                  <span class="pbtn-face">
+                    <svg aria-hidden="true">
+                      <use href="#i-play">
                     <span>
-                      <span class="spinner">
-                      <span class="pbtn-mark">
+                      "Start"
+                  <span class="pbtn-side" aria-hidden="true">
+                    <span class="pbtn-fill">
+                    <span class="pbtn-text">
                       <span>
-            <span class="row-icons">
-              <button class="icon-btn" data-file="playgrounds/@acme-hub/ledger-demo/compose.yml" data-tip="View compose.yml" aria-label="View compose.yml">
-                <svg aria-hidden="true">
-                  <use href="#i-file">
-              <span class="icon-gap">
-              <span class="icon-gap">
-        <div class="list-detail" id="detail--acme-hub-ledger-demo">
-          <section class="panel ">
-            <div class="panel-head">
-              <span>
-                "About"
-            <p class="panel-row">
-              "Ledger demo for the demo"
-            <div class="panel-row panel-fact">
-              <span>
-                "Tags"
-              <span>
-                <div class="pg-tags">
-                  <span class="pill">
-                    "demo"
-            <div class="panel-row panel-fact">
-              <span>
-                "Duration"
-              <span>
-                "10 min"
-            <div class="panel-row panel-fact">
-              <span>
-                "Catalog"
-              <span>
-                <a class="name-link" href="#/catalogs/acme-hub">
-                  "Acme Hub"
-                <span class="muted">
-                  "1.4.0"
-      <li class="list-item" data-key="local/scratch">
-        <div class="list-row list-grid">
-          <button type="button" class="s-toggle" data-toggle="" aria-label="Scratch" aria-controls="detail-local-scratch" aria-keyshortcuts="S" aria-expanded="false">
-            <svg aria-hidden="true">
-              <use href="#i-chevron">
-          <span class="list-main">
-            <strong class="list-name" data-tip="Scratch" data-tip-cut="">
-              "Scratch"
-            <span class="list-marks">
-              <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Scratch">
-                <svg aria-hidden="true">
-                  <use href="#i-star">
-              <span class="pill">
-                "Personal"
-            <span class="list-sub">
-              <span class="list-desc" data-tip="Scratch for the demo" data-tip-cut="">
-                "Scratch for the demo"
-          <span class="list-state">
-            <span class="status muted">
-              <span class="dot-status off" aria-hidden="true">
-              <span class="status-word">
-                "Off"
-          <span class="list-cat">
-            "Demo"
-          <span class="list-actions">
-            <a class="btn" href="#/playgrounds/local/scratch" aria-label="Open Scratch">
-              "Open"
-            <span class="warn-slot">
-            <button class="btn pbtn act" data-act-for="playground:local/scratch" data-act="" data-busy="" aria-label="Start Scratch">
-              <span class="pbtn-wrap">
-                <span class="pbtn-face">
+                        <span class="spinner">
+                        <span class="pbtn-mark">
+                        <span>
+              <span class="row-icons">
+                <button class="icon-btn" data-file="playgrounds/local/scratch/compose.yml" data-tip="Edit playgrounds/local/scratch/compose.yml" aria-label="Edit playgrounds/local/scratch/compose.yml">
                   <svg aria-hidden="true">
-                    <use href="#i-play">
-                  <span>
-                    "Start"
-                <span class="pbtn-side" aria-hidden="true">
-                  <span class="pbtn-fill">
-                  <span class="pbtn-text">
-                    <span>
-                      <span class="spinner">
-                      <span class="pbtn-mark">
-                      <span>
-            <span class="row-icons">
-              <button class="icon-btn" data-file="playgrounds/local/scratch/compose.yml" data-tip="Edit playgrounds/local/scratch/compose.yml" aria-label="Edit playgrounds/local/scratch/compose.yml">
-                <svg aria-hidden="true">
-                  <use href="#i-file">
-              <span class="icon-gap">
-              <button class="icon-btn" data-more="" data-tip="More" aria-label="More for Scratch" aria-haspopup="true">
-                <svg aria-hidden="true">
-                  <use href="#i-more">
-        <div class="list-detail" id="detail-local-scratch" hidden="">
+                    <use href="#i-file">
+                <span class="icon-gap">
+                <button class="icon-btn" data-more="" data-tip="More" aria-label="More for Scratch" aria-haspopup="true">
+                  <svg aria-hidden="true">
+                    <use href="#i-more">
+          <div class="list-detail" id="detail-local-scratch" hidden="">
     <div class="empty" hidden="">
       "No matches"
       <button class="btn" data-clear="">
@@ -286,7 +297,7 @@
         <svg aria-hidden="true">
           <use href="#i-plus">
         "New setup"
-  <div class="card list-card">
+  <div class="card list-card by-catalog">
     <div class="list-tools">
       <label class="search grow">
         <svg aria-hidden="true">
@@ -313,151 +324,158 @@
             "All catalogs"
           <svg aria-hidden="true">
             <use href="#i-chevron">
-    <div class="list-head list-grid">
-      <span>
-      <span>
-        "Setup"
-      <span>
-        "State"
-      <span>
-        "Category"
-      <span>
-    <ul class="list-rows">
-      <li class="list-item open" data-key="messaging">
-        <div class="list-row list-grid">
-          <button type="button" class="s-toggle" data-toggle="" aria-label="Messaging" aria-controls="detail-messaging" aria-keyshortcuts="S" aria-expanded="true">
-            <svg aria-hidden="true">
-              <use href="#i-chevron">
-          <span class="list-main">
-            <strong class="list-name" data-tip="Messaging" data-tip-cut="">
-              "Messaging"
-            <span class="list-marks">
-              <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Messaging">
-                <svg aria-hidden="true">
-                  <use href="#i-star">
-            <span class="list-sub">
-              <span class="list-desc" data-tip="Messaging for the demo" data-tip-cut="">
-                "Messaging for the demo"
-          <span class="list-state">
-            <span class="status muted">
-              <span class="dot-status off" aria-hidden="true">
-              <span class="status-word">
-                "Off"
-          <span class="list-cat">
-            "Demo"
-          <span class="list-actions">
-            <span class="warn-slot">
-            <button class="btn pbtn act" data-act-for="setup:messaging" data-act="" data-busy="" aria-label="Start Messaging">
-              <span class="pbtn-wrap">
-                <span class="pbtn-face">
+    <div class="list-table">
+      <div class="list-head list-grid">
+        <span>
+        <span>
+          "Setup"
+        <span class="col-from">
+          "Catalog"
+        <span class="col-cat">
+          "Category"
+        <span>
+          "State"
+        <span>
+      <ul class="list-rows">
+        <li class="list-item open" data-key="messaging">
+          <div class="list-row list-grid">
+            <button type="button" class="s-toggle" data-toggle="" aria-label="Messaging" aria-controls="detail-messaging" aria-keyshortcuts="S" aria-expanded="true">
+              <svg aria-hidden="true">
+                <use href="#i-chevron">
+            <span class="list-main">
+              <strong class="list-name" data-tip="Messaging" data-tip-cut="">
+                "Messaging"
+              <span class="list-marks">
+                <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Messaging">
                   <svg aria-hidden="true">
-                    <use href="#i-play">
-                  <span>
-                    "Start"
-                <span class="pbtn-side" aria-hidden="true">
-                  <span class="pbtn-fill">
-                  <span class="pbtn-text">
+                    <use href="#i-star">
+              <span class="list-sub">
+                <span class="list-desc" data-tip="Messaging for the demo" data-tip-cut="">
+                  "Messaging for the demo"
+            <span class="list-col col-from" data-tip="Gravitee public" data-tip-cut="">
+              "Gravitee public"
+            <span class="list-col col-cat" data-tip="Demo" data-tip-cut="">
+              "Demo"
+            <span class="list-state">
+              <span class="status muted">
+                <span class="dot-status off" aria-hidden="true">
+                <span class="status-word">
+                  "Off"
+            <span class="list-actions">
+              <span class="warn-slot">
+              <button class="btn pbtn act" data-act-for="setup:messaging" data-act="" data-busy="" aria-label="Start Messaging">
+                <span class="pbtn-wrap">
+                  <span class="pbtn-face">
+                    <svg aria-hidden="true">
+                      <use href="#i-play">
                     <span>
-                      <span class="spinner">
-                      <span class="pbtn-mark">
+                      "Start"
+                  <span class="pbtn-side" aria-hidden="true">
+                    <span class="pbtn-fill">
+                    <span class="pbtn-text">
                       <span>
-            <span class="row-icons">
-              <button class="icon-btn" data-file="setups/messaging/compose.yml" data-tip="Edit setups/messaging/compose.yml" aria-label="Edit setups/messaging/compose.yml">
-                <svg aria-hidden="true">
-                  <use href="#i-file">
-              <button class="icon-btn" data-more="" data-tip="More" aria-label="More for Messaging" aria-haspopup="true">
-                <svg aria-hidden="true">
-                  <use href="#i-more">
-        <div class="list-detail" id="detail-messaging">
-          <section class="panel ">
-            <div class="panel-head">
-              <span>
-                "About"
-            <p class="panel-row">
-              "Messaging for the demo"
-          <section class="panel panel-table">
-            <div class="panel-head">
-              <span>
-                "Add-on"
-              <span>
-                "State"
-            <div class="panel-row ">
-              <span class="panel-name">
-                <span class="dot-status off">
-                <span data-tip="Kafka">
-                  <a class="name-link" href="#/addons/kafka">
-                    "Kafka"
-                <span class="muted" data-tip="Kafka for the demo" data-tip-cut="">
-                  "Kafka for the demo"
-              <span class="muted">
-              <span class="panel-actions">
-                <span class="icon-gap">
-                <button class="icon-btn" data-file="addons/kafka/compose.yml" data-tip="Edit addons/kafka/compose.yml" aria-label="Edit addons/kafka/compose.yml">
+                        <span class="spinner">
+                        <span class="pbtn-mark">
+                        <span>
+              <span class="row-icons">
+                <button class="icon-btn" data-file="setups/messaging/compose.yml" data-tip="Edit setups/messaging/compose.yml" aria-label="Edit setups/messaging/compose.yml">
                   <svg aria-hidden="true">
                     <use href="#i-file">
-                <span class="icon-gap">
-      <li class="list-item" data-key="@acme-hub/duo">
-        <div class="list-row list-grid">
-          <button type="button" class="s-toggle" data-toggle="" aria-label="Duo" aria-controls="detail--acme-hub-duo" aria-keyshortcuts="S" aria-expanded="false">
-            <svg aria-hidden="true">
-              <use href="#i-chevron">
-          <span class="list-main">
-            <strong class="list-name" data-tip="Duo" data-tip-cut="">
-              "Duo"
-            <span class="list-marks">
-              <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Duo">
-                <svg aria-hidden="true">
-                  <use href="#i-star">
-            <span class="list-sub">
-              <span class="list-desc" data-tip="Duo for the demo" data-tip-cut="">
-                "Duo for the demo"
-          <span class="list-state">
-            <span class="status muted">
-              <span class="dot-status off" aria-hidden="true">
-              <span class="status-word">
-                "Off"
-          <span class="list-cat">
-            "Demo"
-          <span class="list-actions">
-            <span class="warn-slot">
-              <span class="tip">
-                <button type="button" class="tip-btn blocker" aria-label="Cannot start: Needs a catalog. Needs the catalog Partner Bank">
+                <button class="icon-btn" data-more="" data-tip="More" aria-label="More for Messaging" aria-haspopup="true">
                   <svg aria-hidden="true">
-                    <use href="#i-alert">
-                <span class="tip-card" role="tooltip">
-                  <span class="pop-body">
-                    <span class="pop-title">
-                      "Needs a catalog"
-                    <span class="pop-rows">
-                      <span class="pop-row">
-                        <span class="pop-line">
-                          <span class="pop-what">
-                            <span>
-                              "Needs the catalog Partner Bank"
-                    <a class="btn" href="#/catalogs">
-                      "Open"
-            <button class="btn pbtn act" data-act-for="setup:@acme-hub/duo" data-act="" data-busy="" aria-label="Start Duo" aria-disabled="true" data-tip="Needs the catalog Partner Bank">
-              <span class="pbtn-wrap">
-                <span class="pbtn-face">
+                    <use href="#i-more">
+          <div class="list-detail" id="detail-messaging">
+            <section class="panel ">
+              <div class="panel-head">
+                <span>
+                  "About"
+              <p class="panel-row">
+                "Messaging for the demo"
+            <section class="panel panel-table">
+              <div class="panel-head">
+                <span>
+                  "Add-on"
+                <span>
+                  "State"
+              <div class="panel-row ">
+                <span class="panel-name">
+                  <span class="dot-status off">
+                  <span data-tip="Kafka">
+                    <a class="name-link" href="#/addons/kafka">
+                      "Kafka"
+                  <span class="muted" data-tip="Kafka for the demo" data-tip-cut="">
+                    "Kafka for the demo"
+                <span class="muted">
+                <span class="panel-actions">
+                  <span class="icon-gap">
+                  <button class="icon-btn" data-file="addons/kafka/compose.yml" data-tip="Edit addons/kafka/compose.yml" aria-label="Edit addons/kafka/compose.yml">
+                    <svg aria-hidden="true">
+                      <use href="#i-file">
+                  <span class="icon-gap">
+        <li class="list-item" data-key="@acme-hub/duo">
+          <div class="list-row list-grid">
+            <button type="button" class="s-toggle" data-toggle="" aria-label="Duo" aria-controls="detail--acme-hub-duo" aria-keyshortcuts="S" aria-expanded="false">
+              <svg aria-hidden="true">
+                <use href="#i-chevron">
+            <span class="list-main">
+              <strong class="list-name" data-tip="Duo" data-tip-cut="">
+                "Duo"
+              <span class="list-marks">
+                <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Duo">
                   <svg aria-hidden="true">
-                    <use href="#i-play">
-                  <span>
-                    "Start"
-                <span class="pbtn-side" aria-hidden="true">
-                  <span class="pbtn-fill">
-                  <span class="pbtn-text">
+                    <use href="#i-star">
+              <span class="list-sub">
+                <span class="list-desc" data-tip="Duo for the demo" data-tip-cut="">
+                  "Duo for the demo"
+            <span class="list-col col-from" data-tip="Acme Hub" data-tip-cut="">
+              "Acme Hub"
+            <span class="list-col col-cat" data-tip="Demo" data-tip-cut="">
+              "Demo"
+            <span class="list-state">
+              <span class="status muted">
+                <span class="dot-status off" aria-hidden="true">
+                <span class="status-word">
+                  "Off"
+            <span class="list-actions">
+              <span class="warn-slot">
+                <span class="tip">
+                  <button type="button" class="tip-btn blocker" aria-label="Cannot start: Needs a catalog. Needs the catalog Partner Bank">
+                    <svg aria-hidden="true">
+                      <use href="#i-alert">
+                  <span class="tip-card" role="tooltip">
+                    <span class="pop-body">
+                      <span class="pop-title">
+                        "Needs a catalog"
+                      <span class="pop-rows">
+                        <span class="pop-row">
+                          <span class="pop-line">
+                            <span class="pop-what">
+                              <span>
+                                "Needs the catalog Partner Bank"
+                      <a class="btn" href="#/catalogs">
+                        "Open"
+              <button class="btn pbtn act" data-act-for="setup:@acme-hub/duo" data-act="" data-busy="" aria-label="Start Duo" aria-disabled="true" data-tip="Needs the catalog Partner Bank">
+                <span class="pbtn-wrap">
+                  <span class="pbtn-face">
+                    <svg aria-hidden="true">
+                      <use href="#i-play">
                     <span>
-                      <span class="spinner">
-                      <span class="pbtn-mark">
+                      "Start"
+                  <span class="pbtn-side" aria-hidden="true">
+                    <span class="pbtn-fill">
+                    <span class="pbtn-text">
                       <span>
-            <span class="row-icons">
-              <button class="icon-btn" data-file="setups/@acme-hub/duo/compose.yml" data-tip="View compose.yml" aria-label="View compose.yml">
-                <svg aria-hidden="true">
-                  <use href="#i-file">
-              <button class="icon-btn" data-more="" data-tip="More" aria-label="More for Duo" aria-haspopup="true">
-                <svg aria-hidden="true">
-                  <use href="#i-more">
-        <div class="list-detail" id="detail--acme-hub-duo" hidden="">
+                        <span class="spinner">
+                        <span class="pbtn-mark">
+                        <span>
+              <span class="row-icons">
+                <button class="icon-btn" data-file="setups/@acme-hub/duo/compose.yml" data-tip="View compose.yml" aria-label="View compose.yml">
+                  <svg aria-hidden="true">
+                    <use href="#i-file">
+                <button class="icon-btn" data-more="" data-tip="More" aria-label="More for Duo" aria-haspopup="true">
+                  <svg aria-hidden="true">
+                    <use href="#i-more">
+          <div class="list-detail" id="detail--acme-hub-duo" hidden="">
     <div class="empty" hidden="">
       "No matches"
       <button class="btn" data-clear="">
@@ -481,7 +499,7 @@
         <svg aria-hidden="true">
           <use href="#i-plus">
         "New add-on"
-  <div class="card list-card">
+  <div class="card list-card by-catalog">
     <div class="list-tools">
       <label class="search grow">
         <svg aria-hidden="true">
@@ -508,278 +526,287 @@
             "All catalogs"
           <svg aria-hidden="true">
             <use href="#i-chevron">
-    <div class="list-head list-grid">
-      <span>
-      <span>
-        "Add-on"
-      <span>
-        "State"
-      <span>
-        "Category"
-      <span>
-    <ul class="list-rows">
-      <li class="list-item open" data-key="kafka">
-        <div class="list-row list-grid">
-          <button type="button" class="s-toggle" data-toggle="" aria-label="Kafka" aria-controls="detail-kafka" aria-keyshortcuts="S" aria-expanded="true">
-            <svg aria-hidden="true">
-              <use href="#i-chevron">
-          <span class="list-main">
-            <strong class="list-name" data-tip="Kafka" data-tip-cut="">
-              "Kafka"
-            <span class="list-marks">
-              <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Kafka">
-                <svg aria-hidden="true">
-                  <use href="#i-star">
-            <span class="list-sub">
-              <span class="list-desc" data-tip="Kafka for the demo" data-tip-cut="">
+    <div class="list-table">
+      <div class="list-head list-grid">
+        <span>
+        <span>
+          "Add-on"
+        <span class="col-from">
+          "Catalog"
+        <span class="col-cat">
+          "Category"
+        <span>
+          "State"
+        <span>
+      <ul class="list-rows">
+        <li class="list-item open" data-key="kafka">
+          <div class="list-row list-grid">
+            <button type="button" class="s-toggle" data-toggle="" aria-label="Kafka" aria-controls="detail-kafka" aria-keyshortcuts="S" aria-expanded="true">
+              <svg aria-hidden="true">
+                <use href="#i-chevron">
+            <span class="list-main">
+              <strong class="list-name" data-tip="Kafka" data-tip-cut="">
+                "Kafka"
+              <span class="list-marks">
+                <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Kafka">
+                  <svg aria-hidden="true">
+                    <use href="#i-star">
+              <span class="list-sub">
+                <span class="list-desc" data-tip="Kafka for the demo" data-tip-cut="">
+                  "Kafka for the demo"
+            <span class="list-col col-from" data-tip="Gravitee public" data-tip-cut="">
+              "Gravitee public"
+            <span class="list-col col-cat" data-tip="Demo" data-tip-cut="">
+              "Demo"
+            <span class="list-state">
+              <span class="status muted">
+                <span class="dot-status off" aria-hidden="true">
+                <span class="status-word">
+                  "Off"
+            <span class="list-actions">
+              <span class="warn-slot">
+              <button class="btn pbtn act" data-act-for="addon:kafka" data-act="" data-busy="" aria-label="Start Kafka">
+                <span class="pbtn-wrap">
+                  <span class="pbtn-face">
+                    <svg aria-hidden="true">
+                      <use href="#i-play">
+                    <span>
+                      "Start"
+                  <span class="pbtn-side" aria-hidden="true">
+                    <span class="pbtn-fill">
+                    <span class="pbtn-text">
+                      <span>
+                        <span class="spinner">
+                        <span class="pbtn-mark">
+                        <span>
+              <span class="row-icons">
+                <button class="icon-btn" data-file="addons/kafka/compose.yml" data-tip="Edit addons/kafka/compose.yml" aria-label="Edit addons/kafka/compose.yml">
+                  <svg aria-hidden="true">
+                    <use href="#i-file">
+                <span class="icon-gap">
+                <button class="icon-btn" data-more="" data-tip="More" aria-label="More for Kafka" aria-haspopup="true">
+                  <svg aria-hidden="true">
+                    <use href="#i-more">
+          <div class="list-detail" id="detail-kafka">
+            <section class="panel ">
+              <div class="panel-head">
+                <span>
+                  "About"
+              <p class="panel-row">
                 "Kafka for the demo"
-          <span class="list-state">
-            <span class="status muted">
-              <span class="dot-status off" aria-hidden="true">
-              <span class="status-word">
-                "Off"
-          <span class="list-cat">
-            "Demo"
-          <span class="list-actions">
-            <span class="warn-slot">
-            <button class="btn pbtn act" data-act-for="addon:kafka" data-act="" data-busy="" aria-label="Start Kafka">
-              <span class="pbtn-wrap">
-                <span class="pbtn-face">
-                  <svg aria-hidden="true">
-                    <use href="#i-play">
+            <section class="panel panel-table">
+              <div class="panel-head">
+                <span>
+                  "Service"
+                <span>
+                  "Version"
+                <span>
+                  "Ports"
+              <div class="panel-row">
+                <span class="panel-name">
+                  <span class="dot-status stopped">
+                  <span data-tip="kafka">
+                    "kafka"
+                  <span class="muted" data-tip="Stopped" data-tip-cut="">
+                    "Stopped"
+                <span class="s-version" data-tip="graviteeio/kafka:1">
+                  "1"
+                <span class="s-ports">
                   <span>
-                    "Start"
-                <span class="pbtn-side" aria-hidden="true">
-                  <span class="pbtn-fill">
-                  <span class="pbtn-text">
+                    "9092"
+                  <span>
+                    "9093"
+                <span class="panel-actions">
+                  <span class="icon-gap">
+                  <span class="icon-gap">
+                  <span class="icon-gap">
+              <div class="panel-head">
+                <span>
+                  "Used in"
+                <span>
+                  "State"
+              <div class="panel-row ">
+                <span class="panel-name">
+                  <span class="dot-status off">
+                  <span data-tip="Messaging">
+                    <a class="name-link" href="#/setups/messaging">
+                      "Messaging"
+                  <span class="muted" data-tip="Messaging for the demo" data-tip-cut="">
+                    "Messaging for the demo"
+                <span class="muted">
+                <span class="panel-actions">
+                  <span class="icon-gap">
+                  <button class="icon-btn" data-file="setups/messaging/compose.yml" data-tip="Edit setups/messaging/compose.yml" aria-label="Edit setups/messaging/compose.yml">
+                    <svg aria-hidden="true">
+                      <use href="#i-file">
+                  <span class="icon-gap">
+              <div class="panel-row ">
+                <span class="panel-name">
+                  <span class="dot-status off">
+                  <span data-tip="Duo">
+                    <a class="name-link" href="#/setups/@acme-hub/duo">
+                      "Duo"
+                  <span class="muted" data-tip="Duo for the demo" data-tip-cut="">
+                    "Duo for the demo"
+                <span class="muted">
+                <span class="panel-actions">
+                  <span class="icon-gap">
+                  <button class="icon-btn" data-file="setups/@acme-hub/duo/compose.yml" data-tip="View compose.yml" aria-label="View compose.yml">
+                    <svg aria-hidden="true">
+                      <use href="#i-file">
+                  <span class="icon-gap">
+        <li class="list-item open" data-key="@acme-hub/mock-bank">
+          <div class="list-row list-grid">
+            <button type="button" class="s-toggle" data-toggle="" aria-label="Mock bank" aria-controls="detail--acme-hub-mock-bank" aria-keyshortcuts="S" aria-expanded="true">
+              <svg aria-hidden="true">
+                <use href="#i-chevron">
+            <span class="list-main">
+              <strong class="list-name" data-tip="Mock bank" data-tip-cut="">
+                "Mock bank"
+              <span class="list-marks">
+                <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Mock bank">
+                  <svg aria-hidden="true">
+                    <use href="#i-star">
+              <span class="list-sub">
+                <span class="list-desc" data-tip="Mock bank for the demo" data-tip-cut="">
+                  "Mock bank for the demo"
+            <span class="list-col col-from" data-tip="Acme Hub" data-tip-cut="">
+              "Acme Hub"
+            <span class="list-col col-cat" data-tip="Demo" data-tip-cut="">
+              "Demo"
+            <span class="list-state">
+              <span class="status muted">
+                <span class="dot-status off" aria-hidden="true">
+                <span class="status-word">
+                  "Off"
+            <span class="list-actions">
+              <span class="warn-slot">
+                <span class="tip">
+                  <button type="button" class="tip-btn blocker err" aria-label="Cannot start: Blocked. Mounts the Docker socket. Runs with full privileges. Publishes a port to the network. Ask the owner of Acme Hub to change it">
+                    <svg aria-hidden="true">
+                      <use href="#i-alert">
+                  <span class="tip-card" role="tooltip" aria-hidden="true">
+                    <span class="pop-body">
+                      <span class="pop-title">
+                        "Blocked"
+                      <span class="pop-rows">
+                        <span class="pop-row">
+                          <span class="pop-line">
+                            <span class="pop-what">
+                              <span>
+                                "Mounts the Docker socket"
+                          <span class="pop-line">
+                            <span class="pop-what">
+                              <span>
+                                "Runs with full privileges"
+                          <span class="pop-line">
+                            <span class="pop-what">
+                              <span>
+                                "Publishes a port to the network"
+                      <span class="pop-foot">
+                        "Ask the owner of Acme Hub to change it."
+              <button class="btn pbtn act" data-act-for="addon:@acme-hub/mock-bank" data-act="" data-busy="" aria-label="Start Mock bank" aria-disabled="true" data-tip="Mounts the Docker socket">
+                <span class="pbtn-wrap">
+                  <span class="pbtn-face">
+                    <svg aria-hidden="true">
+                      <use href="#i-play">
                     <span>
-                      <span class="spinner">
-                      <span class="pbtn-mark">
+                      "Start"
+                  <span class="pbtn-side" aria-hidden="true">
+                    <span class="pbtn-fill">
+                    <span class="pbtn-text">
                       <span>
-            <span class="row-icons">
-              <button class="icon-btn" data-file="addons/kafka/compose.yml" data-tip="Edit addons/kafka/compose.yml" aria-label="Edit addons/kafka/compose.yml">
-                <svg aria-hidden="true">
-                  <use href="#i-file">
-              <span class="icon-gap">
-              <button class="icon-btn" data-more="" data-tip="More" aria-label="More for Kafka" aria-haspopup="true">
-                <svg aria-hidden="true">
-                  <use href="#i-more">
-        <div class="list-detail" id="detail-kafka">
-          <section class="panel ">
-            <div class="panel-head">
-              <span>
-                "About"
-            <p class="panel-row">
-              "Kafka for the demo"
-          <section class="panel panel-table">
-            <div class="panel-head">
-              <span>
-                "Service"
-              <span>
-                "Version"
-              <span>
-                "Ports"
-            <div class="panel-row">
-              <span class="panel-name">
-                <span class="dot-status stopped">
-                <span data-tip="kafka">
-                  "kafka"
-                <span class="muted" data-tip="Stopped" data-tip-cut="">
-                  "Stopped"
-              <span class="s-version" data-tip="graviteeio/kafka:1">
-                "1"
-              <span class="s-ports">
-                <span>
-                  "9092"
-                <span>
-                  "9093"
-              <span class="panel-actions">
-                <span class="icon-gap">
-                <span class="icon-gap">
-                <span class="icon-gap">
-            <div class="panel-head">
-              <span>
-                "Used in"
-              <span>
-                "State"
-            <div class="panel-row ">
-              <span class="panel-name">
-                <span class="dot-status off">
-                <span data-tip="Messaging">
-                  <a class="name-link" href="#/setups/messaging">
-                    "Messaging"
-                <span class="muted" data-tip="Messaging for the demo" data-tip-cut="">
-                  "Messaging for the demo"
-              <span class="muted">
-              <span class="panel-actions">
-                <span class="icon-gap">
-                <button class="icon-btn" data-file="setups/messaging/compose.yml" data-tip="Edit setups/messaging/compose.yml" aria-label="Edit setups/messaging/compose.yml">
+                        <span class="spinner">
+                        <span class="pbtn-mark">
+                        <span>
+              <span class="row-icons">
+                <button class="icon-btn" data-file="addons/@acme-hub/mock-bank/compose.yml" data-tip="View compose.yml" aria-label="View compose.yml">
                   <svg aria-hidden="true">
                     <use href="#i-file">
                 <span class="icon-gap">
-            <div class="panel-row ">
-              <span class="panel-name">
-                <span class="dot-status off">
-                <span data-tip="Duo">
-                  <a class="name-link" href="#/setups/@acme-hub/duo">
-                    "Duo"
-                <span class="muted" data-tip="Duo for the demo" data-tip-cut="">
-                  "Duo for the demo"
-              <span class="muted">
-              <span class="panel-actions">
                 <span class="icon-gap">
-                <button class="icon-btn" data-file="setups/@acme-hub/duo/compose.yml" data-tip="View compose.yml" aria-label="View compose.yml">
-                  <svg aria-hidden="true">
-                    <use href="#i-file">
-                <span class="icon-gap">
-      <li class="list-item open" data-key="@acme-hub/mock-bank">
-        <div class="list-row list-grid">
-          <button type="button" class="s-toggle" data-toggle="" aria-label="Mock bank" aria-controls="detail--acme-hub-mock-bank" aria-keyshortcuts="S" aria-expanded="true">
-            <svg aria-hidden="true">
-              <use href="#i-chevron">
-          <span class="list-main">
-            <strong class="list-name" data-tip="Mock bank" data-tip-cut="">
-              "Mock bank"
-            <span class="list-marks">
-              <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Mock bank">
-                <svg aria-hidden="true">
-                  <use href="#i-star">
-            <span class="list-sub">
-              <span class="list-desc" data-tip="Mock bank for the demo" data-tip-cut="">
+          <div class="list-detail" id="detail--acme-hub-mock-bank">
+            <section class="panel ">
+              <div class="panel-head">
+                <span>
+                  "About"
+              <p class="panel-row">
                 "Mock bank for the demo"
-          <span class="list-state">
-            <span class="status muted">
-              <span class="dot-status off" aria-hidden="true">
-              <span class="status-word">
-                "Off"
-          <span class="list-cat">
-            "Demo"
-          <span class="list-actions">
-            <span class="warn-slot">
-              <span class="tip">
-                <button type="button" class="tip-btn blocker err" aria-label="Cannot start: Blocked. Mounts the Docker socket. Runs with full privileges. Publishes a port to the network. Ask the owner of Acme Hub to change it">
+              <div class="panel-row panel-fact">
+                <span>
+                  "Catalog"
+                <span>
+                  <a class="name-link" href="#/catalogs/acme-hub">
+                    "Acme Hub"
+                  <span class="muted">
+                    "1.4.0"
+        <li class="list-item open" data-key="@acme-hub/k3s">
+          <div class="list-row list-grid">
+            <button type="button" class="s-toggle" data-toggle="" aria-label="Kubernetes" aria-controls="detail--acme-hub-k3s" aria-keyshortcuts="S" aria-expanded="true">
+              <svg aria-hidden="true">
+                <use href="#i-chevron">
+            <span class="list-main">
+              <strong class="list-name" data-tip="Kubernetes" data-tip-cut="">
+                "Kubernetes"
+              <span class="list-marks">
+                <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Kubernetes">
                   <svg aria-hidden="true">
-                    <use href="#i-alert">
-                <span class="tip-card" role="tooltip" aria-hidden="true">
-                  <span class="pop-body">
-                    <span class="pop-title">
-                      "Blocked"
-                    <span class="pop-rows">
-                      <span class="pop-row">
-                        <span class="pop-line">
-                          <span class="pop-what">
-                            <span>
-                              "Mounts the Docker socket"
-                        <span class="pop-line">
-                          <span class="pop-what">
-                            <span>
-                              "Runs with full privileges"
-                        <span class="pop-line">
-                          <span class="pop-what">
-                            <span>
-                              "Publishes a port to the network"
-                    <span class="pop-foot">
-                      "Ask the owner of Acme Hub to change it."
-            <button class="btn pbtn act" data-act-for="addon:@acme-hub/mock-bank" data-act="" data-busy="" aria-label="Start Mock bank" aria-disabled="true" data-tip="Mounts the Docker socket">
-              <span class="pbtn-wrap">
-                <span class="pbtn-face">
-                  <svg aria-hidden="true">
-                    <use href="#i-play">
-                  <span>
-                    "Start"
-                <span class="pbtn-side" aria-hidden="true">
-                  <span class="pbtn-fill">
-                  <span class="pbtn-text">
+                    <use href="#i-star">
+              <span class="list-sub">
+                <span class="list-desc" data-tip="Kubernetes for the demo" data-tip-cut="">
+                  "Kubernetes for the demo"
+            <span class="list-col col-from" data-tip="Acme Hub" data-tip-cut="">
+              "Acme Hub"
+            <span class="list-col col-cat" data-tip="Demo" data-tip-cut="">
+              "Demo"
+            <span class="list-state">
+              <span class="status muted">
+                <span class="dot-status off" aria-hidden="true">
+                <span class="status-word">
+                  "Off"
+            <span class="list-actions">
+              <span class="warn-slot">
+              <button class="btn pbtn act" data-act-for="addon:@acme-hub/k3s" data-act="" data-busy="" aria-label="Start Kubernetes">
+                <span class="pbtn-wrap">
+                  <span class="pbtn-face">
+                    <svg aria-hidden="true">
+                      <use href="#i-play">
                     <span>
-                      <span class="spinner">
-                      <span class="pbtn-mark">
+                      "Start"
+                  <span class="pbtn-side" aria-hidden="true">
+                    <span class="pbtn-fill">
+                    <span class="pbtn-text">
                       <span>
-            <span class="row-icons">
-              <button class="icon-btn" data-file="addons/@acme-hub/mock-bank/compose.yml" data-tip="View compose.yml" aria-label="View compose.yml">
-                <svg aria-hidden="true">
-                  <use href="#i-file">
-              <span class="icon-gap">
-              <span class="icon-gap">
-        <div class="list-detail" id="detail--acme-hub-mock-bank">
-          <section class="panel ">
-            <div class="panel-head">
-              <span>
-                "About"
-            <p class="panel-row">
-              "Mock bank for the demo"
-            <div class="panel-row panel-fact">
-              <span>
-                "Catalog"
-              <span>
-                <a class="name-link" href="#/catalogs/acme-hub">
-                  "Acme Hub"
-                <span class="muted">
-                  "1.4.0"
-      <li class="list-item open" data-key="@acme-hub/k3s">
-        <div class="list-row list-grid">
-          <button type="button" class="s-toggle" data-toggle="" aria-label="Kubernetes" aria-controls="detail--acme-hub-k3s" aria-keyshortcuts="S" aria-expanded="true">
-            <svg aria-hidden="true">
-              <use href="#i-chevron">
-          <span class="list-main">
-            <strong class="list-name" data-tip="Kubernetes" data-tip-cut="">
-              "Kubernetes"
-            <span class="list-marks">
-              <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Kubernetes">
-                <svg aria-hidden="true">
-                  <use href="#i-star">
-            <span class="list-sub">
-              <span class="list-desc" data-tip="Kubernetes for the demo" data-tip-cut="">
+                        <span class="spinner">
+                        <span class="pbtn-mark">
+                        <span>
+              <span class="row-icons">
+                <button class="icon-btn" data-file="addons/@acme-hub/k3s/compose.yml" data-tip="View compose.yml" aria-label="View compose.yml">
+                  <svg aria-hidden="true">
+                    <use href="#i-file">
+                <span class="icon-gap">
+                <span class="icon-gap">
+          <div class="list-detail" id="detail--acme-hub-k3s">
+            <section class="panel ">
+              <div class="panel-head">
+                <span>
+                  "About"
+              <p class="panel-row">
                 "Kubernetes for the demo"
-          <span class="list-state">
-            <span class="status muted">
-              <span class="dot-status off" aria-hidden="true">
-              <span class="status-word">
-                "Off"
-          <span class="list-cat">
-            "Demo"
-          <span class="list-actions">
-            <span class="warn-slot">
-            <button class="btn pbtn act" data-act-for="addon:@acme-hub/k3s" data-act="" data-busy="" aria-label="Start Kubernetes">
-              <span class="pbtn-wrap">
-                <span class="pbtn-face">
-                  <svg aria-hidden="true">
-                    <use href="#i-play">
-                  <span>
-                    "Start"
-                <span class="pbtn-side" aria-hidden="true">
-                  <span class="pbtn-fill">
-                  <span class="pbtn-text">
-                    <span>
-                      <span class="spinner">
-                      <span class="pbtn-mark">
-                      <span>
-            <span class="row-icons">
-              <button class="icon-btn" data-file="addons/@acme-hub/k3s/compose.yml" data-tip="View compose.yml" aria-label="View compose.yml">
-                <svg aria-hidden="true">
-                  <use href="#i-file">
-              <span class="icon-gap">
-              <span class="icon-gap">
-        <div class="list-detail" id="detail--acme-hub-k3s">
-          <section class="panel ">
-            <div class="panel-head">
-              <span>
-                "About"
-            <p class="panel-row">
-              "Kubernetes for the demo"
-            <div class="panel-row panel-fact">
-              <span>
-                "Catalog"
-              <span>
-                <a class="name-link" href="#/catalogs/acme-hub">
-                  "Acme Hub"
-                <span class="muted">
-                  "1.4.0"
-            <div class="panel-row panel-fact">
-              <span>
-                "Uses this machine"
-              <span>
-                <span class="muted" data-tip-cut="">
-                  "Runs containerd and the kubelet"
+              <div class="panel-row panel-fact">
+                <span>
+                  "Catalog"
+                <span>
+                  <a class="name-link" href="#/catalogs/acme-hub">
+                    "Acme Hub"
+                  <span class="muted">
+                    "1.4.0"
+              <div class="panel-row panel-fact">
+                <span>
+                  "Uses this machine"
+                <span>
+                  <span class="muted" data-tip-cut="">
+                    "Runs containerd and the kubelet"
     <div class="empty" hidden="">
       "No matches"
       <button class="btn" data-clear="">
@@ -803,7 +830,7 @@
         <svg aria-hidden="true">
           <use href="#i-plus">
         "New playground"
-  <div class="card list-card">
+  <div class="card list-card by-catalog">
     <div class="list-tools">
       <label class="search grow">
         <svg aria-hidden="true">
@@ -830,89 +857,94 @@
             "Acme Hub"
           <svg aria-hidden="true">
             <use href="#i-chevron">
-    <div class="list-head list-grid">
-      <span>
-      <span>
-        "Playground"
-      <span>
-        "State"
-      <span>
-        "Category"
-      <span>
-    <ul class="list-rows">
-      <li class="list-item open" data-key="@acme-hub/ledger-demo">
-        <div class="list-row list-grid">
-          <button type="button" class="s-toggle" data-toggle="" aria-label="Ledger demo" aria-controls="detail--acme-hub-ledger-demo" aria-keyshortcuts="S" aria-expanded="true">
-            <svg aria-hidden="true">
-              <use href="#i-chevron">
-          <span class="list-main">
-            <strong class="list-name" data-tip="Ledger demo" data-tip-cut="">
-              "Ledger demo"
-            <span class="list-marks">
-              <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Ledger demo">
-                <svg aria-hidden="true">
-                  <use href="#i-star">
-            <span class="list-sub">
-              <span class="list-desc" data-tip="Ledger demo for the demo" data-tip-cut="">
-                "Ledger demo for the demo"
-          <span class="list-state">
-            <span class="status muted">
-              <span class="dot-status off" aria-hidden="true">
-              <span class="status-word">
-                "Off"
-          <span class="list-cat">
-            "Demo"
-          <span class="list-actions">
-            <a class="btn" href="#/playgrounds/@acme-hub/ledger-demo" aria-label="Open Ledger demo">
-              "Open"
-            <span class="warn-slot">
-            <button class="btn pbtn act" data-act-for="playground:@acme-hub/ledger-demo" data-act="" data-busy="" aria-label="Start Ledger demo">
-              <span class="pbtn-wrap">
-                <span class="pbtn-face">
+    <div class="list-table">
+      <div class="list-head list-grid">
+        <span>
+        <span>
+          "Playground"
+        <span class="col-from">
+          "Catalog"
+        <span class="col-cat">
+          "Category"
+        <span>
+          "State"
+        <span>
+      <ul class="list-rows">
+        <li class="list-item open" data-key="@acme-hub/ledger-demo">
+          <div class="list-row list-grid">
+            <button type="button" class="s-toggle" data-toggle="" aria-label="Ledger demo" aria-controls="detail--acme-hub-ledger-demo" aria-keyshortcuts="S" aria-expanded="true">
+              <svg aria-hidden="true">
+                <use href="#i-chevron">
+            <span class="list-main">
+              <strong class="list-name" data-tip="Ledger demo" data-tip-cut="">
+                "Ledger demo"
+              <span class="list-marks">
+                <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Ledger demo">
                   <svg aria-hidden="true">
-                    <use href="#i-play">
-                  <span>
-                    "Start"
-                <span class="pbtn-side" aria-hidden="true">
-                  <span class="pbtn-fill">
-                  <span class="pbtn-text">
+                    <use href="#i-star">
+              <span class="list-sub">
+                <span class="list-desc" data-tip="Ledger demo for the demo" data-tip-cut="">
+                  "Ledger demo for the demo"
+            <span class="list-col col-from" data-tip="Acme Hub" data-tip-cut="">
+              "Acme Hub"
+            <span class="list-col col-cat" data-tip="Demo" data-tip-cut="">
+              "Demo"
+            <span class="list-state">
+              <span class="status muted">
+                <span class="dot-status off" aria-hidden="true">
+                <span class="status-word">
+                  "Off"
+            <span class="list-actions">
+              <a class="btn" href="#/playgrounds/@acme-hub/ledger-demo" aria-label="Open Ledger demo">
+                "Open"
+              <span class="warn-slot">
+              <button class="btn pbtn act" data-act-for="playground:@acme-hub/ledger-demo" data-act="" data-busy="" aria-label="Start Ledger demo">
+                <span class="pbtn-wrap">
+                  <span class="pbtn-face">
+                    <svg aria-hidden="true">
+                      <use href="#i-play">
                     <span>
-                      <span class="spinner">
-                      <span class="pbtn-mark">
+                      "Start"
+                  <span class="pbtn-side" aria-hidden="true">
+                    <span class="pbtn-fill">
+                    <span class="pbtn-text">
                       <span>
-            <span class="row-icons">
-              <button class="icon-btn" data-file="playgrounds/@acme-hub/ledger-demo/compose.yml" data-tip="View compose.yml" aria-label="View compose.yml">
-                <svg aria-hidden="true">
-                  <use href="#i-file">
-              <span class="icon-gap">
-              <span class="icon-gap">
-        <div class="list-detail" id="detail--acme-hub-ledger-demo">
-          <section class="panel ">
-            <div class="panel-head">
-              <span>
-                "About"
-            <p class="panel-row">
-              "Ledger demo for the demo"
-            <div class="panel-row panel-fact">
-              <span>
-                "Tags"
-              <span>
-                <div class="pg-tags">
-                  <span class="pill">
-                    "demo"
-            <div class="panel-row panel-fact">
-              <span>
-                "Duration"
-              <span>
-                "10 min"
-            <div class="panel-row panel-fact">
-              <span>
-                "Catalog"
-              <span>
-                <a class="name-link" href="#/catalogs/acme-hub">
-                  "Acme Hub"
-                <span class="muted">
-                  "1.4.0"
+                        <span class="spinner">
+                        <span class="pbtn-mark">
+                        <span>
+              <span class="row-icons">
+                <button class="icon-btn" data-file="playgrounds/@acme-hub/ledger-demo/compose.yml" data-tip="View compose.yml" aria-label="View compose.yml">
+                  <svg aria-hidden="true">
+                    <use href="#i-file">
+                <span class="icon-gap">
+                <span class="icon-gap">
+          <div class="list-detail" id="detail--acme-hub-ledger-demo">
+            <section class="panel ">
+              <div class="panel-head">
+                <span>
+                  "About"
+              <p class="panel-row">
+                "Ledger demo for the demo"
+              <div class="panel-row panel-fact">
+                <span>
+                  "Tags"
+                <span>
+                  <div class="pg-tags">
+                    <span class="pill">
+                      "demo"
+              <div class="panel-row panel-fact">
+                <span>
+                  "Duration"
+                <span>
+                  "10 min"
+              <div class="panel-row panel-fact">
+                <span>
+                  "Catalog"
+                <span>
+                  <a class="name-link" href="#/catalogs/acme-hub">
+                    "Acme Hub"
+                  <span class="muted">
+                    "1.4.0"
     <div class="empty" hidden="">
       "No matches"
       <button class="btn" data-clear="">
@@ -936,7 +968,7 @@
         <svg aria-hidden="true">
           <use href="#i-plus">
         "New playground"
-  <div class="card list-card">
+  <div class="card list-card by-catalog">
     <div class="list-tools">
       <label class="search grow">
         <svg aria-hidden="true">
@@ -963,161 +995,170 @@
             "All catalogs"
           <svg aria-hidden="true">
             <use href="#i-chevron">
-    <div class="list-head list-grid">
-      <span>
-      <span>
-        "Playground"
-      <span>
-        "State"
-      <span>
-        "Category"
-      <span>
-    <ul class="list-rows">
-      <li class="list-item" data-key="acme-hostels">
-        <div class="list-row list-grid">
-          <button type="button" class="s-toggle" data-toggle="" aria-label="Acme Hostels" aria-controls="detail-acme-hostels" aria-keyshortcuts="S" aria-expanded="false">
-            <svg aria-hidden="true">
-              <use href="#i-chevron">
-          <span class="list-main">
-            <strong class="list-name" data-tip="Acme Hostels" data-tip-cut="">
-              "Acme Hostels"
-            <span class="list-marks">
-              <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Acme Hostels">
-                <svg aria-hidden="true">
-                  <use href="#i-star">
-            <span class="list-sub">
-              <span class="list-desc" data-tip="Acme Hostels for the demo" data-tip-cut="">
-                "Acme Hostels for the demo"
-          <span class="list-state">
-            <span class="status muted">
-              <span class="dot-status off" aria-hidden="true">
-              <span class="status-word">
-                "Off"
-          <span class="list-cat">
-            "Demo"
-          <span class="list-actions">
-            <a class="btn" href="#/playgrounds/acme-hostels" aria-label="Open Acme Hostels">
-              "Open"
-            <span class="warn-slot">
-            <button class="btn pbtn act" data-act-for="playground:acme-hostels" data-act="" data-busy="" aria-label="Start Acme Hostels">
-              <span class="pbtn-wrap">
-                <span class="pbtn-face">
+    <div class="list-table">
+      <div class="list-head list-grid">
+        <span>
+        <span>
+          "Playground"
+        <span class="col-from">
+          "Catalog"
+        <span class="col-cat">
+          "Category"
+        <span>
+          "State"
+        <span>
+      <ul class="list-rows">
+        <li class="list-item" data-key="acme-hostels">
+          <div class="list-row list-grid">
+            <button type="button" class="s-toggle" data-toggle="" aria-label="Acme Hostels" aria-controls="detail-acme-hostels" aria-keyshortcuts="S" aria-expanded="false">
+              <svg aria-hidden="true">
+                <use href="#i-chevron">
+            <span class="list-main">
+              <strong class="list-name" data-tip="Acme Hostels" data-tip-cut="">
+                "Acme Hostels"
+              <span class="list-marks">
+                <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Acme Hostels">
                   <svg aria-hidden="true">
-                    <use href="#i-play">
-                  <span>
-                    "Start"
-                <span class="pbtn-side" aria-hidden="true">
-                  <span class="pbtn-fill">
-                  <span class="pbtn-text">
+                    <use href="#i-star">
+              <span class="list-sub">
+                <span class="list-desc" data-tip="Acme Hostels for the demo" data-tip-cut="">
+                  "Acme Hostels for the demo"
+            <span class="list-col col-from" data-tip="Gravitee public" data-tip-cut="">
+              "Gravitee public"
+            <span class="list-col col-cat" data-tip="Demo" data-tip-cut="">
+              "Demo"
+            <span class="list-state">
+              <span class="status muted">
+                <span class="dot-status off" aria-hidden="true">
+                <span class="status-word">
+                  "Off"
+            <span class="list-actions">
+              <a class="btn" href="#/playgrounds/acme-hostels" aria-label="Open Acme Hostels">
+                "Open"
+              <span class="warn-slot">
+              <button class="btn pbtn act" data-act-for="playground:acme-hostels" data-act="" data-busy="" aria-label="Start Acme Hostels">
+                <span class="pbtn-wrap">
+                  <span class="pbtn-face">
+                    <svg aria-hidden="true">
+                      <use href="#i-play">
                     <span>
-                      <span class="spinner">
-                      <span class="pbtn-mark">
+                      "Start"
+                  <span class="pbtn-side" aria-hidden="true">
+                    <span class="pbtn-fill">
+                    <span class="pbtn-text">
                       <span>
-            <span class="row-icons">
-              <button class="icon-btn" data-file="playgrounds/acme-hostels/compose.yml" data-tip="Edit playgrounds/acme-hostels/compose.yml" aria-label="Edit playgrounds/acme-hostels/compose.yml">
-                <svg aria-hidden="true">
-                  <use href="#i-file">
-              <span class="icon-gap">
-              <span class="icon-gap">
-        <div class="list-detail" id="detail-acme-hostels" hidden="">
-      <li class="list-item" data-key="acme-bakery">
-        <div class="list-row list-grid">
-          <button type="button" class="s-toggle" data-toggle="" aria-label="Acme Bakery" aria-controls="detail-acme-bakery" aria-keyshortcuts="S" aria-expanded="false">
-            <svg aria-hidden="true">
-              <use href="#i-chevron">
-          <span class="list-main">
-            <strong class="list-name" data-tip="Acme Bakery" data-tip-cut="">
-              "Acme Bakery"
-            <span class="list-marks">
-              <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Acme Bakery">
-                <svg aria-hidden="true">
-                  <use href="#i-star">
-            <span class="list-sub">
-              <span class="list-desc" data-tip="Acme Bakery for the demo" data-tip-cut="">
-                "Acme Bakery for the demo"
-          <span class="list-state">
-            <span class="status muted">
-              <span class="dot-status stopped" aria-hidden="true">
-              <span class="status-word">
-                "Stopped"
-          <span class="list-cat">
-            "Demo"
-          <span class="list-actions">
-            <a class="btn" href="#/playgrounds/acme-bakery" aria-label="Open Acme Bakery">
-              "Open"
-            <span class="warn-slot">
-            <button class="btn pbtn act" data-act-for="playground:acme-bakery" data-act="" data-busy="" aria-label="Start Acme Bakery">
-              <span class="pbtn-wrap">
-                <span class="pbtn-face">
+                        <span class="spinner">
+                        <span class="pbtn-mark">
+                        <span>
+              <span class="row-icons">
+                <button class="icon-btn" data-file="playgrounds/acme-hostels/compose.yml" data-tip="Edit playgrounds/acme-hostels/compose.yml" aria-label="Edit playgrounds/acme-hostels/compose.yml">
                   <svg aria-hidden="true">
-                    <use href="#i-play">
-                  <span>
-                    "Start"
-                <span class="pbtn-side" aria-hidden="true">
-                  <span class="pbtn-fill">
-                  <span class="pbtn-text">
-                    <span>
-                      <span class="spinner">
-                      <span class="pbtn-mark">
-                      <span>
-            <span class="row-icons">
-              <button class="icon-btn" data-file="playgrounds/acme-bakery/compose.yml" data-tip="Edit playgrounds/acme-bakery/compose.yml" aria-label="Edit playgrounds/acme-bakery/compose.yml">
-                <svg aria-hidden="true">
-                  <use href="#i-file">
-              <span class="icon-gap">
-              <span class="icon-gap">
-        <div class="list-detail" id="detail-acme-bakery" hidden="">
-      <li class="list-item" data-key="local/scratch">
-        <div class="list-row list-grid">
-          <button type="button" class="s-toggle" data-toggle="" aria-label="Scratch" aria-controls="detail-local-scratch" aria-keyshortcuts="S" aria-expanded="false">
-            <svg aria-hidden="true">
-              <use href="#i-chevron">
-          <span class="list-main">
-            <strong class="list-name" data-tip="Scratch" data-tip-cut="">
-              "Scratch"
-            <span class="list-marks">
-              <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Scratch">
-                <svg aria-hidden="true">
-                  <use href="#i-star">
-              <span class="pill">
-                "Personal"
-            <span class="list-sub">
-              <span class="list-desc" data-tip="Scratch for the demo" data-tip-cut="">
-                "Scratch for the demo"
-          <span class="list-state">
-            <span class="status muted">
-              <span class="dot-status off" aria-hidden="true">
-              <span class="status-word">
-                "Off"
-          <span class="list-cat">
-            "Demo"
-          <span class="list-actions">
-            <a class="btn" href="#/playgrounds/local/scratch" aria-label="Open Scratch">
-              "Open"
-            <span class="warn-slot">
-            <button class="btn pbtn act" data-act-for="playground:local/scratch" data-act="" data-busy="" aria-label="Start Scratch">
-              <span class="pbtn-wrap">
-                <span class="pbtn-face">
+                    <use href="#i-file">
+                <span class="icon-gap">
+                <span class="icon-gap">
+          <div class="list-detail" id="detail-acme-hostels" hidden="">
+        <li class="list-item" data-key="acme-bakery">
+          <div class="list-row list-grid">
+            <button type="button" class="s-toggle" data-toggle="" aria-label="Acme Bakery" aria-controls="detail-acme-bakery" aria-keyshortcuts="S" aria-expanded="false">
+              <svg aria-hidden="true">
+                <use href="#i-chevron">
+            <span class="list-main">
+              <strong class="list-name" data-tip="Acme Bakery" data-tip-cut="">
+                "Acme Bakery"
+              <span class="list-marks">
+                <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Acme Bakery">
                   <svg aria-hidden="true">
-                    <use href="#i-play">
-                  <span>
-                    "Start"
-                <span class="pbtn-side" aria-hidden="true">
-                  <span class="pbtn-fill">
-                  <span class="pbtn-text">
+                    <use href="#i-star">
+              <span class="list-sub">
+                <span class="list-desc" data-tip="Acme Bakery for the demo" data-tip-cut="">
+                  "Acme Bakery for the demo"
+            <span class="list-col col-from" data-tip="Gravitee public" data-tip-cut="">
+              "Gravitee public"
+            <span class="list-col col-cat" data-tip="Demo" data-tip-cut="">
+              "Demo"
+            <span class="list-state">
+              <span class="status muted">
+                <span class="dot-status stopped" aria-hidden="true">
+                <span class="status-word">
+                  "Stopped"
+            <span class="list-actions">
+              <a class="btn" href="#/playgrounds/acme-bakery" aria-label="Open Acme Bakery">
+                "Open"
+              <span class="warn-slot">
+              <button class="btn pbtn act" data-act-for="playground:acme-bakery" data-act="" data-busy="" aria-label="Start Acme Bakery">
+                <span class="pbtn-wrap">
+                  <span class="pbtn-face">
+                    <svg aria-hidden="true">
+                      <use href="#i-play">
                     <span>
-                      <span class="spinner">
-                      <span class="pbtn-mark">
+                      "Start"
+                  <span class="pbtn-side" aria-hidden="true">
+                    <span class="pbtn-fill">
+                    <span class="pbtn-text">
                       <span>
-            <span class="row-icons">
-              <button class="icon-btn" data-file="playgrounds/local/scratch/compose.yml" data-tip="Edit playgrounds/local/scratch/compose.yml" aria-label="Edit playgrounds/local/scratch/compose.yml">
-                <svg aria-hidden="true">
-                  <use href="#i-file">
-              <span class="icon-gap">
-              <button class="icon-btn" data-more="" data-tip="More" aria-label="More for Scratch" aria-haspopup="true">
-                <svg aria-hidden="true">
-                  <use href="#i-more">
-        <div class="list-detail" id="detail-local-scratch" hidden="">
+                        <span class="spinner">
+                        <span class="pbtn-mark">
+                        <span>
+              <span class="row-icons">
+                <button class="icon-btn" data-file="playgrounds/acme-bakery/compose.yml" data-tip="Edit playgrounds/acme-bakery/compose.yml" aria-label="Edit playgrounds/acme-bakery/compose.yml">
+                  <svg aria-hidden="true">
+                    <use href="#i-file">
+                <span class="icon-gap">
+                <span class="icon-gap">
+          <div class="list-detail" id="detail-acme-bakery" hidden="">
+        <li class="list-item" data-key="local/scratch">
+          <div class="list-row list-grid">
+            <button type="button" class="s-toggle" data-toggle="" aria-label="Scratch" aria-controls="detail-local-scratch" aria-keyshortcuts="S" aria-expanded="false">
+              <svg aria-hidden="true">
+                <use href="#i-chevron">
+            <span class="list-main">
+              <strong class="list-name" data-tip="Scratch" data-tip-cut="">
+                "Scratch"
+              <span class="list-marks">
+                <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Scratch">
+                  <svg aria-hidden="true">
+                    <use href="#i-star">
+                <span class="pill list-personal">
+                  "Personal"
+              <span class="list-sub">
+                <span class="list-desc" data-tip="Scratch for the demo" data-tip-cut="">
+                  "Scratch for the demo"
+            <span class="list-col col-from" data-tip="Personal" data-tip-cut="">
+              "Personal"
+            <span class="list-col col-cat" data-tip="Demo" data-tip-cut="">
+              "Demo"
+            <span class="list-state">
+              <span class="status muted">
+                <span class="dot-status off" aria-hidden="true">
+                <span class="status-word">
+                  "Off"
+            <span class="list-actions">
+              <a class="btn" href="#/playgrounds/local/scratch" aria-label="Open Scratch">
+                "Open"
+              <span class="warn-slot">
+              <button class="btn pbtn act" data-act-for="playground:local/scratch" data-act="" data-busy="" aria-label="Start Scratch">
+                <span class="pbtn-wrap">
+                  <span class="pbtn-face">
+                    <svg aria-hidden="true">
+                      <use href="#i-play">
+                    <span>
+                      "Start"
+                  <span class="pbtn-side" aria-hidden="true">
+                    <span class="pbtn-fill">
+                    <span class="pbtn-text">
+                      <span>
+                        <span class="spinner">
+                        <span class="pbtn-mark">
+                        <span>
+              <span class="row-icons">
+                <button class="icon-btn" data-file="playgrounds/local/scratch/compose.yml" data-tip="Edit playgrounds/local/scratch/compose.yml" aria-label="Edit playgrounds/local/scratch/compose.yml">
+                  <svg aria-hidden="true">
+                    <use href="#i-file">
+                <span class="icon-gap">
+                <button class="icon-btn" data-more="" data-tip="More" aria-label="More for Scratch" aria-haspopup="true">
+                  <svg aria-hidden="true">
+                    <use href="#i-more">
+          <div class="list-detail" id="detail-local-scratch" hidden="">
     <div class="empty" hidden="">
       "No matches"
       <button class="btn" data-clear="">
