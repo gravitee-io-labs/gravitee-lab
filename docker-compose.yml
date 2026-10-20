@@ -48,6 +48,7 @@ x-ui-frames: &ui-frames
   - /bin/sh
   - -c
   - >-
+    [ ! -f /portal-next-run.sh ] || sh /portal-next-run.sh;
     sed -i -e '/X-Frame-Options/d' -e "/localhost:9000/!s|frame-ancestors 'self'|& http://localhost:9000 http://127.0.0.1:9000|" /etc/nginx/conf.d/*.conf;
     for f in $$(grep -L gravitee-lab.js /etc/nginx/conf.d/*.conf); do
     sed -i -e "/location \/ {/i location = /gravitee-lab.js { alias /gravitee-lab.js; }"
@@ -299,6 +300,9 @@ services:
     image: ${APIM_REGISTRY:-graviteeio}/apim-portal-ui:${APIM_VERSION:-4.12.20}
     container_name: gio-apim-portal-ui
     restart: unless-stopped
+    command: *ui-frames
+    volumes:
+      - ./lab-ui/frames/location.js:/gravitee-lab.js:ro   # tells the Lab UI which page it is on (Reload)
     depends_on:
       apim-management-api:
         condition: service_healthy

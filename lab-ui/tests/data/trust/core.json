@@ -416,7 +416,7 @@
       "command": [
         "/bin/sh",
         "-c",
-        "sed -i -e '/X-Frame-Options/d' -e \"/localhost:9000/!s|frame-ancestors 'self'|& http://localhost:9000 http://127.0.0.1:9000|\" /etc/nginx/conf.d/*.conf; for f in $$(grep -L gravitee-lab.js /etc/nginx/conf.d/*.conf); do sed -i -e \"/location \\/ {/i location = /gravitee-lab.js { alias /gravitee-lab.js; }\" -e \"/location \\/ {/a sub_filter </head> '<script src=/gravitee-lab.js></script></head>';\" \"$$f\"; done; sh /check_ip_config.sh; sh /run.sh"
+        "[ ! -f /portal-next-run.sh ] || sh /portal-next-run.sh; sed -i -e '/X-Frame-Options/d' -e \"/localhost:9000/!s|frame-ancestors 'self'|& http://localhost:9000 http://127.0.0.1:9000|\" /etc/nginx/conf.d/*.conf; for f in $$(grep -L gravitee-lab.js /etc/nginx/conf.d/*.conf); do sed -i -e \"/location \\/ {/i location = /gravitee-lab.js { alias /gravitee-lab.js; }\" -e \"/location \\/ {/a sub_filter </head> '<script src=/gravitee-lab.js></script></head>';\" \"$$f\"; done; sh /check_ip_config.sh; sh /run.sh"
       ],
       "container_name": "gio-apim-management-ui",
       "depends_on": {
@@ -472,7 +472,11 @@
       ]
     },
     "apim-portal-ui": {
-      "command": null,
+      "command": [
+        "/bin/sh",
+        "-c",
+        "[ ! -f /portal-next-run.sh ] || sh /portal-next-run.sh; sed -i -e '/X-Frame-Options/d' -e \"/localhost:9000/!s|frame-ancestors 'self'|& http://localhost:9000 http://127.0.0.1:9000|\" /etc/nginx/conf.d/*.conf; for f in $$(grep -L gravitee-lab.js /etc/nginx/conf.d/*.conf); do sed -i -e \"/location \\/ {/i location = /gravitee-lab.js { alias /gravitee-lab.js; }\" -e \"/location \\/ {/a sub_filter </head> '<script src=/gravitee-lab.js></script></head>';\" \"$$f\"; done; sh /check_ip_config.sh; sh /run.sh"
+      ],
       "container_name": "gio-apim-portal-ui",
       "depends_on": {
         "apim-management-api": {
@@ -519,7 +523,16 @@
           "target": 8080
         }
       ],
-      "restart": "unless-stopped"
+      "restart": "unless-stopped",
+      "volumes": [
+        {
+          "bind": {},
+          "read_only": true,
+          "source": "@ROOT@/lab-ui/frames/location.js",
+          "target": "/gravitee-lab.js",
+          "type": "bind"
+        }
+      ]
     },
     "elasticsearch": {
       "command": null,
@@ -582,7 +595,7 @@
       "command": [
         "/bin/sh",
         "-c",
-        "sed -i -e '/X-Frame-Options/d' -e \"/localhost:9000/!s|frame-ancestors 'self'|& http://localhost:9000 http://127.0.0.1:9000|\" /etc/nginx/conf.d/*.conf; for f in $$(grep -L gravitee-lab.js /etc/nginx/conf.d/*.conf); do sed -i -e \"/location \\/ {/i location = /gravitee-lab.js { alias /gravitee-lab.js; }\" -e \"/location \\/ {/a sub_filter </head> '<script src=/gravitee-lab.js></script></head>';\" \"$$f\"; done; sh /check_ip_config.sh; sh /run.sh"
+        "[ ! -f /portal-next-run.sh ] || sh /portal-next-run.sh; sed -i -e '/X-Frame-Options/d' -e \"/localhost:9000/!s|frame-ancestors 'self'|& http://localhost:9000 http://127.0.0.1:9000|\" /etc/nginx/conf.d/*.conf; for f in $$(grep -L gravitee-lab.js /etc/nginx/conf.d/*.conf); do sed -i -e \"/location \\/ {/i location = /gravitee-lab.js { alias /gravitee-lab.js; }\" -e \"/location \\/ {/a sub_filter </head> '<script src=/gravitee-lab.js></script></head>';\" \"$$f\"; done; sh /check_ip_config.sh; sh /run.sh"
       ],
       "container_name": "gio-gamma-ui",
       "depends_on": {
