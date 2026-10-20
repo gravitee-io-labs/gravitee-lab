@@ -133,7 +133,8 @@ def settings(dry_run):
 
 def command(registry, name, build, commit, source):
     """The buildx command that builds and pushes one image: its tags, its labels (the license when the source is this
-    repository's own, where it comes from when known), its cache, and what Compose says about how to build it."""
+    repository's own, where it comes from when known), and what Compose says about how to build it. No cache, as in the
+    catalogs (WF17): a build is rare, and what it reads is only what main holds."""
     image = f"{registry}/{name}"
     result = ["docker", "buildx", "build", "--platform", PLATFORMS, "--push",
               "-t", f"{image}:latest", "-t", f"{image}:sha-{commit}"]
@@ -142,7 +143,6 @@ def command(registry, name, build, commit, source):
         result += ["--label", f"org.opencontainers.image.licenses={LICENSE}"]
     if source:
         result += ["--label", f"org.opencontainers.image.source={source}"]
-    result += ["--cache-from", f"type=gha,scope={name}", "--cache-to", f"type=gha,mode=max,scope={name}"]
     if build.get("dockerfile") and not is_remote(build["context"]):
         result += ["-f", str(Path(build["context"]) / build["dockerfile"])]
     elif build.get("dockerfile"):
