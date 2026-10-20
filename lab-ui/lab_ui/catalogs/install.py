@@ -1110,8 +1110,9 @@ def plan_update(ns: str, target: str, context: Optional[dict] = None) -> dict:
     """The plan of an update, for the files: `{"upToDate": True}` when `target` is the pin or changes nothing installable;
     else the plan. The candidate tree is staged in full at `.stage-<ns>` for the caller to judge. The plan: {ns, op
     (update, or undo when `target` is `lock.previous`), from, to, tip, name, version, lab, adds, updates, removes (unit
-    keys `kind:name`), files {add, change, remove}, rewritten, held (the changed or removed units that are on), whatsnew
-    (the subjects of the commits that touched them), ignored, kept (the files written), stage, meta (the validated
+    keys `kind:name`), files {add, change, remove}, touched (what changed in each unit, `store.changed_parts`), rewritten,
+    held (the changed or removed units that are on), whatsnew (the subjects of the commits that touched the units it adds,
+    changes or removes), ignored, kept (the files written), stage, meta (the validated
     catalog.yml of the candidate), context}. `rewritten`: the history is not the one installed (the roots differ, or the
     pin is not an ancestor of the target; for a Go back, the two are not one history), unless the new roots are the ones
     in `context["vouched"]`. `context["on"]`, an iterable or a function: the units that are on or up, which the hold
@@ -1157,11 +1158,12 @@ def plan_update(ns: str, target: str, context: Optional[dict] = None) -> dict:
                                   if (now[path].oid, now[path].mode)
                                   != (_rec(old["files"], path).get("oid"), _rec(old["files"], path).get("mode")))}
         rewritten = _rewritten(ns, store_path, held, target, context, op)
-        folders = sorted({_folder(key) for key in updates + removes}) or [manifest.FILE]
+        folders = sorted({_folder(key) for key in adds + updates + removes}) or [manifest.FILE]
         news = bare.log(store_path, held["pin"], target, folders) if op == "update" else []
+        touched = bare.changed_parts(files["add"] + files["change"] + files["remove"])
         return {"ns": ns, "op": op, "from": held["pin"], "to": target, "tip": held.get("tip"), "name": meta["name"],
                 "version": meta["version"], "lab": meta["lab"], "adds": adds, "updates": updates, "removes": removes,
-                "files": files, "rewritten": rewritten, "held": _held(ns, updates + removes, context),
+                "files": files, "touched": touched, "rewritten": rewritten, "held": _held(ns, updates + removes, context),
                 "whatsnew": news, "ignored": ignored, "kept": kept, "stage": os.fspath(registry.stage_dir(ns)),
                 "meta": meta, "context": context}
 

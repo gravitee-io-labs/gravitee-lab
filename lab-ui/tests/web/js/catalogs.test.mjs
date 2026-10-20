@@ -1261,17 +1261,17 @@ async function updating(plan, more = {}, route = "update") {
 }
 const buttons = () => adding().querySelectorAll(".dialog-actions .btn").map(face);
 
-test("Update says what changes before it does: the version, what is new, who changes, what comes and goes, what breaks, what cannot run; Cancel, Show changes, Update", async () => {
+test("Update says what changes before it does: the version, who changes, what comes and goes, what breaks, what is new, what cannot run; Cancel, Show changes, Update", async () => {
   await updating(PLAN());
   assert.deepEqual(server.calls.map((c) => [c.path, c.body]), [[at("/update"), { check: true }]]);
   assert.deepEqual([adding().hasAttribute("open"), heading(), onScreen()], [true, "Update Acme Hub", "effects"]);
   assert.deepEqual(rowsOf(), [
     ["Version", "1.5.0"],
-    ["What's new", "Add the ledger"],
     ["Updates", "Acme Bakery Playground"],
     ["Adds", "Ledger Add-on"],
     ["Removes", "No longer in the catalog Old Add-on"],
     ["Breaks", "Demo Needs Old Playground"],
+    ["What's new", "Add the ledger"],
     ["Changes", "Acme Bakery now publishes port 8141"],
     ["Cannot run", "X Publishes a port to the network Add-on"],
   ]);
@@ -1280,6 +1280,25 @@ test("Update says what changes before it does: the version, what is new, who cha
   assert.deepEqual([update.classList.contains("primary"), update.classList.contains("danger"), isOff(update)], [false, false, false]);
   assert.equal(secondary().classList.contains("primary"), false, "Show changes is a plain button");
   assert.equal(page.doc.activeElement, update, "Enter confirms what is harmless");
+  shut();
+});
+
+test("the version reads from the one installed to the new one when the catalog raised it, and says so when it did not", async () => {
+  const version = () => rowsOf().find(([label]) => label === "Version")[1];
+  await updating(PLAN({ version_from: "1.4.0" }));
+  assert.equal(version(), "1.4.0 → 1.5.0");
+  shut();
+  await updating(PLAN({ version_from: "1.5.0" }));
+  assert.equal(version(), "1.5.0 Unchanged");
+  shut();
+});
+
+test("an item that is updated says what changed in it, the first three parts of its folder and how many more", async () => {
+  await updating(PLAN({ updates: [{ kind: "addon", id: "@acme-hub/kafka", name: "Kafka", what: ["README.md"] },
+    { kind: "playground", id: "@acme-hub/bank", name: "Acme Bakery", what: ["README.md", "compose.yml", "guide/", "seed/", "tests/"] }] }));
+  const updates = adding().querySelectorAll("#catalog-rows .choice-row").find((r) => text(r.querySelector(".choice-row-label")) === "Updates");
+  assert.deepEqual(updates.querySelectorAll(".step-items li").map((li) => [text(li.querySelector(".step-name .muted")), text(li.querySelector(".step-kind"))]),
+    [["README.md", "Add-on"], ["README.md, compose.yml, guide/ and 2 more", "Playground"]]);
   shut();
 });
 

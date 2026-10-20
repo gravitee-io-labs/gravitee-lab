@@ -1451,6 +1451,12 @@ class Reading(Remote):
                                when=gitfixture.BASE_TIME + 5000).strip()
         self.assertEqual(store.log(self.store, self.tip, merge, ["addons/echo"]), ["Side work"])
 
+    def test_what_changed_in_a_unit_is_the_first_part_of_each_path_in_its_folder(self):
+        changed = ["addons/kafka/README.md", "playgrounds/shop/seed/apim/apis/shop.json", "playgrounds/shop/seed/am/app.yaml",
+                   "playgrounds/shop/compose.yml", "setups/stack.yml", "catalog.yml", "README.md", "addons/README.md"]
+        self.assertEqual(store.changed_parts(changed), {"addon:kafka": ["README.md"], "playground:shop": ["compose.yml", "seed/"],
+                                                        "setup:stack": ["stack.yml"]})
+
     def test_a_subject_loses_the_number_of_its_pull_request(self):
         tip = self.commits("Fix the guide (#4)", "Name issue #12 in the text (#13)", "(#7)")
         self.assertEqual(store.log(self.store, self.tip, tip, ["addons/echo"]), ["Name issue #12 in the text", "Fix the guide"])

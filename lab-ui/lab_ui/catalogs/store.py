@@ -588,6 +588,20 @@ def by_unit(kept: Iterable[Entry]) -> Dict[str, List[Entry]]:
     return units
 
 
+def changed_parts(changed: Iterable[str]) -> Dict[str, List[str]]:
+    """What changed in each unit among the paths `changed`, `"addon:name"` to the first parts of those paths inside the unit's
+    folder, sorted: a file by its name, a folder by its name and a slash (`README.md`, `seed/`); a setup, which is one file, by its
+    name. A path that belongs to no unit (`catalog.yml`) is left out."""
+    found = {}
+    for path in changed:
+        parts = path.split("/")
+        unit = _unit_of(parts)
+        if unit is not None:
+            part = parts[1] if unit[0] == "setup" else parts[2] + ("/" if len(parts) > 3 else "")
+            found.setdefault(f"{unit[0]}:{unit[1]}", set()).add(part)
+    return {key: sorted(parts) for key, parts in found.items()}
+
+
 def unit_digests(kept: Iterable[Entry]) -> Dict[str, str]:
     """The tree digest of every unit, `"addon:name": "sha256:<hex>"`: sha256 of the sorted lines `<mode> <oid> <path>` of
     the unit's files. Only git's own ids and modes go into it, so the digest of a unit at any commit is known from a

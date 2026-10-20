@@ -53,8 +53,9 @@ shows. A catalog that needs another one says which; add that one first.
 **Update.** Catalogs are checked in the background, five seconds after the Lab UI starts and then every six hours. The row says
 *Update available* when a newer version exists, with a dot on the Catalogs entry of the menu. **Update** is the only way a copy
 is replaced, except for a catalog the Lab can no longer read, which is brought forward by itself. A catalog with something to
-decide opens a dialog that says what changes first: the version and what is new in it, every item it updates, adds, removes or
-breaks with its kind, an item that is on (turn it off first, and the button says so), more asked of your machine, or a history
+decide opens a dialog that says what changes first: the version (from the one you have, or *Unchanged* when the owners did not
+raise it), every item it updates, adds, removes or breaks with its kind, what changed in the folder of each item it updates
+(`README.md`, `compose.yml`, `seed/`), the subjects of the commits that made it, an item that is on (turn it off first, and the button says so), more asked of your machine, or a history
 that was rewritten, which asks for one more confirmation (**Update anyway**) because the new version is not a continuation of the
 one you have. A catalog with nothing to decide is updated by the click, and **Go back**
 restores the previous copy. From a terminal: `python3 lab-ui/catalog.py update ID`.

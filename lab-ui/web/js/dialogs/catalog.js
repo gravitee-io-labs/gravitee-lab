@@ -135,21 +135,33 @@ const CHANGES = {
 };
 const changeLine = ({ name, fact, value }) => (own(CHANGES, fact) ? CHANGES[fact](name, value) : `${name}: ${fact} ${value ?? ""}`.trim());
 
-// What an update, or going back, says it does: its version and what is new in it first, then the items it touches. A history that changed is
-// an error for an update, which goes on only after the person said so (`confirm_history`); going back is the person's own choice of an older
-// version, which the server takes as confirmed, so the line is said without the tone that asks for care.
+// What changed in an item, as the server names the parts of its folder ("README.md", "seed/"): the first three, then how many more
+const parts = (what = []) => (what.length > 3 ? `${what.slice(0, 3).join(", ")} and ${what.length - 3} more` : what.join(", "));
+
+// The version an update goes to, from the one installed: both when the catalog raised it, the one alone when it did not (the update is then
+// the commits since, which the version does not tell apart)
+function versionItems(p) {
+  if (!p.version) return [];
+  if (p.version_from && p.version_from !== p.version) return [{ text: p.version_from, code: true }, { text: "→", plain: true }, { text: p.version, code: true }];
+  return [{ text: p.version, code: true, hint: p.version_from ? "Unchanged" : "" }];
+}
+
+// What an update, or going back, says it does: its version, the items it touches, each with what changed in it, then what its commits say
+// (the authors' words). A history that changed is an error for an update, which goes on only after the person said so (`confirm_history`);
+// going back is the person's own choice of an older version, which the server takes as confirmed, so the line is said without the tone that
+// asks for care.
 function planRows(p, allow, kind) {
   const uses = p.uses_machine || [], blocked = cannot(p.blocked, uses, allow);
   const names = (list = [], hint = () => "") => list.map((x) => ({ text: x.name, kind: x.kind, hint: hint(x) }));
   const tone = kind === "update" ? "danger" : undefined;
   return [
     { label: "Rewritten", tone, items: p.rewritten ? [{ text: "This catalog was rewritten or moved", tone }] : [] },
-    { label: "Version", items: p.version ? [{ text: p.version, code: true }] : [] },
-    { label: "What's new", html: (p.whatsnew || []).length ? sentences(p.whatsnew.slice(0, 5)) : "" },
-    { label: "Updates", names: true, items: names(p.updates) },
+    { label: "Version", items: versionItems(p) },
+    { label: "Updates", names: true, items: names(p.updates, (u) => parts(u.what)) },
     { label: "Adds", names: true, items: names(p.adds) },
     { label: "Removes", names: true, hint: "No longer in the catalog", items: names(p.removes) },
     { label: "Breaks", names: true, items: names(p.breaks, (b) => `Needs ${b.needs}`) },
+    { label: "What's new", html: (p.whatsnew || []).length ? sentences(p.whatsnew.slice(0, 5)) : "" },
     usesRow(uses),
     { label: "Changes", html: (p.changes || []).length ? sentences(p.changes.map(changeLine)) : "" },
     { label: "Cannot run", tone: "danger", names: true, items: names(blocked, (b) => (b.reasons || [])[0] ?? "") },
