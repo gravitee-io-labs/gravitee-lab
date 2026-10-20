@@ -134,7 +134,8 @@ jobs:
             [[ $NEEDS_REPOSITORY =~ $repository ]] || fail needs-catalog-repository "write owner/name"
             [[ $NEEDS_REF =~ $ref ]] || fail needs-catalog-ref "write a commit or a branch"
           fi
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out the engine
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ inputs.lab-repository }}
           ref: ${{ inputs.lab-ref }}
@@ -142,7 +143,8 @@ jobs:
           path: lab
           fetch-depth: ${{ inputs.change == 'engine' && '0' || '1' }}   # a change of the engine is read from the history
           persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out the catalog
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ inputs.catalog-repository }}
           ref: ${{ inputs.catalog-ref }}
@@ -150,7 +152,8 @@ jobs:
           path: catalog
           fetch-depth: ${{ inputs.change == 'catalog' && '0' || '1' }}
           persist-credentials: false
-      - if: ${{ inputs.needs-catalog-id != '' }}
+      - name: Check out the catalog it includes from
+        if: ${{ inputs.needs-catalog-id != '' }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ inputs.needs-catalog-repository }}
@@ -168,7 +171,8 @@ jobs:
           [ "$CHANGE" = engine ] && folder=lab || folder=catalog
           head=$(git -C "$folder" rev-parse HEAD)
           [ "$head" = "$EXPECT_SHA" ] || { echo "::error title=E2E03::The change is ${head:0:7}, not the commit you read (${EXPECT_SHA:0:7}). Fix: read the new commits, then run again with the new one."; exit 1; }
-      - uses: ./lab/.github/actions/compose
+      - name: Install Compose
+        uses: ./lab/.github/actions/compose
       - name: Link the catalogs into the engine
         env:
           NEEDS_ID: ${{ inputs.needs-catalog-id }}
@@ -178,7 +182,8 @@ jobs:
           link=(link catalog)
           [ "$ALLOW_MACHINE" != true ] || link+=(--allow-machine)
           python3 -I lab/lab-ui/catalog.py "${link[@]}"
-      - id: matrix
+      - name: Plan the jobs
+        id: matrix
         env:
           CATALOG_ID: ${{ inputs.catalog-id }}
           CHANGE: ${{ inputs.change }}
@@ -207,21 +212,24 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out the engine
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ inputs.lab-repository }}
           ref: ${{ inputs.lab-ref }}
           ssh-key: ${{ secrets.LAB_DEPLOY_KEY }}
           path: lab
           persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out the catalog
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ inputs.catalog-repository }}
           ref: ${{ inputs.catalog-ref }}
           ssh-key: ${{ secrets.CATALOG_DEPLOY_KEY }}
           path: catalog
           persist-credentials: false
-      - if: ${{ inputs.needs-catalog-id != '' }}
+      - name: Check out the catalog it includes from
+        if: ${{ inputs.needs-catalog-id != '' }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ inputs.needs-catalog-repository }}
@@ -229,7 +237,8 @@ jobs:
           ssh-key: ${{ secrets.NEEDS_CATALOG_DEPLOY_KEY }}
           path: needs
           persist-credentials: false
-      - uses: ./lab/.github/actions/compose
+      - name: Install Compose
+        uses: ./lab/.github/actions/compose
       - name: Link the catalogs into the engine
         env:
           NEEDS_ID: ${{ inputs.needs-catalog-id }}
@@ -239,7 +248,8 @@ jobs:
           link=(link catalog)
           [ "$ALLOW_MACHINE" != true ] || link+=(--allow-machine)
           python3 -I lab/lab-ui/catalog.py "${link[@]}"
-      - env:
+      - name: Every image exists
+        env:
           ITEM: ${{ matrix.item }}
           TESTED: ${{ matrix.tested }}
         run: python3 -I lab/.github/scripts/image_manifests.py "$ITEM" $TESTED
@@ -259,21 +269,24 @@ jobs:
       max-parallel: 6
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out the engine
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ inputs.lab-repository }}
           ref: ${{ inputs.lab-ref }}
           ssh-key: ${{ secrets.LAB_DEPLOY_KEY }}
           path: lab
           persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out the catalog
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ inputs.catalog-repository }}
           ref: ${{ inputs.catalog-ref }}
           ssh-key: ${{ secrets.CATALOG_DEPLOY_KEY }}
           path: catalog
           persist-credentials: false
-      - if: ${{ inputs.needs-catalog-id != '' }}
+      - name: Check out the catalog it includes from
+        if: ${{ inputs.needs-catalog-id != '' }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ inputs.needs-catalog-repository }}
@@ -291,7 +304,8 @@ jobs:
           [ "$CHANGE" = engine ] && folder=lab || folder=catalog
           head=$(git -C "$folder" rev-parse HEAD)
           [ "$head" = "$EXPECT_SHA" ] || { echo "::error title=E2E03::The change is ${head:0:7}, not the commit you read (${EXPECT_SHA:0:7}). Fix: read the new commits, then run again with the new one."; exit 1; }
-      - uses: ./lab/.github/actions/compose
+      - name: Install Compose
+        uses: ./lab/.github/actions/compose
       # The images of the platform and a database take the room a runner has: what it comes with and the lab does not use goes
       - name: Make room
         run: |
@@ -356,7 +370,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - env:
+      - name: Every job ended well
+        env:
           PLAN: ${{ needs.plan.result }}
           MANIFESTS: ${{ needs.manifests.result }}
           E2E: ${{ needs.e2e.result }}

@@ -21,7 +21,8 @@ runs:
   steps:
     # standard.json names the Lab. It is read and checked here, each value as a whole string (a line-oriented test such as grep lets a
     # second line through), so that what reaches the checkout below is a repository name and a full commit and nothing else
-    - id: lab
+    - name: Read the Lab's pin
+      id: lab
       shell: bash
       working-directory: catalog
       env:
@@ -36,7 +37,8 @@ runs:
         [[ $LATEST == true || $ref =~ ^[0-9a-f]{40}$ ]] \
           || fail "lab.ref must be a full commit of the Lab, 40 hexadecimal characters. Fix: catalog.py upgrade --lab-ref COMMIT."
         printf 'repository=%s\nref=%s\n' "$repository" "$ref" >> "$GITHUB_OUTPUT"
-    - id: checkout
+    - name: Check out the Lab
+      id: checkout
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         repository: ${{ steps.lab.outputs.repository }}
@@ -45,17 +47,20 @@ runs:
         path: lab
         fetch-depth: 0   # the whole history, to tell below that the commit is the Lab's own
         persist-credentials: false
-    - if: ${{ failure() && steps.checkout.outcome == 'failure' }}
+    - name: Say why the Lab could not be fetched
+      if: ${{ failure() && steps.checkout.outcome == 'failure' }}
       shell: bash
       run: |
         echo "::error title=SD07::The Lab could not be fetched. This is the repository's settings, not your change: a maintainer will run it again. Fix (maintainers): while the Lab is private this repository needs the secret LAB_DEPLOY_KEY (also as a Dependabot secret; a fork's pull request never has it), and .github/standard.json must name a commit that exists."
     # A commit that exists only in a fork of the Lab would look like a pin of the Lab once the Lab is public: it must be on the Lab's main
-    - if: ${{ inputs.latest != 'true' }}
+    - name: The commit is on the Lab's main
+      if: ${{ inputs.latest != 'true' }}
       shell: bash
       env:
         REF: ${{ steps.lab.outputs.ref }}
       run: |
         git -C lab merge-base --is-ancestor "$REF" refs/remotes/origin/main \
           || { echo "::error file=.github/standard.json,title=SD11::The Lab commit ${REF:0:7} is not on the Lab's main branch. Fix: pin a commit of the Lab's main (catalog.py upgrade --lab-ref COMMIT)."; exit 1; }
-    - if: ${{ inputs.compose == 'true' }}
+    - name: Install Compose
+      if: ${{ inputs.compose == 'true' }}
       uses: ./lab/.github/actions/compose

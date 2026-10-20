@@ -634,6 +634,47 @@ class EngineResultTest(ShellTest):
         self.assertIn("::notice::There is no catalog to try, so nothing was tried", done.stdout)
 
 
+class NamesTest(unittest.TestCase):
+    """What GitHub shows is read by people: every job and every step of the engine's workflows and actions, and of the managed
+    files a catalog gets, has a name in words (an unnamed step shows as `Run actions/checkout@<commit>`)."""
+
+    def test_every_job_and_every_step_is_named(self):
+        managed = ROOT / "lab-ui" / "templates" / "catalog" / "managed" / ".github"
+        for path in [*FILES, *sorted(managed.glob("workflows/*.yml")), *sorted(managed.glob("actions/*/action.yml"))]:
+            text = path.read_text(encoding="utf-8")
+            with self.subTest(file=path.relative_to(ROOT).as_posix()):
+                steps = unnamed_steps(text)
+                self.assertTrue(steps[0], "steps are read")
+                self.assertEqual(steps[1], [], "every step has a name")
+                if path.parent.name == "workflows":
+                    for job, block in jobs(text).items():
+                        self.assertRegex(block, r"(?m)^    name: \S", f"the job {job} has a name")
+
+
+def unnamed_steps(text):
+    """(how many steps, the first line of each one with no name) of a workflow or an action: a step is an item of a `steps:` list."""
+    lines, count, unnamed, depth = text.split("\n"), 0, [], None
+    for i, line in enumerate(lines):
+        found = re.match(r"^( *)steps:\s*$", line)
+        if found:
+            depth = len(found.group(1))
+            continue
+        item = re.match(r"^( *)- \S", line)
+        if depth is not None and line.strip() and len(line) - len(line.lstrip()) <= depth and not item:
+            depth = None
+        if depth is None or not item or len(item.group(1)) <= depth:
+            continue
+        indent, block = len(item.group(1)), [line]
+        for rest in lines[i + 1:]:
+            if rest.strip() and len(rest) - len(rest.lstrip()) <= indent:
+                break
+            block.append(rest)
+        count += 1
+        if not re.match(r"^ *- name: ", line) and not any(re.match(r"^ {%d}name: " % (indent + 2), each) for each in block[1:]):
+            unnamed.append(line.strip())
+    return count, unnamed
+
+
 class CiResultTest(ShellTest):
     """`CI result`, the check a ruleset asks for: it waits for every other job of ci.yml, and passes only when all ended in success."""
 

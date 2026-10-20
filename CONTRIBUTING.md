@@ -121,7 +121,7 @@ Maintainers review on a best-effort basis.
 
 ### What CI does
 
-Every pull request, from any fork, gets these jobs with no secret and no wait: **Lint**, **Compose files** (`make check` with the Compose release the lab pins and with the newest one, which is what a Linux user gets from Docker's repository, then the builds of the seeder's image, printed and not run), **Repository tests** (the tests of `.github/tests`), **Seeder tests**, and **Lab UI tests** (Python 3.9 and 3.14, each in four parts). **CI result** passes when all of them did: it is the check a merge waits for.
+Every pull request, from any fork, gets these jobs with no secret and no wait: **Lint**, **Compose files** (`make check` with the Compose release the lab pins and with the newest one, which is what a Linux user gets from Docker's repository, then the builds of the seeder's image, printed and not run), **Repository tests** (the tests of `.github/tests`), **Seeder tests**, and **Lab UI tests** (Python 3.9 and 3.14, each in four parts that take about as long, from the seconds in `lab-ui/tests/durations.json`: `python3 lab-ui/tests/run.py --time` writes them again when the parts drift apart). **CI result** passes when all of them did: it is the check a merge waits for. **Default catalog** checks the default catalog with your change, so that a change of the engine that breaks it shows on the pull request: it is not required, since the fix may belong to the catalog.
 
 The engine holds no item, so the **E2E** workflow tries the canary of the default catalog (`canary:` in its `catalog.yml`) on the engine as your change leaves it. A change that touches nothing every item shares (documentation, the page) runs nothing. Each catalog runs the same test for its own changes.
 

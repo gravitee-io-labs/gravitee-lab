@@ -56,23 +56,27 @@ jobs:
             [[ $SHA =~ ^[0-9a-f]{40}$ ]] || fail E2E04 "sha is the commit of the pull request you read, 40 hexadecimal characters."
             [ "$REF" = refs/heads/main ] || fail E2E02 "A pull request is tried from the workflow of main. Fix: run this workflow on main."
           fi
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out the catalog
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: catalog
           fetch-depth: 0
           persist-credentials: false
-      - uses: ./catalog/.github/actions/lab
+      - name: Check out the Lab
+        uses: ./catalog/.github/actions/lab
         with:
           key: ${{ secrets.LAB_DEPLOY_KEY }}
       # The pull request, as data: its files are read by the plan and tried from a folder of their own, and never run as a workflow
-      - if: ${{ inputs.pr != '' }}
+      - name: Check out the pull request
+        if: ${{ inputs.pr != '' }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: refs/pull/${{ inputs.pr }}/head
           path: change
           fetch-depth: 0
           persist-credentials: false
-      - id: plan
+      - name: Plan the jobs
+        id: plan
         env:
           EVENT: ${{ github.event_name }}
           PR: ${{ inputs.pr }}
@@ -105,15 +109,18 @@ jobs:
       max-parallel: 4
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out the catalog
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: catalog
           fetch-depth: 0
           persist-credentials: false
-      - uses: ./catalog/.github/actions/lab
+      - name: Check out the Lab
+        uses: ./catalog/.github/actions/lab
         with:
           key: ${{ secrets.LAB_DEPLOY_KEY }}
-      - if: ${{ inputs.pr != '' }}
+      - name: Check out the pull request
+        if: ${{ inputs.pr != '' }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: refs/pull/${{ inputs.pr }}/head
@@ -162,7 +169,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - env:
+      - name: Every job ended well
+        env:
           PLAN: ${{ needs.plan.result }}
           E2E: ${{ needs.e2e.result }}
           COUNT: ${{ needs.plan.outputs.count }}

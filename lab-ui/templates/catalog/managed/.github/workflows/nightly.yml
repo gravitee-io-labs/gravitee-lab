@@ -27,12 +27,14 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out the catalog
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: catalog
           fetch-depth: 0
           persist-credentials: false
-      - uses: ./catalog/.github/actions/lab
+      - name: Check out the newest Lab
+        uses: ./catalog/.github/actions/lab
         with:
           key: ${{ secrets.LAB_DEPLOY_KEY }}
           latest: "true"
@@ -53,11 +55,13 @@ jobs:
       contents: read
       packages: read
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out the catalog
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: catalog
           persist-credentials: false
-      - uses: ./catalog/.github/actions/lab
+      - name: Check out the Lab
+        uses: ./catalog/.github/actions/lab
         with:
           key: ${{ secrets.LAB_DEPLOY_KEY }}
       - name: The rules of the main branch are the standard's
@@ -80,7 +84,8 @@ jobs:
     permissions:
       issues: write
     steps:
-      - env:
+      - name: Open or update the issue
+        env:
           GH_TOKEN: ${{ github.token }}
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |

@@ -53,7 +53,8 @@ jobs:
       expect_sha: ${{ steps.prepare.outputs.expect_sha }}
       skip: ${{ steps.prepare.outputs.skip }}
     steps:
-      - id: prepare
+      - name: Read the inputs
+        id: prepare
         env:
           EVENT: ${{ github.event_name }}
           REF: ${{ github.ref }}
@@ -128,7 +129,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - env:
+      - name: The run ended well
+        env:
           PREPARE: ${{ needs.prepare.result }}
           SKIP: ${{ needs.prepare.outputs.skip }}
           TRY: ${{ needs.try.result }}
@@ -150,7 +152,8 @@ jobs:
     permissions:
       issues: write
     steps:
-      - env:
+      - name: Open or update the issue
+        env:
           GH_TOKEN: ${{ github.token }}
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |

@@ -37,12 +37,14 @@ jobs:
       seed: ${{ steps.plan.outputs.seed }}
       compile: ${{ steps.plan.outputs.compile }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out the catalog
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: catalog
           fetch-depth: 0   # a secret in a commit of the pull request stays reachable after a squash merge: every commit is read
           persist-credentials: false
-      - uses: ./catalog/.github/actions/lab
+      - name: Check out the Lab
+        uses: ./catalog/.github/actions/lab
         with:
           key: ${{ secrets.LAB_DEPLOY_KEY }}
       - name: Catalogs it needs
@@ -76,7 +78,8 @@ jobs:
       - name: Index
         if: ${{ !cancelled() }}
         run: python3 -I lab/lab-ui/catalog.py index catalog --out catalog.json
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - name: Keep the index
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}
         with:
           name: catalog-index
@@ -92,19 +95,24 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out the catalog
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: catalog
           persist-credentials: false
-      - uses: ./catalog/.github/actions/lab
+      - name: Check out the Lab
+        uses: ./catalog/.github/actions/lab
         with:
           key: ${{ secrets.LAB_DEPLOY_KEY }}
           compose: "false"
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.14"
-      - run: python -m pip install --quiet --disable-pip-version-check -r lab/seeder/requirements.txt
-      - run: python lab/seeder/seedlint.py catalog/playgrounds --format github
+      - name: Install the seeder's requirements
+        run: python -m pip install --quiet --disable-pip-version-check -r lab/seeder/requirements.txt
+      - name: Read the seed files
+        run: python lab/seeder/seedlint.py catalog/playgrounds --format github
       - name: The catalog's own tests
         if: ${{ !cancelled() && hashFiles('catalog/tests/**') != '' }}
         env:
@@ -122,11 +130,13 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.static.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out the catalog
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: catalog
           persist-credentials: false
-      - uses: ./catalog/.github/actions/lab
+      - name: Check out the Lab
+        uses: ./catalog/.github/actions/lab
         with:
           key: ${{ secrets.LAB_DEPLOY_KEY }}
       - id: build
@@ -156,7 +166,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - env:
+      - name: Every job ended well
+        env:
           STATIC: ${{ needs.static.result }}
           SEED: ${{ needs.seed.result }}
           COMPILE: ${{ needs.compile.result }}

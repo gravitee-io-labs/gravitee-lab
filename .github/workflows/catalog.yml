@@ -1,21 +1,22 @@
-# The default catalog, checked with this commit of the Lab: its own CI checks it with the Lab it pins, and this workflow tells a
-# change of the Lab that breaks it. It runs once the repository variables name the catalog (CATALOG_REPOSITORY, and CATALOG_REF for a
-# known-good commit). It never runs for a pull request.
+# The default catalog, checked with this change of the Lab: its own CI checks it with the Lab it pins, and this workflow tells a change of
+# the Lab that breaks it, on the pull request already. It runs once the repository variables name the catalog (CATALOG_REPOSITORY, and
+# CATALOG_REF for a known-good commit). It holds no secret and its token only reads. No schedule: the Lab changes by its pushes, and the
+# catalog's own Nightly checks it with the newest Lab every night.
 name: Default catalog
 
 on:
+  pull_request:
   push:
     branches: [main]
-  schedule:
-    - cron: "17 3 * * *"
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# As CI: a pull request keeps its newest run, each commit of main its own
 concurrency:
-  group: catalog-${{ github.ref }}
-  cancel-in-progress: true
+  group: catalog-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:
@@ -24,17 +25,21 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: ./.github/actions/compose
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Compose
+        uses: ./.github/actions/compose
+      - name: Check out the catalog
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ vars.CATALOG_REPOSITORY }}
           ref: ${{ vars.CATALOG_REF }}
           path: catalog
           persist-credentials: false
       # The catalog is checked as the repository it is: the registry path of its images (IM04) is its own, not this one's
-      - run: env GITHUB_REPOSITORY="$CATALOG_REPOSITORY" python3 lab-ui/catalog.py check catalog --ci
+      - name: Check the catalog
+        run: env GITHUB_REPOSITORY="$CATALOG_REPOSITORY" python3 lab-ui/catalog.py check catalog --ci
         env:
           CATALOG_REPOSITORY: ${{ vars.CATALOG_REPOSITORY }}
