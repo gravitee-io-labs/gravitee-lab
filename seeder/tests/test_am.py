@@ -115,6 +115,8 @@ class AccessManagement:
 
     def delete_in(self, kind):
         def remove(call):
+            if kind == "protected-resources" and call.params.get("type") != "MCP_SERVER":
+                return 500, {"message": "Internal error", "http_status": 500}   # AM 4.12: the type is read, and null is refused
             self.kept(call, kind).pop(call.path.rsplit("/", 1)[1], None)
             return 204
         return remove
