@@ -1,6 +1,6 @@
 # Pins that Dependabot does not update, to review by hand:
-#   Compose     the default version of .github/actions/compose; the job "check (Compose latest)" says when a newer
-#               release breaks the lab
+#   Compose     the default version of .github/actions/compose; the step "With the newest Compose" of the job
+#               "Compose files" says when a newer release breaks the lab
 #   Node image  NODE_IMAGE in the Makefile (tag and digest), read by the catalogs' app tests
 #   ruff        the ruff~=0.17.0 requirement in the Makefile, installed by make setup
 name: CI
@@ -18,61 +18,59 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Every add-on, setup and playground, then the project as a whole
-  check:
+  lint:
+    name: Lint
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/compose
-      - run: make check
-
-  # The same check with the newest Compose release, which is what a Linux user gets from Docker's repository
-  check-latest:
-    name: check (Compose latest)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/compose
-        with:
-          version: latest
-      - run: make check
-
-  # The Lab UI runs on Python 3.9 or later and ships JavaScript that Node tests. Python 3.9 has no build for newer
-  # runner images, hence the pinned one.
-  # The suite renders many files with Compose, so it is split in four: the modules, largest first, are dealt out in turn.
-  lab-ui:
-    name: lab-ui (${{ matrix.python }}, ${{ matrix.shard }}/4)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        python: ["3.9", "3.14"]
-        shard: [0, 1, 2, 3]
+    env:
+      RUFF_OUTPUT_FORMAT: github
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: ${{ matrix.python }}
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+          python-version: "3.14"
+      - run: make setup && make lint
+
+  # Every add-on, setup and playground, then the project as a whole, with the Compose release the lab pins and with the newest one,
+  # which is what a Linux user gets from Docker's repository. Then the builds of the lab-images workflow, printed and not run: every
+  # image still resolves from the Compose files
+  compose:
+    name: Compose files
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version: 24
-      # The tests that read the playgrounds of the repository render them with Compose, which needs the release the lab needs
+          persist-credentials: false
       - uses: ./.github/actions/compose
-      - run: python lab-ui/tests/run.py -j 2 --shard "$SHARD/4"
+      - name: With the Compose release the lab pins
+        run: make check
+      - name: The builds of the images
+        run: python3 .github/scripts/lab_images.py --dry-run
         env:
-          SHARD: ${{ matrix.shard }}
+          REGISTRY: ghcr.io/${{ github.repository }}
+      - uses: ./.github/actions/compose
+        with:
+          version: latest
+      - name: With the newest Compose
+        run: make check
+
+  # The Makefile's messages and helpers, the images script, the workflows and the conventions of the Compose files
+  repository:
+    name: Repository tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s .github/tests -t .github/tests
 
   # The seeder's dependencies need Python 3.10 or later; its image runs 3.14
   seeder:
+    name: Seeder tests
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -87,39 +85,46 @@ jobs:
       # the first failure
       - run: .venv/bin/python -m unittest discover -s seeder/tests -t seeder
 
-  # The Makefile's messages and helpers, the images script, and the conventions of the Compose files
-  tooling:
+  # The Lab UI runs on Python 3.9 or later and ships JavaScript that Node tests. Python 3.9 has no build for newer
+  # runner images, hence the pinned one.
+  # The suite renders many files with Compose, so it is split in four parts: the modules, largest first, are dealt out in turn.
+  lab-ui:
+    name: Lab UI tests (Python ${{ matrix.python }}, part ${{ matrix.part }} of 4)
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - run: python3 -m unittest discover -s .github/tests -t .github/tests
-
-  # The builds of the lab-images workflow, printed and not run: every image still resolves from the Compose files
-  images:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/compose
-      - run: python3 .github/scripts/lab_images.py --dry-run
-        env:
-          REGISTRY: ghcr.io/${{ github.repository }}
-
-  lint:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    env:
-      RUFF_OUTPUT_FORMAT: github
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.14"]
+        part: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.14"
-      - run: make setup && make lint
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      # The tests that read the playgrounds of the repository render them with Compose, which needs the release the lab needs
+      - uses: ./.github/actions/compose
+      - run: python lab-ui/tests/run.py -j 2 --shard "$((PART - 1))/4"
+        env:
+          PART: ${{ matrix.part }}
+
+  # The one check a ruleset asks for, with E2E result: every job above ended in success
+  result:
+    name: CI result
+    needs: [lint, compose, repository, seeder, lab-ui]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "jobs: $RESULTS"
+          for result in $RESULTS; do
+            [ "$result" = success ] || { echo "::error::A job ended $result: open the red job above"; exit 1; }
+          done

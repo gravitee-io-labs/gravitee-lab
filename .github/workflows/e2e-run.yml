@@ -92,6 +92,7 @@ permissions:
 jobs:
   # The jobs of the matrix: an item and a set of versions each
   plan:
+    name: Plan
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
@@ -199,7 +200,7 @@ jobs:
   manifests:
     needs: plan
     if: needs.plan.outputs.count != '0'
-    name: images of ${{ matrix.name }}
+    name: Images of ${{ matrix.name }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     strategy:
@@ -347,7 +348,7 @@ jobs:
 
   # The check to read. It runs for what the e2e jobs run for, and fails when anything ended wrong
   result:
-    name: E2E result
+    name: Result
     needs: [plan, manifests, e2e]
     if: >-
       always() &&

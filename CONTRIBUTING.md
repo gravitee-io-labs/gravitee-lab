@@ -121,13 +121,13 @@ Maintainers review on a best-effort basis.
 
 ### What CI does
 
-Every pull request, from any fork, gets these jobs with no secret and no wait: `check`, `check (Compose latest)`, `lab-ui` (Python 3.9 and 3.14, each in four shards), `seeder`, `tooling`, `images` and `lint`. `check (Compose latest)` runs `make check` with the newest Compose release, which is what a Linux user gets from Docker's repository. `tooling` runs the tests of `.github/tests`. `images` prints the builds of the seeder's image without running them.
+Every pull request, from any fork, gets these jobs with no secret and no wait: **Lint**, **Compose files** (`make check` with the Compose release the lab pins and with the newest one, which is what a Linux user gets from Docker's repository, then the builds of the seeder's image, printed and not run), **Repository tests** (the tests of `.github/tests`), **Seeder tests**, and **Lab UI tests** (Python 3.9 and 3.14, each in four parts). **CI result** passes when all of them did: it is the check a merge waits for.
 
 The engine holds no item, so the **E2E** workflow tries the canary of the default catalog (`canary:` in its `catalog.yml`) on the engine as your change leaves it. A change that touches nothing every item shares (documentation, the page) runs nothing. Each catalog runs the same test for its own changes.
 
 | Job | What it proves | Who can run it |
 |---|---|---|
-| `images of <item>` | Every image it pulls exists in its registry, at that version | Anyone: it needs no secret |
+| `Images of <item>` | Every image it pulls exists in its registry, at that version | Anyone: it needs no secret |
 | `<item>` | It starts on a machine with no lab, as it does from the Lab UI: the start ends well (a playground's seed too), its containers are up and none is in an issue, and its consoles answer | A maintainer approves it after reading the change: it runs your code with the CI license |
 | `E2E result` | Everything above ended well. This is the check that has to pass before a merge | |
 

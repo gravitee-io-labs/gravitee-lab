@@ -2,12 +2,13 @@
 # The untrusted lane. It runs the code of every pull request, forks included, so its token only reads and it writes nothing. It
 # holds no secret but the read key of the Lab, which exists only while the Lab is private (a fork never gets it). In the order it
 # fails fastest:
-#   static   the shape of the tree, the secrets, the files, the Lab's own check with its trust policy, what the change touches, and
-#            whether every image it pulls exists
-#   seed     the seed files of the playgrounds that changed, read as the seeder reads them, and the catalog's own tests when it has some
-#   compile  the apps build on each architecture (a Mac runs arm64), pass their tests in their image with no network, and what
-#            does not need the platform starts and answers its health check
-#   result   the one check a ruleset asks for
+#   Checks       the shape of the tree, the secrets, the files, the Lab's own check with its trust policy, what the change touches, and
+#                whether every image it pulls exists
+#   Seed files   the seed files of the playgrounds that changed, read as the seeder reads them, and the catalog's own tests when it
+#                has some
+#   Apps         the apps build on each architecture (a Mac runs arm64), pass their tests in their image with no network, and what
+#                does not need the platform starts and answers its health check
+#   Catalog CI result   the one check a ruleset asks for
 name: CI
 
 on:
@@ -27,6 +28,7 @@ jobs:
   # Everything that reads files and runs nothing of the change. Each step runs even when an earlier one failed, so that one run lists
   # everything to fix; the job fails at the end if any did
   static:
+    name: Checks
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
@@ -84,6 +86,7 @@ jobs:
   # Python 3.14 and the seeder's requirements, which the Lab pins: nothing the change wrote is installed. The catalog's own tests, when
   # it has a tests/ folder (the default catalog does), are plain unittest, need no network and no secret, and find the seeder's helpers
   seed:
+    name: Seed files
     needs: static
     if: ${{ needs.static.outputs.seed == 'true' }}
     runs-on: ubuntu-24.04
@@ -110,7 +113,7 @@ jobs:
 
   # Build, test, start. The Dockerfiles of the change run here, so no secret and no registry login reaches this job
   compile:
-    name: compile (${{ matrix.arch }})
+    name: Apps
     needs: static
     if: ${{ needs.static.outputs.compile == 'true' }}
     runs-on: ${{ matrix.runner }}
@@ -165,7 +168,7 @@ jobs:
           fail() { echo "::error::$1"; exit 1; }
           # An empty answer is not "not asked": a plan that wrote nothing must not turn the check green
           for answer in "$WANT_SEED" "$WANT_COMPILE"; do
-            case "$answer" in true | false) ;; *) fail "The plan gave no answer: open the job static" ;; esac
+            case "$answer" in true | false) ;; *) fail "The plan gave no answer: open the job Checks" ;; esac
           done
           [ "$STATIC" = success ] || fail "The checks did not end well: open the red job above"
           [ "$WANT_COMPILE" != true ] || [ -n "$MATRIX" ] || fail "The plan asked for a build and named no architecture"

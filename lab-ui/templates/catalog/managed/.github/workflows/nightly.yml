@@ -1,5 +1,5 @@
 # Managed by the Lab catalog standard 3: change it with catalog.py upgrade, in a pull request a maintainer reads.
-# Every week, on the main branch: what changes while nobody pushes. The newest Lab still reads the catalog, the standard files are the
+# Every night, on the main branch: what changes while nobody pushes. The newest Lab still reads the catalog, the standard files are the
 # newest Lab's, the links of the guides answer, the rules of the main branch are still the standard's, and the images that were
 # published have no fixable critical flaw. The newest Lab is code nobody has read yet, so the job that runs it holds nothing: no token,
 # no package access. A run that fails opens an issue, or adds to the one that is open.
@@ -7,7 +7,7 @@ name: Nightly
 
 on:
   schedule:
-    - cron: "17 4 * * 1"
+    - cron: "17 4 * * *"
   workflow_dispatch:
 
 permissions:
@@ -20,6 +20,7 @@ concurrency:
 jobs:
   # The newest Lab: a compatibility signal, with nothing to steal
   verify-latest:
+    name: Newest Lab
     if: ${{ !github.event.repository.fork }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -44,6 +45,7 @@ jobs:
 
   # The Lab at the commit the catalog pins, with the read access to packages that the audit and the scan need
   verify-pinned:
+    name: Pinned Lab
     if: ${{ !github.event.repository.fork }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -70,6 +72,7 @@ jobs:
         run: python3 -I lab/lab-ui/catalog.py ci scan-published catalog
 
   report:
+    name: Report the failed night
     needs: [verify-latest, verify-pinned]
     if: ${{ always() && (contains(fromJSON('["failure","cancelled"]'), needs.verify-latest.result) || contains(fromJSON('["failure","cancelled"]'), needs.verify-pinned.result)) }}
     runs-on: ubuntu-24.04

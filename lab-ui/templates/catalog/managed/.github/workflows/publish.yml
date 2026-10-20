@@ -28,6 +28,7 @@ jobs:
   # Where the plan has no rule against a force push, this is how it is seen: people pin commits, and a rewritten main takes them away.
   # Nothing is published from a rewritten history
   guard:
+    name: Main was not rewritten
     if: ${{ github.ref_type == 'branch' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -42,6 +43,7 @@ jobs:
   # third time); a tag is gated: its version is the catalog's, its commit is on main, its checks ended well. A fork builds nothing:
   # the images are the catalog's own
   plan:
+    name: Plan
     needs: guard
     if: ${{ !cancelled() && contains(fromJSON('["success","skipped"]'), needs.guard.result) && !github.event.repository.fork }}
     runs-on: ubuntu-24.04
@@ -77,6 +79,7 @@ jobs:
   # already proven on both). The images of a tag that already exist are not built again. There is no build cache: it would need the
   # runtime token of Actions in the one job that holds the registry login
   images:
+    name: Images
     needs: plan
     if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.count != '0' }}
     runs-on: ubuntu-24.04
@@ -119,6 +122,7 @@ jobs:
   # GitHub keeps artifact attestations for public repositories on every plan, and for private ones on Enterprise Cloud only. The
   # provenance and the SBOM that BuildKit attaches to each image are in the registry either way
   attest:
+    name: Attestations
     needs: [plan, images]
     if: ${{ !cancelled() && needs.plan.outputs.attest == 'true' && needs.images.result == 'success' }}
     runs-on: ubuntu-24.04
@@ -148,6 +152,7 @@ jobs:
   # A tag: the GitHub release, with notes made from the commit subjects (what the Lab's Update dialog shows too). It runs only when
   # the jobs before it ended in success or had nothing to do: a canceled or timed-out job is not "not a failure"
   release:
+    name: Release
     needs: [plan, images, attest]
     if: ${{ !cancelled() && github.ref_type == 'tag' && needs.plan.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.images.result) && contains(fromJSON('["success","skipped"]'), needs.attest.result) }}
     runs-on: ubuntu-24.04

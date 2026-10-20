@@ -25,6 +25,7 @@ concurrency:
 
 jobs:
   images:
+    name: Build and push
     # Only main publishes: a run by hand from another branch would overwrite the :latest that everyone pulls.
     # A fork builds on its own push only when started by hand: the lab pulls the images of this repository, so a fork's
     # pushes would be a long multi-platform build for nothing

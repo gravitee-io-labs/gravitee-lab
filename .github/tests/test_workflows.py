@@ -23,6 +23,7 @@ WORKFLOWS = [file for file in FILES if file.parent.name == "workflows"]
 INDENT = re.compile(r"^( *)")
 E2E = ROOT / ".github" / "workflows" / "e2e.yml"           # the engine's own: a change of the engine tried on a catalog
 RUN = ROOT / ".github" / "workflows" / "e2e-run.yml"       # the run, which the engine and each catalog call
+CI = ROOT / ".github" / "workflows" / "ci.yml"
 SHA = "0123456789abcdef0123456789abcdef01234567"
 BASH = shutil.which("bash")
 
@@ -211,7 +212,7 @@ class RunTest(unittest.TestCase):
 
     def test_the_check_to_read_waits_for_everything_and_runs_even_when_it_failed(self):
         body = self.jobs["result"]
-        self.assertIn("name: E2E result", body)
+        self.assertIn("name: Result", body)
         self.assertIn("needs: [plan, manifests, e2e]", body)
         self.assertIn("always()", body)
         self.assertIn("A job that had to run was skipped", body)
@@ -317,7 +318,7 @@ class EngineCallerTest(unittest.TestCase):
         self.assertIn("The variable CATALOG_REPOSITORY is not set", self.text)
 
     def test_the_check_to_require_is_a_job_of_this_file_named_as_it_always_was(self):
-        """A job that calls a workflow shows as `try / E2E result`, the callee's name behind the caller's: the name that the
+        """A job that calls a workflow shows as `Run / Result`, the callee's name behind the caller's: the name that the
         documentation, a ruleset and the audit of the settings ask for is this file's own job, which always reports."""
         self.assertEqual(list(self.jobs), ["prepare", "try", "result", "nightly"])
         body = self.jobs["result"]
@@ -631,6 +632,22 @@ class EngineResultTest(ShellTest):
         self.assertIn("::error::The inputs were refused", done.stdout)
         done = self.execute(self.text, {"PREPARE": "success", "SKIP": "true", "TRY": "skipped"})
         self.assertIn("::notice::There is no catalog to try, so nothing was tried", done.stdout)
+
+
+class CiResultTest(ShellTest):
+    """`CI result`, the check a ruleset asks for: it waits for every other job of ci.yml, and passes only when all ended in success."""
+
+    def test_it_waits_for_every_other_job(self):
+        found = jobs(CI.read_text(encoding="utf-8"))
+        needs = re.search(r"(?m)^    needs: \[(.+)\]$", found["result"]).group(1).split(", ")
+        self.assertEqual(sorted(needs), sorted(name for name in found if name != "result"))
+        self.assertIn("if: ${{ always() }}", found["result"])
+
+    def test_it_fails_on_anything_but_success(self):
+        text = script(step_with(jobs(CI.read_text(encoding="utf-8"))["result"], "RESULTS"))
+        for results, wanted in (("success success", 0), ("success failure", 1), ("cancelled", 1), ("success skipped", 1)):
+            with self.subTest(results=results):
+                self.assertEqual(self.execute(text, {"RESULTS": results}).returncode, wanted)
 
 
 class ReaderTest(unittest.TestCase):

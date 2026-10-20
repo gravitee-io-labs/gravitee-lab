@@ -1,7 +1,7 @@
 # The default catalog, checked with this commit of the Lab: its own CI checks it with the Lab it pins, and this workflow tells a
 # change of the Lab that breaks it. It runs once the repository variables name the catalog (CATALOG_REPOSITORY, and CATALOG_REF for a
 # known-good commit). It never runs for a pull request.
-name: Catalog
+name: Default catalog
 
 on:
   push:
@@ -19,6 +19,7 @@ concurrency:
 
 jobs:
   check:
+    name: Default catalog with this Lab
     if: vars.CATALOG_REPOSITORY != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 15
