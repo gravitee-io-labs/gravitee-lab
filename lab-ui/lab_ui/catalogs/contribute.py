@@ -370,9 +370,10 @@ def _read(file, limit=bare.OTHER_FILE + 1) -> Optional[bytes]:
         os.close(descriptor)
 
 
-def _place(kind, slug, ns):
-    """(the folder the compose file is in now, the folder it will be in, its path in the catalog)."""
-    here, there = f"{paths.CATALOGS_DIR}/{LOCAL}", f"{paths.CATALOGS_DIR}/{ns}"
+def _place(kind, slug, ns, source=LOCAL):
+    """(the folder the compose file is in now, the folder it will be in, its path in the catalog). `source`: the catalog
+    it is in now, this machine's own by default."""
+    here, there = f"{paths.CATALOGS_DIR}/{source}", f"{paths.CATALOGS_DIR}/{ns}"
     if kind == "setup":
         return f"{here}/setups", f"{there}/setups", f"setups/{slug}.yml"
     return f"{here}/{kind}s/{slug}", f"{there}/{kind}s/{slug}", f"{kind}s/{slug}/compose.yml"
@@ -386,13 +387,20 @@ REFUSED = {"ST03": "{rel} has a name the Lab cannot install. Fix: use letters, d
            "ST13": "{rel} differs from another file only by case. Fix: rename one; a Mac cannot hold both."}
 
 
-def collect(kind, slug, ns) -> Copy:
-    """The copy of the personal item `local/<slug>` for the catalog `ns`: the allow-list less what
-    `store.rejections` refuses (what the Lab never installs), the compose file written again for its new place. The disk is
-    read and nothing is written. What is left out and would be missed is a problem: a link, a file too large, a name a catalog
-    cannot hold, a `.env` or a key that the compose file names."""
-    before, after, head = _place(kind, slug, ns)
-    uid = f"{LOCAL}/{slug}"
+def _uid(source, slug):
+    """The id of the item `slug` of the catalog `source`: local/<slug>, a bare name in the default catalog, else @<ns>/<slug>."""
+    return f"{LOCAL}/{slug}" if source == LOCAL else slug if source == paths.default_ns() else f"@{source}/{slug}"
+
+
+def collect(kind, slug, ns, source=LOCAL, moved=()) -> Copy:
+    """The copy of the item `<source>/<slug>` (the personal item `local/<slug>` by default) for the catalog `ns`: the
+    allow-list less what `store.rejections` refuses (what the Lab never installs), the compose file written again for its new
+    place. `moved`: what else goes to `ns` with it, [(old path, new path)] relative to the project, so that an include of one
+    of them follows it (an export carries an item and what it includes). The disk is read and nothing is written. What is left
+    out and would be missed is a problem: a link, a file too large, a name a catalog cannot hold, a `.env` or a key that the
+    compose file names."""
+    before, after, head = _place(kind, slug, ns, source)
+    uid = _uid(source, slug)
     data, problems = _read(paths.ROOT / paths.unit_file(kind, uid), bare.TEXT_FILE + 1), []
     if data is None:
         problems.append("compose.yml cannot be read.")
@@ -405,6 +413,7 @@ def collect(kind, slug, ns) -> Copy:
         kept = ""
         problems.append("compose.yml is not UTF-8 text.")
     table = [(paths.unit_file(kind, uid), f"{paths.CATALOGS_DIR}/{ns}/{head}")] if kind == "setup" else [(before, after)]
+    table += list(moved)
     text = moves.repoint(kept, before, after, table)
     if kind == "setup":
         return Copy({head: ("100644", text.encode("utf-8"))}, text, kept, problems)

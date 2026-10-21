@@ -100,7 +100,9 @@ function previewRows(p, allow) {
     .concat((builds.remote || []).map((source) => `Builds from ${source}`));
   return [
     { label: "Adds", items: countsOf(p.counts) },
-    { label: "From", items: p.address ? [{ text: p.address, code: true }] : [], hint: c.kind === "folder" ? "On this machine" : p.audience === "public" ? "Public" : p.audience === "private" ? "Private" : "" },
+    // An imported playground comes from the file the person chose: where the Lab keeps it is the Lab's own business
+    p.imported ? { label: "From", items: p.file ? [{ text: p.file, code: true }] : [] }
+      : { label: "From", items: p.address ? [{ text: p.address, code: true }] : [], hint: c.kind === "folder" ? "On this machine" : p.audience === "public" ? "Public" : p.audience === "private" ? "Private" : "" },
     // The newest version needs a newer Lab: the one installed is older
     { label: "Version", items: p.newer && c.version ? [{ text: c.version, code: true }] : [], hint: "Newer ones need a newer Lab" },
     { label: "Runs", html: `<span>Containers on this machine</span>${mark(RUNS, "Runs")}` },
@@ -162,6 +164,12 @@ dialog.innerHTML = `
         ${field("catalog-branch", "Branch", '<div class="search"><input id="catalog-branch" placeholder="Default" spellcheck="false" autocapitalize="off"></div>')}</details>
       ${progressBar("catalog:check")}
     </div>
+    <div id="catalog-file" hidden>
+      <div class="field"><span class="field-label">File</span>
+        <div class="file-drop" id="catalog-drop">${icon("file")}<span id="catalog-file-name">Drop the file here</span>
+          <button type="button" class="btn" id="catalog-choose">Choose</button>
+          <input type="file" id="catalog-file-input" accept=".zip,application/zip" hidden></div></div>
+    </div>
     <div id="catalog-effects" hidden>
       <div class="choice-list single" id="catalog-rows"></div>
       <div class="choice-list" id="catalog-choice" role="radiogroup" aria-label="Uses this machine" hidden></div>
@@ -176,7 +184,7 @@ dialog.innerHTML = `
 document.body.append(dialog);
 
 const rowsEl = $("#catalog-rows", dialog), choiceEl = $("#catalog-choice", dialog);
-const screens = { address: $("#catalog-address", dialog), effects: $("#catalog-effects", dialog) };
+const screens = { address: $("#catalog-address", dialog), file: $("#catalog-file", dialog), effects: $("#catalog-effects", dialog) };
 let seq = 0;           // the attempt on screen: an answer that comes for an older one, or after the dialog closed, is dropped
 let asking = false;    // the address is being read: a second Enter is the same request
 let sending = false;   // the button of the second screen is on its way: a second click or Enter is the same request
@@ -307,7 +315,7 @@ async function add() {
   const live = () => mine === seq;
   sending = true;
   try {
-    const answer = await busy(`catalog-op:${id}`, "add", api("/api/catalogs", { ticket: preview.ticket }));
+    const answer = await busy(`catalog-op:${id}`, preview.imported ? "import" : "add", api("/api/catalogs", { ticket: preview.ticket }));
     if (allow && live() && answer.catalog?.host !== "allowed") {
       try {
         await api(`/api/catalogs/${id}/allow`, { enabled: true });
@@ -315,15 +323,17 @@ async function add() {
         toast(err.message, true);
       }
     }
-    const stay = live();
+    const stay = live(), imported = !!preview.imported;
     if (stay) dialog.close();
-    toast("Added");
+    toast(imported ? "Imported" : "Added");
     await store.refresh();
-    if (stay) reveal(id);
+    if (stay && imported) openImported(id);
+    else if (stay) reveal(id);
   } catch (err) {
     if (!live()) toast(err.message, true);
     else if (expired(err)) {
-      addressScreen(asked.text);
+      if (preview.imported) fileScreen();
+      else addressScreen(asked.text);
       problem(err.message);
     } else problem(err.message);
     store.refresh();
@@ -331,6 +341,90 @@ async function add() {
     if (live()) sending = false;   // an attempt that was left is no longer the one that is sending
   }
 }
+
+// --- Import: a playground in a file ---
+
+// An exported playground is a folder catalog in a zip file: imported, it is added as one, through the same preview and the same consent.
+// The file is read as it is chosen or dropped: the second screen comes at once, its rows bars until the server has read it.
+const MAX_FILE = 64 * 1024 * 1024;   // the largest file the server reads (exports.MAX_ARCHIVE)
+
+function fileScreen() {
+  shown = null;
+  screen("file", "Import playground");
+  setHTML(rowsEl, "");
+  $("#catalog-drop", dialog).classList.remove("over");
+  $("#catalog-file-input", dialog).value = "";
+  slot("primary", "");
+  slot("secondary", "");
+}
+
+// The bytes of a file as base64, the form the server takes; in pieces, which a long argument list would not take whole
+async function base64Of(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let text = "";
+  for (let at = 0; at < bytes.length; at += 0x8000) text += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
+  return btoa(text);
+}
+
+async function importFile(file) {
+  if (!file || asking) return;
+  problem();
+  if (!/\.zip$/i.test(file.name)) return problem("Choose the .zip file of an exported playground");
+  if (file.size > MAX_FILE) return problem("This file is larger than an exported playground can be: 64 MB");
+  const mine = ++seq;
+  asking = true;
+  reading("");
+  screen("effects", "Import playground");
+  try {
+    const preview = { ...await api("/api/catalogs/import", { data: await base64Of(file) }), file: file.name };
+    if (mine !== seq) return;
+    rowsEl.removeAttribute("aria-busy");
+    shown = { kind: "add", preview, host: false };
+    effectsScreen(`Import ${preview.catalog?.name ?? ""}`.trim());
+    drawRows();
+    slot("secondary", "");
+    slot("primary", actionButton({ key: `catalog-op:${preview.catalog.id}`, verb: "import", label: "Import" }));
+    ($$("input", choiceEl).find((el) => el.checked) || $("#catalog-primary button", dialog))?.focus();
+  } catch (err) {
+    if (mine !== seq) return;
+    fileScreen();
+    problem(err.message);
+  } finally {
+    if (mine === seq) asking = false;
+  }
+}
+
+// The playground that was imported, on its own page; the catalog's row when it holds none or several
+function openImported(id) {
+  if ($$("dialog").some((d) => d.open)) return;
+  const found = (store.state?.playgrounds || []).filter((p) => String(p.id).startsWith(`@${id}/`));
+  router.go(found.length === 1 ? `#/playgrounds/${found[0].id}` : `#/catalogs/${id}`);
+}
+
+export function openImport() {
+  seq += 1;
+  asking = sending = false;
+  fileScreen();
+  problem();
+  if (!dialog.open) dialog.showModal();
+  $("#catalog-choose", dialog).focus();
+}
+
+$("#catalog-choose", dialog).addEventListener("click", () => $("#catalog-file-input", dialog).click());
+$("#catalog-file-input", dialog).addEventListener("change", (e) => importFile(e.target.files[0]));
+// A file dropped anywhere on the file screen
+screens.file.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  $("#catalog-drop", dialog).classList.add("over");
+});
+screens.file.addEventListener("dragleave", (e) => {
+  if (!e.currentTarget.contains(e.relatedTarget)) $("#catalog-drop", dialog).classList.remove("over");
+});
+screens.file.addEventListener("drop", (e) => {
+  e.preventDefault();
+  $("#catalog-drop", dialog).classList.remove("over");
+  importFile(e.dataTransfer.files[0]);
+});
 
 // --- Update and Go back ---
 

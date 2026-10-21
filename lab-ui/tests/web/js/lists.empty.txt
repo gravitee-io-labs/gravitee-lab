@@ -4,6 +4,10 @@
     <h1>
       "Playgrounds"
     <div class="page-actions">
+      <button class="btn" data-import="">
+        <svg aria-hidden="true">
+          <use href="#i-upload">
+        "Import"
       <button class="btn" data-new="">
         <svg aria-hidden="true">
           <use href="#i-plus">
@@ -205,6 +209,10 @@
     <h1>
       "Playgrounds"
     <div class="page-actions">
+      <button class="btn" data-import="">
+        <svg aria-hidden="true">
+          <use href="#i-upload">
+        "Import"
       <button class="btn" data-new="">
         <svg aria-hidden="true">
           <use href="#i-plus">
@@ -263,6 +271,10 @@
     <h1>
       "Playgrounds"
     <div class="page-actions">
+      <button class="btn" data-import="">
+        <svg aria-hidden="true">
+          <use href="#i-upload">
+        "Import"
       <button class="btn" data-new="">
         <svg aria-hidden="true">
           <use href="#i-plus">
@@ -321,6 +333,10 @@
     <h1>
       "Playgrounds"
     <div class="page-actions">
+      <button class="btn" data-import="">
+        <svg aria-hidden="true">
+          <use href="#i-upload">
+        "Import"
       <button class="btn" data-new="">
         <svg aria-hidden="true">
           <use href="#i-plus">
@@ -379,6 +395,10 @@
     <h1>
       "Playgrounds"
     <div class="page-actions">
+      <button class="btn" data-import="">
+        <svg aria-hidden="true">
+          <use href="#i-upload">
+        "Import"
       <button class="btn" data-new="">
         <svg aria-hidden="true">
           <use href="#i-plus">
@@ -544,6 +564,10 @@
     <h1>
       "Playgrounds"
     <div class="page-actions">
+      <button class="btn" data-import="">
+        <svg aria-hidden="true">
+          <use href="#i-upload">
+        "Import"
       <button class="btn" data-new="">
         <svg aria-hidden="true">
           <use href="#i-plus">
@@ -662,6 +686,10 @@
     <h1>
       "Playgrounds"
     <div class="page-actions">
+      <button class="btn" data-import="">
+        <svg aria-hidden="true">
+          <use href="#i-upload">
+        "Import"
       <button class="btn" data-new="">
         <svg aria-hidden="true">
           <use href="#i-plus">

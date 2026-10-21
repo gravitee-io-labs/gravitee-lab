@@ -115,6 +115,21 @@ you can write to, as a branch with a pull request link, and a copy stays in Pers
 versions it started on go into the copy as its `tested` when its file declares none, and a playground that never ran is told to start first. A catalog you create with **New
 catalog** is a folder on this machine that you edit freely.
 
+## A playground in a file
+
+A playground made for one person (a customer, a workshop) does not have to go into a catalog. **Export**, in the menu of a
+playground (its row or its page), saves a `.zip` file that holds the playground and every setup and add-on it includes that the
+other Lab may not have: everything but the items of the default catalog, which every Lab has, and which the file names as needed.
+It never holds settings, keys or a license: the person who imports it adds their own license in the Lab UI.
+
+Before the file is made, the export is judged as the import will be, with the rules a Lab applies to a catalog that is not
+listed. What the other Lab would block is said, and keeps the file from being made: fix it first. What it would ask to use that
+machine (a privileged container, say) is said too: the person who imports it is asked, as for any catalog.
+
+On the other Lab, **Import** on the Playgrounds page takes the file: the preview is the one of an Add, and once imported the
+playground's page opens. The Lab keeps the files under `.lab/imports/`, and the playground shows under a catalog named after it.
+To import a newer file of the same playground, remove that catalog on the Catalogs page first: its files go with it.
+
 ## Offline, privacy and starting over
 
 With no network, the Lab keeps working with the copies it has: checks fail quietly and the rows say **Unreachable**.

@@ -4,6 +4,10 @@
     <h1>
       "Playgrounds"
     <div class="page-actions">
+      <button class="btn" data-import="">
+        <svg aria-hidden="true">
+          <use href="#i-upload">
+        "Import"
       <button class="btn" data-new="">
         <svg aria-hidden="true">
           <use href="#i-plus">
@@ -184,7 +188,9 @@
                 <svg aria-hidden="true">
                   <use href="#i-file">
               <span class="icon-gap">
-              <span class="icon-gap">
+              <button class="icon-btn" data-more="" data-tip="More" aria-label="More for Ledger demo" aria-haspopup="true">
+                <svg aria-hidden="true">
+                  <use href="#i-more">
         <div class="list-detail" id="detail--acme-hub-ledger-demo">
           <section class="panel ">
             <div class="panel-head">
@@ -799,6 +805,10 @@
     <h1>
       "Playgrounds"
     <div class="page-actions">
+      <button class="btn" data-import="">
+        <svg aria-hidden="true">
+          <use href="#i-upload">
+        "Import"
       <button class="btn" data-new="">
         <svg aria-hidden="true">
           <use href="#i-plus">
@@ -885,7 +895,9 @@
                 <svg aria-hidden="true">
                   <use href="#i-file">
               <span class="icon-gap">
-              <span class="icon-gap">
+              <button class="icon-btn" data-more="" data-tip="More" aria-label="More for Ledger demo" aria-haspopup="true">
+                <svg aria-hidden="true">
+                  <use href="#i-more">
         <div class="list-detail" id="detail--acme-hub-ledger-demo">
           <section class="panel ">
             <div class="panel-head">
@@ -932,6 +944,10 @@
     <h1>
       "Playgrounds"
     <div class="page-actions">
+      <button class="btn" data-import="">
+        <svg aria-hidden="true">
+          <use href="#i-upload">
+        "Import"
       <button class="btn" data-new="">
         <svg aria-hidden="true">
           <use href="#i-plus">

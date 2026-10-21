@@ -24,7 +24,7 @@ from ..docker import compose, files, images, plugins, probe, terminal
 from ..gravitee import core, license, places, platforms
 from . import dashboard, stack
 from .. import paths
-from ..catalogs import contribute, firstrun, service, trust
+from ..catalogs import contribute, exports, firstrun, service, trust
 from ..catalogs.registry import CatalogError
 from ..docker.jobs import JOBS, Job
 
@@ -62,6 +62,8 @@ POLICY = "; ".join([
 UNFRAMED = {"Content-Security-Policy": "frame-ancestors 'none'", "X-Frame-Options": "DENY"}
 README = "(see Prerequisites in README.md)"
 MAX_BODY = 1 << 20   # the largest thing the page sends is the text of a compose file
+# ... but for an imported playground, which the page sends as base64: the largest archive an import reads, and a third more
+LARGE_BODIES = {"/api/catalogs/import": (exports.MAX_ARCHIVE * 4) // 3 + 1024}
 # What the home page says to a request that names the Lab UI by another host than localhost or 127.0.0.1 (0.0.0.0, a
 # name of this machine): the Host header is not repeated in it
 WRONG_HOST = ('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="color-scheme" content="light dark">'
@@ -740,6 +742,9 @@ ROUTES = [(method, re.compile(pattern), handler) for method, pattern, handler in
     ("POST", "/api/playgrounds", lambda r: created(r, personal.create_playground, "name", "description", "category",
                                                    "setups", "addons")),
     ("POST", f"/api/{KIND}s/{UNIT}/share", share_item),
+    # A playground in a file: what its export carries (`check`), then the file, base64; and the import of one, as an Add
+    ("POST", f"/api/playgrounds/{UNIT}/export", lambda r, pid: exports.plan(pid) if r.body.get("check") else exports.archive(pid)),
+    ("POST", "/api/catalogs/import", lambda r: exports.receive(r.body.get("data"))),
     ("POST", f"/api/{KIND}s/{UNIT}/use-catalog", use_catalog),
     # The catalogs. What changes one, runs git or asks a network is a POST and the page's alone; the state never does
     ("POST", "/api/catalogs/check", lambda r: service.check_address(r.body.get("address"), r.body.get("branch"))),
@@ -837,7 +842,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"error": "Forbidden"}, 403)
         self.query = {key: values[0] for key, values in parse_qs(url.query).items()}
         try:
-            self.body = self.read_json() if method == "POST" else {}
+            self.body = self.read_json(LARGE_BODIES.get(url.path, MAX_BODY)) if method == "POST" else {}
             result = self.call(method, url.path)
             if result is not None:
                 self.send_json(result.summary() if isinstance(result, Job) else result)
@@ -861,12 +866,12 @@ class Handler(BaseHTTPRequestHandler):
                 return handler(self, *found.groups())
         raise paths.NotFound("Not found")
 
-    def read_json(self):
+    def read_json(self, limit=MAX_BODY):
         size = self.headers.get("Content-Length") or "0"
         if not (size.isascii() and size.isdigit()):   # a negative number reads until the connection closes
             raise ValueError("The Content-Length must be a number of bytes")
-        if int(size) > MAX_BODY:
-            raise TooLarge(f"The request is larger than {MAX_BODY >> 20} MB")
+        if int(size) > limit:
+            raise TooLarge(f"The request is larger than {limit >> 20} MB")
         body = json.loads(self.rfile.read(int(size)) or b"{}")
         if not isinstance(body, dict):
             raise ValueError("The body must be a JSON object")

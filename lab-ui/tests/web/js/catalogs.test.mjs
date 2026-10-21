@@ -55,7 +55,7 @@ Object.defineProperty(El.prototype, "checked", {
 
 const { store, router, ago } = await import("../../../web/js/core.js");
 const { catalogsPage } = await import("../../../web/js/pages/catalogs.js");
-const { addCatalog, openAdd, openNew, tryAgain } = await import("../../../web/js/dialogs/catalog.js");
+const { addCatalog, openAdd, openImport, openNew, tryAgain } = await import("../../../web/js/dialogs/catalog.js");
 const { paintActions, paintProgress } = await import("../../../web/js/components/ui.js");
 
 const section = page.doc.createElement("section");
@@ -784,6 +784,47 @@ test("Continue at work reads Reading, the bar of the fetch is under the field, a
   await settle();
   assert.equal(adding().hasAttribute("open"), false, "the answer that came after is dropped");
   assert.deepEqual(toasts(), []);
+});
+
+test("Import takes the file of an exported playground, shows the preview of an Add from that file, and opens the playground once imported", async () => {
+  show([FIRST()]);
+  clearToasts();
+  openImport();
+  const screen = () => adding().querySelector("#catalog-file");
+  const drop = async (file) => {
+    screen().dispatchEvent(Object.assign(new Ev("drop"), { dataTransfer: { files: [file] }, preventDefault() {} }));
+    await settle();
+  };
+  assert.deepEqual([heading(), screen().hidden, primary() ?? null], ["Import playground", false, null], "the file comes first, and nothing to confirm yet");
+  server.calls.length = 0;
+  await drop(new File(["x"], "notes.txt"));
+  assert.deepEqual([problemOf(), server.calls.length], ["Choose the .zip file of an exported playground", 0], "what is no archive is not sent");
+  server.answers["/api/catalogs/import"] = PREVIEW({ catalog: { id: "contoso", name: "Contoso demo", version: "1.0.0", lab: 1, kind: "folder" },
+    imported: true, address: "~/lab/.lab/imports/contoso", counts: { playground: 1, setup: 0, addon: 1 }, blocked: [], rows: {} });
+  await drop(new File([new Uint8Array([80, 75, 5, 6])], "contoso.zip"));
+  assert.deepEqual([last().path, last().body], ["/api/catalogs/import", { data: btoa("PK\u0005\u0006") }]);
+  assert.deepEqual([heading(), face(primary())], ["Import Contoso demo", "Import"]);
+  assert.deepEqual(rowsOf().find(([label]) => label === "From"), ["From", "contoso.zip"], "it comes from the file, not from where the Lab keeps it");
+  server.answers["/api/catalogs"] = { catalog: { id: "contoso", host: null } };
+  const went = [];
+  const go = router.go;
+  router.go = (to) => went.push(to);
+  store.state.playgrounds = [{ kind: "playground", id: "@contoso/contoso", name: "Contoso demo" }];
+  await submit(primary());
+  await settle();
+  router.go = go;
+  assert.deepEqual([last().path, last().body], ["/api/catalogs", { ticket: "9f3a4c1d2e5b6a70" }]);
+  assert.deepEqual(toasts(), ["Imported"]);
+  assert.deepEqual(went, ["#/playgrounds/@contoso/contoso"], "its page opens");
+  // A file this Lab has: said on the file's screen, in the server's words
+  openImport();
+  server.answers["/api/catalogs/import"] = () => { throw Object.assign(new Error("Contoso demo is already in this Lab."), { code: "already_imported" }); };
+  server.refuse["/api/catalogs/import"] = "Contoso demo is already in this Lab. To import it again, remove it on the Catalogs page first.";
+  await drop(new File([new Uint8Array([80, 75])], "contoso.zip"));
+  assert.equal(screen().hidden, false);
+  assert.equal(problemOf(), "Contoso demo is already in this Lab. To import it again, remove it on the Catalogs page first.");
+  delete server.refuse["/api/catalogs/import"];
+  shut();
 });
 
 test("a branch typed under More options goes with the address", async () => {

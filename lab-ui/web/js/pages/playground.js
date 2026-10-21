@@ -70,6 +70,57 @@ function held(why) {
   return { disabled: !!(offline || why), reason: offline || why };
 }
 export const shareEntry = (x) => ({ label: "Share", ...held(x.held?.share), onSelect: () => share(x) });
+
+// A playground in a file, which another Lab imports from its Playgrounds page: one of this machine, or of a catalog that not every Lab
+// has. One of the default catalog (a bare id) comes with every Lab, and has nothing to export.
+export const exportable = (x) => x?.kind === "playground" && /[/@]/.test(String(x.id));
+export const exportEntry = (x) => ({ label: "Export", ...held(""), onSelect: () => exportPlayground(x) });
+
+// What the export carries, what it needs of the other Lab, and what that Lab will make of it, as the server judges the file it would
+// make with the rules of that Lab; then the file, saved where the browser saves downloads. What would be blocked there is said, and
+// keeps the file from being made: it would not start.
+async function exportPlayground(x) {
+  const key = `playground:${x.id}`, route = `/api/playgrounds/${x.id}/export`;
+  let plan;
+  try {
+    plan = await busy(key, "export", api(route, { check: true }));
+  } catch (err) {
+    return toast(err.message, true);
+  }
+  const blocked = (plan.blocked || []).flatMap((one) => (one.reasons || []).map((reason) => `${one.name}: ${reason}`));
+  const rows = [
+    { label: "Carries", items: plan.carries || [] },
+    { label: "Needs", items: (plan.needs || []).map(({ name }) => ({ name, kind: "catalog" })) },
+    { label: "Asks to use the machine", items: (plan.uses_machine || []).map((use) => `${use.name}: ${(use.what || []).join(", ")}`), note: true },
+    { label: "Leaves out", items: ["Its settings", "The license", ...(plan.problems || [])], note: true },
+    { label: "Blocked on another Lab", items: blocked, tone: "danger", note: true },
+  ];
+  const why = blocked.length ? "It would be blocked on another Lab" : "";
+  const go = await effectsDialog({ title: `Export ${x.name}`, options: [{ rows, disabled: !!why, reason: why }],
+    action: () => "Export", unchosen: "" });
+  if (!go) return;
+  try {
+    const made = await busy(key, "export", api(route, {}));
+    save(made.file, made.data);
+    toast(`Exported ${made.file}`);
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+// The menu of a playground's head: Export when it can be, Share and Delete for one of this machine
+const menuOf = (x) => [exportable(x) && exportEntry(x), x.personal && shareEntry(x),
+  ...(x.personal ? [{ separator: true }, deleteEntry(x)] : [])].filter(Boolean);
+
+// A file the server made, as base64, saved where the browser saves downloads
+function save(name, data) {
+  const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([bytes], { type: "application/zip" }));
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
 export const deleteEntry = (x) => ({ label: "Delete", danger: true, ...held(x.held?.delete), onSelect: () => deleteItem(x) });
 
 // A personal item goes with its folder. What a playground's seed created stays in Gravitee: the dialog says so. The menu of a row and of
@@ -638,7 +689,7 @@ function render(state) {
   setHTML($("#pg-star", root), starButton(item));
   // Its file is within reach in every state, as on its row in the list
   setHTML($("#pg-actions", root), `${live ? actions(item, job) : picker(item)}<span class="row-icons">${fileButtons(item, false)}${
-    item.personal ? `<button class="icon-btn" data-more data-tip="More" aria-label="${esc(`More for ${item.name}`)}" aria-haspopup="true">${icon("more")}</button>` : ""}</span>`);
+    menuOf(item).length ? `<button class="icon-btn" data-more data-tip="More" aria-label="${esc(`More for ${item.name}`)}" aria-haspopup="true">${icon("more")}</button>` : ""}</span>`);
   if (live) session(item, job, state);
   else details(item);
   Workspace.actions($("#pg-guide", root), item.name, live);
@@ -777,7 +828,7 @@ export const playgroundPage = {
       const file = on("[data-file]");
       if (file) return openFile(file.dataset.file);
       const more = on("[data-more]");
-      if (more) return openMenu(more, [shareEntry(item), { separator: true }, deleteEntry(item)]);
+      if (more) return openMenu(more, menuOf(item));
       // A catalog it needs: added (at once when it is listed), or downloaded again
       const needed = on("[data-need]");
       if (needed) {

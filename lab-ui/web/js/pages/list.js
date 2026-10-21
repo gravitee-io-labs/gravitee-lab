@@ -10,10 +10,11 @@ import { toast, effectsDialog, openMenu, GAP, openButton, Pager, emptyHtml, pain
 import { CategoryFilter } from "../components/combo.js";
 import { runJob, runAction, busy, showOutput } from "../activity/jobs.js";
 import { selectLogs, hasLogs } from "./logs.js";
-import { stopPlayground, pluginNames, shareEntry, deleteEntry, usesMachine, maybeComing } from "./playground.js";
+import { stopPlayground, pluginNames, shareEntry, deleteEntry, exportable, exportEntry, usesMachine, maybeComing } from "./playground.js";
 import { MACHINE, THIS_MACHINE, registered, chosenPlace, barred, startPlayground, deployTo, keepItemPlace, goes, whyNot, placesOf } from "../platform/places.js";
 import { openFile, openSettings } from "../dialogs/editor.js";
 import { openCreate } from "../dialogs/create.js";
+import { openImport } from "../dialogs/catalog.js";
 import { License } from "../dialogs/license.js";
 import { KINDS, openCreateGateway, openCloudToken } from "../dialogs/platform.js";
 
@@ -488,6 +489,7 @@ function list(kind, title, noun) {
       kind === "setup" && x.personal && { label: "Edit", onSelect: () => openCreate({ kind, mode: "edit", setup: x }) },
       kind === "setup" && { label: "Duplicate", onSelect: () => openCreate({ kind, mode: "duplicate", setup: x }) },
       // What is of this machine is shared to a catalog, as a copy, or deleted unless something holds it: the server says what
+      exportable(x) && exportEntry(x),
       x.personal && shareEntry(x),
       // The same item in a catalog, as the server finds it: its copy is dropped for the catalog's, once neither runs
       x.personal && x.twin && twin(x),
@@ -518,7 +520,7 @@ function list(kind, title, noun) {
     el.innerHTML = `
       <div class="page-head">
         <h1>${title}</h1>
-        <div class="page-actions"><button class="btn" data-new>${icon("plus")}New ${noun.toLowerCase()}</button></div>
+        <div class="page-actions">${kind === "playground" ? `<button class="btn" data-import>${icon("upload")}Import</button>` : ""}<button class="btn" data-new>${icon("plus")}New ${noun.toLowerCase()}</button></div>
       </div>
       <div class="card list-card">
         <div class="list-tools">
@@ -564,6 +566,7 @@ function list(kind, title, noun) {
       if (!button || button.disabled || button.ariaDisabled === "true") return;
       const data = button.dataset, x = store.item(kind, id);
       if ("new" in data) { if (store.state) openCreate({ kind, mode: "new" }); }   // its form is drawn from the state
+      else if ("import" in data) openImport();
       else if ("clear" in data) {
         remember(STARRED, "");
         clear();
