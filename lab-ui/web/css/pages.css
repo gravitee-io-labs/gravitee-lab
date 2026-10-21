@@ -397,6 +397,10 @@
 .pg-split.rows { grid-template: minmax(0, 2fr) minmax(0, 3fr) / minmax(0, 1fr); }
 .pg-split.rows .pg-divider { display: none; }
 .pg-split.rows .pg-uis { border-top: 1px solid var(--border); }
+/* The guide hidden: the UIs take the whole card, side by side or one above the other alike */
+.pg-split.guide-hidden { grid-template: minmax(0, 1fr) / minmax(0, 1fr); }
+.pg-split.guide-hidden :is(.pg-guide-pane, .pg-divider) { display: none; }
+.pg-split.guide-hidden .pg-uis { border-top: 0; }
 .pg-split .pg-pane { min-width: 0; min-height: 0; overflow: auto; }
 .pg-split .guide { border-right: 0; padding-top: 0; }   /* next to the UIs the page selector is the top of the panel, below */
 .pg-split.dragging { cursor: col-resize; user-select: none; }
