@@ -1059,14 +1059,69 @@ mark { background: var(--hl); color: var(--hl-text); border-radius: 2px; padding
 
 /* --- How Gravitee Lab works ------------------------------------------------------------ */
 
-.welcome-dialog { width: min(1040px, 94vw); max-height: calc(100dvh - 48px); padding: 0; }
+/* Welcome to Gravitee Lab: the steps in a rail at the left, the one shown at the right with its foot */
+.welcome-dialog { width: min(1040px, 94vw); height: min(700px, calc(100dvh - 48px)); padding: 0; overflow: hidden; }
+.welcome-frame { display: grid; grid-template-columns: 264px minmax(0, 1fr); flex: 1 1 auto; min-height: 0; }
+.welcome-rail { display: flex; flex-direction: column; gap: var(--sp-5); padding: var(--sp-5) var(--sp-3) var(--sp-4); background: var(--surface-2); border-right: 1px solid var(--border); min-height: 0; overflow: auto; }
+.welcome-brand { display: flex; align-items: center; gap: 10px; padding: 0 var(--sp-2); }
+.welcome-logo { display: flex; flex: none; }
+.welcome-brand .logo { width: 30px; height: 33px; flex: none; color: var(--text); }
+.welcome-brand h2 { margin: 0; font-size: var(--fs-4); line-height: var(--lh-4); font-weight: var(--fw-3); text-wrap: balance; }
+.welcome-rail-steps { display: grid; gap: var(--sp-3); }
+.welcome-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.welcome-step {
+  display: flex; align-items: center; gap: var(--sp-3); width: 100%; padding: 10px var(--sp-2); border: 0; border-radius: var(--r-control);
+  background: none; color: var(--text-2); font: inherit; text-align: left; cursor: pointer;
+}
+.welcome-step:hover:not([aria-disabled="true"]) { background: var(--surface-3); }
+.welcome-step[aria-current="step"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow-sm); }
+.welcome-step[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
+.welcome-step.guide { border-top: 1px solid var(--border); border-radius: 0 0 var(--r-control) var(--r-control); padding-top: 14px; }
+.welcome-step.guide[aria-current="step"] { border-radius: var(--r-control); }
+.welcome-mark {
+  width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; flex: none; font-size: var(--fs-1); font-weight: var(--fw-3);
+  border: 1.5px solid var(--border-strong); color: var(--muted); background: var(--surface);
+}
+.welcome-mark > svg { width: 14px; height: 14px; }
+.welcome-step[aria-current="step"] .welcome-mark { border-color: var(--accent); color: var(--accent-ink); }
+.welcome-step[data-state="done"] .welcome-mark { border-color: transparent; background: var(--ok); color: #fff; }
+.welcome-step[data-state="attention"] .welcome-mark { border-color: transparent; background: var(--err-soft); color: var(--err); }
+.welcome-step[data-state="checking"] .welcome-mark { color: var(--info); }
+.welcome-step-text { display: grid; min-width: 0; }
+.welcome-step-text strong { font-weight: var(--fw-2); font-size: var(--fs-3); line-height: var(--lh-3); }
+.welcome-step-text span { color: var(--muted); font-size: var(--fs-1); line-height: var(--lh-1); }
+.welcome-step[data-state="attention"] .welcome-step-text span { color: var(--err); }
+.welcome-rail .welcome-source { margin: auto 0 0; padding: 0 var(--sp-2); display: flex; flex-wrap: wrap; gap: 4px 10px; color: var(--muted); font-size: var(--fs-1); }
+.welcome-main { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.welcome-x { z-index: 1; }
+.welcome-main .welcome-panel { flex: 1 1 auto; min-height: 0; padding: 36px 40px var(--sp-5); }
+.welcome-panel > h2 { margin: 0 0 6px; font-size: var(--fs-5); line-height: var(--lh-5); font-weight: var(--fw-3); color: var(--text); padding-right: 40px; }
+.welcome-panel > .welcome-lead { margin: 0 0 var(--sp-5); max-width: 640px; }
+.welcome-panel .machine-summary { margin-bottom: var(--sp-3); }
+.welcome-actions .grow { flex: 1; }
+/* The start: the platform, a playground, a console, numbered; what is done says it */
+.start-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-2); }
+.start-item { display: flex; align-items: center; gap: 14px; padding: 14px var(--sp-4); border: 1px solid var(--border); border-radius: var(--r-pop); background: var(--surface); }
+.start-num { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; flex: none; font-weight: var(--fw-3); font-size: var(--fs-2); background: var(--accent-soft); color: var(--accent-ink); }
+.start-num > svg { width: 14px; height: 14px; }
+.start-item[data-state="done"] .start-num { background: var(--ok); color: #fff; }
+.start-text { display: grid; gap: 2px; min-width: 0; }
+.start-text strong { color: var(--text); font-size: var(--fs-3); }
+.start-text span { color: var(--muted); font-size: var(--fs-2); }
+@media (max-width: 760px) {
+  .welcome-frame { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .welcome-rail { border-right: 0; border-bottom: 1px solid var(--border); gap: var(--sp-3); padding: var(--sp-3); }
+  .welcome-steps { grid-auto-flow: column; }
+  .welcome-step-text span, .welcome-rail .welcome-source, .welcome-step.guide .welcome-step-text span { display: none; }
+  .welcome-main .welcome-panel { padding: var(--sp-5) var(--sp-4); }
+  .welcome-main { position: static; }   /* the close button goes to the corner of the dialog, over the steps */
+}
 .welcome { overflow: auto; padding: 18px var(--pad) 6px; color: var(--text-2); line-height: 1.55; }
 .welcome h3 { margin: 24px 0 8px; }
 .welcome > :first-child { margin-top: 0; }   /* the first title sits under the head at the body's padding, not 24 px lower */
 .welcome p { margin: 0 0 10px; }
 .welcome code { font-size: var(--fs-1); }
 .welcome-lead { font-size: var(--fs-4); }
-.welcome-start { margin: 0 0 10px; }
 
 /* Where API Management runs, in the welcome dialog: two cards of one choice, a radio each, side by side, one over the other on a phone. What is chosen has the
    edge of a field, as a checked segment has; the keyboard's ring is the card's. */
@@ -1086,7 +1141,6 @@ mark { background: var(--hl); color: var(--hl-text); border-radius: 2px; padding
 .core-more { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); margin-top: var(--sp-3); }
 .welcome-core { margin-bottom: var(--sp-2); }
 @media (max-width: 640px) { .core-cards { grid-template-columns: minmax(0, 1fr); } }
-.welcome .welcome-source { margin-top: 20px; }
 
 /* The layers as they stack: each one on the wider one below it, the core at the base */
 .layers { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 6px; }
@@ -1113,8 +1167,10 @@ mark { background: var(--hl); color: var(--hl-text); border-radius: 2px; padding
 /* "Where to go": sentences with links, which flow as text, not as the value and copy button of a dialog's line */
 .welcome .pairs dd { display: block; }
 .welcome-actions { margin-top: 0; padding: 12px var(--pad); border-top: 1px solid var(--border); }
-/* What to do first, at the left of its buttons: without a license, the line that leads to it */
-.welcome-license { margin-right: auto; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: var(--fs-2); }
+/* Without a license, under the start: the line that leads to it */
+.welcome-license { display: flex; align-items: center; gap: 8px; margin-top: var(--sp-4); padding: 10px var(--sp-4); border-radius: var(--r-pop); background: var(--warn-soft); color: var(--warn); font-size: var(--fs-2); }
+.welcome-license > svg { width: 16px; height: 16px; flex: none; }
+.welcome-license > .btn { margin-left: auto; }
 @media (max-width: 640px) {
   .layers .layer { grid-template-columns: 32px minmax(0, 1fr); margin-inline: 0; }
   .layer > :is(code, .muted) { display: none; }
@@ -1166,10 +1222,7 @@ mark { background: var(--hl); color: var(--hl-text); border-radius: 2px; padding
 #lab-all .text-link { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-2); }
 #lab-all .text-link > svg { width: 12px; height: 12px; }
 
-/* Your machine: one line per need, its state, what it is, the fix */
-.machine-dialog { width: min(760px, 94vw); padding: 0; }
-.machine-dialog[open] { display: flex; flex-direction: column; }
-.machine-body { padding: 16px var(--pad) 8px; display: grid; gap: 12px; }
+/* Your machine, the first step of the welcome: one line per need, its state, what it is, the fix */
 .machine-summary { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: var(--fw-2); }
 .machine-summary > svg { width: 16px; height: 16px; flex: none; }
 .machine-summary[data-tone="ok"] > svg { color: var(--ok); }
@@ -1193,4 +1246,3 @@ mark { background: var(--hl); color: var(--hl-text); border-radius: 2px; padding
 .machine-fix .btn > svg { width: 12px; height: 12px; }
 .machine-command { display: inline-flex; align-items: center; gap: 4px; }
 .machine-command code { font-family: var(--mono); font-size: var(--fs-1); padding: 4px 8px; border-radius: var(--r-inner); background: var(--surface-2); border: 1px solid var(--border); }
-.machine-actions { margin-top: 0; padding: 12px var(--pad); border-top: 1px solid var(--border); }

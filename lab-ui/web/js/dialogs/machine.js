@@ -1,38 +1,58 @@
-// Your machine: what it needs to run the lab (Docker with Compose 5.0, its memory, the disk, the platform's ports, Git), each line with its
-// state and the one fix that answers it. Asked again every few seconds while it is open, and when the window comes back to the front:
-// a line turns right by itself once it is fixed. A first visit opens it before How Gravitee Lab works when something needs a look; the
-// notices about Docker open it, and so does How Gravitee Lab works.
+// What this machine needs to run the lab (Docker with Compose 5.0, its memory, the disk, the platform's ports, Git), each line with its state and
+// the one fix that answers it: the first step of Welcome to Gravitee Lab (welcome.js). Asked again every few seconds while that step shows, and
+// when the window comes back to the front: a line turns right by itself once it is fixed. A fix is a link, a command to copy, or one the Lab UI
+// runs here (POST /api/machine/act).
 
-import { $, esc, icon, api, setHTML, recall, remember } from "../core.js";
+import { esc, icon, api } from "../core.js";
 import { toast, copyButton } from "../components/ui.js";
 
-const CHECKED = "machine:checked";   // the browser keeps that the first visit looked at the machine
 const EVERY = 3000;
-
 const STATE_ICON = { ok: icon("check"), warn: icon("alert"), error: icon("alert"), idle: icon("info"),
   working: '<span class="spinner" aria-hidden="true"></span>' };
 const STATE_WORD = { ok: "Ready", warn: "Needs a look", error: "Missing", idle: "Not known yet", working: "On its way" };
+const TITLES = ["Docker", "Memory for Docker", "Disk space", "Ports", "Git"];
 
-const dialog = document.createElement("dialog");
-dialog.className = "machine-dialog";
-dialog.setAttribute("aria-labelledby", "machine-title");
-dialog.innerHTML = `
-  <div class="dialog-head">
-    <h2 id="machine-title">Your machine</h2>
-    <button class="icon-btn" data-close aria-label="Close" data-tip="Close">${icon("close")}</button>
-  </div>
-  <div class="machine-body">
-    <p class="machine-summary" id="machine-summary" aria-live="polite"></p>
-    <ul class="machine-checks" id="machine-checks"></ul>
-  </div>
-  <div class="dialog-actions machine-actions">
-    <button class="btn primary" data-done>Close</button>
-  </div>`;
-document.body.append(dialog);
-
-let report = null;
+export const machine = { report: null };
 let timer = null;
-let then = null;   // what opens once it is closed: How Gravitee Lab works, on a first visit
+let listener = null;
+
+// The lines in red keep the platform from starting
+export const machineBlocked = (report = machine.report) => !!report?.checks?.some((c) => c.state === "error");
+export const machineToFix = (report = machine.report) => (report?.checks || []).filter((c) => c.state === "error" || c.state === "warn").length;
+
+export async function refreshMachine(fresh = false) {
+  try {
+    const found = await api(fresh ? "/api/machine?fresh=1" : "/api/machine");
+    if (Array.isArray(found?.checks)) machine.report = found;
+  } catch (err) {
+    if (listener) toast(err.message, true);
+  }
+  listener?.();
+  return machine.report;
+}
+
+function tick() {
+  clearTimeout(timer);
+  if (!listener) return;
+  timer = setTimeout(async () => {
+    await refreshMachine();
+    tick();
+  }, EVERY);
+}
+
+// While a step shows the machine: `onChange` draws it each time it is asked
+export function watchMachine(onChange) {
+  listener = onChange;
+  refreshMachine(true).then(tick);
+}
+
+export function unwatchMachine() {
+  listener = null;
+  clearTimeout(timer);
+}
+
+// Back from Docker Desktop or an installer: asked again at once
+window.addEventListener("focus", () => { if (listener) refreshMachine(true); });
 
 // A fix: a link to open, a command to copy, or one the Lab UI runs here
 function actionHtml(action) {
@@ -46,101 +66,34 @@ function rowHtml(check) {
   return `<li class="machine-check" data-state="${esc(check.state)}">
     <span class="machine-state ${esc(check.state)}" role="img" aria-label="${esc(STATE_WORD[check.state] || "")}">${STATE_ICON[check.state] || ""}</span>
     <span class="machine-text"><strong>${esc(check.title)}</strong><span>${esc(check.detail)}</span></span>
-    <span class="machine-fix">${check.actions.map(actionHtml).join("")}</span>
+    <span class="machine-fix">${(check.actions || []).map(actionHtml).join("")}</span>
   </li>`;
 }
 
-// What the whole says, in one line over the lines
-function summaryHtml() {
-  if (!report) return `<span class="spinner" aria-hidden="true"></span><span>Checking</span>`;
-  const missing = report.checks.filter((c) => c.state === "error").length;
-  const look = report.checks.filter((c) => c.state === "warn").length;
-  if (missing) return `${icon("alert")}<span>The platform cannot start until ${missing === 1 ? "the line in red is" : `the ${missing} lines in red are`} fixed</span>`;
-  if (look) return `${icon("alert")}<span>The platform can start; ${look === 1 ? "one line needs" : `${look} lines need`} a look</span>`;
-  return `${icon("check")}<span>Your machine is ready</span>`;
+export function machineRowsHtml(report = machine.report) {
+  return report ? report.checks.map(rowHtml).join("")
+    : TITLES.map((title) => rowHtml({ title, state: "working", detail: "Checking", actions: [] })).join("");
 }
 
-function draw() {
-  const summary = $("#machine-summary", dialog);
-  summary.dataset.tone = !report ? "" : report.checks.some((c) => c.state === "error") ? "err"
-    : report.checks.some((c) => c.state === "warn") ? "warn" : "ok";
-  setHTML(summary, summaryHtml());
-  // Drawn again only when it changed: a button under the pointer stays where it is
-  setHTML($("#machine-checks", dialog), report ? report.checks.map(rowHtml).join("")
-    : ["Docker", "Memory for Docker", "Disk space", "Ports", "Git"].map((title) => rowHtml({ title, state: "working", detail: "Checking", actions: [] })).join(""));
-  // While a line blocks the platform, its fix is the one primary button
-  const done = $("[data-done]", dialog), blocked = !!report?.checks.some((c) => c.state === "error");
-  done.textContent = then ? "Continue" : "Close";
-  done.classList.toggle("primary", !blocked);
-}
-
-async function poll(fresh = false) {
-  try {
-    report = await api(fresh ? "/api/machine?fresh=1" : "/api/machine");
-  } catch (err) {
-    if (dialog.open) toast(err.message, true);
+// What the whole says, in one line
+export function machineSummary(report = machine.report) {
+  if (!report) return { tone: "", html: '<span class="spinner" aria-hidden="true"></span><span>Checking your machine</span>' };
+  const missing = report.checks.filter((c) => c.state === "error").length, look = report.checks.filter((c) => c.state === "warn").length;
+  if (missing) {
+    return { tone: "err", html: `${icon("alert")}<span>The platform cannot start until ${missing === 1 ? "the line in red is" : `the ${missing} lines in red are`} fixed</span>` };
   }
-  if (dialog.open) draw();
+  if (look) return { tone: "warn", html: `${icon("alert")}<span>Ready to run, ${look === 1 ? "one line needs" : `${look} lines need`} a look</span>` };
+  return { tone: "ok", html: `${icon("check")}<span>Your machine is ready</span>` };
 }
 
-function tick() {
-  clearTimeout(timer);
-  if (!dialog.open) return;
-  timer = setTimeout(async () => {
-    await poll();
-    tick();
-  }, EVERY);
-}
-
-function openMachine({ next = null } = {}) {
-  then = next;
-  draw();
-  if (!dialog.open) dialog.showModal();
-  $("[data-done]", dialog).focus();
-  poll(true).then(tick);
-}
-
-dialog.addEventListener("click", async (e) => {
-  if (e.target.closest("[data-close], [data-done]")) return dialog.close();
-  const button = e.target.closest("[data-act]");
-  if (!button) return;
+// A fix that runs here, from its button
+export async function actMachine(button) {
   button.setAttribute("aria-disabled", "true");
   try {
-    report = await api("/api/machine/act", { id: button.dataset.act });
-    draw();
+    machine.report = await api("/api/machine/act", { id: button.dataset.act });
   } catch (err) {
     toast(err.message, true);
     button.removeAttribute("aria-disabled");
   }
-});
-dialog.addEventListener("close", () => {
-  clearTimeout(timer);
-  remember(CHECKED, "1");
-  const next = then;
-  then = null;
-  next?.();
-});
-// Back from Docker Desktop or an installer: asked again at once
-window.addEventListener("focus", () => { if (dialog.open) poll(true); });
-
-// Anywhere in the page, a control with data-machine opens it
-document.addEventListener("click", (e) => {
-  if (!e.target.closest("[data-machine]")) return;
-  e.preventDefault();
-  openMachine();
-});
-
-// The first visit of this browser: the machine is looked at first, and shown when something needs a look; `next` opens after it
-export async function firstLook(next) {
-  if (recall(CHECKED)) return next();
-  try {
-    report = await api("/api/machine?fresh=1");
-  } catch {
-    return next();
-  }
-  if (!Array.isArray(report?.checks) || report.checks.every((c) => c.state === "ok" || c.state === "idle")) {
-    remember(CHECKED, "1");
-    return next();
-  }
-  openMachine({ next });
+  listener?.();
 }
