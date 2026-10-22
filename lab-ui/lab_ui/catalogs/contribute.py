@@ -28,6 +28,7 @@ Every function reads `paths.ROOT` at call time. The catalogs lock is held while 
 replaced, never while the network is asked."""
 
 import contextlib
+import json
 import os
 import posixpath
 import re
@@ -1024,6 +1025,96 @@ def _unmarked(copy, kind, slug):
     return copy._replace(files=files, text=text)
 
 
+IMAGE_SETTINGS = ("_VERSION", "_REGISTRY", "_PULL_POLICY")   # what any item may read under any name (T20): never renamed
+RENAMES = f"{paths.LAB_DIR}/renames.json"   # {"kind:id in the catalog": {old: new}}: the settings a share renamed, until the item is used
+
+
+def _prefix(ns) -> str:
+    return ns.upper().replace("-", "_") + "_"
+
+
+def _reads(kind, slug, copy):
+    """The settings a copy reads: what its compose file refers to, and what its seed files do."""
+    names = {key for key, _, _ in compose.references(copy.text)}
+    seeds = [data.decode("utf-8", "replace") for path, (_, data) in sorted(copy.files.items())
+             if path.startswith(f"{kind}s/{slug}/seed/") and b"\0" not in data[:8192]]
+    return names | set(trust.seed_reads(seeds))
+
+
+def _renames(items, to) -> Dict[str, str]:
+    """{old: new} of the settings the items of a share read ([(kind, slug, copy)]) that are their own and not named for `to`: an item of a catalog reads
+    the settings named for its catalog (T20), and one that was the person's, or came from another catalog, is named for where it
+    was (GRAVITEE_INTERNAL_GKO_LOG_LEVEL). A setting is an item's own when the name of one of the items is in it (GKO): it then
+    starts there, after the prefix of `to` (TEAM_DEMOS_GKO_LOG_LEVEL). The platform's settings, the shared ones, the image's
+    (*_VERSION, *_REGISTRY, *_PULL_POLICY) and a name that holds no item's are left as they are: the check says it if it is wrong."""
+    inputs = projects.loaded()[1]
+    core = {one["key"] for one in (inputs.get("variables") or {}).get(paths.CORE_FILE, [])}
+    shared = {name for names in (inputs.get("shared_settings") or {}).values() for name in names or ()}
+    prefix = _prefix(to)
+    tokens = sorted({slug.upper().replace("-", "_") for _, slug, _ in items}, key=len, reverse=True)
+    found = {}
+    for kind, slug, copy in items:
+        for name in sorted(_reads(kind, slug, copy)):
+            if name.startswith(prefix) or name.endswith(IMAGE_SETTINGS) or name in core or name in shared:
+                continue
+            starts = [hit.start(1) for token in tokens for hit in re.finditer(rf"(?:^|_)({re.escape(token)})_", name)]
+            if starts:
+                found[name] = prefix + name[min(starts):]
+    return {old: new for old, new in found.items() if old != new}
+
+
+def _renamed(copy, kind, slug, mapping):
+    """The copy with the settings of `mapping` renamed in every text file it carries: compose file, seed, guide, README."""
+    if not mapping:
+        return copy
+    pattern = re.compile(r"(?<![A-Za-z0-9_])(" + "|".join(map(re.escape, sorted(mapping, key=len, reverse=True))) + r")(?![A-Za-z0-9_])")
+    files = {}
+    for path, (mode, data) in copy.files.items():
+        if b"\0" in data[:8192]:
+            files[path] = (mode, data)
+            continue
+        try:
+            text = data.decode("utf-8")
+        except ValueError:
+            files[path] = (mode, data)
+            continue
+        files[path] = (mode, pattern.sub(lambda hit: mapping[hit.group(1)], text).encode("utf-8"))
+    head = f"setups/{slug}.yml" if kind == "setup" else f"{kind}s/{slug}/compose.yml"
+    return copy._replace(files=files, text=files[head][1].decode("utf-8") if head in files else copy.text)
+
+
+def _remember_renames(to, items, mapping):
+    """Keeps on this machine what a share renamed, for each item as the catalog will hold it, until it is used (`moved`)."""
+    if not mapping:
+        return
+    path = paths.ROOT / RENAMES
+    try:
+        kept = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        kept = {}
+    for kind, _, slug in items:
+        kept[f"{kind}:{_uid(to, slug)}"] = dict(mapping)
+    paths.write_atomic(path, json.dumps(kept, indent=2, sort_keys=True) + "\n")
+
+
+def _rename_settings(kind, uid):
+    """The person's values under the names the catalog's item reads: what a share renamed is renamed in its .env, then forgotten."""
+    path = paths.ROOT / RENAMES
+    try:
+        kept = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    mapping = kept.pop(f"{kind}:{uid}", None)
+    env = paths.unit_env(kind, uid)
+    if isinstance(mapping, dict) and mapping and env and (paths.ROOT / env).is_file():
+        file = paths.ROOT / env
+        text = file.read_text(encoding="utf-8")
+        for old, new in mapping.items():
+            text = re.sub(rf"(?m)^(\s*(?:export\s+)?){re.escape(old)}(?==)", lambda hit, new=new: hit.group(1) + new, text)
+        paths.write_atomic(file, text, mode=stat.S_IMODE(file.stat().st_mode))
+    paths.write_atomic(path, json.dumps(kept, indent=2, sort_keys=True) + "\n")
+
+
 def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False) -> dict:
     """Shares the personal item `uid` to catalog `to`. With `check_only`, what it would do and what keeps it: ShareCheck
     {destinations, to, audience, problems, changes, identity}, nothing written. Else the share: a repository gets a branch,
@@ -1051,28 +1142,36 @@ def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False)
     named = lambda k, one: (units[k].get(one) or {}).get("name") or one.rsplit("/", 1)[-1]   # noqa: E731
     with registry.flock():
         copy = _unmarked(collect(kind, slug, to, moved=moved), kind, slug)
+        along = [(k, one, s, _unmarked(collect(k, s, to, source, moved=moved), k, s)) for k, one, s, source in members]
+        renames = _renames([(kind, slug, copy), *[(k, s, c) for k, _, s, c in along]], to)
+        copy = _renamed(copy, kind, slug, renames)
+        along = [(k, one, s, _renamed(c, k, s, renames)) for k, one, s, c in along]
         if kind == "playground":
             copy = _vouched(project, uid, copy)
-        along = [(k, one, s, _unmarked(collect(k, s, to, source, moved=moved), k, s)) for k, one, s, source in members]
         problems = _preflight(project, kind, uid, file, slug, to, row, rows, copy, along, allowed)
     answer = {"destinations": destinations(project, kind, uid), "to": to, "audience": row["audience"], "problems": problems,
               "changes": [_shown(_place(kind, slug, to)[2], kind, slug)] if copy.text != copy.kept else [],
               "identity": who["email"] if who and row["audience"] == "public" else None,
-              "carries": [named(k, one) for k, one, _, _ in members], "reuses": [named(k, one) for k, one, _ in reused]}
+              "carries": [named(k, one) for k, one, _, _ in members], "reuses": [named(k, one) for k, one, _ in reused],
+              "renames": [{"from": old, "to": new} for old, new in sorted(renames.items())]}
     if check_only:
         return answer
     if problems:
         raise ValueError(problems[0])
+    shared = [(kind, uid, slug), *[(k, one, s) for k, one, s, _ in along]]
     if address is not None:
         files = dict(copy.files)
         for _, _, _, other in along:
             files.update(other.files)
-        return _publish(to, row["name"], name, kind, slug, address, branch, who, copy._replace(files=files),
+        done = _publish(to, row["name"], name, kind, slug, address, branch, who, copy._replace(files=files),
                         also=[(k, s) for k, _, s, _ in along])
+        _remember_renames(to, shared, renames)
+        return done
     with registry.flock():
         for k, one, s, other in along:
             _copy_into(to, row["name"], named(k, one), k, s, other)
         _copy_into(to, row["name"], name, kind, slug, copy)
+    _remember_renames(to, shared, renames)
     return {"copied": row["name"]}
 
 
@@ -1151,6 +1250,7 @@ def moved(kind: str, old: str, new: str) -> None:
         raise _stuck(kind, old, new, stuck)
     personal.follow(*(paths.unit_folder(kind, one) or paths.unit_file(kind, one) for one in (old, new)))
     moves.rekey({f"{kind}:{old}": new})
+    _rename_settings(kind, new)
 
 
 def _unshared(folder, text, skip) -> List[str]:

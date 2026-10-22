@@ -114,7 +114,10 @@ you can write to, as a branch with a pull request link, and a copy stays in Pers
 (**Use the catalog version** then replaces the copy and keeps your settings and stars). What it includes that only this machine
 has (your own add-ons and setups, or those of an imported playground) goes with it, in the same branch or copy: the dialog says
 which under **Also shares**. What the catalog has already, from a share of before, is the one it includes there (**Uses the
-catalog's**). What it includes of another catalog must be one that the target declares. A playground is shared once it has started well on this machine, its seed ended without an error included: the
+catalog's**). What it includes of another catalog must be one that the target declares. An item of a catalog reads the settings named for its
+catalog: the settings of its own that are named for another place (Personal, or the catalog it was copied or imported from, as
+GRAVITEE_INTERNAL_GKO_LOG_LEVEL) are named for the target in the copy (TEAM_DEMOS_GKO_LOG_LEVEL), and the dialog says which under
+**Renames**. Your values follow them: **Use the catalog version** gives them the new names. A playground is shared once it has started well on this machine, its seed ended without an error included: the
 versions it started on go into the copy as its `tested` when its file declares none, and a playground that never ran is told to start first. A catalog you create with **New
 catalog** is a folder on this machine that you edit freely.
 

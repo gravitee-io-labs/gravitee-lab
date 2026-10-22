@@ -330,7 +330,9 @@ const rowOf = (id) => catalogRows().find((c) => c.id === id);
 function rowsOf(destination, check) {
   const folder = destination.kind === "folder", note = true;
   // What only this machine has goes with it; what the catalog has already is the one it includes there
-  const along = [{ label: "Also shares", items: check.carries || [], note }, { label: "Uses the catalog's", items: check.reuses || [], note }];
+  const along = [{ label: "Also shares", items: check.carries || [], note }, { label: "Uses the catalog's", items: check.reuses || [], note },
+    // Its own settings are named for the catalog it goes to, as an item of it reads them; the person's values follow it there
+    { label: "Renames", items: (check.renames || []).map((one) => `${one.from} → ${one.to}`), note }];
   if (folder) return [{ label: "Copies to", items: [destination.name], note }, ...along, { label: "Keeps", items: ["Your copy and its settings"], note }];
   const repo = repoOf(rowOf(destination.id)?.address);
   return [{ label: "Opens", items: repo ? [`A branch in ${repo}`] : [], note }, ...along, { label: "Changes", items: check.changes || [], note },

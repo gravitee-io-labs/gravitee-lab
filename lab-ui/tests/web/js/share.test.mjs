@@ -331,11 +331,11 @@ test("with no catalog to share to the dialog offers New catalog and Add catalog,
 test("what only this machine has goes with the item, and what the catalog has already is the one it uses: both are said", async () => {
   const folder = dest("my-catalog", "My catalog", { kind: "folder", audience: "private" });
   server.destinations = [folder];
-  server.checks = { "my-catalog": { ...CHECK(), carries: ["Notes"], reuses: ["Echo"] } };
+  server.checks = { "my-catalog": { ...CHECK(), carries: ["Notes"], reuses: ["Echo"], renames: [{ from: "NOTES_LEVEL", to: "MY_CATALOG_NOTES_LEVEL" }] } };
   const done = opened();
   await settle();
   assert.deepEqual(picks.querySelectorAll(".choice-row").map(rowOf), [["Copies to", ["My catalog"], []], ["Also shares", ["Notes"], []],
-    ["Uses the catalog's", ["Echo"], []], ["Keeps", ["Your copy and its settings"], []]]);
+    ["Uses the catalog's", ["Echo"], []], ["Renames", ["NOTES_LEVEL → MY_CATALOG_NOTES_LEVEL"], []], ["Keeps", ["Your copy and its settings"], []]]);
   await answer(false);
   await done;
 });

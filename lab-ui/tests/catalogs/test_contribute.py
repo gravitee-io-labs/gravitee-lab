@@ -467,8 +467,8 @@ class Judged(Seam):
 
     def test_a_check_answers_with_the_destinations_the_problems_what_changes_and_who_commits(self):
         answer = self.share(check_only=True)
-        self.assertEqual(sorted(answer), ["audience", "carries", "changes", "destinations", "identity", "problems", "reuses", "to"])
-        self.assertEqual((answer["carries"], answer["reuses"]), ([], []), "it includes nothing of this machine")
+        self.assertEqual(sorted(answer), ["audience", "carries", "changes", "destinations", "identity", "problems", "renames", "reuses", "to"])
+        self.assertEqual((answer["carries"], answer["reuses"], answer["renames"]), ([], [], []), "nothing of this machine, no setting of its own")
         self.assertEqual((answer["to"], answer["audience"], answer["problems"], answer["changes"], answer["identity"]),
                          ("fixture", "public", [], ["compose.yml"], WHO["email"]))
         self.assertEqual([one["id"] for one in answer["destinations"]], ["fixture", "partner"])
@@ -1197,6 +1197,25 @@ class Copied(Seam):
         self.assertNotIn("copy_of", notes, "an item of a catalog never says whose copy it is")
         self.assertEqual(self.stages(), [])
 
+    def test_the_settings_of_its_own_are_named_for_the_catalog_and_the_values_follow_when_it_is_used(self):
+        self.demo()
+        notes = self.root / ".lab/catalogs/local/addons/notes/compose.yml"
+        notes.write_text(notes.read_text().replace("services: {}\n", "services:\n  notes-app:\n    image: busybox:1.36\n"
+                         "    environment: {LEVEL: \"${GRAVITEE_INTERNAL_NOTES_LEVEL:-info}\", URL: \"${OLLAMA_URL:-x}\"}\n"))
+        project.forget()
+        answer = self.share("local/demo", "lab-new", "playground", True)
+        self.assertEqual(answer["renames"], [{"from": "GRAVITEE_INTERNAL_NOTES_LEVEL", "to": "LAB_NEW_NOTES_LEVEL"}],
+                         "a setting that names no item is left as it is")
+        self.share("local/demo", "lab-new", "playground")
+        copied = (self.target / "addons/notes/compose.yml").read_text()
+        self.assertIn("${LAB_NEW_NOTES_LEVEL:-info}", copied)
+        self.assertIn("${OLLAMA_URL:-x}", copied)
+        env = self.target / "addons/notes/.env"
+        env.write_text("GRAVITEE_INTERNAL_NOTES_LEVEL=debug\nOTHER=1\n")
+        contribute._rename_settings("addon", "@lab-new/notes")
+        self.assertEqual(env.read_text(), "LAB_NEW_NOTES_LEVEL=debug\nOTHER=1\n", "the person's value, under the new name")
+        self.assertNotIn("addon:@lab-new/notes", json.loads((self.root / contribute.RENAMES).read_text()))
+
     def test_what_the_target_has_already_is_the_one_included(self):
         self.demo()
         (self.target / "addons/notes").mkdir(parents=True)
@@ -1699,13 +1718,16 @@ class Real(Base):
         text = self.PLAIN.replace("    networks: [internal]\n", "    networks: [internal]\n    privileged: true\n    volumes:\n"
                                   "      - /var/run/docker.sock:/var/run/docker.sock\n      - ${PLAIN_APP_CONF:-./c}:/c\n")
         uid = self.plain(text)
-        everything = self.share(uid, "partner")["problems"]
+        answer = self.share(uid, "partner")
+        everything = answer["problems"]
+        self.assertEqual(answer["renames"], [{"from": "PLAIN_APP_CONF", "to": "PARTNER_PLAIN_APP_CONF"}], "its own setting, named for the catalog")
         told = self.blocked(everything)
         self.assertTrue(told, everything)
         self.assertIn("plain-app: runs privileged, mounts the Docker socket: say why in x-gravitee.host_access (plain-app: <reason>), "
                       "so that it is read before it runs", everything, "what the author's rules say is there as well")
         # Written into the partner's folder the copy is a unit of it, and the project says the same
-        copy = contribute.collect("addon", "plain", "partner")
+        copy = contribute._renamed(contribute.collect("addon", "plain", "partner"), "addon", "plain",
+                                   {"PLAIN_APP_CONF": "PARTNER_PLAIN_APP_CONF"})
         for path, (mode, data) in copy.files.items():
             self.write(f".lab/catalogs/partner/{path}", data.decode())
         project.forget()
