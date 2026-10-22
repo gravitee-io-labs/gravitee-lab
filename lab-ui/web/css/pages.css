@@ -1121,13 +1121,47 @@ mark { background: var(--hl); color: var(--hl-text); border-radius: 2px; padding
 }
 
 /* Gravitee Lab itself: its version and the check of newer ones, then what each version changed, newest first, in a list that scrolls */
-.create-dialog.lab-dialog { width: min(640px, 94vw); }
-.lab-facts { margin: 0; }
-.lab-updates { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-3); min-width: 0; }
-.lab-updates > .btn { margin-left: auto; }
-.lab-notes { display: flex; flex-direction: column; gap: var(--sp-4); max-height: min(50vh, 480px); overflow: auto; margin-top: var(--sp-4); }
+.lab-dialog {
+  width: min(calc(100vw - 48px), max(560px, 40vw), 800px); max-height: min(calc(100dvh - 48px), 900px); padding: 0; overflow: hidden;
+}
+.lab-dialog[open] { display: flex; flex-direction: column; }
+.lab-hero { display: flex; align-items: center; gap: var(--sp-4); padding: clamp(24px, 4vh, 36px) clamp(24px, 5%, 40px) var(--sp-4); }
+.lab-logo { display: flex; flex: none; }
+.lab-logo .logo { width: 46px; height: 51px; }
+.lab-hero-text { display: grid; gap: 4px; min-width: 0; }
+.lab-hero h2 { margin: 0; padding-right: 40px; font-size: var(--fs-5); line-height: var(--lh-5); font-weight: var(--fw-3); }
+.lab-current { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin: 0; color: var(--text-2); }
+.lab-number { font: var(--fw-3) var(--fs-3)/1 var(--mono); color: var(--text); }
+.lab-status { padding: 0 clamp(24px, 5%, 40px); }
+.lab-status-card {
+  display: flex; align-items: center; gap: var(--sp-3); padding: 14px var(--sp-4); border-radius: var(--r-pop);
+  border: 1px solid var(--border); background: var(--surface-2);
+}
+.lab-status-card[data-tone="update"] { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); background: var(--accent-soft); }
+.lab-status-card[data-tone="error"] { border-color: color-mix(in srgb, var(--err) 35%, var(--border)); background: var(--err-soft); }
+.lab-mark { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; flex: none; background: var(--surface); color: var(--muted); }
+.lab-mark > svg { width: 16px; height: 16px; }
+.lab-status-card[data-tone="ok"] .lab-mark { background: var(--ok); color: #fff; }
+.lab-status-card[data-tone="update"] .lab-mark { background: var(--accent-fill); color: var(--accent-text); }
+.lab-status-card[data-tone="error"] .lab-mark { background: var(--surface); color: var(--err); }
+.lab-status-text { display: grid; gap: 2px; flex: 1; min-width: 0; }
+.lab-status-text strong { color: var(--text); font-size: var(--fs-3); }
+.lab-status-text span { color: var(--muted); font-size: var(--fs-2); overflow-wrap: anywhere; }
+.lab-status-card[data-tone="update"] .lab-status-text span { color: var(--text-2); }
+.lab-status-card > .btn { flex: none; }
+.lab-notes-head { display: flex; align-items: baseline; gap: var(--sp-3); padding: var(--sp-5) clamp(24px, 5%, 40px) var(--sp-2); }
+.lab-notes-head:empty { display: none; }
+.lab-notes-head h3 { margin: 0; font-size: var(--fs-3); }
+.lab-notes-head .text-link { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-2); }
+.lab-notes-head .text-link > svg { width: 12px; height: 12px; }
+.lab-notes { flex: 1 1 auto; min-height: 0; overflow: auto; display: grid; align-content: start; gap: var(--sp-4); padding: 0 clamp(24px, 5%, 40px) var(--sp-5); }
 .lab-notes:empty { display: none; }
-.lab-version h3 { display: flex; align-items: center; gap: var(--sp-2); margin: 0 0 var(--sp-2); font-size: var(--fs-2); }
-.lab-version h3 > .icon-btn { margin-left: auto; }
-.lab-version ul { display: flex; flex-direction: column; gap: var(--sp-1); margin: 0; padding-left: 18px; }
+.lab-version { display: grid; gap: var(--sp-2); padding-left: var(--sp-4); border-left: 2px solid var(--border); }
+.lab-version:first-child { border-left-color: var(--accent); }
+.lab-version-head { display: flex; align-items: center; gap: var(--sp-2); }
+.lab-version-head > .icon-btn { margin-left: auto; }
+.lab-version ul { display: grid; gap: 6px; margin: 0; padding-left: 18px; color: var(--text-2); }
 .lab-version li { overflow-wrap: anywhere; }
+.lab-version li > a { margin-left: 6px; }
+.lab-actions { margin-top: 0; padding: 12px clamp(24px, 5%, 40px); border-top: 1px solid var(--border); }
+.lab-actions .grow { flex: 1; }

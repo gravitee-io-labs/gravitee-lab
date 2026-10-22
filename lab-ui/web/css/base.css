@@ -192,18 +192,20 @@ body.booting main > .page { display: none; }
 .brand-text { display: flex; flex-direction: column; line-height: 1.15; white-space: nowrap; }
 .brand-text strong { font-size: var(--fs-4); font-weight: var(--fw-3); }
 .brand-text span { font-size: var(--fs-1); color: var(--muted); }
-/* The version of the Lab, beside its name: it opens what each version changes. A newer one turns it into the update */
-.brand-line { display: flex; align-items: center; gap: 6px; }
+/* The version of the Lab, at the right of its name, centred on it: it opens what each version changes. A newer one turns it into Update */
 .brand-version {
-  height: 18px; padding: 0 6px; border-radius: var(--r-pill); border: 1px solid var(--border-strong); background: transparent;
-  color: var(--muted); font: var(--fw-2) var(--fs-1)/1 var(--mono); cursor: pointer; white-space: nowrap;
+  margin-left: auto; display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: var(--r-pill);
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--muted); font: var(--fw-2) var(--fs-1)/1 var(--mono);
+  cursor: pointer; white-space: nowrap; flex: none;
   transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease);
 }
-.brand-version:hover { background: var(--surface-3); color: var(--text); }
-.brand-version.update { font-family: var(--sans); border-color: transparent; background: var(--accent-soft); color: var(--accent-ink); }
-.brand-version.update::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 5px; border-radius: 50%; background: var(--accent); vertical-align: 1px; }
-.brand-version.update:hover { background: var(--accent); color: var(--accent-text); }
-.brand-version.update:hover::before { background: var(--accent-text); }
+.brand-version:hover { background: var(--surface-3); border-color: var(--border-strong); color: var(--text); }
+.brand-version > svg { width: 12px; height: 12px; }
+.brand-version.update { font-family: var(--sans); border-color: transparent; background: linear-gradient(135deg, var(--accent-fill) 55%, var(--accent-fill-2)); color: var(--accent-text); box-shadow: 0 0 0 3px var(--accent-soft); }
+.brand-version.update:hover { background: color-mix(in srgb, var(--accent-fill) 90%, #000); border-color: transparent; color: var(--accent-text); }
+body.nav-collapsed .brand-version { display: none; }
+/* The outline of the flask keeps 2 px whatever the size of the logo: a line that falls between two pixels is what looks jagged */
+.logo-line { vector-effect: non-scaling-stroke; stroke-width: 2px; }
 .brand-dot { display: none; }
 body.nav-collapsed .brand-dot:not([hidden]) {
   display: block; position: absolute; top: -3px; right: 10px; width: 10px; height: 10px; padding: 0; border-radius: 50%;

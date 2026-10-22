@@ -10,19 +10,17 @@ const SEEN = "lab:version";       // the version this browser last showed: what 
 const UPDATING = "lab:updating";  // the version an update was started for, and the run of the Lab UI it was started from
 
 const dialog = document.createElement("dialog");
-dialog.className = "create-dialog platform-dialog lab-dialog";
+dialog.className = "lab-dialog";
 dialog.setAttribute("aria-labelledby", "lab-title");
 dialog.innerHTML = `
-  <form method="dialog">
-    <h2 id="lab-title">Gravitee Lab</h2>
-    <dl class="pairs lab-facts" id="lab-facts"></dl>
-    <div class="lab-notes" id="lab-notes"></div>
-    <p class="create-problem" id="lab-problem" role="alert" hidden></p>
-    <div class="dialog-actions">
-      <button class="btn" type="button" data-close>Close</button>
-      <span class="act-slot" id="lab-primary"></span>
-    </div>
-  </form>`;
+  <header class="lab-hero">
+    <span class="lab-logo"></span>
+    <div class="lab-hero-text"><h2 id="lab-title">Gravitee Lab</h2><p class="lab-current" id="lab-current"></p></div>
+  </header>
+  <section class="lab-status" id="lab-status" aria-live="polite"></section>
+  <div class="lab-notes-head" id="lab-notes-head"></div>
+  <div class="lab-notes" id="lab-notes"></div>
+  <div class="dialog-actions lab-actions"><span class="grow"></span><button class="btn" type="button" data-close>Close</button></div>`;
 document.body.append(dialog);
 
 let shown = null;   // what the dialog draws: {releases, since}, `since` the version what is new is said after
@@ -35,29 +33,47 @@ const newer = (a, b) => {
   return false;
 };
 const day = (iso) => (iso ? new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "");
+const dated = (versions, version) => day(versions.find((v) => v.version === version)?.date);
 
-// What this Lab is: its version and how many changes it is past it, or a development version by its commit
-function versionHtml(lab) {
-  if (!lab.version) return `<span>Development version</span>${lab.commit ? ` <code class="chip">${esc(lab.commit)}</code>` : ""}`;
-  return `<code class="chip">${esc(lab.version)}</code>${lab.ahead ? ` <span class="muted">and ${lab.ahead} newer change${lab.ahead === 1 ? "" : "s"}</span>` : ""}`;
+// What this Lab is: its version, the day it came out and how many changes it is past it; or a development version by its commit
+function currentHtml(lab, versions) {
+  if (!lab.version) return `<span>Development version</span>${lab.commit ? `<code class="chip">${esc(lab.commit)}</code>` : ""}`;
+  const when = dated(versions, lab.version);
+  return `<span class="lab-number">${esc(lab.version)}</span>${when ? `<span class="muted">${esc(when)}</span>` : ""}${
+    lab.ahead ? `<span class="muted">${lab.ahead} newer change${lab.ahead === 1 ? "" : "s"}</span>` : ""}`;
 }
 
-// Whether it is the newest, as the last fetch said, and when that was
-function updatesHtml(lab) {
-  const when = lab.checked ? `<span class="muted">Checked ${esc(ago(lab.checked))}</span>` : "";
-  const state = lab.checking ? "Checking" : lab.update ? `${esc(lab.latest)} available` : lab.error ? esc(lab.error)
-    : lab.checked ? "Up to date" : "Not checked yet";
-  return `<span class="lab-updates"><span>${state}</span>${when}
-    <button type="button" class="btn" data-check ${lab.checking ? 'aria-disabled="true" data-why="Checking"' : ""}>Check now</button></span>`;
+// The one card that says where this Lab stands, with the one thing to do about it: an update waits, the check runs or failed, it is the newest
+function statusHtml(lab, versions) {
+  const card = (tone, mark, title, line, action = "") => `<div class="lab-status-card" data-tone="${tone}">
+      <span class="lab-mark">${mark}</span>
+      <span class="lab-status-text"><strong>${title}</strong>${line ? `<span>${line}</span>` : ""}</span>${action}</div>`;
+  const check = (label) => actionButton({ key: "lab", verb: "check", label, icon: "restart", attrs: "data-check" });
+  const when = lab.checked ? `Checked ${esc(ago(lab.checked))}` : "";
+  if (shown.since) return card("ok", icon("check"), `Updated to ${esc(lab.version)}`, "");
+  if (lab.update) {
+    const released = dated(versions, lab.latest);
+    const action = lab.blocked ? "" : actionButton({ key: "lab", verb: "update", label: "Update now", icon: "download", cls: "primary", attrs: "data-update" });
+    return card("update", icon("download"), `Gravitee Lab ${esc(lab.latest)} is available`,
+      lab.blocked ? esc(lab.blocked) : released ? `Released ${esc(released)}` : "", action);
+  }
+  if (lab.checking) return card("working", '<span class="spinner" aria-hidden="true"></span>', "Checking for updates", when);
+  if (lab.error) return card("error", icon("alert"), "Could not check for updates", [esc(lab.error), when].filter(Boolean).join(". "), check("Try again"));
+  if (!lab.checked) return card("idle", icon("info"), "Not checked yet", "", check("Check now"));
+  return card("ok", icon("check"), "Up to date", when, check("Check now"));
 }
 
 // What each version changed: those newer than `since` (what an update brings, or what one brought), else the one this Lab is
-function notesHtml(versions, lab, since) {
-  const picked = since ? versions.filter((v) => newer(v.version, since) && !newer(v.version, lab.version))
+function picked(versions, lab, since) {
+  return since ? versions.filter((v) => newer(v.version, since) && !newer(v.version, lab.version))
     : lab.update ? versions.filter((v) => v.newer) : versions.filter((v) => v.current);
-  const change = (c) => `<li><span>${esc(c.text)}</span>${c.url ? ` <a href="${esc(c.url)}" target="_blank" rel="noopener">#${c.number}</a>` : ""}</li>`;
-  return picked.map((v) => `<section class="lab-version">
-      <h3><span>${esc(v.version)}</span><span class="muted">${esc(day(v.date))}</span>${v.url ? `<a class="icon-btn" href="${esc(v.url)}" target="_blank" rel="noopener" data-tip="Release ${esc(v.version)}" aria-label="Release ${esc(v.version)}">${icon("external")}</a>` : ""}</h3>
+}
+
+function notesHtml(list) {
+  const change = (c) => `<li><span>${esc(c.text)}</span>${c.url ? `<a class="text-link" href="${esc(c.url)}" target="_blank" rel="noopener">#${c.number}</a>` : ""}</li>`;
+  return list.map((v) => `<section class="lab-version">
+      <div class="lab-version-head"><span class="lab-number">${esc(v.version)}</span><span class="muted">${esc(day(v.date))}</span>${
+        v.url ? `<a class="icon-btn" href="${esc(v.url)}" target="_blank" rel="noopener" data-tip="Release ${esc(v.version)}" aria-label="Release ${esc(v.version)}">${icon("external")}</a>` : ""}</div>
       ${v.changes.length ? `<ul>${v.changes.map(change).join("")}</ul>` : ""}
     </section>`).join("");
 }
@@ -65,18 +81,17 @@ function notesHtml(versions, lab, since) {
 function draw() {
   const lab = store.state?.lab;
   if (!lab || !shown) return;
-  const versions = shown.releases?.versions || [];
+  const releases = shown.releases || {}, versions = releases.versions || [];
+  const logo = $(".lab-logo", dialog);
+  if (!logo.firstChild) logo.innerHTML = ($(".sidebar .logo")?.outerHTML || "").replace(/<defs>[\s\S]*?<\/defs>/, "");
   $("#lab-title", dialog).textContent = shown.since ? `What's new in Gravitee Lab ${lab.version}` : "Gravitee Lab";
-  setHTML($("#lab-facts", dialog), `<div><dt>Version</dt><dd>${versionHtml(lab)}</dd></div>
-    ${shown.since ? "" : `<div><dt>Updates</dt><dd>${updatesHtml(lab)}</dd></div>`}`);
-  setHTML($("#lab-notes", dialog), notesHtml(versions, lab, shown.since));
-  // What keeps the update from being made here is said in full where the button is
-  const problem = $("#lab-problem", dialog), why = lab.update && !shown.since ? lab.blocked || "" : "";
-  problem.hidden = !why;
-  problem.textContent = why;
-  const primary = lab.update && !shown.since ? actionButton({ key: "lab", verb: "update", label: `Update to ${lab.latest}`, cls: "primary",
-    attrs: lab.blocked ? `aria-disabled="true" data-why="${esc(lab.blocked)}"` : "data-update" }) : "";
-  if (setHTML($("#lab-primary", dialog), primary)) paintActions(dialog);
+  setHTML($("#lab-current", dialog), currentHtml(lab, versions));
+  if (setHTML($("#lab-status", dialog), statusHtml(lab, versions))) paintActions(dialog);
+  const list = picked(versions, lab, shown.since);
+  const all = releases.repository ? `<a class="text-link" href="https://github.com/${esc(releases.repository)}/releases" target="_blank" rel="noopener">All releases${icon("external")}</a>` : "";
+  const title = shown.since ? "" : lab.update ? "What's new" : list.length ? `In ${esc(lab.version)}` : "";
+  setHTML($("#lab-notes-head", dialog), title || all ? `<h3>${title}</h3>${all}` : "");
+  setHTML($("#lab-notes", dialog), notesHtml(list));
 }
 
 let loading = false;
@@ -128,7 +143,7 @@ async function update() {
 
 dialog.addEventListener("click", (e) => {
   if (e.target.closest("[data-close]")) dialog.close();
-  else if (e.target.closest("[data-check]:not([aria-disabled])")) check();
+  else if (e.target.closest("[data-check]")) check();
   else if (e.target.closest("[data-update]")) update();
 });
 dialog.addEventListener("close", () => { shown = shown ? { releases: shown.releases, since: null } : null; });
@@ -166,16 +181,15 @@ export function followLab() {
   if (lab.version) remember(SEEN, lab.version);
 }
 
-// The version beside the name of the Lab, which opens the dialog; while a newer one waits, the update it offers, and a dot on the logo
-// when the menu is collapsed
+// The version at the right of the name of the Lab, which opens the dialog; while a newer one waits, Update, and a dot on the logo when
+// the menu is collapsed
 export function paintLab() {
   const lab = store.state?.lab, button = $("#lab"), dot = $("#lab-dot");
   if (!button) return;
   const waiting = !!lab?.update && !store.offline;
   const version = lab?.version || (lab?.commit ? "dev" : "");
-  const words = waiting ? `Update to ${lab.latest}` : version;
   button.hidden = !lab;
-  button.textContent = words;
+  setHTML(button, waiting ? `${icon("download")}<span>Update</span>` : `<span>${esc(version)}</span>`);
   button.classList.toggle("update", waiting);
   const tip = waiting ? `Gravitee Lab ${lab.latest} is available` : lab?.version ? `Gravitee Lab ${lab.version}`
     : lab?.commit ? `Development version ${lab.commit}` : "Gravitee Lab";
