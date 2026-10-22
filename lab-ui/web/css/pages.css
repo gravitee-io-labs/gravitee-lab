@@ -1059,14 +1059,18 @@ mark { background: var(--hl); color: var(--hl-text); border-radius: 2px; padding
 
 /* --- How Gravitee Lab works ------------------------------------------------------------ */
 
-/* Welcome to Gravitee Lab: the steps in a rail at the left, the one shown at the right with its foot */
-.welcome-dialog { width: min(1040px, 94vw); height: min(700px, calc(100dvh - 48px)); padding: 0; overflow: hidden; }
-.welcome-frame { display: grid; grid-template-columns: 264px minmax(0, 1fr); flex: 1 1 auto; min-height: 0; }
+/* Welcome to Gravitee Lab: the steps in a rail at the left, the one shown at the right with its foot. It grows with the screen, between
+   what its content needs and what still reads as one dialog; never past the screen. */
+.welcome-dialog {
+  width: min(calc(100vw - 48px), max(1040px, 78vw), 1480px); height: min(calc(100dvh - 48px), max(700px, 86dvh), 1080px);
+  padding: 0; overflow: hidden;
+}
+.welcome-frame { display: grid; grid-template-columns: clamp(272px, 22%, 320px) minmax(0, 1fr); flex: 1 1 auto; min-height: 0; }
 .welcome-rail { display: flex; flex-direction: column; gap: var(--sp-5); padding: var(--sp-5) var(--sp-3) var(--sp-4); background: var(--surface-2); border-right: 1px solid var(--border); min-height: 0; overflow: auto; }
 .welcome-brand { display: flex; align-items: center; gap: 10px; padding: 0 var(--sp-2); }
 .welcome-logo { display: flex; flex: none; }
 .welcome-brand .logo { width: 30px; height: 33px; flex: none; color: var(--text); }
-.welcome-brand h2 { margin: 0; font-size: var(--fs-4); line-height: var(--lh-4); font-weight: var(--fw-3); text-wrap: balance; }
+.welcome-brand h2 { margin: 0; font-size: var(--fs-4); line-height: var(--lh-4); font-weight: var(--fw-3); white-space: nowrap; }
 .welcome-rail-steps { display: grid; gap: var(--sp-5); }
 .welcome-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .welcome-step {
@@ -1090,10 +1094,10 @@ mark { background: var(--hl); color: var(--hl-text); border-radius: 2px; padding
 .welcome-step-text strong { font-weight: var(--fw-2); font-size: var(--fs-3); line-height: var(--lh-3); }
 .welcome-step-text span { color: var(--muted); font-size: var(--fs-1); line-height: var(--lh-1); }
 .welcome-step[data-state="attention"] .welcome-step-text span { color: var(--err); }
-.welcome-rail .welcome-source { margin: auto 0 0; padding: 0 var(--sp-2); display: flex; flex-wrap: wrap; gap: 4px 10px; color: var(--muted); font-size: var(--fs-1); }
+.welcome-rail .welcome-source { margin: auto 0 0; padding: 0 var(--sp-2); display: flex; gap: 10px; white-space: nowrap; color: var(--muted); font-size: var(--fs-1); }
 .welcome-main { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .welcome-x { z-index: 1; }
-.welcome-main .welcome-panel { flex: 1 1 auto; min-height: 0; padding: 36px 40px var(--sp-5); }
+.welcome-main .welcome-panel { flex: 1 1 auto; min-height: 0; padding: clamp(28px, 4.5vh, 56px) clamp(32px, 5%, 64px) var(--sp-5); }
 .welcome-panel > h2 { margin: 0 0 6px; text-wrap: balance; font-size: var(--fs-5); line-height: var(--lh-5); font-weight: var(--fw-3); color: var(--text); padding-right: 40px; }
 .welcome-panel > .welcome-lead { margin: 0 0 var(--sp-5); max-width: 640px; text-wrap: balance; }
 .welcome-panel .machine-summary { margin-bottom: var(--sp-3); }
@@ -1113,6 +1117,7 @@ mark { background: var(--hl); color: var(--hl-text); border-radius: 2px; padding
   .welcome-steps { grid-auto-flow: column; }
   .welcome-step-text span, .welcome-rail .welcome-source, .welcome-step.guide .welcome-step-text span { display: none; }
   .welcome-main .welcome-panel { padding: var(--sp-5) var(--sp-4); }
+  .welcome-actions { padding-inline: var(--sp-4); }
   .welcome-main { position: static; }   /* the close button goes to the corner of the dialog, over the steps */
 }
 .welcome { overflow: auto; padding: 18px var(--pad) 6px; color: var(--text-2); line-height: 1.55; }
@@ -1165,7 +1170,7 @@ mark { background: var(--hl); color: var(--hl-text); border-radius: 2px; padding
 .welcome-code { margin: 0 0 4px; white-space: pre; overflow-x: auto; line-height: 1.6; }   /* a snippet that keeps its lines, and scrolls inside its box on a phone: the dialog does not */
 /* "Where to go": sentences with links, which flow as text, not as the value and copy button of a dialog's line */
 .welcome .pairs dd { display: block; }
-.welcome-actions { margin-top: 0; padding: 12px var(--pad); border-top: 1px solid var(--border); }
+.welcome-actions { margin-top: 0; padding: 12px clamp(32px, 5%, 64px); border-top: 1px solid var(--border); }   /* aligned on the panel */
 /* Without a license, under the start: the line that leads to it */
 .welcome-license { display: flex; align-items: center; gap: 8px; margin-top: var(--sp-4); padding: 10px var(--sp-4); border-radius: var(--r-pop); background: var(--warn-soft); color: var(--warn); font-size: var(--fs-2); }
 .welcome-license > svg { width: 16px; height: 16px; flex: none; }
