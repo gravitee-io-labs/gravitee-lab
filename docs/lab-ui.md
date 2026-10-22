@@ -562,6 +562,8 @@ A playground that is on shows its guide beside its UIs. The page does not scroll
   puts it back at 600 px. The width is kept in this browser.
 - **Rows**: where the page lacks the room for both panels, about 1,200 px of window with the menu collapsed (1,370 px
   with it open), the guide goes over the UIs. Nothing else changes.
+- **Hide the guide**: the button at the left of the tabs hides the guide, and the UIs take the whole card; it shows the
+  guide again. Whether it is hidden is kept in this browser, for every playground.
 - **The guide**: one page per section, with previous and next, a page picker, and its own address
   (`#/playgrounds/acme-shop/4`). It opens on the page you read last. Diagrams are drawn from Mermaid blocks. A button
   with a play icon runs an action in the playground's app.
