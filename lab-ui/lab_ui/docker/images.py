@@ -342,19 +342,24 @@ def tags(project, component, registry=None):
     return compose.CACHE.get(f"tags:{host}:{repository}", 600, ask)
 
 
-def _name_of(image):
-    """An image without its tag or digest: what a registry is asked about."""
-    name = image.split("@", 1)[0]
-    slash = name.rfind("/")
-    colon = name.rfind(":")
-    return name[:colon] if colon > slash else name
+MANIFESTS = ("application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,"
+             "application/vnd.docker.distribution.manifest.v2+json,application/vnd.oci.image.manifest.v1+json")
+
+
+def _split(image):
+    """An image as (name, reference): its tag or digest, latest when it says none."""
+    if "@" in image:
+        name, digest = image.split("@", 1)
+        return name, digest
+    slash, colon = image.rfind("/"), image.rfind(":")
+    return (image[:colon], image[colon + 1:]) if colon > slash else (image, "latest")
 
 
 def _status(url, token=None):
-    """The HTTP status of a GET, and the response's WWW-Authenticate; (None, "") when the registry does not answer."""
-    request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"} if token else {})
+    """The HTTP status of a HEAD, and the response's WWW-Authenticate; (None, "") when the registry does not answer."""
+    headers = {"Accept": MANIFESTS, **({"Authorization": f"Bearer {token}"} if token else {})}
     try:
-        with urllib.request.urlopen(request, timeout=8) as response:
+        with urllib.request.urlopen(urllib.request.Request(url, headers=headers, method="HEAD"), timeout=8) as response:
             return response.status, ""
     except urllib.error.HTTPError as error:
         return error.code, error.headers.get("WWW-Authenticate") or ""
@@ -362,19 +367,20 @@ def _status(url, token=None):
         return None, ""
 
 
-def _anonymous(host, repository):
-    """Whether anyone may pull the repository: True, False, or None when the registry cannot tell (unreachable, an
-    answer this does not know). Docker Hub says it of a repository on its own API; another registry, as Docker asks it:
-    the tags without a login, then with the token it gives to anyone who asks."""
+def _anonymous(host, repository, reference="latest"):
+    """Whether anyone may pull the image: True, False, or None when the registry cannot tell (unreachable, an answer this does
+    not know). Docker Hub says it of a repository on its own API; another registry is asked as `docker pull` asks it, for the
+    manifest of that very image, without a login and then with the token it gives to anyone who asks. A registry may let anyone
+    pull and still keep its list of tags to itself: the list is never what is asked."""
     if host is None:
-        code, _ = _status(f"https://hub.docker.com/v2/repositories/{repository}/")
+        code, _ = _status_get(f"https://hub.docker.com/v2/repositories/{repository}/")
         return True if code == 200 else False if code == 404 else None
-    url = f"https://{host}/v2/{repository}/tags/list?n=1"
+    url = f"https://{host}/v2/{repository}/manifests/{reference}"
     code, asked = _status(url)
-    if code == 200:
+    if code in (200, 404):   # a manifest it does not have is no login it asks for
         return True
     if code != 401:
-        return False if code in (403, 404) else None
+        return False if code == 403 else None
     said = dict(re.findall(r'(\w+)="([^"]*)"', asked))
     if not said.get("realm", "").startswith("https://"):
         return False
@@ -386,23 +392,40 @@ def _anonymous(host, repository):
     except (urllib.error.URLError, OSError, ValueError):
         return None
     code, _ = _status(url, granted.get("token") or granted.get("access_token"))
-    return True if code == 200 else False if code in (401, 403, 404) else None
+    return True if code in (200, 404) else False if code in (401, 403) else None
+
+
+def _status_get(url):
+    """The HTTP status of a GET of Docker Hub's API; None when it does not answer."""
+    try:
+        with urllib.request.urlopen(url, timeout=8) as response:
+            return response.status, ""
+    except urllib.error.HTTPError as error:
+        return error.code, ""
+    except (urllib.error.URLError, OSError, ValueError):
+        return None, ""
 
 
 def private_images(images):
     """{registry: [images]} of the images, among `images`, that a person with no login cannot pull: the registry as the page
     names it (its host, or "Docker Hub"). An image a registry does not answer about is left out: nothing is said that is not
-    known. Each repository is asked once an hour, all at once."""
+    known. Each image is asked once an hour, all at once."""
     from concurrent.futures import ThreadPoolExecutor
-    located = {image: _locate(_name_of(image)) for image in dict.fromkeys(images) if image}
+    asked = {}
+    for image in dict.fromkeys(images):
+        if image:
+            name, reference = _split(image)
+            asked[image] = (*_locate(name), reference)
 
     def ask(where):
-        return compose.CACHE.get(f"anonymous:{where[0]}:{where[1]}", 3600, lambda: _anonymous(*where))
-    places = list(dict.fromkeys(located.values()))
+        host, repository, reference = where
+        key = f"anonymous:{host}:{repository}" + (f":{reference}" if host else "")
+        return compose.CACHE.get(key, 3600, lambda: _anonymous(*where))
+    places = list(dict.fromkeys(asked.values()))
     with ThreadPoolExecutor(max_workers=8) as pool:
         public = dict(zip(places, pool.map(ask, places)))
     found = {}
-    for image, where in located.items():
+    for image, where in asked.items():
         if public[where] is False:
             found.setdefault("Docker Hub" if where[0] is None else where[0], []).append(image)
     return found
