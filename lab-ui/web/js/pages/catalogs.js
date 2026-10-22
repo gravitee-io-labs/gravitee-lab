@@ -136,7 +136,7 @@ function grouped(rows) {
 
 function members(row) {
   if (row.kind !== "imports") return "";
-  const line = (m) => `<div class="panel-row panel-fact" data-member="${esc(m.id)}"><span>${esc(m.name)}</span><span>${total(m.counts)}${
+  const line = (m) => `<div class="panel-row panel-fact" data-member="${esc(m.id)}"><span>${esc(m.name)}</span><span>${total(m.counts)} ${total(m.counts) === 1 ? "item" : "items"}${
     menu(m).length ? `<button class="icon-btn" data-member-more data-tip="More" aria-label="${esc(`More for ${m.name}`)}" aria-haspopup="true">${icon("more")}</button>` : ""}</span></div>`;
   return `<section class="panel">${heading("Imports")}${row.members.map(line).join("")}</section>`;
 }
