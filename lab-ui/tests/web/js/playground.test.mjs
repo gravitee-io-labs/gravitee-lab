@@ -36,6 +36,7 @@ const page = installDom({
     if (route.endsWith("/check")) return reply({ checks: server.checks(query), dialog: server.dialog(query) });
     if (route.endsWith("/export")) return reply(call.body?.check ? server.exported : { ...server.exported, data: btoa("PK") });
     if (route.endsWith("/move")) return reply(call.body?.check ? server.movePlan : { moved: [], id: "local/hotels" });
+    if (route.endsWith("/copy")) return reply(call.body?.check ? server.copyPlan : { copies: [], id: "local/hotels" });
     if (call.method === "POST") return reply(JOB);
     return reply(found);
   },
@@ -1069,7 +1070,7 @@ test("its file button reads View and shows no path of this machine; the file of 
   const file = section.querySelector("#pg-actions [data-file]");
   assert.deepEqual([file.getAttribute("data-tip"), file.getAttribute("aria-label")], ["View compose.yml", "View compose.yml"]);
   section.querySelector("#pg-actions [data-more]").click();
-  assert.deepEqual(entries(), [["Export", ""]], "a playground of a catalog has a More with Export alone");
+  assert.deepEqual(entries(), [["Export", ""], ["Copy to Personal", ""]], "a playground of a catalog has a More with Export and Copy to Personal");
   page.doc.dispatchEvent(Object.assign(new Ev("click"), { target: page.doc.body }));
   await leave();
   await visit({ ...off }, { platforms: [], places: [] });
@@ -1190,6 +1191,26 @@ test("an imported playground moves to Personal from its menu: with what it bring
   await flush();
   assert.deepEqual(server.calls.map((call) => [call.path, call.body]), [["/api/playgrounds/@hostels/hotels/move", { check: true }],
     ["/api/playgrounds/@hostels/hotels/move", { together: true, allow: true }]]);
+  await leave();
+});
+
+test("a playground of a catalog is copied to Personal from its menu: alone, or with what uses it, which then uses the copy", async () => {
+  server.copyPlan = {
+    alone: { copies: ["Acme Hostels"], switches: [], uses_machine: [], held: "" },
+    with_users: { copies: ["Acme Hostels", "Tour"], switches: ["Notes"], uses_machine: [], held: "" } };
+  await visit({ ...off, id: "@acme-hub/hotels", origin: { id: "acme-hub", name: "Acme Hub" } }, { platforms: [], places: [], id: "@acme-hub/hotels" });
+  section.querySelector("#pg-actions [data-more]").click();
+  server.calls = [];
+  page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item").find((el) => text(el) === "Copy to Personal") }));
+  await flush();
+  assert.equal(effects().title, "Copy Acme Hostels to Personal");
+  assert.deepEqual(choices(), [
+    ["Only Acme Hostels", "What uses it keeps the original", [["Copies", ["Acme Hostels"]]]],
+    ["Acme Hostels and what uses it", "Copied too, so that it uses your copy", [["Copies", ["Acme Hostels", "Tour"]], ["Uses the copy", ["Notes"]]]]]);
+  assert.equal(effects().action, "Copy");
+  await answer(true);
+  await flush();
+  assert.deepEqual(server.calls.at(-1).body, { users: false }, "the first choice: the copy alone");
   await leave();
 });
 

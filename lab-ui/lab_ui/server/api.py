@@ -749,6 +749,8 @@ ROUTES = [(method, re.compile(pattern), handler) for method, pattern, handler in
     ("POST", f"/api/{KIND}s/{UNIT}/use-catalog", use_catalog),
     ("POST", f"/api/{KIND}s/{UNIT}/move", lambda r, kind, uid: moving.plan(kind, uid) if r.body.get("check")
      else moving.move(kind, uid, bool(r.body.get("together")), allow=r.body.get("allow") is True)),
+    ("POST", f"/api/{KIND}s/{UNIT}/copy", lambda r, kind, uid: moving.copy_plan(kind, uid) if r.body.get("check")
+     else moving.copy(kind, uid, bool(r.body.get("users")), allow=r.body.get("allow") is True)),
     # The catalogs. What changes one, runs git or asks a network is a POST and the page's alone; the state never does
     ("POST", "/api/catalogs/check", lambda r: service.check_address(r.body.get("address"), r.body.get("branch"))),
     ("POST", "/api/catalogs", add_catalog),

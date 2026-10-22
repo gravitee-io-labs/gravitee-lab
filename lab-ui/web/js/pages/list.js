@@ -10,7 +10,7 @@ import { toast, effectsDialog, openMenu, GAP, openButton, Pager, emptyHtml, pain
 import { CategoryFilter } from "../components/combo.js";
 import { runJob, runAction, busy, showOutput } from "../activity/jobs.js";
 import { selectLogs, hasLogs } from "./logs.js";
-import { stopPlayground, pluginNames, shareEntry, deleteEntry, exportable, exportEntry, movable, moveEntry, usesMachine, maybeComing } from "./playground.js";
+import { stopPlayground, pluginNames, shareEntry, deleteEntry, exportable, exportEntry, movable, moveEntry, copyable, copyEntry, usesMachine, maybeComing } from "./playground.js";
 import { MACHINE, THIS_MACHINE, registered, chosenPlace, barred, startPlayground, deployTo, keepItemPlace, goes, whyNot, placesOf } from "../platform/places.js";
 import { openFile, openSettings } from "../dialogs/editor.js";
 import { openCreate } from "../dialogs/create.js";
@@ -452,12 +452,14 @@ function list(kind, title, noun) {
   function twin(x) {
     const other = store.item(kind, x.twin.id), wait = store.offline ? store.wait() : "";
     const why = wait || cannotRun(other) || (x.on || x.up ? `Turn off ${x.name} first` : other?.on || other?.up ? `Turn off ${other.name} first` : "");
-    return { label: "Use the catalog version", disabled: !!why, reason: why, onSelect: () => useCatalogVersion(x) };
+    return { label: x.twin.copy ? "Back to the catalog version" : "Use the catalog version", disabled: !!why, reason: why, onSelect: () => useCatalogVersion(x) };
   }
 
+  // The person's copy given up for the catalog's (Back to the catalog version), or a shared item's copy for the catalog's that now holds it
   async function useCatalogVersion(x) {
     const rows = [{ label: "Deletes", items: ["Your copy"], tone: "danger" }, { label: "Keeps", items: ["Your settings and data"], note: true }];
-    if (!(await effectsDialog({ title: "Use the catalog version", options: [{ rows }], action: () => "Use" }))) return;
+    const title = x.twin?.copy ? "Back to the catalog version" : "Use the catalog version";
+    if (!(await effectsDialog({ title, options: [{ rows }], action: () => (x.twin?.copy ? "Go back" : "Use") }))) return;
     try {
       await busy(`${kind}:${x.id}`, "replace", api(`/api/${kind}s/${x.id}/use-catalog`, {}));
       toast("Replaced");   // the word of the same verb on the button ("Replacing"), and of Replace Cloud Token
@@ -493,6 +495,8 @@ function list(kind, title, noun) {
       exportable(x) && exportEntry(x),
       // An imported item becomes the person's own
       movable(x) && moveEntry(x),
+      // The person's own version of an item of a catalog
+      copyable(x) && copyEntry(x),
       x.personal && shareEntry(x),
       // The same item in a catalog, as the server finds it: its copy is dropped for the catalog's, once neither runs
       x.personal && x.twin && twin(x),

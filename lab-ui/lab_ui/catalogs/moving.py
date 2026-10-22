@@ -1,4 +1,4 @@
-"""Move to Personal: an item of a playground imported from a file and kept as a catalog of its own (Imported) becomes the person's
+"""Move to Personal, and Copy to Personal. Move: an item of a playground imported from a file and kept as a catalog of its own (Imported) becomes the person's
 own, in .lab/catalogs/local, as if they had made it.
 
 A playground moves alone, or with the setups and add-ons it brings from the same import. Whatever another item still includes
@@ -13,11 +13,22 @@ Personal is the last check, as for an import: nothing judges what is there. An i
 machine (a privileged container, say; and what needs it) moves once the person allowed it, which the plan says (`uses_machine`)
 and the move must be asked with (`allow`); an item blocked for anything else does not move (`held`).
 
+Copy: the person's own version of an item of any catalog, to change as they like. The copy keeps the names of the original's
+services, which its neighbours and its seed call it by, and says whose copy it is (`x-gravitee.copy_of`): the Lab then takes it for
+the original's twin, so neither blocks the other, only one of them runs at a time, and "Back to the catalog version" drops the copy.
+An item of a catalog that includes the original cannot be changed to include the copy: with `users`, it is copied too, up to the
+playgrounds, and the items of Personal that included one of them include the copy. The copy takes the settings and secrets of the
+original, not what its seed recorded. The same checks as a move: blocked for more than this machine, no copy; what takes more of
+this machine, once allowed.
+
     plan(kind, uid)              {alone, together}: what each choice moves, keeps, replaces, and what holds it
     move(kind, uid, together)    the move: {moved: [{kind, id}], id (the item's id in Personal)}
+    copy_plan(kind, uid)         {alone, with_users}: what Copy to Personal copies, switches to the copy, and what holds it
+    copy(kind, uid, users)       the person's copy of an item of a catalog (x-gravitee.copy_of), and of what uses it
 """
 
 import posixpath
+import re
 import shutil
 from pathlib import Path
 
@@ -211,3 +222,119 @@ def move(kind, uid, together, allow=False):
         service.remove(ns)
     project.forget()
     return {"moved": [{"kind": k, "id": f"{paths.LOCAL}/{_slug(one)}"} for k, one in moving], "id": f"{paths.LOCAL}/{_slug(uid)}"}
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Copy to Personal: the person's own version of an item of a catalog
+# ---------------------------------------------------------------------------------------------------------------------
+
+def _mark(text, uid):
+    """The compose text whose x-gravitee block says it is the person's copy of `uid` (copy_of); None when it has no block."""
+    quoted = '"' + uid.replace('"', "") + '"'
+    lines = text.splitlines(keepends=True)
+    for at, line in enumerate(lines):
+        if re.match(r"x-gravitee:\s*\{", line):
+            lines[at] = line.replace("{", "{copy_of: " + quoted + ", ", 1)
+            return "".join(lines)
+        if re.match(r"x-gravitee:\s*(#.*)?$", line.rstrip("\n")):
+            indent = next((re.match(r"[ \t]+", one).group(0) for one in lines[at + 1:] if re.match(r"[ \t]+\S", one)), "  ")
+            lines.insert(at + 1, f"{indent}copy_of: {quoted}\n")
+            return "".join(lines)
+    return None
+
+
+def _copies(found, kind, uid, users):
+    """(copies [(kind, id)], switches [(kind, id)]): the item, and with `users` every item of a catalog that includes it, directly
+    or not, up to the playgrounds; and the items of Personal that include one of those, which then include the copy."""
+    units = _units(found)
+    nodes = [(k, one) for k, found_units in units.items() for one in found_units]
+    direct = {node: set(resolve._direct(units, node)) for node in nodes}
+    copies, switches, frontier = [(kind, uid)], [], [(kind, uid)] if users else []
+    while frontier:
+        node = frontier.pop(0)
+        for other in nodes:
+            if node in direct[other] and other not in copies and other not in switches:
+                if paths.personal(other[1]):
+                    switches.append(other)
+                else:
+                    copies.append(other)
+                    frontier.append(other)
+    return copies, switches
+
+
+def _copy_check(found, copies, switches):
+    """Why the copy cannot be made now, or ""."""
+    units = _units(found)
+    home = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL
+    for k, one in copies:
+        if (home / _rel(k, _slug(one))).exists():
+            return f"{_name(units, (k, one))} is in Personal already: delete or rename that one first"
+    reason = _judged(units, copies)[1]
+    if reason:
+        return reason
+    for k, one in switches:
+        try:
+            personals._not_held(found, k, one)
+        except RuntimeError as error:
+            return str(error)
+    return ""
+
+
+def copy_plan(kind, uid):
+    """What Copy to Personal would do: {alone, with_users}, each {copies: [names], switches: [names], uses_machine: [names],
+    held}; `with_users` is None when nothing else uses the item."""
+    found = project.load()
+    if kind not in paths.KINDS or uid not in (found.get(f"{kind}s") or {}):
+        raise paths.NotFound(f"No {kind} {uid}")
+    units = _units(found)
+    if paths.personal(uid):
+        raise _fail("personal", f"{_name(units, (kind, uid))} is yours already.")
+    answers = {}
+    for users in (False, True):
+        copies, switches = _copies(found, kind, uid, users)
+        answers["with_users" if users else "alone"] = {
+            "copies": [_name(units, node) for node in copies], "switches": [_name(units, node) for node in switches],
+            "uses_machine": _judged(units, copies)[0], "held": _copy_check(found, copies, switches)}
+    if answers["with_users"]["copies"] == answers["alone"]["copies"] and not answers["with_users"]["switches"]:
+        answers["with_users"] = None
+    return answers
+
+
+def copy(kind, uid, users=False, allow=False):
+    """Copies the item to Personal, as the person's copy of it (copy_of), with its settings and secrets but not what its seed
+    recorded; with `users`, every item of a catalog that includes it too, up to the playgrounds, and the items of Personal that
+    include one of them then include the copy. Answers {copies: [{kind, id}], id}."""
+    found = project.load()
+    plan = copy_plan(kind, uid)
+    chosen = plan["with_users"] if users and plan["with_users"] else plan["alone"]
+    if chosen["held"]:
+        raise _fail("held", chosen["held"])
+    if chosen["uses_machine"] and not allow:
+        raise _fail("allow_machine", f"{', '.join(chosen['uses_machine'])} uses this machine: allow it to copy it to Personal.")
+    copies, switches = _copies(found, kind, uid, bool(users and plan["with_users"]))
+    home = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL
+    places = {node: (paths.unit_file(*node) if node[0] == "setup" else paths.unit_folder(*node)) for node in copies}
+    table = [(places[node], f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{_rel(node[0], _slug(node[1]))}") for node in copies]
+    for node in copies:
+        k, one = node
+        source = paths.ROOT / places[node]
+        compose_file = source if k == "setup" else source / "compose.yml"
+        here = posixpath.dirname(places[node] if k == "setup" else f"{places[node]}/compose.yml")
+        there = posixpath.dirname(f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{_rel(k, _slug(one))}" + ("" if k == "setup" else "/compose.yml"))
+        written = _mark(moves.repoint(compose_file.read_text(encoding="utf-8"), here, there, table), one)
+        if written is None:
+            raise _fail("unmarked", f"{_name(_units(found), node)} has no x-gravitee block to say it is a copy.")
+        target = home / _rel(k, _slug(one))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if k == "setup":
+            target.write_text(written, encoding="utf-8")
+            continue
+        shutil.copytree(source, target, symlinks=False, ignore=shutil.ignore_patterns(".state"))
+        for path in target.rglob("*"):   # a catalog's files are read only where they are installed: the copy is the person's
+            path.chmod(path.stat().st_mode | 0o200)
+        target.chmod(target.stat().st_mode | 0o200)
+        (target / "compose.yml").write_text(written, encoding="utf-8")
+    for old, new in table if switches else ():
+        personals.follow(old, new)
+    project.forget()
+    return {"copies": [{"kind": k, "id": f"{paths.LOCAL}/{_slug(one)}"} for k, one in copies], "id": f"{paths.LOCAL}/{_slug(uid)}"}

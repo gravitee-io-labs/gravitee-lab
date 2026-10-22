@@ -39,6 +39,7 @@ unit.key x-gravitee.accounts kinds=any since=1
 unit.key x-gravitee.category kinds=any since=1
 unit.key x-gravitee.conflicts kinds=any since=1
 unit.key x-gravitee.consoles kinds=any since=1
+unit.key x-gravitee.copy_of kinds=any since=1
 unit.key x-gravitee.description kinds=any since=1
 unit.key x-gravitee.duration kinds=any since=1
 unit.key x-gravitee.first_start kinds=any since=1

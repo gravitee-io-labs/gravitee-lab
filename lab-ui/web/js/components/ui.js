@@ -1070,13 +1070,13 @@ const ING = { start: "Starting", stop: "Stopping", restart: "Restarting", update
   apply: "Applying", install: "Installing", remove: "Removing", reset: "Resetting", down: "Removing",
   reseed: "Seeding", deploy: "Deploying", login: "Logging in", create: "Creating", save: "Saving", share: "Sharing",
   delete: "Deleting", replace: "Replacing", refresh: "Refreshing", cancel: "Canceling", add: "Adding", connect: "Connecting",
-  setup: "Setting up", repair: "Repairing", export: "Exporting", import: "Importing", move: "Moving" };
+  setup: "Setting up", repair: "Repairing", export: "Exporting", import: "Importing", move: "Moving", copy: "Copying" };
 const ing = (verb) => ING[verb] || "Working";
 // What a verb says once its action is over, with its check or its error mark: the word of the button that started it
 const WORD = { start: "Start", stop: "Stop", restart: "Restart", update: "Update", pull: "Pull", apply: "Apply",
   install: "Install", remove: "Remove", reset: "Reset", down: "Remove", reseed: "Re-seed", deploy: "Deploy", login: "Log in",
   create: "Create", save: "Save", share: "Share", delete: "Delete", replace: "Replace", refresh: "Refresh", cancel: "Cancel",
-  add: "Add", connect: "Connect", setup: "Set up", repair: "Repair", export: "Export", import: "Import", move: "Move" };
+  add: "Add", connect: "Connect", setup: "Set up", repair: "Repair", export: "Export", import: "Import", move: "Move", copy: "Copy" };
 // What Turn on and Turn off change, as the tooltip of their button wherever it is (a row, a playground's head): what is on, which
 // starts with the platform, and nothing that runs now
 export const TURNS = { "Turn on": "Start it with the platform from now on", "Turn off": "No longer start it with the platform" };

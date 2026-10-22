@@ -104,3 +104,62 @@ class Moving(Case):
         with self.assertRaises(CatalogError) as caught:
             moving.plan("addon", "echo")
         self.assertEqual(caught.exception.code, "not_imported")
+
+
+class Copying(Case):
+    """Copy to Personal: Echo of the default catalog, which Echo core and Pair include and Scratch of this machine too. Alone, the
+    copy says whose copy it is and is its twin, so that neither blocks the other; with what uses it, Echo core and Pair are copied
+    and include the copy, and Scratch does."""
+
+    def setUp(self):
+        fixtures.need_compose()
+        fixtures.project(self, paths, project, compose, envfiles, check, files, ns="fixture", kind="git", store=True)
+        fixtures.local(self, "scratch")
+        project.forget()
+        self.addCleanup(project.forget)
+
+    def local(self, rel):
+        return paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / rel
+
+    def test_the_plan_says_what_each_choice_copies_and_switches(self):
+        plan = moving.copy_plan("addon", "echo")
+        self.assertEqual(plan["alone"], {"copies": ["Echo"], "switches": [], "uses_machine": [], "held": ""})
+        self.assertEqual(sorted(plan["with_users"]["copies"]), ["Echo", "Echo with the gateway", "Pair"])
+        self.assertEqual(plan["with_users"]["switches"], ["Scratch"])
+
+    def test_the_copy_is_the_originals_twin_and_neither_blocks_the_other(self):
+        done = moving.copy("addon", "echo")
+        self.assertEqual(done["id"], "local/echo")
+        text = self.local("addons/echo/compose.yml").read_text()
+        self.assertIn('copy_of: "echo"', text)
+        found = project.load()
+        self.assertEqual(found["addons"]["local/echo"]["twin"]["id"], "echo")
+        self.assertTrue(found["addons"]["local/echo"]["twin"]["copy"])
+        self.assertIsNone(found["addons"]["echo"]["blocked"], "the original is not blocked by the copy")
+        self.assertIsNone(found["addons"]["local/echo"]["blocked"])
+        self.assertIn("../../../fixture/addons/echo/compose.yml", self.local("addons/scratch/compose.yml").read_text(),
+                      "alone, what used the original still does")
+
+    def test_with_what_uses_it_the_users_are_copied_and_include_the_copy(self):
+        moving.copy("addon", "echo", users=True)
+        self.assertIn("../echo/compose.yml", self.local("addons/echo-core/compose.yml").read_text())
+        self.assertIn("../addons/echo/compose.yml", self.local("setups/pair.yml").read_text())
+        self.assertIn("../echo/compose.yml", self.local("addons/scratch/compose.yml").read_text(), "Scratch includes the copy")
+        self.assertIn('copy_of: "pair"', self.local("setups/pair.yml").read_text())
+
+    def test_an_item_of_personal_is_not_copied_and_a_second_copy_waits(self):
+        with self.assertRaises(CatalogError) as caught:
+            moving.copy_plan("addon", "local/scratch")
+        self.assertEqual(caught.exception.code, "personal")
+        moving.copy("addon", "echo")
+        self.assertEqual(moving.copy_plan("addon", "echo")["alone"]["held"], "Echo is in Personal already: delete or rename that one first")
+
+    def test_back_to_the_catalog_version_drops_the_copy_and_what_used_it_uses_the_original_again(self):
+        from lab_ui.catalogs import contribute
+        moving.copy("addon", "echo", users=True)
+        contribute.use_catalog_version(project.load(), "addon", "local/echo")
+        self.assertFalse(self.local("addons/echo").exists())
+        for rel in ("addons/scratch/compose.yml", "addons/echo-core/compose.yml"):
+            self.assertIn("fixture/addons/echo/compose.yml", self.local(rel).read_text(), rel)
+        found = project.load()
+        self.assertIsNone(found["addons"]["local/scratch"]["blocked"])

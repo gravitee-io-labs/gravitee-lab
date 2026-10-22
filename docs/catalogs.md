@@ -115,6 +115,13 @@ you can write to, as a branch with a pull request link, and a copy stays in Pers
 versions it started on go into the copy as its `tested` when its file declares none, and a playground that never ran is told to start first. A catalog you create with **New
 catalog** is a folder on this machine that you edit freely.
 
+**Copy to Personal**, in the menu of an item of a catalog, makes your own version of it, to change as you like. The copy keeps
+the names of the original's services, which its neighbours and its seed call it by, and knows whose copy it is: neither blocks
+the other, only one of the two runs at a time (the Lab says which to turn off), and **Back to the catalog version** drops your
+copy, with your settings kept. A catalog's item that includes the original cannot be changed to include your copy: choose
+**<item> and what uses it** to copy those too, up to the playgrounds, and your own items that used one of them then use the
+copy. The copy takes the original's settings and secrets, not what its seed recorded.
+
 ## A playground in a file
 
 A playground made for one person (a customer, a workshop) does not have to go into a catalog. **Export**, in the menu of a

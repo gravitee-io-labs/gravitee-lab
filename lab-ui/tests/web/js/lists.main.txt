@@ -137,7 +137,9 @@
                 <svg aria-hidden="true">
                   <use href="#i-file">
               <span class="icon-gap">
-              <span class="icon-gap">
+              <button class="icon-btn" data-more="" data-tip="More" aria-label="More for Acme Hostels" aria-haspopup="true">
+                <svg aria-hidden="true">
+                  <use href="#i-more">
         <div class="list-detail" id="detail-acme-hostels">
           <section class="panel ">
             <div class="panel-head">
@@ -202,7 +204,9 @@
                 <svg aria-hidden="true">
                   <use href="#i-file">
               <span class="icon-gap">
-              <span class="icon-gap">
+              <button class="icon-btn" data-more="" data-tip="More" aria-label="More for Acme Bakery" aria-haspopup="true">
+                <svg aria-hidden="true">
+                  <use href="#i-more">
         <div class="list-detail" id="detail-acme-bakery" hidden="">
     <div class="empty" hidden="">
       "No matches"

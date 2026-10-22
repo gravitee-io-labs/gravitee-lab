@@ -150,8 +150,41 @@ async function moveToPersonal(x) {
   }
 }
 
-// The menu of a playground's head: Export when it can be, Move to Personal for an imported one, Share and Delete for one of this machine
-const menuOf = (x) => [exportable(x) && exportEntry(x), movable(x) && moveEntry(x), x.personal && shareEntry(x),
+// The person's own version of an item of a catalog, to change as they like: alone, or with what uses it in the catalogs, which is then
+// copied too and uses the copy. What it copies, what of Personal then uses the copy, and what takes more of this machine are said first.
+export const copyable = (x) => !!x && !x.personal && !movable(x) && !x.twin;
+export const copyEntry = (x) => ({ label: "Copy to Personal", ...held(""), onSelect: () => copyToPersonal(x) });
+
+async function copyToPersonal(x) {
+  const key = `${x.kind}:${x.id}`, route = `/api/${x.kind}s/${x.id}/copy`;
+  let plan;
+  try {
+    plan = await busy(key, "copy", api(route, { check: true }));
+  } catch (err) {
+    return toast(err.message, true);
+  }
+  const rows = (p) => [{ label: "Copies", items: p.copies }, { label: "Uses the copy", items: p.switches, note: true },
+    { label: "Uses this machine", items: p.uses_machine || [], note: true }];
+  const option = (p, value, label, sub) => ({ value, label, sub, rows: rows(p), disabled: !!p.held, reason: p.held });
+  const options = plan.with_users
+    ? [option(plan.alone, "alone", `Only ${x.name}`, "What uses it keeps the original"), option(plan.with_users, "users", `${x.name} and what uses it`, "Copied too, so that it uses your copy")]
+    : [option(plan.alone, "alone", "")];
+  const allows = (value) => (((value === "users" ? plan.with_users : plan.alone) || plan.alone).uses_machine || []).length > 0;
+  const chosen = await effectsDialog({ title: `Copy ${x.name} to Personal`, options, action: (value) => (allows(value) ? "Allow and copy" : "Copy") });
+  if (!chosen) return;
+  try {
+    const copied = await busy(key, "copy", api(route, { users: chosen === "users", ...(allows(chosen) ? { allow: true } : {}) }));
+    toast("Copied");
+    await store.refresh();
+    router.replace(x.kind === "playground" ? `#/playgrounds/${copied.id}` : `#/${x.kind}s/${copied.id}`);
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+// The menu of a playground's head: Export when it can be, Move to Personal for an imported one, Copy to Personal for one of a catalog,
+// Share and Delete for one of this machine
+const menuOf = (x) => [exportable(x) && exportEntry(x), movable(x) && moveEntry(x), copyable(x) && copyEntry(x), x.personal && shareEntry(x),
   ...(x.personal ? [{ separator: true }, deleteEntry(x)] : [])].filter(Boolean);
 
 // A file the server made, as base64, saved where the browser saves downloads

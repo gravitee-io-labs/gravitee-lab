@@ -769,17 +769,17 @@ test("an item that needs a catalog says so with a warning beside its Start that 
   alone();
 });
 
-test("the file button of an item of a catalog reads View with the file's name; its menu has no Delete, no Share and no Edit, a setup keeps Duplicate, and a playground has Export", () => {
+test("the file button of an item of a catalog reads View with the file's name; its menu has no Delete, no Share and no Edit, a setup keeps Duplicate, a playground has Export, and each Copy to Personal", () => {
   draw(everyone());
   const file = row("playgrounds", "@acme-hub/ledger-demo").querySelector(".row-icons [data-file]");
   assert.deepEqual([file.getAttribute("data-tip"), file.getAttribute("aria-label")], ["View compose.yml", "View compose.yml"]);
   assert.equal(row("playgrounds", "local/scratch").querySelector(".row-icons [data-file]").getAttribute("data-tip"), "Edit playgrounds/local/scratch/compose.yml");
-  assert.deepEqual(menuOf("setups", "@acme-hub/duo").map(([label]) => label), ["Duplicate"]);
-  assert.deepEqual(menuOf("playgrounds", "@acme-hub/ledger-demo").map(([label]) => label), ["Export"]);
+  assert.deepEqual(menuOf("setups", "@acme-hub/duo").map(([label]) => label), ["Duplicate", "Copy to Personal"]);
+  assert.deepEqual(menuOf("playgrounds", "@acme-hub/ledger-demo").map(([label]) => label), ["Export", "Copy to Personal"]);
   assert.deepEqual(menuOf("playgrounds", "local/scratch").map(([label]) => label), ["Export", "Share", "Delete"]);
   alone();
   draw(world({ playgrounds: [made("playground", "bakery", "Bakery")] }));
-  assert.deepEqual(menuOf("playgrounds", "bakery").map(([label]) => label), [], "one of the default catalog comes with every Lab: nothing to export");
+  assert.deepEqual(menuOf("playgrounds", "bakery").map(([label]) => label), ["Copy to Personal"], "one of the default catalog comes with every Lab: nothing to export");
   alone();
 });
 

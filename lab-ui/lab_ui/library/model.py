@@ -510,7 +510,8 @@ def _note(c, unit, state, on, is_up, plan, failure, services, offer=None):
     wanted = license_features(unit.get("requires") or {})
     twin = unit.get("twin") if unit["personal"] else None   # the catalog holds this item too
     return (license_note(c["license"], c["features"], wanted) if wanted else None) \
-        or (_said(f"Also in {twin['name']}", target={"kind": unit["kind"], "id": twin["id"]}) if twin else _said())
+        or (_said(f"{'Copied from' if twin.get('copy') else 'Also in'} {twin['name']}", target={"kind": unit["kind"], "id": twin["id"]})
+            if twin else _said())
 
 
 def _needs(c, unit):
