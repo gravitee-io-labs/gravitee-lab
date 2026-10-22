@@ -31,6 +31,7 @@ const page = installDom({ ids, fetch: async (path, options = {}) => {
 } });
 const { store } = await import("../../../web/js/core.js");
 const { Welcome } = await import("../../../web/js/dialogs/welcome.js");
+const { refreshMachine } = await import("../../../web/js/dialogs/machine.js");
 const REPOSITORY = readFileSync(new URL("../../../web/js/dialogs/welcome.js", import.meta.url), "utf8").match(/^const REPOSITORY = "([^"]+)";/m)[1];
 const settle = async () => { for (let i = 0; i < 4; i += 1) await flush(); };
 
@@ -55,7 +56,10 @@ test("a first visit opens on your machine, and a line in red locks what follows:
   assert.deepEqual(rail().map((one) => one.getAttribute("data-step")), ["machine", "core", "start"]);
   assert.deepEqual(rail().map((one) => one.getAttribute("data-state")), ["attention", "locked", "locked"]);
   assert.deepEqual(rail().map((one) => one.querySelectorAll(".welcome-step-text > *").map(text)),
-    [["Your machine", "1 to fix"], ["Where API Management runs", "Once your machine is ready"], ["Start", "Once your machine is ready"]]);
+    [["Your machine", "1 to fix"], ["API Management", "Once your machine is ready"], ["Start", "Once your machine is ready"]]);
+  const column = dialog.querySelector(".welcome-rail-steps");
+  assert.deepEqual(column.children.filter((child) => child.tag).map((child) => child.getAttribute("data-step") || child.getAttribute("class")), ["guide", "welcome-steps"],
+    "How it works first, apart: it is not a step");
   for (const locked of rail().slice(1)) assert.deepEqual([locked.getAttribute("aria-disabled"), locked.getAttribute("data-why")], ["true", "Fix your machine first"]);
   assert.equal(step("machine").getAttribute("aria-current"), "step");
   assert.equal(text(body.querySelector(".machine-summary")), "The platform cannot start until the line in red is fixed");
@@ -140,6 +144,22 @@ test("a stopped platform is started from the start, and Choose a playground lead
   assert.equal(actions().querySelector('a[href="#/playgrounds"]').getAttribute("class"), "btn primary");
   store.state = { ...store.state, platform: { groups: GROUPS, state: { key: "running" } } };
   store.notify();
+});
+
+test("the info button of the menu opens How it works once the machine is ready, and your machine while a line of it is red", async () => {
+  dialog.close();
+  page.doc.getElementById("welcome").click();
+  await settle();
+  assert.equal(heading(), "How Gravitee Lab works");
+  dialog.close();
+  server.machine = DOWN;
+  await refreshMachine(true);
+  page.doc.getElementById("welcome").click();
+  await settle();
+  assert.equal(heading(), "Your machine");
+  server.machine = READY;
+  await refreshMachine(true);
+  await go("start");
 });
 
 test("How it works: the layers, the example of the on file, which names no item of the catalog, and the pages", async () => {

@@ -1067,7 +1067,7 @@ mark { background: var(--hl); color: var(--hl-text); border-radius: 2px; padding
 .welcome-logo { display: flex; flex: none; }
 .welcome-brand .logo { width: 30px; height: 33px; flex: none; color: var(--text); }
 .welcome-brand h2 { margin: 0; font-size: var(--fs-4); line-height: var(--lh-4); font-weight: var(--fw-3); text-wrap: balance; }
-.welcome-rail-steps { display: grid; gap: var(--sp-3); }
+.welcome-rail-steps { display: grid; gap: var(--sp-5); }
 .welcome-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .welcome-step {
   display: flex; align-items: center; gap: var(--sp-3); width: 100%; padding: 10px var(--sp-2); border: 0; border-radius: var(--r-control);
@@ -1076,8 +1076,6 @@ mark { background: var(--hl); color: var(--hl-text); border-radius: 2px; padding
 .welcome-step:hover:not([aria-disabled="true"]) { background: var(--surface-3); }
 .welcome-step[aria-current="step"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow-sm); }
 .welcome-step[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
-.welcome-step.guide { border-top: 1px solid var(--border); border-radius: 0 0 var(--r-control) var(--r-control); padding-top: 14px; }
-.welcome-step.guide[aria-current="step"] { border-radius: var(--r-control); }
 .welcome-mark {
   width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; flex: none; font-size: var(--fs-1); font-weight: var(--fw-3);
   border: 1.5px solid var(--border-strong); color: var(--muted); background: var(--surface);
@@ -1088,6 +1086,7 @@ mark { background: var(--hl); color: var(--hl-text); border-radius: 2px; padding
 .welcome-step[data-state="attention"] .welcome-mark { border-color: transparent; background: var(--err-soft); color: var(--err); }
 .welcome-step[data-state="checking"] .welcome-mark { color: var(--info); }
 .welcome-step-text { display: grid; min-width: 0; }
+.welcome-step-text > * { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .welcome-step-text strong { font-weight: var(--fw-2); font-size: var(--fs-3); line-height: var(--lh-3); }
 .welcome-step-text span { color: var(--muted); font-size: var(--fs-1); line-height: var(--lh-1); }
 .welcome-step[data-state="attention"] .welcome-step-text span { color: var(--err); }
@@ -1095,12 +1094,12 @@ mark { background: var(--hl); color: var(--hl-text); border-radius: 2px; padding
 .welcome-main { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .welcome-x { z-index: 1; }
 .welcome-main .welcome-panel { flex: 1 1 auto; min-height: 0; padding: 36px 40px var(--sp-5); }
-.welcome-panel > h2 { margin: 0 0 6px; font-size: var(--fs-5); line-height: var(--lh-5); font-weight: var(--fw-3); color: var(--text); padding-right: 40px; }
-.welcome-panel > .welcome-lead { margin: 0 0 var(--sp-5); max-width: 640px; }
+.welcome-panel > h2 { margin: 0 0 6px; text-wrap: balance; font-size: var(--fs-5); line-height: var(--lh-5); font-weight: var(--fw-3); color: var(--text); padding-right: 40px; }
+.welcome-panel > .welcome-lead { margin: 0 0 var(--sp-5); max-width: 640px; text-wrap: balance; }
 .welcome-panel .machine-summary { margin-bottom: var(--sp-3); }
 .welcome-actions .grow { flex: 1; }
 /* The start: the platform, a playground, a console, numbered; what is done says it */
-.start-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-2); }
+.start-list { list-style: none; margin: var(--sp-5) 0 0; padding: 0; display: grid; gap: var(--sp-2); }
 .start-item { display: flex; align-items: center; gap: 14px; padding: 14px var(--sp-4); border: 1px solid var(--border); border-radius: var(--r-pop); background: var(--surface); }
 .start-num { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; flex: none; font-weight: var(--fw-3); font-size: var(--fs-2); background: var(--accent-soft); color: var(--accent-ink); }
 .start-num > svg { width: 14px; height: 14px; }

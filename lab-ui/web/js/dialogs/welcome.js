@@ -1,8 +1,8 @@
-// Welcome to Gravitee Lab: the steps from a fresh machine to a running playground, each with its state in the rail at the left: your machine
-// (what it needs, each line with its fix), where API Management runs (the one choice the Lab asks), and the start (the platform, then a
-// playground). A step after a machine that keeps the platform from starting is locked, and says why. How Gravitee Lab works stays in the rail,
-// for later. Shown on a first visit, unless where API Management runs was chosen on this machine already; then from the info button of the
-// menu, on the first step that is not done; and on Your machine from the notices about Docker. What it says follows the lab while it is open.
+// Welcome to Gravitee Lab: How it works at the top of the rail at the left, then the steps from a fresh machine to a running playground, each
+// with its state: your machine (what it needs, each line with its fix), where API Management runs (the one choice the Lab asks), and the start
+// (the platform, then a playground). A step after a machine that keeps the platform from starting is locked, and says why. A first visit opens
+// it on your machine, unless where API Management runs was chosen on this machine already; the info button of the menu on How it works, or on
+// your machine while a line of it is red; the notices about Docker on your machine. What it says follows the lab while it is open.
 
 import { $, esc, icon, setHTML, recall, remember, api, store } from "../core.js";
 import { paintBusy, licenseForm, contentLead, setOff } from "../components/ui.js";
@@ -69,8 +69,8 @@ function coreChoice() {
   return `<div class="core-cards" role="radiogroup" aria-labelledby="welcome-core">${card("machine")}${card("cloud")}</div>${more}`;
 }
 
-const lead = () => (onCloud() ? `The Gravitee platform, ${product()} in Gravitee Cloud and the rest on your machine, and what runs on top of it, in layers you turn on and off.`
-  : "The Gravitee platform on your machine, and what runs on top of it, in layers you turn on and off.");
+const lead = () => (onCloud() ? `The platform, ${product()} in Gravitee Cloud, and what runs on top of it, in layers you turn on and off.`
+  : "The platform and what runs on top of it, in layers you turn on and off.");
 
 const layersHtml = (state) => layers(state).map(([symbol, name, text, path, parts = []]) => `
       <li class="layer"><span class="layer-icon">${icon(symbol)}</span>
@@ -114,7 +114,7 @@ function stepOf(id) {
   return { state: running() ? "done" : "todo", line: running() ? "Running" : "Not started yet" };
 }
 
-const TITLE = { machine: "Your machine", core: () => `Where ${product()} runs`, start: "Start", guide: "How it works" };
+const TITLE = { machine: "Your machine", core: () => product(), start: "Start", guide: "How it works" };
 const title = (id) => (typeof TITLE[id] === "function" ? TITLE[id]() : TITLE[id]);
 
 function railHtml() {
@@ -127,22 +127,22 @@ function railHtml() {
       <span class="welcome-mark">${mark(id, i, step)}</span>
       <span class="welcome-step-text"><strong>${esc(title(id))}</strong><span>${esc(step.line)}</span></span></button></li>`;
   }).join("");
-  return `<ol class="welcome-steps">${items}</ol>
-    <button type="button" class="welcome-step guide" data-step="guide"${current === "guide" ? ' aria-current="step"' : ""}>
-      <span class="welcome-mark">${icon("book")}</span><span class="welcome-step-text"><strong>How it works</strong><span>Layers, Start and Stop, pages</span></span></button>`;
+  return `<button type="button" class="welcome-step guide" data-step="guide"${current === "guide" ? ' aria-current="step"' : ""}>
+      <span class="welcome-mark">${icon("book")}</span><span class="welcome-step-text"><strong>How it works</strong><span>Layers, Start and Stop, pages</span></span></button>
+    <ol class="welcome-steps">${items}</ol>`;
 }
 
 function machinePanel() {
   const summary = machineSummary();
   return `<h2>Your machine</h2>
-    <p class="welcome-lead">Gravitee Lab runs the platform in Docker, on this machine. Each line updates by itself once it is fixed.</p>
+    <p class="welcome-lead">Gravitee Lab runs the platform in Docker, on this machine.</p>
     <p class="machine-summary" data-tone="${summary.tone}" aria-live="polite">${summary.html}</p>
     <ul class="machine-checks">${machineRowsHtml()}</ul>`;
 }
 
 function corePanel() {
   return `<h2 id="welcome-core">Where does ${esc(product())} run?</h2>
-    <p class="welcome-lead">On this machine with the rest of the platform, or in your Gravitee Cloud environment. You can change it later.</p>
+    <p class="welcome-lead">You can change it later.</p>
     <div class="welcome-core">${coreChoice()}</div>`;
 }
 
@@ -155,7 +155,6 @@ function startPanel() {
   const item = (n, name, text, done) => `<li class="start-item" data-state="${done ? "done" : "todo"}"><span class="start-num">${done ? icon("check") : n}</span>
     <span class="start-text"><strong>${name}</strong><span>${text}</span></span></li>`;
   return `<h2>${on ? "Your platform is running" : "Start the platform"}</h2>
-    <p class="welcome-lead">${on ? "Choose a playground: a use case with its apps, sample data and a guide." : first}</p>
     <ol class="start-list">
       ${item(1, cloud ? "Start all" : "Start the platform", on ? "Running" : first, on)}
       ${item(2, "Choose a playground", "Its page lists what it needs: a license, versions, settings.", false)}
@@ -323,11 +322,11 @@ dialog.addEventListener("close", () => {
 // What it says follows the lab while it is open: the choice made meanwhile, the platform started meanwhile
 store.subscribe(() => { if (dialog.open) render(); });
 
-// On a step, or on the first that is not done; on How it works when every step is
+// On a step, or on How it works: on your machine instead while it keeps the platform from starting
 async function show(step = null) {
   if (!step) {
     if (!machine.report) await refreshMachine(true);
-    step = steps().find((id) => stepOf(id).state !== "done") || "guide";
+    step = stepOf("machine").state === "done" ? "guide" : "machine";
   }
   current = step;
   render();

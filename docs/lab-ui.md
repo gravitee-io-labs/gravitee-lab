@@ -10,13 +10,13 @@ make ui
 
 It listens on `127.0.0.1:9000`, so only this machine reaches it, and it answers only to the names `localhost` and
 `127.0.0.1`. Under another name, such as `0.0.0.0`, the page says `Open the Lab UI at http://localhost:9000`. It opens
-on the [Dashboard](#dashboard). A first visit opens *Welcome to Gravitee Lab*, a dialog in steps, each with its state in the
-rail at the left: [Your machine](#your-machine), *Where does API Management run?* ([Where API Management
-runs](#where-api-management-runs)), then *Start*: the platform, a playground, a console. While a line of Your machine is red, the
-steps after it are locked and say why. *How it works*, in the rail too, shows the layers, what Start and Stop mean and where to
-go, and the rail ends with links to the *Source* and to *Troubleshooting*. The info button of the menu opens it again, on the
-first step that is not done. It does not open by itself once where API Management runs was chosen on this machine, in any
-browser.
+on the [Dashboard](#dashboard). A first visit opens *Welcome to Gravitee Lab* on its first step. Its rail, at the left, has
+*How it works* at the top (the layers, what Start and Stop mean, where to go), then the steps, each with its state:
+[Your machine](#your-machine), *API Management* (where it runs: [Where API Management runs](#where-api-management-runs)), then
+*Start*: the platform, a playground, a console. While a line of Your machine is red, the steps after it are locked and say why.
+The rail ends with links to the *Source* and to *Troubleshooting*. The info button of the menu opens *How it works*, or Your
+machine while a line of it is red. The dialog does not open by itself once where API Management runs was chosen on this
+machine, in any browser.
 
 Keep port 9000. The platform's consoles and the playground apps let only that address frame them, so with
 `UI_PORT=9001 make ui` every UI of a playground shows as refused beside the guide. When another program holds port
