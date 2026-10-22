@@ -748,6 +748,15 @@ def write_lock(lock: dict) -> None:
         _write(LOCK_FILE, text, _load_lock()[1])
 
 
+def imported(ns: str) -> bool:
+    """Whether catalog `ns` is a playground imported from a file and kept as a catalog: a folder of the Lab's own .lab/imports.
+    The page shows them together, as Imported."""
+    found = entry(ns) if isinstance(ns, str) else None
+    if not found or found.get("kind") != "folder" or not found.get("path"):
+        return False
+    return os.path.dirname(os.path.realpath(found["path"])) == os.path.realpath(paths.ROOT / paths.IMPORTS_DIR)
+
+
 def lock_of(ns: str) -> dict:
     """The lock entry of catalog `ns`, a new copy; the blank entry (no pin, private) for one that has none."""
     return read_lock()["catalogs"].get(ns) or _blank()

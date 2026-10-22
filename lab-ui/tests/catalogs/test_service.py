@@ -246,14 +246,14 @@ class Rows(Seam):
         self.installed("partner")
         row = next(row for row in service.describe(*project.loaded()) if row["id"] == "partner")
         self.assertEqual(sorted(row), sorted([
-            "id", "kind", "listed", "name", "description", "address", "url", "web_url", "version", "commit", "updated",
+            "id", "kind", "listed", "name", "imported", "description", "address", "url", "web_url", "version", "commit", "updated",
             "checked", "audience", "counts", "state", "progress", "attention", "auto", "has_previous", "writable", "host",
             "held", "blocked", "uses_machine", "ignored", "problems", "needs"]))
         self.assertEqual((row["name"], row["version"], row["commit"], row["counts"], row["audience"]),
                          ("Partner fixture", "2.0.0", self.remotes["partner"].head()[:7],
                           {"playground": 0, "setup": 0, "addon": 1}, "private"))
-        self.assertEqual((row["auto"], row["has_previous"], row["writable"], row["host"], row["listed"]),
-                         (True, False, False, "no", False))
+        self.assertEqual((row["auto"], row["has_previous"], row["writable"], row["host"], row["listed"], row["imported"]),
+                         (True, False, False, "no", False, False))
         self.assertEqual(row["held"], {"update": "", "remove": "", "undo": "No previous version"})
         text = json.dumps(row)
         self.assertNotIn(str(self.root), text, "the place of the install is not said")

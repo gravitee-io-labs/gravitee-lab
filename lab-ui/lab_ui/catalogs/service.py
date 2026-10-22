@@ -504,7 +504,7 @@ def _git_row(ns, found, summary, project_, entry, contract, asked=frozenset(), o
         _started.pop(ns, None)
     pin = held.get("pin")
     return {
-        "id": ns, "kind": found["kind"], "listed": bool(found.get("listed")), "name": found["name"],
+        "id": ns, "kind": found["kind"], "listed": bool(found.get("listed")), "name": found["name"], "imported": registry.imported(ns),
         "description": found.get("description") or "", "address": address,
         "url": url or "", "web_url": registry.web_url(entry) if entry else None,
         "version": found.get("version"), "commit": _short(pin), "updated": held.get("installed"),

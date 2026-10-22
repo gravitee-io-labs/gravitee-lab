@@ -248,7 +248,8 @@ const LOCAL = "local";   // the source of this machine's items: the id of its ro
 // The first catalog is the one whose items have bare ids, and so no origin: the first of those listed, which the picker lists first
 const firstId = () => added().find((c) => c.listed)?.id ?? "@first";
 const sourceOf = (x) => (x.personal ? LOCAL : x.origin?.id ?? firstId());
-const sourceName = (id) => (id === LOCAL ? "Personal" : added().find((c) => c.id === id)?.name ?? "Catalog");
+const IMPORTED = "imported";   // the source of every imported playground's items: one place, as the Catalogs page shows it
+const sourceName = (id) => (id === LOCAL ? "Personal" : id === IMPORTED ? "Imported" : added().find((c) => c.id === id)?.name ?? "Catalog");
 
 // The picker lists the first catalog, then the others as they were added, then this machine
 function sourceOrder(entries) {

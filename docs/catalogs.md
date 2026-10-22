@@ -139,7 +139,8 @@ playground's page opens. **Import to** chooses where it goes:
   used. The Lab no longer judges what is in Personal: what uses this machine is shown before you import, and an item the preview
   says cannot run cannot go there.
 - **Imported**: the file is kept as a catalog of its own, which the Lab keeps judging. An item that cannot run stays visible,
-  blocked. An item the file holds that this Lab has already, from the same catalog, is not imported a second time:
+  blocked. Every file imported this way is under one row, **Imported**, on the Catalogs page, which lists each with its menu
+  (**Remove**, the allowance of what uses this machine), and the lists say Imported as where their items come from. An item the file holds that this Lab has already, from the same catalog, is not imported a second time:
 the playground uses this Lab's own, and the preview says so under **Uses yours**. A playground this Lab has already is not
 imported at all. The Lab keeps the files under `.lab/imports/`, and the playground shows under a catalog named after it.
 To import a newer file of the same playground, remove that catalog on the Catalogs page first: its files go with it.

@@ -134,6 +134,11 @@ class RoundTrip(Case):
             exports.receive(data)
         self.assertEqual(caught.exception.code, "already_imported")
         self.assertIn("is already in this Lab", caught.exception.message)
+        self.assertTrue(registry.imported("sandbox"), "a catalog the Lab keeps in .lab/imports is an imported playground")
+        self.assertFalse(registry.imported("fixture"))
+        project.forget()
+        sandbox = project.load()["playgrounds"]["@sandbox/sandbox"]
+        self.assertEqual(sandbox["origin"], {"id": "imported", "name": "Imported", "version": None}, "its items say Imported")
         service.remove("sandbox")
         self.assertFalse(folder.exists(), "the files of an imported playground go with its catalog")
 

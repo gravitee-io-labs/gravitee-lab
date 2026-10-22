@@ -460,7 +460,7 @@ async function importFile(file) {
 function openImported(id) {
   if ($$("dialog").some((d) => d.open)) return;
   const found = (store.state?.playgrounds || []).filter((p) => String(p.id).startsWith(`@${id}/`));
-  router.go(found.length === 1 ? `#/playgrounds/${found[0].id}` : `#/catalogs/${id}`);
+  router.go(found.length === 1 ? `#/playgrounds/${found[0].id}` : "#/catalogs/imported");
 }
 
 export function openImport() {

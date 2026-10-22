@@ -49,7 +49,7 @@ from . import contribute, defaults, manifest, registry, resolve, service, standa
 from . import store as bare
 from .registry import CatalogError
 
-IMPORTS_DIR = f"{paths.LAB_DIR}/imports"   # where an imported playground's catalog is kept: the Lab's own folder
+IMPORTS_DIR = paths.IMPORTS_DIR   # where an imported playground's catalog is kept: the Lab's own folder
 VERSION = "1.0.0"
 NS = re.compile(r"[a-z][a-z0-9-]{0,22}[a-z0-9]")   # what a catalog id is (registry.check_namespace has the rest)
 MAX_ARCHIVE = 64 << 20   # the largest file an import reads: a catalog keeps at most 100 MB, compressed it is far less

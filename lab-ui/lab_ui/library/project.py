@@ -1470,6 +1470,9 @@ def _with_stubs(inputs, default):
     return {**inputs, "raw": raw, "default": default}
 
 
+IMPORTED = "imported"   # the origin the items of every imported playground say: one place, whichever file they came from
+
+
 def _placed(uid, path, inputs):
     """Where a unit comes from: its catalog, `origin` (the catalog's name and version, for a unit of a catalog that is not
     the first, and for one of the first once there is another catalog to tell it from; the units of this machine say none),
@@ -1484,6 +1487,8 @@ def _placed(uid, path, inputs):
     row = (inputs.get("catalogs") or {}).get(ns) or {}
     several = len([name for name in (inputs.get("catalogs") or {}) if name != paths.LOCAL]) > 1
     origin = {"id": ns, "name": row.get("name") or ns, "version": row.get("version")} if tier == "other" or several else None
+    if origin and registry.imported(ns):   # the imported playgrounds are one place to the person: Imported
+        origin = {"id": IMPORTED, "name": "Imported", "version": None}
     return {"catalog": ns, "origin": origin, "readonly": row.get("kind") == "git", "display_file": path.split("/", 3)[3]}
 
 

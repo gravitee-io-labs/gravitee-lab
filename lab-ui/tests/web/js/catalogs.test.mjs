@@ -170,6 +170,23 @@ test("the rows come in two sections, Local then Remote, each in the order the se
   assert.deepEqual([offered.sub, offered.state, offered.items, offered.buttons, offered.more, offered.toggle], ["Banking demos from a partner", "Not added", "", ["Add"], null, null]);
 });
 
+test("the imported playgrounds are one row, Imported, in Local: it counts them all and opens on each, with its menu, and on what they hold", () => {
+  const imported = (id, name, counts) => catalog({ id, name, kind: "folder", imported: true, counts, state: STATES.linked,
+    address: `~/lab/.lab/imports/${id}`, held: {} });
+  show([FIRST(), imported("contoso", "Contoso demo", { playground: 1, setup: 0, addon: 2 }), imported("acme-logistics", "ACME Logistics", { playground: 1, setup: 1, addon: 3 })]);
+  assert.deepEqual([...section.querySelector(".list-rows").children].map((li) => (li.className === "stack-sep" ? text(li) : text(li.querySelector(".list-name")))),
+    ["Local", "Imported", "Remote", "Gravitee public"]);
+  const group = cells(row("Imported"));
+  assert.deepEqual([group.state, group.items, group.buttons, group.more], ["", "8", [], null]);
+  open(row("Imported"));
+  const [imports, holds] = panels(row("Imported"));
+  assert.deepEqual(pairs(imports).map(([name]) => name), ["Contoso demo", "ACME Logistics"]);
+  imports.querySelector('[data-member="contoso"] [data-member-more]').click();
+  assert.deepEqual(names(menu()).filter(Boolean), ["Remove"], "an import has no address to copy");
+  assert.deepEqual(pairs(holds), [["Playgrounds", "2"], ["Setups", "1"], ["Add-ons", "5"]]);
+  page.doc.dispatchEvent(new Ev("keydown", { key: "Escape" }));
+});
+
 test("Personal is drawn only once it holds something", () => {
   show([FIRST(), PERSONAL({ counts: { playground: 0, setup: 0, addon: 0 } })]);
   assert.deepEqual(items().map((li) => text(li.querySelector(".list-name"))), ["Gravitee public"]);
