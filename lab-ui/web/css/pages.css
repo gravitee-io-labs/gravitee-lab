@@ -367,7 +367,7 @@
 /* The guide to read before a start, with its accounts beside it */
 .pg-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 340px; overflow: clip; }
 /* The guide under the details, before a start: with its accounts beside it, else across the card */
-.pg-read { margin-top: var(--gap); min-height: calc(100dvh - var(--head) - var(--gap)); }   /* a short page still comes up under the head */
+.pg-read { margin-top: var(--gap); }
 .pg-read.alone { grid-template-columns: minmax(0, 1fr); }
 .pg-read.alone .guide { border-right: 0; }
 /* The side stays in view while the guide scrolls, under the page's head. Its longest list, the services, scrolls
