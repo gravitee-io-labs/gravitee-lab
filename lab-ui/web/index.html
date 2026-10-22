@@ -57,7 +57,6 @@
     <symbol id="i-link" viewBox="0 0 16 16"><path d="M6.8 9.2a2.8 2.8 0 0 0 4 0l2-2a2.8 2.8 0 0 0-4-4l-.9.9M9.2 6.8a2.8 2.8 0 0 0-4 0l-2 2a2.8 2.8 0 0 0 4 4l.9-.9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
     <symbol id="i-file" viewBox="0 0 16 16"><path d="M4 1.8h5l3 3v9.4H4zM9 1.8v3h3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></symbol>
     <symbol id="i-book" viewBox="0 0 16 16"><path d="M8 4.2C6.6 3 4.6 2.6 2.2 2.8v9.6c2.4-.2 4.4.2 5.8 1.4 1.4-1.2 3.4-1.6 5.8-1.4V2.8C11.4 2.6 9.4 3 8 4.2zM8 4.2v9.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></symbol>
-    <symbol id="i-sparkle" viewBox="0 0 16 16"><path d="M8 1.8l1.5 4.2a.8.8 0 0 0 .5.5l4.2 1.5-4.2 1.5a.8.8 0 0 0-.5.5L8 14.2 6.5 10a.8.8 0 0 0-.5-.5L1.8 8 6 6.5a.8.8 0 0 0 .5-.5z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></symbol>
     <symbol id="i-info" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 7.2v3.6M8 5v.1" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
     <symbol id="i-laptop" viewBox="0 0 16 16"><rect x="3" y="3" width="10" height="7.5" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M1.5 13h13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></symbol>
     <symbol id="i-cloud" viewBox="0 0 16 16"><path d="M4.6 12.5a3.2 3.2 0 0 1-.5-6.4 4.2 4.2 0 0 1 7.8 1.1 2.7 2.7 0 0 1-.5 5.3z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></symbol>
@@ -68,7 +67,8 @@
   <aside class="sidebar">
     <div class="brand">
       <svg class="logo" viewBox="206 192 612 684" aria-hidden="true"><defs><linearGradient id="gio-g" x1="0" y1="0" x2=".6" y2="1"><stop stop-color="#ff8b00"/><stop offset="1" stop-color="#e5161a"/></linearGradient></defs><path fill="currentColor" fill-opacity=".07" d="M452 236V378Q452 404 438 430L238 790Q205 856 272 856H752Q819 856 786 790L586 430Q572 404 572 378V236Z"/><path fill="url(#gio-g)" d="M377 540Q399.5 528 422 540T467 540T512 540T557 540T602 540T647 540L786 790Q819 856 752 856H272Q205 856 238 790Z"/><path fill="#fff" transform="translate(409 594) scale(.42)" d="M234.539 0C105.007.002.001 104.99 0 234.499 0 364.01 105.005 469 234.54 469h107.04V354.155H491L378.608 222.981H228.447l112.282 131.048H234.54c-66.026 0-119.547-53.514-119.549-119.528 0-66.013 53.524-119.528 119.549-119.53 32.81.001 62.514 13.199 84.129 34.605l9.479 9.387 80.287-82.37-9.386-9.236C356.729 25.716 298.623.001 234.539 0"/><path fill="none" stroke="currentColor" stroke-width="34" stroke-linejoin="round" d="M452 236V378Q452 404 438 430L238 790Q205 856 272 856H752Q819 856 786 790L586 430Q572 404 572 378V236Z"/><path fill="currentColor" d="M420 218Q420 200 438 200H586Q604 200 604 218V222Q604 238 588 238H436Q420 238 420 222Z"/></svg>
-      <div class="brand-text"><strong>Gravitee</strong><span>Lab</span></div>
+      <div class="brand-text"><strong>Gravitee</strong><span class="brand-line"><span>Lab</span><button type="button" class="brand-version" id="lab" hidden></button></span></div>
+      <button type="button" class="brand-dot" id="lab-dot" hidden></button>
     </div>
     <nav class="nav" aria-label="Pages">
       <a class="nav-item" href="#/dashboard" data-nav="dashboard" aria-label="Dashboard" data-tip="Dashboard" data-tip-collapsed><svg aria-hidden="true" focusable="false"><use href="#i-gauge"/></svg><span>Dashboard</span></a>
@@ -93,9 +93,7 @@
         <span class="activity-icon"></span><span id="activity-text"></span>
         <span class="progress" data-progress="job" role="progressbar" aria-label="Activity progress" aria-valuemin="0" aria-valuemax="100" hidden><span></span></span>
       </button>
-      <button class="activity update" id="lab-update" hidden><svg aria-hidden="true" focusable="false"><use href="#i-sparkle"/></svg><span id="lab-update-text"></span></button>
       <div class="sidebar-tools">
-        <button class="icon-btn" id="lab" aria-label="Gravitee Lab" data-tip="Gravitee Lab"><svg aria-hidden="true" focusable="false"><use href="#i-sparkle"/></svg></button>
         <button class="icon-btn" id="welcome" aria-label="How Gravitee Lab works" data-tip="How Gravitee Lab works"><svg aria-hidden="true" focusable="false"><use href="#i-info"/></svg></button>
         <button class="icon-btn" id="theme" aria-label="System theme" data-tip="System theme"><svg aria-hidden="true" focusable="false"><use href="#i-auto"/></svg></button>
         <button class="icon-btn" id="sidebar-toggle" aria-label="Collapse the menu" data-tip="Collapse the menu"><svg aria-hidden="true" focusable="false"><use href="#i-sidebar"/></svg></button>

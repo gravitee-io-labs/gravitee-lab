@@ -166,20 +166,25 @@ export function followLab() {
   if (lab.version) remember(SEEN, lab.version);
 }
 
-// The chip of the menu while a newer version waits, and the tooltip of the button that opens the dialog
+// The version beside the name of the Lab, which opens the dialog; while a newer one waits, the update it offers, and a dot on the logo
+// when the menu is collapsed
 export function paintLab() {
-  const lab = store.state?.lab, chip = $("#lab-update"), button = $("#lab");
-  if (!chip || !button) return;
-  const name = lab?.version ? `Gravitee Lab ${lab.version}` : "Gravitee Lab";
-  button.dataset.tip = name;
-  button.setAttribute("aria-label", name);
+  const lab = store.state?.lab, button = $("#lab"), dot = $("#lab-dot");
+  if (!button) return;
   const waiting = !!lab?.update && !store.offline;
-  chip.hidden = !waiting;
-  const words = waiting ? `Update to ${lab.latest}` : "";
-  $("#lab-update-text").textContent = words;
-  if (waiting) {
-    chip.dataset.tip = words;
-    chip.setAttribute("aria-label", words);
+  const version = lab?.version || (lab?.commit ? "dev" : "");
+  const words = waiting ? `Update to ${lab.latest}` : version;
+  button.hidden = !lab;
+  button.textContent = words;
+  button.classList.toggle("update", waiting);
+  const tip = waiting ? `Gravitee Lab ${lab.latest} is available` : lab?.version ? `Gravitee Lab ${lab.version}`
+    : lab?.commit ? `Development version ${lab.commit}` : "Gravitee Lab";
+  button.dataset.tip = tip;
+  button.setAttribute("aria-label", tip);
+  if (dot) {
+    dot.hidden = !waiting;
+    dot.dataset.tip = tip;
+    dot.setAttribute("aria-label", tip);
   }
   if (dialog.open) draw();
 }

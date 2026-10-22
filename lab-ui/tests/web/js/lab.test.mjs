@@ -69,22 +69,30 @@ test("after an update, what is new since the version this browser showed last is
   assert.equal(dialog.open, false, "said once");
 });
 
-test("the menu says the version, and a chip says that a newer one waits", () => {
+test("the version stands beside the name of the Lab, and turns into the update while a newer one waits", () => {
+  const button = page.ids.lab, dot = page.ids["lab-dot"];
   state(LAB({ update: false, latest: "1.0.0" }));
   paintLab();
-  assert.equal(page.ids.lab.dataset.tip, "Gravitee Lab 1.0.0");
-  assert.equal(page.ids["lab-update"].hidden, true);
+  assert.equal(button.hidden, false);
+  assert.equal(button.textContent, "1.0.0");
+  assert.equal(button.classList.contains("update"), false);
+  assert.equal(button.dataset.tip, "Gravitee Lab 1.0.0");
+  assert.equal(dot.hidden, true);
   state(LAB());
   paintLab();
-  assert.equal(page.ids["lab-update"].hidden, false);
-  assert.equal(page.ids["lab-update-text"].textContent, "Update to 1.1.0");
+  assert.equal(button.textContent, "Update to 1.1.0");
+  assert.ok(button.classList.contains("update"));
+  assert.equal(button.dataset.tip, "Gravitee Lab 1.1.0 is available");
+  assert.equal(dot.hidden, false, "the collapsed menu shows a dot on the logo");
   store.offline = true;
   paintLab();
-  assert.equal(page.ids["lab-update"].hidden, true, "no chip while the Lab UI does not answer");
+  assert.equal(dot.hidden, true, "no update said while the Lab UI does not answer");
+  assert.equal(button.textContent, "1.0.0");
   store.offline = false;
-  state(LAB({ version: null }));
+  state(LAB({ version: null, update: false, latest: null }));
   paintLab();
-  assert.equal(page.ids.lab.dataset.tip, "Gravitee Lab");
+  assert.equal(button.dataset.tip, "Development version abc1234");
+  assert.equal(button.textContent, "dev");
 });
 
 test("the dialog says the version, the newer one, what it changes and the update", async () => {

@@ -34,7 +34,7 @@ const afterDraw = () => {
 
 // Skip to content takes the keyboard to the page on screen, which stays: its address is no page of the router
 // Gravitee Lab itself: its version and what is newer, from the button of the menu's tools and the chip of a newer version
-for (const id of ["lab", "lab-update"]) document.getElementById(id).addEventListener("click", () => openLab());
+for (const id of ["lab", "lab-dot"]) document.getElementById(id).addEventListener("click", () => openLab());
 
 document.querySelector(".skip").addEventListener("click", (e) => {
   e.preventDefault();
