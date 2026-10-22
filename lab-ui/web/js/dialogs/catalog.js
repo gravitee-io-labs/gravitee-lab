@@ -101,7 +101,8 @@ function previewRows(p, allow) {
   return [
     { label: "Adds", items: countsOf(p.counts) },
     // What an imported playground carries that this Lab has already, from the same catalog: this Lab's own is used
-    { label: "Uses yours", items: (p.reused || []).map((one) => ({ text: `${one.name}, from ${one.catalog}` })) },
+    { label: "Uses yours", items: (p.reused || []).map((one) => ({ text: one.name })),
+      hint: `From ${[...new Set((p.reused || []).map((one) => one.catalog))].join(", ")}` },
     // An imported playground comes from the file the person chose: where the Lab keeps it is the Lab's own business
     p.imported ? { label: "From", items: p.file ? [{ text: p.file, code: true }] : [] }
       : { label: "From", items: p.address ? [{ text: p.address, code: true }] : [], hint: c.kind === "folder" ? "On this machine" : p.audience === "public" ? "Public" : p.audience === "private" ? "Private" : "" },
