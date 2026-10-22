@@ -102,6 +102,7 @@ class Versions(Case):
         updates.forget()
         found = updates.releases()
         self.assertEqual(found["repository"], "acme/gravitee-lab")
+        self.assertEqual(found["url"], "https://github.com/acme/gravitee-lab/releases")
         self.assertEqual(found["versions"][0]["changes"][0]["url"], "https://github.com/acme/gravitee-lab/pull/16")
         self.assertEqual(found["versions"][0]["url"], "https://github.com/acme/gravitee-lab/releases/tag/v1.1.0")
 

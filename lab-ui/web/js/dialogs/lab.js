@@ -1,6 +1,6 @@
 // Gravitee Lab itself: the version this Lab is, the newer ones and what each changed, and the update to the newest. The dialog is the one
-// place that says it; the menu opens it from its tools, and from a chip while a newer version waits. An update is a job; the Lab UI then
-// starts again on its new code, the page reloads by itself, and says once what is new.
+// place that says it; the chip at the right of the Lab's name opens it. An update is a job, which the dialog follows; the Lab UI then starts
+// again on its new code, the page reloads by itself, and says once what is new.
 
 import { $, esc, icon, api, store, recall, remember, setHTML, ago } from "../core.js";
 import { toast, actionButton, paintActions } from "../components/ui.js";
@@ -50,7 +50,9 @@ function statusHtml(lab, versions) {
       <span class="lab-status-text"><strong>${title}</strong>${line ? `<span>${line}</span>` : ""}</span>${action}</div>`;
   const check = (label) => actionButton({ key: "lab", verb: "check", label, icon: "restart", attrs: "data-check" });
   const when = lab.checked ? `Checked ${esc(ago(lab.checked))}` : "";
-  if (shown.since) return card("ok", icon("check"), `Updated to ${esc(lab.version)}`, "");
+  if (shown.since) return card("ok", icon("check"), "Updated", `From ${esc(shown.since)}`);
+  const going = updating();
+  if (going) return card("working", '<span class="spinner" aria-hidden="true"></span>', `Updating to ${esc(going)}`, "Restarts when done");
   if (lab.update) {
     const released = dated(versions, lab.latest);
     const action = lab.blocked ? "" : actionButton({ key: "lab", verb: "update", label: "Update now", icon: "download", cls: "primary", attrs: "data-update" });
@@ -88,8 +90,8 @@ function draw() {
   setHTML($("#lab-current", dialog), currentHtml(lab, versions));
   if (setHTML($("#lab-status", dialog), statusHtml(lab, versions))) paintActions(dialog);
   const list = picked(versions, lab, shown.since);
-  const all = releases.repository ? `<a class="text-link" href="https://github.com/${esc(releases.repository)}/releases" target="_blank" rel="noopener">All releases${icon("external")}</a>` : "";
-  const title = shown.since ? "" : lab.update ? "What's new" : list.length ? `In ${esc(lab.version)}` : "";
+  const all = releases.url ? `<a class="text-link" href="${esc(releases.url)}" target="_blank" rel="noopener">All releases${icon("external")}</a>` : "";
+  const title = !list.length ? "" : shown.since || lab.update ? "What's new" : "In this version";
   setHTML($("#lab-notes-head", dialog), title || all ? `<h3>${title}</h3>${all}` : "");
   setHTML($("#lab-notes", dialog), notesHtml(list));
 }
@@ -133,7 +135,6 @@ async function update() {
     remember(SEEN, lab.version || null);
     remember(UPDATING, JSON.stringify({ version: lab.latest, run: lab.run }));
     await busy("lab", "update", api("/api/lab/update", { version: lab.latest }));
-    dialog.close();
   } catch (err) {
     remember(UPDATING, null);
     toast(err.message, true);
@@ -161,10 +162,18 @@ const waitedFor = () => {
     return null;
   }
 };
+// The version an update runs to, while it runs and while the Lab UI starts again on it; null otherwise
+function updating() {
+  const job = store.state?.job, waited = waitedFor();
+  if (job && !job.done && job.for === "lab" && job.verb === "update") return waited?.version || store.state?.lab?.latest || "";
+  return waited && (store.offline || store.state?.lab?.run === waited.run) ? waited.version : null;
+}
+
 export function followLab() {
   const lab = store.state?.lab;
   if (!lab) return;
-  const waited = waitedFor();
+  const waited = waitedFor(), job = store.state?.job;
+  if (waited && job?.done && !job.ok && job.for === "lab" && lab.run === waited.run) remember(UPDATING, null);   // the update failed: its job says why
   if (waited && lab.version === waited.version && lab.run !== waited.run) {
     remember(UPDATING, null);
     location.reload();

@@ -201,8 +201,8 @@ def _changes(start, end, repository):
 
 def releases():
     """The versions with what each changed, newest first, for the dialog of the Lab: {current: describe(), versions: [{version,
-    date, url, newer (than this Lab), current (this Lab's), changes}], repository}. The oldest version says what it changed since
-    the first commit only when that is little."""
+    date, url, newer (than this Lab), current (this Lab's), changes}], repository, url (where all of them are listed)}. The oldest
+    version says what it changed since the first commit only when that is little."""
     found = _read()
     repository, versions, base = _repository(), found["versions"], found["local"].get("base")
     shown = []
@@ -212,7 +212,8 @@ def releases():
                       "current": numbers == base,
                       "url": f"https://github.com/{repository}/releases/tag/{tag}" if repository else None,
                       "changes": _changes(before, tag, repository) if before else []})
-    return {"current": describe(), "versions": shown, "repository": repository}
+    return {"current": describe(), "versions": shown, "repository": repository,
+            "url": f"https://github.com/{repository}/releases" if repository else None}
 
 
 # ---------------------------------------------------------------------------------------------------------------------
