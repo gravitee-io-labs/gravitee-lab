@@ -113,8 +113,45 @@ async function exportPlayground(x) {
   }
 }
 
-// The menu of a playground's head: Export when it can be, Share and Delete for one of this machine
-const menuOf = (x) => [exportable(x) && exportEntry(x), x.personal && shareEntry(x),
+// An item imported from a file and kept as a catalog of its own becomes the person's own: alone, or with what it brings from the file that
+// nothing else uses. What it moves, what stays and why, and what it replaces in Personal are said first, as the server plans them.
+export const movable = (x) => x?.origin?.id === "imported";
+export const moveEntry = (x) => ({ label: "Move to Personal", ...held(""), onSelect: () => moveToPersonal(x) });
+
+async function moveToPersonal(x) {
+  const key = `${x.kind}:${x.id}`, route = `/api/${x.kind}s/${x.id}/move`;
+  let plan;
+  try {
+    plan = await busy(key, "move", api(route, { check: true }));
+  } catch (err) {
+    return toast(err.message, true);
+  }
+  if (plan.used_by) return toast(`Used by ${plan.used_by}: move that one to Personal instead`, true);
+  // What takes more of this machine, which nothing judges once it is Personal's, moves only once the person allows it: the button says so
+  const rows = (p) => [{ label: "Moves", items: p.moves }, { label: "Replaces", items: p.replaces, tone: "danger" },
+    { label: "Uses this machine", items: p.uses_machine || [], note: true },
+    { label: "Stays", items: p.stays.map((one) => `${one.name}: ${one.why}`), note: true }];
+  const planOf = (value) => (value === "together" ? plan.together : plan.alone) || plan.alone;
+  const allows = (value) => (planOf(value).uses_machine || []).length > 0;
+  const option = (p, value, label, sub) => ({ value, label, sub, rows: rows(p), disabled: !!p.held, reason: p.held });
+  const options = plan.together
+    ? [option(plan.together, "together", "With its setups and add-ons", "What nothing else uses"), option(plan.alone, "alone", `Only the ${x.kind === "playground" ? "playground" : "item"}`, "Its setups and add-ons stay in Imported")]
+    : [option(plan.alone, "alone", "")];
+  const chosen = await effectsDialog({ title: `Move ${x.name} to Personal`, options, action: (value) => (allows(value) ? "Allow and move" : "Move") });
+  if (!chosen) return;
+  try {
+    const moved = await busy(key, "move", api(route, { together: chosen === "together", ...(allows(chosen) ? { allow: true } : {}) }));
+    toast("Moved");
+    await store.refresh();
+    // The page of what was imported is gone: the one of the item in Personal takes its place in the history
+    router.replace(x.kind === "playground" ? `#/playgrounds/${moved.id}` : `#/${x.kind}s/${moved.id}`);
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+// The menu of a playground's head: Export when it can be, Move to Personal for an imported one, Share and Delete for one of this machine
+const menuOf = (x) => [exportable(x) && exportEntry(x), movable(x) && moveEntry(x), x.personal && shareEntry(x),
   ...(x.personal ? [{ separator: true }, deleteEntry(x)] : [])].filter(Boolean);
 
 // A file the server made, as base64, saved where the browser saves downloads

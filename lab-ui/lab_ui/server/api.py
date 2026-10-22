@@ -24,7 +24,7 @@ from ..docker import compose, files, images, plugins, probe, terminal
 from ..gravitee import core, license, places, platforms
 from . import dashboard, stack
 from .. import paths
-from ..catalogs import contribute, exports, firstrun, service, trust
+from ..catalogs import contribute, exports, firstrun, moving, service, trust
 from ..catalogs.registry import CatalogError
 from ..docker.jobs import JOBS, Job
 
@@ -747,6 +747,8 @@ ROUTES = [(method, re.compile(pattern), handler) for method, pattern, handler in
     ("POST", "/api/catalogs/import", lambda r: exports.receive(r.body.get("data"))),
     ("POST", "/api/catalogs/import/personal", lambda r: exports.to_personal(r.body.get("ticket"))),
     ("POST", f"/api/{KIND}s/{UNIT}/use-catalog", use_catalog),
+    ("POST", f"/api/{KIND}s/{UNIT}/move", lambda r, kind, uid: moving.plan(kind, uid) if r.body.get("check")
+     else moving.move(kind, uid, bool(r.body.get("together")), allow=r.body.get("allow") is True)),
     # The catalogs. What changes one, runs git or asks a network is a POST and the page's alone; the state never does
     ("POST", "/api/catalogs/check", lambda r: service.check_address(r.body.get("address"), r.body.get("branch"))),
     ("POST", "/api/catalogs", add_catalog),

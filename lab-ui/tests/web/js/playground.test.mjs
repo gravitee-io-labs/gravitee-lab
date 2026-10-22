@@ -35,6 +35,7 @@ const page = installDom({
     if (route.endsWith("/guide")) return reply({ markdown: "# Guide\n\n## 1. One\n\nClick it.\n" });
     if (route.endsWith("/check")) return reply({ checks: server.checks(query), dialog: server.dialog(query) });
     if (route.endsWith("/export")) return reply(call.body?.check ? server.exported : { ...server.exported, data: btoa("PK") });
+    if (route.endsWith("/move")) return reply(call.body?.check ? server.movePlan : { moved: [], id: "local/hotels" });
     if (call.method === "POST") return reply(JOB);
     return reply(found);
   },
@@ -1165,6 +1166,30 @@ test("Export says what the file carries, what it needs and what it leaves out, t
   assert.equal(page.ids["choice-ok"].getAttribute("aria-disabled"), "true");
   await answer(false);
   page.doc.createElement = make;
+  await leave();
+});
+
+test("an imported playground moves to Personal from its menu: with what it brings or alone, each saying what moves, stays and is replaced", async () => {
+  server.movePlan = {
+    together: { moves: ["Acme Hostels", "Kiosk"], stays: [{ name: "Ledger", why: "Used by Notes" }], replaces: [], held: "", uses_machine: ["Kiosk"] },
+    alone: { moves: ["Acme Hostels"], stays: [], replaces: ["Acme Hostels"], held: "" }, used_by: "" };
+  const imported = { ...off, id: "@hostels/hotels", origin: { id: "imported", name: "Imported" }, held: { share: "", delete: "" } };
+  await visit(imported, { platforms: [], places: [], id: "@hostels/hotels" });
+  section.querySelector("#pg-actions [data-more]").click();
+  const entries = menu.querySelectorAll(".menu-item");
+  assert.ok(entries.some((el) => text(el) === "Move to Personal"));
+  server.calls = [];
+  page.doc.dispatchEvent(new Ev("click", { target: entries.find((el) => text(el) === "Move to Personal") }));
+  await flush();
+  assert.equal(effects().title, "Move Acme Hostels to Personal");
+  assert.deepEqual(choices(), [
+    ["With its setups and add-ons", "What nothing else uses", [["Moves", ["Acme Hostels", "Kiosk"]], ["Uses this machine", ["Kiosk"]], ["Stays", ["Ledger: Used by Notes"]]]],
+    ["Only the playground", "Its setups and add-ons stay in Imported", [["Moves", ["Acme Hostels"]], ["Replaces", ["Acme Hostels"]]]]]);
+  assert.equal(effects().action, "Allow and move", "what takes more of this machine is allowed by the person, here");
+  await answer(true);
+  await flush();
+  assert.deepEqual(server.calls.map((call) => [call.path, call.body]), [["/api/playgrounds/@hostels/hotels/move", { check: true }],
+    ["/api/playgrounds/@hostels/hotels/move", { together: true, allow: true }]]);
   await leave();
 });
 

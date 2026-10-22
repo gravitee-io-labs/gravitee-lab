@@ -140,7 +140,12 @@ playground's page opens. **Import to** chooses where it goes:
   says cannot run cannot go there.
 - **Imported**: the file is kept as a catalog of its own, which the Lab keeps judging. An item that cannot run stays visible,
   blocked. Every file imported this way is under one row, **Imported**, on the Catalogs page, which lists each with its menu
-  (**Remove**, the allowance of what uses this machine), and the lists say Imported as where their items come from. An item the file holds that this Lab has already, from the same catalog, is not imported a second time:
+  (**Remove**, the allowance of what uses this machine), and the lists say Imported as where their items come from.
+  **Move to Personal**, in the menu of an imported item, makes it yours later: a playground alone, or with the setups and
+  add-ons it brings that nothing else uses. What another item still uses stays in Imported, and the dialog says which and why.
+  Its settings, secrets, star and what its seed recorded come along; the import whose items all moved is removed. As for an
+  import, what goes to Personal is no longer judged: an item blocked only for what it takes of this machine moves once you
+  allow it (**Allow and move**), and one blocked for anything else does not move. An item the file holds that this Lab has already, from the same catalog, is not imported a second time:
 the playground uses this Lab's own, and the preview says so under **Uses yours**. A playground this Lab has already is not
 imported at all. The Lab keeps the files under `.lab/imports/`, and the playground shows under a catalog named after it.
 To import a newer file of the same playground, remove that catalog on the Catalogs page first: its files go with it.

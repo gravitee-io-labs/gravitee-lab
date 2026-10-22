@@ -966,6 +966,7 @@ dialog::backdrop { background: var(--backdrop, rgb(10 12 16 / .45)); backdrop-fi
 .create-dialog:not(.platform-dialog) #create-agent > .field > .search { align-self: stretch; height: 100%; }
 .create-dialog:not(.platform-dialog) #create-agent .search textarea { align-self: stretch; }
 .platform-dialog { --label: 124px; }
+#choice { --label: 124px; }   /* the effects of an action: "Uses this machine" on one line, as in the dialogs of the catalogs */
 /* A WIZARD, and a form with the pictures of where its values are: one large dialog that stays open from step to step. Its head is the
    head of the large dialogs, with the steps of a wizard in the middle of its line; its body takes the height left between the head and
    one footer that never covers it, the refusal at the left of the buttons. Its height does not change from one step to the next. */
