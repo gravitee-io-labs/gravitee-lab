@@ -288,6 +288,7 @@ export function openCreate({ kind: what, mode, setup }) {
 // What sharing an item answered: what keeps it from being shared, or what is left to do once it is; with no catalog to share to, the way to
 // one. Its actions are written each time.
 const notice = document.createElement("dialog");
+notice.className = "share-notice";
 notice.setAttribute("aria-labelledby", "share-title");
 notice.innerHTML = `
   <form method="dialog">

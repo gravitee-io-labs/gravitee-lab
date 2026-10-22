@@ -229,17 +229,22 @@ def destinations(project: dict, kind: str, uid: str) -> list:
     added repository that takes contributions and each folder, the default catalog first, in the order they claim names. A
     destination that cannot take this item is there with its `reason`: it takes no contributions from the Lab, the item
     includes what it does not declare, the push was refused (what the probe said in the last ten minutes: the network is not
-    asked here), the folder cannot be written; `writable` is false for the last two. A catalog with no copy is none. Reads the
-    disk only."""
+    asked here), the folder cannot be written; `writable` is false for the last two. A catalog with no copy is none, and so is an
+    imported playground's, which the Lab keeps. What only this machine has goes with the item (`_bundle`): an include of it keeps
+    no catalog from taking it. Reads the disk only."""
     file, _, _ = _own(project, kind, uid)
     included, rows, found = _includes(project, file), registry.inputs(), []
     for ns in registry.precedence():
+        if registry.imported(ns):
+            continue
         try:
             entry, row = _catalog(ns, rows)
         except paths.NotFound:
             continue
         writable, reason = True, ""
-        outside = _outside(row, ns, included[0], rows) if included else None
+        members, reused = _bundle(project, kind, uid, ns)
+        allowed = {one for _, one, _, _ in members} | {one for _, one, _ in reused}
+        outside = _outside(row, ns, [one for one in included[0] if one[1] not in allowed], rows) if included else None
         if not _takes(ns, row):
             reason = _refusal("contribute_none", name=row["name"]).message
         elif outside:
@@ -578,13 +583,14 @@ def _clash(project, rows, ns, key, mine, closure) -> Optional[str]:
     return resolve.collisions([*owned], owned, {key: closure}).get(key)
 
 
-def _judged(project, kind, uid, slug, ns, row, copy, stage, folder):
+def _judged(project, kind, uid, slug, ns, row, copy, stage, folder, aliases=None, bundle=()):
     """The reasons the trust policy gives for the copy as a consumer of catalog `ns` would meet it, in the words a Blocked
     item shows; [] when it may run. It is the judgement project.build makes of a unit of a catalog, over the staged copy:
     the same function, the same context (the catalog's listing, allowance and declarations), what Compose says of the copy
     alone with the core, and what it defines itself against the units it includes; then the rules that need the other units,
     as the project adds them: a name another unit holds (T21), a private unit under a public catalog (T24) and an included
-    unit that is blocked (T25)."""
+    unit that is blocked (T25). What goes with it in the same share is staged beside it: its includes of those are judged at the
+    place they will have in the catalog (`aliases`: {stage path: catalog path}), and their folders are the catalog's (`bundle`)."""
     inputs = projects.loaded()[1]
     core, core_config = inputs["raw"].get(paths.CORE_FILE) or {}, inputs.get("core_config")
     if core_config is None:
@@ -613,11 +619,12 @@ def _judged(project, kind, uid, slug, ns, row, copy, stage, folder):
                "home": inputs.get("home"), "realpath": os.path.realpath,
                "level": asked if isinstance(asked, int) and not isinstance(asked, bool) else row.get("lab"),
                "contract": contract.get("contract", 1), "contract_min": contract.get("contract_min", 1)}
-    roots = trust.build_roots(paths.ROOT, folder if kind != "setup" else None, same, inputs.get("products") or (),
+    roots = trust.build_roots(paths.ROOT, folder if kind != "setup" else None, [*same, *bundle], inputs.get("products") or (),
                               realpath=os.path.realpath)
     seeds = [data.decode("utf-8", "replace") for path, (_, data) in sorted(copy.files.items())
              if path.startswith(f"{kind}s/{slug}/seed/") and not any(part.startswith(".") for part in path.split("/"))]
-    view = {"kind": kind, "id": uid, "name": meta.get("name") or slug, "meta": meta, "includes": direct, "seed": None,
+    view = {"kind": kind, "id": uid, "name": meta.get("name") or slug, "meta": meta,
+            "includes": [(aliases or {}).get(one, one) for one in direct], "seed": None,
             "references": trust.reads([(paths.ROOT / stage).read_text(encoding="utf-8")], raw, []),
             "seed_references": trust.seed_reads(seeds)}
     verdict = trust.judge(view, config, core_config, own, trust.overlays(raw, names, others), roots,
@@ -658,7 +665,8 @@ def _staged_all(items, ns):
             for path, (mode, data) in copy.files.items():
                 install.safe_write(top, path, text.encode("utf-8") if path == head else data, int(mode[-3:], 8))
         yield ({key: (f"{stage}/{head}", None if key[0] == "setup" else paths.ROOT / there)
-                for key, (_, there, head) in places.items()}, stage)
+                for key, (_, there, head) in places.items()}, stage,
+               {f"{stage}/{head}": f"{paths.CATALOGS_DIR}/{ns}/{head}" for _, there, head in places.values()})
     finally:
         shutil.rmtree(top, ignore_errors=True)
 
@@ -733,20 +741,31 @@ def _preflight(project, kind, uid, file, slug, ns, row, rows, copy, along=(), al
     [(kind, id, slug, copy)] of what goes with the item, each checked the same way, and judged with it in one stage; `allowed`: the
     ids of what goes with it or the target has, which its includes may name."""
     problems = []
+    if along:   # the rules of the standard read the files together, as the catalog will hold them: a link of one to another resolves
+        merged = dict(copy.files)
+        for _, _, _, other in along:
+            merged.update(other.files)
+        found = _rules(copy._replace(files=merged), kind, slug, ns, row)
+        for each in found:
+            if each.code in SECRETS:
+                raise _refusal("share_secret", file=each.path)
+        problems += [each.message for each in found]
+    rules = None if not along else []
     for k, one, s, other in along:
         problems += [f"{one.rsplit('/', 1)[-1]}: {line}" for line in _checked(project, k, one, paths.unit_file(k, one), s, ns, row,
-                                                                              rows, other, allowed)]
-    problems += _checked(project, kind, uid, file, slug, ns, row, rows, copy, allowed)
+                                                                              rows, other, allowed, rules)]
+    problems += _checked(project, kind, uid, file, slug, ns, row, rows, copy, allowed, rules)
     every = [(kind, uid, slug, copy), *along]
     # What the screen refuses is not given to Compose, nor what includes in a form the check cannot follow
     if any(trust.prescreen(c.text, f"{paths.CATALOGS_DIR}/{ns}/{_place(k, s, ns)[2]}") for k, _, s, c in every) \
             or any(_includes(project, paths.unit_file(k, one)) is None for k, one, _, _ in every):
         return list(dict.fromkeys(problems))
-    with _staged_all([(k, s, c) for k, _, s, c in every], ns) as (stages, top):
+    with _staged_all([(k, s, c) for k, _, s, c in every], ns) as (stages, top, aliases):
         for k, one, s, c in every:
             stage, folder = stages[(k, s)]
+            others = [there for key, (_, there) in stages.items() if key != (k, s) and there is not None]
             try:
-                lines = _judged(project, k, one, s, ns, row, c, stage, folder)
+                lines = _judged(project, k, one, s, ns, row, c, stage, folder, aliases, others)
             except (compose.ComposeError, ValueError) as error:   # Compose's last line, or an answer that is not JSON
                 lines = [f"Does not load with the platform: {_scrub(str(error), top, k, s)}"]
                 problems += lines if (k, s) == (kind, slug) else [f"{one.rsplit('/', 1)[-1]}: {line}" for line in lines]
@@ -756,9 +775,9 @@ def _preflight(project, kind, uid, file, slug, ns, row, rows, copy, along=(), al
     return list(dict.fromkeys(problems))
 
 
-def _checked(project, kind, uid, file, slug, ns, row, rows, copy, allowed=frozenset()):
+def _checked(project, kind, uid, file, slug, ns, row, rows, copy, allowed=frozenset(), found=None):
     """The checks of one item of a share that need no Compose: its includes, a secret, a private catalog named on a Public target,
-    the rules of a catalog's item, what the screen refuses."""
+    the rules of a catalog's item (`found`: given when they were read of all the files together), what the screen refuses."""
     included = _includes(project, file)
     problems = list(copy.problems)
     if included is None:
@@ -774,7 +793,7 @@ def _checked(project, kind, uid, file, slug, ns, row, rows, copy, allowed=frozen
     leak = _leaked(copy, kind, slug)
     if leak:
         raise leak
-    found = _rules(copy, kind, slug, ns, row)
+    found = _rules(copy, kind, slug, ns, row) if found is None else found
     for each in found:
         if each.code in SECRETS:
             raise _refusal("share_secret", file=_shown(each.path, kind, slug))
@@ -783,7 +802,11 @@ def _checked(project, kind, uid, file, slug, ns, row, rows, copy, allowed=frozen
         if private:
             raise private
     problems += [each.message for each in found]
-    problems += _own_rules(file)
+    # An include of what goes with it, or the target has, is no part of this machine left behind
+    going = {_here(*paths.unit_of(target)) for target in (trust.include_targets(copy.kept, file) or ())
+             if paths.unit_of(target) and paths.unit_of(target)[1] in allowed}
+    problems += [line for line in _own_rules(file)
+                 if not any(line.startswith(f"includes {where}") for where in going)]
     head = _place(kind, slug, ns)[2]
     problems += [f"Blocked: {reason}" for reason in trust.prescreen(copy.text, f"{paths.CATALOGS_DIR}/{ns}/{head}")]
     return problems

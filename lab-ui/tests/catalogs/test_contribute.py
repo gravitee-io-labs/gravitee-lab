@@ -489,7 +489,7 @@ class Judged(Seam):
     def test_the_copy_is_judged_where_a_unit_sits_with_its_includes_reaching_the_same_files(self):
         seen = {}
 
-        def judge(project_, kind, uid, slug, ns, row, copy, stage, folder):
+        def judge(project_, kind, uid, slug, ns, row, copy, stage, folder, *_):
             seen["stage"] = stage
             seen["text"] = (self.root / stage).read_text()
             seen["files"] = sorted(path.name for path in Path(folder).iterdir())
@@ -531,7 +531,7 @@ class Judged(Seam):
         self.judged.assert_not_called()
 
     def test_compose_failing_is_a_problem_in_words_that_do_not_name_the_copy(self):
-        def judge(project_, kind, uid, slug, ns, row, copy, stage, folder):
+        def judge(project_, kind, uid, slug, ns, row, copy, stage, folder, *_):
             top = stage.split("/addons/")[0]
             raise compose.ComposeError(f"validating {self.root / top}/addons/scratch/compose.yml: services.a must be a mapping\n"
                                        f"{top}/addons/scratch/compose.yml: bad")
@@ -1188,6 +1188,8 @@ class Copied(Seam):
         self.demo()
         answer = self.share("local/demo", "lab-new", "playground", True)
         self.assertEqual((answer["carries"], answer["reuses"]), (["Notes"], []))
+        there = next(one for one in answer["destinations"] if one["id"] == "lab-new")
+        self.assertEqual(there["reason"], "", "what goes with it keeps no catalog from taking it")
         self.assertEqual(self.share("local/demo", "lab-new", "playground"), {"copied": "Newer Lab fixture"})
         self.assertIn("  - ../../addons/notes/compose.yml", (self.target / "playgrounds/demo/compose.yml").read_text())
         notes = (self.target / "addons/notes/compose.yml").read_text()
