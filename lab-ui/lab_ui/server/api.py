@@ -19,7 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import URLError
 from urllib.parse import parse_qs, urlparse
 
-from ..library import check, drift, layers, layout, model, personal, playgrounds, project, starred
+from ..library import check, drift, layers, layout, model, personal, playgrounds, project, starred, updates
 from ..docker import compose, files, images, plugins, probe, terminal
 from ..gravitee import core, license, places, platforms
 from . import dashboard, stack
@@ -102,7 +102,7 @@ def snapshot():
                        catalogs=service.describe(p, read), content=firstrun.content(p, read), layout=layout.status())
     # What the page gives an AI agent to create an item: where the project is, and the skills to follow. Where API
     # Management runs, from this machine's choice and what its platform last said
-    body.update(root=str(paths.ROOT), skills=personal.skills(),
+    body.update(root=str(paths.ROOT), skills=personal.skills(), lab=updates.describe(),
                 core=core.describe(p, on, containers if known else {}, saved, body.get("wait")))
     unread = service.problems()   # the files that record the catalogs cannot be read: nothing would be shown, and no word said
     if unread:
@@ -742,6 +742,10 @@ ROUTES = [(method, re.compile(pattern), handler) for method, pattern, handler in
     ("POST", f"/api/{KIND}s/{UNIT}/share", share_item),
     ("POST", f"/api/{KIND}s/{UNIT}/use-catalog", use_catalog),
     # The catalogs. What changes one, runs git or asks a network is a POST and the page's alone; the state never does
+    # The Lab's own versions: what each changed, a fetch of the newest now, and the update to it (a job, then a new start)
+    ("GET", "/api/lab", lambda r: updates.releases()),
+    ("POST", "/api/lab/check", lambda r: updates.check()),
+    ("POST", "/api/lab/update", lambda r: updates.update(r.body.get("version"))),
     ("POST", "/api/catalogs/check", lambda r: service.check_address(r.body.get("address"), r.body.get("branch"))),
     ("POST", "/api/catalogs", add_catalog),
     ("POST", "/api/catalogs/new", lambda r: service.create_folder(r.body.get("name"))),
@@ -964,7 +968,8 @@ def start_up():
     because its row says what is wrong."""
     for what, step in (("looking at the layout", layout.ensure), ("finishing what a stop left", service.recover),
                        ("sweeping what a share left", contribute.sweep), ("preparing the first run", firstrun.reconcile),
-                       ("starting the download of catalogs", firstrun.start_worker)):
+                       ("starting the download of catalogs", firstrun.start_worker),
+                       ("starting the check for new versions", updates.start_checking)):
         try:
             step()
         except Exception as error:  # noqa: BLE001 - the Lab serves whatever these find
@@ -1040,4 +1045,5 @@ def main(argv=None):
     if args.e2e:
         from .. import e2e   # only a run needs it
         sys.exit(e2e.run(args.e2e, args.tested, args.timeout, args.keep))
-    return serve(args.port or configured_port(), not args.no_open)
+    # The Lab UI that an update started again opens no browser: the page that asked for the update is there, and reloads
+    return serve(args.port or configured_port(), not args.no_open and not os.environ.get(updates.RESTARTED))

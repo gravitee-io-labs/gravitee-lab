@@ -230,10 +230,13 @@ body.booting main > .page { display: none; }
 .activity.ok .activity-icon { background: var(--ok); }
 .activity.failed { background: var(--err-soft); color: var(--err); border-color: var(--err-line); }
 .activity.failed .activity-icon { background: var(--err); }
+/* A newer version of the Lab waits: the chip opens the dialog that says what it brings */
+.activity.update > svg { width: 14px; height: 14px; flex: none; color: var(--accent); }
+#lab-update-text { overflow: hidden; text-overflow: ellipsis; }
 
 /* Collapsed: icons only. A narrow window always has it (sidebar.js), so that the lists keep their columns. */
 body.nav-collapsed .sidebar { width: 64px; }
-body.nav-collapsed :is(.brand-text, .nav-item span, #health-text, #activity-text, .activity .progress) { display: none; }
+body.nav-collapsed :is(.brand-text, .nav-item span, #health-text, #activity-text, #lab-update-text, .activity .progress) { display: none; }
 /* A section's name becomes the line that separates it from the one above: the Dashboard, first of the menu, has none of its own */
 body.nav-collapsed .nav-label { height: 1px; margin: 8px 12px; padding: 0; background: var(--border); font-size: 0; }
 body.nav-collapsed :is(.brand, .nav-item, .health, .activity) { justify-content: center; padding: 0; }

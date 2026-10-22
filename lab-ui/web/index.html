@@ -57,6 +57,7 @@
     <symbol id="i-link" viewBox="0 0 16 16"><path d="M6.8 9.2a2.8 2.8 0 0 0 4 0l2-2a2.8 2.8 0 0 0-4-4l-.9.9M9.2 6.8a2.8 2.8 0 0 0-4 0l-2 2a2.8 2.8 0 0 0 4 4l.9-.9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
     <symbol id="i-file" viewBox="0 0 16 16"><path d="M4 1.8h5l3 3v9.4H4zM9 1.8v3h3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></symbol>
     <symbol id="i-book" viewBox="0 0 16 16"><path d="M8 4.2C6.6 3 4.6 2.6 2.2 2.8v9.6c2.4-.2 4.4.2 5.8 1.4 1.4-1.2 3.4-1.6 5.8-1.4V2.8C11.4 2.6 9.4 3 8 4.2zM8 4.2v9.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></symbol>
+    <symbol id="i-sparkle" viewBox="0 0 16 16"><path d="M8 1.8l1.5 4.2a.8.8 0 0 0 .5.5l4.2 1.5-4.2 1.5a.8.8 0 0 0-.5.5L8 14.2 6.5 10a.8.8 0 0 0-.5-.5L1.8 8 6 6.5a.8.8 0 0 0 .5-.5z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></symbol>
     <symbol id="i-info" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 7.2v3.6M8 5v.1" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
     <symbol id="i-laptop" viewBox="0 0 16 16"><rect x="3" y="3" width="10" height="7.5" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M1.5 13h13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></symbol>
     <symbol id="i-cloud" viewBox="0 0 16 16"><path d="M4.6 12.5a3.2 3.2 0 0 1-.5-6.4 4.2 4.2 0 0 1 7.8 1.1 2.7 2.7 0 0 1-.5 5.3z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></symbol>
@@ -92,7 +93,9 @@
         <span class="activity-icon"></span><span id="activity-text"></span>
         <span class="progress" data-progress="job" role="progressbar" aria-label="Activity progress" aria-valuemin="0" aria-valuemax="100" hidden><span></span></span>
       </button>
+      <button class="activity update" id="lab-update" hidden><svg aria-hidden="true" focusable="false"><use href="#i-sparkle"/></svg><span id="lab-update-text"></span></button>
       <div class="sidebar-tools">
+        <button class="icon-btn" id="lab" aria-label="Gravitee Lab" data-tip="Gravitee Lab"><svg aria-hidden="true" focusable="false"><use href="#i-sparkle"/></svg></button>
         <button class="icon-btn" id="welcome" aria-label="How Gravitee Lab works" data-tip="How Gravitee Lab works"><svg aria-hidden="true" focusable="false"><use href="#i-info"/></svg></button>
         <button class="icon-btn" id="theme" aria-label="System theme" data-tip="System theme"><svg aria-hidden="true" focusable="false"><use href="#i-auto"/></svg></button>
         <button class="icon-btn" id="sidebar-toggle" aria-label="Collapse the menu" data-tip="Collapse the menu"><svg aria-hidden="true" focusable="false"><use href="#i-sidebar"/></svg></button>

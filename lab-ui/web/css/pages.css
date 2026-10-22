@@ -1119,3 +1119,15 @@ mark { background: var(--hl); color: var(--hl-text); border-radius: 2px; padding
   .layers .layer { grid-template-columns: 32px minmax(0, 1fr); margin-inline: 0; }
   .layer > :is(code, .muted) { display: none; }
 }
+
+/* Gravitee Lab itself: its version and the check of newer ones, then what each version changed, newest first, in a list that scrolls */
+.create-dialog.lab-dialog { width: min(640px, 94vw); }
+.lab-facts { margin: 0; }
+.lab-updates { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-3); min-width: 0; }
+.lab-updates > .btn { margin-left: auto; }
+.lab-notes { display: flex; flex-direction: column; gap: var(--sp-4); max-height: min(50vh, 480px); overflow: auto; margin-top: var(--sp-4); }
+.lab-notes:empty { display: none; }
+.lab-version h3 { display: flex; align-items: center; gap: var(--sp-2); margin: 0 0 var(--sp-2); font-size: var(--fs-2); }
+.lab-version h3 > .icon-btn { margin-left: auto; }
+.lab-version ul { display: flex; flex-direction: column; gap: var(--sp-1); margin: 0; padding-left: 18px; }
+.lab-version li { overflow-wrap: anywhere; }
