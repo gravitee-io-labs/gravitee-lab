@@ -87,6 +87,7 @@ class RoundTrip(Case):
         self.patch(gitx, "home", lambda: paths.ROOT.parent)   # the project's folder is where Docker shares, as a home folder is
         # The fixture's remote is a file: address, which a catalog.yml cannot name; a Lab's default catalog has a Git one
         self.patch(exports, "_address", lambda ns: "https://github.com/acme/fixture-catalog.git")
+        self.patch(exports.images, "private_images", lambda pulled: {})   # no registry is asked in a test
         project.forget()
         self.addCleanup(project.forget)
 
@@ -154,6 +155,9 @@ class FromCatalogs(Case):
         scratch.write_text(text.replace("include:\n", f"include:\n  - {self.LEDGER}\n", 1), encoding="utf-8")
         self.patch(gitx, "home", lambda: paths.ROOT.parent)
         self.patch(exports, "_address", lambda ns: f"https://github.com/acme/{ns}-catalog.git")
+        self.asked = []
+        self.patch(exports.images, "private_images",
+                   lambda pulled: self.asked.append(sorted(pulled)) or {"registry.acme.example": ["registry.acme.example/ledger:1"]})
         project.forget()
         self.addCleanup(project.forget)
 
@@ -162,6 +166,11 @@ class FromCatalogs(Case):
         self.assertEqual(sorted(one["id"] for one in plan["carries"]), ["@partner/ledger", "local/sandbox", "local/scratch"])
         self.assertEqual(plan["private"], [{"id": "partner", "name": "Partner fixture", "items": ["Ledger"]}])
         self.assertEqual(plan["blocked"], [])
+
+    def test_an_image_the_other_lab_pulls_from_a_registry_that_asks_for_a_login_is_said(self):
+        plan = exports.plan("local/sandbox")
+        self.assertEqual(plan["registries"], [{"registry": "registry.acme.example", "images": ["registry.acme.example/ledger:1"]}])
+        self.assertEqual(self.asked[0], ["busybox:1.36", "busybox:1.36"], "the images of the carried services the other Lab pulls")
 
     def test_the_archive_says_where_each_item_of_a_catalog_comes_from(self):
         made = exports.archive("local/sandbox")

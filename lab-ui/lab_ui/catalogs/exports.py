@@ -13,7 +13,8 @@ Before the file is made, the export is judged as the import will be: the archive
 An item that comes from a catalog of Git is carried too, whatever that catalog is: the person who receives the file may have no
 access to it. What comes from a private one is said before the file is made (`private`), since it leaves with the file. The archive
 says where each of those items comes from (`export.json`, at its root, which a catalog never installs): a Lab that has that catalog
-uses its own item instead of a second copy of the same one (`_reuse`), and the import says so.
+uses its own item instead of a second copy of the same one (`_reuse`), and the import says so. An image the other Lab will pull
+from a registry that asks for a login is said too (`registries`): the person who receives the file needs that access.
 
 An import is that Add: the archive is read with the limits of a catalog (`store`), written under `.lab/imports/<id>`, which the Lab
 owns, and checked; the page shows the preview of an Add, and Import is its Add. A folder of `.lab/imports` that no catalog uses is
@@ -39,6 +40,7 @@ import zipfile
 from pathlib import Path
 
 from .. import paths
+from ..docker import images
 from ..library import moves, project
 from . import contribute, defaults, manifest, registry, resolve, service, standard
 from . import store as bare
@@ -127,11 +129,29 @@ def _gather(pid):
         problems += [f"{name}: {line}" for line in copy.problems]
         files.update(copy.files)
     origins, private = _origins(carried, units)
+    registries = _registries(found, carried, units)
     shared = _shared(carried, units, ns)
     if len(shared) > manifest.SETTINGS_LIMIT:
         problems.append(f"Its items read {len(shared)} settings; a catalog declares at most {manifest.SETTINGS_LIMIT}.")
     return {"project": found, "unit": unit, "ns": ns, "name": unit["name"], "carried": carried, "needs": needs, "files": files,
-            "problems": problems, "units": units, "shared": shared[:manifest.SETTINGS_LIMIT], "origins": origins, "private": private}
+            "problems": problems, "units": units, "shared": shared[:manifest.SETTINGS_LIMIT], "origins": origins, "private": private,
+            "registries": registries}
+
+
+def _registries(found, carried, units):
+    """[{registry, images}] of the images the other Lab will pull from a registry that asks for a login: those of the carried
+    items' services that are not built there, and those of the platform its items require a version of, from the registry this
+    Lab uses for them."""
+    owners = {(kind, uid) for kind, uid in carried}
+    services = found.get("services") or {}
+    pulled = [one["image"] for one in services.values() if not one.get("built")
+              and ((one.get("owner") or {}).get("kind"), (one.get("owner") or {}).get("id")) in owners]
+    keys = {key for kind, uid in carried for key in ((units[kind][uid].get("requires") or {}).get("images") or {})}
+    for component in images.components(found) if keys else ():
+        if component["version_key"] in keys:
+            pulled += [services[name]["image"] for name in component["services"] if name in services]
+    return [{"registry": registry, "images": sorted(set(found_images))}
+            for registry, found_images in sorted(images.private_images(pulled).items())]
 
 
 def _origins(carried, units):
@@ -281,6 +301,7 @@ def _plan(gathered, preview):
             "needs": [{"id": ns, "name": (rows.get(ns) or {}).get("name") or ns} for ns in gathered["needs"]],
             "problems": gathered["problems"],
             "private": gathered["private"],
+            "registries": gathered["registries"],
             "blocked": [one for one in blocked if one["reasons"]],
             # What another Lab asks the person to allow: what each item's own services take, as this Lab judged them where they are
             "uses_machine": [{"name": units[kind][uid]["name"], "what": what} for kind, uid in gathered["carried"]

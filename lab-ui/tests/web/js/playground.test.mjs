@@ -1143,12 +1143,14 @@ test("Export says what the file carries, what it needs and what it leaves out, t
   await leave();
   // What comes from a private catalog leaves with the file: it is said, and so is the button
   const plain = server.exported;
-  server.exported = { ...plain, private: [{ id: "internal", name: "Internal", items: ["Ledger"] }] };
+  server.exported = { ...plain, private: [{ id: "internal", name: "Internal", items: ["Ledger"] }],
+    registries: [{ registry: "graviteeio.azurecr.io", images: ["graviteeio.azurecr.io/apim-gateway:4.13.0"] }] };
   await visit({ ...off, personal: true, id: "local/hotels", held: { share: "", delete: "" } }, { platforms: [], places: [], id: "local/hotels" });
   section.querySelector("#pg-actions [data-more]").click();
   page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item")[0] }));
   await flush();
   assert.deepEqual(effects().notes[0], ["Private", ["Internal"]], "the catalog, once: what it carries is listed above");
+  assert.deepEqual(effects().notes[1], ["Needs access", ["graviteeio.azurecr.io"]], "a registry that asks for a login");
   assert.equal(text(page.ids["choice-ok"]), "Export with private content");
   await answer(false);
   await leave();

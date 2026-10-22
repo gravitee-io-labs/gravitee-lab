@@ -311,3 +311,34 @@ class Images(Case):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Anonymous(Case):
+    """images.private_images: whether a person with no login can pull an image, asked of its registry as Docker asks it (stood in
+    for here): Docker Hub on its own API, another registry without a login then with the token it gives anyone. What a
+    registry does not answer about is not said."""
+
+    def setUp(self):
+        self.answers = {}
+        self.patch(images, "_status", side_effect=lambda url, token=None: self.answers.get((url, bool(token)), (None, "")))
+        self.patch(images, "_json", side_effect=lambda url, token=None: self.answers[("token", url)])
+        self.patch(compose, "CACHE", compose.Cache())   # each test asks afresh
+
+    def test_docker_hub_says_it_of_the_repository(self):
+        self.answers[("https://hub.docker.com/v2/repositories/library/busybox/", False)] = (200, "")
+        self.answers[("https://hub.docker.com/v2/repositories/acme/secret/", False)] = (404, "")
+        self.assertEqual(images.private_images(["busybox:1.36", "acme/secret:2", "acme/secret:3"]),
+                         {"Docker Hub": ["acme/secret:2", "acme/secret:3"]})
+
+    def test_another_registry_is_asked_with_the_token_anyone_gets(self):
+        realm = 'Bearer realm="https://reg.example/token",service="reg.example",scope="repository:{}:pull"'
+        for repo, code in (("open/app", 200), ("closed/app", 403)):
+            url = f"https://reg.example/v2/{repo}/tags/list?n=1"
+            self.answers[(url, False)] = (401, realm.format(repo))
+            self.answers[("token", f"https://reg.example/token?service=reg.example&scope=repository%3A{repo.replace('/', '%2F')}%3Apull")] = {"token": "t"}
+            self.answers[(url, True)] = (code, "")
+        self.assertEqual(images.private_images(["reg.example/open/app:1", "reg.example/closed/app@sha256:ab"]),
+                         {"reg.example": ["reg.example/closed/app@sha256:ab"]})
+
+    def test_a_registry_that_does_not_answer_is_not_said_private(self):
+        self.assertEqual(images.private_images(["reg.example/quiet/app:1"]), {})

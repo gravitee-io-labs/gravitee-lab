@@ -94,6 +94,8 @@ async function exportPlayground(x) {
 
     { label: "Needs", items: (plan.needs || []).map(({ name }) => ({ name, kind: "catalog" })) },
     { label: "Private", items: (plan.private || []).map((one) => one.name), note: true },
+    // A registry that asks for a login: the person who receives the file needs that access to pull its images
+    { label: "Needs access", items: (plan.registries || []).map((one) => one.registry), note: true },
     { label: "Asks to use the machine", items: (plan.uses_machine || []).map((use) => `${use.name}: ${(use.what || []).join(", ")}`), note: true },
     { label: "Leaves out", items: ["Its settings", "The license", ...(plan.problems || [])], note: true },
     { label: "Blocked on another Lab", items: blocked, tone: "danger", note: true },

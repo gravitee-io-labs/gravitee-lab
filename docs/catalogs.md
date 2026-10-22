@@ -124,7 +124,8 @@ It never holds settings, keys or a license: the person who imports it adds their
 
 What comes from a catalog of Git goes in the file too, so the person who receives it needs no access to that catalog. A
 private one is named under **Private** before the file is made, and the button says **Export with private
-content**: what comes from it leaves with the file.
+content**: what comes from it leaves with the file. An image the other Lab will pull from a registry that asks for a login is
+said under **Needs access**, with that registry: the person who receives the file needs access to it too.
 
 Before the file is made, the export is judged as the import will be, with the rules a Lab applies to a catalog that is not
 listed. What the other Lab would block is said, and keeps the file from being made: fix it first. What it would ask to use that
