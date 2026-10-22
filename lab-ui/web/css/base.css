@@ -188,7 +188,7 @@ body.booting main > .page { display: none; }
   overflow: hidden auto; overscroll-behavior: contain;
 }
 .brand { display: flex; align-items: center; gap: 10px; padding: 0 6px; min-width: 0; }
-.logo { width: 28px; height: 27px; flex: none; display: block; }
+.logo { width: 27px; height: 30px; flex: none; display: block; color: var(--text); }
 .brand-text { display: flex; flex-direction: column; line-height: 1.15; white-space: nowrap; }
 .brand-text strong { font-size: var(--fs-4); font-weight: var(--fw-3); }
 .brand-text span { font-size: var(--fs-1); color: var(--muted); }

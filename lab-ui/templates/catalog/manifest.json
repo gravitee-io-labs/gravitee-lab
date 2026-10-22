@@ -1,5 +1,5 @@
 {
-  "level": 3,
+  "level": 4,
   "files": [
     {"path": ".catalog/standard.mk", "class": "managed", "since": 1, "when": "always", "scope": "full"},
     {"path": ".github/dependabot.yml", "class": "managed", "since": 1, "when": "always", "scope": "full"},
@@ -39,11 +39,11 @@
       "path": ".github/workflows/ci.yml",
       "below": 2,
       "from": [
-        "#   compile  the apps build on each architecture (a Mac runs arm64), pass their tests in their image with no network, and what",
-        "#            does not need the platform starts and answers its health check"
+        "#   Apps         the apps build on each architecture (a Mac runs arm64), pass their tests in their image with no network, and what",
+        "#                does not need the platform starts and answers its health check"
       ],
       "to": [
-        "#   compile  the apps build on each architecture (a Mac runs arm64) and pass their tests in their image with no network"
+        "#   Apps         the apps build on each architecture (a Mac runs arm64) and pass their tests in their image with no network"
       ]
     },
     {
@@ -72,13 +72,13 @@
       "path": ".github/workflows/nightly.yml",
       "below": 3,
       "from": [
-        "# Every week, on the main branch: what changes while nobody pushes. The newest Lab still reads the catalog, the standard files are the",
+        "# Every night, on the main branch: what changes while nobody pushes. The newest Lab still reads the catalog, the standard files are the",
         "# newest Lab's, the links of the guides answer, the rules of the main branch are still the standard's, and the images that were",
         "# published have no fixable critical flaw. The newest Lab is code nobody has read yet, so the job that runs it holds nothing: no token,",
         "# no package access. A run that fails opens an issue, or adds to the one that is open."
       ],
       "to": [
-        "# Every week, on the main branch: what changes while nobody pushes. The newest Lab still reads the catalog, the standard files are the",
+        "# Every night, on the main branch: what changes while nobody pushes. The newest Lab still reads the catalog, the standard files are the",
         "# newest Lab's, the links of the guides answer, and the rules of the main branch are still the standard's. The newest Lab is code nobody",
         "# has read yet, so the job that runs it holds nothing: no token, no package access. A run that fails opens an issue, or adds to the",
         "# one that is open."
@@ -116,7 +116,7 @@
       "urgent": false
     },
     "2": {
-      "summary": "Adds nightly.yml, which runs every week (the newest Lab, standard drift, the links of the guides, the rules of the main branch, one issue), and starts what needs no platform in compile.",
+      "summary": "Adds nightly.yml, which runs every night (the newest Lab, standard drift, the links of the guides, the rules of the main branch, one issue), and starts what needs no platform in the Apps job.",
       "manual": [],
       "settings": ["Keep the workflow Nightly enabled: make settings shows its state."],
       "urgent": false
@@ -126,6 +126,12 @@
       "manual": ["To publish images, set images in catalog.yml to ghcr.io/OWNER/REPO and name each image ghcr.io/OWNER/REPO/UNIT-APP, then run catalog.py upgrade again.",
         "For the e2e.yml module, store GRAVITEE_LICENSE only as a secret of the environments e2e and e2e-nightly, never as a repository secret."],
       "settings": ["Create the environments publish, e2e and e2e-nightly the same way: repo-settings shows what is missing."],
+      "urgent": false
+    },
+    "4": {
+      "summary": "Names every job and every step in plain words (Checks, Seed files, Apps; Newest Lab, Pinned Lab; Plan, Images, Attestations, Release), and runs nightly.yml every night, as its name says, instead of every week. No file is added.",
+      "manual": [],
+      "settings": [],
       "urgent": false
     }
   }

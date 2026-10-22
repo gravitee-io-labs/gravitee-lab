@@ -83,7 +83,7 @@ export class Shell {
     this.wanted = true;
     if (this.source || !(await this.open())) return;
     this.notice("");
-    const source = this.source = new EventSource(`/api/playgrounds/${encodeURIComponent(this.id)}/terminal?from=${this.offset}`);
+    const source = this.source = new EventSource(`/api/playgrounds/${this.id}/terminal?from=${this.offset}`);
     source.addEventListener("out", (e) => {
       const { at, data } = JSON.parse(e.data);
       this.offset = at;
@@ -131,7 +131,7 @@ export class Shell {
   }
 
   post(body) {
-    this.chain = this.chain.then(() => api(`/api/playgrounds/${encodeURIComponent(this.id)}/terminal`, body)).catch(() => {});
+    this.chain = this.chain.then(() => api(`/api/playgrounds/${this.id}/terminal`, body)).catch(() => {});
     return this.chain;
   }
 
@@ -139,7 +139,7 @@ export class Shell {
   async restart() {
     this.ended = false;
     this.offset = 0;
-    await api(`/api/playgrounds/${encodeURIComponent(this.id)}/terminal/close`, {}).catch(() => {});
+    await api(`/api/playgrounds/${this.id}/terminal/close`, {}).catch(() => {});
     this.term?.reset();
     this.connect();
   }

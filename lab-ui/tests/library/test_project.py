@@ -518,6 +518,13 @@ class Build(Legacy):
         self.assertEqual(built["services"]["mongodb"]["command"], "mongod --quiet")
         self.assertEqual(built["services"]["apim-gateway"]["command"], "")
 
+    def test_a_service_says_whether_a_setting_of_its_own_lets_the_lab_ui_frame_it(self):
+        given = inputs()
+        given["resolved"]["redis"]["environment"] = {"ALLOWED_FRAME_ANCESTORS": "http://localhost:8084 http://localhost:9000 http://127.0.0.1:9000"}
+        given["resolved"]["mongodb"]["environment"] = {"ALLOWED_FRAME_ANCESTORS": "http://localhost:8084 http://localhost:9000"}
+        built = project.build(given)
+        self.assertEqual([built["services"][name]["lets_frame"] for name in ("redis", "mongodb", "apim-gateway")], [True, False, False])
+
     def test_consoles_current_first(self):
         portal = self.project["services"]["apim-portal-ui"]["consoles"]
         self.assertEqual(portal, [{"label": "Developer Portal", "url": "http://localhost:8085/next/", "legacy": False},

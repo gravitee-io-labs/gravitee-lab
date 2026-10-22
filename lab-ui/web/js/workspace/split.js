@@ -110,6 +110,10 @@ export function actionOf(href) {
   return found && ACTION_ID.test(found[1]) ? found[1] : null;
 }
 
+// What an action does for the person: an id that starts with `open-` shows something to look at (a page of a console), any
+// other does something in the playground. The guide draws the first with an eye and the second with a play icon
+export const isLook = (id) => /^open-/.test(id);
+
 // Whether an address loaded in a frame makes a new page, which says again that it listens: one with a fragment may only move
 // within the page it is on
 export const newPage = (url) => !String(url).includes("#");

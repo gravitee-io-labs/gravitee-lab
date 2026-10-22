@@ -1,5 +1,7 @@
 version: 2
 
+# A new version waits a week before it is proposed, as in the catalogs: a release published to do harm is usually withdrawn
+# within days.
 updates:
   - package-ecosystem: github-actions
     directories:
@@ -9,6 +11,8 @@ updates:
       - "/lab-ui/templates/catalog/managed/.github/actions/*"
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       actions:
         patterns: ["*"]
@@ -18,6 +22,8 @@ updates:
       - "/seeder"
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       python:
         patterns: ["*"]
@@ -27,6 +33,8 @@ updates:
       - "/seeder"
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       images:
         patterns: ["*"]

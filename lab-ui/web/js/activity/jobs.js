@@ -16,7 +16,7 @@ const JobView = (() => {
   // BuildKit output ("#12 [bakery-agent 3/4] RUN pip install ."): one row per service built. BuildKit's own steps
   // ("#1 [internal] load local bake definitions") name no service.
   const BUILD = /^#\d+ \[([a-z0-9._-]+) [^\]]+\]/;
-  const BUILT = /^#\d+ naming to (?:docker\.io\/)?\S*?([a-z0-9._-]+)(?::\S+)? done/;
+  const BUILT = /^#\d+ naming to (?:docker\.io\/)?(\S+?)(?::[^\s/]+)? done/;
   const DONE = /^(Pulled|Built|Created|Recreated|Started|Healthy|Running|Stopped|Removed|Exited|Skipped)/i;
   const BAD = /(error|failed|unhealthy)/i;
   // A registry refusing a pull for want of a login: Compose then runs the image it has, or builds one, so the job
@@ -27,6 +27,7 @@ const JobView = (() => {
     return rest.length && /[.:]/.test(first) && first !== "docker.io" ? first : "Docker Hub";
   };
   // An image is named after its service, behind the project's name ("gravitee-bakery-agent")
+  const untagged = (image) => (image || "").replace(/^docker\.io\//, "").replace(/:[^\s/]+$/, "");
   const names = (image, service) => image === service || image.endsWith(`-${service}`) || image.endsWith(`/${service}`);
   let steps = new Map(), lines = [], pulls = null;   // pulls: how far the images are downloaded, as the server says
 
@@ -57,10 +58,13 @@ const JobView = (() => {
       }
       if (b && !steps.get(`Build:${b[1]}`)?.status.startsWith("Built")) steps.set(`Build:${b[1]}`, { kind: "Build", name: b[1], status: "Building" });
       if (built) {
-        // The longest service it ends with is its own: "bakery-agent" rather than "agent"
-        const [key] = [...steps.keys()].filter((k) => k.startsWith("Build:") && names(built[1], k.slice(6)))
-          .sort((a, z) => z.length - a.length);
-        if (key) steps.get(key).status = "Built";
+        // The services whose image it is: several can share one (every playground's seed builds the seeder), and the image
+        // then says nothing of the service's name
+        const builds = [...steps.keys()].filter((k) => k.startsWith("Build:"));
+        const shared = builds.filter((k) => untagged(store.state?.services?.[k.slice(6)]?.image) === built[1]);
+        // Otherwise the longest service it ends with is its own: "bakery-agent" rather than "agent"
+        const [named] = builds.filter((k) => names(built[1].split("/").pop(), k.slice(6))).sort((a, z) => z.length - a.length);
+        for (const key of shared.length ? shared : named ? [named] : []) steps.get(key).status = "Built";
       }
       // Build lines stay out of the output, except errors
       lines.push({ text: line, step: !!m || (/^#\d+ /.test(line) && !/error/i.test(line)) });

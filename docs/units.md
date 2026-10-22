@@ -322,8 +322,8 @@ services:
   way by every playground. Two services of one image: only one has the `build:`, the other the same `image:` and
   `pull_policy: never`.
 - **Consoles**: `consoles` lists the services whose UIs sit in tabs next to the guide (its apps, its add-ons, the
-  platform), each with its `io.gravitee.console.<id>` labels. A platform service in the list needs `x-ui-frames` ([the
-  core](../AGENTS.md#the-core)). A UI whose sign-in leaves its frame for Access Management's login page, which refuses
+  platform), each with its `io.gravitee.console.<id>` labels. A platform service in the list needs `x-ui-frames`, or a setting of its own that names the
+  Lab UI's pages ([the core](../AGENTS.md#the-core)). A UI whose sign-in leaves its frame for Access Management's login page, which refuses
   frames, signs in in a popup, or is not listed.
 - **Terminal**: `x-gravitee.terminal` names the service whose container holds the shell under the UIs, where the guide's `bash run`
   blocks run ([the key](playgrounds.md#terminal)). Give that container the aliases, variables and files a lesson types

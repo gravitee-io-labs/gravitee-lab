@@ -12,8 +12,8 @@
 #                 would run every workflow in it with the secrets, and is not how a change is tried
 #   schedule      the canary every night, on the main branches of the engine and of the catalog. The environment `e2e-nightly` holds the
 #                 license and no reviewer, and is for main only
-# The check to require is `E2E result`, the job `result` of this file. The call to e2e-run.yml shows as `try / E2E result`, a name
-# nothing requires.
+# The check to require is `E2E result`, the job `result` of this file. The call to e2e-run.yml shows as `Run / ...`, its own result
+# as `Run / Result`, a name nothing requires.
 name: E2E
 
 on:
@@ -42,6 +42,7 @@ concurrency:
 jobs:
   # What the run is told, from an event and from what a maintainer typed: checked before anything is checked out
   prepare:
+    name: Inputs
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -52,7 +53,8 @@ jobs:
       expect_sha: ${{ steps.prepare.outputs.expect_sha }}
       skip: ${{ steps.prepare.outputs.skip }}
     steps:
-      - id: prepare
+      - name: Read the inputs
+        id: prepare
         env:
           EVENT: ${{ github.event_name }}
           REF: ${{ github.ref }}
@@ -99,6 +101,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
   try:
+    name: Run
     needs: prepare
     if: needs.prepare.outputs.skip != 'true'
     uses: ./.github/workflows/e2e-run.yml
@@ -114,7 +117,7 @@ jobs:
     secrets:
       CATALOG_DEPLOY_KEY: ${{ secrets.CATALOG_DEPLOY_KEY }}
 
-  # The check to read, under the name it has always had. A job that calls a workflow is shown as `try / E2E result`, so this one is
+  # The check to read, under the name it has always had. A job that calls a workflow is shown as `Run / Result`, so this one is
   # the engine's own: it passes when the run did, and when there was no catalog to try. A fork's pull request has none, as the run has
   # none: its change is tried by a dispatch
   result:
@@ -126,7 +129,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - env:
+      - name: The run ended well
+        env:
           PREPARE: ${{ needs.prepare.result }}
           SKIP: ${{ needs.prepare.outputs.skip }}
           TRY: ${{ needs.try.result }}
@@ -138,6 +142,7 @@ jobs:
 
   # A night that fails opens an issue, or adds to the one that is open
   nightly:
+    name: Report the failed night
     needs: [prepare, try]
     if: >-
       always() && github.event_name == 'schedule' &&
@@ -147,7 +152,8 @@ jobs:
     permissions:
       issues: write
     steps:
-      - env:
+      - name: Open or update the issue
+        env:
           GH_TOKEN: ${{ github.token }}
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |

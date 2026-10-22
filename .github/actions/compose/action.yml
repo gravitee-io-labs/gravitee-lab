@@ -10,8 +10,10 @@ runs:
   using: composite
   steps:
     # An add-on or a playground changes core services from an included file, which Compose accepts from 5.0 on
-    - uses: docker/setup-compose-action@54042514f505b273907334ae2b9cdbb9a0213c1a # v2.4.0
+    - name: Install Compose
+      uses: docker/setup-compose-action@54042514f505b273907334ae2b9cdbb9a0213c1a # v2.4.0
       with:
         version: ${{ inputs.version }}
-    - run: docker compose version
+    - name: Show the Compose version
+      run: docker compose version
       shell: bash

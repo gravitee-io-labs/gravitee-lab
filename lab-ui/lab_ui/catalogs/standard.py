@@ -17,6 +17,8 @@ The managed files carry no placeholder and no per-catalog value: what differs be
 
 To ship a level: change the managed files, raise `level` in `manifest.json`, add its note, and refresh `golden.json` with
 `python3 -m tests.catalogs.test_standard --write` (from `lab-ui`); the golden test fails a change of the content without that. A level
+adds files or only changes them, and a change to a managed file always raises it: a catalog below the Lab's level whose file differs is
+behind (SD03, upgrade), one at it was edited by hand (SD02). A level
 puts its number in the marker of the files it renders, but the number is not compared: a file that no level changed is current
 at every level, and `upgrade` rewrites only the files whose content changed.
 
@@ -148,7 +150,8 @@ def _checked(data) -> dict:
         need(each.get("when") in WHENS, f"{path} has a condition that is none of {', '.join(WHENS)}")
         need(each.get("scope") in SCOPES, f"{path} has a scope that is none of {', '.join(SCOPES)}")
         top = max(top, each["since"])
-    need(top >= data["level"], "level is above every level a file arrives with")
+    # A level brings files, or changes those that are there: the levels that exist are the highest of both
+    top = max(top, data["level"])
     need(isinstance(data.get("removed"), list) and all(_clean(each) for each in data["removed"]), "removed is a list of paths")
     need(isinstance(data.get("edits"), list), "edits is a list")
     for each in data["edits"]:
@@ -186,8 +189,10 @@ LEVEL = manifest()["level"]
 
 
 def levels() -> int:
-    """The highest level a file of the template arrives with: the levels that exist, shipped or not."""
-    return max(each["since"] for each in manifest()["files"])
+    """The levels that exist, shipped or not: the highest a file of the template arrives with, or the one the Lab ships when a
+    level only changed files that were there (a catalog below it is then behind, SD03, not edited by hand)."""
+    found = manifest()
+    return max(found["level"], *(each["since"] for each in found["files"]))
 
 
 def entries(local: bool = False) -> List[dict]:

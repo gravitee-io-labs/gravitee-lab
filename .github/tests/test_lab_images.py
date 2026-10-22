@@ -82,10 +82,10 @@ class CommandTest(unittest.TestCase):
         self.assertEqual("Dockerfile", command[command.index("-f") + 1])
         self.assertEqual(["A=1", "B=2"], [command[i + 1] for i, word in enumerate(command) if word == "--build-arg"])
 
-    def test_the_cache_is_the_one_of_the_image(self):
+    def test_a_build_has_no_cache(self):
+        # As in the catalogs (WF17): nothing written by one build is read by the next
         command = lab_images.command("r", "app", LOCAL, "c", None)
-        self.assertIn("type=gha,scope=app", command)
-        self.assertIn("type=gha,mode=max,scope=app", command)
+        self.assertFalse([word for word in command if word.startswith("--cache")])
 
 
 class EnvironmentTest(unittest.TestCase):
