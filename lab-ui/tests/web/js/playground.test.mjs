@@ -1148,7 +1148,7 @@ test("Export says what the file carries, what it needs and what it leaves out, t
   section.querySelector("#pg-actions [data-more]").click();
   page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item")[0] }));
   await flush();
-  assert.deepEqual(effects().notes[0], ["Private content", ["Internal"]], "the catalog, once: what it carries is listed above");
+  assert.deepEqual(effects().notes[0], ["Private", ["Internal"]], "the catalog, once: what it carries is listed above");
   assert.equal(text(page.ids["choice-ok"]), "Export with private content");
   await answer(false);
   await leave();
