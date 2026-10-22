@@ -105,8 +105,8 @@ function destinationHtml(p) {
 }
 
 // What the preview of a catalog says it adds, in a fixed order, a row omitted when it is empty
-function previewRows(p, allow) {
-  if (toPersonal(p)) return personalRows(p);
+function previewRows(p, allow, all = false) {
+  if (!all && toPersonal(p)) return personalRows(p);
   const r = p.rows || {}, c = p.catalog || {}, uses = r.uses_machine || [], list = (names) => names.map((name) => ({ text: name }));
   const builds = r.builds || {}, blocked = cannot(p.blocked, uses, allow);
   const built = (builds.local ? [plural(builds.local, "image from source", "images from source")] : [])
@@ -135,23 +135,15 @@ function previewRows(p, allow) {
   ];
 }
 
-// An import kept in Personal: what it adds and replaces there, and what it takes of this machine, which nothing judges once it is
-// Personal's: said here, before the person chooses
+// An import kept in Personal: the rows of the Add, what it replaces there besides, and nothing that cannot run or waits for an
+// allowance, since nothing judges what is Personal's: what it takes of this machine is said here, before the person chooses
 function personalRows(p) {
-  const r = p.rows || {}, mine = p.personal || {}, uses = r.uses_machine || [];
+  const mine = p.personal || {};
   const reused = [...(p.reused || []).map((one) => one.name), ...(mine.same || [])];
   const from = [...new Set((p.reused || []).map((one) => one.catalog)), ...((mine.same || []).length ? ["Personal"] : [])];
-  return [
-    { label: "Import to", html: destinationHtml(p) },
-    { label: "Adds", items: countsOf(p.counts) },
-    { label: "Uses yours", items: reused.map((name) => ({ text: name })), hint: from.length ? `From ${from.join(", ")}` : "" },
-    { label: "Replaces", tone: "danger", items: (mine.replaces || []).map((name) => ({ text: name, tone: "danger" })), hint: "Your settings stay" },
-    { label: "From", items: p.file ? [{ text: p.file, code: true }] : [] },
-    { label: "Runs", html: `<span>Containers on this machine</span>${mark(RUNS, "Runs")}` },
-    usesRow(uses),
-    { label: "Publishes", items: (r.ports || []).length ? [portsOf(r.ports)] : [] },
-    { label: "Changes", items: (r.core || []).map((name) => ({ text: name })) },
-  ];
+  const replaces = { label: "Replaces", tone: "danger", items: (mine.replaces || []).map((name) => ({ text: name, tone: "danger" })), hint: "Your settings stay" };
+  return previewRows({ ...p, imported: true }, true, true).filter((r) => r.label !== "Cannot run").flatMap((r) => (r.label === "Uses yours"
+    ? [{ ...r, items: reused.map((name) => ({ text: name })), hint: from.length ? `From ${from.join(", ")}` : "" }, replaces] : [r]));
 }
 
 // One line for a growth of power, as the plan names it: the item, what it now does (`fact`) and the value of it
