@@ -248,7 +248,7 @@ function row(r) {
       <td><input type="checkbox" ${isChecked(r) ? "checked" : ""} ${lock ? `aria-disabled="true" data-why="${esc(lock)}"` : ""} aria-label="${esc(r.label)} installed"></td>
       <td><div class="list-name" data-tip="${esc(r.label)}" data-tip-cut>${esc(r.label)}${r.edition === "enterprise" ? EE : ""}</div>
           <div class="plugin-artifact" data-tip="${esc(r.name)}" data-tip-cut>${esc(r.name)}</div></td>
-      <td class="list-cat">${esc(capital(r.category))}</td>
+      <td class="list-col">${esc(capital(r.category))}</td>
       <td>${stateCell(r)}</td>
       <td class="version-cell">${versionCell(r)}</td>
     </tr>`;

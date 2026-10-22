@@ -94,7 +94,7 @@ const row = (name) => items().find((li) => text(li.querySelector(".list-name")) 
 const face = (b) => text(b.querySelector(".pbtn-face") || b);
 const cells = (li) => ({
   toggle: li.querySelector(".s-toggle"), name: text(li.querySelector(".list-name")), sub: li.querySelector(".list-desc") ? text(li.querySelector(".list-desc")) : null,
-  state: li.querySelector(".status-word") ? text(li.querySelector(".status-word")) : "", items: text(li.querySelector(".list-cat")),
+  state: li.querySelector(".status-word") ? text(li.querySelector(".status-word")) : "", items: text(li.querySelector(".col-cat")),
   buttons: li.querySelectorAll(".list-actions .btn").map(face), more: li.querySelector("[data-more]"),
 });
 const detail = (li) => li.querySelector(".list-detail");
@@ -128,7 +128,7 @@ test("the page is a card of the lists' grid with its head: its title, then New c
   assert.equal(heads[0].querySelectorAll("svg").length, 0);
   assert.ok(heads[1].querySelector("svg use").getAttribute("href").endsWith("#i-plus"));
   assert.ok(section.querySelector(".card.list-card"), "the one card of the lists");
-  assert.deepEqual(section.querySelector(".list-head").children.map(text), ["", "Catalog", "State", "Items", ""]);
+  assert.deepEqual(section.querySelector(".list-head").children.map(text), ["", "Catalog", "Items", "State", ""]);
   assert.deepEqual([catalogsPage.id, catalogsPage.nav, catalogsPage.title], ["catalogs", "catalogs", "Catalogs"]);
 });
 
@@ -175,11 +175,11 @@ test("Personal is drawn only once it holds something", () => {
   assert.deepEqual(items().map((li) => text(li.querySelector(".list-name"))), ["Gravitee public"]);
 });
 
-test("a row is 56 px of the lists' grid: a toggle named for the catalog, its name and line, its state, its items, its actions", () => {
+test("a row is 56 px of the lists' grid: a toggle named for the catalog, its name and line, its items, its state, its actions", () => {
   show([FIRST()]);
   const li = items()[0], top = li.querySelector(".list-row");
   assert.ok(top.classList.contains("list-grid"));
-  assert.deepEqual(top.children.filter((c) => c.tag).map((c) => c.getAttribute("class")), ["s-toggle", "list-main", "list-state", "list-cat", "list-actions"]);
+  assert.deepEqual(top.children.filter((c) => c.tag).map((c) => c.getAttribute("class")), ["s-toggle", "list-main", "list-col col-cat", "list-state", "list-actions"]);
   const toggle = top.children[0];
   assert.deepEqual([toggle.tag, toggle.getAttribute("aria-label"), toggle.getAttribute("aria-expanded"), toggle.getAttribute("aria-controls")],
     ["button", "Gravitee public", "false", "detail-catalog-gravitee"]);
@@ -277,8 +277,13 @@ test("a request on a row says so in its state from the click, not from the next 
   await flush();
   // Drawn by the notification alone: no poll, no render called here
   assert.equal(cells(row("Acme Hub")).state, "Checking");
+  // The button of Update says the check at work, as it says its own: a second request on the row is not started by it
   const update = row("Acme Hub").querySelector("[data-update]");
-  assert.deepEqual([isOff(update), offWhy(update)], [true, "Checking"], "a second request on the row is not started by its button");
+  assert.deepEqual([update.classList.contains("busy"), text(update.querySelector(".pbtn-text"))], [true, "Checking…"]);
+  const sent = server.calls.length;
+  click(update);
+  await flush();
+  assert.equal(server.calls.length, sent);
   assert.deepEqual(menuOf("Acme Hub"), [["Check again", "Checking"], ["Stop checking automatically", "Checking"], ["Open repository", ""], ["Copy address", ""],
     ["Go back to previous version", "Checking"], ["Remove", "Checking"]], "its entries wait and say why; the ones that ask nothing of the Lab do not");
   wait.release();
@@ -293,7 +298,7 @@ test("a request on a row says so in its state from the click, not from the next 
   assert.deepEqual([isOff(row("Later").querySelector("[data-retry]")), offWhy(row("Later").querySelector("[data-retry]"))], [true, "Checking"]);
 });
 
-test("the check of a plan reads on the row as Checking where the menu asked (Go back, Remove) and as Updating where the button of Update did", async () => {
+test("the check of a plan reads on the row as Checking wherever it was asked (Go back, Remove, the button of Update), and the button says so too", async () => {
   const wait = hold();
   show([GIT("update", { id: hub(), has_previous: true, held: { update: "", remove: "", undo: "" } })]);
   server.answers[at("/undo")] = () => wait.held.then(() => PLAN());
@@ -308,7 +313,7 @@ test("the check of a plan reads on the row as Checking where the menu asked (Go 
   server.answers[at("/update")] = () => again.held.then(() => PLAN());
   click(row("Acme Hub").querySelector("[data-update]"));
   await flush();
-  assert.equal(cells(row("Acme Hub")).state, "Updating");
+  assert.deepEqual([cells(row("Acme Hub")).state, text(row("Acme Hub").querySelector("[data-update] .pbtn-text"))], ["Checking", "Checking…"]);
   again.release();
   await settle();
   shut();
@@ -923,7 +928,7 @@ test("a word that is the name of something in the language is a word like anothe
   shut();
   await updating(PLAN({ changes: [{ id: "x", name: "Acme Bakery", fact: "constructor", value: "v" }, { id: "y", name: "Mock bank", fact: "reads", value: "toString" }] }));
   const changes = adding().querySelectorAll("#catalog-rows .choice-row").find((r) => text(r.querySelector(".choice-row-label")) === "Changes");
-  assert.deepEqual(changes.querySelectorAll(".step-name").map(text), ["Acme Bakery: constructor v", "Mock bank now reads toString"]);
+  assert.deepEqual(changes.querySelectorAll(".choice-lines li").map(text), ["Acme Bakery: constructor v", "Mock bank now reads toString"]);
   server.answers[at("/changes")] = { files: [{ path: "a.yml", status: "constructor", diff: null }] };
   click(secondary());
   await settle();
@@ -944,7 +949,7 @@ test("an item that is Blocked and also uses this machine counts once under Canno
   shut();
   await updating(PLAN({ uses_machine: [{ id: "kubernetes", name: "Kubernetes", what: ["runs privileged"] }], blocked: [k3s] }));
   assert.equal(rowsOf().pop()[0], "Cannot run");
-  assert.equal(adding().querySelectorAll("#catalog-rows .choice-row").pop().querySelectorAll(".pill").length, 1);
+  assert.equal(adding().querySelectorAll("#catalog-rows .choice-row").pop().querySelectorAll(".step-items li").length, 1);
   shut();
 });
 
@@ -956,12 +961,14 @@ test("more than four lines fold under a line that counts them", async () => {
   shut();
 });
 
-test("a row folded under its count keeps its hint: what the row says about its names is not lost when they are many", async () => {
-  // Removes says "No longer in the catalog" of its names, however many they are
-  await updating(PLAN({ removes: ["One", "Two", "Three", "Four", "Five"].map((name) => ({ name })), breaks: [], changes: [], blocked: [], updates: [], adds: [], whatsnew: [] }));
-  const fold = adding().querySelector("#catalog-rows details.choice-row");
-  assert.deepEqual([text(fold.querySelector(".choice-row-label")), text(fold.querySelector(".choice-summary"))], ["Removes", "5 itemsNo longer in the catalog"]);
-  assert.equal(fold.querySelector(".choice-summary .muted").tag, "span");
+test("the items of a plan are a list, every one of them on its line with its kind, under the hint of the row, however many they are", async () => {
+  // Removes says "No longer in the catalog" of its names
+  await updating(PLAN({ removes: ["One", "Two", "Three", "Four", "Five"].map((name, i) => ({ kind: i ? "addon" : "playground", name })), breaks: [], changes: [], blocked: [], updates: [], adds: [], whatsnew: [] }));
+  assert.equal(adding().querySelector("#catalog-rows details.choice-row"), null, "nothing of a plan is folded away");
+  const removes = adding().querySelectorAll("#catalog-rows .choice-row").find((r) => text(r.querySelector(".choice-row-label")) === "Removes");
+  assert.deepEqual([text(removes.querySelector(".choice-row-label")), text(removes.querySelector(".choice-items > .muted"))], ["Removes", "No longer in the catalog"]);
+  assert.deepEqual(removes.querySelectorAll(".step-items li").map((li) => [text(li.querySelector(".step-name")), text(li.querySelector(".step-kind"))]),
+    [["One", "Playground"], ["Two", "Add-on"], ["Three", "Add-on"], ["Four", "Add-on"], ["Five", "Add-on"]]);
   shut();
 });
 
@@ -1260,13 +1267,13 @@ test("Update says what changes before it does: the version, who changes, what co
   assert.deepEqual([adding().hasAttribute("open"), heading(), onScreen()], [true, "Update Acme Hub", "effects"]);
   assert.deepEqual(rowsOf(), [
     ["Version", "1.5.0"],
-    ["Updates", "Acme Bakery"],
-    ["Adds", "Ledger"],
-    ["Removes", "Old No longer in the catalog"],
-    ["Breaks", "Demo Needs Old"],
-    ["Changes", "Acme Bakery now publishes port 8141"],
+    ["Updates", "Acme Bakery Playground"],
+    ["Adds", "Ledger Add-on"],
+    ["Removes", "No longer in the catalog Old Add-on"],
+    ["Breaks", "Demo Needs Old Playground"],
     ["What's new", "Add the ledger"],
-    ["Cannot run", "X Publishes a port to the network"],
+    ["Changes", "Acme Bakery now publishes port 8141"],
+    ["Cannot run", "X Publishes a port to the network Add-on"],
   ]);
   assert.deepEqual(buttons(), ["Cancel", "Show changes", "Update"]);
   const update = primary();
@@ -1276,9 +1283,28 @@ test("Update says what changes before it does: the version, who changes, what co
   shut();
 });
 
+test("the version reads from the one installed to the new one when the catalog raised it, and says so when it did not", async () => {
+  const version = () => rowsOf().find(([label]) => label === "Version")[1];
+  await updating(PLAN({ version_from: "1.4.0" }));
+  assert.equal(version(), "1.4.0 → 1.5.0");
+  shut();
+  await updating(PLAN({ version_from: "1.5.0" }));
+  assert.equal(version(), "1.5.0 Unchanged");
+  shut();
+});
+
+test("an item that is updated says what changed in it, the first three parts of its folder and how many more", async () => {
+  await updating(PLAN({ updates: [{ kind: "addon", id: "@acme-hub/kafka", name: "Kafka", what: ["README.md"] },
+    { kind: "playground", id: "@acme-hub/bank", name: "Acme Bakery", what: ["README.md", "compose.yml", "guide/", "seed/", "tests/"] }] }));
+  const updates = adding().querySelectorAll("#catalog-rows .choice-row").find((r) => text(r.querySelector(".choice-row-label")) === "Updates");
+  assert.deepEqual(updates.querySelectorAll(".step-items li").map((li) => [text(li.querySelector(".step-name .muted")), text(li.querySelector(".step-kind"))]),
+    [["README.md", "Add-on"], ["README.md, compose.yml, guide/ and 2 more", "Playground"]]);
+  shut();
+});
+
 test("a row is left out when it has nothing: a plan that only adds says only that", async () => {
   await updating(PLAN({ updates: [], removes: [], breaks: [], changes: [], whatsnew: [], blocked: [] }));
-  assert.deepEqual(rowsOf(), [["Version", "1.5.0"], ["Adds", "Ledger"]]);
+  assert.deepEqual(rowsOf(), [["Version", "1.5.0"], ["Adds", "Ledger Add-on"]]);
   shut();
 });
 
@@ -1474,7 +1500,7 @@ test("every growth of power is a line of Changes in the Lab's words", async () =
     change("reads", "license"), change("reads", "gateway token"), change("plugins", "apim"), change("seed", "custom"), change("host", "runs privileged", "Kubernetes"),
     change("host", "mounts the Docker socket", "Console")] }));
   const changes = adding().querySelectorAll("#catalog-rows .choice-row").find((r) => text(r.querySelector(".choice-row-label")) === "Changes");
-  assert.deepEqual(changes.querySelectorAll(".step-name").map(text), ["Acme Bakery now publishes port 8141", "Mock bank now builds from github.com/acme/mock", "Acme Bakery now changes the API Management gateway",
+  assert.deepEqual(changes.querySelectorAll(".choice-lines li").map(text), ["Acme Bakery now publishes port 8141", "Mock bank now builds from github.com/acme/mock", "Acme Bakery now changes the API Management gateway",
     "Acme Bakery now reads your Gravitee license", "Acme Bakery now reads your Gravitee Cloud gateway token", "Acme Bakery now installs plugins for apim",
     "Acme Bakery now runs a custom seed", "Kubernetes now runs privileged", "Console now mounts the Docker socket"]);
   shut();

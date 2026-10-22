@@ -1370,6 +1370,7 @@ class Updating(Base):
                                          "change": ["addons/ledger/README.md", "catalog.yml"], "remove": []})
         self.assertEqual((plan["name"], plan["version"], plan["lab"]), ("Partner fixture", "2.1.0", 1))
         self.assertEqual(plan["whatsnew"], ["Add the audit add-on"])
+        self.assertEqual(plan["touched"], {"addon:audit": ["README.md", "compose.yml"], "addon:ledger": ["README.md"]})
         self.assertEqual((plan["rewritten"], plan["held"]), (False, []))
         self.assertEqual(plan["stage"], str(registry.stage_dir("partner")))
         self.assertEqual({entry.path for entry in plan["kept"]}, set(install._audit(plan["stage"], plan["kept"])))

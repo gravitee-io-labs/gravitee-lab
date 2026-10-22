@@ -49,7 +49,8 @@ function portsOf(ports) {
 
 // A row of what an action does: its label, then its items (a name or a count as a pill; `code` for a version or an address, `plain` for a
 // word; each with its own `hint`, and `mark`, the information mark that opens what it counts), then the hint of the row. `html` is a value
-// the caller made. The label is red in the `danger` tone. Past FOLD items a row is one line that counts them, which opens on a list.
+// the caller made. The label is red in the `danger` tone. Past FOLD items a row is one line that counts them, which opens on a list. A row of
+// `names` (the items of a plan) is a list instead, one item to a line with its kind, every one of them shown: the hint of the row over it.
 const item = (it) => (typeof it === "string" ? { text: it } : it);
 const cell = (it) => {
   const { text, code, plain, tone, hint, mark = "" } = item(it);
@@ -59,20 +60,26 @@ const cell = (it) => {
 };
 
 function fold(r) {
-  const lines = r.items.map((it) => `<li><b></b><span>${esc(item(it).text)}${item(it).hint ? ` <span class="muted">${esc(item(it).hint)}</span>` : ""}</span></li>`).join("");
+  const lines = r.items.map((it) => `<li><span>${esc(item(it).text)}${item(it).hint ? ` <span class="muted">${esc(item(it).hint)}</span>` : ""}</span></li>`).join("");
   return `<details class="choice-row choice-more${r.tone === "danger" ? " danger" : ""}"><summary><span class="choice-row-label">${esc(r.label)}</span>
     <span class="choice-summary">${plural(r.items.length, "item", "items")}${icon("chevron")}${r.hint ? `<span class="muted">${esc(r.hint)}</span>` : ""}</span></summary><ul class="choice-detail">${lines}</ul></details>`;
 }
 
+// An item of a plan on its line: its name, what is said of it, and its kind
+const KIND = Object.fromEntries(KINDS.map(([kind, one]) => [kind, capital(one)]));
+const named = (it) => `<li><span class="step-name">${esc(it.text)}${it.hint ? ` <span class="muted">${esc(it.hint)}</span>` : ""}</span>${
+  own(KIND, it.kind) ? `<span class="step-kind">${KIND[it.kind]}</span>` : ""}</li>`;
+
 function row(r) {
   if (!r.html && !r.items?.length) return "";
+  if (r.names) r = { ...r, html: `${r.hint ? `<span class="muted">${esc(r.hint)}</span>` : ""}<ul class="step-items">${r.items.map(named).join("")}</ul>` };
   if (!r.html && r.items.length > FOLD) return fold(r);
   const value = r.html ?? `${r.items.map(cell).join("")}${r.hint ? `<span class="muted">${esc(r.hint)}</span>` : ""}`;
   return `<div class="choice-row${r.tone === "danger" ? " danger" : ""}"><span class="choice-row-label">${esc(r.label)}</span><span class="choice-items">${value}</span></div>`;
 }
 
-// A list of sentences, one to a line, each cut with an ellipsis that says it whole (what is new, what a change adds)
-const sentences = (lines) => `<ul class="step-items">${lines.map((line) => `<li><span class="step-name" data-tip="${esc(line)}" data-tip-cut>${esc(line)}</span></li>`).join("")}</ul>`;
+// A list of sentences, one to a line, each said whole (what is new, what a change adds): text, not a frame of names
+const sentences = (lines) => `<ul class="choice-lines">${lines.map((line) => `<li>${esc(line)}</li>`).join("")}</ul>`;
 
 const mark = (card, label) => tipHtml(icon("info"), card, "plat-info", label);
 
@@ -128,30 +135,43 @@ const CHANGES = {
 };
 const changeLine = ({ name, fact, value }) => (own(CHANGES, fact) ? CHANGES[fact](name, value) : `${name}: ${fact} ${value ?? ""}`.trim());
 
-// What an update, or going back, says it does. A history that changed is an error for an update, which goes on only after the person said so
-// (`confirm_history`); going back is the person's own choice of an older version, which the server takes as confirmed, so the line is said
-// without the tone that asks for care.
+// What changed in an item, as the server names the parts of its folder ("README.md", "seed/"): the first three, then how many more
+const parts = (what = []) => (what.length > 3 ? `${what.slice(0, 3).join(", ")} and ${what.length - 3} more` : what.join(", "));
+
+// The version an update goes to, from the one installed: both when the catalog raised it, the one alone when it did not (the update is then
+// the commits since, which the version does not tell apart)
+function versionItems(p) {
+  if (!p.version) return [];
+  if (p.version_from && p.version_from !== p.version) return [{ text: p.version_from, code: true }, { text: "→", plain: true }, { text: p.version, code: true }];
+  return [{ text: p.version, code: true, hint: p.version_from ? "Unchanged" : "" }];
+}
+
+// What an update, or going back, says it does: its version, the items it touches, each with what changed in it, then what its commits say
+// (the authors' words). A history that changed is an error for an update, which goes on only after the person said so (`confirm_history`);
+// going back is the person's own choice of an older version, which the server takes as confirmed, so the line is said without the tone that
+// asks for care.
 function planRows(p, allow, kind) {
-  const uses = p.uses_machine || [], names = (list = []) => list.map((x) => ({ text: x.name })), blocked = cannot(p.blocked, uses, allow);
+  const uses = p.uses_machine || [], blocked = cannot(p.blocked, uses, allow);
+  const names = (list = [], hint = () => "") => list.map((x) => ({ text: x.name, kind: x.kind, hint: hint(x) }));
   const tone = kind === "update" ? "danger" : undefined;
   return [
     { label: "Rewritten", tone, items: p.rewritten ? [{ text: "This catalog was rewritten or moved", tone }] : [] },
-    { label: "Version", items: p.version ? [{ text: p.version, code: true }] : [] },
-    { label: "Updates", items: names(p.updates) },
-    { label: "Adds", items: names(p.adds) },
-    { label: "Removes", hint: "No longer in the catalog", items: names(p.removes) },
-    { label: "Breaks", items: (p.breaks || []).map((b) => ({ text: b.name, hint: `Needs ${b.needs}` })) },
+    { label: "Version", items: versionItems(p) },
+    { label: "Updates", names: true, items: names(p.updates, (u) => parts(u.what)) },
+    { label: "Adds", names: true, items: names(p.adds) },
+    { label: "Removes", names: true, hint: "No longer in the catalog", items: names(p.removes) },
+    { label: "Breaks", names: true, items: names(p.breaks, (b) => `Needs ${b.needs}`) },
+    { label: "What's new", html: (p.whatsnew || []).length ? sentences(p.whatsnew.slice(0, 5)) : "" },
     usesRow(uses),
     { label: "Changes", html: (p.changes || []).length ? sentences(p.changes.map(changeLine)) : "" },
-    { label: "What's new", html: (p.whatsnew || []).length ? sentences(p.whatsnew.slice(0, 5)) : "" },
-    { label: "Cannot run", tone: "danger", items: blocked.map((b) => ({ text: b.name, tone: "danger", hint: (b.reasons || [])[0] ?? "" })) },
+    { label: "Cannot run", tone: "danger", names: true, items: names(blocked, (b) => (b.reasons || [])[0] ?? "") },
   ];
 }
 
 // --- The dialog of Add, Update and Go back ----------------------------------------------------------------------------------------
 
 const dialog = document.createElement("dialog");
-dialog.className = "create-dialog platform-dialog";
+dialog.className = "create-dialog platform-dialog catalog-dialog";
 dialog.setAttribute("aria-labelledby", "catalog-title");
 dialog.innerHTML = `
   <form autocomplete="off">
@@ -345,19 +365,24 @@ const careful = (kind, p) => kind === "update" && !!p?.rewritten;
 
 // The check of a plan, and, for a listed catalog with nothing to decide, its apply: one request at work from the click to the end of it. A
 // key that was released between the two would put the row's button back to rest while the update is still applied, and let a second click
-// start a second one. The row's word is "Updating" for the button that asked, and "Checking" where the menu asked (Go back reads first).
+// start a second one. The row's word is "Checking" while the plan is read, and "Updating" while it is applied: the apply takes the key
+// before the check lets it go.
 async function ask(row, route, title, word) {
   const at = `catalog-op:${row.id}`, update = route === "update";
   const flow = async () => {
     const plan = await api(ROUTES[route](row.id), { check: true });
     if (plan.upToDate || !update || !row.listed || !plain(plan)) return { plan, applied: false };
-    await api(ROUTES[route](row.id), applying(route, plan));
-    await store.refresh();   // the row is released with the state it has now, not the one before
+    const sent = busy(at, "update", (async () => {
+      await api(ROUTES[route](row.id), applying(route, plan));
+      await store.refresh();   // the row is released with the state it has now, not the one before
+    })(), { quiet: true });
+    store.notify();   // the row says Updating from now
+    await sent;
     return { plan, applied: true };
   };
   let found;
   try {
-    const sent = busy(at, update ? "update" : "check", flow(), { quiet: true });
+    const sent = busy(at, "check", flow(), { quiet: true });
     store.notify();   // the row says what is at work from the click, not from the next poll
     found = await sent;
   } catch (err) {

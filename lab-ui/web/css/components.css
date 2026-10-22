@@ -562,13 +562,26 @@ button.stack-sep { display: flex; align-items: center; gap: 8px; width: 100%; bo
 /* What filters a list besides its search: at its right, and under it as one row once the line is too short */
 .list-filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
-/* The header and every row share these columns: chevron, name, state (its word and its badge: "Stopped" and "Starts with the
-   platform" fit), category, actions */
-.list-grid {
-  display: grid; grid-template-columns: 22px minmax(0, 1fr) 264px 120px 290px; column-gap: 12px; align-items: center;
-  padding: 0 12px 0 calc(var(--pad) - 4px);
-}
+/* The header and the rows of a list are one table: each row takes the columns of the table (subgrid), so that a column is as wide as
+   what it holds in any row. Its columns: an edge, the chevron, the name, the catalog, the category, the state, the actions, an edge. The
+   name takes the room left. The state is as wide as the widest of the rows (its word and its badge), never narrower than "Partly running",
+   so that a start or a stop moves nothing; it stands beside the actions that change it, which keep one width (Open with its menu, the
+   warning's slot, Start and the icons fit). The edges and their gaps are the padding of the rows. */
+.list-table { display: grid; grid-template-columns: 0 22px minmax(0, 1fr) 120px minmax(104px, auto) 330px 0; column-gap: 12px; }
+.list-rows, .list-item, .list-grid { display: grid; grid-template-columns: subgrid; }
+.list-table > *, .list-rows > *, .list-item > * { grid-column: 1 / -1; }
+.list-grid { align-items: center; }
+.list-grid > :first-child { grid-column-start: 2; }
 .list-grid > * { min-width: 0; }
+/* The catalog and the category: short words, each centered in its column. The catalog's column, before the category's, is drawn
+   only on a wide card that lists more than one catalog, and says there what the Personal mark of the name said. */
+.col-from, .col-cat { text-align: center; }
+.list-grid > .col-from { display: none; }
+@container (min-width: 1280px) {
+  .by-catalog .list-table { grid-template-columns: 0 22px minmax(0, 1fr) 136px 120px minmax(104px, auto) 330px 0; }
+  .by-catalog .list-grid > .col-from { display: block; }
+  .by-catalog .list-personal { display: none; }
+}
 .card > .stack-head:first-child { border-top: 0; }   /* the card's own edge is its top line */
 .list-head, .stack-head { height: var(--h-head); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
 .list-rows { list-style: none; margin: 0; padding: 0; }
@@ -611,7 +624,7 @@ button.s-toggle:focus-visible { outline: none; }
 .list-sub { grid-column: 1 / -1; display: flex; min-width: 0; }
 .list-sub > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .list-item.open .list-desc { display: none; }   /* the detail says it in full */
-.list-sub, .list-cat, .list-note { color: var(--muted); font-size: var(--fs-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list-sub, .list-col, .list-note { color: var(--muted); font-size: var(--fs-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .list-marks > * { flex: none; }
 /* The State cell of a row (the lists, Images, Plugins): the state, then what the server says of it as a badge, on one line, the badge
    cut before the state is */
@@ -672,18 +685,18 @@ p.panel-row { padding-block: 9px; }
 .panel-name .s-toggle { width: 14px; margin-right: -3px; }
 .panel-inner { padding-left: 44px; }
 
-@container (max-width: 1000px) {
-  .list-grid { grid-template-columns: 22px minmax(0, 1fr) 264px 290px; }
-  .list-row .list-cat, .list-head > :nth-child(4) { display: none; }
+@container (max-width: 1060px) {
+  .list-table { grid-template-columns: 0 22px minmax(0, 1fr) minmax(104px, auto) 330px 0; }
+  .list-grid > .col-cat { display: none; }
 }
 /* On a narrow card a row is lines: its name and its marks, what it is, its state and its badge (which wraps under it when it does not
    fit beside it), then its actions */
 @container (max-width: 900px) {
-  .list-grid { grid-template-columns: 22px minmax(0, 1fr); }
+  .list-table { grid-template-columns: 0 22px minmax(0, 1fr) 0; }
   .list-head > :nth-child(n + 3) { display: none; }
   .list-row { height: auto; row-gap: var(--sp-2); padding-top: var(--sp-3); padding-bottom: var(--sp-3); }
   .list-row > .s-toggle { align-self: start; }
-  .list-row > :is(.list-state, .list-actions) { grid-column: 2; }
+  .list-row > :is(.list-state, .list-actions) { grid-column: 3; }
   /* What it is, on two lines at most: a phrase cut at thirty letters says nothing */
   .list-sub { white-space: normal; }
   .list-sub > .list-desc { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; }
@@ -697,7 +710,7 @@ p.panel-row { padding-block: 9px; }
 /* On a phone a row's buttons and icons keep one line, across the row: its buttons at its left, Start or Stop as wide as its word, its
    icons at its right, no empty slot */
 @container (max-width: 520px) {
-  .list-row > .list-actions { grid-column: 1 / -1; }
+  .list-row > .list-actions { grid-column: 2 / -2; }
   .list-actions .btn.act { min-width: 0; }
   .list-actions .row-icons { margin-left: auto; }
   .list-actions .row-icons .icon-gap, .list-actions .warn-slot:empty { display: none; }
@@ -902,12 +915,18 @@ dialog::backdrop { background: var(--backdrop, rgb(10 12 16 / .45)); backdrop-fi
 .choice-row-label { color: var(--muted); font-weight: var(--fw-2); }
 .choice-row.danger .choice-row-label { color: var(--err); }
 .choice-items { display: flex; flex-wrap: wrap; gap: 4px; }
+/* Sentences in a row (what is new, what grows in power): text in the width of the row, one to a line, each said whole; several are told
+   apart by a dot before each */
+.choice-lines { display: grid; flex: 1 1 100%; gap: 4px; min-width: 0; margin: 0; padding: 0; list-style: none; color: var(--text); overflow-wrap: anywhere; }
+.choice-lines > li { position: relative; }
+.choice-lines > li:not(:only-child) { padding-left: 14px; }
+.choice-lines > li:not(:only-child)::before { content: ""; position: absolute; top: .6em; left: 3px; width: 4px; height: 4px; border-radius: 50%; background: var(--muted); }
 /* On a phone the label stands over what it says, so that a line such as a branch or a destination fits its card; a pill that is still
    longer is cut with an ellipsis, its words whole in its tooltip */
 @media (max-width: 480px) { .choice-row { grid-template-columns: minmax(0, 1fr); gap: 4px; } }
 /* Many items: one line that counts them, which opens on a list of one line each, the count in a column of its own */
 .choice-more { display: block; }
-.choice-more > summary { display: grid; grid-template-columns: var(--label) minmax(0, 1fr); gap: 10px; align-items: baseline; cursor: pointer; list-style: none; }
+.choice-more > summary { display: grid; grid-template-columns: var(--label) minmax(0, 1fr); gap: 10px; align-items: baseline; border-radius: var(--r-inner); cursor: pointer; list-style: none; }
 .choice-more > summary::-webkit-details-marker { display: none; }
 .choice-summary { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; color: var(--text-2); }
 .choice-summary svg { width: 14px; height: 14px; transform: rotate(-90deg); transition: transform var(--dur-2) var(--ease); }
@@ -916,6 +935,7 @@ dialog::backdrop { background: var(--backdrop, rgb(10 12 16 / .45)); backdrop-fi
 .choice-detail { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 2px 16px; margin: 10px 0 0; padding: 10px 12px;
   list-style: none; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .choice-detail > li { display: grid; grid-template-columns: 3ch minmax(0, 1fr); gap: 8px; align-items: baseline; }
+.choice-detail > li:not(:has(> b)) { grid-template-columns: minmax(0, 1fr); }   /* a list of names only: no column for a count */
 .choice-detail b { text-align: right; font-weight: var(--fw-3); font-variant-numeric: tabular-nums; }
 .choice-detail span { color: var(--text-2); overflow-wrap: anywhere; }
 /* A single option is what the dialog says, without a frame; the steps that several share come before the choice */
@@ -944,11 +964,13 @@ dialog::backdrop { background: var(--backdrop, rgb(10 12 16 / .45)); backdrop-fi
 }
 .step-items > li + li { border-top: 1px solid var(--border); }
 .step-name { min-width: 0; overflow-wrap: anywhere; font-weight: var(--fw-2); }   /* a long one (a version and its registry) goes on, whole */
+.step-name .muted { font-weight: var(--fw-1); }   /* what is said of it, after it */
 .step-kind { flex: none; color: var(--muted); font-size: var(--fs-1); }
 .choice-text > .steps + .choice-row { margin-top: 4px; }
 
 /* A new add-on, setup or playground: its fields and what it includes, or the prompt that has an AI agent write it */
 .create-dialog { width: min(880px, 94vw); }
+.catalog-dialog { width: min(720px, 94vw); }   /* a catalog's Add, Update and Go back: a label, then names that read across with their kind */
 .agent-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 /* The three that create an item are large: the form and the prompt have the same height, the buttons at the foot of both. The checklist
    takes the height the fields leave and is the one thing that scrolls */
