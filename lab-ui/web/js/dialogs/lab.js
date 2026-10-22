@@ -86,12 +86,14 @@ function draw() {
   const releases = shown.releases || {}, versions = releases.versions || [];
   const logo = $(".lab-logo", dialog);
   if (!logo.firstChild) logo.innerHTML = ($(".sidebar .logo")?.outerHTML || "").replace(/<defs>[\s\S]*?<\/defs>/, "");
-  $("#lab-title", dialog).textContent = shown.since ? `What's new in Gravitee Lab ${lab.version}` : "Gravitee Lab";
-  setHTML($("#lab-current", dialog), currentHtml(lab, versions));
+  // While an update runs, the Lab is still the version it is updated from, and what it brings stays said
+  const going = updating(), from = going ? recall(SEEN) : null;
+  const seen = from ? { ...lab, version: from, ahead: 0 } : lab;
+  setHTML($("#lab-current", dialog), currentHtml(seen, versions));
   if (setHTML($("#lab-status", dialog), statusHtml(lab, versions))) paintActions(dialog);
-  const list = picked(versions, lab, shown.since);
+  const list = from ? picked(versions, { ...lab, version: going }, from) : picked(versions, lab, shown.since);
   const all = releases.url ? `<a class="text-link" href="${esc(releases.url)}" target="_blank" rel="noopener">All releases${icon("external")}</a>` : "";
-  const title = !list.length ? "" : shown.since || lab.update ? "What's new" : "In this version";
+  const title = !list.length ? "" : shown.since || from || lab.update ? "What's new" : "In this version";
   setHTML($("#lab-notes-head", dialog), title || all ? `<h3>${title}</h3>${all}` : "");
   setHTML($("#lab-notes", dialog), notesHtml(list));
 }

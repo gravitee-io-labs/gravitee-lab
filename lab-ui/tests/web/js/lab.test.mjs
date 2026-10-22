@@ -66,7 +66,6 @@ test("after an update, what is new since the version this browser showed last is
   followLab();
   await settle();
   assert.ok(dialog.open);
-  assert.equal(text(dialog.querySelector("#lab-title")), "What's new in Gravitee Lab 1.1.0");
   assert.deepEqual(card(), ["ok", "Updated From 1.0.0", ""]);
   assert.equal(text(dialog.querySelector("#lab-notes-head h3")), "What's new");
   assert.match(said(notes()), /1\.1\.0.*The guide can be hidden #16.*Playgrounds export to a file #15/);
@@ -186,6 +185,10 @@ test("the update starts and the dialog stays on it while it runs, then the page 
   paintLab();
   assert.deepEqual(card(), ["working", "Updating to 1.1.0 Restarts when done", ""]);
   state(LAB({ version: "1.1.0", update: false, latest: "1.1.0" }));
+  paintLab();
+  assert.match(current(), /^1\.0\.0 /, "the Lab is the version it is updated from until the update ends");
+  assert.equal(text(dialog.querySelector("#lab-notes-head h3")), "What's new");
+  assert.match(said(notes()), /^1\.1\.0 /);
   followLab();
   assert.equal(reloads, 0, "the Lab UI the update was started from says the new version before it starts again");
   state(LAB({ version: "1.1.0", update: false, latest: "1.1.0", run: "run-2" }));
