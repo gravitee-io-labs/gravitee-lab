@@ -637,23 +637,28 @@ def _judged(project, kind, uid, slug, ns, row, copy, stage, folder):
 
 
 @contextlib.contextmanager
-def _staged(kind, slug, ns, copy):
-    """The files of the copy in a hidden folder beside the installs, `.lab/catalogs/.stage-share~<token>`, at the depth of a
-    unit: yields (the project path of its compose file, its folder, the project path of the hidden folder). The compose file
-    there is the copy's, written for the stage (an include of the target's own units is the include of another catalog,
-    which reaches the same files). Removed when the block ends, whatever happens."""
+def _staged_all(items, ns):
+    """The files of several copies in one hidden folder beside the installs, laid out as the target holds them, so that what one of
+    them includes of the others is found there: yields ({(kind, slug): (the project path of its compose file, its folder)}, the
+    project path of the hidden folder). Removed when the block ends, whatever happens."""
     name = f".stage-share~{os.urandom(4).hex()}"
     top, stage = paths.ROOT / paths.CATALOGS_DIR / name, f"{paths.CATALOGS_DIR}/{name}"
-    _, after, head = _place(kind, slug, ns)
-    file = f"{stage}/{head}"
-    there = f"{stage}/setups" if kind == "setup" else f"{stage}/{kind}s/{slug}"
-    here = f"{paths.CATALOGS_DIR}/{ns}/{head}" if kind == "setup" else after
+    table, places = [], {}
+    for kind, slug, _ in items:
+        _, after, head = _place(kind, slug, ns)
+        there = f"{stage}/setups" if kind == "setup" else f"{stage}/{kind}s/{slug}"
+        here = f"{paths.CATALOGS_DIR}/{ns}/{head}" if kind == "setup" else after
+        table.append((here, f"{stage}/{head}" if kind == "setup" else there))
+        places[(kind, slug)] = (after, there, head)
     try:
         os.mkdir(top, 0o755)
-        text = moves.repoint(copy.text, after, there, [(here, file if kind == "setup" else there)])
-        for path, (mode, data) in copy.files.items():
-            install.safe_write(top, path, text.encode("utf-8") if path == head else data, int(mode[-3:], 8))
-        yield file, (None if kind == "setup" else paths.ROOT / there), stage
+        for kind, slug, copy in items:
+            after, there, head = places[(kind, slug)]
+            text = moves.repoint(copy.text, after, there, table)
+            for path, (mode, data) in copy.files.items():
+                install.safe_write(top, path, text.encode("utf-8") if path == head else data, int(mode[-3:], 8))
+        yield ({key: (f"{stage}/{head}", None if key[0] == "setup" else paths.ROOT / there)
+                for key, (_, there, head) in places.items()}, stage)
     finally:
         shutil.rmtree(top, ignore_errors=True)
 
@@ -662,13 +667,15 @@ FLOW = ("It includes {item} in a form that cannot be written again for {catalog}
         "- ../../addons/<name>/compose.yml.")
 
 
-def _unwritten(copy, file, kind, slug, ns, row) -> List[str]:
+def _unwritten(copy, file, kind, slug, ns, row, skip=frozenset()) -> List[str]:
     """The includes of the target's own units that `moves.repoint` left as the personal file spells them: one written in a
     flow list keeps the long path through the catalogs folder, which a catalog checked on its own does not have. A path to a unit
     of another catalog is the same at both places and is not looked at."""
     before, after, _ = _place(kind, slug, ns)
     found = []
     for target in trust.include_targets(copy.kept, file) or ():
+        if (paths.unit_of(target) or ("", ""))[1] in skip:   # what goes with it, or the target has: written for it already
+            continue
         old, new = (posixpath.relpath(f"/{target}", f"/{folder}") for folder in (before, after))   # absolute: no working folder
         if old != new and old in copy.text:
             unit = paths.unit_of(target)
@@ -720,20 +727,50 @@ def _vouched(project, uid, copy) -> Copy:
     return copy._replace(files=files, text=text)
 
 
-def _preflight(project, kind, uid, file, slug, ns, row, rows, copy):
+def _preflight(project, kind, uid, file, slug, ns, row, rows, copy, along=(), allowed=frozenset()):
     """Raises the refusal of an include the target does not allow, of a secret, of the name of a private
-    catalog on a Public target; answers the other problems, [str] ("Blocked: ..." for what the policy gives a reason for)."""
+    catalog on a Public target; answers the other problems, [str] ("Blocked: ..." for what the policy gives a reason for). `along`:
+    [(kind, id, slug, copy)] of what goes with the item, each checked the same way, and judged with it in one stage; `allowed`: the
+    ids of what goes with it or the target has, which its includes may name."""
+    problems = []
+    for k, one, s, other in along:
+        problems += [f"{one.rsplit('/', 1)[-1]}: {line}" for line in _checked(project, k, one, paths.unit_file(k, one), s, ns, row,
+                                                                              rows, other, allowed)]
+    problems += _checked(project, kind, uid, file, slug, ns, row, rows, copy, allowed)
+    every = [(kind, uid, slug, copy), *along]
+    # What the screen refuses is not given to Compose, nor what includes in a form the check cannot follow
+    if any(trust.prescreen(c.text, f"{paths.CATALOGS_DIR}/{ns}/{_place(k, s, ns)[2]}") for k, _, s, c in every) \
+            or any(_includes(project, paths.unit_file(k, one)) is None for k, one, _, _ in every):
+        return list(dict.fromkeys(problems))
+    with _staged_all([(k, s, c) for k, _, s, c in every], ns) as (stages, top):
+        for k, one, s, c in every:
+            stage, folder = stages[(k, s)]
+            try:
+                lines = _judged(project, k, one, s, ns, row, c, stage, folder)
+            except (compose.ComposeError, ValueError) as error:   # Compose's last line, or an answer that is not JSON
+                lines = [f"Does not load with the platform: {_scrub(str(error), top, k, s)}"]
+                problems += lines if (k, s) == (kind, slug) else [f"{one.rsplit('/', 1)[-1]}: {line}" for line in lines]
+                continue
+            problems += [f"Blocked: {reason}" if (k, s) == (kind, slug) else f"{one.rsplit('/', 1)[-1]}: Blocked: {reason}"
+                         for reason in lines]
+    return list(dict.fromkeys(problems))
+
+
+def _checked(project, kind, uid, file, slug, ns, row, rows, copy, allowed=frozenset()):
+    """The checks of one item of a share that need no Compose: its includes, a secret, a private catalog named on a Public target,
+    the rules of a catalog's item, what the screen refuses."""
     included = _includes(project, file)
     problems = list(copy.problems)
     if included is None:
         problems.append("It includes in a form the check cannot follow. Fix: write each include as a list item, "
                         "- ../../addons/<name>/compose.yml.")
     else:
-        outside = _outside(row, ns, included[0], rows)
+        outside = _outside(row, ns, [one for one in included[0] if one[1] not in allowed], rows)
         if outside:
             raise _outside_refusal(outside, row)
         problems += [f"Includes {name}, which is not an item of a catalog." for name in included[1]]
-        problems += _unwritten(copy, file, kind, slug, ns, row)
+        if paths.origin(uid) == LOCAL:
+            problems += _unwritten(copy, file, kind, slug, ns, row, allowed)
     leak = _leaked(copy, kind, slug)
     if leak:
         raise leak
@@ -748,16 +785,8 @@ def _preflight(project, kind, uid, file, slug, ns, row, rows, copy):
     problems += [each.message for each in found]
     problems += _own_rules(file)
     head = _place(kind, slug, ns)[2]
-    reasons = trust.prescreen(copy.text, f"{paths.CATALOGS_DIR}/{ns}/{head}")
-    problems += [f"Blocked: {reason}" for reason in reasons]
-    if reasons or included is None:   # what the screen refuses is not given to Compose
-        return list(dict.fromkeys(problems))
-    with _staged(kind, slug, ns, copy) as (stage, folder, top):
-        try:
-            problems += [f"Blocked: {reason}" for reason in _judged(project, kind, uid, slug, ns, row, copy, stage, folder)]
-        except (compose.ComposeError, ValueError) as error:   # Compose's last line, or an answer that is not JSON
-            problems.append(f"Does not load with the platform: {_scrub(str(error), top, kind, slug)}")
-    return list(dict.fromkeys(problems))
+    problems += [f"Blocked: {reason}" for reason in trust.prescreen(copy.text, f"{paths.CATALOGS_DIR}/{ns}/{head}")]
+    return problems
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -834,13 +863,14 @@ def _pull_request(address, branch) -> Optional[str]:
     return None
 
 
-def _publish(ns, catalog, name, kind, slug, address, branch, who, copy):
+def _publish(ns, catalog, name, kind, slug, address, branch, who, copy, also=()):
     """The target's tip is fetched (the network, no lock), the commit is built on it, the branch is
-    pushed. The tip may have the item by now: `share_exists`."""
+    pushed. The tip may have the item by now, or one of what goes with it (`also`): `share_exists`."""
     store = registry.store_dir(ns)
     base = bare.fetch(address, branch, store, stall=30, cap=FETCH_CAP)
-    if bare.read(store, base, _place(kind, slug, ns)[2]) is not None:
-        raise _refusal("share_exists", name=name, catalog=catalog)
+    for k, s in [(kind, slug), *also]:
+        if bare.read(store, base, _place(k, s, ns)[2]) is not None:
+            raise _refusal("share_exists", name=name if (k, s) == (kind, slug) else s, catalog=catalog)
     commit = _commit(store, base, copy.files, f"Add {name}", who)
     where = _branch(address, slug)
     try:
@@ -921,6 +951,56 @@ def sweep() -> List[str]:
 # share
 # ---------------------------------------------------------------------------------------------------------------------
 
+def _machine_only(uid) -> bool:
+    """Whether an item is only on this machine: Personal's, or a playground's imported from a file."""
+    ns = paths.origin(uid)
+    return ns == LOCAL or registry.imported(ns)
+
+
+def _bundle(project, kind, uid, to):
+    """What a share of `uid` to `to` takes along: (members [(kind, id, slug, source)], the items it includes that are only on this
+    machine and that the target does not have, which go with it in the same branch or copy; reused [(kind, id, slug)], those the
+    target has already (a share of before): the target's is included instead, and what they include is the target's business)."""
+    units = {"addon": project["addons"], "setup": project["setups"], "playground": project["playgrounds"]}
+    have = registry.units_of(to)
+    members, reused, seen, todo = [], [], {(kind, uid)}, [(kind, uid)]
+    while todo:
+        for node in resolve._direct(units, todo.pop(0)):
+            if node in seen or not _machine_only(node[1]):
+                continue
+            seen.add(node)
+            slug = node[1].rsplit("/", 1)[-1]
+            if slug in (have.get(node[0]) or ()):
+                reused.append((node[0], node[1], slug))
+                continue
+            members.append((node[0], node[1], slug, paths.origin(node[1])))
+            todo.append(node)
+    return members, reused
+
+
+def _target(kind, slug, ns):
+    """The place of an item in catalog `ns`, relative to the project: its folder, or the file of a setup."""
+    return f"{paths.CATALOGS_DIR}/{ns}/setups/{slug}.yml" if kind == "setup" else f"{paths.CATALOGS_DIR}/{ns}/{kind}s/{slug}"
+
+
+def _here(kind, uid):
+    return paths.unit_file(kind, uid) if kind == "setup" else paths.unit_folder(kind, uid)
+
+
+COPY_OF = re.compile(r'(?m)^[ \t]+copy_of:[^\n]*\n|copy_of:\s*("[^"]*"|\'[^\']*\'|[^,}\s]+)\s*,?\s*')
+
+
+def _unmarked(copy, kind, slug):
+    """The copy without `x-gravitee.copy_of`: whose copy an item of this machine is, which an item of a catalog never says."""
+    text = COPY_OF.sub("", copy.text, count=1) if "copy_of" in copy.text else copy.text
+    if text == copy.text:
+        return copy
+    head = next(path for path in copy.files if path == f"setups/{slug}.yml" or path == f"{kind}s/{slug}/compose.yml")
+    files = dict(copy.files)
+    files[head] = (files[head][0], text.encode("utf-8"))
+    return copy._replace(files=files, text=text)
+
+
 def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False) -> dict:
     """Shares the personal item `uid` to catalog `to`. With `check_only`, what it would do and what keeps it: ShareCheck
     {destinations, to, audience, problems, changes, identity}, nothing written. Else the share: a repository gets a branch,
@@ -941,21 +1021,34 @@ def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False)
         if _probe(to, address, branch) == "no":
             raise _refusal("no_write_access", name=row["name"])
         who = _identity()
+    members, reused = _bundle(project, kind, uid, to)
+    moved = [(_here(k, one), _target(k, s, to)) for k, one, s, _ in members] + [(_here(k, one), _target(k, s, to)) for k, one, s in reused]
+    allowed = {one for _, one, _, _ in members} | {one for _, one, _ in reused}
+    units = {"addon": project["addons"], "setup": project["setups"], "playground": project["playgrounds"]}
+    named = lambda k, one: (units[k].get(one) or {}).get("name") or one.rsplit("/", 1)[-1]   # noqa: E731
     with registry.flock():
-        copy = collect(kind, slug, to)
+        copy = _unmarked(collect(kind, slug, to, moved=moved), kind, slug)
         if kind == "playground":
             copy = _vouched(project, uid, copy)
-        problems = _preflight(project, kind, uid, file, slug, to, row, rows, copy)
+        along = [(k, one, s, _unmarked(collect(k, s, to, source, moved=moved), k, s)) for k, one, s, source in members]
+        problems = _preflight(project, kind, uid, file, slug, to, row, rows, copy, along, allowed)
     answer = {"destinations": destinations(project, kind, uid), "to": to, "audience": row["audience"], "problems": problems,
               "changes": [_shown(_place(kind, slug, to)[2], kind, slug)] if copy.text != copy.kept else [],
-              "identity": who["email"] if who and row["audience"] == "public" else None}
+              "identity": who["email"] if who and row["audience"] == "public" else None,
+              "carries": [named(k, one) for k, one, _, _ in members], "reuses": [named(k, one) for k, one, _ in reused]}
     if check_only:
         return answer
     if problems:
         raise ValueError(problems[0])
     if address is not None:
-        return _publish(to, row["name"], name, kind, slug, address, branch, who, copy)
+        files = dict(copy.files)
+        for _, _, _, other in along:
+            files.update(other.files)
+        return _publish(to, row["name"], name, kind, slug, address, branch, who, copy._replace(files=files),
+                        also=[(k, s) for k, _, s, _ in along])
     with registry.flock():
+        for k, one, s, other in along:
+            _copy_into(to, row["name"], named(k, one), k, s, other)
         _copy_into(to, row["name"], name, kind, slug, copy)
     return {"copied": row["name"]}
 

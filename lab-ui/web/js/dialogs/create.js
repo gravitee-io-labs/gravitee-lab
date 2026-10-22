@@ -323,13 +323,16 @@ const AUDIENCE = { public: "Public", private: "Private" };
 const repoOf = (address) => String(address || "").split("/").slice(1).join("/");
 const rowOf = (id) => catalogRows().find((c) => c.id === id);
 
-// The rows an option of the dialog says about a destination: where a branch opens, what changes in the file, what stays and what
-// is left out, and under whom it is committed when everyone can read it; for a folder, where the copy goes and what stays
+// The rows an option of the dialog says about a destination: where a branch opens, what goes with it, what changes in the file, what stays
+// and what is left out, and under whom it is committed when everyone can read it; for a folder, where the copy goes, what goes with it and
+// what stays
 function rowsOf(destination, check) {
   const folder = destination.kind === "folder", note = true;
-  if (folder) return [{ label: "Copies to", items: [destination.name], note }, { label: "Keeps", items: ["Your copy and its settings"], note }];
+  // What only this machine has goes with it; what the catalog has already is the one it includes there
+  const along = [{ label: "Also shares", items: check.carries || [], note }, { label: "Uses the catalog's", items: check.reuses || [], note }];
+  if (folder) return [{ label: "Copies to", items: [destination.name], note }, ...along, { label: "Keeps", items: ["Your copy and its settings"], note }];
   const repo = repoOf(rowOf(destination.id)?.address);
-  return [{ label: "Opens", items: repo ? [`A branch in ${repo}`] : [], note }, { label: "Changes", items: check.changes || [], note },
+  return [{ label: "Opens", items: repo ? [`A branch in ${repo}`] : [], note }, ...along, { label: "Changes", items: check.changes || [], note },
     { label: "Keeps", items: ["Your copy and its settings"], note }, { label: "Leaves out", items: ["Your settings and data"], note },
     { label: "Commits as", items: check.identity ? [check.identity] : [], hint: "Visible publicly", note }];
 }
