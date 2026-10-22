@@ -122,9 +122,9 @@ playground (its row or its page), saves a `.zip` file that holds the playground 
 other Lab may not have: everything but the items of the default catalog, which every Lab has, and which the file names as needed.
 It never holds settings, keys or a license: the person who imports it adds their own license in the Lab UI.
 
-What comes from a catalog of Git goes in the file too, so the person who receives it needs no access to that catalog. What
-comes from a private one is listed under **Private content** before the file is made, and the button says **Export with
-private content**: it leaves with the file.
+What comes from a catalog of Git goes in the file too, so the person who receives it needs no access to that catalog. A
+private one is named under **Private content** before the file is made, and the button says **Export with private
+content**: what comes from it leaves with the file.
 
 Before the file is made, the export is judged as the import will be, with the rules a Lab applies to a catalog that is not
 listed. What the other Lab would block is said, and keeps the file from being made: fix it first. What it would ask to use that

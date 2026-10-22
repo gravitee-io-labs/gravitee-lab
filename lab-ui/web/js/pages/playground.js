@@ -91,8 +91,9 @@ async function exportPlayground(x) {
   const blocked = (plan.blocked || []).flatMap((one) => (one.reasons || []).map((reason) => `${one.name}: ${reason}`));
   const rows = [
     { label: "Carries", items: plan.carries || [] },
-    { label: "Private content", items: (plan.private || []).flatMap((one) => one.items.map((item) => `${item}, from ${one.name}`)) },
+
     { label: "Needs", items: (plan.needs || []).map(({ name }) => ({ name, kind: "catalog" })) },
+    { label: "Private content", items: (plan.private || []).map((one) => one.name), note: true },
     { label: "Asks to use the machine", items: (plan.uses_machine || []).map((use) => `${use.name}: ${(use.what || []).join(", ")}`), note: true },
     { label: "Leaves out", items: ["Its settings", "The license", ...(plan.problems || [])], note: true },
     { label: "Blocked on another Lab", items: blocked, tone: "danger", note: true },
