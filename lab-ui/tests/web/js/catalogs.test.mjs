@@ -800,11 +800,13 @@ test("Import takes the file of an exported playground, shows the preview of an A
   await drop(new File(["x"], "notes.txt"));
   assert.deepEqual([problemOf(), server.calls.length], ["Choose the .zip file of an exported playground", 0], "what is no archive is not sent");
   server.answers["/api/catalogs/import"] = PREVIEW({ catalog: { id: "contoso", name: "Contoso demo", version: "1.0.0", lab: 1, kind: "folder" },
-    imported: true, address: "~/lab/.lab/imports/contoso", counts: { playground: 1, setup: 0, addon: 1 }, blocked: [], rows: {} });
+    imported: true, address: "~/lab/.lab/imports/contoso", counts: { playground: 1, setup: 0, addon: 1 }, blocked: [], rows: {},
+    reused: [{ name: "Ledger", catalog: "Partner" }] });
   await drop(new File([new Uint8Array([80, 75, 5, 6])], "contoso.zip"));
   assert.deepEqual([last().path, last().body], ["/api/catalogs/import", { data: btoa("PK\u0005\u0006") }]);
   assert.deepEqual([heading(), face(primary())], ["Import Contoso demo", "Import"]);
   assert.deepEqual(rowsOf().find(([label]) => label === "From"), ["From", "contoso.zip"], "it comes from the file, not from where the Lab keeps it");
+  assert.deepEqual(rowsOf().find(([label]) => label === "Uses yours"), ["Uses yours", "Ledger, from Partner"], "what this Lab has already is not a second copy");
   server.answers["/api/catalogs"] = { catalog: { id: "contoso", host: null } };
   const went = [];
   const go = router.go;

@@ -5,6 +5,7 @@ judgement of it as another Lab will make it, and its import: the archive read wi
 
 import base64
 import io
+import json
 import stat
 import zipfile
 
@@ -133,3 +134,69 @@ class RoundTrip(Case):
         self.assertIn("is already in this Lab", caught.exception.message)
         service.remove("sandbox")
         self.assertFalse(folder.exists(), "the files of an imported playground go with its catalog")
+
+
+class FromCatalogs(Case):
+    """Sandbox again, whose Scratch now also includes Ledger of Partner, a private catalog of Git: the export carries Ledger, says
+    that it is private content, and says where it comes from; a Lab that has Partner uses its own Ledger at the import, one that
+    has not keeps the copy."""
+
+    LEDGER = "../../../partner/addons/ledger/compose.yml"
+
+    def setUp(self):
+        fixtures.need_compose()
+        fixtures.project(self, paths, project, compose, envfiles, check, files, ns="fixture", kind="git", store=True)
+        fixtures.install(self, "partner", kind="git", audience="private")
+        fixtures.local(self, "sandbox")
+        fixtures.local(self, "scratch")
+        scratch = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons" / "scratch" / "compose.yml"
+        text = scratch.read_text(encoding="utf-8")
+        scratch.write_text(text.replace("include:\n", f"include:\n  - {self.LEDGER}\n", 1), encoding="utf-8")
+        self.patch(gitx, "home", lambda: paths.ROOT.parent)
+        self.patch(exports, "_address", lambda ns: f"https://github.com/acme/{ns}-catalog.git")
+        project.forget()
+        self.addCleanup(project.forget)
+
+    def test_the_export_carries_what_comes_from_a_private_catalog_and_says_so(self):
+        plan = exports.plan("local/sandbox")
+        self.assertEqual(sorted(one["id"] for one in plan["carries"]), ["@partner/ledger", "local/sandbox", "local/scratch"])
+        self.assertEqual(plan["private"], [{"id": "partner", "name": "Partner fixture", "items": ["Ledger"]}])
+        self.assertEqual(plan["blocked"], [])
+
+    def test_the_archive_says_where_each_item_of_a_catalog_comes_from(self):
+        made = exports.archive("local/sandbox")
+        with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
+            said = json.loads(archive.read("sandbox/export.json"))
+            scratch = archive.read("sandbox/addons/scratch/compose.yml").decode()
+        self.assertEqual([(one["kind"], one["item"], one["catalog"]) for one in said["items"]], [("addon", "ledger", "partner")])
+        self.assertIn("  - ../ledger/compose.yml\n", scratch, "the copy is what Scratch includes in the file")
+
+    def test_a_lab_that_has_the_catalog_uses_its_own_item_instead_of_a_second_copy(self):
+        preview = exports.receive(exports.archive("local/sandbox")["data"])
+        self.assertEqual(preview["reused"], [{"name": "Ledger", "catalog": "Partner fixture"}])
+        self.assertEqual(preview["counts"], {"playground": 1, "setup": 0, "addon": 1})
+        folder = paths.ROOT / exports.IMPORTS_DIR / "sandbox"
+        self.assertFalse((folder / "addons" / "ledger").exists())
+        self.assertIn(self.LEDGER, (folder / "addons" / "scratch" / "compose.yml").read_text(encoding="utf-8"))
+        self.assertIn("      partner:\n", (folder / "catalog.yml").read_text(encoding="utf-8"))
+        self.assertEqual(preview.get("blocked") or [], [])
+
+    def test_a_lab_without_the_catalog_keeps_the_copy(self):
+        data = exports.archive("local/sandbox")["data"]
+        entry = registry.entry
+        self.patch(exports.registry, "entry", lambda ns: None if ns == "partner" else entry(ns))
+        preview = exports.receive(data)
+        self.assertEqual(preview["reused"], [])
+        self.assertEqual(preview["counts"], {"playground": 1, "setup": 0, "addon": 2})
+
+    def test_a_playground_this_lab_has_already_is_not_imported_twice(self):
+        folder = paths.ROOT / exports.IMPORTS_DIR / "tour-copy"
+        (folder / "playgrounds" / "tour").mkdir(parents=True)
+        (folder / "catalog.yml").write_text(CATALOG, encoding="utf-8")
+        (folder / "playgrounds" / "tour" / "compose.yml").write_text("services: {}\n", encoding="utf-8")
+        (folder / exports.ORIGINS).write_text(json.dumps({"items": [
+            {"kind": "playground", "item": "tour", "name": "Tour", "catalog": "fixture"}]}), encoding="utf-8")
+        with self.assertRaises(CatalogError) as caught:
+            exports._reuse(folder, "tour-copy")
+        self.assertEqual(caught.exception.code, "already_here")
+        self.assertEqual(caught.exception.message, "Tour is already in this Lab, from Fixture catalog.")

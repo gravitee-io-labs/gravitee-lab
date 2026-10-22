@@ -10,6 +10,11 @@ playground adds their own.
 Before the file is made, the export is judged as the import will be: the archive's folder is checked as an Add of a folder catalog
 (`service.check_address`), so what the other Lab will block, or ask to use this machine, is said here, by the same rules.
 
+An item that comes from a catalog of Git is carried too, whatever that catalog is: the person who receives the file may have no
+access to it. What comes from a private one is said before the file is made (`private`), since it leaves with the file. The archive
+says where each of those items comes from (`export.json`, at its root, which a catalog never installs): a Lab that has that catalog
+uses its own item instead of a second copy of the same one (`_reuse`), and the import says so.
+
 An import is that Add: the archive is read with the limits of a catalog (`store`), written under `.lab/imports/<id>`, which the Lab
 owns, and checked; the page shows the preview of an Add, and Import is its Add. A folder of `.lab/imports` that no catalog uses is
 what an import left before it was confirmed: the next import of the same playground replaces it.
@@ -22,6 +27,7 @@ what an import left before it was confirmed: the next import of the same playgro
 import base64
 import binascii
 import io
+import json
 import os
 import posixpath
 import re
@@ -33,7 +39,7 @@ import zipfile
 from pathlib import Path
 
 from .. import paths
-from ..library import project
+from ..library import moves, project
 from . import contribute, defaults, manifest, registry, resolve, service, standard
 from . import store as bare
 from .registry import CatalogError
@@ -47,6 +53,7 @@ MAX_BYTES = 100 << 20
 TEMPLATE_EXAMPLE = "addons/hello"   # the example the template of a new catalog brings: an export carries its own items only
 
 NOT_A_PLAYGROUND = "This file is not a playground exported by Gravitee Lab."
+ORIGINS = "export.json"   # where each item of a catalog of Git that the archive carries comes from
 
 
 def _fail(code, message, status=400):
@@ -119,11 +126,32 @@ def _gather(pid):
         name = units[kind][uid]["name"]
         problems += [f"{name}: {line}" for line in copy.problems]
         files.update(copy.files)
+    origins, private = _origins(carried, units)
     shared = _shared(carried, units, ns)
     if len(shared) > manifest.SETTINGS_LIMIT:
         problems.append(f"Its items read {len(shared)} settings; a catalog declares at most {manifest.SETTINGS_LIMIT}.")
     return {"project": found, "unit": unit, "ns": ns, "name": unit["name"], "carried": carried, "needs": needs, "files": files,
-            "problems": problems, "units": units, "shared": shared[:manifest.SETTINGS_LIMIT]}
+            "problems": problems, "units": units, "shared": shared[:manifest.SETTINGS_LIMIT], "origins": origins, "private": private}
+
+
+def _origins(carried, units):
+    """([{kind, item, name, catalog, catalog_name, version}] of the carried items that come from a catalog of Git, which another
+    Lab may have too), and [{id, name, items}] of the private ones among those catalogs: what leaves with the file."""
+    rows = project.loaded()[1].get("catalogs") or {}
+    origins, private = [], {}
+    for kind, uid in carried:
+        ns = paths.origin(uid)
+        entry = registry.entry(ns) if ns != paths.LOCAL else None
+        if not entry or entry.get("kind") != "git":
+            continue
+        held = registry.lock_of(ns)
+        title = (rows.get(ns) or {}).get("name") or held.get("name") or ns
+        name = units[kind][uid]["name"]
+        origins.append({"kind": kind, "item": _slug(uid), "name": name, "catalog": ns, "catalog_name": title,
+                        "version": held.get("version")})
+        if held.get("audience") != "public":
+            private.setdefault(ns, {"id": ns, "name": title, "items": []})["items"].append(name)
+    return origins, list(private.values())
 
 
 def _shared(carried, units, ns):
@@ -198,6 +226,8 @@ def _write(root: Path, gathered):
     manifest = root / "catalog.yml"
     manifest.write_text(_catalog_yml(manifest.read_text(encoding="utf-8"), gathered), encoding="utf-8")
     (root / "README.md").write_text(_readme(gathered), encoding="utf-8")
+    if gathered["origins"]:
+        (root / ORIGINS).write_text(json.dumps({"items": gathered["origins"]}, indent=2) + "\n", encoding="utf-8")
     for path, (mode, data) in gathered["files"].items():
         target = root / path
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -250,6 +280,7 @@ def _plan(gathered, preview):
             "carries": [_row(kind, uid, units) for kind, uid in gathered["carried"]],
             "needs": [{"id": ns, "name": (rows.get(ns) or {}).get("name") or ns} for ns in gathered["needs"]],
             "problems": gathered["problems"],
+            "private": gathered["private"],
             "blocked": [one for one in blocked if one["reasons"]],
             # What another Lab asks the person to allow: what each item's own services take, as this Lab judged them where they are
             "uses_machine": [{"name": units[kind][uid]["name"], "what": what} for kind, uid in gathered["carried"]
@@ -347,6 +378,76 @@ def _sweep(keep=()):
             shutil.rmtree(child, ignore_errors=True)
 
 
+def _said_origins(folder: Path):
+    """The items of a catalog of Git the archive says it carries, as export.json says them; [] when it says nothing readable."""
+    try:
+        said = json.loads((folder / ORIGINS).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    items = said.get("items") if isinstance(said, dict) else None
+    return [one for one in items if isinstance(one, dict)] if isinstance(items, list) else []
+
+
+def _rel(kind, item):
+    return f"setups/{item}.yml" if kind == "setup" else f"{kind}s/{item}"
+
+
+def _requires(text, needed):
+    """catalog.yml with the catalogs `needed` ([(ns, name, url, min)]) in its requires.catalogs, as an export writes them."""
+    rows = "".join(f'      {ns}:\n        name: "{name}"\n        url: {url}\n        min: {least}\n' for ns, name, url, least in needed)
+    if not rows:
+        return text
+    head = "\n  requires:\n    catalogs:\n"
+    if head in text:
+        return text.replace(head, head + rows, 1)
+    return text.rstrip("\n") + head + rows
+
+
+def _reuse(folder: Path, top):
+    """The archive in `folder` (catalog `top`) uses this Lab's own copy of what it carries from a catalog of Git that this Lab has:
+    that item leaves the archive, what includes it includes this Lab's, and catalog.yml requires that catalog. An item is the same
+    item when its catalog has it under the same name. Answers [{name, catalog}] of the items reused."""
+    table, gone, needed, reused = [], [], {}, []
+    for one in _said_origins(folder):
+        kind, item, ns = one.get("kind"), one.get("item"), one.get("catalog")
+        if kind not in ("addon", "setup", "playground") or not paths.is_default(item) or not (isinstance(ns, str) and NS.fullmatch(ns)):
+            continue
+        entry, rel = registry.entry(ns), _rel(kind, item)
+        url = _address(ns) if entry and entry.get("kind") == "git" else None
+        if url is None or item not in registry.units_of(ns).get(kind, ()) or not (folder / rel).exists():
+            continue
+        held = registry.lock_of(ns)
+        least = held.get("version") if re.fullmatch(r"\d+\.\d+\.\d+", str(held.get("version") or "")) else "0.1.0"
+        needed[ns] = (ns, str(held.get("name") or ns).replace('"', "'"), url, least)
+        table.append((f"{paths.CATALOGS_DIR}/{top}/{rel}", f"{paths.CATALOGS_DIR}/{ns}/{rel}"))
+        gone.append(rel)
+        reused.append({"name": str(one.get("name") or item), "catalog": str(held.get("name") or ns)})
+    if not table:
+        return []
+    files = [*folder.glob("playgrounds/*/compose.yml"), *folder.glob("addons/*/compose.yml"), *folder.glob("setups/*.yml")]
+    for file in files:
+        rel = file.relative_to(folder).as_posix()
+        if any(rel == one or rel.startswith(one + "/") for one in gone):
+            continue
+        place = posixpath.dirname(f"{paths.CATALOGS_DIR}/{top}/{rel}")
+        text = file.read_text(encoding="utf-8")
+        written = moves.repoint(text, place, place, table)
+        if written != text:
+            file.write_text(written, encoding="utf-8")
+    for rel in gone:
+        target = folder / rel
+        if target.is_dir():
+            shutil.rmtree(target)
+        else:
+            target.unlink()
+    manifest_file = folder / "catalog.yml"
+    manifest_file.write_text(_requires(manifest_file.read_text(encoding="utf-8"), list(needed.values())), encoding="utf-8")
+    if not any(folder.glob("playgrounds/*/compose.yml")):
+        root = next((one for one, rel in zip(reused, gone) if rel.startswith("playgrounds/")), reused[0])
+        raise _fail("already_here", f"{root['name']} is already in this Lab, from {root['catalog']}.", 409)
+    return reused
+
+
 def receive(data):
     """The import of an archive (its bytes, or base64 text): written under .lab/imports/<id> and checked as the Add of a folder
     catalog. Answers that preview, whose ticket the Add takes; `already_imported` when this Lab has the catalog."""
@@ -395,7 +496,8 @@ def receive(data):
             shutil.rmtree(incoming, ignore_errors=True)
             raise
     try:
-        return {**service.check_address(str(final)), "imported": True}
+        reused = _reuse(final, top)
+        return {**service.check_address(str(final)), "imported": True, "reused": reused}
     except BaseException:
         shutil.rmtree(final, ignore_errors=True)
         raise

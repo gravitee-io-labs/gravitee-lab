@@ -1141,6 +1141,18 @@ test("Export says what the file carries, what it needs and what it leaves out, t
   assert.deepEqual(server.calls.at(-1).body, {}, "then the file");
   assert.deepEqual(saved, ["hotels.zip"]);
   await leave();
+  // What comes from a private catalog leaves with the file: it is said, and so is the button
+  const plain = server.exported;
+  server.exported = { ...plain, private: [{ id: "internal", name: "Internal", items: ["Ledger"] }] };
+  await visit({ ...off, personal: true, id: "local/hotels", held: { share: "", delete: "" } }, { platforms: [], places: [], id: "local/hotels" });
+  section.querySelector("#pg-actions [data-more]").click();
+  page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item")[0] }));
+  await flush();
+  assert.deepEqual(effects().steps[1], ["Private content", ["Ledger, from Internal"]]);
+  assert.equal(text(page.ids["choice-ok"]), "Export with private content");
+  await answer(false);
+  await leave();
+  server.exported = plain;
   // What another Lab would block is said, and the file is not made
   server.exported = { ...server.exported, uses_machine: [], blocked: [{ name: "Kiosk", reasons: ["Changes Gateway beyond adding settings"] }] };
   await visit({ ...off, personal: true, id: "local/hotels", held: { share: "", delete: "" } }, { platforms: [], places: [], id: "local/hotels" });

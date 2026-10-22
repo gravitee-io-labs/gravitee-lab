@@ -78,7 +78,8 @@ export const exportEntry = (x) => ({ label: "Export", ...held(""), onSelect: () 
 
 // What the export carries, what it needs of the other Lab, and what that Lab will make of it, as the server judges the file it would
 // make with the rules of that Lab; then the file, saved where the browser saves downloads. What would be blocked there is said, and
-// keeps the file from being made: it would not start.
+// keeps the file from being made: it would not start. What comes from a private catalog leaves with the file: it is said, and the
+// button says it too.
 async function exportPlayground(x) {
   const key = `playground:${x.id}`, route = `/api/playgrounds/${x.id}/export`;
   let plan;
@@ -90,6 +91,7 @@ async function exportPlayground(x) {
   const blocked = (plan.blocked || []).flatMap((one) => (one.reasons || []).map((reason) => `${one.name}: ${reason}`));
   const rows = [
     { label: "Carries", items: plan.carries || [] },
+    { label: "Private content", items: (plan.private || []).flatMap((one) => one.items.map((item) => `${item}, from ${one.name}`)) },
     { label: "Needs", items: (plan.needs || []).map(({ name }) => ({ name, kind: "catalog" })) },
     { label: "Asks to use the machine", items: (plan.uses_machine || []).map((use) => `${use.name}: ${(use.what || []).join(", ")}`), note: true },
     { label: "Leaves out", items: ["Its settings", "The license", ...(plan.problems || [])], note: true },
@@ -97,7 +99,7 @@ async function exportPlayground(x) {
   ];
   const why = blocked.length ? "It would be blocked on another Lab" : "";
   const go = await effectsDialog({ title: `Export ${x.name}`, options: [{ rows, disabled: !!why, reason: why }],
-    action: () => "Export", unchosen: "" });
+    action: () => ((plan.private || []).length ? "Export with private content" : "Export"), unchosen: "" });
   if (!go) return;
   try {
     const made = await busy(key, "export", api(route, {}));
