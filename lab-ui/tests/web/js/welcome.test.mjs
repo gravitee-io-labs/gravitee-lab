@@ -132,7 +132,15 @@ test("Continue keeps This machine and moves on at once to the start, which says 
   assert.deepEqual(items.map((item) => text(item.querySelector("strong"))), ["Start the platform", "Choose a playground", "Open a console"]);
   assert.deepEqual(items.map((item) => item.getAttribute("data-state")), ["done", "todo", "todo"]);
   assert.equal(items[2].querySelector("a").getAttribute("href"), "#/dashboard", "the Dashboard's name leads to it");
-  assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Choose a playground"]);
+  assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Done", "Choose a playground"]);
+});
+
+test("Done closes the dialog from the start, to go on later", () => {
+  const done = actions().querySelectorAll(".btn").find((b) => text(b) === "Done");
+  assert.equal(done.classList.contains("primary"), false);
+  done.click();
+  assert.ok(!dialog.hasAttribute("open"));
+  dialog.showModal();
 });
 
 test("a stopped platform is started from the start, and Choose a playground leads while nothing is on", async () => {
@@ -140,7 +148,7 @@ test("a stopped platform is started from the start, and Choose a playground lead
   store.notify();
   assert.equal(heading(), "Start the platform");
   assert.equal(step("start").getAttribute("data-state"), "todo");
-  assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Start the platform", "Choose a playground"]);
+  assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Done", "Start the platform", "Choose a playground"]);
   assert.equal(actions().querySelector('a[href="#/playgrounds"]').getAttribute("class"), "btn primary");
   store.state = { ...store.state, platform: { groups: GROUPS, state: { key: "running" } } };
   store.notify();
@@ -246,7 +254,7 @@ test("with the catalogs there, or a server that does not say, the foot of the st
   await go("start");
   for (const state of [{ content: content("ready"), catalogs: [FIRST()] }, { content: undefined }]) {
     say({ ...state, platform: { name: "Gravitee platform", groups: GROUPS, state: { key: "running" } } });
-    assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Choose a playground"]);
+    assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Done", "Choose a playground"]);
     assert.deepEqual(lead(), ["Choose a playground", false, ""]);
     assert.equal(slot().getAttribute("class"), "btn primary");
     assert.deepEqual(extra(), []);
@@ -255,19 +263,19 @@ test("with the catalogs there, or a server that does not say, the foot of the st
 
 test("while the catalogs download the lead stays in its place and waits, saying why; a failure adds Try again before it, no catalog Add Gravitee public", () => {
   say({ content: content("downloading"), catalogs: [catalog({ id: "gravitee", commit: "", progress: 0.4 })] });
-  assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Choose a playground"]);
+  assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Done", "Choose a playground"]);
   assert.deepEqual(lead(), ["Choose a playground", true, WAITING]);
   assert.deepEqual(extra(), []);
   say({ content: content("failed"), catalogs: [catalog({ id: "gravitee", commit: "" })] });
-  assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Try again", "Choose a playground"], "before the lead");
+  assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Done", "Try again", "Choose a playground"], "before the lead");
   assert.deepEqual(lead(), ["Choose a playground", true, "Cannot reach github.com. Check your connection, then try again."]);
   assert.deepEqual(extra(), [["retry", "gravitee", "Try again"]]);
   say({ content: content("none") });
-  assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Add Gravitee public", "Choose a playground"]);
+  assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Done", "Add Gravitee public", "Choose a playground"]);
   assert.deepEqual(lead(), ["Choose a playground", true, "No catalog added"]);
   assert.deepEqual(extra(), [["add", "gravitee", "Add Gravitee public"]]);
   say({ content: content("none", { offer: null }) });
-  assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Browse catalogs", "Choose a playground"]);
+  assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Done", "Browse catalogs", "Choose a playground"]);
 });
 
 test("when the download ends while the dialog is open the nodes are updated, not drawn again: the focus stays and nothing moves under the pointer", () => {

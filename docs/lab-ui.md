@@ -13,7 +13,7 @@ It listens on `127.0.0.1:9000`, so only this machine reaches it, and it answers 
 on the [Dashboard](#dashboard). A first visit opens *Welcome to Gravitee Lab* on its first step. Its rail, at the left, has
 *How it works* at the top (the layers, what Start and Stop mean, where to go), then the steps, each with its state:
 [Your machine](#your-machine), *API Management* (where it runs: [Where API Management runs](#where-api-management-runs)), then
-*Start*: the platform, a playground, a console. While a line of Your machine is red, the steps after it are locked and say why.
+*Start*: the platform, a playground, a console, with *Done* to go on later. While a line of Your machine is red, the steps after it are locked and say why.
 The rail ends with links to the *Source* and to *Troubleshooting*. The info button of the menu opens *How it works*, or Your
 machine while a line of it is red. The dialog does not open by itself once where API Management runs was chosen on this
 machine, in any browser.

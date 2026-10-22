@@ -191,8 +191,8 @@ function guidePanel() {
 
 const PANELS = { machine: machinePanel, core: corePanel, start: startPanel, guide: guidePanel };
 
-// The foot of a step: Back, then what moves on. On the start, the slots are the same in every state (paintLead writes into them): Start the
-// platform while it is stopped, Choose a playground, the one that leads primary.
+// The foot of a step: Back, then what moves on. On the start, the slots are the same in every state (paintLead writes into them): Done, to
+// go on later, Start the platform while it is stopped, Choose a playground, the one that leads primary.
 function footHtml() {
   const order = steps(), at = order.indexOf(current), back = at > 0 ? '<button type="button" class="btn" data-back>Back</button>' : "";
   if (current === "guide") return '<span class="grow"></span><button type="button" class="btn primary" data-close>Close</button>';
@@ -206,6 +206,7 @@ function footHtml() {
   const leadStart = stopped() && chosen;
   const gap = onCloud() && gatewayWhy() ? ` aria-disabled="true" data-why="${esc(gatewayWhy())}"` : "";
   return `${back}<span class="grow"></span>
+    <button type="button" class="btn" data-close>Done</button>
     ${stopped() ? `<button class="btn ${leadStart ? "primary" : ""}" data-start data-busy${gap}>${icon("play")}${onCloud() ? "Start all" : "Start the platform"}</button>` : ""}
     <a class="btn ${leadStart ? "" : "primary"}" href="#/playgrounds">Choose a playground</a>`;
 }
