@@ -70,9 +70,9 @@ column of its own, next to its category and, on a wide window with more than one
 
 The menu also holds the state of the platform, the one place it is said on every page (*Platform running*, *Platform
 stopped*, *Platform issue*, whose popover says what the issue is, *Docker is not reachable*); while a job runs or once one
-failed, the Activity chip with it; while a newer version of the Lab is out, *Update to* that version; the Gravitee Lab button,
-which opens [its versions](#versions-of-the-lab); the info button, the theme switch (system, dark, light) and a button that collapses the
-menu. Collapsed, the menu shows icons, each named in a tooltip.
+failed, the Activity chip with it; the info button, the theme switch (system, dark, light) and a button that collapses the
+menu. The version of the Lab stands beside its name, at the top: it opens [its versions](#versions-of-the-lab), and turns into
+*Update to* the newer version while one is out (a dot on the logo says it when the menu is collapsed). Collapsed, the menu shows icons, each named in a tooltip.
 
 The banner above the page is a notice for each thing that needs you, most blocking first, each with its icon, a headline,
 a short summary and its button at the right: the Lab UI not answering, Docker not answering, the platform stopped (with
@@ -679,8 +679,8 @@ A playground comes first in the list. With an empty file, Compose runs the core 
 
 ## Versions of the Lab
 
-A version of the Lab is a tag `vX.Y.Z` of the repository. The Gravitee Lab button of the menu says which one this Lab is, and opens a
-dialog with the version, whether a newer one is out and when that was checked (*Check now* asks GitHub again; the Lab UI also asks
+A version of the Lab is a tag `vX.Y.Z` of the repository. The version beside the name of the Lab, at the top of the menu, says
+which one this Lab is (*dev* for a clone with no version), and opens a dialog with the version, whether a newer one is out and when that was checked (*Check now* asks GitHub again; the Lab UI also asks
 at start and every six hours), and what each newer version changes, one line per pull request with its link. A clone of `main`
 that is past its last version says how many changes it has more; one with no tag is a *Development version*, with its commit.
 
