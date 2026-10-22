@@ -17,7 +17,10 @@ uses its own item instead of a second copy of the same one (`_reuse`), and the i
 from a registry that asks for a login is said too (`registries`): the person who receives the file needs that access.
 
 An import is that Add: the archive is read with the limits of a catalog (`store`), written under `.lab/imports/<id>`, which the Lab
-owns, and checked; the page shows the preview of an Add, and Import is its Add. A folder of `.lab/imports` that no catalog uses is
+owns, and checked; the page shows the preview of an Add, and Import is its Add. Or the person keeps it as their own: Personal
+(`to_personal`), where nothing is blocked any more. The preview has judged it first, as for the Add: what it blocks cannot go to
+Personal, and what it asks of this machine was shown before the person chose. An item of Personal with the same name is replaced,
+unless it is the same (then it is used), and the preview says so (`personal`). A folder of `.lab/imports` that no catalog uses is
 what an import left before it was confirmed: the next import of the same playground replaces it.
 
     plan(pid)                  what the export of a playground carries, needs, and what another Lab will make of it
@@ -41,7 +44,7 @@ from pathlib import Path
 
 from .. import paths
 from ..docker import images
-from ..library import moves, project
+from ..library import moves, personal as personals, project
 from . import contribute, defaults, manifest, registry, resolve, service, standard
 from . import store as bare
 from .registry import CatalogError
@@ -479,6 +482,118 @@ def _reuse(folder: Path, top):
     return reused
 
 
+def _units(folder: Path):
+    """[(kind, slug, rel)] of the items of an archive's folder: rel is its folder, or the file of a setup."""
+    found = [("playground", one.parent.name, f"playgrounds/{one.parent.name}") for one in sorted(folder.glob("playgrounds/*/compose.yml"))]
+    found += [("setup", one.stem, f"setups/{one.name}") for one in sorted(folder.glob("setups/*.yml"))]
+    found += [("addon", one.parent.name, f"addons/{one.parent.name}") for one in sorted(folder.glob("addons/*/compose.yml"))]
+    return [one for one in found if paths.is_default(one[1])]
+
+
+def _compose_rel(kind, rel):
+    return rel if kind == "setup" else f"{rel}/compose.yml"
+
+
+def _named(text, fallback):
+    """The name an item's x-gravitee block gives it, for the words of the page; its folder's when it says none."""
+    said = re.search(r"(?m)^x-gravitee:\s*\{[^}]*?\bname:\s*([^,}\n]+)", text) \
+        or re.search(r"(?m)^x-gravitee:\s*(?:#.*)?\n(?:[ \t]+.*\n)*?[ \t]+name:\s*(.+)", text)
+    return said.group(1).strip().strip("'\"") if said else fallback
+
+
+def _for_personal(folder: Path, top):
+    """The archive's items as Personal holds them: [(kind, slug, rel, name, {path: (mode, bytes)})], each compose file written
+    again for its place in .lab/catalogs/local, and the includes of one another with it."""
+    units = _units(folder)
+    table = [(f"{paths.CATALOGS_DIR}/{top}/{rel}", f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{rel}") for _, _, rel in units]
+    found = []
+    for kind, slug, rel in units:
+        compose_rel = _compose_rel(kind, rel)
+        text = (folder / compose_rel).read_text(encoding="utf-8")
+        here = posixpath.dirname(compose_rel)
+        written = moves.repoint(text, f"{paths.CATALOGS_DIR}/{top}/{here}", f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{here}", table)
+        files = {compose_rel: (0o644, written.encode("utf-8"))}
+        if kind != "setup":
+            for path in sorted(p for p in (folder / rel).rglob("*") if p.is_file() and not p.is_symlink()):
+                rel_path = path.relative_to(folder).as_posix()
+                if rel_path != compose_rel:
+                    files[rel_path] = (0o755 if os.stat(path).st_mode & 0o111 else 0o644, path.read_bytes())
+        found.append((kind, slug, rel, _named(written, slug), files))
+    return found
+
+
+def _personal_now(kind, rel):
+    """The compose text of the item of Personal at `rel`, None when there is none."""
+    try:
+        return (paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / _compose_rel(kind, rel)).read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        return None
+
+
+def _personal_plan(folder: Path, top):
+    """What going to Personal does to the items of Personal: {replaces: [names], same: [names]}."""
+    replaces, same = [], []
+    for kind, _, rel, name, files in _for_personal(folder, top):
+        now = _personal_now(kind, rel)
+        if now is not None:
+            (same if now.encode("utf-8") == files[_compose_rel(kind, rel)][1] else replaces).append(name)
+    return {"replaces": replaces, "same": same}
+
+
+MACHINE_FILES = (".env", ".state", "secrets")   # what Personal keeps of an item it replaces: the person's, never the file's
+
+
+def _clear(target: Path):
+    """The folder of an item of Personal emptied of what its files were, keeping the person's settings, secrets and state."""
+    for child in target.iterdir():
+        if child.name in MACHINE_FILES:
+            continue
+        if child.is_dir() and not child.is_symlink():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+
+
+def to_personal(ticket):
+    """The import the preview `ticket` showed, kept in Personal instead of as a catalog: refused when the preview found an item that
+    cannot run (Personal would run it unjudged) or when an item it replaces is on. Answers {items: [{kind, id}], playground}."""
+    data = service._held(ticket, "add")
+    folder = Path(getattr(data.get("address"), "path", "") or "")
+    base = (paths.ROOT / IMPORTS_DIR).resolve()
+    if not folder.is_dir() or folder.resolve().parent != base or not data.get("imported"):
+        raise _fail("not_an_import", "This is not a playground being imported. Choose its file again.", 409)
+    blocked = data.get("blocked") or []
+    if blocked:
+        raise _fail("blocked_personal", f"{', '.join(blocked)} cannot run: import to Imported, where it stays blocked.", 409)
+    top = folder.name
+    items = _for_personal(folder, top)
+    found = project.load()
+    for kind, slug, rel, name, files in items:
+        now = _personal_now(kind, rel)
+        if now is not None and now.encode("utf-8") != files[_compose_rel(kind, rel)][1]:
+            try:
+                personals._not_held(found, kind, f"{paths.LOCAL}/{slug}")
+            except RuntimeError as error:
+                raise _fail("held", str(error), 409) from None
+    home = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL
+    for kind, slug, rel, name, files in items:
+        now = _personal_now(kind, rel)
+        if now is not None and now.encode("utf-8") == files[_compose_rel(kind, rel)][1]:
+            continue   # the same item: Personal's is used
+        if kind != "setup" and (home / rel).is_dir():
+            _clear(home / rel)
+        for path, (mode, content) in files.items():
+            target = home / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content)
+            os.chmod(target, mode)
+    service.forget(ticket)
+    shutil.rmtree(folder, ignore_errors=True)
+    project.forget()
+    playground = next((f"{paths.LOCAL}/{slug}" for kind, slug, _, _, _ in items if kind == "playground"), None)
+    return {"items": [{"kind": kind, "id": f"{paths.LOCAL}/{slug}"} for kind, slug, _, _, _ in items], "playground": playground}
+
+
 def receive(data):
     """The import of an archive (its bytes, or base64 text): written under .lab/imports/<id> and checked as the Add of a folder
     catalog. Answers that preview, whose ticket the Add takes; `already_imported` when this Lab has the catalog."""
@@ -528,7 +643,10 @@ def receive(data):
             raise
     try:
         reused = _reuse(final, top)
-        return {**service.check_address(str(final)), "imported": True, "reused": reused}
+        preview = service.check_address(str(final))
+        blocked = [one.get("name") for one in preview.get("blocked") or ()]
+        service.note(preview.get("ticket"), imported=True, blocked=blocked)
+        return {**preview, "imported": True, "reused": reused, "personal": _personal_plan(final, top)}
     except BaseException:
         shutil.rmtree(final, ignore_errors=True)
         raise

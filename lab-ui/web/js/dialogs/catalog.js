@@ -92,13 +92,27 @@ function cannot(blocked = [], uses = [], allow = false) {
 const usesRow = (uses) => ({ label: "Uses this machine", items: uses.length
   ? [{ text: plural(uses.length, "item", "items"), plain: true, mark: mark(usesCard(uses), "Uses this machine") }] : [] });
 
+// Where an imported playground goes: Personal, where it is the person's own and nothing blocks it any more, or Imported, a catalog
+// that keeps it judged. What cannot run cannot go to Personal: Imported is then the one choice
+let dest = "personal";
+const toPersonal = (p) => !!p.imported && dest === "personal";
+function destinationHtml(p) {
+  const blocked = (p.blocked || []).length > 0;
+  const option = (value, label, why = "") => `<button type="button" role="radio" data-dest="${value}" aria-checked="${dest === value}"${
+    why ? ` aria-disabled="true" data-why="${esc(why)}"` : ""}>${label}</button>`;
+  return `<span class="segmented" role="radiogroup" aria-label="Import to">${option("personal", "Personal", blocked ? "What cannot run stays in Imported" : "")}${
+    option("imported", "Imported")}</span>`;
+}
+
 // What the preview of a catalog says it adds, in a fixed order, a row omitted when it is empty
 function previewRows(p, allow) {
+  if (toPersonal(p)) return personalRows(p);
   const r = p.rows || {}, c = p.catalog || {}, uses = r.uses_machine || [], list = (names) => names.map((name) => ({ text: name }));
   const builds = r.builds || {}, blocked = cannot(p.blocked, uses, allow);
   const built = (builds.local ? [plural(builds.local, "image from source", "images from source")] : [])
     .concat((builds.remote || []).map((source) => `Builds from ${source}`));
   return [
+    p.imported ? { label: "Import to", html: destinationHtml(p) } : { label: "Import to", items: [] },
     { label: "Adds", items: countsOf(p.counts) },
     // What an imported playground carries that this Lab has already, from the same catalog: this Lab's own is used
     { label: "Uses yours", items: (p.reused || []).map((one) => ({ text: one.name })),
@@ -118,6 +132,25 @@ function previewRows(p, allow) {
     { label: "Needs", items: (r.needs || []).map((n) => ({ text: n.name || n.id })), hint: "Not added" },
     { label: "Settings found", items: list((r.found || []).map((f) => f.name || f.id)), hint: "From before the move" },
     { label: "Cannot run", tone: "danger", items: blocked.length ? [{ text: plural(blocked.length, "item", "items"), tone: "danger", mark: mark(blockedCard(blocked), "Cannot run") }] : [] },
+  ];
+}
+
+// An import kept in Personal: what it adds and replaces there, and what it takes of this machine, which nothing judges once it is
+// Personal's: said here, before the person chooses
+function personalRows(p) {
+  const r = p.rows || {}, mine = p.personal || {}, uses = r.uses_machine || [];
+  const reused = [...(p.reused || []).map((one) => one.name), ...(mine.same || [])];
+  const from = [...new Set((p.reused || []).map((one) => one.catalog)), ...((mine.same || []).length ? ["Personal"] : [])];
+  return [
+    { label: "Import to", html: destinationHtml(p) },
+    { label: "Adds", items: countsOf(p.counts) },
+    { label: "Uses yours", items: reused.map((name) => ({ text: name })), hint: from.length ? `From ${from.join(", ")}` : "" },
+    { label: "Replaces", tone: "danger", items: (mine.replaces || []).map((name) => ({ text: name, tone: "danger" })), hint: "Your settings stay" },
+    { label: "From", items: p.file ? [{ text: p.file, code: true }] : [] },
+    { label: "Runs", html: `<span>Containers on this machine</span>${mark(RUNS, "Runs")}` },
+    usesRow(uses),
+    { label: "Publishes", items: (r.ports || []).length ? [portsOf(r.ports)] : [] },
+    { label: "Changes", items: (r.core || []).map((name) => ({ text: name })) },
   ];
 }
 
@@ -260,7 +293,7 @@ function drawChoice(uses) {
 }
 
 function drawRows() {
-  const uses = shown.preview ? shown.preview.rows?.uses_machine || [] : shown.plan.uses_machine || [];
+  const uses = shown.preview ? (toPersonal(shown.preview) ? [] : shown.preview.rows?.uses_machine || []) : shown.plan.uses_machine || [];
   drawChoice(uses);
   const rows = shown.preview ? previewRows(shown.preview, allowing()) : planRows(shown.plan, allowing(), shown.kind);
   setHTML(rowsEl, rows.map(row).join(""));
@@ -314,6 +347,7 @@ async function read(text, branch, direct, host = false) {
 // work: the catalog is added all the same and that is said, but the allowance the person chose is not given once they walked away from the
 // dialog that asked for it, and the page does not move under whatever they have opened since.
 async function add() {
+  if (toPersonal(shown.preview)) return keepPersonal();
   const mine = seq, { preview } = shown, id = preview.catalog.id, allow = allowing();
   const live = () => mine === seq;
   sending = true;
@@ -342,6 +376,38 @@ async function add() {
     store.refresh();
   } finally {
     if (live()) sending = false;   // an attempt that was left is no longer the one that is sending
+  }
+}
+
+// The choice of where an import goes: the rows follow it
+rowsEl.addEventListener("click", (e) => {
+  const button = e.target.closest("[data-dest]");
+  if (!button || button.getAttribute("aria-disabled") === "true" || !shown?.preview?.imported) return;
+  dest = button.dataset.dest;
+  drawRows();
+  $(`[data-dest="${dest}"]`, rowsEl)?.focus();
+});
+
+// The import kept in Personal; its playground's page opens
+async function keepPersonal() {
+  const mine = seq, { preview } = shown, live = () => mine === seq;
+  sending = true;
+  try {
+    const answer = await busy(`catalog-op:${preview.catalog.id}`, "import", api("/api/catalogs/import/personal", { ticket: preview.ticket }));
+    const stay = live();
+    if (stay) dialog.close();
+    toast("Imported");
+    await store.refresh();
+    if (stay && answer.playground && !$$("dialog").some((d) => d.open)) router.go(`#/playgrounds/${answer.playground}`);
+  } catch (err) {
+    if (!live()) toast(err.message, true);
+    else if (expired(err)) {
+      fileScreen();
+      problem(err.message);
+    } else problem(err.message);
+    store.refresh();
+  } finally {
+    if (live()) sending = false;
   }
 }
 
@@ -381,6 +447,7 @@ async function importFile(file) {
   try {
     const preview = { ...await api("/api/catalogs/import", { data: await base64Of(file) }), file: file.name };
     if (mine !== seq) return;
+    dest = (preview.blocked || []).length ? "imported" : "personal";
     rowsEl.removeAttribute("aria-busy");
     shown = { kind: "add", preview, host: false };
     effectsScreen(`Import ${preview.catalog?.name ?? ""}`.trim());

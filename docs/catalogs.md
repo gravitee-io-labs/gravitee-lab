@@ -132,7 +132,14 @@ listed. What the other Lab would block is said, and keeps the file from being ma
 machine (a privileged container, say) is said too: the person who imports it is asked, as for any catalog.
 
 On the other Lab, **Import** on the Playgrounds page takes the file: the preview is the one of an Add, and once imported the
-playground's page opens. An item the file holds that this Lab has already, from the same catalog, is not imported a second time:
+playground's page opens. **Import to** chooses where it goes:
+
+- **Personal**, the default: the playground and what it brings are yours, like what you make with the New buttons, and you edit
+  them freely. An item of Personal with the same name is replaced (your settings stay) unless it is the same, which is then
+  used. The Lab no longer judges what is in Personal: what uses this machine is shown before you import, and an item the preview
+  says cannot run cannot go there.
+- **Imported**: the file is kept as a catalog of its own, which the Lab keeps judging. An item that cannot run stays visible,
+  blocked. An item the file holds that this Lab has already, from the same catalog, is not imported a second time:
 the playground uses this Lab's own, and the preview says so under **Uses yours**. A playground this Lab has already is not
 imported at all. The Lab keeps the files under `.lab/imports/`, and the playground shows under a catalog named after it.
 To import a newer file of the same playground, remove that catalog on the Catalogs page first: its files go with it.

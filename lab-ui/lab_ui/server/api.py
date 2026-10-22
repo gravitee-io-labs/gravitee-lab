@@ -745,6 +745,7 @@ ROUTES = [(method, re.compile(pattern), handler) for method, pattern, handler in
     # A playground in a file: what its export carries (`check`), then the file, base64; and the import of one, as an Add
     ("POST", f"/api/playgrounds/{UNIT}/export", lambda r, pid: exports.plan(pid) if r.body.get("check") else exports.archive(pid)),
     ("POST", "/api/catalogs/import", lambda r: exports.receive(r.body.get("data"))),
+    ("POST", "/api/catalogs/import/personal", lambda r: exports.to_personal(r.body.get("ticket"))),
     ("POST", f"/api/{KIND}s/{UNIT}/use-catalog", use_catalog),
     # The catalogs. What changes one, runs git or asks a network is a POST and the page's alone; the state never does
     ("POST", "/api/catalogs/check", lambda r: service.check_address(r.body.get("address"), r.body.get("branch"))),

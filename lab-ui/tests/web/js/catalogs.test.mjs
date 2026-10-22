@@ -786,6 +786,38 @@ test("Continue at work reads Reading, the bar of the fetch is under the field, a
   assert.deepEqual(toasts(), []);
 });
 
+test("Import to Personal keeps the playground as the person's own, says what it replaces there, and opens its page; what cannot run goes to Imported only", async () => {
+  show([FIRST()]);
+  openImport();
+  const drop = async (file) => {
+    adding().querySelector("#catalog-file").dispatchEvent(Object.assign(new Ev("drop"), { dataTransfer: { files: [file] }, preventDefault() {} }));
+    await settle();
+  };
+  server.answers["/api/catalogs/import"] = PREVIEW({ catalog: { id: "contoso", name: "Contoso demo", version: "1.0.0", lab: 1, kind: "folder" },
+    imported: true, counts: { playground: 1, setup: 0, addon: 1 }, blocked: [], rows: {}, personal: { replaces: ["Kiosk"], same: [] } });
+  await drop(new File([new Uint8Array([80, 75, 5, 6])], "contoso.zip"));
+  assert.deepEqual(rowsOf().find(([label]) => label === "Replaces"), ["Replaces", "Kiosk Your settings stay"]);
+  server.answers["/api/catalogs/import/personal"] = { items: [], playground: "local/contoso" };
+  const went = [];
+  const go = router.go;
+  router.go = (to) => went.push(to);
+  await submit(primary());
+  await settle();
+  router.go = go;
+  assert.deepEqual([last().path, last().body], ["/api/catalogs/import/personal", { ticket: "9f3a4c1d2e5b6a70" }]);
+  assert.deepEqual(went, ["#/playgrounds/local/contoso"]);
+  // What cannot run is never Personal's: Imported is the one choice, and Personal says why
+  openImport();
+  server.answers["/api/catalogs/import"] = PREVIEW({ catalog: { id: "contoso", name: "Contoso demo", version: "1.0.0", lab: 1, kind: "folder" },
+    imported: true, counts: { playground: 1, setup: 0, addon: 1 }, blocked: [{ name: "Kiosk", reasons: ["Runs with full privileges"] }], rows: {},
+    personal: { replaces: [], same: [] } });
+  await drop(new File([new Uint8Array([80, 75, 5, 6])], "contoso.zip"));
+  const personal = adding().querySelector('[data-dest="personal"]');
+  assert.deepEqual([personal.getAttribute("aria-disabled"), personal.getAttribute("data-why")], ["true", "What cannot run stays in Imported"]);
+  assert.equal(adding().querySelector('[data-dest="imported"]').getAttribute("aria-checked"), "true");
+  adding().closest("dialog").close();
+});
+
 test("Import takes the file of an exported playground, shows the preview of an Add from that file, and opens the playground once imported", async () => {
   show([FIRST()]);
   clearToasts();
@@ -807,6 +839,10 @@ test("Import takes the file of an exported playground, shows the preview of an A
   assert.deepEqual([heading(), face(primary())], ["Import Contoso demo", "Import"]);
   assert.deepEqual(rowsOf().find(([label]) => label === "From"), ["From", "contoso.zip"], "it comes from the file, not from where the Lab keeps it");
   assert.deepEqual(rowsOf().find(([label]) => label === "Uses yours"), ["Uses yours", "Ledger From Partner"], "what this Lab has already is not a second copy");
+  const dest = (value) => adding().querySelector(`[data-dest="${value}"]`);
+  assert.deepEqual([dest("personal").getAttribute("aria-checked"), dest("imported").getAttribute("aria-checked")], ["true", "false"], "Personal first");
+  dest("imported").click();
+  assert.equal(dest("imported").getAttribute("aria-checked"), "true");
   server.answers["/api/catalogs"] = { catalog: { id: "contoso", host: null } };
   const went = [];
   const go = router.go;

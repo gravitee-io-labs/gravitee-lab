@@ -6,6 +6,7 @@ judgement of it as another Lab will make it, and its import: the archive read wi
 import base64
 import io
 import json
+import shutil
 import stat
 import zipfile
 
@@ -135,6 +136,59 @@ class RoundTrip(Case):
         self.assertIn("is already in this Lab", caught.exception.message)
         service.remove("sandbox")
         self.assertFalse(folder.exists(), "the files of an imported playground go with its catalog")
+
+
+class ToPersonal(Case):
+    """The import kept in Personal: the items written in .lab/catalogs/local with their includes, the same item used as it is, a
+    different one replaced with the person's settings kept, nothing blocked let in, and the archive's folder gone after."""
+
+    setUp = RoundTrip.setUp
+
+    def local(self, rel):
+        return paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / rel
+
+    def test_the_same_items_are_used_and_a_different_one_is_replaced_keeping_its_settings(self):
+        data = exports.archive("local/sandbox")["data"]
+        preview = exports.receive(data)
+        self.assertEqual(preview["personal"], {"replaces": [], "same": ["Sandbox", "Scratch"]})
+        scratch = self.local("addons/scratch/compose.yml")
+        original = scratch.read_text(encoding="utf-8")
+        scratch.write_text(original + "# changed here\n", encoding="utf-8")
+        self.local("addons/scratch/.env").write_text("SCRATCH_NOTES_VERSION=1.35\n", encoding="utf-8")
+        preview = exports.receive(data)
+        self.assertEqual(preview["personal"], {"replaces": ["Scratch"], "same": ["Sandbox"]})
+        done = exports.to_personal(preview["ticket"])
+        self.assertEqual(done["playground"], "local/sandbox")
+        self.assertEqual(sorted(one["id"] for one in done["items"]), ["local/sandbox", "local/scratch"])
+        self.assertEqual(scratch.read_text(encoding="utf-8"), original, "the file's version replaces the one of this machine")
+        self.assertEqual(self.local("addons/scratch/.env").read_text(encoding="utf-8"), "SCRATCH_NOTES_VERSION=1.35\n",
+                         "the person's settings stay")
+        self.assertFalse((paths.ROOT / exports.IMPORTS_DIR / "sandbox").exists(), "nothing is left of the import")
+        self.assertIsNone(registry.entry("sandbox"), "no catalog is added")
+
+    def test_a_new_item_is_written_in_personal_with_its_includes(self):
+        data = exports.archive("local/sandbox")["data"]
+        for rel in ("playgrounds/sandbox", "addons/scratch"):
+            shutil.rmtree(self.local(rel))
+        preview = exports.receive(data)
+        self.assertEqual(preview["personal"], {"replaces": [], "same": []})
+        exports.to_personal(preview["ticket"])
+        self.assertIn("../../addons/scratch/compose.yml", self.local("playgrounds/sandbox/compose.yml").read_text(encoding="utf-8"))
+        self.assertIn("../../../fixture/addons/echo/compose.yml", self.local("addons/scratch/compose.yml").read_text(encoding="utf-8"))
+        self.assertTrue(self.local("playgrounds/sandbox/guide.md").is_file(), "its other files come with it")
+
+    def test_what_the_preview_found_blocked_cannot_go_to_personal(self):
+        preview = exports.receive(exports.archive("local/sandbox")["data"])
+        service.note(preview["ticket"], blocked=["Scratch"])
+        with self.assertRaises(CatalogError) as caught:
+            exports.to_personal(preview["ticket"])
+        self.assertEqual(caught.exception.code, "blocked_personal")
+        self.assertEqual(caught.exception.message, "Scratch cannot run: import to Imported, where it stays blocked.")
+
+    def test_a_ticket_that_is_no_import_is_refused(self):
+        with self.assertRaises(CatalogError) as caught:
+            exports.to_personal("nothing")
+        self.assertEqual(caught.exception.code, "ticket_expired")
 
 
 class FromCatalogs(Case):

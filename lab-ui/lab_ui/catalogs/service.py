@@ -158,6 +158,13 @@ def _held(ticket, *kinds):
     return data
 
 
+def note(ticket, **fields):
+    """Adds what a caller knows of a check to its ticket (an import notes what it found), for when the change is made."""
+    with _lock:
+        if isinstance(ticket, str) and ticket in TICKETS:
+            TICKETS[ticket].update(fields)
+
+
 def _spend(ticket):
     with _lock:
         TICKETS.pop(ticket, None)
