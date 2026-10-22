@@ -140,16 +140,26 @@ def _gather(pid):
 
 def _registries(found, carried, units):
     """[{registry, images}] of the images the other Lab will pull from a registry that asks for a login: those of the carried
-    items' services that are not built there, and those of the platform its items require a version of, from the registry this
-    Lab uses for them."""
+    items' services that are not built there, and those of the platform its items ask a version of, from the registry their
+    latest tested set names (what a start there switches to), else the platform's default one."""
     owners = {(kind, uid) for kind, uid in carried}
     services = found.get("services") or {}
     pulled = [one["image"] for one in services.values() if not one.get("built")
               and ((one.get("owner") or {}).get("kind"), (one.get("owner") or {}).get("id")) in owners]
-    keys = {key for kind, uid in carried for key in ((units[kind][uid].get("requires") or {}).get("images") or {})}
-    for component in images.components(found) if keys else ():
-        if component["version_key"] in keys:
-            pulled += [services[name]["image"] for name in component["services"] if name in services]
+    components = None
+    for kind, uid in carried:
+        unit = units[kind][uid]
+        tested = next((one for one in reversed(unit.get("tested") or []) if one), {})
+        wanted = {**((unit.get("requires") or {}).get("images") or {}), **tested}
+        if not wanted:
+            continue
+        components = components if components is not None else images.components(found)
+        for component in components:
+            version, key = wanted.get(component["version_key"]), component["registry_key"]
+            registry = (tested.get(key) or component["registry_default"]) if key else None
+            if version is None or not key or not registry or "$" in str(registry):
+                continue
+            pulled.append(f"{registry}/{component['repository']}:{version}")
     return [{"registry": registry, "images": sorted(set(found_images))}
             for registry, found_images in sorted(images.private_images(pulled).items())]
 

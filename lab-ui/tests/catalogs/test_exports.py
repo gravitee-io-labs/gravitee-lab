@@ -209,3 +209,23 @@ class FromCatalogs(Case):
             exports._reuse(folder, "tour-copy")
         self.assertEqual(caught.exception.code, "already_here")
         self.assertEqual(caught.exception.message, "Tour is already in this Lab, from Fixture catalog.")
+
+
+class Registries(Case):
+    """exports._registries: the platform's images are asked about as the other Lab will pull them, from the latest tested set of the
+    item (its registry and its version), else its required version from the platform's default registry; not as this Lab runs them."""
+
+    def test_the_tested_set_says_the_registry_and_the_version_the_other_lab_pulls(self):
+        component = {"version_key": "APIM_VERSION", "registry_key": "APIM_REGISTRY", "registry_default": "graviteeio",
+                     "repository": "apim-management-api"}
+        asked = []
+        self.patch(exports.images, "components", lambda found: [component])
+        self.patch(exports.images, "private_images", lambda pulled: asked.append(sorted(pulled)) or {})
+        found = {"services": {"apim": {"image": "graviteeio/apim-management-api:4.12.0", "built": False,
+                                       "owner": {"kind": "platform", "id": "api-management"}}}}
+        tested = {"playground": {"local/p": {"tested": [{"APIM_VERSION": "4.12.0"},
+                                                        {"APIM_VERSION": "amp-demo-latest", "APIM_REGISTRY": "acme.azurecr.io"}]}}}
+        exports._registries(found, [("playground", "local/p")], tested)
+        required = {"playground": {"local/p": {"requires": {"images": {"APIM_VERSION": "4.13.0"}}}}}
+        exports._registries(found, [("playground", "local/p")], required)
+        self.assertEqual(asked, [["acme.azurecr.io/apim-management-api:amp-demo-latest"], ["graviteeio/apim-management-api:4.13.0"]])
