@@ -202,7 +202,7 @@ export const store = {
     if (store.offline) return { tone: "err", text: "Lab UI offline" };
     if (store.error) return { tone: "err", text: "Lab UI error", title: store.error };
     const { docker, platform, blind, wait } = store.state;
-    if (docker.error) return { tone: "err", text: "Docker is not reachable" };
+    if (docker.error) return { tone: "err", text: docker.title || "Docker is not reachable" };
     if (blind) return { tone: "err", text: wait };   // docker-compose.yml does not load: what runs is not known
     const { key, label } = platform.state, moving = key === "starting" || key === "stopping";
     const why = key === "issue" ? platform.groups.filter((g) => g.note && !g.note_apply && ["err", "warn"].includes(g.note_tone))

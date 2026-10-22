@@ -2481,18 +2481,65 @@ class Startup(Case):
         self.assertEqual(order, ["requirement", "prepare", "check", "requirement", "prepare", "list", "requirement", "prepare", "e2e"])
         self.assertEqual(self.events, [], "none of the commands but serve binds a port or starts a step")
 
-    def test_what_the_machine_lacks_stops_the_start_before_the_port_is_asked_for(self):
+    def test_what_the_machine_lacks_stops_a_command_before_it_runs_and_the_page_serves_all_the_same_to_say_it(self):
         self.patch(api, "requirement", return_value="docker not found")
         prepared = self.patch(api.layers, "prepare")
-        with self.assertRaises(SystemExit) as stopped:
-            api.main(["--no-open"])
-        self.assertEqual(stopped.exception.code, "docker not found")
+        for command in (["--check"], ["--list"], ["--e2e", "addon:echo"]):
+            with self.subTest(command=command):
+                with self.assertRaises(SystemExit) as stopped:
+                    api.main(command)
+                self.assertEqual(stopped.exception.code, "docker not found")
         prepared.assert_not_called()
         self.assertEqual(self.events, [])
+        # The page says what is missing, with its fix (machine): the Lab UI serves, and the terminal says it in a line
+        served = self.patch(api, "serve")
+        said = io.StringIO()
+        with contextlib.redirect_stderr(said):
+            api.main(["--no-open", "--port", "9123"])
+        served.assert_called_once()
+        self.assertEqual(said.getvalue().strip(), "Gravitee Lab UI: docker not found")
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DockerDown(Case):
+    """A Docker that does not answer, is not installed or has a Compose older than 5.0 is said as Docker's notice, in the words of the
+    machine's check, and not as a core file that does not load."""
+
+    def setUp(self):
+        self.lacking = self.patch(api, "requirement", return_value=None)
+        self.row = {"id": "docker", "state": "error", "detail": "Docker Desktop is not running", "actions": []}
+        self.patch(api.machine, "report", side_effect=lambda: {"checks": [self.row]})
+        self.patch(api.compose.CACHE, "get", side_effect=lambda key, ttl, fn: fn())
+
+    def body(self, problems):
+        return {"docker": {"error": None, "warning": None}, "problems": problems, "wait": None}
+
+    def test_a_core_that_does_not_load_because_docker_does_not_answer_is_docker_s_notice(self):
+        problem = {"file": "docker-compose.yml", "message": "Cannot connect to the Docker daemon at unix:///var/run/docker.sock."}
+        other = {"file": "addons/x/compose.yml", "message": "bad"}
+        body = self.body([problem, other])
+        api._docker_down(body)
+        self.assertEqual(body["docker"], {"error": "Docker Desktop is not running", "warning": None, "title": "Docker is not reachable"})
+        self.assertEqual((body["problems"], body["wait"]), ([other], "Docker is not reachable"))
+
+    def test_a_compose_too_old_is_said_though_the_core_loads(self):
+        self.lacking.return_value = "Docker Compose 5.0 or later is needed, found: 2.29.7"
+        self.row["detail"] = "Compose 2.29.7 is too old: update Docker Desktop to get Compose 5.0 or later"
+        body = self.body([])
+        api._docker_down(body)
+        self.assertEqual((body["docker"]["title"], body["docker"]["error"], body["wait"]),
+                         ("Docker is not ready", self.row["detail"], "Docker is not ready"))
+
+    def test_a_docker_that_answers_is_left_as_it_is(self):
+        body = self.body([])
+        api._docker_down(body)
+        self.assertEqual(body, self.body([]))
+        said = {"docker": {"error": "Docker is not reachable", "warning": None}, "problems": [], "wait": "x"}
+        api._docker_down(said)
+        self.assertEqual(said["docker"]["error"], "Docker is not reachable", "what Docker said already stays")
 
 
 class Terminal(LabUI):

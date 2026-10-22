@@ -19,7 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import URLError
 from urllib.parse import parse_qs, urlparse
 
-from ..library import check, drift, layers, layout, model, personal, playgrounds, project, starred, updates
+from ..library import check, drift, layers, layout, machine, model, personal, playgrounds, project, starred, updates
 from ..docker import compose, files, images, plugins, probe, terminal
 from ..gravitee import core, license, places, platforms
 from . import dashboard, stack
@@ -73,6 +73,24 @@ WRONG_HOST = ('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="
 # Handlers that are more than one call
 # ---------------------------------------------------------------------------------------------------------------------
 
+def _docker_down(body):
+    """Docker that does not answer, is not installed or has a Compose older than 5.0 keeps the platform from starting: it is said as
+    Docker's notice, in the words of the machine's check (machine), with the checks behind it, and not as a file that does not load"""
+    if body["docker"].get("error"):
+        return
+    down = [one for one in body.get("problems", []) if one.get("file") == paths.CORE_FILE
+            and (compose.unreachable(one.get("message")) or "No such file or directory: 'docker'" in (one.get("message") or ""))]
+    lacking = compose.CACHE.get("requirement", 10, requirement)
+    if not down and not lacking:
+        return
+    row = machine.report()["checks"][0]
+    unreachable = row["state"] == "error" and "running" in row["detail"] or bool(down) and compose.unreachable(down[0]["message"])
+    body["docker"].update(error=row["detail"] if row["state"] in ("error", "working") else "Docker does not answer",
+                          title="Docker is not reachable" if unreachable else "Docker is not ready")
+    body["problems"] = [one for one in body.get("problems", []) if one not in down]
+    body["wait"] = body["docker"]["title"]
+
+
 def snapshot():
     """The state the page draws, before it is sent. Docker not answering is part of the state, not a failure of the Lab
     UI, and so is docker-compose.yml not loading: then what runs is not known either. What Docker says of the
@@ -104,6 +122,7 @@ def snapshot():
     # Management runs, from this machine's choice and what its platform last said
     body.update(root=str(paths.ROOT), skills=personal.skills(), lab=updates.describe(),
                 core=core.describe(p, on, containers if known else {}, saved, body.get("wait")))
+    _docker_down(body)
     unread = service.problems()   # the files that record the catalogs cannot be read: nothing would be shown, and no word said
     if unread:
         body["problems"] = [*body.get("problems", []), *unread]
@@ -721,6 +740,8 @@ ROUTES = [(method, re.compile(pattern), handler) for method, pattern, handler in
     ("GET", "/api/plugins/installed", installed),
     ("GET", "/api/plugins/versions", lambda r: {"versions": plugins.versions(r.query.get("path"))}),
     ("GET", "/api/license", lambda r: license.info(project.load())),
+    ("GET", "/api/machine", lambda r: machine.report(fresh=r.query.get("fresh") == "1")),
+    ("POST", "/api/machine/act", lambda r: machine.act(r.body.get("id"))),
     ("GET", f"/api/playgrounds/{UNIT}/check",
      lambda r, pid: playgrounds.check(project.load(), pid, **at(r.query.get("place")))),
     ("GET", f"/api/(addon|setup)s/{UNIT}/check", lambda r, kind, uid: check_unit(r, kind, uid)),
@@ -1035,8 +1056,10 @@ def main(argv=None):
     parser.add_argument("--keep", action="store_true", help="with --e2e: leave what was started running, to look at it")
     args = parser.parse_args(argv)
     missing = requirement()
-    if missing:
+    if missing and (args.check or args.list or args.e2e):
         sys.exit(missing)
+    if missing:   # the Lab UI serves all the same: its page says what is missing, and how to fix it (machine)
+        print(f"Gravitee Lab UI: {missing}", file=sys.stderr)
     layers.prepare()
     if args.check:
         sys.exit(check.run())

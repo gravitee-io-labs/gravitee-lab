@@ -61,7 +61,7 @@ cd gravitee-lab
 make ui
 ```
 
-`make ui` creates what a fresh clone lacks (`.env`, the demo certificates, the plugin folders and `.lab/on.yml`), starts the Lab UI and opens http://localhost:9000, on its Dashboard.
+`make ui` creates what a fresh clone lacks (`.env`, the demo certificates, the plugin folders and `.lab/on.yml`), starts the Lab UI and opens http://localhost:9000, on its Dashboard. Its first visit checks your machine (Docker, its memory, the disk, the ports, Git) and gives the fix of anything missing: [Your machine](lab-ui.md#your-machine).
 
 In the Lab UI, click **Start all**. The first start pulls the images, about 15 GB: allow about 10 to 15 minutes, depending on your connection. Then open a console from the **Dashboard**. Sign in to the API Management and Gamma consoles with `admin` / `admin`, and to the Access Management console with `admin` / `adminadmin`. Gamma is Gravitee's console for AI agents, MCP servers and LLM traffic, and part of API Management. The other demo logins are in [Logins](configuration.md#logins).
 

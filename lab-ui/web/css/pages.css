@@ -1165,3 +1165,32 @@ mark { background: var(--hl); color: var(--hl-text); border-radius: 2px; padding
 .lab-actions .grow { flex: 1; }
 #lab-all .text-link { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-2); }
 #lab-all .text-link > svg { width: 12px; height: 12px; }
+
+/* Your machine: one line per need, its state, what it is, the fix */
+.machine-dialog { width: min(760px, 94vw); padding: 0; }
+.machine-dialog[open] { display: flex; flex-direction: column; }
+.machine-body { padding: 16px var(--pad) 8px; display: grid; gap: 12px; }
+.machine-summary { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: var(--fw-2); }
+.machine-summary > svg { width: 16px; height: 16px; flex: none; }
+.machine-summary[data-tone="ok"] > svg { color: var(--ok); }
+.machine-summary[data-tone="warn"] > svg { color: var(--warn); }
+.machine-summary[data-tone="err"] > svg { color: var(--err); }
+.machine-checks { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: var(--radius); }
+.machine-check { display: flex; align-items: center; gap: 12px; padding: 12px var(--pad); min-height: 60px; }
+.machine-check + .machine-check { border-top: 1px solid var(--border); }
+.machine-state { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; flex: none; }
+.machine-state > svg { width: 14px; height: 14px; }
+.machine-state.ok { background: var(--ok-soft); color: var(--ok); }
+.machine-state.warn { background: var(--warn-soft); color: var(--warn); }
+.machine-state.error { background: var(--err-soft); color: var(--err); }
+.machine-state.idle { background: var(--surface-3); color: var(--muted); }
+.machine-state.working { background: var(--info-soft); color: var(--info); }
+.machine-text { display: grid; flex: 1 1 auto; min-width: 0; }
+.machine-text > span { color: var(--muted); font-size: var(--fs-2); }
+.machine-check[data-state="error"] .machine-text > span { color: var(--err); }
+.machine-check[data-state="warn"] .machine-text > span { color: var(--warn); }
+.machine-fix { display: flex; align-items: center; gap: 8px; flex: none; flex-wrap: wrap; justify-content: flex-end; }
+.machine-fix .btn > svg { width: 12px; height: 12px; }
+.machine-command { display: inline-flex; align-items: center; gap: 4px; }
+.machine-command code { font-family: var(--mono); font-size: var(--fs-1); padding: 4px 8px; border-radius: var(--r-inner); background: var(--surface-2); border: 1px solid var(--border); }
+.machine-actions { margin-top: 0; padding: 12px var(--pad); border-top: 1px solid var(--border); }

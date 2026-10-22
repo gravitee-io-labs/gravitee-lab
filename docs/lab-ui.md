@@ -83,6 +83,18 @@ answer at all, the page says so, how to start it (`make ui`) and *Try again*. On
 [Gravitee Cloud account](#gravitee-cloud), it leaves out the calm *stopped* line while an add-on or a playground runs, because a deploy to
 Gravitee Cloud runs without the core.
 
+## Your machine
+
+What this machine needs to run the lab, one line each: Docker with Compose 5.0 or later, the memory Docker has (8 GB), the free
+disk where Docker keeps its images (15 GB for the first start), the ports the platform publishes (one held by another program is
+named with its service), and Git for the catalogs. Each line says its state and has the one fix that answers it: a download, a
+command to copy, or, on a Mac, *Open Docker Desktop* and Apple's installer of Git, which the Lab UI runs. The lines are asked again
+every few seconds while the dialog is open, so a fix turns its line right by itself.
+
+The first visit opens it before *How Gravitee Lab works* when something needs a look; the notice that Docker is not reachable or not
+ready, and the one about Docker's memory, open it with *Check your machine*, and so does the first line of *How Gravitee Lab works*.
+The Lab UI starts whatever the machine lacks: the page says it, where the terminal stopped before.
+
 ## On, off and running
 
 An add-on, a setup or a playground has two facts, and the Lab UI shows both:

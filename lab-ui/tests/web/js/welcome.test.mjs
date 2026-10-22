@@ -7,16 +7,19 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { Ev, installDom, text, isOff, offWhy } from "./dom-stub.mjs";
+import { Ev, flush, installDom, text, isOff, offWhy } from "./dom-stub.mjs";
 import { FIRST, catalog, content, lab as labState } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
 const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
 const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$/.test(id));
 const calls = [];
+// A machine with nothing to fix: the first visit goes straight to this dialog
+const MACHINE_READY = { ready: true, problems: 0, checks: [{ id: "docker", state: "ok", title: "Docker", detail: "Docker Desktop 29.8.2, Compose 5.6.0", actions: [] }] };
 const reply = (body) => ({ ok: true, status: 200, headers: { get: () => "" }, json: async () => body });
 const page = installDom({ ids, fetch: async (path, options = {}) => {
   calls.push({ path, body: options.body ? JSON.parse(options.body) : undefined });
+  if (path.startsWith("/api/machine")) return reply(MACHINE_READY);
   return reply(path === "/api/state" ? store.state : {});
 } });
 const { store } = await import("../../../web/js/core.js");
@@ -29,6 +32,7 @@ const GROUPS = ["API Management", "Access Management", "Alert Engine", "Database
 store.state = { platform: { groups: GROUPS, state: { key: "running" } }, products: [], addons: [], playgrounds: [],
   core: { place: "machine", chosen: false, group: GROUP } };
 Welcome.init();
+await flush();
 const dialog = page.doc.querySelector(".welcome-dialog");
 const body = dialog.querySelector(".welcome");
 
@@ -52,16 +56,18 @@ test("a first visit shows it, which asks first where API Management runs: two ca
   assert.deepEqual(core.querySelectorAll(".pill").map(text), ["API Management", "Access Management", "Alert Engine", "Databases"]);
 });
 
-test("what to do first is three lines", () => {
+test("what to do first is four lines, the machine first", () => {
   const heading = body.querySelectorAll("h3")[1], steps = body.querySelector(".welcome-start");
   assert.equal(text(heading), "Start here");
   assert.ok(steps.previousElementSibling === heading, "the list follows its heading");
   assert.deepEqual(steps.children.map(text), [
+    "Check your machine: Docker, its memory, the disk and the ports.",
     "Start the platform (about 10 to 15 minutes the first time).",
     "Open a console from the Dashboard.",
     "A playground's page lists what it needs: a license, versions, settings.",
   ]);
-  assert.equal(steps.children[1].querySelector("a").getAttribute("href"), "#/dashboard", "the Dashboard's name leads to it");
+  assert.ok(steps.children[0].querySelector("[data-machine]"), "the machine's checks open from it");
+  assert.equal(steps.children[2].querySelector("a").getAttribute("href"), "#/dashboard", "the Dashboard's name leads to it");
 });
 
 test("the example of the on file says what it is, and names no item of the catalog: the paths say where they are", () => {

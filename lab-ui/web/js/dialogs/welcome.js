@@ -9,6 +9,7 @@ import { paintBusy, licenseForm, contentLead, setOff } from "../components/ui.js
 import { runPlatform } from "../activity/jobs.js";
 import { CHOICES, coreOf, onCloud, movable, linkedPlaces, chooseCore, environmentControl, pickEnvironment, runCore, gatewayWhy } from "../platform/core-choice.js";
 import { License } from "./license.js";
+import { firstLook } from "./machine.js";
 import { REGISTER } from "./platform.js";
 
 const REPOSITORY = "https://github.com/gravitee-io-labs/gravitee-lab";   // where the source of the Lab is
@@ -49,6 +50,7 @@ const start = () => (onCloud() ? [
   `Open a console from the ${page("Dashboard", "#/dashboard")}.`,
   "A playground's page says whether it can go to Gravitee Cloud, and what it needs.",
 ] : [
+  '<button type="button" class="text-link" data-machine>Check your machine</button>: Docker, its memory, the disk and the ports.',
   "Start the platform (about 10 to 15 minutes the first time).",
   `Open a console from the ${page("Dashboard", "#/dashboard")}.`,
   "A playground's page lists what it needs: a license, versions, settings.",
@@ -244,9 +246,10 @@ function show() {
   }, () => {});
 }
 
-// The first visit opens it, once the page behind it has drawn, unless where API Management runs was chosen on this machine already
+// The first visit opens it, once the page behind it has drawn, unless where API Management runs was chosen on this machine already. The
+// machine is looked at first, and shown before it when something needs a look.
 function init() {
-  if (!recall(SEEN) && !coreOf().chosen) show();
+  firstLook(() => { if (!recall(SEEN) && !coreOf().chosen) show(); });
 }
 
 export const Welcome = { init };
