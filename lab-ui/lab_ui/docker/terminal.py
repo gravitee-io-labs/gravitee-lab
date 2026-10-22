@@ -95,8 +95,12 @@ class Session:
         return True
 
     def resize(self, rows, cols):
+        """The size of the page's terminal becomes the shell's. The new session of `docker exec` has no controlling terminal, so the
+        kernel never tells it the size changed: it is told here, and then passes it on to the exec in the container."""
         try:
             fcntl.ioctl(self.master, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+            if self.process.poll() is None:
+                self.process.send_signal(signal.SIGWINCH)
         except OSError:
             pass
 
