@@ -4,7 +4,7 @@
 // when the guide may run a block at its prompt). No DOM.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { actionMessage, actionOf, actionReason, bytesOf, chooseTab, commandOf, edge, fits, guideWidth, isReady, limits, linkTarget, located, looksAt,
+import { actionMessage, actionOf, actionReason, bytesOf, chooseTab, commandOf, edge, fits, guideWidth, isLook, isReady, limits, linkTarget, located, looksAt,
   newPage, nudge, opening, originOf, plainClick, termEdge, termHeight, termLimits, termNudge, terminalReason } from "../../../web/js/workspace/split.js";
 
 const BANK = { id: "bakery-web", label: "Acme Bakery", url: "http://localhost:8110" };
@@ -307,4 +307,10 @@ test("the output of the shell arrives as base64 and is read as bytes, the ones o
   assert.deepEqual([...bytesOf("G1szMm1vaxtbMG0NCg==")], [27, 91, 51, 50, 109, 111, 107, 27, 91, 48, 109, 13, 10]);
   assert.deepEqual([...bytesOf("")], []);
   assert.deepEqual([...bytesOf("w6k=")], [195, 169], "the two bytes of é, which the terminal decodes");
+});
+
+test("an action looks when its id starts with open-, and does otherwise", () => {
+  assert.equal(isLook("open-kafka-plans"), true);
+  assert.equal(isLook("send-order"), false);
+  assert.equal(isLook("reopen-it"), false);
 });

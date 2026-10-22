@@ -529,11 +529,14 @@
   text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); }
 .guide a:hover { text-decoration-color: currentColor; }
 .guide strong { color: var(--text); font-weight: 650; }
-/* An action link: the Lab's button with its play icon, in the line it was written in without making it taller, and room
-   around it for its focus ring */
-.guide .guide-action { margin: -5px 3px; vertical-align: baseline; }
+/* An action link: the Lab's button with its play icon, centered in the line it was written in. Its margins are part of the
+   line, which grows to hold the whole button (32px and 3px each side, for a 25.5px line of text): the button never touches
+   the lines around it, and has room beside it for its focus ring */
+.guide .guide-action { margin: 3px 4px; vertical-align: middle; }
 .guide .guide-action:focus-visible { outline-offset: 1px; }
 .guide-action svg { color: var(--accent); }
+/* What only shows something: its eye is quiet, the play of what does something is the accent */
+.guide-action.look svg { color: var(--muted); }
 /* A block to run: its button is in the corner of the block, which keeps its text clear of it */
 .guide-code { position: relative; margin: 0 0 var(--flow); }
 .guide-code pre { margin: 0; }

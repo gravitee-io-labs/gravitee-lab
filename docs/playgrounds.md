@@ -743,9 +743,11 @@ An action is a Markdown link whose address is `action:` and an id:
 ```
 
 An id is 1 to 64 lowercase letters, digits and hyphens, and starts with a letter or a digit. It is a plain link, so it
-reads as one in any Markdown viewer. The Lab UI draws it as a small button with a play icon and the text of the link. A
-click shows the first console of the playground and sends it the action. What follows `action:` and is not an id is no
-action: the link loses its address and stays text, and `make check` says so.
+reads as one in any Markdown viewer. The Lab UI draws it as a small button with the text of the link and a play icon, or an
+eye when the id starts with `open-`: the play is for what the app does (a message sent, a policy switched on), the eye for
+what only takes the person to look at something (a page of a console). A click shows the first console of the playground
+and sends it the action. What follows `action:` and is not an id is no action: the link loses its address and stays text,
+and `make check` says so.
 
 The button is disabled, with a tooltip that says why, while it cannot work: the playground does not run (before its
 first start too), it lists no console, or its first console cannot be used (it is not running, does not answer, or

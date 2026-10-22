@@ -2,7 +2,7 @@
 // (`[Ask Ace](action:ask-ace)`) drawn as buttons, and its blocks to run (```bash run) given a Run button. A playground's guide on its page and in the editor's preview.
 
 import { esc, icon, loadScript } from "../core.js";
-import { actionOf } from "../workspace/split.js";
+import { actionOf, isLook } from "../workspace/split.js";
 
 // Each library at one version, with the sha384 hash of its file: the browser refuses a file that differs. Another
 // version needs its hash: curl -sL <url> | openssl dgst -sha384 -binary | openssl base64 -A
@@ -56,8 +56,8 @@ async function loadMermaid() {
     fontFamily: getComputedStyle(document.body).fontFamily });
 }
 
-// An action link, the only one the sanitizer let keep its `action:`, as a button with its play icon and the text of the
-// link, disabled: whoever shows the guide enables it, as the playground's page does for what it can send. One whose id is
+// An action link, the only one the sanitizer let keep its `action:`, as a button with its play icon (an eye for an id that starts
+// with `open-`) and the text of the link, disabled: whoever shows the guide enables it, as the playground's page does for what it can send. One whose id is
 // none lost its address, and one with no text has nothing to click: both stay a text.
 function withActions(page) {
   for (const link of page.content.querySelectorAll("a[href]")) {
@@ -68,8 +68,9 @@ function withActions(page) {
       link.replaceWith(...link.childNodes);
       continue;
     }
-    const button = Object.assign(document.createElement("button"), { type: "button", className: "btn guide-action",
-      disabled: true, title: "Not available here", innerHTML: `${icon("play")}<span></span>` });
+    const look = isLook(id);   // an eye for what only shows something, a play for what does something
+    const button = Object.assign(document.createElement("button"), { type: "button", className: look ? "btn guide-action look" : "btn guide-action",
+      disabled: true, title: "Not available here", innerHTML: `${icon(look ? "eye" : "play")}<span></span>` });
     button.dataset.action = id;
     button.lastElementChild.append(...link.childNodes);
     link.replaceWith(button);
