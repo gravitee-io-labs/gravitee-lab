@@ -1,22 +1,22 @@
-# A version of the Lab is a tag vX.Y.Z on main. Its release on GitHub lists the pull requests merged since the version before it,
-# the same changes the Lab UI shows before an update.
+# Every merge to main is a version of the Lab: a tag vX.Y.Z and its release on GitHub, which lists the pull requests merged since the
+# version before it, the same changes the Lab UI shows before an update. The labels of those pull requests say which number is raised.
 name: Release
 
 on:
   push:
-    tags:
-      - "v*.*.*"
+    branches: [main]
 
 permissions:
   contents: read
 
+# One release at a time, never canceled: a run that waits while another publishes counts the merges of both when it starts
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
   cancel-in-progress: false
 
 jobs:
   release:
-    name: Publish the release
+    name: Publish the version
     if: ${{ !github.event.repository.fork }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -24,18 +24,32 @@ jobs:
     environment: publish
     permissions:
       contents: write
+      pull-requests: read
     steps:
-      - name: Publish the release
+      - name: Check out main and its tags
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Publish the version
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          case "$GITHUB_REF_NAME" in
-            v[0-9]*.[0-9]*.[0-9]*) ;;
-            *) echo "$GITHUB_REF_NAME is not a version (vX.Y.Z)"; exit 1 ;;
-          esac
-          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "The release $GITHUB_REF_NAME exists already"
-          else
-            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes \
-              --title "Gravitee Lab ${GITHUB_REF_NAME#v}"
+          last=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' HEAD 2>/dev/null || true)
+          labels=""
+          if [ -n "$last" ]; then
+            commits=$(git rev-list "$last..HEAD")
+            if [ -z "$commits" ]; then
+              echo "Nothing was merged since $last"
+              exit 0
+            fi
+            for commit in $commits; do
+              labels="$labels $(gh api "repos/$GITHUB_REPOSITORY/commits/$commit/pulls" --jq '.[].labels[].name')"
+            done
           fi
+          # shellcheck disable=SC2086 # one argument per label
+          next=$(python3 -I .github/scripts/next_version.py "$last" $labels)
+          echo "${last:-No version yet} -> $next"
+          gh release create "$next" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --generate-notes \
+            --title "Gravitee Lab ${next#v}"

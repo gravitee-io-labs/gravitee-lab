@@ -1,0 +1,9 @@
+# The changelog of a release: the pull requests merged since the version before, grouped by the label that raised the version
+changelog:
+  categories:
+    - title: Changes that need you to do something
+      labels: [major]
+    - title: New
+      labels: [minor]
+    - title: Fixes and improvements
+      labels: ["*"]

@@ -151,7 +151,7 @@ Your machine hides what a fresh clone lacks, such as a file you forgot to commit
 
 ## Images and releases
 
-When a push to `main` changes the seeder or the core file (a Markdown file alone builds nothing), CI builds the seeder's image and pushes it to `ghcr.io/gravitee-io-labs/gravitee-lab`, as `latest` and as `sha-<commit>`, so that a playground's seed pulls it instead of building it. The image carries the label `org.opencontainers.image.licenses=AGPL-3.0-only`. A catalog publishes the images of its own items by its own workflow. Contributors never push images. There are no versioned releases: `main` is what users get, so it must always run.
+When a push to `main` changes the seeder or the core file (a Markdown file alone builds nothing), CI builds the seeder's image and pushes it to `ghcr.io/gravitee-io-labs/gravitee-lab`, as `latest` and as `sha-<commit>`, so that a playground's seed pulls it instead of building it. The image carries the label `org.opencontainers.image.licenses=AGPL-3.0-only`. A catalog publishes the images of its own items by its own workflow. Contributors never push images. Every merge to `main` is a version of the Lab, published by the *Release* workflow: `main` is what users get, so it must always run. A maintainer labels a pull request `minor` for a new feature or `major` for a change that needs people to do something by hand; with no label it is a patch.
 
 ## Maintainers
 
