@@ -1,14 +1,15 @@
-// How Gravitee Lab works: where API Management runs (the one choice it asks: This machine or Gravitee Cloud), what to do first, its layers,
-// what Start and Stop mean and the Docker Compose underneath. Shown on a first visit, unless that was chosen on this machine already, then
-// from the info button of the menu. What it names of the lab (the groups of the platform, the environment of API Management, an example)
-// and what it offers first (Start, the license, a playground to choose once the catalogs are there) come from the state, and follow it while it
-// is open: the foot draws the same slots in every state, and what the catalogs do changes them in place.
+// Welcome to Gravitee Lab: How it works at the top of the rail at the left, then the steps from a fresh machine to a running playground, each
+// with its state: your machine (what it needs, each line with its fix), where API Management runs (the one choice the Lab asks), and the start
+// (the platform, then a playground). A step after a machine that keeps the platform from starting is locked, and says why. A first visit opens
+// it on your machine, unless where API Management runs was chosen on this machine already; the info button of the menu on How it works, or on
+// your machine while a line of it is red; the notices about Docker on your machine. What it says follows the lab while it is open.
 
-import { $, $$, esc, icon, setHTML, recall, remember, api, store } from "../core.js";
+import { $, esc, icon, setHTML, recall, remember, api, store } from "../core.js";
 import { paintBusy, licenseForm, contentLead, setOff } from "../components/ui.js";
 import { runPlatform } from "../activity/jobs.js";
 import { CHOICES, coreOf, onCloud, movable, linkedPlaces, chooseCore, environmentControl, pickEnvironment, runCore, gatewayWhy } from "../platform/core-choice.js";
 import { License } from "./license.js";
+import { machine, machineBlocked, machineToFix, machineRowsHtml, machineSummary, watchMachine, unwatchMachine, refreshMachine, actMachine } from "./machine.js";
 import { REGISTER } from "./platform.js";
 
 const REPOSITORY = "https://github.com/gravitee-io-labs/gravitee-lab";   // where the source of the Lab is
@@ -42,18 +43,6 @@ const FLOW = [["Start or Stop", false], [".lab/on.yml", true], ["docker compose 
 // A page's name leads to it
 const page = (name, hash) => `<a class="text-link" href="${hash}">${name}</a>`;
 
-// What to do first, in three lines, for where API Management runs: what is started first, where the consoles are, then where a playground
-// says what it needs. A generic page names no playground: the platform is a hub, each item says its own needs.
-const start = () => (onCloud() ? [
-  `${page("Start all", "#/dashboard")} starts the hybrid gateway of ${esc(coreOf().name)} and the rest of the platform on this machine.`,
-  `Open a console from the ${page("Dashboard", "#/dashboard")}.`,
-  "A playground's page says whether it can go to Gravitee Cloud, and what it needs.",
-] : [
-  "Start the platform (about 10 to 15 minutes the first time).",
-  `Open a console from the ${page("Dashboard", "#/dashboard")}.`,
-  "A playground's page lists what it needs: a license, versions, settings.",
-]);
-
 // Whether a person is invited to a Gravitee Cloud account: not with a license, nor as a Gravitee employee (GRAVITEE_EMPLOYEE), nor before
 // the license is read
 let invited = false;
@@ -80,8 +69,8 @@ function coreChoice() {
   return `<div class="core-cards" role="radiogroup" aria-labelledby="welcome-core">${card("machine")}${card("cloud")}</div>${more}`;
 }
 
-const lead = () => (onCloud() ? `The Gravitee platform, ${product()} in Gravitee Cloud and the rest on your machine, and what runs on top of it, in layers you turn on and off.`
-  : "The Gravitee platform on your machine, and what runs on top of it, in layers you turn on and off.");
+const lead = () => (onCloud() ? `The platform, ${product()} in Gravitee Cloud, and what runs on top of it, in layers you turn on and off.`
+  : "The platform and what runs on top of it, in layers you turn on and off.");
 
 const layersHtml = (state) => layers(state).map(([symbol, name, text, path, parts = []]) => `
       <li class="layer"><span class="layer-icon">${icon(symbol)}</span>
@@ -98,18 +87,87 @@ const PAGES = [
   ["Configure", `${page("Images", "#/images")}: the version of every image. ${page("Plugins", "#/plugins")}: the plugins of each product`],
 ];
 
-// What follows the choice is drawn apart (`render`): the choice, the first steps, the lead and the layers. Without a product that can run
-// in the Cloud there is no choice to ask.
-function body() {
-  return `
-    ${movable() ? `<h3 id="welcome-core">Where does ${esc(product())} run?</h3>
-    <div class="welcome-core"></div>` : ""}
+// --- The steps ----------------------------------------------------------------------------------------------------
 
-    <h3>Start here</h3>
-    <ol class="welcome-start"></ol>
+let current = "machine";
+let choseWhere = false;   // Continue was pressed on where API Management runs: it is done, whichever was kept
+let watching = false;   // Your machine shows, and is asked again on its timer
 
-    <p class="welcome-lead"></p>
-    <ol class="layers"></ol>
+// In order: your machine, where API Management runs when a product can run in the Cloud, the start. How it works is apart, last.
+const steps = () => ["machine", ...(movable() ? ["core"] : []), "start"];
+
+const stopped = () => {
+  const core = coreOf();
+  return onCloud() ? !!core.start?.needed && !!core.start.enabled && !core.stop?.needed : store.state?.platform?.state?.key === "stopped";
+};
+const running = () => (onCloud() ? !coreOf().start?.needed : store.state?.platform?.state?.key === "running");
+
+// Each step as the rail draws it: {state: done, todo, attention, checking or locked, line: what it says under its name}
+function stepOf(id) {
+  if (id === "machine") {
+    if (!machine.report) return { state: "checking", line: "Checking" };
+    if (machineBlocked()) return { state: "attention", line: `${machineToFix()} to fix` };
+    return { state: "done", line: machineToFix() ? `Ready, ${machineToFix()} to look at` : "Ready" };
+  }
+  if (machineBlocked()) return { state: "locked", line: "Once your machine is ready" };
+  if (id === "core") return { state: coreOf().chosen || choseWhere ? "done" : "todo", line: onCloud() ? "Gravitee Cloud" : "This machine" };
+  return { state: running() ? "done" : "todo", line: running() ? "Running" : "Not started yet" };
+}
+
+const TITLE = { machine: "Your machine", core: () => product(), start: "Start", guide: "How it works" };
+const title = (id) => (typeof TITLE[id] === "function" ? TITLE[id]() : TITLE[id]);
+
+function railHtml() {
+  const mark = (id, i, { state }) => ({ done: icon("check"), attention: icon("alert"), checking: '<span class="spinner" aria-hidden="true"></span>' }[state]
+    || `<span>${i + 1}</span>`);
+  const items = steps().map((id, i) => {
+    const step = stepOf(id), locked = step.state === "locked";
+    return `<li><button type="button" class="welcome-step" data-step="${id}" data-state="${step.state}"${id === current ? ' aria-current="step"' : ""}${
+      locked ? ` aria-disabled="true" data-why="Fix your machine first"` : ""}>
+      <span class="welcome-mark">${mark(id, i, step)}</span>
+      <span class="welcome-step-text"><strong>${esc(title(id))}</strong><span>${esc(step.line)}</span></span></button></li>`;
+  }).join("");
+  return `<button type="button" class="welcome-step guide" data-step="guide"${current === "guide" ? ' aria-current="step"' : ""}>
+      <span class="welcome-mark">${icon("book")}</span><span class="welcome-step-text"><strong>How it works</strong><span>Layers, Start and Stop, pages</span></span></button>
+    <ol class="welcome-steps">${items}</ol>`;
+}
+
+function machinePanel() {
+  const summary = machineSummary();
+  return `<h2>Your machine</h2>
+    <p class="welcome-lead">Gravitee Lab runs the platform in Docker, on this machine.</p>
+    <p class="machine-summary" data-tone="${summary.tone}" aria-live="polite">${summary.html}</p>
+    <ul class="machine-checks">${machineRowsHtml()}</ul>`;
+}
+
+function corePanel() {
+  return `<h2 id="welcome-core">Where does ${esc(product())} run?</h2>
+    <p class="welcome-lead">You can change it later.</p>
+    <div class="welcome-core">${coreChoice()}</div>`;
+}
+
+// The start: the platform first, a playground then, a console last; the license while there is none
+function startPanel() {
+  const on = running(), cloud = onCloud();
+  const unlicensed = store.state?.license?.status === "none";
+  const first = cloud ? `Start all starts the hybrid gateway of ${esc(coreOf().name)} and the rest of the platform on this machine.`
+    : "Its first start downloads about 15 GB of images: about 10 to 15 minutes.";
+  const item = (n, name, text, done) => `<li class="start-item" data-state="${done ? "done" : "todo"}"><span class="start-num">${done ? icon("check") : n}</span>
+    <span class="start-text"><strong>${name}</strong><span>${text}</span></span></li>`;
+  return `<h2>${on ? "Your platform is running" : "Start the platform"}</h2>
+    <ol class="start-list">
+      ${item(1, cloud ? "Start all" : "Start the platform", on ? "Running" : first, on)}
+      ${item(2, "Choose a playground", "Its page lists what it needs: a license, versions, settings.", false)}
+      ${item(3, "Open a console", `From the ${page("Dashboard", "#/dashboard")}, the console of each product.`, false)}
+    </ol>
+    ${unlicensed ? `<div class="welcome-license">${icon("key")}<span>No license: Enterprise features are off</span>
+      <button class="btn" ${licenseForm()}>Set license</button></div>` : ""}`;
+}
+
+function guidePanel() {
+  return `<h2>How Gravitee Lab works</h2>
+    <p class="welcome-lead">${esc(lead())}</p>
+    <ol class="layers">${layersHtml(store.state)}</ol>
 
     <h3>Start and Stop</h3>
     <p><em>Start</em> turns a playground, a setup or an add-on on and runs it; <em>Stop</em> stops it and turns it off.
@@ -128,91 +186,123 @@ function body() {
       Personal stays on this machine until you share it to a catalog.</p>
 
     <h3>Where to go</h3>
-    <dl class="pairs">${PAGES.map(([name, text]) => `<div><dt>${name}</dt><dd>${text}</dd></div>`).join("")}</dl>
-
-    <p class="sub welcome-source">Gravitee Lab, AGPL-3.0, <a class="text-link" href="${REPOSITORY}" target="_blank" rel="noopener">Source</a>,
-      <a class="text-link" href="${TROUBLESHOOTING}" target="_blank" rel="noopener">Troubleshooting</a></p>`;
+    <dl class="pairs">${PAGES.map(([name, text]) => `<div><dt>${name}</dt><dd>${text}</dd></div>`).join("")}</dl>`;
 }
 
-// What to do first, set a license while there is none (the License dialog, on its form). While nothing is on, a
-// playground: it brings the platform and the versions it needs, where starting the platform alone would start the
-// default ones first. While the platform is stopped and something is on, starting it; with API Management in the Cloud, Start all
-// while nothing of what it starts runs, which waits for a gateway add-on when the Cloud needs one. Close otherwise. Enter stays on Close: a
-// first visit does not start anything by itself. Which slots there are depends on the lab alone; what the catalogs do to them (paintLead)
-// is written into those nodes.
-function foot(state) {
-  const cloud = onCloud(), core = coreOf();
-  const stopped = cloud ? !!core.start?.needed && !!core.start.enabled && !core.stop?.needed : state?.platform.state.key === "stopped";
-  const unlicensed = state?.license?.status === "none";
-  const chosen = [...(state?.playgrounds || []), ...(state?.addons || [])].some((x) => x.on);
-  const lead = !chosen ? "choose" : stopped ? "start" : "";
-  const gap = cloud && gatewayWhy() ? ` aria-disabled="true" data-why="${esc(gatewayWhy())}"` : "";
-  return `${unlicensed ? `<span class="welcome-license">No license: Enterprise features are off
-      <button class="btn" ${licenseForm()}>Set license</button></span>` : ""}
-    <button class="btn ${lead ? "" : "primary"}" data-close>Close</button>
-    ${stopped ? `<button class="btn ${lead === "start" ? "primary" : ""}" data-start data-busy${gap}>${icon("play")}${cloud ? "Start all" : "Start the platform"}</button>` : ""}
-    ${lead === "choose" ? `<a class="btn primary" href="#/playgrounds">Choose a playground</a>` : ""}`;
+const PANELS = { machine: machinePanel, core: corePanel, start: startPanel, guide: guidePanel };
+
+// The foot of a step: Back, then what moves on. On the start, the slots are the same in every state (paintLead writes into them): Done, to
+// go on later, Start the platform while it is stopped, Choose a playground, the one that leads primary.
+function footHtml() {
+  const order = steps(), at = order.indexOf(current), back = at > 0 ? '<button type="button" class="btn" data-back>Back</button>' : "";
+  if (current === "guide") return '<span class="grow"></span><button type="button" class="btn primary" data-close>Close</button>';
+  if (current === "machine") {
+    const blocked = machineBlocked() || !machine.report;
+    return `<span class="grow"></span><button type="button" class="btn${blocked ? "" : " primary"}" data-next${
+      blocked ? ` aria-disabled="true" data-why="${machine.report ? "Fix the lines in red first" : "Checking your machine"}"` : ""}>Continue</button>`;
+  }
+  if (current === "core") return `${back}<span class="grow"></span><button type="button" class="btn primary" data-next>Continue</button>`;
+  const state = store.state, chosen = [...(state?.playgrounds || []), ...(state?.addons || [])].some((x) => x.on);
+  const leadStart = stopped() && chosen;
+  const gap = onCloud() && gatewayWhy() ? ` aria-disabled="true" data-why="${esc(gatewayWhy())}"` : "";
+  return `${back}<span class="grow"></span>
+    <button type="button" class="btn" data-close>Done</button>
+    ${stopped() ? `<button class="btn ${leadStart ? "primary" : ""}" data-start data-busy${gap}>${icon("play")}${onCloud() ? "Start all" : "Start the platform"}</button>` : ""}
+    <a class="btn ${leadStart ? "" : "primary"}" href="#/playgrounds">Choose a playground</a>`;
 }
 
 const dialog = document.createElement("dialog");
 dialog.className = "welcome-dialog";
 dialog.setAttribute("aria-labelledby", "welcome-title");
 dialog.innerHTML = `
-  <div class="dialog-head">
-    <h2 id="welcome-title">How Gravitee Lab works</h2>
-    <button class="icon-btn" data-close aria-label="Close" data-tip="Close">${icon("close")}</button>
-  </div>
-  <div class="welcome"></div>
-  <div class="dialog-actions welcome-actions"></div>`;
+  <div class="welcome-frame">
+    <aside class="welcome-rail">
+      <div class="welcome-brand"><span class="welcome-logo"></span><h2 id="welcome-title">Welcome to Gravitee Lab</h2></div>
+      <nav class="welcome-rail-steps" aria-label="Steps"></nav>
+      <p class="welcome-source">AGPL-3.0 <a class="text-link" href="${REPOSITORY}" target="_blank" rel="noopener">Source</a>
+        <a class="text-link" href="${TROUBLESHOOTING}" target="_blank" rel="noopener">Troubleshooting</a></p>
+    </aside>
+    <section class="welcome-main">
+      <button class="icon-btn dialog-x welcome-x" data-close aria-label="Close" data-tip="Close">${icon("close")}</button>
+      <div class="welcome-panel welcome"></div>
+      <div class="dialog-actions welcome-actions"></div>
+    </section>
+  </div>`;
 document.body.append(dialog);
 
-// While the catalogs are not there, the lead slot stays where it is, disabled, saying why in the words of the lists; a failed download has a
-// Try again before it, and a lab with no catalog the button that adds the one that is listed. Written into the nodes, never the foot again:
+// While the catalogs are not there, Choose a playground stays where it is, disabled, saying why in the words of the lists; a failed download has
+// a Try again before it, and a lab with no catalog the button that adds the one that is listed. Written into the nodes, never the foot again:
 // the keyboard stays where it was and nothing moves under the pointer when the download ends.
 function paintLead(actions, state) {
-  const lead = $('a[href="#/playgrounds"]', actions), { ready, why, extra } = contentLead(state), wanted = lead ? extra : "";
-  if (lead) setOff(lead, !ready, why);
-  if ((actions._extra || "") === wanted) return;
-  actions._extra = wanted;
+  const lead = $('a[href="#/playgrounds"]', actions);
+  if (!lead) return;
+  const { ready, why, extra } = contentLead(state);
+  setOff(lead, !ready, why);
+  if ((actions._extra || "") === extra) return;
+  actions._extra = extra;
   actions._extraEl?.remove();
   actions._extraEl = null;
-  if (!wanted) return;
+  if (!extra) return;
   const holder = document.createElement("div");
-  holder.innerHTML = wanted;
+  holder.innerHTML = extra;
   actions._extraEl = holder.firstElementChild;
   lead.before(actions._extraEl);
 }
 
-// Its Start waits for Docker and for the running job, as everywhere
-function renderFoot() {
+// What follows the lab, written only where it changed: the keyboard stays where it was
+function render() {
+  if (!steps().includes(current) && current !== "guide") current = "machine";
+  if (current !== "machine" && current !== "guide" && stepOf(current).state === "locked") current = "machine";
+  const logo = $(".welcome-logo", dialog);
+  if (!logo.firstChild) logo.innerHTML = ($(".sidebar .logo")?.outerHTML || "").replace(/<defs>[\s\S]*?<\/defs>/, "");
+  setHTML($(".welcome-rail-steps", dialog), railHtml());
+  const panel = $(".welcome-panel", dialog), cards = () => $(".core-cards", panel);
+  const focused = !!cards()?.contains(document.activeElement);
+  if (panel.dataset.step !== current) panel.scrollTop = 0;
+  panel.dataset.step = current;
+  setHTML(panel, PANELS[current]());
+  for (const input of panel.querySelectorAll('input[name="welcome-core"]')) input.checked = input.value === (onCloud() ? "cloud" : "machine");
+  if (focused && !cards().contains(document.activeElement)) $("input:checked", cards())?.focus();
   const actions = $(".welcome-actions", dialog);
-  if (setHTML(actions, foot(store.state))) {
+  if (setHTML(actions, footHtml())) {
     paintBusy(actions);
     actions._extra = "";
     actions._extraEl = null;
   }
   paintLead(actions, store.state);
+  // Your machine is asked again on a timer while it shows, and no longer once another step does
+  if (current === "machine" && !watching) {
+    watching = true;
+    watchMachine(render);
+  } else if (current !== "machine" && watching) {
+    watching = false;
+    unwatchMachine();
+  }
 }
 
-// What follows the choice, written only where it changed: the keyboard stays on the choice it was on
-function render() {
-  const content = $(".welcome", dialog), state = store.state, cards = () => $(".core-cards", content);
-  const focused = !!cards()?.contains(document.activeElement);
-  const choice = $(".welcome-core", content);
-  if (choice) setHTML(choice, coreChoice());
-  setHTML($(".welcome-start", content), start().map((line) => `<li>${line}</li>`).join(""));
-  setHTML($(".welcome-lead", content), esc(lead()));
-  setHTML($(".layers", content), layersHtml(state));
-  // A choice that is not kept yet (an account to connect first) is not shown as made
-  for (const input of $$('input[name="welcome-core"]', content)) input.checked = input.value === (onCloud() ? "cloud" : "machine");
-  if (focused && !cards().contains(document.activeElement)) $("input:checked", cards())?.focus();
-  renderFoot();
+function go(step) {
+  current = step;
+  render();
+  $(".welcome-actions .btn.primary, .welcome-actions .btn:last-child", dialog)?.focus();
 }
 
-// A page's name leads to it and closes the dialog, also the name of the page under it, whose address does not change
+// Continue on where API Management runs keeps what shows, and moves on at once: the save follows the lab while the next step shows
+function next() {
+  const order = steps(), at = order.indexOf(current);
+  if (current === "core") {
+    choseWhere = true;
+    if (!onCloud()) chooseCore("machine");
+  }
+  go(order[Math.min(at + 1, order.length - 1)]);
+}
+
 dialog.addEventListener("click", (e) => {
   const on = (selector) => e.target.closest(selector);
   if (on('[aria-disabled="true"]')) return;   // a control that says why it waits does nothing
+  if (on(".welcome-step")) return go(on(".welcome-step").dataset.step);
+  if (on("[data-next]")) return next();
+  if (on("[data-back]")) { const order = steps(); return go(order[Math.max(order.indexOf(current) - 1, 0)]); }
+  if (on("[data-act]")) return actMachine(on("[data-act]"));
   if (on('[data-close], a[href^="#/"]')) dialog.close();
   else if (on("[data-start]")) { dialog.close(); if (onCloud()) runCore("start"); else runPlatform("start"); }
   else if (on("[data-core-env]")) pickEnvironment(on("[data-core-env]"));
@@ -222,21 +312,27 @@ dialog.addEventListener("click", (e) => {
 dialog.addEventListener("change", (e) => {
   if (e.target.name !== "welcome-core") return;
   if (e.target.value === "cloud" && gatewayWhy()) return render();   // a key reached it all the same: the card is not chosen
+  choseWhere = true;
   chooseCore(e.target.value, { anchor: e.target.closest(".core-card") });
 });
-dialog.addEventListener("close", () => remember(SEEN, "1"));
-$("#welcome").addEventListener("click", show);
-// What it says follows the lab while it is open: the choice made meanwhile, the platform started meanwhile, which has no Start
+dialog.addEventListener("close", () => {
+  watching = false;
+  unwatchMachine();
+  remember(SEEN, "1");
+});
+// What it says follows the lab while it is open: the choice made meanwhile, the platform started meanwhile
 store.subscribe(() => { if (dialog.open) render(); });
 
-// From its top, Enter on Close. The environments linked are read for the choice.
-function show() {
-  const content = $(".welcome", dialog);
-  content.innerHTML = body();
+// On a step, or on How it works: on your machine instead while it keeps the platform from starting
+async function show(step = null) {
+  if (!step) {
+    if (!machine.report) await refreshMachine(true);
+    step = stepOf("machine").state === "done" ? "guide" : "machine";
+  }
+  current = step;
   render();
-  dialog.showModal();
-  content.scrollTop = 0;
-  $(".btn[data-close]", dialog).focus();
+  if (!dialog.open) dialog.showModal();
+  $(".welcome-actions .btn.primary, .welcome-actions .btn:last-child", dialog)?.focus();
   store.refreshPlaces();
   api("/api/license").then((info) => {
     invited = !info.error && !info.present && !info.employee;
@@ -244,9 +340,18 @@ function show() {
   }, () => {});
 }
 
-// The first visit opens it, once the page behind it has drawn, unless where API Management runs was chosen on this machine already
+$("#welcome").addEventListener("click", () => show());
+// Anywhere in the page, a control with data-machine opens it on your machine
+document.addEventListener("click", (e) => {
+  if (!e.target.closest("[data-machine]")) return;
+  e.preventDefault();
+  show("machine");
+});
+
+// The first visit opens it on your machine, once the page behind it has drawn, unless where API Management runs was chosen on this machine
+// already
 function init() {
-  if (!recall(SEEN) && !coreOf().chosen) show();
+  if (!recall(SEEN) && !coreOf().chosen) show("machine");
 }
 
-export const Welcome = { init };
+export const Welcome = { init, show };

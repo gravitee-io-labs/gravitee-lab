@@ -102,6 +102,9 @@ function ownStart() {
 const untitled = (card) => card && { ...card, title: "" };
 
 // How many containers differ from what is saved, the summary of the Apply notice; its popover says which and why
+// What the notices about Docker offer: the machine's checks, each with its fix
+const MACHINE = '<button class="btn" data-machine>Check your machine</button>';
+
 const behindSaid = (behind) => {
   const n = behind.reduce((sum, row) => sum + (row.count || 1), 0);
   return `${n} ${n === 1 ? "container differs" : "containers differ"} from what is saved`;
@@ -136,7 +139,7 @@ function lab({ docker, platform, license, addons, playgrounds }) {
       : esc(applying.map((row) => row.name).join(", "));
     notices.push({ tone: "warn", title: "Apply needed", text, action: APPLY });
   }
-  if (docker.warning) notices.push({ tone: "warn", title: esc(docker.warning) });
+  if (docker.warning) notices.push({ tone: "warn", title: esc(docker.warning), action: MACHINE });
   return notices;
 }
 
@@ -149,7 +152,7 @@ function banner(state) {
   const notices = store.error ? [{ tone: "err", title: esc(store.error) }]
     : store.offline ? [{ tone: "err", title: "Lab UI offline", text: "What the page shows is what it last heard" }] : [];
   if (state) {
-    if (state.docker.error) notices.push({ tone: "err", title: "Docker is not reachable", text: esc(state.docker.error) });
+    if (state.docker.error) notices.push({ tone: "err", title: esc(state.docker.title || "Docker is not reachable"), text: esc(state.docker.error), action: MACHINE });
     else if (!state.blind) notices.push(...lab(state));
     notices.push(...state.problems.map(problem));
   }

@@ -10,10 +10,13 @@ make ui
 
 It listens on `127.0.0.1:9000`, so only this machine reaches it, and it answers only to the names `localhost` and
 `127.0.0.1`. Under another name, such as `0.0.0.0`, the page says `Open the Lab UI at http://localhost:9000`. It opens
-on the [Dashboard](#dashboard). A first visit opens *How Gravitee Lab works*, which first asks *Where does API Management
-run?* ([Where API Management runs](#where-api-management-runs)), then has a *Start here* block, shows the layers, what Start
-and Stop mean and where to go first, and ends with links to the *Source* and to *Troubleshooting*. The info button of the menu
-opens it again. It does not open by itself once that was chosen on this machine, in any browser.
+on the [Dashboard](#dashboard). A first visit opens *Welcome to Gravitee Lab* on its first step. Its rail, at the left, has
+*How it works* at the top (the layers, what Start and Stop mean, where to go), then the steps, each with its state:
+[Your machine](#your-machine), *API Management* (where it runs: [Where API Management runs](#where-api-management-runs)), then
+*Start*: the platform, a playground, a console, with *Done* to go on later. While a line of Your machine is red, the steps after it are locked and say why.
+The rail ends with links to the *Source* and to *Troubleshooting*. The info button of the menu opens *How it works*, or Your
+machine while a line of it is red. The dialog does not open by itself once where API Management runs was chosen on this
+machine, in any browser.
 
 Keep port 9000. The platform's consoles and the playground apps let only that address frame them, so with
 `UI_PORT=9001 make ui` every UI of a playground shows as refused beside the guide. When another program holds port
@@ -46,8 +49,8 @@ setting of this machine, kept in `.lab/core.json`, out of git.
 - **It is the place proposed first.** With no place chosen in [Deploy to](#deploy-to), a playground deploys to the chosen
   environment, unless it cannot go there: its page then says why and proposes *This machine*. A new choice forgets the place
   chosen in *Deploy to* before, so that every playground follows it.
-- **The welcome dialog follows it.** Its first step says what is started first, and the Core layer keeps every product of the
-  platform and says where API Management runs.
+- **The welcome dialog follows it.** Its *Start* step says what is started first, and the Core layer of *How it works* keeps every
+  product of the platform and says where API Management runs.
 
 ## Pages
 
@@ -82,6 +85,18 @@ read, which opens in the editor. Before the Lab UI first answers, the page says 
 answer at all, the page says so, how to start it (`make ui`) and *Try again*. Once you connected a
 [Gravitee Cloud account](#gravitee-cloud), it leaves out the calm *stopped* line while an add-on or a playground runs, because a deploy to
 Gravitee Cloud runs without the core.
+
+## Your machine
+
+What this machine needs to run the lab, one line each: Docker with Compose 5.0 or later, the memory Docker has (8 GB), the free
+disk where Docker keeps its images (15 GB for the first start), the ports the platform publishes (one held by another program is
+named with its service), and Git for the catalogs. Each line says its state and has the one fix that answers it: a download, a
+command to copy, or, on a Mac, *Open Docker Desktop* and Apple's installer of Git, which the Lab UI runs. The lines are asked again
+every few seconds while the step shows, so a fix turns its line right by itself.
+
+It is the first step of *Welcome to Gravitee Lab*. A line in red keeps the platform from starting: until it is fixed, *Continue*
+and the steps after it wait. The notice that Docker is not reachable or not ready, and the one about Docker's memory, open it with
+*Check your machine*. The Lab UI starts whatever the machine lacks: the page says it, where the terminal stopped before.
 
 ## On, off and running
 
