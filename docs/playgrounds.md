@@ -99,7 +99,7 @@ x-gravitee:
 | `tested` | The versions it was built and checked on: a list of sets, the latest last, each `{VERSION_VARIABLE: "version"}`, the version in quotes. See [Tested versions](#tested-versions) |
 | `consoles` | Its UIs next to the guide, below |
 | `terminal` | The service whose container holds the shell under its UIs, where the guide's commands run: one of its own, or of an add-on it brings, not its seed. See [`terminal`](#terminal) |
-| `accounts` | The sign-ins its guide uses, shown with copy buttons: `for`, then `username` and `password`, or `key`. A `password` and a `key` are settings, never literals: [accounts and secrets](#accounts-and-secrets) |
+| `accounts` | The sign-ins its guide uses, shown with copy buttons in *Details* and where the guide links to one ([accounts in a guide](#accounts-in-a-guide)): `for`, then `username` and `password`, or `key`. A `password` and a `key` are settings, never literals: [accounts and secrets](#accounts-and-secrets) |
 | `host_access` | A service that takes more of this machine than its container does, mapped to why: see [Host access](#host-access) |
 | `conflicts` | Read for add-ons only, which map each add-on they cannot run with to the reason |
 | `gateway` | Read for add-ons only: the gateway of a remote Gravitee, Gravitee Cloud today, that the add-on runs on this machine. See [Deploying to Gravitee Cloud](#deploying-to-gravitee-cloud) |
@@ -730,6 +730,18 @@ at the prompt of the playground's [terminal](#terminal) and presses Enter after 
 language in any other viewer. The button is disabled, with the reason, while the playground has no terminal or does not run. Write
 a block as what a person would paste: one command a line, a long one continued with a backslash. A block meant to be read, such as
 a manifest or an output, is a plain fence.
+
+### Accounts in a guide
+
+A link whose address is `account:` and a user name of the playground's `accounts` is drawn where it is written as that sign-in:
+the text of the link, then the user and its password (or its key), each with a copy button.
+
+```md
+1. Open the portal and sign in as Maya: [Maya Chen](account:maya.chen)
+```
+
+The values are the accounts' as the Lab UI shows them, so a password stays a setting and is never written in the guide. Put one
+where a step says to sign in. `make check` refuses a link to a user that `accounts` lacks; any other viewer shows a link.
 
 ### Actions in a guide
 

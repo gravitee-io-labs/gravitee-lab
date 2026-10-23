@@ -1,8 +1,16 @@
 // Markdown as the page shows it: rendered and sanitized, its links opening next to the lab, its action links
-// (`[Ask Ace](action:ask-ace)`) drawn as buttons, and its blocks to run (```bash run) given a Run button. A playground's guide on its page and in the editor's preview.
+// (`[Ask Ace](action:ask-ace)`) drawn as buttons, its account links (`[Maya](account:maya.chen)`) drawn as the sign-in with copy
+// buttons, and its blocks to run (```bash run) given a Run button. A playground's guide on its page and in the editor's preview.
 
-import { esc, icon, loadScript } from "../core.js";
+import { credHtml, esc, icon, loadScript } from "../core.js";
 import { actionOf, isLook } from "../workspace/split.js";
+
+// The user name of an account link, `account:<username>`, as a playground's `accounts` write it; null for any other address
+const USERNAME = /^[A-Za-z0-9][\w.@+-]{0,127}$/;
+function accountOf(href) {
+  const found = typeof href === "string" ? href.match(/^account:(.*)$/s) : null;
+  return found && USERNAME.test(found[1]) ? found[1] : null;
+}
 
 // Each library at one version, with the sha384 hash of its file: the browser refuses a file that differs. Another
 // version needs its hash: curl -sL <url> | openssl dgst -sha384 -binary | openssl base64 -A
@@ -35,10 +43,11 @@ async function loadLibs() {
   DOMPurify.addHook("afterSanitizeAttributes", (n) => {
     if (n.tagName === "A") { n.setAttribute("target", "_blank"); n.setAttribute("rel", "noopener"); }
   });
-  // The one address of another scheme a link may have: `action:<id>`, which is no address but the id of what the
-  // playground's app does (split.js). Any other `action:` is dropped as every unknown scheme is.
+  // The two addresses of another scheme a link may have: `action:<id>`, which is no address but the id of what the
+  // playground's app does (split.js), and `account:<username>`, one of the playground's accounts. Any other `action:` or
+  // `account:` is dropped as every unknown scheme is.
   DOMPurify.addHook("uponSanitizeAttribute", (n, data) => {
-    if (n.tagName === "A" && data.attrName === "href" && actionOf(data.attrValue)) data.forceKeepAttr = true;
+    if (n.tagName === "A" && data.attrName === "href" && (actionOf(data.attrValue) || accountOf(data.attrValue))) data.forceKeepAttr = true;
   });
 }
 
@@ -74,6 +83,24 @@ function withActions(page) {
     button.dataset.action = id;
     button.lastElementChild.append(...link.childNodes);
     link.replaceWith(button);
+  }
+}
+
+// An account link, the sign-in a step asks for, as a card: the text of the link, then the user and its password (or its key),
+// each with a copy button, from the playground's `accounts`, where a password is a setting and never a literal of the guide.
+// A link to no known account (in the editor's preview, which has none) shows its text and the user name.
+function withAccounts(page, accounts) {
+  for (const link of page.content.querySelectorAll("a[href]")) {
+    const href = link.getAttribute("href").trim();   // the sanitizer read the address trimmed, and kept it as it was written
+    if (!href.startsWith("account:")) continue;
+    const name = accountOf(href);
+    const account = name && accounts.find((a) => a.username === name);
+    const card = Object.assign(document.createElement("span"), { className: "guide-account" });
+    card.innerHTML = `${icon("login")}<span class="guide-account-name"></span>` + (account
+      ? credHtml(account.username, "User") + credHtml(account.password, "Password") + credHtml(account.key, "Key")
+      : name ? `<span class="pg-cred"><code>${esc(name)}</code></span>` : "");
+    card.querySelector(".guide-account-name").append(...link.childNodes);
+    link.replaceWith(card);
   }
 }
 
@@ -133,9 +160,9 @@ function runBlock({ text, lang }) {
   return `<pre><code class="${classes}">${esc(text)}\n</code></pre>\n`;
 }
 
-// The HTML of a markdown text, its diagrams drawn. Without the libraries (no network) the text shows as it is
-// written; a load that failed is tried again the next time.
-export async function markdownHtml(markdown) {
+// The HTML of a markdown text, its diagrams drawn, its account links filled from `accounts` (a playground's). Without the
+// libraries (no network) the text shows as it is written; a load that failed is tried again the next time.
+export async function markdownHtml(markdown, { accounts = [] } = {}) {
   let html;
   try {
     await (libs ||= loadLibs().catch((err) => { libs = null; throw err; }));
@@ -148,6 +175,7 @@ export async function markdownHtml(markdown) {
   // A guide sits under the title of its page: its headings are one level below it for a screen reader, as they look
   for (const heading of page.content.querySelectorAll("h1, h2, h3, h4, h5, h6")) heading.setAttribute("aria-level", String(Math.min(6, Number(heading.tagName[1]) + 1)));
   withActions(page);
+  withAccounts(page, accounts);
   withRuns(page);
   return withDiagrams(page);
 }

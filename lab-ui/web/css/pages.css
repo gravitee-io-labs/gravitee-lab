@@ -547,6 +547,15 @@
 .guide code.lab-run { padding-right: 84px; }
 .guide .guide-run { position: absolute; top: 6px; right: 6px; --btn-h: 26px; --btn-pad: 8px; }
 .guide-run svg { color: var(--accent); }
+/* An account link: the sign-in a step asks for, a card in the line it was written in, with the user and the password to copy */
+.guide .guide-account { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-3); margin: 2px;
+  padding: var(--sp-1) var(--sp-1) var(--sp-1) var(--sp-2); vertical-align: middle; line-height: var(--lh-3); background: var(--surface-2);
+  border: 1px solid var(--border); border-radius: var(--r-pop); }
+.guide-account > svg { width: 16px; height: 16px; color: var(--accent); flex: none; }
+.guide-account-name { color: var(--text); font-weight: var(--fw-3); }
+.guide-account .pg-cred { display: inline-flex; }
+.guide-account .pg-cred-label { width: auto; }
+.guide .guide-account code { background: var(--surface); }
 .guide :is(code, kbd) { font-size: .86em; color: var(--text); background: var(--surface-2); padding: .08em .38em; border: 1px solid var(--border);
   border-radius: 6px; overflow-wrap: anywhere; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 .guide hr { border: 0; border-top: 1px solid var(--border); margin: 32px 0; }

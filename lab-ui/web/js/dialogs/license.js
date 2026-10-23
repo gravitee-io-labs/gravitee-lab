@@ -2,8 +2,8 @@
 // dialog behind them, and its form that saves a license file or its text. What a row that needs a feature says of it
 // is the server's (`note`).
 
-import { $, $$, esc, icon, setHTML, loading, api, store } from "../core.js";
-import { toast, copyButton, emptyHtml, onRowKey, actionButton, paintActions, paintBusy, dockerDown, applyBadge } from "../components/ui.js";
+import { $, $$, esc, icon, setHTML, loading, api, store, copyButton } from "../core.js";
+import { toast, emptyHtml, onRowKey, actionButton, paintActions, paintBusy, dockerDown, applyBadge } from "../components/ui.js";
 import { runJob, busy } from "../activity/jobs.js";
 import { openFile } from "./editor.js";
 

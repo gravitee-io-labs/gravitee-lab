@@ -128,6 +128,50 @@ test("each library comes from the address of its version, with the hash of its f
   }
 });
 
+// --- The account links ---------------------------------------------------------------------
+
+const ACCOUNTS = [{ for: "Portal", username: "maya.chen", password: "HelloWorld@123" }, { for: "Dashboard", username: "dash", key: "k-123" }];
+const renderWith = async (html, accounts) => {
+  source = html;
+  const out = page.doc.createElement("div");
+  out.innerHTML = await markdownHtml("# not read", { accounts });
+  return out;
+};
+
+test("the sanitizer lets a link keep `account:` and a user name, and no other address of that scheme", async () => {
+  await render("<p>x</p>");
+  const [keep] = hooks.uponSanitizeAttribute;
+  const kept = (attrValue) => {
+    const data = { attrName: "href", attrValue, forceKeepAttr: undefined };
+    keep({ tagName: "A" }, data);
+    return data.forceKeepAttr === true;
+  };
+  for (const name of ["maya.chen", "admin", "a@b.test", "Priya_R"]) assert.equal(kept(`account:${name}`), true, name);
+  for (const value of ["account:", "account:maya chen", "account:.dot", "Account:x", "account:a\n"]) assert.equal(kept(value), false, value);
+});
+
+test("an account link becomes the sign-in it names: its text, the user and the password, each with a copy button", async () => {
+  const out = await renderWith('<p>Sign in as <a href="account:maya.chen">Maya <em>Chen</em></a>.</p>', ACCOUNTS);
+  const card = out.querySelector(".guide-account");
+  assert.ok(card, "a card");
+  assert.equal(out.querySelectorAll("a").length, 0, "no link is left");
+  assert.equal(card.querySelector(".guide-account-name").innerHTML, "Maya <em>Chen</em>");
+  assert.deepEqual(card.querySelectorAll("code").map((code) => code.textContent), ["maya.chen", "HelloWorld@123"]);
+  assert.deepEqual(card.querySelectorAll("button").map((button) => button.dataset.copy), ["maya.chen", "HelloWorld@123"]);
+  const key = (await renderWith('<p><a href="account:dash">Dashboard</a></p>', ACCOUNTS)).querySelector(".guide-account");
+  assert.deepEqual(key.querySelectorAll("button").map((button) => button.dataset.copy), ["dash", "k-123"], "a key in place of a password");
+});
+
+test("an account link to no known account shows its text and the user name, with nothing to copy", async () => {
+  const out = await renderWith('<p><a href="account:bob">Bob</a></p>', ACCOUNTS);
+  const card = out.querySelector(".guide-account");
+  assert.equal(card.querySelector(".guide-account-name").textContent, "Bob");
+  assert.equal(card.querySelector("code").textContent, "bob");
+  assert.equal(card.querySelectorAll("button").length, 0);
+  const none = await render('<p><a href="account:maya.chen">Maya</a></p>');   // the editor's preview: no accounts
+  assert.equal(none.querySelectorAll(".guide-account button").length, 0);
+});
+
 // --- The blocks to run -----------------------------------------------------------------------
 
 const block = (text, lang) => extensions.at(-1).renderer.code({ text, lang });

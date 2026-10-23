@@ -4,8 +4,8 @@
 // contributions (the Lab UI runs the person's own git for that, with the credentials it already has), or a copy into a catalog that is a
 // folder. A short form: unlike the editor, Cancel and Escape drop what was typed without asking.
 
-import { $, $$, esc, icon, setHTML, api, store, splitKey } from "../core.js";
-import { toast, effectsDialog, confirmEffects, emptyHtml, contentStatus, copyButton, actionButton, paintActions, safeHref } from "../components/ui.js";
+import { $, $$, esc, icon, setHTML, api, store, splitKey, copyButton } from "../core.js";
+import { toast, effectsDialog, confirmEffects, emptyHtml, contentStatus, actionButton, paintActions, safeHref } from "../components/ui.js";
 import { busy } from "../activity/jobs.js";
 import { selectField } from "../components/combo.js";
 import { openAdd, openNew } from "./catalog.js";

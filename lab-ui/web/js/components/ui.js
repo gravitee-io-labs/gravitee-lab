@@ -1523,11 +1523,8 @@ document.addEventListener("keydown", (e) => {
   input.focus();
 });
 
-// A button that copies `value`, which waits while there is nothing to copy; `label` says what it copies to a screen
-// reader. A click on one, wherever it is drawn, copies its data-copy value: the button turns into a check for a
+// A click on a copy button (core.js), wherever it is drawn, copies its data-copy value: the button turns into a check for a
 // moment.
-export const copyButton = (value, label = "Copy") => `<button type="button" class="icon-btn copy" data-copy="${esc(value)}"
-  data-tip="Copy" aria-label="${esc(label)}" ${value ? "" : 'aria-disabled="true" data-why="Nothing to copy"'}>${icon("copy")}</button>`;
 
 document.addEventListener("click", async (e) => {
   const button = e.target.closest("[data-copy]");

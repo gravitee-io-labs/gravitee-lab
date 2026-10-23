@@ -582,7 +582,8 @@ A playground that is on shows its guide beside its UIs. The page does not scroll
   guide again. Whether it is hidden is kept in this browser, for every playground.
 - **The guide**: one page per section, with previous and next, a page picker, and its own address
   (`#/playgrounds/acme-shop/4`). It opens on the page you read last. Diagrams are drawn from Mermaid blocks. A button
-  with a play icon runs an action in the playground's app.
+  with a play icon runs an action in the playground's app. Where a step says to sign in, the account shows with its user and
+  password, each with a copy button.
 - **Tabs**: one per console the playground lists, then *Details*. A UI loads when you first open its tab, and stays
   loaded. *Reload* loads the page it is on again (a UI on another port does not let the Lab UI read its page, so it is
   told: the platform's consoles say it, any other loads the address the Lab UI loaded last), *Back to start* loads its start address, and *Open in a new

@@ -3,8 +3,8 @@
 // when the window comes back to the front: a line turns right by itself once it is fixed. A fix is a link, a command to copy, or one the Lab UI
 // runs here (POST /api/machine/act).
 
-import { esc, icon, api } from "../core.js";
-import { toast, copyButton } from "../components/ui.js";
+import { esc, icon, api, copyButton } from "../core.js";
+import { toast } from "../components/ui.js";
 
 const EVERY = 3000;
 const STATE_ICON = { ok: icon("check"), warn: icon("alert"), error: icon("alert"), idle: icon("info"),
