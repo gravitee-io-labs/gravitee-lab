@@ -280,17 +280,17 @@ class Agreements(Case):
         # both when the guide is read (the first time) and when the page comes up again with the guide already drawn
         self.assertEqual(playground.count("nameThePage(item"), 3, "the definition and its two calls")
 
-    def test_the_welcome_dialog_ends_with_the_license_and_the_links_to_the_source_and_its_guide_built_from_one_constant(self):
+    def test_the_welcome_rail_ends_with_the_license_and_the_links_to_the_source_and_its_guide_built_from_one_constant(self):
         """The address of the repository is written once, as the constant at the top of welcome.js, and nowhere else on the page: the
-        links at the end of the dialog, to the source and to the troubleshooting guide, take it from there."""
+        links at the foot of the rail, to the source and to the troubleshooting guide, take it from there."""
         welcome = (WEB / "js" / "dialogs" / "welcome.js").read_text()
         self.assertEqual(re.findall(r'^const (\w+) = "https://github\.com/[\w.-]+/[\w.-]+";', welcome, re.M), ["REPOSITORY"])
         self.assertLess(welcome.index("const REPOSITORY"), welcome.index("const SEEN"), "at the top, before the module's own names")
         self.assertEqual(welcome.count("github.com"), 1)
         self.assertEqual(welcome.count("${REPOSITORY}"), 2, "the source, and the guide's address made of it")
         self.assertIn("const TROUBLESHOOTING = `${REPOSITORY}/blob/main/docs/troubleshooting.md`;", welcome)
-        self.assertIn('Gravitee Lab, AGPL-3.0, <a class="text-link" href="${REPOSITORY}" target="_blank" rel="noopener">Source</a>,\n'
-                      '      <a class="text-link" href="${TROUBLESHOOTING}" target="_blank" rel="noopener">Troubleshooting</a></p>`;', welcome)
+        self.assertIn('<p class="welcome-source">AGPL-3.0 <a class="text-link" href="${REPOSITORY}" target="_blank" rel="noopener">Source</a>\n'
+                      '        <a class="text-link" href="${TROUBLESHOOTING}" target="_blank" rel="noopener">Troubleshooting</a></p>\n    </aside>', welcome)
         for module in MODULES:
             if module.name != "welcome.js":
                 self.assertNotIn("github.com", module.read_text(), module.name)

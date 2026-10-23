@@ -1,0 +1,278 @@
+"""What this machine needs to run the lab, each need with its state and the one fix that answers it: Docker with Compose 5.0
+or later, the memory Docker has, the free disk where Docker keeps its images, the ports the platform publishes, and Git for
+the catalogs. The page asks again every few seconds while it shows them, so that a line turns right by itself once it is
+fixed. A fix is a link to open, a command to copy, or, on a Mac, an app to open, which is run here.
+
+    report()        {checks: [{id, state, title, detail, actions}], ready, problems}
+    act(id)         runs a fix that runs here; CatalogError `machine_action` (400) for any other
+
+A state is ok, warn (the lab starts, with a risk), error (it does not), working (a fix is on its way) or idle (known once
+Docker runs). An action is {id, label, primary} and, for a link, `href`; for a command to copy, `copy`."""
+
+import platform as host
+import re
+import shutil
+import socket
+import sys
+import threading
+import time
+from pathlib import Path
+
+from ..catalogs.registry import CatalogError
+from ..docker import compose
+from . import model
+
+COMPOSE_MIN = (5, 0)
+DISK_MIN_GB = 15.0
+DOCKER_DESKTOP_MAC = {"arm64": "https://desktop.docker.com/mac/main/arm64/Docker.dmg",
+                      "x86_64": "https://desktop.docker.com/mac/main/amd64/Docker.dmg"}
+DOCKER_ENGINE = "https://docs.docker.com/engine/install/"
+DOCKER_DESKTOP_WINDOWS = "https://docs.docker.com/desktop/setup/install/windows-install/"
+ORBSTACK = "https://orbstack.dev/download"
+TROUBLESHOOTING = "https://github.com/gravitee-io-labs/gravitee-lab/blob/main/docs/troubleshooting.md"
+WSL_MEMORY = f"{TROUBLESHOOTING}#windows-and-wsl-2"
+FRESH = 3   # seconds a report is reused: the page asks every few seconds, and so may two tabs
+
+_lock = threading.Lock()
+_last = {"at": 0.0, "report": None}
+_asked = {}   # a fix that takes a while, by check id: when it was asked
+
+
+def system():
+    """mac, wsl, linux or other"""
+    if sys.platform == "darwin":
+        return "mac"
+    if sys.platform.startswith("linux"):
+        return "wsl" if "microsoft" in host.uname().release.lower() else "linux"
+    return "other"
+
+
+def _action(id_, label, primary=False, **more):
+    return {"id": id_, "label": label, "primary": primary, **more}
+
+
+def _check(id_, state, title, detail, actions=()):
+    return {"id": id_, "state": state, "title": title, "detail": detail, "actions": list(actions)}
+
+
+def _version(text):
+    numbers = re.findall(r"\d+", text or "")
+    return tuple(int(n) for n in numbers[:3]) if numbers else None
+
+
+def _dotted(version):
+    return ".".join(str(n) for n in version)
+
+
+def _waiting(what, seconds=120):
+    at = _asked.get(what)
+    return at is not None and time.monotonic() - at < seconds
+
+
+def docker_app():
+    """The app that runs Docker on a Mac, by the name `open -a` knows it and the name people know; None elsewhere or without
+    one"""
+    if system() != "mac":
+        return None
+    places = [Path("/Applications"), Path.home() / "Applications"]
+    for bundle, name in (("Docker.app", "Docker Desktop"), ("OrbStack.app", "OrbStack")):
+        if any((place / bundle).is_dir() for place in places):
+            return bundle[:-4], name
+    return None
+
+
+def _info():
+    """What Docker says of itself, or None when it does not answer"""
+    rc, out, _ = compose.run(["docker", "info", "--format",
+                              "{{.ServerVersion}}|{{.OperatingSystem}}|{{.MemTotal}}|{{.DockerRootDir}}"], timeout=15)
+    fields = out.strip().split("|")
+    if rc != 0 or len(fields) != 4 or not fields[0]:
+        return None
+    return {"version": fields[0], "system": fields[1], "memory": int(fields[2]) if fields[2].isdigit() else None,
+            "root": fields[3]}
+
+
+def _install_docker():
+    if system() == "mac":
+        machine = "arm64" if host.machine() == "arm64" else "x86_64"
+        return [_action("download-docker", "Download Docker Desktop", True, href=DOCKER_DESKTOP_MAC[machine]),
+                _action("get-orbstack", "Get OrbStack", href=ORBSTACK)]
+    if system() == "wsl":
+        return [_action("docker-windows", "Install Docker Desktop", True, href=DOCKER_DESKTOP_WINDOWS)]
+    return [_action("docker-engine", "Install Docker Engine", True, href=DOCKER_ENGINE)]
+
+
+def _docker():
+    """The Docker row, and what Docker says of itself when it answers"""
+    title = "Docker"
+    if compose.run(["docker", "--version"], timeout=10)[0] == 127:
+        app = docker_app()
+        if app:
+            state = "working" if _waiting("docker") else "error"
+            return _check("docker", state, title, f"{app[1]} is installed and has not been started yet",
+                          [] if state == "working" else [_action("open-docker", f"Open {app[1]}", True)]), None
+        return _check("docker", "error", title, "Docker is not installed", _install_docker()), None
+    info = _info()
+    if info is None:
+        app = docker_app()
+        name = app[1] if app else "Docker"
+        if app and _waiting("docker"):
+            return _check("docker", "working", title, f"{name} is starting"), None
+        if app:
+            actions = [_action("open-docker", f"Open {name}", True)]
+        elif system() == "linux":
+            actions = [_action("start-docker", "Copy the command", True, copy="sudo systemctl start docker")]
+        elif system() == "wsl":
+            actions = [_action("wsl-docker", "How to connect it", True, href=WSL_MEMORY)]
+        else:
+            actions = []
+        detail = f"{name} is not running" if system() != "wsl" else "Docker does not answer: start Docker Desktop on Windows"
+        return _check("docker", "error", title, detail, actions), None
+    rc, out, _ = compose.run(["docker", "compose", "version", "--short"], timeout=15)
+    found = _version(out) if rc == 0 else None
+    engine = ("Docker Desktop" if "Docker Desktop" in info["system"] else "OrbStack" if info["system"] == "OrbStack"
+              else "Docker Engine")
+    if found is None or found[:2] < COMPOSE_MIN:
+        app = docker_app()
+        said = f"Compose {_dotted(found)} is too old" if found else "Compose is missing"
+        actions = [_action("open-docker", f"Open {app[1]}", True)] if app else \
+            [_action("docker-engine", "Update Docker", True, href=DOCKER_ENGINE)]
+        return _check("docker", "error", title, f"{said}: update {engine} to get Compose 5.0 or later", actions), info
+    return _check("docker", "ok", title, f"{engine} {info['version']}, Compose {_dotted(found)}"), info
+
+
+def _memory(info):
+    title = "Memory for Docker"
+    if not info or not info["memory"]:
+        return _check("memory", "idle", title, "Known once Docker runs")
+    shown = f"{info['memory'] / 2 ** 30:.0f} GB"
+    if info["memory"] >= model.LOW_MEMORY:
+        return _check("memory", "ok", title, shown)
+    app = docker_app()
+    if app:
+        return _check("memory", "warn", title, f"{shown}: give it 8 GB in the settings of {app[1]}",
+                      [_action("open-docker", f"Open {app[1]}")])
+    if system() == "wsl":
+        return _check("memory", "warn", title, f"{shown}: give WSL 8 GB in .wslconfig",
+                      [_action("wsl-memory", "How to", href=WSL_MEMORY)])
+    return _check("memory", "warn", title, f"{shown}: the platform needs 8 GB")
+
+
+def _disk(info):
+    """Free space where Docker keeps its images: its own folder on Linux, the home disk on a Mac, where its disk image is"""
+    title = "Disk space"
+    where = Path(info["root"]) if info and system() in ("linux",) and info.get("root") else Path.home()
+    try:
+        free = shutil.disk_usage(where).free / 1e9
+    except OSError:
+        return _check("disk", "idle", title, "Unknown")
+    if free >= DISK_MIN_GB:
+        return _check("disk", "ok", title, f"{free:.0f} GB free")
+    return _check("disk", "warn", title, f"{free:.0f} GB free: the first start downloads about 15 GB")
+
+
+def core_ports():
+    """The ports of this machine that the platform publishes: {port: the name of its service}"""
+    from . import project   # the project reads the machine's state too: imported when asked
+    try:
+        services = project.load()["services"]
+    except Exception:  # noqa: BLE001 - a core that does not load has its own notice
+        return {}
+    ports = {}
+    for name, service in services.items():
+        if (service.get("owner") or {}).get("kind") != "platform":
+            continue
+        for port in service.get("ports") or []:
+            if str(port).isdigit():
+                ports[int(port)] = service.get("label") or name
+    return ports
+
+
+def _lab_ports():
+    """The ports the lab's own containers hold now"""
+    rc, out, _ = compose.run(["docker", "ps", "--filter", f"label=com.docker.compose.project={compose.project_name()}",
+                              "--format", "{{.Ports}}"], timeout=10)
+    return {int(p) for p in re.findall(r":(\d+)->", out)} if rc == 0 else set()
+
+
+def _taken(port):
+    """Whether another program listens on this port of 127.0.0.1"""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            probe.bind(("127.0.0.1", port))
+        except OSError:
+            return True
+    return False
+
+
+def _ports(info):
+    title = "Ports"
+    if not info:
+        return _check("ports", "idle", title, "Known once Docker runs")
+    ports = core_ports()
+    if not ports:
+        return _check("ports", "idle", title, "Known once the platform's file loads")
+    ours = _lab_ports() if info else set()
+    busy = sorted(port for port in ports if port not in ours and _taken(port))
+    if not busy:
+        return _check("ports", "ok", title, f"No other program uses the {len(ports)} ports of the platform")
+    named = ", ".join(f"{port} ({ports[port]})" for port in busy[:4]) + (" and more" if len(busy) > 4 else "")
+    verb = "is" if len(busy) == 1 else "are"
+    return _check("ports", "warn", title, f"{named} {verb} used by another program: stop it before the platform starts")
+
+
+def _git():
+    title = "Git"
+    clt_stub = system() == "mac" and shutil.which("git") == "/usr/bin/git" and \
+        compose.run(["/usr/bin/xcode-select", "-p"], timeout=5)[0] != 0
+    found = None if clt_stub else compose.run(["git", "--version"], timeout=10)
+    version = _version(found[1]) if found and found[0] == 0 else None
+    if version:
+        return _check("git", "ok", title, f"Git {_dotted(version)}")
+    if system() == "mac":
+        if _waiting("git", 3600):
+            return _check("git", "working", title, "Installing Apple's Command Line Tools: follow the window macOS opened")
+        return _check("git", "error", title, "Git is missing: the catalogs cannot be downloaded",
+                      [_action("install-clt", "Install", True)])
+    return _check("git", "error", title, "Git is missing: the catalogs cannot be downloaded",
+                  [_action("install-git", "Copy the command", True, copy="sudo apt install git")])
+
+
+def report(fresh=False):
+    """Every check, the newest within FRESH seconds"""
+    with _lock:
+        if not fresh and _last["report"] and time.monotonic() - _last["at"] < FRESH:
+            return _last["report"]
+    docker, info = _docker()
+    checks = [docker, _memory(info), _disk(info), _ports(info), _git()]
+    problems = sum(1 for c in checks if c["state"] in ("error", "warn", "working"))
+    result = {"checks": checks, "ready": all(c["state"] in ("ok", "warn", "idle") for c in checks), "problems": problems,
+              "system": system()}
+    with _lock:
+        _last.update(at=time.monotonic(), report=result)
+    return result
+
+
+def act(action):
+    """Runs a fix that runs on this machine: open the app that runs Docker, or Apple's installer of Git"""
+    if action == "open-docker" and docker_app():
+        _asked["docker"] = time.monotonic()
+        rc, _, err = compose.run(["open", "-a", docker_app()[0]], timeout=20)
+        if rc != 0:
+            raise CatalogError("machine_action", err.strip() or "The app did not open", 400)
+    elif action == "install-clt" and system() == "mac":
+        _asked["git"] = time.monotonic()
+        compose.run(["/usr/bin/xcode-select", "--install"], timeout=20)
+    else:
+        raise CatalogError("machine_action", f"{action} is not a fix this machine runs", 400)
+    with _lock:
+        _last["report"] = None
+    return report(fresh=True)
+
+
+def summary():
+    """For the state: whether something keeps the platform from starting, and how many lines need a look"""
+    found = report()
+    return {"ready": found["ready"], "problems": found["problems"]}
+
