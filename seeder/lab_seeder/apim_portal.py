@@ -9,7 +9,7 @@
     links/*.yaml      a link each (PortalLinkSpec)
     listings/*.yaml   the APIs shown, and where (PortalListingSpec); an apiHrid is the crossId of an export of apis/
     api-overview.md   optional: the text of the Overview page of every API a listing shows (Gravitee Markdown)
-    api-docs/<feed>.yaml   optional: the AsyncAPI document of the listed API whose crossId is <environment id>-<feed>
+    api-docs/<feed>.yaml   optional: the AsyncAPI or OpenAPI document of the listed API whose crossId is <environment id>-<feed>
     api-details.md    optional: the text of the Details tab of the page of every listed API (plain Markdown)
 
 Every file is rendered with the variables of the seed and with `${ENV_ID}` and `${ENV_NAME}`, the environment's. A page's
@@ -34,7 +34,8 @@ the one of every listed API. With api-overview.md, the seed writes that text in 
 and the engine's `${ENV_ID}` and `${ENV_NAME}`; the platform's own expressions are written `$${api.name}`, and the platform
 refuses a text whose expression it cannot evaluate. The Overview pages are recorded with the listing and go with its items.
 
-An API that has a file in api-docs/ gets, next to its Overview page, an AsyncAPI page (published, after the Overview): the portal's
+An API that has a file in api-docs/ gets, next to its Overview page, an AsyncAPI page, or an OpenAPI page for an OpenAPI document
+(published, after the Overview): the portal's
 viewer shows the document as it is, with its channels, the direction of each (receive or send) and its messages with their schema
 and example. The platform renders no template and checks nothing in an AsyncAPI text, and the viewer shows an error in place of a
 document that is wrong or that is of a version it does not know, so the seed reads the document first (ASYNCAPI_VERSIONS).
@@ -74,10 +75,13 @@ KINDS = {"portal-theme": ("portal theme", "portal themes"), "portal": ("portal",
          "portal-listing": ("portal listing", "portal listings"), "portal-api-page": ("API page", "API pages")}
 OVERVIEW = "api-overview.md"   # the optional text of the Overview page of every API a listing shows
 OVERVIEW_TITLE = "Overview"   # what the platform calls the default page of an API item
-DOCS = "api-docs"   # the folder of AsyncAPI documents, one file for each API: <feed>.yaml, the end of the API's crossId
+DOCS = "api-docs"   # the folder of AsyncAPI or OpenAPI documents, one file for each API: <feed>.yaml, the end of the API's crossId
 DETAILS = "api-details.md"   # the optional text of the Details tab of the page of every API a listing shows
 ASYNCAPI_TITLE = "AsyncAPI"   # the name of the page of an API's document, under its item and in the pages of the API
 ASYNCAPI_ORDER = 1   # after the Overview page, which the platform makes first
+OPENAPI_TITLE = "OpenAPI"   # the same for an API whose document is an OpenAPI one
+# What each kind of document becomes: the title of its page, the type of that page in the navigation, the type of the API's own page
+DOC_KINDS = {"asyncapi": (ASYNCAPI_TITLE, "ASYNCAPI", "ASYNCAPI"), "openapi": (OPENAPI_TITLE, "OPENAPI", "SWAGGER")}
 # The versions the portal's viewer reads (its parser holds a schema of each): any other is an error shown in place of the page
 ASYNCAPI_VERSIONS = ("2.0.0", "2.1.0", "2.2.0", "2.3.0", "2.4.0", "2.5.0", "2.6.0", "3.0.0", "3.1.0")
 API_PAGE_VISIBILITY = "PUBLIC"   # of a page of the API itself: the visibility of the API says who may open the API and so its pages
@@ -339,16 +343,29 @@ def cross_ids(scope, parts):
     return found
 
 
-def asyncapi(scope, path):
-    """The text of an AsyncAPI file, which the platform keeps as it is (it renders no template in one and checks nothing): the
-    viewer is the one that says, on the page, that a document is wrong. So the file is read here, for what it needs to show."""
+def api_document(scope, path):
+    """The kind ("asyncapi" or "openapi") and the text of an API's document, which the platform keeps as it is (it renders no
+    template in one and checks nothing): the viewer is the one that says, on the page, that a document is wrong. So the file is
+    read here, for what it needs to show."""
     document = scope.text(path)
     try:
         spec = yaml.safe_load(document)
     except yaml.YAMLError as e:
         raise SeedError(f"{shown(path)}: it is not YAML ({excerpt(e, 200)})") from None
+    if isinstance(spec, dict) and spec.get("openapi") is not None and spec.get("asyncapi") is None:
+        info = spec.get("info")
+        if not isinstance(info, dict) or any(info.get(key) in (None, "") for key in ("title", "version")):
+            raise SeedError(f"{shown(path)}: info needs a title and a version")
+        if not isinstance(spec.get("paths"), dict) or not spec["paths"]:
+            raise SeedError(f"{shown(path)}: paths is missing or empty")
+        return "openapi", document
+    return "asyncapi", asyncapi(path, spec, document)
+
+
+def asyncapi(path, spec, document):
+    """The text of an AsyncAPI document, once it is one the portal shows."""
     if not isinstance(spec, dict) or spec.get("asyncapi") is None:
-        raise SeedError(f"{shown(path)}: it is no AsyncAPI document: it has no asyncapi key")
+        raise SeedError(f"{shown(path)}: it is no AsyncAPI or OpenAPI document: it has no asyncapi or openapi key")
     if str(spec["asyncapi"]) not in ASYNCAPI_VERSIONS:
         raise SeedError(f"{shown(path)}: asyncapi {spec['asyncapi']} is a version the portal does not show ({', '.join(ASYNCAPI_VERSIONS)})")
     info = spec.get("info")
@@ -369,7 +386,8 @@ class Folder:
         self.pages, self.links, self.listings = [], [], []
         self.overview = None   # the text of the Overview page of every listed API, when the folder has one
         self.details = None   # the text of the Details tab of the page of every listed API, when the folder has one
-        self.docs = {}   # the AsyncAPI text of the listed APIs that have one, by crossId
+        self.docs = {}   # the AsyncAPI or OpenAPI text of the listed APIs that have one, by crossId
+        self.kinds = {}   # the kind of each of those documents (DOC_KINDS), by crossId
         self.sources = {}   # the file each of those comes from, as a message names it
 
     @property
@@ -430,7 +448,7 @@ class Folder:
                 raise SeedError(f"{shown(path)}: {cross} is no API that a listing of this portal shows")
             if cross in self.docs:
                 raise SeedError(f"{shown(path)}: {cross} has its document in {self.sources[cross]} already")
-            self.docs[cross], self.sources[cross] = asyncapi(scope, path), shown(path)
+            (self.kinds[cross], self.docs[cross]), self.sources[cross] = api_document(scope, path), shown(path)
         return self
 
 
@@ -714,7 +732,7 @@ class Portals:
         lacking = [item_id for item_id in wanted if not tree.child(item_id, OVERVIEW_TITLE)]
         changed = bool(lacking)
         for item_id in lacking:
-            ours = tree.child(item_id, ASYNCAPI_TITLE)
+            ours = tree.child(item_id, ASYNCAPI_TITLE) or tree.child(item_id, OPENAPI_TITLE)
             if ours and ours["id"] in before:   # the platform makes the Overview of an item that has no page: this one is made again after it
                 self.ask(what, self.console, "DELETE", f"{base}/{ours['id']}", passed=(404,))
                 tree.items.pop(ours["id"], None)
@@ -756,10 +774,12 @@ class Portals:
             log(SECTION, f"API pages exist: {name}")
 
     def document(self, folder, what, tree, item_id, want, before):
-        """The AsyncAPI page of an API item: made when the API has a document, written, then published. A page the seed made for an
-        API that has no document any more goes. Returns the id of the page, None when there is none, and whether the platform changed."""
+        """The AsyncAPI or OpenAPI page of an API item: made when the API has a document, written, then published. A page the seed
+        made for an API that has no document any more goes. Returns the id of the page, None when there is none, and whether the
+        platform changed."""
         env, api, base = folder.env, want["api"], f"{self.v2(folder.env)}/portal-navigation-items"
-        page, doc = tree.child(item_id, ASYNCAPI_TITLE), folder.docs.get(want["api"]["crossId"])
+        title, kind, _ = DOC_KINDS[folder.kinds.get(api["crossId"], "asyncapi")]
+        page, doc = tree.child(item_id, title), folder.docs.get(want["api"]["crossId"])
         if doc is None:
             if page and page["id"] in before:
                 self.ask(what, self.console, "DELETE", f"{base}/{page['id']}", passed=(404,))
@@ -769,10 +789,10 @@ class Portals:
         changed = not page
         if not page:
             page = self.ask(what, self.console, "POST", base, json={
-                "type": "PAGE", "title": ASYNCAPI_TITLE, "area": "TOP_NAVBAR", "parentId": item_id, "visibility": want["visibility"],
-                "contentType": PAGE_TYPES[2], "order": ASYNCAPI_ORDER}).json()
+                "type": "PAGE", "title": title, "area": "TOP_NAVBAR", "parentId": item_id, "visibility": want["visibility"],
+                "contentType": kind, "order": ASYNCAPI_ORDER}).json()
             tree.items[page["id"]] = page
-        changed |= self.page_text(env, f"AsyncAPI page of {api['name']} in {env} ({folder.sources[api['crossId']]})", page, PAGE_TYPES[2],
+        changed |= self.page_text(env, f"{title} page of {api['name']} in {env} ({folder.sources[api['crossId']]})", page, kind,
                                   doc, "the platform refuses it")   # before it is published: the platform's sample is never shown
         if not (page.get("published") and page.get("visibility") == want["visibility"] and page.get("order") == ASYNCAPI_ORDER):
             self.put(env, what, page, {"published": True, "visibility": want["visibility"], "order": ASYNCAPI_ORDER})
@@ -804,7 +824,8 @@ class Portals:
             asked = ([("MARKDOWN", OVERVIEW_TITLE, folder.details, True, f"Details tab of {api['name']} in {env} (portal/{DETAILS})")]
                      if folder.details is not None else [])
             if api["crossId"] in folder.docs:
-                asked.append(("ASYNCAPI", ASYNCAPI_TITLE, folder.docs[api["crossId"]], False,
+                title, _, legacy = DOC_KINDS[folder.kinds[api["crossId"]]]
+                asked.append((legacy, title, folder.docs[api["crossId"]], False,
                               f"Documentation tab of {api['name']} in {env} ({folder.sources[api['crossId']]})"))
             if not asked:
                 continue

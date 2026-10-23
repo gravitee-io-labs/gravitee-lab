@@ -34,7 +34,7 @@ reverse.
 | `openfga.py` | `seed/openfga/*.yaml` |
 | `am.py` | `seed/am/domain.yaml` (settings, scopes, users, groups), `applications/`, `protected-resources/` |
 | `apim.py` | `seed/apim/settings.yaml`, `apis/`, `applications/`, `subscriptions/`; and, for each `seed/environments/<id>/` (an environment of its own, which it looks up and never creates), `settings.yaml`, `users.yaml`, `groups/`, `apis/`, `applications/`, `subscriptions/` |
-| `apim_portal.py` | `portal/` of `seed/apim/` and of each `seed/environments/<id>/`: `theme.yaml`, `portal.yaml`, `pages/`, `content/`, `links/`, `listings/`, the optional `api-overview.md` (the text of the Overview page of every listed API), `api-details.md` (the Details tab of the page of each) and `api-docs/<feed>.yaml` (the AsyncAPI document of the listed API `<environment id>-<feed>`), and the `assets/` the theme names |
+| `apim_portal.py` | `portal/` of `seed/apim/` and of each `seed/environments/<id>/`: `theme.yaml`, `portal.yaml`, `pages/`, `content/`, `links/`, `listings/`, the optional `api-overview.md` (the text of the Overview page of every listed API), `api-details.md` (the Details tab of the page of each) and `api-docs/<feed>.yaml` (the AsyncAPI or OpenAPI document of the listed API `<environment id>-<feed>`), and the `assets/` the theme names |
 | `am_link.py` | `seed/am/gamma-link.yaml` |
 | `aim_catalog.py` | `seed/aim/credentials/`, `providers/`, `models/`, `mcp-servers/`, `knowledge/`, `skills/`, `agents/`, `api-tools/` |
 | `aim_workspaces.py` | `seed/aim/workspaces/` |

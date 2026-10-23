@@ -515,7 +515,7 @@ seed/environments/<id>/
   | `portal/links/*.yaml` | A link: `hrid`, `name`, `href`, `location`, `order`, `visibility` |
   | `portal/listings/*.yaml` | The APIs shown and where: `hrid` and `apis` of `apiHrid`, `location`, `order`, `visibility`. The `order` is a position among the items of the location, 0 first, which is its default; an API that moves to another `location` in the file moves in the portal |
   | `portal/api-overview.md` | Optional. The Gravitee Markdown of the Overview page of every API a listing shows, rendered with the seed's variables and with `${ENV_ID}` and `${ENV_NAME}`. The platform's own expressions are written `$${...}` (`$${api.name}`, `$${api.description}`), and the platform refuses a text whose expression it cannot evaluate, which stops the seed with its message. Without the file, the pages keep the platform's default text |
-  | `portal/api-docs/<feed>.yaml` | Optional. The AsyncAPI document (YAML, version 2.0 to 2.6, 3.0 or 3.1) of the listed API whose `crossId` is `<environment id>-<feed>`: the file name is the end of the `crossId`. Rendered with the seed's variables and with `${ENV_ID}` and `${ENV_NAME}`, `$${` standing for a literal `${`. A file for an API no listing shows, two files for one API (`.yaml` and `.yml`), a version the portal does not show, and a document with no `info.title`, `info.version` or `channels` stop the seed before its first change |
+  | `portal/api-docs/<feed>.yaml` | Optional. The AsyncAPI document (YAML, version 2.0 to 2.6, 3.0 or 3.1), or the OpenAPI document (an `openapi` key), of the listed API whose `crossId` is `<environment id>-<feed>`: the file name is the end of the `crossId`. Rendered with the seed's variables and with `${ENV_ID}` and `${ENV_NAME}`, `$${` standing for a literal `${`. A file for an API no listing shows, two files for one API (`.yaml` and `.yml`), a version the portal does not show, and a document with no `info.title`, `info.version`, or `channels` (AsyncAPI) or `paths` (OpenAPI) stop the seed before its first change |
   | `portal/api-details.md` | Optional. The plain Markdown of the Details tab of the page of every API a listing shows. Written like `api-overview.md`, but the platform fills the template of such a page with `api.name`, `api.version` and `api.description` only, and refuses the components of Gravitee Markdown (`<gmd-card>`): it is not the Overview text |
 
 - **An API shown in a listing has an Overview page**, which a portal opens when someone chooses the API in its menu or on its
@@ -526,9 +526,10 @@ seed/environments/<id>/
   publish-only feed) and its messages, each with its payload schema and its example. Write the document in AsyncAPI 3.0: the
   viewer labels an operation `RECEIVE` or `SEND`, where a 2.x `subscribe` shows as `SUB`. The page is made, written, then
   published, so that the platform's sample document is never shown. A document that is gone from the folder takes its page.
+  An OpenAPI document gets an OpenAPI page in the same place, which the viewer draws as the paths and their operations.
 - **The page of an API itself is the other way to it.** `/catalog/api/<id>` is not the menu: its Details tab shows the page of
   the API that is its homepage, and its Documentation tab the others, which the Console keeps in the API's Documentation. The
-  seed makes there a Markdown homepage from `api-details.md` and an AsyncAPI page from the document, each published and found
+  seed makes there a Markdown homepage from `api-details.md` and an AsyncAPI page (a `SWAGGER` page for an OpenAPI document) from the document, each published and found
   again by its type and name. A catalog card of an API that a listing shows opens the menu's page, not this one, so these two
   matter for the direct address and for a link to it.
 - **The pages are recorded with their listing** (`API pages`, one record that counts the pages of the menu and those of the
@@ -926,7 +927,7 @@ What a seed of [environments of its own](#environments-of-its-own) relies on, as
   an expression it cannot evaluate. A child is published by its own `PUT` with its `parentId`; unpublishing an item
   unpublishes its children, and publishing one with `propagatePublishToChildren` does not publish the children of one that is
   already published. The Portal API answers the rendered text at `GET .../portal-navigation-items/{pageItemId}/content`.
-- **An AsyncAPI page is a navigation page whose content type is `ASYNCAPI`**, fixed when it is made
+- **An AsyncAPI page is a navigation page whose content type is `ASYNCAPI`** (`OPENAPI` for an OpenAPI page), fixed when it is made
   (`POST .../portal-navigation-items` with `contentType`), with a sample document in it and the next order under its API item,
   so after the Overview. `PUT .../portal-page-contents/{id}` with `{"type": "ASYNCAPI", "content": ...}` renders no template and
   checks nothing in it: a document that is not YAML, or a version the viewer does not know, is stored, and the viewer shows
