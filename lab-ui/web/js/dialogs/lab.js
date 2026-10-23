@@ -18,7 +18,7 @@ dialog.innerHTML = `
       <span class="lab-logo"></span>
       <div class="lab-hero-text"><h2 id="lab-title">Gravitee Lab</h2><p class="lab-current" id="lab-current"></p></div>
     </header>
-    <section class="lab-status" id="lab-status" aria-live="polite"></section>
+    <section id="lab-status" aria-live="polite"></section>
     <section class="lab-whatsnew" id="lab-whatsnew" hidden><h3 id="lab-notes-head"></h3><div class="lab-notes" id="lab-notes"></div></section>
   </div>
   <div class="dialog-actions lab-actions"><span id="lab-all"></span><span class="grow"></span><button class="btn" type="button" data-close>Close</button></div>`;
