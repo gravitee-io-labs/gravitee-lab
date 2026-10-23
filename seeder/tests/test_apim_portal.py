@@ -295,8 +295,8 @@ class World:
         if content not in self.contents[env]:
             return 404, {"message": "Portal page content not found"}
         text = call.json["content"]
-        if call.json["type"] == "ASYNCAPI":   # the platform renders no template in an AsyncAPI text, and checks nothing in it
-            self.contents[env][content] = {"id": content, "type": "ASYNCAPI", "content": text}
+        if call.json["type"] in ("ASYNCAPI", "OPENAPI"):   # the platform renders no template in an AsyncAPI or OpenAPI text, and checks nothing in it
+            self.contents[env][content] = {"id": content, "type": call.json["type"], "content": text}
             return 200, self.contents[env][content]
         if text.count("${") != text.count("}"):
             return 400, {"httpStatus": 400, "message": 'Invalid template: Syntax error in template "" in line 1:\nUnexpected end of file'}
@@ -340,7 +340,7 @@ class World:
         pages, body = self.pages_of(call), call.json
         if pages is None:
             return 404, {"message": "API not found"}
-        if body["type"] not in ("MARKDOWN", "ASYNCAPI"):
+        if body["type"] not in ("MARKDOWN", "ASYNCAPI", "SWAGGER"):
             return 400, {"message": "Unsupported type"}
         if self.refused(body):
             return self.refused(body)
@@ -994,6 +994,15 @@ class Documents(Portals):
         created = next(c.json for c in self.platform.calls if c.method == "POST" and c.json.get("type") == "PAGE")
         self.assertEqual(created, {"type": "PAGE", "title": "AsyncAPI", "area": "TOP_NAVBAR", "parentId": FEEDS[0], "visibility": "PRIVATE",
                                    "contentType": "ASYNCAPI", "order": 1})
+
+    def test_an_openapi_document_gets_an_openapi_page_and_a_swagger_page_of_the_api(self):
+        self.document(text="openapi: 3.0.3\ninfo: {title: Batch status, version: '1.0'}\npaths:\n  /batches: {get: {responses: {'200': {description: OK}}}}\n")
+        self.run_seed()
+        page = self.child(0, "OpenAPI")
+        self.assertEqual((page["published"], page["order"]), (True, 1))
+        self.assertEqual(self.stored(page)["type"], "OPENAPI")
+        self.assertEqual(self.titles(0), ["Overview", "OpenAPI"])
+        self.assertEqual(self.own(0)["OpenAPI"]["type"], "SWAGGER")
 
     def test_an_api_with_no_document_gets_none_and_keeps_its_overview_alone(self):
         self.document()
@@ -1683,7 +1692,18 @@ class Documented(Portals):
     def test_a_file_that_is_no_asyncapi_document(self):
         for text in ("- a\n- b\n", "hello: world\n", "asyncapi:\ninfo: {title: t, version: '1'}\n", ""):
             with self.subTest(text=text):
-                self.refused(r"batch-status\.yaml: it is no AsyncAPI document: it has no asyncapi key", {"portal/api-docs/batch-status.yaml": text})
+                self.refused(r"batch-status\.yaml: it is no AsyncAPI or OpenAPI document: it has no asyncapi or openapi key", {"portal/api-docs/batch-status.yaml": text})
+
+    def test_an_openapi_document_with_no_title_or_no_version_or_no_paths(self):
+        paths = "paths:\n  /batches: {get: {responses: {'200': {description: OK}}}}\n"
+        for info in ("info: {version: '1'}", "info: {title: T}", "info: {title: '', version: '1'}", "info: [a]", "info:"):
+            with self.subTest(info=info):
+                self.refused(r"batch-status\.yaml: info needs a title and a version",
+                             {"portal/api-docs/batch-status.yaml": f"openapi: 3.0.3\n{info}\n{paths}"})
+        for none in ("", "paths:\n", "paths: {}\n", "paths: [a]\n"):
+            with self.subTest(paths=none):
+                self.refused(r"batch-status\.yaml: paths is missing or empty",
+                             {"portal/api-docs/batch-status.yaml": f"openapi: 3.0.3\ninfo: {{title: T, version: '1'}}\n{none}"})
 
     def test_a_version_the_viewer_does_not_show(self):
         for version in ("1.2.0", "2.7.0", "3.2.0", "4.0.0", "3"):
