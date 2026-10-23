@@ -917,6 +917,9 @@ What a seed of [environments of its own](#environments-of-its-own) relies on, as
   applications, groups, dictionaries, shared policy groups, subscriptions, API documentations and links, portals (with their
   listings, documentations and links) and portal themes. It has no users, settings or navigation items. Its description of a
   group says that a member that is no user of the platform is ignored.
+- **A new environment's top bar has an empty `APIs` folder** (4.13.0), which the Automation API did not make. A portal with a path
+  that such an item holds is refused (`400 Navigation path [/apis] is already occupied by content not managed by the Automation
+  API`), so before it makes a portal the seed removes an empty folder at one of its paths.
 - **A portal's visibility is `PUBLIC` or `PRIVATE`**, never a group. `activeThemeHrid` of a portal makes its theme the one
   enabled, and disables every other next-gen portal theme of the environment.
 - **An API item of the navigation has no page.** `POST .../portal-navigation-items/_default-pages` with `{"ids": [...]}` makes the

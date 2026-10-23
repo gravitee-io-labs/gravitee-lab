@@ -46,6 +46,10 @@ a page of an API with the name, version and description of the API only, and ref
 not the Overview text) and an AsyncAPI page from the document. They are found by their type and name, and recorded with the
 listing's pages; the platform deletes them with their API.
 
+The platform makes an empty APIs folder in the top bar of an environment, and the Automation API refuses a portal with a path
+that an item it did not make holds. Before it makes the portal, the seed removes an empty folder at one of its paths; any other
+item there stops the seed.
+
 A hrid held by an object the seed did not create stops the seed: it never changes it. What it created is recorded, with the
 environment and the hrid, and a second run changes nothing.
 """
@@ -568,6 +572,7 @@ class Portals:
         log(SECTION, f"Developer Portal of {folder.env}")
         if folder.theme:
             self.upsert(folder, "portal-theme", folder.theme)
+        self.clear(folder)
         self.upsert(folder, "portal", folder.portal)
         for page in folder.pages:
             self.upsert(folder, "portal-page", page)
@@ -578,6 +583,24 @@ class Portals:
             tree, apis = None, self.apis(folder.env)
             for listing in folder.listings:
                 tree = self.listing(folder, listing, apis, tree)
+
+    def clear(self, folder):
+        """The empty folders of the top bar at the paths of a portal that is not there yet, removed: the platform makes one with an
+        environment (an APIs folder), and the Automation API refuses a path held by an item it did not make. A folder that holds
+        something stops the seed."""
+        env, hrid = folder.env, folder.portal["hrid"]
+        what = f"Portal {hrid} in {env}"
+        if self.ask(what, self.automation, "GET", f"{self.auto(env)}/portals/{hrid}", passed=(404,)).status_code != 404:
+            return
+        tree = self.navigation(env)
+        for where in [path for path in folder.titles if path.count("/") == 1]:
+            taken = next((item for item in tree.items.values() if not item.get("parentId") and normal(item.get("title")) == where), None)
+            if not taken:
+                continue
+            if taken["type"] != "FOLDER" or any(item.get("parentId") == taken["id"] for item in tree.items.values()):
+                raise SeedError(f"{what}: {where} holds {taken.get('title')}, which the seed did not make")
+            self.ask(what, self.console, "DELETE", f"{self.v2(env)}/portal-navigation-items/{taken['id']}", passed=(404,))
+            log(SECTION, f"✓ Removed the empty folder {taken.get('title')} the platform made at {where}: {env}")
 
     def forget(self, folder):
         """What the seed made in this environment from a file that is no more: deleted by its hrid and dropped from the record, so that
@@ -670,6 +693,11 @@ class Portals:
         """One API item, created or put right. True when the platform was changed."""
         api, parent, base = want["api"], want["parent"], f"{self.v2(env)}/portal-navigation-items"
         item, changed = tree.items.get(item_id), False
+        if item and item.get("apiId") != api["id"]:   # the API was made again (an LLM proxy is not updated in place): its item goes with the old one
+            self.ask(what, self.console, "DELETE", f"{base}/{item_id}", passed=(404,))
+            for gone in [i for i in tree.items if i == item_id or tree.items[i].get("parentId") == item_id]:
+                tree.items.pop(gone, None)
+            item, changed = None, True
         if not item:
             twin = next((i for i in tree.items.values() if i["type"] == "API" and i.get("apiId") == api["id"]
                          and i.get("parentId") == parent["id"]), None)
@@ -690,8 +718,10 @@ class Portals:
                 tree.items = self.navigation(env).items
                 item, changed = tree.items[item_id], True
                 break
-        if not (item.get("published") and item.get("visibility") == want["visibility"] and item.get("order") == want["order"]):
-            self.put(env, what, item, {"published": True, "visibility": want["visibility"], "order": want["order"]})
+        # The platform names an item after its API when it makes it, and keeps that title: a renamed API gets its new name here
+        if not (item.get("published") and item.get("visibility") == want["visibility"] and item.get("order") == want["order"]
+                and item.get("title") == api["name"]):
+            self.put(env, what, item, {"published": True, "visibility": want["visibility"], "order": want["order"], "title": api["name"]})
             changed = True
         return changed
 
