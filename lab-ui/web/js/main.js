@@ -1,6 +1,7 @@
 // Boot: the shell, the pages, the first state, then a refresh every three seconds, every second while something is
 // on its way
 
+import { openLab, paintLab, followLab } from "./dialogs/lab.js";
 import { store, router } from "./core.js";
 import { paintProgress, paintBusy, paintActions, paintMenuDot } from "./components/ui.js";
 import { initSidebar, renderShell } from "./components/sidebar.js";
@@ -23,6 +24,8 @@ import { platformsPage } from "./pages/platforms.js";
 // bars, what waits for Docker or for the running job, and the buttons of the actions at work
 const afterDraw = () => {
   renderShell();
+  paintLab();
+  followLab();
   paintMenuDot();
   paintProgress();
   paintBusy();
@@ -30,6 +33,9 @@ const afterDraw = () => {
 };
 
 // Skip to content takes the keyboard to the page on screen, which stays: its address is no page of the router
+// Gravitee Lab itself: its version and what is newer, from the button of the menu's tools and the chip of a newer version
+for (const id of ["lab", "lab-dot"]) document.getElementById(id).addEventListener("click", () => openLab());
+
 document.querySelector(".skip").addEventListener("click", (e) => {
   e.preventDefault();
   document.getElementById("content").focus();

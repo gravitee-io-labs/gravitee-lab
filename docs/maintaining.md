@@ -99,6 +99,23 @@ that cannot be tried in CI (it needs a setting only a person gives, a token for 
 A night that fails opens an issue with the label `e2e-nightly`, or adds to the one that is open. The usual causes are a moving tag that
 changed (`latest`, `amp-demo-latest`), a product release that changed an API a seed calls, and a registry that was down: the log says which.
 
+## Publishing a version
+
+A version is an annotated tag `vX.Y.Z` on a commit of `main`. The Lab UI of every clone sees it at its next check and offers
+the update; the *Release* workflow publishes its release on GitHub, with the pull requests merged since the version before.
+Name each pull request for the people who read it there: its title is a line of what the version changes.
+
+```bash
+git switch main && git pull --ff-only
+```
+
+```bash
+git tag -a v1.0.0 -m "Gravitee Lab 1.0.0" && git push origin v1.0.0
+```
+
+Raise the major number when an update needs a person to do something by hand, the minor number for a new feature, and the
+patch number for a fix. A tag is never moved once pushed: a clone that updated to it keeps it.
+
 ## Pins to review by hand
 
 Dependabot updates the actions, the Python requirements and the Dockerfiles. A few pins sit in text it does not read:

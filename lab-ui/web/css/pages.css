@@ -1119,3 +1119,49 @@ mark { background: var(--hl); color: var(--hl-text); border-radius: 2px; padding
   .layers .layer { grid-template-columns: 32px minmax(0, 1fr); margin-inline: 0; }
   .layer > :is(code, .muted) { display: none; }
 }
+
+/* Gravitee Lab itself: its version and the check of newer ones, then what each version changed, newest first, in a list that scrolls */
+.lab-dialog {
+  width: min(calc(100vw - 48px), max(560px, 40vw), 800px); max-height: min(calc(100dvh - 48px), 900px); padding: 0; overflow: hidden;
+  --lab-pad: clamp(24px, 5%, 40px);
+}
+.lab-dialog[open] { display: flex; flex-direction: column; }
+/* One column, one gap between its parts: the Lab, where it stands, what the versions change */
+.lab-body { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: var(--sp-5); padding: var(--lab-pad); }
+.lab-hero { display: flex; align-items: center; gap: var(--sp-4); }
+.lab-logo { display: flex; flex: none; }
+.lab-logo .logo { width: 46px; height: 51px; }
+.lab-hero-text { display: grid; gap: 6px; min-width: 0; }
+.lab-hero h2 { margin: 0; padding-right: 40px; font-size: var(--fs-5); line-height: var(--lh-5); font-weight: var(--fw-3); }
+.lab-current { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin: 0; color: var(--text-2); }
+.lab-number { font: var(--fw-3) var(--fs-3)/1 var(--mono); color: var(--text); }
+.lab-status-card {
+  display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-4); border-radius: var(--r-pop);
+  border: 1px solid var(--border); background: var(--surface-2);
+}
+.lab-status-card[data-tone="update"] { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); background: var(--accent-soft); }
+.lab-status-card[data-tone="error"] { border-color: color-mix(in srgb, var(--err) 35%, var(--border)); background: var(--err-soft); }
+.lab-mark { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; flex: none; background: var(--surface); color: var(--muted); }
+.lab-mark > svg { width: 16px; height: 16px; }
+.lab-status-card[data-tone="ok"] .lab-mark { background: var(--ok); color: #fff; }
+.lab-status-card[data-tone="update"] .lab-mark { background: var(--accent-fill); color: var(--accent-text); }
+.lab-status-card[data-tone="error"] .lab-mark { background: var(--surface); color: var(--err); }
+.lab-status-text { display: grid; gap: 2px; flex: 1; min-width: 0; }
+.lab-status-text strong { color: var(--text); font-size: var(--fs-3); }
+.lab-status-text span { color: var(--muted); font-size: var(--fs-2); overflow-wrap: anywhere; }
+.lab-status-card[data-tone="update"] .lab-status-text span { color: var(--text-2); }
+.lab-status-card > .btn { flex: none; }
+.lab-whatsnew { display: grid; gap: var(--sp-3); }
+.lab-whatsnew h3 { margin: 0; font-size: var(--fs-3); color: var(--text); }
+.lab-notes { display: grid; gap: var(--sp-4); }
+.lab-version { display: grid; gap: var(--sp-2); padding-left: var(--sp-4); border-left: 2px solid var(--border); }
+.lab-version:first-child { border-left-color: var(--accent); }
+.lab-version-head { display: flex; align-items: center; gap: var(--sp-2); }
+.lab-version-head > .icon-btn { margin-left: auto; }
+.lab-version ul { display: grid; gap: 6px; margin: 0; padding-left: 18px; color: var(--text-2); }
+.lab-version li { overflow-wrap: anywhere; }
+.lab-version li > a { margin-left: 6px; }
+.lab-actions { margin-top: 0; padding: 12px var(--lab-pad); border-top: 1px solid var(--border); align-items: center; }
+.lab-actions .grow { flex: 1; }
+#lab-all .text-link { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-2); }
+#lab-all .text-link > svg { width: 12px; height: 12px; }
