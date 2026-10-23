@@ -110,6 +110,22 @@ test("the head of a running playground opens its first console, beside the guide
   }
 });
 
+test("the guide of a running playground can be hidden, to give its consoles the whole card, and the browser keeps that choice", async () => {
+  await draw("acme-bakery");
+  const card = () => section.querySelector(".pg-split"), button = () => section.querySelector("[data-guide]");
+  const said = () => [card().classList.contains("guide-hidden"), button().getAttribute("aria-expanded"), button().getAttribute("aria-label")];
+  assert.deepEqual(said(), [false, "true", "Hide the guide"]);
+  assert.equal(button().getAttribute("aria-controls"), "pg-guide-pane");
+  button().click();
+  assert.deepEqual(said(), [true, "false", "Show the guide"]);
+  assert.equal(page.stored["guide:pane"], "hidden");
+  await draw("acme-bakery");   // another visit: as it was left
+  assert.deepEqual(said(), [true, "false", "Show the guide"]);
+  button().click();
+  assert.deepEqual(said(), [false, "true", "Hide the guide"]);
+  assert.equal(page.stored["guide:pane"], undefined, "shown is the default: nothing is kept");
+});
+
 test("a first console that does not run is a disabled Open that says why, not another button", async () => {
   await draw("zz-down");
   const [open] = head().filter(([, text]) => text.startsWith("Open"));

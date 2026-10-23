@@ -130,9 +130,9 @@ class Layout(Fixture):
         self.run_stage("v1.0.0")
         self.assertTrue(self.text().startswith("## Hub \\*Two\\* 1.0.0\n\nLab level 3\n\n"))
 
-    def test_the_subjects_are_at_most_five_each_clipped_to_eighty_characters(self):
+    def test_the_subjects_are_at_most_five_each_clipped_to_a_hundred_and_sixty_characters(self):
         self.release("v1.0.0")
-        long = "Teach the bank agent to explain every transfer it declines, in plain words, with the reason " + "x" * 50
+        long = "Teach the bank agent to explain every transfer it declines, in plain words, with the reason " + "x" * 80
         for number in range(8):
             self.put(self.repo, "playgrounds/bank/guide.md", f"# {number}\n")
             self.commit(self.repo, long if number == 7 else f"Change {number} of the guide")
@@ -140,7 +140,7 @@ class Layout(Fixture):
         self.run_stage("v1.1.0")
         subjects = [line[4:] for line in self.text().splitlines() if line.startswith("  - ")]
         self.assertEqual(len(subjects), 5)
-        self.assertTrue(all(len(each.replace("\\", "")) <= 80 for each in subjects), subjects)
+        self.assertTrue(all(len(each.replace("\\", "")) <= 160 for each in subjects), subjects)
         self.assertTrue(subjects[0].endswith("…"))
 
 
@@ -216,7 +216,7 @@ class Hostile(Fixture):
         self.release("v1.1.0", {"catalog.yml": catalog_yml("1.1.0")}, "Release 1.1.0")
         _, spent = support.timed(self.run_stage, "v1.1.0")
         self.assertLess(spent, 5.0)
-        self.assertLess(max(len(line) for line in self.text().splitlines()), 100)
+        self.assertLessEqual(max(len(line) for line in self.text().splitlines()), len("  - ") + release.SHOWN)
 
     def test_the_plain_form_of_markdown_characters(self):
         self.assertEqual(release.plain("a *b* [c] <d> e_f #g h"), r"a \*b\* \[c\] \<d\> e\_f \#g h")

@@ -25,7 +25,7 @@ const searching = () => !$(".combo-search").hidden;
 const touch = () => matchMedia("(pointer: coarse)").matches;
 const focusPicker = () => (searching() && !touch() ? $("#combo-input") : $("#combo-list")).focus({ preventScroll: true });
 
-// src: {load(), groups(q), current, choose(value), typed, multi, quick, segments(), plain, empty}
+// src: {load(), groups(q), current, choose(value), typed, multi, quick, segments(), plain, empty, width}
 //   load(): when the list has to be read first; it throws when the list cannot be read, and a list that takes a
 //   typed value still takes one
 //   groups(q) -> [{label, items: [{value, name, meta, badges, dot, icon, disabled}], more}]: what matches q, in lower
@@ -41,6 +41,7 @@ const focusPicker = () => (searching() && !touch() ? $("#combo-input") : $("#com
 //   plain: the names are words, not tags
 //   empty: what it says when it has nothing to list ("Nothing running"), alone: in place of the list, without the
 //   buttons above it. Without, an empty list says "No matches", as a search that finds nothing does.
+//   width: the least width of this picker when its lines want more room than WIDE (a name and, apart from it, its id)
 async function open(button, src) {
   if (anchor === button) return close();
   close();
@@ -51,7 +52,7 @@ async function open(button, src) {
   anchor.setAttribute("aria-expanded", "true");
   const pop = $("#combo-pop");
   pop.hidden = false;
-  placed = Popup.attach(pop, anchor, { minWidth: WIDE, scroller: $("#combo-list"), away: close });
+  placed = Popup.attach(pop, anchor, { minWidth: Math.max(WIDE, src.width || 0), scroller: $("#combo-list"), away: close });
   // Named for the field it chooses, as is its list, which the search and the list say the option of the keyboard of
   const named = anchor.getAttribute("aria-label") || anchor.textContent.trim() || "Choose a value";
   pop.setAttribute("aria-label", named);

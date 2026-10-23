@@ -422,14 +422,25 @@ class ApiManagement:
                 return p.get("path")
         return None
 
+    @classmethod
+    def address(cls, api):
+        """Where an API is reached: its first path, or for a native Kafka API, which has none, the host of its Kafka listener."""
+        path = cls.first_path(api)
+        if path:
+            return path
+        for listener in api.get("listeners", []):
+            if listener.get("type") == "KAFKA" and listener.get("host"):
+                return f"kafka://{listener['host']}"
+        return None
+
     def live_api(self, api):
-        """The API of APIM that this definition stands for: the one with its id, else the one that holds its first path."""
+        """The API of APIM that this definition stands for: the one with its id, else the one that holds its first path (its Kafka host, for a native API)."""
         if api.get("id"):
             r = self.api.get(f"{self.v2}/apis/{api['id']}", expect=(200, 404))
             if r.status_code == 200:
                 return r.json()
-        path = self.first_path(api)
-        return next((a for a in self.apis() if path and self.first_path(a) == path), None)
+        address = self.address(api)
+        return next((a for a in self.apis() if address and self.address(a) == address), None)
 
     def import_api(self, definition, file_name):
         api = definition.get("api", {})
@@ -442,7 +453,7 @@ class ApiManagement:
         live = self.live_api(api)
         mine = live and made_by_seed(live["id"])
         if live and not mine:
-            held = f"{api['id']} is the id" if live["id"] == api.get("id") else f"{self.first_path(api)} is the path"
+            held = f"{api['id']} is the id" if live["id"] == api.get("id") else f"{self.address(api)} is the path"
             raise SeedError(f"API {name}: {held} of '{live['name']}', which the seed did not create")
         if not live:
             api_id = self.create(imported, name, digest)

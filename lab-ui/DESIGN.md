@@ -158,9 +158,13 @@ it lets them, with Storage and Docker under; under 640 px a cell over the other.
 chevron, a button named for the item, which the keyboard reaches and which says whether the detail is open; the row itself is no
 button, so that its controls are controls of their own, and a click anywhere on it but its controls opens it too), its name
 (13.5 strong), its star right after it (a hollow one shows under the pointer, in its place: nothing moves), then what it is
-(*Personal*, the cloud mark), the description under the name as one muted line, then its State (`itemState`: the state component,
-*Running*, *Stopped*, *Off*, then the server's note as a badge, on one line, the badge cut before the state is: the row says its state
-in one cell, as the Dashboard says it on one line), its category and its actions in fixed slots: *Open*, its Start or Stop (`.act`, one
+(*Personal*, the cloud mark), the description under the name as one muted line, then its catalog and its category, short words
+centered in their columns (the catalog's column only on a card of 1280 px or more that lists more than one catalog, where it says
+*Personal* in place of the mark), then its State (`itemState`: the state component, *Running*, *Stopped*, *Off*, then the server's note
+as a badge, on one line, the badge cut before the state is: the row says its state in one cell, as the Dashboard says it on one line),
+beside the actions that change it. The header and the rows are one table (`.list-table`, each row a subgrid of it): the name takes the
+room left, the State column is as wide as the widest state of the rows and never narrower than *Partly running*, so that a start or a
+stop moves nothing. The actions are in fixed slots: *Open*, its Start or Stop (`.act`, one
 width, its word on it, named for its item; Start and Stop have their icon, Turn on and Turn off none, as they start and stop
 nothing; never another action in its place: an add-on that lacks settings keeps its Start, waiting for them with their names as its
 tooltip, or its Stop while it runs; Turn on and Turn off say in their tooltip what they change, `TURNS`), its files and its
@@ -246,7 +250,8 @@ the field the form reads and checks, out of sight, behind a `.combo-btn`). A pop
   search, its buttons (*All running*), its segmented control and its foot stay; the list scrolls in the height that is left, its
   groups' titles (`.combo-group`) stuck at the top while their options pass under them. A placing never moves what was scrolled to
   (the natural height is read from what scrolls, never by letting it out).
-- *How wide.* As wide as its control at least (280 px for a picker, 200 for a menu), as its longest line when that is wider, up to
+- *How wide.* As wide as its control at least (280 px for a picker, 480 for the services of Logs, whose lines are a name and its
+  container's, 200 for a menu), as its longest line when that is wider, up to
   640 px (`MAX_WIDTH`), and never wider than the window less 16 px at each side; a picker's left edge on its control's, a menu's
   right edge on its button's, moved in to stay inside the window.
   Nothing is cut that room allows: the width is measured from the content, then from what is still cut in the width it

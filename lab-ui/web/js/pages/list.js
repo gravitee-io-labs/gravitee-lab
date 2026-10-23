@@ -1,7 +1,8 @@
 // The Playgrounds, Setups and Add-ons pages: one list, drawn from what the server says of each item. A row opens
 // on its detail: what the item is, what it runs, what comes with it and what uses it. The address of an add-on or a
 // setup (#/addons/<id>) opens its row. Where an item comes from is its chip, except for the first catalog's; and the list is filtered by
-// catalog when there is more than one to tell apart. While the catalogs download or are missing, the list says so in place of its rows.
+// catalog when there is more than one to tell apart, each row then naming its catalog in a column of its own on a wide card. While the
+// catalogs download or are missing, the list says so in place of its rows.
 
 import { $, $$, esc, icon, setHTML, loading, api, store, router, recall, remember, ID_PATTERN, splitKey } from "../core.js";
 import { toast, effectsDialog, openMenu, GAP, openButton, Pager, emptyHtml, paintActions, contentStatus, originLink,
@@ -297,19 +298,22 @@ function list(kind, title, noun) {
         ${more(x).length ? `<button class="icon-btn" data-more data-tip="More" aria-label="${esc(`More for ${x.name}`)}" aria-haspopup="true">${icon("more")}</button>` : GAP}</span>`;
   }
 
-  // Five cells, in the order of the header. After the name its star (a hollow one shows on hover, in its place: nothing moves),
-  // then what it is: whether it is personal, where else it deploys. Under the name, what it is, one muted line. Then its State: the
-  // state component and what the server says of the row as a badge (why it cannot start, what brought it, what its start stops or
-  // turns off: noteBadge), as the Dashboard says them; its category and its actions. The toggle is named for the item and says
-  // whether its detail is open (drawRows).
+  // Six cells, in the order of the header. After the name its star (a hollow one shows on hover, in its place: nothing moves),
+  // then what it is: whether it is personal, where else it deploys. Under the name, what it is, one muted line. Then the catalog it
+  // comes from (a column only a wide card that lists more than one catalog shows, which then says Personal for the mark), its category,
+  // its State: the state component and what the server says of the row as a badge (why it cannot start, what brought it, what its start
+  // stops or turns off: noteBadge), as the Dashboard says them; and its actions, beside the State they change. The toggle is named for
+  // the item and says whether its detail is open (drawRows).
   function row(x) {
+    const from = sourceName(sourceOf(x));
     return `<button type="button" class="s-toggle" data-toggle aria-label="${esc(x.name)}" aria-controls="detail-${esc(x.id.replace(/\W/g, "-"))}" aria-keyshortcuts="S">${icon("chevron")}</button>
       <span class="list-main">
         <strong class="list-name" data-tip="${esc(x.name)}" data-tip-cut>${esc(x.name)}</strong>
-        <span class="list-marks">${starButton(x, true)}${x.personal ? `<span class="pill">Personal</span>` : ""}${deploys(x) ? cloudMark(x) : ""}</span>
+        <span class="list-marks">${starButton(x, true)}${x.personal ? `<span class="pill list-personal">Personal</span>` : ""}${deploys(x) ? cloudMark(x) : ""}</span>
         <span class="list-sub"><span class="list-desc" data-tip="${esc(x.description)}" data-tip-cut>${esc(x.description)}</span></span></span>
+      <span class="list-col col-from" data-tip="${esc(from)}" data-tip-cut>${esc(from)}</span>
+      <span class="list-col col-cat" data-tip="${esc(x.category)}" data-tip-cut>${esc(x.category)}</span>
       <span class="list-state">${itemState(x)}${startWarning(x)?.own ? "" : noteBadge(x)}</span>
-      <span class="list-cat">${esc(x.category)}</span>
       <span class="list-actions">${actions(x)}</span>`;
   }
 
@@ -329,6 +333,7 @@ function list(kind, title, noun) {
       catalogs?.clear();
       scopeEl = catalogs = null;
       scopeKind = want;
+      $(".list-card", section).classList.toggle("by-catalog", !!want);   // its rows name their catalog where the card has the room
       if (want) {
         const holder = document.createElement("div");
         holder.innerHTML = `${PICKER}${icon("chevron")}</button>`;
@@ -355,7 +360,7 @@ function list(kind, title, noun) {
     const holder = document.createElement("div");
     holder.innerHTML = html;
     contentEl = holder.firstElementChild;
-    emptyEl.parentElement.insertBefore(contentEl, contentEl.hasAttribute("data-line") ? rowsEl : emptyEl);
+    (contentEl.hasAttribute("data-line") ? rowsEl : emptyEl).before(contentEl);
   }
 
   function draw(state) {
@@ -538,8 +543,10 @@ function list(kind, title, noun) {
             <label class="toggle-chip"><input type="checkbox" data-starred>Starred</label>
           </div>
         </div>
-        <div class="list-head list-grid"><span></span><span>${noun}</span><span>State</span><span>Category</span><span></span></div>
-        <ul class="list-rows"></ul>
+        <div class="list-table">
+          <div class="list-head list-grid"><span></span><span>${noun}</span><span class="col-from">Catalog</span><span class="col-cat">Category</span><span>State</span><span></span></div>
+          <ul class="list-rows"></ul>
+        </div>
         <div class="empty">${loading("Loading")}</div>
         <div class="pager" hidden></div>
       </div>`;

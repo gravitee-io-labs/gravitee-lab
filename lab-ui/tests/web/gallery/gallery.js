@@ -94,14 +94,14 @@ ${block("Table: the platform's card and a Gravitee Cloud card, one grid", `<div 
     <span class="dash-say"><span class="dash-cell-label">Deploys</span>${statusHtml("", "Needs a Cloud Token", { quiet: true })}</span><span class="dash-open"><button class="btn">Settings</button></span></div>
   <div class="dash-row dash-env dash-skeleton"><span class="dash-name"><span class="skel"></span></span><span class="dash-gw"><span class="skel"></span></span><span class="dash-say"><span class="skel"></span></span><span class="dash-open"></span></div>
   <div class="dash-row dash-env dash-more"><a class="dash-more-link">3 more environments${icon("chevron")}</a></div></div></div>`)}
-${block("Catalog rows: a list's, the Dashboard's", `<div class="card list-card gal-card"><div class="list-head list-grid"><span></span><span>Playground</span><span>State</span><span>Category</span><span></span></div>
+${block("Catalog rows: a list's, the Dashboard's", `<div class="card list-card gal-card"><div class="list-table"><div class="list-head list-grid"><span></span><span>Playground</span><span class="col-from">Catalog</span><span class="col-cat">Category</span><span>State</span><span></span></div>
   <ul class="list-rows">${[["Acme Bakery", "off", "Off", NEWER, "Start"], ["Acme Hostels API", "running", "Running", OUTSIDE, "Turn on"], ["Kafka", "starting", "Starting", {}, "Stop"]].map(([name, key, word, note, label]) => `<li class="list-item">
     <div class="list-row list-grid"><button type="button" class="s-toggle" aria-expanded="false" aria-label="${name}">${icon("chevron")}</button>
     <span class="list-main"><strong class="list-name">${name}</strong><span class="list-marks">${starButton({ name, starred: key === "off" }, true)}</span>
     <span class="list-sub"><span class="list-desc">What it is, one muted line</span></span></span>
-    <span class="list-state">${statusHtml(key, word, { quiet: key === "off" })}${noteBadge(note)}</span><span class="list-cat">AI</span>
+    <span class="list-col col-from">Gravitee public</span><span class="list-col col-cat">AI</span><span class="list-state">${statusHtml(key, word, { quiet: key === "off" })}${noteBadge(note)}</span>
     <span class="list-actions"><a class="btn">Open</a>${actionButton({ key: `gallery:${name}`, label, icon: { Start: "play", Stop: "stop" }[label] || "", cls: "act" })}
-    <span class="row-icons"><button class="icon-btn" aria-label="Edit">${icon("file")}</button><button class="icon-btn" aria-label="Settings">${icon("key")}</button><button class="icon-btn" aria-label="More">${icon("more")}</button></span></span></div></li>`).join("")}</ul>
+    <span class="row-icons"><button class="icon-btn" aria-label="Edit">${icon("file")}</button><button class="icon-btn" aria-label="Settings">${icon("key")}</button><button class="icon-btn" aria-label="More">${icon("more")}</button></span></span></div></li>`).join("")}</ul></div>
   <div class="pager"><span>1–25 of 31</span><button class="icon-btn prev" aria-label="Previous page" disabled>${icon("chevron")}</button><button class="icon-btn next" aria-label="Next page">${icon("chevron")}</button></div></div>
   <div class="card dash-card gal-card gal-narrow"><div class="dash-row dash-item"><span class="dash-kind">${icon("flask")}</span><span class="dash-nameline"><a class="name-link list-name">Acme Hostels API</a></span>
     <span class="dash-sub-line">${statusHtml("running", "Running")}<span class="list-marks dash-marks">${noteBadge(OUTSIDE)}</span></span>

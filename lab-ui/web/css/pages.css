@@ -367,7 +367,7 @@
 /* The guide to read before a start, with its accounts beside it */
 .pg-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 340px; overflow: clip; }
 /* The guide under the details, before a start: with its accounts beside it, else across the card */
-.pg-read { margin-top: var(--gap); min-height: calc(100dvh - var(--head) - var(--gap)); }   /* a short page still comes up under the head */
+.pg-read { margin-top: var(--gap); }
 .pg-read.alone { grid-template-columns: minmax(0, 1fr); }
 .pg-read.alone .guide { border-right: 0; }
 /* The side stays in view while the guide scrolls, under the page's head. Its longest list, the services, scrolls
@@ -397,6 +397,10 @@
 .pg-split.rows { grid-template: minmax(0, 2fr) minmax(0, 3fr) / minmax(0, 1fr); }
 .pg-split.rows .pg-divider { display: none; }
 .pg-split.rows .pg-uis { border-top: 1px solid var(--border); }
+/* The guide hidden: the UIs take the whole card, side by side or one above the other alike */
+.pg-split.guide-hidden { grid-template: minmax(0, 1fr) / minmax(0, 1fr); }
+.pg-split.guide-hidden :is(.pg-guide-pane, .pg-divider) { display: none; }
+.pg-split.guide-hidden .pg-uis { border-top: 0; }
 .pg-split .pg-pane { min-width: 0; min-height: 0; overflow: auto; }
 .pg-split .guide { border-right: 0; padding-top: 0; }   /* next to the UIs the page selector is the top of the panel, below */
 .pg-split.dragging { cursor: col-resize; user-select: none; }
@@ -529,11 +533,14 @@
   text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); }
 .guide a:hover { text-decoration-color: currentColor; }
 .guide strong { color: var(--text); font-weight: 650; }
-/* An action link: the Lab's button with its play icon, in the line it was written in without making it taller, and room
-   around it for its focus ring */
-.guide .guide-action { margin: -5px 3px; vertical-align: baseline; }
+/* An action link: the Lab's button with its play icon, centered in the line it was written in. Its margins are part of the
+   line, which grows to hold the whole button (32px and 3px each side, for a 25.5px line of text): the button never touches
+   the lines around it, and has room beside it for its focus ring */
+.guide .guide-action { margin: 3px 4px; vertical-align: middle; }
 .guide .guide-action:focus-visible { outline-offset: 1px; }
 .guide-action svg { color: var(--accent); }
+/* What only shows something: its eye is quiet, the play of what does something is the accent */
+.guide-action.look svg { color: var(--muted); }
 /* A block to run: its button is in the corner of the block, which keeps its text clear of it */
 .guide-code { position: relative; margin: 0 0 var(--flow); }
 .guide-code pre { margin: 0; }
@@ -879,8 +886,10 @@ mark { background: var(--hl); color: var(--hl-text); border-radius: 2px; padding
 #page-catalogs .panel-fact code { min-width: 0; overflow-wrap: anywhere; }
 /* ... but on a phone the lists' own label column leaves the value the width it needs */
 @container (max-width: 599px) { #page-catalogs { --label: 80px; } }
-/* A list of sentences in a row of an effects dialog takes the width the row has, each line cut with an ellipsis, not the width of its longest */
-.choice-items > .step-items { flex: 1; min-width: 0; grid-template-columns: minmax(0, 1fr); }
+/* The items of a plan in a row of an effects dialog: a list in the width the row has, under the hint of the row; a long one scrolls in its
+   frame, its next line cut to say there is more */
+.choice-items:has(> .step-items) { flex-direction: column; align-items: stretch; gap: 6px; }
+.choice-items > .step-items { min-width: 0; grid-template-columns: minmax(0, 1fr); max-height: 218px; overflow: auto; overscroll-behavior: contain; }
 /* Show changes: a unified diff, the files that changed beside it (the editor's list and column). Added lines in green, removed in red. */
 #catalog-files { grid-template-columns: minmax(0, 1fr); }   /* a long path is cut in its column, with its status after it */
 .diff { flex: 1; min-height: 0; margin: 0; padding: var(--sp-3) 0; overflow: auto; font: 12px/1.55 var(--mono); color: var(--text-2); }

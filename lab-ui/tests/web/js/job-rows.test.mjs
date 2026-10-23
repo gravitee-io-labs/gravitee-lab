@@ -64,3 +64,14 @@ test("a container is listed after the images", () => {
   assert.equal(names.length, 2);
   assert.ok(names[0].startsWith("Images") && names[1].startsWith("Containers"), names.join(" | "));
 });
+
+test("a build row is done when its image is named, whatever the service is called", () => {
+  // A seed service builds the seeder shared by every playground: the image's name says nothing of the service's
+  store.state.services = { "shop-seed": { image: "ghcr.io/acme/lab/seeder:latest" }, "shop-app": { image: "ghcr.io/acme/lab/shop-app:latest" } };
+  send(["#5 [shop-seed 1/3] FROM docker.io/library/python:3.12", "#6 [shop-app 1/2] FROM docker.io/library/python:3.12",
+    "#9 naming to ghcr.io/acme/lab/shop-app:latest done"]);
+  assert.match(steps().textContent, /shop-seed\s*Building/);
+  assert.match(steps().textContent, /shop-app\s*Built/);
+  send(["#10 naming to ghcr.io/acme/lab/seeder:latest done"]);
+  assert.match(steps().textContent, /shop-seed\s*Built/);
+});

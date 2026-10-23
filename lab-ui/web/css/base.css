@@ -148,13 +148,14 @@ main:focus { outline: none; }
 /* --- Layout -------------------------------------------------------------------------- */
 
 /* The space next to the menu is the container the pages adapt to */
-main { width: 100%; max-width: 1920px; margin: 0 auto; padding: 0 24px 24px; container-type: inline-size; }
+main { --gutter: 24px; width: 100%; max-width: 1920px; margin: 0 auto; padding: 0 var(--gutter) var(--gutter); container-type: inline-size; }
 
 /* The head of a page: its title, then its actions. It stays in view, so that they are within reach wherever the
-   page is scrolled; what else stays in view sticks under it, --head from the top. */
+   page is scrolled; what else stays in view sticks under it, --head from the top. It covers the page's margins too, so
+   that the shadow of a card scrolled under it does not show beside it. */
 .page-head {
   position: sticky; top: 0; z-index: 30; display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  flex-wrap: wrap; padding: var(--sp-5) 0 var(--gap); background: var(--bg);
+  flex-wrap: wrap; margin-inline: calc(-1 * var(--gutter)); padding: var(--sp-5) var(--gutter) var(--gap); background: var(--bg);
 }
 .page-head > :first-child { min-height: 34px; display: flex; align-items: center; }   /* a title alone sits on the middle of the actions of the other pages */
 .page-title { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; min-width: 0; }
@@ -187,7 +188,7 @@ body.booting main > .page { display: none; }
   overflow: hidden auto; overscroll-behavior: contain;
 }
 .brand { display: flex; align-items: center; gap: 10px; padding: 0 6px; min-width: 0; }
-.logo { width: 28px; height: 27px; flex: none; display: block; }
+.logo { width: 27px; height: 30px; flex: none; display: block; color: var(--text); }
 .brand-text { display: flex; flex-direction: column; line-height: 1.15; white-space: nowrap; }
 .brand-text strong { font-size: var(--fs-4); font-weight: var(--fw-3); }
 .brand-text span { font-size: var(--fs-1); color: var(--muted); }
@@ -243,7 +244,7 @@ body.nav-collapsed #sidebar-toggle { margin-left: 0; }
 /* Narrow windows: the menu stays collapsed, it has no toggle */
 @media (max-width: 1100px) {
   #sidebar-toggle { display: none; }
-  main { padding: 0 16px 16px; }
+  main { --gutter: 16px; }
 }
 /* A short or narrow window (a phone, a page zoomed to 400 %): the head scrolls with the page, so that it never covers it */
 @media (max-height: 520px), (max-width: 480px) {

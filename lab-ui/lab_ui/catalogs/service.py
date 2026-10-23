@@ -297,8 +297,9 @@ def _kind_state(ns, found, held, entry, contract):
     if key == "uptodate":
         said = f"Version {found['version']}" if found.get("version") else ""
         return _state(key, reason=f"{said}, checked {ago(held.get('checked'))}".strip(", ") if held.get("checked") else said)
-    if key == "update":
-        return _state(key, reason=f"Version {seen['version']}" if seen["version"] else "")
+    if key == "update":   # a version the catalog did not raise says nothing of the update
+        raised = seen["version"] and seen["version"] != held.get("version")
+        return _state(key, reason=f"Version {seen['version']}" if raised else "")
     if key == "downloading":
         address = _address_of(url) if url else None
         return _state(key, reason=f"From {address.display}" if address else "")
@@ -1278,9 +1279,11 @@ def _plan(ns, op):
         uses = [] if host in ("listed", "allowed") else _uses_of(judged, verdicts, mine)
         ticket = secrets.token_hex(8)
         _keep(ticket, op, ns=ns, plan=plan)
+    updates = [{**one, "what": plan["touched"].get(key, [])}
+               for key, one in zip(sorted(plan["updates"]), _names_of_new(plan["updates"], ns, judged))]
     return {"ticket": ticket, "expires": int(TTL), "from": _short(plan["from"]), "to": _short(plan["to"]),
-            "version": plan["version"], "rewritten": bool(plan["rewritten"]),
-            "updates": _names_of_new(plan["updates"], ns, judged), "adds": _names_of_new(plan["adds"], ns, judged),
+            "version": plan["version"], "version_from": held.get("version"), "rewritten": bool(plan["rewritten"]),
+            "updates": updates, "adds": _names_of_new(plan["adds"], ns, judged),
             "removes": _names_of(found, ns, plan["removes"]), "breaks": breaks,
             "changes": _changes_of(plan, ns, judged, verdicts, old_verdicts), "whatsnew": list(plan["whatsnew"]),
             "blocked": _blocked_of(judged, mine), "uses_machine": uses, "held": stop}

@@ -2,11 +2,13 @@
 shell is `cat`, which gives back what it is typed."""
 
 import fcntl
+import signal
 import struct
 import subprocess
 import termios
 import time
 import unittest
+from unittest import mock
 
 from lab_ui.docker import terminal
 
@@ -81,6 +83,16 @@ class Sessions(Case):
         session.resize(31, 117)
         rows, cols, *_ = struct.unpack("HHHH", fcntl.ioctl(session.master, termios.TIOCGWINSZ, b"\0" * 8))
         self.assertEqual((rows, cols), (31, 117))
+
+    def test_docker_is_told_that_the_size_changed_for_it_never_hears_of_it_from_the_terminal(self):
+        # `docker exec` runs in a session of its own with no controlling terminal: the new size reaches the container
+        # only if the process is signaled, as a terminal would
+        session = self.session()
+        real = session.process
+        session.process = mock.Mock(**{"poll.return_value": None})
+        self.addCleanup(setattr, session, "process", real)
+        session.resize(31, 117)
+        session.process.send_signal.assert_called_once_with(signal.SIGWINCH)
 
     def test_a_shell_that_ended_is_not_alive_and_cannot_be_typed_to(self):
         session = self.session()

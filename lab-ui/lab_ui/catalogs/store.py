@@ -588,6 +588,20 @@ def by_unit(kept: Iterable[Entry]) -> Dict[str, List[Entry]]:
     return units
 
 
+def changed_parts(changed: Iterable[str]) -> Dict[str, List[str]]:
+    """What changed in each unit among the paths `changed`, `"addon:name"` to the first parts of those paths inside the unit's
+    folder, sorted: a file by its name, a folder by its name and a slash (`README.md`, `seed/`); a setup, which is one file, by its
+    name. A path that belongs to no unit (`catalog.yml`) is left out."""
+    found = {}
+    for path in changed:
+        parts = path.split("/")
+        unit = _unit_of(parts)
+        if unit is not None:
+            part = parts[1] if unit[0] == "setup" else parts[2] + ("/" if len(parts) > 3 else "")
+            found.setdefault(f"{unit[0]}:{unit[1]}", set()).add(part)
+    return {key: sorted(parts) for key, parts in found.items()}
+
+
 def unit_digests(kept: Iterable[Entry]) -> Dict[str, str]:
     """The tree digest of every unit, `"addon:name": "sha256:<hex>"`: sha256 of the sorted lines `<mode> <oid> <path>` of
     the unit's files. Only git's own ids and modes go into it, so the digest of a unit at any commit is known from a
@@ -674,7 +688,8 @@ def log(store, old: Optional[str], new: str, folders: List[str], limit: int = 5)
     """The subjects of the commits from `old` (not included; None for all) to `new` that touched `folders`, newest
     first, merges left out, those that start with `Bump `, `Merge ` or `Revert ` dropped (dependency bots and merge
     commits are noise to a person), at most `limit`, each with its control and format characters (escape sequences, bidi
-    overrides) removed, its white space collapsed and clipped to 80."""
+    overrides) removed, its white space collapsed, without the number of the pull request a squash ends it with ("(#4)", which
+    leads nowhere where it is read) and clipped to 160: a subject of a sentence is shown whole."""
     span = _rev(new) if not old else f"{_rev(old)}..{_rev(new)}"
     paths = [_pathspec(folder) for folder in folders]
     out = _git(store, "log", "--no-merges", "--max-count=200", "--format=%s", span, "--", *paths).out
@@ -682,8 +697,9 @@ def log(store, old: Optional[str], new: str, folders: List[str], limit: int = 5)
     for line in out.decode("utf-8", "replace").splitlines():
         text = " ".join("".join(" " if unicodedata.category(c) == "Cc" else c for c in line
                                 if unicodedata.category(c) != "Cf").split())
+        text = re.sub(r"\s*\(#\d+\)$", "", text)
         if text and not re.match(r"(Bump|Merge|Revert) ", text):
-            subjects.append(_clip(text, 80))
+            subjects.append(_clip(text, 160))
         if len(subjects) >= limit:
             break
     return subjects

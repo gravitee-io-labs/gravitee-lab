@@ -306,6 +306,27 @@ function sync(flag) {
   if (panel.opened) again(panel);
 }
 
+// --- The guide, shown or hidden -----------------------------------------------------------
+
+// The guide can be hidden, to give the UIs the whole card: one button, where the tabs start, says what it does. The choice is
+// kept in this browser, for every playground
+const GUIDE = "guide:pane";
+
+function showGuide(shown) {
+  card.classList.toggle("guide-hidden", !shown);
+  const button = $("[data-guide]", card), words = shown ? "Hide the guide" : "Show the guide";
+  button.dataset.tip = words;
+  button.setAttribute("aria-label", words);
+  button.setAttribute("aria-expanded", String(shown));
+  if (shown) Divider.place();   // the card may have changed size while it was hidden
+}
+
+function toggleGuide() {
+  const shown = card.classList.contains("guide-hidden");
+  showGuide(shown);
+  remember(GUIDE, shown ? null : "hidden");
+}
+
 // --- The page ---------------------------------------------------------------------------
 
 export const Workspace = {
@@ -313,10 +334,11 @@ export const Workspace = {
   // details hold.
   html(next, side) {
     return `<div class="card pg-split" data-id="${esc(next.id)}">
-      <div class="pg-pane"><article class="guide" id="pg-guide">${loading("Loading")}</article></div>
+      <div class="pg-pane pg-guide-pane" id="pg-guide-pane"><article class="guide" id="pg-guide">${loading("Loading")}</article></div>
       <div class="pg-divider" role="separator" aria-orientation="vertical" aria-label="Resize the guide" data-tip="Resize the guide" tabindex="0"></div>
       <div class="pg-pane pg-uis">
         <div class="pg-bar">
+          <button type="button" class="icon-btn" data-guide aria-controls="pg-guide-pane">${icon("sidebar")}</button>
           <div class="segmented" role="tablist" aria-label="UIs"></div>
           <span class="pg-tools">
             <button type="button" class="icon-btn" data-reload data-tip="Reload" aria-label="Reload">${icon("restart")}</button>
@@ -347,9 +369,11 @@ export const Workspace = {
       shown = null;
       fit();
       Divider.attach(card);
+      showGuide(recall(GUIDE) !== "hidden");
       card.addEventListener("click", (e) => {
         const tab = e.target.closest('[role="tab"]');
         if (tab) select(tab.dataset.tab);
+        else if (e.target.closest("[data-guide]")) toggleGuide();
         else if (e.target.closest("[data-reload]")) reload(panels.get(shown));
         else if (e.target.closest("[data-home]")) home(panels.get(shown));
       });

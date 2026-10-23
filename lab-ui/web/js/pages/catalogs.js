@@ -1,6 +1,6 @@
 // The Catalogs page (#/catalogs, #/catalogs/<ns>): where playgrounds, setups and add-ons come from. One card of the lists' own grid, a row
 // for each catalog in the order the server gives (the first listed, Personal when it holds something, the others as they were added, then
-// the ones not added), each with its state as a dot and a word, the number of items and the one thing to press: Update, Try again, Add. A row
+// the ones not added), each with the number of its items, its state as a dot and a word and the one thing to press: Update, Try again, Add. A row
 // opens on what the catalog is (its address, its version, who can read it), what it holds, and what in it cannot run. The server computes
 // every state, word and reason (`state`, `held`); the page draws them. Update, Go back, Remove, Repair and Check again are plain requests,
 // not jobs: they take the key `catalog-op:<ns>`, so that their button says so and Start never says "Wait for". While one is at work the row
@@ -73,12 +73,13 @@ function stateHtml(row) {
 function actions(row) {
   const off = (why) => (why ? ` aria-disabled="true" data-why="${esc(why)}"` : "");
   const git = noGit() ? NO_GIT : "";
-  // Another request at work on the row holds its buttons (the button of Update says its own at work: that is its paint)
-  const other = requested(row) === "update" ? "" : working(row);
+  // Another request at work on the row holds its buttons (the button of Update says its own at work, the check that comes first too: that is
+  // its paint)
+  const other = ["update", "check"].includes(requested(row)) ? "" : working(row);
   const at = `catalog-op:${row.id}`;
   let button = "";
   if (row.kind === "suggested") button = actionButton({ key: `catalog-op:${row.id ?? row.url}`, verb: "add", label: "Add", cls: "act", attrs: `data-add aria-label="${esc(`Add ${row.name}`)}"${off(git)}` });
-  else if (updates(row)) button = actionButton({ key: at, verb: "update", label: "Update", cls: "act", attrs: `data-update aria-label="${esc(`Update ${row.name}`)}"${off(other)}` });
+  else if (updates(row)) button = actionButton({ key: at, verb: ["update", "check"], label: "Update", cls: "act", attrs: `data-update aria-label="${esc(`Update ${row.name}`)}"${off(other)}` });
   else if (retries(row)) button = `<button type="button" class="btn act" data-retry aria-label="${esc(`Try again, ${row.name}`)}"${off(git || working(row))}>Try again</button>`;
   const more = menu(row).length
     ? `<button class="icon-btn" data-more data-tip="More" aria-label="${esc(`More for ${row.name}`)}" aria-haspopup="true">${icon("more")}</button>` : GAP;
@@ -90,8 +91,8 @@ function rowHtml(row) {
     ? `<button type="button" class="s-toggle" data-toggle aria-label="${esc(row.name)}" aria-controls="${detailId(row)}">${icon("chevron")}</button>` : "<span></span>";
   const said = row.description ? `<span class="list-sub"><span class="list-desc" data-tip="${esc(row.description)}" data-tip-cut>${esc(row.description)}</span></span>` : "";
   return `${toggle}<span class="list-main"><strong class="list-name" data-tip="${esc(row.name)}" data-tip-cut>${esc(row.name)}</strong>${said}</span>
+    <span class="list-col col-cat">${row.kind === "suggested" ? "" : total(row.counts)}</span>
     <span class="list-state">${stateHtml(row)}</span>
-    <span class="list-cat">${row.kind === "suggested" ? "" : total(row.counts)}</span>
     <span class="list-actions">${actions(row)}</span>`;
 }
 
@@ -318,8 +319,10 @@ function init(el) {
       <div class="page-actions"><button class="btn" data-new>New catalog</button><button class="btn" data-add-catalog>${icon("plus")}Add catalog</button></div>
     </div>
     <div class="card list-card">
-      <div class="list-head list-grid"><span></span><span>Catalog</span><span>State</span><span>Items</span><span></span></div>
-      <ul class="list-rows"></ul>
+      <div class="list-table">
+        <div class="list-head list-grid"><span></span><span>Catalog</span><span class="col-cat">Items</span><span>State</span><span></span></div>
+        <ul class="list-rows"></ul>
+      </div>
       <div data-status></div>
     </div>`;
   el.addEventListener("click", (e) => {

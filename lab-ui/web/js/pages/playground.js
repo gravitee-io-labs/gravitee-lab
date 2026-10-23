@@ -459,9 +459,9 @@ async function renderGuide(item, el) {
   el.innerHTML = pages.length > 1 ? guideNav(item, pages, at) + `<div class="guide-page">${body}</div>` + guideFoot(item, pages, at)
     : body;
   // Another page, asked for by a click, opens at the top of the page, as any address does. Before a start, the
-  // details above the guide would hide it: the guide comes up under the page's head. Once it runs, the top of the
-  // page is where the progress of a job shows, with the guide under it: it stays there. Next to the UIs, the guide
-  // scrolls by itself: its panel goes back to the top.
+  // details above the guide would hide it: the guide comes up under the page's head, as far as the page scrolls. Once
+  // it runs, the top of the page is where the progress of a job shows, with the guide under it: it stays there. Next to
+  // the UIs, the guide scrolls by itself: its panel goes back to the top.
   const moved = el.dataset.page !== undefined && el.dataset.page !== page.slug;
   el.dataset.page = page.slug;
   if (moved && toGuide && el.closest(".pg-read")) {
