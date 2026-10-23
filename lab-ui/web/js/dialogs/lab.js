@@ -13,14 +13,15 @@ const dialog = document.createElement("dialog");
 dialog.className = "lab-dialog";
 dialog.setAttribute("aria-labelledby", "lab-title");
 dialog.innerHTML = `
-  <header class="lab-hero">
-    <span class="lab-logo"></span>
-    <div class="lab-hero-text"><h2 id="lab-title">Gravitee Lab</h2><p class="lab-current" id="lab-current"></p></div>
-  </header>
-  <section class="lab-status" id="lab-status" aria-live="polite"></section>
-  <div class="lab-notes-head" id="lab-notes-head"></div>
-  <div class="lab-notes" id="lab-notes"></div>
-  <div class="dialog-actions lab-actions"><span class="grow"></span><button class="btn" type="button" data-close>Close</button></div>`;
+  <div class="lab-body">
+    <header class="lab-hero">
+      <span class="lab-logo"></span>
+      <div class="lab-hero-text"><h2 id="lab-title">Gravitee Lab</h2><p class="lab-current" id="lab-current"></p></div>
+    </header>
+    <section class="lab-status" id="lab-status" aria-live="polite"></section>
+    <section class="lab-whatsnew" id="lab-whatsnew" hidden><h3 id="lab-notes-head"></h3><div class="lab-notes" id="lab-notes"></div></section>
+  </div>
+  <div class="dialog-actions lab-actions"><span id="lab-all"></span><span class="grow"></span><button class="btn" type="button" data-close>Close</button></div>`;
 document.body.append(dialog);
 
 let shown = null;   // what the dialog draws: {releases, since}, `since` the version what is new is said after
@@ -94,8 +95,11 @@ function draw() {
   const list = from ? picked(versions, { ...lab, version: going }, from) : picked(versions, lab, shown.since);
   const all = releases.url ? `<a class="text-link" href="${esc(releases.url)}" target="_blank" rel="noopener">All releases${icon("external")}</a>` : "";
   const title = !list.length ? "" : shown.since || from || lab.update ? "What's new" : "In this version";
-  setHTML($("#lab-notes-head", dialog), title || all ? `<h3>${title}</h3>${all}` : "");
+  // What the versions change, under the card when there is some; where every release is listed, in the foot, beside Close
+  $("#lab-whatsnew", dialog).hidden = !title;
+  $("#lab-notes-head", dialog).textContent = title;
   setHTML($("#lab-notes", dialog), notesHtml(list));
+  setHTML($("#lab-all", dialog), all);
 }
 
 let loading = false;

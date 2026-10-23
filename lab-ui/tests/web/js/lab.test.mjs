@@ -67,7 +67,7 @@ test("after an update, what is new since the version this browser showed last is
   await settle();
   assert.ok(dialog.open);
   assert.deepEqual(card(), ["ok", "Updated From 1.0.0", ""]);
-  assert.equal(text(dialog.querySelector("#lab-notes-head h3")), "What's new");
+  assert.equal(text(dialog.querySelector("#lab-notes-head")), "What's new");
   assert.match(said(notes()), /1\.1\.0.*The guide can be hidden #16.*Playgrounds export to a file #15/);
   assert.doesNotMatch(said(notes()), /First version/, "what the version it was already had is not said");
   assert.equal(dialog.querySelector("[data-check]"), null, "no checking in what is new");
@@ -115,8 +115,8 @@ test("the dialog says the version, then the newer one with Update now, then what
   const button = status().querySelector("[data-update]");
   assert.equal(text(button.querySelector(".pbtn-face")), "Update now");
   assert.equal(isOff(button), false);
-  assert.equal(text(dialog.querySelector("#lab-notes-head h3")), "What's new");
-  const all = dialog.querySelector("#lab-notes-head a");
+  assert.equal(text(dialog.querySelector("#lab-notes-head")), "What's new");
+  const all = dialog.querySelector("#lab-all a");
   assert.deepEqual([all.getAttribute("href"), all.getAttribute("target")], ["https://github.com/acme/gravitee-lab/releases", "_blank"]);
   assert.match(said(notes()), /^1\.1\.0 .*The guide can be hidden #16 Playgrounds export to a file #15$/);
   assert.equal(notes().querySelector("a[href]").getAttribute("href"), "https://github.com/acme/gravitee-lab/releases/tag/v1.1.0");
@@ -129,7 +129,7 @@ test("a Lab on the newest version says so with Check now and the changes of its 
   openLab();
   await settle();
   assert.deepEqual(card(), ["ok", "Up to date Checked 5 min", "Check now"]);
-  assert.equal(text(dialog.querySelector("#lab-notes-head h3")), "In this version");
+  assert.equal(text(dialog.querySelector("#lab-notes-head")), "In this version");
   assert.match(said(notes()), /^1\.0\.0 .*First version$/);
   assert.equal(dialog.querySelector("[data-update]"), null);
   state(LAB({ version: null, latest: null, update: false, ahead: 0, checked: null }));
@@ -187,7 +187,7 @@ test("the update starts and the dialog stays on it while it runs, then the page 
   state(LAB({ version: "1.1.0", update: false, latest: "1.1.0" }));
   paintLab();
   assert.match(current(), /^1\.0\.0 /, "the Lab is the version it is updated from until the update ends");
-  assert.equal(text(dialog.querySelector("#lab-notes-head h3")), "What's new");
+  assert.equal(text(dialog.querySelector("#lab-notes-head")), "What's new");
   assert.match(said(notes()), /^1\.1\.0 /);
   followLab();
   assert.equal(reloads, 0, "the Lab UI the update was started from says the new version before it starts again");
