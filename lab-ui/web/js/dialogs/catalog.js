@@ -7,8 +7,8 @@
 // also where the two actions of the content status live (Try again, Add the listed catalog), for every page that draws it: one click
 // handler, so that none of the four places has a copy of it.
 
-import { $, $$, esc, icon, setHTML, loading, api, store, router } from "../core.js";
-import { toast, tipHtml, actionButton, paintActions, progressBar, effectsDialog, copyButton } from "../components/ui.js";
+import { $, $$, esc, icon, setHTML, loading, api, store, router, copyButton } from "../core.js";
+import { toast, tipHtml, actionButton, paintActions, progressBar, effectsDialog } from "../components/ui.js";
 import { busy } from "../activity/jobs.js";
 import { field, formDialog } from "./form.js";
 import { agentLinks } from "../components/agent.js";

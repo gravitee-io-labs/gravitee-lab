@@ -6,8 +6,8 @@
 // stopped and removed here; it runs on this machine as an add-on, and one runs at a time. A gateway made here is started at once, through
 // the same plan and confirmation as a Start.
 
-import { $, esc, icon, setHTML, loading, api, store, router } from "../core.js";
-import { toast, effectsDialog, paintActions, paintBusy, actionButton, openMenu, tipHtml, keyed, noticeHtml, statusHtml, copyButton } from "../components/ui.js";
+import { $, esc, icon, setHTML, loading, api, store, router, copyButton } from "../core.js";
+import { toast, effectsDialog, paintActions, paintBusy, actionButton, openMenu, tipHtml, keyed, noticeHtml, statusHtml } from "../components/ui.js";
 import { busy } from "../activity/jobs.js";
 import { selectLogs, hasLogs } from "./logs.js";
 import { seeded } from "./playground.js";

@@ -3,8 +3,8 @@
 // the on file, its own unit's, those of the setups a playground includes and of the add-ons it brings. A file of an item of a git catalog
 // is there to be read before it runs: it opens read only, by its path in the catalog, and its settings stay the person's to change.
 
-import { $, esc, icon, setHTML, loading, loadScript, api, store, drafts, theme } from "../core.js";
-import { toast, confirmDialog, copyButton, actionButton, paintActions, applyBadge, setOff } from "../components/ui.js";
+import { $, esc, icon, setHTML, loading, loadScript, api, store, drafts, theme, copyButton } from "../core.js";
+import { toast, confirmDialog, actionButton, paintActions, applyBadge, setOff } from "../components/ui.js";
 import { runJob, runPlatform, busy, confirmApply, savedOnly } from "../activity/jobs.js";
 import { License } from "./license.js";
 import { markdownHtml } from "../components/markdown.js";

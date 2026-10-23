@@ -14,6 +14,16 @@ export function icon(name) {
   return `<svg aria-hidden="true"><use href="#i-${name}"/></svg>`;
 }
 
+// A button that copies `value`, which waits while there is nothing to copy; `label` says what it copies to a screen
+// reader. What a click on one does is ui.js's, for every one of them wherever it is drawn.
+export const copyButton = (value, label = "Copy") => `<button type="button" class="icon-btn copy" data-copy="${esc(value)}"
+  data-tip="Copy" aria-label="${esc(label)}" ${value ? "" : 'aria-disabled="true" data-why="Nothing to copy"'}>${icon("copy")}</button>`;
+
+// One value of an account, said for what it is (User, Password, Key), with its copy button: in a playground's Details and where
+// its guide asks to sign in. Nothing without a value.
+export const credHtml = (value, what) => (value ? `<span class="pg-cred"><span class="pg-cred-label">${what}</span><code>${esc(value)}</code>${
+  copyButton(value, `Copy the ${what.toLowerCase()}`)}</span>` : "");
+
 // Writes an element only when its content changed: the refresh every few seconds keeps what is under the mouse
 // (hover, focus, an open menu) instead of replacing it
 export function setHTML(el, html) {

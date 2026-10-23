@@ -6,8 +6,8 @@
 // not jobs: they take the key `catalog-op:<ns>`, so that their button says so and Start never says "Wait for". While one is at work the row
 // says so in its state (a menu entry has no button to show it on) and offers nothing else to press. The dialogs are dialogs/catalog.js's.
 
-import { $, esc, icon, setHTML, api, store, router, ago } from "../core.js";
-import { toast, openMenu, keyed, statusHtml, progressBar, tipHtml, paintActions, actionButton, holdOff, contentStatus, copyButton, GAP } from "../components/ui.js";
+import { $, esc, icon, setHTML, api, store, router, ago, copyButton } from "../core.js";
+import { toast, openMenu, keyed, statusHtml, progressBar, tipHtml, paintActions, actionButton, holdOff, contentStatus, GAP } from "../components/ui.js";
 import { busy } from "../activity/jobs.js";
 import { selectCatalog } from "./list.js";
 import { NO_GIT, usesCard, openAdd, addCatalog, tryAgain, openUpdate, openGoBack, openRemove, openAllow, openNew } from "../dialogs/catalog.js";

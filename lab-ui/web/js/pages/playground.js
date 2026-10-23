@@ -3,8 +3,8 @@
 // environment of the platform, a place chosen in its head. A playground of a catalog says which in its head, and what it lacks of the
 // catalogs and of this Lab before it can start; one of this machine has a More, with its Share and its Delete.
 
-import { $, $$, esc, icon, setHTML, loading, api, store, router, recall, remember, hrefOf, ID_PATTERN, splitKey } from "../core.js";
-import { effectsDialog, paintLinks, platformLinks, copyButton, progressBar, dockerDown, stateDot, toast, openMenu, originLink, catalogNeed,
+import { $, $$, esc, icon, setHTML, loading, api, store, router, recall, remember, hrefOf, ID_PATTERN, splitKey, credHtml } from "../core.js";
+import { effectsDialog, paintLinks, platformLinks, progressBar, dockerDown, stateDot, toast, openMenu, originLink, catalogNeed,
   actionButton, paintActions, planRows, accepted, itemLink, openButton, noteHtml, licenseForm, starButton, toggleStar, pluginWords,
   GAP, applyBadge, TURNS, fileButtons } from "../components/ui.js";
 import { runJob, busy, showOutput, cancelJob, jobTitle } from "../activity/jobs.js";
@@ -454,7 +454,7 @@ async function renderGuide(item, el) {
   const pages = guidePages(markdown), page = currentPage(item, pages), at = pages.indexOf(page);
   remember(lastRead(item), page.slug === INTRO ? null : page.slug);
   nameThePage(item, pages);
-  const body = await markdownHtml(page.markdown);
+  const body = await markdownHtml(page.markdown, { accounts: item.accounts });
   if (el.dataset.shown !== key) return;   // another page was asked for meanwhile
   el.innerHTML = pages.length > 1 ? guideNav(item, pages, at) + `<div class="guide-page">${body}</div>` + guideFoot(item, pages, at)
     : body;
@@ -633,10 +633,8 @@ function actions(item, job) {
 // The accounts its guide signs in with, as a section of the side; nothing without any. Each value says what it is: a
 // user and its password, or a key alone (an API key).
 function accountsHtml(item) {
-  const cred = (value, what) => (value ? `<span class="pg-cred"><span class="pg-cred-label">${what}</span>
-    <code>${esc(value)}</code>${copyButton(value, `Copy the ${what.toLowerCase()}`)}</span>` : "");
   const accounts = item.accounts.map((a) => `<li class="pg-account">
-    <span class="sub">${esc(a.for)}</span>${cred(a.username, "User")}${cred(a.password, "Password")}${cred(a.key, "Key")}</li>`).join("");
+    <span class="sub">${esc(a.for)}</span>${credHtml(a.username, "User")}${credHtml(a.password, "Password")}${credHtml(a.key, "Key")}</li>`).join("");
   return accounts ? `<section><h3>Accounts</h3><ul class="pg-list">${accounts}</ul></section>` : "";
 }
 

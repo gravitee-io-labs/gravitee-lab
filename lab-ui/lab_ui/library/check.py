@@ -80,6 +80,7 @@ STEP = re.compile(r"^## (\d+)\.", re.M)   # a numbered section of a guide: one o
 # An action link of a guide, [text](action:id), a title after it too
 ACTION = re.compile(r'\]\(action:([^)"]*?)\s*(?:"[^"]*")?\)')
 ACTION_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")   # as split.js reads it
+ACCOUNT = re.compile(r'\]\(account:([^)"]*?)\s*(?:"[^"]*")?\)')   # an account link of a guide, [text](account:username)
 # A fenced block or a code span: it shows a syntax, it is no link
 CODE = re.compile(r"^(```|~~~).*?^\1|`[^`\n]*`", re.M | re.S)
 # A `key: value` line of a YAML file at its top level: the key, then the value in quotes (2, 3) or without (4), then a comment
@@ -585,10 +586,11 @@ def _requires(requires, project):
     yield from _license(requires)
 
 
-def _guide(folder):
+def _guide(folder, accounts=()):
     """The guide's steps are numbered 1, 2, 3 in order: its page shows one at a time, at the address of its number,
     and the playground's details lead to each by its place. Its action links name an id the page can draw as a
-    button. A guide that is no plain file, or is over 1 MB, is not read (`_not_read` says so)."""
+    button, and its account links a user of its `accounts`, whose sign-in the page draws. A guide that is no plain file,
+    or is over 1 MB, is not read (`_not_read` says so)."""
     text = _read(folder / "guide.md") or ""
     numbers = [int(n) for n in STEP.findall(text)]
     if numbers != list(range(1, len(numbers) + 1)):
@@ -597,6 +599,10 @@ def _guide(folder):
     for found in dict.fromkeys(ACTION.findall(CODE.sub("", text))):
         if not ACTION_ID.fullmatch(found):
             yield f"guide.md: action:{found} is no action, an id is lowercase letters, digits and hyphens"
+    users = {a.get("username") for a in accounts or () if isinstance(a, dict)}
+    for found in dict.fromkeys(ACCOUNT.findall(CODE.sub("", text))):
+        if found not in users:
+            yield f"guide.md: account:{found} is no user of x-gravitee.accounts, so the page cannot show its sign-in"
 
 
 def _flat(text):
@@ -721,7 +727,7 @@ def _playground(playground, project, inert=False):
         seeds = [name for name in playground["services"] if project["services"][name]["role"] == "seed"]
         if (folder / "seed").is_dir() and len(seeds) != 1:
             yield "seed/ needs one service with the label io.gravitee.role: seed"
-    yield from _guide(folder)
+    yield from _guide(folder, playground.get("accounts"))
     yield from _seed(folder)
 
 

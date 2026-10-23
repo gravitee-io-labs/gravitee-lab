@@ -523,6 +523,16 @@ class Items(Machine):
         shown = "## 1. One\n\nWrite `[Label](action:Not An Id)` and:\n\n```md\n[Label](action:Not_An_Id)\n```\n\n~~~\n[x](action:Y)\n~~~\n"
         self.assertEqual(list(check._guide(self.folder(files={"guide.md": shown}))), [])
 
+    def test_the_account_links_of_a_guide_name_a_user_of_its_accounts(self):
+        accounts = [{"for": "Portal", "username": "maya.chen", "password": "${PW:-x}"}, {"for": "Key", "key": "${K:-k}"}]
+        text = ("## 1. One\n\nSign in as [Maya](account:maya.chen) or [Bob](account:bob \"Bob\"), not `[x](account:shown)`.\n\n"
+                "```md\n[y](account:also-shown)\n```\n")
+        self.assertEqual(list(check._guide(self.folder(files={"guide.md": text}), accounts)),
+                         ["guide.md: account:bob is no user of x-gravitee.accounts, so the page cannot show its sign-in"])
+        # A playground without accounts has no sign-in to show
+        self.assertEqual(list(check._guide(self.folder(files={"guide.md": "[Maya](account:maya.chen)\n"}))),
+                         ["guide.md: account:maya.chen is no user of x-gravitee.accounts, so the page cannot show its sign-in"])
+
     def test_the_steps_of_a_guide_are_numbered_in_order(self):
         # A page per step, at the address of its number: the details link to the third step as /3
         good = "# Lab\n\n## 1. One\n\n## 2. Two\n\n## What to look at\n"
