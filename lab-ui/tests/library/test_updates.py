@@ -132,6 +132,16 @@ class Versions(Case):
         git(self.lab, "remote", "set-url", "origin", str(self.top / "gone.git"))
         self.assertTrue(updates.check()["error"])
 
+    def test_a_tag_that_is_not_on_main_is_no_version_to_offer(self):
+        self.at("v1.1.0")
+        git(self.source, "checkout", "-q", "-b", "elsewhere")
+        self.commit(self.source, "Not merged")
+        git(self.source, "tag", "-a", "v9.0.0", "-m", "9.0.0")
+        git(self.source, "push", "-q", str(self.remote), "--tags")
+        lab = updates.check()
+        self.assertEqual((lab["latest"], lab["update"]), ("1.1.0", False))
+        self.assertNotIn("9.0.0", [one["version"] for one in updates.releases()["versions"]])
+
     def test_the_update_moves_main_to_the_newest_version_then_starts_the_lab_ui_again(self):
         self.at("v1.0.0")
         started = []

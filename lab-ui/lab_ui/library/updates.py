@@ -28,6 +28,7 @@ import time
 from .. import paths
 
 TAG = re.compile(r"v(\d{1,4})\.(\d{1,4})\.(\d{1,4})")
+MAIN = "refs/remotes/origin/main"   # where the versions are: a tag elsewhere is not offered
 CHECK_EVERY = 6 * 3600   # seconds between two fetches of the tags in the background
 FETCH_WAIT = 60          # seconds a fetch may take
 LOCAL_WAIT = 15          # seconds a local git command may take
@@ -74,8 +75,11 @@ def _cloned():
 
 
 def _versions():
-    """[(numbers, tag, commit, date)] of the tags of versions, newest first. `date`: when the tag was made (ISO), else its commit's."""
-    code, out = _git("for-each-ref", "refs/tags/v*", "--format=%(refname:short)%00%(*objectname)%00%(objectname)%00%(creatordate:iso-strict)")
+    """[(numbers, tag, commit, date)] of the tags of versions, newest first. `date`: when the tag was made (ISO), else its commit's.
+    Only the tags on the main branch of the origin, once it is known: a tag made on another commit is no version to offer."""
+    on_main = ["--merged", MAIN] if _git("rev-parse", "--verify", "--quiet", MAIN)[0] == 0 else []
+    code, out = _git("for-each-ref", *on_main, "refs/tags/v*",
+                     "--format=%(refname:short)%00%(*objectname)%00%(objectname)%00%(creatordate:iso-strict)")
     found = []
     for line in out.splitlines() if code == 0 else ():
         tag, peeled, obj, date = (line.split("\0") + ["", "", ""])[:4]

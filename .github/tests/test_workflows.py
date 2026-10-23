@@ -24,6 +24,7 @@ INDENT = re.compile(r"^( *)")
 E2E = ROOT / ".github" / "workflows" / "e2e.yml"           # the engine's own: a change of the engine tried on a catalog
 RUN = ROOT / ".github" / "workflows" / "e2e-run.yml"       # the run, which the engine and each catalog call
 CI = ROOT / ".github" / "workflows" / "ci.yml"
+RELEASE = ROOT / ".github" / "workflows" / "release.yml"
 SHA = "0123456789abcdef0123456789abcdef01234567"
 BASH = shutil.which("bash")
 
@@ -689,6 +690,72 @@ class CiResultTest(ShellTest):
         for results, wanted in (("success success", 0), ("success failure", 1), ("cancelled", 1), ("success skipped", 1)):
             with self.subTest(results=results):
                 self.assertEqual(self.execute(text, {"RESULTS": results}).returncode, wanted)
+
+
+class ReleaseTest(unittest.TestCase):
+    """release.yml: every merge to main is a version. The deploy key that may create tags is the one thing it must keep in one step."""
+
+    def setUp(self):
+        self.text = RELEASE.read_text(encoding="utf-8")
+        self.jobs = jobs(self.text)
+        self.body = self.jobs["release"]
+
+    def test_a_push_to_main_starts_it_and_nothing_else(self):
+        self.assertEqual(list(children(self.text, "on")), ["push"])
+        self.assertIn("    branches: [main]", self.text)
+        self.assertIn("cancel-in-progress: false", self.text, "a release that is running is never canceled")
+
+    def test_one_job_waits_in_the_environment_publish_and_writes_the_contents_only(self):
+        self.assertEqual(list(self.jobs), ["release"])
+        self.assertIn("    environment: publish\n", self.body)
+        self.assertIn("!github.event.repository.fork", self.body)
+        writes = re.findall(r"^\s+([\w-]+): write$", self.body, flags=re.M)
+        self.assertEqual(writes, ["contents"])
+
+    def test_the_deploy_key_reaches_the_step_that_pushes_the_tag_and_no_other(self):
+        holders = [step for step in steps(self.body) if "secrets." in step]
+        self.assertEqual(len(holders), 1)
+        self.assertIn("name: Tag the version", holders[0])
+        self.assertEqual(re.findall(r"secrets\.(\w+)", self.text), ["RELEASE_DEPLOY_KEY"])
+        self.assertNotIn("uses:", holders[0], "no action of anyone else sees the key")
+        self.assertIn("StrictHostKeyChecking=yes", holders[0])
+        self.assertIn("trap 'rm -rf", holders[0], "the key leaves the runner's disk when the step ends")
+
+    @unittest.skipUnless(BASH and shutil.which("git"), "bash and git are needed")
+    def test_the_version_is_worked_out_from_the_last_tag_and_the_labels_of_the_merges(self):
+        shell = script(step_with(self.body, "name: Work out the version"))
+        top = Path(tempfile.mkdtemp(prefix="release-"))
+        self.addCleanup(shutil.rmtree, top, True)
+        (top / "bin").mkdir()
+        (top / "bin" / "gh").write_text('#!/bin/sh\n[ -z "$LABELS" ] || printf "%s\\n" $LABELS\n', encoding="utf-8")
+        (top / "bin" / "gh").chmod(0o755)
+        repo = top / "repo"
+        shutil.copytree(ROOT / ".github" / "scripts", repo / ".github" / "scripts", ignore=shutil.ignore_patterns("__pycache__"))
+        env = {**os.environ, "PATH": f"{top / 'bin'}{os.pathsep}{os.environ['PATH']}", "GITHUB_REPOSITORY": "o/r",
+               "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+               "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+
+        def git(*args):
+            subprocess.run(["git", "-C", str(repo), "-c", "tag.gpgSign=false", "-c", "commit.gpgSign=false", *args],
+                           check=True, capture_output=True, env=env)
+
+        def run(labels=""):
+            output = top / "output"
+            output.write_text("", encoding="utf-8")
+            done = subprocess.run([BASH, "-eo", "pipefail", "-c", shell], cwd=repo, capture_output=True, text=True,
+                                  env={**env, "LABELS": labels, "GITHUB_OUTPUT": str(output)})
+            self.assertEqual(done.returncode, 0, done.stderr)
+            return output.read_text(encoding="utf-8").strip()
+
+        git("init", "-q")
+        git("commit", "-q", "--allow-empty", "-m", "one")
+        self.assertEqual(run("major"), "tag=v1.0.0", "the first version is 1.0.0")
+        git("tag", "-a", "v1.0.0", "-m", "1.0.0")
+        self.assertEqual(run(), "", "nothing merged since the last version publishes nothing")
+        git("commit", "-q", "--allow-empty", "-m", "two")
+        self.assertEqual(run(), "tag=v1.0.1")
+        self.assertEqual(run("dependencies minor"), "tag=v1.1.0")
+        self.assertEqual(run("major"), "tag=v2.0.0")
 
 
 class ReaderTest(unittest.TestCase):

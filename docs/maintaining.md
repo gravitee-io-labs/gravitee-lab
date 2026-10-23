@@ -114,8 +114,19 @@ Before merging, give the pull request the label of the number it raises:
 | none | `1.0.1` | A fix, and anything else |
 
 When several pull requests are merged while a release is still running, the next release counts them all and raises the highest
-number their labels ask for. A tag is never moved once pushed: a clone that updated to it keeps it. The workflow creates the tag
-with the token of GitHub Actions, so the tag ruleset lets the GitHub Actions app create tags.
+number their labels ask for. A tag is never moved once pushed: a clone that updated to it keeps it, and the Lab UI offers only
+the tags that are on `main`.
+
+The workflow pushes the tag with a deploy key, since the token of a workflow cannot be let past a ruleset. Set it up once:
+
+1. **The key**: an SSH key made for the purpose (`ssh-keygen -t ed25519 -N "" -f release`), its public half added under
+   Settings > Deploy keys with *Allow write access*, its private half as the secret `RELEASE_DEPLOY_KEY` of the environment
+   `publish`, then both files deleted. Only the step that pushes the tag reads it (a test of `.github/tests` keeps it so).
+2. **Two tag rulesets** on every tag: `catalog-tags` forbids deleting or moving a tag, with administrators alone as bypass, and
+   `release-tags` forbids creating one, with administrators and deploy keys as bypass.
+3. **The labels** `major` and `minor`.
+
+To replace the key, make a new one, set the secret again and delete the old deploy key: nothing else changes.
 
 ## Pins to review by hand
 
