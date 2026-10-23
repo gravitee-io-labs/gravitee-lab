@@ -305,8 +305,11 @@ class State(LabUI):
         self.patch(api.personal, "skills", return_value={"addon": ".agents/skills/new-addon/SKILL.md"})
         # Where the core runs, from this machine's choice (test_core)
         self.core = self.patch(api.core, "describe", return_value={"place": "machine", "chosen": False})
+        # The Lab's own version, from its Git clone (test_updates)
+        self.lab = {"version": "1.0.0", "update": False}
+        self.patch(api.updates, "describe", return_value=self.lab)
         self.more = {"root": str(paths.ROOT), "skills": {"addon": ".agents/skills/new-addon/SKILL.md"},
-                     "core": {"place": "machine", "chosen": False}}
+                     "core": {"place": "machine", "chosen": False}, "lab": self.lab}
         # ... and what the state says of the catalogs: git, the rows, the content and the layout
         self.catalogued = {"git": {"available": True, "version": "2.43.2"}, "catalogs": self.rows,
                            "content": self.content, "layout": self.layout}
