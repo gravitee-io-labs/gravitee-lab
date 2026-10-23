@@ -135,8 +135,17 @@ def collisions(order, owned, closures, blocked=()):
 
 
 def _twins(owner, mine):
-    """The owner is the personal twin of the unit that clashes with it."""
-    return owner.get("tier") == "local" and same_item(owner, mine)
+    """The owner is the personal twin of the unit that clashes with it: the same item, or the person's copy of it (`copy_of`)."""
+    return owner.get("tier") == "local" and (copy_of(owner, mine) or same_item(owner, mine))
+
+
+def copy_of(local, other):
+    """Whether a personal unit is the person's copy of a catalog unit: its `copy_of` names that unit, of the same kind. A copy
+    keeps the names of the original's services, which its neighbours and its seed call it by: it is a twin of it."""
+    if not isinstance(local, dict) or not isinstance(other, dict):
+        return False
+    said = local.get("copy_of")
+    return isinstance(said, str) and bool(said) and said == other.get("id") and local.get("kind") == other.get("kind")
 
 
 def owned_names(unit_config, core_config, own, included=()):

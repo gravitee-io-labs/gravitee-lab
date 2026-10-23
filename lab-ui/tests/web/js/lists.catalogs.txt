@@ -4,6 +4,10 @@
     <h1>
       "Playgrounds"
     <div class="page-actions">
+      <button class="btn" data-import="">
+        <svg aria-hidden="true">
+          <use href="#i-upload">
+        "Import"
       <button class="btn" data-new="">
         <svg aria-hidden="true">
           <use href="#i-plus">
@@ -95,7 +99,9 @@
                   <svg aria-hidden="true">
                     <use href="#i-file">
                 <span class="icon-gap">
-                <span class="icon-gap">
+                <button class="icon-btn" data-more="" data-tip="More" aria-label="More for Acme Hostels" aria-haspopup="true">
+                  <svg aria-hidden="true">
+                    <use href="#i-more">
           <div class="list-detail" id="detail-acme-hostels" hidden="">
         <li class="list-item" data-key="acme-bakery">
           <div class="list-row list-grid">
@@ -144,7 +150,9 @@
                   <svg aria-hidden="true">
                     <use href="#i-file">
                 <span class="icon-gap">
-                <span class="icon-gap">
+                <button class="icon-btn" data-more="" data-tip="More" aria-label="More for Acme Bakery" aria-haspopup="true">
+                  <svg aria-hidden="true">
+                    <use href="#i-more">
           <div class="list-detail" id="detail-acme-bakery" hidden="">
         <li class="list-item open" data-key="@acme-hub/ledger-demo">
           <div class="list-row list-grid">
@@ -193,7 +201,9 @@
                   <svg aria-hidden="true">
                     <use href="#i-file">
                 <span class="icon-gap">
-                <span class="icon-gap">
+                <button class="icon-btn" data-more="" data-tip="More" aria-label="More for Ledger demo" aria-haspopup="true">
+                  <svg aria-hidden="true">
+                    <use href="#i-more">
           <div class="list-detail" id="detail--acme-hub-ledger-demo">
             <section class="panel ">
               <div class="panel-head">
@@ -724,7 +734,9 @@
                   <svg aria-hidden="true">
                     <use href="#i-file">
                 <span class="icon-gap">
-                <span class="icon-gap">
+                <button class="icon-btn" data-more="" data-tip="More" aria-label="More for Mock bank" aria-haspopup="true">
+                  <svg aria-hidden="true">
+                    <use href="#i-more">
           <div class="list-detail" id="detail--acme-hub-mock-bank">
             <section class="panel ">
               <div class="panel-head">
@@ -785,7 +797,9 @@
                   <svg aria-hidden="true">
                     <use href="#i-file">
                 <span class="icon-gap">
-                <span class="icon-gap">
+                <button class="icon-btn" data-more="" data-tip="More" aria-label="More for Kubernetes" aria-haspopup="true">
+                  <svg aria-hidden="true">
+                    <use href="#i-more">
           <div class="list-detail" id="detail--acme-hub-k3s">
             <section class="panel ">
               <div class="panel-head">
@@ -826,6 +840,10 @@
     <h1>
       "Playgrounds"
     <div class="page-actions">
+      <button class="btn" data-import="">
+        <svg aria-hidden="true">
+          <use href="#i-upload">
+        "Import"
       <button class="btn" data-new="">
         <svg aria-hidden="true">
           <use href="#i-plus">
@@ -917,7 +935,9 @@
                   <svg aria-hidden="true">
                     <use href="#i-file">
                 <span class="icon-gap">
-                <span class="icon-gap">
+                <button class="icon-btn" data-more="" data-tip="More" aria-label="More for Ledger demo" aria-haspopup="true">
+                  <svg aria-hidden="true">
+                    <use href="#i-more">
           <div class="list-detail" id="detail--acme-hub-ledger-demo">
             <section class="panel ">
               <div class="panel-head">
@@ -964,6 +984,10 @@
     <h1>
       "Playgrounds"
     <div class="page-actions">
+      <button class="btn" data-import="">
+        <svg aria-hidden="true">
+          <use href="#i-upload">
+        "Import"
       <button class="btn" data-new="">
         <svg aria-hidden="true">
           <use href="#i-plus">
@@ -1055,7 +1079,9 @@
                   <svg aria-hidden="true">
                     <use href="#i-file">
                 <span class="icon-gap">
-                <span class="icon-gap">
+                <button class="icon-btn" data-more="" data-tip="More" aria-label="More for Acme Hostels" aria-haspopup="true">
+                  <svg aria-hidden="true">
+                    <use href="#i-more">
           <div class="list-detail" id="detail-acme-hostels" hidden="">
         <li class="list-item" data-key="acme-bakery">
           <div class="list-row list-grid">
@@ -1104,7 +1130,9 @@
                   <svg aria-hidden="true">
                     <use href="#i-file">
                 <span class="icon-gap">
-                <span class="icon-gap">
+                <button class="icon-btn" data-more="" data-tip="More" aria-label="More for Acme Bakery" aria-haspopup="true">
+                  <svg aria-hidden="true">
+                    <use href="#i-more">
           <div class="list-detail" id="detail-acme-bakery" hidden="">
         <li class="list-item" data-key="local/scratch">
           <div class="list-row list-grid">

@@ -113,9 +113,57 @@ ADDRESS --name NAME` writes a suggestion, which then appears in **Library > Cata
 You can make items for yourself and keep them in **Personal**: they live in `.lab/catalogs/local/` and no catalog ever
 touches them. The **New** buttons of the lists create there. When one is ready to be shared, **Share** puts it in a catalog
 you can write to, as a branch with a pull request link, and a copy stays in Personal until the catalog has it
-(**Use the catalog version** then replaces the copy and keeps your settings and stars). A playground is shared once it has started well on this machine, its seed ended without an error included: the
+(**Use the catalog version** then replaces the copy and keeps your settings and stars). What it includes that only this machine
+has (your own add-ons and setups, or those of an imported playground) goes with it, in the same branch or copy: the dialog says
+which under **Also shares**. What the catalog has already, from a share of before, is the one it includes there (**Uses the
+catalog's**). What it includes of another catalog must be one that the target declares. An item of a catalog reads the settings named for its
+catalog: the settings of its own that are named for another place (Personal, or the catalog it was copied or imported from, as
+GRAVITEE_INTERNAL_GKO_LOG_LEVEL) are named for the target in the copy (TEAM_DEMOS_GKO_LOG_LEVEL), and the dialog says which under
+**Renames**. Your values follow them: **Use the catalog version** gives them the new names. A playground is shared once it has started well on this machine, its seed ended without an error included: the
 versions it started on go into the copy as its `tested` when its file declares none, and a playground that never ran is told to start first. A catalog you create with **New
 catalog** is a folder on this machine that you edit freely.
+
+**Copy to Personal**, in the menu of an item of a catalog, makes your own version of it, to change as you like. The copy keeps
+the names of the original's services, which its neighbours and its seed call it by, and knows whose copy it is: neither blocks
+the other, only one of the two runs at a time (the Lab says which to turn off), and **Back to the catalog version** drops your
+copy, with your settings kept. A catalog's item that includes the original cannot be changed to include your copy: choose
+**<item> and what uses it** to copy those too, up to the playgrounds, and your own items that used one of them then use the
+copy. The copy takes the original's settings and secrets, not what its seed recorded.
+
+## A playground in a file
+
+A playground made for one person (a customer, a workshop) does not have to go into a catalog. **Export**, in the menu of a
+playground (its row or its page), saves a `.zip` file that holds the playground and every setup and add-on it includes that the
+other Lab may not have: everything but the items of the default catalog, which every Lab has, and which the file names as needed.
+It never holds settings, keys or a license: the person who imports it adds their own license in the Lab UI.
+
+What comes from a catalog of Git goes in the file too, so the person who receives it needs no access to that catalog. A
+private one is named under **Private** before the file is made, and the button says **Export with private
+content**: what comes from it leaves with the file. An image the other Lab will pull from a registry that asks for a login is
+said under **Needs access**, with that registry: the person who receives the file needs access to it too.
+
+Before the file is made, the export is judged as the import will be, with the rules a Lab applies to a catalog that is not
+listed. What the other Lab would block is said, and keeps the file from being made: fix it first. What it would ask to use that
+machine (a privileged container, say) is said too: the person who imports it is asked, as for any catalog.
+
+On the other Lab, **Import** on the Playgrounds page takes the file: the preview is the one of an Add, and once imported the
+playground's page opens. **Import to** chooses where it goes:
+
+- **Personal**, the default: the playground and what it brings are yours, like what you make with the New buttons, and you edit
+  them freely. An item of Personal with the same name is replaced (your settings stay) unless it is the same, which is then
+  used. The Lab no longer judges what is in Personal: what uses this machine is shown before you import, and an item the preview
+  says cannot run cannot go there.
+- **Imported**: the file is kept as a catalog of its own, which the Lab keeps judging. An item that cannot run stays visible,
+  blocked. Every file imported this way is under one row, **Imported**, on the Catalogs page, which lists each with its menu
+  (**Remove**, the allowance of what uses this machine), and the lists say Imported as where their items come from.
+  **Move to Personal**, in the menu of an imported item, makes it yours later: a playground alone, or with the setups and
+  add-ons it brings that nothing else uses. What another item still uses stays in Imported, and the dialog says which and why.
+  Its settings, secrets, star and what its seed recorded come along; the import whose items all moved is removed. As for an
+  import, what goes to Personal is no longer judged: an item blocked only for what it takes of this machine moves once you
+  allow it (**Allow and move**), and one blocked for anything else does not move. An item the file holds that this Lab has already, from the same catalog, is not imported a second time:
+the playground uses this Lab's own, and the preview says so under **Uses yours**. A playground this Lab has already is not
+imported at all. The Lab keeps the files under `.lab/imports/`, and the playground shows under a catalog named after it.
+To import a newer file of the same playground, remove that catalog on the Catalogs page first: its files go with it.
 
 ## Offline, privacy and starting over
 

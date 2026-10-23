@@ -34,6 +34,9 @@ const page = installDom({
     if (route === "/api/places") return server.down ? reply({ error: "Broken" }, 500) : reply(server.places);
     if (route.endsWith("/guide")) return reply({ markdown: "# Guide\n\n## 1. One\n\nClick it.\n" });
     if (route.endsWith("/check")) return reply({ checks: server.checks(query), dialog: server.dialog(query) });
+    if (route.endsWith("/export")) return reply(call.body?.check ? server.exported : { ...server.exported, data: btoa("PK") });
+    if (route.endsWith("/move")) return reply(call.body?.check ? server.movePlan : { moved: [], id: "local/hotels" });
+    if (route.endsWith("/copy")) return reply(call.body?.check ? server.copyPlan : { copies: [], id: "local/hotels" });
     if (call.method === "POST") return reply(JOB);
     return reply(found);
   },
@@ -1082,22 +1085,24 @@ test("its file button reads View and shows no path of this machine; the file of 
   await visit({ ...off, ...HUB }, { platforms: [], places: [], id: "@acme-hub/hotels" });
   const file = section.querySelector("#pg-actions [data-file]");
   assert.deepEqual([file.getAttribute("data-tip"), file.getAttribute("aria-label")], ["View compose.yml", "View compose.yml"]);
-  assert.equal(section.querySelector("#pg-actions [data-more]"), null, "a playground of a catalog has no More");
+  section.querySelector("#pg-actions [data-more]").click();
+  assert.deepEqual(entries(), [["Export", ""], ["Copy to Personal", ""]], "a playground of a catalog has a More with Export and Copy to Personal");
+  page.doc.dispatchEvent(Object.assign(new Ev("click"), { target: page.doc.body }));
   await leave();
   await visit({ ...off }, { platforms: [], places: [] });
   assert.equal(section.querySelector("#pg-actions [data-file]").getAttribute("data-tip"), "Edit playgrounds/hotels/compose.yml");
   await leave();
 });
 
-test("a playground of this machine has a More, last of the page's actions, with Share and Delete; no other has one", async () => {
+test("a playground of this machine has a More, last of the page's actions, with Export, Share and Delete", async () => {
   await visit({ ...off, personal: true, id: "local/hotels", held: { share: "", delete: "" } }, { platforms: [], places: [], id: "local/hotels" });
   const more = section.querySelector("#pg-actions [data-more]");
   assert.deepEqual([more.getAttribute("aria-label"), more.getAttribute("data-tip"), more.getAttribute("aria-haspopup")], ["More for Acme Hostels", "More", "true"]);
   assert.ok(section.querySelector("#pg-actions .row-icons").lastElementChild === more, "at the end, after its files");
   more.click();
-  assert.deepEqual(entries(), [["Share", ""], ["Delete", ""]]);
+  assert.deepEqual(entries(), [["Export", ""], ["Share", ""], ["Delete", ""]]);
   assert.equal(menu.querySelectorAll(".menu-sep").length, 1);
-  assert.ok(menu.querySelectorAll(".menu-item")[1].classList.contains("danger"));
+  assert.ok(menu.querySelectorAll(".menu-item")[2].classList.contains("danger"));
   page.doc.dispatchEvent(Object.assign(new Ev("click"), { target: page.doc.body }));
   await leave();
 });
@@ -1105,11 +1110,11 @@ test("a playground of this machine has a More, last of the page's actions, with 
 test("Share and Delete of the page are held for the reasons the list gives, and the Lab UI not answering holds them too", async () => {
   await visit({ ...off, personal: true, id: "local/hotels", held: { share: "Turn off Acme Hostels first", delete: "Stop Acme Hostels first" } }, { platforms: [], places: [], id: "local/hotels" });
   section.querySelector("#pg-actions [data-more]").click();
-  assert.deepEqual(entries(), [["Share", "Turn off Acme Hostels first"], ["Delete", "Stop Acme Hostels first"]]);
+  assert.deepEqual(entries(), [["Export", ""], ["Share", "Turn off Acme Hostels first"], ["Delete", "Stop Acme Hostels first"]]);
   page.doc.dispatchEvent(Object.assign(new Ev("click"), { target: page.doc.body }));
   store.offline = true;
   section.querySelector("#pg-actions [data-more]").click();
-  assert.deepEqual(entries().map(([, why]) => why), ["Lab UI offline", "Lab UI offline"]);
+  assert.deepEqual(entries().map(([, why]) => why), ["Lab UI offline", "Lab UI offline", "Lab UI offline"]);
   store.offline = false;
   page.doc.dispatchEvent(Object.assign(new Ev("click"), { target: page.doc.body }));
   await leave();
@@ -1119,7 +1124,7 @@ test("Delete of the page says what goes and what stays in Gravitee, deletes that
   await visit({ ...off, personal: true, id: "local/hotels", held: { share: "", delete: "" } }, { platforms: [], places: [], id: "local/hotels" });
   server.calls = [];
   section.querySelector("#pg-actions [data-more]").click();
-  page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item")[1] }));   // the menu is the document's
+  page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item")[2] }));   // the menu is the document's
   await flush();
   assert.deepEqual(effects().notes, [["Stays in Gravitee", ["12 APIs"]]]);
   assert.equal(effects().title, "Delete Acme Hostels");
@@ -1129,12 +1134,108 @@ test("Delete of the page says what goes and what stays in Gravitee, deletes that
   await leave();
 });
 
+test("Export says what the file carries, what it needs and what it leaves out, then saves it; what another Lab would block keeps it from being made", async () => {
+  const saved = [];
+  const make = page.doc.createElement.bind(page.doc);
+  page.doc.createElement = (tag) => {
+    const el = make(tag);
+    if (tag === "a") el.click = () => saved.push(el.download);
+    return el;
+  };
+  server.exported = { name: "Acme Hostels", file: "hotels.zip", carries: [{ kind: "playground", id: "local/hotels", name: "Acme Hostels" },
+    { kind: "addon", id: "local/kiosk", name: "Kiosk" }], needs: [{ id: "acme", name: "Acme public" }], problems: [], blocked: [],
+  uses_machine: [{ name: "Kiosk", what: ["runs privileged"] }] };
+  await visit({ ...off, personal: true, id: "local/hotels", held: { share: "", delete: "" } }, { platforms: [], places: [], id: "local/hotels" });
+  server.calls = [];
+  section.querySelector("#pg-actions [data-more]").click();
+  page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item")[0] }));
+  await flush();
+  assert.equal(effects().title, "Export Acme Hostels");
+  assert.deepEqual(effects().steps, [["Carries", ["Acme Hostels Playground", "Kiosk Add-on"]], ["Needs", ["Acme public Catalog"]]]);
+  assert.deepEqual(effects().notes, [["Asks to use the machine", ["Kiosk: runs privileged"]], ["Leaves out", ["Its settings", "The license"]]]);
+  assert.deepEqual(server.calls.map((call) => [call.path, call.body]), [["/api/playgrounds/local/hotels/export", { check: true }]], "what it carries is asked first");
+  await answer(true);
+  await flush();
+  assert.deepEqual(server.calls.at(-1).body, {}, "then the file");
+  assert.deepEqual(saved, ["hotels.zip"]);
+  await leave();
+  // What comes from a private catalog leaves with the file: it is said, and so is the button
+  const plain = server.exported;
+  server.exported = { ...plain, private: [{ id: "internal", name: "Internal", items: ["Ledger"] }],
+    registries: [{ registry: "graviteeio.azurecr.io", images: ["graviteeio.azurecr.io/apim-gateway:4.13.0"] }] };
+  await visit({ ...off, personal: true, id: "local/hotels", held: { share: "", delete: "" } }, { platforms: [], places: [], id: "local/hotels" });
+  section.querySelector("#pg-actions [data-more]").click();
+  page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item")[0] }));
+  await flush();
+  assert.deepEqual(effects().notes[0], ["Private", ["Internal"]], "the catalog, once: what it carries is listed above");
+  assert.deepEqual(effects().notes[1], ["Needs access", ["graviteeio.azurecr.io"]], "a registry that asks for a login");
+  assert.equal(text(page.ids["choice-ok"]), "Export with private content");
+  await answer(false);
+  await leave();
+  server.exported = plain;
+  // What another Lab would block is said, and the file is not made
+  server.exported = { ...server.exported, uses_machine: [], blocked: [{ name: "Kiosk", reasons: ["Changes Gateway beyond adding settings"] }] };
+  await visit({ ...off, personal: true, id: "local/hotels", held: { share: "", delete: "" } }, { platforms: [], places: [], id: "local/hotels" });
+  section.querySelector("#pg-actions [data-more]").click();
+  page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item")[0] }));
+  await flush();
+  assert.deepEqual(effects().notes.at(-1), ["Blocked on another Lab", ["Kiosk: Changes Gateway beyond adding settings"]]);
+  assert.equal(page.ids["choice-ok"].getAttribute("aria-disabled"), "true");
+  await answer(false);
+  page.doc.createElement = make;
+  await leave();
+});
+
+test("an imported playground moves to Personal from its menu: with what it brings or alone, each saying what moves, stays and is replaced", async () => {
+  server.movePlan = {
+    together: { moves: ["Acme Hostels", "Kiosk"], stays: [{ name: "Ledger", why: "Used by Notes" }], replaces: [], held: "", uses_machine: ["Kiosk"] },
+    alone: { moves: ["Acme Hostels"], stays: [], replaces: ["Acme Hostels"], held: "" }, used_by: "" };
+  const imported = { ...off, id: "@hostels/hotels", origin: { id: "imported", name: "Imported" }, held: { share: "", delete: "" } };
+  await visit(imported, { platforms: [], places: [], id: "@hostels/hotels" });
+  section.querySelector("#pg-actions [data-more]").click();
+  const entries = menu.querySelectorAll(".menu-item");
+  assert.ok(entries.some((el) => text(el) === "Move to Personal"));
+  server.calls = [];
+  page.doc.dispatchEvent(new Ev("click", { target: entries.find((el) => text(el) === "Move to Personal") }));
+  await flush();
+  assert.equal(effects().title, "Move Acme Hostels to Personal");
+  assert.deepEqual(choices(), [
+    ["With its setups and add-ons", "What nothing else uses", [["Moves", ["Acme Hostels", "Kiosk"]], ["Uses this machine", ["Kiosk"]], ["Stays", ["Ledger: Used by Notes"]]]],
+    ["Only the playground", "Its setups and add-ons stay in Imported", [["Moves", ["Acme Hostels"]], ["Replaces", ["Acme Hostels"]]]]]);
+  assert.equal(effects().action, "Allow and move", "what takes more of this machine is allowed by the person, here");
+  await answer(true);
+  await flush();
+  assert.deepEqual(server.calls.map((call) => [call.path, call.body]), [["/api/playgrounds/@hostels/hotels/move", { check: true }],
+    ["/api/playgrounds/@hostels/hotels/move", { together: true, allow: true }]]);
+  await leave();
+});
+
+test("a playground of a catalog is copied to Personal from its menu: alone, or with what uses it, which then uses the copy", async () => {
+  server.copyPlan = {
+    alone: { copies: ["Acme Hostels"], switches: [], uses_machine: [], held: "" },
+    with_users: { copies: ["Acme Hostels", "Tour"], switches: ["Notes"], uses_machine: [], held: "" } };
+  await visit({ ...off, id: "@acme-hub/hotels", origin: { id: "acme-hub", name: "Acme Hub" } }, { platforms: [], places: [], id: "@acme-hub/hotels" });
+  section.querySelector("#pg-actions [data-more]").click();
+  server.calls = [];
+  page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item").find((el) => text(el) === "Copy to Personal") }));
+  await flush();
+  assert.equal(effects().title, "Copy Acme Hostels to Personal");
+  assert.deepEqual(choices(), [
+    ["Only Acme Hostels", "What uses it keeps the original", [["Copies", ["Acme Hostels"]]]],
+    ["Acme Hostels and what uses it", "Copied too, so that it uses your copy", [["Copies", ["Acme Hostels", "Tour"]], ["Uses the copy", ["Notes"]]]]]);
+  assert.equal(effects().action, "Copy");
+  await answer(true);
+  await flush();
+  assert.deepEqual(server.calls.at(-1).body, { users: false }, "the first choice: the copy alone");
+  await leave();
+});
+
 test("Delete names the folder by the path the item is read by (display_file), the file it opens being its own", async () => {
   const mine = { ...off, personal: true, id: "local/hotels", held: { share: "", delete: "" }, file: ".lab/catalogs/local/playgrounds/hotels/compose.yml" };
   for (const [display_file, said] of [["playgrounds/hotels/compose.yml", "playgrounds/hotels/"], ["", ".lab/catalogs/local/playgrounds/hotels/"], [undefined, ".lab/catalogs/local/playgrounds/hotels/"]]) {
     await visit({ ...mine, display_file }, { platforms: [], places: [], id: "local/hotels" });
     section.querySelector("#pg-actions [data-more]").click();
-    page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item")[1] }));
+    page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item")[2] }));
     await flush();
     assert.deepEqual(effects().steps, [["Deletes", [said]]], String(display_file));
     await answer(false);

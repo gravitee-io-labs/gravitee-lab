@@ -158,9 +158,24 @@ def _held(ticket, *kinds):
     return data
 
 
+def note(ticket, **fields):
+    """Adds what a caller knows of a check to its ticket (an import notes what it found), for when the change is made."""
+    with _lock:
+        if isinstance(ticket, str) and ticket in TICKETS:
+            TICKETS[ticket].update(fields)
+
+
 def _spend(ticket):
     with _lock:
         TICKETS.pop(ticket, None)
+
+
+def forget(ticket):
+    """Lets a check go before it is used, with what it staged: the judgement an export makes of its archive."""
+    with _lock:
+        data = TICKETS.pop(ticket, None) if isinstance(ticket, str) else None
+    if data is not None:
+        _discard(data)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -490,7 +505,7 @@ def _git_row(ns, found, summary, project_, entry, contract, asked=frozenset(), o
         _started.pop(ns, None)
     pin = held.get("pin")
     return {
-        "id": ns, "kind": found["kind"], "listed": bool(found.get("listed")), "name": found["name"],
+        "id": ns, "kind": found["kind"], "listed": bool(found.get("listed")), "name": found["name"], "imported": registry.imported(ns),
         "description": found.get("description") or "", "address": address,
         "url": url or "", "web_url": registry.web_url(entry) if entry else None,
         "version": found.get("version"), "commit": _short(pin), "updated": held.get("installed"),
@@ -1416,6 +1431,9 @@ def remove(ns, check=False, keep_settings=True):
             raise CatalogError("held", f"{_turn_off_line(found, ns, on | running, running)}.", 409,
                                units=sorted(on | running))
         done = install.remove(ns, keep_settings)
+    if entry.get("kind") == "folder":   # an imported playground's catalog is the Lab's own folder: it goes with it
+        from .exports import forget_folder   # here and not above: exports reads this module
+        forget_folder(entry)
     project.forget()
     return {"warning": done.get("warning")}
 

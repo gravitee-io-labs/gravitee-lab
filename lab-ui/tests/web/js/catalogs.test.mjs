@@ -55,7 +55,7 @@ Object.defineProperty(El.prototype, "checked", {
 
 const { store, router, ago } = await import("../../../web/js/core.js");
 const { catalogsPage } = await import("../../../web/js/pages/catalogs.js");
-const { addCatalog, openAdd, openNew, tryAgain } = await import("../../../web/js/dialogs/catalog.js");
+const { addCatalog, openAdd, openImport, openNew, tryAgain } = await import("../../../web/js/dialogs/catalog.js");
 const { paintActions, paintProgress } = await import("../../../web/js/components/ui.js");
 
 const section = page.doc.createElement("section");
@@ -168,6 +168,23 @@ test("the rows come in two sections, Local then Remote, each in the order the se
   // One that is only offered: Add, no items, no menu, and nothing to open
   const offered = cells(row("Partner Bank"));
   assert.deepEqual([offered.sub, offered.state, offered.items, offered.buttons, offered.more, offered.toggle], ["Banking demos from a partner", "Not added", "", ["Add"], null, null]);
+});
+
+test("the imported playgrounds are one row, Imported, in Local: it counts them all and opens on each, with its menu, and on what they hold", () => {
+  const imported = (id, name, counts) => catalog({ id, name, kind: "folder", imported: true, counts, state: STATES.linked,
+    address: `~/lab/.lab/imports/${id}`, held: {} });
+  show([FIRST(), imported("contoso", "Contoso demo", { playground: 1, setup: 0, addon: 2 }), imported("contoso-rail", "Contoso Rail", { playground: 1, setup: 1, addon: 3 })]);
+  assert.deepEqual([...section.querySelector(".list-rows").children].map((li) => (li.className === "stack-sep" ? text(li) : text(li.querySelector(".list-name")))),
+    ["Local", "Imported", "Remote", "Gravitee public"]);
+  const group = cells(row("Imported"));
+  assert.deepEqual([group.state, group.items, group.buttons, group.more], ["", "8", [], null]);
+  open(row("Imported"));
+  const [imports, holds] = panels(row("Imported"));
+  assert.deepEqual(pairs(imports).map(([name]) => name), ["Contoso demo", "Contoso Rail"]);
+  imports.querySelector('[data-member="contoso"] [data-member-more]').click();
+  assert.deepEqual(names(menu()).filter(Boolean), ["Remove"], "an import has no address to copy");
+  assert.deepEqual(pairs(holds), [["Playgrounds", "2"], ["Setups", "1"], ["Add-ons", "5"]]);
+  page.doc.dispatchEvent(new Ev("keydown", { key: "Escape" }));
 });
 
 test("Personal is drawn only once it holds something", () => {
@@ -789,6 +806,85 @@ test("Continue at work reads Reading, the bar of the fetch is under the field, a
   await settle();
   assert.equal(adding().hasAttribute("open"), false, "the answer that came after is dropped");
   assert.deepEqual(toasts(), []);
+});
+
+test("Import to Personal keeps the playground as the person's own, says what it replaces there, and opens its page; what cannot run goes to Imported only", async () => {
+  show([FIRST()]);
+  openImport();
+  const drop = async (file) => {
+    adding().querySelector("#catalog-file").dispatchEvent(Object.assign(new Ev("drop"), { dataTransfer: { files: [file] }, preventDefault() {} }));
+    await settle();
+  };
+  server.answers["/api/catalogs/import"] = PREVIEW({ catalog: { id: "contoso", name: "Contoso demo", version: "1.0.0", lab: 1, kind: "folder" },
+    imported: true, counts: { playground: 1, setup: 0, addon: 1 }, blocked: [], rows: {}, personal: { replaces: ["Kiosk"], same: [] } });
+  await drop(new File([new Uint8Array([80, 75, 5, 6])], "contoso.zip"));
+  assert.deepEqual(rowsOf().find(([label]) => label === "Replaces"), ["Replaces", "Kiosk Your settings stay"]);
+  server.answers["/api/catalogs/import/personal"] = { items: [], playground: "local/contoso" };
+  const went = [];
+  const go = router.go;
+  router.go = (to) => went.push(to);
+  await submit(primary());
+  await settle();
+  router.go = go;
+  assert.deepEqual([last().path, last().body], ["/api/catalogs/import/personal", { ticket: "9f3a4c1d2e5b6a70" }]);
+  assert.deepEqual(went, ["#/playgrounds/local/contoso"]);
+  // What cannot run is never Personal's: Imported is the one choice, and Personal says why
+  openImport();
+  server.answers["/api/catalogs/import"] = PREVIEW({ catalog: { id: "contoso", name: "Contoso demo", version: "1.0.0", lab: 1, kind: "folder" },
+    imported: true, counts: { playground: 1, setup: 0, addon: 1 }, blocked: [{ name: "Kiosk", reasons: ["Runs with full privileges"] }], rows: {},
+    personal: { replaces: [], same: [] } });
+  await drop(new File([new Uint8Array([80, 75, 5, 6])], "contoso.zip"));
+  const personal = adding().querySelector('[data-dest="personal"]');
+  assert.deepEqual([personal.getAttribute("aria-disabled"), personal.getAttribute("data-why")], ["true", "What cannot run stays in Imported"]);
+  assert.equal(adding().querySelector('[data-dest="imported"]').getAttribute("aria-checked"), "true");
+  adding().closest("dialog").close();
+});
+
+test("Import takes the file of an exported playground, shows the preview of an Add from that file, and opens the playground once imported", async () => {
+  show([FIRST()]);
+  clearToasts();
+  openImport();
+  const screen = () => adding().querySelector("#catalog-file");
+  const drop = async (file) => {
+    screen().dispatchEvent(Object.assign(new Ev("drop"), { dataTransfer: { files: [file] }, preventDefault() {} }));
+    await settle();
+  };
+  assert.deepEqual([heading(), screen().hidden, primary() ?? null], ["Import playground", false, null], "the file comes first, and nothing to confirm yet");
+  server.calls.length = 0;
+  await drop(new File(["x"], "notes.txt"));
+  assert.deepEqual([problemOf(), server.calls.length], ["Choose the .zip file of an exported playground", 0], "what is no archive is not sent");
+  server.answers["/api/catalogs/import"] = PREVIEW({ catalog: { id: "contoso", name: "Contoso demo", version: "1.0.0", lab: 1, kind: "folder" },
+    imported: true, address: "~/lab/.lab/imports/contoso", counts: { playground: 1, setup: 0, addon: 1 }, blocked: [], rows: {},
+    reused: [{ name: "Ledger", catalog: "Partner" }] });
+  await drop(new File([new Uint8Array([80, 75, 5, 6])], "contoso.zip"));
+  assert.deepEqual([last().path, last().body], ["/api/catalogs/import", { data: btoa("PK\u0005\u0006") }]);
+  assert.deepEqual([heading(), face(primary())], ["Import Contoso demo", "Import"]);
+  assert.deepEqual(rowsOf().find(([label]) => label === "From"), ["From", "contoso.zip"], "it comes from the file, not from where the Lab keeps it");
+  assert.deepEqual(rowsOf().find(([label]) => label === "Uses yours"), ["Uses yours", "Ledger From Partner"], "what this Lab has already is not a second copy");
+  const dest = (value) => adding().querySelector(`[data-dest="${value}"]`);
+  assert.deepEqual([dest("personal").getAttribute("aria-checked"), dest("imported").getAttribute("aria-checked")], ["true", "false"], "Personal first");
+  dest("imported").click();
+  assert.equal(dest("imported").getAttribute("aria-checked"), "true");
+  server.answers["/api/catalogs"] = { catalog: { id: "contoso", host: null } };
+  const went = [];
+  const go = router.go;
+  router.go = (to) => went.push(to);
+  store.state.playgrounds = [{ kind: "playground", id: "@contoso/contoso", name: "Contoso demo" }];
+  await submit(primary());
+  await settle();
+  router.go = go;
+  assert.deepEqual([last().path, last().body], ["/api/catalogs", { ticket: "9f3a4c1d2e5b6a70" }]);
+  assert.deepEqual(toasts(), ["Imported"]);
+  assert.deepEqual(went, ["#/playgrounds/@contoso/contoso"], "its page opens");
+  // A file this Lab has: said on the file's screen, in the server's words
+  openImport();
+  server.answers["/api/catalogs/import"] = () => { throw Object.assign(new Error("Contoso demo is already in this Lab."), { code: "already_imported" }); };
+  server.refuse["/api/catalogs/import"] = "Contoso demo is already in this Lab. To import it again, remove it on the Catalogs page first.";
+  await drop(new File([new Uint8Array([80, 75])], "contoso.zip"));
+  assert.equal(screen().hidden, false);
+  assert.equal(problemOf(), "Contoso demo is already in this Lab. To import it again, remove it on the Catalogs page first.");
+  delete server.refuse["/api/catalogs/import"];
+  shut();
 });
 
 test("a branch typed under More options goes with the address", async () => {

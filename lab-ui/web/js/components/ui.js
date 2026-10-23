@@ -112,7 +112,7 @@ export function confirmDialog({ title, text, action, danger = false, word }) {
 
 // What a line of a step names, by the kind of its row
 const KINDS = { platform: "Platform", group: "Platform", service: "Container", addon: "Add-on", setup: "Setup",
-  playground: "Playground", data: "Data", environment: "Environment", version: "Version" };
+  playground: "Playground", data: "Data", environment: "Environment", version: "Version", catalog: "Catalog" };
 
 // The rows of an effects dialog as markup, the way the dialog draws them: the rows that have items, the ones that are not notes as numbered
 // steps, the notes as lines of pills (a few) or one line that counts them (many). A dialog that is drawn again as its state changes (the notice
@@ -147,7 +147,7 @@ export const effectRows = (rows = []) => {
 // plain (`hint`); then what it leaves as it is (`note` rows: "Keeps", "Stays in Gravitee"). A step or a row without
 // items is not shown; a single step has no number. With several options, the steps they share (`steps`), then a
 // choice among them, the first one chosen, each saying in rows what it does besides, and in a muted line (`sub`) what it comes
-// to. An option that cannot be taken is `disabled` and says why (`reason`). Resolves with the value of the confirmed option (true when
+// to. An option that cannot be taken is `disabled` and says why (`reason`): under it, or, the only one, as its button's tooltip. Resolves with the value of the confirmed option (true when
 // it has none), null when canceled. `other`, {label, value}: a second button beside the first, the same steps done another way, which
 // resolves with its value.
 // `unchosen`, a reason ("Choose where to share"), is for a choice that must be made: of several options none is chosen at first, and the button
@@ -164,7 +164,7 @@ export function effectsDialog({ title, steps = [], options, action, danger = () 
     <label class="choice ${o.disabled ? "disabled" : ""}">
       <input type="radio" name="choice" value="${i}" ${i || blank ? "" : "checked"} ${o.disabled ? "disabled" : ""}>
       <span class="choice-text">${single ? "" : `<strong>${esc(o.label)}</strong>`}
-        ${o.disabled || o.sub ? `<span class="sub">${esc(o.disabled ? o.reason : o.sub)}</span>` : ""}
+        ${(o.disabled && !single) || o.sub ? `<span class="sub">${esc(o.disabled && !single ? o.reason : o.sub)}</span>` : ""}
         ${single ? effectRows(o.rows) : (o.rows || []).filter((r) => r.items.length).map(row).join("")}</span>
     </label>`).join("");
   const picked = () => list.querySelector("input:checked"), chosen = () => (picked() ? options[picked().value].value : undefined);
@@ -1070,13 +1070,13 @@ const ING = { start: "Starting", stop: "Stopping", restart: "Restarting", update
   apply: "Applying", install: "Installing", remove: "Removing", reset: "Resetting", down: "Removing",
   reseed: "Seeding", deploy: "Deploying", login: "Logging in", create: "Creating", save: "Saving", share: "Sharing",
   delete: "Deleting", replace: "Replacing", refresh: "Refreshing", cancel: "Canceling", add: "Adding", connect: "Connecting",
-  setup: "Setting up", repair: "Repairing", check: "Checking" };
+  setup: "Setting up", repair: "Repairing", export: "Exporting", import: "Importing", move: "Moving", copy: "Copying", check: "Checking" };
 const ing = (verb) => ING[verb] || "Working";
 // What a verb says once its action is over, with its check or its error mark: the word of the button that started it
 const WORD = { start: "Start", stop: "Stop", restart: "Restart", update: "Update", pull: "Pull", apply: "Apply",
   install: "Install", remove: "Remove", reset: "Reset", down: "Remove", reseed: "Re-seed", deploy: "Deploy", login: "Log in",
   create: "Create", save: "Save", share: "Share", delete: "Delete", replace: "Replace", refresh: "Refresh", cancel: "Cancel",
-  add: "Add", connect: "Connect", setup: "Set up", repair: "Repair", check: "Check" };
+  add: "Add", connect: "Connect", setup: "Set up", repair: "Repair", export: "Export", import: "Import", move: "Move", copy: "Copy", check: "Check" };
 // What Turn on and Turn off change, as the tooltip of their button wherever it is (a row, a playground's head): what is on, which
 // starts with the platform, and nothing that runs now
 export const TURNS = { "Turn on": "Start it with the platform from now on", "Turn off": "No longer start it with the platform" };

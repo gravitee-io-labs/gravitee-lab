@@ -311,3 +311,45 @@ class Images(Case):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Anonymous(Case):
+    """images.private_images: whether a person with no login can pull an image, asked of its registry as `docker pull` asks it
+    (stood in for here): Docker Hub on its own API, another registry for the manifest of that very image, without a login then with
+    the token it gives anyone. What a registry does not answer about is not said."""
+
+    def setUp(self):
+        self.answers = {}
+        self.patch(images, "_status", side_effect=lambda url, token=None: self.answers.get((url, bool(token)), (None, "")))
+        self.patch(images, "_status_get", side_effect=lambda url: self.answers.get((url, False), (None, "")))
+        self.patch(images, "_json", side_effect=lambda url, token=None: self.answers[("token", url)])
+        self.patch(compose, "CACHE", compose.Cache())   # each test asks afresh
+
+    def test_docker_hub_says_it_of_the_repository(self):
+        self.answers[("https://hub.docker.com/v2/repositories/library/busybox/", False)] = (200, "")
+        self.answers[("https://hub.docker.com/v2/repositories/acme/secret/", False)] = (404, "")
+        self.assertEqual(images.private_images(["busybox:1.36", "acme/secret:2", "acme/secret:3"]),
+                         {"Docker Hub": ["acme/secret:2", "acme/secret:3"]})
+
+    def test_another_registry_is_asked_for_the_manifest_with_the_token_anyone_gets(self):
+        realm = 'Bearer realm="https://reg.example/token",service="reg.example",scope="repository:{}:pull"'
+        for repo, reference, code in (("open/app", "1", 200), ("closed/app", "sha256:ab", 403)):
+            url = f"https://reg.example/v2/{repo}/manifests/{reference}"
+            self.answers[(url, False)] = (401, realm.format(repo))
+            self.answers[("token", f"https://reg.example/token?service=reg.example&scope=repository%3A{repo.replace('/', '%2F')}%3Apull")] = {"token": "t"}
+            self.answers[(url, True)] = (code, "")
+        self.assertEqual(images.private_images(["reg.example/open/app:1", "reg.example/closed/app@sha256:ab"]),
+                         {"reg.example": ["reg.example/closed/app@sha256:ab"]})
+
+    def test_a_registry_that_gives_no_token_to_anyone_is_private_and_one_that_asks_nothing_is_not(self):
+        realm = 'Bearer realm="https://reg.example/token",service="reg.example",scope="repository:locked/app:pull"'
+        self.answers[("https://reg.example/v2/locked/app/manifests/latest", False)] = (401, realm)
+        self.answers[("https://reg.example/v2/free/app/manifests/2", False)] = (200, "")
+        def refuse(url, token=None):
+            raise images.urllib.error.HTTPError(url, 401, "Unauthorized", {}, None)
+        self.patch(images, "_json", side_effect=refuse)
+        self.assertEqual(images.private_images(["reg.example/locked/app", "reg.example/free/app:2"]),
+                         {"reg.example": ["reg.example/locked/app"]})
+
+    def test_a_registry_that_does_not_answer_is_not_said_private(self):
+        self.assertEqual(images.private_images(["reg.example/quiet/app:1"]), {})

@@ -467,7 +467,8 @@ class Judged(Seam):
 
     def test_a_check_answers_with_the_destinations_the_problems_what_changes_and_who_commits(self):
         answer = self.share(check_only=True)
-        self.assertEqual(sorted(answer), ["audience", "changes", "destinations", "identity", "problems", "to"])
+        self.assertEqual(sorted(answer), ["audience", "carries", "changes", "destinations", "identity", "problems", "renames", "reuses", "to"])
+        self.assertEqual((answer["carries"], answer["reuses"], answer["renames"]), ([], [], []), "nothing of this machine, no setting of its own")
         self.assertEqual((answer["to"], answer["audience"], answer["problems"], answer["changes"], answer["identity"]),
                          ("fixture", "public", [], ["compose.yml"], WHO["email"]))
         self.assertEqual([one["id"] for one in answer["destinations"]], ["fixture", "partner"])
@@ -488,7 +489,7 @@ class Judged(Seam):
     def test_the_copy_is_judged_where_a_unit_sits_with_its_includes_reaching_the_same_files(self):
         seen = {}
 
-        def judge(project_, kind, uid, slug, ns, row, copy, stage, folder):
+        def judge(project_, kind, uid, slug, ns, row, copy, stage, folder, *_):
             seen["stage"] = stage
             seen["text"] = (self.root / stage).read_text()
             seen["files"] = sorted(path.name for path in Path(folder).iterdir())
@@ -530,7 +531,7 @@ class Judged(Seam):
         self.judged.assert_not_called()
 
     def test_compose_failing_is_a_problem_in_words_that_do_not_name_the_copy(self):
-        def judge(project_, kind, uid, slug, ns, row, copy, stage, folder):
+        def judge(project_, kind, uid, slug, ns, row, copy, stage, folder, *_):
             top = stage.split("/addons/")[0]
             raise compose.ComposeError(f"validating {self.root / top}/addons/scratch/compose.yml: services.a must be a mapping\n"
                                        f"{top}/addons/scratch/compose.yml: bad")
@@ -861,6 +862,20 @@ class Published(Seam):
         self.assertEqual(sorted(set(before) - set(after)), [])
         self.assertIn("  - ../echo/compose.yml\n", remote.git("show", f"lab/scratch-{DAY}:addons/scratch/compose.yml") + "\n")
 
+    def test_what_only_this_machine_has_goes_in_the_same_branch_and_one_commit(self):
+        self.write(".lab/tested.json", json.dumps({"local/demo": [{"versions": {}, "images": {}, "at": "2026-01-01T00:00:00Z"}]}))
+        self.item("playground", "demo", "Demo", "x-gravitee: {kind: playground, name: Demo}\ninclude:\n  - ../../addons/scratch/compose.yml\n"
+                  "services: {}\n", includes=["local/scratch"])
+        self.units["addons"]["local/scratch"]["needs"] = ["echo"]
+        done = self.share("local/demo", "fixture", "playground")
+        remote = self.remote("fixture")
+        self.assertEqual(done["branch"], f"lab/demo-{DAY}")
+        files = remote.git("ls-tree", "-r", "--name-only", done["branch"]).split("\n")
+        self.assertIn("playgrounds/demo/compose.yml", files)
+        self.assertIn("addons/scratch/compose.yml", files)
+        self.assertEqual(remote.git("rev-list", "--count", f"{done['branch']}^..{done['branch']}"), "1")
+        self.assertIn("  - ../../addons/scratch/compose.yml", remote.git("show", f"{done['branch']}:playgrounds/demo/compose.yml"))
+
     def test_the_commit_is_the_persons_with_the_tip_as_its_parent_and_a_subject_and_nothing_else(self):
         remote = self.remote("fixture")
         tip = remote.git("rev-parse", "main")
@@ -1159,6 +1174,58 @@ class Copied(Seam):
         self.assertTrue((self.root / ".lab/catalogs/fixture/addons/.share-old").is_dir(), "an install of the Lab is its sweeper's")
         self.assertEqual((outside / "mine.txt").read_text(), "mine", "a link is removed and never followed")
         self.assertEqual(contribute.sweep(), [])
+
+    def demo(self, notes_too=True):
+        """Demo, a playground of this machine that includes Notes, an add-on of this machine (the person's copy of one, it says) that
+        includes Newer of the folder."""
+        self.write(".lab/tested.json", json.dumps({"local/demo": [{"versions": {}, "images": {}, "at": "2026-01-01T00:00:00Z"}]}))
+        self.item("addon", "notes", "Notes", 'x-gravitee:\n  kind: addon\n  name: Notes\n  copy_of: "@lab-new/newer"\n'
+                  "include:\n  - ../../../lab-new/addons/newer/compose.yml\nservices: {}\n", needs=["@lab-new/newer"])
+        self.item("playground", "demo", "Demo", "x-gravitee: {kind: playground, name: Demo}\ninclude:\n  - ../../addons/notes/compose.yml\n"
+                  "services: {}\n", includes=["local/notes"])
+
+    def test_what_only_this_machine_has_goes_with_the_item_in_the_same_copy(self):
+        self.demo()
+        answer = self.share("local/demo", "lab-new", "playground", True)
+        self.assertEqual((answer["carries"], answer["reuses"]), (["Notes"], []))
+        there = next(one for one in answer["destinations"] if one["id"] == "lab-new")
+        self.assertEqual(there["reason"], "", "what goes with it keeps no catalog from taking it")
+        self.assertEqual(self.share("local/demo", "lab-new", "playground"), {"copied": "Newer Lab fixture"})
+        self.assertIn("  - ../../addons/notes/compose.yml", (self.target / "playgrounds/demo/compose.yml").read_text())
+        notes = (self.target / "addons/notes/compose.yml").read_text()
+        self.assertIn("  - ../newer/compose.yml", notes, "its include of the folder's own is written for its place there")
+        self.assertNotIn("copy_of", notes, "an item of a catalog never says whose copy it is")
+        self.assertEqual(self.stages(), [])
+
+    def test_the_settings_of_its_own_are_named_for_the_catalog_and_the_values_follow_when_it_is_used(self):
+        self.demo()
+        notes = self.root / ".lab/catalogs/local/addons/notes/compose.yml"
+        notes.write_text(notes.read_text().replace("services: {}\n", "services:\n  notes-app:\n    image: busybox:1.36\n"
+                         "    environment: {LEVEL: \"${GRAVITEE_INTERNAL_NOTES_LEVEL:-info}\", URL: \"${OLLAMA_URL:-x}\"}\n"))
+        project.forget()
+        answer = self.share("local/demo", "lab-new", "playground", True)
+        self.assertEqual(answer["renames"], [{"from": "GRAVITEE_INTERNAL_NOTES_LEVEL", "to": "LAB_NEW_NOTES_LEVEL"}],
+                         "a setting that names no item is left as it is")
+        self.share("local/demo", "lab-new", "playground")
+        copied = (self.target / "addons/notes/compose.yml").read_text()
+        self.assertIn("${LAB_NEW_NOTES_LEVEL:-info}", copied)
+        self.assertIn("${OLLAMA_URL:-x}", copied)
+        env = self.target / "addons/notes/.env"
+        env.write_text("GRAVITEE_INTERNAL_NOTES_LEVEL=debug\nOTHER=1\n")
+        contribute._rename_settings("addon", "@lab-new/notes")
+        self.assertEqual(env.read_text(), "LAB_NEW_NOTES_LEVEL=debug\nOTHER=1\n", "the person's value, under the new name")
+        self.assertNotIn("addon:@lab-new/notes", json.loads((self.root / contribute.RENAMES).read_text()))
+
+    def test_what_the_target_has_already_is_the_one_included(self):
+        self.demo()
+        (self.target / "addons/notes").mkdir(parents=True)
+        (self.target / "addons/notes/compose.yml").write_text("x-gravitee: {kind: addon, name: Notes}\nservices: {}\n")
+        answer = self.share("local/demo", "lab-new", "playground", True)
+        self.assertEqual((answer["carries"], answer["reuses"]), ([], ["Notes"]))
+        self.share("local/demo", "lab-new", "playground")
+        self.assertIn("  - ../../addons/notes/compose.yml", (self.target / "playgrounds/demo/compose.yml").read_text())
+        self.assertEqual((self.target / "addons/notes/compose.yml").read_text(), "x-gravitee: {kind: addon, name: Notes}\nservices: {}\n",
+                         "the target's own is left as it is")
 
     def test_an_item_that_includes_what_the_folder_does_not_declare_cannot_go_there(self):
         with self.assertRaises(CatalogError) as raised:
@@ -1651,13 +1718,16 @@ class Real(Base):
         text = self.PLAIN.replace("    networks: [internal]\n", "    networks: [internal]\n    privileged: true\n    volumes:\n"
                                   "      - /var/run/docker.sock:/var/run/docker.sock\n      - ${PLAIN_APP_CONF:-./c}:/c\n")
         uid = self.plain(text)
-        everything = self.share(uid, "partner")["problems"]
+        answer = self.share(uid, "partner")
+        everything = answer["problems"]
+        self.assertEqual(answer["renames"], [{"from": "PLAIN_APP_CONF", "to": "PARTNER_PLAIN_APP_CONF"}], "its own setting, named for the catalog")
         told = self.blocked(everything)
         self.assertTrue(told, everything)
         self.assertIn("plain-app: runs privileged, mounts the Docker socket: say why in x-gravitee.host_access (plain-app: <reason>), "
                       "so that it is read before it runs", everything, "what the author's rules say is there as well")
         # Written into the partner's folder the copy is a unit of it, and the project says the same
-        copy = contribute.collect("addon", "plain", "partner")
+        copy = contribute._renamed(contribute.collect("addon", "plain", "partner"), "addon", "plain",
+                                   {"PLAIN_APP_CONF": "PARTNER_PLAIN_APP_CONF"})
         for path, (mode, data) in copy.files.items():
             self.write(f".lab/catalogs/partner/{path}", data.decode())
         project.forget()

@@ -24,6 +24,7 @@ COMPOSE_FILE = f"{CORE_FILE}:{ON_FILE}"
 # Where the units are: one folder per catalog under .lab/catalogs, all at the same depth, so a relative path in a unit
 # resolves the same wherever the unit sits. `local` holds what belongs to this machine, as a catalog of its own.
 CATALOGS_DIR = f"{LAB_DIR}/catalogs"
+IMPORTS_DIR = f"{LAB_DIR}/imports"   # where the Lab keeps the playgrounds imported as catalogs of their own, one folder each
 LOCAL = "local"
 # The catalogs this Lab is configured with, tracked at the root. The first owns the bare ids; without the file there is
 # no default catalog (default_ns) and the units are where they were before catalogs (_LEGACY_ID, below)

@@ -28,6 +28,7 @@ Every function reads `paths.ROOT` at call time. The catalogs lock is held while 
 replaced, never while the network is asked."""
 
 import contextlib
+import json
 import os
 import posixpath
 import re
@@ -229,17 +230,22 @@ def destinations(project: dict, kind: str, uid: str) -> list:
     added repository that takes contributions and each folder, the default catalog first, in the order they claim names. A
     destination that cannot take this item is there with its `reason`: it takes no contributions from the Lab, the item
     includes what it does not declare, the push was refused (what the probe said in the last ten minutes: the network is not
-    asked here), the folder cannot be written; `writable` is false for the last two. A catalog with no copy is none. Reads the
-    disk only."""
+    asked here), the folder cannot be written; `writable` is false for the last two. A catalog with no copy is none, and so is an
+    imported playground's, which the Lab keeps. What only this machine has goes with the item (`_bundle`): an include of it keeps
+    no catalog from taking it. Reads the disk only."""
     file, _, _ = _own(project, kind, uid)
     included, rows, found = _includes(project, file), registry.inputs(), []
     for ns in registry.precedence():
+        if registry.imported(ns):
+            continue
         try:
             entry, row = _catalog(ns, rows)
         except paths.NotFound:
             continue
         writable, reason = True, ""
-        outside = _outside(row, ns, included[0], rows) if included else None
+        members, reused = _bundle(project, kind, uid, ns)
+        allowed = {one for _, one, _, _ in members} | {one for _, one, _ in reused}
+        outside = _outside(row, ns, [one for one in included[0] if one[1] not in allowed], rows) if included else None
         if not _takes(ns, row):
             reason = _refusal("contribute_none", name=row["name"]).message
         elif outside:
@@ -370,9 +376,10 @@ def _read(file, limit=bare.OTHER_FILE + 1) -> Optional[bytes]:
         os.close(descriptor)
 
 
-def _place(kind, slug, ns):
-    """(the folder the compose file is in now, the folder it will be in, its path in the catalog)."""
-    here, there = f"{paths.CATALOGS_DIR}/{LOCAL}", f"{paths.CATALOGS_DIR}/{ns}"
+def _place(kind, slug, ns, source=LOCAL):
+    """(the folder the compose file is in now, the folder it will be in, its path in the catalog). `source`: the catalog
+    it is in now, this machine's own by default."""
+    here, there = f"{paths.CATALOGS_DIR}/{source}", f"{paths.CATALOGS_DIR}/{ns}"
     if kind == "setup":
         return f"{here}/setups", f"{there}/setups", f"setups/{slug}.yml"
     return f"{here}/{kind}s/{slug}", f"{there}/{kind}s/{slug}", f"{kind}s/{slug}/compose.yml"
@@ -386,13 +393,20 @@ REFUSED = {"ST03": "{rel} has a name the Lab cannot install. Fix: use letters, d
            "ST13": "{rel} differs from another file only by case. Fix: rename one; a Mac cannot hold both."}
 
 
-def collect(kind, slug, ns) -> Copy:
-    """The copy of the personal item `local/<slug>` for the catalog `ns`: the allow-list less what
-    `store.rejections` refuses (what the Lab never installs), the compose file written again for its new place. The disk is
-    read and nothing is written. What is left out and would be missed is a problem: a link, a file too large, a name a catalog
-    cannot hold, a `.env` or a key that the compose file names."""
-    before, after, head = _place(kind, slug, ns)
-    uid = f"{LOCAL}/{slug}"
+def _uid(source, slug):
+    """The id of the item `slug` of the catalog `source`: local/<slug>, a bare name in the default catalog, else @<ns>/<slug>."""
+    return f"{LOCAL}/{slug}" if source == LOCAL else slug if source == paths.default_ns() else f"@{source}/{slug}"
+
+
+def collect(kind, slug, ns, source=LOCAL, moved=()) -> Copy:
+    """The copy of the item `<source>/<slug>` (the personal item `local/<slug>` by default) for the catalog `ns`: the
+    allow-list less what `store.rejections` refuses (what the Lab never installs), the compose file written again for its new
+    place. `moved`: what else goes to `ns` with it, [(old path, new path)] relative to the project, so that an include of one
+    of them follows it (an export carries an item and what it includes). The disk is read and nothing is written. What is left
+    out and would be missed is a problem: a link, a file too large, a name a catalog cannot hold, a `.env` or a key that the
+    compose file names."""
+    before, after, head = _place(kind, slug, ns, source)
+    uid = _uid(source, slug)
     data, problems = _read(paths.ROOT / paths.unit_file(kind, uid), bare.TEXT_FILE + 1), []
     if data is None:
         problems.append("compose.yml cannot be read.")
@@ -405,6 +419,7 @@ def collect(kind, slug, ns) -> Copy:
         kept = ""
         problems.append("compose.yml is not UTF-8 text.")
     table = [(paths.unit_file(kind, uid), f"{paths.CATALOGS_DIR}/{ns}/{head}")] if kind == "setup" else [(before, after)]
+    table += list(moved)
     text = moves.repoint(kept, before, after, table)
     if kind == "setup":
         return Copy({head: ("100644", text.encode("utf-8"))}, text, kept, problems)
@@ -569,13 +584,14 @@ def _clash(project, rows, ns, key, mine, closure) -> Optional[str]:
     return resolve.collisions([*owned], owned, {key: closure}).get(key)
 
 
-def _judged(project, kind, uid, slug, ns, row, copy, stage, folder):
+def _judged(project, kind, uid, slug, ns, row, copy, stage, folder, aliases=None, bundle=()):
     """The reasons the trust policy gives for the copy as a consumer of catalog `ns` would meet it, in the words a Blocked
     item shows; [] when it may run. It is the judgement project.build makes of a unit of a catalog, over the staged copy:
     the same function, the same context (the catalog's listing, allowance and declarations), what Compose says of the copy
     alone with the core, and what it defines itself against the units it includes; then the rules that need the other units,
     as the project adds them: a name another unit holds (T21), a private unit under a public catalog (T24) and an included
-    unit that is blocked (T25)."""
+    unit that is blocked (T25). What goes with it in the same share is staged beside it: its includes of those are judged at the
+    place they will have in the catalog (`aliases`: {stage path: catalog path}), and their folders are the catalog's (`bundle`)."""
     inputs = projects.loaded()[1]
     core, core_config = inputs["raw"].get(paths.CORE_FILE) or {}, inputs.get("core_config")
     if core_config is None:
@@ -604,11 +620,12 @@ def _judged(project, kind, uid, slug, ns, row, copy, stage, folder):
                "home": inputs.get("home"), "realpath": os.path.realpath,
                "level": asked if isinstance(asked, int) and not isinstance(asked, bool) else row.get("lab"),
                "contract": contract.get("contract", 1), "contract_min": contract.get("contract_min", 1)}
-    roots = trust.build_roots(paths.ROOT, folder if kind != "setup" else None, same, inputs.get("products") or (),
+    roots = trust.build_roots(paths.ROOT, folder if kind != "setup" else None, [*same, *bundle], inputs.get("products") or (),
                               realpath=os.path.realpath)
     seeds = [data.decode("utf-8", "replace") for path, (_, data) in sorted(copy.files.items())
              if path.startswith(f"{kind}s/{slug}/seed/") and not any(part.startswith(".") for part in path.split("/"))]
-    view = {"kind": kind, "id": uid, "name": meta.get("name") or slug, "meta": meta, "includes": direct, "seed": None,
+    view = {"kind": kind, "id": uid, "name": meta.get("name") or slug, "meta": meta,
+            "includes": [(aliases or {}).get(one, one) for one in direct], "seed": None,
             "references": trust.reads([(paths.ROOT / stage).read_text(encoding="utf-8")], raw, []),
             "seed_references": trust.seed_reads(seeds)}
     verdict = trust.judge(view, config, core_config, own, trust.overlays(raw, names, others), roots,
@@ -628,23 +645,29 @@ def _judged(project, kind, uid, slug, ns, row, copy, stage, folder):
 
 
 @contextlib.contextmanager
-def _staged(kind, slug, ns, copy):
-    """The files of the copy in a hidden folder beside the installs, `.lab/catalogs/.stage-share~<token>`, at the depth of a
-    unit: yields (the project path of its compose file, its folder, the project path of the hidden folder). The compose file
-    there is the copy's, written for the stage (an include of the target's own units is the include of another catalog,
-    which reaches the same files). Removed when the block ends, whatever happens."""
+def _staged_all(items, ns):
+    """The files of several copies in one hidden folder beside the installs, laid out as the target holds them, so that what one of
+    them includes of the others is found there: yields ({(kind, slug): (the project path of its compose file, its folder)}, the
+    project path of the hidden folder). Removed when the block ends, whatever happens."""
     name = f".stage-share~{os.urandom(4).hex()}"
     top, stage = paths.ROOT / paths.CATALOGS_DIR / name, f"{paths.CATALOGS_DIR}/{name}"
-    _, after, head = _place(kind, slug, ns)
-    file = f"{stage}/{head}"
-    there = f"{stage}/setups" if kind == "setup" else f"{stage}/{kind}s/{slug}"
-    here = f"{paths.CATALOGS_DIR}/{ns}/{head}" if kind == "setup" else after
+    table, places = [], {}
+    for kind, slug, _ in items:
+        _, after, head = _place(kind, slug, ns)
+        there = f"{stage}/setups" if kind == "setup" else f"{stage}/{kind}s/{slug}"
+        here = f"{paths.CATALOGS_DIR}/{ns}/{head}" if kind == "setup" else after
+        table.append((here, f"{stage}/{head}" if kind == "setup" else there))
+        places[(kind, slug)] = (after, there, head)
     try:
         os.mkdir(top, 0o755)
-        text = moves.repoint(copy.text, after, there, [(here, file if kind == "setup" else there)])
-        for path, (mode, data) in copy.files.items():
-            install.safe_write(top, path, text.encode("utf-8") if path == head else data, int(mode[-3:], 8))
-        yield file, (None if kind == "setup" else paths.ROOT / there), stage
+        for kind, slug, copy in items:
+            after, there, head = places[(kind, slug)]
+            text = moves.repoint(copy.text, after, there, table)
+            for path, (mode, data) in copy.files.items():
+                install.safe_write(top, path, text.encode("utf-8") if path == head else data, int(mode[-3:], 8))
+        yield ({key: (f"{stage}/{head}", None if key[0] == "setup" else paths.ROOT / there)
+                for key, (_, there, head) in places.items()}, stage,
+               {f"{stage}/{head}": f"{paths.CATALOGS_DIR}/{ns}/{head}" for _, there, head in places.values()})
     finally:
         shutil.rmtree(top, ignore_errors=True)
 
@@ -653,13 +676,15 @@ FLOW = ("It includes {item} in a form that cannot be written again for {catalog}
         "- ../../addons/<name>/compose.yml.")
 
 
-def _unwritten(copy, file, kind, slug, ns, row) -> List[str]:
+def _unwritten(copy, file, kind, slug, ns, row, skip=frozenset()) -> List[str]:
     """The includes of the target's own units that `moves.repoint` left as the personal file spells them: one written in a
     flow list keeps the long path through the catalogs folder, which a catalog checked on its own does not have. A path to a unit
     of another catalog is the same at both places and is not looked at."""
     before, after, _ = _place(kind, slug, ns)
     found = []
     for target in trust.include_targets(copy.kept, file) or ():
+        if (paths.unit_of(target) or ("", ""))[1] in skip:   # what goes with it, or the target has: written for it already
+            continue
         old, new = (posixpath.relpath(f"/{target}", f"/{folder}") for folder in (before, after))   # absolute: no working folder
         if old != new and old in copy.text:
             unit = paths.unit_of(target)
@@ -711,24 +736,65 @@ def _vouched(project, uid, copy) -> Copy:
     return copy._replace(files=files, text=text)
 
 
-def _preflight(project, kind, uid, file, slug, ns, row, rows, copy):
+def _preflight(project, kind, uid, file, slug, ns, row, rows, copy, along=(), allowed=frozenset()):
     """Raises the refusal of an include the target does not allow, of a secret, of the name of a private
-    catalog on a Public target; answers the other problems, [str] ("Blocked: ..." for what the policy gives a reason for)."""
+    catalog on a Public target; answers the other problems, [str] ("Blocked: ..." for what the policy gives a reason for). `along`:
+    [(kind, id, slug, copy)] of what goes with the item, each checked the same way, and judged with it in one stage; `allowed`: the
+    ids of what goes with it or the target has, which its includes may name."""
+    problems = []
+    if along:   # the rules of the standard read the files together, as the catalog will hold them: a link of one to another resolves
+        merged = dict(copy.files)
+        for _, _, _, other in along:
+            merged.update(other.files)
+        found = _rules(copy._replace(files=merged), kind, slug, ns, row)
+        for each in found:
+            if each.code in SECRETS:
+                raise _refusal("share_secret", file=each.path)
+        problems += [each.message for each in found]
+    rules = None if not along else []
+    for k, one, s, other in along:
+        problems += [f"{one.rsplit('/', 1)[-1]}: {line}" for line in _checked(project, k, one, paths.unit_file(k, one), s, ns, row,
+                                                                              rows, other, allowed, rules)]
+    problems += _checked(project, kind, uid, file, slug, ns, row, rows, copy, allowed, rules)
+    every = [(kind, uid, slug, copy), *along]
+    # What the screen refuses is not given to Compose, nor what includes in a form the check cannot follow
+    if any(trust.prescreen(c.text, f"{paths.CATALOGS_DIR}/{ns}/{_place(k, s, ns)[2]}") for k, _, s, c in every) \
+            or any(_includes(project, paths.unit_file(k, one)) is None for k, one, _, _ in every):
+        return list(dict.fromkeys(problems))
+    with _staged_all([(k, s, c) for k, _, s, c in every], ns) as (stages, top, aliases):
+        for k, one, s, c in every:
+            stage, folder = stages[(k, s)]
+            others = [there for key, (_, there) in stages.items() if key != (k, s) and there is not None]
+            try:
+                lines = _judged(project, k, one, s, ns, row, c, stage, folder, aliases, others)
+            except (compose.ComposeError, ValueError) as error:   # Compose's last line, or an answer that is not JSON
+                lines = [f"Does not load with the platform: {_scrub(str(error), top, k, s)}"]
+                problems += lines if (k, s) == (kind, slug) else [f"{one.rsplit('/', 1)[-1]}: {line}" for line in lines]
+                continue
+            problems += [f"Blocked: {reason}" if (k, s) == (kind, slug) else f"{one.rsplit('/', 1)[-1]}: Blocked: {reason}"
+                         for reason in lines]
+    return list(dict.fromkeys(problems))
+
+
+def _checked(project, kind, uid, file, slug, ns, row, rows, copy, allowed=frozenset(), found=None):
+    """The checks of one item of a share that need no Compose: its includes, a secret, a private catalog named on a Public target,
+    the rules of a catalog's item (`found`: given when they were read of all the files together), what the screen refuses."""
     included = _includes(project, file)
     problems = list(copy.problems)
     if included is None:
         problems.append("It includes in a form the check cannot follow. Fix: write each include as a list item, "
                         "- ../../addons/<name>/compose.yml.")
     else:
-        outside = _outside(row, ns, included[0], rows)
+        outside = _outside(row, ns, [one for one in included[0] if one[1] not in allowed], rows)
         if outside:
             raise _outside_refusal(outside, row)
         problems += [f"Includes {name}, which is not an item of a catalog." for name in included[1]]
-        problems += _unwritten(copy, file, kind, slug, ns, row)
+        if paths.origin(uid) == LOCAL:
+            problems += _unwritten(copy, file, kind, slug, ns, row, allowed)
     leak = _leaked(copy, kind, slug)
     if leak:
         raise leak
-    found = _rules(copy, kind, slug, ns, row)
+    found = _rules(copy, kind, slug, ns, row) if found is None else found
     for each in found:
         if each.code in SECRETS:
             raise _refusal("share_secret", file=_shown(each.path, kind, slug))
@@ -737,18 +803,14 @@ def _preflight(project, kind, uid, file, slug, ns, row, rows, copy):
         if private:
             raise private
     problems += [each.message for each in found]
-    problems += _own_rules(file)
+    # An include of what goes with it, or the target has, is no part of this machine left behind
+    going = {_here(*paths.unit_of(target)) for target in (trust.include_targets(copy.kept, file) or ())
+             if paths.unit_of(target) and paths.unit_of(target)[1] in allowed}
+    problems += [line for line in _own_rules(file)
+                 if not any(line.startswith(f"includes {where}") for where in going)]
     head = _place(kind, slug, ns)[2]
-    reasons = trust.prescreen(copy.text, f"{paths.CATALOGS_DIR}/{ns}/{head}")
-    problems += [f"Blocked: {reason}" for reason in reasons]
-    if reasons or included is None:   # what the screen refuses is not given to Compose
-        return list(dict.fromkeys(problems))
-    with _staged(kind, slug, ns, copy) as (stage, folder, top):
-        try:
-            problems += [f"Blocked: {reason}" for reason in _judged(project, kind, uid, slug, ns, row, copy, stage, folder)]
-        except (compose.ComposeError, ValueError) as error:   # Compose's last line, or an answer that is not JSON
-            problems.append(f"Does not load with the platform: {_scrub(str(error), top, kind, slug)}")
-    return list(dict.fromkeys(problems))
+    problems += [f"Blocked: {reason}" for reason in trust.prescreen(copy.text, f"{paths.CATALOGS_DIR}/{ns}/{head}")]
+    return problems
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -825,13 +887,14 @@ def _pull_request(address, branch) -> Optional[str]:
     return None
 
 
-def _publish(ns, catalog, name, kind, slug, address, branch, who, copy):
+def _publish(ns, catalog, name, kind, slug, address, branch, who, copy, also=()):
     """The target's tip is fetched (the network, no lock), the commit is built on it, the branch is
-    pushed. The tip may have the item by now: `share_exists`."""
+    pushed. The tip may have the item by now, or one of what goes with it (`also`): `share_exists`."""
     store = registry.store_dir(ns)
     base = bare.fetch(address, branch, store, stall=30, cap=FETCH_CAP)
-    if bare.read(store, base, _place(kind, slug, ns)[2]) is not None:
-        raise _refusal("share_exists", name=name, catalog=catalog)
+    for k, s in [(kind, slug), *also]:
+        if bare.read(store, base, _place(k, s, ns)[2]) is not None:
+            raise _refusal("share_exists", name=name if (k, s) == (kind, slug) else s, catalog=catalog)
     commit = _commit(store, base, copy.files, f"Add {name}", who)
     where = _branch(address, slug)
     try:
@@ -912,6 +975,146 @@ def sweep() -> List[str]:
 # share
 # ---------------------------------------------------------------------------------------------------------------------
 
+def _machine_only(uid) -> bool:
+    """Whether an item is only on this machine: Personal's, or a playground's imported from a file."""
+    ns = paths.origin(uid)
+    return ns == LOCAL or registry.imported(ns)
+
+
+def _bundle(project, kind, uid, to):
+    """What a share of `uid` to `to` takes along: (members [(kind, id, slug, source)], the items it includes that are only on this
+    machine and that the target does not have, which go with it in the same branch or copy; reused [(kind, id, slug)], those the
+    target has already (a share of before): the target's is included instead, and what they include is the target's business)."""
+    units = {"addon": project["addons"], "setup": project["setups"], "playground": project["playgrounds"]}
+    have = registry.units_of(to)
+    members, reused, seen, todo = [], [], {(kind, uid)}, [(kind, uid)]
+    while todo:
+        for node in resolve._direct(units, todo.pop(0)):
+            if node in seen or not _machine_only(node[1]):
+                continue
+            seen.add(node)
+            slug = node[1].rsplit("/", 1)[-1]
+            if slug in (have.get(node[0]) or ()):
+                reused.append((node[0], node[1], slug))
+                continue
+            members.append((node[0], node[1], slug, paths.origin(node[1])))
+            todo.append(node)
+    return members, reused
+
+
+def _target(kind, slug, ns):
+    """The place of an item in catalog `ns`, relative to the project: its folder, or the file of a setup."""
+    return f"{paths.CATALOGS_DIR}/{ns}/setups/{slug}.yml" if kind == "setup" else f"{paths.CATALOGS_DIR}/{ns}/{kind}s/{slug}"
+
+
+def _here(kind, uid):
+    return paths.unit_file(kind, uid) if kind == "setup" else paths.unit_folder(kind, uid)
+
+
+COPY_OF = re.compile(r'(?m)^[ \t]+copy_of:[^\n]*\n|copy_of:\s*("[^"]*"|\'[^\']*\'|[^,}\s]+)\s*,?\s*')
+
+
+def _unmarked(copy, kind, slug):
+    """The copy without `x-gravitee.copy_of`: whose copy an item of this machine is, which an item of a catalog never says."""
+    text = COPY_OF.sub("", copy.text, count=1) if "copy_of" in copy.text else copy.text
+    if text == copy.text:
+        return copy
+    head = next(path for path in copy.files if path == f"setups/{slug}.yml" or path == f"{kind}s/{slug}/compose.yml")
+    files = dict(copy.files)
+    files[head] = (files[head][0], text.encode("utf-8"))
+    return copy._replace(files=files, text=text)
+
+
+IMAGE_SETTINGS = ("_VERSION", "_REGISTRY", "_PULL_POLICY")   # what any item may read under any name (T20): never renamed
+RENAMES = f"{paths.LAB_DIR}/renames.json"   # {"kind:id in the catalog": {old: new}}: the settings a share renamed, until the item is used
+
+
+def _prefix(ns) -> str:
+    return ns.upper().replace("-", "_") + "_"
+
+
+def _reads(kind, slug, copy):
+    """The settings a copy reads: what its compose file refers to, and what its seed files do."""
+    names = {key for key, _, _ in compose.references(copy.text)}
+    seeds = [data.decode("utf-8", "replace") for path, (_, data) in sorted(copy.files.items())
+             if path.startswith(f"{kind}s/{slug}/seed/") and b"\0" not in data[:8192]]
+    return names | set(trust.seed_reads(seeds))
+
+
+def _renames(items, to) -> Dict[str, str]:
+    """{old: new} of the settings the items of a share read ([(kind, slug, copy)]) that are their own and not named for `to`: an item of a catalog reads
+    the settings named for its catalog (T20), and one that was the person's, or came from another catalog, is named for where it
+    was (GRAVITEE_INTERNAL_GKO_LOG_LEVEL). A setting is an item's own when the name of one of the items is in it (GKO): it then
+    starts there, after the prefix of `to` (TEAM_DEMOS_GKO_LOG_LEVEL). The platform's settings, the shared ones, the image's
+    (*_VERSION, *_REGISTRY, *_PULL_POLICY) and a name that holds no item's are left as they are: the check says it if it is wrong."""
+    inputs = projects.loaded()[1]
+    core = {one["key"] for one in (inputs.get("variables") or {}).get(paths.CORE_FILE, [])}
+    shared = {name for names in (inputs.get("shared_settings") or {}).values() for name in names or ()}
+    prefix = _prefix(to)
+    tokens = sorted({slug.upper().replace("-", "_") for _, slug, _ in items}, key=len, reverse=True)
+    found = {}
+    for kind, slug, copy in items:
+        for name in sorted(_reads(kind, slug, copy)):
+            if name.startswith(prefix) or name.endswith(IMAGE_SETTINGS) or name in core or name in shared:
+                continue
+            starts = [hit.start(1) for token in tokens for hit in re.finditer(rf"(?:^|_)({re.escape(token)})_", name)]
+            if starts:
+                found[name] = prefix + name[min(starts):]
+    return {old: new for old, new in found.items() if old != new}
+
+
+def _renamed(copy, kind, slug, mapping):
+    """The copy with the settings of `mapping` renamed in every text file it carries: compose file, seed, guide, README."""
+    if not mapping:
+        return copy
+    pattern = re.compile(r"(?<![A-Za-z0-9_])(" + "|".join(map(re.escape, sorted(mapping, key=len, reverse=True))) + r")(?![A-Za-z0-9_])")
+    files = {}
+    for path, (mode, data) in copy.files.items():
+        if b"\0" in data[:8192]:
+            files[path] = (mode, data)
+            continue
+        try:
+            text = data.decode("utf-8")
+        except ValueError:
+            files[path] = (mode, data)
+            continue
+        files[path] = (mode, pattern.sub(lambda hit: mapping[hit.group(1)], text).encode("utf-8"))
+    head = f"setups/{slug}.yml" if kind == "setup" else f"{kind}s/{slug}/compose.yml"
+    return copy._replace(files=files, text=files[head][1].decode("utf-8") if head in files else copy.text)
+
+
+def _remember_renames(to, items, mapping):
+    """Keeps on this machine what a share renamed, for each item as the catalog will hold it, until it is used (`moved`)."""
+    if not mapping:
+        return
+    path = paths.ROOT / RENAMES
+    try:
+        kept = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        kept = {}
+    for kind, _, slug in items:
+        kept[f"{kind}:{_uid(to, slug)}"] = dict(mapping)
+    paths.write_atomic(path, json.dumps(kept, indent=2, sort_keys=True) + "\n")
+
+
+def _rename_settings(kind, uid):
+    """The person's values under the names the catalog's item reads: what a share renamed is renamed in its .env, then forgotten."""
+    path = paths.ROOT / RENAMES
+    try:
+        kept = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    mapping = kept.pop(f"{kind}:{uid}", None)
+    env = paths.unit_env(kind, uid)
+    if isinstance(mapping, dict) and mapping and env and (paths.ROOT / env).is_file():
+        file = paths.ROOT / env
+        text = file.read_text(encoding="utf-8")
+        for old, new in mapping.items():
+            text = re.sub(rf"(?m)^(\s*(?:export\s+)?){re.escape(old)}(?==)", lambda hit, new=new: hit.group(1) + new, text)
+        paths.write_atomic(file, text, mode=stat.S_IMODE(file.stat().st_mode))
+    paths.write_atomic(path, json.dumps(kept, indent=2, sort_keys=True) + "\n")
+
+
 def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False) -> dict:
     """Shares the personal item `uid` to catalog `to`. With `check_only`, what it would do and what keeps it: ShareCheck
     {destinations, to, audience, problems, changes, identity}, nothing written. Else the share: a repository gets a branch,
@@ -932,22 +1135,43 @@ def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False)
         if _probe(to, address, branch) == "no":
             raise _refusal("no_write_access", name=row["name"])
         who = _identity()
+    members, reused = _bundle(project, kind, uid, to)
+    moved = [(_here(k, one), _target(k, s, to)) for k, one, s, _ in members] + [(_here(k, one), _target(k, s, to)) for k, one, s in reused]
+    allowed = {one for _, one, _, _ in members} | {one for _, one, _ in reused}
+    units = {"addon": project["addons"], "setup": project["setups"], "playground": project["playgrounds"]}
+    named = lambda k, one: (units[k].get(one) or {}).get("name") or one.rsplit("/", 1)[-1]   # noqa: E731
     with registry.flock():
-        copy = collect(kind, slug, to)
+        copy = _unmarked(collect(kind, slug, to, moved=moved), kind, slug)
+        along = [(k, one, s, _unmarked(collect(k, s, to, source, moved=moved), k, s)) for k, one, s, source in members]
+        renames = _renames([(kind, slug, copy), *[(k, s, c) for k, _, s, c in along]], to)
+        copy = _renamed(copy, kind, slug, renames)
+        along = [(k, one, s, _renamed(c, k, s, renames)) for k, one, s, c in along]
         if kind == "playground":
             copy = _vouched(project, uid, copy)
-        problems = _preflight(project, kind, uid, file, slug, to, row, rows, copy)
+        problems = _preflight(project, kind, uid, file, slug, to, row, rows, copy, along, allowed)
     answer = {"destinations": destinations(project, kind, uid), "to": to, "audience": row["audience"], "problems": problems,
               "changes": [_shown(_place(kind, slug, to)[2], kind, slug)] if copy.text != copy.kept else [],
-              "identity": who["email"] if who and row["audience"] == "public" else None}
+              "identity": who["email"] if who and row["audience"] == "public" else None,
+              "carries": [named(k, one) for k, one, _, _ in members], "reuses": [named(k, one) for k, one, _ in reused],
+              "renames": [{"from": old, "to": new} for old, new in sorted(renames.items())]}
     if check_only:
         return answer
     if problems:
         raise ValueError(problems[0])
+    shared = [(kind, uid, slug), *[(k, one, s) for k, one, s, _ in along]]
     if address is not None:
-        return _publish(to, row["name"], name, kind, slug, address, branch, who, copy)
+        files = dict(copy.files)
+        for _, _, _, other in along:
+            files.update(other.files)
+        done = _publish(to, row["name"], name, kind, slug, address, branch, who, copy._replace(files=files),
+                        also=[(k, s) for k, _, s, _ in along])
+        _remember_renames(to, shared, renames)
+        return done
     with registry.flock():
+        for k, one, s, other in along:
+            _copy_into(to, row["name"], named(k, one), k, s, other)
         _copy_into(to, row["name"], name, kind, slug, copy)
+    _remember_renames(to, shared, renames)
     return {"copied": row["name"]}
 
 
@@ -1026,6 +1250,7 @@ def moved(kind: str, old: str, new: str) -> None:
         raise _stuck(kind, old, new, stuck)
     personal.follow(*(paths.unit_folder(kind, one) or paths.unit_file(kind, one) for one in (old, new)))
     moves.rekey({f"{kind}:{old}": new})
+    _rename_settings(kind, new)
 
 
 def _unshared(folder, text, skip) -> List[str]:

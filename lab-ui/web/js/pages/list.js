@@ -11,10 +11,11 @@ import { toast, effectsDialog, openMenu, GAP, openButton, Pager, emptyHtml, pain
 import { CategoryFilter } from "../components/combo.js";
 import { runJob, runAction, busy, showOutput } from "../activity/jobs.js";
 import { selectLogs, hasLogs } from "./logs.js";
-import { stopPlayground, pluginNames, shareEntry, deleteEntry, usesMachine, maybeComing } from "./playground.js";
+import { stopPlayground, pluginNames, shareEntry, deleteEntry, exportable, exportEntry, movable, moveEntry, copyable, copyEntry, usesMachine, maybeComing } from "./playground.js";
 import { MACHINE, THIS_MACHINE, registered, chosenPlace, barred, startPlayground, deployTo, keepItemPlace, goes, whyNot, placesOf } from "../platform/places.js";
 import { openFile, openSettings } from "../dialogs/editor.js";
 import { openCreate } from "../dialogs/create.js";
+import { openImport } from "../dialogs/catalog.js";
 import { License } from "../dialogs/license.js";
 import { KINDS, openCreateGateway, openCloudToken } from "../dialogs/platform.js";
 
@@ -248,7 +249,8 @@ const LOCAL = "local";   // the source of this machine's items: the id of its ro
 // The first catalog is the one whose items have bare ids, and so no origin: the first of those listed, which the picker lists first
 const firstId = () => added().find((c) => c.listed)?.id ?? "@first";
 const sourceOf = (x) => (x.personal ? LOCAL : x.origin?.id ?? firstId());
-const sourceName = (id) => (id === LOCAL ? "Personal" : added().find((c) => c.id === id)?.name ?? "Catalog");
+const IMPORTED = "imported";   // the source of every imported playground's items: one place, as the Catalogs page shows it
+const sourceName = (id) => (id === LOCAL ? "Personal" : id === IMPORTED ? "Imported" : added().find((c) => c.id === id)?.name ?? "Catalog");
 
 // The picker lists the first catalog, then the others as they were added, then this machine
 function sourceOrder(entries) {
@@ -455,12 +457,14 @@ function list(kind, title, noun) {
   function twin(x) {
     const other = store.item(kind, x.twin.id), wait = store.offline ? store.wait() : "";
     const why = wait || cannotRun(other) || (x.on || x.up ? `Turn off ${x.name} first` : other?.on || other?.up ? `Turn off ${other.name} first` : "");
-    return { label: "Use the catalog version", disabled: !!why, reason: why, onSelect: () => useCatalogVersion(x) };
+    return { label: x.twin.copy ? "Back to the catalog version" : "Use the catalog version", disabled: !!why, reason: why, onSelect: () => useCatalogVersion(x) };
   }
 
+  // The person's copy given up for the catalog's (Back to the catalog version), or a shared item's copy for the catalog's that now holds it
   async function useCatalogVersion(x) {
     const rows = [{ label: "Deletes", items: ["Your copy"], tone: "danger" }, { label: "Keeps", items: ["Your settings and data"], note: true }];
-    if (!(await effectsDialog({ title: "Use the catalog version", options: [{ rows }], action: () => "Use" }))) return;
+    const title = x.twin?.copy ? "Back to the catalog version" : "Use the catalog version";
+    if (!(await effectsDialog({ title, options: [{ rows }], action: () => (x.twin?.copy ? "Go back" : "Use") }))) return;
     try {
       await busy(`${kind}:${x.id}`, "replace", api(`/api/${kind}s/${x.id}/use-catalog`, {}));
       toast("Replaced");   // the word of the same verb on the button ("Replacing"), and of Replace Cloud Token
@@ -493,6 +497,11 @@ function list(kind, title, noun) {
       kind === "setup" && x.personal && { label: "Edit", onSelect: () => openCreate({ kind, mode: "edit", setup: x }) },
       kind === "setup" && { label: "Duplicate", onSelect: () => openCreate({ kind, mode: "duplicate", setup: x }) },
       // What is of this machine is shared to a catalog, as a copy, or deleted unless something holds it: the server says what
+      exportable(x) && exportEntry(x),
+      // An imported item becomes the person's own
+      movable(x) && moveEntry(x),
+      // The person's own version of an item of a catalog
+      copyable(x) && copyEntry(x),
       x.personal && shareEntry(x),
       // The same item in a catalog, as the server finds it: its copy is dropped for the catalog's, once neither runs
       x.personal && x.twin && twin(x),
@@ -523,7 +532,7 @@ function list(kind, title, noun) {
     el.innerHTML = `
       <div class="page-head">
         <h1>${title}</h1>
-        <div class="page-actions"><button class="btn" data-new>${icon("plus")}New ${noun.toLowerCase()}</button></div>
+        <div class="page-actions">${kind === "playground" ? `<button class="btn" data-import>${icon("upload")}Import</button>` : ""}<button class="btn" data-new>${icon("plus")}New ${noun.toLowerCase()}</button></div>
       </div>
       <div class="card list-card">
         <div class="list-tools">
@@ -571,6 +580,7 @@ function list(kind, title, noun) {
       if (!button || button.disabled || button.ariaDisabled === "true") return;
       const data = button.dataset, x = store.item(kind, id);
       if ("new" in data) { if (store.state) openCreate({ kind, mode: "new" }); }   // its form is drawn from the state
+      else if ("import" in data) openImport();
       else if ("clear" in data) {
         remember(STARRED, "");
         clear();

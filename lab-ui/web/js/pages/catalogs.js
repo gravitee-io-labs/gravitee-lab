@@ -29,7 +29,7 @@ const routed = new Set();
 const keyOf = (row) => row.id ?? row.url ?? row.name;
 const total = (counts = {}) => HOLDS.reduce((sum, [kind]) => sum + (counts[kind] || 0), 0);
 // A row that opens is a catalog that is there, or this machine's own; one that is only offered has nothing to open on
-const opens = (row) => ["git", "folder", "machine"].includes(row.kind);
+const opens = (row) => ["git", "folder", "machine", "imports"].includes(row.kind);
 const installed = (row) => row.kind !== "git" || !!row.commit;
 const noGit = () => store.state?.git?.available === false;
 const offline = () => (store.offline ? "Lab UI offline" : store.error ? "Lab UI error" : "");
@@ -109,7 +109,7 @@ const old = (iso) => (ago(iso) ? `${ago(iso)} ago` : "");
 
 // What the catalog is: where it is read from and by whom, which version, when it changed and was looked at, what this machine allows it
 function about(row) {
-  if (row.kind === "machine") return "";
+  if (row.kind === "machine" || row.kind === "imports") return "";
   const git = row.kind === "git", folder = row.kind === "folder", uses = !row.listed && (row.uses_machine || []).length > 0;
   const where = row.address ? `<code>${esc(row.address)}</code>${copyButton(row.url || row.address, "Copy the address")}` : "";
   const count = Number(row.ignored) || 0;
@@ -120,6 +120,26 @@ function about(row) {
       + fact("Access", row.audience && `${esc(row.audience === "public" ? "Public" : "Private")}${info(ACCESS, "Access")}`) : ""}
     ${(git || folder) && uses ? fact("Uses this machine", `${row.host === "allowed" ? "Allowed" : "Not allowed"}${info(usesCard(row.uses_machine), "Uses this machine")}`) : ""}
     ${count ? fact("Ignored", `${count} ${count === 1 ? "file" : "files"}${info(IGNORED, "Ignored")}`) : ""}</section>`;
+}
+
+// The playgrounds imported from a file and kept as catalogs of their own: one place to the person, Imported, which lists each of them with its
+// menu (Remove, and the allowance of what uses this machine)
+const IMPORTED = "imported";
+function grouped(rows) {
+  const imports = rows.filter((r) => r.imported);
+  if (!imports.length) return rows;
+  const counts = Object.fromEntries(HOLDS.map(([kind]) => [kind, imports.reduce((sum, r) => sum + (r.counts?.[kind] || 0), 0)]));
+  const group = { id: IMPORTED, kind: "imports", name: "Imported", counts, members: imports, state: { key: "machine" },
+    blocked: imports.flatMap((r) => r.blocked || []), problems: imports.flatMap((r) => r.problems || []) };
+  const rest = rows.filter((r) => !r.imported), at = rest.findIndex((r) => r.kind === "git" || r.kind === "suggested");
+  return at < 0 ? [...rest, group] : [...rest.slice(0, at), group, ...rest.slice(at)];
+}
+
+function members(row) {
+  if (row.kind !== "imports") return "";
+  const line = (m) => `<div class="panel-row panel-fact" data-member="${esc(m.id)}"><span>${esc(m.name)}</span><span>${total(m.counts)} ${total(m.counts) === 1 ? "item" : "items"}${
+    menu(m).length ? `<button class="icon-btn" data-member-more data-tip="More" aria-label="${esc(`More for ${m.name}`)}" aria-haspopup="true">${icon("more")}</button>` : ""}</span></div>`;
+  return `<section class="panel">${heading("Imports")}${row.members.map(line).join("")}</section>`;
 }
 
 // What it holds: a button for each kind that sets that list's catalog filter to this catalog and goes there; below, what in it cannot run, one
@@ -201,8 +221,9 @@ function menu(row) {
       onSelect: () => openAllow(row, !allowed) });
   }
   const web = /^https:\/\//i.test(row.web_url || "") ? row.web_url : "";
-  if (web) items.push({ label: "Open repository", href: web });
-  items.push({ label: "Copy address", onSelect: () => copy(row.url || row.address) });
+  // Where the Lab keeps an imported playground is its own business: no repository to open, no address to copy
+  if (web && !row.imported) items.push({ label: "Open repository", href: web });
+  if (!row.imported) items.push({ label: "Copy address", onSelect: () => copy(row.url || row.address) });
   if (git) items.push({ label: "Go back to previous version", ...hold(!row.has_previous ? "No previous version" : held.undo === "No previous version" ? "" : held.undo), onSelect: () => openGoBack(row) });
   if (row.state?.key === "damaged") items.push({ label: "Repair", ...hold(""), onSelect: () => repair(row) });
   items.push({ separator: true }, { label: "Remove", danger: true, ...hold(held.remove), onSelect: () => openRemove(row) });
@@ -222,7 +243,7 @@ const shown = (row) => ROWS.includes(row?.kind) || (row?.kind === "machine" && t
 
 // The table has two sections, on a band each: what is on this machine (Personal, a folder linked as a catalog), then what is fetched
 // from a repository (an added catalog, a suggested one). A section with no row has no band.
-const SECTIONS = [["Local", (row) => row.kind === "machine" || row.kind === "folder"], ["Remote", (row) => row.kind === "git" || row.kind === "suggested"]];
+const SECTIONS = [["Local", (row) => row.kind === "machine" || row.kind === "folder" || row.kind === "imports"], ["Remote", (row) => row.kind === "git" || row.kind === "suggested"]];
 const bandKey = (name) => `band:${name}`;
 
 function drawRows(ul, all) {
@@ -239,7 +260,7 @@ function drawRows(ul, all) {
     $(".s-toggle", top)?.setAttribute("aria-expanded", String(open));
     detail.id = detailId(row);
     detail.hidden = !open;
-    setHTML(detail, open ? about(row) + holds(row) : "");
+    setHTML(detail, open ? about(row) + members(row) + holds(row) : "");
   });
 }
 
@@ -253,7 +274,7 @@ function controlOf(el) {
 function draw(state) {
   if (!section) return;
   const at = document.activeElement, again = at && section.contains(at) ? controlOf(at) : "";
-  const readable = Array.isArray(state?.catalogs), rows = readable ? state.catalogs.filter(shown) : [];
+  const readable = Array.isArray(state?.catalogs), rows = readable ? grouped(state.catalogs.filter(shown)) : [];
   holdOff($("[data-add-catalog]", section), noGit(), NO_GIT);
   const status = $("[data-status]", section), list = $(".list-rows", section);
   $(".list-head", section).hidden = !rows.length;
@@ -310,7 +331,8 @@ function init(el) {
     // A row that opens does so from a click anywhere on it but its controls, and from its toggle
     if ((!button || "toggle" in button.dataset) && on(".list-row") && !on("a") && $(".s-toggle", li)) return toggle(id);
     if (!button || button.disabled || button.ariaDisabled === "true" || button.getAttribute("aria-disabled") === "true") return;
-    const data = button.dataset, row = (store.state?.catalogs || []).find((x) => keyOf(x) === id);
+    const data = button.dataset, row = grouped((store.state?.catalogs || []).filter(shown)).find((x) => keyOf(x) === id);
+    const member = row?.members?.find((m) => m.id === button.closest("[data-member]")?.dataset.member);
     if ("new" in data) openNew();
     else if ("addCatalog" in data) openAdd();
     else if ("reload" in data) store.refresh();
@@ -318,6 +340,7 @@ function init(el) {
     else if ("update" in data) openUpdate(row);
     else if ("retry" in data) tryAgain(row.id);
     else if ("add" in data) addCatalog(row);
+    else if ("memberMore" in data && member) openMenu(button, menu(member));
     else if ("more" in data) openMenu(button, menu(row));
     else if ("holds" in data) showHeld(data.holds, row.id);
   });

@@ -1016,12 +1016,12 @@ mark { background: var(--hl); color: var(--hl-text); border-radius: 2px; padding
 /* A license given: a file chosen or dropped, or its text, above the facts it changes */
 .license-form { flex: none; display: grid; grid-template-columns: minmax(0, 640px); padding: 4px var(--pad) var(--pad);
   border-bottom: 1px solid var(--border); --label: 96px; }
-.license-drop { display: flex; align-items: center; gap: 8px; min-width: 0; height: 40px; padding: 0 6px 0 12px;
+.license-drop, .file-drop { display: flex; align-items: center; gap: 8px; min-width: 0; height: 40px; padding: 0 6px 0 12px;
   border: 1px dashed var(--border-strong); border-radius: 8px; color: var(--muted); }
-.license-drop > svg { width: 14px; height: 14px; flex: none; }
-.license-drop > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.license-drop > svg, .file-drop > svg { width: 14px; height: 14px; flex: none; }
+.license-drop > span, .file-drop > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .license-drop.chosen { color: var(--text); border-style: solid; }
-.license-drop.over { border-color: var(--text-2); background: var(--surface-2); }
+.license-drop.over, .file-drop.over { border-color: var(--text-2); background: var(--surface-2); }
 .license-form textarea { font-family: var(--mono); font-size: var(--fs-1); }
 .license-form .dialog-actions { align-items: center; }
 .license-form .dialog-actions > .text-link { margin-right: auto; }

@@ -1470,6 +1470,9 @@ def _with_stubs(inputs, default):
     return {**inputs, "raw": raw, "default": default}
 
 
+IMPORTED = "imported"   # the origin the items of every imported playground say: one place, whichever file they came from
+
+
 def _placed(uid, path, inputs):
     """Where a unit comes from: its catalog, `origin` (the catalog's name and version, for a unit of a catalog that is not
     the first, and for one of the first once there is another catalog to tell it from; the units of this machine say none),
@@ -1484,6 +1487,8 @@ def _placed(uid, path, inputs):
     row = (inputs.get("catalogs") or {}).get(ns) or {}
     several = len([name for name in (inputs.get("catalogs") or {}) if name != paths.LOCAL]) > 1
     origin = {"id": ns, "name": row.get("name") or ns, "version": row.get("version")} if tier == "other" or several else None
+    if origin and registry.imported(ns):   # the imported playgrounds are one place to the person: Imported
+        origin = {"id": IMPORTED, "name": "Imported", "version": None}
     return {"catalog": ns, "origin": origin, "readonly": row.get("kind") == "git", "display_file": path.split("/", 3)[3]}
 
 
@@ -1538,7 +1543,8 @@ def _judge_units(inputs, raw, core, addons, setups, playgrounds):
         owned[key] = {**resolve.owned_names(config or raw[file], core_config or core, own,
                                             [configs.get(t) or raw[t] for t in direct if t in raw]),
                       "name": unit["name"], "id": uid, "kind": kind, "tier": "other" if tier == "other" else
-                      "default" if tier == "default" else "local"}
+                      "default" if tier == "default" else "local",
+                      "copy_of": meta.get("copy_of") if tier == "local" and isinstance(meta.get("copy_of"), str) else None}
         context = {"ns": unit["catalog"], "host_ok": host_ok, "listed": listed, "local": tier == "local",
                    "requires": sorted(row.get("requires_catalogs") or ()),
                    "shared_settings": (inputs.get("shared_settings") or {}).get(unit["catalog"]) or [],
@@ -1582,7 +1588,7 @@ def _judge_units(inputs, raw, core, addons, setups, playgrounds):
     order = _claims(inputs, core, units, tiers, owned, closures, verdicts)
     for key, unit in units.items():
         _settle(unit, [verdicts[other] for other in closures[key] if other in verdicts])
-    _twins(units, tiers, own_of, names, order, catalogs)
+    _twins(units, tiers, own_of, names, order, catalogs, owned)
     return verdicts
 
 
@@ -1630,21 +1636,24 @@ def _settle(unit, closure):
             unit["seed"] = None
 
 
-def _twins(units, tiers, own_of, names, order, catalogs):
-    """The unit of this machine and the unit of a catalog that are the same item (resolve.same_item): each says the other
-    as `twin`, {id, name}; a personal unit takes the first unit of a catalog, in the order of precedence, that is its twin.
-    Nothing is stored."""
+def _twins(units, tiers, own_of, names, order, catalogs, owned=None):
+    """The unit of this machine and the unit of a catalog that are the same item: each says the other as `twin`, {id, name}. The
+    person's copy of a catalog unit (`copy_of`: resolve.copy_of) is the twin of that unit, and says so (`copy`: true); else a
+    personal unit takes the first unit of a catalog, in the order of precedence, that is the same item (resolve.same_item). Nothing
+    is stored."""
     def seen(key):
-        return {"id": key[1], "kind": key[0], "name": names[key], "services": own_of[key]}
+        return {"id": key[1], "kind": key[0], "name": names[key], "services": own_of[key],
+                "copy_of": ((owned or {}).get(key) or {}).get("copy_of")}
     for key in order:
         if tiers[key] != "local":
             continue
-        twin = next((other for other in order if tiers[other] in JUDGED and other[0] == key[0]
-                     and resolve.same_item(seen(key), seen(other))), None)
+        copied = next((other for other in order if tiers[other] in JUDGED and resolve.copy_of(seen(key), seen(other))), None)
+        twin = copied or next((other for other in order if tiers[other] in JUDGED and other[0] == key[0]
+                               and resolve.same_item(seen(key), seen(other))), None)
         if twin:
-            there = units[twin]
-            units[key]["twin"] = {"id": there["id"], "name": (catalogs.get(there["catalog"]) or {}).get("name") or there["catalog"]}
-            there["twin"] = there["twin"] or {"id": units[key]["id"], "name": "Personal"}
+            there, copy = units[twin], {"copy": True} if copied else {}
+            units[key]["twin"] = {"id": there["id"], "name": (catalogs.get(there["catalog"]) or {}).get("name") or there["catalog"], **copy}
+            there["twin"] = there["twin"] or {"id": units[key]["id"], "name": "Personal", **copy}
 
 
 def _apart(problems, default, given):

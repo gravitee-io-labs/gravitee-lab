@@ -769,14 +769,17 @@ test("an item that needs a catalog says so with a warning beside its Start that 
   alone();
 });
 
-test("the file button of an item of a catalog reads View with the file's name; its menu has no Delete, no Share and no Edit, and a setup keeps Duplicate", () => {
+test("the file button of an item of a catalog reads View with the file's name; its menu has no Delete, no Share and no Edit, a setup keeps Duplicate, a playground has Export, and each Copy to Personal", () => {
   draw(everyone());
   const file = row("playgrounds", "@acme-hub/ledger-demo").querySelector(".row-icons [data-file]");
   assert.deepEqual([file.getAttribute("data-tip"), file.getAttribute("aria-label")], ["View compose.yml", "View compose.yml"]);
   assert.equal(row("playgrounds", "local/scratch").querySelector(".row-icons [data-file]").getAttribute("data-tip"), "Edit playgrounds/local/scratch/compose.yml");
-  assert.deepEqual(menuOf("setups", "@acme-hub/duo").map(([label]) => label), ["Duplicate"]);
-  assert.deepEqual(menuOf("playgrounds", "@acme-hub/ledger-demo").map(([label]) => label), []);
-  assert.deepEqual(menuOf("playgrounds", "local/scratch").map(([label]) => label), ["Share", "Delete"]);
+  assert.deepEqual(menuOf("setups", "@acme-hub/duo").map(([label]) => label), ["Duplicate", "Copy to Personal"]);
+  assert.deepEqual(menuOf("playgrounds", "@acme-hub/ledger-demo").map(([label]) => label), ["Export", "Copy to Personal"]);
+  assert.deepEqual(menuOf("playgrounds", "local/scratch").map(([label]) => label), ["Export", "Share", "Delete"]);
+  alone();
+  draw(world({ playgrounds: [made("playground", "bakery", "Bakery")] }));
+  assert.deepEqual(menuOf("playgrounds", "bakery").map(([label]) => label), ["Copy to Personal"], "one of the default catalog comes with every Lab: nothing to export");
   alone();
 });
 
@@ -797,7 +800,7 @@ test("an item of this machine that a catalog now holds too offers the catalog's,
   const entry = () => menuOf("playgrounds", "local/scratch").filter(([label]) => label === "Use the catalog version");
   draw(state());
   assert.deepEqual(entry(), [["Use the catalog version", ""]]);
-  assert.deepEqual(menuOf("playgrounds", "@acme-hub/scratch").map(([label]) => label), [], "only the item of this machine has it");
+  assert.deepEqual(menuOf("playgrounds", "@acme-hub/scratch").map(([label]) => label), ["Export"], "only the item of this machine has it");
   draw(state({ on: true, up: true, state: RUNNING }));
   assert.deepEqual(entry(), [["Use the catalog version", "Turn off Scratch first"]]);
   draw(state({}, { on: true, up: true, state: RUNNING }));
