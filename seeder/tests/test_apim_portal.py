@@ -164,6 +164,12 @@ class World:
         return 204
 
     def put(self, env, kind, portal, body):
+        if kind == "portal" and (env, kind, None, body["hrid"]) not in self.store:
+            for entry in body["structure"]["topNavbar"]:
+                top = "/" + entry["path"].strip("/").split("/")[0]
+                if any(not i.get("parentId") and i["id"] != ident(env, "folder", top) and apim_portal.normal(i["title"]) == top
+                       for i in self.items[env].values()):
+                    return 400, {"httpStatus": 400, "message": f"Navigation path [{top}] is already occupied by content not managed by the Automation API"}
         state = {**body, "id": ident(env, kind, body["hrid"]), "environmentId": env, "organizationId": "DEFAULT"}
         if portal:
             state["portalHrid"] = portal
@@ -649,6 +655,20 @@ class Listings(Portals):
         self.world.items["moderna"][FEEDS[0]]["order"] = 5
         self.assertEqual(self.run_seed(), [("PUT", f"{ITEMS}/{FEEDS[0]}")])
         self.assertEqual(self.world.items["moderna"][FEEDS[0]]["order"], 0)
+
+    def test_the_item_of_a_renamed_api_takes_its_new_name(self):
+        self.seeded()
+        self.world.items["moderna"][FEEDS[0]]["title"] = "Old name"   # the title the platform gave it when the API had its old name
+        self.assertEqual(self.run_seed(), [("PUT", f"{ITEMS}/{FEEDS[0]}")])
+        api = next(a for a in self.world.apis["moderna"] if a["id"] == self.world.items["moderna"][FEEDS[0]]["apiId"])
+        self.assertEqual(self.world.items["moderna"][FEEDS[0]]["title"], api["name"])
+
+    def test_the_item_of_an_api_made_again_is_made_again_for_it(self):
+        self.seeded()
+        self.world.items["moderna"][FEEDS[0]]["apiId"] = "api-gone"   # an LLM proxy is made again, with a new id, when its file changes
+        changes = self.run_seed()
+        self.assertIn(("DELETE", f"{ITEMS}/{FEEDS[0]}"), changes)
+        self.assertEqual(self.world.items["moderna"][FEEDS[0]]["apiId"], "api-1")
 
     def test_an_api_that_leaves_the_listing_loses_its_item_and_its_page_leaves_the_record(self):
         self.seeded()
@@ -1373,6 +1393,38 @@ class Documents(Portals):
         apim_portal.remove(common.created())
         self.assertIn("✓ Deleted portal-api-page 'moderna: moderna-feeds'", self.output())
 
+
+
+class Occupied(Portals):
+    """The folder the platform makes in the top bar of an environment, which the Automation API will not take."""
+
+    def made(self, title, *children):
+        self.world.items["moderna"]["default"] = {"id": "default", "type": "FOLDER", "title": title, "published": True, "visibility": "PUBLIC", "order": 0}
+        for n, child in enumerate(children):
+            self.world.items["moderna"][f"child-{n}"] = {"id": f"child-{n}", "type": child, "title": "Getting started", "parentId": "default"}
+
+    def test_an_empty_folder_at_a_path_of_the_portal_is_removed_before_the_portal_is_made(self):
+        self.made("Event feeds")
+        changes = self.run_seed()
+        self.assertEqual(changes[1:3], [("DELETE", f"{ITEMS}/default"), ("PUT", f"{AUTO}/moderna/portals")])
+        self.assertNotIn("default", self.world.items["moderna"])
+        self.assertNotIn("default", json.dumps(common.created()))
+
+    def test_a_folder_at_no_path_of_the_portal_is_left_alone(self):
+        self.made("APIs")
+        self.assertNotIn(("DELETE", f"{ITEMS}/default"), self.run_seed())
+
+    def test_a_folder_that_holds_something_stops_the_seed(self):
+        self.made("Event feeds", "PAGE")
+        with self.assertRaisesRegex(SeedError, "^Portal moderna-portal in moderna: /event-feeds holds Event feeds, which the seed did not make$"):
+            self.run_seed()
+        self.assertIn("default", self.world.items["moderna"])
+
+    def test_a_portal_that_is_there_is_never_cleared(self):
+        self.seeded()
+        self.made("Guides")
+        self.run_seed()
+        self.assertNotIn("DELETE", [c.method for c in self.platform.calls])
 
 
 class Taken(Portals):
