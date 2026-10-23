@@ -101,20 +101,32 @@ changed (`latest`, `amp-demo-latest`), a product release that changed an API a s
 
 ## Publishing a version
 
-A version is an annotated tag `vX.Y.Z` on a commit of `main`. The Lab UI of every clone sees it at its next check and offers
-the update; the *Release* workflow publishes its release on GitHub, with the pull requests merged since the version before.
-Name each pull request for the people who read it there: its title is a line of what the version changes.
+Every merge to `main` is a version: the *Release* workflow tags the merge `vX.Y.Z` and publishes its release on GitHub, with the
+pull requests merged since the version before. The Lab UI of every clone sees it at its next check and offers the update. Name
+each pull request for the people who read it there: its title is a line of what the version changes.
 
-```bash
-git switch main && git pull --ff-only
-```
+Before merging, give the pull request the label of the number it raises:
 
-```bash
-git tag -a v1.0.0 -m "Gravitee Lab 1.0.0" && git push origin v1.0.0
-```
+| Label | Raises | For |
+| --- | --- | --- |
+| `major` | `2.0.0` | An update that needs a person to do something by hand |
+| `minor` | `1.1.0` | A new feature |
+| none | `1.0.1` | A fix, and anything else |
 
-Raise the major number when an update needs a person to do something by hand, the minor number for a new feature, and the
-patch number for a fix. A tag is never moved once pushed: a clone that updated to it keeps it.
+When several pull requests are merged while a release is still running, the next release counts them all and raises the highest
+number their labels ask for. A tag is never moved once pushed: a clone that updated to it keeps it, and the Lab UI offers only
+the tags that are on `main`.
+
+The workflow pushes the tag with a deploy key, since the token of a workflow cannot be let past a ruleset. Set it up once:
+
+1. **The key**: an SSH key made for the purpose (`ssh-keygen -t ed25519 -N "" -f release`), its public half added under
+   Settings > Deploy keys with *Allow write access*, its private half as the secret `RELEASE_DEPLOY_KEY` of the environment
+   `publish`, then both files deleted. Only the step that pushes the tag reads it (a test of `.github/tests` keeps it so).
+2. **Two tag rulesets** on every tag: `catalog-tags` forbids deleting or moving a tag, with administrators alone as bypass, and
+   `release-tags` forbids creating one, with administrators and deploy keys as bypass.
+3. **The labels** `major` and `minor`.
+
+To replace the key, make a new one, set the secret again and delete the old deploy key: nothing else changes.
 
 ## Pins to review by hand
 

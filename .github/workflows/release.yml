@@ -1,41 +1,87 @@
-# A version of the Lab is a tag vX.Y.Z on main. Its release on GitHub lists the pull requests merged since the version before it,
-# the same changes the Lab UI shows before an update.
+# Every merge to main is a version of the Lab: a tag vX.Y.Z and its release on GitHub, which lists the pull requests merged since the
+# version before it, the same changes the Lab UI shows before an update. The labels of those pull requests say which number is raised.
 name: Release
 
 on:
   push:
-    tags:
-      - "v*.*.*"
+    branches: [main]
 
 permissions:
   contents: read
 
+# One release at a time, never canceled: a run that waits while another publishes counts the merges of both when it starts
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
   cancel-in-progress: false
 
 jobs:
   release:
-    name: Publish the release
+    name: Publish the version
     if: ${{ !github.event.repository.fork }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    # Only main and v* tags reach the environment publish, as for the images
+    # Only main and v* tags reach the environment publish, which holds the deploy key that may create tags
     environment: publish
     permissions:
       contents: write
+      pull-requests: read
     steps:
-      - name: Publish the release
+      - name: Check out main and its tags
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Work out the version
+        id: version
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          case "$GITHUB_REF_NAME" in
-            v[0-9]*.[0-9]*.[0-9]*) ;;
-            *) echo "$GITHUB_REF_NAME is not a version (vX.Y.Z)"; exit 1 ;;
-          esac
-          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "The release $GITHUB_REF_NAME exists already"
-          else
-            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes \
-              --title "Gravitee Lab ${GITHUB_REF_NAME#v}"
+          last=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' HEAD 2>/dev/null || true)
+          labels=""
+          if [ -n "$last" ]; then
+            commits=$(git rev-list "$last..HEAD")
+            if [ -z "$commits" ]; then
+              echo "Nothing was merged since $last"
+              exit 0
+            fi
+            for commit in $commits; do
+              labels="$labels $(gh api "repos/$GITHUB_REPOSITORY/commits/$commit/pulls" --jq '.[].labels[].name')"
+            done
           fi
+          # shellcheck disable=SC2086 # one argument per label
+          next=$(python3 -I .github/scripts/next_version.py "$last" $labels)
+          echo "${last:-No version yet} -> $next"
+          echo "tag=$next" >> "$GITHUB_OUTPUT"
+
+      # Only administrators and the deploy key may create a tag (the ruleset release-tags): the token of the workflow may not, and
+      # no one but an administrator may move or delete one
+      - name: Tag the version
+        if: ${{ steps.version.outputs.tag }}
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          RELEASE_DEPLOY_KEY: ${{ secrets.RELEASE_DEPLOY_KEY }}
+        run: |
+          if [ -z "$RELEASE_DEPLOY_KEY" ]; then
+            echo "::error::The environment publish has no secret RELEASE_DEPLOY_KEY: see docs/maintaining.md"
+            exit 1
+          fi
+          ssh="$RUNNER_TEMP/release-ssh"
+          mkdir -m 700 "$ssh"
+          trap 'rm -rf "$ssh"' EXIT
+          printf '%s\n' "$RELEASE_DEPLOY_KEY" > "$ssh/key"
+          chmod 600 "$ssh/key"
+          # GitHub's host key, from https://api.github.com/meta
+          echo "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl" > "$ssh/known_hosts"
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            tag -a "$TAG" -m "Gravitee Lab ${TAG#v}" "$GITHUB_SHA"
+          GIT_SSH_COMMAND="ssh -i $ssh/key -o IdentitiesOnly=yes -o UserKnownHostsFile=$ssh/known_hosts -o StrictHostKeyChecking=yes" \
+            git push "git@github.com:$GITHUB_REPOSITORY.git" "refs/tags/$TAG"
+
+      - name: Publish the release
+        if: ${{ steps.version.outputs.tag }}
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes --title "Gravitee Lab ${TAG#v}"
