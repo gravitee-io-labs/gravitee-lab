@@ -23,8 +23,9 @@ has judged it first, as for the Add, and Personal takes only what it judged, as 
 blocks cannot go there, nor what waits for a catalog this Lab lacks, which nothing could judge (`_waiting`), and what takes more
 of this machine goes there once the person allowed it. An item of Personal with the same name is replaced, unless it is the same
 (then it is used), and the preview says so (`personal`). A folder of `.lab/imports` that no catalog uses and no preview waits for
-is what an import left before it was confirmed: the next import of the same playground replaces it. A removed import that kept
-the person's settings (`.kept`) waits for that next import, which joins them.
+is what an import left before it was confirmed: the next import of the same playground replaces it. A removed import whose person
+kept the settings leaves them in a folder the Lab owns (`KEPT_DIR`), with what the file held (`RECORD`): the same file imported
+again takes them, any other file of that name leaves them where they are, and the preview says which (`kept`).
 
     plan(pid)                  what the export of a playground carries, needs, and what another Lab will make of it
     archive(pid, private)      plan(pid) and the file: {"file", "data" (base64)}, made as the person saw it
@@ -430,40 +431,88 @@ def _name_of(archive, top):
 
 
 MACHINE_FILES = (".env", ".state", "secrets")   # the person's in the folder of an item, never a file's: kept when it is replaced
-KEPT = ".kept"   # in the folder of a removed import: what is left is the person's, for the next import of the same playground
+KEPT_DIR = f"{paths.LAB_DIR}/kept-settings"   # the settings of removed imports: the Lab's own folder, which no file reaches
+RECORD = f"{paths.LAB_DIR}/imports.json"   # {imported: {id: digest of what its file held}, kept: {id: {folder, digest}}}
 
 
-def _machine(rel):
-    """Whether a path of an import's folder is the person's: the settings, secrets and state of an item, or the marker of them."""
-    parts = rel.split("/")
-    return rel == KEPT or (len(parts) >= 3 and parts[0] in ("addons", "playgrounds") and parts[2] in MACHINE_FILES)
+def _record():
+    try:
+        found = json.loads((paths.ROOT / RECORD).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        found = {}
+    found = found if isinstance(found, dict) else {}
+    return {key: dict(found.get(key)) if isinstance(found.get(key), dict) else {} for key in ("imported", "kept")}
 
 
-def _vacate(folder: Path):
-    """The folder of an import emptied of its files, keeping what is the person's in the folder of each item (`_machine`) and the
-    marker of them. Answers whether anything of the person's is there. What cannot be deleted (what Docker made as root) stays."""
-    kept = False
-    for child in sorted(folder.iterdir()):
-        if child.name == KEPT:
-            continue
-        if child.name in ("addons", "playgrounds") and child.is_dir() and not child.is_symlink():
-            for item in sorted(child.iterdir()):
-                for one in sorted(item.iterdir()) if item.is_dir() and not item.is_symlink() else ():
-                    if one.name in MACHINE_FILES:
-                        kept = True
-                    elif one.is_dir() and not one.is_symlink():
-                        shutil.rmtree(one, ignore_errors=True)
-                    else:
-                        one.unlink()
-                with contextlib.suppress(OSError):
-                    item.rmdir() if item.is_dir() and not item.is_symlink() else item.unlink()
-            with contextlib.suppress(OSError):
-                child.rmdir()
-        elif child.is_dir() and not child.is_symlink():
-            shutil.rmtree(child, ignore_errors=True)
-        else:
-            child.unlink()
-    return kept
+def _write_record(found):
+    paths.write_atomic(paths.ROOT / RECORD, json.dumps(found, indent=2, sort_keys=True) + "\n")
+
+
+def _kept_of(top):
+    """The settings kept from a removed import of `top`: (their folder, the digest of the file they came with), or None."""
+    one = _record()["kept"].get(top)
+    if not isinstance(one, dict) or not isinstance(one.get("folder"), str) or "/" in one["folder"]:
+        return None
+    folder = paths.ROOT / KEPT_DIR / one["folder"]
+    return (folder, one.get("digest")) if folder.is_dir() else None
+
+
+def _kept_view(top, content):
+    """What the preview says of the settings kept from a removed import of the same name: {used, where}, or None. Only the same
+    file imported again uses them: any file can be named as the one that was removed."""
+    kept = _kept_of(top)
+    if kept is None:
+        return None
+    return {"used": bool(kept[1]) and kept[1] == content, "where": f"{KEPT_DIR}/{kept[0].name}"}
+
+
+def _forget_kept(top):
+    found = _record()
+    one = found["kept"].pop(top, None)
+    if one is not None:
+        _write_record(found)
+        if isinstance(one, dict) and isinstance(one.get("folder"), str) and "/" not in one["folder"]:
+            shutil.rmtree(paths.ROOT / KEPT_DIR / one["folder"], ignore_errors=True)
+
+
+def _settings_of(folder: Path):
+    """[(item folder relative to the import, name)] of the person's settings, secrets and state in an import's folder."""
+    return [(f"{area}/{item.name}", name) for area in ("addons", "playgrounds") for item in sorted((folder / area).glob("*"))
+            if item.is_dir() and not item.is_symlink() for name in MACHINE_FILES if os.path.lexists(item / name)]
+
+
+def _carry(source: Path, target: Path):
+    """A file or folder of the person's moved to `target`, else copied (what Docker made as root may only be read): answers
+    whether it is there now."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.rename(source, target)
+        return True
+    except OSError:
+        pass
+    try:
+        (shutil.copytree if source.is_dir() and not source.is_symlink() else shutil.copy2)(source, target)
+    except OSError:
+        return False
+    (shutil.rmtree(source, ignore_errors=True) if source.is_dir() and not source.is_symlink() else source.unlink())
+    return True
+
+
+def added(ns, data):
+    """An import kept as a catalog (service.add): what its file held is recorded, for a Remove that keeps its settings, and the
+    settings kept from a removed import of the same file go back to its items, where they have none."""
+    if not data.get("imported") or not data.get("content"):
+        return
+    found = _record()
+    found["imported"][ns] = data["content"]
+    _write_record(found)
+    kept, where = _kept_of(ns), Path((registry.entry(ns) or {}).get("path") or "")
+    if kept is None or kept[1] != data["content"] or not where.is_dir() or _digest(where) != data.get("digest"):
+        return   # another file of that name, or files that changed after the preview: the kept settings stay where they are
+    for rel, name in _settings_of(kept[0]):
+        if (where / rel).is_dir() and not os.path.lexists(where / rel / name):
+            _carry(kept[0] / rel / name, where / rel / name)
+    _forget_kept(ns)
 
 
 def _sweep(replacing=None):
@@ -483,8 +532,6 @@ def _sweep(replacing=None):
                 service.forget(ticket)
         elif real in waiting or (child.name.startswith(".incoming-") and time.time() - child.stat().st_mtime < service.TTL):
             continue
-        if (child / KEPT).is_file():
-            continue   # the settings of a removed import wait for the next import of the same playground
         shutil.rmtree(child, ignore_errors=True)
 
 
@@ -494,8 +541,6 @@ def _digest(folder: Path):
     found = hashlib.sha256()
     for path in sorted(p for p in folder.rglob("*") if p.is_file() and not p.is_symlink()):
         rel = path.relative_to(folder).as_posix()
-        if _machine(rel):
-            continue
         found.update(f"{rel}\0{os.stat(path).st_mode & 0o111}\0".encode("utf-8"))
         found.update(hashlib.sha256(path.read_bytes()).digest())
     return found.hexdigest()
@@ -622,7 +667,7 @@ def _for_personal(folder: Path, top):
         if kind != "setup":
             for path in sorted(p for p in (folder / rel).rglob("*") if p.is_file() and not p.is_symlink()):
                 rel_path = path.relative_to(folder).as_posix()
-                if rel_path != compose_rel and not _machine(rel_path):
+                if rel_path != compose_rel:
                     files[rel_path] = (0o755 if os.stat(path).st_mode & 0o111 else 0o644, path.read_bytes())
         found.append((kind, slug, rel, _named(written, slug), files))
     return found
@@ -707,18 +752,34 @@ def _to_personal(ticket, allow=False):
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(content)
                 os.chmod(target, mode)
-            for name in MACHINE_FILES if kind != "setup" else ():   # what a removed import kept, where Personal has none
-                kept, target = folder / rel / name, home / rel / name
-                if kept.exists() and not os.path.lexists(target):
-                    (shutil.copytree if kept.is_dir() else shutil.copy2)(kept, target)
     except BaseException:
         moving._take_back(made)   # the ticket stays: the person may try again
         raise
     service.forget(ticket)
     shutil.rmtree(folder, ignore_errors=True)
+    stayed = _kept_to_personal(top, data.get("content"), items)
     project.forget()
     playground = next((f"{paths.LOCAL}/{slug}" for kind, slug, _, _, _ in items if kind == "playground"), None)
-    return {"items": [{"kind": kind, "id": f"{paths.LOCAL}/{slug}"} for kind, slug, _, _, _ in items], "playground": playground}
+    return {"items": [{"kind": kind, "id": f"{paths.LOCAL}/{slug}"} for kind, slug, _, _, _ in items], "playground": playground,
+            **({"kept": stayed} if stayed else {})}
+
+
+def _kept_to_personal(top, content, items):
+    """The settings kept from a removed import of the same file, given to its items in Personal where they have none. What
+    Personal has already stays as it is, and so do the kept ones, which are never deleted unused: answers {items: [names], where}
+    of those that stayed, or None."""
+    kept = _kept_of(top)
+    if kept is None or not kept[1] or kept[1] != content:
+        return None
+    home, names, stayed = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL, {rel: name for _, _, rel, name, _ in items}, []
+    for rel, name in _settings_of(kept[0]):
+        target = home / rel / name
+        if rel not in names or not (home / rel).is_dir() or os.path.lexists(target) or not _carry(kept[0] / rel / name, target):
+            stayed.append(names.get(rel, rel.rsplit("/", 1)[-1]))
+    if not stayed:
+        _forget_kept(top)
+        return None
+    return {"items": list(dict.fromkeys(stayed)), "where": f"{KEPT_DIR}/{kept[0].name}"}
 
 
 def _waiting(preview):
@@ -767,8 +828,7 @@ def _receive(data):
         base.mkdir(parents=True, exist_ok=True)
         _sweep(top)
         final = base / top
-        kept = (final / KEPT).is_file()   # the settings of a removed import of the same playground: the new files join them
-        if os.path.lexists(final) and not kept:
+        if os.path.lexists(final):
             raise _leftover(archive, top)   # what a removal could not delete, the sweep could not either
         incoming = base / f".incoming-{secrets.token_hex(4)}"
         os.mkdir(incoming, 0o755)
@@ -788,23 +848,12 @@ def _receive(data):
                                         413)
                         out.write(chunk)
                 os.chmod(target, mode)
-            if not kept:
-                os.replace(incoming, final)
-            else:
-                try:
-                    _vacate(final)
-                    for path in sorted(p for p in incoming.rglob("*") if p.is_file()):
-                        target = final / path.relative_to(incoming)
-                        target.parent.mkdir(parents=True, exist_ok=True)
-                        os.replace(path, target)
-                except OSError:
-                    _vacate(final)
-                    raise _leftover(archive, top) from None
+            os.replace(incoming, final)
         except BaseException:
             shutil.rmtree(incoming, ignore_errors=True)
             raise
-        shutil.rmtree(incoming, ignore_errors=True)
     try:
+        content = _digest(final)   # what the file holds, as it came: what settings kept from an import of it are bound to
         reused = _reuse(final, top)
         preview = _waiting(service.check_address(str(final)))
         if preview["catalog"]["id"] != top:   # its settings start with the id: the folder and the catalog are one name
@@ -822,11 +871,12 @@ def _receive(data):
         # What Personal would run unjudged that takes more of this machine: the person allows it, as for a Move
         named = {f"@{top}/{slug}": name for _, slug, _, name, _ in items}
         uses = list(dict.fromkeys(named.get(one.get("id"), one.get("name")) for one in (preview.get("rows") or {}).get("uses_machine") or ()))
-        service.note(preview.get("ticket"), imported=True, blocked=blocked, unread=unread, uses=uses, digest=_digest(final))
-        return {**preview, "imported": True, "reused": reused, "personal": _personal_plan(items)}
+        kept = _kept_view(top, content)
+        service.note(preview.get("ticket"), imported=True, blocked=blocked, unread=unread, uses=uses, digest=_digest(final),
+                     content=content)
+        return {**preview, "imported": True, "reused": reused, "personal": _personal_plan(items), **({"kept": kept} if kept else {})}
     except BaseException:
-        if not (kept and _vacate(final)):
-            shutil.rmtree(final, ignore_errors=True)
+        shutil.rmtree(final, ignore_errors=True)
         raise
 
 
@@ -840,15 +890,23 @@ PARTIAL = "Some files were created by Docker and could not be deleted. Remove th
 
 def forget_folder(entry, keep_settings=True):
     """The files of an imported playground's catalog go when the catalog is removed: they are the Lab's, in .lab/imports. With
-    `keep_settings` the person's settings, secrets and state stay there, with the marker that keeps them for the next import of
-    the same playground. Answers the warning of what could not be deleted, or None."""
+    `keep_settings` the person's settings, secrets and state of its items go first to a folder of their own (`KEPT_DIR`), bound
+    to the file the import came from: only that file imported again takes them. What cannot be deleted stays apart from them,
+    and is said. Answers that warning, or None."""
     where = os.path.realpath((entry or {}).get("path") or "")
     base = os.path.realpath(paths.ROOT / IMPORTS_DIR)
     if not (where.startswith(base + os.sep) and posixpath.dirname(where) == base):
         return None
-    folder = Path(where)
-    if keep_settings and folder.is_dir() and _vacate(folder):
-        (folder / KEPT).write_text("", encoding="utf-8")
-        return None
+    folder, found = Path(where), _record()
+    ns, content = folder.name, found["imported"].pop(folder.name, None)
+    _write_record(found)
+    settings = _settings_of(folder) if keep_settings and folder.is_dir() else []
+    if settings:
+        _forget_kept(ns)   # the settings of an import before this one, which this one did not take
+        kept = paths.ROOT / KEPT_DIR / f"{ns}-{secrets.token_hex(4)}"
+        if [rel for rel, name in settings if _carry(folder / rel / name, kept / rel / name)]:
+            found = _record()
+            found["kept"][ns] = {"folder": kept.name, "digest": content}
+            _write_record(found)
     shutil.rmtree(where, ignore_errors=True)
     return PARTIAL.format(where=f"{IMPORTS_DIR}/{folder.name}") if os.path.lexists(where) else None

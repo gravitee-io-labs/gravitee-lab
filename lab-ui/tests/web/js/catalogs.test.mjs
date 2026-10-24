@@ -866,6 +866,37 @@ test("Import to Personal of what uses this machine is the person's allowance: th
   assert.deepEqual([last().path, last().body], ["/api/catalogs/import/personal", { ticket: "9f3a4c1d2e5b6a70", allow: true }]);
 });
 
+test("Settings kept from a removed import of that name are said, used or not, and what Personal does not take is said once imported", async () => {
+  show([FIRST()]);
+  clearToasts();
+  openImport();
+  const drop = async (file) => {
+    adding().querySelector("#catalog-file").dispatchEvent(Object.assign(new Ev("drop"), { dataTransfer: { files: [file] }, preventDefault() {} }));
+    await settle();
+  };
+  const preview = (used) => PREVIEW({ catalog: { id: "contoso", name: "Contoso demo", version: "1.0.0", lab: 1, kind: "folder" },
+    imported: true, counts: { playground: 1, setup: 0, addon: 0 }, blocked: [], rows: {}, personal: { replaces: [], same: [] },
+    kept: { used, where: ".lab/kept-settings/contoso-1a2b3c4d" } });
+  server.answers["/api/catalogs/import"] = preview(false);
+  await drop(new File([new Uint8Array([80, 75, 5, 6])], "contoso.zip"));
+  assert.deepEqual(rowsOf().find(([label]) => label === "Kept settings"), ["Kept settings", ".lab/kept-settings/contoso-1a2b3c4d Not used by this file"]);
+  click(adding().querySelector('[data-dest="imported"]'));
+  assert.deepEqual(rowsOf().find(([label]) => label === "Kept settings"), ["Kept settings", ".lab/kept-settings/contoso-1a2b3c4d Not used by this file"]);
+  adding().closest("dialog").close();
+  openImport();
+  server.answers["/api/catalogs/import"] = preview(true);
+  await drop(new File([new Uint8Array([80, 75, 5, 6])], "contoso.zip"));
+  assert.deepEqual(rowsOf().find(([label]) => label === "Kept settings"), ["Kept settings", ".lab/kept-settings/contoso-1a2b3c4d Used"]);
+  server.answers["/api/catalogs/import/personal"] = { items: [], playground: "local/contoso",
+    kept: { items: ["Kiosk"], where: ".lab/kept-settings/contoso-1a2b3c4d" } };
+  const go = router.go;
+  router.go = () => {};
+  await submit(primary());
+  await settle();
+  router.go = go;
+  assert.deepEqual(toasts(), ["Imported: the kept settings of Kiosk stay in .lab/kept-settings/contoso-1a2b3c4d"]);
+});
+
 test("Import takes the file of an exported playground, shows the preview of an Add from that file, and opens the playground once imported", async () => {
   show([FIRST()]);
   clearToasts();

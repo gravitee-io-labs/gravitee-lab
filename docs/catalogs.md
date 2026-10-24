@@ -206,8 +206,12 @@ the playground uses this Lab's own, and the preview says so under **Uses yours**
 imported at all. The Lab keeps the files under `.lab/imports/`, one folder named after the playground, which is also the id of
 its catalog: a file whose catalog has another id is refused, and so is one named as a catalog this Lab has that is not an
 import.
-To import a newer file of the same playground, remove that catalog on the Catalogs page first: its files go with it, and
-with **Keep settings** your settings, secrets and what its seed recorded stay for the newer file.
+To import a newer file of the same playground, remove that catalog on the Catalogs page first: its files go with it. With
+**Keep settings**, your settings, secrets and what its seed recorded move to `.lab/kept-settings/`, and only the same file
+imported again takes them back. Any other file with that name, a newer one included, leaves them there, since anyone can name a
+file so: the preview says where they are, under **Kept settings**, used or not. Kept settings that Personal does not take, because
+its item has its own, stay where they are, and the import says so. What Docker made and the Lab cannot delete is said, and an
+import of that name waits until you remove it.
 
 ## A playground for Docker Compose alone
 

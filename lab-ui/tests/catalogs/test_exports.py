@@ -428,24 +428,82 @@ class Untrusted(Case):
         self.assertFalse(self.personal().exists())
         self.assertEqual(exports.to_personal(preview["ticket"], allow=True)["playground"], "local/evil")
 
-    def test_a_removed_import_keeps_the_persons_settings_for_the_next_import_of_the_same_playground(self):
-        data = evil_zip(playground=evil_playground(privileged=False))
+    OTHER = ("x-gravitee: {kind: playground, name: Totally Different, category: Other, description: From someone else}\n"
+             "services:\n  evil-root:\n    image: busybox:1.36\n    volumes: [\"./secrets:/stolen:ro\"]\n    networks: [internal]\n")
+
+    def kept_from_a_removal(self, data):
+        """The import of `data` kept as a catalog, with settings and a secret of the person's, then removed keeping them."""
         service.add(exports.receive(data)["ticket"])
         folder = paths.ROOT / exports.IMPORTS_DIR / "evil"
         (folder / "playgrounds/evil/.env").write_text("EVIL_LEVEL=debug\n")
         (folder / "playgrounds/evil/secrets").mkdir()
-        (folder / "playgrounds/evil/secrets/key").write_text("not a real one\n")
+        (folder / "playgrounds/evil/secrets/key").write_text("the person's key\n")
         project.forget()
         self.assertEqual(service.remove("evil"), {"warning": None})
-        self.assertEqual(sorted(path.relative_to(folder).as_posix() for path in folder.rglob("*") if path.is_file()),
-                         [".kept", "playgrounds/evil/.env", "playgrounds/evil/secrets/key"], "the settings stay, the files go")
-        exports.receive(data)   # a preview left as it is keeps them too
-        service.add(exports.receive(data)["ticket"])
-        self.assertEqual((folder / "playgrounds/evil/.env").read_text(), "EVIL_LEVEL=debug\n", "the next import has them")
-        self.assertTrue((folder / "playgrounds/evil/compose.yml").is_file())
+        self.assertFalse(folder.exists(), "the import goes")
+        kept = [path for path in (paths.ROOT / exports.KEPT_DIR).glob("evil-*")]
+        self.assertEqual(len(kept), 1)
+        self.assertEqual((kept[0] / "playgrounds/evil/secrets/key").read_text(), "the person's key\n", "the settings stay apart")
+        return folder, kept[0]
+
+    def test_settings_kept_from_a_removed_import_go_back_to_the_same_file_only(self):
+        data = evil_zip(playground=evil_playground(privileged=False))
+        folder, kept = self.kept_from_a_removal(data)
+        where = f"{exports.KEPT_DIR}/{kept.name}"
+        # Anyone can name a file evil: another one does not take them, and the preview says they are there and not used
+        other = exports.receive(evil_zip(playground=self.OTHER))
+        self.assertEqual(other["kept"], {"used": False, "where": where})
+        self.assertFalse((folder / "playgrounds/evil/secrets").exists())
+        exports.to_personal(other["ticket"])
+        self.assertFalse(self.personal("playgrounds/evil/secrets").exists())
+        self.assertTrue((kept / "playgrounds/evil/secrets/key").is_file(), "they stay where they are")
+        shutil.rmtree(self.personal("playgrounds/evil"))
+        project.forget()
+        # The same file again takes them
+        again = exports.receive(data)
+        self.assertEqual(again["kept"], {"used": True, "where": where})
+        service.add(again["ticket"])
+        self.assertEqual((folder / "playgrounds/evil/.env").read_text(), "EVIL_LEVEL=debug\n")
+        self.assertEqual((folder / "playgrounds/evil/secrets/key").read_text(), "the person's key\n")
+        self.assertFalse(kept.exists())
         project.forget()
         service.remove("evil", keep_settings=False)
-        self.assertFalse(folder.exists())
+        self.assertFalse(folder.exists() or list((paths.ROOT / exports.KEPT_DIR).glob("evil-*")))
+
+    def test_kept_settings_that_personal_does_not_take_stay_and_are_said(self):
+        data = evil_zip(playground=evil_playground(privileged=False))
+        _, kept = self.kept_from_a_removal(data)
+        self.personal("playgrounds/evil").mkdir(parents=True)
+        self.personal("playgrounds/evil/.env").write_text("EVIL_LEVEL=info\n")
+        done = exports.to_personal(exports.receive(data)["ticket"])
+        self.assertEqual(done["kept"], {"items": ["Evil"], "where": f"{exports.KEPT_DIR}/{kept.name}"})
+        self.assertEqual(self.personal("playgrounds/evil/.env").read_text(), "EVIL_LEVEL=info\n", "Personal's own stay")
+        self.assertEqual(self.personal("playgrounds/evil/secrets/key").read_text(), "the person's key\n", "where it had none")
+        self.assertTrue((kept / "playgrounds/evil/.env").is_file(), "what did not go anywhere is not deleted")
+
+    def test_a_marker_in_the_file_keeps_nothing(self):
+        preview = exports.receive(evil_zip(playground=evil_playground(privileged=False), extra={"evil/.kept": b""}))
+        service.forget(preview["ticket"])
+        exports._sweep()
+        self.assertFalse((paths.ROOT / exports.IMPORTS_DIR / "evil").exists())
+
+    def test_what_a_removal_keeping_the_settings_could_not_delete_is_said_and_kept_apart(self):
+        data = evil_zip(playground=evil_playground(privileged=False))
+        service.add(exports.receive(data)["ticket"])
+        folder = paths.ROOT / exports.IMPORTS_DIR / "evil"
+        (folder / "playgrounds/evil/.env").write_text("EVIL_LEVEL=debug\n")
+        made = folder / "playgrounds/evil/data"
+        made.mkdir()
+        (made / "db").write_text("what a container wrote\n")
+        made.chmod(0o500)   # what Docker made as root: this user cannot delete what is in it
+        self.addCleanup(made.chmod, 0o700)
+        project.forget()
+        self.assertEqual(service.remove("evil")["warning"], "Some files were created by Docker and could not be deleted. Remove the "
+                                                            "folder .lab/imports/evil with administrator rights.")
+        kept = list((paths.ROOT / exports.KEPT_DIR).glob("evil-*"))
+        self.assertEqual([path.relative_to(kept[0]).as_posix() for path in kept[0].rglob("*") if path.is_file()],
+                         ["playgrounds/evil/.env"], "the settings, and nothing that was left")
+        self.refused(lambda: exports.receive(data), "import_leftover")
 
     def test_what_a_removal_could_not_delete_is_said_and_an_import_says_what_to_do(self):
         data = evil_zip(playground=evil_playground(privileged=False))

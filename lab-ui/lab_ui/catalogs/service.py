@@ -947,6 +947,9 @@ def add(ticket, host=False):
         install.commit_add(staged, data["address"], data["branch"], data["audience"], data["roots"], meta=data["meta"],
                            host=bool(host) and not data["listed"], auto=True)
     _spend(ticket)
+    if data.get("imported"):   # an imported playground: what its file held is recorded, and settings kept for it go back
+        from .exports import added   # here and not above: exports reads this module
+        added(ns, data)
     with contextlib.suppress(OSError):   # the .env is for a docker compose typed by hand: the catalog is added all the same
         layers.prepare_catalogs()
     git_version(fresh=True)

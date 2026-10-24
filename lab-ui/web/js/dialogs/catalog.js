@@ -127,6 +127,8 @@ function previewRows(p, allow, all = false) {
     // What an imported playground carries that this Lab has already, from the same catalog: this Lab's own is used
     { label: "Uses yours", items: (p.reused || []).map((one) => ({ text: one.name })),
       hint: `From ${[...new Set((p.reused || []).map((one) => one.catalog))].join(", ")}` },
+    // The settings kept from a removed import of that name: only the same file takes them, any other leaves them where they are
+    { label: "Kept settings", items: p.kept ? [{ text: p.kept.where, code: true }] : [], hint: p.kept?.used ? "Used" : "Not used by this file" },
     // An imported playground comes from the file the person chose: where the Lab keeps it is the Lab's own business
     p.imported ? { label: "From", items: p.file ? [{ text: p.file, code: true }] : [] }
       : { label: "From", items: p.address ? [{ text: p.address, code: true }] : [], hint: c.kind === "folder" ? "On this machine" : p.audience === "public" ? "Public" : p.audience === "private" ? "Private" : "" },
@@ -415,7 +417,7 @@ async function keepPersonal() {
       { ticket: preview.ticket, ...(allowsPersonal(preview) ? { allow: true } : {}) }));
     const stay = live();
     if (stay) dialog.close();
-    toast("Imported");
+    toast(answer.kept ? `Imported: the kept settings of ${answer.kept.items.join(", ")} stay in ${answer.kept.where}` : "Imported");
     await store.refresh();
     if (stay && answer.playground && !$$("dialog").some((d) => d.open)) router.go(`#/playgrounds/${answer.playground}`);
   } catch (err) {
