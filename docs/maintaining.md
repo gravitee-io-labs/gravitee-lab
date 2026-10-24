@@ -114,7 +114,8 @@ Before merging, give the pull request the label of the number it raises:
 | none | `1.0.1` | A fix, and anything else |
 
 When several pull requests are merged while a release is still running, the next release counts them all and raises the highest
-number their labels ask for. A tag is never moved once pushed: a clone that updated to it keeps it, and the Lab UI offers only
+number their labels ask for. A run that runs again does no harm: a commit that a version holds makes no second one, and
+the release of a tag that has none is made then. Only the tags `vX.Y.Z` are versions; a tag of another form (`v1.6.0-rc1`) is left alone. A tag is never moved once pushed: a clone that updated to it keeps it, and the Lab UI offers only
 the tags that are on `main`.
 
 The workflow pushes the tag with a deploy key, since the token of a workflow cannot be let past a ruleset. Set it up once:

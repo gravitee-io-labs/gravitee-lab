@@ -51,7 +51,7 @@ _thread = None
 
 def _git(*args, timeout=LOCAL_WAIT):
     """(exit code, output) of a git command in the Lab's folder: no prompt, no input, no pager; (None, "") when git cannot run."""
-    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_PAGER": "cat", "LC_ALL": "C"}
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_PAGER": "cat", "LC_ALL": "C", "GIT_SSH_COMMAND": "ssh -o BatchMode=yes"}
     try:
         done = subprocess.run(["git", "-C", str(paths.ROOT), *args], capture_output=True, text=True, timeout=timeout,
                               stdin=subprocess.DEVNULL, env=env, encoding="utf-8", errors="replace")
@@ -105,8 +105,10 @@ def _local():
     if code != 0:
         return {"cloned": False}
     code, branch = _git("symbolic-ref", "--short", "-q", "HEAD")
-    code_tag, tag = _git("describe", "--tags", "--abbrev=0", "--match", "v[0-9]*", "HEAD")
-    base = version_of(tag) if code_tag == 0 else None
+    # The newest version it holds: a tag of the form vX.Y.Z on its history, not a tag of another form (v1.6.0-rc1) that would hide it
+    code_tag, held = _git("tag", "--merged", "HEAD", "--list", "v*")
+    found = sorted((version_of(one), one) for one in held.splitlines() if version_of(one)) if code_tag == 0 else []
+    base, tag = found[-1] if found else (None, "")
     ahead = 0
     if base:
         code, count = _git("rev-list", "--count", f"{tag}..HEAD")
@@ -168,6 +170,14 @@ def blocked(found=None, target=None):
         code, _ = _git("merge-base", "--is-ancestor", "HEAD", target)
         if code == 1:
             return "This Lab has changes of its own that the new version does not have. Update it with Git"
+        # A file Git does not track where the new version adds one: the merge would stop on it
+        code_new, added = _git("diff", "--name-only", "--diff-filter=A", "HEAD", target)
+        code_own, untracked = _git("ls-files", "--others", "--exclude-standard")
+        if code_new == 0 and code_own == 0:
+            clash = sorted(set(added.splitlines()) & set(untracked.splitlines()))
+            if clash:
+                shown = ", ".join(clash[:3]) + (f" and {len(clash) - 3} more" if len(clash) > 3 else "")
+                return f"Files of this Lab that Git does not track are where the new version adds its own: {shown}. Move them to update"
     from ..docker.jobs import JOBS   # here and not above: the jobs read the project, which reads this module's package
     if JOBS.current and not JOBS.current.done:
         return f"Wait for {JOBS.current.title} to end"
@@ -235,7 +245,8 @@ def check():
         return describe()
     try:
         if _cloned() and _git("remote", "get-url", "origin")[0] == 0:
-            code, out = _git("fetch", "--quiet", "--tags", "origin", timeout=FETCH_WAIT)
+            # --force: a tag moved on the origin is taken as it says there, where git would refuse it and fail every check after
+            code, out = _git("fetch", "--quiet", "--tags", "--force", "origin", timeout=FETCH_WAIT)
             with _lock:
                 if code == 0:
                     _checked.update(at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), error=None)
@@ -303,13 +314,20 @@ def update(version):
     reason = blocked(found, match[1])
     if reason:
         raise _not_now(reason)
-    tag, detached = match[1], found["local"]["branch"] is None
+    tag, detached, before = match[1], found["local"]["branch"] is None, found["local"]["commit"]
     from ..docker.jobs import JOBS, JobFailed
 
     def move(job):
         job.step(f"Move to {version}")
         job.exec(["git", "checkout", "--quiet", tag] if detached else ["git", "merge", "--ff-only", "--quiet", tag])
         forget()
+        # The new code loads before the Lab UI is replaced by it: one that cannot start here (a Python it does not run on, a file
+        # missing) would leave no Lab UI at all. Then the Lab goes back to the commit it was on, and says why
+        loads = _loads()
+        if loads:
+            job.exec(["git", "checkout", "--quiet", before] if detached else ["git", "reset", "--quiet", "--keep", before])
+            forget()
+            raise JobFailed(f"Gravitee Lab {version} does not start on this machine: {loads}. This Lab stays as it was")
         # What `make ui` makes before it starts the Lab UI, which a new version may add to; the Lab UI that starts says what is missing
         # when it fails, and it starts on the new code either way
         job.step("Start the Lab UI again")
@@ -323,6 +341,20 @@ def update(version):
         threading.Timer(1.5, restart).start()
     return JOBS.start(f"Update Gravitee Lab to {version}", [move], key="lab", verb="update",
                       phases=[f"Move to {version}", "Start the Lab UI again"])
+
+
+def _loads():
+    """Why the code on disk now cannot start the Lab UI, None when it can: its server loads all of it, then prints its help."""
+    try:
+        done = subprocess.run([sys.executable, str(paths.ROOT / "lab-ui" / "server.py"), "--help"], cwd=str(paths.ROOT),
+                              capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL, encoding="utf-8",
+                              errors="replace")
+    except (OSError, subprocess.SubprocessError) as error:
+        return type(error).__name__
+    if done.returncode == 0:
+        return None
+    lines = [line.strip() for line in (done.stderr or done.stdout).splitlines() if line.strip()]
+    return lines[-1][:200] if lines else f"it ended with code {done.returncode}"
 
 
 def restart():

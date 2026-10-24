@@ -695,7 +695,7 @@ A playground comes first in the list. With an empty file, Compose runs the core 
 
 ## Versions of the Lab
 
-A version of the Lab is a tag `vX.Y.Z` on the `main` branch of the repository, one per merged pull request. The version at the right of the name of the Lab, at the top of the menu,
+A version of the Lab is a tag `vX.Y.Z` on the `main` branch of the repository: each merge makes one, or one for a few merges that land together. The version at the right of the name of the Lab, at the top of the menu,
 says which one this Lab is (*dev* for a clone with no version), and opens a dialog: the version and the day it came out, then one
 card that says where this Lab stands, with the one thing to do about it:
 
