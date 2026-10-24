@@ -454,38 +454,50 @@ def _record():
     except (OSError, ValueError):
         found = {}
     found = found if isinstance(found, dict) else {}
-    return {key: dict(found.get(key)) if isinstance(found.get(key), dict) else {} for key in ("imported", "kept")}
+    return {key: dict(found.get(key)) if isinstance(found.get(key), dict) else {} for key in ("imported", "kept")}   # kept: {id: [..]}
 
 
 def _write_record(found):
     paths.write_atomic(paths.ROOT / RECORD, json.dumps(found, indent=2, sort_keys=True) + "\n")
 
 
+def _kept_list(found, top):
+    one = found["kept"].get(top)
+    return list(one) if isinstance(one, list) else []
+
+
 def _kept_of(top):
-    """The settings kept from a removed import of `top`: (their folder, the digest of the file they came with), or None."""
-    one = _record()["kept"].get(top)
-    if not isinstance(one, dict) or not isinstance(one.get("folder"), str) or "/" in one["folder"]:
-        return None
-    folder = paths.ROOT / KEPT_DIR / one["folder"]
-    return (folder, one.get("digest")) if folder.is_dir() else None
+    """The settings kept from removed imports of `top`, newest first: [(their folder, the digest of the file they came with)]. Each
+    removal that kept settings has its own: one of another file of that name never takes the place of another's."""
+    found = []
+    for one in reversed(_kept_list(_record(), top)):
+        if isinstance(one, dict) and isinstance(one.get("folder"), str) and "/" not in one["folder"] \
+                and (paths.ROOT / KEPT_DIR / one["folder"]).is_dir():
+            found.append((paths.ROOT / KEPT_DIR / one["folder"], one.get("digest")))
+    return found
+
+
+def _kept_for(top, content):
+    """The folder of the settings kept from a removed import of the same file as `content`, or None."""
+    return next((folder for folder, digest in _kept_of(top) if digest and digest == content), None)
 
 
 def _kept_view(top, content):
     """What the preview says of the settings kept from a removed import of the same name: {used, where}, or None. Only the same
     file imported again uses them: any file can be named as the one that was removed."""
-    kept = _kept_of(top)
-    if kept is None:
+    kept, used = _kept_of(top), _kept_for(top, content)
+    if not kept:
         return None
-    return {"used": bool(kept[1]) and kept[1] == content, "where": f"{KEPT_DIR}/{kept[0].name}"}
+    return {"used": used is not None, "where": f"{KEPT_DIR}/{(used or kept[0][0]).name}"}
 
 
-def _forget_kept(top):
+def _forget_kept(top, folder: Path):
     found = _record()
-    one = found["kept"].pop(top, None)
-    if one is not None:
-        _write_record(found)
-        if isinstance(one, dict) and isinstance(one.get("folder"), str) and "/" not in one["folder"]:
-            shutil.rmtree(paths.ROOT / KEPT_DIR / one["folder"], ignore_errors=True)
+    found["kept"][top] = [one for one in _kept_list(found, top) if not (isinstance(one, dict) and one.get("folder") == folder.name)]
+    if not found["kept"][top]:
+        del found["kept"][top]
+    _write_record(found)
+    shutil.rmtree(folder, ignore_errors=True)
 
 
 def _settings_of(folder: Path):
@@ -519,13 +531,14 @@ def added(ns, data):
     found = _record()
     found["imported"][ns] = data["content"]
     _write_record(found)
-    kept, where = _kept_of(ns), Path((registry.entry(ns) or {}).get("path") or "")
-    if kept is None or kept[1] != data["content"] or not where.is_dir() or _digest(where) != data.get("digest"):
+    kept, where = _kept_for(ns, data["content"]), Path((registry.entry(ns) or {}).get("path") or "")
+    if kept is None or not where.is_dir() or _digest(where) != data.get("digest"):
         return   # another file of that name, or files that changed after the preview: the kept settings stay where they are
-    for rel, name in _settings_of(kept[0]):
+    for rel, name in _settings_of(kept):
         if (where / rel).is_dir() and not os.path.lexists(where / rel / name):
-            _carry(kept[0] / rel / name, where / rel / name)
-    _forget_kept(ns)
+            _carry(kept / rel / name, where / rel / name)
+    if not _settings_of(kept):
+        _forget_kept(ns, kept)
 
 
 def _sweep(replacing=None):
@@ -781,18 +794,18 @@ def _kept_to_personal(top, content, items):
     """The settings kept from a removed import of the same file, given to its items in Personal where they have none. What
     Personal has already stays as it is, and so do the kept ones, which are never deleted unused: answers {items: [names], where}
     of those that stayed, or None."""
-    kept = _kept_of(top)
-    if kept is None or not kept[1] or kept[1] != content:
+    kept = _kept_for(top, content)
+    if kept is None:
         return None
     home, names, stayed = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL, {rel: name for _, _, rel, name, _ in items}, []
-    for rel, name in _settings_of(kept[0]):
+    for rel, name in _settings_of(kept):
         target = home / rel / name
-        if rel not in names or not (home / rel).is_dir() or os.path.lexists(target) or not _carry(kept[0] / rel / name, target):
+        if rel not in names or not (home / rel).is_dir() or os.path.lexists(target) or not _carry(kept / rel / name, target):
             stayed.append(names.get(rel, rel.rsplit("/", 1)[-1]))
     if not stayed:
-        _forget_kept(top)
+        _forget_kept(top, kept)
         return None
-    return {"items": list(dict.fromkeys(stayed)), "where": f"{KEPT_DIR}/{kept[0].name}"}
+    return {"items": list(dict.fromkeys(stayed)), "where": f"{KEPT_DIR}/{kept.name}"}
 
 
 def _waiting(preview):
@@ -915,11 +928,10 @@ def forget_folder(entry, keep_settings=True):
     _write_record(found)
     settings = _settings_of(folder) if keep_settings and folder.is_dir() else []
     if settings:
-        _forget_kept(ns)   # the settings of an import before this one, which this one did not take
         kept = paths.ROOT / KEPT_DIR / f"{ns}-{secrets.token_hex(4)}"
         if [rel for rel, name in settings if _carry(folder / rel / name, kept / rel / name)]:
             found = _record()
-            found["kept"][ns] = {"folder": kept.name, "digest": content}
+            found["kept"][ns] = [*_kept_list(found, ns), {"folder": kept.name, "digest": content}]
             _write_record(found)
     shutil.rmtree(where, ignore_errors=True)
     return PARTIAL.format(where=f"{IMPORTS_DIR}/{folder.name}") if os.path.lexists(where) else None

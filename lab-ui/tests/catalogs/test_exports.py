@@ -488,6 +488,19 @@ class Untrusted(Case):
         service.remove("evil", keep_settings=False)
         self.assertFalse(folder.exists() or list((paths.ROOT / exports.KEPT_DIR).glob("evil-*")))
 
+    def test_settings_kept_from_another_file_of_the_same_name_do_not_replace_those_kept_before(self):
+        first = evil_zip(playground=evil_playground(privileged=False))
+        _, kept = self.kept_from_a_removal(first)
+        service.add(exports.receive(evil_zip(playground=self.OTHER))["ticket"])
+        (paths.ROOT / exports.IMPORTS_DIR / "evil" / "playgrounds/evil/.env").write_text("OTHER=1\n")
+        project.forget()
+        service.remove("evil")
+        self.assertEqual(len(list((paths.ROOT / exports.KEPT_DIR).glob("evil-*"))), 2, "each removal keeps its own")
+        again = exports.receive(first)
+        self.assertEqual(again["kept"], {"used": True, "where": f"{exports.KEPT_DIR}/{kept.name}"})
+        service.add(again["ticket"])
+        self.assertEqual((paths.ROOT / exports.IMPORTS_DIR / "evil" / "playgrounds/evil/.env").read_text(), "EVIL_LEVEL=debug\n")
+
     def test_kept_settings_that_personal_does_not_take_stay_and_are_said(self):
         data = evil_zip(playground=evil_playground(privileged=False))
         _, kept = self.kept_from_a_removal(data)
