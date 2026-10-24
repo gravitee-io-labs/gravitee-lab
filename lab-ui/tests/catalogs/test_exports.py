@@ -89,6 +89,14 @@ class Named(Case):
         self.assertEqual(exports._named("x-gravitee:  # the item\n  kind: addon\n\n  name: 'Echo two'\nservices: {}\n", "echo"), "Echo two")
         self.assertEqual(exports._named("x-gravitee:\n  kind: addon\nservices:\n  a:\n    name: no\n", "echo"), "echo")
 
+    def test_a_flow_block_that_never_closes_takes_no_time_either(self):
+        import time
+        for text in ("x-gravitee: {\n" * 20000, "x-gravitee: {kind: addon\n" + "  a: b\n" * 20000, "x-gravitee: {" + " " * 400000):
+            started = time.monotonic()
+            self.assertEqual(exports._named(text, "evil"), "evil")
+            self.assertLess(time.monotonic() - started, 1.0)
+        self.assertEqual(exports._named("x-gravitee: {kind: addon,\n  name: Echo}\n", "echo"), "Echo", "a flow block may span lines")
+
 
 class RoundTrip(Case):
     """A project with the fixture catalog as its default one and two items of this machine: Sandbox, a playground that includes

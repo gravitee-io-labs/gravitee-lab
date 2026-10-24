@@ -583,15 +583,27 @@ def _compose_rel(kind, rel):
     return rel if kind == "setup" else f"{rel}/compose.yml"
 
 
-# The name in an x-gravitee block, of a file someone else made: each line of the block is read once, in one way (a line is blank, or
-# indentation then a word), so that no text makes the search take longer than reading it
-FLOW_NAME = re.compile(r"(?m)^x-gravitee:[ \t]*\{[^}]*?\bname:[ \t]*([^,}\n]+)")
-BLOCK_NAME = re.compile(r"(?m)^x-gravitee:[ \t]*(?:#[^\n]*)?\n(?:[ \t]*\n|[ \t]+(?!name:)[^ \t\n][^\n]*\n)*?[ \t]+name:[ \t]*([^\n]+)")
+# The name in the x-gravitee block of a file someone else made. The block is the first top-level `x-gravitee:` (a key is said once),
+# so the search starts there once: a flow block is read up to its closing brace, and at most HEAD_LIMIT characters of it; a
+# block of lines is read a line at a time, each in one way (blank, or indentation then a word). No text makes the search take
+# longer than reading it.
+HEAD = re.compile(r"(?m)^x-gravitee:[ \t]*")
+HEAD_LIMIT = 65536
+FLOW_NAME = re.compile(r"\bname:[ \t]*([^,}\n]+)")
+BLOCK_NAME = re.compile(r"(?:#[^\n]*)?\n(?:[ \t]*\n|[ \t]+(?!name:)[^ \t\n][^\n]*\n)*?[ \t]+name:[ \t]*([^\n]+)")
 
 
 def _named(text, fallback):
     """The name an item's x-gravitee block gives it, for the words of the page; its folder's when it says none."""
-    said = FLOW_NAME.search(text) or BLOCK_NAME.search(text)
+    head = HEAD.search(text)
+    if head is None:
+        return fallback
+    at = head.end()
+    if text.startswith("{", at):
+        end = text.find("}", at, at + HEAD_LIMIT)
+        said = FLOW_NAME.search(text, at, end if end >= 0 else min(len(text), at + HEAD_LIMIT))
+    else:
+        said = BLOCK_NAME.match(text, at)
     return said.group(1).strip().strip("'\"") if said else fallback
 
 
