@@ -1178,6 +1178,10 @@ def _targeted(ns, op, held, entry):
             raise CatalogError("no_previous", NO_PREVIOUS, 409)
         return held["previous"], False
     store_path, contract = registry.store_dir(ns), _contract()
+    if store_path.is_dir() and not bare.releases_read(store_path):
+        # A store fetched before this Lab read releases does not say whether the catalog makes some: an Update reads them first,
+        # rather than move to the newest commit of a catalog that offers releases
+        _refetch(ns, entry)
     tip = bare.resolve(store_path, "tip") if store_path.is_dir() else None
     if tip is None:
         tip = held.get("tip")

@@ -63,6 +63,9 @@ _SHORT = re.compile(r"tip|pin|previous")
 _PATHSPEC = re.compile(r"[A-Za-z0-9._+/-]+")
 # Where a fetch keeps the remote's tags that may be releases (`v*`), and the name of a release tag: three numbers, no sign
 RELEASES = "refs/lab/releases/"
+# The tip as of the last fetch that brought the release tags too: a store a Lab fetched before it read releases has none, and does
+# not say yet whether the catalog has any
+RELEASES_READ = "refs/lab/releases-read"
 _RELEASE = re.compile(r"v([0-9]{1,9})\.([0-9]{1,9})\.([0-9]{1,9})")
 _RECORD = re.compile(rb"(\d{6}) (?:blob|commit|tree) ([0-9a-f]{40}) +(-|\d+)\t(.*)", re.S)
 _PROGRESS = re.compile(r"(?:Receiving|Unpacking) objects:\s+(\d+)%")
@@ -318,9 +321,17 @@ def _fetch(address, source, store, stall, cap, progress, releases=True):
         if fresh:
             shutil.rmtree(store, ignore_errors=True)
         raise
+    if releases:
+        set_ref(store, RELEASES_READ, tip)
     if progress and download.fraction < 1.0:
         progress(1.0)
     return tip
+
+
+def releases_read(store) -> bool:
+    """Whether a fetch brought the release tags of the remote into this store (`RELEASES_READ`): without one, the store does not
+    say whether the catalog makes releases."""
+    return resolve(store, RELEASES_READ) is not None
 
 
 def set_ref(store, name: str, commit: Optional[str]) -> None:

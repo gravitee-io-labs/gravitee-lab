@@ -2320,6 +2320,18 @@ class Releasing(Seam):
         self.assertTrue(row["state"]["reason"].startswith("Version 2.0.0, checked "))
         self.assertEqual(service.update("partner", check=True), {"upToDate": True})
 
+    def test_a_store_an_older_lab_fetched_reads_the_releases_before_an_update_moves_to_main(self):
+        self.tag("2.0.0", self.first)
+        self.remote.commit(NEWER, "Add the ledger")   # merged, not released
+        store_dir = registry.store_dir("partner")
+        bare.fetch(gitx.parse_address(self.remote.url), None, store_dir, releases=False)   # as a Lab before releases left it
+        for ref in gitfixture.git("for-each-ref", "--format=%(refname)", "refs/lab/releases/", repo=store_dir).split():
+            gitfixture.git("update-ref", "-d", ref, repo=store_dir)
+        gitfixture.git("update-ref", "-d", bare.RELEASES_READ, repo=store_dir)
+        self.assertFalse(bare.releases_read(store_dir))
+        self.assertEqual(service.update("partner", check=True), {"upToDate": True}, "the release installed, not the tip of main")
+        self.assertTrue(bare.releases_read(store_dir))
+
     def test_the_next_release_is_offered_with_its_version_and_its_notes_and_not_main(self):
         self.tag("2.0.0", self.first)
         released = self.release("2.1.0", GAINS, "Add the audit trail")

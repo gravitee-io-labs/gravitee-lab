@@ -87,7 +87,7 @@ def plain(text: str) -> str:
 
 def tags_before(root: str, sha: str, tag: Optional[str]) -> Optional[str]:
     """The greatest `vX.Y.Z` tag below `tag` (any, when None) that leads to `sha`, or None. Tags that are not three numbers are not
-    releases."""
+    releases, nor is a tag whose catalog.yml says another version: the Lab does not offer it either (`manifest.releases`)."""
     try:
         done = gitx.run(["tag", "--list", "--merged", sha, "v*"], cwd=os.path.realpath(root), env=trees.QUIET, timeout=60)
     except (gitx.CatalogError, gitx.OutputLimit):
@@ -100,7 +100,15 @@ def tags_before(root: str, sha: str, tag: Optional[str]) -> Optional[str]:
         name = name.strip()
         if TAG.fullmatch(name) and version_of(name) < here:
             older.append((version_of(name), name))
-    return max(older)[1] if older else None
+    for _, name in sorted(older, reverse=True):
+        try:
+            shown = gitx.run(["show", f"refs/tags/{name}:catalog.yml"], cwd=os.path.realpath(root), env=trees.QUIET, timeout=60)
+        except (gitx.CatalogError, gitx.OutputLimit):
+            raise Unavailable("git could not read the catalog.yml of " + name) from None
+        said = catalog_meta(shown.out.decode("utf-8", "replace")).get("version") if shown.code == 0 else None
+        if said == name[1:]:
+            return name
+    return None
 
 
 def units_at(git_dir: str, sha: str):
@@ -170,20 +178,32 @@ def notes_text(found: Release) -> str:
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
+def next_release(previous: Optional[str], version: str = "") -> Tuple[str, bool]:
+    """(the version to release, whether only its tag is missing). catalog.yml saying more than the last release means its release
+    pull request is merged: the tag is what is left. Else the next minor version: never one below what catalog.yml says."""
+    if previous is None:
+        return version or "1.0.0", True
+    if version and version_of("v" + version) > version_of(previous):
+        return version, True
+    major, minor, _ = version_of(previous)
+    return f"{major}.{minor + 1}.0", False
+
+
 def unreleased_text(previous: Optional[str], new: List[str], changed: List[Tuple[str, List[str]]], removed: List[str],
                     version: str = "") -> str:
-    """One line for a person: what changed since the release `previous`, and the command that releases it; empty when nothing did.
-    With no release, the version catalog.yml says is the one to tag."""
+    """One line for a person: what changed since the release `previous`, and the command that releases it (`next_release`); empty
+    when nothing did. With no release, the version catalog.yml says is the one to tag."""
     keys = new + [key for key, _ in changed] + removed
     if previous is None:
         return ("No release yet: the Lab offers the newest commit of main until there is one. Release it: make release VERSION="
                 f"{version or '1.0.0'} TAG=1")
     if not keys:
         return ""
-    major, minor, _ = version_of(previous)
+    wanted, tag_only = next_release(previous, version)
     shown = ", ".join(keys[:10]) + (f" and {len(keys) - 10} more" if len(keys) > 10 else "")
     return (f"{len(keys)} {'item' if len(keys) == 1 else 'items'} changed since {previous} and the Lab does not offer "
-            f"{'it' if len(keys) == 1 else 'them'} until the next release: {shown}. Release: make release VERSION={major}.{minor + 1}.0")
+            f"{'it' if len(keys) == 1 else 'them'} until the next release: {shown}. Release: make release VERSION={wanted}"
+            + (" TAG=1" if tag_only else ""))
 
 
 def read_records(where: str) -> List[dict]:
@@ -275,8 +295,9 @@ def unreleased_main(argv, out, err, **seams) -> int:
     version = meta.get("version", "") if isinstance(meta.get("version"), str) and VERSION.fullmatch(meta["version"]) else ""
     line = unreleased_text(previous, new, changed, removed, version)
     if args.format == "json":
-        out.write(json.dumps({"changed": [key for key, _ in changed], "new": new, "previous": previous, "removed": removed},
-                             indent=2, sort_keys=True, ensure_ascii=True) + "\n")
+        wanted, tag_only = next_release(previous, version)
+        out.write(json.dumps({"changed": [key for key, _ in changed], "new": new, "previous": previous, "removed": removed,
+                              "next": wanted, "tag_only": tag_only}, indent=2, sort_keys=True, ensure_ascii=True) + "\n")
     elif line and args.format == "github":   # a catalog with no release is one way to be: said, not warned of
         out.write(f"::{'notice' if previous is None else 'warning'} title=Unreleased::{line.replace('%', '%25')}\n")
     else:

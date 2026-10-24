@@ -183,6 +183,9 @@ def _prepare(root: Path, version: str, pr: bool, gh: Callable) -> List[str]:
         raise ReleaseError("catalog.yml is not UTF-8 text.") from None
     if old == version:
         raise ReleaseError(f"catalog.yml already says {version}. Fix: if it is on main, tag it: make release VERSION={version} TAG=1.")
+    if numbers(version) < numbers(old):
+        raise ReleaseError(f"catalog.yml says {old} already, which is greater than {version}. Fix: tag {old} "
+                           f"(make release VERSION={old} TAG=1), or choose a version above it.")
     made = _run(root, "switch", "--quiet", "-c", name)
     if made.code != 0:
         raise _fail(made, "The branch could not be made")
@@ -218,7 +221,8 @@ def _prepare(root: Path, version: str, pr: bool, gh: Callable) -> List[str]:
     lines = [f"Prepared {name}: catalog.yml says {version} (one commit).", "", "Next", f"  git push -u origin {name}", f"  {line}",
              f"  after it is merged: make release VERSION={version} TAG=1"]
     if pr:
-        pushed = _run(root, "push", "--quiet", "--set-upstream", "origin", name)
+        # The release branch alone: no tag follows it, whatever the person's git says (push.followTags)
+        pushed = _run(root, "push", "--quiet", "--no-follow-tags", "--set-upstream", "origin", f"refs/heads/{name}:refs/heads/{name}")
         if pushed.code != 0:
             return lines + ["", f"git push did not work: {printable(pushed.err).strip()[:SHOWN] or 'it said nothing'}",
                             "The branch is ready here: push it and open the pull request with the lines above."]
@@ -229,7 +233,9 @@ def _prepare(root: Path, version: str, pr: bool, gh: Callable) -> List[str]:
             lines += ["", "gh pr create did not work: " + (printable(err).strip() or "it said nothing")[:SHOWN],
                       f"The branch {name} is on origin: open the pull request with the line above."]
         else:
-            lines += ["", printable(out).strip()[:SHOWN]]
+            # Pushed and opened: what is left is the second step
+            lines = [f"Prepared {name}: catalog.yml says {version} (one commit), pushed, and its pull request opened:",
+                     printable(out).strip()[:SHOWN], "", "Next", f"  after it is merged: make release VERSION={version} TAG=1"]
     return lines
 
 

@@ -163,10 +163,25 @@ class Preparing(Case):
         lines = self.release("1.2.0", pr=True, gh=gh)
         self.assertEqual(calls, [(["gh", "pr", "create", "--base", "main", "--head", "release/1.2.0", "--title", "Release 1.2.0",
                                    "--body", ""], self.repo.root)])
-        self.assertEqual(lines[-1], "https://example.test/acme/hub/pull/7")
+        self.assertEqual(lines[1], "https://example.test/acme/hub/pull/7")
+        self.assertEqual(lines[-1], "  after it is merged: make release VERSION=1.2.0 TAG=1", "what was done is not said as left to do")
+        self.assertFalse([line for line in lines if "git push" in line or "gh pr create" in line])
         # The branch is on origin before gh is asked: GitHub opens no pull request for a branch it does not have
         self.assertEqual(self.repo.git("rev-parse", "origin/release/1.2.0").strip(), self.repo.git("rev-parse", "HEAD").strip())
         self.assertEqual(self.repo.git("rev-parse", "--abbrev-ref", "release/1.2.0@{upstream}").strip(), "origin/release/1.2.0")
+
+    def test_a_version_below_the_one_catalog_yml_says_is_refused(self):
+        (Path(self.repo.root) / "catalog.yml").write_bytes(catalog("1.1.0"))
+        self.repo.git("commit", "-q", "-am", "1.1.0 merged, not tagged")
+        self.repo.git("push", "--quiet", "origin", "main")
+        with self.assertRaisesRegex(release.ReleaseError, r"catalog.yml says 1\.1\.0 already, which is greater than 1\.0\.1"):
+            self.release("1.0.1")
+
+    def test_pr_pushes_no_tag_even_when_git_would_follow_them(self):
+        self.repo.git("config", "push.followTags", "true")
+        self.repo.git("tag", "-a", "v0.9.9", "-m", "a tag of this clone")
+        self.release("1.2.0", pr=True, gh=lambda argv, cwd: (0, "https://example.test/pull/1\n", ""))
+        self.assertNotIn("refs/tags/v0.9.9", self.repo.git("ls-remote", "origin"))
 
     def test_pr_pushes_the_release_branch_and_nothing_else(self):
         before = self.repo.git("ls-remote", "origin").splitlines()
@@ -302,7 +317,8 @@ class Command(Case):
         self.assertFalse([each for each in commands if "push" in each], commands)
         # One push in the whole module: the release branch, with --pr, by its name. Never main, never a tag
         source = (Path(release.__file__)).read_text(encoding="utf-8")
-        self.assertEqual(re.findall(r'_run\(root, "push"[^)]*\)', source), ['_run(root, "push", "--quiet", "--set-upstream", "origin", name)'])
+        self.assertEqual(re.findall(r'_run\(root, "push"[^\n]*', source),
+                         ['_run(root, "push", "--quiet", "--no-follow-tags", "--set-upstream", "origin", f"refs/heads/{name}:refs/heads/{name}")'])
 
 
 class Version(unittest.TestCase):

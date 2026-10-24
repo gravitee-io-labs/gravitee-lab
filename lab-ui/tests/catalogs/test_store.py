@@ -989,6 +989,13 @@ class Fetching(Remote):
         store.fetch(self.address, "main", self.store, releases=False)
         self.assertEqual(gitfixture.git("for-each-ref", "refs/lab/releases/", repo=self.store).strip(), "")
 
+    def test_a_store_says_whether_a_fetch_read_the_releases(self):
+        tip = store.fetch(self.address, "main", self.store, releases=False)
+        self.assertFalse(store.releases_read(self.store), "a fetch without the tags does not say whether there are releases")
+        self.assertEqual(store.fetch(self.address, "main", self.store), tip)
+        self.assertTrue(store.releases_read(self.store))
+        self.assertEqual(gitfixture.git("for-each-ref", "refs/lab/releases/", repo=self.store).strip(), "", "the mark is no release")
+
     def test_the_command_is_the_one_of_section_9(self):
         log = self.root / "args"
         gitfixture.fake_git(self, f"for a in \"$@\"; do if [ \"$a\" = fetch ]; then printf '%s\\n' \"$@\" > '{log}'; fi; done\n"

@@ -168,14 +168,16 @@ titles for the people who will read them there.
 A release is a promise that `v1.1.0` is always the same files. Never move or delete a tag that was pushed: a Lab that installed
 it says the catalog was rewritten, and its people must confirm an update they cannot judge. Fix a release with the next one.
 
-To see what is merged and not released yet:
+To see what is merged and not released yet, from the catalog's folder with the Lab beside it (`LAB` of the Makefile):
 
 ```bash
-python3 lab-ui/catalog.py ci unreleased .
+python3 ../gravitee-lab/lab-ui/catalog.py ci unreleased .
 ```
 
-says which items changed since the last tag and the version to release (`--format json` for a script, `--ci` for the summary of
-a workflow, with the notes the next release would have). It always exits 0: what you release, and when, is your choice.
+says which items changed since the last tag and the command that releases them: `make release VERSION=1.1.0`, or
+`make release VERSION=1.1.0 TAG=1` once the release pull request is merged and only its tag is left. `--format json` gives the
+same for a script (`next`, `tag_only`, and the items), `--ci` the summary of a workflow, with the notes the next release would
+have. It always exits 0: what you release, and when, is your choice.
 
 ## Keeping in step
 
