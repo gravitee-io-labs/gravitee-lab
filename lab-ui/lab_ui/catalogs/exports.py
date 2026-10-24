@@ -35,7 +35,6 @@ again takes them, any other file of that name leaves them where they are, and th
 
 import base64
 import binascii
-import contextlib
 import hashlib
 import io
 import json
