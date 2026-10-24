@@ -11,7 +11,9 @@ while one of the items is on. The import whose items all moved is removed with i
 
 Personal is the last check, as for an import: nothing judges what is there. An item blocked only for what it takes of this
 machine (a privileged container, say; and what needs it) moves once the person allowed it, which the plan says (`uses_machine`)
-and the move must be asked with (`allow`); an item blocked for anything else does not move (`held`).
+and the move must be asked with (`allow`); an item blocked for anything else does not move (`held`), nor one that waits for a
+catalog this Lab has not added, which nothing could judge (`waiting`). A move and a copy are changes of catalogs: they wait for
+none under way, and one that fails midway takes out what it wrote in Personal.
 
 Copy: the person's own version of an item of any catalog, to change as they like. The copy keeps the names of the original's
 services, which its neighbours and its seed call it by, and says whose copy it is (`x-gravitee.copy_of`): the Lab then takes it for

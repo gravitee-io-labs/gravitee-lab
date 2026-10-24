@@ -17,15 +17,19 @@ uses its own item instead of a second copy of the same one (`_reuse`), and the i
 from a registry that asks for a login is said too (`registries`): the person who receives the file needs that access.
 
 An import is that Add: the archive is read with the limits of a catalog (`store`), written under `.lab/imports/<id>`, which the Lab
-owns, and checked; the page shows the preview of an Add, and Import is its Add. Or the person keeps it as their own: Personal
-(`to_personal`), where nothing is blocked any more. The preview has judged it first, as for the Add: what it blocks cannot go to
-Personal, and what it asks of this machine was shown before the person chose. An item of Personal with the same name is replaced,
-unless it is the same (then it is used), and the preview says so (`personal`). A folder of `.lab/imports` that no catalog uses is
-what an import left before it was confirmed: the next import of the same playground replaces it.
+owns, and checked; the page shows the preview of an Add, and Import is its Add. Its folder is named as its catalog, whose settings
+start with that id. Or the person keeps it as their own: Personal (`to_personal`), where nothing is blocked any more. The preview
+has judged it first, as for the Add, and Personal takes only what it judged, as it judged it (the digest of the files): what it
+blocks cannot go there, nor what waits for a catalog this Lab lacks, which nothing could judge (`_waiting`), and what takes more
+of this machine goes there once the person allowed it. An item of Personal with the same name is replaced, unless it is the same
+(then it is used), and the preview says so (`personal`). A folder of `.lab/imports` that no catalog uses and no preview waits for
+is what an import left before it was confirmed: the next import of the same playground replaces it. A removed import that kept
+the person's settings (`.kept`) waits for that next import, which joins them.
 
     plan(pid)                  what the export of a playground carries, needs, and what another Lab will make of it
-    archive(pid)               plan(pid) and the file: {"file", "data" (base64)}
+    archive(pid, private)      plan(pid) and the file: {"file", "data" (base64)}, made as the person saw it
     receive(data)              the bytes of an archive, written and checked: the preview of the Add that imports it
+    to_personal(ticket, allow) the import of a preview kept in Personal
 """
 
 import base64
@@ -704,11 +708,11 @@ def _to_personal(ticket, allow=False):
 def _waiting(preview):
     """The preview of an import, where an item that waits for a catalog this Lab lacks is one that cannot run: nothing judged it,
     and Personal, which judges nothing either, cannot take it."""
-    waits = preview.pop("waits", None) or []
-    if waits:
-        preview["blocked"] = [*(preview.get("blocked") or ()), *(
-            {"kind": one["kind"], "id": one["id"], "name": one["name"], "reasons": [moving.waiting(one)[0].replace("it needs", "Needs", 1)]}
-            for one in waits if moving.waiting(one))]
+    for one in preview.pop("waits", None) or ():
+        why = moving.waiting(one)
+        if why:
+            preview["blocked"] = [*(preview.get("blocked") or ()), {"kind": one["kind"], "id": one["id"], "name": one["name"],
+                                                                    "reasons": [why[0].replace("it needs", "Needs", 1)]}]
     return preview
 
 
