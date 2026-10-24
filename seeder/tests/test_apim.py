@@ -363,7 +363,8 @@ class SecondRun(Converged):
     def test_an_application_the_record_forgot_stops_the_seed_rather_than_being_adopted(self):
         common.save_created([x for x in common.created() if x["kind"] != "application"])
         before = len(self.platform.calls)
-        with self.assertRaisesRegex(common.SeedError, "Application Dev: the name is taken by an application the seed did not create"):
+        # Run together, the applications are seeded at once: either one is the first to find its name taken, and nothing is written
+        with self.assertRaisesRegex(common.SeedError, "Application (Dev|Web): the name is taken by an application the seed did not create"):
             self.run_seed()
         self.assertEqual([c for c in self.platform.calls[before:] if c.method != "GET" and "/applications" in c.path], [])
 
