@@ -497,3 +497,13 @@ class Untrusted(Case):
         service.add(exports.receive(evil_zip(playground=evil_playground(privileged=False)))["ticket"])
         message = self.refused(lambda: exports.receive(evil_zip()), "already_imported")
         self.assertIn("is already in this Lab. To import it again, remove it on the Catalogs page first.", message)
+
+    def test_an_item_compose_cannot_read_was_judged_by_nothing_and_cannot_go_to_personal(self):
+        unread = evil_playground() + "services: {}\n"   # a second services key: Compose refuses the file
+        preview = exports.receive(evil_zip(playground=unread))
+        self.assertIn({"kind": "playground", "id": "@evil/evil", "name": "Evil", "reasons": ["Its compose file cannot be read"]},
+                      preview["blocked"])
+        message = self.refused(lambda: exports.to_personal(preview["ticket"], allow=True), "unread_personal")
+        self.assertEqual(message, "Evil cannot be read: Compose does not load its compose file. Fix: import it to Imported, where "
+                                  "the Lab says why.")
+        self.assertFalse(self.personal().exists())

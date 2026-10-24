@@ -883,7 +883,7 @@ def _check_folder(asked):
             judged, verdicts, mine = _review(meta["id"], meta, "folder", "private", False, "allowed", ignored)
         preview = _preview(ticket, meta, "folder", asked, "private", False, ignored, judged, verdicts, mine)
         _keep(ticket, "add", ns=meta["id"], staged=staged, address=asked, branch=None, audience="private", roots=[],
-              meta=meta, store=None, listed=False)
+              meta=meta, store=None, listed=False, judged=sorted(uid for _, uid in mine))
         return preview
     except BaseException:
         _clean_up(ticket, staged, None)

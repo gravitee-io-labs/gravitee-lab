@@ -672,6 +672,10 @@ def _to_personal(ticket, allow=False):
     base = (paths.ROOT / IMPORTS_DIR).resolve()
     if not folder.is_dir() or folder.resolve().parent != base or not data.get("imported"):
         raise _fail("not_an_import", "This is not a playground being imported. Choose its file again.", 409)
+    unread = data.get("unread") or []
+    if unread:
+        raise _fail("unread_personal", f"{', '.join(unread)} cannot be read: Compose does not load its compose file. Fix: import it "
+                                       "to Imported, where the Lab says why.", 409)
     blocked = data.get("blocked") or []
     if blocked:
         raise _fail("blocked_personal", f"{', '.join(blocked)} cannot run: import to Imported, where it stays blocked.", 409)
@@ -807,12 +811,18 @@ def _receive(data):
             service.forget(preview.get("ticket"))
             raise _fail("import_invalid", f"{NOT_A_PLAYGROUND} Its folder, {top}, is not the id of its catalog, "
                                           f"{preview['catalog']['id']}.")
-        blocked = [one.get("name") for one in preview.get("blocked") or ()]
         items = _for_personal(final, top)
+        # What the judgement did not produce, since Compose could not read it, is judged by nothing: it cannot go to Personal
+        judged = set(service._held(preview["ticket"], "add").get("judged") or ())
+        unread = [name for _, slug, _, name, _ in items if f"@{top}/{slug}" not in judged]
+        preview["blocked"] = [*(preview.get("blocked") or ()), *({"kind": kind, "id": f"@{top}/{slug}", "name": name,
+                                                                  "reasons": ["Its compose file cannot be read"]}
+                                                                 for kind, slug, _, name, _ in items if name in unread)]
+        blocked = [one.get("name") for one in preview.get("blocked") or ()]
         # What Personal would run unjudged that takes more of this machine: the person allows it, as for a Move
         named = {f"@{top}/{slug}": name for _, slug, _, name, _ in items}
         uses = list(dict.fromkeys(named.get(one.get("id"), one.get("name")) for one in (preview.get("rows") or {}).get("uses_machine") or ()))
-        service.note(preview.get("ticket"), imported=True, blocked=blocked, uses=uses, digest=_digest(final))
+        service.note(preview.get("ticket"), imported=True, blocked=blocked, unread=unread, uses=uses, digest=_digest(final))
         return {**preview, "imported": True, "reused": reused, "personal": _personal_plan(items)}
     except BaseException:
         if not (kept and _vacate(final)):
