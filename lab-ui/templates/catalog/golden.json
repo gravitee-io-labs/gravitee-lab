@@ -153,7 +153,7 @@
         ".github/rulesets/protected-paths.json": "a80d246dad3ec9d2c482a053826eb97f02cbef9f52bc933adabcb4681566ee74",
         ".github/rulesets/push.json": "b4e2d5f075306071f0ee09a2ab603bec71c5a7d340031fea8bf577cdff5946e1",
         ".github/rulesets/tags.json": "189718c04393d034409928322c5468aae91bbbb5c3ad17e1698e3806b0e44fb4",
-        ".github/workflows/ci.yml": "7095f9965e0d3bd60fa919af50d7fa87461065fa4d91e918f43c46f7383ab8c9",
+        ".github/workflows/ci.yml": "154aba149ff69ec6dee7d983e99d20a18d89143137ea85e838b9757502285518",
         ".github/workflows/e2e.yml": "282b39146dbbc01f0a46aafcdd92a39550f2aa35494e731c26cca514fd07a988",
         ".github/workflows/nightly.yml": "cba377c9a49f18cf1d800f964636d6980ef4b8bf95afd630c6b44d7d5715c109",
         ".github/workflows/publish.yml": "bb33c6ad4f73ccba15b60bc5110c7c828e7dae7e4911a9879267dd730553c204"
