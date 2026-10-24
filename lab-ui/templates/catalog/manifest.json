@@ -55,7 +55,8 @@
         "      # and the notes of the next release in the summary, never a failure",
         "      - name: Not released yet",
         "        if: ${{ !cancelled() && github.event_name == 'push' }}",
-        "        run: python3 -I lab/lab-ui/catalog.py ci unreleased catalog --ci"
+        "        # A warning at most: a clone git cannot read is said, and fails no run",
+        "        run: python3 -I lab/lab-ui/catalog.py ci unreleased catalog --ci || echo \"::warning title=Unreleased::What is not released yet could not be read\""
       ],
       "to": []
     },
