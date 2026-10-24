@@ -271,6 +271,24 @@ class FromCatalogs(Case):
         with zipfile.ZipFile(io.BytesIO(base64.b64decode(exports.archive("local/sandbox", private=["partner"])["data"]))) as archive:
             self.assertNotIn("copy_of", archive.read("sandbox/addons/ledger/compose.yml").decode())
 
+    def test_a_copy_of_a_private_item_shared_to_a_folder_of_the_person_is_still_private_content(self):
+        from lab_ui.catalogs import contribute
+        fixtures.install(self, "lab-new", "folder", audience="private", lab=1)   # a folder of the person's
+        moving.copy("addon", "@partner/ledger")
+        ledger = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons" / "ledger" / "compose.yml"
+        ledger.write_text(ledger.read_text(encoding="utf-8").replace("partner-ledger", "own-ledger").replace("8192", "8291"),
+                          encoding="utf-8")   # the person's own version, which the original no longer clashes with
+        project.forget()
+        self.assertEqual(contribute.share(project.load(), "addon", "local/ledger", "lab-new"), {"copied": "Newer Lab fixture"})
+        shutil.rmtree(ledger.parent)
+        scratch = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons" / "scratch" / "compose.yml"
+        scratch.write_text(scratch.read_text(encoding="utf-8").replace(self.LEDGER, "../../../lab-new/addons/ledger/compose.yml"),
+                           encoding="utf-8")
+        project.forget()
+        plan = exports.plan("local/sandbox")
+        self.assertIn("@lab-new/ledger", [one["id"] for one in plan["carries"]])
+        self.assertEqual(plan["private"], [{"id": "partner", "name": "Partner fixture", "items": ["Ledger"]}])
+
     def test_an_image_the_other_lab_pulls_from_a_registry_that_asks_for_a_login_is_said(self):
         plan = exports.plan("local/sandbox")
         self.assertEqual(plan["registries"], [{"registry": "registry.acme.example", "images": ["registry.acme.example/ledger:1"]}])

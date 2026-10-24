@@ -1223,8 +1223,11 @@ def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False)
             source = private_source(other.text)   # the copy is the private catalog's content, whatever it names
             if source:
                 raise _refusal("share_private_copy", name=named(k, one), private=source[1])
-        copy = _unmarked(copy, kind, slug)
-        along = [(k, one, s, _unmarked(other, k, s)) for k, one, s, other in along]
+        # Whose copy it is goes with a copy of a private catalog's content into another catalog (not Public: refused above), so that
+        # it is still that catalog's content there; else an item of a catalog says nothing of it
+        marked = {(k, s) for k, _, s, other in [(kind, uid, slug, copy), *along] if (private_source(other.text) or (to,))[0] != to}
+        copy = copy if (kind, slug) in marked else _unmarked(copy, kind, slug)
+        along = [(k, one, s, other if (k, s) in marked else _unmarked(other, k, s)) for k, one, s, other in along]
         renames = _renames([(kind, slug, copy), *[(k, s, c) for k, _, s, c in along]], to)
         copy = _renamed(copy, kind, slug, renames)
         along = [(k, one, s, _renamed(c, k, s, renames)) for k, one, s, c in along]

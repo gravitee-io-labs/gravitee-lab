@@ -20,11 +20,12 @@ The guide becomes Markdown any viewer shows (`_guide`): an action link is the na
 the user and its password, a block to run a plain block. What to have before the start (Docker, the license and its features, what
 the playground asks of the machine) and how to start it come before its first step, and how to stop it after the last.
 
-What comes from a private catalog leaves with the file, and is said before it is made, as for an export (`exports._origins`); an
-image the folder pulls from a registry that asks for a login is said too (`exports._registries`).
+What comes from a private catalog leaves with the file, and is said before it is made, as for an export (`exports._origins`), the
+person's copy of one of its items too (`exports.copies_of`); the file is made only once the page showed it. An image the folder
+pulls from a registry that asks for a login is said too (`exports._registries`).
 
-    plan(pid)        what the archive holds and asks: the services, what is left out, the settings, what it needs
-    archive(pid)     plan(pid) and the file: {"file", "data" (base64)}
+    plan(pid)              what the archive holds and asks: the services, what is left out, the settings, what it needs
+    archive(pid, private)  plan(pid) and the file: {"file", "data" (base64)}, made as the person saw it
 """
 
 import base64
@@ -629,8 +630,8 @@ def _build(pid, root: Path):
     seed = unit.get("seed") if unit.get("seed") in services else None
     (root / "README.md").write_text(_readme(gathered, raw, services, _consoles(pristine, keep, unit), seed, missing),
                                     encoding="utf-8")
-    origins, private = exports._origins([node for node in gathered["nodes"] if node[1] in gathered["units"][node[0]]],
-                                        gathered["units"])
+    nodes = [node for node in gathered["nodes"] if node[1] in gathered["units"][node[0]]]
+    origins, private = exports._origins(nodes, gathered["units"], exports.copies_of(nodes))
     return {"name": unit["name"], "file": f"{name}-docker-compose.zip", "services": list(services), "runs": runs, "leaves_out": gone,
             "settings": [key for key in keys], "license": (unit.get("requires") or {}).get("license") or [],
             "host": [host["name"] for host in (unit.get("requires") or {}).get("host") or []], "plugins_missing": missing,
@@ -645,9 +646,11 @@ def plan(pid):
         return _build(pid, Path(folder) / exports._slug(pid))
 
 
-def archive(pid):
-    """plan(pid) and the zip of the folder, `<slug>/` at its root: {..., "data": base64}."""
+def archive(pid, private=()):
+    """plan(pid) and the zip of the folder, `<slug>/` at its root: {..., "data": base64}. The plan is made again with the file:
+    what comes from a private catalog leaves only when the page showed that catalog (`private`: the ids it showed)."""
     with tempfile.TemporaryDirectory(prefix="lab-standalone-") as folder:
         top = exports._slug(pid)
         made = _build(pid, Path(folder) / top)
+        exports.unseen_private(made, private)
         return {**made, "data": base64.b64encode(exports._zip(Path(folder) / top, top)).decode("ascii")}

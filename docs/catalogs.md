@@ -163,8 +163,8 @@ the other, only one of the two runs at a time (the Lab says which to turn off), 
 copy, with your settings kept. A catalog's item that includes the original cannot be changed to include your copy: choose
 **<item> and what uses it** to copy those too, up to the playgrounds, and your own items that used one of them then use the
 copy. The copy takes the original's settings and secrets, not what its seed recorded, nor a link of its folder. A copy of an
-item of a private catalog is that catalog's content: it is not shared to a Public catalog, and an export says it under
-**Private**. An item that needs a catalog this Lab has not added is not copied: nothing has judged it.
+item of a private catalog is that catalog's content: it is not shared to a Public catalog, shared to another catalog it still says
+whose copy it is, and an export, for the Lab or for Docker Compose, says it under **Private**. An item that needs a catalog this Lab has not added is not copied: nothing has judged it.
 
 ## A playground in a file
 

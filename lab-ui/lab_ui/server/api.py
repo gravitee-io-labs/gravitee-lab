@@ -768,7 +768,8 @@ ROUTES = [(method, re.compile(pattern), handler) for method, pattern, handler in
      else exports.archive(pid, private=[one for one in r.body.get("private") or () if isinstance(one, str)])),
     # The same playground for Docker Compose alone, with no Lab: what the folder holds and asks (`check`), then the file, base64
     ("POST", f"/api/playgrounds/{UNIT}/standalone",
-     lambda r, pid: standalone.plan(pid) if r.body.get("check") else standalone.archive(pid)),
+     lambda r, pid: standalone.plan(pid) if r.body.get("check")
+     else standalone.archive(pid, private=[one for one in r.body.get("private") or () if isinstance(one, str)])),
     ("POST", "/api/catalogs/import", lambda r: exports.receive(r.body.get("data"))),
     ("POST", "/api/catalogs/import/personal", lambda r: exports.to_personal(r.body.get("ticket"), allow=r.body.get("allow") is True)),
     ("POST", f"/api/{KIND}s/{UNIT}/use-catalog", use_catalog),

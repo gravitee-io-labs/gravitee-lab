@@ -151,6 +151,25 @@ class Folder(Case):
         self.assertNotIn("FIXTURE_SHOP_PULL_POLICY", plan["settings"], "how its images come is the archive's")
         self.assertNotIn(standalone.KEYSTORE, plan["settings"], "the certificates are made with the default")
 
+    def test_a_copy_of_a_private_item_is_said_and_the_file_is_made_once_the_person_saw_it(self):
+        from lab_ui.catalogs import moving
+        from lab_ui.catalogs.registry import CatalogError
+        fixtures.install(self, "partner", kind="git", audience="private")
+        fixtures.local(self, "sandbox")
+        fixtures.local(self, "scratch")
+        project.forget()
+        moving.copy("addon", "@partner/ledger")
+        scratch = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons" / "scratch" / "compose.yml"
+        scratch.write_text(scratch.read_text(encoding="utf-8").replace("include:\n", "include:\n  - ../ledger/compose.yml\n", 1),
+                           encoding="utf-8")
+        project.forget()
+        self.assertEqual(standalone.plan("local/sandbox")["private"], [{"id": "partner", "name": "Partner fixture", "items": ["Ledger"]}])
+        with self.assertRaises(CatalogError) as caught:
+            standalone.archive("local/sandbox")
+        self.assertEqual((caught.exception.code, caught.exception.message), ("export_private", "It now carries private content of "
+                                                                             "Partner fixture. Fix: export it again to see what leaves with it."))
+        self.assertTrue(standalone.archive("local/sandbox", private=["partner"])["data"])
+
     def test_the_folder_holds_the_compose_file_its_settings_the_guide_and_what_the_services_build_or_mount(self):
         _, names, _ = self.unpacked()
         self.assertTrue(all(name.startswith("shop/") for name in names))

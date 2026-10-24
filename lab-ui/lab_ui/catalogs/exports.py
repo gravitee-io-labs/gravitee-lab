@@ -130,7 +130,7 @@ def _gather(pid):
     ns = _free_id(unit["name"], pid)
     moved = [(str(Path(paths.unit_file(kind, uid)).parent) if kind != "setup" else paths.unit_file(kind, uid),
               _folder(kind, ns, _slug(uid))) for kind, uid in carried]
-    files, problems, copies = {}, [], {}
+    files, problems = {}, []
     for kind, uid in carried:
         copy = contribute.collect(kind, _slug(uid), ns, paths.origin(uid), moved)
         leak = contribute._leaked(copy, kind, _slug(uid))
@@ -138,11 +138,8 @@ def _gather(pid):
             raise leak
         name = units[kind][uid]["name"]
         problems += [f"{name}: {line}" for line in copy.problems]
-        source = contribute.private_source(copy.text) if paths.origin(uid) == paths.LOCAL else None
-        if source:
-            copies[(kind, uid)] = source
         files.update(contribute._unmarked(copy, kind, _slug(uid)).files)
-    origins, private = _origins(carried, units, copies)
+    origins, private = _origins(carried, units, copies_of(carried))
     registries = _registries(found, carried, units)
     shared = _shared(carried, units, ns)
     if len(shared) > manifest.SETTINGS_LIMIT:
@@ -176,6 +173,18 @@ def _registries(found, carried, units):
             pulled.append(f"{registry}/{component['repository']}:{version}")
     return [{"registry": registry, "images": sorted(set(found_images))}
             for registry, found_images in sorted(images.private_images(pulled).items())]
+
+
+def copies_of(nodes):
+    """{(kind, id): (catalog id, its name)} of the items that are a copy of an item of a private catalog (x-gravitee.copy_of),
+    wherever they are now: in Personal, or in a catalog a share put them in. What they hold is that catalog's content."""
+    found = {}
+    for kind, uid in nodes:
+        data = contribute._read(paths.ROOT / paths.unit_file(kind, uid), bare.TEXT_FILE + 1)
+        source = contribute.private_source(data.decode("utf-8", "replace")) if data else None
+        if source and source[0] != paths.origin(uid):
+            found[(kind, uid)] = source
+    return found
 
 
 def _origins(carried, units, copies=None):
@@ -378,11 +387,16 @@ def archive(pid, private=()):
         reason = (one.get("reasons") or ["it cannot run"])[0]
         raise _fail("export_blocked", f"{one['name']} would be blocked on another Lab: {reason[:1].lower()}{reason[1:]}. Fix: export it again "
                                       "to see what blocks it.", 409)
-    unseen = [one["name"] for one in shown["private"] if one["id"] not in set(private or ())]
+    unseen_private(shown, private)
+    return {**shown, "data": base64.b64encode(data).decode("ascii")}
+
+
+def unseen_private(shown, private):
+    """Refuses a file that carries content of a private catalog the page did not show (`private`: the ids it showed)."""
+    unseen = [one["name"] for one in shown.get("private") or () if one["id"] not in set(private or ())]
     if unseen:
         raise _fail("export_private", f"It now carries private content of {', '.join(unseen)}. Fix: export it again to see what "
                                       "leaves with it.", 409)
-    return {**shown, "data": base64.b64encode(data).decode("ascii")}
 
 
 # ---------------------------------------------------------------------------------------------------------------------

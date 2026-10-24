@@ -1173,7 +1173,9 @@ test("Export for Docker Compose says what the folder runs, leaves out and needs,
   assert.equal(effects().notes[1][1][0], "A license with 3 features", "more features than fit a line are counted");
   assert.deepEqual(effects().notes.at(-1), ["Private", ["Internal"]]);
   assert.equal(text(page.ids["choice-ok"]), "Export with private content");
-  await answer(false);
+  await answer(true);
+  await flush();
+  assert.deepEqual(server.calls.at(-1).body, { private: ["internal"] }, "the file says what the person saw leave");
   await leave();
   server.standalone = plain;
   page.doc.createElement = make;
