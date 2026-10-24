@@ -2,11 +2,13 @@
 beside each, the person's name set in a temporary home; no network. The first step refuses a tree that is not clean, a branch
 that is behind origin/main, a version that is not greater than the latest tag; it changes the `version:` line and nothing else
 and makes one commit on a new branch. The second step needs origin/main to say the version and makes the annotated tag on it.
-Neither pushes: the origin's refs are compared before and after."""
+Neither pushes main or a tag: the origin's refs are compared before and after. `--pr` pushes the release branch, which the pull
+request needs, and that branch only."""
 
 import contextlib
 import io
 import os
+import re
 import unittest
 from pathlib import Path
 
@@ -161,7 +163,41 @@ class Preparing(Case):
         lines = self.release("1.2.0", pr=True, gh=gh)
         self.assertEqual(calls, [(["gh", "pr", "create", "--base", "main", "--head", "release/1.2.0", "--title", "Release 1.2.0",
                                    "--body", ""], self.repo.root)])
-        self.assertEqual(lines[-1], "https://example.test/acme/hub/pull/7")
+        self.assertEqual(lines[1], "https://example.test/acme/hub/pull/7")
+        self.assertEqual(lines[-1], "  after it is merged: make release VERSION=1.2.0 TAG=1", "what was done is not said as left to do")
+        self.assertFalse([line for line in lines if "git push" in line or "gh pr create" in line])
+        # The branch is on origin before gh is asked: GitHub opens no pull request for a branch it does not have
+        self.assertEqual(self.repo.git("rev-parse", "origin/release/1.2.0").strip(), self.repo.git("rev-parse", "HEAD").strip())
+        self.assertEqual(self.repo.git("rev-parse", "--abbrev-ref", "release/1.2.0@{upstream}").strip(), "origin/release/1.2.0")
+
+    def test_a_version_below_the_one_catalog_yml_says_is_refused(self):
+        (Path(self.repo.root) / "catalog.yml").write_bytes(catalog("1.1.0"))
+        self.repo.git("commit", "-q", "-am", "1.1.0 merged, not tagged")
+        self.repo.git("push", "--quiet", "origin", "main")
+        with self.assertRaisesRegex(release.ReleaseError, r"catalog.yml says 1\.1\.0 already, which is greater than 1\.0\.1"):
+            self.release("1.0.1")
+
+    def test_pr_pushes_no_tag_even_when_git_would_follow_them(self):
+        self.repo.git("config", "push.followTags", "true")
+        self.repo.git("tag", "-a", "v0.9.9", "-m", "a tag of this clone")
+        self.release("1.2.0", pr=True, gh=lambda argv, cwd: (0, "https://example.test/pull/1\n", ""))
+        self.assertNotIn("refs/tags/v0.9.9", self.repo.git("ls-remote", "origin"))
+
+    def test_pr_pushes_the_release_branch_and_nothing_else(self):
+        before = self.repo.git("ls-remote", "origin").splitlines()
+        self.release("1.2.0", pr=True, gh=lambda argv, cwd: (0, "https://example.test/pull/1\n", ""))
+        after = self.repo.git("ls-remote", "origin").splitlines()
+        self.assertEqual(sorted(set(after) - set(before)), [f"{self.repo.git('rev-parse', 'HEAD').strip()}\trefs/heads/release/1.2.0"])
+        self.assertEqual(set(before) - set(after), set())
+
+    def test_a_push_that_fails_says_why_and_asks_nothing_of_gh(self):
+        calls = []
+        self.repo.git("remote", "set-url", "--push", "origin", str(self.repo.top / "gone.git"))
+        lines = self.release("1.2.0", pr=True, gh=lambda argv, cwd: calls.append(argv) or (0, "", ""))
+        self.assertEqual(calls, [])
+        self.assertTrue(any(line.startswith("git push did not work: ") for line in lines), lines)
+        self.assertEqual(lines[-1], "The branch is ready here: push it and open the pull request with the lines above.")
+        self.assertEqual(self.repo.git("symbolic-ref", "--short", "HEAD").strip(), "release/1.2.0")
 
     def test_pr_without_gh_says_so_and_still_prepared_the_branch(self):
         lines = self.release("1.2.0", pr=True, gh=lambda argv, cwd: (127, "", ""))
@@ -171,6 +207,7 @@ class Preparing(Case):
     def test_a_pr_that_gh_refuses_says_what_gh_said(self):
         lines = self.release("1.2.0", pr=True, gh=lambda argv, cwd: (1, "", "must first push the branch"))
         self.assertTrue(any("gh pr create did not work: must first push the branch" in line for line in lines))
+        self.assertEqual(lines[-1], "The branch release/1.2.0 is on origin: open the pull request with the line above.")
 
 
 class Tagging(Case):
@@ -267,7 +304,7 @@ class Command(Case):
             self.assertEqual(release.main(["1.0.0", "--tag", "--pr"]), 2)
         self.assertEqual(out.getvalue(), "")
 
-    def test_nothing_in_the_module_pushes(self):
+    def test_nothing_in_the_module_pushes_but_the_release_branch_that_pr_needs(self):
         commands = []
         real = gitx.run
 
@@ -278,8 +315,10 @@ class Command(Case):
         self.run_main("1.0.0")
         self.patch(gitx, "run", real)
         self.assertFalse([each for each in commands if "push" in each], commands)
+        # One push in the whole module: the release branch, with --pr, by its name. Never main, never a tag
         source = (Path(release.__file__)).read_text(encoding="utf-8")
-        self.assertNotRegex(source, r'"push"')
+        self.assertEqual(re.findall(r'_run\(root, "push"[^\n]*', source),
+                         ['_run(root, "push", "--quiet", "--no-follow-tags", "--set-upstream", "origin", f"refs/heads/{name}:refs/heads/{name}")'])
 
 
 class Version(unittest.TestCase):

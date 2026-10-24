@@ -294,9 +294,12 @@ def _kind_state(ns, found, held, entry, contract):
     if key in ("unreachable", "noaccess", "needs_git", "failed") and held.get("error"):
         reason, after = _failure(held["error"], url, installed if held.get("pin") else "")
         return _state(key, reason=reason, next=after)
-    if key == "uptodate":
-        said = f"Version {found['version']}" if found.get("version") else ""
-        return _state(key, reason=f"{said}, checked {ago(held.get('checked'))}".strip(", ") if held.get("checked") else said)
+    if key == "uptodate":   # a copy that is no release (a catalog that makes none, commits made after the last one) says so
+        said = [f"Version {found['version']}"] if found.get("version") else []
+        said += [] if held.get("release") else ["unreleased"]
+        said += [f"checked {ago(held.get('checked'))}"] if held.get("checked") else []
+        text = ", ".join(said)
+        return _state(key, reason=text[:1].upper() + text[1:])
     if key == "update":   # a version the catalog did not raise says nothing of the update
         raised = seen["version"] and seen["version"] != held.get("version")
         return _state(key, reason=f"Version {seen['version']}" if raised else "")
@@ -822,11 +825,11 @@ def check_address(address, branch=None):
         roots = bare.roots(store_path, tip)
         if len(roots) > install.ROOTS_LIMIT:   # the identity of a catalog is its roots, and the lock keeps this many
             raise gitx.fail("too_large", found_at)
-        levels = manifest.levels(store_path, tip, address=found_at)
+        offered = manifest.offer(store_path, tip, contract["contract"], contract["contract_min"], found_at)
         listed_at = _listed_ids_at(found_at.display)
-        commit, _ = manifest.pick(levels, contract["contract"], contract["contract_min"])
+        commit = offered.commit
         if commit is None:
-            raise manifest.no_commit(levels, contract["contract"], contract["contract_min"], bool(listed_at))
+            raise manifest.no_commit(offered.levels, contract["contract"], contract["contract_min"], bool(listed_at))
         kept, ignored = bare.selected(bare.listing(store_path, commit))
         with _one_stage():
             staged = install.stage(found_at, f"new-{ticket}", store_path, commit, kept, ignored)
@@ -835,7 +838,7 @@ def check_address(address, branch=None):
             judged, verdicts, mine = _review(meta["id"], meta, "git", audience, bool(listed_at),
                                              "listed" if listed_at else "allowed", ignored)
         preview = _preview(ticket, meta, "git", found_at, audience, bool(listed_at), ignored, judged, verdicts, mine,
-                           newer=commit != tip)
+                           newer=offered.tip != "ok")
         _keep(ticket, "add", ns=meta["id"], staged=staged, address=found_at, branch=remote["branch"], audience=audience,
               roots=roots, meta=meta, store=store_path, listed=bool(listed_at))
         return preview
@@ -994,9 +997,23 @@ def _failed_with(ns, code):
     return "damaged" if registry.lock_of(ns).get("error") == "damaged" else code
 
 
+def _offered(store_path, held, tip, contract, address=None):
+    """(the Offer of `manifest.offer`, moved) for an installed catalog. A version older than the copy (an ancestor of the pin:
+    a copy of commits made after the last release, a release whose tag was deleted) is no offer: the pin is. `moved`: the tag
+    of the release installed now names the commit offered, which is another one: the owners moved a release, and the same
+    version is not the same files."""
+    found = manifest.offer(store_path, tip, contract["contract"], contract["contract_min"], address)
+    pin, target = held.get("pin"), found.commit
+    if target is not None and pin and target != pin and bare.is_ancestor(store_path, target, pin):
+        return found._replace(commit=pin, release=held.get("release")), False
+    mine = held.get("release")
+    return found, bool(mine and target and target != pin and bare.release_commit(store_path, mine) == target)
+
+
 def _ask(ns, entry):
     """Fetch, identity, audience, the compatible version, whether it changes anything, and the result in the
-    lock. The network steps hold no lock; the lock is written at the end. A refusal is the caller's (`check_now` keeps it)."""
+    lock. The network steps hold no lock; the lock is written at the end. A refusal is the caller's (`check_now` keeps it).
+    A release the owners moved is a history that changed: it is said as one, and Update asks to confirm it."""
     held = registry.lock_of(ns)
     tip, answered = _fetch_tip(ns, entry, held)
     store_path, contract = registry.store_dir(ns), _contract()
@@ -1008,8 +1025,8 @@ def _ask(ns, entry):
         registry.set_lock(ns, tip=tip, error=_failed_with(ns, "history_changed"))   # nothing else proceeds
         return
     audience = _audience(answered)
-    levels = manifest.levels(store_path, tip, address=answered)
-    target, tip_state = manifest.pick(levels, contract["contract"], contract["contract_min"])
+    found, moved = _offered(store_path, held, tip, contract, answered)
+    target, tip_state = found.commit, found.tip
     update, version = False, None
     if target is not None:
         kept, _ = bare.selected(bare.listing(store_path, target))
@@ -1019,7 +1036,11 @@ def _ask(ns, entry):
         if installed is not None and target != pin:
             update = digests != installed["units"] or there != ((installed["files"].get(manifest.FILE) or {}).get("oid"))
         version = registry.scan(bare.read(store_path, target, manifest.FILE) or b"").get("version")
-    registry.set_lock(ns, tip=tip, checked=_utc(), error=_failed_with(ns, None), audience=audience,
+    if moved and update:
+        registry.set_lock(ns, tip=tip, error=_failed_with(ns, "history_changed"))
+        return
+    mine = held.get("release") or manifest.release_of(store_path, pin, held.get("version"))   # a copy installed before releases
+    registry.set_lock(ns, tip=tip, checked=_utc(), error=_failed_with(ns, None), audience=audience, release=mine,
                       seen={"target": target, "update": update, "tip": tip_state, "version": version})
 
 
@@ -1150,20 +1171,24 @@ def _refetch(ns, entry):
 
 
 def _targeted(ns, op, held, entry):
-    """The commit an Update or a Go back moves to: the one `pick` chooses from the tip the store holds, or
-    `lock.previous`. None when there is nothing to move to."""
+    """(the commit an Update or a Go back moves to, moved): the one `_offered` gives from the tip the store holds, or
+    `lock.previous`. None when there is nothing to move to. `moved`: the release installed was moved to it."""
     if op == "undo":
         if not held.get("previous"):
             raise CatalogError("no_previous", NO_PREVIOUS, 409)
-        return held["previous"]
+        return held["previous"], False
     store_path, contract = registry.store_dir(ns), _contract()
+    if store_path.is_dir() and not bare.releases_read(store_path):
+        # A store fetched before this Lab read releases does not say whether the catalog makes some: an Update reads them first,
+        # rather than move to the newest commit of a catalog that offers releases
+        _refetch(ns, entry)
     tip = bare.resolve(store_path, "tip") if store_path.is_dir() else None
     if tip is None:
         tip = held.get("tip")
         if tip is None or not store_path.is_dir() or bare.resolve(store_path, tip) is None:
             raise bare.MissingObject(tip or "tip")
-    target, _ = manifest.pick(manifest.levels(store_path, tip), contract["contract"], contract["contract_min"])
-    return target
+    found, moved = _offered(store_path, held, tip, contract)
+    return found.commit, moved
 
 
 def _on_keys(ns):
@@ -1255,13 +1280,13 @@ def _plan(ns, op):
     if not held.get("pin"):
         raise ValueError(f"{_called(ns)} has nothing installed yet")
     try:
-        target = _targeted(ns, op, held, entry)
+        target, moved = _targeted(ns, op, held, entry)
     except bare.MissingObject:
         _refetch(ns, entry)
-        target = _targeted(ns, op, held, entry)
+        target, moved = _targeted(ns, op, held, entry)
     if target is None:
         return {"upToDate": True}
-    context = {"on": _on_keys(ns), "vouched": _vouched(entry), "contract": _contract()}
+    context = {"on": _on_keys(ns), "vouched": _vouched(entry), "contract": _contract(), "moved": moved}
     with _changing():
         plan = install.plan_update(ns, target, context)
         if plan.get("upToDate"):
@@ -1282,7 +1307,8 @@ def _plan(ns, op):
     updates = [{**one, "what": plan["touched"].get(key, [])}
                for key, one in zip(sorted(plan["updates"]), _names_of_new(plan["updates"], ns, judged))]
     return {"ticket": ticket, "expires": int(TTL), "from": _short(plan["from"]), "to": _short(plan["to"]),
-            "version": plan["version"], "version_from": held.get("version"), "rewritten": bool(plan["rewritten"]),
+            "version": plan["version"], "version_from": held.get("version"), "release": plan["release"],
+            "rewritten": bool(plan["rewritten"]),
             "updates": updates, "adds": _names_of_new(plan["adds"], ns, judged),
             "removes": _names_of(found, ns, plan["removes"]), "breaks": breaks,
             "changes": _changes_of(plan, ns, judged, verdicts, old_verdicts), "whatsnew": list(plan["whatsnew"]),

@@ -461,12 +461,18 @@ class States(Seam):
         return state["key"], state["label"], state["tone"], state["reason"], state["next"]
 
     def test_up_to_date_says_the_version_and_when_it_was_checked(self):
-        self.given(checked=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 3 * HOUR - 60)))
+        self.given(release="2.0.0", checked=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 3 * HOUR - 60)))
         self.assertEqual(self.said(), ("uptodate", "Up to date", "muted", "Version 2.0.0, checked 3 hours ago", ""))
         registry.set_lock("partner", checked=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 86400 * 2)))
         self.assertEqual(self.said()[3], "Version 2.0.0, checked 2 days ago")
         registry.set_lock("partner", checked=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 60)))
         self.assertEqual(self.said()[3], "Version 2.0.0, checked 1 minute ago")
+
+    def test_a_copy_that_is_no_release_says_so(self):
+        self.given(release=None, checked=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 60)))
+        self.assertEqual(self.said()[3], "Version 2.0.0, unreleased, checked 1 minute ago")
+        registry.set_lock("partner", checked=None, seen={"target": None, "update": False, "tip": "ok", "version": None})
+        self.assertEqual(self.said()[0], "checking")
 
     def test_a_catalog_never_checked_says_checking(self):
         done = self.installed()
@@ -1987,8 +1993,9 @@ class Updating(Seam):
     def test_the_plan_is_the_shape_of_13_2_and_a_ticket_that_lives_ten_minutes(self):
         target = self.news()
         plan = self.plan()
-        self.assertEqual(sorted(plan), ["adds", "blocked", "breaks", "changes", "expires", "from", "held", "removes", "rewritten",
-                                        "ticket", "to", "updates", "uses_machine", "version", "version_from", "whatsnew"])
+        self.assertEqual(sorted(plan), ["adds", "blocked", "breaks", "changes", "expires", "from", "held", "release", "removes",
+                                        "rewritten", "ticket", "to", "updates", "uses_machine", "version", "version_from",
+                                        "whatsnew"])
         self.assertEqual((plan["from"], plan["to"], plan["version"], plan["rewritten"], plan["expires"], plan["held"]),
                          (self.first[:7], target[:7], "2.1.0", False, 600, None))
         self.assertEqual(plan["updates"], [{"kind": "addon", "id": "@partner/ledger", "name": "Ledger", "what": ["compose.yml"]}],
@@ -2201,7 +2208,7 @@ class Updating(Seam):
         self.patch(install, "plan_update", watch)
         self.plan()
         self.assertEqual([one["contract"] for one in seen], [BARE])
-        self.assertEqual(sorted(seen[0]), ["contract", "on", "vouched"])
+        self.assertEqual(sorted(seen[0]), ["contract", "moved", "on", "vouched"])
 
     def test_a_history_that_was_confirmed_is_what_the_next_check_compares_with_and_nothing_older_is_on_offer(self):
         service.check_now("partner")
@@ -2282,6 +2289,114 @@ class Updating(Seam):
         with self.assertRaises(ValueError) as raised:
             service.update("lab-new", check=True)
         self.assertEqual(str(raised.exception), "lab-new has nothing installed yet")
+
+
+class Releasing(Seam):
+    """A catalog that makes releases is offered its releases: the commits merged since the last one wait for the next."""
+
+    def setUp(self):
+        super().setUp()
+        self.done = self.installed("partner")
+        self.remote = self.remotes["partner"]
+        self.first = self.done.commit
+
+    def tag(self, version, commit=None):
+        self.remote.git("tag", "-f", f"v{version}", commit or self.remote.head())
+
+    def release(self, version, files, message):
+        """A pull request merged with `files`, then the release of `version` made and tagged as `catalog.py release` makes it."""
+        self.remote.commit(files, message)
+        self.remote.commit({"catalog.yml": meta_text(version=version)}, f"Release {version}")
+        self.tag(version)
+        return self.remote.head()
+
+    def test_commits_merged_after_the_release_installed_are_no_update(self):
+        self.tag("2.0.0", self.first)
+        self.remote.commit(NEWER, "Add the ledger")
+        row = service.check_now("partner")["catalog"]
+        held = registry.lock_of("partner")
+        self.assertEqual((row["state"]["key"], held["seen"]["target"], held["seen"]["update"]), ("uptodate", self.first, False))
+        self.assertEqual(held["release"], "2.0.0", "a copy installed before the Lab read releases learns it is one")
+        self.assertTrue(row["state"]["reason"].startswith("Version 2.0.0, checked "))
+        self.assertEqual(service.update("partner", check=True), {"upToDate": True})
+
+    def test_a_store_an_older_lab_fetched_reads_the_releases_before_an_update_moves_to_main(self):
+        self.tag("2.0.0", self.first)
+        self.remote.commit(NEWER, "Add the ledger")   # merged, not released
+        store_dir = registry.store_dir("partner")
+        bare.fetch(gitx.parse_address(self.remote.url), None, store_dir, releases=False)   # as a Lab before releases left it
+        for ref in gitfixture.git("for-each-ref", "--format=%(refname)", "refs/lab/releases/", repo=store_dir).split():
+            gitfixture.git("update-ref", "-d", ref, repo=store_dir)
+        gitfixture.git("update-ref", "-d", bare.RELEASES_READ, repo=store_dir)
+        self.assertFalse(bare.releases_read(store_dir))
+        self.assertEqual(service.update("partner", check=True), {"upToDate": True}, "the release installed, not the tip of main")
+        self.assertTrue(bare.releases_read(store_dir))
+
+    def test_the_next_release_is_offered_with_its_version_and_its_notes_and_not_main(self):
+        self.tag("2.0.0", self.first)
+        released = self.release("2.1.0", GAINS, "Add the audit trail")
+        self.remote.commit({"addons/audit/README.md": "# Audit\n"}, "Explain the audit trail")   # merged, not released
+        row = service.check_now("partner")["catalog"]
+        self.assertEqual((row["state"]["key"], row["state"]["reason"]), ("update", "Version 2.1.0"))
+        self.assertEqual(registry.lock_of("partner")["seen"]["target"], released)
+        plan = service.update("partner", check=True)
+        self.assertEqual((plan["to"], plan["version_from"], plan["version"], plan["release"]),
+                         (released[:7], "2.0.0", "2.1.0", "2.1.0"))
+        self.assertEqual(plan["whatsnew"], ["Add the audit trail"], "the release's notes: the commits between the two tags")
+        service.update("partner", ticket=plan["ticket"])
+        held = registry.lock_of("partner")
+        self.assertEqual((held["pin"], held["version"], held["release"]), (released, "2.1.0", "2.1.0"))
+        self.assertNotIn("audit/README.md", " ".join(entry.path for entry in bare.listing(registry.store_dir("partner"), held["pin"])))
+
+    def test_a_copy_of_commits_after_the_last_release_is_not_taken_back_to_it(self):
+        news = self.remote.commit(NEWER, "Add the ledger")
+        service.check_now("partner")
+        service.update("partner", ticket=service.update("partner", check=True)["ticket"])
+        self.assertEqual(registry.lock_of("partner")["pin"], news, "no release yet: the newest commit")
+        self.tag("2.0.0", self.first)
+        row = service.check_now("partner")["catalog"]
+        self.assertEqual((row["state"]["key"], registry.lock_of("partner")["release"]), ("uptodate", None))
+        self.assertIn("unreleased", row["state"]["reason"])
+        self.assertEqual(service.update("partner", check=True), {"upToDate": True})
+
+    def test_a_release_the_owners_moved_is_a_history_that_changed(self):
+        self.tag("2.0.0", self.first)
+        service.check_now("partner")
+        moved = self.remote.commit(NEWER, "Add the ledger")
+        self.tag("2.0.0", moved)
+        self.assertEqual(service.check_now("partner")["catalog"]["state"]["key"], "rewritten")
+        plan = service.update("partner", check=True)
+        self.assertEqual((plan["to"], plan["rewritten"], plan["version_from"], plan["version"]), (moved[:7], True, "2.0.0", "2.0.0"))
+        with self.assertRaises(CatalogError) as raised:
+            service.update("partner", ticket=plan["ticket"])
+        self.assertEqual(raised.exception.code, "history_changed")
+        service.update("partner", ticket=service.update("partner", check=True)["ticket"], confirm_history=True)
+        held = registry.lock_of("partner")
+        self.assertEqual((held["pin"], held["release"]), (moved, "2.0.0"))
+        self.assertEqual(service.check_now("partner")["catalog"]["state"]["key"], "uptodate")
+
+    def test_a_new_release_after_a_moved_one_is_an_update_like_any_other(self):
+        self.tag("2.0.0", self.first)
+        service.check_now("partner")
+        self.tag("2.0.0", self.remote.commit(NEWER, "Add the ledger"))
+        released = self.release("2.1.0", GAINS, "Add the audit trail")
+        self.assertEqual(service.check_now("partner")["catalog"]["state"]["key"], "update")
+        plan = service.update("partner", check=True)
+        self.assertEqual((plan["to"], plan["rewritten"]), (released[:7], False))
+
+
+class AddingARelease(Seam):
+
+    def test_an_add_installs_the_release_and_not_the_commits_after_it(self):
+        remote = self.remote("partner")
+        remote.git("tag", "v2.0.0", remote.head())
+        released = remote.head()
+        remote.commit(NEWER, "Add the ledger")
+        shown = service.check_address(remote.url)
+        self.assertNotIn("newer", shown, "a release with commits after it is no newer version this Lab cannot read")
+        service.add(shown["ticket"])
+        held = registry.lock_of("partner")
+        self.assertEqual((held["pin"], held["release"], held["version"]), (released, "2.0.0", "2.0.0"))
 
 
 class GoingBack(Seam):

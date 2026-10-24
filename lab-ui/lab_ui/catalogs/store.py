@@ -1,5 +1,6 @@
 """The bare git store of a catalog (`.lab/cache/git/<ns>.git`) and the pure filter of what is installed from it. A store
-holds objects and the refs `refs/lab/tip`, `pin` and `previous`, and the file a fetch locks (`lab-fetch.flock`); it has
+holds objects, the refs `refs/lab/tip`, `pin` and `previous`, the release tags of the remote as `refs/lab/releases/v*`, and the
+file a fetch locks (`lab-fetch.flock`); it has
 no working tree, no hooks and no automatic garbage collection, and is disposable (a fetch makes it again). `rejections`
 is as a pure function of a listing: it decides, from modes, names and sizes alone, which files of a
 repository are never written to disk, and names the rule (ST01 to ST15 of the catalog standard) that refuses each.
@@ -60,6 +61,12 @@ _SHA = re.compile(r"[0-9a-f]{40}")
 _REF = re.compile(r"refs/lab/[a-z][a-z0-9-]*")
 _SHORT = re.compile(r"tip|pin|previous")
 _PATHSPEC = re.compile(r"[A-Za-z0-9._+/-]+")
+# Where a fetch keeps the remote's tags that may be releases (`v*`), and the name of a release tag: three numbers, no sign
+RELEASES = "refs/lab/releases/"
+# The tip as of the last fetch that brought the release tags too: a store a Lab fetched before it read releases has none, and does
+# not say yet whether the catalog has any
+RELEASES_READ = "refs/lab/releases-read"
+_RELEASE = re.compile(r"v([0-9]{1,9})\.([0-9]{1,9})\.([0-9]{1,9})")
 _RECORD = re.compile(rb"(\d{6}) (?:blob|commit|tree) ([0-9a-f]{40}) +(-|\d+)\t(.*)", re.S)
 _PROGRESS = re.compile(r"(?:Receiving|Unpacking) objects:\s+(\d+)%")
 _RECEIVED = re.compile(r"\),\s+([\d.]+)\s+(bytes|KiB|MiB|GiB|TiB)")
@@ -268,10 +275,13 @@ def _exclusive(store, wait, address=None):
 
 
 def fetch(address: gitx.Address, branch: Optional[str], store, stall: float = 30, cap: float = 600,
-          progress: Optional[Callable[[float], None]] = None) -> str:
+          progress: Optional[Callable[[float], None]] = None, releases: bool = True) -> str:
     """Fetches `branch` (the remote's HEAD when None, or an empty text: `gitx.asked_branch`) into the store as
-    `refs/lab/tip` and answers the sha of the tip. Every object is checked (fsck); tags, submodules and hooks are not
-    touched. It fails with the classified error after `stall` seconds without a byte or `cap` seconds in all, and with
+    `refs/lab/tip` and answers the sha of the tip. With `releases`, the remote's tags that start with `v` come too, as
+    `refs/lab/releases/<tag>`: forced, so a tag the owners moved is the remote's again (the caller compares it with the commit
+    it remembers, `release_commit`), and pruned, so a deleted tag goes. They never become tags of the store (`--no-tags`): a
+    tag is a name the remote may move, and the Lab installs commits. Every object is checked (fsck); submodules and hooks are
+    not touched. It fails with the classified error after `stall` seconds without a byte or `cap` seconds in all, and with
     `too_large` as soon as the download or the store passes STORE_LIMIT; the store is then removed. A store that did not
     exist before the call is removed when the fetch fails, so that a failed first attempt leaves nothing; one that did
     keeps its objects. Fetches into one store take turns (`_exclusive`); one that waits longer than a fetch may last
@@ -281,10 +291,10 @@ def fetch(address: gitx.Address, branch: Optional[str], store, stall: float = 30
     source = "HEAD" if branch is None else f"refs/heads/{branch}"
     store = Path(_dir(store))
     with _exclusive(store, cap + stall, address):
-        return _fetch(address, source, store, stall, cap, progress)
+        return _fetch(address, source, store, stall, cap, progress, releases)
 
 
-def _fetch(address, source, store, stall, cap, progress):
+def _fetch(address, source, store, stall, cap, progress, releases=True):
     fresh = not (store / "HEAD").exists()
     if fresh:
         init(store)
@@ -294,7 +304,7 @@ def _fetch(address, source, store, stall, cap, progress):
     args = ["--git-dir", str(store), "-c", "transfer.fsckObjects=true", "-c", "fetch.fsckObjects=true",
             "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false",
             "fetch", "--progress", "--no-tags", "--prune", "--no-recurse-submodules", "--",
-            address.url, f"+{source}:refs/lab/tip"]
+            address.url, f"+{source}:refs/lab/tip"] + ([f"+refs/tags/v*:{RELEASES}v*"] if releases else [])
     try:
         result = gitx.stream(args, env=gitx.address_env(address), stall=stall, cap=cap, on_stderr=download.feed)
         if result.code != 0:
@@ -311,9 +321,17 @@ def _fetch(address, source, store, stall, cap, progress):
         if fresh:
             shutil.rmtree(store, ignore_errors=True)
         raise
+    if releases:
+        set_ref(store, RELEASES_READ, tip)
     if progress and download.fraction < 1.0:
         progress(1.0)
     return tip
+
+
+def releases_read(store) -> bool:
+    """Whether a fetch brought the release tags of the remote into this store (`RELEASES_READ`): without one, the store does not
+    say whether the catalog makes releases."""
+    return resolve(store, RELEASES_READ) is not None
 
 
 def set_ref(store, name: str, commit: Optional[str]) -> None:
@@ -654,6 +672,36 @@ def _blobs(store, wanted):
             yield oid, body
 
 
+def release_tags(store, tip: str) -> List[Tuple[Tuple[int, int, int], str, str]]:
+    """The release tags the last fetch brought (`refs/lab/releases/`) that lead to `tip`: [((major, minor, patch), "vX.Y.Z",
+    commit)], the greatest version first. A tag that is not `v` and three numbers, or that does not name a commit (an
+    annotated tag is read through to its commit), is no release. Whether the commit says that version in its catalog.yml is the
+    caller's question (`manifest.releases`)."""
+    out = _git(store, "for-each-ref", f"--merged={_rev(tip)}",
+               "--format=%(refname)%00%(objecttype)%00%(objectname)%00%(*objecttype)%00%(*objectname)", RELEASES).out
+    found = []
+    for line in out.decode("utf-8", "replace").splitlines():
+        parts = line.split("\0")
+        if len(parts) != 5 or not parts[0].startswith(RELEASES):
+            continue
+        name = parts[0][len(RELEASES):]
+        number = _RELEASE.fullmatch(name)
+        commit = parts[2] if parts[1] == "commit" else parts[4] if parts[3] == "commit" else None
+        if number and commit and _SHA.fullmatch(commit):
+            found.append((tuple(int(one) for one in number.groups()), name, commit))
+    return sorted(found, key=lambda one: one[0], reverse=True)
+
+
+def release_commit(store, version: str) -> Optional[str]:
+    """The commit the release tag of `version` (`v` and the version) names in the store now, or None when there is no such
+    tag."""
+    if not isinstance(version, str) or not _RELEASE.fullmatch(f"v{version}"):
+        return None
+    result = _run(store, "rev-parse", "--verify", "--quiet", f"{RELEASES}v{version}^{{commit}}")
+    sha = result.out.decode("utf-8", "replace").strip()
+    return sha if result.code == 0 and _SHA.fullmatch(sha) else None
+
+
 def touching(store, tip: str, path: str, limit: int = 50) -> List[str]:
     """The commits, newest first and following first parents, that changed `path`, as `git log --first-parent` lists
     them: where a file such as `catalog.yml` took each of its forms."""
@@ -703,6 +751,21 @@ def log(store, old: Optional[str], new: str, folders: List[str], limit: int = 5)
         if len(subjects) >= limit:
             break
     return subjects
+
+
+def folder_of(key: str) -> str:
+    """The path in a catalog that a unit key stands for (`addon:echo` is `addons/echo`, `setup:pair` is `setups/pair.yml`):
+    where its commits are read."""
+    kind, _, name = key.partition(":")
+    return f"setups/{name}.yml" if kind == "setup" else f"{FOLDERS[kind]}/{name}"
+
+
+def notes(store, old: Optional[str], new: str, keys: Iterable[str], limit: int = 5) -> List[Tuple[str, List[str]]]:
+    """What is new in each unit from `old` to `new`: [(key, subjects)] in the order of `keys`, each the `log` of its folder, at
+    most `limit` subjects (none when its commits were all noise to a person). The notes of a release are this, from the tag before
+    to the tag (`ci release-notes`), and so is What's new of an update, from the version installed to the one offered: the same
+    commits say the same words in both."""
+    return [(key, log(store, old, new, [folder_of(key)], limit)) for key in keys]
 
 
 def diff(store, old: str, new: str, path: str) -> str:

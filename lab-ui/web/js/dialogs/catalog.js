@@ -168,12 +168,13 @@ const changeLine = ({ name, fact, value }) => (own(CHANGES, fact) ? CHANGES[fact
 // What changed in an item, as the server names the parts of its folder ("README.md", "seed/"): the first three, then how many more
 const parts = (what = []) => (what.length > 3 ? `${what.slice(0, 3).join(", ")} and ${what.length - 3} more` : what.join(", "));
 
-// The version an update goes to, from the one installed: both when the catalog raised it, the one alone when it did not (the update is then
-// the commits since, which the version does not tell apart)
+// The version an update goes to, from the one installed: both when the catalog raised it, the one alone when it did not (a release the owners
+// moved). A version that is no release (a catalog that makes none) says so: the update is then the commits since, which it does not tell apart
 function versionItems(p) {
   if (!p.version) return [];
-  if (p.version_from && p.version_from !== p.version) return [{ text: p.version_from, code: true }, { text: "→", plain: true }, { text: p.version, code: true }];
-  return [{ text: p.version, code: true, hint: p.version_from ? "Unchanged" : "" }];
+  const hint = !p.release ? "Unreleased" : p.version_from === p.version ? "Unchanged" : "";
+  if (p.version_from && p.version_from !== p.version) return [{ text: p.version_from, code: true }, { text: "→", plain: true }, { text: p.version, code: true, hint }];
+  return [{ text: p.version, code: true, hint: p.version_from || !p.release ? hint : "" }];
 }
 
 // What an update, or going back, says it does: its version, the items it touches, each with what changed in it, then what its commits say
@@ -191,7 +192,7 @@ function planRows(p, allow, kind) {
     { label: "Adds", names: true, items: names(p.adds) },
     { label: "Removes", names: true, hint: "No longer in the catalog", items: names(p.removes) },
     { label: "Breaks", names: true, items: names(p.breaks, (b) => `Needs ${b.needs}`) },
-    { label: "What's new", html: (p.whatsnew || []).length ? sentences(p.whatsnew.slice(0, 5)) : "" },
+    { label: "What's new", html: (p.whatsnew || []).length ? sentences(p.whatsnew) : "" },
     usesRow(uses),
     { label: "Changes", html: (p.changes || []).length ? sentences(p.changes.map(changeLine)) : "" },
     { label: "Cannot run", tone: "danger", names: true, items: names(blocked, (b) => (b.reasons || [])[0] ?? "") },

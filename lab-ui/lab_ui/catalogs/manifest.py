@@ -9,14 +9,16 @@ person has (`registry.check_namespace`) nor a name against the address that serv
 and the caller that knows the address says which.
 
 `compat`, `pick`, `parse_version` and `at_least` are pure and tested over tables. `levels` is the git half of `pick`:
-the versions of `catalog.yml` in the first-parent history of the tip, read from the bare store, newest first."""
+the versions of `catalog.yml` in the first-parent history of the tip, read from the bare store, newest first. `releases` is
+the other half, for a catalog that makes releases: its release tags that lead to the tip and that its catalog.yml agrees with.
+`offer` says which of the two a catalog follows, and the commit it offers ([Catalogs](../../../docs/catalogs.md#versions))."""
 
 import json
 import os
 import re
 import stat
 from pathlib import Path
-from typing import Iterable, List, Optional, Tuple
+from typing import Iterable, List, NamedTuple, Optional, Tuple
 
 from ..docker import compose
 from .. import paths
@@ -439,6 +441,55 @@ def levels(store: Path, tip: str, limit: int = 50, address: Optional[gitx.Addres
             cache[data] = _lab_of(data)
         found.append((parent, cache[data]))
     return found[:limit]
+
+
+def releases(store: Path, tip: str) -> list:
+    """The releases of this catalog that lead to `tip`: [(commit, lab, version)], the greatest version first. A release is a
+    tag `vX.Y.Z` (`store.release_tags`) whose commit has a catalog.yml that says `version: X.Y.Z`: a tag the file does not
+    agree with is a name and not a release, and is left out. `lab` is read as `levels` reads it (`_lab_of`)."""
+    found, cache = [], {}
+    for _, name, commit in bare.release_tags(store, tip):
+        data = cache.get(commit)
+        if data is None:
+            data = cache[commit] = bare.read(store, commit, FILE) or b""
+        if data and registry.scan(data).get("version") == name[1:]:
+            found.append((commit, _lab_of(data), name[1:]))
+    return found
+
+
+class Offer(NamedTuple):
+    """What a catalog offers this Lab: `commit`, the version to install (None when it has none this Lab reads); `tip`, how
+    the newest version stands with this Lab (`pick`'s second answer: "ok", "new" or "old"); `release`, the version of the
+    release `commit` is, or None for a catalog that has no release, which is followed commit by commit; `levels`, what
+    `no_commit` reads when there is no commit."""
+    commit: Optional[str]
+    tip: str
+    release: Optional[str]
+    levels: list
+
+
+def offer(store: Path, tip: str, contract: int, contract_min: int, address: Optional[gitx.Address] = None) -> Offer:
+    """The version of a catalog this Lab installs, from what the store holds of the branch it follows (`tip`). A catalog
+    with a release on that branch is offered its greatest release this Lab reads, and the commits made since are not offered
+    until they are released; one with none is offered the newest commit this Lab reads (`levels`), as it always was. A tip
+    with no catalog.yml is `not_catalog`, released or not."""
+    found = releases(store, tip)
+    if not found:
+        history = levels(store, tip, address=address)
+        commit, state = pick(history, contract, contract_min)
+        return Offer(commit, state, None, history)
+    if bare.read(store, tip, FILE) is None:
+        raise gitx.fail("not_catalog", address)
+    history = [(commit, lab) for commit, lab, _ in found]
+    commit, state = pick(history, contract, contract_min)
+    version = next((version for one, _, version in found if one == commit), None)
+    return Offer(commit, state, version, history)
+
+
+def release_of(store: Path, commit: str, version: Optional[str]) -> Optional[str]:
+    """`version` when the store's release tag of it names `commit`, else None: whether a commit, whose catalog.yml says
+    `version`, is that release."""
+    return version if version and commit and bare.release_commit(store, version) == commit else None
 
 
 # ---------------------------------------------------------------- the index
