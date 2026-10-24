@@ -9,7 +9,8 @@ on:
 permissions:
   contents: read
 
-# One release at a time, never canceled: a run that waits while another publishes counts the merges of both when it starts
+# One release at a time, none canceled once it runs. GitHub keeps one run waiting: a newer one takes its place, and counts the merges of
+# both when it starts, so a version can hold several merges
 concurrency:
   group: release
   cancel-in-progress: false
@@ -37,7 +38,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          last=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' HEAD 2>/dev/null || true)
+          # The versions are the tags vX.Y.Z, and no other form (v1.6.0-rc1): sorted as versions
+          versions() { { grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -V; }
+          # A commit that a version holds already makes no second one. That version is this commit's: a run again after its tag was
+          # pushed publishes the release that may be missing. A later one: the run of an older merge, run again, does nothing
+          held=$(git tag --contains HEAD --list 'v*' | versions | head -n 1)
+          if [ -n "$held" ]; then
+            if [ "$(git rev-parse "$held^{commit}")" = "$(git rev-parse HEAD)" ]; then
+              echo "$held is the version of this commit already"
+              { echo "tag=$held"; echo "tagged=true"; } >> "$GITHUB_OUTPUT"
+            else
+              echo "$held holds this commit already"
+            fi
+            exit 0
+          fi
+          last=$(git tag --merged HEAD --list 'v*' | versions | tail -n 1)
           labels=""
           if [ -n "$last" ]; then
             commits=$(git rev-list "$last..HEAD")
@@ -57,7 +72,7 @@ jobs:
       # Only administrators and the deploy key may create a tag (the ruleset release-tags): the token of the workflow may not, and
       # no one but an administrator may move or delete one
       - name: Tag the version
-        if: ${{ steps.version.outputs.tag }}
+        if: ${{ steps.version.outputs.tag && !steps.version.outputs.tagged }}
         env:
           TAG: ${{ steps.version.outputs.tag }}
           RELEASE_DEPLOY_KEY: ${{ secrets.RELEASE_DEPLOY_KEY }}
@@ -84,4 +99,8 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes --title "Gravitee Lab ${TAG#v}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "The release $TAG exists already"
+          else
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes --title "Gravitee Lab ${TAG#v}"
+          fi
