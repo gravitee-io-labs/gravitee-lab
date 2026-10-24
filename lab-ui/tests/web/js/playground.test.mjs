@@ -36,7 +36,7 @@ const page = installDom({
     if (route.endsWith("/check")) return reply({ checks: server.checks(query), dialog: server.dialog(query) });
     if (route.endsWith("/export")) return reply(call.body?.check ? server.exported : { ...server.exported, data: btoa("PK") });
     if (route.endsWith("/standalone")) return reply(call.body?.check ? server.standalone : { ...server.standalone, data: btoa("PK") });
-    if (route.endsWith("/move")) return reply(call.body?.check ? server.movePlan : { moved: [], id: "local/hotels" });
+    if (route.endsWith("/move")) return reply(call.body?.check ? server.movePlan : { moved: [], id: "local/hotels", ...server.moveDone });
     if (route.endsWith("/copy")) return reply(call.body?.check ? server.copyPlan : { copies: [], id: "local/hotels" });
     if (call.method === "POST") return reply(JOB);
     return reply(found);
@@ -1256,6 +1256,19 @@ test("an imported playground moves to Personal from its menu: with what it bring
   await flush();
   assert.deepEqual(server.calls.map((call) => [call.path, call.body]), [["/api/playgrounds/@hostels/hotels/move", { check: true }],
     ["/api/playgrounds/@hostels/hotels/move", { together: true, allow: true }]]);
+  await leave();
+  // What the import could not delete is said once the move is done
+  page.doc.querySelectorAll(".toast").forEach((t) => t.remove());
+  server.moveDone = { warning: "Some files were created by Docker and could not be deleted. Remove the folder .lab/imports/hostels with administrator rights." };
+  await visit(imported, { platforms: [], places: [], id: "@hostels/hotels" });
+  section.querySelector("#pg-actions [data-more]").click();
+  page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item").find((el) => text(el) === "Move to Personal") }));
+  await flush();
+  await answer(true);
+  await flush();
+  assert.deepEqual(page.doc.querySelectorAll(".toast").map(text), ["Moved. Some files were created by Docker and could not be deleted. Remove "
+    + "the folder .lab/imports/hostels with administrator rights."]);
+  server.moveDone = undefined;
   await leave();
 });
 

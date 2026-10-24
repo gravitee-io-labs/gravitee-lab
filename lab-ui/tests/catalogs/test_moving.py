@@ -147,6 +147,44 @@ class Moving(Case):
         self.assertFalse(self.local("playgrounds/sandbox").exists() or self.local("addons/scratch").exists(), "nothing half moved stays")
         self.assertIsNotNone(registry.entry("sandbox"))
 
+    def test_an_item_of_personal_it_replaces_comes_back_whole_when_the_move_fails(self):
+        fixtures.local(self, "sandbox")
+        self.local("playgrounds/sandbox/.env").write_text("SANDBOX_LEVEL=mine\n")
+        before = {path.relative_to(self.local("playgrounds/sandbox")).as_posix(): path.read_bytes()
+                  for path in self.local("playgrounds/sandbox").rglob("*") if path.is_file()}
+        project.forget()
+        copy2, calls = shutil.copy2, []
+
+        def failing(*args, **how):
+            calls.append(args)
+            if len(calls) > 3:
+                raise OSError(28, "No space left on device")
+            return copy2(*args, **how)
+        self.patch(moving.shutil, "copy2", failing)
+        with self.assertRaises(OSError):
+            moving.move("playground", "@sandbox/sandbox", True)
+        after = {path.relative_to(self.local("playgrounds/sandbox")).as_posix(): path.read_bytes()
+                 for path in self.local("playgrounds/sandbox").rglob("*") if path.is_file()}
+        self.assertEqual(after, before, "the person's item is as it was")
+        self.assertFalse(self.local("addons/scratch").exists())
+        self.assertFalse(list((paths.ROOT / paths.LAB_DIR).glob(".move-*")), "nothing is left aside")
+
+    def test_what_the_import_cannot_delete_after_a_move_is_said_and_the_move_completes(self):
+        made = paths.ROOT / exports.IMPORTS_DIR / "sandbox" / "addons" / "scratch" / "data"
+        made.mkdir()
+        (made / "db").write_text("what a container wrote\n")
+        made.chmod(0o500)   # what Docker made as root: this user cannot delete what is in it
+        self.addCleanup(made.chmod, 0o700)
+        project.forget()
+        done = moving.move("playground", "@sandbox/sandbox", True)
+        self.assertEqual(done["warning"], "Some files were created by Docker and could not be deleted. Remove the folder "
+                                          ".lab/imports/sandbox with administrator rights.")
+        self.assertEqual(sorted(one["id"] for one in done["moved"]), ["local/sandbox", "local/scratch"])
+        self.assertIsNone(registry.entry("sandbox"), "the import whose items all moved is removed")
+        found = project.load()
+        self.assertIn("local/scratch", found["addons"])
+        self.assertNotIn("@sandbox/scratch", found["addons"])
+
     def test_a_move_waits_for_another_change_of_catalogs(self):
         held(self)
         with self.assertRaises(CatalogError) as caught:

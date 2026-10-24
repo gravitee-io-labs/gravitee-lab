@@ -181,7 +181,7 @@ async function moveToPersonal(x) {
   if (!chosen) return;
   try {
     const moved = await busy(key, "move", api(route, { together: chosen === "together", ...(allows(chosen) ? { allow: true } : {}) }));
-    toast("Moved");
+    toast(moved.warning ? `Moved. ${moved.warning}` : "Moved", !!moved.warning);
     await store.refresh();
     // The page of what was imported is gone: the one of the item in Personal takes its place in the history
     router.replace(x.kind === "playground" ? `#/playgrounds/${moved.id}` : `#/${x.kind}s/${moved.id}`);

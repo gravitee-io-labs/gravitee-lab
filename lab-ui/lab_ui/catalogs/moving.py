@@ -29,9 +29,11 @@ this machine, once allowed.
     copy(kind, uid, users)       the person's copy of an item of a catalog (x-gravitee.copy_of), and of what uses it
 """
 
+import contextlib
 import os
 import posixpath
 import re
+import secrets
 import shutil
 from pathlib import Path
 
@@ -202,21 +204,12 @@ def _folder_of(ns):
     return Path(entry.get("path") or "")
 
 
-def _clear(target: Path):
-    for child in target.iterdir():
-        if child.name in MACHINE_FILES:
-            continue
-        if child.is_dir() and not child.is_symlink():
-            shutil.rmtree(child)
-        else:
-            child.unlink()
-
-
 def move(kind, uid, together, allow=False):
     """Moves the item, and with `together` what it brings from its import that nothing else uses, to Personal; `allow`: the person
     allowed what takes more of this machine, which nothing judges there. Answers {moved: [{kind, id}], id}. A change of catalogs:
     it waits for none under way. The import loses its items only once every one is in Personal: a move that fails midway takes
-    out what it wrote there that was not there before, and the import is as it was."""
+    out what it wrote there, puts back whole the items of Personal it was replacing (set aside first), and the import is as it
+    was. What Docker made in the import and cannot be deleted then is said (`warning`), and the move completes."""
     with service._changing():
         found = _check(kind, uid)
         units = _units(found)
@@ -240,19 +233,21 @@ def move(kind, uid, together, allow=False):
             here = posixpath.dirname(compose_rel)
             text = unmark((source / compose_rel).read_text(encoding="utf-8"))   # whose copy it was is said by no file of a catalog
             texts[(k, one)] = moves.repoint(text, f"{paths.CATALOGS_DIR}/{ns}/{here}", f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{here}", table)
-        made = []
+        # The items of Personal it replaces are put aside first, whole, and come back whole if the move fails midway
+        aside, made, put = paths.ROOT / paths.LAB_DIR / f".move-{secrets.token_hex(4)}", [], []
         try:
             for k, one in moving:
                 rel = _rel(k, _slug(one))
                 target = home / rel
-                if not os.path.lexists(target):
-                    made.append(target)
+                if os.path.lexists(target):
+                    (aside / rel).parent.mkdir(parents=True, exist_ok=True)
+                    os.rename(target, aside / rel)
+                    put.append(rel)
+                made.append(target)
                 if k == "setup":
                     target.parent.mkdir(parents=True, exist_ok=True)
                     target.write_text(texts[(k, one)], encoding="utf-8")
                     continue
-                if target.is_dir():
-                    _clear(target)
                 target.mkdir(parents=True, exist_ok=True)
                 for path in sorted(p for p in (source / rel).rglob("*") if not p.is_symlink()):
                     inside = path.relative_to(source / rel)
@@ -264,18 +259,43 @@ def move(kind, uid, together, allow=False):
                 (target / "compose.yml").write_text(texts[(k, one)], encoding="utf-8")
         except BaseException:
             _take_back(made)
+            for rel in put:
+                os.rename(aside / rel, home / rel)
+            shutil.rmtree(aside, ignore_errors=True)
             raise
+        for rel in put:   # the person's settings, secrets and state stay where the moving item has none
+            for name in MACHINE_FILES if (aside / rel).is_dir() else ():
+                if os.path.lexists(aside / rel / name) and not os.path.lexists(home / rel / name):
+                    os.rename(aside / rel / name, home / rel / name)
+        shutil.rmtree(aside, ignore_errors=True)
+        # The import loses what moved; what Docker made there and cannot be deleted is said, and the move completes
+        stuck = False
         for k, one in moving:
             rel = _rel(k, _slug(one))
-            (source / rel).unlink() if k == "setup" else shutil.rmtree(source / rel)
+            try:
+                (source / rel).unlink() if k == "setup" else shutil.rmtree(source / rel)
+            except OSError:
+                stuck = True
+                if k != "setup":
+                    shutil.rmtree(source / rel, ignore_errors=True)
+                    with contextlib.suppress(OSError):
+                        (source / rel / "compose.yml").unlink()
         moves.rekey({f"{k}:{one}": f"{paths.LOCAL}/{_slug(one)}" for k, one in moving})
         left = [path for path in (*source.glob("playgrounds/*/compose.yml"), *source.glob("addons/*/compose.yml"),
                                   *source.glob("setups/*.yml"))]
         project.forget()
+        warning = None
         if not left and registry.entry(ns):
-            service.remove(ns)
+            warning = service.remove(ns, keep_settings=False).get("warning")   # what it held moved: nothing of it is kept
+        elif stuck:
+            warning = STUCK.format(where=f"{paths.IMPORTS_DIR}/{ns}")
         project.forget()
-    return {"moved": [{"kind": k, "id": f"{paths.LOCAL}/{_slug(one)}"} for k, one in moving], "id": f"{paths.LOCAL}/{_slug(uid)}"}
+    return {"moved": [{"kind": k, "id": f"{paths.LOCAL}/{_slug(one)}"} for k, one in moving], "id": f"{paths.LOCAL}/{_slug(uid)}",
+            **({"warning": warning} if warning else {})}
+
+
+STUCK = "Some files were created by Docker and could not be deleted. Remove the folder {where} with administrator rights."
+
 
 
 def _take_back(made):

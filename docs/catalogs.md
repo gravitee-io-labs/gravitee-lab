@@ -198,7 +198,9 @@ playground's page opens. **Import to** chooses where it goes:
   (**Remove**, the allowance of what uses this machine), and the lists say Imported as where their items come from.
   **Move to Personal**, in the menu of an imported item, makes it yours later: a playground alone, or with the setups and
   add-ons it brings that nothing else uses. What another item still uses stays in Imported, and the dialog says which and why.
-  Its settings, secrets, star and what its seed recorded come along; the import whose items all moved is removed. As for an
+  Its settings, secrets, star and what its seed recorded come along; the import whose items all moved is removed. A move that
+  fails midway leaves the import and Personal as they were, and what Docker made in the import and cannot be deleted is said
+  once the move is done. As for an
   import, what goes to Personal is no longer judged: an item blocked only for what it takes of this machine moves once you
   allow it (**Allow and move**), and one blocked for anything else, or that waits for a catalog this Lab has not added, does not
   move. An item the file holds that this Lab has already, from the same catalog, is not imported a second time:
