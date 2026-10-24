@@ -375,8 +375,8 @@ def archive(pid, private=()):
     if shown["blocked"]:
         one = shown["blocked"][0]
         reason = (one.get("reasons") or ["it cannot run"])[0]
-        raise _fail("export_blocked", f"{one['name']} would be blocked on another Lab: {reason[:1].lower()}{reason[1:]}. Fix: change it, "
-                                      "then export it again.", 409)
+        raise _fail("export_blocked", f"{one['name']} would be blocked on another Lab: {reason[:1].lower()}{reason[1:]}. Fix: export it again "
+                                      "to see what blocks it.", 409)
     unseen = [one["name"] for one in shown["private"] if one["id"] not in set(private or ())]
     if unseen:
         raise _fail("export_private", f"It now carries private content of {', '.join(unseen)}. Fix: export it again to see what "

@@ -138,7 +138,7 @@ class RoundTrip(Case):
             exports.archive("local/sandbox")
         self.assertEqual(caught.exception.code, "export_blocked")
         self.assertTrue(caught.exception.message.startswith("Sandbox would be blocked on another Lab: "), caught.exception.message)
-        self.assertTrue(caught.exception.message.endswith(". Fix: change it, then export it again."), caught.exception.message)
+        self.assertTrue(caught.exception.message.endswith(". Fix: export it again to see what blocks it."), caught.exception.message)
 
     def test_an_item_of_the_default_catalog_has_nothing_to_export(self):
         with self.assertRaises(CatalogError) as caught:
