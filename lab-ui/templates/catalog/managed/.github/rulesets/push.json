@@ -1,5 +1,5 @@
 {
-  "_managed": "Managed by the Lab catalog standard 4: change it with catalog.py upgrade, in a pull request a maintainer reads.",
+  "_managed": "Managed by the Lab catalog standard 5: change it with catalog.py upgrade, in a pull request a maintainer reads.",
   "name": "catalog-push",
   "target": "push",
   "enforcement": "active",
