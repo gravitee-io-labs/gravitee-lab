@@ -840,6 +840,32 @@ test("Import to Personal keeps the playground as the person's own, says what it 
   adding().closest("dialog").close();
 });
 
+test("Import to Personal of what uses this machine is the person's allowance: the button says Allow and import, and the request carries it", async () => {
+  show([FIRST()]);
+  openImport();
+  const drop = async (file) => {
+    adding().querySelector("#catalog-file").dispatchEvent(Object.assign(new Ev("drop"), { dataTransfer: { files: [file] }, preventDefault() {} }));
+    await settle();
+  };
+  server.answers["/api/catalogs/import"] = PREVIEW({ catalog: { id: "contoso", name: "Contoso demo", version: "1.0.0", lab: 1, kind: "folder" },
+    imported: true, counts: { playground: 1, setup: 0, addon: 0 }, blocked: [],
+    rows: { uses_machine: [{ id: "@contoso/kiosk", name: "kiosk", service: "kiosk", what: ["runs privileged"], why: "Runs a service manager" }] },
+    personal: { replaces: [], same: [] } });
+  await drop(new File([new Uint8Array([80, 75, 5, 6])], "contoso.zip"));
+  assert.equal(face(primary()), "Allow and import");
+  click(adding().querySelector('[data-dest="imported"]'));
+  assert.equal(face(primary()), "Import", "Imported asks with its own choice");
+  click(adding().querySelector('[data-dest="personal"]'));
+  assert.equal(face(primary()), "Allow and import");
+  server.answers["/api/catalogs/import/personal"] = { items: [], playground: "local/contoso" };
+  const go = router.go;
+  router.go = () => {};
+  await submit(primary());
+  await settle();
+  router.go = go;
+  assert.deepEqual([last().path, last().body], ["/api/catalogs/import/personal", { ticket: "9f3a4c1d2e5b6a70", allow: true }]);
+});
+
 test("Import takes the file of an exported playground, shows the preview of an Add from that file, and opens the playground once imported", async () => {
   show([FIRST()]);
   clearToasts();

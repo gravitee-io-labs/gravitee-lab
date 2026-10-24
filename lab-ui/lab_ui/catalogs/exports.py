@@ -30,6 +30,7 @@ what an import left before it was confirmed: the next import of the same playgro
 
 import base64
 import binascii
+import hashlib
 import io
 import json
 import os
@@ -39,13 +40,14 @@ import secrets
 import shutil
 import stat
 import tempfile
+import time
 import zipfile
 from pathlib import Path
 
 from .. import paths
 from ..docker import images
 from ..library import moves, personal as personals, project
-from . import contribute, defaults, manifest, registry, resolve, service, standard
+from . import contribute, defaults, manifest, moving, registry, resolve, service, standard
 from . import store as bare
 from .registry import CatalogError
 
@@ -403,13 +405,35 @@ def _name_of(archive, top):
     return said.group(1) if said else top
 
 
-def _sweep(keep=()):
-    """The folders of .lab/imports that no catalog uses, and the half-written ones: what an import left before it was confirmed."""
+def _sweep(replacing=None):
+    """The folders of .lab/imports that no catalog uses and no preview waits for, and the half-written ones: what an import left
+    before it was confirmed. The folder of `replacing`, the playground being imported again, goes with the previews of it: a
+    preview is of the files it judged, which the new ones replace. A half-written folder younger than a preview may be another
+    import at work."""
     base = paths.ROOT / IMPORTS_DIR
     used = {os.path.realpath(one.get("path") or "") for one in registry.entries() if one.get("kind") == "folder"}
+    waiting = service.imports()
     for child in (base.iterdir() if base.is_dir() else ()):
-        if child.name not in keep and os.path.realpath(child) not in used:
-            shutil.rmtree(child, ignore_errors=True)
+        real = os.path.realpath(child)
+        if real in used:
+            continue
+        if child.name == replacing:
+            for ticket in waiting.get(real, ()):
+                service.forget(ticket)
+        elif real in waiting or (child.name.startswith(".incoming-") and time.time() - child.stat().st_mtime < service.TTL):
+            continue
+        shutil.rmtree(child, ignore_errors=True)
+
+
+def _digest(folder: Path):
+    """What the files of an import's folder are, as one digest: its paths, whether each runs, and their bytes. What a preview
+    judged is what goes to Personal."""
+    found = hashlib.sha256()
+    for path in sorted(p for p in folder.rglob("*") if p.is_file() and not p.is_symlink()):
+        rel = path.relative_to(folder).as_posix()
+        found.update(f"{rel}\0{os.stat(path).st_mode & 0o111}\0".encode("utf-8"))
+        found.update(hashlib.sha256(path.read_bytes()).digest())
+    return found.hexdigest()
 
 
 def _said_origins(folder: Path):
@@ -530,10 +554,10 @@ def _personal_now(kind, rel):
         return None
 
 
-def _personal_plan(folder: Path, top):
-    """What going to Personal does to the items of Personal: {replaces: [names], same: [names]}."""
+def _personal_plan(items):
+    """What going to Personal does to the items of Personal (`_for_personal`): {replaces: [names], same: [names]}."""
     replaces, same = [], []
-    for kind, _, rel, name, files in _for_personal(folder, top):
+    for kind, _, rel, name, files in items:
         now = _personal_now(kind, rel)
         if now is not None:
             (same if now.encode("utf-8") == files[_compose_rel(kind, rel)][1] else replaces).append(name)
@@ -554,9 +578,10 @@ def _clear(target: Path):
             child.unlink()
 
 
-def to_personal(ticket):
+def to_personal(ticket, allow=False):
     """The import the preview `ticket` showed, kept in Personal instead of as a catalog: refused when the preview found an item that
-    cannot run (Personal would run it unjudged) or when an item it replaces is on. Answers {items: [{kind, id}], playground}."""
+    cannot run (Personal would run it unjudged), when an item uses this machine and the person did not allow it (`allow`), when the
+    files are no longer those the preview judged, or when an item it replaces is on. Answers {items: [{kind, id}], playground}."""
     data = service._held(ticket, "add")
     folder = Path(getattr(data.get("address"), "path", "") or "")
     base = (paths.ROOT / IMPORTS_DIR).resolve()
@@ -565,6 +590,11 @@ def to_personal(ticket):
     blocked = data.get("blocked") or []
     if blocked:
         raise _fail("blocked_personal", f"{', '.join(blocked)} cannot run: import to Imported, where it stays blocked.", 409)
+    uses = data.get("uses") or []
+    if uses and allow is not True:
+        raise _fail("allow_machine", f"{', '.join(uses)} uses this machine: allow it to import it to Personal.")
+    if data.get("digest") != _digest(folder):
+        raise _fail("import_changed", "The files of this import changed after its preview. Fix: choose its file again.", 409)
     top = folder.name
     items = _for_personal(folder, top)
     found = project.load()
@@ -594,6 +624,17 @@ def to_personal(ticket):
     return {"items": [{"kind": kind, "id": f"{paths.LOCAL}/{slug}"} for kind, slug, _, _, _ in items], "playground": playground}
 
 
+def _waiting(preview):
+    """The preview of an import, where an item that waits for a catalog this Lab lacks is one that cannot run: nothing judged it,
+    and Personal, which judges nothing either, cannot take it."""
+    waits = preview.pop("waits", None) or []
+    if waits:
+        preview["blocked"] = [*(preview.get("blocked") or ()), *(
+            {"kind": one["kind"], "id": one["id"], "name": one["name"], "reasons": [moving.waiting(one)[0].replace("it needs", "Needs", 1)]}
+            for one in waits if moving.waiting(one))]
+    return preview
+
+
 def receive(data):
     """The import of an archive (its bytes, or base64 text): written under .lab/imports/<id> and checked as the Add of a folder
     catalog. Answers that preview, whose ticket the Add takes; `already_imported` when this Lab has the catalog."""
@@ -617,7 +658,7 @@ def receive(data):
                                             "the Catalogs page first.", 409)
         base = paths.ROOT / IMPORTS_DIR
         base.mkdir(parents=True, exist_ok=True)
-        _sweep()
+        _sweep(top)
         incoming = base / f".incoming-{secrets.token_hex(4)}"
         os.mkdir(incoming, 0o755)
         try:
@@ -643,10 +684,18 @@ def receive(data):
             raise
     try:
         reused = _reuse(final, top)
-        preview = service.check_address(str(final))
+        preview = _waiting(service.check_address(str(final)))
+        if preview["catalog"]["id"] != top:   # its settings start with the id: the folder and the catalog are one name
+            service.forget(preview.get("ticket"))
+            raise _fail("import_invalid", f"{NOT_A_PLAYGROUND} Its folder, {top}, is not the id of its catalog, "
+                                          f"{preview['catalog']['id']}.")
         blocked = [one.get("name") for one in preview.get("blocked") or ()]
-        service.note(preview.get("ticket"), imported=True, blocked=blocked)
-        return {**preview, "imported": True, "reused": reused, "personal": _personal_plan(final, top)}
+        items = _for_personal(final, top)
+        # What Personal would run unjudged that takes more of this machine: the person allows it, as for a Move
+        named = {f"@{top}/{slug}": name for _, slug, _, name, _ in items}
+        uses = list(dict.fromkeys(named.get(one.get("id"), one.get("name")) for one in (preview.get("rows") or {}).get("uses_machine") or ()))
+        service.note(preview.get("ticket"), imported=True, blocked=blocked, uses=uses, digest=_digest(final))
+        return {**preview, "imported": True, "reused": reused, "personal": _personal_plan(items)}
     except BaseException:
         shutil.rmtree(final, ignore_errors=True)
         raise

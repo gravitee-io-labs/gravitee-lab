@@ -288,3 +288,90 @@ class Registries(Case):
         required = {"playground": {"local/p": {"requires": {"images": {"APIM_VERSION": "4.13.0"}}}}}
         exports._registries(found, [("playground", "local/p")], required)
         self.assertEqual(asked, [["acme.azurecr.io/apim-management-api:amp-demo-latest"], ["graviteeio/apim-management-api:4.13.0"]])
+
+
+# A file someone else made: its catalog, and a playground that runs a privileged container, with or without a reason, and may
+# include an item of a catalog it needs
+EVIL_CATALOG = ('x-gravitee-catalog:\n  schema: 1\n  id: "{id}"\n  name: "Evil"\n  description: "A file someone else made"\n'
+                '  license: MIT\n  version: 1.0.0\n  lab: 1\n')
+NEEDS_PARTNER = '  requires:\n    catalogs:\n      partner: {name: Partner fixture, url: "https://github.com/acme/partner.git", min: 1.0.0}\n'
+
+
+def evil_playground(include="", host_access=False, privileged=True, name="Evil"):
+    reason = ", host_access: {evil-root: Runs a service manager}" if host_access else ""
+    return (f"x-gravitee: {{kind: playground, name: {name}, category: Other, description: A playground of a file{reason}}}\n"
+            + (f"include:\n  - {include}\n" if include else "")
+            + "services:\n  evil-root:\n    image: busybox:1.36\n"
+            + ('    privileged: true\n    volumes: ["/:/host", "/var/run/docker.sock:/var/run/docker.sock"]\n'
+               if privileged and not host_access else "    privileged: true\n" if privileged else "")
+            + "    networks: [internal]\n")
+
+
+def evil_zip(top="evil", catalog_id=None, playground=None, needs=False, extra=None):
+    manifest = EVIL_CATALOG.replace("{id}", catalog_id or top) + (NEEDS_PARTNER if needs else "")
+    return zipped({f"{top}/catalog.yml": manifest.encode(),
+                   f"{top}/playgrounds/evil/compose.yml": (playground or evil_playground()).encode(), **(extra or {})})
+
+
+class Untrusted(Case):
+    """Files that someone else made, imported on a Lab with the fixture catalog: Personal, which nothing judges, takes only what the
+    preview judged, as it judged it, and what uses this machine once the person allowed it."""
+
+    LEDGER = "../../../partner/addons/ledger/compose.yml"
+
+    def setUp(self):
+        fixtures.need_compose()
+        fixtures.project(self, paths, project, compose, envfiles, check, files, ns="fixture", kind="git", store=True)
+        self.patch(gitx, "home", lambda: paths.ROOT.parent)
+        project.forget()
+        self.addCleanup(project.forget)
+
+    def personal(self, rel="playgrounds/evil/compose.yml"):
+        return paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / rel
+
+    def refused(self, call, code):
+        with self.assertRaises(CatalogError) as caught:
+            call()
+        self.assertEqual(caught.exception.code, code)
+        return caught.exception.message
+
+    def test_an_item_that_needs_a_catalog_not_added_is_judged_by_nothing_and_cannot_go_to_personal(self):
+        preview = exports.receive(evil_zip(playground=evil_playground(include=self.LEDGER), needs=True))
+        self.assertEqual(preview["blocked"], [{"kind": "playground", "id": "@evil/evil", "name": "Evil",
+                                               "reasons": ["Needs Partner fixture, which is not added"]}])
+        message = self.refused(lambda: exports.to_personal(preview["ticket"]), "blocked_personal")
+        self.assertEqual(message, "Evil cannot run: import to Imported, where it stays blocked.")
+        self.assertFalse(self.personal().exists())
+
+    def test_an_archive_whose_folder_is_not_its_catalogs_id_is_refused(self):
+        message = self.refused(lambda: exports.receive(evil_zip(top="evil", catalog_id="other")), "import_invalid")
+        self.assertEqual(message, f"{exports.NOT_A_PLAYGROUND} Its folder, evil, is not the id of its catalog, other.")
+        self.assertFalse((paths.ROOT / exports.IMPORTS_DIR / "evil").exists())
+
+    def test_a_preview_takes_to_personal_only_the_files_it_judged(self):
+        calm = evil_playground(privileged=False)
+        first = exports.receive(evil_zip(playground=calm))
+        self.assertEqual(first["blocked"], [])
+        second = exports.receive(evil_zip())   # the same playground again, another file: the first preview is let go
+        self.assertTrue(second["blocked"])
+        self.refused(lambda: exports.to_personal(first["ticket"]), "ticket_expired")
+        third = exports.receive(evil_zip(playground=calm))
+        (paths.ROOT / exports.IMPORTS_DIR / "evil" / "playgrounds" / "evil" / "compose.yml").write_text(evil_playground())
+        message = self.refused(lambda: exports.to_personal(third["ticket"]), "import_changed")
+        self.assertEqual(message, "The files of this import changed after its preview. Fix: choose its file again.")
+        self.assertFalse(self.personal().exists())
+
+    def test_the_import_of_another_file_leaves_a_preview_that_waits(self):
+        calm = evil_playground(privileged=False)
+        first = exports.receive(evil_zip(playground=calm))
+        exports.receive(evil_zip(top="other", playground=calm.replace("name: Evil", "name: Other")))
+        self.assertEqual(exports.to_personal(first["ticket"])["playground"], "local/evil")
+        self.assertTrue(self.personal().is_file())
+
+    def test_what_uses_this_machine_goes_to_personal_once_allowed(self):
+        preview = exports.receive(evil_zip(playground=evil_playground(host_access=True)))
+        self.assertEqual((preview["blocked"], [one["what"] for one in preview["rows"]["uses_machine"]]), ([], [["runs privileged"]]))
+        message = self.refused(lambda: exports.to_personal(preview["ticket"]), "allow_machine")
+        self.assertEqual(message, "Evil uses this machine: allow it to import it to Personal.")
+        self.assertFalse(self.personal().exists())
+        self.assertEqual(exports.to_personal(preview["ticket"], allow=True)["playground"], "local/evil")

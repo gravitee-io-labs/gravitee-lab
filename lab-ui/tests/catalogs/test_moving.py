@@ -109,11 +109,13 @@ class Moving(Case):
 class Copying(Case):
     """Copy to Personal: Echo of the default catalog, which Echo core and Pair include and Scratch of this machine too. Alone, the
     copy says whose copy it is and is its twin, so that neither blocks the other; with what uses it, Echo core and Pair are copied
-    and include the copy, and Scratch does."""
+    and include the copy, and Scratch does. Partner, whose Ledger Pair includes, is added: an item that waits for a catalog is not
+    judged, and is not copied."""
 
     def setUp(self):
         fixtures.need_compose()
         fixtures.project(self, paths, project, compose, envfiles, check, files, ns="fixture", kind="git", store=True)
+        fixtures.install(self, "partner", kind="git", audience="public")
         fixtures.local(self, "scratch")
         project.forget()
         self.addCleanup(project.forget)
@@ -163,3 +165,34 @@ class Copying(Case):
             self.assertIn("fixture/addons/echo/compose.yml", self.local(rel).read_text(), rel)
         found = project.load()
         self.assertIsNone(found["addons"]["local/scratch"]["blocked"])
+
+
+class Unjudged(Case):
+    """An imported playground that includes an item of a catalog this Lab has not added: Compose cannot read it, so nothing judged
+    it, and it can no more move or be copied to Personal than an item that is blocked."""
+
+    def setUp(self):
+        from .test_exports import evil_playground, evil_zip
+        fixtures.need_compose()
+        fixtures.project(self, paths, project, compose, envfiles, check, files, ns="fixture", kind="git", store=True)
+        self.patch(gitx, "home", lambda: paths.ROOT.parent)
+        project.forget()
+        self.addCleanup(project.forget)
+        data = evil_zip(playground=evil_playground(include="../../../partner/addons/ledger/compose.yml"), needs=True)
+        service.add(exports.receive(data)["ticket"])
+        project.forget()
+
+    HELD = "Evil cannot run: it needs Partner fixture, which is not added. Fix: add Partner fixture on the Catalogs page first."
+
+    def test_it_does_not_move(self):
+        self.assertEqual(moving.plan("playground", "@evil/evil")["alone"]["held"], self.HELD)
+        with self.assertRaises(CatalogError) as caught:
+            moving.move("playground", "@evil/evil", False, allow=True)
+        self.assertEqual((caught.exception.code, caught.exception.message), ("held", self.HELD))
+
+    def test_it_is_not_copied(self):
+        self.assertEqual(moving.copy_plan("playground", "@evil/evil")["alone"]["held"], self.HELD)
+        with self.assertRaises(CatalogError) as caught:
+            moving.copy("playground", "@evil/evil", allow=True)
+        self.assertEqual((caught.exception.code, caught.exception.message), ("held", self.HELD))
+        self.assertFalse((paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "playgrounds" / "evil").exists())

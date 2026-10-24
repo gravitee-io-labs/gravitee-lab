@@ -94,14 +94,38 @@ def _users_of_root(found, kind, uid):
             if other != root and root in set(resolve._direct(units, other))]
 
 
+# What a catalog that an item needs still lacks, in the words of a reason: the item cannot run until then (resolve.catalog_needs)
+UNTIL = {"missing": "it needs {name}, which is not added", "downloading": "it needs {name}, which is not downloaded yet",
+         "failed": "it needs {name}, which is not downloaded yet", "old": "it needs a newer version of {name}",
+         "gone": "it needs {unit} of {name}, which is no longer there"}
+FIXES = {"missing": "add {name} on the Catalogs page first", "old": "update {name} on the Catalogs page first"}
+
+
+def waiting(unit):
+    """Why an item cannot run until a catalog it needs is there, ("it needs X, which is not added", the fix), or None. Compose
+    cannot read such an item, so nothing has judged it: what it would do is not known until the catalog comes."""
+    need = next(iter(unit.get("needs_catalogs") or ()), None)
+    if not need:
+        return None
+    reason = need.get("reason") if need.get("reason") in UNTIL else "missing"
+    words = {"name": need.get("name") or need.get("id") or "a catalog", "unit": need.get("unit") or "an item"}
+    return UNTIL[reason].format(**words), FIXES.get(reason, "wait until {name} is downloaded").format(**words)
+
+
 def _judged(units, moving):
     """([names] of the moving items that take more of this machine, which the person must allow), and why one cannot move at all
-    ("X cannot run: reason"), or ""."""
+    ("X cannot run: reason"), or "". Personal is judged by nothing: an item that was not judged either, since it waits for a
+    catalog or the Lab has not read it yet, cannot go there, whatever it would do."""
     uses, refused = [], ""
     for node in moving:
         unit = (units.get(node[0]) or {}).get(node[1]) or {}
         verdict = unit.get("verdict") or {}
         codes = set(verdict.get("codes") or ())
+        until = waiting(unit)
+        if until:
+            refused = refused or f"{_name(units, node)} cannot run: {until[0]}. Fix: {until[1]}."
+        elif not unit.get("verdict"):
+            refused = refused or f"{_name(units, node)} cannot run: the Lab has not judged it yet. Fix: try again in a moment."
         if verdict.get("state") == "blocked" and not codes <= HOST_CODES | {NEEDS_BLOCKED}:
             refused = refused or f"{_name(units, node)} cannot run: {(verdict.get('reasons') or [''])[0]}"
         if codes & HOST_CODES:

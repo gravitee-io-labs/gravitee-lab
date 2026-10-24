@@ -170,6 +170,16 @@ def _spend(ticket):
         TICKETS.pop(ticket, None)
 
 
+def imports():
+    """{the real path of its folder: [tickets]} of the imports whose preview is still valid: their folder waits for the change."""
+    found = {}
+    with _lock:
+        for ticket, data in TICKETS.items():
+            if data.get("imported") and _now() - data["made"] <= TTL:
+                found.setdefault(os.path.realpath(getattr(data.get("address"), "path", "") or ""), []).append(ticket)
+    return found
+
+
 def forget(ticket):
     """Lets a check go before it is used, with what it staged: the judgement an export makes of its archive."""
     with _lock:
@@ -919,6 +929,12 @@ def _preview(ticket, meta, kind, address, audience, listed, ignored, judged, ver
              "blocked": _blocked_of(judged, mine), "ignored": ignored}
     if newer:
         shown["newer"] = True
+    # What Compose could not read for want of a catalog was not judged: an import says it cannot run until that catalog comes
+    waits = [{"kind": k, "id": uid, "name": resolve.shown(judged[k][uid]["name"], NAME_CUT),
+              "needs_catalogs": copy.deepcopy(judged[k][uid]["needs_catalogs"])}
+             for k, uid in mine if judged[k][uid].get("needs_catalogs") and not judged[k][uid].get("blocked")]
+    if waits:
+        shown["waits"] = waits
     return shown
 
 

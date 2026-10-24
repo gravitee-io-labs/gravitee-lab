@@ -103,6 +103,9 @@ const usesRow = (uses) => ({ label: "Uses this machine", items: uses.length
 // that keeps it judged. What cannot run cannot go to Personal: Imported is then the one choice
 let dest = "personal";
 const toPersonal = (p) => !!p.imported && dest === "personal";
+// What would run in Personal, judged by nothing, that takes more of this machine: going there is the person's allowance
+const allowsPersonal = (p) => toPersonal(p) && (p.rows?.uses_machine || []).length > 0;
+const importButton = (p) => actionButton({ key: `catalog-op:${p.catalog.id}`, verb: "import", label: allowsPersonal(p) ? "Allow and import" : "Import" });
 function destinationHtml(p) {
   const blocked = (p.blocked || []).length > 0;
   const option = (value, label, why = "") => `<button type="button" role="radio" data-dest="${value}" aria-checked="${dest === value}"${
@@ -143,7 +146,8 @@ function previewRows(p, allow, all = false) {
 }
 
 // An import kept in Personal: the rows of the Add, what it replaces there besides, and nothing that cannot run or waits for an
-// allowance, since nothing judges what is Personal's: what it takes of this machine is said here, before the person chooses
+// allowance, since nothing judges what is Personal's: what it takes of this machine is said here, and the button is the allowance
+// (Allow and import)
 function personalRows(p) {
   const mine = p.personal || {};
   const reused = [...(p.reused || []).map((one) => one.name), ...(mine.same || [])];
@@ -398,6 +402,7 @@ rowsEl.addEventListener("click", (e) => {
   if (!button || button.getAttribute("aria-disabled") === "true" || !shown?.preview?.imported) return;
   dest = button.dataset.dest;
   drawRows();
+  slot("primary", importButton(shown.preview));
   $(`[data-dest="${dest}"]`, rowsEl)?.focus();
 });
 
@@ -406,7 +411,8 @@ async function keepPersonal() {
   const mine = seq, { preview } = shown, live = () => mine === seq;
   sending = true;
   try {
-    const answer = await busy(`catalog-op:${preview.catalog.id}`, "import", api("/api/catalogs/import/personal", { ticket: preview.ticket }));
+    const answer = await busy(`catalog-op:${preview.catalog.id}`, "import", api("/api/catalogs/import/personal",
+      { ticket: preview.ticket, ...(allowsPersonal(preview) ? { allow: true } : {}) }));
     const stay = live();
     if (stay) dialog.close();
     toast("Imported");
@@ -466,7 +472,7 @@ async function importFile(file) {
     effectsScreen(`Import ${preview.catalog?.name ?? ""}`.trim());
     drawRows();
     slot("secondary", "");
-    slot("primary", actionButton({ key: `catalog-op:${preview.catalog.id}`, verb: "import", label: "Import" }));
+    slot("primary", importButton(preview));
     ($$("input", choiceEl).find((el) => el.checked) || $("#catalog-primary button", dialog))?.focus();
   } catch (err) {
     if (mine !== seq) return;
