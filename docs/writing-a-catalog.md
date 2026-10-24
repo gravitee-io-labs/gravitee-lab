@@ -152,7 +152,7 @@ make release VERSION=1.1.0
 ```
 
 makes the branch `release/1.1.0` with `version:` raised in `catalog.yml` and nothing else, and prints the lines that push it and
-open its pull request (`python3 lab-ui/catalog.py release 1.1.0 --pr` opens it with `gh`). It refuses a dirty tree, a branch
+open its pull request (`python3 lab-ui/catalog.py release 1.1.0 --pr` pushes the branch and opens it with `gh`). It refuses a dirty tree, a branch
 that is behind `origin/main` and a version that is not greater than the last tag. Once that pull request is merged:
 
 ```bash
