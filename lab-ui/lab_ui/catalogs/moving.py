@@ -27,6 +27,7 @@ this machine, once allowed.
     copy(kind, uid, users)       the person's copy of an item of a catalog (x-gravitee.copy_of), and of what uses it
 """
 
+import os
 import posixpath
 import re
 import shutil
@@ -211,55 +212,77 @@ def _clear(target: Path):
 
 def move(kind, uid, together, allow=False):
     """Moves the item, and with `together` what it brings from its import that nothing else uses, to Personal; `allow`: the person
-    allowed what takes more of this machine, which nothing judges there. Answers {moved: [{kind, id}], id}."""
-    found = _check(kind, uid)
-    units = _units(found)
-    users = _users_of_root(found, kind, uid)
-    if users:
-        raise _fail("used", f"Used by {_name(units, users[0])}: move that one to Personal instead.")
-    moving, _ = _choice(found, kind, uid, together)
-    reason = _held(found, moving)
-    if reason:
-        raise _fail("held", reason)
-    uses = _judged(units, moving)[0]
-    if uses and not allow:
-        raise _fail("allow_machine", f"{', '.join(uses)} uses this machine: allow it to move it to Personal.")
-    ns = paths.origin(uid)
-    source, home = _folder_of(ns), paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL
-    table = [(f"{paths.CATALOGS_DIR}/{ns}/{_rel(k, _slug(one))}", f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{_rel(k, _slug(one))}")
-             for k, one in moving]
-    for k, one in moving:
-        rel = _rel(k, _slug(one))
-        compose_rel = rel if k == "setup" else f"{rel}/compose.yml"
-        here = posixpath.dirname(compose_rel)
-        text = unmark((source / compose_rel).read_text(encoding="utf-8"))   # whose copy it was is said by no file of a catalog
-        written = moves.repoint(text, f"{paths.CATALOGS_DIR}/{ns}/{here}", f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{here}", table)
-        target = home / rel
-        if k == "setup":
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(written, encoding="utf-8")
-            (source / rel).unlink()
-            continue
-        if target.is_dir():
-            _clear(target)
-        target.mkdir(parents=True, exist_ok=True)
-        for path in sorted(p for p in (source / rel).rglob("*") if not p.is_symlink()):
-            inside = path.relative_to(source / rel)
-            if path.is_dir():
-                (target / inside).mkdir(parents=True, exist_ok=True)
-                continue
-            (target / inside).parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(path, target / inside)
-        (target / "compose.yml").write_text(written, encoding="utf-8")
-        shutil.rmtree(source / rel)
-    moves.rekey({f"{k}:{one}": f"{paths.LOCAL}/{_slug(one)}" for k, one in moving})
-    left = [path for path in (*source.glob("playgrounds/*/compose.yml"), *source.glob("addons/*/compose.yml"),
-                              *source.glob("setups/*.yml"))]
-    project.forget()
-    if not left and registry.entry(ns):
-        service.remove(ns)
-    project.forget()
+    allowed what takes more of this machine, which nothing judges there. Answers {moved: [{kind, id}], id}. A change of catalogs:
+    it waits for none under way. The import loses its items only once every one is in Personal: a move that fails midway takes
+    out what it wrote there that was not there before, and the import is as it was."""
+    with service._changing():
+        found = _check(kind, uid)
+        units = _units(found)
+        users = _users_of_root(found, kind, uid)
+        if users:
+            raise _fail("used", f"Used by {_name(units, users[0])}: move that one to Personal instead.")
+        moving, _ = _choice(found, kind, uid, together)
+        reason = _held(found, moving)
+        if reason:
+            raise _fail("held", reason)
+        uses = _judged(units, moving)[0]
+        if uses and not allow:
+            raise _fail("allow_machine", f"{', '.join(uses)} uses this machine: allow it to move it to Personal.")
+        ns = paths.origin(uid)
+        source, home = _folder_of(ns), paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL
+        table = [(f"{paths.CATALOGS_DIR}/{ns}/{_rel(k, _slug(one))}", f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{_rel(k, _slug(one))}")
+                 for k, one in moving]
+        texts = {}
+        for k, one in moving:   # read first: what cannot be read stops the move before anything is written
+            compose_rel = _rel(k, _slug(one)) if k == "setup" else f"{_rel(k, _slug(one))}/compose.yml"
+            here = posixpath.dirname(compose_rel)
+            text = unmark((source / compose_rel).read_text(encoding="utf-8"))   # whose copy it was is said by no file of a catalog
+            texts[(k, one)] = moves.repoint(text, f"{paths.CATALOGS_DIR}/{ns}/{here}", f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{here}", table)
+        made = []
+        try:
+            for k, one in moving:
+                rel = _rel(k, _slug(one))
+                target = home / rel
+                if not os.path.lexists(target):
+                    made.append(target)
+                if k == "setup":
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text(texts[(k, one)], encoding="utf-8")
+                    continue
+                if target.is_dir():
+                    _clear(target)
+                target.mkdir(parents=True, exist_ok=True)
+                for path in sorted(p for p in (source / rel).rglob("*") if not p.is_symlink()):
+                    inside = path.relative_to(source / rel)
+                    if path.is_dir():
+                        (target / inside).mkdir(parents=True, exist_ok=True)
+                        continue
+                    (target / inside).parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(path, target / inside)
+                (target / "compose.yml").write_text(texts[(k, one)], encoding="utf-8")
+        except BaseException:
+            _take_back(made)
+            raise
+        for k, one in moving:
+            rel = _rel(k, _slug(one))
+            (source / rel).unlink() if k == "setup" else shutil.rmtree(source / rel)
+        moves.rekey({f"{k}:{one}": f"{paths.LOCAL}/{_slug(one)}" for k, one in moving})
+        left = [path for path in (*source.glob("playgrounds/*/compose.yml"), *source.glob("addons/*/compose.yml"),
+                                  *source.glob("setups/*.yml"))]
+        project.forget()
+        if not left and registry.entry(ns):
+            service.remove(ns)
+        project.forget()
     return {"moved": [{"kind": k, "id": f"{paths.LOCAL}/{_slug(one)}"} for k, one in moving], "id": f"{paths.LOCAL}/{_slug(uid)}"}
+
+
+def _take_back(made):
+    """What a change that failed midway wrote in Personal where nothing was: removed, so that no half item stays there."""
+    for target in reversed(made):
+        if target.is_dir() and not target.is_symlink():
+            shutil.rmtree(target, ignore_errors=True)
+        elif os.path.lexists(target):
+            target.unlink()
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -279,6 +302,12 @@ def _mark(text, uid):
             lines.insert(at + 1, f"{indent}copy_of: {quoted}\n")
             return "".join(lines)
     return None
+
+
+def _not_copied(folder, names):
+    """What Copy to Personal leaves of an item's folder: what its seed recorded, and a link, whose target is no file of the item
+    (a folder catalog is a folder of this machine, whose links may lead anywhere)."""
+    return {name for name in names if name == ".state" or os.path.islink(os.path.join(folder, name))}
 
 
 def _copies(found, kind, uid, users):
@@ -341,38 +370,48 @@ def copy_plan(kind, uid):
 def copy(kind, uid, users=False, allow=False):
     """Copies the item to Personal, as the person's copy of it (copy_of), with its settings and secrets but not what its seed
     recorded; with `users`, every item of a catalog that includes it too, up to the playgrounds, and the items of Personal that
-    include one of them then include the copy. Answers {copies: [{kind, id}], id}."""
-    found = project.load()
-    plan = copy_plan(kind, uid)
-    chosen = plan["with_users"] if users and plan["with_users"] else plan["alone"]
-    if chosen["held"]:
-        raise _fail("held", chosen["held"])
-    if chosen["uses_machine"] and not allow:
-        raise _fail("allow_machine", f"{', '.join(chosen['uses_machine'])} uses this machine: allow it to copy it to Personal.")
-    copies, switches = _copies(found, kind, uid, bool(users and plan["with_users"]))
-    home = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL
-    places = {node: (paths.unit_file(*node) if node[0] == "setup" else paths.unit_folder(*node)) for node in copies}
-    table = [(places[node], f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{_rel(node[0], _slug(node[1]))}") for node in copies]
-    for node in copies:
-        k, one = node
-        source = paths.ROOT / places[node]
-        compose_file = source if k == "setup" else source / "compose.yml"
-        here = posixpath.dirname(places[node] if k == "setup" else f"{places[node]}/compose.yml")
-        there = posixpath.dirname(f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{_rel(k, _slug(one))}" + ("" if k == "setup" else "/compose.yml"))
-        written = _mark(moves.repoint(unmark(compose_file.read_text(encoding="utf-8")), here, there, table), one)
-        if written is None:
-            raise _fail("unmarked", f"{_name(_units(found), node)} has no x-gravitee block to say it is a copy.")
-        target = home / _rel(k, _slug(one))
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if k == "setup":
-            target.write_text(written, encoding="utf-8")
-            continue
-        shutil.copytree(source, target, symlinks=False, ignore=shutil.ignore_patterns(".state"))
-        for path in target.rglob("*"):   # a catalog's files are read only where they are installed: the copy is the person's
-            path.chmod(path.stat().st_mode | 0o200)
-        target.chmod(target.stat().st_mode | 0o200)
-        (target / "compose.yml").write_text(written, encoding="utf-8")
-    for old, new in table if switches else ():
-        personals.follow(old, new)
-    project.forget()
+    include one of them then include the copy. Answers {copies: [{kind, id}], id}. A change of catalogs: it waits for none under
+    way, and a copy that fails midway takes out what it wrote."""
+    with service._changing():
+        found = project.load()
+        plan = copy_plan(kind, uid)
+        chosen = plan["with_users"] if users and plan["with_users"] else plan["alone"]
+        if chosen["held"]:
+            raise _fail("held", chosen["held"])
+        if chosen["uses_machine"] and not allow:
+            raise _fail("allow_machine", f"{', '.join(chosen['uses_machine'])} uses this machine: allow it to copy it to Personal.")
+        copies, switches = _copies(found, kind, uid, bool(users and plan["with_users"]))
+        home = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL
+        places = {node: (paths.unit_file(*node) if node[0] == "setup" else paths.unit_folder(*node)) for node in copies}
+        table = [(places[node], f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{_rel(node[0], _slug(node[1]))}") for node in copies]
+        texts = {}
+        for node in copies:   # written for its place first: what cannot be stops the copy before anything is written
+            k, one = node
+            compose_file = paths.ROOT / places[node] if k == "setup" else paths.ROOT / places[node] / "compose.yml"
+            here = posixpath.dirname(places[node] if k == "setup" else f"{places[node]}/compose.yml")
+            there = posixpath.dirname(f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{_rel(k, _slug(one))}" + ("" if k == "setup" else "/compose.yml"))
+            texts[node] = _mark(moves.repoint(unmark(compose_file.read_text(encoding="utf-8")), here, there, table), one)
+            if texts[node] is None:
+                raise _fail("unmarked", f"{_name(_units(found), node)} has no x-gravitee block to say it is a copy.")
+        made = []
+        try:
+            for node in copies:
+                k, one = node
+                target = home / _rel(k, _slug(one))
+                target.parent.mkdir(parents=True, exist_ok=True)
+                made.append(target)
+                if k == "setup":
+                    target.write_text(texts[node], encoding="utf-8")
+                    continue
+                shutil.copytree(paths.ROOT / places[node], target, ignore=_not_copied)
+                for path in target.rglob("*"):   # a catalog's files are read only where they are installed: the copy is the person's
+                    path.chmod(path.stat().st_mode | 0o200)
+                target.chmod(target.stat().st_mode | 0o200)
+                (target / "compose.yml").write_text(texts[node], encoding="utf-8")
+        except BaseException:
+            _take_back(made)
+            raise
+        for old, new in table if switches else ():
+            personals.follow(old, new)
+        project.forget()
     return {"copies": [{"kind": k, "id": f"{paths.LOCAL}/{_slug(one)}"} for k, one in copies], "id": f"{paths.LOCAL}/{_slug(uid)}"}

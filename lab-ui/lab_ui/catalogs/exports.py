@@ -363,9 +363,20 @@ def plan(pid):
     return _made(pid)[0]
 
 
-def archive(pid):
-    """The plan and the archive, base64: what the page saves as a file."""
+def archive(pid, private=()):
+    """The plan and the archive, base64: what the page saves as a file. The plan is made again with the file, and holds it to what
+    the person saw: what another Lab would block is no file, and what comes from a private catalog leaves only when the page
+    showed that catalog (`private`: the ids it showed)."""
     shown, data = _made(pid)
+    if shown["blocked"]:
+        one = shown["blocked"][0]
+        reason = (one.get("reasons") or ["it cannot run"])[0]
+        raise _fail("export_blocked", f"{one['name']} would be blocked on another Lab: {reason[:1].lower()}{reason[1:]}. Fix: change it, "
+                                      "then export it again.", 409)
+    unseen = [one["name"] for one in shown["private"] if one["id"] not in set(private or ())]
+    if unseen:
+        raise _fail("export_private", f"It now carries private content of {', '.join(unseen)}. Fix: export it again to see what "
+                                      "leaves with it.", 409)
     return {**shown, "data": base64.b64encode(data).decode("ascii")}
 
 
@@ -631,6 +642,12 @@ def _clear(target: Path):
 
 
 def to_personal(ticket, allow=False):
+    """`_to_personal`, a change of catalogs: it waits for none under way."""
+    with service._changing():
+        return _to_personal(ticket, allow)
+
+
+def _to_personal(ticket, allow=False):
     """The import the preview `ticket` showed, kept in Personal instead of as a catalog: refused when the preview found an item that
     cannot run (Personal would run it unjudged), when an item uses this machine and the person did not allow it (`allow`), when the
     files are no longer those the preview judged, or when an item it replaces is on. Answers {items: [{kind, id}], playground}."""
@@ -655,22 +672,28 @@ def to_personal(ticket, allow=False):
         held = moving.replaced_on(found, kind, slug) if now is not None and now.encode("utf-8") != files[_compose_rel(kind, rel)][1] else ""
         if held:
             raise _fail("held", held, 409)
-    home = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL
-    for kind, slug, rel, name, files in items:
-        now = _personal_now(kind, rel)
-        if now is not None and now.encode("utf-8") == files[_compose_rel(kind, rel)][1]:
-            continue   # the same item: Personal's is used
-        if kind != "setup" and (home / rel).is_dir():
-            _clear(home / rel)
-        for path, (mode, content) in files.items():
-            target = home / path
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(content)
-            os.chmod(target, mode)
-        for name in MACHINE_FILES if kind != "setup" else ():   # what a removed import kept, where Personal has none
-            kept, target = folder / rel / name, home / rel / name
-            if kept.exists() and not os.path.lexists(target):
-                (shutil.copytree if kept.is_dir() else shutil.copy2)(kept, target)
+    home, made = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL, []
+    try:
+        for kind, slug, rel, name, files in items:
+            now = _personal_now(kind, rel)
+            if now is not None and now.encode("utf-8") == files[_compose_rel(kind, rel)][1]:
+                continue   # the same item: Personal's is used
+            if not os.path.lexists(home / rel):
+                made.append(home / rel)
+            if kind != "setup" and (home / rel).is_dir():
+                _clear(home / rel)
+            for path, (mode, content) in files.items():
+                target = home / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(content)
+                os.chmod(target, mode)
+            for name in MACHINE_FILES if kind != "setup" else ():   # what a removed import kept, where Personal has none
+                kept, target = folder / rel / name, home / rel / name
+                if kept.exists() and not os.path.lexists(target):
+                    (shutil.copytree if kept.is_dir() else shutil.copy2)(kept, target)
+    except BaseException:
+        moving._take_back(made)   # the ticket stays: the person may try again
+        raise
     service.forget(ticket)
     shutil.rmtree(folder, ignore_errors=True)
     project.forget()
@@ -691,7 +714,13 @@ def _waiting(preview):
 
 def receive(data):
     """The import of an archive (its bytes, or base64 text): written under .lab/imports/<id> and checked as the Add of a folder
-    catalog. Answers that preview, whose ticket the Add takes; `already_imported` when this Lab has the catalog."""
+    catalog. Answers that preview, whose ticket the Add takes; `already_imported` when this Lab has the catalog. A change of
+    catalogs: it waits for none under way, and no other import sweeps its folder while it writes it."""
+    with service._changing():
+        return _receive(data)
+
+
+def _receive(data):
     if isinstance(data, str):
         try:
             data = base64.b64decode(data, validate=True)
@@ -707,6 +736,10 @@ def receive(data):
         raise _fail("import_invalid", NOT_A_PLAYGROUND) from None
     with archive:
         top, members = _members(archive)
+        if registry.entry(top) is not None and not registry.imported(top):   # another catalog, which a Remove would lose
+            other = (registry.inputs().get(top) or {}).get("name") or registry.lock_of(top).get("name") or top
+            raise _fail("import_taken", f"{_name_of(archive, top)} has the id of a catalog of this Lab, {other}. Fix: ask for it "
+                                        "exported again from a playground of another name.", 409)
         if registry.entry(top) is not None:
             raise _fail("already_imported", f"{_name_of(archive, top)} is already in this Lab. To import it again, remove it on "
                                             "the Catalogs page first.", 409)

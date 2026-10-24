@@ -2,6 +2,7 @@
 then moved: alone, its include of Scratch then leads to the import; together, both move and the import goes; what an item that does
 not move uses stays, and an item that one which does not move includes cannot move at all."""
 
+import os
 import shutil
 
 from lab_ui import paths
@@ -11,6 +12,22 @@ from lab_ui.docker import compose, envfiles, files
 from lab_ui.library import check, project
 
 from .. import Case, fixtures
+
+
+def held(case):
+    """The lock of the catalogs held by another thread, as a change under way does, until the test ends."""
+    import threading
+    taken, done = threading.Event(), threading.Event()
+
+    def hold():
+        with registry.flock():
+            taken.set()
+            done.wait(30)
+    worker = threading.Thread(target=hold, daemon=True)
+    worker.start()
+    taken.wait(10)
+    case.addCleanup(worker.join)
+    case.addCleanup(done.set)
 
 
 class Moving(Case):
@@ -114,6 +131,29 @@ class Moving(Case):
         self.assertEqual(caught.exception.code, "held")
         self.assertEqual(self.local("playgrounds/sandbox/compose.yml").read_text(), before, "what is on is left as it is")
 
+    def test_a_move_that_fails_midway_leaves_the_import_as_it_was(self):
+        copy2, calls = shutil.copy2, []
+
+        def failing(*args, **how):
+            calls.append(args)
+            if len(calls) > 1:
+                raise OSError(28, "No space left on device")
+            return copy2(*args, **how)
+        self.patch(moving.shutil, "copy2", failing)
+        with self.assertRaises(OSError):
+            moving.move("playground", "@sandbox/sandbox", True)
+        imported = paths.ROOT / exports.IMPORTS_DIR / "sandbox"
+        self.assertTrue((imported / "playgrounds/sandbox/compose.yml").is_file() and (imported / "addons/scratch/compose.yml").is_file())
+        self.assertFalse(self.local("playgrounds/sandbox").exists() or self.local("addons/scratch").exists(), "nothing half moved stays")
+        self.assertIsNotNone(registry.entry("sandbox"))
+
+    def test_a_move_waits_for_another_change_of_catalogs(self):
+        held(self)
+        with self.assertRaises(CatalogError) as caught:
+            moving.move("playground", "@sandbox/sandbox", True)
+        self.assertEqual(caught.exception.code, "busy")
+        self.assertFalse(self.local("playgrounds/sandbox").exists(), "nothing moved")
+
     def test_only_an_imported_item_moves(self):
         with self.assertRaises(CatalogError) as caught:
             moving.plan("addon", "echo")
@@ -162,6 +202,40 @@ class Copying(Case):
         self.assertIn("../addons/echo/compose.yml", self.local("setups/pair.yml").read_text())
         self.assertIn("../echo/compose.yml", self.local("addons/scratch/compose.yml").read_text(), "Scratch includes the copy")
         self.assertIn('copy_of: "pair"', self.local("setups/pair.yml").read_text())
+
+    def test_a_link_in_the_original_is_not_followed(self):
+        outside = paths.ROOT.parent / "outside.txt"
+        outside.write_text("what the link points to\n")
+        self.addCleanup(outside.unlink)
+        echo = paths.ROOT / paths.unit_folder("addon", "echo")
+        mode = echo.stat().st_mode
+        echo.chmod(mode | 0o200)
+        (echo / "link").symlink_to(outside)
+        echo.chmod(mode)
+        moving.copy("addon", "echo")
+        self.assertFalse(os.path.lexists(self.local("addons/echo/link")), "a link is no file of the item")
+        self.assertTrue(self.local("addons/echo/compose.yml").is_file())
+
+    def test_a_copy_that_fails_midway_leaves_no_half_copy(self):
+        write, calls = moving.Path.write_text, []
+
+        def failing(path, *args, **how):
+            calls.append(path)
+            if len(calls) > 1:
+                raise OSError(28, "No space left on device")
+            return write(path, *args, **how)
+        self.patch(moving.Path, "write_text", failing)
+        with self.assertRaises(OSError):
+            moving.copy("addon", "echo", users=True)
+        self.assertEqual([path.name for path in self.local("addons").iterdir()], ["scratch"])
+        self.assertFalse(self.local("setups").exists() and any(self.local("setups").iterdir()))
+        self.assertIn("../../../fixture/addons/echo/compose.yml", self.local("addons/scratch/compose.yml").read_text())
+
+    def test_a_copy_waits_for_another_change_of_catalogs(self):
+        held(self)
+        with self.assertRaises(CatalogError) as caught:
+            moving.copy("addon", "echo")
+        self.assertEqual(caught.exception.code, "busy")
 
     def test_an_item_of_personal_is_not_copied_and_a_second_copy_waits(self):
         with self.assertRaises(CatalogError) as caught:

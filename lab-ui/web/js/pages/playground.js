@@ -105,7 +105,9 @@ async function exportPlayground(x) {
     action: () => ((plan.private || []).length ? "Export with private content" : "Export"), unchosen: "" });
   if (!go) return;
   try {
-    const made = await busy(key, "export", api(route, {}));
+    // The private catalogs the person saw: the server makes the file only if it carries nothing else of one
+    const seen = (plan.private || []).map((one) => one.id);
+    const made = await busy(key, "export", api(route, seen.length ? { private: seen } : {}));
     save(made.file, made.data);
     toast(`Exported ${made.file}`);
   } catch (err) {

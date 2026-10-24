@@ -764,7 +764,8 @@ ROUTES = [(method, re.compile(pattern), handler) for method, pattern, handler in
                                                    "setups", "addons")),
     ("POST", f"/api/{KIND}s/{UNIT}/share", share_item),
     # A playground in a file: what its export carries (`check`), then the file, base64; and the import of one, as an Add
-    ("POST", f"/api/playgrounds/{UNIT}/export", lambda r, pid: exports.plan(pid) if r.body.get("check") else exports.archive(pid)),
+    ("POST", f"/api/playgrounds/{UNIT}/export", lambda r, pid: exports.plan(pid) if r.body.get("check")
+     else exports.archive(pid, private=[one for one in r.body.get("private") or () if isinstance(one, str)])),
     # The same playground for Docker Compose alone, with no Lab: what the folder holds and asks (`check`), then the file, base64
     ("POST", f"/api/playgrounds/{UNIT}/standalone",
      lambda r, pid: standalone.plan(pid) if r.body.get("check") else standalone.archive(pid)),

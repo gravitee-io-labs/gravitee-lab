@@ -128,6 +128,18 @@ class RoundTrip(Case):
         self.assertIn("../../addons/scratch/compose.yml", playground, "an include of a carried item is written for its new place")
         self.assertIn("../../../fixture/addons/echo/compose.yml", addon, "an include of the default catalog stays as it is")
 
+    def test_what_another_lab_would_block_is_no_file(self):
+        sandbox = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "playgrounds" / "sandbox" / "compose.yml"
+        sandbox.write_text(sandbox.read_text(encoding="utf-8").replace("    networks: [internal]\n", "    networks: [internal]\n"
+                                                                       "    privileged: true\n", 1), encoding="utf-8")
+        project.forget()
+        self.assertTrue(exports.plan("local/sandbox")["blocked"])
+        with self.assertRaises(CatalogError) as caught:
+            exports.archive("local/sandbox")
+        self.assertEqual(caught.exception.code, "export_blocked")
+        self.assertTrue(caught.exception.message.startswith("Sandbox would be blocked on another Lab: "), caught.exception.message)
+        self.assertTrue(caught.exception.message.endswith(". Fix: change it, then export it again."), caught.exception.message)
+
     def test_an_item_of_the_default_catalog_has_nothing_to_export(self):
         with self.assertRaises(CatalogError) as caught:
             exports.plan("shop")
@@ -248,7 +260,7 @@ class FromCatalogs(Case):
         plan = exports.plan("local/sandbox")
         self.assertIn("local/ledger", [one["id"] for one in plan["carries"]])
         self.assertEqual(plan["private"], [{"id": "partner", "name": "Partner fixture", "items": ["Ledger"]}])
-        with zipfile.ZipFile(io.BytesIO(base64.b64decode(exports.archive("local/sandbox")["data"]))) as archive:
+        with zipfile.ZipFile(io.BytesIO(base64.b64decode(exports.archive("local/sandbox", private=["partner"])["data"]))) as archive:
             self.assertNotIn("copy_of", archive.read("sandbox/addons/ledger/compose.yml").decode())
 
     def test_an_image_the_other_lab_pulls_from_a_registry_that_asks_for_a_login_is_said(self):
@@ -256,8 +268,15 @@ class FromCatalogs(Case):
         self.assertEqual(plan["registries"], [{"registry": "registry.acme.example", "images": ["registry.acme.example/ledger:1"]}])
         self.assertEqual(self.asked[0], ["busybox:1.36", "busybox:1.36"], "the images of the carried services the other Lab pulls")
 
+    def test_the_file_is_made_once_the_person_saw_what_leaves_from_a_private_catalog(self):
+        with self.assertRaises(CatalogError) as caught:
+            exports.archive("local/sandbox")
+        self.assertEqual((caught.exception.code, caught.exception.message), ("export_private", "It now carries private content of "
+                                                                             "Partner fixture. Fix: export it again to see what leaves with it."))
+        self.assertTrue(exports.archive("local/sandbox", private=["partner"])["data"])
+
     def test_the_archive_says_where_each_item_of_a_catalog_comes_from(self):
-        made = exports.archive("local/sandbox")
+        made = exports.archive("local/sandbox", private=["partner"])
         with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
             said = json.loads(archive.read("sandbox/export.json"))
             scratch = archive.read("sandbox/addons/scratch/compose.yml").decode()
@@ -265,7 +284,7 @@ class FromCatalogs(Case):
         self.assertIn("  - ../ledger/compose.yml\n", scratch, "the copy is what Scratch includes in the file")
 
     def test_a_lab_that_has_the_catalog_uses_its_own_item_instead_of_a_second_copy(self):
-        preview = exports.receive(exports.archive("local/sandbox")["data"])
+        preview = exports.receive(exports.archive("local/sandbox", private=["partner"])["data"])
         self.assertEqual(preview["reused"], [{"name": "Ledger", "catalog": "Partner fixture"}])
         self.assertEqual(preview["counts"], {"playground": 1, "setup": 0, "addon": 1})
         folder = paths.ROOT / exports.IMPORTS_DIR / "sandbox"
@@ -275,7 +294,7 @@ class FromCatalogs(Case):
         self.assertEqual(preview.get("blocked") or [], [])
 
     def test_a_lab_without_the_catalog_keeps_the_copy(self):
-        data = exports.archive("local/sandbox")["data"]
+        data = exports.archive("local/sandbox", private=["partner"])["data"]
         entry = registry.entry
         self.patch(exports.registry, "entry", lambda ns: None if ns == "partner" else entry(ns))
         preview = exports.receive(data)
@@ -435,3 +454,38 @@ class Untrusted(Case):
         message = self.refused(lambda: exports.receive(data), "import_leftover")
         self.assertEqual(message, "What an earlier import of Evil left cannot be deleted. Fix: remove the folder .lab/imports/evil "
                                   "with administrator rights, then import it again.")
+
+    def test_an_import_waits_for_another_change_of_catalogs(self):
+        from .test_moving import held
+        preview = exports.receive(evil_zip(playground=evil_playground(privileged=False)))
+        held(self)
+        self.assertEqual(self.refused(lambda: exports.receive(evil_zip(top="other")), "busy"), "Another catalog change is running. Try again in a moment.")
+        self.refused(lambda: exports.to_personal(preview["ticket"]), "busy")
+
+    def test_an_import_to_personal_that_fails_midway_leaves_nothing_half_written_and_can_be_tried_again(self):
+        data = evil_zip(playground=evil_playground(privileged=False), extra={
+            "evil/addons/helper/compose.yml": b"x-gravitee: {kind: addon, name: Helper, category: Other, description: Helps}\nservices: {}\n"})
+        preview = exports.receive(data)
+        write, calls = exports.Path.write_bytes, []
+
+        def failing(path, *args, **how):
+            calls.append(path)
+            if len(calls) > 1:
+                raise OSError(28, "No space left on device")
+            return write(path, *args, **how)
+        self.patch(exports.Path, "write_bytes", failing)
+        with self.assertRaises(OSError):
+            exports.to_personal(preview["ticket"])
+        self.assertFalse(self.personal().exists() or self.personal("addons/helper").exists())
+        self.patch(exports.Path, "write_bytes", write)
+        self.assertEqual(exports.to_personal(preview["ticket"])["playground"], "local/evil")
+
+    def test_a_file_named_as_a_catalog_of_this_lab_that_is_no_import_is_not_told_to_remove_it(self):
+        fixtures.install(self, "partner", kind="git", audience="public")
+        project.forget()
+        message = self.refused(lambda: exports.receive(evil_zip(top="partner")), "import_taken")
+        self.assertEqual(message, "Evil has the id of a catalog of this Lab, Partner fixture. Fix: ask for it exported again from a "
+                                  "playground of another name.")
+        service.add(exports.receive(evil_zip(playground=evil_playground(privileged=False)))["ticket"])
+        message = self.refused(lambda: exports.receive(evil_zip()), "already_imported")
+        self.assertIn("is already in this Lab. To import it again, remove it on the Catalogs page first.", message)

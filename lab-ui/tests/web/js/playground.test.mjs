@@ -1215,7 +1215,9 @@ test("Export says what the file carries, what it needs and what it leaves out, t
   assert.deepEqual(effects().notes[0], ["Private", ["Internal"]], "the catalog, once: what it carries is listed above");
   assert.deepEqual(effects().notes[1], ["Needs access", ["graviteeio.azurecr.io"]], "a registry that asks for a login");
   assert.equal(text(page.ids["choice-ok"]), "Export with private content");
-  await answer(false);
+  await answer(true);
+  await flush();
+  assert.deepEqual(server.calls.at(-1).body, { private: ["internal"] }, "the file says what the person saw leave");
   await leave();
   server.exported = plain;
   // What another Lab would block is said, and the file is not made
