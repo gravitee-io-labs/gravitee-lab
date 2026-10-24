@@ -67,6 +67,7 @@ LINES = {
     "share_use_catalog": (400, "Includes {item}, which {catalog} has already: use the catalog version of it, then share this."),
     "share_secret": (400, "{file} holds what looks like a secret. Remove it and share again."),
     "share_private": (400, "{file} names {private}, which is private. Remove it and share again."),
+    "share_private_copy": (400, "{name} is a copy of an item of {private}, which is private. Fix: share it to a private catalog."),
     "no_identity": (400, "Set your name and email in Git, then share again."),
     "push_rejected": (502, "{host} refused the branch. Check that you can push, then share again."),
 }
@@ -1034,9 +1035,30 @@ def _here(kind, uid):
 COPY_OF = re.compile(r'(?m)^[ \t]+copy_of:[^\n]*\n|copy_of:\s*("[^"]*"|\'[^\']*\'|[^,}\s]+)\s*,?\s*')
 
 
+MARKED = re.compile(r'(?m)^[ \t]*(?:x-gravitee:\s*\{[^}\n]*?)?\bcopy_of:\s*("[^"\n]*"|\'[^\'\n]*\'|[^,}\s]+)')
+
+
+def unmark(text):
+    """A compose text without `x-gravitee.copy_of`: whose copy an item of this machine is, which says nothing true elsewhere."""
+    return COPY_OF.sub("", text, count=1) if "copy_of" in text else text
+
+
+def private_source(text):
+    """(id, name) of the private catalog that an item of this machine is a copy of (`x-gravitee.copy_of`), else None: what it holds
+    is that catalog's content. A copy of an item of a catalog this Lab no longer has is taken as private: nothing says otherwise."""
+    found = MARKED.search(text or "")
+    if not found:
+        return None
+    ns = paths.origin(found.group(1).strip("'\""))
+    entry = registry.entry(ns) if ns and ns != LOCAL else None
+    if (ns == LOCAL or not ns) or (entry is not None and (entry.get("kind") != "git" or registry.lock_of(ns).get("audience") == "public")):
+        return None
+    return ns, (registry.inputs().get(ns) or {}).get("name") or registry.lock_of(ns).get("name") or ns
+
+
 def _unmarked(copy, kind, slug):
     """The copy without `x-gravitee.copy_of`: whose copy an item of this machine is, which an item of a catalog never says."""
-    text = COPY_OF.sub("", copy.text, count=1) if "copy_of" in copy.text else copy.text
+    text = unmark(copy.text)
     if text == copy.text:
         return copy
     head = next(path for path in copy.files if path == f"setups/{slug}.yml" or path == f"{kind}s/{slug}/compose.yml")
@@ -1084,23 +1106,42 @@ def _renames(items, to) -> Dict[str, str]:
 
 
 def _renamed(copy, kind, slug, mapping):
-    """The copy with the settings of `mapping` renamed in every text file it carries: compose file, seed, guide, README."""
+    """The copy with the settings of `mapping` renamed where they are settings: the references of its compose file (${NAME},
+    $NAME), those of its seed that read a setting by its own name, and its guides, README and .env.example. A name the compose file
+    gives a container (an environment key, outside a reference) is what the program in it, and the seed of the service, read: it
+    stays, and the reference that fills it is the one renamed. Another file is what a container reads, not a setting."""
     if not mapping:
         return copy
-    pattern = re.compile(r"(?<![A-Za-z0-9_])(" + "|".join(map(re.escape, sorted(mapping, key=len, reverse=True))) + r")(?![A-Za-z0-9_])")
+    names = "|".join(map(re.escape, sorted(mapping, key=len, reverse=True)))
+    word = re.compile(rf"(?<![A-Za-z0-9_])({names})(?![A-Za-z0-9_])")
+    reference = re.compile(rf"(?<!\$)(\$\{{?)({names})(?![A-Za-z0-9_])")   # $$ is a dollar sign, not a reference
+    head = f"setups/{slug}.yml" if kind == "setup" else f"{kind}s/{slug}/compose.yml"
+    compose_text = _text_of(copy.files.get(head)) or ""
+    given = set(word.findall(reference.sub("", compose_text)))
     files = {}
     for path, (mode, data) in copy.files.items():
-        if b"\0" in data[:8192]:
+        text, base = _text_of((mode, data)), path.rsplit("/", 1)[-1]
+        if text is None:
             files[path] = (mode, data)
             continue
-        try:
-            text = data.decode("utf-8")
-        except ValueError:
-            files[path] = (mode, data)
-            continue
-        files[path] = (mode, pattern.sub(lambda hit: mapping[hit.group(1)], text).encode("utf-8"))
-    head = f"setups/{slug}.yml" if kind == "setup" else f"{kind}s/{slug}/compose.yml"
+        if path == head:
+            text = reference.sub(lambda hit: hit.group(1) + mapping[hit.group(2)], text)
+        elif path.startswith(f"{kind}s/{slug}/seed/"):
+            text = reference.sub(lambda hit: hit.group(1) + (hit.group(2) if hit.group(2) in given else mapping[hit.group(2)]), text)
+        elif base.lower().endswith(".md") or base == ".env.example":
+            text = word.sub(lambda hit: mapping[hit.group(1)], text)
+        files[path] = (mode, text.encode("utf-8"))
     return copy._replace(files=files, text=files[head][1].decode("utf-8") if head in files else copy.text)
+
+
+def _text_of(entry):
+    """The text of a file of a copy, None when it is not UTF-8 text."""
+    if not entry or b"\0" in entry[1][:8192]:
+        return None
+    try:
+        return entry[1].decode("utf-8")
+    except ValueError:
+        return None
 
 
 def _remember_renames(to, items, mapping):
@@ -1176,8 +1217,14 @@ def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False)
     units = {"addon": project["addons"], "setup": project["setups"], "playground": project["playgrounds"]}
     named = lambda k, one: (units[k].get(one) or {}).get("name") or one.rsplit("/", 1)[-1]   # noqa: E731
     with registry.flock():
-        copy = _unmarked(collect(kind, slug, to, moved=moved), kind, slug)
-        along = [(k, one, s, _unmarked(collect(k, s, to, source, moved=moved), k, s)) for k, one, s, source in members]
+        copy = collect(kind, slug, to, moved=moved)
+        along = [(k, one, s, collect(k, s, to, source, moved=moved)) for k, one, s, source in members]
+        for k, one, _, other in [(kind, uid, slug, copy), *along] if row["audience"] == "public" else ():
+            source = private_source(other.text)   # the copy is the private catalog's content, whatever it names
+            if source:
+                raise _refusal("share_private_copy", name=named(k, one), private=source[1])
+        copy = _unmarked(copy, kind, slug)
+        along = [(k, one, s, _unmarked(other, k, s)) for k, one, s, other in along]
         renames = _renames([(kind, slug, copy), *[(k, s, c) for k, _, s, c in along]], to)
         copy = _renamed(copy, kind, slug, renames)
         along = [(k, one, s, _renamed(c, k, s, renames)) for k, one, s, c in along]

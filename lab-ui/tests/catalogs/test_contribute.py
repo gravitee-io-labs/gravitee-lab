@@ -645,6 +645,15 @@ class Judged(Seam):
         self.write(".lab/catalogs/local/addons/scratch/README.md", "# Scratch\n\nPartner fixtures are not named here.\n")
         self.assertEqual(self.share(check_only=True)["problems"], [])
 
+    def test_a_copy_of_an_item_of_a_private_catalog_stops_a_share_to_a_public_one(self):
+        self.item("addon", "my-ledger", "Ledger", 'x-gravitee: {copy_of: "@partner/ledger", kind: addon, name: Ledger, category: Other, '
+                                               'description: Keeps the entries of a partner}\nservices: {}\n')
+        with self.assertRaises(CatalogError) as raised:
+            self.share("local/my-ledger", "fixture", check_only=True)
+        self.assertEqual(lines_of(raised.exception), ("share_private_copy", 400, "Ledger is a copy of an item of Partner fixture, "
+                                                                                "which is private. Fix: share it to a private catalog."))
+        self.assertEqual(self.share("local/my-ledger", "partner", check_only=True)["problems"], [], "to a private one it may go")
+
     def test_an_image_prefix_and_an_address_of_a_private_catalog_are_names_too(self):
         self.yml["partner"] = {"images": "registry.example.invalid/partner/lab"}
         self.write(".lab/catalogs/local/addons/scratch/README.md", "docker pull registry.example.invalid/partner/lab/x\n")
@@ -1215,6 +1224,24 @@ class Copied(Seam):
         contribute._rename_settings("addon", "@lab-new/notes")
         self.assertEqual(env.read_text(), "LAB_NEW_NOTES_LEVEL=debug\nOTHER=1\n", "the person's value, under the new name")
         self.assertNotIn("addon:@lab-new/notes", json.loads((self.root / contribute.RENAMES).read_text()))
+
+    def test_a_rename_changes_what_reads_the_setting_not_the_names_a_container_and_its_seed_are_given(self):
+        compose_text = ("x-gravitee: {kind: playground, name: Kc}\nservices:\n  kc-app:\n    image: quay.io/keycloak/keycloak:26.0\n"
+                        "    environment:\n      KC_ADMIN: ${KC_ADMIN:-admin}\n      KC_LEVEL: \"$KC_LEVEL\"\n      LITERAL: $${KC_LEVEL}\n"
+                        "  kc-seed:\n    image: busybox:1.36\n    environment:\n      KC_URL: ${KC_URL:-http://kc-app:8080}\n")
+        files = {"playgrounds/kc/compose.yml": compose_text, "playgrounds/kc/seed/apim/apis.yaml": "url: ${KC_URL}\nother: ${KC_OTHER}\n",
+                 "playgrounds/kc/README.md": "Set KC_ADMIN first.\n", "playgrounds/kc/.env.example": "KC_ADMIN=admin\n",
+                 "playgrounds/kc/conf/app.yml": "admin: ${KC_ADMIN}\n"}
+        copy = contribute.Copy({path: ("100644", text.encode()) for path, text in files.items()}, compose_text, compose_text, [])
+        mapping = {name: f"TEAM_{name}" for name in ("KC_ADMIN", "KC_LEVEL", "KC_URL", "KC_OTHER")}
+        done = {path: data.decode() for path, (_, data) in contribute._renamed(copy, "playground", "kc", mapping).files.items()}
+        self.assertIn("      KC_ADMIN: ${TEAM_KC_ADMIN:-admin}\n      KC_LEVEL: \"$TEAM_KC_LEVEL\"\n      LITERAL: $${KC_LEVEL}\n",
+                      done["playgrounds/kc/compose.yml"], "the container keeps the names its program reads")
+        self.assertIn("      KC_URL: ${TEAM_KC_URL:-http://kc-app:8080}\n", done["playgrounds/kc/compose.yml"])
+        self.assertEqual(done["playgrounds/kc/seed/apim/apis.yaml"], "url: ${KC_URL}\nother: ${TEAM_KC_OTHER}\n",
+                         "the seed reads what its service is given, and a setting by its own name")
+        self.assertEqual((done["playgrounds/kc/README.md"], done["playgrounds/kc/.env.example"]), ("Set TEAM_KC_ADMIN first.\n", "TEAM_KC_ADMIN=admin\n"))
+        self.assertEqual(done["playgrounds/kc/conf/app.yml"], "admin: ${KC_ADMIN}\n", "what a container reads is not a setting")
 
     def test_what_the_target_has_already_is_the_one_included(self):
         self.demo()

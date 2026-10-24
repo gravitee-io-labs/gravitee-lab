@@ -100,6 +100,20 @@ class Moving(Case):
         self.assertEqual(plan["together"]["held"], "Scratch cannot run: Reads settings that are not its own")
         self.assertEqual(plan["alone"]["held"], "", "alone, Scratch does not move")
 
+    def test_an_item_of_personal_that_is_on_is_not_replaced(self):
+        fixtures.local(self, "sandbox")
+        before = self.local("playgrounds/sandbox/compose.yml").read_text()
+        self.write(paths.ON_FILE, "include:\n  - .lab/catalogs/local/playgrounds/sandbox/compose.yml\n")
+        self.patch(moving.personals.compose, "containers", lambda *args, **how: ({}, None))   # Docker is not asked in a test
+        project.forget()
+        plan = moving.plan("playground", "@sandbox/sandbox")
+        self.assertEqual(plan["alone"]["replaces"], ["Sandbox"])
+        self.assertEqual(plan["alone"]["held"], "Sandbox in Personal is on and would be replaced. Fix: turn it off first.")
+        with self.assertRaises(CatalogError) as caught:
+            moving.move("playground", "@sandbox/sandbox", False)
+        self.assertEqual(caught.exception.code, "held")
+        self.assertEqual(self.local("playgrounds/sandbox/compose.yml").read_text(), before, "what is on is left as it is")
+
     def test_only_an_imported_item_moves(self):
         with self.assertRaises(CatalogError) as caught:
             moving.plan("addon", "echo")

@@ -35,6 +35,7 @@ from pathlib import Path
 from .. import paths
 from ..library import moves, personal as personals, project
 from . import registry, resolve, service
+from .contribute import unmark
 from .registry import CatalogError
 
 MACHINE_FILES = (".env", ".state", "secrets")   # what is the person's in an item's folder, never the item's files
@@ -134,7 +135,8 @@ def _judged(units, moving):
 
 
 def _held(found, moving):
-    """Why the move waits: an item that is on (Turn off X first), or one that cannot run for more than what it takes of this machine."""
+    """Why the move waits: an item that is on (Turn off X first), the item of Personal it replaces that is on, or one that cannot
+    run for more than what it takes of this machine."""
     reason = _judged(_units(found), moving)[1]
     if reason:
         return reason
@@ -143,6 +145,18 @@ def _held(found, moving):
             personals._not_held(found, kind, uid)
         except RuntimeError as error:
             return str(error)
+    return next(filter(None, (replaced_on(found, kind, _slug(uid)) for kind, uid in moving)), "")
+
+
+def replaced_on(found, kind, slug):
+    """Why the item of Personal named `slug`, which an item coming there replaces, keeps it from coming: it is on; else ""."""
+    uid = f"{paths.LOCAL}/{slug}"
+    if uid not in (found.get(f"{kind}s") or {}):
+        return ""
+    try:
+        personals._not_held(found, kind, uid)
+    except RuntimeError as error:
+        return f"{_name(_units(found), (kind, uid))} in Personal is on and would be replaced. Fix: {str(error)[:1].lower()}{str(error)[1:]}."
     return ""
 
 
@@ -218,7 +232,7 @@ def move(kind, uid, together, allow=False):
         rel = _rel(k, _slug(one))
         compose_rel = rel if k == "setup" else f"{rel}/compose.yml"
         here = posixpath.dirname(compose_rel)
-        text = (source / compose_rel).read_text(encoding="utf-8")
+        text = unmark((source / compose_rel).read_text(encoding="utf-8"))   # whose copy it was is said by no file of a catalog
         written = moves.repoint(text, f"{paths.CATALOGS_DIR}/{ns}/{here}", f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{here}", table)
         target = home / rel
         if k == "setup":
@@ -345,7 +359,7 @@ def copy(kind, uid, users=False, allow=False):
         compose_file = source if k == "setup" else source / "compose.yml"
         here = posixpath.dirname(places[node] if k == "setup" else f"{places[node]}/compose.yml")
         there = posixpath.dirname(f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{_rel(k, _slug(one))}" + ("" if k == "setup" else "/compose.yml"))
-        written = _mark(moves.repoint(compose_file.read_text(encoding="utf-8"), here, there, table), one)
+        written = _mark(moves.repoint(unmark(compose_file.read_text(encoding="utf-8")), here, there, table), one)
         if written is None:
             raise _fail("unmarked", f"{_name(_units(found), node)} has no x-gravitee block to say it is a copy.")
         target = home / _rel(k, _slug(one))

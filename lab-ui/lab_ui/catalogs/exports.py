@@ -46,7 +46,7 @@ from pathlib import Path
 
 from .. import paths
 from ..docker import images
-from ..library import moves, personal as personals, project
+from ..library import moves, project
 from . import contribute, defaults, manifest, moving, registry, resolve, service, standard
 from . import store as bare
 from .registry import CatalogError
@@ -124,7 +124,7 @@ def _gather(pid):
     ns = _free_id(unit["name"], pid)
     moved = [(str(Path(paths.unit_file(kind, uid)).parent) if kind != "setup" else paths.unit_file(kind, uid),
               _folder(kind, ns, _slug(uid))) for kind, uid in carried]
-    files, problems = {}, []
+    files, problems, copies = {}, [], {}
     for kind, uid in carried:
         copy = contribute.collect(kind, _slug(uid), ns, paths.origin(uid), moved)
         leak = contribute._leaked(copy, kind, _slug(uid))
@@ -132,8 +132,11 @@ def _gather(pid):
             raise leak
         name = units[kind][uid]["name"]
         problems += [f"{name}: {line}" for line in copy.problems]
-        files.update(copy.files)
-    origins, private = _origins(carried, units)
+        source = contribute.private_source(copy.text) if paths.origin(uid) == paths.LOCAL else None
+        if source:
+            copies[(kind, uid)] = source
+        files.update(contribute._unmarked(copy, kind, _slug(uid)).files)
+    origins, private = _origins(carried, units, copies)
     registries = _registries(found, carried, units)
     shared = _shared(carried, units, ns)
     if len(shared) > manifest.SETTINGS_LIMIT:
@@ -169,12 +172,17 @@ def _registries(found, carried, units):
             for registry, found_images in sorted(images.private_images(pulled).items())]
 
 
-def _origins(carried, units):
+def _origins(carried, units, copies=None):
     """([{kind, item, name, catalog, catalog_name, version}] of the carried items that come from a catalog of Git, which another
-    Lab may have too), and [{id, name, items}] of the private ones among those catalogs: what leaves with the file."""
+    Lab may have too), and [{id, name, items}] of the private ones among those catalogs: what leaves with the file. The person's
+    copy of an item of a private catalog (`copies`: {(kind, id): (that catalog's id, its name)}) is that catalog's content too."""
     rows = project.loaded()[1].get("catalogs") or {}
     origins, private = [], {}
     for kind, uid in carried:
+        if (kind, uid) in (copies or {}):
+            ns, title = copies[(kind, uid)]
+            private.setdefault(ns, {"id": ns, "name": title, "items": []})["items"].append(units[kind][uid]["name"])
+            continue
         ns = paths.origin(uid)
         entry = registry.entry(ns) if ns != paths.LOCAL else None
         if not entry or entry.get("kind") != "git":
@@ -518,10 +526,15 @@ def _compose_rel(kind, rel):
     return rel if kind == "setup" else f"{rel}/compose.yml"
 
 
+# The name in an x-gravitee block, of a file someone else made: each line of the block is read once, in one way (a line is blank, or
+# indentation then a word), so that no text makes the search take longer than reading it
+FLOW_NAME = re.compile(r"(?m)^x-gravitee:[ \t]*\{[^}]*?\bname:[ \t]*([^,}\n]+)")
+BLOCK_NAME = re.compile(r"(?m)^x-gravitee:[ \t]*(?:#[^\n]*)?\n(?:[ \t]*\n|[ \t]+(?!name:)[^ \t\n][^\n]*\n)*?[ \t]+name:[ \t]*([^\n]+)")
+
+
 def _named(text, fallback):
     """The name an item's x-gravitee block gives it, for the words of the page; its folder's when it says none."""
-    said = re.search(r"(?m)^x-gravitee:\s*\{[^}]*?\bname:\s*([^,}\n]+)", text) \
-        or re.search(r"(?m)^x-gravitee:\s*(?:#.*)?\n(?:[ \t]+.*\n)*?[ \t]+name:\s*(.+)", text)
+    said = FLOW_NAME.search(text) or BLOCK_NAME.search(text)
     return said.group(1).strip().strip("'\"") if said else fallback
 
 
@@ -533,7 +546,7 @@ def _for_personal(folder: Path, top):
     found = []
     for kind, slug, rel in units:
         compose_rel = _compose_rel(kind, rel)
-        text = (folder / compose_rel).read_text(encoding="utf-8")
+        text = contribute.unmark((folder / compose_rel).read_text(encoding="utf-8"))   # whose copy it was is said by no file
         here = posixpath.dirname(compose_rel)
         written = moves.repoint(text, f"{paths.CATALOGS_DIR}/{top}/{here}", f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{here}", table)
         files = {compose_rel: (0o644, written.encode("utf-8"))}
@@ -600,11 +613,9 @@ def to_personal(ticket, allow=False):
     found = project.load()
     for kind, slug, rel, name, files in items:
         now = _personal_now(kind, rel)
-        if now is not None and now.encode("utf-8") != files[_compose_rel(kind, rel)][1]:
-            try:
-                personals._not_held(found, kind, f"{paths.LOCAL}/{slug}")
-            except RuntimeError as error:
-                raise _fail("held", str(error), 409) from None
+        held = moving.replaced_on(found, kind, slug) if now is not None and now.encode("utf-8") != files[_compose_rel(kind, rel)][1] else ""
+        if held:
+            raise _fail("held", held, 409)
     home = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL
     for kind, slug, rel, name, files in items:
         now = _personal_now(kind, rel)

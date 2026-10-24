@@ -11,7 +11,7 @@ import stat
 import zipfile
 
 from lab_ui import paths
-from lab_ui.catalogs import exports, gitx, registry, service
+from lab_ui.catalogs import exports, gitx, moving, registry, service
 from lab_ui.catalogs.registry import CatalogError
 from lab_ui.docker import compose, envfiles, files
 from lab_ui.library import check, project
@@ -74,6 +74,20 @@ class Archives(Case):
         self.refused(zipped({"demo/catalog.yml": CATALOG.encode()}), "import_too_large")
         self.patch(exports, "MAX_ARCHIVE", 5)
         self.refused(zipped({"demo/catalog.yml": b"x"}), "import_too_large")
+
+
+class Named(Case):
+    """exports._named reads the name of an item of a file someone else made: at once, whatever the file holds."""
+
+    def test_the_name_is_read_in_either_form_and_a_block_with_none_takes_no_time(self):
+        import time
+        started = time.monotonic()
+        text = "x-gravitee:\n" + "    kind: playground\n" * 40 + "services: {}\n"
+        self.assertEqual(exports._named(text, "evil"), "evil")
+        self.assertLess(time.monotonic() - started, 1.0)
+        self.assertEqual(exports._named("x-gravitee: {kind: addon, name: Echo, category: Other}\n", "echo"), "Echo")
+        self.assertEqual(exports._named("x-gravitee:  # the item\n  kind: addon\n\n  name: 'Echo two'\nservices: {}\n", "echo"), "Echo two")
+        self.assertEqual(exports._named("x-gravitee:\n  kind: addon\nservices:\n  a:\n    name: no\n", "echo"), "echo")
 
 
 class RoundTrip(Case):
@@ -225,6 +239,17 @@ class FromCatalogs(Case):
         self.assertEqual(sorted(one["id"] for one in plan["carries"]), ["@partner/ledger", "local/sandbox", "local/scratch"])
         self.assertEqual(plan["private"], [{"id": "partner", "name": "Partner fixture", "items": ["Ledger"]}])
         self.assertEqual(plan["blocked"], [])
+
+    def test_a_copy_of_an_item_of_a_private_catalog_is_private_content_too_and_the_file_does_not_say_whose_copy_it_is(self):
+        moving.copy("addon", "@partner/ledger")
+        scratch = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons" / "scratch" / "compose.yml"
+        scratch.write_text(scratch.read_text(encoding="utf-8").replace(self.LEDGER, "../ledger/compose.yml"), encoding="utf-8")
+        project.forget()
+        plan = exports.plan("local/sandbox")
+        self.assertIn("local/ledger", [one["id"] for one in plan["carries"]])
+        self.assertEqual(plan["private"], [{"id": "partner", "name": "Partner fixture", "items": ["Ledger"]}])
+        with zipfile.ZipFile(io.BytesIO(base64.b64decode(exports.archive("local/sandbox")["data"]))) as archive:
+            self.assertNotIn("copy_of", archive.read("sandbox/addons/ledger/compose.yml").decode())
 
     def test_an_image_the_other_lab_pulls_from_a_registry_that_asks_for_a_login_is_said(self):
         plan = exports.plan("local/sandbox")
