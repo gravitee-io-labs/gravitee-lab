@@ -11,7 +11,7 @@ import { toast, effectsDialog, openMenu, GAP, openButton, Pager, emptyHtml, pain
 import { CategoryFilter } from "../components/combo.js";
 import { runJob, runAction, busy, showOutput } from "../activity/jobs.js";
 import { selectLogs, hasLogs } from "./logs.js";
-import { stopPlayground, pluginNames, shareEntry, deleteEntry, exportable, exportEntry, movable, moveEntry, copyable, copyEntry, usesMachine, maybeComing } from "./playground.js";
+import { stopPlayground, pluginNames, shareEntry, deleteEntry, exportable, exportEntry, standaloneEntry, movable, moveEntry, copyable, copyEntry, usesMachine, maybeComing } from "./playground.js";
 import { MACHINE, THIS_MACHINE, registered, chosenPlace, barred, startPlayground, deployTo, keepItemPlace, goes, whyNot, placesOf } from "../platform/places.js";
 import { openFile, openSettings } from "../dialogs/editor.js";
 import { openCreate } from "../dialogs/create.js";
@@ -498,6 +498,8 @@ function list(kind, title, noun) {
       kind === "setup" && { label: "Duplicate", onSelect: () => openCreate({ kind, mode: "duplicate", setup: x }) },
       // What is of this machine is shared to a catalog, as a copy, or deleted unless something holds it: the server says what
       exportable(x) && exportEntry(x),
+      // Any playground, for Docker Compose alone
+      x.kind === "playground" && standaloneEntry(x),
       // An imported item becomes the person's own
       movable(x) && moveEntry(x),
       // The person's own version of an item of a catalog

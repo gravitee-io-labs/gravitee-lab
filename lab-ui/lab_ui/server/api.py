@@ -24,7 +24,7 @@ from ..docker import compose, files, images, plugins, probe, terminal
 from ..gravitee import core, license, places, platforms
 from . import dashboard, stack
 from .. import paths
-from ..catalogs import contribute, exports, firstrun, moving, service, trust
+from ..catalogs import contribute, exports, firstrun, moving, service, standalone, trust
 from ..catalogs.registry import CatalogError
 from ..docker.jobs import JOBS, Job
 
@@ -765,6 +765,9 @@ ROUTES = [(method, re.compile(pattern), handler) for method, pattern, handler in
     ("POST", f"/api/{KIND}s/{UNIT}/share", share_item),
     # A playground in a file: what its export carries (`check`), then the file, base64; and the import of one, as an Add
     ("POST", f"/api/playgrounds/{UNIT}/export", lambda r, pid: exports.plan(pid) if r.body.get("check") else exports.archive(pid)),
+    # The same playground for Docker Compose alone, with no Lab: what the folder holds and asks (`check`), then the file, base64
+    ("POST", f"/api/playgrounds/{UNIT}/standalone",
+     lambda r, pid: standalone.plan(pid) if r.body.get("check") else standalone.archive(pid)),
     ("POST", "/api/catalogs/import", lambda r: exports.receive(r.body.get("data"))),
     ("POST", "/api/catalogs/import/personal", lambda r: exports.to_personal(r.body.get("ticket"))),
     ("POST", f"/api/{KIND}s/{UNIT}/use-catalog", use_catalog),

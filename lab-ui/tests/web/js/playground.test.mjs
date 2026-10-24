@@ -35,6 +35,7 @@ const page = installDom({
     if (route.endsWith("/guide")) return reply({ markdown: "# Guide\n\n## 1. One\n\nClick it.\n" });
     if (route.endsWith("/check")) return reply({ checks: server.checks(query), dialog: server.dialog(query) });
     if (route.endsWith("/export")) return reply(call.body?.check ? server.exported : { ...server.exported, data: btoa("PK") });
+    if (route.endsWith("/standalone")) return reply(call.body?.check ? server.standalone : { ...server.standalone, data: btoa("PK") });
     if (route.endsWith("/move")) return reply(call.body?.check ? server.movePlan : { moved: [], id: "local/hotels" });
     if (route.endsWith("/copy")) return reply(call.body?.check ? server.copyPlan : { copies: [], id: "local/hotels" });
     if (call.method === "POST") return reply(JOB);
@@ -1086,7 +1087,8 @@ test("its file button reads View and shows no path of this machine; the file of 
   const file = section.querySelector("#pg-actions [data-file]");
   assert.deepEqual([file.getAttribute("data-tip"), file.getAttribute("aria-label")], ["View compose.yml", "View compose.yml"]);
   section.querySelector("#pg-actions [data-more]").click();
-  assert.deepEqual(entries(), [["Export", ""], ["Copy to Personal", ""]], "a playground of a catalog has a More with Export and Copy to Personal");
+  assert.deepEqual(entries(), [["Export", ""], ["Export for Docker Compose", ""], ["Copy to Personal", ""]],
+    "a playground of a catalog has a More with Export, Export for Docker Compose and Copy to Personal");
   page.doc.dispatchEvent(Object.assign(new Ev("click"), { target: page.doc.body }));
   await leave();
   await visit({ ...off }, { platforms: [], places: [] });
@@ -1094,15 +1096,15 @@ test("its file button reads View and shows no path of this machine; the file of 
   await leave();
 });
 
-test("a playground of this machine has a More, last of the page's actions, with Export, Share and Delete", async () => {
+test("a playground of this machine has a More, last of the page's actions, with Export, Export for Docker Compose, Share and Delete", async () => {
   await visit({ ...off, personal: true, id: "local/hotels", held: { share: "", delete: "" } }, { platforms: [], places: [], id: "local/hotels" });
   const more = section.querySelector("#pg-actions [data-more]");
   assert.deepEqual([more.getAttribute("aria-label"), more.getAttribute("data-tip"), more.getAttribute("aria-haspopup")], ["More for Acme Hostels", "More", "true"]);
   assert.ok(section.querySelector("#pg-actions .row-icons").lastElementChild === more, "at the end, after its files");
   more.click();
-  assert.deepEqual(entries(), [["Export", ""], ["Share", ""], ["Delete", ""]]);
+  assert.deepEqual(entries(), [["Export", ""], ["Export for Docker Compose", ""], ["Share", ""], ["Delete", ""]]);
   assert.equal(menu.querySelectorAll(".menu-sep").length, 1);
-  assert.ok(menu.querySelectorAll(".menu-item")[2].classList.contains("danger"));
+  assert.ok(menu.querySelectorAll(".menu-item")[3].classList.contains("danger"));
   page.doc.dispatchEvent(Object.assign(new Ev("click"), { target: page.doc.body }));
   await leave();
 });
@@ -1110,11 +1112,11 @@ test("a playground of this machine has a More, last of the page's actions, with 
 test("Share and Delete of the page are held for the reasons the list gives, and the Lab UI not answering holds them too", async () => {
   await visit({ ...off, personal: true, id: "local/hotels", held: { share: "Turn off Acme Hostels first", delete: "Stop Acme Hostels first" } }, { platforms: [], places: [], id: "local/hotels" });
   section.querySelector("#pg-actions [data-more]").click();
-  assert.deepEqual(entries(), [["Export", ""], ["Share", "Turn off Acme Hostels first"], ["Delete", "Stop Acme Hostels first"]]);
+  assert.deepEqual(entries(), [["Export", ""], ["Export for Docker Compose", ""], ["Share", "Turn off Acme Hostels first"], ["Delete", "Stop Acme Hostels first"]]);
   page.doc.dispatchEvent(Object.assign(new Ev("click"), { target: page.doc.body }));
   store.offline = true;
   section.querySelector("#pg-actions [data-more]").click();
-  assert.deepEqual(entries().map(([, why]) => why), ["Lab UI offline", "Lab UI offline", "Lab UI offline"]);
+  assert.deepEqual(entries().map(([, why]) => why), ["Lab UI offline", "Lab UI offline", "Lab UI offline", "Lab UI offline"]);
   store.offline = false;
   page.doc.dispatchEvent(Object.assign(new Ev("click"), { target: page.doc.body }));
   await leave();
@@ -1124,7 +1126,7 @@ test("Delete of the page says what goes and what stays in Gravitee, deletes that
   await visit({ ...off, personal: true, id: "local/hotels", held: { share: "", delete: "" } }, { platforms: [], places: [], id: "local/hotels" });
   server.calls = [];
   section.querySelector("#pg-actions [data-more]").click();
-  page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item")[2] }));   // the menu is the document's
+  page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item")[3] }));   // the menu is the document's
   await flush();
   assert.deepEqual(effects().notes, [["Stays in Gravitee", ["12 APIs"]]]);
   assert.equal(effects().title, "Delete Acme Hostels");
@@ -1132,6 +1134,49 @@ test("Delete of the page says what goes and what stays in Gravitee, deletes that
   await answer(true);
   assert.deepEqual(posts("/delete").map((call) => [call.path, call.body]), [["/api/playgrounds/local/hotels/delete", {}]]);
   await leave();
+});
+
+test("Export for Docker Compose says what the folder runs, leaves out and needs, then saves it; what comes from a private catalog is said, and the button says it too", async () => {
+  const saved = [];
+  const make = page.doc.createElement.bind(page.doc);
+  page.doc.createElement = (tag) => {
+    const el = make(tag);
+    if (tag === "a") el.click = () => saved.push(el.download);
+    return el;
+  };
+  server.standalone = { name: "Acme Hostels", file: "hotels-docker-compose.zip", runs: ["API Management", "Databases", "Acme Hostels"],
+    leaves_out: ["Alert Engine"], license: ["apim-feature"], host: ["Ollama with a model"], plugins_missing: ["acme-policy"], private: [],
+    registries: [] };
+  await visit({ ...off, ...HUB }, { platforms: [], places: [], id: "@acme-hub/hotels" });
+  server.calls = [];
+  section.querySelector("#pg-actions [data-more]").click();
+  page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item")[1] }));
+  await flush();
+  assert.equal(effects().title, "Export Acme Hostels for Docker Compose");
+  assert.deepEqual(effects().steps, [["Runs", ["API Management", "Databases", "Acme Hostels"]]]);
+  assert.deepEqual(effects().notes, [["Leaves out", ["Alert Engine", "The Lab UI", "Its settings", "The license"]],
+    ["Needs", ["A license with apim-feature", "Ollama with a model", "The plugin acme-policy"]]]);
+  assert.deepEqual(server.calls.map((call) => [call.path, call.body]), [["/api/playgrounds/@acme-hub/hotels/standalone", { check: true }]],
+    "what it holds is asked first");
+  assert.equal(text(page.ids["choice-ok"]), "Export");
+  await answer(true);
+  await flush();
+  assert.deepEqual(server.calls.at(-1).body, {}, "then the file");
+  assert.deepEqual(saved, ["hotels-docker-compose.zip"]);
+  await leave();
+  const plain = server.standalone;
+  server.standalone = { ...plain, license: ["a-feature", "b-feature", "c-feature"], private: [{ id: "internal", name: "Internal", items: ["Ledger"] }] };
+  await visit({ ...off, ...HUB }, { platforms: [], places: [], id: "@acme-hub/hotels" });
+  section.querySelector("#pg-actions [data-more]").click();
+  page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item")[1] }));
+  await flush();
+  assert.equal(effects().notes[1][1][0], "A license with 3 features", "more features than fit a line are counted");
+  assert.deepEqual(effects().notes.at(-1), ["Private", ["Internal"]]);
+  assert.equal(text(page.ids["choice-ok"]), "Export with private content");
+  await answer(false);
+  await leave();
+  server.standalone = plain;
+  page.doc.createElement = make;
 });
 
 test("Export says what the file carries, what it needs and what it leaves out, then saves it; what another Lab would block keeps it from being made", async () => {
@@ -1235,7 +1280,7 @@ test("Delete names the folder by the path the item is read by (display_file), th
   for (const [display_file, said] of [["playgrounds/hotels/compose.yml", "playgrounds/hotels/"], ["", ".lab/catalogs/local/playgrounds/hotels/"], [undefined, ".lab/catalogs/local/playgrounds/hotels/"]]) {
     await visit({ ...mine, display_file }, { platforms: [], places: [], id: "local/hotels" });
     section.querySelector("#pg-actions [data-more]").click();
-    page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item")[2] }));
+    page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item")[3] }));
     await flush();
     assert.deepEqual(effects().steps, [["Deletes", [said]]], String(display_file));
     await answer(false);

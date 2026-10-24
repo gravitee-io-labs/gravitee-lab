@@ -165,6 +165,24 @@ the playground uses this Lab's own, and the preview says so under **Uses yours**
 imported at all. The Lab keeps the files under `.lab/imports/`, and the playground shows under a catalog named after it.
 To import a newer file of the same playground, remove that catalog on the Catalogs page first: its files go with it.
 
+## A playground for Docker Compose alone
+
+**Export for Docker Compose**, in the menu of any playground (its row or its page), the default catalog's included, saves a
+`.zip` file for someone who will not install the Lab: a folder that runs the playground with `docker compose up -d`.
+
+| In the folder | What it is |
+|---|---|
+| `docker-compose.yml` | The one Compose file: the playground's services and those of the add-ons it brings, the products of the platform it uses, and what they depend on. A product it does not use is left out (the Alert Engine, often), with its link. The versions are those it was tested with |
+| `.env.example` | The settings a person may change, each with what it is: the license, the platform's passwords, the playground's own settings. Copied to `.env`, which Compose reads |
+| `README.md` | The guide, as Markdown any viewer shows, after what to have first (Docker, the license and its features, what the playground asks of the machine) and how to start it, with its consoles and accounts |
+| The playground's folder, `addons/`, `seeder/` | What its services build or mount: its apps and seed, the add-ons' files, the seeder that runs the seed |
+| `plugins/`, `certs/mtls/` | The plugins it asks for, from those this Lab downloaded (one it does not have is said under **Needs**), and demo certificates made for this file |
+
+It never holds this machine's settings, keys or license. What only the Lab UI does is not in it: Start and Stop of one item,
+Re-seed, the change of versions and the updates. An action button of the guide is the name of the button of the playground's
+app; an account link is the user and its password. What comes from a private catalog leaves with the file, and the dialog says
+so under **Private**, as an export does.
+
 ## Offline, privacy and starting over
 
 With no network, the Lab keeps working with the copies it has: checks fail quietly and the rows say **Unreachable**.
