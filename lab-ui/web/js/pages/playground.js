@@ -113,6 +113,42 @@ async function exportPlayground(x) {
   }
 }
 
+// The same playground for Docker Compose alone, with no Lab: a folder with one docker-compose.yml, its .env.example and the guide as its
+// README. Any playground, those of the default catalog too. What it runs and leaves out, what it needs, and what leaves with it from a
+// private catalog are said first, as the server makes the folder.
+export const standaloneEntry = (x) => ({ label: "Export for Docker Compose", ...held(""), onSelect: () => exportStandalone(x) });
+
+async function exportStandalone(x) {
+  const key = `playground:${x.id}`, route = `/api/playgrounds/${x.id}/standalone`;
+  let plan;
+  try {
+    plan = await busy(key, "export", api(route, { check: true }));
+  } catch (err) {
+    return toast(err.message, true);
+  }
+  // The features of the license by name while they fit a line, else how many: the README of the folder names each
+  const features = plan.license || [];
+  const license = !features.length ? "A license" : features.length <= 2 ? `A license with ${features.join(", ")}`
+    : `A license with ${features.length} features`;
+  const rows = [
+    { label: "Runs", items: plan.runs || [] },
+    { label: "Leaves out", items: [...(plan.leaves_out || []), "The Lab UI", "Its settings", "The license"], note: true },
+    { label: "Needs", items: [license, ...(plan.host || []), ...(plan.plugins_missing || []).map((id) => `The plugin ${id}`)], note: true },
+    { label: "Private", items: (plan.private || []).map((one) => one.name), note: true },
+    { label: "Needs access", items: (plan.registries || []).map((one) => one.registry), note: true },
+  ];
+  const go = await effectsDialog({ title: `Export ${x.name} for Docker Compose`, options: [{ rows }],
+    action: () => ((plan.private || []).length ? "Export with private content" : "Export"), unchosen: "" });
+  if (!go) return;
+  try {
+    const made = await busy(key, "export", api(route, {}));
+    save(made.file, made.data);
+    toast(`Exported ${made.file}`);
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
 // An item imported from a file and kept as a catalog of its own becomes the person's own: alone, or with what it brings from the file that
 // nothing else uses. What it moves, what stays and why, and what it replaces in Personal are said first, as the server plans them.
 export const movable = (x) => x?.origin?.id === "imported";
@@ -182,9 +218,9 @@ async function copyToPersonal(x) {
   }
 }
 
-// The menu of a playground's head: Export when it can be, Move to Personal for an imported one, Copy to Personal for one of a catalog,
+// The menu of a playground's head: Export when it can be, Export for Docker Compose, Move to Personal for an imported one, Copy to Personal for one of a catalog,
 // Share and Delete for one of this machine
-const menuOf = (x) => [exportable(x) && exportEntry(x), movable(x) && moveEntry(x), copyable(x) && copyEntry(x), x.personal && shareEntry(x),
+const menuOf = (x) => [exportable(x) && exportEntry(x), x.kind === "playground" && standaloneEntry(x), movable(x) && moveEntry(x), copyable(x) && copyEntry(x), x.personal && shareEntry(x),
   ...(x.personal ? [{ separator: true }, deleteEntry(x)] : [])].filter(Boolean);
 
 // A file the server made, as base64, saved where the browser saves downloads
