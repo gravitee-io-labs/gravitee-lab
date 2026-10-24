@@ -30,6 +30,7 @@ what an import left before it was confirmed: the next import of the same playgro
 
 import base64
 import binascii
+import contextlib
 import hashlib
 import io
 import json
@@ -413,6 +414,43 @@ def _name_of(archive, top):
     return said.group(1) if said else top
 
 
+MACHINE_FILES = (".env", ".state", "secrets")   # the person's in the folder of an item, never a file's: kept when it is replaced
+KEPT = ".kept"   # in the folder of a removed import: what is left is the person's, for the next import of the same playground
+
+
+def _machine(rel):
+    """Whether a path of an import's folder is the person's: the settings, secrets and state of an item, or the marker of them."""
+    parts = rel.split("/")
+    return rel == KEPT or (len(parts) >= 3 and parts[0] in ("addons", "playgrounds") and parts[2] in MACHINE_FILES)
+
+
+def _vacate(folder: Path):
+    """The folder of an import emptied of its files, keeping what is the person's in the folder of each item (`_machine`) and the
+    marker of them. Answers whether anything of the person's is there. What cannot be deleted (what Docker made as root) stays."""
+    kept = False
+    for child in sorted(folder.iterdir()):
+        if child.name == KEPT:
+            continue
+        if child.name in ("addons", "playgrounds") and child.is_dir() and not child.is_symlink():
+            for item in sorted(child.iterdir()):
+                for one in sorted(item.iterdir()) if item.is_dir() and not item.is_symlink() else ():
+                    if one.name in MACHINE_FILES:
+                        kept = True
+                    elif one.is_dir() and not one.is_symlink():
+                        shutil.rmtree(one, ignore_errors=True)
+                    else:
+                        one.unlink()
+                with contextlib.suppress(OSError):
+                    item.rmdir() if item.is_dir() and not item.is_symlink() else item.unlink()
+            with contextlib.suppress(OSError):
+                child.rmdir()
+        elif child.is_dir() and not child.is_symlink():
+            shutil.rmtree(child, ignore_errors=True)
+        else:
+            child.unlink()
+    return kept
+
+
 def _sweep(replacing=None):
     """The folders of .lab/imports that no catalog uses and no preview waits for, and the half-written ones: what an import left
     before it was confirmed. The folder of `replacing`, the playground being imported again, goes with the previews of it: a
@@ -430,6 +468,8 @@ def _sweep(replacing=None):
                 service.forget(ticket)
         elif real in waiting or (child.name.startswith(".incoming-") and time.time() - child.stat().st_mtime < service.TTL):
             continue
+        if (child / KEPT).is_file():
+            continue   # the settings of a removed import wait for the next import of the same playground
         shutil.rmtree(child, ignore_errors=True)
 
 
@@ -439,6 +479,8 @@ def _digest(folder: Path):
     found = hashlib.sha256()
     for path in sorted(p for p in folder.rglob("*") if p.is_file() and not p.is_symlink()):
         rel = path.relative_to(folder).as_posix()
+        if _machine(rel):
+            continue
         found.update(f"{rel}\0{os.stat(path).st_mode & 0o111}\0".encode("utf-8"))
         found.update(hashlib.sha256(path.read_bytes()).digest())
     return found.hexdigest()
@@ -553,7 +595,7 @@ def _for_personal(folder: Path, top):
         if kind != "setup":
             for path in sorted(p for p in (folder / rel).rglob("*") if p.is_file() and not p.is_symlink()):
                 rel_path = path.relative_to(folder).as_posix()
-                if rel_path != compose_rel:
+                if rel_path != compose_rel and not _machine(rel_path):
                     files[rel_path] = (0o755 if os.stat(path).st_mode & 0o111 else 0o644, path.read_bytes())
         found.append((kind, slug, rel, _named(written, slug), files))
     return found
@@ -575,9 +617,6 @@ def _personal_plan(items):
         if now is not None:
             (same if now.encode("utf-8") == files[_compose_rel(kind, rel)][1] else replaces).append(name)
     return {"replaces": replaces, "same": same}
-
-
-MACHINE_FILES = (".env", ".state", "secrets")   # what Personal keeps of an item it replaces: the person's, never the file's
 
 
 def _clear(target: Path):
@@ -628,6 +667,10 @@ def to_personal(ticket, allow=False):
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(content)
             os.chmod(target, mode)
+        for name in MACHINE_FILES if kind != "setup" else ():   # what a removed import kept, where Personal has none
+            kept, target = folder / rel / name, home / rel / name
+            if kept.exists() and not os.path.lexists(target):
+                (shutil.copytree if kept.is_dir() else shutil.copy2)(kept, target)
     service.forget(ticket)
     shutil.rmtree(folder, ignore_errors=True)
     project.forget()
@@ -670,6 +713,10 @@ def receive(data):
         base = paths.ROOT / IMPORTS_DIR
         base.mkdir(parents=True, exist_ok=True)
         _sweep(top)
+        final = base / top
+        kept = (final / KEPT).is_file()   # the settings of a removed import of the same playground: the new files join them
+        if os.path.lexists(final) and not kept:
+            raise _leftover(archive, top)   # what a removal could not delete, the sweep could not either
         incoming = base / f".incoming-{secrets.token_hex(4)}"
         os.mkdir(incoming, 0o755)
         try:
@@ -688,11 +735,22 @@ def receive(data):
                                         413)
                         out.write(chunk)
                 os.chmod(target, mode)
-            final = base / top
-            os.replace(incoming, final)
+            if not kept:
+                os.replace(incoming, final)
+            else:
+                try:
+                    _vacate(final)
+                    for path in sorted(p for p in incoming.rglob("*") if p.is_file()):
+                        target = final / path.relative_to(incoming)
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        os.replace(path, target)
+                except OSError:
+                    _vacate(final)
+                    raise _leftover(archive, top) from None
         except BaseException:
             shutil.rmtree(incoming, ignore_errors=True)
             raise
+        shutil.rmtree(incoming, ignore_errors=True)
     try:
         reused = _reuse(final, top)
         preview = _waiting(service.check_address(str(final)))
@@ -708,13 +766,30 @@ def receive(data):
         service.note(preview.get("ticket"), imported=True, blocked=blocked, uses=uses, digest=_digest(final))
         return {**preview, "imported": True, "reused": reused, "personal": _personal_plan(items)}
     except BaseException:
-        shutil.rmtree(final, ignore_errors=True)
+        if not (kept and _vacate(final)):
+            shutil.rmtree(final, ignore_errors=True)
         raise
 
 
-def forget_folder(entry):
-    """The files of an imported playground's catalog go when the catalog is removed: they are the Lab's, in .lab/imports."""
+def _leftover(archive, top):
+    return _fail("import_leftover", f"What an earlier import of {_name_of(archive, top)} left cannot be deleted. Fix: remove the "
+                                    f"folder {IMPORTS_DIR}/{top} with administrator rights, then import it again.", 409)
+
+
+PARTIAL = "Some files were created by Docker and could not be deleted. Remove the folder {where} with administrator rights."
+
+
+def forget_folder(entry, keep_settings=True):
+    """The files of an imported playground's catalog go when the catalog is removed: they are the Lab's, in .lab/imports. With
+    `keep_settings` the person's settings, secrets and state stay there, with the marker that keeps them for the next import of
+    the same playground. Answers the warning of what could not be deleted, or None."""
     where = os.path.realpath((entry or {}).get("path") or "")
     base = os.path.realpath(paths.ROOT / IMPORTS_DIR)
-    if where.startswith(base + os.sep) and posixpath.dirname(where) == base:
-        shutil.rmtree(where, ignore_errors=True)
+    if not (where.startswith(base + os.sep) and posixpath.dirname(where) == base):
+        return None
+    folder = Path(where)
+    if keep_settings and folder.is_dir() and _vacate(folder):
+        (folder / KEPT).write_text("", encoding="utf-8")
+        return None
+    shutil.rmtree(where, ignore_errors=True)
+    return PARTIAL.format(where=f"{IMPORTS_DIR}/{folder.name}") if os.path.lexists(where) else None

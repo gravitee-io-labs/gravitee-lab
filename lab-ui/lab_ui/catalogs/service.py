@@ -1488,7 +1488,8 @@ def _removal(ns, entry):
 
 def remove(ns, check=False, keep_settings=True):
     """Remove: with `check`, what it would do and what holds it; without, the removal. A job that runs and an item of the
-    catalog that is on or up refuse it (`job_running`, `held`); a folder catalog loses its link and nothing else. Answers
+    catalog that is on or up refuse it (`job_running`, `held`); a folder catalog loses its link and nothing else, but for an
+    imported playground's, whose folder the Lab keeps: it goes, but for the person's settings with `keep_settings`. Answers
     {"warning": ...} (the line of `removed_partial` when Docker made files that could not be deleted)."""
     entry = _entry(ns)
     if check:
@@ -1503,11 +1504,12 @@ def remove(ns, check=False, keep_settings=True):
             raise CatalogError("held", f"{_turn_off_line(found, ns, on | running, running)}.", 409,
                                units=sorted(on | running))
         done = install.remove(ns, keep_settings)
+    warning = None
     if entry.get("kind") == "folder":   # an imported playground's catalog is the Lab's own folder: it goes with it
         from .exports import forget_folder   # here and not above: exports reads this module
-        forget_folder(entry)
+        warning = forget_folder(entry, keep_settings)
     project.forget()
-    return {"warning": done.get("warning")}
+    return {"warning": done.get("warning") or warning}
 
 
 def repair(ns):

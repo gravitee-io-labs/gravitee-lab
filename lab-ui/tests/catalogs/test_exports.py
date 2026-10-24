@@ -400,3 +400,38 @@ class Untrusted(Case):
         self.assertEqual(message, "Evil uses this machine: allow it to import it to Personal.")
         self.assertFalse(self.personal().exists())
         self.assertEqual(exports.to_personal(preview["ticket"], allow=True)["playground"], "local/evil")
+
+    def test_a_removed_import_keeps_the_persons_settings_for_the_next_import_of_the_same_playground(self):
+        data = evil_zip(playground=evil_playground(privileged=False))
+        service.add(exports.receive(data)["ticket"])
+        folder = paths.ROOT / exports.IMPORTS_DIR / "evil"
+        (folder / "playgrounds/evil/.env").write_text("EVIL_LEVEL=debug\n")
+        (folder / "playgrounds/evil/secrets").mkdir()
+        (folder / "playgrounds/evil/secrets/key").write_text("not a real one\n")
+        project.forget()
+        self.assertEqual(service.remove("evil"), {"warning": None})
+        self.assertEqual(sorted(path.relative_to(folder).as_posix() for path in folder.rglob("*") if path.is_file()),
+                         [".kept", "playgrounds/evil/.env", "playgrounds/evil/secrets/key"], "the settings stay, the files go")
+        exports.receive(data)   # a preview left as it is keeps them too
+        service.add(exports.receive(data)["ticket"])
+        self.assertEqual((folder / "playgrounds/evil/.env").read_text(), "EVIL_LEVEL=debug\n", "the next import has them")
+        self.assertTrue((folder / "playgrounds/evil/compose.yml").is_file())
+        project.forget()
+        service.remove("evil", keep_settings=False)
+        self.assertFalse(folder.exists())
+
+    def test_what_a_removal_could_not_delete_is_said_and_an_import_says_what_to_do(self):
+        data = evil_zip(playground=evil_playground(privileged=False))
+        service.add(exports.receive(data)["ticket"])
+        state = paths.ROOT / exports.IMPORTS_DIR / "evil" / "playgrounds/evil/.state"
+        state.mkdir()
+        (state / "created.json").write_text("{}\n")
+        state.chmod(0o500)   # what Docker made as root: this user cannot delete what is in it
+        self.addCleanup(state.chmod, 0o700)
+        project.forget()
+        warning = service.remove("evil", keep_settings=False)["warning"]
+        self.assertEqual(warning, "Some files were created by Docker and could not be deleted. Remove the folder .lab/imports/evil with "
+                                  "administrator rights.")
+        message = self.refused(lambda: exports.receive(data), "import_leftover")
+        self.assertEqual(message, "What an earlier import of Evil left cannot be deleted. Fix: remove the folder .lab/imports/evil "
+                                  "with administrator rights, then import it again.")
