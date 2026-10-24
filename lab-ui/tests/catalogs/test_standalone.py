@@ -21,7 +21,9 @@ from .. import Case, fixtures
 class Pieces(Case):
 
     def test_a_value_is_plain_when_it_reads_back_as_the_same_text_and_quoted_else(self):
-        for value, written in (("mongodb", "mongodb"), ("127.0.0.1:8092:8092", "127.0.0.1:8092:8092"), ("8092", '"8092"'),
+        for value, written in (("mongodb", "mongodb"), ("127.0.0.1:8092:8092", '"127.0.0.1:8092:8092"'), ("8092", '"8092"'),
+                               ("@scope/pkg", '"@scope/pkg"'), ("foo:", '"foo:"'), ("2026-10-24", '"2026-10-24"'), ("0b101", '"0b101"'),
+                               (".inf", '".inf"'), (".NaN", '".NaN"'), ("3s", '"3s"'), ("graviteeio/apim:4.13", "graviteeio/apim:4.13"),
                                ("true", '"true"'), ("off", '"off"'), ("", '""'), ("${REDIS:-x}", '"${REDIS:-x}"'),
                                ("a: b", '"a: b"'), ("a #b", '"a #b"'), (" lead", '" lead"'), (True, "true"), (3, "3"), (None, "null"),
                                ("say \"hi\"", '"say \\"hi\\""')):
@@ -33,7 +35,7 @@ class Pieces(Case):
                                     "healthcheck": {"test": ["CMD", "true"]}, "networks": []}},
                "volumes": {"data": {}}}
         self.assertEqual(standalone._yaml(doc), [
-            "services:", "  web:", "    image: nginx:1", "    ports:", "      - 127.0.0.1:80:80", "    depends_on:", "      db:",
+            "services:", "  web:", "    image: nginx:1", "    ports:", '      - "127.0.0.1:80:80"', "    depends_on:", "      db:",
             "        condition: service_healthy", "    healthcheck:", "      test:", "        - CMD", '        - "true"', "    networks: []",
             "volumes:", "  data: {}"])
         self.assertEqual(standalone._yaml([{"a": "b", "c": "d"}, ["x"]]), ["- a: b", "  c: d", "-", "  - x"])
@@ -60,6 +62,25 @@ class Pieces(Case):
             self.assertTrue(standalone.REMOTE.match(context), context)
         for context in ("/Users/me/lab/apps/web", "./apps/web", "apps/web"):
             self.assertFalse(standalone.REMOTE.match(context), context)
+
+    def test_a_volume_is_short_only_when_the_short_form_says_all_of_it(self):
+        self.assertEqual(standalone._short_volume({"type": "volume", "target": "/app/node_modules", "volume": {}}), "/app/node_modules")
+        self.assertEqual(standalone._short_volume({"type": "bind", "source": "./a", "target": "/a", "bind": {"create_host_path": True}}),
+                         "./a:/a")
+        for kept in ({"type": "volume", "source": "data", "target": "/d", "volume": {"nocopy": True}},
+                     {"type": "bind", "source": "./a", "target": "/a", "bind": {"propagation": "rshared"}},
+                     {"type": "volume", "source": "data", "target": "/d", "consistency": "cached"}):
+            with self.subTest(volume=kept):
+                self.assertEqual(standalone._short_volume(dict(kept)), kept)
+
+    def test_a_fenced_block_of_the_guide_is_left_as_written(self):
+        text = ("Intro\n\n```md\n## Not a step\n[x](action:x) [y](account:keyed)\n```\n\n## 1. First\n\nClick [Go](action:go)\n\n"
+                "```shell-session run\n$ ls\n```\n")
+        guide = standalone._guide(text, {"keyed": {"username": "keyed", "key": "k"}})
+        self.assertIn("```md\n## Not a step\n[x](action:x) [y](account:keyed)\n```", guide, "a block shows the syntax as it is")
+        self.assertIn("Click **Go**", guide)
+        self.assertIn("```shell-session\n$ ls\n```", guide)
+        self.assertEqual(guide[standalone._first_step(guide):].splitlines()[0], "## 1. First")
 
     def test_a_kept_setting_is_the_variable_a_person_sets(self):
         doc = {"env": {"A": "x@@PASS@@y", "B": "@@LICENSE@@"}, "list": ["@@PASS@@"]}
@@ -125,7 +146,8 @@ class Folder(Case):
         self.assertIn("API Management", plan["runs"])
         self.assertIn("Alert Engine", plan["leaves_out"])
         self.assertEqual((plan["license"], plan["plugins_missing"], plan["private"]), (["fixture-feature"], [], []))
-        self.assertIn("FIXTURE_SHOP_CUSTOMER_PASSWORD", plan["settings"])
+        self.assertIn("FIXTURE_SHOP_CUSTOMER_KEY", plan["settings"])
+        self.assertNotIn("FIXTURE_SHOP_CUSTOMER_PASSWORD", plan["settings"], "a setting that no service reads is no setting of it")
         self.assertNotIn("FIXTURE_SHOP_PULL_POLICY", plan["settings"], "how its images come is the archive's")
         self.assertNotIn(standalone.KEYSTORE, plan["settings"], "the certificates are made with the default")
 
@@ -161,7 +183,7 @@ class Folder(Case):
         _, _, folder = self.unpacked()
         env = (folder / ".env.example").read_text()
         self.assertIn("\nGRAVITEE_LICENSE=\n", env)
-        self.assertIn("# Password of Dana\nFIXTURE_SHOP_CUSTOMER_PASSWORD=fixture-dana\n", env)
+        self.assertIn("# API key of the shop's customers\nFIXTURE_SHOP_CUSTOMER_KEY=fixture-shop-key\n", env)
         for frozen in ("_PULL_POLICY=", "APIM_VERSION=", standalone.KEYSTORE):
             self.assertNotIn(frozen, env)
         readme = (folder / "README.md").read_text()
@@ -170,6 +192,64 @@ class Folder(Case):
             self.assertIn(said, readme)
         self.assertLess(readme.index("## Start it"), readme.index("## 1. "), "what to do first comes before the first step")
         self.assertNotIn("](action:", readme)
+
+    def test_nothing_set_on_this_machine_reaches_the_archive(self):
+        (paths.ROOT / ".env").write_text("MTLS_KEYSTORE_PASSWORD=LEAKKEYSTORE\nAPIM_REGISTRY=leak.registry.example\nAM_VERSION=9.9.9-leak\n"
+                                         "INTERNAL_API_PASSWORD=leak-internal\n", encoding="utf-8")
+        shop = Path(fixtures.unit_file("fixture", "playground", "shop")).parent
+        (paths.ROOT / shop).chmod((paths.ROOT / shop).stat().st_mode | 0o200)
+        (paths.ROOT / shop / ".env").write_text("FIXTURE_SHOP_PULL_POLICY=always\nFIXTURE_SHOP_CUSTOMER_KEY=leak-key\n", encoding="utf-8")
+        project.forget()
+        _, _, folder = self.unpacked()
+        text = (folder / "docker-compose.yml").read_text() + (folder / ".env.example").read_text() + (folder / "README.md").read_text()
+        for leak in ("LEAK", "leak"):
+            self.assertNotIn(leak, text)
+        self.assertIn("gravitee_servers_1_ssl_keystore_password: gravitee", text, "the password the certificates are made with")
+        self.assertIn("pull_policy: build", text)
+        self.assertIn('"${INTERNAL_API_PASSWORD:-adminadmin}"', text)
+
+    def test_what_containers_write_and_what_never_travels_stay_here(self):
+        shop = paths.ROOT / Path(fixtures.unit_file("fixture", "playground", "shop")).parent
+        for each in [shop, *shop.rglob("*")]:   # installed read only, as a catalog is
+            each.chmod(each.stat().st_mode | 0o200)
+        compose_file = shop / "compose.yml"
+        compose_file.write_text(compose_file.read_text().replace(
+            "      - ./.state:/state   # What the seed created, to remove it later",
+            "      - ./.state:/state   # What the seed created, to remove it later\n      - ./.state/certs:/certs\n      - ./secrets:/output\n"
+            "      - ./config/app.yml:/etc/app.yml:ro"), encoding="utf-8")
+        for rel, body in ((".state/certs/server.key", "KEY"), ("secrets/kubeconfig.yaml", "KUBE"), ("config/app.yml", "port: 1\n"),
+                          ("apps/web/.env.production", "SECRET"), ("apps/web/.git/config", "x"), ("apps/web/.env.example", "A=1\n")):
+            (shop / rel).parent.mkdir(parents=True, exist_ok=True)
+            (shop / rel).write_text(body, encoding="utf-8")
+        outside = paths.ROOT.parent / "outside.txt"
+        outside.write_text("OUTSIDE", encoding="utf-8")
+        (shop / "apps" / "web" / "link.txt").symlink_to(outside)
+        project.forget()
+        _, names, folder = self.unpacked()
+        for gone in ("shop/shop/.state/certs/server.key", "shop/shop/secrets/kubeconfig.yaml", "shop/shop/apps/web/.env.production",
+                     "shop/shop/apps/web/.git/config", "shop/shop/apps/web/link.txt"):
+            self.assertNotIn(gone, names)
+        self.assertIn("shop/shop/config/app.yml", names, "a file mounted read only is what the service reads: it travels")
+        self.assertIn("shop/shop/apps/web/.env.example", names)
+        # The folders a container writes to hold nothing in the archive: Compose makes them at the first start, as on a new Lab
+        self.assertEqual([name for name in names if "/.state/" in name or "/secrets/" in name], [])
+
+    def test_a_dockerignore_that_lets_files_back_in_is_left_to_the_build(self):
+        web = paths.ROOT / Path(fixtures.unit_file("fixture", "playground", "shop")).parent / "apps" / "web"
+        web.chmod(web.stat().st_mode | 0o200)
+        (web / ".dockerignore").write_text("*\n!Dockerfile\n!index.html\n", encoding="utf-8")
+        project.forget()
+        _, names, _ = self.unpacked()
+        self.assertIn("shop/shop/apps/web/Dockerfile", names)
+        self.assertIn("shop/shop/apps/web/index.html", names)
+
+    def test_a_plugin_is_carried_by_its_exact_name_at_its_highest_version(self):
+        apim = paths.ROOT / "plugins" / "apim"
+        for name in ("fixture-policy-1.10.0.zip", "fixture-policy-extra-9.0.0.zip"):
+            (apim / name).write_bytes(b"PK")
+        _, names, _ = self.unpacked()
+        carried = sorted(name.rsplit("/", 1)[-1] for name in names if name.startswith("shop/plugins/apim/") and name.endswith(".zip"))
+        self.assertEqual(carried, ["fixture-policy-1.10.0.zip"])
 
     def test_a_plugin_this_lab_does_not_have_is_said(self):
         (paths.ROOT / "plugins" / "apim" / "fixture-policy-1.2.0.zip").unlink()
