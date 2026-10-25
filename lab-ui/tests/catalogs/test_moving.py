@@ -250,6 +250,28 @@ class Moving(Case):
         self.assertTrue((paths.ROOT / exports.IMPORTS_DIR / "sandbox/playgrounds/sandbox/compose.yml").is_file())
         self.assertFalse(list((paths.ROOT / paths.LAB_DIR).glob(".swap-*")))
 
+    def test_a_check_that_fails_in_any_way_undoes_the_swap(self):
+        fixtures.local(self, "sandbox")
+        mine = self.local("playgrounds/sandbox")
+        before = self.files_of(mine)
+        project.forget()
+        self.patch(moving.project, "read_own", lambda file: (_ for _ in ()).throw(RuntimeError("the reader broke")))
+        with self.assertRaisesRegex(RuntimeError, "^the reader broke$"):
+            moving.move("playground", "@sandbox/sandbox", True)
+        self.assertEqual(self.files_of(mine), before, "Personal is as it was")
+        self.assertFalse(self.local("addons/scratch").exists())
+        self.assertTrue((paths.ROOT / exports.IMPORTS_DIR / "sandbox/playgrounds/sandbox/compose.yml").is_file())
+        self.assertFalse(list((paths.ROOT / paths.LAB_DIR).glob(".swap-*")), "no swap is left half in")
+
+    def test_the_check_of_a_move_reads_the_items_it_placed_and_not_the_project(self):
+        read, loads = [], []
+        real_read, real_load = project.read_own, project.load
+        self.patch(moving.project, "read_own", lambda file: read.append(file) or real_read(file))
+        self.patch(moving.project, "load", lambda *a, **k: loads.append(read[:]) or real_load(*a, **k))
+        moving.move("playground", "@sandbox/sandbox", True)
+        self.assertEqual(sorted(read), [".lab/catalogs/local/addons/scratch/compose.yml", ".lab/catalogs/local/playgrounds/sandbox/compose.yml"])
+        self.assertFalse([one for one in loads if one], "the project is not read again once the items are placed")
+
     def test_a_file_where_the_person_has_a_folder_keeps_it_and_wedges_nothing(self):
         from .test_exports import evil_playground, evil_zip
         fixtures.local(self, "sandbox")

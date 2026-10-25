@@ -166,10 +166,11 @@ copy. The copy takes the original's settings and secrets, not what its seed reco
 item of a private catalog is that catalog's content: the copy says which private catalog it comes from (`private_from`), and so do
 the share, the move, the export and the import that follow, whatever comes later at the id it was copied from. It is not shared to
 a Public catalog, and an export, for the Lab or for Docker Compose, says it under **Private** and is made only with each such item
-shown. A label the Lab cannot write and read back in a file (its x-gravitee block written in a form the Lab cannot change) stops
-the export, the share or the copy, which names the item. A file someone sends can only add that notice: an item of it that says
-whose copy it is (`copy_of`, which only this Lab writes) cannot go to Personal, so a file never makes an item the twin of one of
-yours. An item that needs a catalog this Lab has not added is not copied: nothing has judged it.
+shown. What the Lab writes in a file, a label or whose copy it is taken out, is checked as Compose reads the file in its folder:
+what it cannot write or take out (an x-gravitee in a form the Lab cannot change, or in a second YAML document) stops the export,
+the share or the copy, which names the item, and so does a file Compose cannot read there. A file someone sends can only add that
+notice: an item of it that says whose copy it is (`copy_of`, which only this Lab writes) cannot go to Personal, so a file never
+makes an item the twin of one of yours. An item that needs a catalog this Lab has not added is not copied: nothing has judged it.
 
 ## A playground in a file
 

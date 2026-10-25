@@ -7,6 +7,7 @@ import atexit
 import calendar
 import concurrent.futures.thread   # noqa: F401  (see _end: its exit hook has to be registered before ours)
 import contextlib
+import copy
 import functools
 import hashlib
 import importlib
@@ -336,9 +337,9 @@ def stop_on_signals():
             signal.signal(number, ending)
 
 
-def run(cmd, timeout=120, cwd=None, env=None, environ=None):
-    """Runs a command from the project root: (exit code, output, errors). It gets no input: a question it asks
-    would wait on the terminal the Lab UI was started from, and it has no terminal to ask on. Past `timeout` seconds
+def run(cmd, timeout=120, cwd=None, env=None, environ=None, given=None):
+    """Runs a command from the project root: (exit code, output, errors). It gets no input but `given`, the text it reads
+    whole: a question it asks would wait on the terminal the Lab UI was started from, and it has no terminal to ask on. Past `timeout` seconds
     it is ended with everything it started (_stop): (124, "", what happened). While the Lab UI exits it is not run:
     (130, "", what happened). `env`: variables set for it, which Compose reads before what the .env files hold.
     `environ`: the whole environment it gets in place of environment(): scrubbed_environment() for a command that reads
@@ -348,7 +349,8 @@ def run(cmd, timeout=120, cwd=None, env=None, environ=None):
     try:
         process = subprocess.Popen(cmd, cwd=cwd or ROOT,
                                    env={**(environment() if environ is None else environ), "PWD": str(cwd or ROOT), **(env or {})},
-                                   stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   stdin=subprocess.DEVNULL if given is None else subprocess.PIPE, stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE,
                                    encoding="utf-8", errors="replace", start_new_session=True)
     except OSError as error:
         return 127, "", str(error)
@@ -358,7 +360,7 @@ def run(cmd, timeout=120, cwd=None, env=None, environ=None):
     try:
         with process:
             try:
-                out, err = process.communicate(timeout=timeout)
+                out, err = process.communicate(given, timeout=timeout)
             except subprocess.TimeoutExpired:
                 _stop(process)
                 return 124, "", f"{cmd[0]} did not answer within {timeout} s"
@@ -504,20 +506,31 @@ def _readable(path, skip=()):
                {str(copy): str(ROOT / file) for file, copy in copies.items()})
 
 
+def _text_of(file):
+    try:
+        return Path(file).read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        return None
+
+
 def raw(path, skip=(), timeout=120):
     """A compose file as written, with what it includes merged in. Not interpolated: ${VAR} references are kept,
     except in a `pull_policy`, which Compose 5.5.1 and later refuse (_policies_written). Not checked for consistency:
     a file read alone may refer to services of the core. Labels, environment and ports come in one shape, whichever
     way the file writes them. `skip`: project files that it includes and that are not there, which are left out so
     that it still loads and says what it is. `timeout`: seconds Compose has to answer, else ComposeError."""
+    before = None if skip else _text_of(ROOT / path)
     with _readable(path, skip) as (arguments, originals):
         try:
             config = _config(arguments, "--no-interpolate", "--no-consistency", timeout=timeout)
         except ComposeError as error:   # Compose names the copy it read: the file is the original
             message = str(error)
-            for copy, original in originals.items():
-                message = message.replace(copy, original)
+            for written, original in originals.items():
+                message = message.replace(written, original)
             raise ComposeError(message) from None
+    if before is not None and _text_of(ROOT / path) == before:   # what x_gravitee() answers of that text there: not asked again
+        _remember((hashlib.sha256(before.encode("utf-8", "surrogatepass")).hexdigest(), str((ROOT / path).parent)),
+                  config.get("x-gravitee"))
     for service in (config.get("services") or {}).values():
         for key in ("labels", "environment"):
             if key in service:
@@ -527,21 +540,45 @@ def raw(path, skip=(), timeout=120):
     return config
 
 
-def alone(text, timeout=60):
-    """A compose text as Compose reads it by itself, outside the project, the items of its include list left out (what a file
-    includes never brings an x- key of its own: Compose keeps the extensions of the file it reads). It is the reader the Lab
-    reads every item with, so that what is asked of a file someone else wrote is answered as the Lab will read it later.
-    ComposeError when Compose cannot read it alone (an include the list does not show among them)."""
-    lines = _policies_written(text).split("\n")
-    with tempfile.TemporaryDirectory(dir=scratch()) as folder:
-        file = Path(folder) / "compose.yml"
-        written = list(lines)
-        for number, _, _ in _include_items("\n".join(lines), file, None, nested=False):
-            for dropped in range(number, number + _extent(lines, number)):
-                written[dropped] = None
-        file.write_text("\n".join(line for line in written if line is not None), encoding="utf-8")
-        return _config(["--project-directory", folder, "-f", str(file)], "--no-interpolate", "--no-consistency", timeout=timeout,
-                       environ=scrubbed_environment())
+ALONE_TIMEOUT = 15   # seconds Compose has to read one item's text: a file that takes longer is one that cannot be read
+ALONE_OUTPUT = 4 << 20   # the most its answer may hold: more is no item, but a file that makes Compose write without end
+READ_KEPT = 512   # readings of an x-gravitee block remembered (_said_by_compose): more than the items of a large Lab
+_said_by_compose = {}   # {(sha-256 of a compose text, its folder): its x-gravitee as Compose read it there}, oldest first
+_said_lock = threading.Lock()
+
+
+def x_gravitee(text, folder):
+    """The x-gravitee block of a compose text as Compose reads it in `folder`, where the item is: what it includes is found from
+    there as when the Lab reads the item (an included file never brings an x- key of its own: Compose keeps those of the file it
+    reads), with the scrubbed environment, no interpolation and no remote include. Compose reads the text from its input, with
+    `folder` as the project directory, so that nothing is written anywhere. A copy of what it answered, None for no block.
+    ComposeError when Compose cannot read it, takes more than ALONE_TIMEOUT seconds, or answers more than ALONE_OUTPUT: never a
+    wait without end. The same text in the same folder is read once, and a file raw() read is not read again (_remember)."""
+    key = (hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest(), str(folder))
+    with _said_lock:
+        if key in _said_by_compose:
+            return copy.deepcopy(_said_by_compose[key])
+    rc, out, err = run([*COMPOSE, "--project-directory", str(folder), "-f", "-", "config", "--format", "json", "--no-interpolate",
+                        "--no-consistency"], timeout=ALONE_TIMEOUT, cwd=folder if os.path.isdir(folder) else None,
+                       environ=scrubbed_environment(), given=_policies_written(text))
+    if rc != 0:
+        raise ComposeError(_last_line(err))
+    if len(out) > ALONE_OUTPUT:
+        raise ComposeError("Compose answered more than an item can hold")
+    try:
+        found = json.loads(out).get("x-gravitee")
+    except (ValueError, AttributeError):
+        raise ComposeError("Compose answered what is not a compose file") from None
+    _remember(key, found)
+    return copy.deepcopy(found)
+
+
+def _remember(key, found):
+    with _said_lock:
+        _said_by_compose.pop(key, None)
+        _said_by_compose[key] = copy.deepcopy(found)
+        while len(_said_by_compose) > READ_KEPT:
+            del _said_by_compose[next(iter(_said_by_compose))]
 
 
 def config_json(file_args, timeout=15, environ=None):

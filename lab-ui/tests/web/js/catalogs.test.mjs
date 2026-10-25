@@ -219,9 +219,17 @@ test("kept settings are listed where they came from, by the names of their items
   show([FIRST(), PERSONAL()], { kept_settings: kept });   // the rows it opened are closed again
 });
 
-test("Personal is drawn only once it holds something", () => {
-  show([FIRST(), PERSONAL({ counts: { playground: 0, setup: 0, addon: 0 } })]);
+test("Personal is drawn only once it holds something, or the Lab keeps settings of it", () => {
+  const empty = PERSONAL({ counts: { playground: 0, setup: 0, addon: 0 } });
+  show([FIRST(), empty]);
   assert.deepEqual(items().map((li) => text(li.querySelector(".list-name"))), ["Gravitee public"]);
+  show([FIRST(), empty], { kept_settings: [{ folder: "local-0a1b2c3d", from: "Personal", items: [{ name: "Echo Tool", kinds: ["Settings"] }],
+    at: "2026-10-21T08:00:00Z" }] });
+  assert.deepEqual(items().map((li) => text(li.querySelector(".list-name"))), ["Personal", "Gravitee public"], "its kept settings can still be removed");
+  open(row("Personal"));
+  const kept = panels(row("Personal")).find((panel) => text(panel).startsWith("Kept settings"));
+  assert.deepEqual(pairs(kept).map(([name]) => name), ["Echo Tool"]);
+  show([FIRST(), empty]);   // the row it opened is closed again
 });
 
 test("a row is 56 px of the lists' grid: a toggle named for the catalog, its name and line, its items, its state, its actions", () => {

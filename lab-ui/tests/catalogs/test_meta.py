@@ -40,10 +40,28 @@ class Block(Case):
 
     def test_put_writes_the_key_first_in_the_block(self):
         self.assertEqual(meta.put("x-gravitee: {kind: addon, copy_of: old}\n", "copy_of", 'new"one'),
-                         'x-gravitee: {copy_of: "newone", kind: addon}\n')
+                         'x-gravitee: {copy_of: "new\\"one", kind: addon}\n')
         self.assertEqual(meta.put("x-gravitee:\n  kind: addon\nservices: {}\n", "private_from", "Partner fixture"),
                          'x-gravitee:\n  private_from: "Partner fixture"\n  kind: addon\nservices: {}\n')
         self.assertIsNone(meta.put("services: {}\n", "copy_of", "x"))
+
+    def test_a_value_is_written_as_yaml_reads_it_back_whatever_it_holds(self):
+        names = ['Partner "core"', "C:\\labs\\x", "Partner's", "a: b", "a # b", "Zürich 東京", "  padded  ", "tab\tand\nline", "\x07bell",
+                 "\u2028", "\\x5f"]
+        for name in names:
+            for text in ("x-gravitee:\n  kind: addon\n", "x-gravitee: {kind: addon}\n"):
+                with self.subTest(name=name, text=text):
+                    written = meta.put(text, "private_from", name)
+                    self.assertEqual(meta.value(written, "private_from"), name)
+                    self.assertEqual(meta.value(written, "kind"), "addon")
+                    self.assertNotIn("\n", written[written.index("private_from"):written.index("kind")].rstrip("\n ,"))
+
+    def test_an_escaped_key_is_the_key_it_spells_and_a_quote_after_a_colon_in_a_plain_value_is_no_quote(self):
+        text = 'x-gravitee: {kind: addon, "copy\\x5fof": "@a/b", note: a:\'b, name: X}\n'
+        self.assertEqual(meta.value(text, "copy_of"), "@a/b")
+        self.assertEqual(meta.value(text, "name"), "X", "the quote of a:'b opens nothing")
+        self.assertEqual(meta.drop(text, "copy_of"), "x-gravitee: {kind: addon, note: a:'b, name: X}\n")
+        self.assertEqual(meta.value('x-gravitee: {"kind":\'addon\', name: X}\n', "kind"), "addon", "after a quoted key, it opens")
 
     def test_a_megabyte_of_any_shape_is_read_and_changed_in_under_a_second(self):
         import time

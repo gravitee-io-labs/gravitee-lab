@@ -18,10 +18,13 @@ MERGE = "<<"
 
 def _opens(text, index, start):
     """Whether the quote at `index` opens a quoted scalar: it does where a scalar starts (after the brace, a comma, a colon or the
-    start of a line), not inside a plain one (`a partner's entries`)."""
+    start of a line), not inside a plain one (`a partner's entries`). A colon right before it is part of a plain one (`a:'b`)
+    unless a quoted key ends there (`"a":'b'`), as YAML reads a flow block."""
     back = index - 1
     while back >= start and text[back] in " \t":
         back -= 1
+    if back >= start and text[back] == ":" and back == index - 1:
+        return back - 1 >= start and text[back - 1] in "\"'"
     return back < start or text[back] in "{[,:\n"
 
 
@@ -103,8 +106,8 @@ def _name_at(text, index, end):
     if quote:
         close, parts = index + 1, []
         while close < end and text[close] != quote:
-            if quote == '"' and text[close] == "\\" and close + 1 < end:
-                parts.append(text[close + 1])
+            if quote == '"' and text[close] == "\\" and close + 1 < end:   # read with the rest: `\x5f` is `_`
+                parts.append(text[close:close + 2])
                 close += 2
                 continue
             if quote == "'" and text[close:close + 2] == "''":
@@ -115,7 +118,7 @@ def _name_at(text, index, end):
             close += 1
         if close >= end:
             return None, end
-        name, after = "".join(parts), close + 1
+        name, after = _unescaped("".join(parts)) if quote == '"' else "".join(parts), close + 1
     else:
         after = index
         while after < end and text[after] not in ":#{}[],\n":
@@ -123,8 +126,8 @@ def _name_at(text, index, end):
         name = text[index:after].rstrip(" \t")
     while after < end and text[after] in " \t":
         after += 1
-    if after >= end or text[after] != ":" or (after + 1 < end and text[after + 1] not in " \t\n"):
-        return None, end
+    if after >= end or text[after] != ":" or (not quote and after + 1 < end and text[after + 1] not in " \t\n"):
+        return None, end   # after a quoted key, its colon may touch the value (`"a":'b'`), as in JSON
     return name, after + 1
 
 
@@ -189,11 +192,45 @@ def _entries(text):
     return style, _lines(text, start, end)[1], block
 
 
+ESCAPES = {"0": "\0", "a": "\a", "b": "\b", "t": "\t", "\t": "\t", "n": "\n", "v": "\v", "f": "\f", "r": "\r", "e": "\x1b",
+           " ": " ", '"': '"', "/": "/", "\\": "\\", "N": "\x85", "_": "\xa0", "L": "\u2028", "P": "\u2029"}
+ESCAPED = re.compile(r"\\(x[0-9A-Fa-f]{2}|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8}|.)", re.S)
+
+
+def _unescaped(raw):
+    """A double-quoted scalar's text with its escapes read as YAML reads them."""
+    def one(found):
+        code = found.group(1)
+        if code[0] in "xuU" and len(code) > 1:
+            return chr(min(int(code[1:], 16), 0x10FFFF))
+        return ESCAPES.get(code, code)
+    return ESCAPED.sub(one, raw)
+
+
+def _quoted(value):
+    """`value` as a YAML double-quoted scalar: a backslash, a quote and what is not printable escaped, so that YAML reads it back
+    as it is, spaces at its ends and all."""
+    written = []
+    for char in str(value):
+        point = ord(char)
+        if char in '\\"':
+            written.append("\\" + char)
+        elif char == "\n":
+            written.append("\\n")
+        elif char == "\t":
+            written.append("\\t")
+        elif point < 0x20 or 0x7F <= point <= 0x9F or char in "\u2028\u2029\ufeff" or 0xD800 <= point <= 0xDFFF:
+            written.append(f"\\u{point:04x}" if not 0xD800 <= point <= 0xDFFF else "\\ufffd")
+        else:
+            written.append(char)
+    return '"' + "".join(written) + '"'
+
+
 def _unquoted(raw):
     raw = raw.strip()
     comment = re.search(r"[ \t]#", raw)
     if raw[:1] == '"' and raw.rfind('"') > 0:
-        return raw[1:raw.rfind('"')].replace('\\"', '"')
+        return _unescaped(raw[1:raw.rfind('"')])
     if raw[:1] == "'" and raw.rfind("'") > 0:
         return raw[1:raw.rfind("'")].replace("''", "'")
     return (raw[:comment.start()] if comment else raw).strip()
@@ -242,7 +279,7 @@ def put(text, key, value_):
         style, entries, block = _entries(text or "")
     if block is None or style == "alias":
         return None
-    quoted = '"' + str(value_).replace("\\", "").replace('"', "").replace("\n", " ") + '"'
+    quoted = _quoted(value_)
     if style == "flow":
         rest = text[block[1] + 1:block[2]]
         return text[:block[1] + 1] + f"{key}: {quoted}" + (", " + rest.lstrip(" ") if rest.strip() else "") + text[block[2]:]

@@ -777,7 +777,7 @@ def gather():
             "problems": problems,
             # What the catalogs add: where each unit comes from, what the screen and Compose said of it, the
             # catalogs as the disk says them, the level of the core, and the state of the migration
-            "default": default, "catalogs": catalogs, "reach": reach,
+            "default": default, "catalogs": catalogs, "reach": reach, "bad": sorted(bad), "clean": sorted(clean),
             "screened": {**{file: screened[file] for file in bad if screened[file]}, **held}, "unreadable": unreadable,
             "configs": {path: found["config"] for path, found in loaded.items() if found.get("config") is not None},
             "own_configs": {path: found["own_config"] for path, found in loaded.items() if found.get("own_config") is not None},
@@ -1922,11 +1922,12 @@ def _read_staged(ns, units):
     return screen, seeds, screened, unreadable
 
 
-def _staged_inputs(ns, meta, row, replacing):
+def _staged_inputs(ns, meta, row, replacing, said=None):
     """The inputs of the project (`gather`'s) as they would be with the staged catalog installed as `ns`: the live ones, with
     the units of the stage read as `gather` reads a catalog's and put under the names they will have, and the catalog's
     row in `catalogs`. With `replacing`, the units the catalog has now are taken out first (an Update judges the new version in
-    their place). Nothing of the live inputs is changed."""
+    their place). Nothing of the live inputs is changed. `said`: a dict that gets the x-gravitee block of each unit of the stage
+    that Compose read, as it read it ({file under its name: block})."""
     live = loaded()[1]
     swap, units = _alias(ns), staged_units(ns)
     final = f"{paths.CATALOGS_DIR}/{ns}/"
@@ -1957,6 +1958,8 @@ def _staged_inputs(ns, meta, row, replacing):
             continue
         if found["raw"] is not None:
             merged["raw"][ours] = swap(found["raw"])
+            if said is not None:
+                said[ours] = copy.deepcopy(found["raw"].get("x-gravitee"))
             merged["includes"][ours] = [swap(target) for target in _direct(file, screen)]
             merged["variables"][ours] = []
             if file in seeds:
@@ -2022,14 +2025,14 @@ def staged_unknown(ns):
     return sorted({item for one in found for item in one})
 
 
-def judge_staged(ns, meta, row, replacing=False):
+def judge_staged(ns, meta, row, replacing=False, said=None):
     """The judgement of the staged tree of catalog `ns` as the project would judge it installed under that name, against
     everything installed: ({kind: {id: unit}}, {(kind, id): own verdict}), the units
     of every catalog and of this machine, and the verdict of each unit alone. `meta` is the validated catalog.yml of the stage
     and `row` the catalog's row as `registry.inputs()` gives it (`staged_units` are the units to count in it). With
     `replacing`, the units the catalog has now are left out of the world first: an Update judges the new version in their
-    place. Reads the disk and asks Compose, as `gather` does; changes nothing."""
-    return judge_inputs(_staged_inputs(ns, meta, row, replacing))
+    place. Reads the disk and asks Compose, as `gather` does; changes nothing. `said`: see _staged_inputs."""
+    return judge_inputs(_staged_inputs(ns, meta, row, replacing, said))
 
 
 def brought(unit):
@@ -2040,6 +2043,22 @@ def brought(unit):
 
 _cache = {"key": None, "project": None, "inputs": None}
 _lock = threading.RLock()   # reentrant: whoever holds it exclusively (exclusive) loads the project too
+
+
+def read_own(file):
+    """A unit file of this machine read as gather() reads it, alone and now: its include closure followed as gather follows it,
+    from what the last gather screened of the catalogs, then Compose's raw reading of it (the includes that are not there left
+    out). None when gather would not read it (its closure reaches what must not be given to Compose) or Compose cannot. What a
+    change put in Personal is checked with this, one file at a time, without reading the project again."""
+    with _lock:
+        inputs = _cache.get("inputs")
+    if inputs is None:
+        inputs = loaded()[1]
+    bad, clean = set(inputs.get("bad") or ()), set(inputs.get("clean") or ())
+    reach = _reach(file, bad, clean)
+    if held_reasons(reach, bad):
+        return None
+    return _raw(file, skip=reach["missing"])[0] if reach["missing"] else _raw(file)[0]
 
 
 def loaded():

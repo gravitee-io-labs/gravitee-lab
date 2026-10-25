@@ -178,14 +178,14 @@ def _claims(kind, uid):
 
 
 def placed_without_claims(rels):
-    """The check of a swap from a file (a move, an import to Personal), once its items are in Personal: the project read again as
-    the Lab reads it, none of them says it is a copy. A claim found undoes the swap (CatalogError, `swap_in`)."""
+    """The check of a swap from a file (a move, an import to Personal), once its items are in Personal: each of them read as the
+    project reads it (project.read_own, the one reader of twins), none says it is a copy. A claim found undoes the swap
+    (CatalogError, `swap_in`). Only the items placed are read: the project is not read again for them."""
     def check():
-        project.forget()
-        project.load()
         for rel in rels:
             kind, slug = ("setup", posixpath.basename(rel)[:-4]) if rel.startswith("setups/") else (rel.split("/")[0][:-1], posixpath.basename(rel))
-            if _claims(kind, f"{paths.LOCAL}/{slug}"):
+            said = (project.read_own(paths.unit_file(kind, f"{paths.LOCAL}/{slug}")) or {}).get("x-gravitee")
+            if isinstance(said, dict) and said.get("copy_of"):
                 raise _fail("twin_claimed", f"{_names_of([rel])} {CLAIMED}")
     return check
 
@@ -394,9 +394,8 @@ def swap_in(swap, rels, check=None):
     except OSError as error:
         _undo(swap, rels)
         raise CatalogError("swap_failed", NOT_IN.format(names=names, why=(error.strerror or str(error)).lower()), 500) from None
-    except CatalogError:
+    except BaseException:   # a refusal of the check, or anything else: what it swapped in is undone before it is said
         _undo(swap, rels)
-        project.forget()
         raise
     return _settle(swap, rels, recovering=False)
 
@@ -665,11 +664,13 @@ def copy(kind, uid, users=False, allow=False):
                 here = posixpath.dirname(places[node] if k == "setup" else f"{places[node]}/compose.yml")
                 there = posixpath.dirname(f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{_rel(k, _slug(one))}" + ("" if k == "setup" else "/compose.yml"))
                 text = compose_file.read_text(encoding="utf-8")   # what it holds says its private catalog, resolved now, and whose copy it is
-                private = private_of(text, one)
-                texts[node] = _mark(moves.repoint(labelled(unmark(text), private), here, there, table), one) or text
+                private = private_of(text, one, compose_file.parent)
+                # Changed as it is and checked as Compose reads it where it is, then written for its new place
+                edited = _mark(labelled(unmark(text), private), one) or text
                 shown = _name(_units(found), node)
-                rewritten(text, texts[node], {"copy_of": one, "private_from": private}, _slug(one) if shown == one else shown,
-                          "that it is your copy" + (" and its private label" if private else ""))
+                rewritten(text, edited, {"copy_of": one, "private_from": private}, _slug(one) if shown == one else shown,
+                          "that it is your copy" + (" and its private label" if private else ""), compose_file.parent)
+                texts[node] = moves.repoint(edited, here, there, table)
 
         def write(root):
             for node in copies:

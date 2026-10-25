@@ -574,7 +574,9 @@ class Judged(Seam):
         self.assertEqual(problems, ["It includes in a form the check cannot follow. Fix: write each include as a list item, "
                                     "- ../../addons/<name>/compose.yml."])
         self.item("addon", "plain-file", "Plain file", "include:\n  - ../../../../seeder/Dockerfile\nservices: {}\n")
-        self.assertIn("Includes Dockerfile, which is not an item of a catalog.", self.share("local/plain-file", check_only=True)["problems"])
+        problems = self.share("local/plain-file", check_only=True)["problems"]
+        self.assertIn("Includes Dockerfile, which is not an item of a catalog.", problems)
+        self.assertTrue([one for one in problems if one.startswith("Plain file: its compose file cannot be read: ")], problems)
 
     def test_the_rules_of_an_item_of_a_catalog_are_asked_of_the_personal_file_and_their_lines_are_problems(self):
         file = ".lab/catalogs/local/addons/scratch/compose.yml"

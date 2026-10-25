@@ -269,10 +269,10 @@ async function repair(row) {
 
 // --- The page -----------------------------------------------------------------------------------------------------------------
 
-// Whether an entry of the list is a row: a catalog that is there or offered, and Personal once it holds something. Any other entry (the one
-// that carries how far the fetch of the Add dialog is, `kind: "progress"`) is no row.
+// Whether an entry of the list is a row: a catalog that is there or offered, and Personal once it holds something or the Lab keeps
+// settings of it. Any other entry (the one that carries how far the fetch of the Add dialog is, `kind: "progress"`) is no row.
 const ROWS = ["git", "folder", "suggested"];
-const shown = (row) => ROWS.includes(row?.kind) || (row?.kind === "machine" && total(row.counts) > 0);
+const shown = (row) => ROWS.includes(row?.kind) || (row?.kind === "machine" && (total(row.counts) > 0 || keptOf(row).length > 0));
 
 // The table has two sections, on a band each: what is on this machine (Personal, a folder linked as a catalog), then what is fetched
 // from a repository (an added catalog, a suggested one). A section with no row has no band.

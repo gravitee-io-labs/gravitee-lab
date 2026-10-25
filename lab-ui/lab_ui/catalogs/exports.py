@@ -51,7 +51,7 @@ import zipfile
 from pathlib import Path
 
 from .. import paths
-from ..docker import compose, images
+from ..docker import images
 from ..library import moves, project
 from . import contribute, defaults, kept, manifest, moving, registry, resolve, service, standard
 from . import store as bare
@@ -139,7 +139,7 @@ def _gather(pid):
         name = units[kind][uid]["name"]
         problems += [f"{name}: {line}" for line in copy.problems]
         # What is private content says so in the file (private_from), which the other Lab keeps: it can only add a notice
-        files.update(contribute._unmarked(copy, kind, _slug(uid), contribute.private_of(copy.text, uid), name).files)
+        files.update(contribute._unmarked(copy, kind, _slug(uid), contribute.private_of(copy.kept, uid, copy.folder), name).files)
     origins, private = _origins(carried, units, copies_of(carried))
     registries = _registries(found, carried, units)
     shared = _shared(carried, units, ns)
@@ -181,8 +181,9 @@ def copies_of(nodes):
     wherever they are now: in Personal, or in a catalog a share put them in. What they hold is that catalog's content."""
     found = {}
     for kind, uid in nodes:
-        data = contribute._read(paths.ROOT / paths.unit_file(kind, uid), bare.TEXT_FILE + 1)
-        source = contribute.private_source(data.decode("utf-8", "replace")) if data else None
+        file = paths.ROOT / paths.unit_file(kind, uid)
+        data = contribute._read(file, bare.TEXT_FILE + 1)
+        source = contribute.private_source(data.decode("utf-8", "replace"), file.parent) if data else None
         # A label (no original) always says private content; an older copy's chain does, but for an item of that very catalog
         if source and (source[2] is None or source[0] != paths.origin(uid)):
             found[(kind, uid)] = source[:2]
@@ -868,13 +869,10 @@ def _extract(archive, members, folder):
 TWIN_CLAIMED = "Says it is the copy of an item of this Lab (x-gravitee.copy_of), which only this Lab writes"
 
 
-def claims_twin(text):
-    """Why a compose text someone else wrote cannot go to Personal for what its x-gravitee says, as Compose reads it: that it is
-    the copy of an item of this Lab (a twin only this Lab makes), or that Compose cannot read it alone; "" when neither."""
-    try:
-        said = compose.alone(text).get("x-gravitee")
-    except compose.ComposeError as error:
-        return f"Its x-gravitee cannot be read: {str(error)[:120]}"
+def claims_twin(said):
+    """Why an item someone else wrote cannot go to Personal for what its x-gravitee says (`said`, as the judgement of the import
+    read it: with Compose, in its place, the way the Lab reads it once added): that it is the copy of an item of this Lab, a
+    twin only this Lab makes; "" when it does not say so."""
     return TWIN_CLAIMED if isinstance(said, dict) and said.get("copy_of") else ""
 
 
@@ -887,16 +885,17 @@ def _judged_import(final, top, content, reused):
         raise _fail("import_invalid", f"{NOT_A_PLAYGROUND} Its folder, {top}, is not the id of its catalog, {preview['catalog']['id']}.")
     items = _for_personal(final, top)
     # What the judgement did not produce, since Compose could not read it, is judged by nothing: it cannot go to Personal
-    judged = set(service._held(preview["ticket"], "add").get("judged") or ())
+    held = service._held(preview["ticket"], "add")
+    judged, said = set(held.get("judged") or ()), held.get("said") or {}
     unread = [name for _, slug, _, name, _ in items if f"@{top}/{slug}" not in judged]
     preview["blocked"] = [*(preview.get("blocked") or ()), *({"kind": kind, "id": f"@{top}/{slug}", "name": name,
                                                               "reasons": ["Its compose file cannot be read"]}
                                                              for kind, slug, _, name, _ in items if name in unread)]
-    # A file never says whose copy an item is: only this Lab writes copy_of, in Personal. Asked of Compose, the reader the Lab
-    # takes it from later, so that no way of writing YAML hides it; an item that says it cannot go to Personal
+    # A file never says whose copy an item is: only this Lab writes copy_of, in Personal. Taken from what the judgement read, with
+    # the reader the Lab reads the item with later, so that no way of writing YAML hides it; an item that says it cannot go to Personal
     for kind, slug, rel, name, _ in items:
         if name not in unread:
-            claim = claims_twin((final / _compose_rel(kind, rel)).read_text(encoding="utf-8", errors="replace"))
+            claim = claims_twin(said.get(f"@{top}/{slug}"))
             if claim:
                 preview["blocked"].append({"kind": kind, "id": f"@{top}/{slug}", "name": name, "reasons": [claim]})
     blocked = [one.get("name") for one in preview.get("blocked") or ()]

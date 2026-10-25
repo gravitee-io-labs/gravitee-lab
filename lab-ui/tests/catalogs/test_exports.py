@@ -12,7 +12,7 @@ import stat
 import zipfile
 
 from lab_ui import paths
-from lab_ui.catalogs import exports, gitx, moving, registry, service
+from lab_ui.catalogs import contribute, exports, gitx, moving, registry, service
 from lab_ui.catalogs.registry import CatalogError
 from lab_ui.docker import compose, envfiles, files
 from lab_ui.library import check, project
@@ -160,6 +160,43 @@ class RoundTrip(Case):
         self.assertTrue(caught.exception.message.startswith("Sandbox would be blocked on another Lab: "), caught.exception.message)
         self.assertTrue(caught.exception.message.endswith(". Fix: export it again to see what blocks it."), caught.exception.message)
 
+    def test_an_export_asks_compose_nothing_more_of_the_files_the_lab_read(self):
+        project.load()
+        runs = []
+        real = compose.run
+        self.patch(compose, "run", lambda cmd, **more: runs.append(cmd) or real(cmd, **more))
+        exports.plan("local/sandbox")
+        exports.archive("local/sandbox")
+        self.assertEqual([cmd for cmd in runs if "-f" in cmd and cmd[cmd.index("-f") + 1] == "-"], [],
+                         "what each item says is what the Lab read of it: no item is read again for its label or its copy_of")
+
+    def test_whose_copy_an_item_is_never_leaves_however_its_yaml_says_it(self):
+        scratch = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons" / "scratch" / "compose.yml"
+        text = scratch.read_text(encoding="utf-8")
+        head = "x-gravitee: {kind: addon, name: Scratch, category: Other, description: Notepad of this machine that brings Echo}\n"
+        self.patch(contribute, "private_of", lambda text, uid, folder=None: None)   # a copy of public content: no label is due
+        self.patch(exports, "copies_of", lambda nodes: {})
+        shapes = {"escaped key": head.replace("}\n", ', "copy\\x5fof": "@fixture/echo"}\n'),
+                  "quote after a colon": head.replace("}\n", ", note: a:'b, copy_of: \"@fixture/echo\", z: x'}\n"),
+                  "second document": None}
+        for name, written in shapes.items():
+            with self.subTest(name):
+                scratch.write_text(text.replace(head, written) if written else text + "---\nx-gravitee: {copy_of: \"@fixture/echo\"}\n",
+                                   encoding="utf-8")
+                project.forget()
+                try:
+                    made = exports.archive("local/sandbox")
+                except CatalogError as error:   # what the Lab cannot take out stops the file
+                    self.assertEqual(name, "second document")
+                    self.assertEqual((error.code, error.message), ("label_failed", "Scratch: the Lab cannot write whose copy it is in this "
+                                     "file. Fix: write its x-gravitee as one block of plain key: value lines, in a file of one YAML "
+                                     "document (in a catalog, ask its author to), then try again."))
+                    continue
+                with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
+                    said = compose.x_gravitee(archive.read("sandbox/addons/scratch/compose.yml").decode(), scratch.parent)
+                self.assertNotIn("copy_of", said)
+                self.assertEqual(said["name"], "Scratch")
+
     def test_an_item_of_the_default_catalog_has_nothing_to_export(self):
         with self.assertRaises(CatalogError) as caught:
             exports.plan("shop")
@@ -197,6 +234,19 @@ class ToPersonal(Case):
 
     def local(self, rel):
         return paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / rel
+
+    def test_the_check_once_in_personal_reads_the_items_placed_and_not_the_project(self):
+        data = exports.archive("local/sandbox")["data"]
+        scratch = self.local("addons/scratch/compose.yml")
+        scratch.write_text(scratch.read_text(encoding="utf-8") + "# changed here\n", encoding="utf-8")
+        preview = exports.receive(data)
+        read, loads = [], []
+        real_read, real_load = project.read_own, project.load
+        self.patch(project, "read_own", lambda file: read.append(file) or real_read(file))
+        self.patch(project, "load", lambda *a, **k: loads.append(read[:]) or real_load(*a, **k))
+        exports.to_personal(preview["ticket"])
+        self.assertEqual(read, [".lab/catalogs/local/addons/scratch/compose.yml"], "the one item it wrote")
+        self.assertFalse([one for one in loads if one], "the project is not read again once it is placed")
 
     def test_the_same_items_are_used_and_a_different_one_is_replaced_keeping_its_settings(self):
         data = exports.archive("local/sandbox")["data"]
@@ -286,7 +336,6 @@ class FromCatalogs(Case):
         self.assertNotIn("copy_of", text, "whose copy it is says nothing on another Lab")
 
     def test_a_copy_of_a_private_item_shared_to_a_folder_of_the_person_is_still_private_content(self):
-        from lab_ui.catalogs import contribute
         fixtures.install(self, "lab-new", "folder", audience="private", lab=1)   # a folder of the person's
         moving.copy("addon", "@partner/ledger")
         ledger = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons" / "ledger" / "compose.yml"
@@ -306,7 +355,6 @@ class FromCatalogs(Case):
     def shared_and_copied_back(self):
         """Partner's Ledger copied to Personal, changed, shared to Lab new (a folder of the person's), then that one copied back to
         Personal, which Scratch includes: a copy of a share of a copy."""
-        from lab_ui.catalogs import contribute
         fixtures.install(self, "lab-new", "folder", audience="private", lab=1)
         moving.copy("addon", "@partner/ledger")
         ledger = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons" / "ledger" / "compose.yml"
@@ -331,7 +379,6 @@ class FromCatalogs(Case):
         self.assertEqual(caught.exception.code, "export_private")
 
     def test_the_origin_said_is_the_first_private_catalog_of_the_chain(self):
-        from lab_ui.catalogs import contribute
         fixtures.install(self, "lab-new", kind="git", audience="private", lab=1)   # a private catalog of the person's team
         ledger = paths.ROOT / paths.CATALOGS_DIR / "lab-new" / "addons" / "ledger" / "compose.yml"
         ledger.parent.mkdir(parents=True, exist_ok=True)
@@ -367,7 +414,6 @@ class FromCatalogs(Case):
         self.assertEqual(exports.copies_of([("addon", "@carried/books")]), {("addon", "@carried/books"): ("carried", "carried")})
 
     def test_a_copy_says_its_private_origin_as_it_was_when_copied_whatever_comes_later_at_that_id(self):
-        from lab_ui.catalogs import contribute
         service.add(exports.receive(self.carried("Partner fixture"))["ticket"])
         project.forget()
         moving.copy("addon", "@carried/books")
@@ -388,7 +434,6 @@ class FromCatalogs(Case):
         project.forget()
 
     def test_the_private_label_is_written_and_read_back_or_the_export_is_refused_naming_the_item(self):
-        from lab_ui.docker import compose
         heads = {"apostrophe": "x-gravitee: {kind: addon, name: Ledger, category: Other, description: Keeps a partner's entries}\n",
                  "next line": "x-gravitee:\n  {kind: addon, name: Ledger, category: Other, description: Keeps entries}\n",
                  "tag": "x-gravitee: !!map {kind: addon, name: Ledger, category: Other, description: Keeps entries}\n"}
@@ -399,21 +444,30 @@ class FromCatalogs(Case):
                     made = exports.archive("local/sandbox", private=["@partner/ledger"])
                 except CatalogError as error:
                     self.assertEqual((error.code, error.message), ("label_failed", "Ledger: the Lab cannot write its private label and "
-                                     "whose copy it is in this file. Fix: write its x-gravitee block as plain key: value lines (in a "
-                                     "catalog, ask its author to), then try again."))
+                                     "whose copy it is in this file. Fix: write its x-gravitee as one block of plain key: value lines, "
+                                     "in a file of one YAML document (in a catalog, ask its author to), then try again."))
                     continue
                 with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
                     text = archive.read("sandbox/addons/ledger/compose.yml").decode()
-                said = compose.alone(text).get("x-gravitee")
+                said = compose.x_gravitee(text, self.root)
                 self.assertEqual((said["private_from"], said["description"]), ("Partner fixture", said["description"]))
 
     def test_an_apostrophe_in_a_flow_block_is_no_quote_and_the_label_is_written(self):
-        from lab_ui.docker import compose
         self.ledger("x-gravitee: {kind: addon, name: Ledger, category: Other, description: Keeps a partner's entries}\n")
         made = exports.archive("local/sandbox", private=["@partner/ledger"])
         with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
-            said = compose.alone(archive.read("sandbox/addons/ledger/compose.yml").decode()).get("x-gravitee")
+            said = compose.x_gravitee(archive.read("sandbox/addons/ledger/compose.yml").decode(), self.root)
         self.assertEqual((said["private_from"], said["description"]), ("Partner fixture", "Keeps a partner's entries"))
+
+    def test_a_label_says_any_name_of_a_catalog_as_it_is(self):
+        names = ['Partner "core"', "C:\\labs\\partner", "Partner's", "Partner: core", "Partner # core", "Zürich 東京", "  padded  "]
+        for name in names:
+            with self.subTest(name=name):
+                self.patch(contribute, "_catalog_name", lambda ns, name=name: name)
+                made = exports.archive("local/sandbox", private=["@partner/ledger"])
+                with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
+                    said = compose.x_gravitee(archive.read("sandbox/addons/ledger/compose.yml").decode(), self.root)
+                self.assertEqual(said["private_from"], name)
 
     def test_a_copy_whose_block_the_lab_cannot_write_is_refused_naming_the_item(self):
         self.ledger("x-gravitee: null\n")
@@ -924,7 +978,33 @@ class Claims(Case):
         "decoy in a scalar": "x-other: |\n  x-gravitee:\n    name: decoy\nx-gravitee: {" + HEAD + ", copy_of: tour}\n" + BODY,
         "crlf": ("x-gravitee:\n  kind: playground\n  name: Evil\n  category: Other\n  description: d\n  copy_of: tour\n" + BODY).replace("\n", "\r\n"),
         "second document": "x-gravitee: {" + HEAD + "}\n" + BODY + "---\nx-gravitee: {" + HEAD + ", copy_of: tour}\n" + BODY,
+        # An include list as the Lab's own line reader would take it, in a string: leaving it out once dropped the copy_of after it
+        "include in a string": 'x-gravitee: {' + HEAD + ', note: "\ninclude:\n- a.yml\n  ", copy_of: tour, z: "\n"}\n' + BODY,
     }
+
+    def test_the_preview_blocks_each_forged_item_and_says_the_claim_the_judgement_read(self):
+        for name, text in self.FORGED.items():
+            with self.subTest(name):
+                try:
+                    preview = exports.receive(evil_zip(playground=text))
+                except CatalogError:
+                    continue   # not even read: nothing of it goes anywhere
+                reasons = [reason for one in preview["blocked"] if one["id"] == "@evil/evil" for reason in one["reasons"]]
+                said = service._held(preview["ticket"], "add")["said"]
+                self.assertTrue(reasons, "blocked, by the screen or by its claim")
+                if "@evil/evil" in said:   # read by Compose, as the Lab reads it once added: the claim is what it read
+                    self.assertIn(exports.TWIN_CLAIMED, reasons)
+                service.forget(preview["ticket"])
+
+    def test_the_include_list_in_a_string_is_a_claim_as_compose_reads_the_file_in_its_place(self):
+        file = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "playgrounds" / "evil" / "compose.yml"
+        file.parent.mkdir(parents=True)
+        file.write_text(self.FORGED["include in a string"], encoding="utf-8")
+        (file.parent / "a.yml").write_text("services: {}\n", encoding="utf-8")   # what the string names is there: read as it is
+        read = project.read_own(paths.unit_file("playground", "local/evil"))
+        self.assertEqual(exports.claims_twin(read["x-gravitee"]), exports.TWIN_CLAIMED)
+        self.assertEqual(compose.x_gravitee(file.read_text(encoding="utf-8"), file.parent), read["x-gravitee"],
+                         "the reader of labels reads what the Lab reads")
 
     def test_no_way_of_writing_copy_of_makes_a_twin(self):
         for name, text in self.FORGED.items():

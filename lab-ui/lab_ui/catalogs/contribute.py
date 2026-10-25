@@ -287,11 +287,14 @@ LOOK = 2 * bare.UNIT_FILES   # entries of a folder looked at before it is too la
 
 class Copy(NamedTuple):
     """What a share would put in a catalog: `files` {path in the catalog: (git mode, bytes)}, the compose file as it will be
-    written (`text`) and as it was (`kept`), and what keeps the item from being shared as it is (`problems`)."""
+    written (`text`) and as it was (`kept`), and what keeps the item from being shared as it is (`problems`). `folder`: where the
+    compose file is, which Compose reads `kept` in; `place`: (was, now, table), how `text` was written from `kept` (moves.repoint)."""
     files: Dict[str, Tuple[str, bytes]]
     text: str
     kept: str
     problems: List[str]
+    folder: str = ""
+    place: tuple = ()
 
 
 def _scratch(name) -> bool:
@@ -422,8 +425,9 @@ def collect(kind, slug, ns, source=LOCAL, moved=()) -> Copy:
     table = [(paths.unit_file(kind, uid), f"{paths.CATALOGS_DIR}/{ns}/{head}")] if kind == "setup" else [(before, after)]
     table += list(moved)
     text = moves.repoint(kept, before, after, table)
+    where, place = str((paths.ROOT / paths.unit_file(kind, uid)).parent), (before, after, table)
     if kind == "setup":
-        return Copy({head: ("100644", text.encode("utf-8"))}, text, kept, problems)
+        return Copy({head: ("100644", text.encode("utf-8"))}, text, kept, problems, where, place)
     base, named, machine, listing = str(paths.ROOT / before), _named(kept), [], {}
     for rel in sorted({*TOP, *TREES, *named}):
         listing.update({one: (mode, size) for one, mode, size in _walk(base, rel, problems, machine)})
@@ -446,7 +450,7 @@ def collect(kind, slug, ns, source=LOCAL, moved=()) -> Copy:
                 files[entry.path] = (entry.mode, content)
     problems += [MISSED.format(rel=one) for one in machine
                  if one != STATE and any(also == one or also.startswith(one + "/") for also in named)]
-    return Copy(files, text, kept, list(dict.fromkeys(problems)))
+    return Copy(files, text, kept, list(dict.fromkeys(problems)), where, place)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1041,13 +1045,14 @@ def unmark(text):
 CHAIN = 8   # the copies of copies a private origin is looked for through, at most: a longer or a looping chain says nothing
 
 
-def private_source(text, _seen=()):
+def private_source(text, folder=None, _seen=()):
     """(key, name, original) of the private catalog what an item holds comes from, else None. Its label says it
     (`x-gravitee.private_from`, written with the original when it was copied, moved, shared, exported or imported). An item made
     before there was a label says only whose copy it is (`x-gravitee.copy_of`), which may be a copy itself: that chain is followed
     through the items this machine has, to the first item of a private catalog of Git. A copy of what this machine does not have,
-    or cannot read, and a chain too long or that loops, are taken as private: nothing says otherwise."""
-    said, uid = _said(text or "")
+    or cannot read, and a chain too long or that loops, are taken as private: nothing says otherwise. `folder`: where the file is,
+    which Compose reads it in (_said)."""
+    said, uid = _said(text or "", folder)
     if said:
         name = said[:NAME_LIMIT]
         return name, name, None
@@ -1062,30 +1067,33 @@ def private_source(text, _seen=()):
     entry = registry.entry(ns)
     if entry is not None and entry.get("kind") == "git" and registry.lock_of(ns).get("audience") != "public":
         return ns, _catalog_name(ns), uid
-    data = None
+    data = where = None
     for kind in paths.KINDS if entry is not None else ():
         with contextlib.suppress(paths.NotFound, ValueError):
-            data = data or _read(paths.ROOT / paths.unit_file(kind, uid), bare.TEXT_FILE + 1)
+            if data is None:
+                where = paths.ROOT / paths.unit_file(kind, uid)
+                data = _read(where, bare.TEXT_FILE + 1)
     if data is None:
         return ns, _catalog_name(ns), uid   # the original is not on this machine
-    return private_source(data.decode("utf-8", "replace"), (*_seen, uid))
+    return private_source(data.decode("utf-8", "replace"), where.parent, (*_seen, uid))
 
 
-def _said(text):
-    """(private_from, copy_of) of an item's x-gravitee block as Compose reads it, the reader the Lab reads every item with; as the
-    Lab's own reading of its own writing (meta.py) only when Compose cannot read the file alone."""
+def _said(text, folder=None):
+    """(private_from, copy_of) of an item's x-gravitee block as Compose reads it in `folder`, where the item is, the reader the Lab
+    reads every item with; as the Lab's own reading of its own writing (meta.py) only when Compose cannot read the file there.
+    Without a folder it is read where nothing is, as a file that includes nothing."""
     try:
-        found = compose.alone(text).get("x-gravitee")
+        found = compose.x_gravitee(text, folder or compose.scratch())
     except compose.ComposeError:
         return block.value(text, "private_from"), block.value(text, "copy_of")
     found = found if isinstance(found, dict) else {}
     return (str(found["private_from"]) if found.get("private_from") else None), (str(found["copy_of"]) if found.get("copy_of") else None)
 
 
-def private_of(text, uid):
-    """The name of the private catalog what the item `uid` (its compose `text`) holds comes from: its label or its chain, else its
-    own catalog when that is a private catalog of Git; None when it is nobody's private content."""
-    source = private_source(text)
+def private_of(text, uid, folder=None):
+    """The name of the private catalog what the item `uid` (its compose `text`, in `folder`) holds comes from: its label or its
+    chain, else its own catalog when that is a private catalog of Git; None when it is nobody's private content."""
+    source = private_source(text, folder)
     if source:
         return source[1]
     try:
@@ -1113,34 +1121,53 @@ def mark(text, uid):
 
 def _unmarked(copy, kind, slug, private=None, name=None):
     """The copy without `x-gravitee.copy_of`: whose copy an item of this machine is, which an item of a catalog never says; and
-    with `private`, the name of the private catalog what it holds comes from, as its label, which then goes with it. Checked
-    (`rewritten`): the label is there and nothing else changed, else the refusal naming the item (`name`)."""
-    text = labelled(unmark(copy.text), private) if private else unmark(copy.text)
-    if text == copy.text and not private:
+    with `private`, the name of the private catalog what it holds comes from, as its label, which then goes with it. The change is
+    made to the file as it is (`kept`) and checked as Compose reads it there (`rewritten`), also when the Lab's reader sees nothing
+    to change, then written for its new place as `text` was (`place`): else the refusal naming the item (`name`)."""
+    edited = labelled(unmark(copy.kept), private) if private else unmark(copy.kept)
+    rewritten(copy.kept, edited, {"copy_of": None, **({"private_from": private} if private else {})}, name or slug,
+              "its private label and whose copy it is" if private else "whose copy it is", copy.folder)
+    if edited == copy.kept:
         return copy
-    rewritten(copy.text, text, {"copy_of": None, **({"private_from": private} if private else {})}, name or slug)
-    if text == copy.text:
-        return copy
+    text = moves.repoint(edited, *copy.place) if copy.place else edited
     head = next(path for path in copy.files if path == f"setups/{slug}.yml" or path == f"{kind}s/{slug}/compose.yml")
     files = dict(copy.files)
     files[head] = (files[head][0], text.encode("utf-8"))
     return copy._replace(files=files, text=text)
 
 
-NOT_WRITTEN = ("{name}: the Lab cannot write {what} in this file. Fix: write its x-gravitee block as plain key: value lines (in a "
-               "catalog, ask its author to), then try again.")
-
-
-def rewritten(before, after, changed, name, what="its private label and whose copy it is"):
-    """What the Lab wrote in a compose text (`after`, from `before`), checked as the Lab reads it, with Compose: its x-gravitee is
-    the one of `before` with the keys of `changed` set to their values (None: gone, or empty) and nothing else, and it still
-    loads. Else the refusal that names the item: a label or a copy_of the Lab could not write is never left unsaid."""
+def _unmarked_or_said(copy, kind, slug, private, name):
+    """_unmarked for a share: a file Compose cannot read as it is is a problem of the copy, said with the others, which stops the
+    share as they do."""
     try:
-        old = compose.alone(before).get("x-gravitee")
-        new = compose.alone(after).get("x-gravitee")
-    except compose.ComposeError:
-        old = new = None
-    old = old if isinstance(old, dict) else {}
+        return _unmarked(copy, kind, slug, private, name)
+    except CatalogError as error:
+        if error.code != "label_unread":
+            raise
+        return copy._replace(problems=[*copy.problems, error.message])
+
+
+NOT_WRITTEN = ("{name}: the Lab cannot write {what} in this file. Fix: write its x-gravitee as one block of plain key: value "
+               "lines, in a file of one YAML document (in a catalog, ask its author to), then try again.")
+NOT_READ = "{name}: its compose file cannot be read: {error}. Fix: correct it so that docker compose config reads it, then try again."
+
+
+def rewritten(before, after, changed, name, what="its private label and whose copy it is", folder=None):
+    """What the Lab wrote in a compose text (`after`, from `before`), checked as the Lab reads it, with Compose in `folder`, where
+    the file is: its x-gravitee is the one of `before` with the keys of `changed` set to their values (None: gone, or empty) and
+    nothing else, and it still loads. Each text is read once (compose.x_gravitee). Else the refusal that names the item and says
+    why: a file Compose cannot read as it is (`label_unread`, NOT_READ), or a label or a copy_of the Lab could not write, or whose
+    writing broke the file (`label_failed`, NOT_WRITTEN): never left unsaid."""
+    where = folder or compose.scratch()
+    try:
+        old = compose.x_gravitee(before, where)
+    except compose.ComposeError as error:
+        raise CatalogError("label_unread", NOT_READ.format(name=name, error=str(error)[:120].rstrip(".")), 409) from None
+    try:
+        new = old if after == before else compose.x_gravitee(after, where)
+    except compose.ComposeError:   # what the Lab wrote broke the file
+        raise CatalogError("label_failed", NOT_WRITTEN.format(name=name, what=what), 409) from None
+    old, new = (old if isinstance(old, dict) else {}), ({} if new is None else new)   # no block: nothing it says
     wanted = {**{key: value for key, value in old.items() if key not in changed},
               **{key: value for key, value in changed.items() if value is not None}}
     if not isinstance(new, dict) or {key: value for key, value in new.items() if value != "" or key not in changed} != wanted:
@@ -1300,16 +1327,16 @@ def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False)
         copy = collect(kind, slug, to, moved=moved)
         along = [(k, one, s, collect(k, s, to, source, moved=moved)) for k, one, s, source in members]
         for k, one, _, other in [(kind, uid, slug, copy), *along] if row["audience"] == "public" else ():
-            source = private_source(other.text)   # the copy is the private catalog's content, whatever it names
+            source = private_source(other.kept, other.folder)   # the copy is the private catalog's content, whatever it names
             if source:
                 raise _refusal("share_private_copy", name=named(k, one), private=source[1])
         # Whose copy it is goes with a copy of a private catalog's content into another catalog (not Public: refused above), so that
         # it is still that catalog's content there; else an item of a catalog says nothing of it
         # What is private content says so in the catalog it goes to, unless it goes back to that very catalog
-        private = {(k, s): private_of(other.text, one) for k, one, s, other in [(kind, uid, slug, copy), *along]}
+        private = {(k, s): private_of(other.kept, one, other.folder) for k, one, s, other in [(kind, uid, slug, copy), *along]}
         own = row["name"]
-        copy = _unmarked(copy, kind, slug, None if private[(kind, slug)] == own else private[(kind, slug)], name)
-        along = [(k, one, s, _unmarked(other, k, s, None if private[(k, s)] == own else private[(k, s)], named(k, one)))
+        copy = _unmarked_or_said(copy, kind, slug, None if private[(kind, slug)] == own else private[(kind, slug)], name)
+        along = [(k, one, s, _unmarked_or_said(other, k, s, None if private[(k, s)] == own else private[(k, s)], named(k, one)))
                  for k, one, s, other in along]
         renames = _renames([(kind, slug, copy), *[(k, s, c) for k, _, s, c in along]], to)
         copy = _renamed(copy, kind, slug, renames)

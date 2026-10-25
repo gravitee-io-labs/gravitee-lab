@@ -1425,3 +1425,48 @@ class Compose5(ProjectFolder):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(have_compose(), "needs docker compose")
+class XGravitee(ProjectFolder):
+    """The x-gravitee block of a text, as Compose reads it in the item's folder: from its input, nothing written, bounded."""
+
+    def setUp(self):
+        super().setUp()
+        self.write("addons/base/compose.yml", "services:\n  base:\n    image: busybox\n")
+        self.here = self.root / "playgrounds" / "mine"
+        self.here.mkdir(parents=True)
+
+    def test_every_way_of_writing_an_include_is_read_where_the_item_is(self):
+        block = "x-gravitee: {kind: playground, name: Mine}\n"
+        for name, include in {"list": "include:\n  - ../../addons/base/compose.yml\n",
+                              "path list": "include:\n  - path:\n      - ../../addons/base/compose.yml\n",
+                              "flow": "include: [../../addons/base/compose.yml]\n",
+                              "quoted key": '"include":\n  - ../../addons/base/compose.yml\n'}.items():
+            with self.subTest(name):
+                self.assertEqual(compose.x_gravitee(include + block, self.here), {"kind": "playground", "name": "Mine"})
+        self.assertEqual(list(self.here.iterdir()), [], "nothing is written where the item is")
+
+    def test_a_text_that_takes_too_long_or_answers_too_much_cannot_be_read(self):
+        os.mkfifo(self.here / "never")   # a file that never ends: Compose waits on it
+        self.patch(compose, "ALONE_TIMEOUT", 2)
+        started = time.monotonic()
+        with self.assertRaisesRegex(compose.ComposeError, "did not answer within 2 s"):
+            compose.x_gravitee("include: [never]\nx-gravitee: {kind: addon}\n", self.here)
+        self.assertLess(time.monotonic() - started, 10)
+        self.patch(compose, "ALONE_OUTPUT", 10)
+        with self.assertRaisesRegex(compose.ComposeError, "^Compose answered more than an item can hold$"):
+            compose.x_gravitee("x-gravitee: {kind: addon, name: Long}\n", self.here)
+
+    def test_the_same_text_in_the_same_folder_is_read_once_and_a_file_raw_read_is_not_read_again(self):
+        text = "x-gravitee: {kind: addon, name: Once}\nservices:\n  once:\n    image: busybox\n"
+        real, runs = compose.run, []
+        self.patch(compose, "run", lambda cmd, **more: runs.append(cmd) or real(cmd, **more))
+        first = compose.x_gravitee(text, self.here)
+        first["name"] = "changed by its caller"
+        self.assertEqual(compose.x_gravitee(text, self.here), {"kind": "addon", "name": "Once"})
+        self.assertEqual(len(runs), 1)
+        self.write("addons/read/compose.yml", text.replace("Once", "Read"))
+        compose.raw("addons/read/compose.yml")
+        self.assertEqual(compose.x_gravitee(text.replace("Once", "Read"), self.root / "addons" / "read"), {"kind": "addon", "name": "Read"})
+        self.assertEqual(len(runs), 2, "raw's reading answers")
