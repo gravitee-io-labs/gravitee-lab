@@ -16,16 +16,25 @@ ANCHOR = re.compile(r"[ \t]*(?:&[^\s{\[,]+[ \t]*)?")
 MERGE = "<<"
 
 
+def _opens(text, index, start):
+    """Whether the quote at `index` opens a quoted scalar: it does where a scalar starts (after the brace, a comma, a colon or the
+    start of a line), not inside a plain one (`a partner's entries`)."""
+    back = index - 1
+    while back >= start and text[back] in " \t":
+        back -= 1
+    return back < start or text[back] in "{[,:\n"
+
+
 def _scan(text, at):
     """The index where the flow collection opened at `at` closes, quotes, comments and nesting read as YAML reads them; -1."""
     depth, index, size = 0, at, len(text)
     while index < size:
         char = text[index]
-        if char == '"':
+        if char == '"' and _opens(text, index, at):
             index += 1
             while index < size and text[index] != '"':
                 index += 2 if text[index] == "\\" else 1
-        elif char == "'":
+        elif char == "'" and _opens(text, index, at):
             index += 1
             while index < size and not (text[index] == "'" and text[index + 1:index + 2] != "'"):
                 index += 2 if text[index] == "'" else 1
@@ -48,7 +57,7 @@ def _flow_parts(text, start, end):
     parts, depth, index, begin = [], 0, start, start
     while index < end:
         char = text[index]
-        if char in "\"'":
+        if char in "\"'" and _opens(text, index, start):
             quote, index = char, index + 1
             while index < end and text[index] != quote:
                 index += 2 if (quote == '"' and text[index] == "\\") or (quote == "'" and text[index:index + 2] == "''") else 1

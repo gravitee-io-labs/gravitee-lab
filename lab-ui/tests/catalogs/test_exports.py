@@ -407,6 +407,14 @@ class FromCatalogs(Case):
                 said = compose.alone(text).get("x-gravitee")
                 self.assertEqual((said["private_from"], said["description"]), ("Partner fixture", said["description"]))
 
+    def test_an_apostrophe_in_a_flow_block_is_no_quote_and_the_label_is_written(self):
+        from lab_ui.docker import compose
+        self.ledger("x-gravitee: {kind: addon, name: Ledger, category: Other, description: Keeps a partner's entries}\n")
+        made = exports.archive("local/sandbox", private=["@partner/ledger"])
+        with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
+            said = compose.alone(archive.read("sandbox/addons/ledger/compose.yml").decode()).get("x-gravitee")
+        self.assertEqual((said["private_from"], said["description"]), ("Partner fixture", "Keeps a partner's entries"))
+
     def test_a_copy_whose_block_the_lab_cannot_write_is_refused_naming_the_item(self):
         self.ledger("x-gravitee: null\n")
         with self.assertRaises(CatalogError) as caught:
