@@ -234,15 +234,12 @@ def move(kind, uid, together, allow=False):
             text = unmark((source / compose_rel).read_text(encoding="utf-8"))   # whose copy it was is said by no file of a catalog
             texts[(k, one)] = moves.repoint(text, f"{paths.CATALOGS_DIR}/{ns}/{here}", f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{here}", table)
         # The items of Personal it replaces are put aside first, whole, and come back whole if the move fails midway
-        aside, made, put = paths.ROOT / paths.LAB_DIR / f".move-{secrets.token_hex(4)}", [], []
+        aside, put = set_aside([_rel(k, _slug(one)) for k, one in moving])
+        made = []
         try:
             for k, one in moving:
                 rel = _rel(k, _slug(one))
                 target = home / rel
-                if os.path.lexists(target):
-                    (aside / rel).parent.mkdir(parents=True, exist_ok=True)
-                    os.rename(target, aside / rel)
-                    put.append(rel)
                 made.append(target)
                 if k == "setup":
                     target.parent.mkdir(parents=True, exist_ok=True)
@@ -258,16 +255,9 @@ def move(kind, uid, together, allow=False):
                     shutil.copy2(path, target / inside)
                 (target / "compose.yml").write_text(texts[(k, one)], encoding="utf-8")
         except BaseException:
-            _take_back(made)
-            for rel in put:
-                os.rename(aside / rel, home / rel)
-            shutil.rmtree(aside, ignore_errors=True)
+            put_back(aside, put, made)
             raise
-        for rel in put:   # the person's settings, secrets and state stay where the moving item has none
-            for name in MACHINE_FILES if (aside / rel).is_dir() else ():
-                if os.path.lexists(aside / rel / name) and not os.path.lexists(home / rel / name):
-                    os.rename(aside / rel / name, home / rel / name)
-        shutil.rmtree(aside, ignore_errors=True)
+        warnings = [merge_back(aside, put, _names(units, moving))]
         # The import loses what moved; what Docker made there and cannot be deleted is said, and the move completes
         stuck = False
         for k, one in moving:
@@ -284,14 +274,97 @@ def move(kind, uid, together, allow=False):
         left = [path for path in (*source.glob("playgrounds/*/compose.yml"), *source.glob("addons/*/compose.yml"),
                                   *source.glob("setups/*.yml"))]
         project.forget()
-        warning = None
         if not left and registry.entry(ns):
-            warning = service.remove(ns, keep_settings=False).get("warning")   # what it held moved: nothing of it is kept
+            warnings.append(service.remove(ns, keep_settings=False).get("warning"))   # what it held moved: nothing of it is kept
         elif stuck:
-            warning = STUCK.format(where=f"{paths.IMPORTS_DIR}/{ns}")
+            warnings.append(STUCK.format(where=f"{paths.IMPORTS_DIR}/{ns}"))
         project.forget()
+    warning = " ".join(one for one in warnings if one)
     return {"moved": [{"kind": k, "id": f"{paths.LOCAL}/{_slug(one)}"} for k, one in moving], "id": f"{paths.LOCAL}/{_slug(uid)}",
             **({"warning": warning} if warning else {})}
+
+
+def _names(units, nodes):
+    """{place in Personal: name} of the items of a change, for the words of a warning."""
+    return {_rel(k, _slug(one)): _name(units, (k, one)) for k, one in nodes}
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# What a change replaces in Personal: set aside whole, put back whole when it fails, the person's files merged back once done
+# ---------------------------------------------------------------------------------------------------------------------
+
+ASIDE = ".move-"   # a folder of .lab that holds the items of Personal a change replaces, until it is done
+NOT_BACK = ("Some settings of {names} could not come back and are in {where}: copy them into the item in Personal, then remove "
+            "that folder with administrator rights.")
+
+
+def set_aside(rels):
+    """The items of Personal at `rels` (their folder, or the file of a setup, relative to Personal) put aside whole, in a folder
+    of the Lab's own beside Personal: answers (that folder, [the rels put aside]). What exists is renamed, never copied."""
+    home = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL
+    aside, put = paths.ROOT / paths.LAB_DIR / f"{ASIDE}{secrets.token_hex(4)}", []
+    try:
+        for rel in rels:
+            if os.path.lexists(home / rel):
+                (aside / rel).parent.mkdir(parents=True, exist_ok=True)
+                os.rename(home / rel, aside / rel)
+                put.append(rel)
+    except BaseException:
+        put_back(aside, put, [])
+        raise
+    return aside, put
+
+
+def put_back(aside, put, made):
+    """A change that failed midway: what it wrote in Personal goes, and what it set aside comes back as it was."""
+    home = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL
+    _take_back(made)
+    for rel in put:
+        os.rename(aside / rel, home / rel)
+    shutil.rmtree(aside, ignore_errors=True)
+
+
+def merge_back(aside, put, names):
+    """A change that is done: the person's settings, secrets and state of each item it replaced come back file by file into the
+    new item, and the person's file is the one kept where both have the same; the rest of what was set aside goes. Answers the
+    warning of what could not come back, or could not be deleted, or None. `names`: {rel: name}, for its words."""
+    home, failed = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL, []
+    for rel in put:
+        if (aside / rel).is_dir() and not (aside / rel).is_symlink() and (home / rel).is_dir():
+            failed += [rel for name in MACHINE_FILES if _merge(aside / rel / name, home / rel / name)]
+    if failed:
+        return NOT_BACK.format(names=", ".join(dict.fromkeys(names.get(rel, rel) for rel in failed)),
+                               where=f"{paths.LAB_DIR}/{aside.name}")
+    shutil.rmtree(aside, ignore_errors=True)
+    return STUCK.format(where=f"{paths.LAB_DIR}/{aside.name}") if os.path.lexists(aside) else None
+
+
+def _merge(source: Path, target: Path):
+    """The person's file or folder at `source` brought to `target`, file by file, theirs kept where both have one: answers what
+    could not be brought ([paths]), which stays where it is."""
+    if not os.path.lexists(source):
+        return []
+    if source.is_dir() and not source.is_symlink():
+        if not os.path.lexists(target):
+            with contextlib.suppress(OSError):
+                os.rename(source, target)
+                return []
+        if os.path.lexists(target) and not target.is_dir():
+            target.unlink()
+        target.mkdir(parents=True, exist_ok=True)
+        return [one for child in sorted(source.iterdir()) for one in _merge(child, target / child.name)]
+    if target.is_dir() and not target.is_symlink():
+        shutil.rmtree(target, ignore_errors=True)
+    try:
+        os.replace(source, target)
+        return []
+    except OSError:
+        pass
+    try:
+        shutil.copy2(source, target)   # what Docker made as root may be read, not moved
+    except OSError:
+        return [source]
+    return []
 
 
 STUCK = "Some files were created by Docker and could not be deleted. Remove the folder {where} with administrator rights."

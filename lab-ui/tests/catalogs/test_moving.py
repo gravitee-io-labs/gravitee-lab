@@ -185,6 +185,27 @@ class Moving(Case):
         self.assertIn("local/scratch", found["addons"])
         self.assertNotIn("@sandbox/scratch", found["addons"])
 
+    def test_the_persons_files_of_the_item_it_replaces_are_merged_file_by_file_and_theirs_kept_on_a_clash(self):
+        fixtures.local(self, "sandbox")
+        mine = self.local("playgrounds/sandbox")
+        (mine / "secrets").mkdir()
+        (mine / "secrets/b").write_text("my own b\n")
+        (mine / "secrets/both").write_text("mine\n")
+        (mine / ".env").write_text("MINE=1\n")
+        imported = paths.ROOT / exports.IMPORTS_DIR / "sandbox" / "playgrounds/sandbox"
+        (imported / "secrets").mkdir()
+        (imported / "secrets/a").write_text("import a\n")
+        (imported / "secrets/both").write_text("import\n")
+        (imported / ".state").mkdir()
+        (imported / ".state/created.json").write_text("{}\n")
+        project.forget()
+        moving.move("playground", "@sandbox/sandbox", False)
+        self.assertEqual({path.relative_to(mine).as_posix(): path.read_text() for path in mine.rglob("*")
+                          if path.is_file() and path.relative_to(mine).parts[0] in (".env", "secrets", ".state")},
+                         {".env": "MINE=1\n", "secrets/a": "import a\n", "secrets/b": "my own b\n", "secrets/both": "mine\n",
+                          ".state/created.json": "{}\n"})
+        self.assertFalse(list((paths.ROOT / paths.LAB_DIR).glob(".move-*")))
+
     def test_a_move_waits_for_another_change_of_catalogs(self):
         held(self)
         with self.assertRaises(CatalogError) as caught:

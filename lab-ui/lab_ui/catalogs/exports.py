@@ -707,6 +707,11 @@ def _personal_now(kind, rel):
         return None
 
 
+def _same_in_personal(kind, slug, rel, name, files):
+    now = _personal_now(kind, rel)
+    return now is not None and now.encode("utf-8") == files[_compose_rel(kind, rel)][1]
+
+
 def _personal_plan(items):
     """What going to Personal does to the items of Personal (`_for_personal`): {replaces: [names], same: [names]}."""
     replaces, same = [], []
@@ -715,17 +720,6 @@ def _personal_plan(items):
         if now is not None:
             (same if now.encode("utf-8") == files[_compose_rel(kind, rel)][1] else replaces).append(name)
     return {"replaces": replaces, "same": same}
-
-
-def _clear(target: Path):
-    """The folder of an item of Personal emptied of what its files were, keeping the person's settings, secrets and state."""
-    for child in target.iterdir():
-        if child.name in MACHINE_FILES:
-            continue
-        if child.is_dir() and not child.is_symlink():
-            shutil.rmtree(child)
-        else:
-            child.unlink()
 
 
 def to_personal(ticket, allow=False):
@@ -764,30 +758,28 @@ def _to_personal(ticket, allow=False):
         if held:
             raise _fail("held", held, 409)
     home, made = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL, []
+    going = [one for one in items if not _same_in_personal(*one)]   # the same item is used as Personal has it
+    # The items of Personal it replaces are set aside whole, and come back whole if a write fails (as for a Move)
+    aside, put = moving.set_aside([rel for _, _, rel, _, _ in going])
     try:
-        for kind, slug, rel, name, files in items:
-            now = _personal_now(kind, rel)
-            if now is not None and now.encode("utf-8") == files[_compose_rel(kind, rel)][1]:
-                continue   # the same item: Personal's is used
-            if not os.path.lexists(home / rel):
-                made.append(home / rel)
-            if kind != "setup" and (home / rel).is_dir():
-                _clear(home / rel)
+        for kind, slug, rel, name, files in going:
+            made.append(home / rel)
             for path, (mode, content) in files.items():
                 target = home / path
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(content)
                 os.chmod(target, mode)
     except BaseException:
-        moving._take_back(made)   # the ticket stays: the person may try again
+        moving.put_back(aside, put, made)   # the ticket stays: the person may try again
         raise
+    warning = moving.merge_back(aside, put, {rel: name for _, _, rel, name, _ in going})
     service.forget(ticket)
     shutil.rmtree(folder, ignore_errors=True)
     stayed = _kept_to_personal(top, data.get("content"), items)
     project.forget()
     playground = next((f"{paths.LOCAL}/{slug}" for kind, slug, _, _, _ in items if kind == "playground"), None)
     return {"items": [{"kind": kind, "id": f"{paths.LOCAL}/{slug}"} for kind, slug, _, _, _ in items], "playground": playground,
-            **({"kept": stayed} if stayed else {})}
+            **({"kept": stayed} if stayed else {}), **({"warning": warning} if warning else {})}
 
 
 def _kept_to_personal(top, content, items):

@@ -596,3 +596,29 @@ class Untrusted(Case):
         self.assertEqual(message, "Evil cannot be read: Compose does not load its compose file. Fix: import it to Imported, where "
                                   "the Lab says why.")
         self.assertFalse(self.personal().exists())
+
+    def test_an_item_of_personal_it_replaces_comes_back_whole_when_the_import_fails(self):
+        mine = self.personal("playgrounds/evil")
+        mine.mkdir(parents=True)
+        (mine / "compose.yml").write_text("x-gravitee: {kind: playground, name: Evil, category: Other, description: mine}\nservices: {}\n")
+        (mine / "guide.md").write_text("my guide\n")
+        (mine / ".env").write_text("MINE=1\n")
+        project.forget()
+        preview = exports.receive(evil_zip(playground=evil_playground(privileged=False),
+                                           extra={"evil/playgrounds/evil/guide.md": b"their guide\n"}))
+        self.assertEqual(preview["personal"]["replaces"], ["Evil"])
+        before = {path.name: path.read_text() for path in mine.rglob("*") if path.is_file()}
+        write, calls = exports.Path.write_bytes, []
+
+        def failing(path, *args, **how):
+            calls.append(path)
+            if len(calls) > 1:
+                raise OSError(28, "No space left on device")
+            return write(path, *args, **how)
+        self.patch(exports.Path, "write_bytes", failing)
+        with self.assertRaises(OSError):
+            exports.to_personal(preview["ticket"])
+        self.assertEqual({path.name: path.read_text() for path in mine.rglob("*") if path.is_file()}, before)
+        self.patch(exports.Path, "write_bytes", write)
+        exports.to_personal(preview["ticket"])
+        self.assertEqual(((mine / "guide.md").read_text(), (mine / ".env").read_text()), ("their guide\n", "MINE=1\n"))
