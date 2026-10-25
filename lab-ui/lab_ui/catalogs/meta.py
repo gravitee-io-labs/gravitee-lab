@@ -236,13 +236,16 @@ def drop(text, key, override=False):
 
 def put(text, key, value_):
     """The text with `key: "value"` first in its x-gravitee block (any other `key` dropped); None when it has no block."""
-    text = drop(text, key)
     style, entries, block = _entries(text or "")
+    if any(name == key for name, _, _ in entries):   # read again only when there was one to drop
+        text = drop(text, key)
+        style, entries, block = _entries(text or "")
     if block is None or style == "alias":
         return None
     quoted = '"' + str(value_).replace("\\", "").replace('"', "").replace("\n", " ") + '"'
     if style == "flow":
         rest = text[block[1] + 1:block[2]]
         return text[:block[1] + 1] + f"{key}: {quoted}" + (", " + rest.lstrip(" ") if rest.strip() else "") + text[block[2]:]
-    indent = _lines(text, block[1], block[2])[0] or 2
+    first = text[entries[0][1]:entries[0][2]] if entries else ""
+    indent = (len(first) - len(first.lstrip(" \t"))) or 2
     return text[:block[1]] + " " * indent + f"{key}: {quoted}\n" + text[block[1]:]

@@ -54,7 +54,7 @@ class Block(Case):
         for name, text in shapes.items():
             for call in (lambda: meta.value(text, "copy_of"), lambda: meta.drop(text, "copy_of", override=True),
                          lambda: meta.put(text, "private_from", "x")):
-                with self.subTest(name):
-                    started = time.monotonic()
+                with self.subTest(name):   # the time of this process, not the clock's: the suite runs several at once
+                    started = time.process_time()
                     call()
-                    self.assertLess(time.monotonic() - started, 1.0)
+                    self.assertLess(time.process_time() - started, 1.0)
