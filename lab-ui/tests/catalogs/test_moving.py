@@ -263,6 +263,23 @@ class Moving(Case):
         self.assertTrue((paths.ROOT / exports.IMPORTS_DIR / "sandbox/playgrounds/sandbox/compose.yml").is_file())
         self.assertFalse(list((paths.ROOT / paths.LAB_DIR).glob(".swap-*")), "no swap is left half in")
 
+    def test_an_item_the_check_cannot_read_once_placed_undoes_the_swap_and_says_why(self):
+        fixtures.local(self, "sandbox")
+        mine = self.local("playgrounds/sandbox")
+        before = self.files_of(mine)
+        project.forget()
+        real = project.read_own
+        self.patch(moving.project, "read_own", lambda file: (None, f"open {paths.ROOT}/shared/x.yml: no such file or directory")
+                   if "scratch" in file else real(file))
+        with self.assertRaises(CatalogError) as caught:
+            moving.move("playground", "@sandbox/sandbox", True)
+        self.assertEqual((caught.exception.code, caught.exception.message), ("placed_unread", "Scratch could not be read once in "
+                         "Personal (open shared/x.yml: no such file or directory), so Personal is as it was. Fix: keep it in "
+                         "Imported, where the Lab says why."))
+        self.assertEqual(self.files_of(mine), before)
+        self.assertFalse(self.local("addons/scratch").exists())
+        self.assertFalse(list((paths.ROOT / paths.LAB_DIR).glob(".swap-*")))
+
     def test_the_check_of_a_move_reads_the_items_it_placed_and_not_the_project(self):
         read, loads = [], []
         real_read, real_load = project.read_own, project.load

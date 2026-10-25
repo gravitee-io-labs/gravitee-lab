@@ -46,12 +46,13 @@ import posixpath
 import secrets
 import shutil
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .. import paths
 from ..library import moves, personal as personals, project
 from . import registry, resolve, service
-from .contribute import labelled, mark as _mark, private_of, rewritten, unmark
+from .contribute import _cause, labelled, mark as _mark, private_of, rewritten, unmark
 from .registry import CatalogError
 
 # The rules of the policy that only say an item takes more of this machine (class H), and the one that says it needs such an item
@@ -177,14 +178,24 @@ def _claims(kind, uid):
     return isinstance(said, dict) and bool(said.get("copy_of"))
 
 
+UNREAD = "{names} could not be read once in Personal ({why}), so Personal is as it was. Fix: keep it in Imported, where the Lab says why."
+
+
 def placed_without_claims(rels):
     """The check of a swap from a file (a move, an import to Personal), once its items are in Personal: each of them read as the
-    project reads it (project.read_own, the one reader of twins), none says it is a copy. A claim found undoes the swap
-    (CatalogError, `swap_in`). Only the items placed are read: the project is not read again for them."""
+    project reads it (project.read_own, the one reader of twins), side by side, and none says it is a copy. An item it cannot read,
+    or a claim, undoes the swap (CatalogError, `swap_in`) and says why. Only the items placed are read: not the whole project."""
+    def one(rel):
+        kind, slug = ("setup", posixpath.basename(rel)[:-4]) if rel.startswith("setups/") else (rel.split("/")[0][:-1], posixpath.basename(rel))
+        return rel, project.read_own(paths.unit_file(kind, f"{paths.LOCAL}/{slug}"))
+
     def check():
-        for rel in rels:
-            kind, slug = ("setup", posixpath.basename(rel)[:-4]) if rel.startswith("setups/") else (rel.split("/")[0][:-1], posixpath.basename(rel))
-            said = (project.read_own(paths.unit_file(kind, f"{paths.LOCAL}/{slug}")) or {}).get("x-gravitee")
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            read = list(pool.map(one, rels))
+        for rel, (config, why) in read:
+            if config is None:
+                raise _fail("placed_unread", UNREAD.format(names=_names_of([rel]), why=_cause(why)), 409)
+            said = config.get("x-gravitee")
             if isinstance(said, dict) and said.get("copy_of"):
                 raise _fail("twin_claimed", f"{_names_of([rel])} {CLAIMED}")
     return check

@@ -2047,18 +2047,20 @@ _lock = threading.RLock()   # reentrant: whoever holds it exclusively (exclusive
 
 def read_own(file):
     """A unit file of this machine read as gather() reads it, alone and now: its include closure followed as gather follows it,
-    from what the last gather screened of the catalogs, then Compose's raw reading of it (the includes that are not there left
-    out). None when gather would not read it (its closure reaches what must not be given to Compose) or Compose cannot. What a
-    change put in Personal is checked with this, one file at a time, without reading the project again."""
+    from what the last gather screened of the catalogs, then Compose's raw reading of it (the includes that are not there read as
+    nothing). (config, None), or (None, why) when gather would not read it (its closure reaches what must not be given to Compose)
+    or Compose cannot. What a change put in Personal is checked with this, one file at a time, without reading the project again."""
     with _lock:
         inputs = _cache.get("inputs")
     if inputs is None:
         inputs = loaded()[1]
     bad, clean = set(inputs.get("bad") or ()), set(inputs.get("clean") or ())
     reach = _reach(file, bad, clean)
-    if held_reasons(reach, bad):
-        return None
-    return _raw(file, skip=reach["missing"])[0] if reach["missing"] else _raw(file)[0]
+    held = held_reasons(reach, bad)
+    if held:
+        return None, held[0]
+    config, problem = _raw(file, skip=reach["missing"]) if reach["missing"] else _raw(file)
+    return config, (None if config is not None else (problem or {}).get("message") or "Compose cannot read it")
 
 
 def loaded():

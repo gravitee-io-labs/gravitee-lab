@@ -709,6 +709,12 @@ def to_personal(ticket, allow=False):
     blocked = data.get("blocked") or []
     if blocked:
         raise _fail("blocked_personal", f"{', '.join(blocked)} cannot run: import to Imported, where it stays blocked.", 409)
+    claimed = data.get("claimed") or []
+    if claimed:
+        one = len(claimed) == 1
+        raise _fail("twin_claimed", f"{', '.join(claimed)} {'says it is a copy' if one else 'say they are copies'} of an item of this "
+                                    f"Lab, which only this Lab writes: {'it' if one else 'they'} cannot go to Personal. "
+                                    f"{'It runs' if one else 'They run'} in Imported.", 409)
     uses = data.get("uses") or []
     if uses and allow is not True:
         raise _fail("allow_machine", f"{', '.join(uses)} uses this machine: allow it to import it to Personal.")
@@ -898,7 +904,10 @@ def _judged_import(final, top, content, reused):
             claim = claims_twin(said.get(f"@{top}/{slug}"))
             if claim:
                 preview["blocked"].append({"kind": kind, "id": f"@{top}/{slug}", "name": name, "reasons": [claim]})
-    blocked = [one.get("name") for one in preview.get("blocked") or ()]
+    # What only says it is a copy runs in Imported, where copy_of is not read: it is kept from Personal with words of its own
+    other = {one.get("name") for one in preview.get("blocked") or () if any(reason != TWIN_CLAIMED for reason in one.get("reasons") or ())}
+    blocked = list(dict.fromkeys(one.get("name") for one in preview.get("blocked") or () if one.get("name") in other))
+    claimed = list(dict.fromkeys(one.get("name") for one in preview.get("blocked") or () if one.get("name") not in other))
     # What Personal would run unjudged that takes more of this machine: the person allows it, as for a Move
     named = {f"@{top}/{slug}": name for _, slug, _, name, _ in items}
     uses = list(dict.fromkeys(named.get(one.get("id"), one.get("name")) for one in (preview.get("rows") or {}).get("uses_machine") or ()))
@@ -906,7 +915,8 @@ def _judged_import(final, top, content, reused):
         service.forget(preview.get("ticket"))
         raise _fail("import_changed", "The files of this import changed while it was read. Fix: choose its file again.", 409)
     shown = _kept_view(top, content)
-    service.note(preview.get("ticket"), imported=True, blocked=blocked, unread=unread, uses=uses, digest=placed, content=content)
+    service.note(preview.get("ticket"), imported=True, blocked=blocked, claimed=claimed, unread=unread, uses=uses, digest=placed,
+                 content=content)
     return {**preview, "imported": True, "reused": reused, "personal": _personal_plan(items), **({"kept": shown} if shown else {})}
 
 

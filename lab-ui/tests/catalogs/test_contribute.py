@@ -576,7 +576,8 @@ class Judged(Seam):
         self.item("addon", "plain-file", "Plain file", "include:\n  - ../../../../seeder/Dockerfile\nservices: {}\n")
         problems = self.share("local/plain-file", check_only=True)["problems"]
         self.assertIn("Includes Dockerfile, which is not an item of a catalog.", problems)
-        self.assertTrue([one for one in problems if one.startswith("Plain file: its compose file cannot be read: ")], problems)
+        self.assertIn("Plain file: its compose file cannot be read (open .lab/seeder/Dockerfile: no such file or directory). Fix: "
+                      "correct it so that docker compose config reads it, then try again.", problems, "a path of the Lab's folder")
 
     def test_the_rules_of_an_item_of_a_catalog_are_asked_of_the_personal_file_and_their_lines_are_problems(self):
         file = ".lab/catalogs/local/addons/scratch/compose.yml"

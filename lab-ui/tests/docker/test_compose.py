@@ -8,7 +8,6 @@ installed."""
 import json
 import os
 import random
-import re
 import shlex
 import shutil
 import signal
@@ -295,9 +294,8 @@ class Raw(ProjectFolder):
 
 
 class Copies(ProjectFolder):
-    """raw reads a copy of a file, in a folder of its own, when the file has to be written again for Compose."""
-
-    COPY = re.compile(r'path: "([^"]+)"')
+    """raw reads the project through an overlay (compose._overlay) when a file has to be read as something else: a folder of
+    its own whose entries link to the project's, but for the files written in it."""
 
     def setUp(self):
         super().setUp()
@@ -306,30 +304,29 @@ class Copies(ProjectFolder):
         self.patch(compose, "scratch", return_value=self.scratch)
 
     def read(self, path, fails=None, **more):
-        """raw(path, ...) with Compose replaced: the arguments it was given, and the text of the files it was told to
-        read and of the copies they include, as they were while it ran. `fails`: what Compose says, from the
-        arguments."""
-        seen = {"texts": {}}
+        """raw(path, ...) with Compose replaced: the arguments it was given, the folder it ran in, and the files written in
+        that folder ({path in the project: text}), as they were while it ran. `fails`: what Compose says, from them."""
+        seen = {}
 
-        def config(arguments, *options, timeout=120):
-            seen["arguments"], seen["options"], seen["timeout"] = arguments, options, timeout
-            seen["copies"] = len(list(self.scratch.rglob("*.yml")))   # the files written for it, read or not
-            todo = [arguments[arguments.index("-f") + 1]]
-            while todo:
-                file = todo.pop()
-                seen["texts"][file] = Path(file).read_text(encoding="utf-8") if Path(file).is_file() else None
-                todo += self.COPY.findall(seen["texts"][file] or "")
+        def config(arguments, *options, timeout=120, cwd=None):
+            seen.update(arguments=arguments, options=options, timeout=timeout, cwd=cwd)
+            seen["written"] = {}
+            for folder, _, names in os.walk(cwd) if cwd else ():   # what is no link: the files written for the reading
+                for name in names:
+                    one = Path(folder) / name
+                    if not one.is_symlink():
+                        seen["written"][one.relative_to(cwd).as_posix()] = one.read_text(encoding="utf-8")
             if fails:
                 raise compose.ComposeError(fails(seen))
-            return {"services": {}}
+            return {"services": {}, "x-gravitee": {"kind": "addon", "where": f"{cwd}/addons"} if cwd else {}}
         with mock.patch.object(compose, "_config", side_effect=config):
-            compose.raw(path, **more)
+            seen["config"] = compose.raw(path, **more)
         return seen
 
 
 class PullPolicyVariables(Copies):
     """Compose 5.5.1 and later refuse `pull_policy: ${VAR:-never}` when they do not interpolate, which is how raw reads
-    a file: it reads a copy that writes the default there."""
+    a file: it reads, in an overlay, the file with the default written there."""
 
     TOOL = ("services:\n"
             "  tool:\n"
@@ -362,75 +359,49 @@ class PullPolicyVariables(Copies):
     def test_a_file_without_a_variable_policy_is_read_as_it_is(self):
         self.write("addons/tool/compose.yml", self.COPIED)
         seen = self.read("addons/tool/compose.yml")
-        self.assertEqual(seen["arguments"], ["-f", "addons/tool/compose.yml"])
+        self.assertEqual((seen["arguments"], seen["cwd"]), (["-f", "addons/tool/compose.yml"], None))
         self.assertEqual(seen["options"], ("--no-interpolate", "--no-consistency"))
         self.assertEqual(list(self.scratch.iterdir()), [])
 
-    def test_the_copy_is_read_from_the_folder_of_its_file(self):
+    def test_the_file_written_again_is_read_in_its_place_and_its_paths_are_the_projects(self):
         self.write("addons/tool/compose.yml", self.TOOL)
         seen = self.read("addons/tool/compose.yml")
-        self.assertEqual(seen["arguments"][:3], ["--project-directory", str(self.root / "addons/tool"), "-f"])
-        self.assertEqual(seen["options"], ("--no-interpolate", "--no-consistency"))
-        self.assertEqual(list(seen["texts"].values()), [self.COPIED])   # the rest is as written
+        self.assertEqual(seen["arguments"], ["-f", "addons/tool/compose.yml"], "the same file, in the overlay")
+        self.assertEqual(seen["written"], {"addons/tool/compose.yml": self.COPIED})
+        self.assertEqual(seen["config"]["x-gravitee"]["where"], f"{self.root}/addons", "what Compose names is in the project")
         self.assertEqual((self.root / "addons/tool/compose.yml").read_text(encoding="utf-8"), self.TOOL)
-        self.assertEqual(list(self.scratch.iterdir()), [])   # the copies are removed once read
+        self.assertEqual(list(self.scratch.iterdir()), [])   # the overlay is removed once read
 
-    def test_what_a_file_includes_is_read_as_a_copy_too(self):
+    def test_what_a_file_includes_is_written_again_and_the_rest_is_read_as_it_is(self):
         self.write("addons/tool/compose.yml", self.TOOL)
         self.write("addons/other/compose.yml", "services:\n  other:\n    image: busybox\n")
         self.write("setups/mine.yml", "include:\n  - ../addons/tool/compose.yml   # the tool\n"
-                   "  - path: ../addons/other/compose.yml\n")
+                   "  - path: ../addons/other/compose.yml\n    project_directory: ../addons/other\n")
         seen = self.read("setups/mine.yml")
-        top = next(iter(seen["texts"]))
-        tool, other = self.COPY.findall(seen["texts"][top])
-        self.assertEqual(seen["texts"][top].split("\n"), [
-            "include:",
-            f"  - path: {json.dumps(tool)}",
-            f'    project_directory: {json.dumps(str(self.root / "addons/tool"))}',
-            f"  - path: {json.dumps(other)}",
-            f'    project_directory: {json.dumps(str(self.root / "addons/other"))}',
-            ""])
-        self.assertEqual(seen["texts"][tool], self.COPIED)
+        self.assertEqual(seen["written"], {"addons/tool/compose.yml": self.COPIED}, "no include line is written again")
 
-    def test_an_item_that_names_its_project_directory_keeps_it(self):
-        # a second project_directory is a duplicate key, which Compose refuses: the one written holds, as it is
-        # relative to the same folder
-        self.write("addons/tool/compose.yml", self.TOOL)
-        self.write("setups/mine.yml", "include:\n  - path: ../addons/tool/compose.yml\n"
-                   "    project_directory: ../addons/tool   # its files are there\n")
-        seen = self.read("setups/mine.yml")
-        top = next(iter(seen["texts"]))
-        (tool,) = self.COPY.findall(seen["texts"][top])
-        self.assertEqual(seen["texts"][top].split("\n"), [
-            "include:", f"  - path: {json.dumps(tool)}", "    project_directory: ../addons/tool   # its files are there", ""])
-
-    def test_a_file_reached_twice_is_one_copy(self):
+    def test_a_file_reached_twice_is_written_once(self):
         self.write("addons/tool/compose.yml", self.TOOL)
         for name in ("a", "b"):
             self.write(f"addons/{name}/compose.yml", "include:\n  - ../tool/compose.yml\n")
         self.write("setups/both.yml", "include:\n  - ../addons/a/compose.yml\n  - ../addons/b/compose.yml\n")
-        seen = self.read("setups/both.yml")
-        copies = [file for file, text in seen["texts"].items() if self.COPY.findall(text) == []]
-        self.assertEqual(len(copies), 1)   # a and b both name the one copy of the tool
-        self.assertEqual(seen["texts"][copies[0]], self.COPIED)
+        self.assertEqual(self.read("setups/both.yml")["written"], {"addons/tool/compose.yml": self.COPIED})
 
-    def test_a_problem_names_the_file_and_not_its_copy(self):
+    def test_a_problem_names_the_file_of_the_project(self):
         self.write("addons/tool/compose.yml", self.TOOL)
         self.write("setups/mine.yml", "include:\n  - ../addons/tool/compose.yml\n")
-
-        def says(seen):
-            (copy,) = [file for file, text in seen["texts"].items() if "services:" in text]
-            return f"validating {copy}: services.tool additional properties 'bogus' not allowed"
         with self.assertRaises(compose.ComposeError) as caught:
-            self.read("setups/mine.yml", fails=says)
+            self.read("setups/mine.yml", fails=lambda seen: f"validating {seen['cwd']}/addons/tool/compose.yml: "
+                                                            "services.tool additional properties 'bogus' not allowed")
         self.assertEqual(str(caught.exception), f"validating {self.root / 'addons/tool/compose.yml'}: "
                                                 "services.tool additional properties 'bogus' not allowed")
         self.assertEqual(list(self.scratch.iterdir()), [])
 
 
 class SkippedIncludes(Copies):
-    """A file that includes what is not there loads when raw is told to leave that include out: the unit of a catalog
-    that this machine has not added yet still shows what it is."""
+    """A file that includes what is not there loads when raw is told to leave that include out: Compose reads an empty stand-in
+    in its place, and resolves every include itself, whatever way the file writes it (the unit of a catalog that this machine
+    has not added yet still shows what it is)."""
 
     TOOL = "services:\n  tool:\n    image: busybox\n"
     MINE = "\nservices:\n  mine:\n    image: busybox\n"
@@ -439,64 +410,42 @@ class SkippedIncludes(Copies):
         super().setUp()
         self.write("addons/tool/compose.yml", self.TOOL)
 
-    def top(self, seen):
-        """The text that raw told Compose to read first."""
-        return seen["texts"][seen["arguments"][seen["arguments"].index("-f") + 1]]
-
-    def test_an_include_that_is_not_there_is_left_out_and_the_others_are_kept(self):
-        self.write("playgrounds/mine/compose.yml", "include:\n  - ../../addons/tool/compose.yml\n"
-                   f"  - ../../{GONE}   # in a catalog to add\n" + self.MINE)
+    def test_an_include_that_is_not_there_is_an_empty_stand_in_and_nothing_else_is_written(self):
+        text = "include:\n  - ../../addons/tool/compose.yml\n" f"  - ../../{GONE}   # in a catalog to add\n" + self.MINE
+        self.write("playgrounds/mine/compose.yml", text)
         seen = self.read("playgrounds/mine/compose.yml", skip=[GONE])
-        (tool,) = self.COPY.findall(self.top(seen))
-        self.assertEqual(self.top(seen).split("\n"), [
-            "include:",
-            f"  - path: {json.dumps(tool)}",
-            f'    project_directory: {json.dumps(str(self.root / "addons/tool"))}',
-            "", "services:", "  mine:", "    image: busybox", ""])
-        self.assertEqual(seen["texts"][tool], self.TOOL)
-        self.assertEqual(seen["arguments"][:3], ["--project-directory", str(self.root / "playgrounds/mine"), "-f"])
-        self.assertEqual(list(self.scratch.iterdir()), [])   # the copies are removed once read
+        self.assertEqual(seen["written"], {GONE: compose.STAND_IN})
+        self.assertEqual(seen["arguments"], ["-f", "playgrounds/mine/compose.yml"])
+        self.assertEqual((self.root / "playgrounds/mine/compose.yml").read_text(encoding="utf-8"), text, "never changed where it is")
+        self.assertFalse((self.root / GONE).exists())
+        self.assertEqual(list(self.scratch.iterdir()), [])   # the overlay is removed once read
 
-    def test_an_item_in_long_form_goes_with_the_lines_of_its_keys(self):
-        self.write("playgrounds/mine/compose.yml", f"include:\n  - path: ../../{GONE}\n"
-                   "    project_directory: ../../addons/gone\n    env_file: ../../addons/gone/.env\n\n"
-                   "  # what it needs\n  - ../../addons/tool/compose.yml\n" + self.MINE)
-        seen = self.read("playgrounds/mine/compose.yml", skip=[GONE])
-        (tool,) = self.COPY.findall(self.top(seen))
-        self.assertEqual(self.top(seen).split("\n")[:5], [
-            "include:", "", "  # what it needs", f"  - path: {json.dumps(tool)}",
-            f'    project_directory: {json.dumps(str(self.root / "addons/tool"))}'])
+    def test_each_way_of_writing_an_item_is_the_same_stand_in(self):
+        for item in (f'"../../{GONE}"', f"'../../{GONE}'", f"path: ../../{GONE}   # a comment", f"path: '../../{GONE}'",
+                     f"path: ../../{GONE}\n    project_directory: ../../addons/gone\n    env_file: ../../addons/gone/.env"):
+            with self.subTest(item):
+                self.write("playgrounds/mine/compose.yml", f"include:\n  - {item}\n  - ../../addons/tool/compose.yml\n" + self.MINE)
+                self.assertEqual(self.read("playgrounds/mine/compose.yml", skip=[GONE])["written"], {GONE: compose.STAND_IN})
 
-    def test_the_files_a_key_of_an_item_lists_go_with_it_and_are_no_items(self):
-        # env_file lists files that exist, one of them a compose file: they are read by Compose as variables, not included
-        self.write("addons/tool/.env", "A=1\n")
-        self.write("playgrounds/mine/compose.yml", f"include:\n  - path: ../../{GONE}\n    env_file:\n"
-                   "      - ../../addons/tool/.env\n      - ../../addons/tool/compose.yml\n"
-                   "  - ../../addons/tool/compose.yml\n" + self.MINE)
-        seen = self.read("playgrounds/mine/compose.yml", skip=[GONE])
-        (tool,) = self.COPY.findall(self.top(seen))
-        self.assertEqual(self.top(seen).split("\n")[:3], [
-            "include:", f"  - path: {json.dumps(tool)}", f'    project_directory: {json.dumps(str(self.root / "addons/tool"))}'])
-        self.assertNotIn("env_file", self.top(seen))
-        self.assertEqual(seen["copies"], 2)   # the top file and the tool, not the .env file
+    def test_the_include_of_an_included_file_is_left_out_too(self):
+        self.write("addons/mid/compose.yml", "include:\n  - ../gone/compose.yml\n  - ../tool/compose.yml\n"
+                   "services:\n  mid:\n    image: busybox\n")
+        self.write("playgrounds/mine/compose.yml", "include:\n  - ../../addons/mid/compose.yml\n" + self.MINE)
+        self.assertEqual(self.read("playgrounds/mine/compose.yml", skip=[GONE])["written"], {GONE: compose.STAND_IN})
 
-    def test_the_keys_of_an_item_that_is_kept_stay_where_they_are(self):
-        self.write("addons/tool/.env", "A=1\n")
-        self.write("playgrounds/mine/compose.yml", "include:\n  - path: ../../addons/tool/compose.yml\n    env_file:\n"
-                   f"      - ../../addons/tool/.env\n  - ../../{GONE}\n" + self.MINE)
-        seen = self.read("playgrounds/mine/compose.yml", skip=[GONE])
-        (tool,) = self.COPY.findall(self.top(seen))
-        self.assertEqual(self.top(seen).split("\n")[:5], [
-            "include:", f"  - path: {json.dumps(tool)}", f'    project_directory: {json.dumps(str(self.root / "addons/tool"))}',
-            "    env_file:", "      - ../../addons/tool/.env"])
+    def test_a_file_that_is_there_and_left_out_is_not_read(self):
+        self.write("playgrounds/mine/compose.yml", "include:\n  - ../../addons/tool/compose.yml\n" + self.MINE)
+        seen = self.read("playgrounds/mine/compose.yml", skip=["addons/tool/compose.yml"])
+        self.assertEqual(seen["written"], {"addons/tool/compose.yml": compose.STAND_IN})
 
-    def test_a_line_that_an_item_took_is_not_read_as_an_item_again(self):
-        self.write("playgrounds/mine/compose.yml", f"include:\n  - path: ../../{GONE}\n    env_file: ../x.env\n"
-                   "  - ../../addons/tool/compose.yml\n" + self.MINE)
-        items = compose._items
-        self.patch(compose, "_items", side_effect=lambda file, text: [*items(file, text)] + (
-            [(2, "x", "addons/tool/compose.yml")] if file.startswith("playgrounds") else []))   # the line of a key, as an item
-        self.assertNotIn("gone", self.top(self.read("playgrounds/mine/compose.yml", skip=[GONE])))
+    def test_nothing_to_leave_out_is_the_file_as_it_is(self):
+        self.write("playgrounds/mine/compose.yml", "include:\n  - ../../addons/tool/compose.yml\n" + self.MINE)
+        for skip in ((), [GONE], ["addons/tool/other.yml"]):
+            with self.subTest(skip=skip):
+                seen = self.read("playgrounds/mine/compose.yml", skip=skip)
+                self.assertEqual((seen["arguments"], seen["cwd"], seen["options"]), (
+                    ["-f", "playgrounds/mine/compose.yml"], None, ("--no-interpolate", "--no-consistency")))
+                self.assertEqual(list(self.scratch.iterdir()), [])
 
     def test_a_hostile_include_list_is_read_or_refused_never_a_crash(self):
         # whatever the file holds, raw answers or raises ComposeError: an exception of any other kind ends the read of the
@@ -520,70 +469,57 @@ class SkippedIncludes(Copies):
             with self.subTest(body=body):
                 self.read(path, skip=[GONE])
                 self.assertTrue(all(isinstance(target, str) for target in compose.includes(path)))
+        self.assertFalse((self.root / GONE).exists())
 
-    def test_each_way_of_writing_an_item(self):
-        for item in (f'"../../{GONE}"', f"'../../{GONE}'", f"path: ../../{GONE}   # a comment", f"path: '../../{GONE}'"):
-            with self.subTest(item):
-                self.write("playgrounds/mine/compose.yml", f"include:\n  - {item}\n  - ../../addons/tool/compose.yml\n"
-                           + self.MINE)
-                self.assertNotIn("gone", self.top(self.read("playgrounds/mine/compose.yml", skip=[GONE])))
-
-    def test_a_list_left_without_an_item_is_none(self):
-        self.write("playgrounds/mine/compose.yml", f"include:\n  - ../../{GONE}\n" + self.MINE)
-        seen = self.read("playgrounds/mine/compose.yml", skip=[GONE])
-        self.assertEqual(self.top(seen), "include:\n" + self.MINE)
-        self.assertEqual(seen["arguments"][3], next(iter(seen["texts"])))   # the one file, a copy
-
-    def test_an_item_written_for_a_platform_goes_too(self):
-        self.write(".lab/on.yml", "include:\n  - addons/tool/compose.yml\n  - {path: \".lab/targets/cloud/addons__gone__"
-                   "compose.yml\", project_directory: \"addons/gone\"}\n")
-        seen = self.read(".lab/on.yml", skip=[GONE])
-        self.assertEqual(len(self.COPY.findall(self.top(seen))), 1)
-        self.assertNotIn("gone", self.top(seen))
-
-    def test_the_include_of_an_included_file_is_left_out_too(self):
-        self.write("addons/mid/compose.yml", "include:\n  - ../gone/compose.yml\n  - ../tool/compose.yml\n"
-                   "services:\n  mid:\n    image: busybox\n")
-        self.write("playgrounds/mine/compose.yml", "include:\n  - ../../addons/mid/compose.yml\n" + self.MINE)
-        seen = self.read("playgrounds/mine/compose.yml", skip=[GONE])
-        (mid,) = self.COPY.findall(self.top(seen))
-        (tool,) = self.COPY.findall(seen["texts"][mid])
-        self.assertNotIn("gone", seen["texts"][mid])
-        self.assertEqual(seen["texts"][tool], self.TOOL)
-
-    def test_a_file_that_is_there_and_left_out_is_not_read(self):
-        self.write("playgrounds/mine/compose.yml", "include:\n  - ../../addons/tool/compose.yml\n" + self.MINE)
-        seen = self.read("playgrounds/mine/compose.yml", skip=["addons/tool/compose.yml"])
-        self.assertEqual((list(seen["texts"]), seen["copies"]), ([seen["arguments"][3]], 1))   # no copy of it
-        self.assertNotIn("tool", self.top(seen))
-
-    def test_nothing_to_leave_out_is_the_file_as_it_is(self):
-        self.write("playgrounds/mine/compose.yml", "include:\n  - ../../addons/tool/compose.yml\n" + self.MINE)
-        for skip in ((), [GONE], ["addons/tool/other.yml"]):
-            with self.subTest(skip=skip):
-                seen = self.read("playgrounds/mine/compose.yml", skip=skip)
-                self.assertEqual((seen["arguments"], seen["options"]), (
-                    ["-f", "playgrounds/mine/compose.yml"], ("--no-interpolate", "--no-consistency")))
-                self.assertEqual(list(self.scratch.iterdir()), [])
-
-    def test_a_file_is_never_changed_where_it_is(self):
-        text = f"include:\n  - ../../addons/tool/compose.yml\n  - ../../{GONE}\n" + self.MINE
-        self.write("playgrounds/mine/compose.yml", text)
-        self.read("playgrounds/mine/compose.yml", skip=[GONE])
-        self.assertEqual((self.root / "playgrounds/mine/compose.yml").read_text(encoding="utf-8"), text)
-
-    def test_a_problem_names_the_file_and_not_its_copy(self):
+    def test_a_problem_names_the_file_of_the_project(self):
         self.write("setups/mine.yml", f"include:\n  - ../addons/tool/compose.yml\n  - ../{GONE}\n")
         with self.assertRaises(compose.ComposeError) as caught:
-            self.read("setups/mine.yml", skip=[GONE], fails=lambda seen: f"validating {seen['arguments'][3]}: bogus")
+            self.read("setups/mine.yml", skip=[GONE], fails=lambda seen: f"validating {seen['cwd']}/setups/mine.yml: bogus")
         self.assertEqual(str(caught.exception), f"validating {self.root / 'setups/mine.yml'}: bogus")
         self.assertEqual(list(self.scratch.iterdir()), [])
 
     def test_the_time_compose_has(self):
-        self.write("setups/mine.yml", "include:\n  - ../addons/tool/compose.yml\n")
+        self.write("setups/mine.yml", f"include:\n  - ../addons/tool/compose.yml\n  - ../{GONE}\n")
         self.assertEqual(self.read("setups/mine.yml")["timeout"], 120)
         self.assertEqual(self.read("setups/mine.yml", timeout=15)["timeout"], 15)
         self.assertEqual(self.read("setups/mine.yml", skip=[GONE], timeout=15)["timeout"], 15)
+
+
+@unittest.skipUnless(have_compose(), "needs docker compose")
+class Overlaid(ProjectFolder):
+    """What Compose reads through the overlay is the project as it is, a stand-in for each include left out: the reading of a
+    file whose include is not there is the reading of the same file once it is, whatever its text holds that looks like an
+    include list (a string, a comment)."""
+
+    HIDE = ('x-gravitee: {kind: playground, name: Mine, note: "\ninclude:\n- a.yml\n  ", copy_of: tour, z: "\n"}\n'
+            "services:\n  mine-web:\n    image: busybox:1.36\n")
+    REVEAL = ('x-gravitee: {kind: playground, name: Mine, note: "\ninclude:\n  - ../../addons/x/compose.yml\n   "\n #", '
+              'copy_of: tour, z: "\n #"\n}\nservices:\n  mine-web:\n    image: busybox:1.36\n')
+
+    def test_a_text_that_looks_like_an_include_reads_as_it_does_once_its_target_is_there(self):
+        for name, text, target in (("hide", self.HIDE, ".lab/catalogs/local/playgrounds/mine/a.yml"),
+                                   ("reveal", self.REVEAL, ".lab/catalogs/local/addons/x/compose.yml")):
+            with self.subTest(name):
+                path = self.write(".lab/catalogs/local/playgrounds/mine/compose.yml", text)
+                missing = compose.left_out(text, path)
+                self.assertEqual(missing, [target], "the Lab's reader takes it for an include")
+                without = compose.raw(path, skip=missing)["x-gravitee"]
+                said = compose.x_gravitee(text, self.root / ".lab/catalogs/local/playgrounds/mine", fresh=True)
+                self.write(target, compose.STAND_IN)
+                self.assertEqual((without, said), (compose.raw(path)["x-gravitee"],) * 2)
+                self.assertEqual("copy_of" in without, name == "hide", without)
+                (self.root / target).unlink()
+
+    def test_an_include_left_out_reads_as_nothing_and_the_paths_are_the_projects(self):
+        self.write(".lab/catalogs/local/addons/tool/compose.yml", "services:\n  tool:\n    image: busybox\n    env_file: [x.env]\n")
+        self.write(".lab/catalogs/local/addons/tool/x.env", "A=1\n")
+        path = self.write(".lab/catalogs/local/playgrounds/mine/compose.yml",
+                          "x-gravitee: {kind: playground, name: Mine}\ninclude:\n  - ../../addons/tool/compose.yml\n"
+                          "  - path: ../../addons/gone/compose.yml\nservices:\n  mine:\n    image: busybox\n")
+        found = compose.raw(path, skip=[".lab/catalogs/local/addons/gone/compose.yml"])
+        self.assertEqual(sorted(found["services"]), ["mine", "tool"])
+        self.assertEqual(found["services"]["tool"]["env_file"][0]["path"], str(self.root / ".lab/catalogs/local/addons/tool/x.env"))
+        self.assertFalse((self.root / ".lab/catalogs/local/addons/gone").exists())
 
 
 class ProjectName(ProjectFolder):
@@ -1447,16 +1383,30 @@ class XGravitee(ProjectFolder):
                 self.assertEqual(compose.x_gravitee(include + block, self.here), {"kind": "playground", "name": "Mine"})
         self.assertEqual(list(self.here.iterdir()), [], "nothing is written where the item is")
 
-    def test_a_text_that_takes_too_long_or_answers_too_much_cannot_be_read(self):
+    def test_a_text_that_takes_too_long_or_answers_too_much_cannot_be_read_and_leaves_nothing_running(self):
         os.mkfifo(self.here / "never")   # a file that never ends: Compose waits on it
         self.patch(compose, "ALONE_TIMEOUT", 2)
         started = time.monotonic()
         with self.assertRaisesRegex(compose.ComposeError, "did not answer within 2 s"):
             compose.x_gravitee("include: [never]\nx-gravitee: {kind: addon}\n", self.here)
         self.assertLess(time.monotonic() - started, 10)
+        self.assertTrue(settled(lambda: not holding(str(self.here))), "the Compose that waited on it is ended, with its plugin")
         self.patch(compose, "ALONE_OUTPUT", 10)
         with self.assertRaisesRegex(compose.ComposeError, "^Compose answered more than an item can hold$"):
             compose.x_gravitee("x-gravitee: {kind: addon, name: Long}\n", self.here)
+
+    def test_no_env_file_of_the_folder_is_read(self):
+        text = "x-gravitee: {kind: addon, name: Quiet}\nservices:\n  quiet:\n    image: busybox\n    env_file: [x.env]\n"
+        for name, make in (("a pipe", lambda file: os.mkfifo(file)), ("a link to an endless file", lambda file: os.symlink("/dev/zero", file))):
+            with self.subTest(name):
+                for one in (".env", "x.env"):
+                    make(self.here / one)
+                started = time.monotonic()
+                self.assertEqual(compose.x_gravitee(text, self.here, fresh=True), {"kind": "addon", "name": "Quiet"})
+                self.assertLess(time.monotonic() - started, 5, "answered at once: neither file is opened")
+                self.assertTrue(settled(lambda: not holding(str(self.here))))
+                for one in (".env", "x.env"):
+                    (self.here / one).unlink()
 
     def test_the_same_text_in_the_same_folder_is_read_once_and_a_file_raw_read_is_not_read_again(self):
         text = "x-gravitee: {kind: addon, name: Once}\nservices:\n  once:\n    image: busybox\n"

@@ -13,6 +13,7 @@ import hashlib
 import importlib
 import json
 import os
+import posixpath
 import re
 import shutil
 import signal
@@ -23,7 +24,7 @@ import threading
 import time
 from pathlib import Path
 
-from ..paths import COMPOSE_FILE, CORE_FILE, ON_FILE, ROOT, write_atomic
+from ..paths import CATALOGS_DIR, COMPOSE_FILE, CORE_FILE, ON_FILE, ROOT, write_atomic
 
 COMPOSE = ["docker", "compose", "--progress", "plain"]
 
@@ -35,8 +36,6 @@ COMMENT = re.compile(r"(?:^|\s)#(.*)$")
 INCLUDE_ITEM = re.compile(r"""\s*-\s*(?:path:\s*)?(?:"([^"]+)"|'([^']+)'|([^\s#'"]+))\s*(?:#.*)?""")
 # A key with nothing after it, with the dash of a list item before it or not: `- path:`, `env_file:`
 KEY = re.compile(r"\s*(-\s*)?([A-Za-z_][\w-]*):\s*(?:#.*)?")
-# A line of the long form of an include item that names its project directory
-DIRECTORY = re.compile(r"\s*project_directory:")
 # What the Lab writes in the on file for an item that runs on another platform: a copy of its file, written for that
 # platform (retarget), included with the folder of the original as its project directory, so that its relative paths hold
 TARGET_ITEM = re.compile(r"""\s*-\s*\{\s*path:\s*"(\.lab/targets/([a-z0-9-]+)/[^"]+)",\s*project_directory:\s*"([^"]+)"\s*\}\s*(?:#.*)?""")
@@ -377,8 +376,8 @@ def _last_line(err):
     return lines[-1] if lines else "docker compose failed"
 
 
-def _config(file_args, *options, timeout=120, environ=None):
-    more = {} if environ is None else {"environ": environ}
+def _config(file_args, *options, timeout=120, environ=None, cwd=None):
+    more = {**({} if environ is None else {"environ": environ}), **({} if cwd is None else {"cwd": cwd})}
     rc, out, err = run([*COMPOSE, *file_args, "config", "--format", "json", *options], timeout=timeout, **more)
     if rc != 0:
         if environ is not None and missing(err):
@@ -432,78 +431,100 @@ def _policies_written(text):
     return "\n".join(written(line) for line in text.split("\n"))
 
 
-def _closure(path, skip=()):
-    """A project file and the project files it includes, and theirs, in the order they are found. A file in `skip` is
-    not followed."""
-    found, todo = [], [path]
+STAND_IN = "services: {}\n"   # what Compose reads in place of an include that is left out: a file that brings nothing
+
+
+def _there(file):
+    """Whether the project file is a file: a name the system cannot even look up (too long, not text) is none."""
+    try:
+        return (ROOT / file).is_file()
+    except (OSError, ValueError):
+        return False
+
+
+def _targets(path, text):
+    """The project files the include list of `text`, the compose file at `path`, names itself."""
+    return [target for _, _, target in _include_items(text, ROOT / path, ROOT if path == ON_FILE else None) if target]
+
+
+def _closure_of(files, skip=()):
+    """The files of `files` and of their include closure, in the order they are found; those of `skip`, and those that are not
+    there, named but not followed."""
+    found, todo = [], list(files)
     while todo:
         file = todo.pop(0)
         if file not in found:
             found.append(file)
-            todo += [target for target in includes(file) if target not in skip]
+            if file not in skip and _there(file):
+                todo += [target for target in includes(file) if target not in found]
     return found
 
 
-def _items(file, text):
-    """The items of the `include` list in the text of a project file (_include_items), those that a copy can be
-    written for: not the files that an item lists under its `path:`, which are read where they are."""
-    return _include_items(text, ROOT / file, ROOT if file == ON_FILE else None, nested=False)
+def left_out(text, path):
+    """The files the include closure of `text`, the compose file at `path` in the project, names under the catalogs' folder
+    and that are not there: what the Lab reads it without, as gather does (project._reach), a catalog that is not added yet."""
+    prefix = f"{CATALOGS_DIR}/"
+    return [file for file in _closure_of(_targets(path, text)) if file.startswith(prefix) and not _there(file)]
 
 
-def _extent(lines, number):
-    """How many lines the list item that starts at `number` takes: its own, and those of the keys of its long form
-    (`project_directory`, `env_file`) below it, which are indented deeper than its dash. Blank lines and comments
-    between them go with it; those after the last one do not."""
-    dash, last = lines[number].index("-"), number
-    for after in range(number + 1, len(lines)):
-        text = lines[after].strip()
-        if text and not text.startswith("#"):
-            if len(lines[after]) - len(lines[after].lstrip()) <= dash:
-                break
-            last = after
-    return last - number + 1
+def _read_instead(files, skip):
+    """{project file: text} of what a reading of `files` and their closure reads in place of what is on disk: each file with a
+    `pull_policy` variable written as its default (_policies_written), and an empty stand-in (STAND_IN) for each file of
+    `skip` that the closure names, left out whether it is there or not. Empty: the files are read as they are."""
+    skip, replaced = {posixpath.normpath(one) for one in skip}, {}
+    for file in _closure_of(files, skip):
+        if file.startswith(("/", "../")) or file == "..":   # outside the project: read where it is, as it is
+            continue
+        if file in skip:
+            replaced[file] = STAND_IN
+            continue
+        text = _text_of(ROOT / file) if _there(file) else None   # being saved, or not text: Compose says what is wrong
+        written = _policies_written(text) if text is not None else text
+        if written != text:
+            replaced[file] = written
+    return replaced
 
 
 @contextlib.contextmanager
-def _readable(path, skip=()):
-    """What raw() tells Compose to read: the file itself (`-f path`), or, when it or a file it includes has a
-    `pull_policy` variable (_policies_written) or an include in `skip`, copies in a folder removed afterwards: each
-    with its pull policies written as their defaults and without the items of its include list that name a file in
-    `skip` (a list left empty is read as none). A copy is read from the folder of its original, so that its relative
-    paths are the same, and what includes a file includes its copy: with the folder of the original as its project
-    directory, unless the item names one, which is kept (it is relative to the same folder). Answers (the arguments,
-    {copy: the file it stands for})."""
-    skip = frozenset(skip)
-    try:
-        texts = {file: (ROOT / file).read_text(encoding="utf-8") for file in _closure(path, skip)
-                 if (ROOT / file).is_file()}
-    except (OSError, ValueError):   # being saved, or not text: Compose says what is wrong with it
-        texts = {}
-    changed = {file: _policies_written(text) for file, text in texts.items()}
-    if changed == texts and not (skip and any(target in skip for file, text in texts.items()
-                                              for _, _, target in _items(file, text))):
-        yield ["-f", path], {}
-        return
-    with tempfile.TemporaryDirectory(dir=scratch()) as folder:
-        copies = {file: Path(folder) / f"{number}.yml" for number, file in enumerate(texts)}
-        for file, text in changed.items():
-            written = text.split("\n")
-            lines = list(written)
-            for number, _, target in _items(file, text):
-                if lines[number] is None:   # a line of an item left out
-                    continue
-                if target in skip:   # left out whole, so that the line numbers of the others hold
-                    for dropped in range(number, number + _extent(written, number)):
-                        lines[dropped] = None
-                elif target in copies:
-                    indent = lines[number][:len(lines[number]) - len(lines[number].lstrip())]
-                    named = any(DIRECTORY.match(line) for line in written[number + 1:number + _extent(written, number)])
-                    lines[number] = (f"{indent}- path: {json.dumps(str(copies[target]))}" if named else
-                                     f"{indent}- path: {json.dumps(str(copies[target]))}\n"
-                                     f"{indent}  project_directory: {json.dumps(str((ROOT / target).parent))}")
-            copies[file].write_text("\n".join(line for line in lines if line is not None), encoding="utf-8")
-        yield (["--project-directory", str((ROOT / path).parent), "-f", str(copies[path])],
-               {str(copy): str(ROOT / file) for file, copy in copies.items()})
+def _overlay(replaced):
+    """A folder that Compose reads as the project folder, with the files of `replaced` ({project file: text}) in place of what
+    is there or of what is not: every other entry of each folder on their way is a link to the entry of the project it stands
+    for, so that the rest, and every relative path, reads as in the project. Compose resolves the includes itself, whatever way
+    a file writes them; nothing of the project is written. Removed afterwards. Answers (its path, the spellings of its path that
+    Compose may print, longest first)."""
+    with tempfile.TemporaryDirectory(dir=scratch()) as made:
+        top = Path(made)
+        ways = {"/".join(parts[:number]) for rel in replaced for parts in [rel.split("/")] for number in range(1, len(parts))}
+        try:
+            for way in ["", *sorted(ways, key=lambda one: (one.count("/"), one))]:
+                here, there = (top / way, ROOT / way) if way else (top, ROOT)
+                here.mkdir(exist_ok=True)
+                try:
+                    names = os.listdir(there) if there.is_dir() else []
+                except OSError:
+                    names = []
+                for name in names:
+                    rel = f"{way}/{name}" if way else name
+                    if rel not in ways and rel not in replaced:
+                        os.symlink(there / name, here / name)
+            for rel, text in replaced.items():
+                (top / rel).write_text(text, encoding="utf-8")
+        except (OSError, ValueError) as error:   # a name the system cannot hold: what includes it cannot be read
+            raise ComposeError(f"what it includes cannot be read: {getattr(error, 'strerror', None) or error}") from None
+        yield top, sorted({str(top), os.path.realpath(top)}, key=len, reverse=True)
+
+
+def _relocated(value, spellings):
+    """What Compose answered in an overlay (_overlay), its paths those of the project."""
+    if isinstance(value, str):
+        for spelling in spellings:
+            value = value.replace(spelling, str(ROOT))
+        return value
+    if isinstance(value, dict):
+        return {_relocated(key, spellings): _relocated(one, spellings) for key, one in value.items()}
+    if isinstance(value, list):
+        return [_relocated(one, spellings) for one in value]
+    return value
 
 
 def _text_of(file):
@@ -513,24 +534,32 @@ def _text_of(file):
         return None
 
 
+def _key_of(text, folder):
+    return hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest(), str(folder)
+
+
 def raw(path, skip=(), timeout=120):
     """A compose file as written, with what it includes merged in. Not interpolated: ${VAR} references are kept,
     except in a `pull_policy`, which Compose 5.5.1 and later refuse (_policies_written). Not checked for consistency:
     a file read alone may refer to services of the core. Labels, environment and ports come in one shape, whichever
-    way the file writes them. `skip`: project files that it includes and that are not there, which are left out so
-    that it still loads and says what it is. `timeout`: seconds Compose has to answer, else ComposeError."""
-    before = None if skip else _text_of(ROOT / path)
-    with _readable(path, skip) as (arguments, originals):
-        try:
-            config = _config(arguments, "--no-interpolate", "--no-consistency", timeout=timeout)
-        except ComposeError as error:   # Compose names the copy it read: the file is the original
-            message = str(error)
-            for written, original in originals.items():
-                message = message.replace(written, original)
-            raise ComposeError(message) from None
+    way the file writes them. `skip`: project files that it includes and that are not there, which Compose reads as
+    empty stand-ins (_overlay) so that it still loads and says what it is. `timeout`: seconds Compose has to answer,
+    else ComposeError."""
+    if os.path.isabs(path) and Path(path).is_relative_to(ROOT):
+        path = Path(path).relative_to(ROOT).as_posix()   # the overlay holds the project's files by their project paths
+    before = _text_of(ROOT / path)
+    replaced = _read_instead([path], skip)
+    if not replaced:
+        config = _config(["-f", path], "--no-interpolate", "--no-consistency", timeout=timeout)
+    else:
+        with _overlay(replaced) as (top, spellings):
+            try:
+                config = _config(["-f", path], "--no-interpolate", "--no-consistency", timeout=timeout, cwd=top)
+            except ComposeError as error:   # Compose names the files of the overlay: they are those of the project
+                raise ComposeError(_relocated(str(error), spellings)) from None
+            config = _relocated(config, spellings)
     if before is not None and _text_of(ROOT / path) == before:   # what x_gravitee() answers of that text there: not asked again
-        _remember((hashlib.sha256(before.encode("utf-8", "surrogatepass")).hexdigest(), str((ROOT / path).parent)),
-                  config.get("x-gravitee"))
+        _remember(_key_of(before, (ROOT / path).parent), config.get("x-gravitee"))
     for service in (config.get("services") or {}).values():
         for key in ("labels", "environment"):
             if key in service:
@@ -547,20 +576,43 @@ _said_by_compose = {}   # {(sha-256 of a compose text, its folder): its x-gravit
 _said_lock = threading.Lock()
 
 
-def x_gravitee(text, folder):
+def _empty_env():
+    """An empty file of this run, given to Compose as the .env of a reading that must read none (x_gravitee)."""
+    file = scratch() / "empty.env"
+    if not file.is_file():
+        file.write_text("", encoding="utf-8")
+    return file
+
+
+def x_gravitee(text, folder, fresh=False):
     """The x-gravitee block of a compose text as Compose reads it in `folder`, where the item is: what it includes is found from
-    there as when the Lab reads the item (an included file never brings an x- key of its own: Compose keeps those of the file it
-    reads), with the scrubbed environment, no interpolation and no remote include. Compose reads the text from its input, with
-    `folder` as the project directory, so that nothing is written anywhere. A copy of what it answered, None for no block.
-    ComposeError when Compose cannot read it, takes more than ALONE_TIMEOUT seconds, or answers more than ALONE_OUTPUT: never a
-    wait without end. The same text in the same folder is read once, and a file raw() read is not read again (_remember)."""
-    key = (hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest(), str(folder))
-    with _said_lock:
-        if key in _said_by_compose:
-            return copy.deepcopy(_said_by_compose[key])
-    rc, out, err = run([*COMPOSE, "--project-directory", str(folder), "-f", "-", "config", "--format", "json", "--no-interpolate",
-                        "--no-consistency"], timeout=ALONE_TIMEOUT, cwd=folder if os.path.isdir(folder) else None,
-                       environ=scrubbed_environment(), given=_policies_written(text))
+    there, and what it includes that is not there is left out as raw() leaves it out for gather (left_out, _overlay), so that it
+    reads as the Lab reads the item; an included file never brings an x- key of its own (Compose keeps those of the file it
+    reads). The scrubbed environment, no interpolation, no remote include, no .env and no env_file read. Compose reads the text
+    from its input: nothing of the project is written. A copy of what it answered, None for no block. ComposeError when Compose
+    cannot read it, takes more than ALONE_TIMEOUT seconds, or answers more than ALONE_OUTPUT: never a wait without end. The same
+    text in the same folder is answered from what was read of it before, here or by raw(), unless `fresh`: a reading remembered
+    says the text was readable then, not that it is now."""
+    folder = Path(folder)
+    key = _key_of(text, folder)
+    if not fresh:
+        with _said_lock:
+            if key in _said_by_compose:
+                return copy.deepcopy(_said_by_compose[key])
+    try:
+        rel = folder.relative_to(ROOT).as_posix() if folder.is_absolute() else None
+    except ValueError:
+        rel = None
+    path = f"{rel}/compose.yml" if rel and rel != "." else "compose.yml"
+    replaced = _read_instead(_targets(path, text), left_out(text, path)) if rel is not None else {}
+    asked = ["config", "--format", "json", "--no-interpolate", "--no-consistency", "--no-env-resolution"]
+    with contextlib.ExitStack() as stack:
+        top, spellings = stack.enter_context(_overlay(replaced)) if replaced else (None, [])
+        where = top / rel if top is not None and rel not in (None, ".") else top if top is not None else folder
+        rc, out, err = run([*COMPOSE, "--project-directory", str(where), "--env-file", str(_empty_env()), "-f", "-", *asked],
+                           timeout=ALONE_TIMEOUT, cwd=where if where.is_dir() else None, environ=scrubbed_environment(),
+                           given=_policies_written(text))
+        err = _relocated(err, spellings)
     if rc != 0:
         raise ComposeError(_last_line(err))
     if len(out) > ALONE_OUTPUT:

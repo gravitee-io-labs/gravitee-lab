@@ -1052,7 +1052,14 @@ def private_source(text, folder=None, _seen=()):
     through the items this machine has, to the first item of a private catalog of Git. A copy of what this machine does not have,
     or cannot read, and a chain too long or that loops, are taken as private: nothing says otherwise. `folder`: where the file is,
     which Compose reads it in (_said)."""
-    said, uid = _said(text or "", folder)
+    return _private_said(_said(text or "", folder), _seen)
+
+
+def _private_said(said, _seen=()):
+    """private_source of an item whose x-gravitee says (private_from, copy_of) `said`, or is the block `said` itself."""
+    if isinstance(said, dict):
+        said = ((str(said["private_from"]) if said.get("private_from") else None), (str(said["copy_of"]) if said.get("copy_of") else None))
+    said, uid = said
     if said:
         name = said[:NAME_LIMIT]
         return name, name, None
@@ -1067,15 +1074,15 @@ def private_source(text, folder=None, _seen=()):
     entry = registry.entry(ns)
     if entry is not None and entry.get("kind") == "git" and registry.lock_of(ns).get("audience") != "public":
         return ns, _catalog_name(ns), uid
-    data = where = None
+    # The original as the project read it, which held, linked or special files never reach: no other folder is read for it
+    read = projects.loaded()[1].get("raw") or {}
+    said = None
     for kind in paths.KINDS if entry is not None else ():
         with contextlib.suppress(paths.NotFound, ValueError):
-            if data is None:
-                where = paths.ROOT / paths.unit_file(kind, uid)
-                data = _read(where, bare.TEXT_FILE + 1)
-    if data is None:
-        return ns, _catalog_name(ns), uid   # the original is not on this machine
-    return private_source(data.decode("utf-8", "replace"), where.parent, (*_seen, uid))
+            said = said or (read.get(paths.unit_file(kind, uid)) or {}).get("x-gravitee")
+    if not isinstance(said, dict):
+        return ns, _catalog_name(ns), uid   # the original is not on this machine, or the Lab does not read it
+    return _private_said(said, (*_seen, uid))
 
 
 def _said(text, folder=None):
@@ -1149,24 +1156,72 @@ def _unmarked_or_said(copy, kind, slug, private, name):
 
 NOT_WRITTEN = ("{name}: the Lab cannot write {what} in this file. Fix: write its x-gravitee as one block of plain key: value "
                "lines, in a file of one YAML document (in a catalog, ask its author to), then try again.")
-NOT_READ = "{name}: its compose file cannot be read: {error}. Fix: correct it so that docker compose config reads it, then try again."
+NOT_READ = "{name}: its compose file cannot be read ({error}). Fix: correct it so that docker compose config reads it, then try again."
+CAUSE = 160   # characters of what Compose said that a refusal shows: its end, which says why
+
+
+def _relative(error):
+    """What Compose said, the paths of the Lab's folder written from it."""
+    text = str(error).strip().rstrip(".")
+    for root in sorted({str(paths.ROOT), os.path.realpath(paths.ROOT)}, key=len, reverse=True):
+        text = text.replace(root + "/", "")
+    return text
+
+
+def _cause(error):
+    """What Compose said, for the person: the paths of the Lab's folder written from it, and when it is long, its end, cut where a
+    word starts."""
+    text = _relative(error)
+    if len(text) > CAUSE:
+        tail = text[-CAUSE:]
+        text = "..." + tail[tail.find(" ") + 1:] if " " in tail else "..." + tail
+    return text
+
+
+UNIT_FILE = re.compile(r"\.lab/catalogs/[^\s:'\"]+?(?:/compose\.yml|/setups/[^/\s:'\"]+\.yml)")
+
+
+def _mode(file):
+    try:
+        return os.lstat(file).st_mode
+    except OSError:
+        return 0
+
+
+def _unread(name, error):
+    """The refusal of an item whose file, or a file it includes, Compose cannot read: named by the item whose file Compose names
+    (an add-on it includes, say), else by `name`."""
+    cause, culprit = _cause(error), name
+    for found in UNIT_FILE.finditer(_relative(error)):
+        unit = paths.unit_of(found.group())
+        if unit:   # its name as its own block says it, else its folder's
+            file = paths.ROOT / found.group()
+            data = (_read(file, bare.TEXT_FILE + 1) if stat.S_ISREG(_mode(file)) else None) or b""
+            culprit = block.value(data.decode("utf-8", "replace"), "name") or unit[1].rsplit("/", 1)[-1]
+            break
+    return CatalogError("label_unread", NOT_READ.format(name=culprit, error=cause), 409)
 
 
 def rewritten(before, after, changed, name, what="its private label and whose copy it is", folder=None):
     """What the Lab wrote in a compose text (`after`, from `before`), checked as the Lab reads it, with Compose in `folder`, where
     the file is: its x-gravitee is the one of `before` with the keys of `changed` set to their values (None: gone, or empty) and
-    nothing else, and it still loads. Each text is read once (compose.x_gravitee). Else the refusal that names the item and says
-    why: a file Compose cannot read as it is (`label_unread`, NOT_READ), or a label or a copy_of the Lab could not write, or whose
-    writing broke the file (`label_failed`, NOT_WRITTEN): never left unsaid."""
+    nothing else, and it still loads. Else the refusal that names the item and says why, decided on what is true now: a file
+    Compose cannot read as it is (`label_unread`, _unread), or a label or a copy_of the Lab could not write, or whose writing broke
+    a file that reads (`label_failed`, NOT_WRITTEN). A reading remembered (compose.x_gravitee) says a text was readable, not that
+    it is: when what the Lab wrote cannot be read, the file as it is is read again before the Lab takes the fault."""
     where = folder or compose.scratch()
     try:
         old = compose.x_gravitee(before, where)
     except compose.ComposeError as error:
-        raise CatalogError("label_unread", NOT_READ.format(name=name, error=str(error)[:120].rstrip(".")), 409) from None
+        raise _unread(name, error) from None
     try:
         new = old if after == before else compose.x_gravitee(after, where)
-    except compose.ComposeError:   # what the Lab wrote broke the file
-        raise CatalogError("label_failed", NOT_WRITTEN.format(name=name, what=what), 409) from None
+    except compose.ComposeError:
+        try:
+            compose.x_gravitee(before, where, fresh=True)
+        except compose.ComposeError as error:   # the file itself cannot be read now: not what the Lab wrote
+            raise _unread(name, error) from None
+        raise CatalogError("label_failed", NOT_WRITTEN.format(name=name, what=what), 409) from None   # what the Lab wrote broke it
     old, new = (old if isinstance(old, dict) else {}), ({} if new is None else new)   # no block: nothing it says
     wanted = {**{key: value for key, value in old.items() if key not in changed},
               **{key: value for key, value in changed.items() if value is not None}}

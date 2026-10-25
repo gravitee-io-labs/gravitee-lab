@@ -170,6 +170,46 @@ class RoundTrip(Case):
         self.assertEqual([cmd for cmd in runs if "-f" in cmd and cmd[cmd.index("-f") + 1] == "-"], [],
                          "what each item says is what the Lab read of it: no item is read again for its label or its copy_of")
 
+    def test_an_item_whose_include_is_gone_is_read_as_the_lab_reads_it_and_the_plan_says_it_is_blocked(self):
+        scratch = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons" / "scratch" / "compose.yml"
+        scratch.write_text(scratch.read_text(encoding="utf-8").replace("include:\n", "include:\n  - ../gone/compose.yml\n", 1),
+                           encoding="utf-8")
+        project.forget()
+        self.assertIn("local/scratch", project.load()["addons"], "this Lab reads it, without what is gone")
+        plan = exports.plan("local/sandbox")
+        reasons = {one["name"]: one["reasons"] for one in plan["blocked"]}
+        self.assertIn("Cannot be read: it includes a file that is not there", reasons["Scratch"], "as the other Lab would read it")
+        with self.assertRaises(CatalogError) as caught:
+            exports.archive("local/sandbox")
+        self.assertEqual(caught.exception.code, "export_blocked")
+
+    def test_a_file_that_cannot_be_read_now_is_said_as_such_though_it_was_read_before(self):
+        sandbox = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "playgrounds" / "sandbox"
+        (paths.ROOT / "shared").mkdir()
+        (paths.ROOT / "shared" / "extra.yml").write_text("services:\n  extra:\n    image: busybox:1.36\n", encoding="utf-8")
+        text = (sandbox / "compose.yml").read_text(encoding="utf-8")
+        text = text.replace("include:\n", "include:\n  - ../../../../../shared/extra.yml\n", 1).replace(
+            "x-gravitee: {kind: playground,", "x-gravitee: {copy_of: tour, kind: playground,", 1)
+        (sandbox / "compose.yml").write_text(text, encoding="utf-8")
+        project.forget()
+        project.load()   # read whole: what it says is remembered
+        (paths.ROOT / "shared" / "extra.yml").unlink()   # gone since, outside the catalogs: Compose cannot read the file now
+        with self.assertRaises(CatalogError) as caught:
+            contribute.rewritten(text, contribute.unmark(text), {"copy_of": None}, "Sandbox", "whose copy it is", sandbox)
+        self.assertEqual(caught.exception.code, "label_unread", "not the Lab's writing")
+        self.assertEqual(caught.exception.message, "Sandbox: its compose file cannot be read (open shared/extra.yml: no such file or "
+                                                   "directory). Fix: correct it so that docker compose config reads it, then try again.")
+
+    def test_what_compose_says_is_shown_with_the_paths_of_the_lab_and_its_end(self):
+        long = f"validating {paths.ROOT}/.lab/catalogs/local/addons/scratch/compose.yml: " + "a word " * 40 + "is not allowed here"
+        error = contribute._unread("Sandbox", compose.ComposeError(long))
+        self.assertTrue(error.message.startswith("Scratch: its compose file cannot be read (..."), error.message)
+        cause = error.message[error.message.index("(") + 1:error.message.index("). Fix:")]
+        self.assertTrue(cause.endswith("a word is not allowed here"), cause)
+        self.assertNotIn(str(paths.ROOT), error.message)
+        self.assertTrue(cause[3:4].isalpha() and cause[3:].startswith(("a ", "word ")), "cut where a word starts")
+        self.assertLessEqual(len(cause), contribute.CAUSE + 3)
+
     def test_whose_copy_an_item_is_never_leaves_however_its_yaml_says_it(self):
         scratch = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons" / "scratch" / "compose.yml"
         text = scratch.read_text(encoding="utf-8")
@@ -911,7 +951,7 @@ class Untrusted(Case):
                   'x-gravitee:\n  kind: playground\n  name: Evil\n  category: Other\n  description: d\n  copy_of: "tour"\n')
         preview = exports.receive(evil_zip(playground=forged))
         self.assertIn(exports.TWIN_CLAIMED, [reason for one in preview["blocked"] for reason in one["reasons"]])
-        self.refused(lambda: exports.to_personal(preview["ticket"], allow=True), "blocked_personal")
+        self.refused(lambda: exports.to_personal(preview["ticket"], allow=True), "twin_claimed")
         self.assertIn('A: "copy_of: x, a"', (paths.ROOT / exports.IMPORTS_DIR / "evil/playgrounds/evil/compose.yml").read_text(),
                       "the file is as it came: the Lab refuses, it does not rewrite")
 
@@ -1001,7 +1041,7 @@ class Claims(Case):
         file.parent.mkdir(parents=True)
         file.write_text(self.FORGED["include in a string"], encoding="utf-8")
         (file.parent / "a.yml").write_text("services: {}\n", encoding="utf-8")   # what the string names is there: read as it is
-        read = project.read_own(paths.unit_file("playground", "local/evil"))
+        read, _ = project.read_own(paths.unit_file("playground", "local/evil"))
         self.assertEqual(exports.claims_twin(read["x-gravitee"]), exports.TWIN_CLAIMED)
         self.assertEqual(compose.x_gravitee(file.read_text(encoding="utf-8"), file.parent), read["x-gravitee"],
                          "the reader of labels reads what the Lab reads")
@@ -1023,6 +1063,10 @@ class Claims(Case):
     def test_a_claim_is_said_in_the_preview_and_a_move_of_it_is_refused(self):
         preview = exports.receive(evil_zip(playground=self.FORGED["apostrophe"]))
         self.assertIn({"kind": "playground", "id": "@evil/evil", "name": "Evil's", "reasons": [exports.TWIN_CLAIMED]}, preview["blocked"])
+        with self.assertRaises(CatalogError) as caught:
+            exports.to_personal(preview["ticket"], allow=True)
+        self.assertEqual((caught.exception.code, caught.exception.message), ("twin_claimed", "Evil's says it is a copy of an item of "
+                         "this Lab, which only this Lab writes: it cannot go to Personal. It runs in Imported."))
         service.add(preview["ticket"])
         project.forget()
         with self.assertRaises(CatalogError) as caught:
@@ -1032,7 +1076,7 @@ class Claims(Case):
 
     def test_what_slips_by_the_preview_is_caught_once_in_personal_and_undone(self):
         preview = exports.receive(evil_zip(playground=self.FORGED["apostrophe"]))
-        service.note(preview["ticket"], blocked=[])   # as if the preview had not seen it
+        service.note(preview["ticket"], blocked=[], claimed=[])   # as if the preview had not seen it
         with self.assertRaises(CatalogError) as caught:
             exports.to_personal(preview["ticket"], allow=True)
         self.assertEqual(caught.exception.code, "twin_claimed")
