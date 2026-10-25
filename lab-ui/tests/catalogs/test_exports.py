@@ -10,6 +10,7 @@ import os
 import shutil
 import stat
 import zipfile
+from pathlib import Path
 
 from lab_ui import paths
 from lab_ui.catalogs import contribute, exports, gitx, moving, registry, service
@@ -109,6 +110,14 @@ class Named(Case):
             self.assertLess(time.monotonic() - started, 1.0)
         self.assertEqual(exports._named("x-gravitee: {kind: addon,\n  name: Echo}\n", "echo"), "Echo", "a flow block may span lines")
 
+    def test_only_the_top_level_name_of_the_block_is_its_name(self):
+        nested = "x-gravitee:\n  kind: playground\n  accounts:\n    admin:\n      name: Admin user\n  name: Bank\nservices: {}\n"
+        self.assertEqual(exports._named(nested, "bank"), "Bank")
+        self.assertEqual(exports._named(nested.replace("  name: Bank\n", ""), "bank"), "bank", "an account's name is not the item's")
+        self.assertEqual(exports._named('x-gravitee: {kind: addon, description: "Pick a name: any", name: Echo}\n', "echo"), "Echo")
+        self.assertEqual(exports._named('x-gravitee: {kind: addon, description: "Pick a name: any"}\n', "echo"), "echo",
+                         "a name inside a value is not the item's")
+
 
 class RoundTrip(Case):
     """A project with the fixture catalog as its default one and two items of this machine: Sandbox, a playground that includes
@@ -200,21 +209,26 @@ class RoundTrip(Case):
         self.assertEqual(caught.exception.message, "Sandbox: its compose file cannot be read (shared/extra.yml is not there). Fix: "
                                                    "correct it so that docker compose config reads it, then try again.")
 
-    def test_a_refusal_names_the_item_compose_names_by_its_path_in_the_lab_and_never_shows_what_a_file_holds(self):
+    def test_a_refusal_names_only_files_the_lab_knows_the_item_reads_and_never_what_a_file_holds(self):
+        scratch = ".lab/catalogs/local/addons/scratch/compose.yml"
         said = (f"failed to read {paths.ROOT}/.lab/catalogs/local/addons/scratch/x.env: line 3: unexpected character "
-                f"\"SECRET=hunter2\" in variable name, while reading {paths.ROOT}/.lab/catalogs/local/addons/scratch/compose.yml")
-        error = contribute._unread("Sandbox", compose.ComposeError(said))
-        self.assertEqual(error.message, "Scratch: its compose file cannot be read (Compose cannot read .lab/catalogs/local/addons/"
-                                        "scratch/x.env). Fix: correct it so that docker compose config reads it, then try again.")
-        for gone in ("open /Users/someone/elsewhere/compose.yml: no such file or directory",
-                     f"open {paths.ROOT}/shared/x.yml: permission denied", "docker did not answer within 15 s"):
-            with self.subTest(gone):
-                self.assertNotIn("/Users/someone", contribute._unread("Sandbox", compose.ComposeError(gone)).message)
-        self.assertEqual([compose.cause(one) for one in ("open /Users/someone/elsewhere/compose.yml: no such file or directory",
-                                                          f"open {paths.ROOT}/shared/x.yml: permission denied",
-                                                          "docker did not answer within 15 s", "yaml: line 2: did not find key")],
-                         ["compose.yml is not there", "shared/x.yml cannot be opened", "Compose took too long to read it",
-                          "Compose cannot read it"])
+                f"\"SECRET=hunter2\" in variable name, while reading {paths.ROOT}/{scratch}")
+        error = contribute._unread("Sandbox", compose.ComposeError(said), [scratch])
+        self.assertEqual(error.message, f"Scratch: its compose file cannot be read (Compose cannot read {scratch}). Fix: correct it "
+                                        "so that docker compose config reads it, then try again.")
+        self.assertEqual(contribute._unread("Sandbox", compose.ComposeError(said)).message, "Sandbox: its compose file cannot be "
+                         "read (Compose cannot read it). Fix: correct it so that docker compose config reads it, then try again.")
+        known = ["shared/x.yml", scratch]
+        cases = {"open /Users/someone/elsewhere/compose.yml: no such file or directory": "Compose cannot read it",
+                 f"open {paths.ROOT}/shared/x.yml: permission denied": "shared/x.yml cannot be opened",
+                 f"open {paths.ROOT}/shared/x.yml: no such file or directory": "shared/x.yml is not there",
+                 "docker did not answer within 15 s": "Compose took too long to read it",
+                 "services.bad/name additional properties 'a/b' not allowed": "Compose cannot read it",
+                 f"open {paths.ROOT}/.lab/kept-settings/local-1a2b3c4d/x: no such file or directory": "Compose cannot read it",
+                 "yaml: line 2: did not find key": "Compose cannot read it"}
+        for said, shown in cases.items():
+            with self.subTest(said):
+                self.assertEqual(compose.cause(said, known), shown, "a name its author chose, or a folder of the Lab's, is never said")
 
     def test_whose_copy_an_item_is_never_leaves_however_its_yaml_says_it(self):
         scratch = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons" / "scratch" / "compose.yml"
@@ -242,6 +256,11 @@ class RoundTrip(Case):
                     said = compose.x_gravitee(archive.read("sandbox/addons/scratch/compose.yml").decode(), scratch.parent)
                 self.assertNotIn("copy_of", said)
                 self.assertEqual(said["name"], "Scratch")
+
+    def test_a_file_without_a_private_label_keeps_the_level_of_the_template(self):
+        made = exports.archive("local/sandbox")
+        with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
+            self.assertIn("  lab: 1\n", archive.read("sandbox/catalog.yml").decode())
 
     def test_an_item_of_the_default_catalog_has_nothing_to_export(self):
         with self.assertRaises(CatalogError) as caught:
@@ -504,6 +523,15 @@ class FromCatalogs(Case):
         with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
             said = compose.x_gravitee(archive.read("sandbox/addons/ledger/compose.yml").decode(), self.root)
         self.assertEqual((said["private_from"], said["description"]), ("Partner fixture", "Keeps a partner's entries"))
+
+    def test_a_file_with_a_private_label_says_the_level_the_label_appeared_at(self):
+        made = exports.archive("local/sandbox", private=["@partner/ledger"])
+        with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
+            self.assertIn(f"  lab: {contribute.LABEL_LEVEL}\n", archive.read("sandbox/catalog.yml").decode())
+        lines = (Path(__file__).resolve().parents[3] / "contract.lock").read_text(encoding="utf-8").splitlines()
+        self.assertIn(f"unit.key x-gravitee.private_from kinds=any since={contribute.LABEL_LEVEL}", lines, "the level of the lock")
+        self.assertEqual(contribute.lab_raised("x-gravitee-catalog:\n  lab: 1\n"), f"x-gravitee-catalog:\n  lab: {contribute.LABEL_LEVEL}\n")
+        self.assertIsNone(contribute.lab_raised(f"x-gravitee-catalog:\n  lab: {contribute.LABEL_LEVEL}\n"))
 
     def test_a_label_says_any_name_of_a_catalog_as_it_is(self):
         names = ['Partner "core"', "C:\\labs\\partner", "Partner's", "Partner: core", "Partner # core", "Zürich 東京", "  padded  "]

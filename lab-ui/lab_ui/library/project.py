@@ -2057,7 +2057,7 @@ def read_own(file):
     if held:
         return None, held[0]
     config, problem = _raw(file, skip=reach["missing"]) if reach["missing"] else _raw(file)
-    return config, (None if config is not None else compose.cause((problem or {}).get("message") or ""))
+    return config, (None if config is not None else compose.cause((problem or {}).get("message") or "", reach["targets"]))
 
 
 def loaded():

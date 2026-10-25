@@ -189,14 +189,14 @@ test("the imported playgrounds are one row, Imported, in Local: it counts them a
 
 test("kept settings are listed where they came from, by the names of their items, and go at the person's word only, saying what goes", async () => {
   clearToasts();
-  const kept = [{ folder: "contoso-1a2b3c4d", from: "contoso", items: [{ name: "Kiosk", kinds: ["Settings", "Secrets"] }], at: "2026-10-20T08:00:00Z" },
-    { folder: "local-0a1b2c3d", from: "Personal", items: [{ name: "Echo Tool", kinds: ["Settings", "Secrets", "State"] }], at: "2026-10-21T08:00:00Z" }];
+  const kept = [{ folder: "contoso-1a2b3c4d", from: "Contoso demo", personal: false, items: [{ name: "Kiosk", kinds: ["Settings", "Secrets"] }], at: "2026-10-20T08:00:00Z" },
+    { folder: "local-0a1b2c3d", from: "Personal", personal: true, items: [{ name: "Echo Tool", kinds: ["Settings", "Secrets", "State"] }], at: "2026-10-21T08:00:00Z" }];
   show([FIRST(), PERSONAL()], { kept_settings: kept });
   assert.deepEqual([...section.querySelector(".list-rows").children].map((li) => (li.className === "stack-sep" ? text(li) : text(li.querySelector(".list-name")))),
     ["Local", "Imported", "Personal", "Remote", "Gravitee public"], "Imported is there for kept settings alone");
   open(row("Imported"));
   const [imported] = panels(row("Imported"));
-  assert.deepEqual(pairs(imported).map(([name, value]) => [name, value.replace(/ \d+ \w+ ago$/, "")]), [["Kiosk", "From contoso,"]]);
+  assert.deepEqual(pairs(imported).map(([name, value]) => [name, value.replace(/ \d+ \w+ ago$/, "")]), [["Kiosk", "From Contoso demo,"]]);
   open(row("Personal"));
   const personal = panels(row("Personal")).find((panel) => text(panel).startsWith("Kept settings"));
   assert.deepEqual(pairs(personal).map(([name]) => name), ["Echo Tool"], "what came from Personal is on Personal's row");
@@ -223,7 +223,7 @@ test("Personal is drawn only once it holds something, or the Lab keeps settings 
   const empty = PERSONAL({ counts: { playground: 0, setup: 0, addon: 0 } });
   show([FIRST(), empty]);
   assert.deepEqual(items().map((li) => text(li.querySelector(".list-name"))), ["Gravitee public"]);
-  show([FIRST(), empty], { kept_settings: [{ folder: "local-0a1b2c3d", from: "Personal", items: [{ name: "Echo Tool", kinds: ["Settings"] }],
+  show([FIRST(), empty], { kept_settings: [{ folder: "local-0a1b2c3d", from: "Personal", personal: true, items: [{ name: "Echo Tool", kinds: ["Settings"] }],
     at: "2026-10-21T08:00:00Z" }] });
   assert.deepEqual(items().map((li) => text(li.querySelector(".list-name"))), ["Personal", "Gravitee public"], "its kept settings can still be removed");
   open(row("Personal"));
@@ -936,7 +936,7 @@ test("Settings kept from a removed import of that name are said, used or not, an
   await submit(primary());
   await settle();
   router.go = go;
-  assert.deepEqual(toasts(), ["Imported. The kept settings of Kiosk stay in .lab/kept-settings/contoso-1a2b3c4d."]);
+  assert.deepEqual(toasts(), ["Imported. The kept settings of Kiosk stay apart: see Kept settings on the Catalogs page."]);
 });
 
 test("Import takes the file of an exported playground, shows the preview of an Add from that file, and opens the playground once imported", async () => {

@@ -916,11 +916,14 @@ def _publish(ns, catalog, name, kind, slug, address, branch, who, copy, also=(),
     for k, s in [(kind, slug), *also]:
         if bare.read(store, base, _place(k, s, ns)[2]) is not None:
             raise _refusal("share_exists", name=name if (k, s) == (kind, slug) else s, catalog=catalog)
+    files = dict(copy.files)
+    if carries_label(files):   # the label is in the files shared, not in the person's: the lab of older Labs counts it
+        needed = max(needed, LABEL_LEVEL)
     yml = bare.read(store, base, manifest.FILE)
     raised = _raised(yml.decode("utf-8", "replace"), needed) if yml else None
     if raised is not None:
-        copy = copy._replace(files={**copy.files, manifest.FILE: ("100644", raised.encode("utf-8"))})
-    commit = _commit(store, base, copy.files, f"Add {name}", who)
+        files[manifest.FILE] = ("100644", raised.encode("utf-8"))
+    commit = _commit(store, base, files, f"Add {name}", who)
     where = _branch(address, slug)
     try:
         _push(address, store, commit, where, catalog)
@@ -1100,19 +1103,51 @@ def _said(text, folder=None):
 def private_of(text, uid, folder=None):
     """The name of the private catalog what the item `uid` (its compose `text`, in `folder`) holds comes from: its label or its
     chain, else its own catalog when that is a private catalog of Git; None when it is nobody's private content."""
+    return _private_of(text, uid, folder)[1]
+
+
+def _private_of(text, uid, folder=None):
+    """private_of as (the id of that private catalog of Git when the Lab knows it, its name): a label says only a name, so its
+    id is None; (None, None) when it is nobody's private content."""
     source = private_source(text, folder)
     if source:
-        return source[1]
+        return (source[0] if source[2] is not None else None), source[1]
     try:
         ns = paths.origin(uid)
     except paths.NotFound:
-        return None
+        return None, None
     entry = registry.entry(ns) if ns != LOCAL else None
-    return _catalog_name(ns) if entry and entry.get("kind") == "git" and registry.lock_of(ns).get("audience") != "public" else None
+    private = entry and entry.get("kind") == "git" and registry.lock_of(ns).get("audience") != "public"
+    return (ns, _catalog_name(ns)) if private else (None, None)
+
+
+def _label_in(private, to):
+    """The private label a copy takes into the catalog `to`, from (id, name) of the private catalog of Git its content comes from
+    (_private_of): its name, unless `to` is that very catalog, known by its id; a catalog that only has the same name is another."""
+    ns, name = private
+    return None if ns is not None and ns == to and (registry.entry(to) or {}).get("kind") == "git" else name
 
 
 def _catalog_name(ns):
     return (registry.inputs().get(ns) or {}).get("name") or registry.lock_of(ns).get("name") or ns
+
+
+LABEL_LEVEL = 2   # the level of contract.lock at which x-gravitee.private_from appeared: a catalog that holds one declares it
+
+
+def carries_label(files):
+    """Whether any compose file of `files` ({path in the catalog: (mode, bytes)}) says a private label (`private_from`)."""
+    return any(block.value(content.decode("utf-8", "replace"), "private_from")
+               for path, (_, content) in files.items() if path.endswith((".yml", ".yaml")) and path != registry.CATALOG_FILE)
+
+
+def lab_raised(text, level=LABEL_LEVEL):
+    """The text of a catalog.yml with its `lab` raised to `level`, for a catalog that now holds what appeared at that level; None
+    when it says that level or a higher one already, or says none."""
+    found = re.search(r"(?m)^(  lab:[ \t]*)(\d+)", text or "")
+    if not found or int(found.group(2)) >= level:
+        return None
+    return text[:found.start(2)] + str(level) + text[found.end(2):]
 
 
 def labelled(text, name):
@@ -1167,9 +1202,6 @@ def _relative(error):
     return text
 
 
-UNIT_FILE = re.compile(r"\.lab/catalogs/[^\s:'\"]+?(?:/compose\.yml|/setups/[^/\s:'\"]+\.yml)")
-
-
 def _mode(file):
     try:
         return os.lstat(file).st_mode
@@ -1177,17 +1209,17 @@ def _mode(file):
         return 0
 
 
-def _unread(name, error):
+def _unread(name, error, known=()):
     """The refusal of an item whose file, or a file it includes, Compose cannot read: named by the item whose file Compose names
-    (an add-on it includes, say), else by `name`."""
-    cause, culprit = compose.cause(error), name
-    for found in UNIT_FILE.finditer(_relative(error)):
-        unit = paths.unit_of(found.group())
-        if unit:   # its name as its own block says it, else its folder's
-            file = paths.ROOT / found.group()
-            data = (_read(file, bare.TEXT_FILE + 1) if stat.S_ISREG(_mode(file)) else None) or b""
-            culprit = block.value(data.decode("utf-8", "replace"), "name") or unit[1].rsplit("/", 1)[-1]
-            break
+    among the files the Lab knows it reads (`known`: an add-on it includes, say), else by `name`."""
+    cause, culprit = compose.cause(error, known), name
+    said = _relative(error)
+    for rel in sorted((one for one in known if paths.unit_of(one) and one in said), key=said.find):
+        unit = paths.unit_of(rel)   # its name as its own block says it, else its folder's
+        file = paths.ROOT / rel
+        data = (_read(file, bare.TEXT_FILE + 1) if stat.S_ISREG(_mode(file)) else None) or b""
+        culprit = block.value(data.decode("utf-8", "replace"), "name") or unit[1].rsplit("/", 1)[-1]
+        break
     return CatalogError("label_unread", NOT_READ.format(name=culprit, error=cause), 409)
 
 
@@ -1199,17 +1231,18 @@ def rewritten(before, after, changed, name, what="its private label and whose co
     a file that reads (`label_failed`, NOT_WRITTEN). A reading remembered (compose.x_gravitee) says a text was readable, not that
     it is: when what the Lab wrote cannot be read, the file as it is is read again before the Lab takes the fault."""
     where = folder or compose.scratch()
+    known = compose.named_by(before, where)
     try:
         old = compose.x_gravitee(before, where)
     except compose.ComposeError as error:
-        raise _unread(name, error) from None
+        raise _unread(name, error, known) from None
     try:
         new = old if after == before else compose.x_gravitee(after, where)
     except compose.ComposeError:
         try:
             compose.x_gravitee(before, where, fresh=True)
         except compose.ComposeError as error:   # the file itself cannot be read now: not what the Lab wrote
-            raise _unread(name, error) from None
+            raise _unread(name, error, known) from None
         raise CatalogError("label_failed", NOT_WRITTEN.format(name=name, what=what), 409) from None   # what the Lab wrote broke it
     old, new = (old if isinstance(old, dict) else {}), ({} if new is None else new)   # no block: nothing it says
     wanted = {**{key: value for key, value in old.items() if key not in changed},
@@ -1376,12 +1409,11 @@ def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False)
                 raise _refusal("share_private_copy", name=named(k, one), private=source[1])
         # Whose copy it is goes with a copy of a private catalog's content into another catalog (not Public: refused above), so that
         # it is still that catalog's content there; else an item of a catalog says nothing of it
-        # What is private content says so in the catalog it goes to, unless it goes back to that very catalog
-        private = {(k, s): private_of(other.kept, one, other.folder) for k, one, s, other in [(kind, uid, slug, copy), *along]}
-        own = row["name"]
-        copy = _unmarked_or_said(copy, kind, slug, None if private[(kind, slug)] == own else private[(kind, slug)], name)
-        along = [(k, one, s, _unmarked_or_said(other, k, s, None if private[(k, s)] == own else private[(k, s)], named(k, one)))
-                 for k, one, s, other in along]
+        # What is private content says so in the catalog it goes to, unless it goes back to that very catalog: the private catalog
+        # of Git it comes from, known by its id, never a catalog that only has its name
+        private = {(k, s): _private_of(other.kept, one, other.folder) for k, one, s, other in [(kind, uid, slug, copy), *along]}
+        copy = _unmarked_or_said(copy, kind, slug, _label_in(private[(kind, slug)], to), name)
+        along = [(k, one, s, _unmarked_or_said(other, k, s, _label_in(private[(k, s)], to), named(k, one))) for k, one, s, other in along]
         renames = _renames([(kind, slug, copy), *[(k, s, c) for k, _, s, c in along]], to)
         copy = _renamed(copy, kind, slug, renames)
         along = [(k, one, s, _renamed(c, k, s, renames)) for k, one, s, c in along]

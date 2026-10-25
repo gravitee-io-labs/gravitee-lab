@@ -657,6 +657,19 @@ class Judged(Seam):
                                                                                 "which is private. Fix: share it to a private catalog."))
         self.assertEqual(self.share("local/my-ledger", "partner", check_only=True)["problems"], [], "to a private one it may go")
 
+    def test_a_catalog_that_only_has_the_name_of_the_private_one_is_another_and_the_label_goes_there(self):
+        fixtures.install(self, "lab-new", "folder", link=True, name="Partner fixture", audience="private")
+        self.item("addon", "my-ledger", "Ledger", 'x-gravitee: {copy_of: "@partner/ledger", kind: addon, name: Ledger, category: Other, '
+                                               'description: Keeps the entries of a partner}\nservices: {}\n')
+        self.share("local/my-ledger", "lab-new")
+        (shared,) = (self.root / ".lab/catalogs/lab-new").rglob("my-ledger/compose.yml")
+        self.assertEqual(contribute.private_source(shared.read_text(), shared.parent), ("Partner fixture", "Partner fixture", None),
+                         "still that catalog's content: an export says it, a share to Public refuses it")
+        self.assertNotIn("copy_of", shared.read_text())
+        self.assertEqual(contribute._label_in(("partner", "Partner fixture"), "lab-new"), "Partner fixture")
+        self.assertIsNone(contribute._label_in(("partner", "Partner fixture"), "partner"), "back to that very catalog: nothing to say")
+        self.assertEqual(contribute._label_in((None, "Partner fixture"), "partner"), "Partner fixture", "a label names, it is no id")
+
     def test_a_copy_of_a_share_of_a_copy_of_a_private_item_stops_a_share_to_a_public_one(self):
         fixtures.install(self, "lab-new", "folder", audience="private", lab=1)
         shared = self.root / ".lab/catalogs/lab-new/addons/ledger/compose.yml"
@@ -889,6 +902,23 @@ class Published(Seam):
         self.assertEqual(sorted(set(after) - set(before)), ["addons/scratch/README.md", "addons/scratch/compose.yml"])
         self.assertEqual(sorted(set(before) - set(after)), [])
         self.assertIn("  - ../echo/compose.yml\n", remote.git("show", f"lab/scratch-{DAY}:addons/scratch/compose.yml") + "\n")
+
+    def test_an_item_with_a_private_label_raises_the_lab_of_the_catalog_in_the_same_commit(self):
+        remote = self.remote("fixture")
+        address, branch = contribute._address(registry.entry("fixture"), registry.lock_of("fixture"))
+        text = b'x-gravitee: {private_from: "Partner fixture", kind: addon, name: Ledger}\nservices: {}\n'
+        copy = contribute.Copy({"addons/ledger/compose.yml": ("100644", text)}, text.decode(), text.decode(), [])
+        done = contribute._publish("fixture", "Fixture catalog", "Ledger", "addon", "ledger", address, branch,
+                                   {"name": "A person", "email": "a@example.test"}, copy)
+        manifest = remote.git("show", f"{done['branch']}:catalog.yml")
+        self.assertIn(f"  lab: {contribute.LABEL_LEVEL}\n", manifest + "\n", "the catalog says the Lab it needs from now on")
+        self.assertEqual(remote.git("show", f"{done['branch']}:catalog.yml").replace(f"lab: {contribute.LABEL_LEVEL}", "lab: 1"),
+                         remote.git("show", "main:catalog.yml"), "and nothing else of it changes")
+        plain = contribute.Copy({"addons/plain/compose.yml": ("100644", b"x-gravitee: {kind: addon, name: Plain}\nservices: {}\n")},
+                                "", "", [])
+        done = contribute._publish("fixture", "Fixture catalog", "Plain", "addon", "plain", address, branch,
+                                   {"name": "A person", "email": "a@example.test"}, plain)
+        self.assertEqual(remote.git("show", f"{done['branch']}:catalog.yml"), remote.git("show", "main:catalog.yml"))
 
     def test_what_only_this_machine_has_goes_in_the_same_branch_and_one_commit(self):
         self.write(".lab/tested.json", json.dumps({"local/demo": [{"versions": {}, "images": {}, "at": "2026-01-01T00:00:00Z"}]}))

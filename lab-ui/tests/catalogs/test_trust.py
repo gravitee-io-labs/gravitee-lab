@@ -2026,7 +2026,7 @@ class Includes(Golden):
         self.assertEqual((combined["state"], combined["reasons"]), ("blocked", [line("T25", name="Writable bind")]))
 
     def test_t26_a_unit_written_for_a_newer_lab_blocks(self):
-        self.assertEqual(self.judge("t26-newer-lab")["reasons"], [line("T26", 0, level=99, min=1, max=1)])
+        self.assertEqual(self.judge("t26-newer-lab")["reasons"], [line("T26", 0, level=99, min=regen.LEVELS[1], max=regen.LEVELS[0])])
         self.assertEqual(self.judge("t26-newer-lab", contract=99)["state"], "ok")
 
     def test_t26_a_unit_written_for_an_older_lab_blocks(self):
@@ -2139,7 +2139,7 @@ class Audience(Golden):
             arguments["context"].update(audience="public", closure_audiences=["private"], level=5)
         verdict = self.changed(CLEAN, edit)
         self.assertEqual(verdict["codes"], ["T20", "T24", "T26"])
-        self.assertEqual(verdict["reasons"], [line("T20", names="HOME"), line("T24"), line("T26", 0, level=5, min=1, max=1)])
+        self.assertEqual(verdict["reasons"], [line("T20", names="HOME"), line("T24"), line("T26", 0, level=5, min=regen.LEVELS[1], max=regen.LEVELS[0])])
 
     def test_a_unit_that_compose_could_not_read_is_still_judged_on_its_audience(self):
         verdict = self.judge("t23-include-outside", audience="public", closure_audiences=["private"])

@@ -170,7 +170,8 @@ shown. What the Lab writes in a file, a label or whose copy it is taken out, is 
 what it cannot write or take out (an x-gravitee in a form the Lab cannot change, or in a second YAML document) stops the export,
 the share or the copy, which names the item, and so does a file Compose cannot read there. A file someone sends can only add that
 notice: an item of it that says whose copy it is (`copy_of`, which only this Lab writes) is blocked, in Imported as in Personal,
-so a file never makes an item the twin of one of yours. An item that needs a catalog this Lab has not added is not copied: nothing has judged it.
+so a file never claims to be a copy of one of yours. An item with the name and the services of one of yours is still its twin,
+as an item of any catalog is. An item that needs a catalog this Lab has not added is not copied: nothing has judged it.
 
 ## A playground in a file
 

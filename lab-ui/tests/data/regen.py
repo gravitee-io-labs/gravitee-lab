@@ -29,6 +29,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent   # lab-ui/tests/data
 LAB_UI = HERE.parents[1]
+# The levels of the engine (contract.lock): what the policy says of a unit written for another level names them
+LEVELS = tuple(int(line.split()[1]) for line in (LAB_UI.parent / "contract.lock").read_text(encoding="utf-8").splitlines()[:2])
 ENGINE = LAB_UI.parent
 CATALOG = HERE / "catalogs" / "hostile"
 SUPPORT = HERE / "trust" / "support"   # the stand-in for the catalog the hostile units include
@@ -313,7 +315,7 @@ def case(name, root, listed=False, allowed=False, realpath=os.path.realpath, **m
     context = {"ns": NS, "host_ok": listed or allowed, "listed": listed, "shared_settings": ["FIXTURE_SHARED_TOKEN"],
                "core_variables": core["variables"], "license_variable": core["license_variable"],
                "closure_names": [other for _, other in brought], "closure_services": sorted(services),
-               "seeder_images": SEEDER_IMAGES, "requires": ["partner"], "level": level, "contract": 1, "contract_min": 1,
+               "seeder_images": SEEDER_IMAGES, "requires": ["partner"], "level": level, "contract": LEVELS[0], "contract_min": LEVELS[1],
                "realpath": realpath, "home": FAKE_HOME}
     if gold["error"]:
         context["error"] = gold["error"]

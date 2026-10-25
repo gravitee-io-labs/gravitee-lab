@@ -11,7 +11,7 @@ lock of the catalogs.
     used_by(key, digest)       the folder kept for that very file, or None
     forget(key, folder)        the folder and its line go: what it held went back
     remove_but(folder, spared) a folder deleted but for the person's files that could be neither moved nor kept
-    listed()                   what is kept, for the Catalogs page, which shows it with Imported
+    listed()                   what is kept, for the Catalogs page, which shows it on the row it came from: Personal or Imported
     remove(name)               a folder of kept settings deleted at the person's word
 """
 
@@ -130,15 +130,17 @@ def carry(source: Path, target: Path, within: Path):
     return True
 
 
-def keep(key, digest, pairs, names=None):
+def keep(key, digest, pairs, names=None, title=None):
     """`pairs` ([(source, its place in the kept folder)]) moved into a new folder of kept settings for `key`, its line written
-    first, with the names of the items they are of (`names`: {item folder: name}, for the page). Answers (the folder, relative to
-    the project, or None when nothing moved; [the sources that could not move])."""
+    first, with the names of the items they are of (`names`: {item folder: name}, for the page) and of where they came from
+    (`title`: the imported playground's). Answers (the folder, relative to the project, or None when nothing moved; [the sources
+    that could not move])."""
     if not pairs:
         return None, []
     folder = paths.ROOT / KEPT_DIR / f"{key}-{secrets.token_hex(4)}"
     found_ = record()
-    found_["kept"][key] = [*_lines(found_, key), {"folder": folder.name, "digest": digest, "names": dict(names or {})}]
+    found_["kept"][key] = [*_lines(found_, key), {"folder": folder.name, "digest": digest, "names": dict(names or {}),
+                                                  **({"title": str(title)} if title else {})}]
     write_record(found_)
     failed = [source for source, rel in pairs if not carry(source, folder / rel, folder)]
     if len(failed) == len(pairs):
@@ -171,7 +173,8 @@ def remove_but(folder: Path, spared):
 
 
 def listed():
-    """What is kept, for the page: [{folder, from (the import's id, or Personal), items [{name, kinds}], at}], newest first."""
+    """What is kept, for the page: [{folder, personal (whether it came from Personal), from (Personal, or the name of the
+    imported playground, its id when its line has none), items [{name, kinds}], at}], newest first. The page shows each on the row it came from: Personal's, or Imported's."""
     base, rows = paths.ROOT / KEPT_DIR, []
     try:
         entries = list(base.iterdir()) if base.is_dir() else []
@@ -186,12 +189,14 @@ def listed():
             settings = settings_of(folder)
         except OSError:
             continue
-        names = next((line.get("names") for line in _lines(record(), found.group(1)) if line.get("folder") == folder.name), None)
+        line = next((one for one in _lines(record(), found.group(1)) if one.get("folder") == folder.name), {})
+        names, title = line.get("names"), line.get("title")
         names = names if isinstance(names, dict) else {}
         items = {}
         for rel, name in settings:
             items.setdefault(rel, []).append(KINDS[name])
-        rows.append({"folder": folder.name, "from": "Personal" if found.group(1) == LOCAL else found.group(1),
+        mine = found.group(1) == LOCAL
+        rows.append({"folder": folder.name, "personal": mine, "from": "Personal" if mine else str(title or found.group(1)),
                      "items": [{"name": str(names.get(rel) or rel.rsplit("/", 1)[-1]), "kinds": kinds} for rel, kinds in sorted(items.items())],
                      "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(at)), "_at": at})
     return [{key: value for key, value in row.items() if key != "_at"} for row in sorted(rows, key=lambda row: -row["_at"])]

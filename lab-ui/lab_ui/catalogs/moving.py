@@ -341,7 +341,7 @@ SWAP = ".swap-"   # a folder of .lab, beside Personal, for one change: new/ the 
 LEFTOVER = ".leftover-"   # what a change could not delete: never read again
 JOURNAL = "journal.json"   # in the swap folder: its items and its phase, written before each step, which a recovery reads alone
 STUCK = "Some files were created by Docker and could not be deleted. Remove the folder {where} with administrator rights."
-REPLACED = "Settings of {names} that the new version replaced are kept in {where}."
+REPLACED = "Settings of {names} that the new version replaced are kept: see Kept settings on the Catalogs page."
 NOT_KEPT = ("Settings of {names} could not be kept and are still in {where}: copy them out, then remove that folder with "
             "administrator rights.")
 NOT_IN = ("{names} could not be put in Personal ({why}): Personal is as it was. Fix: see that the disk has room and that .lab "
@@ -475,7 +475,7 @@ def _settle(swap, rels, recovering):
              for source, _ in _bring(old / rel, home / rel, rel)}
     pairs = [(source, f"{owner[source]}/{source.relative_to(old / owner[source]).as_posix()}") for source in owner]
     where, failed = _kept().keep(_kept().LOCAL, None, pairs, {rel: _names_of([rel]) for rel in set(owner.values())})
-    said = [REPLACED.format(names=_names_of(sorted({owner[one] for one in owner if one not in failed})), where=where) if where else ""]
+    said = [REPLACED.format(names=_names_of(sorted({owner[one] for one in owner if one not in failed}))) if where else ""]
     _kept().remove_but(swap, [*failed, swap / JOURNAL])   # the journal goes last: until then a stop is finished from it
     if not failed:
         with contextlib.suppress(OSError):

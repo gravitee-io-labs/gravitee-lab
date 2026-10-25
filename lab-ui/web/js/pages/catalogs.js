@@ -127,8 +127,8 @@ function about(row) {
 const IMPORTED = "imported";
 // The settings the Lab keeps (an import removed with Keep settings, an item of Personal that a new version replaced): each list is
 // with where they came from, those of Personal on Personal's row and those of an import on Imported's
-const keptOf = (row) => (store.state?.kept_settings || []).filter((k) => (row.kind === "machine" ? k.from === "Personal"
-  : row.kind === "imports" && k.from !== "Personal"));
+const keptOf = (row) => (store.state?.kept_settings || []).filter((k) => (row.kind === "machine" ? k.personal === true
+  : row.kind === "imports" && k.personal !== true));
 
 function grouped(rows) {
   const imports = rows.filter((r) => r.imported), kept = keptOf({ kind: "imports" });
@@ -156,7 +156,7 @@ function kept(row) {
   const line = (k) => {
     const names = k.items.map((one) => one.name).join(", ");
     return `<div class="panel-row panel-fact" data-kept="${esc(k.folder)}"><span>${esc(names)}</span><span class="panel-value">${
-      esc([k.from !== "Personal" ? `From ${k.from}` : "", old(k.at)].filter(Boolean).join(", "))}${more("data-kept-more", `More for the settings kept of ${names}`)}</span></div>`;
+      esc([k.personal !== true ? `From ${k.from}` : "", old(k.at)].filter(Boolean).join(", "))}${more("data-kept-more", `More for the settings kept of ${names}`)}</span></div>`;
   };
   return `<section class="panel">${heading("Kept settings")}${list.map(line).join("")}</section>`;
 }

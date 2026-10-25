@@ -4,7 +4,7 @@ x-gravitee:
   name: Gravitee Platform
   groups: [API Management, Access Management, Alert Engine, Databases]
   categories: [Gravitee Platform, AI, Event, API, Observability, Other]
-  contract: 1       # The newest level of what units rely on (docs/contract.md): grows with every addition to it
+  contract: 2       # The newest level of what units rely on (docs/contract.md): grows with every addition to it
   contract_min: 1   # The oldest level still read: grows when something is removed or changed
   seeder:
     image: ghcr.io/gravitee-io-labs/gravitee-lab/seeder   # The seeder image, built from ./seeder: the only image a seed service may have

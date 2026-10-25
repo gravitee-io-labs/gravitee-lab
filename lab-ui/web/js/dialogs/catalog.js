@@ -417,7 +417,7 @@ async function keepPersonal() {
       { ticket: preview.ticket, ...(allowsPersonal(preview) ? { allow: true } : {}) }));
     const stay = live();
     if (stay) dialog.close();
-    const kept = answer.kept ? `The kept settings of ${answer.kept.items.join(", ")} stay in ${answer.kept.where}.` : "";
+    const kept = answer.kept ? `The kept settings of ${answer.kept.items.join(", ")} stay apart: see Kept settings on the Catalogs page.` : "";
     toast([`Imported${kept || answer.warning ? "." : ""}`, kept, answer.warning].filter(Boolean).join(" "), !!answer.warning);
     await store.refresh();
     if (stay && answer.playground && !$$("dialog").some((d) => d.open)) router.go(`#/playgrounds/${answer.playground}`);

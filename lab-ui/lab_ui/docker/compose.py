@@ -13,7 +13,6 @@ import hashlib
 import importlib
 import json
 import os
-import posixpath
 import re
 import shutil
 import signal
@@ -636,15 +635,18 @@ def x_gravitee(text, folder, fresh=False):
     return copy.deepcopy(found)
 
 
-def cause(error):
-    """What a refusal shows of why Compose could not read a file: the kind of failure and the file it names, by its path in the
-    Lab's folder (a file outside it by its name only), and never what the file holds, which Compose may print back."""
-    text = str(error)
-    for root in sorted({str(ROOT), os.path.realpath(ROOT)}, key=len, reverse=True):
-        text = text.replace(root + "/", "")
-    words = [word.strip("'\"():,;[]{}") for word in text.split()]
-    found = next((word for word in words if "/" in word or word.endswith((".yml", ".yaml", ".env", ".json"))), "")
-    file = posixpath.basename(found) if found.startswith("/") else found   # outside the Lab's folder: its name only
+def cause(error, known=()):
+    """What a refusal shows of why Compose could not read a file: the kind of failure, and of the files the Lab knows the item
+    reads (`known`: project paths, the files it includes) the one Compose names, by its path in the Lab's folder. Nothing else
+    of what Compose said: it may print back what a file holds, or a name its author chose."""
+    text, spots = str(error), []
+    for rel in dict.fromkeys(known):
+        for spelling in (str(ROOT / rel), os.path.realpath(ROOT / rel), rel):
+            at = text.find(spelling)
+            if at >= 0:
+                spots.append((at, rel))
+                break
+    file = min(spots)[1] if spots else ""
     low = text.lower()
     if "did not answer within" in low:
         return "Compose took too long to read it"
@@ -657,6 +659,17 @@ def cause(error):
     if "is a directory" in low and file:
         return f"{file} is a folder"
     return f"Compose cannot read {file}" if file else "Compose cannot read it"
+
+
+def named_by(text, folder):
+    """The project files the compose `text`, in `folder` of the project, reaches through its includes: those a refusal may name
+    (cause). None outside the project."""
+    try:
+        rel = Path(folder).relative_to(ROOT).as_posix()
+    except ValueError:
+        return []
+    path = f"{rel}/compose.yml" if rel != "." else "compose.yml"
+    return _closure(path, (), text)[1:]
 
 
 def _remember(key, found):

@@ -137,7 +137,7 @@ the check of a catalog reports it. *Kinds* says which kind of unit may carry the
 | `x-gravitee.terminal` | playground | The service whose shell the terminal pane opens: one of its own or of what it includes, never its seed service |
 | `x-gravitee.host_access` | any | Maps a service to the reason it takes more of this machine than its container does: it runs privileged, mounts the Docker socket, and so on |
 | `x-gravitee.copy_of` | any | Written by the Lab in the person's copy of an item of a catalog (Copy to Personal): the id of the item it was copied from, its twin on this Lab. A catalog's item, and an exported file, never carry it: an item of a catalog or of an import that says it is blocked (T29) |
-| `x-gravitee.private_from` | any | Written by the Lab when private content is copied or leaves (Copy to Personal, Share, Export): the name of the private catalog of Git it comes from, resolved when it is written. Move and Import to Personal carry the file as it is, with its label. It only adds a notice: what carries it is said under Private, and it makes no twin |
+| `x-gravitee.private_from` | any | Written by the Lab when private content is copied or leaves (Copy to Personal, Share, Export): the name of the private catalog of Git it comes from, resolved when it is written. Move and Import to Personal carry the file as it is, with its label. It only adds a notice: what carries it is said under Private, and it makes no twin. Level 2: a catalog that holds it says `lab: 2`, which the Lab writes in an export and in a share; a Lab of level 1 then says it needs a newer Lab instead of refusing the key |
 
 | Key of `requires` | Kinds | What it says |
 |---|---|---|

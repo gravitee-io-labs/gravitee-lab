@@ -1468,7 +1468,7 @@ class XGravitee(ProjectFolder):
         try:
             compose.x_gravitee(text, self.here, fresh=True)
         except compose.ComposeError as error:
-            self.assertIn(compose.cause(error), ("Compose took too long to read it", "Compose cannot read playgrounds/mine/tool.env"))
+            self.assertIn(compose.cause(error), ("Compose took too long to read it", "Compose cannot read it"))
         self.assertLess(time.monotonic() - started, 10)
         self.assertTrue(settled(lambda: not holding(str(self.here))))
         (self.here / "tool.env").unlink()

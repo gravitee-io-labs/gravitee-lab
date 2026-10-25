@@ -196,7 +196,7 @@ class Moving(Case):
         project.forget()
         done = moving.move("playground", "@sandbox/sandbox", False)
         kept = next((paths.ROOT / exports.KEPT_DIR).glob("local-*"))
-        self.assertEqual(done["warning"], f"Settings of Sandbox that the new version replaced are kept in {exports.KEPT_DIR}/{kept.name}.")
+        self.assertEqual(done["warning"], "Settings of Sandbox that the new version replaced are kept: see Kept settings on the Catalogs page.")
         ours = {rel: data.decode() for rel, data in self.files_of(mine).items() if rel.split("/")[0] in (".env", "secrets", ".state")}
         self.assertEqual(ours, {".env": "TYPED_WHILE_IMPORTED=1\n", "secrets/a": "import a\n", "secrets/b": "my own b\n",
                                 "secrets/both": "import\n", ".state/created.json": '{"import": 1}\n'}, "it runs with what it ran with")
@@ -300,7 +300,7 @@ class Moving(Case):
         project.forget()
         done = moving.move("playground", "@sandbox/sandbox", False)
         kept = next((paths.ROOT / exports.KEPT_DIR).glob("local-*"))
-        self.assertIn(f"Settings of Sandbox that the new version replaced are kept in {exports.KEPT_DIR}/{kept.name}.", done["warning"])
+        self.assertIn("Settings of Sandbox that the new version replaced are kept: see Kept settings on the Catalogs page.", done["warning"])
         self.assertEqual((kept / "playgrounds/sandbox/secrets/tls/key.pem").read_text(), "my key\n")
         self.assertFalse(list((paths.ROOT / paths.LAB_DIR).glob(".swap-*")))
         self.assertIsNone(moving.recover())

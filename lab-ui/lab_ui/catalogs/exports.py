@@ -53,7 +53,7 @@ from pathlib import Path
 from .. import paths
 from ..docker import images
 from ..library import moves, project
-from . import contribute, defaults, kept, manifest, moving, registry, resolve, service, standard, trust
+from . import contribute, defaults, kept, manifest, meta as block, moving, registry, resolve, service, standard, trust
 from . import store as bare
 from .registry import CatalogError
 
@@ -253,6 +253,8 @@ def _catalog_yml(text, gathered):
         text = text.rstrip("\n") + "\n  requires:\n    catalogs:\n" + "\n".join(needed) + "\n"
     if gathered["shared"]:
         text = text.rstrip("\n") + "\n  shared_settings:\n" + "".join(f"    - {name}\n" for name in gathered["shared"])
+    if contribute.carries_label(gathered["files"]):   # an item with a private label needs the level the label appeared at
+        text = contribute.lab_raised(text) or text
     return text
 
 
@@ -447,8 +449,13 @@ def _name_of(archive, top):
         text = archive.read(f"{top}/catalog.yml")[:65536].decode("utf-8", "replace")
     except KeyError:
         return top
+    return _catalog_title(text, top)
+
+
+def _catalog_title(text, fallback):
+    """The name a catalog.yml gives its catalog, which is the playground's an export made; `fallback` when it says none."""
     said = re.search(r'(?m)^  name:\s*"?([^"\n]+?)"?\s*$', text)
-    return said.group(1) if said else top
+    return said.group(1) if said else fallback
 
 
 MACHINE_FILES, KEPT_DIR = kept.MACHINE_FILES, kept.KEPT_DIR
@@ -623,28 +630,15 @@ def _compose_rel(kind, rel):
     return rel if kind == "setup" else f"{rel}/compose.yml"
 
 
-# The name in the x-gravitee block of a file someone else made. The block is the first top-level `x-gravitee:` (a key is said once),
-# so the search starts there once: a flow block is read up to its closing brace, and at most HEAD_LIMIT characters of it; a
-# block of lines is read a line at a time, each in one way (blank, or indentation then a word). No text makes the search take
-# longer than reading it.
-HEAD = re.compile(r"(?m)^x-gravitee:[ \t]*")
-HEAD_LIMIT = 65536
-FLOW_NAME = re.compile(r"\bname:[ \t]*([^,}\n]+)")
-BLOCK_NAME = re.compile(r"(?:#[^\n]*)?\n(?:[ \t]*\n|[ \t]+(?!name:)[^ \t\n][^\n]*\n)*?[ \t]+name:[ \t]*([^\n]+)")
+HEAD_LIMIT = 65536   # characters of an item's file read for its name in a message (moving._names_of)
 
 
 def _named(text, fallback):
-    """The name an item's x-gravitee block gives it, for the words of the page; its folder's when it says none."""
-    head = HEAD.search(text)
-    if head is None:
-        return fallback
-    at = head.end()
-    if text.startswith("{", at):
-        end = text.find("}", at, at + HEAD_LIMIT)
-        said = FLOW_NAME.search(text, at, end if end >= 0 else min(len(text), at + HEAD_LIMIT))
-    else:
-        said = BLOCK_NAME.match(text, at)
-    return said.group(1).strip().strip("'\"") if said else fallback
+    """The name an item's x-gravitee block gives it, for the words of the page; its folder's when it says none. Only the block's
+    own top-level `name`, in block or flow style, as the Lab reads its own keys (meta.py): never a `name:` nested deeper (an
+    account's) or inside a value (a description that says "name: any"). The Lab's reading, Compose's, is used where there is one."""
+    said = block.value(text or "", "name")
+    return said.strip() if isinstance(said, str) and said.strip() else fallback
 
 
 def _for_personal(folder: Path, top, snapshot=None):
@@ -960,5 +954,9 @@ def _keep_settings(folder: Path, ns, content):
     for rel, _ in settings:
         with contextlib.suppress(OSError):
             names[rel] = _named((folder / rel / "compose.yml").read_text(encoding="utf-8", errors="replace"), rel.rsplit("/", 1)[-1])
-    _, failed = kept.keep(ns, content, [(folder / rel / name, f"{rel}/{name}") for rel, name in settings], names)
+    try:
+        title = _catalog_title((folder / "catalog.yml").read_text(encoding="utf-8", errors="replace")[:65536], ns)
+    except OSError:
+        title = ns
+    _, failed = kept.keep(ns, content, [(folder / rel / name, f"{rel}/{name}") for rel, name in settings], names, title)
     return [(rel, name) for rel, name in settings if folder / rel / name in failed]
