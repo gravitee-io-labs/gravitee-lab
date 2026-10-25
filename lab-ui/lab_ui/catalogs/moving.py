@@ -40,7 +40,7 @@ from pathlib import Path
 from .. import paths
 from ..library import moves, personal as personals, project
 from . import registry, resolve, service
-from .contribute import unmark
+from .contribute import keep_private, mark as _mark, unmark
 from .registry import CatalogError
 
 MACHINE_FILES = (".env", ".state", "secrets")   # what is the person's in an item's folder, never the item's files
@@ -231,7 +231,7 @@ def move(kind, uid, together, allow=False):
         for k, one in moving:   # read first: what cannot be read stops the move before anything is written
             compose_rel = _rel(k, _slug(one)) if k == "setup" else f"{_rel(k, _slug(one))}/compose.yml"
             here = posixpath.dirname(compose_rel)
-            text = unmark((source / compose_rel).read_text(encoding="utf-8"))   # whose copy it was is said by no file of a catalog
+            text = keep_private((source / compose_rel).read_text(encoding="utf-8"))   # whose copy it was, if private content
             texts[(k, one)] = moves.repoint(text, f"{paths.CATALOGS_DIR}/{ns}/{here}", f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{here}", table)
         # The items of Personal it replaces are put aside first, whole, and come back whole if the move fails midway
         aside, put = set_aside([_rel(k, _slug(one)) for k, one in moving])
@@ -383,21 +383,6 @@ def _take_back(made):
 # ---------------------------------------------------------------------------------------------------------------------
 # Copy to Personal: the person's own version of an item of a catalog
 # ---------------------------------------------------------------------------------------------------------------------
-
-def _mark(text, uid):
-    """The compose text whose x-gravitee block says it is the person's copy of `uid` (copy_of); None when it has no block."""
-    quoted = '"' + uid.replace('"', "") + '"'
-    lines = text.splitlines(keepends=True)
-    for at, line in enumerate(lines):
-        if re.match(r"x-gravitee:\s*\{", line):
-            lines[at] = line.replace("{", "{copy_of: " + quoted + ", ", 1)
-            return "".join(lines)
-        if re.match(r"x-gravitee:\s*(#.*)?$", line.rstrip("\n")):
-            indent = next((re.match(r"[ \t]+", one).group(0) for one in lines[at + 1:] if re.match(r"[ \t]+\S", one)), "  ")
-            lines.insert(at + 1, f"{indent}copy_of: {quoted}\n")
-            return "".join(lines)
-    return None
-
 
 def _not_copied(folder, names):
     """What Copy to Personal leaves of an item's folder: what its seed recorded, and a link, whose target is no file of the item

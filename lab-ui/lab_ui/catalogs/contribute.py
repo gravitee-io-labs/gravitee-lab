@@ -1043,22 +1043,67 @@ def unmark(text):
     return COPY_OF.sub("", text, count=1) if "copy_of" in text else text
 
 
-def private_source(text):
-    """(id, name) of the private catalog that an item of this machine is a copy of (`x-gravitee.copy_of`), else None: what it holds
-    is that catalog's content. A copy of an item of a catalog this Lab no longer has is taken as private: nothing says otherwise."""
+CHAIN = 8   # the copies of copies a private origin is looked for through, at most: a longer or a looping chain says nothing
+
+
+def private_source(text, _seen=()):
+    """(id, name, original) of the private catalog an item is a copy of, else None: what it holds is that catalog's content.
+    `x-gravitee.copy_of` names the item it was copied from, its twin, which may itself be a copy (of a share of a copy): the chain
+    is followed through the items this machine has, to the first item of a private catalog of Git (`original`). A copy of what this
+    machine does not have, or of what cannot be read, and a chain too long or that loops, are taken as private: nothing says
+    otherwise."""
     found = MARKED.search(text or "")
     if not found:
         return None
-    ns = paths.origin(found.group(1).strip("'\""))
-    entry = registry.entry(ns) if ns and ns != LOCAL else None
-    if (ns == LOCAL or not ns) or (entry is not None and (entry.get("kind") != "git" or registry.lock_of(ns).get("audience") == "public")):
-        return None
-    return ns, (registry.inputs().get(ns) or {}).get("name") or registry.lock_of(ns).get("name") or ns
+    uid = found.group(1).strip("'\"")
+    try:
+        ns = paths.origin(uid)
+    except paths.NotFound:
+        ns = None
+    if not ns or ns == LOCAL or uid in _seen or len(_seen) >= CHAIN:
+        return (ns or "unknown"), _catalog_name(ns) if ns and ns != LOCAL else "an item of unknown origin", uid
+    entry = registry.entry(ns)
+    if entry is not None and entry.get("kind") == "git" and registry.lock_of(ns).get("audience") != "public":
+        return ns, _catalog_name(ns), uid
+    data = None
+    for kind in paths.KINDS if entry is not None else ():
+        with contextlib.suppress(paths.NotFound, ValueError):
+            data = data or _read(paths.ROOT / paths.unit_file(kind, uid), bare.TEXT_FILE + 1)
+    if data is None:
+        return ns, _catalog_name(ns), uid   # the original is not on this machine
+    return private_source(data.decode("utf-8", "replace"), (*_seen, uid))
 
 
-def _unmarked(copy, kind, slug):
-    """The copy without `x-gravitee.copy_of`: whose copy an item of this machine is, which an item of a catalog never says."""
+def _catalog_name(ns):
+    return (registry.inputs().get(ns) or {}).get("name") or registry.lock_of(ns).get("name") or ns
+
+
+def keep_private(text):
+    """A compose text that keeps `x-gravitee.copy_of` only when it says the item holds private content, whose label then goes
+    with it: a file's copy_of says nothing true here otherwise."""
+    return text if private_source(text) else unmark(text)
+
+
+def mark(text, uid):
+    """The compose text whose x-gravitee block says it is a copy of `uid` (copy_of); None when it has no block."""
+    quoted = '"' + uid.replace('"', "") + '"'
+    lines = text.splitlines(keepends=True)
+    for at, line in enumerate(lines):
+        if re.match(r"x-gravitee:\s*\{", line):
+            lines[at] = line.replace("{", "{copy_of: " + quoted + ", ", 1)
+            return "".join(lines)
+        if re.match(r"x-gravitee:\s*(#.*)?$", line.rstrip("\n")):
+            indent = next((re.match(r"[ \t]+", one).group(0) for one in lines[at + 1:] if re.match(r"[ \t]+\S", one)), "  ")
+            lines.insert(at + 1, f"{indent}copy_of: {quoted}\n")
+            return "".join(lines)
+    return None
+
+
+def _unmarked(copy, kind, slug, origin=None):
+    """The copy without `x-gravitee.copy_of`: whose copy an item of this machine is, which an item of a catalog never says; or,
+    with `origin`, saying that one: the item of a private catalog what it holds comes from, which then goes with it."""
     text = unmark(copy.text)
+    text = (mark(text, origin) or text) if origin else text
     if text == copy.text:
         return copy
     head = next(path for path in copy.files if path == f"setups/{slug}.yml" or path == f"{kind}s/{slug}/compose.yml")
@@ -1225,9 +1270,10 @@ def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False)
                 raise _refusal("share_private_copy", name=named(k, one), private=source[1])
         # Whose copy it is goes with a copy of a private catalog's content into another catalog (not Public: refused above), so that
         # it is still that catalog's content there; else an item of a catalog says nothing of it
-        marked = {(k, s) for k, _, s, other in [(kind, uid, slug, copy), *along] if (private_source(other.text) or (to,))[0] != to}
-        copy = copy if (kind, slug) in marked else _unmarked(copy, kind, slug)
-        along = [(k, one, s, other if (k, s) in marked else _unmarked(other, k, s)) for k, one, s, other in along]
+        origins = {(k, s): private_source(other.text) for k, _, s, other in [(kind, uid, slug, copy), *along]}
+        marked = {key: one[2] for key, one in origins.items() if one and one[0] != to}   # the original, not what it was copied from
+        copy = _unmarked(copy, kind, slug, marked.get((kind, slug)))
+        along = [(k, one, s, _unmarked(other, k, s, marked.get((k, s)))) for k, one, s, other in along]
         renames = _renames([(kind, slug, copy), *[(k, s, c) for k, _, s, c in along]], to)
         copy = _renamed(copy, kind, slug, renames)
         along = [(k, one, s, _renamed(c, k, s, renames)) for k, one, s, c in along]

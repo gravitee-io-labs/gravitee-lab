@@ -163,16 +163,17 @@ the other, only one of the two runs at a time (the Lab says which to turn off), 
 copy, with your settings kept. A catalog's item that includes the original cannot be changed to include your copy: choose
 **<item> and what uses it** to copy those too, up to the playgrounds, and your own items that used one of them then use the
 copy. The copy takes the original's settings and secrets, not what its seed recorded, nor a link of its folder. A copy of an
-item of a private catalog is that catalog's content: it is not shared to a Public catalog, shared to another catalog it still says
-whose copy it is, and an export, for the Lab or for Docker Compose, says it under **Private**. An item that needs a catalog this Lab has not added is not copied: nothing has judged it.
+item of a private catalog is that catalog's content, through every copy, share, move and import that follows: it is not shared to
+a Public catalog, shared to another catalog or exported it still says which private catalog it comes from, and an export, for the
+Lab or for Docker Compose, says it under **Private**. A copy of something this Lab no longer has is taken as private too. An item that needs a catalog this Lab has not added is not copied: nothing has judged it.
 
 ## A playground in a file
 
 A playground made for one person (a customer, a workshop) does not have to go into a catalog. **Export**, in the menu of a
 playground (its row or its page), saves a `.zip` file that holds the playground and every setup and add-on it includes that the
 other Lab may not have: everything but the items of the default catalog, which every Lab has, and which the file names as needed.
-It never holds settings, keys or a license, nor whose copy an item of yours is: the person who imports it adds their own
-license in the Lab UI.
+It never holds settings, keys or a license: the person who imports it adds their own license in the Lab UI. Private content
+says in the file which private catalog it comes from, so that the other Lab keeps it private.
 
 What comes from a catalog of Git goes in the file too, so the person who receives it needs no access to that catalog. A
 private one is named under **Private** before the file is made, and the button says **Export with private

@@ -654,6 +654,22 @@ class Judged(Seam):
                                                                                 "which is private. Fix: share it to a private catalog."))
         self.assertEqual(self.share("local/my-ledger", "partner", check_only=True)["problems"], [], "to a private one it may go")
 
+    def test_a_copy_of_a_share_of_a_copy_of_a_private_item_stops_a_share_to_a_public_one(self):
+        fixtures.install(self, "lab-new", "folder", audience="private", lab=1)
+        shared = self.root / ".lab/catalogs/lab-new/addons/ledger/compose.yml"
+        shared.parent.mkdir(parents=True, exist_ok=True)
+        shared.write_text('x-gravitee: {copy_of: "@partner/ledger", kind: addon, name: Ledger}\nservices: {}\n')
+        self.item("addon", "my-ledger", "Ledger", 'x-gravitee: {copy_of: "@lab-new/ledger", kind: addon, name: Ledger, category: Other, '
+                                               'description: Keeps the entries of a partner}\nservices: {}\n')
+        with self.assertRaises(CatalogError) as raised:
+            self.share("local/my-ledger", "fixture", check_only=True)
+        self.assertEqual(lines_of(raised.exception), ("share_private_copy", 400, "Ledger is a copy of an item of Partner fixture, "
+                                                                                "which is private. Fix: share it to a private catalog."))
+        shared.unlink()   # the item it was copied from is no longer here: nothing says the content is not private
+        with self.assertRaises(CatalogError) as raised:
+            self.share("local/my-ledger", "fixture", check_only=True)
+        self.assertEqual(raised.exception.code, "share_private_copy")
+
     def test_an_image_prefix_and_an_address_of_a_private_catalog_are_names_too(self):
         self.yml["partner"] = {"images": "registry.example.invalid/partner/lab"}
         self.write(".lab/catalogs/local/addons/scratch/README.md", "docker pull registry.example.invalid/partner/lab/x\n")

@@ -137,7 +137,12 @@ def _gather(pid):
             raise leak
         name = units[kind][uid]["name"]
         problems += [f"{name}: {line}" for line in copy.problems]
-        files.update(contribute._unmarked(copy, kind, _slug(uid)).files)
+        # What is private content says so in the file, as the item of a private catalog it comes from: the other Lab keeps the label
+        origin = contribute.private_source(copy.text)
+        own = paths.origin(uid)
+        if origin is None and (registry.entry(own) or {}).get("kind") == "git" and registry.lock_of(own).get("audience") != "public":
+            origin = (own, "", uid)
+        files.update(contribute._unmarked(copy, kind, _slug(uid), origin[2] if origin else None).files)
     origins, private = _origins(carried, units, copies_of(carried))
     registries = _registries(found, carried, units)
     shared = _shared(carried, units, ns)
@@ -182,7 +187,7 @@ def copies_of(nodes):
         data = contribute._read(paths.ROOT / paths.unit_file(kind, uid), bare.TEXT_FILE + 1)
         source = contribute.private_source(data.decode("utf-8", "replace")) if data else None
         if source and source[0] != paths.origin(uid):
-            found[(kind, uid)] = source
+            found[(kind, uid)] = source[:2]
     return found
 
 
@@ -686,7 +691,7 @@ def _for_personal(folder: Path, top):
     found = []
     for kind, slug, rel in units:
         compose_rel = _compose_rel(kind, rel)
-        text = contribute.unmark((folder / compose_rel).read_text(encoding="utf-8"))   # whose copy it was is said by no file
+        text = contribute.keep_private((folder / compose_rel).read_text(encoding="utf-8"))   # whose copy it was, if private content
         here = posixpath.dirname(compose_rel)
         written = moves.repoint(text, f"{paths.CATALOGS_DIR}/{top}/{here}", f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{here}", table)
         files = {compose_rel: (0o644, written.encode("utf-8"))}

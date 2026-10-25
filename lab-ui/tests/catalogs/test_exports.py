@@ -260,7 +260,7 @@ class FromCatalogs(Case):
         self.assertEqual(plan["private"], [{"id": "partner", "name": "Partner fixture", "items": ["Ledger"]}])
         self.assertEqual(plan["blocked"], [])
 
-    def test_a_copy_of_an_item_of_a_private_catalog_is_private_content_too_and_the_file_does_not_say_whose_copy_it_is(self):
+    def test_a_copy_of_an_item_of_a_private_catalog_is_private_content_too_and_the_file_says_whose_content_it_is(self):
         moving.copy("addon", "@partner/ledger")
         scratch = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons" / "scratch" / "compose.yml"
         scratch.write_text(scratch.read_text(encoding="utf-8").replace(self.LEDGER, "../ledger/compose.yml"), encoding="utf-8")
@@ -269,7 +269,8 @@ class FromCatalogs(Case):
         self.assertIn("local/ledger", [one["id"] for one in plan["carries"]])
         self.assertEqual(plan["private"], [{"id": "partner", "name": "Partner fixture", "items": ["Ledger"]}])
         with zipfile.ZipFile(io.BytesIO(base64.b64decode(exports.archive("local/sandbox", private=["partner"])["data"]))) as archive:
-            self.assertNotIn("copy_of", archive.read("sandbox/addons/ledger/compose.yml").decode())
+            self.assertIn('copy_of: "@partner/ledger"', archive.read("sandbox/addons/ledger/compose.yml").decode(),
+                          "the label goes with the content: the Lab that imports it keeps it")
 
     def test_a_copy_of_a_private_item_shared_to_a_folder_of_the_person_is_still_private_content(self):
         from lab_ui.catalogs import contribute
@@ -288,6 +289,58 @@ class FromCatalogs(Case):
         plan = exports.plan("local/sandbox")
         self.assertIn("@lab-new/ledger", [one["id"] for one in plan["carries"]])
         self.assertEqual(plan["private"], [{"id": "partner", "name": "Partner fixture", "items": ["Ledger"]}])
+
+    def shared_and_copied_back(self):
+        """Partner's Ledger copied to Personal, changed, shared to Lab new (a folder of the person's), then that one copied back to
+        Personal, which Scratch includes: a copy of a share of a copy."""
+        from lab_ui.catalogs import contribute
+        fixtures.install(self, "lab-new", "folder", audience="private", lab=1)
+        moving.copy("addon", "@partner/ledger")
+        ledger = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons" / "ledger" / "compose.yml"
+        ledger.write_text(ledger.read_text(encoding="utf-8").replace("partner-ledger", "own-ledger").replace("8192", "8291"),
+                          encoding="utf-8")
+        project.forget()
+        contribute.share(project.load(), "addon", "local/ledger", "lab-new")
+        shutil.rmtree(ledger.parent)
+        project.forget()
+        moving.copy("addon", "@lab-new/ledger")
+        self.assertIn('copy_of: "@lab-new/ledger"', ledger.read_text(encoding="utf-8"), "the copy is the twin of what it was copied from")
+        scratch = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons" / "scratch" / "compose.yml"
+        scratch.write_text(scratch.read_text(encoding="utf-8").replace(self.LEDGER, "../ledger/compose.yml"), encoding="utf-8")
+        project.forget()
+
+    def test_private_content_keeps_its_label_through_a_copy_of_a_share_of_a_copy(self):
+        self.shared_and_copied_back()
+        partner = [{"id": "partner", "name": "Partner fixture", "items": ["Ledger"]}]
+        self.assertEqual(exports.plan("local/sandbox")["private"], partner)
+        with self.assertRaises(CatalogError) as caught:
+            exports.archive("local/sandbox", private=[])
+        self.assertEqual(caught.exception.code, "export_private")
+
+    def test_the_origin_said_is_the_first_private_catalog_of_the_chain(self):
+        from lab_ui.catalogs import contribute
+        fixtures.install(self, "lab-new", kind="git", audience="private", lab=1)   # a private catalog of the person's team
+        ledger = paths.ROOT / paths.CATALOGS_DIR / "lab-new" / "addons" / "ledger" / "compose.yml"
+        ledger.parent.mkdir(parents=True, exist_ok=True)
+        ledger.write_text('x-gravitee: {copy_of: "@partner/ledger", kind: addon, name: Ledger}\nservices: {}\n', encoding="utf-8")
+        said = contribute.private_source('x-gravitee: {copy_of: "@lab-new/ledger", kind: addon, name: Ledger}\n')
+        self.assertEqual(said[:2], ("lab-new", "Newer Lab fixture"), "a private catalog of Git says it first")
+        self.assertIsNone(contribute.private_source('x-gravitee: {copy_of: "echo", kind: addon, name: Echo}\n'), "public, and no copy")
+        self.assertEqual(contribute.private_source('x-gravitee: {copy_of: "@gone/ledger", kind: addon}\n')[0], "gone",
+                         "what this machine does not have says nothing otherwise")
+        self.assertEqual(contribute.private_source('x-gravitee: {copy_of: "../../x", kind: addon}\n')[0], "unknown")
+
+    def test_the_label_of_private_content_goes_with_an_import_to_personal(self):
+        preview = exports.receive(zipped({
+            "carried/catalog.yml": EVIL_CATALOG.replace("{id}", "carried").encode(),
+            "carried/playgrounds/carried/compose.yml": ('x-gravitee: {copy_of: "@partner/ledger", kind: playground, name: Carried, '
+                                                        'category: Other, description: x}\nservices: {}\n').encode(),
+            "carried/playgrounds/other/compose.yml": ('x-gravitee: {copy_of: "echo", kind: playground, name: Other, '
+                                                      'category: Other, description: x}\nservices: {}\n').encode()}))
+        exports.to_personal(preview["ticket"])
+        home = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "playgrounds"
+        self.assertIn('copy_of: "@partner/ledger"', (home / "carried/compose.yml").read_text(encoding="utf-8"))
+        self.assertNotIn("copy_of", (home / "other/compose.yml").read_text(encoding="utf-8"), "a file's twin of this Lab's says nothing")
 
     def test_an_image_the_other_lab_pulls_from_a_registry_that_asks_for_a_login_is_said(self):
         plan = exports.plan("local/sandbox")
