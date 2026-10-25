@@ -35,6 +35,7 @@ again takes them, any other file of that name leaves them where they are, and th
 
 import base64
 import binascii
+import contextlib
 import hashlib
 import io
 import json
@@ -450,7 +451,7 @@ def _name_of(archive, top):
 
 MACHINE_FILES = (".env", ".state", "secrets")   # the person's in the folder of an item, never a file's: kept when it is replaced
 KEPT_DIR = f"{paths.LAB_DIR}/kept-settings"   # the settings of removed imports: the Lab's own folder, which no file reaches
-RECORD = f"{paths.LAB_DIR}/imports.json"   # {imported: {id: digest of what its file held}, kept: {id: {folder, digest}}}
+RECORD = f"{paths.LAB_DIR}/imports.json"   # {imported: {id: digest of its file}, kept: {id: [{folder, digest}]}}: under the lock
 
 
 def _record():
@@ -474,11 +475,16 @@ def _kept_list(found, top):
 def _kept_of(top):
     """The settings kept from removed imports of `top`, newest first: [(their folder, the digest of the file they came with)]. Each
     removal that kept settings has its own: one of another file of that name never takes the place of another's."""
-    found = []
+    found, said = [], set()
     for one in reversed(_kept_list(_record(), top)):
         if isinstance(one, dict) and isinstance(one.get("folder"), str) and "/" not in one["folder"] \
                 and (paths.ROOT / KEPT_DIR / one["folder"]).is_dir():
             found.append((paths.ROOT / KEPT_DIR / one["folder"], one.get("digest")))
+            said.add(one["folder"])
+    # A folder with no record (the Lab stopped before it wrote one) is shown as kept, and used by no file: nothing is invisible
+    base = paths.ROOT / KEPT_DIR
+    found += [(one, None) for one in sorted(base.glob(f"{top}-*") if base.is_dir() else ())
+              if one.is_dir() and one.name not in said and re.fullmatch(rf"{re.escape(top)}-[0-9a-f]{{8}}", one.name)]
     return found
 
 
@@ -522,7 +528,12 @@ def _carry(source: Path, target: Path):
         pass
     try:
         (shutil.copytree if source.is_dir() and not source.is_symlink() else shutil.copy2)(source, target)
-    except OSError:
+    except OSError:   # what is half copied goes: the setting stays whole where it is
+        if target.is_dir() and not target.is_symlink():
+            shutil.rmtree(target, ignore_errors=True)
+        elif os.path.lexists(target):
+            with contextlib.suppress(OSError):
+                target.unlink()
         return False
     (shutil.rmtree(source, ignore_errors=True) if source.is_dir() and not source.is_symlink() else source.unlink())
     return True
@@ -550,7 +561,8 @@ def _sweep(replacing=None):
     """The folders of .lab/imports that no catalog uses and no preview waits for, and the half-written ones: what an import left
     before it was confirmed. The folder of `replacing`, the playground being imported again, goes with the previews of it: a
     preview is of the files it judged, which the new ones replace. A half-written folder younger than a preview may be another
-    import at work."""
+    import at work. What of the person's a folder still holds (a Remove the Lab did not finish) goes to the kept settings first,
+    and what cannot be moved stays."""
     base = paths.ROOT / IMPORTS_DIR
     used = {os.path.realpath(one.get("path") or "") for one in registry.entries() if one.get("kind") == "folder"}
     waiting = service.imports()
@@ -563,7 +575,9 @@ def _sweep(replacing=None):
                 service.forget(ticket)
         elif real in waiting or (child.name.startswith(".incoming-") and time.time() - child.stat().st_mtime < service.TTL):
             continue
-        shutil.rmtree(child, ignore_errors=True)
+        # A folder no catalog uses may still hold the person's settings (the Lab stopped in a Remove): they go to the kept ones
+        failed = _keep_settings(child, child.name, _record()["imported"].get(child.name)) if not child.name.startswith(".") else []
+        _remove_but(child, failed)
 
 
 def _digest(folder: Path):
@@ -730,7 +744,10 @@ def _personal_plan(items):
 def to_personal(ticket, allow=False):
     """`_to_personal`, a change of catalogs: it waits for none under way."""
     with service._changing():
-        return _to_personal(ticket, allow)
+        recovered = moving.recover()
+        done = _to_personal(ticket, allow)
+        warning = " ".join(one for one in (recovered, done.pop("warning", None)) if one)
+        return {**done, **({"warning": warning} if warning else {})}
 
 
 def _to_personal(ticket, allow=False):
@@ -821,7 +838,9 @@ def receive(data):
     catalog. Answers that preview, whose ticket the Add takes; `already_imported` when this Lab has the catalog. A change of
     catalogs: it waits for none under way, and no other import sweeps its folder while it writes it."""
     with service._changing():
-        return _receive(data)
+        recovered = moving.recover()
+        preview = _receive(data)
+        return {**preview, **({"warning": recovered} if recovered else {})}
 
 
 def _receive(data):
@@ -914,21 +933,64 @@ PARTIAL = "Some files were created by Docker and could not be deleted. Remove th
 def forget_folder(entry, keep_settings=True):
     """The files of an imported playground's catalog go when the catalog is removed: they are the Lab's, in .lab/imports. With
     `keep_settings` the person's settings, secrets and state of its items go first to a folder of their own (`KEPT_DIR`), bound
-    to the file the import came from: only that file imported again takes them. What cannot be deleted stays apart from them,
-    and is said. Answers that warning, or None."""
+    to the file the import came from: only that file imported again takes them. A setting that cannot be moved stays where it
+    is, and is said with where it is; what else cannot be deleted stays apart from the kept settings, and is said. Answers that
+    warning, or None. Called under the lock of the change, which no import gets in between."""
     where = os.path.realpath((entry or {}).get("path") or "")
     base = os.path.realpath(paths.ROOT / IMPORTS_DIR)
     if not (where.startswith(base + os.sep) and posixpath.dirname(where) == base):
         return None
     folder, found = Path(where), _record()
-    ns, content = folder.name, found["imported"].pop(folder.name, None)
+    ns, content = folder.name, found["imported"].get(folder.name)
+    failed = _keep_settings(folder, ns, content) if keep_settings and folder.is_dir() else []
+    found = _record()
+    found["imported"].pop(ns, None)
     _write_record(found)
-    settings = _settings_of(folder) if keep_settings and folder.is_dir() else []
-    if settings:
-        kept = paths.ROOT / KEPT_DIR / f"{ns}-{secrets.token_hex(4)}"
-        if [rel for rel, name in settings if _carry(folder / rel / name, kept / rel / name)]:
-            found = _record()
-            found["kept"][ns] = [*_kept_list(found, ns), {"folder": kept.name, "digest": content}]
-            _write_record(found)
-    shutil.rmtree(where, ignore_errors=True)
+    _remove_but(folder, failed)
+    if failed:
+        return NOT_KEPT.format(paths=", ".join(f"{area}/{item}/{name}" for area, item, name in
+                                               ((*rel.split("/", 1), name) for rel, name in failed)), where=f"{IMPORTS_DIR}/{ns}")
     return PARTIAL.format(where=f"{IMPORTS_DIR}/{folder.name}") if os.path.lexists(where) else None
+
+
+NOT_KEPT = ("The settings of {paths} could not be kept and are still in {where}: copy them out, then remove that folder with "
+            "administrator rights.")
+
+
+def _keep_settings(folder: Path, ns, content):
+    """The person's settings, secrets and state of an import's items moved to a folder of kept settings of their own, its record
+    written first (a Lab that stops midway leaves no setting that nothing shows). Answers [(rel, name)] of those that could not
+    be moved, which stay whole where they are."""
+    settings = _settings_of(folder)
+    if not settings:
+        return []
+    kept = paths.ROOT / KEPT_DIR / f"{ns}-{secrets.token_hex(4)}"
+    found = _record()
+    found["kept"][ns] = [*_kept_list(found, ns), {"folder": kept.name, "digest": content}]
+    _write_record(found)
+    failed = [(rel, name) for rel, name in settings if not _carry(folder / rel / name, kept / rel / name)]
+    if len(failed) == len(settings):
+        _forget_kept(ns, kept)
+    return failed
+
+
+def _remove_but(folder: Path, keep):
+    """An import's folder deleted, but for the settings at `keep` ([(rel, name)]), which are the person's and could not be moved."""
+    if not keep:
+        shutil.rmtree(folder, ignore_errors=True)
+        return
+    spared = {folder / rel / name for rel, name in keep}
+    ancestors = {parent for path in spared for parent in path.parents}
+
+    def clear(here):
+        for child in sorted(here.iterdir()):
+            if child in spared:
+                continue
+            if child in ancestors and child.is_dir() and not child.is_symlink():
+                clear(child)
+            elif child.is_dir() and not child.is_symlink():
+                shutil.rmtree(child, ignore_errors=True)
+            else:
+                with contextlib.suppress(OSError):
+                    child.unlink()
+    clear(folder)

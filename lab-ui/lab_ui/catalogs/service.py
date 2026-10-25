@@ -946,10 +946,10 @@ def add(ticket, host=False):
     with _changing():
         install.commit_add(staged, data["address"], data["branch"], data["audience"], data["roots"], meta=data["meta"],
                            host=bool(host) and not data["listed"], auto=True)
+        if data.get("imported"):   # an imported playground: what its file held is recorded, and settings kept for it go back
+            from . import exports   # here and not above: exports reads this module
+            exports.added(ns, data)
     _spend(ticket)
-    if data.get("imported"):   # an imported playground: what its file held is recorded, and settings kept for it go back
-        from .exports import added   # here and not above: exports reads this module
-        added(ns, data)
     with contextlib.suppress(OSError):   # the .env is for a docker compose typed by hand: the catalog is added all the same
         layers.prepare_catalogs()
     git_version(fresh=True)
@@ -1507,10 +1507,10 @@ def remove(ns, check=False, keep_settings=True):
             raise CatalogError("held", f"{_turn_off_line(found, ns, on | running, running)}.", 409,
                                units=sorted(on | running))
         done = install.remove(ns, keep_settings)
-    warning = None
-    if entry.get("kind") == "folder":   # an imported playground's catalog is the Lab's own folder: it goes with it
-        from .exports import forget_folder   # here and not above: exports reads this module
-        warning = forget_folder(entry, keep_settings)
+        warning = None
+        if entry.get("kind") == "folder":   # an imported playground's catalog is the Lab's own folder: it goes with it, under the lock
+            from . import exports   # here and not above: exports reads this module
+            warning = exports.forget_folder(entry, keep_settings)
     project.forget()
     return {"warning": done.get("warning") or warning}
 

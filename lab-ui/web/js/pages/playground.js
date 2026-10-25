@@ -214,7 +214,7 @@ async function copyToPersonal(x) {
   if (!chosen) return;
   try {
     const copied = await busy(key, "copy", api(route, { users: chosen === "users", ...(allows(chosen) ? { allow: true } : {}) }));
-    toast("Copied");
+    toast(copied.warning ? `Copied. ${copied.warning}` : "Copied", !!copied.warning);
     await store.refresh();
     router.replace(x.kind === "playground" ? `#/playgrounds/${copied.id}` : `#/${x.kind}s/${copied.id}`);
   } catch (err) {

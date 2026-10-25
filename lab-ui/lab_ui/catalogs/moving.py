@@ -32,7 +32,6 @@ this machine, once allowed.
 import contextlib
 import os
 import posixpath
-import re
 import secrets
 import shutil
 from pathlib import Path
@@ -211,6 +210,7 @@ def move(kind, uid, together, allow=False):
     out what it wrote there, puts back whole the items of Personal it was replacing (set aside first), and the import is as it
     was. What Docker made in the import and cannot be deleted then is said (`warning`), and the move completes."""
     with service._changing():
+        recovered = recover()
         found = _check(kind, uid)
         units = _units(found)
         users = _users_of_root(found, kind, uid)
@@ -257,7 +257,7 @@ def move(kind, uid, together, allow=False):
         except BaseException:
             put_back(aside, put, made)
             raise
-        warnings = [merge_back(aside, put, _names(units, moving))]
+        warnings = [recovered, merge_back(aside, put, _names(units, moving))]
         # The import loses what moved; what Docker made there and cannot be deleted is said, and the move completes
         stuck = False
         for k, one in moving:
@@ -296,6 +296,31 @@ def _names(units, nodes):
 ASIDE = ".move-"   # a folder of .lab that holds the items of Personal a change replaces, until it is done
 NOT_BACK = ("Some settings of {names} could not come back and are in {where}: copy them into the item in Personal, then remove "
             "that folder with administrator rights.")
+
+
+RECOVERED = "A change that stopped midway had set {names} aside: they are in Personal again."
+
+
+def recover():
+    """What a change of Personal set aside and did not finish, since the Lab stopped in the middle of it: an item that is not in
+    Personal comes back whole, one that is there (the change had written it) gets the person's files back file by file. Called
+    at the start of the next change, under its lock, when no other change can be at work. Answers what it says of it, or None."""
+    home, back, said = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL, [], []
+    for aside in sorted((paths.ROOT / paths.LAB_DIR).glob(f"{ASIDE}*")):
+        if not aside.is_dir() or aside.is_symlink():
+            continue
+        put = [f"{area}/{one.name}" for area in ("addons", "playgrounds") for one in sorted((aside / area).glob("*")) if one.is_dir()]
+        put += [f"setups/{one.name}" for one in sorted((aside / "setups").glob("*.yml"))]
+        there = [rel for rel in put if os.path.lexists(home / rel)]
+        for rel in put:
+            if rel not in there:
+                (home / rel).parent.mkdir(parents=True, exist_ok=True)
+                os.rename(aside / rel, home / rel)
+        said.append(merge_back(aside, there, {}))
+        back += [posixpath.basename(rel)[:-4] if rel.endswith(".yml") else posixpath.basename(rel) for rel in put]
+    if not back:
+        return None
+    return " ".join([RECOVERED.format(names=", ".join(back)), *filter(None, said)])
 
 
 def set_aside(rels):
@@ -453,6 +478,7 @@ def copy(kind, uid, users=False, allow=False):
     include one of them then include the copy. Answers {copies: [{kind, id}], id}. A change of catalogs: it waits for none under
     way, and a copy that fails midway takes out what it wrote."""
     with service._changing():
+        recovered = recover()
         found = project.load()
         plan = copy_plan(kind, uid)
         chosen = plan["with_users"] if users and plan["with_users"] else plan["alone"]
@@ -494,4 +520,5 @@ def copy(kind, uid, users=False, allow=False):
         for old, new in table if switches else ():
             personals.follow(old, new)
         project.forget()
-    return {"copies": [{"kind": k, "id": f"{paths.LOCAL}/{_slug(one)}"} for k, one in copies], "id": f"{paths.LOCAL}/{_slug(uid)}"}
+    return {"copies": [{"kind": k, "id": f"{paths.LOCAL}/{_slug(one)}"} for k, one in copies], "id": f"{paths.LOCAL}/{_slug(uid)}",
+            **({"warning": recovered} if recovered else {})}

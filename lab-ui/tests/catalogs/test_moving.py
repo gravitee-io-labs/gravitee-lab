@@ -206,6 +206,22 @@ class Moving(Case):
                           ".state/created.json": "{}\n"})
         self.assertFalse(list((paths.ROOT / paths.LAB_DIR).glob(".move-*")))
 
+    def test_what_was_set_aside_and_cannot_be_deleted_after_a_move_is_said(self):
+        fixtures.local(self, "sandbox")
+        made = self.local("playgrounds/sandbox/data")
+        made.mkdir()
+        (made / "db").write_text("what a container wrote\n")
+        made.chmod(0o500)
+        project.forget()
+        try:
+            done = moving.move("playground", "@sandbox/sandbox", False)
+        finally:
+            for one in (paths.ROOT / paths.LAB_DIR).glob(".move-*/playgrounds/sandbox/data"):
+                one.chmod(0o700)
+        aside = next((paths.ROOT / paths.LAB_DIR).glob(".move-*"))
+        self.assertEqual(done["warning"], f"Some files were created by Docker and could not be deleted. Remove the folder "
+                                          f".lab/{aside.name} with administrator rights.")
+
     def test_a_move_waits_for_another_change_of_catalogs(self):
         held(self)
         with self.assertRaises(CatalogError) as caught:
@@ -343,3 +359,33 @@ class Unjudged(Case):
             moving.copy("playground", "@evil/evil", allow=True)
         self.assertEqual((caught.exception.code, caught.exception.message), ("held", self.HELD))
         self.assertFalse((paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "playgrounds" / "evil").exists())
+
+
+class Stopped(Case):
+    """What a change left set aside when the Lab stopped in the middle of it comes back at the next change of catalogs, and is said."""
+
+    def setUp(self):
+        fixtures.need_compose()
+        fixtures.project(self, paths, project, compose, envfiles, check, files, ns="fixture", kind="git", store=True)
+        self.patch(gitx, "home", lambda: paths.ROOT.parent)
+        project.forget()
+        self.addCleanup(project.forget)
+
+    def local(self, rel):
+        return paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / rel
+
+    def test_an_item_set_aside_comes_back_whole_or_gives_back_the_persons_files(self):
+        from .test_exports import evil_playground, evil_zip
+        aside = paths.ROOT / paths.LAB_DIR / ".move-0a1b2c3d"
+        (aside / "playgrounds/sandbox").mkdir(parents=True)
+        (aside / "playgrounds/sandbox/compose.yml").write_text("services: {}\n")
+        (aside / "playgrounds/sandbox/.env").write_text("MINE=1\n")
+        (aside / "addons/scratch/secrets").mkdir(parents=True)
+        (aside / "addons/scratch/secrets/b").write_text("my own b\n")
+        self.local("addons/scratch").mkdir(parents=True)
+        self.local("addons/scratch/compose.yml").write_text("services: {}\n")   # what the move had written there
+        preview = exports.receive(evil_zip(playground=evil_playground(privileged=False)))
+        self.assertEqual(preview["warning"], "A change that stopped midway had set scratch, sandbox aside: they are in Personal again.")
+        self.assertEqual(self.local("playgrounds/sandbox/.env").read_text(), "MINE=1\n")
+        self.assertEqual(self.local("addons/scratch/secrets/b").read_text(), "my own b\n")
+        self.assertFalse(aside.exists())

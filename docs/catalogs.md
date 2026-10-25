@@ -212,9 +212,11 @@ import.
 To import a newer file of the same playground, remove that catalog on the Catalogs page first: its files go with it. With
 **Keep settings**, your settings, secrets and what its seed recorded move to `.lab/kept-settings/`, and only the same file
 imported again takes them back. Any other file with that name, a newer one included, leaves them there, since anyone can name a
-file so: the preview says where they are, under **Kept settings**, used or not. Kept settings that Personal does not take, because
-its item has its own, stay where they are, and the import says so. What Docker made and the Lab cannot delete is said, and an
-import of that name waits until you remove it.
+file so: the preview says so under **Kept settings** (from an earlier import, used or not). Kept settings that Personal does not
+take, because its item has its own, stay where they are, and the import says where. A setting the Lab could not move is said
+with where it still is, and nothing else is deleted with it. What Docker made and the Lab cannot delete is said, and an import of
+that name waits until you remove it. A move or an import to Personal that stopped midway, because the Lab stopped, is put right
+at the next one, and said.
 
 ## A playground for Docker Compose alone
 

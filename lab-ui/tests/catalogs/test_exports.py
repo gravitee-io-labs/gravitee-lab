@@ -675,3 +675,59 @@ class Untrusted(Case):
         self.patch(exports.Path, "write_bytes", write)
         exports.to_personal(preview["ticket"])
         self.assertEqual(((mine / "guide.md").read_text(), (mine / ".env").read_text()), ("their guide\n", "MINE=1\n"))
+
+    def test_the_record_of_imports_and_the_settings_kept_change_under_the_lock_of_the_catalogs(self):
+        held = []
+
+        def locked(call):
+            def run(*args, **how):
+                held.append((call.__name__, str(paths.ROOT / registry.FLOCK_FILE) in registry._held.__dict__.get("held", {})))
+                return call(*args, **how)
+            return run
+        self.patch(exports, "added", locked(exports.added))
+        self.patch(exports, "forget_folder", locked(exports.forget_folder))
+        service.add(exports.receive(evil_zip(playground=evil_playground(privileged=False)))["ticket"])
+        (paths.ROOT / exports.IMPORTS_DIR / "evil" / "playgrounds/evil/.env").write_text("EVIL_LEVEL=debug\n")
+        project.forget()
+        service.remove("evil")
+        self.assertEqual(held, [("added", True), ("forget_folder", True)])
+
+    def test_a_folder_of_imports_that_no_catalog_uses_gives_its_settings_to_kept_settings_before_it_goes(self):
+        data = evil_zip(playground=evil_playground(privileged=False))
+        service.add(exports.receive(data)["ticket"])
+        folder = paths.ROOT / exports.IMPORTS_DIR / "evil"
+        (folder / "playgrounds/evil/.env").write_text("EVIL_LEVEL=debug\n")
+        project.forget()
+        self.patch(exports, "forget_folder", lambda entry, keep_settings=True: None)   # the Lab stopped right after the catalog left
+        service.remove("evil")
+        exports.receive(evil_zip(top="other", playground=evil_playground(privileged=False, name="Other")))   # its sweep
+        self.assertFalse(folder.exists())
+        kept = list((paths.ROOT / exports.KEPT_DIR).glob("evil-*"))
+        self.assertEqual((kept[0] / "playgrounds/evil/.env").read_text(), "EVIL_LEVEL=debug\n", "the person's settings are kept")
+        again = exports.receive(data)
+        self.assertEqual(again["kept"]["used"], True, "and the same file takes them")
+
+    def test_kept_settings_without_a_record_are_shown_and_used_by_nothing(self):
+        stray = paths.ROOT / exports.KEPT_DIR / "evil-0a1b2c3d" / "playgrounds" / "evil"
+        stray.mkdir(parents=True)
+        (stray / ".env").write_text("EVIL_LEVEL=debug\n")
+        preview = exports.receive(evil_zip(playground=evil_playground(privileged=False)))
+        self.assertEqual(preview["kept"], {"used": False, "where": f"{exports.KEPT_DIR}/evil-0a1b2c3d"})
+
+    def test_a_setting_that_could_not_be_kept_is_said_with_where_it_is_and_is_not_deleted(self):
+        data = evil_zip(playground=evil_playground(privileged=False))
+        service.add(exports.receive(data)["ticket"])
+        folder = paths.ROOT / exports.IMPORTS_DIR / "evil"
+        state = folder / "playgrounds/evil/.state"
+        state.mkdir()
+        (state / "created.json").write_text("{}\n")
+        (state / "root.json").write_text("{}\n")
+        (state / "root.json").chmod(0o000)   # what Docker made as root: neither moved nor read
+        self.addCleanup((state / "root.json").chmod, 0o600)
+        self.patch(exports.os, "rename", lambda *args: (_ for _ in ()).throw(OSError(18, "Cross-device link")))
+        project.forget()
+        warning = service.remove("evil")["warning"]
+        self.assertEqual(warning, "The settings of playgrounds/evil/.state could not be kept and are still in .lab/imports/evil: "
+                                  "copy them out, then remove that folder with administrator rights.")
+        self.assertTrue((state / "created.json").is_file(), "what was not kept is not deleted")
+        self.assertFalse(list((paths.ROOT / exports.KEPT_DIR).glob("evil-*/playgrounds/evil/.state")), "no half copy is kept")
