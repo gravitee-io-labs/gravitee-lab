@@ -527,6 +527,23 @@ def raw(path, skip=(), timeout=120):
     return config
 
 
+def alone(text, timeout=60):
+    """A compose text as Compose reads it by itself, outside the project, the items of its include list left out (what a file
+    includes never brings an x- key of its own: Compose keeps the extensions of the file it reads). It is the reader the Lab
+    reads every item with, so that what is asked of a file someone else wrote is answered as the Lab will read it later.
+    ComposeError when Compose cannot read it alone (an include the list does not show among them)."""
+    lines = _policies_written(text).split("\n")
+    with tempfile.TemporaryDirectory(dir=scratch()) as folder:
+        file = Path(folder) / "compose.yml"
+        written = list(lines)
+        for number, _, _ in _include_items("\n".join(lines), file, None, nested=False):
+            for dropped in range(number, number + _extent(lines, number)):
+                written[dropped] = None
+        file.write_text("\n".join(line for line in written if line is not None), encoding="utf-8")
+        return _config(["--project-directory", folder, "-f", str(file)], "--no-interpolate", "--no-consistency", timeout=timeout,
+                       environ=scrubbed_environment())
+
+
 def config_json(file_args, timeout=15, environ=None):
     """These files as Compose runs them, variables replaced by their values, whole: the services, and the volumes,
     networks, secrets and configs it declares, in the shapes Compose gives them (a mount is typed `bind` once its

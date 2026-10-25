@@ -50,7 +50,7 @@ import zipfile
 from pathlib import Path
 
 from .. import paths
-from ..docker import images
+from ..docker import compose, images
 from ..library import moves, project
 from . import contribute, defaults, kept, manifest, moving, registry, resolve, service, standard
 from . import store as bare
@@ -656,7 +656,7 @@ def _for_personal(folder: Path, top, snapshot=None):
         compose_rel = _compose_rel(kind, rel)
         if compose_rel not in files_of:
             continue
-        text = contribute.unmark(files_of[compose_rel][1].decode("utf-8"))   # a file makes no twin: private_from stays
+        text = files_of[compose_rel][1].decode("utf-8")
         here = posixpath.dirname(compose_rel)
         written = moves.repoint(text, f"{paths.CATALOGS_DIR}/{top}/{here}", f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{here}", table)
         files = {compose_rel: (0o644, written.encode("utf-8"))}
@@ -732,7 +732,8 @@ def to_personal(ticket, allow=False):
                                           if _personal_now(kind, rel) is not None)), "")
                 if held:
                     raise _fail("held", held, 409)
-            said = moving.swap_in(swap, [rel for _, _, rel, _, _ in going])
+            rels = [rel for _, _, rel, _, _ in going]
+            said = moving.swap_in(swap, rels, moving.placed_without_claims(rels))
             service.forget(ticket)
             shutil.rmtree(folder, ignore_errors=True)
             stayed = _kept_to_personal(top, data.get("content"), items)
@@ -792,11 +793,6 @@ def receive(data):
         os.mkdir(incoming, 0o755)
         try:
             _extract(archive, members, incoming)
-            for kind, _, rel in _units(incoming):   # an archive makes no twin: whose copy an item was says nothing here
-                file = incoming / _compose_rel(kind, rel)
-                text = file.read_text(encoding="utf-8", errors="replace")
-                if "copy_of" in text:
-                    file.write_text(contribute.unmark(text), encoding="utf-8")
             content = _digest(incoming)   # what the file holds, as it came: what settings kept from an import of it are bound to
             reused = _reuse(incoming, top)
             final = base / top
@@ -868,6 +864,19 @@ def _extract(archive, members, folder):
         os.chmod(target, mode)
 
 
+TWIN_CLAIMED = "Says it is the copy of an item of this Lab (x-gravitee.copy_of), which only this Lab writes"
+
+
+def claims_twin(text):
+    """Why a compose text someone else wrote cannot go to Personal for what its x-gravitee says, as Compose reads it: that it is
+    the copy of an item of this Lab (a twin only this Lab makes), or that Compose cannot read it alone; "" when neither."""
+    try:
+        said = compose.alone(text).get("x-gravitee")
+    except compose.ComposeError as error:
+        return f"Its x-gravitee cannot be read: {str(error)[:120]}"
+    return TWIN_CLAIMED if isinstance(said, dict) and said.get("copy_of") else ""
+
+
 def _judged_import(final, top, content, reused):
     """The preview of the import placed at `final`, judged as the Add of a folder catalog, with what Personal would take of it."""
     placed = _digest(final)
@@ -882,6 +891,13 @@ def _judged_import(final, top, content, reused):
     preview["blocked"] = [*(preview.get("blocked") or ()), *({"kind": kind, "id": f"@{top}/{slug}", "name": name,
                                                               "reasons": ["Its compose file cannot be read"]}
                                                              for kind, slug, _, name, _ in items if name in unread)]
+    # A file never says whose copy an item is: only this Lab writes copy_of, in Personal. Asked of Compose, the reader the Lab
+    # takes it from later, so that no way of writing YAML hides it; an item that says it cannot go to Personal
+    for kind, slug, rel, name, _ in items:
+        if name not in unread:
+            claim = claims_twin((final / _compose_rel(kind, rel)).read_text(encoding="utf-8", errors="replace"))
+            if claim:
+                preview["blocked"].append({"kind": kind, "id": f"@{top}/{slug}", "name": name, "reasons": [claim]})
     blocked = [one.get("name") for one in preview.get("blocked") or ()]
     # What Personal would run unjudged that takes more of this machine: the person allows it, as for a Move
     named = {f"@{top}/{slug}": name for _, slug, _, name, _ in items}

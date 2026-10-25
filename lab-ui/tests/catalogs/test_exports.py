@@ -343,24 +343,14 @@ class FromCatalogs(Case):
                          "what this machine does not have says nothing otherwise")
         self.assertEqual(contribute.private_source('x-gravitee: {copy_of: "../../x", kind: addon}\n')[0], "unknown")
 
-    def test_an_import_keeps_the_label_of_private_content_and_makes_no_twin(self):
+    def test_an_import_keeps_the_label_of_private_content(self):
         preview = exports.receive(zipped({
             "carried/catalog.yml": EVIL_CATALOG.replace("{id}", "carried").encode(),
             "carried/playgrounds/carried/compose.yml": ('x-gravitee: {private_from: "Partner fixture", kind: playground, name: Carried, '
-                                                        'category: Other, description: x}\nservices: {}\n').encode(),
-            "carried/addons/ledger/compose.yml": ('x-gravitee: {copy_of: "@partner/ledger", kind: addon, name: Books, category: Other, '
-                                                  'description: x}\nservices:\n  books:\n    image: busybox:1.36\n'
-                                                  '    networks: [internal]\n').encode()}))
-        self.assertNotIn("copy_of", (paths.ROOT / exports.IMPORTS_DIR / "carried/addons/ledger/compose.yml").read_text(),
-                         "an archive makes no twin, even kept as a catalog")
+                                                        'category: Other, description: x}\nservices: {}\n').encode()}))
         exports.to_personal(preview["ticket"])
         home = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL
         self.assertIn('private_from: "Partner fixture"', (home / "playgrounds/carried/compose.yml").read_text(encoding="utf-8"))
-        self.assertNotIn("copy_of", (home / "addons/ledger/compose.yml").read_text(encoding="utf-8"))
-        project.forget()
-        found = project.load()
-        self.assertIsNone(found["addons"]["local/ledger"].get("twin"), "not the twin of Partner's Ledger")
-        self.assertIsNone(found["addons"]["@partner/ledger"].get("twin"))
 
     def carried(self, label):
         said = f'private_from: "{label}", ' if label else ""
@@ -817,18 +807,15 @@ class Untrusted(Case):
                                   "playgrounds/evil/.state. Fix: copy them out of .lab/imports/evil, then remove that folder with "
                                   "administrator rights, and import it again.")
 
-    def test_a_copy_of_hidden_behind_decoys_makes_no_twin(self):
+    def test_a_copy_of_hidden_behind_decoys_is_refused_and_the_decoys_are_left_as_they_are(self):
         forged = ('services:\n  evil-root:\n    image: busybox:1.36\n    networks: [internal]\n'
                   '    environment:\n      A: "copy_of: x, a"\n      B: "copy_of: x, b"\n'
                   'x-gravitee:\n  kind: playground\n  name: Evil\n  category: Other\n  description: d\n  copy_of: "tour"\n')
         preview = exports.receive(evil_zip(playground=forged))
-        exports.to_personal(preview["ticket"], allow=True)
-        text = self.personal().read_text()
-        self.assertIn('A: "copy_of: x, a"', text, "a value is left as it is")
-        project.forget()
-        found = project.load()
-        self.assertIsNone(found["playgrounds"]["local/evil"].get("twin"))
-        self.assertIsNone(found["playgrounds"]["tour"].get("twin"), "not the twin of the default catalog's Tour")
+        self.assertIn(exports.TWIN_CLAIMED, [reason for one in preview["blocked"] for reason in one["reasons"]])
+        self.refused(lambda: exports.to_personal(preview["ticket"], allow=True), "blocked_personal")
+        self.assertIn('A: "copy_of: x, a"', (paths.ROOT / exports.IMPORTS_DIR / "evil/playgrounds/evil/compose.yml").read_text(),
+                      "the file is as it came: the Lab refuses, it does not rewrite")
 
     def test_what_goes_to_personal_is_the_bytes_whose_digest_is_checked(self):
         calm = evil_playground(privileged=False)
@@ -870,3 +857,60 @@ class SettleFails(Case):
         self.assertEqual(moving.recover(), "A change of Personal that stopped midway was finished for Scratch.")
         self.assertEqual(((scratch / ".env").read_text(), (scratch / "secrets/key").read_text()), ("MY_SETTING=1\n", "my key\n"))
 
+
+
+class Claims(Case):
+    """A file never makes one of its items the twin of an item of this Lab, whatever way its YAML says copy_of: the import asks
+    Compose, the reader the Lab takes twins from, and a claim keeps the item from Personal."""
+
+    setUp = Untrusted.setUp
+    BODY = "services:\n  evil-root:\n    image: busybox:1.36\n    networks: [internal]\n"
+    HEAD = "kind: playground, name: Evil, category: Other, description: d"
+    FORGED = {
+        "escaped key": 'x-gravitee:\n  kind: playground\n  name: Evil\n  category: Other\n  description: d\n  "copy\\u005fof": tour\n' + BODY,
+        "explicit key": "x-gravitee:\n  kind: playground\n  name: Evil\n  category: Other\n  description: d\n  ? copy_of\n  : tour\n" + BODY,
+        "apostrophe": "x-gravitee: {kind: playground, name: Evil's, category: Other, description: d, copy_of: tour}\n" + BODY,
+        "json": 'x-gravitee: {"kind": "playground", "name": "Evil", "category": "Other", "description": "d", "copy_of":"tour"}\n' + BODY,
+        "bom": "﻿x-gravitee: {" + HEAD + ", copy_of: tour}\n" + BODY,
+        "indented document": "".join("  " + line + "\n" for line in ("x-gravitee: {" + HEAD + ", copy_of: tour}\n" + BODY).splitlines()),
+        "tag": "x-gravitee: !!map {" + HEAD + ", copy_of: tour}\n" + BODY,
+        "flow on the next line": "x-gravitee:\n  {" + HEAD + ", copy_of: tour}\n" + BODY,
+        "merge": "x-base: &b {copy_of: tour}\nx-gravitee: {<<: *b, " + HEAD + "}\n" + BODY,
+        "alias": "x-base: &b {copy_of: tour, " + HEAD + "}\nx-gravitee: *b\n" + BODY,
+        "decoy in a scalar": "x-other: |\n  x-gravitee:\n    name: decoy\nx-gravitee: {" + HEAD + ", copy_of: tour}\n" + BODY,
+        "crlf": ("x-gravitee:\n  kind: playground\n  name: Evil\n  category: Other\n  description: d\n  copy_of: tour\n" + BODY).replace("\n", "\r\n"),
+        "second document": "x-gravitee: {" + HEAD + "}\n" + BODY + "---\nx-gravitee: {" + HEAD + ", copy_of: tour}\n" + BODY,
+    }
+
+    def test_no_way_of_writing_copy_of_makes_a_twin(self):
+        for name, text in self.FORGED.items():
+            with self.subTest(name):
+                try:
+                    preview = exports.receive(evil_zip(playground=text))
+                except CatalogError:
+                    continue   # not even read: nothing of it goes anywhere
+                with self.assertRaises(CatalogError):
+                    exports.to_personal(preview["ticket"], allow=True)
+                project.forget()
+                found = project.load()
+                self.assertNotIn("local/evil", found["playgrounds"], "it never reaches Personal")
+                self.assertIsNone(found["playgrounds"]["tour"].get("twin"))
+
+    def test_a_claim_is_said_in_the_preview_and_a_move_of_it_is_refused(self):
+        preview = exports.receive(evil_zip(playground=self.FORGED["apostrophe"]))
+        self.assertIn({"kind": "playground", "id": "@evil/evil", "name": "Evil's", "reasons": [exports.TWIN_CLAIMED]}, preview["blocked"])
+        service.add(preview["ticket"])
+        project.forget()
+        with self.assertRaises(CatalogError) as caught:
+            moving.move("playground", "@evil/evil", False, allow=True)
+        self.assertEqual(caught.exception.message, "Evil's says it is the copy of an item of this Lab (x-gravitee.copy_of), which only "
+                                                   "this Lab writes. Fix: ask for its file again, without copy_of.")
+
+    def test_what_slips_by_the_preview_is_caught_once_in_personal_and_undone(self):
+        preview = exports.receive(evil_zip(playground=self.FORGED["apostrophe"]))
+        service.note(preview["ticket"], blocked=[])   # as if the preview had not seen it
+        with self.assertRaises(CatalogError) as caught:
+            exports.to_personal(preview["ticket"], allow=True)
+        self.assertEqual(caught.exception.code, "twin_claimed")
+        self.assertFalse((paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "playgrounds/evil").exists())
+        self.assertFalse(list((paths.ROOT / paths.LAB_DIR).glob(".swap-*")))

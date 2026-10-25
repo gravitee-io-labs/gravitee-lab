@@ -159,7 +159,34 @@ def _held(found, moving):
             personals._not_held(found, kind, uid)
         except RuntimeError as error:
             return str(error)
+    claim = next(((kind, uid) for kind, uid in moving if _claims(kind, uid)), None)
+    if claim:
+        return f"{_name(_units(found), claim)} {CLAIMED}"
     return next(filter(None, (replaced_on(found, kind, _slug(uid)) for kind, uid in moving)), "")
+
+
+CLAIMED = ("says it is the copy of an item of this Lab (x-gravitee.copy_of), which only this Lab writes. Fix: ask for its file "
+           "again, without copy_of.")
+
+
+def _claims(kind, uid):
+    """Whether an item says it is a copy (x-gravitee.copy_of) as the Lab reads it (Compose, the project's own reading), the twin
+    of an item that only this Lab makes, when it copies an item to Personal."""
+    said = ((project.loaded()[1].get("raw") or {}).get(paths.unit_file(kind, uid)) or {}).get("x-gravitee")
+    return isinstance(said, dict) and bool(said.get("copy_of"))
+
+
+def placed_without_claims(rels):
+    """The check of a swap from a file (a move, an import to Personal), once its items are in Personal: the project read again as
+    the Lab reads it, none of them says it is a copy. A claim found undoes the swap (CatalogError, `swap_in`)."""
+    def check():
+        project.forget()
+        project.load()
+        for rel in rels:
+            kind, slug = ("setup", posixpath.basename(rel)[:-4]) if rel.startswith("setups/") else (rel.split("/")[0][:-1], posixpath.basename(rel))
+            if _claims(kind, f"{paths.LOCAL}/{slug}"):
+                raise _fail("twin_claimed", f"{_names_of([rel])} {CLAIMED}")
+    return check
 
 
 def replaced_on(found, kind, slug):
@@ -244,13 +271,14 @@ def move(kind, uid, together, allow=False):
                 rel = _rel(k, _slug(one))
                 compose_rel = rel if k == "setup" else f"{rel}/compose.yml"
                 here = posixpath.dirname(compose_rel)
-                text = unmark((source / compose_rel).read_text(encoding="utf-8"))   # a file makes no twin: private_from stays
+                text = (source / compose_rel).read_text(encoding="utf-8")
                 text = moves.repoint(text, f"{paths.CATALOGS_DIR}/{ns}/{here}", f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{here}", table)
                 if k != "setup":
                     shutil.copytree(source / rel, root / rel, symlinks=True, ignore=_links)
                 (root / compose_rel).parent.mkdir(parents=True, exist_ok=True)
                 (root / compose_rel).write_text(text, encoding="utf-8")
-        warnings = [recovered, replace(write, [_rel(k, _slug(one)) for k, one in moving])]
+        rels = [_rel(k, _slug(one)) for k, one in moving]
+        warnings = [recovered, replace(write, rels, placed_without_claims(rels))]
         # The import loses what moved; what Docker made there and cannot be deleted is said, and the move completes
         stuck = []
         for k, one in moving:
@@ -311,10 +339,10 @@ FINISHED = "A change of Personal that stopped midway was finished for {names}."
 NOT_DONE = "A change of Personal that stopped midway could not be put right ({why}): it is kept in {where}."
 
 
-def replace(write, rels):
+def replace(write, rels, check=None):
     """The items at `rels` (their folder, or the file of a setup, relative to Personal) replaced by those `write(root)` writes
     whole at `root/<rel>` (`stage`, then `swap_in`). Answers what is said of it, or None."""
-    return swap_in(stage(write), rels)
+    return swap_in(stage(write), rels, check)
 
 
 def stage(write):
@@ -339,7 +367,7 @@ def discard(swap):
         shutil.rmtree(swap, ignore_errors=True)
 
 
-def swap_in(swap, rels):
+def swap_in(swap, rels, check=None):
     """The new versions (`stage`) of the items at `rels` swapped into Personal, all or none: every item there renamed aside, then
     every new one renamed in, the journal saying each phase before it starts. Renames on one file system: at any moment an item is
     the old one or the new one, whole. A failure undoes, in reverse, every rename made, and says so; once all are in, the person's
@@ -356,10 +384,16 @@ def swap_in(swap, rels):
         for rel in rels:
             (home / rel).parent.mkdir(parents=True, exist_ok=True)
             os.rename(swap / "new" / rel, home / rel)
+        if check:
+            check()   # what is in Personal now, read as the Lab reads it: a refusal undoes the swap
         _note(swap, phase="done", items=rels)
     except OSError as error:
         _undo(swap, rels)
         raise CatalogError("swap_failed", NOT_IN.format(names=names, why=(error.strerror or str(error)).lower()), 500) from None
+    except CatalogError:
+        _undo(swap, rels)
+        project.forget()
+        raise
     return _settle(swap, rels, recovering=False)
 
 
