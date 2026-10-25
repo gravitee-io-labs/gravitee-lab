@@ -309,7 +309,7 @@ class State(LabUI):
         self.lab = {"version": "1.0.0", "update": False}
         self.patch(api.updates, "describe", return_value=self.lab)
         self.more = {"root": str(paths.ROOT), "skills": {"addon": ".agents/skills/new-addon/SKILL.md"},
-                     "core": {"place": "machine", "chosen": False}, "lab": self.lab}
+                     "core": {"place": "machine", "chosen": False}, "lab": self.lab, "kept_settings": []}
         # ... and what the state says of the catalogs: git, the rows, the content and the layout
         self.catalogued = {"git": {"available": True, "version": "2.43.2"}, "catalogs": self.rows,
                            "content": self.content, "layout": self.layout}

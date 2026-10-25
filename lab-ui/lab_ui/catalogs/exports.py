@@ -182,7 +182,8 @@ def copies_of(nodes):
     for kind, uid in nodes:
         data = contribute._read(paths.ROOT / paths.unit_file(kind, uid), bare.TEXT_FILE + 1)
         source = contribute.private_source(data.decode("utf-8", "replace")) if data else None
-        if source and source[0] != paths.origin(uid):
+        # A label (no original) always says private content; an older copy's chain does, but for an item of that very catalog
+        if source and (source[2] is None or source[0] != paths.origin(uid)):
             found[(kind, uid)] = source[:2]
     return found
 
@@ -502,24 +503,40 @@ def _sweep(replacing=None):
         kept.remove_but(child, [child / rel / name for rel, name in failed])
 
 
-def _digest(folder: Path, people=True):
-    """What the files of an import's folder are, as one digest: its paths, whether each runs, and their bytes. What a preview
-    judged is what goes to Personal. Without `people`, the person's settings, secrets and state of its items are left out."""
-    found = hashlib.sha256()
+def _snapshot(folder: Path, people=True):
+    """{path: (mode, bytes)} of the files of an import's folder, read once: what is judged, digested and staged is the same.
+    Without `people`, the person's settings, secrets and state of its items are not read."""
+    found = {}
     for path in sorted(p for p in folder.rglob("*") if p.is_file() and not p.is_symlink()):
         rel = path.relative_to(folder).as_posix()
         parts = rel.split("/")
         if not people and len(parts) > 2 and parts[0] in ("addons", "playgrounds") and parts[2] in MACHINE_FILES:
             continue
-        found.update(f"{rel}\0{os.stat(path).st_mode & 0o111}\0".encode("utf-8"))
-        found.update(hashlib.sha256(path.read_bytes()).digest())
+        found[rel] = (0o755 if os.stat(path).st_mode & 0o111 else 0o644, path.read_bytes())
+    return found
+
+
+def _digest(folder, people=True):
+    """What the files of an import's folder (or a `_snapshot` of it) are, as one digest: its paths, whether each runs, and their
+    bytes. What a preview judged is what goes to Personal. Without `people`, the person's settings, secrets and state of its
+    items are left out."""
+    found = hashlib.sha256()
+    for rel, (mode, data) in sorted((folder if isinstance(folder, dict) else _snapshot(folder, people)).items()):
+        parts = rel.split("/")
+        if not people and len(parts) > 2 and parts[0] in ("addons", "playgrounds") and parts[2] in MACHINE_FILES:
+            continue
+        found.update(f"{rel}\0{mode & 0o111}\0".encode("utf-8"))
+        found.update(hashlib.sha256(data).digest())
     return found.hexdigest()
 
 
 def _content_of(folder: Path):
     """The digest of the file an import came with: the one its Add recorded, else (an import added before the record was kept) the
     digest of its folder as it is, without the person's settings, which the same file imported again gives too."""
-    return kept.record()["imported"].get(folder.name) or _digest(folder, people=False)
+    try:
+        return kept.record()["imported"].get(folder.name) or _digest(folder, people=False)
+    except OSError:
+        return None   # a file it cannot read: what is kept is bound to no file, and shown
 
 
 def _said_origins(folder: Path):
@@ -628,23 +645,23 @@ def _named(text, fallback):
     return said.group(1).strip().strip("'\"") if said else fallback
 
 
-def _for_personal(folder: Path, top):
+def _for_personal(folder: Path, top, snapshot=None):
     """The archive's items as Personal holds them: [(kind, slug, rel, name, {path: (mode, bytes)})], each compose file written
-    again for its place in .lab/catalogs/local, and the includes of one another with it."""
+    again for its place in .lab/catalogs/local, and the includes of one another with it; from `snapshot` when given."""
+    files_of = snapshot if snapshot is not None else _snapshot(folder)
     units = _units(folder)
     table = [(f"{paths.CATALOGS_DIR}/{top}/{rel}", f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{rel}") for _, _, rel in units]
     found = []
     for kind, slug, rel in units:
         compose_rel = _compose_rel(kind, rel)
-        text = contribute.unmark((folder / compose_rel).read_text(encoding="utf-8"))   # a file makes no twin: private_from stays
+        if compose_rel not in files_of:
+            continue
+        text = contribute.unmark(files_of[compose_rel][1].decode("utf-8"))   # a file makes no twin: private_from stays
         here = posixpath.dirname(compose_rel)
         written = moves.repoint(text, f"{paths.CATALOGS_DIR}/{top}/{here}", f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{here}", table)
         files = {compose_rel: (0o644, written.encode("utf-8"))}
         if kind != "setup":
-            for path in sorted(p for p in (folder / rel).rglob("*") if p.is_file() and not p.is_symlink()):
-                rel_path = path.relative_to(folder).as_posix()
-                if rel_path != compose_rel:
-                    files[rel_path] = (0o755 if os.stat(path).st_mode & 0o111 else 0o644, path.read_bytes())
+            files.update({path: entry for path, entry in files_of.items() if path.startswith(rel + "/") and path != compose_rel})
         found.append((kind, slug, rel, _named(written, slug), files))
     return found
 
@@ -693,8 +710,8 @@ def to_personal(ticket, allow=False):
     uses = data.get("uses") or []
     if uses and allow is not True:
         raise _fail("allow_machine", f"{', '.join(uses)} uses this machine: allow it to import it to Personal.")
-    top = folder.name
-    items = _for_personal(folder, top)
+    top, snapshot = folder.name, _snapshot(folder)   # what is staged is what is digested: the preview's, or a refusal
+    items = _for_personal(folder, top, snapshot)
     going = [one for one in items if not _same_in_personal(*one)]   # the same item is used as Personal has it
 
     def write(root):
@@ -708,7 +725,7 @@ def to_personal(ticket, allow=False):
         with service._changing():
             recovered = moving.recover()
             with moving.telling(recovered):
-                if data.get("digest") != _digest(folder):
+                if data.get("digest") != _digest(snapshot):
                     raise _fail("import_changed", "The files of this import changed after its preview. Fix: choose its file again.", 409)
                 found = project.load()
                 held = next(filter(None, (moving.replaced_on(found, kind, slug) for kind, slug, rel, _, _ in going
@@ -878,6 +895,13 @@ def _judged_import(final, top, content, reused):
 
 
 def _leftover(archive, top):
+    """The refusal of an import whose folder holds what an earlier one left and the Lab cannot delete: the person's settings
+    among it are named first, to copy out, so that what is said to remove never takes them."""
+    held = [f"{rel}/{name}" for rel, name in kept.settings_of(paths.ROOT / IMPORTS_DIR / top)]
+    if held:
+        return _fail("import_leftover", f"What an earlier import of {_name_of(archive, top)} left cannot be deleted, and holds its "
+                                        f"settings {', '.join(held)}. Fix: copy them out of {IMPORTS_DIR}/{top}, then remove that "
+                                        "folder with administrator rights, and import it again.", 409)
     return _fail("import_leftover", f"What an earlier import of {_name_of(archive, top)} left cannot be deleted. Fix: remove the "
                                     f"folder {IMPORTS_DIR}/{top} with administrator rights, then import it again.", 409)
 

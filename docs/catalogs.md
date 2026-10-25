@@ -191,7 +191,8 @@ On the other Lab, **Import** on the Playgrounds page takes the file: the preview
 playground's page opens. **Import to** chooses where it goes:
 
 - **Personal**, the default: the playground and what it brings are yours, like what you make with the New buttons, and you edit
-  them freely. An item of Personal with the same name is replaced (your settings stay with it) unless it is the same, which is then
+  them freely. An item of Personal with the same name is replaced, and the new version gets your settings and secrets, unless it
+  is the same, which is then
   used, and an item of Personal that is on is not replaced: turn it off first. The Lab no longer judges what is in Personal:
   what uses this machine goes there once you allow it (**Allow and import**), and an item the preview says cannot run cannot
   go there. That includes an item that needs a catalog this Lab has not added: nothing can judge it until that catalog is
@@ -204,7 +205,8 @@ playground's page opens. **Import to** chooses where it goes:
   Its settings, secrets, star and what its seed recorded come along; the import whose items all moved is removed. When it
   replaces an item of Personal, the moving item's settings win, since they are the ones it ran with: its `.env`, its files of
   `secrets/`, and its `.state` as a whole. Those of the replaced item that would be overwritten go to `.lab/kept-settings/`, and
-  the move says so; the rest of them come to the new item. A move that fails leaves the import and Personal as they were, and
+  the move says so; the rest of them come to the new item. A move puts all of its items in Personal or none of them: one that fails
+  leaves the import and Personal as they were, and says so, and
   what Docker made in the import and cannot be deleted is said once the move is done. As for an
   import, what goes to Personal is no longer judged: an item blocked only for what it takes of this machine moves once you
   allow it (**Allow and move**), and one blocked for anything else, or that waits for a catalog this Lab has not added, does not
@@ -220,7 +222,8 @@ file so: the preview says so under **Kept settings** (from an earlier import, us
 take, because its item has its own, stay where they are, and the import says where. A setting the Lab could not move is said
 with where it still is, and nothing else is deleted with it. What Docker made and the Lab cannot delete is said, and an import of
 that name waits until you remove it. A move or an import to Personal that stopped midway, because the Lab stopped, is put right
-at the next one, and said.
+at the next one, and said. The Catalogs page lists the settings the Lab keeps under **Imported**, with where they came from:
+**Remove**, in the menu of each, deletes them, and nothing else does.
 
 ## A playground for Docker Compose alone
 

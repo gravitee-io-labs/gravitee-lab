@@ -43,7 +43,7 @@ from urllib.parse import quote
 from ..library import check, layers, moves, personal, project as projects, tested
 from ..docker import compose
 from .. import paths
-from . import defaults, gitx, install, manifest, registry, resolve, store as bare, trust
+from . import defaults, gitx, install, manifest, meta as block, registry, resolve, store as bare, trust
 from .registry import CatalogError
 
 LOCAL = paths.LOCAL
@@ -1032,18 +1032,10 @@ def _here(kind, uid):
     return paths.unit_file(kind, uid) if kind == "setup" else paths.unit_folder(kind, uid)
 
 
-COPY_OF = re.compile(r'(?m)^[ \t]+copy_of:[^\n]*\n|copy_of:\s*("[^"]*"|\'[^\']*\'|[^,}\s]+)\s*,?\s*')
-
-
-MARKED = re.compile(r'(?m)^[ \t]*(?:x-gravitee:\s*\{[^}\n]*?)?\bcopy_of:\s*("[^"\n]*"|\'[^\'\n]*\'|[^,}\s]+)')
-# x-gravitee.private_from: the name of the private catalog of Git what an item holds comes from, written when it travels
-LABEL = re.compile(r'(?m)^[ \t]*(?:x-gravitee:\s*\{[^}\n]*?)?\bprivate_from:\s*("[^"\n]*"|\'[^\'\n]*\'|[^,}\n]+)')
-UNLABEL = re.compile(r'(?m)^[ \t]+private_from:[^\n]*\n|private_from:\s*("[^"]*"|\'[^\']*\'|[^,}\n]+?)\s*(,\s*|(?=\}))')
-
-
 def unmark(text):
-    """A compose text without `x-gravitee.copy_of`: whose copy an item of this machine is, which says nothing true elsewhere."""
-    return COPY_OF.sub("", text, count=1) if "copy_of" in text else text
+    """A compose text without `x-gravitee.copy_of`: whose copy an item of this machine is, which says nothing true elsewhere. Every
+    copy_of of the block goes, and a block that takes keys from elsewhere says none (meta.drop)."""
+    return block.drop(text, "copy_of", override=True)
 
 
 CHAIN = 8   # the copies of copies a private origin is looked for through, at most: a longer or a looping chain says nothing
@@ -1055,14 +1047,13 @@ def private_source(text, _seen=()):
     before there was a label says only whose copy it is (`x-gravitee.copy_of`), which may be a copy itself: that chain is followed
     through the items this machine has, to the first item of a private catalog of Git. A copy of what this machine does not have,
     or cannot read, and a chain too long or that loops, are taken as private: nothing says otherwise."""
-    said = LABEL.search(text or "")
+    said = block.value(text or "", "private_from")
     if said:
-        name = said.group(1).strip().strip("'\"")[:NAME_LIMIT] or "a private catalog"
+        name = said[:NAME_LIMIT]
         return name, name, None
-    found = MARKED.search(text or "")
-    if not found:
+    uid = block.value(text or "", "copy_of")
+    if not uid:
         return None
-    uid = found.group(1).strip("'\"")
     try:
         ns = paths.origin(uid)
     except paths.NotFound:
@@ -1095,34 +1086,19 @@ def private_of(text, uid):
     return _catalog_name(ns) if entry and entry.get("kind") == "git" and registry.lock_of(ns).get("audience") != "public" else None
 
 
-def labelled(text, name):
-    """The compose text whose x-gravitee block says the private catalog what it holds comes from (`private_from`), or says none."""
-    text = UNLABEL.sub("", text, count=1) if "private_from" in text else text
-    return (_meta_set(text, "private_from", name) or text) if name else text
-
-
 def _catalog_name(ns):
     return (registry.inputs().get(ns) or {}).get("name") or registry.lock_of(ns).get("name") or ns
 
 
+def labelled(text, name):
+    """The compose text whose x-gravitee block says the private catalog what it holds comes from (`private_from`), or says none."""
+    text = block.drop(text, "private_from")
+    return (block.put(text, "private_from", name) or text) if name else text
+
+
 def mark(text, uid):
     """The compose text whose x-gravitee block says it is a copy of `uid` (copy_of); None when it has no block."""
-    return _meta_set(text, "copy_of", uid)
-
-
-def _meta_set(text, key, value):
-    """The compose text with `key: "value"` first in its x-gravitee block; None when it has no block."""
-    quoted = '"' + str(value).replace('"', "").replace("\n", " ") + '"'
-    lines = text.splitlines(keepends=True)
-    for at, line in enumerate(lines):
-        if re.match(r"x-gravitee:\s*\{", line):
-            lines[at] = line.replace("{", "{" + key + ": " + quoted + ", ", 1)
-            return "".join(lines)
-        if re.match(r"x-gravitee:\s*(#.*)?$", line.rstrip("\n")):
-            indent = next((re.match(r"[ \t]+", one).group(0) for one in lines[at + 1:] if re.match(r"[ \t]+\S", one)), "  ")
-            lines.insert(at + 1, f"{indent}{key}: {quoted}\n")
-            return "".join(lines)
-    return None
+    return block.put(text, "copy_of", uid)
 
 
 def _unmarked(copy, kind, slug, private=None):

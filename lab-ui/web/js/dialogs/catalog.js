@@ -154,7 +154,7 @@ function personalRows(p) {
   const mine = p.personal || {};
   const reused = [...(p.reused || []).map((one) => one.name), ...(mine.same || [])];
   const from = [...new Set((p.reused || []).map((one) => one.catalog)), ...((mine.same || []).length ? ["Personal"] : [])];
-  const replaces = { label: "Replaces", tone: "danger", items: (mine.replaces || []).map((name) => ({ text: name, tone: "danger" })), hint: "Your settings stay" };
+  const replaces = { label: "Replaces", tone: "danger", items: (mine.replaces || []).map((name) => ({ text: name, tone: "danger" })), hint: "The new version gets your settings" };
   return previewRows({ ...p, imported: true }, true, true).filter((r) => r.label !== "Cannot run").flatMap((r) => (r.label === "Uses yours"
     ? [{ ...r, items: reused.map((name) => ({ text: name })), hint: from.length ? `From ${from.join(", ")}` : "" }, replaces] : [r]));
 }

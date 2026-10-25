@@ -7,7 +7,7 @@
 // says so in its state (a menu entry has no button to show it on) and offers nothing else to press. The dialogs are dialogs/catalog.js's.
 
 import { $, esc, icon, setHTML, api, store, router, ago, copyButton } from "../core.js";
-import { toast, openMenu, keyed, statusHtml, progressBar, tipHtml, paintActions, actionButton, holdOff, contentStatus, GAP } from "../components/ui.js";
+import { toast, openMenu, keyed, statusHtml, progressBar, tipHtml, paintActions, actionButton, holdOff, contentStatus, confirmDialog, GAP } from "../components/ui.js";
 import { busy } from "../activity/jobs.js";
 import { selectCatalog } from "./list.js";
 import { NO_GIT, usesCard, openAdd, addCatalog, tryAgain, openUpdate, openGoBack, openRemove, openAllow, openNew } from "../dialogs/catalog.js";
@@ -123,13 +123,13 @@ function about(row) {
 }
 
 // The playgrounds imported from a file and kept as catalogs of their own: one place to the person, Imported, which lists each of them with its
-// menu (Remove, and the allowance of what uses this machine)
+// menu (Remove, and the allowance of what uses this machine), and the settings that an import, a removal or a move kept, each with Remove
 const IMPORTED = "imported";
 function grouped(rows) {
-  const imports = rows.filter((r) => r.imported);
-  if (!imports.length) return rows;
+  const imports = rows.filter((r) => r.imported), kept = store.state?.kept_settings || [];
+  if (!imports.length && !kept.length) return rows;
   const counts = Object.fromEntries(HOLDS.map(([kind]) => [kind, imports.reduce((sum, r) => sum + (r.counts?.[kind] || 0), 0)]));
-  const group = { id: IMPORTED, kind: "imports", name: "Imported", counts, members: imports, state: { key: "machine" },
+  const group = { id: IMPORTED, kind: "imports", name: "Imported", counts, members: imports, kept, state: { key: "machine" },
     blocked: imports.flatMap((r) => r.blocked || []), problems: imports.flatMap((r) => r.problems || []) };
   const rest = rows.filter((r) => !r.imported), at = rest.findIndex((r) => r.kind === "git" || r.kind === "suggested");
   return at < 0 ? [...rest, group] : [...rest.slice(0, at), group, ...rest.slice(at)];
@@ -139,7 +139,24 @@ function members(row) {
   if (row.kind !== "imports") return "";
   const line = (m) => `<div class="panel-row panel-fact" data-member="${esc(m.id)}"><span>${esc(m.name)}</span><span>${total(m.counts)} ${total(m.counts) === 1 ? "item" : "items"}${
     menu(m).length ? `<button class="icon-btn" data-member-more data-tip="More" aria-label="${esc(`More for ${m.name}`)}" aria-haspopup="true">${icon("more")}</button>` : ""}</span></div>`;
-  return `<section class="panel">${heading("Imports")}${row.members.map(line).join("")}</section>`;
+  const keptLine = (k) => `<div class="panel-row panel-fact" data-kept="${esc(k.folder)}"><span>${esc(k.from === "Personal" ? "From Personal" : `From ${k.from}`)}</span><span>${
+    esc([k.items.join(", "), old(k.at)].filter(Boolean).join(", "))}<button class="icon-btn" data-kept-more data-tip="More" aria-label="${
+    esc(`More for the settings kept from ${k.from}`)}" aria-haspopup="true">${icon("more")}</button></span></div>`;
+  return `<section class="panel">${row.members.length ? heading("Imports") + row.members.map(line).join("") : ""}${
+    (row.kept || []).length ? heading("Kept settings") + row.kept.map(keptLine).join("") : ""}</section>`;
+}
+
+// Kept settings go at the person's word only: they are theirs, and nothing else deletes them
+async function removeKept(k) {
+  if (!(await confirmDialog({ title: `Remove the settings kept from ${k.from}`, action: "Remove", danger: true }))) return;
+  try {
+    const answer = await api("/api/kept-settings/delete", { folder: k.folder });
+    toast(answer.warning || "Removed", !!answer.warning);
+  } catch (err) {
+    toast(err.message, true);
+  } finally {
+    store.refresh();
+  }
 }
 
 // What it holds: a button for each kind that sets that list's catalog filter to this catalog and goes there; below, what in it cannot run, one
@@ -341,6 +358,10 @@ function init(el) {
     else if ("retry" in data) tryAgain(row.id);
     else if ("add" in data) addCatalog(row);
     else if ("memberMore" in data && member) openMenu(button, menu(member));
+    else if ("keptMore" in data) {
+      const k = (row.kept || []).find((one) => one.folder === button.closest("[data-kept]")?.dataset.kept);
+      if (k) openMenu(button, [{ label: "Remove", danger: true, disabled: !!offline(), reason: offline(), onSelect: () => removeKept(k) }]);
+    }
     else if ("more" in data) openMenu(button, menu(row));
     else if ("holds" in data) showHeld(data.holds, row.id);
   });

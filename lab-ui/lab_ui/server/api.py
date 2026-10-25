@@ -24,7 +24,7 @@ from ..docker import compose, files, images, plugins, probe, terminal
 from ..gravitee import core, license, places, platforms
 from . import dashboard, stack
 from .. import paths
-from ..catalogs import contribute, exports, firstrun, moving, service, standalone, trust
+from ..catalogs import contribute, exports, firstrun, kept, moving, service, standalone, trust
 from ..catalogs.registry import CatalogError
 from ..docker.jobs import JOBS, Job
 
@@ -122,7 +122,7 @@ def snapshot():
                        catalogs=service.describe(p, read), content=firstrun.content(p, read), layout=layout.status())
     # What the page gives an AI agent to create an item: where the project is, and the skills to follow. Where API
     # Management runs, from this machine's choice and what its platform last said
-    body.update(root=str(paths.ROOT), skills=personal.skills(), lab=updates.describe(),
+    body.update(root=str(paths.ROOT), skills=personal.skills(), lab=updates.describe(), kept_settings=kept.listed(),
                 core=core.describe(p, on, containers if known else {}, saved, body.get("wait")))
     _docker_down(body)
     unread = service.problems()   # the files that record the catalogs cannot be read: nothing would be shown, and no word said
@@ -720,6 +720,12 @@ CLOUD = f"({platforms.ID.pattern})"   # what a platform calls an environment or 
 KIND, UNIT = f"({'|'.join(paths.KINDS)})", paths.ID   # an add-on, a setup or a playground; its id, local/<name> too
 SERVICE = "([a-zA-Z0-9._-]+)"   # what Compose accepts as a service name
 
+def kept_remove(folder):
+    """Kept settings removed at the person's word, as a change of catalogs."""
+    with service._changing():
+        return kept.remove(folder)
+
+
 ROUTES = [(method, re.compile(pattern), handler) for method, pattern, handler in [
     ("GET", "/", static),
     ("GET", "/(css|js|img)/(.+)", static),
@@ -771,6 +777,7 @@ ROUTES = [(method, re.compile(pattern), handler) for method, pattern, handler in
      lambda r, pid: standalone.plan(pid) if r.body.get("check")
      else standalone.archive(pid, private=[one for one in r.body.get("private") or () if isinstance(one, str)])),
     ("POST", "/api/catalogs/import", lambda r: exports.receive(r.body.get("data"))),
+    ("POST", "/api/kept-settings/delete", lambda r: kept_remove(r.body.get("folder"))),
     ("POST", "/api/catalogs/import/personal", lambda r: exports.to_personal(r.body.get("ticket"), allow=r.body.get("allow") is True)),
     ("POST", f"/api/{KIND}s/{UNIT}/use-catalog", use_catalog),
     ("POST", f"/api/{KIND}s/{UNIT}/move", lambda r, kind, uid: moving.plan(kind, uid) if r.body.get("check")
@@ -1003,7 +1010,7 @@ def start_up():
     and fast but the last, which returns at once; a failure of one is said in a line and never keeps the Lab from serving,
     because its row says what is wrong."""
     for what, step in (("looking at the layout", layout.ensure), ("finishing what a stop left", service.recover),
-                       ("finishing a change of Personal that a stop left", moving.recover),
+                       ("finishing a change of Personal that a stop left", moving.recover_at_start),
                        ("sweeping what a share left", contribute.sweep), ("preparing the first run", firstrun.reconcile),
                        ("starting the download of catalogs", firstrun.start_worker),
                        ("starting the check for new versions", updates.start_checking)):

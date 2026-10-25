@@ -6,6 +6,7 @@ judgement of it as another Lab will make it, and its import: the archive read wi
 import base64
 import io
 import json
+import os
 import shutil
 import stat
 import zipfile
@@ -370,6 +371,11 @@ class FromCatalogs(Case):
             "carried/addons/books/compose.yml": (f"x-gravitee: {{{said}kind: addon, name: Books, category: Other, description: x}}\n"
                                                  "services:\n  books:\n    image: busybox:1.36\n    networks: [internal]\n").encode()})
 
+    def test_a_label_is_never_taken_for_the_id_of_the_catalog_it_is_in(self):
+        service.add(exports.receive(self.carried("carried"))["ticket"])   # a private catalog named as this import's id
+        project.forget()
+        self.assertEqual(exports.copies_of([("addon", "@carried/books")]), {("addon", "@carried/books"): ("carried", "carried")})
+
     def test_a_copy_says_its_private_origin_as_it_was_when_copied_whatever_comes_later_at_that_id(self):
         from lab_ui.catalogs import contribute
         service.add(exports.receive(self.carried("Partner fixture"))["ticket"])
@@ -644,8 +650,9 @@ class Untrusted(Case):
         self.assertEqual(warning, "Some files were created by Docker and could not be deleted. Remove the folder .lab/imports/evil with "
                                   "administrator rights.")
         message = self.refused(lambda: exports.receive(data), "import_leftover")
-        self.assertEqual(message, "What an earlier import of Evil left cannot be deleted. Fix: remove the folder .lab/imports/evil "
-                                  "with administrator rights, then import it again.")
+        self.assertEqual(message, "What an earlier import of Evil left cannot be deleted, and holds its settings "
+                                  "playgrounds/evil/.state. Fix: copy them out of .lab/imports/evil, then remove that folder with "
+                                  "administrator rights, and import it again.")
 
     def test_an_import_waits_for_another_change_of_catalogs(self):
         from .test_moving import held
@@ -793,3 +800,73 @@ class Untrusted(Case):
         service.remove("evil")
         again = exports.receive(data)
         self.assertEqual(again["kept"]["used"], True)
+
+    def test_a_leftover_that_holds_the_persons_settings_says_so_before_it_says_to_remove_it(self):
+        data = evil_zip(playground=evil_playground(privileged=False))
+        left = paths.ROOT / exports.IMPORTS_DIR / "evil" / "playgrounds" / "evil"
+        (left / ".state").mkdir(parents=True)
+        (left / ".state/root.json").write_text("{}\n")
+        (left / ".state/root.json").chmod(0o000)   # neither moved nor read
+        (left / ".state").chmod(0o500)   # nor deleted
+        self.addCleanup(lambda: ((left / ".state").chmod(0o700), (left / ".state/root.json").chmod(0o600)))
+        rename = os.rename
+        self.patch(exports.kept.os, "rename", lambda one, two: (_ for _ in ()).throw(OSError(18, "Cross-device link"))
+                   if ".state" in str(one) else rename(one, two))
+        message = self.refused(lambda: exports.receive(data), "import_leftover")
+        self.assertEqual(message, "What an earlier import of Evil left cannot be deleted, and holds its settings "
+                                  "playgrounds/evil/.state. Fix: copy them out of .lab/imports/evil, then remove that folder with "
+                                  "administrator rights, and import it again.")
+
+    def test_a_copy_of_hidden_behind_decoys_makes_no_twin(self):
+        forged = ('services:\n  evil-root:\n    image: busybox:1.36\n    networks: [internal]\n'
+                  '    environment:\n      A: "copy_of: x, a"\n      B: "copy_of: x, b"\n'
+                  'x-gravitee:\n  kind: playground\n  name: Evil\n  category: Other\n  description: d\n  copy_of: "tour"\n')
+        preview = exports.receive(evil_zip(playground=forged))
+        exports.to_personal(preview["ticket"], allow=True)
+        text = self.personal().read_text()
+        self.assertIn('A: "copy_of: x, a"', text, "a value is left as it is")
+        project.forget()
+        found = project.load()
+        self.assertIsNone(found["playgrounds"]["local/evil"].get("twin"))
+        self.assertIsNone(found["playgrounds"]["tour"].get("twin"), "not the twin of the default catalog's Tour")
+
+    def test_what_goes_to_personal_is_the_bytes_whose_digest_is_checked(self):
+        calm = evil_playground(privileged=False)
+        preview = exports.receive(evil_zip(playground=calm))
+        file = paths.ROOT / exports.IMPORTS_DIR / "evil" / "playgrounds" / "evil" / "compose.yml"
+        file.write_text(evil_playground())   # changed after the preview...
+        stage = moving.stage
+
+        def staged(write):
+            swap = stage(write)
+            file.write_text(calm)   # ...and put back before the check
+            return swap
+        self.patch(moving, "stage", staged)
+        self.refused(lambda: exports.to_personal(preview["ticket"]), "import_changed")
+        self.assertFalse(self.personal().exists())
+
+
+class SettleFails(Case):
+    """Import to Personal of an item that replaces one of Personal, when bringing the person's files to the new one fails: the
+    swap that holds them is never deleted, and the next change finishes it."""
+
+    setUp = RoundTrip.setUp
+
+    def test_the_persons_files_are_never_deleted_when_the_end_of_a_swap_fails(self):
+        data = exports.archive("local/sandbox")["data"]
+        scratch = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons/scratch"
+        (scratch / "compose.yml").write_text((scratch / "compose.yml").read_text() + "# changed here\n")
+        (scratch / ".env").write_text("MY_SETTING=1\n")
+        (scratch / "secrets").mkdir()
+        (scratch / "secrets/key").write_text("my key\n")
+        preview = exports.receive(data)
+        bring = moving._bring
+        self.patch(moving, "_bring", lambda old, new, rel: (_ for _ in ()).throw(OSError(5, "Input/output error")))
+        with self.assertRaises(OSError):
+            exports.to_personal(preview["ticket"])
+        self.assertTrue([path for path in (paths.ROOT / paths.LAB_DIR).glob(".swap-*/old/addons/scratch/secrets/key")],
+                        "the person's files wait in the swap")
+        self.patch(moving, "_bring", bring)
+        self.assertEqual(moving.recover(), "A change of Personal that stopped midway was finished for Scratch.")
+        self.assertEqual(((scratch / ".env").read_text(), (scratch / "secrets/key").read_text()), ("MY_SETTING=1\n", "my key\n"))
+

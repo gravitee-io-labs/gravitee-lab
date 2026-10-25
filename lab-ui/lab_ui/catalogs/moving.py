@@ -12,9 +12,11 @@ the replaced item's would be overwritten goes to the kept settings (kept.py), an
 state comes to the new item. Nothing moves while one of the items is on. The import whose items all moved is removed with its
 catalog.
 
-A new version of an item of Personal (a move, a copy, an import to Personal) is written whole beside Personal first (`stage`), then
-swapped in by two renames on the same file system (`swap_in`): at any moment an item is the old one or the new one, whole. What a
-stop of the Lab leaves of it is put right at the next change and at the Lab UI's start (`recover`), and said.
+A new version of items of Personal (a move, a copy, an import to Personal) is written whole beside Personal first (`stage`), then
+swapped in, all of its items or none (`swap_in`): every old one renamed aside, then every new one renamed in, a journal in the swap
+folder saying each phase before it starts. At any moment an item is the old one or the new one, whole. What a stop of the Lab leaves
+is put right from the journal alone, at the next change and at the Lab UI's start (`recover`), and said; a swap folder that holds
+the person's files is never deleted.
 
 Personal is the last check, as for an import: nothing judges what is there. An item blocked only for what it takes of this
 machine (a privileged container, say; and what needs it) moves once the person allowed it, which the plan says (`uses_machine`)
@@ -38,6 +40,7 @@ this machine, once allowed.
 """
 
 import contextlib
+import json
 import os
 import posixpath
 import secrets
@@ -249,13 +252,13 @@ def move(kind, uid, together, allow=False):
                 (root / compose_rel).write_text(text, encoding="utf-8")
         warnings = [recovered, replace(write, [_rel(k, _slug(one)) for k, one in moving])]
         # The import loses what moved; what Docker made there and cannot be deleted is said, and the move completes
-        stuck = False
+        stuck = []
         for k, one in moving:
             rel = _rel(k, _slug(one))
             try:
                 (source / rel).unlink() if k == "setup" else shutil.rmtree(source / rel)
             except OSError:
-                stuck = True
+                stuck.append(rel)
                 if k != "setup":
                     shutil.rmtree(source / rel, ignore_errors=True)
                     with contextlib.suppress(OSError):
@@ -266,8 +269,8 @@ def move(kind, uid, together, allow=False):
         project.forget()
         if not left and registry.entry(ns):
             warnings.append(service.remove(ns, keep_settings=False).get("warning"))   # what it held moved: nothing of it is kept
-        elif stuck:
-            warnings.append(STUCK.format(where=f"{paths.IMPORTS_DIR}/{ns}"))
+        else:   # the import stays, with its other items: what is said to remove is the moved item's own folder
+            warnings += [STUCK.format(where=f"{paths.IMPORTS_DIR}/{ns}/{rel}") for rel in stuck]
         project.forget()
     warning = " ".join(one for one in warnings if one)
     return {"moved": [{"kind": k, "id": f"{paths.LOCAL}/{_slug(one)}"} for k, one in moving], "id": f"{paths.LOCAL}/{_slug(uid)}",
@@ -294,15 +297,18 @@ def telling(said):
 # A new version of items of Personal, swapped in whole
 # ---------------------------------------------------------------------------------------------------------------------
 
-SWAP = ".swap-"   # a folder of .lab, beside Personal, for one change: new/ the items it writes, old/ those they replace
+SWAP = ".swap-"   # a folder of .lab, beside Personal, for one change: new/ the items it writes, old/ those they replace, its journal
 LEFTOVER = ".leftover-"   # what a change could not delete: never read again
+JOURNAL = "journal.json"   # in the swap folder: its items and its phase, written before each step, which a recovery reads alone
 STUCK = "Some files were created by Docker and could not be deleted. Remove the folder {where} with administrator rights."
 REPLACED = "Settings of {names} that the new version replaced are kept in {where}."
 NOT_KEPT = ("Settings of {names} could not be kept and are still in {where}: copy them out, then remove that folder with "
             "administrator rights.")
+NOT_IN = ("{names} could not be put in Personal ({why}): Personal is as it was. Fix: see that the disk has room and that .lab "
+          "can be written, then try again.")
 UNDONE = "A change of Personal that stopped midway was undone for {names}."
 FINISHED = "A change of Personal that stopped midway was finished for {names}."
-_staging = set()   # the folders of the changes writing their items now, which a recovery leaves alone
+NOT_DONE = "A change of Personal that stopped midway could not be put right ({why}): it is kept in {where}."
 
 
 def replace(write, rels):
@@ -312,74 +318,114 @@ def replace(write, rels):
 
 
 def stage(write):
-    """The new versions of items written whole beside Personal (`write(root)`), in a folder of their own that no recovery touches
-    while it is written, and that nothing reads: answers it. A failure here changes nothing in Personal."""
+    """The new versions of items written whole beside Personal (`write(root)`), in a folder of their own that nothing reads, its
+    journal saying it is being written and by which process (a recovery leaves it alone while that process lives): answers it.
+    A failure here changes nothing in Personal."""
     swap = paths.ROOT / paths.LAB_DIR / f"{SWAP}{secrets.token_hex(4)}"
-    _staging.add(swap.name)
+    (swap / "new").mkdir(parents=True)
+    _note(swap, phase="staging", pid=os.getpid())
     try:
-        (swap / "new").mkdir(parents=True)
         write(swap / "new")
     except BaseException:
-        discard(swap)
+        shutil.rmtree(swap, ignore_errors=True)
         raise
     return swap
 
 
 def discard(swap):
-    """What `stage` wrote, let go: the change will not be made, or it was made."""
-    if swap.name.startswith(SWAP):
+    """What `stage` wrote, let go when the change is not made. Only a swap still being written goes: one whose items went aside
+    holds the person's files, and is the recovery's."""
+    if swap.name.startswith(SWAP) and (_journal(swap) or {}).get("phase") == "staging":
         shutil.rmtree(swap, ignore_errors=True)
-    _staging.discard(swap.name)
 
 
 def swap_in(swap, rels):
-    """Each item of Personal at `rels` renamed aside and its new version (`stage`) renamed in: two renames on the same file system,
-    so that at any moment an item is the old one or the new one, whole. Then the person's files come to the new one (`_settle`).
-    Called under the lock of the change. Answers what is said of it, or None."""
+    """The new versions (`stage`) of the items at `rels` swapped into Personal, all or none: every item there renamed aside, then
+    every new one renamed in, the journal saying each phase before it starts. Renames on one file system: at any moment an item is
+    the old one or the new one, whole. A failure undoes, in reverse, every rename made, and says so; once all are in, the person's
+    files come to the new ones (`_settle`). Called under the lock of the change. Answers what is said of it, or None."""
     home = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL
+    names = _names_of(rels, swap / "new")
     try:
+        _note(swap, phase="aside", items=rels)
         for rel in rels:
             if os.path.lexists(home / rel):
                 (swap / "old" / rel).parent.mkdir(parents=True, exist_ok=True)
                 os.rename(home / rel, swap / "old" / rel)
+        _note(swap, phase="in", items=rels)
+        for rel in rels:
             (home / rel).parent.mkdir(parents=True, exist_ok=True)
             os.rename(swap / "new" / rel, home / rel)
-    finally:
-        said = _settle(swap, recovering=False)
-        _staging.discard(swap.name)
-    return said
+        _note(swap, phase="done", items=rels)
+    except OSError as error:
+        _undo(swap, rels)
+        raise CatalogError("swap_failed", NOT_IN.format(names=names, why=(error.strerror or str(error)).lower()), 500) from None
+    return _settle(swap, rels, recovering=False)
 
 
 def recover():
-    """What a change of Personal left when the Lab stopped in the middle of it, put right: what it was writing goes (it was never
-    seen), an item renamed aside whose new version is not in place comes back, one whose new version is in place gets the person's
-    files (`_settle`). Called at the Lab UI's start and at the start of each change of Personal, under its lock. Answers what is
-    said of it, or None."""
-    said = [_settle(swap, recovering=True) for swap in sorted((paths.ROOT / paths.LAB_DIR).glob(f"{SWAP}*"))
-            if swap.is_dir() and not swap.is_symlink() and swap.name not in _staging]
+    """What a change of Personal left when the Lab stopped in the middle of it, put right from its journal alone: what was still
+    being written (by no process that lives) goes, never seen; a swap stopped before all its new items were in is undone; one
+    with all of them in is finished (`_settle`). Each swap is put right on its own: one that cannot be never keeps the others, nor
+    the Lab UI's start, from being. Called at the Lab UI's start and at the start of each change of Personal, under the lock of
+    the catalogs. Answers what is said of it, or None."""
+    said = []
+    for swap in sorted((paths.ROOT / paths.LAB_DIR).glob(f"{SWAP}*")):
+        if not swap.is_dir() or swap.is_symlink():
+            continue
+        try:
+            journal = _journal(swap) or {}
+            rels = [rel for rel in journal.get("items") or () if isinstance(rel, str) and _place_ok(rel)]
+            phase = journal.get("phase")
+            if phase in (None, "staging"):
+                if phase is None or not _alive(journal.get("pid")):
+                    shutil.rmtree(swap, ignore_errors=True)
+            elif phase in ("aside", "in"):
+                names = _names_of(rels, swap / "old") or _names_of(rels, swap / "new")
+                _undo(swap, rels)
+                said.append(UNDONE.format(names=names))
+            elif phase == "done":
+                said.append(FINISHED.format(names=_names_of(rels)))
+                said.append(_settle(swap, rels, recovering=True))
+        except Exception as error:  # noqa: BLE001 - one swap that cannot be put right keeps no other, nor the Lab, from being
+            said.append(NOT_DONE.format(why=str(error)[:120] or type(error).__name__, where=f"{paths.LAB_DIR}/{swap.name}"))
     return " ".join(one for one in said if one) or None
 
 
-def _settle(swap, recovering):
-    """The end of a change in `swap`: what it did not swap in goes; each item renamed aside comes back when its new version is not
-    in Personal, else gives the new one the person's files (`_bring`), and what the new one replaced of them is kept (kept.py).
-    Then the folder goes; what of it cannot be deleted, a setting that could not be kept among it, is left apart under another
-    name, never read again."""
+def recover_at_start():
+    """`recover` at the Lab UI's start, under the lock of the catalogs, a lock of the files that every Lab UI of this folder
+    takes: a second one never puts right what the first is doing (and what a live process writes is left alone, `stage`)."""
+    with service._changing():
+        return recover()
+
+
+def _undo(swap, rels):
+    """The renames of a swap undone in reverse: each new item that went in back to new/, each old one back to its place. The
+    folder goes once it holds nothing of the person's (old/ empty); else it stays for the recovery, its journal as it was."""
+    home = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL
+    for rel in reversed(rels):
+        if not os.path.lexists(swap / "new" / rel) and os.path.lexists(home / rel):
+            (swap / "new" / rel).parent.mkdir(parents=True, exist_ok=True)
+            os.rename(home / rel, swap / "new" / rel)
+        if os.path.lexists(swap / "old" / rel) and not os.path.lexists(home / rel):
+            (home / rel).parent.mkdir(parents=True, exist_ok=True)
+            os.rename(swap / "old" / rel, home / rel)
+    if not any(path.is_file() or path.is_symlink() for path in (swap / "old").rglob("*")):
+        shutil.rmtree(swap, ignore_errors=True)
+
+
+def _settle(swap, rels, recovering):
+    """The end of a swap whose new items are all in: each gets the person's files of the item it replaced (`_bring`), and what it
+    replaced of them is kept (kept.py). Then the folder goes; a setting that could be neither brought nor kept stays where it is,
+    and the folder with it is renamed apart, never read again. The journal says done until then, so that a stop here is finished
+    by the recovery."""
     home, old = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL, swap / "old"
     shutil.rmtree(swap / "new", ignore_errors=True)
-    rels = [f"{area}/{one.name}" for area in ("addons", "playgrounds") for one in sorted((old / area).glob("*")) if one.is_dir()]
-    rels += [f"setups/{one.name}" for one in sorted((old / "setups").glob("*.yml"))]
-    back = [rel for rel in rels if not os.path.lexists(home / rel)]
-    for rel in back:
-        (home / rel).parent.mkdir(parents=True, exist_ok=True)
-        os.rename(old / rel, home / rel)
-    done = [rel for rel in rels if rel not in back]
-    owner = {source: rel for rel in done if (old / rel).is_dir() for source, _ in _bring(old / rel, home / rel, rel)}
+    owner = {source: rel for rel in rels if (old / rel).is_dir() and not (old / rel).is_symlink()
+             for source, _ in _bring(old / rel, home / rel, rel)}
     pairs = [(source, f"{owner[source]}/{source.relative_to(old / owner[source]).as_posix()}") for source in owner]
     where, failed = _kept().keep(_kept().LOCAL, None, pairs)
-    said = [UNDONE.format(names=_names_of(back)) if recovering and back else "",
-            FINISHED.format(names=_names_of(done)) if recovering and done else "",
-            REPLACED.format(names=_names_of(sorted({owner[one] for one in owner if one not in failed})), where=where) if where else ""]
+    said = [REPLACED.format(names=_names_of(sorted({owner[one] for one in owner if one not in failed})), where=where) if where else ""]
     _kept().remove_but(swap, failed)
     if os.path.lexists(swap):
         left = swap.with_name(f"{LEFTOVER}{swap.name[len(SWAP):]}")
@@ -388,6 +434,36 @@ def _settle(swap, recovering):
         said.append(NOT_KEPT.format(names=_names_of(sorted({owner[one] for one in failed})), where=here) if failed
                     else STUCK.format(where=here))
     return " ".join(one for one in said if one) or None
+
+
+def _note(swap, **journal):
+    paths.write_atomic(swap / JOURNAL, json.dumps(journal, sort_keys=True) + "\n")
+
+
+def _journal(swap):
+    try:
+        found = json.loads((swap / JOURNAL).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return found if isinstance(found, dict) else None
+
+
+def _alive(pid):
+    """Whether the process `pid` runs: the Lab UI that is writing a swap."""
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True   # it runs, as another user
+    return True
+
+
+def _place_ok(rel):
+    parts = rel.split("/")
+    return len(parts) == 2 and parts[0] in ("addons", "playgrounds", "setups") and parts[1] not in ("", ".", "..")
 
 
 def _bring(old, new, rel):
@@ -409,10 +485,10 @@ def _bring(old, new, rel):
     return pairs
 
 
-def _names_of(rels):
-    """The names of the items of Personal at `rels`, as their x-gravitee says them, for the words of a message."""
+def _names_of(rels, root=None):
+    """The names of the items at `rels` (in Personal, or under `root`), as their x-gravitee says them, for the words of a message."""
     from . import exports   # here and not above: exports reads this module
-    home, names = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL, []
+    home, names = root or paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL, []
     for rel in rels:
         file = home / rel if rel.endswith(".yml") else home / rel / "compose.yml"
         slug = posixpath.basename(rel)[:-4] if rel.endswith(".yml") else posixpath.basename(rel)

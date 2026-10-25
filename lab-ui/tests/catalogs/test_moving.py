@@ -2,6 +2,7 @@
 then moved: alone, its include of Scratch then leads to the import; together, both move and the import goes; what an item that does
 not move uses stays, and an item that one which does not move includes cannot move at all."""
 
+import json
 import os
 import shutil
 
@@ -161,20 +162,18 @@ class Moving(Case):
         self.assertIsNotNone(registry.entry("sandbox"))
         self.assertFalse(list((paths.ROOT / paths.LAB_DIR).glob(".swap-*")), "what it wrote is gone")
 
-    def test_a_lab_stopped_midway_leaves_personal_whole_and_its_next_start_says_nothing_of_it(self):
+    def test_what_a_stopped_lab_was_writing_goes_and_what_a_live_one_writes_stays(self):
         fixtures.local(self, "sandbox")
         mine = self.local("playgrounds/sandbox")
-        (mine / "compose.yml").write_text((mine / "compose.yml").read_text() + "# MY OWN EDIT\n")
         before = self.files_of(mine)
-        project.forget()
-        self.patch(moving, "discard", lambda swap: None)   # a stop: nothing after the failure runs
-        self.failing_copy(error=KeyboardInterrupt())
-        with self.assertRaises(KeyboardInterrupt):
-            moving.move("playground", "@sandbox/sandbox", True)
-        self.assertEqual(self.files_of(mine), before, "while it writes, Personal is not touched")
-        moving._staging.clear()   # the Lab starts again
-        self.assertIsNone(moving.recover(), "what it was writing was never seen: it goes, and nothing is said")
-        self.assertFalse(list((paths.ROOT / paths.LAB_DIR).glob(".swap-*")))
+        for name, pid in (("dead", 2 ** 22 + 7), ("live", os.getpid())):
+            swap = paths.ROOT / paths.LAB_DIR / f".swap-{name}"
+            (swap / "new/playgrounds/sandbox").mkdir(parents=True)
+            (swap / "new/playgrounds/sandbox/compose.yml").write_text("services: {}\n")
+            (swap / "journal.json").write_text(json.dumps({"phase": "staging", "pid": pid}))
+        self.assertIsNone(moving.recover(), "what was being written was never seen: it goes, and nothing is said")
+        self.assertFalse((paths.ROOT / paths.LAB_DIR / ".swap-dead").exists())
+        self.assertTrue((paths.ROOT / paths.LAB_DIR / ".swap-live").exists(), "another Lab UI, or this one, writes it now")
         self.assertEqual(self.files_of(mine), before)
 
     def test_the_moved_items_settings_win_and_those_of_personal_it_replaced_are_kept(self):
@@ -231,6 +230,43 @@ class Moving(Case):
         self.assertIsNone(moving.recover())
         self.assertFalse(mine.exists(), "the old item does not come back")
 
+    def test_a_swap_is_all_its_items_or_none_and_says_what_was_put_back(self):
+        fixtures.local(self, "sandbox")
+        mine = self.local("playgrounds/sandbox")
+        (mine / ".env").write_text("OLD_PERSONAL=1\n")
+        before = self.files_of(mine)
+        project.forget()
+        rename = os.rename
+        self.patch(moving.os, "rename", lambda one, two: (_ for _ in ()).throw(OSError(28, "No space left on device"))
+                   if str(one).endswith("new/addons/scratch") else rename(one, two))
+        with self.assertRaises(CatalogError) as caught:
+            moving.move("playground", "@sandbox/sandbox", True)
+        self.assertEqual((caught.exception.code, caught.exception.message), ("swap_failed", "Sandbox, Scratch could not be put in "
+                         "Personal (no space left on device): Personal is as it was. Fix: see that the disk has room and that .lab "
+                         "can be written, then try again."))
+        self.assertEqual(self.files_of(mine), before, "the first item is back as it was")
+        self.assertFalse(self.local("addons/scratch").exists())
+        self.assertTrue((paths.ROOT / exports.IMPORTS_DIR / "sandbox/playgrounds/sandbox/compose.yml").is_file())
+        self.assertFalse(list((paths.ROOT / paths.LAB_DIR).glob(".swap-*")))
+
+    def test_a_file_where_the_person_has_a_folder_keeps_it_and_wedges_nothing(self):
+        from .test_exports import evil_playground, evil_zip
+        fixtures.local(self, "sandbox")
+        mine = self.local("playgrounds/sandbox")
+        (mine / "secrets/tls").mkdir(parents=True)
+        (mine / "secrets/tls/key.pem").write_text("my key\n")
+        imported = paths.ROOT / exports.IMPORTS_DIR / "sandbox" / "playgrounds/sandbox"
+        (imported / "secrets").mkdir()
+        (imported / "secrets/tls").write_text("a file here\n")
+        project.forget()
+        done = moving.move("playground", "@sandbox/sandbox", False)
+        kept = next((paths.ROOT / exports.KEPT_DIR).glob("local-*"))
+        self.assertIn(f"Settings of Sandbox that the new version replaced are kept in {exports.KEPT_DIR}/{kept.name}.", done["warning"])
+        self.assertEqual((kept / "playgrounds/sandbox/secrets/tls/key.pem").read_text(), "my key\n")
+        self.assertFalse(list((paths.ROOT / paths.LAB_DIR).glob(".swap-*")))
+        self.assertIsNone(moving.recover())
+        exports.receive(evil_zip(playground=evil_playground(privileged=False)))   # the next change goes through
+
     def test_what_the_import_cannot_delete_after_a_move_is_said_and_the_move_completes(self):
         made = paths.ROOT / exports.IMPORTS_DIR / "sandbox" / "addons" / "scratch" / "data"
         made.mkdir()
@@ -246,6 +282,18 @@ class Moving(Case):
         found = project.load()
         self.assertIn("local/scratch", found["addons"])
         self.assertNotIn("@sandbox/scratch", found["addons"])
+
+    def test_what_the_import_cannot_delete_of_an_item_that_moved_alone_names_that_items_folder(self):
+        made = paths.ROOT / exports.IMPORTS_DIR / "sandbox" / "playgrounds" / "sandbox" / "data"
+        made.mkdir()
+        (made / "db").write_text("what a container wrote\n")
+        made.chmod(0o500)
+        self.addCleanup(made.chmod, 0o700)
+        project.forget()
+        done = moving.move("playground", "@sandbox/sandbox", False)   # Scratch stays: the import is still a catalog
+        self.assertIsNotNone(registry.entry("sandbox"))
+        self.assertEqual(done["warning"], "Some files were created by Docker and could not be deleted. Remove the folder "
+                                          ".lab/imports/sandbox/playgrounds/sandbox with administrator rights.")
 
     def test_a_move_waits_for_another_change_of_catalogs(self):
         held(self)
@@ -399,32 +447,66 @@ class Stopped(Case):
     def local(self, rel):
         return paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / rel
 
-    def test_a_change_stopped_between_its_renames_is_undone_or_finished_and_said(self):
+    def journal(self, name, phase, items):
+        swap = paths.ROOT / paths.LAB_DIR / f".swap-{name}"
+        swap.mkdir(parents=True, exist_ok=True)
+        (swap / "journal.json").write_text(json.dumps({"phase": phase, "items": items}))
+        return swap
+
+    def item(self, root, rel, name, **files):
+        (root / rel).mkdir(parents=True, exist_ok=True)
+        (root / rel / "compose.yml").write_text(f"x-gravitee: {{kind: playground, name: {name}}}\nservices: {{}}\n")
+        for path, text in files.items():
+            (root / rel / path.replace("__", "/")).parent.mkdir(parents=True, exist_ok=True)
+            (root / rel / path.replace("__", "/")).write_text(text)
+
+    def test_a_change_stopped_before_all_its_items_were_in_is_undone_from_its_journal(self):
         from .test_exports import evil_playground, evil_zip
-        swap = paths.ROOT / paths.LAB_DIR / ".swap-0a1b2c3d"
-        # Sandbox was renamed aside, its new version not yet in: it comes back
-        (swap / "old/playgrounds/sandbox").mkdir(parents=True)
-        (swap / "old/playgrounds/sandbox/compose.yml").write_text("x-gravitee: {kind: playground, name: Sandbox}\nservices: {}\n")
-        (swap / "old/playgrounds/sandbox/.env").write_text("MINE=1\n")
-        # Scratch was swapped: its new version is in, the old one gives it the person's files
-        (swap / "old/addons/scratch/secrets").mkdir(parents=True)
-        (swap / "old/addons/scratch/secrets/b").write_text("my own b\n")
-        self.local("addons/scratch").mkdir(parents=True)
-        self.local("addons/scratch/compose.yml").write_text("x-gravitee: {kind: addon, name: Scratch}\nservices: {}\n")
-        (swap / "new/addons/other").mkdir(parents=True)   # what it was writing: never seen
+        swap = self.journal("0a1b2c3d", "in", ["playgrounds/sandbox", "playgrounds/other"])
+        self.item(swap / "old", "playgrounds/sandbox", "Sandbox", **{".env": "MINE=1\n"})
+        self.item(swap / "old", "playgrounds/other", "Other")
+        self.item(self.local(""), "playgrounds/sandbox", "New sandbox")   # the first new one was in
+        self.item(swap / "new", "playgrounds/other", "New other")   # the second was not
         preview = exports.receive(evil_zip(playground=evil_playground(privileged=False)))
-        self.assertEqual(preview["warning"], "A change of Personal that stopped midway was undone for Sandbox. "
-                                             "A change of Personal that stopped midway was finished for Scratch.")
-        self.assertEqual(self.local("playgrounds/sandbox/.env").read_text(), "MINE=1\n")
+        self.assertEqual(preview["warning"], "A change of Personal that stopped midway was undone for Sandbox, Other.")
+        self.assertEqual(self.local("playgrounds/sandbox/.env").read_text(), "MINE=1\n", "each item as it was")
+        self.assertIn("name: Other", self.local("playgrounds/other/compose.yml").read_text())
+        self.assertFalse(swap.exists())
+
+    def test_a_change_stopped_with_all_its_items_in_is_finished_from_its_journal(self):
+        swap = self.journal("0a1b2c3d", "done", ["addons/scratch"])
+        self.item(swap / "old", "addons/scratch", "Scratch", **{"secrets__b": "my own b\n"})
+        self.item(self.local(""), "addons/scratch", "Scratch")
+        self.assertEqual(moving.recover(), "A change of Personal that stopped midway was finished for Scratch.")
         self.assertEqual(self.local("addons/scratch/secrets/b").read_text(), "my own b\n")
-        self.assertFalse(swap.exists() or self.local("addons/other").exists())
+        self.assertFalse(swap.exists())
+
+    def test_a_swap_that_cannot_be_put_right_keeps_no_other_nor_the_start_from_being(self):
+        bad = self.journal("0a1b2c3d", "aside", ["playgrounds/sandbox"])
+        self.item(bad / "old", "playgrounds/sandbox", "Sandbox")
+        good = self.journal("1b2c3d4e", "aside", ["addons/scratch"])
+        self.item(good / "old", "addons/scratch", "Scratch")
+        rename = os.rename
+        self.patch(moving.os, "rename", lambda one, two: (_ for _ in ()).throw(OSError(13, "Permission denied"))
+                   if "0a1b2c3d" in str(one) else rename(one, two))
+        said = moving.recover()
+        self.assertIn("A change of Personal that stopped midway was undone for Scratch.", said)
+        self.assertIn("could not be put right (", said)
+        self.assertIn("it is kept in .lab/.swap-0a1b2c3d", said)
+        self.assertTrue(self.local("addons/scratch/compose.yml").is_file())
+        self.assertTrue(bad.exists(), "what holds the person's files is not deleted")
 
     def test_what_the_start_of_a_change_put_right_is_said_when_the_change_is_refused(self):
-        swap = paths.ROOT / paths.LAB_DIR / ".swap-0a1b2c3d"
-        (swap / "old/playgrounds/sandbox").mkdir(parents=True)
-        (swap / "old/playgrounds/sandbox/compose.yml").write_text("x-gravitee: {kind: playground, name: Sandbox}\nservices: {}\n")
+        swap = self.journal("0a1b2c3d", "aside", ["playgrounds/sandbox"])
+        self.item(swap / "old", "playgrounds/sandbox", "Sandbox")
         with self.assertRaises(CatalogError) as caught:
             moving.move("addon", "echo", False)   # no import: refused, after the start of the change put Sandbox back
         self.assertEqual(caught.exception.message, "Echo is not an imported item: only those move to Personal. A change of Personal "
                                                    "that stopped midway was undone for Sandbox.")
         self.assertTrue(self.local("playgrounds/sandbox/compose.yml").is_file())
+
+    def test_the_start_of_the_lab_ui_puts_right_under_the_lock_every_lab_ui_of_this_folder_takes(self):
+        held = []
+        self.patch(moving, "recover", lambda: held.append(str(paths.ROOT / registry.FLOCK_FILE) in registry._held.__dict__.get("held", {})))
+        moving.recover_at_start()
+        self.assertEqual(held, [True])

@@ -11,6 +11,8 @@ lock of the catalogs.
     used_by(key, digest)       the folder kept for that very file, or None
     forget(key, folder)        the folder and its line go: what it held went back
     remove_but(folder, spared) a folder deleted but for the person's files that could be neither moved nor kept
+    listed()                   what is kept, for the Catalogs page, which shows it with Imported
+    remove(name)               a folder of kept settings deleted at the person's word
 """
 
 import contextlib
@@ -19,6 +21,7 @@ import os
 import re
 import secrets
 import shutil
+import time
 from pathlib import Path
 
 from .. import paths
@@ -39,6 +42,7 @@ def record():
 
 
 def write_record(found):
+    (paths.ROOT / RECORD).parent.mkdir(parents=True, exist_ok=True)
     paths.write_atomic(paths.ROOT / RECORD, json.dumps(found, indent=2, sort_keys=True) + "\n")
 
 
@@ -83,9 +87,14 @@ def settings_of(folder: Path):
 
 
 def carry(source: Path, target: Path):
-    """A file or folder of the person's moved to `target`, else copied (what Docker made as root may only be read), and never
-    half: answers whether it is there now."""
-    target.parent.mkdir(parents=True, exist_ok=True)
+    """A file or folder of the person's moved to `target`, else copied (what Docker made as root may only be read), never half,
+    never over what is there: answers whether it is there now. It never raises: what cannot be placed stays where it is."""
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)   # a file where a folder must be: it cannot go there, and is said
+    except OSError:
+        return False
+    if os.path.lexists(target):
+        return False
     with contextlib.suppress(OSError):
         os.rename(source, target)
         return True
@@ -143,3 +152,27 @@ def remove_but(folder: Path, spared):
                     child.unlink()
     if folder.is_dir():
         clear(folder)
+
+
+def listed():
+    """What is kept, for the page: [{folder, from (the import's id, or Personal), items, at}], newest first."""
+    base, rows = paths.ROOT / KEPT_DIR, []
+    for folder in sorted(base.iterdir() if base.is_dir() else (), key=lambda one: one.stat().st_mtime, reverse=True):
+        found = re.fullmatch(r"(.+)-[0-9a-f]{8}", folder.name)
+        if not folder.is_dir() or folder.is_symlink() or not found:
+            continue
+        items = sorted({rel.rsplit("/", 1)[-1] for rel, _ in settings_of(folder)})
+        rows.append({"folder": folder.name, "from": "Personal" if found.group(1) == LOCAL else found.group(1), "items": items,
+                     "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(folder.stat().st_mtime))})
+    return rows
+
+
+def remove(name):
+    """The kept settings in the folder `name` deleted, at the person's word, with their line in the record."""
+    found = re.fullmatch(r"(.+)-[0-9a-f]{8}", name) if isinstance(name, str) and "/" not in name else None
+    folder = paths.ROOT / KEPT_DIR / name if found else None
+    if folder is None or not folder.is_dir() or folder.is_symlink():
+        raise paths.NotFound("No such kept settings")
+    forget(found.group(1), folder)
+    return {"warning": "Some files were created by Docker and could not be deleted. Remove the folder "
+                       f"{KEPT_DIR}/{name} with administrator rights."} if os.path.lexists(folder) else {}

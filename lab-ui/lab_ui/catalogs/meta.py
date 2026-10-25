@@ -1,0 +1,208 @@
+"""The x-gravitee block of a compose text, read and changed as a block: its top-level keys, in block style or in flow style (on
+one line or several), the way YAML reads them. A key is never looked for by a pattern over the whole file, since the same words
+may be in a value, a comment or another block of a file someone else wrote. Only the keys the Lab writes are changed here
+(`copy_of`, `private_from`); their values are text.
+
+    value(text, key)            the value of `key` in the block, unquoted, or None
+    drop(text, key, override)   the text without `key` in the block; with `override`, a block that takes keys from elsewhere (`<<:`,
+                                or the whole block an alias) says `key: ""`, which wins over what it takes
+    put(text, key, value)       the text with `key: "value"` first in the block; None when there is no block
+"""
+
+import re
+
+HEAD = re.compile(r"""(?m)^(?:"x-gravitee"|'x-gravitee'|x-gravitee)[ \t]*:""")
+ANCHOR = re.compile(r"[ \t]*(?:&[^\s{\[,]+[ \t]*)?")
+KEY = re.compile(r"""[ \t]*(?:"((?:[^"\\]|\\.)*)"|'((?:[^']|'')*)'|([^\s:#'"{}\[\],][^:#{}\[\],]*?))[ \t]*:(?=[ \t\n]|$)""")
+MERGE = "<<"
+
+
+def _scan(text, at):
+    """The index where the flow collection opened at `at` closes, quotes, comments and nesting read as YAML reads them; -1."""
+    depth, index, size = 0, at, len(text)
+    while index < size:
+        char = text[index]
+        if char == '"':
+            index += 1
+            while index < size and text[index] != '"':
+                index += 2 if text[index] == "\\" else 1
+        elif char == "'":
+            index += 1
+            while index < size and not (text[index] == "'" and text[index + 1:index + 2] != "'"):
+                index += 2 if text[index] == "'" else 1
+        elif char == "#" and (index == 0 or text[index - 1] in " \t\n"):
+            newline = text.find("\n", index)
+            index = size if newline < 0 else newline
+            continue
+        elif char in "{[":
+            depth += 1
+        elif char in "}]":
+            depth -= 1
+            if depth == 0:
+                return index
+        index += 1
+    return -1
+
+
+def _flow_parts(text, start, end):
+    """[(start, end)] of the entries of the flow mapping between `start` (after its brace) and `end` (its closing brace)."""
+    parts, depth, index, begin = [], 0, start, start
+    while index < end:
+        char = text[index]
+        if char in "\"'":
+            quote, index = char, index + 1
+            while index < end and text[index] != quote:
+                index += 2 if (quote == '"' and text[index] == "\\") or (quote == "'" and text[index:index + 2] == "''") else 1
+        elif char == "#" and text[index - 1] in " \t\n":
+            newline = text.find("\n", index, end)
+            index = end if newline < 0 else newline
+            continue
+        elif char in "{[":
+            depth += 1
+        elif char in "}]":
+            depth -= 1
+        elif char == "," and depth == 0:
+            parts.append((begin, index))
+            begin = index + 1
+        index += 1
+    if text[begin:end].strip():
+        parts.append((begin, end))
+    return parts
+
+
+def _key(text, start, end):
+    """(the key of the entry `text[start:end]`, unquoted, or None; where its value starts in `text`)."""
+    index = start
+    while True:   # blank space, and a comment before the key in a flow mapping on several lines
+        while index < end and text[index] in " \t\n":
+            index += 1
+        if index < end and text[index] == "#":
+            newline = text.find("\n", index, end)
+            index = end if newline < 0 else newline
+            continue
+        break
+    found = KEY.match(text, index, end)
+    if not found:
+        return None, end
+    name = found.group(1) if found.group(1) is not None else found.group(2) if found.group(2) is not None else found.group(3)
+    return name, found.end()
+
+
+def _block(text):
+    """(style, start, end) of the block: "flow" (its braces at start and end), "lines" (the lines after its key), "alias"
+    (the alias it is); None when the text has none."""
+    head = HEAD.search(text)
+    if head is None:
+        return None
+    at = ANCHOR.match(text, head.end()).end()
+    if text.startswith("{", at):
+        end = _scan(text, at)
+        return ("flow", at, end) if end > 0 else None
+    if text.startswith("*", at):
+        stop = re.compile(r"[\s#]").search(text, at)
+        return "alias", at, stop.start() if stop else len(text)
+    newline = text.find("\n", at)
+    if newline < 0:
+        return "lines", len(text), len(text)
+    start = index = newline + 1
+    while index < len(text):
+        end = text.find("\n", index)
+        end = len(text) if end < 0 else end
+        line = text[index:end]
+        if line.strip() and not line.lstrip().startswith("#") and line[:1] not in " \t":
+            break
+        index = end + 1
+    return "lines", start, min(index, len(text))
+
+
+def _lines(text, start, end):
+    """(indent, [(key, start, end)]) of the entries of a block of lines: a key at the block's indentation, with the lines under it."""
+    entries, indent, index = [], None, start
+    while index < end:
+        stop = text.find("\n", index, end)
+        stop = end if stop < 0 else stop + 1
+        line = text[index:stop]
+        content = line.strip()
+        width = len(line) - len(line.lstrip(" \t"))
+        if content and not content.startswith("#"):
+            indent = width if indent is None else indent
+            if width == indent:
+                entries.append([_key(text, index, stop)[0], index, stop])
+            elif entries:
+                entries[-1][2] = stop
+        elif entries and indent is not None:
+            entries[-1][2] = stop
+        index = stop
+    return indent, [tuple(one) for one in entries]
+
+
+def _entries(text):
+    """(style, [(key, start, end)], block) of the block's entries."""
+    block = _block(text)
+    if block is None:
+        return None, [], None
+    style, start, end = block
+    if style == "flow":
+        return style, [(_key(text, one, two)[0], one, two) for one, two in _flow_parts(text, start + 1, end)], block
+    if style == "alias":
+        return style, [], block
+    return style, _lines(text, start, end)[1], block
+
+
+def _unquoted(raw):
+    raw = raw.strip()
+    comment = re.search(r"[ \t]#", raw)
+    if raw[:1] == '"' and raw.rfind('"') > 0:
+        return raw[1:raw.rfind('"')].replace('\\"', '"')
+    if raw[:1] == "'" and raw.rfind("'") > 0:
+        return raw[1:raw.rfind("'")].replace("''", "'")
+    return (raw[:comment.start()] if comment else raw).strip()
+
+
+def value(text, key):
+    """The value of `key` in the x-gravitee block, unquoted, or None."""
+    _, entries, _ = _entries(text or "")
+    for name, start, end in entries:
+        if name == key:
+            return _unquoted(text[_key(text, start, end)[1]:end])
+    return None
+
+
+def drop(text, key, override=False):
+    """The text without every `key` of the x-gravitee block; with `override`, `key: ""` stays when the block takes keys from
+    elsewhere (a merge, or the whole block an alias), so that what it takes cannot bring it."""
+    style, entries, block = _entries(text or "")
+    if block is None:
+        return text
+    if style == "alias":
+        start, end = block[1], block[2]
+        return text[:start] + "{" + MERGE + ": " + text[start:end] + ", " + key + ': ""}' + text[end:] if override else text
+    gone = [(start, end) for name, start, end in entries if name == key]
+    merged = override and any(name == MERGE for name, _, _ in entries)
+    if style == "flow":
+        kept = [text[start:end] for name, start, end in entries if name != key]
+        inner = ",".join(kept)
+        if merged:
+            inner = f' {key}: ""' + ("," + inner if inner.strip() else "")
+        return text[:block[1] + 1] + inner + text[block[2]:]
+    for start, end in reversed(gone):
+        text = text[:start] + text[end:]
+    if merged:
+        style, entries, block = _entries(text)
+        indent = _lines(text, block[1], block[2])[0] or 2
+        text = text[:block[1]] + " " * indent + f'{key}: ""\n' + text[block[1]:]
+    return text
+
+
+def put(text, key, value_):
+    """The text with `key: "value"` first in its x-gravitee block (any other `key` dropped); None when it has no block."""
+    text = drop(text, key)
+    style, entries, block = _entries(text or "")
+    if block is None or style == "alias":
+        return None
+    quoted = '"' + str(value_).replace("\\", "").replace('"', "").replace("\n", " ") + '"'
+    if style == "flow":
+        rest = text[block[1] + 1:block[2]]
+        return text[:block[1] + 1] + f"{key}: {quoted}" + (", " + rest.lstrip(" ") if rest.strip() else "") + text[block[2]:]
+    indent = _lines(text, block[1], block[2])[0] or 2
+    return text[:block[1]] + " " * indent + f"{key}: {quoted}\n" + text[block[1]:]
