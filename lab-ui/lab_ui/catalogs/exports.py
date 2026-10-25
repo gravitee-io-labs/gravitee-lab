@@ -138,7 +138,7 @@ def _gather(pid):
         name = units[kind][uid]["name"]
         problems += [f"{name}: {line}" for line in copy.problems]
         # What is private content says so in the file (private_from), which the other Lab keeps: it can only add a notice
-        files.update(contribute._unmarked(copy, kind, _slug(uid), contribute.private_of(copy.text, uid)).files)
+        files.update(contribute._unmarked(copy, kind, _slug(uid), contribute.private_of(copy.text, uid), name).files)
     origins, private = _origins(carried, units, copies_of(carried))
     registries = _registries(found, carried, units)
     shared = _shared(carried, units, ns)

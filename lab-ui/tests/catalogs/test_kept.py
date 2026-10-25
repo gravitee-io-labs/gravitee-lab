@@ -44,3 +44,10 @@ class Kept(Case):
         (self.root / "c" / "tls").write_text("theirs\n")
         self.assertFalse(kept.carry(source / "tls", self.root / "c" / "tls"))
         self.assertEqual((self.root / "c" / "tls").read_text(), "theirs\n")
+
+    def test_the_list_is_answered_whatever_goes_or_breaks_while_it_is_read(self):
+        self.made("evil")
+        base = self.root / kept.KEPT_DIR
+        (base / "gone-0a1b2c3d").symlink_to(self.root / "nowhere")
+        listed = kept.listed()
+        self.assertEqual([row["from"] for row in listed], ["evil"])

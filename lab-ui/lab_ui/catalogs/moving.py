@@ -45,12 +45,13 @@ import os
 import posixpath
 import secrets
 import shutil
+import time
 from pathlib import Path
 
 from .. import paths
 from ..library import moves, personal as personals, project
 from . import registry, resolve, service
-from .contribute import labelled, mark as _mark, private_of, unmark
+from .contribute import labelled, mark as _mark, private_of, rewritten, unmark
 from .registry import CatalogError
 
 # The rules of the policy that only say an item takes more of this machine (class H), and the one that says it needs such an item
@@ -337,6 +338,9 @@ NOT_IN = ("{names} could not be put in Personal ({why}): Personal is as it was. 
 UNDONE = "A change of Personal that stopped midway was undone for {names}."
 FINISHED = "A change of Personal that stopped midway was finished for {names}."
 NOT_DONE = "A change of Personal that stopped midway could not be put right ({why}): it is kept in {where}."
+UNKNOWN = ("A change of Personal left files of yours in {where}, and no journal that says what they are: they are kept there. "
+           "Fix: copy what you need into your items, then delete that folder.")
+STALE = 3600   # seconds after which a swap being written, whose writer does not answer as such, is a leftover
 
 
 def replace(write, rels, check=None):
@@ -351,7 +355,7 @@ def stage(write):
     A failure here changes nothing in Personal."""
     swap = paths.ROOT / paths.LAB_DIR / f"{SWAP}{secrets.token_hex(4)}"
     (swap / "new").mkdir(parents=True)
-    _note(swap, phase="staging", pid=os.getpid())
+    _note(swap, phase="staging", pid=os.getpid(), started=time.time())
     try:
         write(swap / "new")
     except BaseException:
@@ -412,7 +416,9 @@ def recover():
             rels = [rel for rel in journal.get("items") or () if isinstance(rel, str) and _place_ok(rel)]
             phase = journal.get("phase")
             if phase in (None, "staging"):
-                if phase is None or not _alive(journal.get("pid")):
+                if _holds_people(swap):   # no journal to say what it is, and the person's files in it: never deleted
+                    said.append(UNKNOWN.format(where=f"{paths.LAB_DIR}/{swap.name}"))
+                elif phase is None or _stale(journal):
                     shutil.rmtree(swap, ignore_errors=True)
             elif phase in ("aside", "in"):
                 names = _names_of(rels, swap / "old") or _names_of(rels, swap / "new")
@@ -460,7 +466,11 @@ def _settle(swap, rels, recovering):
     pairs = [(source, f"{owner[source]}/{source.relative_to(old / owner[source]).as_posix()}") for source in owner]
     where, failed = _kept().keep(_kept().LOCAL, None, pairs)
     said = [REPLACED.format(names=_names_of(sorted({owner[one] for one in owner if one not in failed})), where=where) if where else ""]
-    _kept().remove_but(swap, failed)
+    _kept().remove_but(swap, [*failed, swap / JOURNAL])   # the journal goes last: until then a stop is finished from it
+    if not failed:
+        with contextlib.suppress(OSError):
+            (swap / JOURNAL).unlink()
+            swap.rmdir()
     if os.path.lexists(swap):
         left = swap.with_name(f"{LEFTOVER}{swap.name[len(SWAP):]}")
         os.rename(swap, left)
@@ -471,7 +481,31 @@ def _settle(swap, rels, recovering):
 
 
 def _note(swap, **journal):
-    paths.write_atomic(swap / JOURNAL, json.dumps(journal, sort_keys=True) + "\n")
+    """The journal of a swap written whole and to the disk, its folder too, before the step it announces: a stop of the machine
+    never leaves a step done that the journal does not say."""
+    temporary = swap / f".{JOURNAL}.tmp"
+    with open(temporary, "w", encoding="utf-8") as out:
+        out.write(json.dumps(journal, sort_keys=True) + "\n")
+        out.flush()
+        os.fsync(out.fileno())
+    os.replace(temporary, swap / JOURNAL)
+    folder = os.open(swap, os.O_RDONLY)
+    try:
+        os.fsync(folder)
+    finally:
+        os.close(folder)
+
+
+def _holds_people(swap):
+    """Whether a swap folder holds a file of the person's: anything in old/, where the items it replaced went."""
+    return any(path.is_file() or path.is_symlink() for path in (swap / "old").rglob("*"))
+
+
+def _stale(journal):
+    """Whether a swap being written was left: its writer runs no more, or (a process that took its number, one that does not
+    answer) it began more than STALE seconds ago."""
+    started = journal.get("started")
+    return not _alive(journal.get("pid")) or not isinstance(started, (int, float)) or time.time() - started > STALE
 
 
 def _journal(swap):
@@ -630,10 +664,12 @@ def copy(kind, uid, users=False, allow=False):
                 compose_file = paths.ROOT / places[node] if k == "setup" else paths.ROOT / places[node] / "compose.yml"
                 here = posixpath.dirname(places[node] if k == "setup" else f"{places[node]}/compose.yml")
                 there = posixpath.dirname(f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{_rel(k, _slug(one))}" + ("" if k == "setup" else "/compose.yml"))
-                text = compose_file.read_text(encoding="utf-8")
-                texts[node] = _mark(moves.repoint(labelled(unmark(text), private_of(text, one)), here, there, table), one)
-                if texts[node] is None:
-                    raise _fail("unmarked", f"{_name(_units(found), node)} has no x-gravitee block to say it is a copy.")
+                text = compose_file.read_text(encoding="utf-8")   # what it holds says its private catalog, resolved now, and whose copy it is
+                private = private_of(text, one)
+                texts[node] = _mark(moves.repoint(labelled(unmark(text), private), here, there, table), one) or text
+                shown = _name(_units(found), node)
+                rewritten(text, texts[node], {"copy_of": one, "private_from": private}, _slug(one) if shown == one else shown,
+                          "that it is your copy" + (" and its private label" if private else ""))
 
         def write(root):
             for node in copies:

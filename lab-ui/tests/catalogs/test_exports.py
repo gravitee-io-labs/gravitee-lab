@@ -380,6 +380,42 @@ class FromCatalogs(Case):
         service.add(exports.receive(self.carried(None))["ticket"])   # another file, of the same id, that says nothing
         self.assertEqual(contribute.private_source(mine.read_text())[1], "Partner fixture")
 
+    def ledger(self, head):
+        """Partner's Ledger with its x-gravitee block written as `head` says (the rest of its file as the fixture has it)."""
+        text = open("tests/data/catalogs/partner/addons/ledger/compose.yml").read()
+        text = head + text[text.index("\nservices:") + 1:]
+        fixtures.install(self, "partner", kind="git", audience="private", files={"addons/ledger/compose.yml": text})
+        project.forget()
+
+    def test_the_private_label_is_written_and_read_back_or_the_export_is_refused_naming_the_item(self):
+        from lab_ui.docker import compose
+        heads = {"apostrophe": "x-gravitee: {kind: addon, name: Ledger, category: Other, description: Keeps a partner's entries}\n",
+                 "next line": "x-gravitee:\n  {kind: addon, name: Ledger, category: Other, description: Keeps entries}\n",
+                 "tag": "x-gravitee: !!map {kind: addon, name: Ledger, category: Other, description: Keeps entries}\n"}
+        for name, head in heads.items():
+            with self.subTest(name):
+                self.ledger(head)
+                try:
+                    made = exports.archive("local/sandbox", private=["@partner/ledger"])
+                except CatalogError as error:
+                    self.assertEqual((error.code, error.message), ("label_failed", "Ledger: the Lab cannot write its private label and "
+                                     "whose copy it is in this file. Fix: write its x-gravitee block as plain key: value lines (in a "
+                                     "catalog, ask its author to), then try again."))
+                    continue
+                with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
+                    text = archive.read("sandbox/addons/ledger/compose.yml").decode()
+                said = compose.alone(text).get("x-gravitee")
+                self.assertEqual((said["private_from"], said["description"]), ("Partner fixture", said["description"]))
+
+    def test_a_copy_whose_block_the_lab_cannot_write_is_refused_naming_the_item(self):
+        self.ledger("x-gravitee: null\n")
+        with self.assertRaises(CatalogError) as caught:
+            moving.copy("addon", "@partner/ledger")
+        self.assertEqual(caught.exception.code, "label_failed")
+        self.assertTrue(caught.exception.message.startswith("ledger: the Lab cannot write that it is your copy and its private label"),
+                        caught.exception.message)
+        self.assertFalse((paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons/ledger").exists())
+
     def test_an_image_the_other_lab_pulls_from_a_registry_that_asks_for_a_login_is_said(self):
         plan = exports.plan("local/sandbox")
         self.assertEqual(plan["registries"], [{"registry": "registry.acme.example", "images": ["registry.acme.example/ledger:1"]}])

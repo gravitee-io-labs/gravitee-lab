@@ -157,14 +157,22 @@ def remove_but(folder: Path, spared):
 def listed():
     """What is kept, for the page: [{folder, from (the import's id, or Personal), items, at}], newest first."""
     base, rows = paths.ROOT / KEPT_DIR, []
-    for folder in sorted(base.iterdir() if base.is_dir() else (), key=lambda one: one.stat().st_mtime, reverse=True):
+    try:
+        entries = list(base.iterdir()) if base.is_dir() else []
+    except OSError:
+        return []
+    for folder in entries:
         found = re.fullmatch(r"(.+)-[0-9a-f]{8}", folder.name)
-        if not folder.is_dir() or folder.is_symlink() or not found:
+        try:   # what goes while it is read, or cannot be read, is no row: the state is still answered
+            if folder.is_symlink() or not folder.is_dir() or not found:
+                continue
+            at = folder.stat().st_mtime
+            items = sorted({rel.rsplit("/", 1)[-1] for rel, _ in settings_of(folder)})
+        except OSError:
             continue
-        items = sorted({rel.rsplit("/", 1)[-1] for rel, _ in settings_of(folder)})
         rows.append({"folder": folder.name, "from": "Personal" if found.group(1) == LOCAL else found.group(1), "items": items,
-                     "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(folder.stat().st_mtime))})
-    return rows
+                     "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(at)), "_at": at})
+    return [{key: value for key, value in row.items() if key != "_at"} for row in sorted(rows, key=lambda row: -row["_at"])]
 
 
 def remove(name):

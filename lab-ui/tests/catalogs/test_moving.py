@@ -510,3 +510,18 @@ class Stopped(Case):
         self.patch(moving, "recover", lambda: held.append(str(paths.ROOT / registry.FLOCK_FILE) in registry._held.__dict__.get("held", {})))
         moving.recover_at_start()
         self.assertEqual(held, [True])
+
+    def test_a_swap_with_no_journal_that_holds_the_persons_files_is_kept_and_said(self):
+        swap = paths.ROOT / paths.LAB_DIR / ".swap-0a1b2c3d"
+        (swap / "old/playgrounds/sandbox").mkdir(parents=True)
+        (swap / "old/playgrounds/sandbox/.env").write_text("MINE=1\n")
+        self.assertEqual(moving.recover(), "A change of Personal left files of yours in .lab/.swap-0a1b2c3d, and no journal that says "
+                                           "what they are: they are kept there. Fix: copy what you need into your items, then delete "
+                                           "that folder.")
+        self.assertEqual((swap / "old/playgrounds/sandbox/.env").read_text(), "MINE=1\n")
+
+    def test_a_swap_being_written_for_too_long_is_a_leftover_whoever_has_its_writers_number(self):
+        swap = self.journal("0a1b2c3d", "staging", [])
+        (swap / "journal.json").write_text(json.dumps({"phase": "staging", "pid": os.getpid(), "started": 1}))
+        self.assertIsNone(moving.recover())
+        self.assertFalse(swap.exists())

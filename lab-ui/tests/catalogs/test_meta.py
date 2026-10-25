@@ -44,3 +44,17 @@ class Block(Case):
         self.assertEqual(meta.put("x-gravitee:\n  kind: addon\nservices: {}\n", "private_from", "Partner fixture"),
                          'x-gravitee:\n  private_from: "Partner fixture"\n  kind: addon\nservices: {}\n')
         self.assertIsNone(meta.put("services: {}\n", "copy_of", "x"))
+
+    def test_a_megabyte_of_any_shape_is_read_and_changed_in_under_a_second(self):
+        import time
+        size = 1 << 20
+        shapes = {"spaces": "x-gravitee:\n  a" + " " * size + "\n", "tabs": "x-gravitee: {a" + "\t" * size + "}\n",
+                  "long key": "x-gravitee:\n  " + "k" * size + ": v\n", "spaces then a colon": "x-gravitee:\n  a" + " " * size + "b: c\n",
+                  "lines": "x-gravitee:\n" + "   x\n" * (size // 5), "flow entries": "x-gravitee: {" + "a: b," * (size // 5) + "}\n"}
+        for name, text in shapes.items():
+            for call in (lambda: meta.value(text, "copy_of"), lambda: meta.drop(text, "copy_of", override=True),
+                         lambda: meta.put(text, "private_from", "x")):
+                with self.subTest(name):
+                    started = time.monotonic()
+                    call()
+                    self.assertLess(time.monotonic() - started, 1.0)

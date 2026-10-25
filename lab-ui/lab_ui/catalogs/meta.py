@@ -13,7 +13,6 @@ import re
 
 HEAD = re.compile(r"""(?m)^(?:"x-gravitee"|'x-gravitee'|x-gravitee)[ \t]*:""")
 ANCHOR = re.compile(r"[ \t]*(?:&[^\s{\[,]+[ \t]*)?")
-KEY = re.compile(r"""[ \t]*(?:"((?:[^"\\]|\\.)*)"|'((?:[^']|'')*)'|([^\s:#'"{}\[\],][^:#{}\[\],]*?))[ \t]*:(?=[ \t\n]|$)""")
 MERGE = "<<"
 
 
@@ -81,11 +80,43 @@ def _key(text, start, end):
             index = end if newline < 0 else newline
             continue
         break
-    found = KEY.match(text, index, end)
-    if not found:
+    return _name_at(text, index, end)
+
+
+def _name_at(text, index, end):
+    """(the key written at `index`, unquoted, or None; where its value starts): a quoted key, or a plain one up to its colon. Each
+    character is looked at once: no text makes it take longer than reading it."""
+    while index < end and text[index] in " \t":
+        index += 1
+    if index >= end or text[index] in ":#{}[],\n":
         return None, end
-    name = found.group(1) if found.group(1) is not None else found.group(2) if found.group(2) is not None else found.group(3)
-    return name, found.end()
+    quote = text[index] if text[index] in "\"'" else ""
+    if quote:
+        close, parts = index + 1, []
+        while close < end and text[close] != quote:
+            if quote == '"' and text[close] == "\\" and close + 1 < end:
+                parts.append(text[close + 1])
+                close += 2
+                continue
+            if quote == "'" and text[close:close + 2] == "''":
+                parts.append("'")
+                close += 2
+                continue
+            parts.append(text[close])
+            close += 1
+        if close >= end:
+            return None, end
+        name, after = "".join(parts), close + 1
+    else:
+        after = index
+        while after < end and text[after] not in ":#{}[],\n":
+            after += 1
+        name = text[index:after].rstrip(" \t")
+    while after < end and text[after] in " \t":
+        after += 1
+    if after >= end or text[after] != ":" or (after + 1 < end and text[after + 1] not in " \t\n"):
+        return None, end
+    return name, after + 1
 
 
 def _block(text):
