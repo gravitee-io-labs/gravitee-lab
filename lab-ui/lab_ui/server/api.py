@@ -997,12 +997,13 @@ def is_lab_ui(port):
 
 def start_up():
     """What the Lab does once its port is bound in this order: the layout of an existing machine is looked
-    at and its own items moved (it never touches the network), the sweeper finishes what a stop left in the installs of the Lab
+    at and its own items moved (it never touches the network), what a stop left of a change of Personal is put right, the sweeper finishes what a stop left in the installs of the Lab
     and then in the folders of the catalogs that are linked (the half copies a Share left), the intent of the first run is
     written and what has no copy is marked as downloading, and the one background thread of the Lab starts. Each step is local
     and fast but the last, which returns at once; a failure of one is said in a line and never keeps the Lab from serving,
     because its row says what is wrong."""
     for what, step in (("looking at the layout", layout.ensure), ("finishing what a stop left", service.recover),
+                       ("finishing a change of Personal that a stop left", moving.recover),
                        ("sweeping what a share left", contribute.sweep), ("preparing the first run", firstrun.reconcile),
                        ("starting the download of catalogs", firstrun.start_worker),
                        ("starting the check for new versions", updates.start_checking)):

@@ -47,6 +47,7 @@ unit.key x-gravitee.gateway kinds=addon since=1
 unit.key x-gravitee.host_access kinds=any since=1
 unit.key x-gravitee.kind kinds=any since=1
 unit.key x-gravitee.name kinds=any since=1
+unit.key x-gravitee.private_from kinds=any since=1
 unit.key x-gravitee.requires kinds=any since=1
 unit.key x-gravitee.requires.host kinds=any since=1
 unit.key x-gravitee.requires.images kinds=any since=1

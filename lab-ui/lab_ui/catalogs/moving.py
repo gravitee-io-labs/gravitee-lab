@@ -6,18 +6,26 @@ stays where it is, and the item that moved includes it there: an item of a catal
 used by an item that does not move cannot move (`stays`, with whom it is used by). An item that is itself included by one that
 does not move does not move at all. What moves takes along its files, its settings, its secrets and what its seed recorded
 (the whole folder), its star and its tested sets; the includes of one another follow it, and so do its includes of what stays.
-An item of Personal with the same name is replaced (`replaces`), its settings kept where the moving one has none. Nothing moves
-while one of the items is on. The import whose items all moved is removed with its catalog.
+An item of Personal with the same name is replaced (`replaces`). The moving item's settings are those it ran with, so they win:
+its `.env` and its files of `secrets/`, and its `.state` as a whole folder (a seed's record is never mixed file by file). What of
+the replaced item's would be overwritten goes to the kept settings (kept.py), and is said; the rest of its settings, secrets and
+state comes to the new item. Nothing moves while one of the items is on. The import whose items all moved is removed with its
+catalog.
+
+A new version of an item of Personal (a move, a copy, an import to Personal) is written whole beside Personal first (`stage`), then
+swapped in by two renames on the same file system (`swap_in`): at any moment an item is the old one or the new one, whole. What a
+stop of the Lab leaves of it is put right at the next change and at the Lab UI's start (`recover`), and said.
 
 Personal is the last check, as for an import: nothing judges what is there. An item blocked only for what it takes of this
 machine (a privileged container, say; and what needs it) moves once the person allowed it, which the plan says (`uses_machine`)
 and the move must be asked with (`allow`); an item blocked for anything else does not move (`held`), nor one that waits for a
 catalog this Lab has not added, which nothing could judge (`waiting`). A move and a copy are changes of catalogs: they wait for
-none under way, and one that fails midway takes out what it wrote in Personal.
+none under way, and one that fails while it writes changes nothing in Personal.
 
 Copy: the person's own version of an item of any catalog, to change as they like. The copy keeps the names of the original's
-services, which its neighbours and its seed call it by, and says whose copy it is (`x-gravitee.copy_of`): the Lab then takes it for
-the original's twin, so neither blocks the other, only one of them runs at a time, and "Back to the catalog version" drops the copy.
+services, which its neighbours and its seed call it by, and says whose copy it is (`x-gravitee.copy_of`, on this Lab only) and the
+private catalog what it holds comes from (`x-gravitee.private_from`, resolved when it is copied): the Lab takes it for the original's
+twin, so neither blocks the other, only one of them runs at a time, and "Back to the catalog version" drops the copy.
 An item of a catalog that includes the original cannot be changed to include the copy: with `users`, it is copied too, up to the
 playgrounds, and the items of Personal that included one of them include the copy. The copy takes the settings and secrets of the
 original, not what its seed recorded. The same checks as a move: blocked for more than this machine, no copy; what takes more of
@@ -39,10 +47,9 @@ from pathlib import Path
 from .. import paths
 from ..library import moves, personal as personals, project
 from . import registry, resolve, service
-from .contribute import keep_private, mark as _mark, unmark
+from .contribute import labelled, mark as _mark, private_of, unmark
 from .registry import CatalogError
 
-MACHINE_FILES = (".env", ".state", "secrets")   # what is the person's in an item's folder, never the item's files
 # The rules of the policy that only say an item takes more of this machine (class H), and the one that says it needs such an item
 HOST_CODES = frozenset({"T03", "T04", "T05", "T06", "T07", "T08", "T09", "T10", "T11"})
 NEEDS_BLOCKED = "T25"
@@ -205,59 +212,42 @@ def _folder_of(ns):
 
 def move(kind, uid, together, allow=False):
     """Moves the item, and with `together` what it brings from its import that nothing else uses, to Personal; `allow`: the person
-    allowed what takes more of this machine, which nothing judges there. Answers {moved: [{kind, id}], id}. A change of catalogs:
-    it waits for none under way. The import loses its items only once every one is in Personal: a move that fails midway takes
-    out what it wrote there, puts back whole the items of Personal it was replacing (set aside first), and the import is as it
-    was. What Docker made in the import and cannot be deleted then is said (`warning`), and the move completes."""
+    allowed what takes more of this machine, which nothing judges there. Answers {moved: [{kind, id}], id, warning}. A change of
+    catalogs: it waits for none under way. The items are written whole beside Personal, then swapped in (`replace`): an item of
+    Personal is at any moment the old one or the new one, whole. The import loses its items only once they are in Personal; what
+    Docker made there and cannot be deleted then is said (`warning`), and the move completes."""
     with service._changing():
         recovered = recover()
-        found = _check(kind, uid)
-        units = _units(found)
-        users = _users_of_root(found, kind, uid)
-        if users:
-            raise _fail("used", f"Used by {_name(units, users[0])}: move that one to Personal instead.")
-        moving, _ = _choice(found, kind, uid, together)
-        reason = _held(found, moving)
-        if reason:
-            raise _fail("held", reason)
-        uses = _judged(units, moving)[0]
-        if uses and not allow:
-            raise _fail("allow_machine", f"{', '.join(uses)} uses this machine: allow it to move it to Personal.")
+        with telling(recovered):
+            found = _check(kind, uid)
+            units = _units(found)
+            users = _users_of_root(found, kind, uid)
+            if users:
+                raise _fail("used", f"Used by {_name(units, users[0])}: move that one to Personal instead.")
+            moving, _ = _choice(found, kind, uid, together)
+            reason = _held(found, moving)
+            if reason:
+                raise _fail("held", reason)
+            uses = _judged(units, moving)[0]
+            if uses and not allow:
+                raise _fail("allow_machine", f"{', '.join(uses)} uses this machine: allow it to move it to Personal.")
         ns = paths.origin(uid)
-        source, home = _folder_of(ns), paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL
+        source = _folder_of(ns)
         table = [(f"{paths.CATALOGS_DIR}/{ns}/{_rel(k, _slug(one))}", f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{_rel(k, _slug(one))}")
                  for k, one in moving]
-        texts = {}
-        for k, one in moving:   # read first: what cannot be read stops the move before anything is written
-            compose_rel = _rel(k, _slug(one)) if k == "setup" else f"{_rel(k, _slug(one))}/compose.yml"
-            here = posixpath.dirname(compose_rel)
-            text = keep_private((source / compose_rel).read_text(encoding="utf-8"))   # whose copy it was, if private content
-            texts[(k, one)] = moves.repoint(text, f"{paths.CATALOGS_DIR}/{ns}/{here}", f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{here}", table)
-        # The items of Personal it replaces are put aside first, whole, and come back whole if the move fails midway
-        aside, put = set_aside([_rel(k, _slug(one)) for k, one in moving])
-        made = []
-        try:
+
+        def write(root):
             for k, one in moving:
                 rel = _rel(k, _slug(one))
-                target = home / rel
-                made.append(target)
-                if k == "setup":
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    target.write_text(texts[(k, one)], encoding="utf-8")
-                    continue
-                target.mkdir(parents=True, exist_ok=True)
-                for path in sorted(p for p in (source / rel).rglob("*") if not p.is_symlink()):
-                    inside = path.relative_to(source / rel)
-                    if path.is_dir():
-                        (target / inside).mkdir(parents=True, exist_ok=True)
-                        continue
-                    (target / inside).parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(path, target / inside)
-                (target / "compose.yml").write_text(texts[(k, one)], encoding="utf-8")
-        except BaseException:
-            put_back(aside, put, made)
-            raise
-        warnings = [recovered, merge_back(aside, put, _names(units, moving))]
+                compose_rel = rel if k == "setup" else f"{rel}/compose.yml"
+                here = posixpath.dirname(compose_rel)
+                text = unmark((source / compose_rel).read_text(encoding="utf-8"))   # a file makes no twin: private_from stays
+                text = moves.repoint(text, f"{paths.CATALOGS_DIR}/{ns}/{here}", f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{here}", table)
+                if k != "setup":
+                    shutil.copytree(source / rel, root / rel, symlinks=True, ignore=_links)
+                (root / compose_rel).parent.mkdir(parents=True, exist_ok=True)
+                (root / compose_rel).write_text(text, encoding="utf-8")
+        warnings = [recovered, replace(write, [_rel(k, _slug(one)) for k, one in moving])]
         # The import loses what moved; what Docker made there and cannot be deleted is said, and the move completes
         stuck = False
         for k, one in moving:
@@ -284,125 +274,158 @@ def move(kind, uid, together, allow=False):
             **({"warning": warning} if warning else {})}
 
 
-def _names(units, nodes):
-    """{place in Personal: name} of the items of a change, for the words of a warning."""
-    return {_rel(k, _slug(one)): _name(units, (k, one)) for k, one in nodes}
+def _links(folder, names):
+    """What an item's copy leaves: a link, whose target is no file of the item."""
+    return {name for name in names if os.path.islink(os.path.join(folder, name))}
+
+
+@contextlib.contextmanager
+def telling(said):
+    """An error of a change says too what the start of that change put right (`recover`), which is said either way."""
+    try:
+        yield
+    except CatalogError as error:
+        if said:
+            error.message = f"{error.message} {said}"
+        raise
 
 
 # ---------------------------------------------------------------------------------------------------------------------
-# What a change replaces in Personal: set aside whole, put back whole when it fails, the person's files merged back once done
+# A new version of items of Personal, swapped in whole
 # ---------------------------------------------------------------------------------------------------------------------
 
-ASIDE = ".move-"   # a folder of .lab that holds the items of Personal a change replaces, until it is done
-NOT_BACK = ("Some settings of {names} could not come back and are in {where}: copy them into the item in Personal, then remove "
-            "that folder with administrator rights.")
+SWAP = ".swap-"   # a folder of .lab, beside Personal, for one change: new/ the items it writes, old/ those they replace
+LEFTOVER = ".leftover-"   # what a change could not delete: never read again
+STUCK = "Some files were created by Docker and could not be deleted. Remove the folder {where} with administrator rights."
+REPLACED = "Settings of {names} that the new version replaced are kept in {where}."
+NOT_KEPT = ("Settings of {names} could not be kept and are still in {where}: copy them out, then remove that folder with "
+            "administrator rights.")
+UNDONE = "A change of Personal that stopped midway was undone for {names}."
+FINISHED = "A change of Personal that stopped midway was finished for {names}."
+_staging = set()   # the folders of the changes writing their items now, which a recovery leaves alone
 
 
-RECOVERED = "A change that stopped midway had set {names} aside: they are in Personal again."
+def replace(write, rels):
+    """The items at `rels` (their folder, or the file of a setup, relative to Personal) replaced by those `write(root)` writes
+    whole at `root/<rel>` (`stage`, then `swap_in`). Answers what is said of it, or None."""
+    return swap_in(stage(write), rels)
 
 
-def recover():
-    """What a change of Personal set aside and did not finish, since the Lab stopped in the middle of it: an item that is not in
-    Personal comes back whole, one that is there (the change had written it) gets the person's files back file by file. Called
-    at the start of the next change, under its lock, when no other change can be at work. Answers what it says of it, or None."""
-    home, back, said = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL, [], []
-    for aside in sorted((paths.ROOT / paths.LAB_DIR).glob(f"{ASIDE}*")):
-        if not aside.is_dir() or aside.is_symlink():
-            continue
-        put = [f"{area}/{one.name}" for area in ("addons", "playgrounds") for one in sorted((aside / area).glob("*")) if one.is_dir()]
-        put += [f"setups/{one.name}" for one in sorted((aside / "setups").glob("*.yml"))]
-        there = [rel for rel in put if os.path.lexists(home / rel)]
-        for rel in put:
-            if rel not in there:
-                (home / rel).parent.mkdir(parents=True, exist_ok=True)
-                os.rename(aside / rel, home / rel)
-        said.append(merge_back(aside, there, {}))
-        back += [posixpath.basename(rel)[:-4] if rel.endswith(".yml") else posixpath.basename(rel) for rel in put]
-    if not back:
-        return None
-    return " ".join([RECOVERED.format(names=", ".join(back)), *filter(None, said)])
+def stage(write):
+    """The new versions of items written whole beside Personal (`write(root)`), in a folder of their own that no recovery touches
+    while it is written, and that nothing reads: answers it. A failure here changes nothing in Personal."""
+    swap = paths.ROOT / paths.LAB_DIR / f"{SWAP}{secrets.token_hex(4)}"
+    _staging.add(swap.name)
+    try:
+        (swap / "new").mkdir(parents=True)
+        write(swap / "new")
+    except BaseException:
+        discard(swap)
+        raise
+    return swap
 
 
-def set_aside(rels):
-    """The items of Personal at `rels` (their folder, or the file of a setup, relative to Personal) put aside whole, in a folder
-    of the Lab's own beside Personal: answers (that folder, [the rels put aside]). What exists is renamed, never copied."""
+def discard(swap):
+    """What `stage` wrote, let go: the change will not be made, or it was made."""
+    if swap.name.startswith(SWAP):
+        shutil.rmtree(swap, ignore_errors=True)
+    _staging.discard(swap.name)
+
+
+def swap_in(swap, rels):
+    """Each item of Personal at `rels` renamed aside and its new version (`stage`) renamed in: two renames on the same file system,
+    so that at any moment an item is the old one or the new one, whole. Then the person's files come to the new one (`_settle`).
+    Called under the lock of the change. Answers what is said of it, or None."""
     home = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL
-    aside, put = paths.ROOT / paths.LAB_DIR / f"{ASIDE}{secrets.token_hex(4)}", []
     try:
         for rel in rels:
             if os.path.lexists(home / rel):
-                (aside / rel).parent.mkdir(parents=True, exist_ok=True)
-                os.rename(home / rel, aside / rel)
-                put.append(rel)
-    except BaseException:
-        put_back(aside, put, [])
-        raise
-    return aside, put
+                (swap / "old" / rel).parent.mkdir(parents=True, exist_ok=True)
+                os.rename(home / rel, swap / "old" / rel)
+            (home / rel).parent.mkdir(parents=True, exist_ok=True)
+            os.rename(swap / "new" / rel, home / rel)
+    finally:
+        said = _settle(swap, recovering=False)
+        _staging.discard(swap.name)
+    return said
 
 
-def put_back(aside, put, made):
-    """A change that failed midway: what it wrote in Personal goes, and what it set aside comes back as it was."""
-    home = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL
-    _take_back(made)
-    for rel in put:
-        os.rename(aside / rel, home / rel)
-    shutil.rmtree(aside, ignore_errors=True)
+def recover():
+    """What a change of Personal left when the Lab stopped in the middle of it, put right: what it was writing goes (it was never
+    seen), an item renamed aside whose new version is not in place comes back, one whose new version is in place gets the person's
+    files (`_settle`). Called at the Lab UI's start and at the start of each change of Personal, under its lock. Answers what is
+    said of it, or None."""
+    said = [_settle(swap, recovering=True) for swap in sorted((paths.ROOT / paths.LAB_DIR).glob(f"{SWAP}*"))
+            if swap.is_dir() and not swap.is_symlink() and swap.name not in _staging]
+    return " ".join(one for one in said if one) or None
 
 
-def merge_back(aside, put, names):
-    """A change that is done: the person's settings, secrets and state of each item it replaced come back file by file into the
-    new item, and the person's file is the one kept where both have the same; the rest of what was set aside goes. Answers the
-    warning of what could not come back, or could not be deleted, or None. `names`: {rel: name}, for its words."""
-    home, failed = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL, []
-    for rel in put:
-        if (aside / rel).is_dir() and not (aside / rel).is_symlink() and (home / rel).is_dir():
-            failed += [rel for name in MACHINE_FILES if _merge(aside / rel / name, home / rel / name)]
-    if failed:
-        return NOT_BACK.format(names=", ".join(dict.fromkeys(names.get(rel, rel) for rel in failed)),
-                               where=f"{paths.LAB_DIR}/{aside.name}")
-    shutil.rmtree(aside, ignore_errors=True)
-    return STUCK.format(where=f"{paths.LAB_DIR}/{aside.name}") if os.path.lexists(aside) else None
+def _settle(swap, recovering):
+    """The end of a change in `swap`: what it did not swap in goes; each item renamed aside comes back when its new version is not
+    in Personal, else gives the new one the person's files (`_bring`), and what the new one replaced of them is kept (kept.py).
+    Then the folder goes; what of it cannot be deleted, a setting that could not be kept among it, is left apart under another
+    name, never read again."""
+    home, old = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL, swap / "old"
+    shutil.rmtree(swap / "new", ignore_errors=True)
+    rels = [f"{area}/{one.name}" for area in ("addons", "playgrounds") for one in sorted((old / area).glob("*")) if one.is_dir()]
+    rels += [f"setups/{one.name}" for one in sorted((old / "setups").glob("*.yml"))]
+    back = [rel for rel in rels if not os.path.lexists(home / rel)]
+    for rel in back:
+        (home / rel).parent.mkdir(parents=True, exist_ok=True)
+        os.rename(old / rel, home / rel)
+    done = [rel for rel in rels if rel not in back]
+    owner = {source: rel for rel in done if (old / rel).is_dir() for source, _ in _bring(old / rel, home / rel, rel)}
+    pairs = [(source, f"{owner[source]}/{source.relative_to(old / owner[source]).as_posix()}") for source in owner]
+    where, failed = _kept().keep(_kept().LOCAL, None, pairs)
+    said = [UNDONE.format(names=_names_of(back)) if recovering and back else "",
+            FINISHED.format(names=_names_of(done)) if recovering and done else "",
+            REPLACED.format(names=_names_of(sorted({owner[one] for one in owner if one not in failed})), where=where) if where else ""]
+    _kept().remove_but(swap, failed)
+    if os.path.lexists(swap):
+        left = swap.with_name(f"{LEFTOVER}{swap.name[len(SWAP):]}")
+        os.rename(swap, left)
+        here = f"{paths.LAB_DIR}/{left.name}"
+        said.append(NOT_KEPT.format(names=_names_of(sorted({owner[one] for one in failed})), where=here) if failed
+                    else STUCK.format(where=here))
+    return " ".join(one for one in said if one) or None
 
 
-def _merge(source: Path, target: Path):
-    """The person's file or folder at `source` brought to `target`, file by file, theirs kept where both have one: answers what
-    could not be brought ([paths]), which stays where it is."""
-    if not os.path.lexists(source):
-        return []
-    if source.is_dir() and not source.is_symlink():
-        if not os.path.lexists(target):
-            with contextlib.suppress(OSError):
-                os.rename(source, target)
-                return []
-        if os.path.lexists(target) and not target.is_dir():
-            target.unlink()
-        target.mkdir(parents=True, exist_ok=True)
-        return [one for child in sorted(source.iterdir()) for one in _merge(child, target / child.name)]
-    if target.is_dir() and not target.is_symlink():
-        shutil.rmtree(target, ignore_errors=True)
-    try:
-        os.replace(source, target)
-        return []
-    except OSError:
-        pass
-    try:
-        shutil.copy2(source, target)   # what Docker made as root may be read, not moved
-    except OSError:
-        return [source]
-    return []
+def _bring(old, new, rel):
+    """The person's files of the item of Personal that a new version replaced (`old`) brought to the new one (`new`): `.env` and
+    the files of `secrets/` where the new one has none of that path, `.state` whole when the new one has none (a seed's record is
+    one whole, never mixed). Answers [(source, its place among kept settings)] of what the new one had already, or what could not
+    come: the new one's are those it ran with, so they stay, and the replaced ones are kept."""
+    pairs = []
+    files = [old / ".env"] if os.path.lexists(old / ".env") else []
+    if (old / "secrets").is_dir() and not (old / "secrets").is_symlink():
+        files += sorted(path for path in (old / "secrets").rglob("*") if path.is_file() or path.is_symlink())
+    for path in files:
+        inside = path.relative_to(old)
+        if os.path.lexists(new / inside) or not _kept().carry(path, new / inside):
+            pairs.append((path, f"{rel}/{inside.as_posix()}"))
+    if os.path.lexists(old / ".state"):
+        if os.path.lexists(new / ".state") or not _kept().carry(old / ".state", new / ".state"):
+            pairs.append((old / ".state", f"{rel}/.state"))
+    return pairs
 
 
-STUCK = "Some files were created by Docker and could not be deleted. Remove the folder {where} with administrator rights."
+def _names_of(rels):
+    """The names of the items of Personal at `rels`, as their x-gravitee says them, for the words of a message."""
+    from . import exports   # here and not above: exports reads this module
+    home, names = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL, []
+    for rel in rels:
+        file = home / rel if rel.endswith(".yml") else home / rel / "compose.yml"
+        slug = posixpath.basename(rel)[:-4] if rel.endswith(".yml") else posixpath.basename(rel)
+        try:
+            names.append(exports._named(file.read_text(encoding="utf-8")[:exports.HEAD_LIMIT * 2], slug))
+        except (OSError, ValueError):
+            names.append(slug)
+    return ", ".join(names)
 
 
-
-def _take_back(made):
-    """What a change that failed midway wrote in Personal where nothing was: removed, so that no half item stays there."""
-    for target in reversed(made):
-        if target.is_dir() and not target.is_symlink():
-            shutil.rmtree(target, ignore_errors=True)
-        elif os.path.lexists(target):
-            target.unlink()
+def _kept():
+    from . import kept   # the settings a change keeps
+    return kept
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -474,38 +497,39 @@ def copy_plan(kind, uid):
 
 def copy(kind, uid, users=False, allow=False):
     """Copies the item to Personal, as the person's copy of it (copy_of), with its settings and secrets but not what its seed
-    recorded; with `users`, every item of a catalog that includes it too, up to the playgrounds, and the items of Personal that
-    include one of them then include the copy. Answers {copies: [{kind, id}], id}. A change of catalogs: it waits for none under
-    way, and a copy that fails midway takes out what it wrote."""
+    recorded, and the name of the private catalog what it holds comes from (private_from), resolved now; with `users`, every item
+    of a catalog that includes it too, up to the playgrounds, and the items of Personal that include one of them then include the
+    copy. Answers {copies: [{kind, id}], id, warning}. A change of catalogs: it waits for none under way, and the copies are
+    written whole beside Personal before they are in it."""
     with service._changing():
         recovered = recover()
-        found = project.load()
-        plan = copy_plan(kind, uid)
-        chosen = plan["with_users"] if users and plan["with_users"] else plan["alone"]
-        if chosen["held"]:
-            raise _fail("held", chosen["held"])
-        if chosen["uses_machine"] and not allow:
-            raise _fail("allow_machine", f"{', '.join(chosen['uses_machine'])} uses this machine: allow it to copy it to Personal.")
-        copies, switches = _copies(found, kind, uid, bool(users and plan["with_users"]))
-        home = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL
-        places = {node: (paths.unit_file(*node) if node[0] == "setup" else paths.unit_folder(*node)) for node in copies}
-        table = [(places[node], f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{_rel(node[0], _slug(node[1]))}") for node in copies]
-        texts = {}
-        for node in copies:   # written for its place first: what cannot be stops the copy before anything is written
-            k, one = node
-            compose_file = paths.ROOT / places[node] if k == "setup" else paths.ROOT / places[node] / "compose.yml"
-            here = posixpath.dirname(places[node] if k == "setup" else f"{places[node]}/compose.yml")
-            there = posixpath.dirname(f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{_rel(k, _slug(one))}" + ("" if k == "setup" else "/compose.yml"))
-            texts[node] = _mark(moves.repoint(unmark(compose_file.read_text(encoding="utf-8")), here, there, table), one)
-            if texts[node] is None:
-                raise _fail("unmarked", f"{_name(_units(found), node)} has no x-gravitee block to say it is a copy.")
-        made = []
-        try:
+        with telling(recovered):
+            found = project.load()
+            plan = copy_plan(kind, uid)
+            chosen = plan["with_users"] if users and plan["with_users"] else plan["alone"]
+            if chosen["held"]:
+                raise _fail("held", chosen["held"])
+            if chosen["uses_machine"] and not allow:
+                raise _fail("allow_machine", f"{', '.join(chosen['uses_machine'])} uses this machine: allow it to copy it to Personal.")
+            copies, switches = _copies(found, kind, uid, bool(users and plan["with_users"]))
+            places = {node: (paths.unit_file(*node) if node[0] == "setup" else paths.unit_folder(*node)) for node in copies}
+            table = [(places[node], f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{_rel(node[0], _slug(node[1]))}") for node in copies]
+            texts = {}
+            for node in copies:   # written for its place first: what cannot be stops the copy before anything is written
+                k, one = node
+                compose_file = paths.ROOT / places[node] if k == "setup" else paths.ROOT / places[node] / "compose.yml"
+                here = posixpath.dirname(places[node] if k == "setup" else f"{places[node]}/compose.yml")
+                there = posixpath.dirname(f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{_rel(k, _slug(one))}" + ("" if k == "setup" else "/compose.yml"))
+                text = compose_file.read_text(encoding="utf-8")
+                texts[node] = _mark(moves.repoint(labelled(unmark(text), private_of(text, one)), here, there, table), one)
+                if texts[node] is None:
+                    raise _fail("unmarked", f"{_name(_units(found), node)} has no x-gravitee block to say it is a copy.")
+
+        def write(root):
             for node in copies:
                 k, one = node
-                target = home / _rel(k, _slug(one))
+                target = root / _rel(k, _slug(one))
                 target.parent.mkdir(parents=True, exist_ok=True)
-                made.append(target)
                 if k == "setup":
                     target.write_text(texts[node], encoding="utf-8")
                     continue
@@ -514,11 +538,10 @@ def copy(kind, uid, users=False, allow=False):
                     path.chmod(path.stat().st_mode | 0o200)
                 target.chmod(target.stat().st_mode | 0o200)
                 (target / "compose.yml").write_text(texts[node], encoding="utf-8")
-        except BaseException:
-            _take_back(made)
-            raise
+        said = replace(write, [_rel(k, _slug(one)) for k, one in copies])
         for old, new in table if switches else ():
             personals.follow(old, new)
         project.forget()
+    warning = " ".join(one for one in (recovered, said) if one)
     return {"copies": [{"kind": k, "id": f"{paths.LOCAL}/{_slug(one)}"} for k, one in copies], "id": f"{paths.LOCAL}/{_slug(uid)}",
-            **({"warning": recovered} if recovered else {})}
+            **({"warning": warning} if warning else {})}

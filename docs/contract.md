@@ -136,7 +136,8 @@ the check of a catalog reports it. *Kinds* says which kind of unit may carry the
 | `x-gravitee.tested` | playground | The sets of versions it was built and checked on, the latest last |
 | `x-gravitee.terminal` | playground | The service whose shell the terminal pane opens: one of its own or of what it includes, never its seed service |
 | `x-gravitee.host_access` | any | Maps a service to the reason it takes more of this machine than its container does: it runs privileged, mounts the Docker socket, and so on |
-| `x-gravitee.copy_of` | any | Written by the Lab in the person's copy of an item of a catalog (Copy to Personal): the id of the item it was copied from, its twin. A copy of a copy names the one before, and the Lab follows the chain to the first item of a private catalog. A catalog's item, and an exported file, carry it only for the content of a private catalog, naming that catalog's item: what it holds is still that catalog's content |
+| `x-gravitee.copy_of` | any | Written by the Lab in the person's copy of an item of a catalog (Copy to Personal): the id of the item it was copied from, its twin on this Lab. A catalog's item, and an exported file, never carry it, and an import drops it |
+| `x-gravitee.private_from` | any | Written by the Lab when private content travels (Copy to Personal, Move, Share, Export, Import to Personal): the name of the private catalog of Git it comes from, resolved when it is written. It only adds a notice: what carries it is said under Private, and it makes no twin |
 
 | Key of `requires` | Kinds | What it says |
 |---|---|---|

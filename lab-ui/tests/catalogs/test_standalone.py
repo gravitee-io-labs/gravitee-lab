@@ -163,12 +163,12 @@ class Folder(Case):
         scratch.write_text(scratch.read_text(encoding="utf-8").replace("include:\n", "include:\n  - ../ledger/compose.yml\n", 1),
                            encoding="utf-8")
         project.forget()
-        self.assertEqual(standalone.plan("local/sandbox")["private"], [{"id": "partner", "name": "Partner fixture", "items": ["Ledger"]}])
+        self.assertEqual(standalone.plan("local/sandbox")["private"], [{"name": "Partner fixture", "items": ["Ledger"], "item_ids": ["local/ledger"]}])
         with self.assertRaises(CatalogError) as caught:
             standalone.archive("local/sandbox")
         self.assertEqual((caught.exception.code, caught.exception.message), ("export_private", "It now carries private content of "
                                                                              "Partner fixture. Fix: export it again to see what leaves with it."))
-        self.assertTrue(standalone.archive("local/sandbox", private=["partner"])["data"])
+        self.assertTrue(standalone.archive("local/sandbox", private=["local/ledger"])["data"])
 
     def test_a_copy_of_a_share_of_a_copy_of_a_private_item_is_said_too(self):
         from lab_ui.catalogs import moving
@@ -188,7 +188,7 @@ class Folder(Case):
         scratch.write_text(scratch.read_text(encoding="utf-8").replace("include:\n", "include:\n  - ../ledger/compose.yml\n", 1),
                            encoding="utf-8")
         project.forget()
-        self.assertEqual(standalone.plan("local/sandbox")["private"], [{"id": "partner", "name": "Partner fixture", "items": ["Ledger"]}])
+        self.assertEqual(standalone.plan("local/sandbox")["private"], [{"name": "Partner fixture", "items": ["Ledger"], "item_ids": ["local/ledger"]}])
 
     def test_the_folder_holds_the_compose_file_its_settings_the_guide_and_what_the_services_build_or_mount(self):
         _, names, _ = self.unpacked()

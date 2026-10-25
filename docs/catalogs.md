@@ -163,9 +163,11 @@ the other, only one of the two runs at a time (the Lab says which to turn off), 
 copy, with your settings kept. A catalog's item that includes the original cannot be changed to include your copy: choose
 **<item> and what uses it** to copy those too, up to the playgrounds, and your own items that used one of them then use the
 copy. The copy takes the original's settings and secrets, not what its seed recorded, nor a link of its folder. A copy of an
-item of a private catalog is that catalog's content, through every copy, share, move and import that follows: it is not shared to
-a Public catalog, shared to another catalog or exported it still says which private catalog it comes from, and an export, for the
-Lab or for Docker Compose, says it under **Private**. A copy of something this Lab no longer has is taken as private too. An item that needs a catalog this Lab has not added is not copied: nothing has judged it.
+item of a private catalog is that catalog's content: the copy says which private catalog it comes from (`private_from`), and so do
+the share, the move, the export and the import that follow, whatever comes later at the id it was copied from. It is not shared to
+a Public catalog, and an export, for the Lab or for Docker Compose, says it under **Private** and is made only with each such item
+shown. A file someone sends can only add that notice: whose copy an item of it is (`copy_of`) is dropped at the import, so a file
+never makes an item the twin of one of yours. An item that needs a catalog this Lab has not added is not copied: nothing has judged it.
 
 ## A playground in a file
 
@@ -189,7 +191,7 @@ On the other Lab, **Import** on the Playgrounds page takes the file: the preview
 playground's page opens. **Import to** chooses where it goes:
 
 - **Personal**, the default: the playground and what it brings are yours, like what you make with the New buttons, and you edit
-  them freely. An item of Personal with the same name is replaced (your settings stay) unless it is the same, which is then
+  them freely. An item of Personal with the same name is replaced (your settings stay with it) unless it is the same, which is then
   used, and an item of Personal that is on is not replaced: turn it off first. The Lab no longer judges what is in Personal:
   what uses this machine goes there once you allow it (**Allow and import**), and an item the preview says cannot run cannot
   go there. That includes an item that needs a catalog this Lab has not added: nothing can judge it until that catalog is
@@ -199,9 +201,11 @@ playground's page opens. **Import to** chooses where it goes:
   (**Remove**, the allowance of what uses this machine), and the lists say Imported as where their items come from.
   **Move to Personal**, in the menu of an imported item, makes it yours later: a playground alone, or with the setups and
   add-ons it brings that nothing else uses. What another item still uses stays in Imported, and the dialog says which and why.
-  Its settings, secrets, star and what its seed recorded come along; the import whose items all moved is removed. A move that
-  fails midway leaves the import and Personal as they were, and what Docker made in the import and cannot be deleted is said
-  once the move is done. As for an
+  Its settings, secrets, star and what its seed recorded come along; the import whose items all moved is removed. When it
+  replaces an item of Personal, the moving item's settings win, since they are the ones it ran with: its `.env`, its files of
+  `secrets/`, and its `.state` as a whole. Those of the replaced item that would be overwritten go to `.lab/kept-settings/`, and
+  the move says so; the rest of them come to the new item. A move that fails leaves the import and Personal as they were, and
+  what Docker made in the import and cannot be deleted is said once the move is done. As for an
   import, what goes to Personal is no longer judged: an item blocked only for what it takes of this machine moves once you
   allow it (**Allow and move**), and one blocked for anything else, or that waits for a catalog this Lab has not added, does not
   move. An item the file holds that this Lab has already, from the same catalog, is not imported a second time:

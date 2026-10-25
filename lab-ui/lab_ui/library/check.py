@@ -46,7 +46,7 @@ from .project import REACH_LIMIT, apart, brought, forget, loaded
 # What x-gravitee can say, of any item: a key outside it is read by nothing, and so does nothing (a typo, or a key
 # the Lab UI does not know)
 META = {"kind", "name", "description", "category", "conflicts", "requires", "tags", "source", "duration", "first_start",
-        "accounts", "consoles", "terminal", "gateway", "tested", "host_access", "copy_of"}
+        "accounts", "consoles", "terminal", "gateway", "tested", "host_access", "copy_of", "private_from"}
 KEY_OF = {"gateway": "addon", "tested": "playground", "terminal": "playground"}   # the keys that only one kind of item reads
 # How long a guide takes or a first start takes, as the page says it: "35 min", "1 h", "1 h 30 min"
 DURATION = re.compile(r"(?:\d+ h(?: \d{1,2} min)?|\d+ min)")

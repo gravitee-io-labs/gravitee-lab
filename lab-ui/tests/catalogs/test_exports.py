@@ -76,6 +76,17 @@ class Archives(Case):
         self.refused(zipped({"demo/catalog.yml": b"x"}), "import_too_large")
 
 
+class Unseen(Case):
+    """exports.unseen_private: the file holds to the items of private content the page showed, not to their catalogs."""
+
+    def test_an_item_the_page_did_not_show_refuses_the_file_though_its_catalog_was_shown(self):
+        shown = {"private": [{"name": "Partner fixture", "items": ["Ledger", "Books"], "item_ids": ["@partner/ledger", "local/books"]}]}
+        with self.assertRaises(CatalogError) as caught:
+            exports.unseen_private(shown, ["@partner/ledger"])
+        self.assertEqual(caught.exception.code, "export_private")
+        exports.unseen_private(shown, ["@partner/ledger", "local/books"])
+
+
 class Named(Case):
     """exports._named reads the name of an item of a file someone else made: at once, whatever the file holds."""
 
@@ -257,7 +268,7 @@ class FromCatalogs(Case):
     def test_the_export_carries_what_comes_from_a_private_catalog_and_says_so(self):
         plan = exports.plan("local/sandbox")
         self.assertEqual(sorted(one["id"] for one in plan["carries"]), ["@partner/ledger", "local/sandbox", "local/scratch"])
-        self.assertEqual(plan["private"], [{"id": "partner", "name": "Partner fixture", "items": ["Ledger"]}])
+        self.assertEqual(plan["private"], [{"name": "Partner fixture", "items": ["Ledger"], "item_ids": ["@partner/ledger"]}])
         self.assertEqual(plan["blocked"], [])
 
     def test_a_copy_of_an_item_of_a_private_catalog_is_private_content_too_and_the_file_says_whose_content_it_is(self):
@@ -267,10 +278,11 @@ class FromCatalogs(Case):
         project.forget()
         plan = exports.plan("local/sandbox")
         self.assertIn("local/ledger", [one["id"] for one in plan["carries"]])
-        self.assertEqual(plan["private"], [{"id": "partner", "name": "Partner fixture", "items": ["Ledger"]}])
-        with zipfile.ZipFile(io.BytesIO(base64.b64decode(exports.archive("local/sandbox", private=["partner"])["data"]))) as archive:
-            self.assertIn('copy_of: "@partner/ledger"', archive.read("sandbox/addons/ledger/compose.yml").decode(),
-                          "the label goes with the content: the Lab that imports it keeps it")
+        self.assertEqual(plan["private"], [{"name": "Partner fixture", "items": ["Ledger"], "item_ids": ["local/ledger"]}])
+        with zipfile.ZipFile(io.BytesIO(base64.b64decode(exports.archive("local/sandbox", private=["local/ledger"])["data"]))) as archive:
+            text = archive.read("sandbox/addons/ledger/compose.yml").decode()
+        self.assertIn('private_from: "Partner fixture"', text, "the label goes with the content: the Lab that imports it keeps it")
+        self.assertNotIn("copy_of", text, "whose copy it is says nothing on another Lab")
 
     def test_a_copy_of_a_private_item_shared_to_a_folder_of_the_person_is_still_private_content(self):
         from lab_ui.catalogs import contribute
@@ -288,7 +300,7 @@ class FromCatalogs(Case):
         project.forget()
         plan = exports.plan("local/sandbox")
         self.assertIn("@lab-new/ledger", [one["id"] for one in plan["carries"]])
-        self.assertEqual(plan["private"], [{"id": "partner", "name": "Partner fixture", "items": ["Ledger"]}])
+        self.assertEqual(plan["private"], [{"name": "Partner fixture", "items": ["Ledger"], "item_ids": ["@lab-new/ledger"]}])
 
     def shared_and_copied_back(self):
         """Partner's Ledger copied to Personal, changed, shared to Lab new (a folder of the person's), then that one copied back to
@@ -311,7 +323,7 @@ class FromCatalogs(Case):
 
     def test_private_content_keeps_its_label_through_a_copy_of_a_share_of_a_copy(self):
         self.shared_and_copied_back()
-        partner = [{"id": "partner", "name": "Partner fixture", "items": ["Ledger"]}]
+        partner = [{"name": "Partner fixture", "items": ["Ledger"], "item_ids": ["local/ledger"]}]
         self.assertEqual(exports.plan("local/sandbox")["private"], partner)
         with self.assertRaises(CatalogError) as caught:
             exports.archive("local/sandbox", private=[])
@@ -330,17 +342,47 @@ class FromCatalogs(Case):
                          "what this machine does not have says nothing otherwise")
         self.assertEqual(contribute.private_source('x-gravitee: {copy_of: "../../x", kind: addon}\n')[0], "unknown")
 
-    def test_the_label_of_private_content_goes_with_an_import_to_personal(self):
+    def test_an_import_keeps_the_label_of_private_content_and_makes_no_twin(self):
         preview = exports.receive(zipped({
             "carried/catalog.yml": EVIL_CATALOG.replace("{id}", "carried").encode(),
-            "carried/playgrounds/carried/compose.yml": ('x-gravitee: {copy_of: "@partner/ledger", kind: playground, name: Carried, '
+            "carried/playgrounds/carried/compose.yml": ('x-gravitee: {private_from: "Partner fixture", kind: playground, name: Carried, '
                                                         'category: Other, description: x}\nservices: {}\n').encode(),
-            "carried/playgrounds/other/compose.yml": ('x-gravitee: {copy_of: "echo", kind: playground, name: Other, '
-                                                      'category: Other, description: x}\nservices: {}\n').encode()}))
+            "carried/addons/ledger/compose.yml": ('x-gravitee: {copy_of: "@partner/ledger", kind: addon, name: Books, category: Other, '
+                                                  'description: x}\nservices:\n  books:\n    image: busybox:1.36\n'
+                                                  '    networks: [internal]\n').encode()}))
+        self.assertNotIn("copy_of", (paths.ROOT / exports.IMPORTS_DIR / "carried/addons/ledger/compose.yml").read_text(),
+                         "an archive makes no twin, even kept as a catalog")
         exports.to_personal(preview["ticket"])
-        home = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "playgrounds"
-        self.assertIn('copy_of: "@partner/ledger"', (home / "carried/compose.yml").read_text(encoding="utf-8"))
-        self.assertNotIn("copy_of", (home / "other/compose.yml").read_text(encoding="utf-8"), "a file's twin of this Lab's says nothing")
+        home = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL
+        self.assertIn('private_from: "Partner fixture"', (home / "playgrounds/carried/compose.yml").read_text(encoding="utf-8"))
+        self.assertNotIn("copy_of", (home / "addons/ledger/compose.yml").read_text(encoding="utf-8"))
+        project.forget()
+        found = project.load()
+        self.assertIsNone(found["addons"]["local/ledger"].get("twin"), "not the twin of Partner's Ledger")
+        self.assertIsNone(found["addons"]["@partner/ledger"].get("twin"))
+
+    def carried(self, label):
+        said = f'private_from: "{label}", ' if label else ""
+        return zipped({
+            "carried/catalog.yml": EVIL_CATALOG.replace("{id}", "carried").encode(),
+            "carried/playgrounds/carried/compose.yml": ("x-gravitee: {kind: playground, name: Carried, category: Other, description: x}\n"
+                                                        "include:\n  - ../../addons/books/compose.yml\nservices: {}\n").encode(),
+            "carried/addons/books/compose.yml": (f"x-gravitee: {{{said}kind: addon, name: Books, category: Other, description: x}}\n"
+                                                 "services:\n  books:\n    image: busybox:1.36\n    networks: [internal]\n").encode()})
+
+    def test_a_copy_says_its_private_origin_as_it_was_when_copied_whatever_comes_later_at_that_id(self):
+        from lab_ui.catalogs import contribute
+        service.add(exports.receive(self.carried("Partner fixture"))["ticket"])
+        project.forget()
+        moving.copy("addon", "@carried/books")
+        mine = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons/books/compose.yml"
+        self.assertIn('private_from: "Partner fixture"', mine.read_text())
+        self.assertIn('copy_of: "@carried/books"', mine.read_text(), "and whose twin it is, on this Lab")
+        project.forget()
+        service.remove("carried")
+        project.forget()
+        service.add(exports.receive(self.carried(None))["ticket"])   # another file, of the same id, that says nothing
+        self.assertEqual(contribute.private_source(mine.read_text())[1], "Partner fixture")
 
     def test_an_image_the_other_lab_pulls_from_a_registry_that_asks_for_a_login_is_said(self):
         plan = exports.plan("local/sandbox")
@@ -352,10 +394,10 @@ class FromCatalogs(Case):
             exports.archive("local/sandbox")
         self.assertEqual((caught.exception.code, caught.exception.message), ("export_private", "It now carries private content of "
                                                                              "Partner fixture. Fix: export it again to see what leaves with it."))
-        self.assertTrue(exports.archive("local/sandbox", private=["partner"])["data"])
+        self.assertTrue(exports.archive("local/sandbox", private=["@partner/ledger"])["data"])
 
     def test_the_archive_says_where_each_item_of_a_catalog_comes_from(self):
-        made = exports.archive("local/sandbox", private=["partner"])
+        made = exports.archive("local/sandbox", private=["@partner/ledger"])
         with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
             said = json.loads(archive.read("sandbox/export.json"))
             scratch = archive.read("sandbox/addons/scratch/compose.yml").decode()
@@ -363,7 +405,7 @@ class FromCatalogs(Case):
         self.assertIn("  - ../ledger/compose.yml\n", scratch, "the copy is what Scratch includes in the file")
 
     def test_a_lab_that_has_the_catalog_uses_its_own_item_instead_of_a_second_copy(self):
-        preview = exports.receive(exports.archive("local/sandbox", private=["partner"])["data"])
+        preview = exports.receive(exports.archive("local/sandbox", private=["@partner/ledger"])["data"])
         self.assertEqual(preview["reused"], [{"name": "Ledger", "catalog": "Partner fixture"}])
         self.assertEqual(preview["counts"], {"playground": 1, "setup": 0, "addon": 1})
         folder = paths.ROOT / exports.IMPORTS_DIR / "sandbox"
@@ -373,7 +415,7 @@ class FromCatalogs(Case):
         self.assertEqual(preview.get("blocked") or [], [])
 
     def test_a_lab_without_the_catalog_keeps_the_copy(self):
-        data = exports.archive("local/sandbox", private=["partner"])["data"]
+        data = exports.archive("local/sandbox", private=["@partner/ledger"])["data"]
         entry = registry.entry
         self.patch(exports.registry, "entry", lambda ns: None if ns == "partner" else entry(ns))
         preview = exports.receive(data)
@@ -731,3 +773,23 @@ class Untrusted(Case):
                                   "copy them out, then remove that folder with administrator rights.")
         self.assertTrue((state / "created.json").is_file(), "what was not kept is not deleted")
         self.assertFalse(list((paths.ROOT / exports.KEPT_DIR).glob("evil-*/playgrounds/evil/.state")), "no half copy is kept")
+
+    def test_an_import_is_read_and_judged_without_the_lock_of_the_catalogs(self):
+        check, held = service.check_address, []
+
+        def judged(*args, **how):
+            held.append(str(paths.ROOT / registry.FLOCK_FILE) in registry._held.__dict__.get("held", {}))
+            return check(*args, **how)
+        self.patch(service, "check_address", judged)
+        exports.receive(evil_zip(playground=evil_playground(privileged=False)))
+        self.assertEqual(held, [False], "another change does not wait for an import being read")
+
+    def test_an_import_added_before_its_file_was_recorded_gets_its_settings_back_when_imported_again(self):
+        data = evil_zip(playground=evil_playground(privileged=False))
+        service.add(exports.receive(data)["ticket"])
+        (paths.ROOT / exports.kept.RECORD).unlink()   # an import added before the Lab recorded what its file held
+        (paths.ROOT / exports.IMPORTS_DIR / "evil" / "playgrounds/evil/.env").write_text("EVIL_LEVEL=debug\n")
+        project.forget()
+        service.remove("evil")
+        again = exports.receive(data)
+        self.assertEqual(again["kept"]["used"], True)
