@@ -30,6 +30,7 @@ MACHINE_FILES = (".env", ".state", "secrets")   # the person's in the folder of 
 KEPT_DIR = f"{paths.LAB_DIR}/kept-settings"
 RECORD = f"{paths.LAB_DIR}/imports.json"   # {imported: {id: digest of its file}, kept: {key: [{folder, digest}]}}
 LOCAL = "local"   # the key of what a new version of an item of Personal replaced
+KINDS = {".env": "Settings", "secrets": "Secrets", ".state": "State"}   # each, as the page says it
 
 
 def record():
@@ -115,14 +116,15 @@ def carry(source: Path, target: Path):
     return True
 
 
-def keep(key, digest, pairs):
+def keep(key, digest, pairs, names=None):
     """`pairs` ([(source, its place in the kept folder)]) moved into a new folder of kept settings for `key`, its line written
-    first. Answers (the folder, relative to the project, or None when nothing moved; [the sources that could not move])."""
+    first, with the names of the items they are of (`names`: {item folder: name}, for the page). Answers (the folder, relative to
+    the project, or None when nothing moved; [the sources that could not move])."""
     if not pairs:
         return None, []
     folder = paths.ROOT / KEPT_DIR / f"{key}-{secrets.token_hex(4)}"
     found_ = record()
-    found_["kept"][key] = [*_lines(found_, key), {"folder": folder.name, "digest": digest}]
+    found_["kept"][key] = [*_lines(found_, key), {"folder": folder.name, "digest": digest, "names": dict(names or {})}]
     write_record(found_)
     failed = [source for source, rel in pairs if not carry(source, folder / rel)]
     if len(failed) == len(pairs):
@@ -155,7 +157,7 @@ def remove_but(folder: Path, spared):
 
 
 def listed():
-    """What is kept, for the page: [{folder, from (the import's id, or Personal), items, at}], newest first."""
+    """What is kept, for the page: [{folder, from (the import's id, or Personal), items [{name, kinds}], at}], newest first."""
     base, rows = paths.ROOT / KEPT_DIR, []
     try:
         entries = list(base.iterdir()) if base.is_dir() else []
@@ -167,10 +169,16 @@ def listed():
             if folder.is_symlink() or not folder.is_dir() or not found:
                 continue
             at = folder.stat().st_mtime
-            items = sorted({rel.rsplit("/", 1)[-1] for rel, _ in settings_of(folder)})
+            settings = settings_of(folder)
         except OSError:
             continue
-        rows.append({"folder": folder.name, "from": "Personal" if found.group(1) == LOCAL else found.group(1), "items": items,
+        names = next((line.get("names") for line in _lines(record(), found.group(1)) if line.get("folder") == folder.name), None)
+        names = names if isinstance(names, dict) else {}
+        items = {}
+        for rel, name in settings:
+            items.setdefault(rel, []).append(KINDS[name])
+        rows.append({"folder": folder.name, "from": "Personal" if found.group(1) == LOCAL else found.group(1),
+                     "items": [{"name": str(names.get(rel) or rel.rsplit("/", 1)[-1]), "kinds": kinds} for rel, kinds in sorted(items.items())],
                      "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(at)), "_at": at})
     return [{key: value for key, value in row.items() if key != "_at"} for row in sorted(rows, key=lambda row: -row["_at"])]
 

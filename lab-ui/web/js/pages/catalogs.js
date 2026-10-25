@@ -7,7 +7,7 @@
 // says so in its state (a menu entry has no button to show it on) and offers nothing else to press. The dialogs are dialogs/catalog.js's.
 
 import { $, esc, icon, setHTML, api, store, router, ago, copyButton } from "../core.js";
-import { toast, openMenu, keyed, statusHtml, progressBar, tipHtml, paintActions, actionButton, holdOff, contentStatus, confirmDialog, GAP } from "../components/ui.js";
+import { toast, openMenu, keyed, statusHtml, progressBar, tipHtml, paintActions, actionButton, holdOff, contentStatus, confirmEffects, GAP } from "../components/ui.js";
 import { busy } from "../activity/jobs.js";
 import { selectCatalog } from "./list.js";
 import { NO_GIT, usesCard, openAdd, addCatalog, tryAgain, openUpdate, openGoBack, openRemove, openAllow, openNew } from "../dialogs/catalog.js";
@@ -125,30 +125,46 @@ function about(row) {
 // The playgrounds imported from a file and kept as catalogs of their own: one place to the person, Imported, which lists each of them with its
 // menu (Remove, and the allowance of what uses this machine), and the settings that an import, a removal or a move kept, each with Remove
 const IMPORTED = "imported";
+// The settings the Lab keeps (an import removed with Keep settings, an item of Personal that a new version replaced): each list is
+// with where they came from, those of Personal on Personal's row and those of an import on Imported's
+const keptOf = (row) => (store.state?.kept_settings || []).filter((k) => (row.kind === "machine" ? k.from === "Personal"
+  : row.kind === "imports" && k.from !== "Personal"));
+
 function grouped(rows) {
-  const imports = rows.filter((r) => r.imported), kept = store.state?.kept_settings || [];
+  const imports = rows.filter((r) => r.imported), kept = keptOf({ kind: "imports" });
   if (!imports.length && !kept.length) return rows;
   const counts = Object.fromEntries(HOLDS.map(([kind]) => [kind, imports.reduce((sum, r) => sum + (r.counts?.[kind] || 0), 0)]));
-  const group = { id: IMPORTED, kind: "imports", name: "Imported", counts, members: imports, kept, state: { key: "machine" },
+  const group = { id: IMPORTED, kind: "imports", name: "Imported", counts, members: imports, state: { key: "machine" },
     blocked: imports.flatMap((r) => r.blocked || []), problems: imports.flatMap((r) => r.problems || []) };
   const rest = rows.filter((r) => !r.imported), at = rest.findIndex((r) => r.kind === "git" || r.kind === "suggested");
   return at < 0 ? [...rest, group] : [...rest.slice(0, at), group, ...rest.slice(at)];
 }
 
+// A line of a panel with its More at the end of the row, as every row has it
+const more = (attr, label) => `<button class="icon-btn panel-more" ${attr} data-tip="More" aria-label="${esc(label)}" aria-haspopup="true">${icon("more")}</button>`;
+
 function members(row) {
-  if (row.kind !== "imports") return "";
-  const line = (m) => `<div class="panel-row panel-fact" data-member="${esc(m.id)}"><span>${esc(m.name)}</span><span>${total(m.counts)} ${total(m.counts) === 1 ? "item" : "items"}${
-    menu(m).length ? `<button class="icon-btn" data-member-more data-tip="More" aria-label="${esc(`More for ${m.name}`)}" aria-haspopup="true">${icon("more")}</button>` : ""}</span></div>`;
-  const keptLine = (k) => `<div class="panel-row panel-fact" data-kept="${esc(k.folder)}"><span>${esc(k.from === "Personal" ? "From Personal" : `From ${k.from}`)}</span><span>${
-    esc([k.items.join(", "), old(k.at)].filter(Boolean).join(", "))}<button class="icon-btn" data-kept-more data-tip="More" aria-label="${
-    esc(`More for the settings kept from ${k.from}`)}" aria-haspopup="true">${icon("more")}</button></span></div>`;
-  return `<section class="panel">${row.members.length ? heading("Imports") + row.members.map(line).join("") : ""}${
-    (row.kept || []).length ? heading("Kept settings") + row.kept.map(keptLine).join("") : ""}</section>`;
+  if (row.kind !== "imports" || !row.members.length) return "";
+  const line = (m) => `<div class="panel-row panel-fact" data-member="${esc(m.id)}"><span>${esc(m.name)}</span><span class="panel-value">${
+    total(m.counts)} ${total(m.counts) === 1 ? "item" : "items"}${menu(m).length ? more("data-member-more", `More for ${m.name}`) : ""}</span></div>`;
+  return `<section class="panel">${heading("Imports")}${row.members.map(line).join("")}</section>`;
 }
 
-// Kept settings go at the person's word only: they are theirs, and nothing else deletes them
+function kept(row) {
+  const list = keptOf(row);
+  if (!list.length) return "";
+  const line = (k) => {
+    const names = k.items.map((one) => one.name).join(", ");
+    return `<div class="panel-row panel-fact" data-kept="${esc(k.folder)}"><span>${esc(names)}</span><span class="panel-value">${
+      esc([k.from !== "Personal" ? `From ${k.from}` : "", old(k.at)].filter(Boolean).join(", "))}${more("data-kept-more", `More for the settings kept of ${names}`)}</span></div>`;
+  };
+  return `<section class="panel">${heading("Kept settings")}${list.map(line).join("")}</section>`;
+}
+
+// Kept settings go at the person's word only: they are theirs, and nothing else deletes them. The dialog says what goes, item by item
 async function removeKept(k) {
-  if (!(await confirmDialog({ title: `Remove the settings kept from ${k.from}`, action: "Remove", danger: true }))) return;
+  const rows = [{ label: "Deletes", items: k.items.map((one) => `${one.name}: ${one.kinds.join(", ")}`) }];
+  if (!(await confirmEffects("Remove kept settings", rows, "Remove", true))) return;
   try {
     const answer = await api("/api/kept-settings/delete", { folder: k.folder });
     toast(answer.warning || "Removed", !!answer.warning);
@@ -277,7 +293,7 @@ function drawRows(ul, all) {
     $(".s-toggle", top)?.setAttribute("aria-expanded", String(open));
     detail.id = detailId(row);
     detail.hidden = !open;
-    setHTML(detail, open ? about(row) + members(row) + holds(row) : "");
+    setHTML(detail, open ? about(row) + members(row) + kept(row) + holds(row) : "");
   });
 }
 
@@ -359,7 +375,7 @@ function init(el) {
     else if ("add" in data) addCatalog(row);
     else if ("memberMore" in data && member) openMenu(button, menu(member));
     else if ("keptMore" in data) {
-      const k = (row.kept || []).find((one) => one.folder === button.closest("[data-kept]")?.dataset.kept);
+      const k = keptOf(row).find((one) => one.folder === button.closest("[data-kept]")?.dataset.kept);
       if (k) openMenu(button, [{ label: "Remove", danger: true, disabled: !!offline(), reason: offline(), onSelect: () => removeKept(k) }]);
     }
     else if ("more" in data) openMenu(button, menu(row));

@@ -35,6 +35,7 @@ again takes them, any other file of that name leaves them where they are, and th
 
 import base64
 import binascii
+import contextlib
 import hashlib
 import io
 import json
@@ -956,5 +957,9 @@ def _keep_settings(folder: Path, ns, content):
     """The person's settings, secrets and state of an import's items moved to a folder of kept settings of their own. Answers
     [(rel, name)] of those that could not be moved, which stay whole where they are."""
     settings = kept.settings_of(folder)
-    _, failed = kept.keep(ns, content, [(folder / rel / name, f"{rel}/{name}") for rel, name in settings])
+    names = {}
+    for rel, _ in settings:
+        with contextlib.suppress(OSError):
+            names[rel] = _named((folder / rel / "compose.yml").read_text(encoding="utf-8", errors="replace"), rel.rsplit("/", 1)[-1])
+    _, failed = kept.keep(ns, content, [(folder / rel / name, f"{rel}/{name}") for rel, name in settings], names)
     return [(rel, name) for rel, name in settings if folder / rel / name in failed]

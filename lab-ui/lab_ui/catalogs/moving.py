@@ -464,7 +464,7 @@ def _settle(swap, rels, recovering):
     owner = {source: rel for rel in rels if (old / rel).is_dir() and not (old / rel).is_symlink()
              for source, _ in _bring(old / rel, home / rel, rel)}
     pairs = [(source, f"{owner[source]}/{source.relative_to(old / owner[source]).as_posix()}") for source in owner]
-    where, failed = _kept().keep(_kept().LOCAL, None, pairs)
+    where, failed = _kept().keep(_kept().LOCAL, None, pairs, {rel: _names_of([rel]) for rel in set(owner.values())})
     said = [REPLACED.format(names=_names_of(sorted({owner[one] for one in owner if one not in failed})), where=where) if where else ""]
     _kept().remove_but(swap, [*failed, swap / JOURNAL])   # the journal goes last: until then a stop is finished from it
     if not failed:

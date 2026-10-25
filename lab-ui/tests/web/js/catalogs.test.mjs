@@ -187,32 +187,36 @@ test("the imported playgrounds are one row, Imported, in Local: it counts them a
   page.doc.dispatchEvent(new Ev("keydown", { key: "Escape" }));
 });
 
-test("the settings an import, a removal or a move kept are listed with Imported, where they came from, and go at the person's word only", async () => {
+test("kept settings are listed where they came from, by the names of their items, and go at the person's word only, saying what goes", async () => {
   clearToasts();
-  const kept = [{ folder: "contoso-1a2b3c4d", from: "contoso", items: ["kiosk"], at: "2026-10-20T08:00:00Z" },
-    { folder: "local-0a1b2c3d", from: "Personal", items: ["sandbox"], at: "2026-10-21T08:00:00Z" }];
-  show([FIRST()], { kept_settings: kept });
+  const kept = [{ folder: "contoso-1a2b3c4d", from: "contoso", items: [{ name: "Kiosk", kinds: ["Settings", "Secrets"] }], at: "2026-10-20T08:00:00Z" },
+    { folder: "local-0a1b2c3d", from: "Personal", items: [{ name: "Echo Tool", kinds: ["Settings", "Secrets", "State"] }], at: "2026-10-21T08:00:00Z" }];
+  show([FIRST(), PERSONAL()], { kept_settings: kept });
   assert.deepEqual([...section.querySelector(".list-rows").children].map((li) => (li.className === "stack-sep" ? text(li) : text(li.querySelector(".list-name")))),
-    ["Local", "Imported", "Remote", "Gravitee public"], "Imported is there for kept settings alone");
+    ["Local", "Imported", "Personal", "Remote", "Gravitee public"], "Imported is there for kept settings alone");
   open(row("Imported"));
-  const [panel] = panels(row("Imported"));
-  assert.deepEqual(pairs(panel).map(([from]) => from), ["From contoso", "From Personal"]);
-  assert.ok(text(panel).includes("Kept settings") && !text(panel).includes(".lab/"), "no folder name of the Lab's");
+  const [imported] = panels(row("Imported"));
+  assert.deepEqual(pairs(imported).map(([name, value]) => [name, value.replace(/ \d+ \w+ ago$/, "")]), [["Kiosk", "From contoso,"]]);
+  open(row("Personal"));
+  const personal = panels(row("Personal")).find((panel) => text(panel).startsWith("Kept settings"));
+  assert.deepEqual(pairs(personal).map(([name]) => name), ["Echo Tool"], "what came from Personal is on Personal's row");
+  assert.ok(!text(section).includes(".lab/") && !text(section).includes("echo-tool"), "nothing of the Lab's own naming");
+  const button = personal.querySelector('[data-kept="local-0a1b2c3d"] [data-kept-more]');
+  assert.ok(button.getAttribute("class").includes("panel-more"), "at the end of the row, as every More");
   server.answers["/api/kept-settings/delete"] = {};
-  server.answers["/api/places"] = [];
-  panel.querySelector('[data-kept="contoso-1a2b3c4d"] [data-kept-more]').click();
+  button.click();
   assert.deepEqual(names(menu()), ["Remove"]);
   press(menu().querySelectorAll(".menu-item")[0]);
   await flush();
-  assert.equal(text(page.ids["confirm-title"]), "Remove the settings kept from contoso");
+  assert.equal(text(page.ids["choice-title"]), "Remove kept settings");
+  assert.ok(text(page.ids["choice-list"]).includes("Echo Tool: Settings, Secrets, State"), "what goes, item by item");
   assert.equal(calls("/api/kept-settings/delete").length, 0, "nothing goes before the person says so");
-  page.body.hidden = false;   // the small DOM puts every id in the body, which the dialog takes for the parent of its field
-  page.ids.confirm.returnValue = "ok";
-  page.ids.confirm.close();
-  page.ids.confirm.onclose();
+  page.ids.choice.returnValue = "ok";
+  page.ids.choice.onclose();
   await settle();
-  assert.deepEqual(last().body, { folder: "contoso-1a2b3c4d" });
+  assert.deepEqual(last().body, { folder: "local-0a1b2c3d" });
   assert.deepEqual(toasts(), ["Removed"]);
+  show([FIRST(), PERSONAL()], { kept_settings: kept });   // the rows it opened are closed again
 });
 
 test("Personal is drawn only once it holds something", () => {

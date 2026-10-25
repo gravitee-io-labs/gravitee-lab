@@ -12,18 +12,22 @@ class Kept(Case):
     def setUp(self):
         self.folder(paths)
 
-    def made(self, key, item="playgrounds/evil", text="EVIL_LEVEL=debug\n"):
+    def made(self, key, item="playgrounds/evil", text="EVIL_LEVEL=debug\n", name=None):
         source = self.root / "old" / item
-        source.mkdir(parents=True, exist_ok=True)
+        (source / "secrets").mkdir(parents=True, exist_ok=True)
         (source / ".env").write_text(text)
-        return kept.keep(key, "abc", [(source / ".env", f"{item}/.env")])
+        (source / "secrets/key").write_text("k\n")
+        return kept.keep(key, "abc", [(source / ".env", f"{item}/.env"), (source / "secrets", f"{item}/secrets")],
+                         {item: name} if name else None)
 
     def test_what_is_kept_is_listed_where_it_came_from_and_goes_at_the_persons_word(self):
         where, failed = self.made("evil")
-        self.made(kept.LOCAL, "addons/scratch")
+        self.made(kept.LOCAL, "addons/echo-tool", name="Echo Tool")
         self.assertEqual(failed, [])
         rows = kept.listed()
-        self.assertEqual(sorted((row["from"], tuple(row["items"])) for row in rows), [("Personal", ("scratch",)), ("evil", ("evil",))])
+        self.assertEqual(sorted((row["from"], row["items"]) for row in rows),
+                         [("Personal", [{"name": "Echo Tool", "kinds": ["Settings", "Secrets"]}]),
+                          ("evil", [{"name": "evil", "kinds": ["Settings", "Secrets"]}])], "by the name recorded when it was kept")
         name = where.rsplit("/", 1)[-1]
         self.assertEqual(kept.remove(name), {})
         self.assertFalse((self.root / where).exists())

@@ -5,6 +5,7 @@ not move uses stays, and an item that one which does not move includes cannot mo
 import json
 import os
 import shutil
+import time
 
 from lab_ui import paths
 from lab_ui.catalogs import exports, gitx, moving, registry, service
@@ -170,7 +171,7 @@ class Moving(Case):
             swap = paths.ROOT / paths.LAB_DIR / f".swap-{name}"
             (swap / "new/playgrounds/sandbox").mkdir(parents=True)
             (swap / "new/playgrounds/sandbox/compose.yml").write_text("services: {}\n")
-            (swap / "journal.json").write_text(json.dumps({"phase": "staging", "pid": pid}))
+            (swap / "journal.json").write_text(json.dumps({"phase": "staging", "pid": pid, "started": time.time()}))
         self.assertIsNone(moving.recover(), "what was being written was never seen: it goes, and nothing is said")
         self.assertFalse((paths.ROOT / paths.LAB_DIR / ".swap-dead").exists())
         self.assertTrue((paths.ROOT / paths.LAB_DIR / ".swap-live").exists(), "another Lab UI, or this one, writes it now")

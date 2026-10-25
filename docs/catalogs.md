@@ -166,8 +166,10 @@ copy. The copy takes the original's settings and secrets, not what its seed reco
 item of a private catalog is that catalog's content: the copy says which private catalog it comes from (`private_from`), and so do
 the share, the move, the export and the import that follow, whatever comes later at the id it was copied from. It is not shared to
 a Public catalog, and an export, for the Lab or for Docker Compose, says it under **Private** and is made only with each such item
-shown. A file someone sends can only add that notice: whose copy an item of it is (`copy_of`) is dropped at the import, so a file
-never makes an item the twin of one of yours. An item that needs a catalog this Lab has not added is not copied: nothing has judged it.
+shown. A label the Lab cannot write and read back in a file (its x-gravitee block written in a form the Lab cannot change) stops
+the export, the share or the copy, which names the item. A file someone sends can only add that notice: an item of it that says
+whose copy it is (`copy_of`, which only this Lab writes) cannot go to Personal, so a file never makes an item the twin of one of
+yours. An item that needs a catalog this Lab has not added is not copied: nothing has judged it.
 
 ## A playground in a file
 
@@ -222,8 +224,9 @@ file so: the preview says so under **Kept settings** (from an earlier import, us
 take, because its item has its own, stay where they are, and the import says where. A setting the Lab could not move is said
 with where it still is, and nothing else is deleted with it. What Docker made and the Lab cannot delete is said, and an import of
 that name waits until you remove it. A move or an import to Personal that stopped midway, because the Lab stopped, is put right
-at the next one, and said. The Catalogs page lists the settings the Lab keeps under **Imported**, with where they came from:
-**Remove**, in the menu of each, deletes them, and nothing else does.
+at the next one, and said. The Catalogs page lists the settings the Lab keeps by the names of their items, on the row they came
+from: **Personal** for those a new version replaced, **Imported** for those of a removed import. **Remove**, in the menu of each,
+says what it deletes and deletes them, and nothing else does.
 
 ## A playground for Docker Compose alone
 
