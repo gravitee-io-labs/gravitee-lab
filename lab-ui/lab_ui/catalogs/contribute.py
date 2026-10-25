@@ -32,6 +32,7 @@ import json
 import os
 import posixpath
 import re
+import secrets
 import shutil
 import stat
 import tempfile
@@ -962,6 +963,33 @@ def _copy_into(ns, catalog, name, kind, slug, copy):
         raise
 
 
+LAB_NOT_RAISED = ("{catalog} now holds a private label, which needs `lab: {level}` in its catalog.yml, and the Lab could not write it. "
+                  "Fix: set `lab: {level}` there.")
+
+
+def _lab_raised_in(ns):
+    """The catalog.yml of the folder catalog `ns` with its `lab` raised to the level of a private label it now holds, written
+    whole in place of the file (a link is never written through); None, or what to tell the person when it cannot be."""
+    root = Path(os.path.realpath(registry.install_dir(ns)))
+    file, temporary = root / registry.CATALOG_FILE, f".{registry.CATALOG_FILE}.lab-{secrets.token_hex(4)}"
+    catalog = (registry.inputs().get(ns) or {}).get("name") or ns
+    try:
+        mode = os.lstat(file).st_mode
+        if not stat.S_ISREG(mode):
+            raise OSError("not a file")
+        raised = lab_raised(file.read_text(encoding="utf-8"))
+        if raised is None:
+            return None
+        install.safe_write(root, temporary, raised.encode("utf-8"), 0o644)
+        os.chmod(root / temporary, stat.S_IMODE(mode))
+        os.replace(root / temporary, file)
+    except (OSError, ValueError, CatalogError):   # install.Unsafe is one
+        with contextlib.suppress(OSError):
+            os.unlink(root / temporary)
+        return LAB_NOT_RAISED.format(catalog=catalog, level=LABEL_LEVEL)
+    return None
+
+
 def _clear(path):
     """Removes a file or a folder that the Lab made and left, never following a link."""
     if os.path.islink(path) or os.path.isfile(path):
@@ -1107,9 +1135,15 @@ def private_of(text, uid, folder=None):
 
 
 def _private_of(text, uid, folder=None):
-    """private_of as (the id of that private catalog of Git when the Lab knows it, its name): a label says only a name, so its
-    id is None; (None, None) when it is nobody's private content."""
-    source = private_source(text, folder)
+    """private_of as (the id of that private catalog of Git when the Lab knows it, its name); (None, None) when it is nobody's
+    private content. A label says a name, for people: its id is the one of the catalog the copy's chain leads to (copy_of, which
+    the Lab wrote with the label), when that catalog has that name; else None."""
+    said = _said(text or "", folder)
+    source = _private_said(said)
+    if source and source[2] is None and said[1]:   # a label, on a copy that says whose copy it is
+        chain = _private_said((None, said[1]))
+        if chain and chain[2] is not None and chain[1] == source[1] and registry.entry(chain[0]) is not None:
+            return chain[0], source[1]
     if source:
         return (source[0] if source[2] is not None else None), source[1]
     try:
@@ -1163,12 +1197,15 @@ def mark(text, uid):
 
 def _unmarked(copy, kind, slug, private=None, name=None):
     """The copy without `x-gravitee.copy_of`: whose copy an item of this machine is, which an item of a catalog never says; and
-    with `private`, the name of the private catalog what it holds comes from, as its label, which then goes with it. The change is
+    with `private`, the name of the private catalog what it holds comes from, as its label, which then goes with it; without, no
+    label, the one it had included (it goes back to the very catalog the label names, or it is nobody's private content). The change is
     made to the file as it is (`kept`) and checked as Compose reads it there (`rewritten`), also when the Lab's reader sees nothing
     to change, then written for its new place as `text` was (`place`): else the refusal naming the item (`name`)."""
-    edited = labelled(unmark(copy.kept), private) if private else unmark(copy.kept)
-    rewritten(copy.kept, edited, {"copy_of": None, **({"private_from": private} if private else {})}, name or slug,
-              "its private label and whose copy it is" if private else "whose copy it is", copy.folder)
+    edited = labelled(unmark(copy.kept), private)   # without `private`, a label it had goes: it goes back to that very catalog
+    labelled_before = bool(block.value(copy.kept, "private_from"))
+    rewritten(copy.kept, edited, {"copy_of": None, "private_from": private}, name or slug,
+              "its private label and whose copy it is" if private or labelled_before else "whose copy it is", copy.folder,
+              f"{slug}.yml" if kind == "setup" else "compose.yml")
     if edited == copy.kept:
         return copy
     text = moves.repoint(edited, *copy.place) if copy.place else edited
@@ -1218,12 +1255,16 @@ def _unread(name, error, known=()):
         unit = paths.unit_of(rel)   # its name as its own block says it, else its folder's
         file = paths.ROOT / rel
         data = (_read(file, bare.TEXT_FILE + 1) if stat.S_ISREG(_mode(file)) else None) or b""
-        culprit = block.value(data.decode("utf-8", "replace"), "name") or unit[1].rsplit("/", 1)[-1]
+        try:
+            said_name = block.value(data.decode("utf-8"), "name")
+        except ValueError:   # not text: its folder names it
+            said_name = None
+        culprit = said_name or unit[1].rsplit("/", 1)[-1]
         break
     return CatalogError("label_unread", NOT_READ.format(name=culprit, error=cause), 409)
 
 
-def rewritten(before, after, changed, name, what="its private label and whose copy it is", folder=None):
+def rewritten(before, after, changed, name, what="its private label and whose copy it is", folder=None, file="compose.yml"):
     """What the Lab wrote in a compose text (`after`, from `before`), checked as the Lab reads it, with Compose in `folder`, where
     the file is: its x-gravitee is the one of `before` with the keys of `changed` set to their values (None: gone, or empty) and
     nothing else, and it still loads. Else the refusal that names the item and says why, decided on what is true now: a file
@@ -1231,16 +1272,16 @@ def rewritten(before, after, changed, name, what="its private label and whose co
     a file that reads (`label_failed`, NOT_WRITTEN). A reading remembered (compose.x_gravitee) says a text was readable, not that
     it is: when what the Lab wrote cannot be read, the file as it is is read again before the Lab takes the fault."""
     where = folder or compose.scratch()
-    known = compose.named_by(before, where)
+    known = compose.named_by(before, where, file)
     try:
-        old = compose.x_gravitee(before, where)
+        old = compose.x_gravitee(before, where, name=file)
     except compose.ComposeError as error:
         raise _unread(name, error, known) from None
     try:
-        new = old if after == before else compose.x_gravitee(after, where)
+        new = old if after == before else compose.x_gravitee(after, where, name=file)
     except compose.ComposeError:
         try:
-            compose.x_gravitee(before, where, fresh=True)
+            compose.x_gravitee(before, where, fresh=True, name=file)
         except compose.ComposeError as error:   # the file itself cannot be read now: not what the Lab wrote
             raise _unread(name, error, known) from None
         raise CatalogError("label_failed", NOT_WRITTEN.format(name=name, what=what), 409) from None   # what the Lab wrote broke it
@@ -1443,6 +1484,8 @@ def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False)
         for k, one, s, other in along:
             _copy_into(to, row["name"], named(k, one), k, s, other)
         _copy_into(to, row["name"], name, kind, slug, copy)
+        if any(carries_label(one.files) for one in [copy, *(other for *_, other in along)]):
+            needed = max(needed, LABEL_LEVEL)   # the label is in the files copied, not in the person's: older Labs count it
         _raise_lab(to, needed)
     _remember_renames(to, shared, renames)
     return {"copied": row["name"]}

@@ -680,7 +680,8 @@ def copy(kind, uid, users=False, allow=False):
                 edited = _mark(labelled(unmark(text), private), one) or text
                 shown = _name(_units(found), node)
                 rewritten(text, edited, {"copy_of": one, "private_from": private}, _slug(one) if shown == one else shown,
-                          "that it is your copy" + (" and its private label" if private else ""), compose_file.parent)
+                          "that it is your copy" + (" and its private label" if private else ""), compose_file.parent,
+                          compose_file.name)
                 texts[node] = moves.repoint(edited, here, there, table)
 
         def write(root):

@@ -259,6 +259,8 @@ def drop(text, key, override=False):
     if style == "flow":
         kept = [text[start:end] for name, start, end in entries if name != key]
         inner = ",".join(kept)
+        if gone and text[block[1] + 1:block[1] + 2] != " ":   # the first entry gone: the next starts where it did
+            inner = inner.lstrip(" ")
         if merged:
             inner = f' {key}: ""' + ("," + inner if inner.strip() else "")
         return text[:block[1] + 1] + inner + text[block[2]:]

@@ -399,7 +399,7 @@ export async function share(item) {
     const to = await chooseWhere(item, found.destinations, found.checks);
     if (!to) return;
     const done = await busy(key, "share", api(route, { to }));
-    if (done.copied !== undefined) toast("Copied");
+    if (done.copied !== undefined) toast(done.warning ? `Copied. ${done.warning}` : "Copied", !!done.warning);
     else {
       sharedNotice(item, done);
       toast("Shared");

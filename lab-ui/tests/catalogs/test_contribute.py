@@ -670,6 +670,74 @@ class Judged(Seam):
         self.assertIsNone(contribute._label_in(("partner", "Partner fixture"), "partner"), "back to that very catalog: nothing to say")
         self.assertEqual(contribute._label_in((None, "Partner fixture"), "partner"), "Partner fixture", "a label names, it is no id")
 
+    COPIED = ('x-gravitee: {private_from: "Partner fixture", copy_of: "@partner/ledger", kind: addon, name: Ledger, '
+              'category: Other, description: Keeps the entries}\nservices: {}\n')   # what Copy to Personal writes
+
+    def test_an_include_that_is_not_text_or_cannot_be_opened_is_a_problem_in_clean_words(self):
+        inner = self.root / ".lab/catalogs/local/addons/inner/compose.yml"
+        inner.parent.mkdir(parents=True)
+        self.addCleanup(lambda: inner.exists() and os.chmod(inner, 0o644))
+        self.item("addon", "outer", "Outer", "x-gravitee: {kind: addon, name: Outer}\ninclude:\n  - ../inner/compose.yml\nservices: {}\n")
+        for name, make in (("latin-1", lambda: inner.write_bytes(b"x-gravitee: {kind: addon, name: Caf\xe9}\nservices: {}\n")),
+                           ("mode 000", lambda: (inner.write_text("services: {}\n"), os.chmod(inner, 0)))):
+            with self.subTest(name):
+                os.chmod(inner, 0o644) if inner.exists() else None
+                make()
+                try:
+                    said = " ".join(self.share("local/outer", check_only=True)["problems"])
+                except CatalogError as error:   # refused before: what it includes is not in the catalog, which says so cleanly
+                    said = error.message
+                self.assertNotIn(str(self.root), said)
+                self.assertNotIn("codec", said)
+                self.assertNotIn("\ufffd", said)
+
+    def test_what_the_lab_writes_in_an_item_whose_include_is_not_text_or_cannot_be_opened_is_refused_in_clean_words(self):
+        base = self.root / ".lab/catalogs/local/addons"
+        inner, outer = base / "inner/compose.yml", "x-gravitee: {kind: addon, name: Outer}\ninclude:\n  - ../inner/compose.yml\nservices: {}\n"
+        inner.parent.mkdir(parents=True)
+        (base / "outer").mkdir()
+        (base / "outer/compose.yml").write_text(outer)
+        self.addCleanup(lambda: os.chmod(inner, 0o644))
+        for name, make, said in (
+                ("latin-1", lambda: inner.write_bytes(b"x-gravitee: {kind: addon, name: Caf\xe9}\nservices: {}\n"),
+                 "Compose cannot read .lab/catalogs/local/addons/inner/compose.yml"),
+                ("mode 000", lambda: (inner.write_text("services: {}\n"), os.chmod(inner, 0)),
+                 ".lab/catalogs/local/addons/inner/compose.yml cannot be opened")):
+            with self.subTest(name):
+                os.chmod(inner, 0o644) if inner.exists() else None
+                make()
+                with self.assertRaises(CatalogError) as raised:
+                    contribute.rewritten(outer, contribute.labelled(outer, "Partner fixture"), {"private_from": "Partner fixture"},
+                                         "Outer", folder=base / "outer")
+                self.assertEqual((raised.exception.code, raised.exception.message), ("label_unread", f"inner: its compose file "
+                                 f"cannot be read ({said}). Fix: correct it so that docker compose config reads it, then try again."))
+
+    def test_a_copy_shared_back_to_its_own_private_catalog_says_nothing_of_it_and_leaves_its_level(self):
+        self.item("addon", "my-ledger", "Ledger", self.COPIED)
+        done = self.share("local/my-ledger", "partner")
+        remote = self.remote("partner")
+        text = remote.git("show", f"{done['branch']}:addons/my-ledger/compose.yml")
+        self.assertEqual(text, "x-gravitee: {kind: addon, name: Ledger, category: Other, description: Keeps the entries}\nservices: {}")
+        self.assertEqual(remote.git("show", f"{done['branch']}:catalog.yml"), remote.git("show", "main:catalog.yml"),
+                         "its level stays: nothing in it needs more")
+        self.assertEqual(remote.git("log", "-1", "--format=%s", done["branch"]), "Add Ledger")
+        self.assertEqual(contribute._private_of(self.COPIED, "local/my-ledger"), ("partner", "Partner fixture"),
+                         "the label names it for people; whose copy it is says which catalog it is")
+
+    def test_a_copy_shared_to_a_folder_of_another_name_keeps_its_label_and_raises_its_level_once(self):
+        fixtures.install(self, "lab-new", "folder", audience="private", lab=1)
+        root = self.root / ".lab/catalogs/lab-new"
+        before = (root / "catalog.yml").read_text()
+        self.item("addon", "my-ledger", "Ledger", self.COPIED)
+        self.assertNotIn("warning", self.share("local/my-ledger", "lab-new"))
+        (shared,) = root.rglob("my-ledger/compose.yml")
+        self.assertIn('private_from: "Partner fixture"', shared.read_text())
+        after = (root / "catalog.yml").read_text()
+        self.assertEqual(after, before.replace("  lab: 1\n", f"  lab: {contribute.LABEL_LEVEL}\n"), "only its level changes")
+        self.item("addon", "my-other", "Other", self.COPIED.replace("name: Ledger", "name: Other"))
+        self.share("local/my-other", "lab-new")
+        self.assertEqual((root / "catalog.yml").read_text(), after, "raised once")
+
     def test_a_copy_of_a_share_of_a_copy_of_a_private_item_stops_a_share_to_a_public_one(self):
         fixtures.install(self, "lab-new", "folder", audience="private", lab=1)
         shared = self.root / ".lab/catalogs/lab-new/addons/ledger/compose.yml"
@@ -912,6 +980,8 @@ class Published(Seam):
                                    {"name": "A person", "email": "a@example.test"}, copy)
         manifest = remote.git("show", f"{done['branch']}:catalog.yml")
         self.assertIn(f"  lab: {contribute.LABEL_LEVEL}\n", manifest + "\n", "the catalog says the Lab it needs from now on")
+        self.assertEqual(remote.git("log", "-1", "--format=%s", done["branch"]),
+                         f"Add Ledger, with lab {contribute.LABEL_LEVEL} in catalog.yml for its private label", "the commit says what it changes")
         self.assertEqual(remote.git("show", f"{done['branch']}:catalog.yml").replace(f"lab: {contribute.LABEL_LEVEL}", "lab: 1"),
                          remote.git("show", "main:catalog.yml"), "and nothing else of it changes")
         plain = contribute.Copy({"addons/plain/compose.yml": ("100644", b"x-gravitee: {kind: addon, name: Plain}\nservices: {}\n")},

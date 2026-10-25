@@ -1490,6 +1490,17 @@ class XGravitee(ProjectFolder):
         self.assertEqual(compose.x_gravitee(edited, folder, fresh=True), {"kind": "playground", "name": "Mine"},
                          "a text of the Lab's, not on disk, read the same way")
 
+    def test_a_refusal_may_name_the_items_own_file_its_env_file_and_what_it_includes(self):
+        self.write("playgrounds/mine/tool.yml", "services:\n  tool:\n    image: busybox\n")
+        text = "x-gravitee: {kind: playground}\ninclude:\n  - tool.yml\n"
+        known = compose.named_by(text, self.here)
+        self.assertEqual(known, ["playgrounds/mine/compose.yml", "playgrounds/mine/.env", "playgrounds/mine/tool.yml"])
+        self.assertEqual(compose.named_by(text, self.root / "setups", "mine.yml")[:2], ["setups/mine.yml", "setups/.env"])
+        self.assertEqual(compose.cause(f"open {self.root}/playgrounds/mine/.env: permission denied", known),
+                         "playgrounds/mine/.env cannot be opened")
+        self.assertEqual(compose.cause(f"yaml: line 3 in {self.root}/playgrounds/mine/compose.yml: SECRET", known),
+                         "Compose cannot read playgrounds/mine/compose.yml")
+
     def test_no_env_file_of_the_folder_is_read(self):
         text = "x-gravitee: {kind: addon, name: Quiet}\nservices:\n  quiet:\n    image: busybox\n    env_file: [x.env]\n"
         for name, make in (("a pipe", lambda file: os.mkfifo(file)), ("a link to an endless file", lambda file: os.symlink("/dev/zero", file))):

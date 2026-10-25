@@ -230,6 +230,28 @@ class RoundTrip(Case):
             with self.subTest(said):
                 self.assertEqual(compose.cause(said, known), shown, "a name its author chose, or a folder of the Lab's, is never said")
 
+    def test_an_include_that_is_not_text_or_cannot_be_opened_is_a_clean_refusal(self):
+        scratch = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons" / "scratch" / "compose.yml"
+        inner = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons" / "inner" / "compose.yml"
+        inner.parent.mkdir(parents=True)
+        self.addCleanup(lambda: inner.exists() and os.chmod(inner, 0o644))
+        scratch.write_text(scratch.read_text(encoding="utf-8").replace("include:\n", "include:\n  - ../inner/compose.yml\n", 1),
+                           encoding="utf-8")
+        for name, make in (("latin-1", lambda: inner.write_bytes(b"x-gravitee: {kind: addon, name: Caf\xe9}\nservices: {}\n")),
+                           ("mode 000", lambda: (inner.write_text("services: {}\n"), os.chmod(inner, 0)))):
+            with self.subTest(name):
+                os.chmod(inner, 0o644) if inner.exists() else None
+                make()
+                project.forget()
+                for call in (lambda: exports.plan("local/sandbox"), lambda: exports.archive("local/sandbox")):
+                    try:
+                        call()
+                    except paths.NotFound:   # the Lab does not read Sandbox now: there is no such playground to export
+                        pass
+                    except CatalogError as error:
+                        self.assertNotIn(str(paths.ROOT), error.message)
+                        self.assertNotIn("codec", error.message)
+
     def test_whose_copy_an_item_is_never_leaves_however_its_yaml_says_it(self):
         scratch = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons" / "scratch" / "compose.yml"
         text = scratch.read_text(encoding="utf-8")
@@ -532,6 +554,27 @@ class FromCatalogs(Case):
         self.assertIn(f"unit.key x-gravitee.private_from kinds=any since={contribute.LABEL_LEVEL}", lines, "the level of the lock")
         self.assertEqual(contribute.lab_raised("x-gravitee-catalog:\n  lab: 1\n"), f"x-gravitee-catalog:\n  lab: {contribute.LABEL_LEVEL}\n")
         self.assertIsNone(contribute.lab_raised(f"x-gravitee-catalog:\n  lab: {contribute.LABEL_LEVEL}\n"))
+
+    def test_a_copy_of_an_item_whose_include_is_not_text_or_cannot_be_opened_is_a_clean_refusal(self):
+        text = open("tests/data/catalogs/partner/addons/ledger/compose.yml").read()
+        fixtures.install(self, "partner", kind="git", audience="private",
+                         files={"addons/ledger/compose.yml": text.replace("services:", "include:\n  - ../inner/compose.yml\nservices:", 1),
+                                "addons/inner/compose.yml": "services: {}\n"})
+        inner = paths.ROOT / paths.CATALOGS_DIR / "partner" / "addons" / "inner" / "compose.yml"
+        self.addCleanup(lambda: os.chmod(inner, 0o644))
+        for name, make in (("latin-1", lambda: inner.write_bytes(b"x-gravitee: {kind: addon, name: Caf\xe9}\nservices: {}\n")),
+                           ("mode 000", lambda: (inner.write_text("services: {}\n"), os.chmod(inner, 0)))):
+            with self.subTest(name):
+                os.chmod(inner, 0o644)
+                make()
+                project.forget()
+                try:
+                    moving.copy("addon", "@partner/ledger")
+                except CatalogError as error:
+                    self.assertNotIn(str(paths.ROOT), error.message)
+                    self.assertNotIn("codec", error.message)
+                    self.assertNotIn("\ufffd", error.message)
+                shutil.rmtree(paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons" / "ledger", ignore_errors=True)
 
     def test_a_label_says_any_name_of_a_catalog_as_it_is(self):
         names = ['Partner "core"', "C:\\labs\\partner", "Partner's", "Partner: core", "Partner # core", "Zürich 東京", "  padded  "]

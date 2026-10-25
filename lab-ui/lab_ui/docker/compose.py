@@ -13,6 +13,7 @@ import hashlib
 import importlib
 import json
 import os
+import posixpath
 import re
 import shutil
 import signal
@@ -441,7 +442,10 @@ def _closure(path, skip=(), text=None):
         file = todo.pop(0)
         if file not in found:
             found.append(file)
-            named = _targets(file, text) if file == path and text is not None else includes(file)
+            try:
+                named = _targets(file, text) if file == path and text is not None else includes(file)
+            except (OSError, ValueError):   # not text, or not readable: Compose says what is wrong with it
+                named = []
             todo += [target for target in named if target not in skip]
     return found
 
@@ -593,7 +597,7 @@ def _empty_env():
     return file
 
 
-def x_gravitee(text, folder, fresh=False):
+def x_gravitee(text, folder, fresh=False, name="compose.yml"):
     """The x-gravitee block of a compose text as Compose reads it in `folder`, where the item is, the way raw() reads the item for
     gather: what it includes is found from there, and what it includes under the catalogs' folder that is not there is left out
     by the same rule and the same code (left_out, _readable), so that the readings agree; an included file never brings an x- key
@@ -601,7 +605,8 @@ def x_gravitee(text, folder, fresh=False):
     .env and no env_file read. Nothing of the project is written: the text is read as a copy in a folder of this run. A copy of
     what it answered, None for no block. ComposeError when Compose cannot read it, takes more than ALONE_TIMEOUT seconds, or
     answers more than ALONE_OUTPUT: never a wait without end. The same text in the same folder is answered from what was read of
-    it before, here or by raw(), unless `fresh`: a reading remembered says the text was readable then, not that it is now."""
+    it before, here or by raw(), unless `fresh`: a reading remembered says the text was readable then, not that it is now.
+    `name`: the file's name in `folder`, by which Compose's words name it."""
     folder = Path(folder)
     key = _key_of(text, folder)
     if not fresh:
@@ -618,7 +623,7 @@ def x_gravitee(text, folder, fresh=False):
         rc, out, err = run([*COMPOSE, "--project-directory", str(folder), "--env-file", str(_empty_env()), "-f", "-", *asked],
                            cwd=folder if folder.is_dir() else None, given=_policies_written(text), **quiet)
     else:
-        path = f"{rel}/compose.yml" if rel != "." else "compose.yml"   # its name changes nothing of what its includes name
+        path = f"{rel}/{name}" if rel != "." else name
         with _readable(path, left_out(text, path), text) as (arguments, originals):
             rc, out, err = run([*COMPOSE, "--env-file", str(_empty_env()), *arguments, *asked], **quiet)
             for written, original in originals.items():   # Compose names the copy it read: the file is the original
@@ -661,15 +666,15 @@ def cause(error, known=()):
     return f"Compose cannot read {file}" if file else "Compose cannot read it"
 
 
-def named_by(text, folder):
-    """The project files the compose `text`, in `folder` of the project, reaches through its includes: those a refusal may name
-    (cause). None outside the project."""
+def named_by(text, folder, name="compose.yml"):
+    """The project files a refusal may name (cause) of the compose `text`, the file `name` in `folder` of the project: the file
+    itself, its folder's .env, which Compose reads with it, and the files its includes reach. None outside the project."""
     try:
         rel = Path(folder).relative_to(ROOT).as_posix()
     except ValueError:
         return []
-    path = f"{rel}/compose.yml" if rel != "." else "compose.yml"
-    return _closure(path, (), text)[1:]
+    path = f"{rel}/{name}" if rel != "." else name
+    return [path, f"{posixpath.dirname(path)}/.env" if "/" in path else ".env", *_closure(path, (), text)[1:]]
 
 
 def _remember(key, found):
