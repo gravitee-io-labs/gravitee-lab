@@ -242,8 +242,8 @@ class Fixes(Case):
         self.assertEqual(sorted(SPEC_FIXES), [f"T{number:02d}" for number in range(1, 28)])
 
     def test_the_rules_the_standard_does_not_table_have_a_fix_of_the_same_kind(self):
-        self.assertEqual(sorted(set(trust.FIXES) - set(SPEC_FIXES)), ["N01", "N02", "N03", "N04", "N05", "T28"])
-        for code in ("T28", "N01", "N02", "N03", "N04", "N05"):
+        self.assertEqual(sorted(set(trust.FIXES) - set(SPEC_FIXES)), ["N01", "N02", "N03", "N04", "N05", "T28", "T29"])
+        for code in ("T28", "T29", "N01", "N02", "N03", "N04", "N05"):
             self.assertRegex(trust.FIXES[code], r"^[A-Z].*\.$", code)
 
     def test_a_fix_is_a_plain_sentence(self):
@@ -2073,6 +2073,17 @@ class Includes(Golden):
     def test_t27_a_readable_unit_has_no_such_reason(self):
         self.silent(CLEAN, "T27")
 
+    def test_t29_an_item_that_says_whose_copy_it_is_is_blocked_and_one_of_this_machine_is_not(self):
+        def claims(arguments):
+            arguments["unit"]["meta"]["copy_of"] = "tour"
+        self.assertEqual(self.changed(CLEAN, claims)["reasons"], [line("T29")])
+        self.silent(CLEAN, "T29")
+
+        def mine(arguments):
+            claims(arguments)
+            arguments["context"]["local"] = True
+        self.assertEqual(self.changed(CLEAN, mine)["reasons"], [], "the person's copy says it, as the Lab wrote it")
+
     def test_t28_a_class_h_finding_with_no_declaration_is_told_off(self):
         self.assertEqual(self.judge("t03-privileged", listed=True)["reasons"], [line("T28", service="hostile-privileged")])
 
@@ -2554,7 +2565,7 @@ class Vocabulary(Case):
         self.assertEqual({code: len(rule["lines"]) for code, rule in trust.RULES.items() if len(rule["lines"]) > 1},
                          {"T06": 4, "T18": 3, "T19": 2, "T26": 3})
         self.assertEqual(sorted(trust.RULES, key=lambda code: (code[0], int(code[1:]))),
-                         [f"N0{n}" for n in range(1, 6)] + [f"T{n:02d}" for n in range(1, 29)])
+                         [f"N0{n}" for n in range(1, 6)] + [f"T{n:02d}" for n in range(1, 30)])
         for code, rule in trust.RULES.items():
             self.assertIn(rule["class"], "PHN")
             self.assertEqual(rule["class"] == "H", code in {f"T{n:02d}" for n in range(3, 12)})

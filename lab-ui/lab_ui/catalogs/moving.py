@@ -52,7 +52,7 @@ from pathlib import Path
 from .. import paths
 from ..library import moves, personal as personals, project
 from . import registry, resolve, service
-from .contribute import _cause, labelled, mark as _mark, private_of, rewritten, unmark
+from .contribute import labelled, mark as _mark, private_of, rewritten, unmark
 from .registry import CatalogError
 
 # The rules of the policy that only say an item takes more of this machine (class H), and the one that says it needs such an item
@@ -167,8 +167,7 @@ def _held(found, moving):
     return next(filter(None, (replaced_on(found, kind, _slug(uid)) for kind, uid in moving)), "")
 
 
-CLAIMED = ("says it is the copy of an item of this Lab (x-gravitee.copy_of), which only this Lab writes. Fix: ask for its file "
-           "again, without copy_of.")
+CLAIMED = "says it is a copy of an item of this Lab, which only this Lab writes: it cannot run. Fix: ask for its file again, without copy_of."
 
 
 def _claims(kind, uid):
@@ -194,7 +193,8 @@ def placed_without_claims(rels):
             read = list(pool.map(one, rels))
         for rel, (config, why) in read:
             if config is None:
-                raise _fail("placed_unread", UNREAD.format(names=_names_of([rel]), why=_cause(why)), 409)
+                said = why if why.startswith("Compose") else why[:1].lower() + why[1:]   # within a sentence
+                raise _fail("placed_unread", UNREAD.format(names=_names_of([rel]), why=said), 409)
             said = config.get("x-gravitee")
             if isinstance(said, dict) and said.get("copy_of"):
                 raise _fail("twin_claimed", f"{_names_of([rel])} {CLAIMED}")
@@ -555,10 +555,10 @@ def _bring(old, new, rel):
         files += sorted(path for path in (old / "secrets").rglob("*") if path.is_file() or path.is_symlink())
     for path in files:
         inside = path.relative_to(old)
-        if os.path.lexists(new / inside) or not _kept().carry(path, new / inside):
+        if os.path.lexists(new / inside) or not _kept().carry(path, new / inside, new):
             pairs.append((path, f"{rel}/{inside.as_posix()}"))
     if os.path.lexists(old / ".state"):
-        if os.path.lexists(new / ".state") or not _kept().carry(old / ".state", new / ".state"):
+        if os.path.lexists(new / ".state") or not _kept().carry(old / ".state", new / ".state", new):
             pairs.append((old / ".state", f"{rel}/.state"))
     return pairs
 

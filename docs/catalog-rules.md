@@ -24,7 +24,7 @@ Every rule that `catalog.py check` and the stages of `catalog.py ci` can print, 
 | [End-to-end plan](#end-to-end-plan) | `E2E01` to `E2E05` |
 | [Links stage](#links-stage) | `LK01` |
 | [Scan stage](#scan-stage) | `SC01` |
-| [The Lab's trust policy](#the-labs-trust-policy) | `T01` to `T28` |
+| [The Lab's trust policy](#the-labs-trust-policy) | `T01` to `T29` |
 | [The notes of the trust policy](#the-notes-of-the-trust-policy) | `N01` to `N05` |
 
 ## Managed files
@@ -1196,6 +1196,15 @@ Every rule that `catalog.py check` and the stages of `catalog.py ci` can print, 
 - **Message**: Uses this machine without saying why: {service}. Fix: Say why in `x-gravitee.host_access`, one reason for each service that uses this machine, or remove what it takes.
 - **Why**: The Lab will not run an item that breaks this rule without the person agreeing to what it takes of their machine.
 - **Fix**: Say why in `x-gravitee.host_access`, one reason for each service that uses this machine, or remove what it takes.
+- **At Add**: Blocked at Add, Update and Start, with this reason.
+
+### T29
+
+*Error.* The Lab's trust policy, class P.
+
+- **Message**: Says it is a copy of an item of this Lab, which only this Lab writes. Fix: Remove `x-gravitee.copy_of`: only the Lab writes it, in the person's own copy of an item.
+- **Why**: The Lab will not run an item that breaks this rule without the person agreeing to what it takes of their machine.
+- **Fix**: Remove `x-gravitee.copy_of`: only the Lab writes it, in the person's own copy of an item.
 - **At Add**: Blocked at Add, Update and Start, with this reason.
 
 ## The notes of the trust policy

@@ -87,9 +87,23 @@ def settings_of(folder: Path):
             if item.is_dir() and not item.is_symlink() for name in MACHINE_FILES if os.path.lexists(item / name)]
 
 
-def carry(source: Path, target: Path):
+def _through_link(target: Path, within: Path):
+    """Whether the way from `within` to `target` passes a link (`within` itself included): what is written there would land
+    wherever the link leads."""
+    for folder in [*target.parents]:
+        if os.path.islink(folder):
+            return True
+        if folder == within or folder == folder.parent:
+            return False
+    return False
+
+
+def carry(source: Path, target: Path, within: Path):
     """A file or folder of the person's moved to `target`, else copied (what Docker made as root may only be read), never half,
-    never over what is there: answers whether it is there now. It never raises: what cannot be placed stays where it is."""
+    never over what is there, and never through a link on the way from `within`, the folder it goes in: answers whether it is
+    there now. It never raises: what cannot be placed stays where it is."""
+    if _through_link(target, within):
+        return False
     try:
         target.parent.mkdir(parents=True, exist_ok=True)   # a file where a folder must be: it cannot go there, and is said
     except OSError:
@@ -126,7 +140,7 @@ def keep(key, digest, pairs, names=None):
     found_ = record()
     found_["kept"][key] = [*_lines(found_, key), {"folder": folder.name, "digest": digest, "names": dict(names or {})}]
     write_record(found_)
-    failed = [source for source, rel in pairs if not carry(source, folder / rel)]
+    failed = [source for source, rel in pairs if not carry(source, folder / rel, folder)]
     if len(failed) == len(pairs):
         forget(key, folder)
         return None, failed

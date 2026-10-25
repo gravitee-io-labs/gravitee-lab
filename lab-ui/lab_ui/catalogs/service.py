@@ -620,18 +620,12 @@ def _row_of_candidate(meta, kind, audience, listed, host, ignored, units):
             "error": None, "pending": None, "listed": listed, "host": host}
 
 
-def _review(ns, meta, kind, audience, listed, host, ignored, replacing=False, said=None):
+def _review(ns, meta, kind, audience, listed, host, ignored, replacing=False):
     """The judgement of the staged catalog `ns` (the candidate of an Add, the new version of an Update): ({kind: {id: unit}},
     {(kind, id): own verdict}, [the keys of the catalog's own units]). The catalog is judged as installed under its name,
-    allowed to use this machine as `host` says ("listed", "allowed" or "no"), against everything else installed. `said`: a dict
-    that gets the x-gravitee of each of its units as the judgement read it ({id: block})."""
+    allowed to use this machine as `host` says ("listed", "allowed" or "no"), against everything else installed."""
     row = _row_of_candidate(meta, kind, audience, listed, host, ignored, project.staged_units(ns))
-    blocks = {} if said is not None else None
-    judged, verdicts = project.judge_staged(ns, meta, row, replacing, blocks)
-    for file, block in (blocks or {}).items():
-        found = paths.unit_of(file)
-        if found:
-            said[found[1]] = block
+    judged, verdicts = project.judge_staged(ns, meta, row, replacing)
     mine = [(k, uid) for k in paths.KINDS for uid, unit in judged[k].items() if unit.get("catalog") == ns]
     return judged, verdicts, mine
 
@@ -886,11 +880,10 @@ def _check_folder(asked):
             staged = install.stage(asked, f"new-{ticket}", None, "", [], 0)
             meta = _read_meta(staged, asked, contract, [])
             staged = install.rename_stage(staged, meta["id"])
-            said = {}
-            judged, verdicts, mine = _review(meta["id"], meta, "folder", "private", False, "allowed", ignored, said=said)
+            judged, verdicts, mine = _review(meta["id"], meta, "folder", "private", False, "allowed", ignored)
         preview = _preview(ticket, meta, "folder", asked, "private", False, ignored, judged, verdicts, mine)
         _keep(ticket, "add", ns=meta["id"], staged=staged, address=asked, branch=None, audience="private", roots=[],
-              meta=meta, store=None, listed=False, judged=sorted(uid for _, uid in mine), said=said)
+              meta=meta, store=None, listed=False, judged=sorted(uid for _, uid in mine))
         return preview
     except BaseException:
         _clean_up(ticket, staged, None)

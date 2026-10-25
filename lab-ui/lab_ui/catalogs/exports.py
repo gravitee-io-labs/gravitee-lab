@@ -53,7 +53,7 @@ from pathlib import Path
 from .. import paths
 from ..docker import images
 from ..library import moves, project
-from . import contribute, defaults, kept, manifest, moving, registry, resolve, service, standard
+from . import contribute, defaults, kept, manifest, moving, registry, resolve, service, standard, trust
 from . import store as bare
 from .registry import CatalogError
 
@@ -476,7 +476,7 @@ def added(ns, data):
         return   # another file of that name, or files that changed after the preview: the kept settings stay where they are
     for rel, name in kept.settings_of(folder):
         if (where / rel).is_dir() and not os.path.lexists(where / rel / name):
-            kept.carry(folder / rel / name, where / rel / name)
+            kept.carry(folder / rel / name, where / rel / name, where)
     if not kept.settings_of(folder):
         kept.forget(ns, folder)
 
@@ -713,8 +713,8 @@ def to_personal(ticket, allow=False):
     if claimed:
         one = len(claimed) == 1
         raise _fail("twin_claimed", f"{', '.join(claimed)} {'says it is a copy' if one else 'say they are copies'} of an item of this "
-                                    f"Lab, which only this Lab writes: {'it' if one else 'they'} cannot go to Personal. "
-                                    f"{'It runs' if one else 'They run'} in Imported.", 409)
+                                    f"Lab, which only this Lab writes: {'it' if one else 'they'} cannot run. Fix: ask for "
+                                    f"{'its file' if one else 'their file'} again, without copy_of.", 409)
     uses = data.get("uses") or []
     if uses and allow is not True:
         raise _fail("allow_machine", f"{', '.join(uses)} uses this machine: allow it to import it to Personal.")
@@ -764,7 +764,7 @@ def _kept_to_personal(top, content, items):
     home, names, stayed = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL, {rel: name for _, _, rel, name, _ in items}, []
     for rel, name in kept.settings_of(folder):
         target = home / rel / name
-        if rel not in names or not (home / rel).is_dir() or os.path.lexists(target) or not kept.carry(folder / rel / name, target):
+        if rel not in names or not (home / rel).is_dir() or os.path.lexists(target) or not kept.carry(folder / rel / name, target, home):
             stayed.append(names.get(rel, rel.rsplit("/", 1)[-1]))
     if not stayed:
         kept.forget(top, folder)
@@ -872,14 +872,7 @@ def _extract(archive, members, folder):
         os.chmod(target, mode)
 
 
-TWIN_CLAIMED = "Says it is the copy of an item of this Lab (x-gravitee.copy_of), which only this Lab writes"
-
-
-def claims_twin(said):
-    """Why an item someone else wrote cannot go to Personal for what its x-gravitee says (`said`, as the judgement of the import
-    read it: with Compose, in its place, the way the Lab reads it once added): that it is the copy of an item of this Lab, a
-    twin only this Lab makes; "" when it does not say so."""
-    return TWIN_CLAIMED if isinstance(said, dict) and said.get("copy_of") else ""
+TWIN_CLAIMED = trust.line("T29")   # an item that says whose copy it is: only this Lab writes copy_of, in Personal
 
 
 def _judged_import(final, top, content, reused):
@@ -891,23 +884,20 @@ def _judged_import(final, top, content, reused):
         raise _fail("import_invalid", f"{NOT_A_PLAYGROUND} Its folder, {top}, is not the id of its catalog, {preview['catalog']['id']}.")
     items = _for_personal(final, top)
     # What the judgement did not produce, since Compose could not read it, is judged by nothing: it cannot go to Personal
-    held = service._held(preview["ticket"], "add")
-    judged, said = set(held.get("judged") or ()), held.get("said") or {}
+    judged = set(service._held(preview["ticket"], "add").get("judged") or ())
     unread = [name for _, slug, _, name, _ in items if f"@{top}/{slug}" not in judged]
     preview["blocked"] = [*(preview.get("blocked") or ()), *({"kind": kind, "id": f"@{top}/{slug}", "name": name,
                                                               "reasons": ["Its compose file cannot be read"]}
-                                                             for kind, slug, _, name, _ in items if name in unread)]
-    # A file never says whose copy an item is: only this Lab writes copy_of, in Personal. Taken from what the judgement read, with
-    # the reader the Lab reads the item with later, so that no way of writing YAML hides it; an item that says it cannot go to Personal
-    for kind, slug, rel, name, _ in items:
-        if name not in unread:
-            claim = claims_twin(said.get(f"@{top}/{slug}"))
-            if claim:
-                preview["blocked"].append({"kind": kind, "id": f"@{top}/{slug}", "name": name, "reasons": [claim]})
-    # What only says it is a copy runs in Imported, where copy_of is not read: it is kept from Personal with words of its own
-    other = {one.get("name") for one in preview.get("blocked") or () if any(reason != TWIN_CLAIMED for reason in one.get("reasons") or ())}
-    blocked = list(dict.fromkeys(one.get("name") for one in preview.get("blocked") or () if one.get("name") in other))
-    claimed = list(dict.fromkeys(one.get("name") for one in preview.get("blocked") or () if one.get("name") not in other))
+                                                             for kind, slug, _, name, _ in items if f"@{top}/{slug}" not in judged)]
+    # An item that says whose copy it is is blocked by the policy (T29), as the Lab reads it once added; Import to Personal says it
+    # in words of its own when that is all that blocks it. Items are told apart by id: two may have the same name
+    reasons, names = {}, {}
+    for one in preview["blocked"]:
+        reasons.setdefault(one.get("id"), []).extend(one.get("reasons") or ())
+        names.setdefault(one.get("id"), one.get("name"))
+    claimed_ids = [uid for uid, lines in reasons.items() if lines and all(line == TWIN_CLAIMED for line in lines)]
+    blocked = [names[uid] for uid in reasons if uid not in claimed_ids]
+    claimed = [names[uid] for uid in claimed_ids]
     # What Personal would run unjudged that takes more of this machine: the person allows it, as for a Move
     named = {f"@{top}/{slug}": name for _, slug, _, name, _ in items}
     uses = list(dict.fromkeys(named.get(one.get("id"), one.get("name")) for one in (preview.get("rows") or {}).get("uses_machine") or ()))

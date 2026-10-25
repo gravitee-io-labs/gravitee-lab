@@ -269,12 +269,11 @@ class Moving(Case):
         before = self.files_of(mine)
         project.forget()
         real = project.read_own
-        self.patch(moving.project, "read_own", lambda file: (None, f"open {paths.ROOT}/shared/x.yml: no such file or directory")
-                   if "scratch" in file else real(file))
+        self.patch(moving.project, "read_own", lambda file: (None, "shared/x.yml is not there") if "scratch" in file else real(file))
         with self.assertRaises(CatalogError) as caught:
             moving.move("playground", "@sandbox/sandbox", True)
         self.assertEqual((caught.exception.code, caught.exception.message), ("placed_unread", "Scratch could not be read once in "
-                         "Personal (open shared/x.yml: no such file or directory), so Personal is as it was. Fix: keep it in "
+                         "Personal (shared/x.yml is not there), so Personal is as it was. Fix: keep it in "
                          "Imported, where the Lab says why."))
         self.assertEqual(self.files_of(mine), before)
         self.assertFalse(self.local("addons/scratch").exists())

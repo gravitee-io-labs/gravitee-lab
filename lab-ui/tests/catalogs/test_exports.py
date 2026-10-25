@@ -197,18 +197,24 @@ class RoundTrip(Case):
         with self.assertRaises(CatalogError) as caught:
             contribute.rewritten(text, contribute.unmark(text), {"copy_of": None}, "Sandbox", "whose copy it is", sandbox)
         self.assertEqual(caught.exception.code, "label_unread", "not the Lab's writing")
-        self.assertEqual(caught.exception.message, "Sandbox: its compose file cannot be read (open shared/extra.yml: no such file or "
-                                                   "directory). Fix: correct it so that docker compose config reads it, then try again.")
+        self.assertEqual(caught.exception.message, "Sandbox: its compose file cannot be read (shared/extra.yml is not there). Fix: "
+                                                   "correct it so that docker compose config reads it, then try again.")
 
-    def test_what_compose_says_is_shown_with_the_paths_of_the_lab_and_its_end(self):
-        long = f"validating {paths.ROOT}/.lab/catalogs/local/addons/scratch/compose.yml: " + "a word " * 40 + "is not allowed here"
-        error = contribute._unread("Sandbox", compose.ComposeError(long))
-        self.assertTrue(error.message.startswith("Scratch: its compose file cannot be read (..."), error.message)
-        cause = error.message[error.message.index("(") + 1:error.message.index("). Fix:")]
-        self.assertTrue(cause.endswith("a word is not allowed here"), cause)
-        self.assertNotIn(str(paths.ROOT), error.message)
-        self.assertTrue(cause[3:4].isalpha() and cause[3:].startswith(("a ", "word ")), "cut where a word starts")
-        self.assertLessEqual(len(cause), contribute.CAUSE + 3)
+    def test_a_refusal_names_the_item_compose_names_by_its_path_in_the_lab_and_never_shows_what_a_file_holds(self):
+        said = (f"failed to read {paths.ROOT}/.lab/catalogs/local/addons/scratch/x.env: line 3: unexpected character "
+                f"\"SECRET=hunter2\" in variable name, while reading {paths.ROOT}/.lab/catalogs/local/addons/scratch/compose.yml")
+        error = contribute._unread("Sandbox", compose.ComposeError(said))
+        self.assertEqual(error.message, "Scratch: its compose file cannot be read (Compose cannot read .lab/catalogs/local/addons/"
+                                        "scratch/x.env). Fix: correct it so that docker compose config reads it, then try again.")
+        for gone in ("open /Users/someone/elsewhere/compose.yml: no such file or directory",
+                     f"open {paths.ROOT}/shared/x.yml: permission denied", "docker did not answer within 15 s"):
+            with self.subTest(gone):
+                self.assertNotIn("/Users/someone", contribute._unread("Sandbox", compose.ComposeError(gone)).message)
+        self.assertEqual([compose.cause(one) for one in ("open /Users/someone/elsewhere/compose.yml: no such file or directory",
+                                                          f"open {paths.ROOT}/shared/x.yml: permission denied",
+                                                          "docker did not answer within 15 s", "yaml: line 2: did not find key")],
+                         ["compose.yml is not there", "shared/x.yml cannot be opened", "Compose took too long to read it",
+                          "Compose cannot read it"])
 
     def test_whose_copy_an_item_is_never_leaves_however_its_yaml_says_it(self):
         scratch = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons" / "scratch" / "compose.yml"
@@ -1018,11 +1024,22 @@ class Claims(Case):
         "decoy in a scalar": "x-other: |\n  x-gravitee:\n    name: decoy\nx-gravitee: {" + HEAD + ", copy_of: tour}\n" + BODY,
         "crlf": ("x-gravitee:\n  kind: playground\n  name: Evil\n  category: Other\n  description: d\n  copy_of: tour\n" + BODY).replace("\n", "\r\n"),
         "second document": "x-gravitee: {" + HEAD + "}\n" + BODY + "---\nx-gravitee: {" + HEAD + ", copy_of: tour}\n" + BODY,
-        # An include list as the Lab's own line reader would take it, in a string: leaving it out once dropped the copy_of after it
-        "include in a string": 'x-gravitee: {' + HEAD + ', note: "\ninclude:\n- a.yml\n  ", copy_of: tour, z: "\n"}\n' + BODY,
     }
 
-    def test_the_preview_blocks_each_forged_item_and_says_the_claim_the_judgement_read(self):
+    # What the Lab's line reader of include lists could be led to take for one, or not, in the person's own files: a file someone
+    # sends that tries it is held by the screen before Compose or that reader see it
+    LOOKS_INCLUDED = {
+        "dash col0": ('x-gravitee: {' + HEAD + ', note: "\ninclude:\n- a.yml\n  ", copy_of: tour, z: "\n"}\n' + BODY, {}),
+        "dash col2": ('x-gravitee: {' + HEAD + ', note: "\ninclude:\n  - a.yml\n   ", copy_of: tour, z: "\n"}\n' + BODY, {}),
+        "other folder": ('x-gravitee: {' + HEAD + ', note: "\ninclude:\n  - ../later/compose.yml\n   ", copy_of: tour, z: "\n"}\n'
+                         + BODY, {}),
+        "reveal": ('x-gravitee: {' + HEAD + ', note: "\ninclude:\n  - ../../addons/x/compose.yml\n   "\n #", copy_of: tour, '
+                   'z: "\n #"\n}\n' + BODY,
+                   {"evil/addons/x/compose.yml": b"x-gravitee: {kind: addon, name: Xtra, category: Other, description: d}\n"
+                                                 b"services:\n  evil-x:\n    image: busybox:1.36\n"}),
+    }
+
+    def test_the_preview_blocks_each_forged_item_by_its_claim_or_by_the_screen(self):
         for name, text in self.FORGED.items():
             with self.subTest(name):
                 try:
@@ -1030,21 +1047,43 @@ class Claims(Case):
                 except CatalogError:
                     continue   # not even read: nothing of it goes anywhere
                 reasons = [reason for one in preview["blocked"] if one["id"] == "@evil/evil" for reason in one["reasons"]]
-                said = service._held(preview["ticket"], "add")["said"]
-                self.assertTrue(reasons, "blocked, by the screen or by its claim")
-                if "@evil/evil" in said:   # read by Compose, as the Lab reads it once added: the claim is what it read
-                    self.assertIn(exports.TWIN_CLAIMED, reasons)
+                held = {"Includes content from outside the catalog", "Reads files outside its folder"}   # the screen's lines (T19)
+                self.assertTrue(exports.TWIN_CLAIMED in reasons or held & set(reasons), reasons)
                 service.forget(preview["ticket"])
 
-    def test_the_include_list_in_a_string_is_a_claim_as_compose_reads_the_file_in_its_place(self):
+    def test_a_text_that_looks_like_an_include_list_is_held_by_the_screen_and_never_reaches_personal(self):
+        for name, (text, extra) in self.LOOKS_INCLUDED.items():
+            with self.subTest(name):
+                preview = exports.receive(evil_zip(playground=text, extra=extra))
+                reasons = [reason for one in preview["blocked"] if one["id"] == "@evil/evil" for reason in one["reasons"]]
+                self.assertIn("Includes content from outside the catalog", reasons)
+                with self.assertRaises(CatalogError):
+                    exports.to_personal(preview["ticket"], allow=True)
+                service.add(preview["ticket"])
+                project.forget()
+                with self.assertRaises(CatalogError):
+                    moving.move("playground", "@evil/evil", True, allow=True)
+                found = project.load()
+                self.assertTrue(found["playgrounds"]["@evil/evil"]["blocked"])
+                self.assertNotIn("local/evil", found["playgrounds"])
+                self.assertIsNone(found["playgrounds"]["tour"].get("twin"))
+                service.remove("evil")
+                project.forget()
+
+    def test_the_label_reader_and_the_lab_read_a_personal_file_alike_whether_what_it_seems_to_include_is_there(self):
         file = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "playgrounds" / "evil" / "compose.yml"
         file.parent.mkdir(parents=True)
-        file.write_text(self.FORGED["include in a string"], encoding="utf-8")
-        (file.parent / "a.yml").write_text("services: {}\n", encoding="utf-8")   # what the string names is there: read as it is
-        read, _ = project.read_own(paths.unit_file("playground", "local/evil"))
-        self.assertEqual(exports.claims_twin(read["x-gravitee"]), exports.TWIN_CLAIMED)
-        self.assertEqual(compose.x_gravitee(file.read_text(encoding="utf-8"), file.parent), read["x-gravitee"],
-                         "the reader of labels reads what the Lab reads")
+        for name, (text, _) in self.LOOKS_INCLUDED.items():
+            for there in (True, False):
+                with self.subTest(name, there=there):
+                    file.write_text(text, encoding="utf-8")
+                    named = file.parent / "a.yml"
+                    named.unlink() if named.exists() else None
+                    if there:
+                        named.write_text("services: {}\n", encoding="utf-8")
+                    read, why = project.read_own(paths.unit_file("playground", "local/evil"))
+                    said = compose.x_gravitee(text, file.parent, fresh=True) if read is not None else None
+                    self.assertEqual(said, (read or {}).get("x-gravitee"), why)
 
     def test_no_way_of_writing_copy_of_makes_a_twin(self):
         for name, text in self.FORGED.items():
@@ -1066,13 +1105,13 @@ class Claims(Case):
         with self.assertRaises(CatalogError) as caught:
             exports.to_personal(preview["ticket"], allow=True)
         self.assertEqual((caught.exception.code, caught.exception.message), ("twin_claimed", "Evil's says it is a copy of an item of "
-                         "this Lab, which only this Lab writes: it cannot go to Personal. It runs in Imported."))
+                         "this Lab, which only this Lab writes: it cannot run. Fix: ask for its file again, without copy_of."))
         service.add(preview["ticket"])
         project.forget()
-        with self.assertRaises(CatalogError) as caught:
+        self.assertEqual(project.load()["playgrounds"]["@evil/evil"]["blocked"], {"reasons": [exports.TWIN_CLAIMED]},
+                         "blocked in Imported too, as any refusal of the policy")
+        with self.assertRaises(CatalogError):
             moving.move("playground", "@evil/evil", False, allow=True)
-        self.assertEqual(caught.exception.message, "Evil's says it is the copy of an item of this Lab (x-gravitee.copy_of), which only "
-                                                   "this Lab writes. Fix: ask for its file again, without copy_of.")
 
     def test_what_slips_by_the_preview_is_caught_once_in_personal_and_undone(self):
         preview = exports.receive(evil_zip(playground=self.FORGED["apostrophe"]))

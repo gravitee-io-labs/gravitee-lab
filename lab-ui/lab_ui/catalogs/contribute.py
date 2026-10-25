@@ -1157,24 +1157,13 @@ def _unmarked_or_said(copy, kind, slug, private, name):
 NOT_WRITTEN = ("{name}: the Lab cannot write {what} in this file. Fix: write its x-gravitee as one block of plain key: value "
                "lines, in a file of one YAML document (in a catalog, ask its author to), then try again.")
 NOT_READ = "{name}: its compose file cannot be read ({error}). Fix: correct it so that docker compose config reads it, then try again."
-CAUSE = 160   # characters of what Compose said that a refusal shows: its end, which says why
 
 
 def _relative(error):
     """What Compose said, the paths of the Lab's folder written from it."""
-    text = str(error).strip().rstrip(".")
+    text = str(error)
     for root in sorted({str(paths.ROOT), os.path.realpath(paths.ROOT)}, key=len, reverse=True):
         text = text.replace(root + "/", "")
-    return text
-
-
-def _cause(error):
-    """What Compose said, for the person: the paths of the Lab's folder written from it, and when it is long, its end, cut where a
-    word starts."""
-    text = _relative(error)
-    if len(text) > CAUSE:
-        tail = text[-CAUSE:]
-        text = "..." + tail[tail.find(" ") + 1:] if " " in tail else "..." + tail
     return text
 
 
@@ -1191,7 +1180,7 @@ def _mode(file):
 def _unread(name, error):
     """The refusal of an item whose file, or a file it includes, Compose cannot read: named by the item whose file Compose names
     (an add-on it includes, say), else by `name`."""
-    cause, culprit = _cause(error), name
+    cause, culprit = compose.cause(error), name
     for found in UNIT_FILE.finditer(_relative(error)):
         unit = paths.unit_of(found.group())
         if unit:   # its name as its own block says it, else its folder's

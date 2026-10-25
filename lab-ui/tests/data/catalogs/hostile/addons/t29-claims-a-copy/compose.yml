@@ -1,0 +1,4 @@
+x-gravitee: {kind: addon, name: Claims a copy, category: Other, description: Says whose copy it is, copy_of: echo}
+services:
+  hostile-copy:
+    image: busybox:1.36

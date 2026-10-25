@@ -1922,12 +1922,11 @@ def _read_staged(ns, units):
     return screen, seeds, screened, unreadable
 
 
-def _staged_inputs(ns, meta, row, replacing, said=None):
+def _staged_inputs(ns, meta, row, replacing):
     """The inputs of the project (`gather`'s) as they would be with the staged catalog installed as `ns`: the live ones, with
     the units of the stage read as `gather` reads a catalog's and put under the names they will have, and the catalog's
     row in `catalogs`. With `replacing`, the units the catalog has now are taken out first (an Update judges the new version in
-    their place). Nothing of the live inputs is changed. `said`: a dict that gets the x-gravitee block of each unit of the stage
-    that Compose read, as it read it ({file under its name: block})."""
+    their place). Nothing of the live inputs is changed."""
     live = loaded()[1]
     swap, units = _alias(ns), staged_units(ns)
     final = f"{paths.CATALOGS_DIR}/{ns}/"
@@ -1958,8 +1957,6 @@ def _staged_inputs(ns, meta, row, replacing, said=None):
             continue
         if found["raw"] is not None:
             merged["raw"][ours] = swap(found["raw"])
-            if said is not None:
-                said[ours] = copy.deepcopy(found["raw"].get("x-gravitee"))
             merged["includes"][ours] = [swap(target) for target in _direct(file, screen)]
             merged["variables"][ours] = []
             if file in seeds:
@@ -2025,14 +2022,14 @@ def staged_unknown(ns):
     return sorted({item for one in found for item in one})
 
 
-def judge_staged(ns, meta, row, replacing=False, said=None):
+def judge_staged(ns, meta, row, replacing=False):
     """The judgement of the staged tree of catalog `ns` as the project would judge it installed under that name, against
     everything installed: ({kind: {id: unit}}, {(kind, id): own verdict}), the units
     of every catalog and of this machine, and the verdict of each unit alone. `meta` is the validated catalog.yml of the stage
     and `row` the catalog's row as `registry.inputs()` gives it (`staged_units` are the units to count in it). With
     `replacing`, the units the catalog has now are left out of the world first: an Update judges the new version in their
-    place. Reads the disk and asks Compose, as `gather` does; changes nothing. `said`: see _staged_inputs."""
-    return judge_inputs(_staged_inputs(ns, meta, row, replacing, said))
+    place. Reads the disk and asks Compose, as `gather` does; changes nothing."""
+    return judge_inputs(_staged_inputs(ns, meta, row, replacing))
 
 
 def brought(unit):
@@ -2060,7 +2057,7 @@ def read_own(file):
     if held:
         return None, held[0]
     config, problem = _raw(file, skip=reach["missing"]) if reach["missing"] else _raw(file)
-    return config, (None if config is not None else (problem or {}).get("message") or "Compose cannot read it")
+    return config, (None if config is not None else compose.cause((problem or {}).get("message") or ""))
 
 
 def loaded():

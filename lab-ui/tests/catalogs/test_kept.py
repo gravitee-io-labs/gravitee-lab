@@ -42,12 +42,27 @@ class Kept(Case):
         (source / "tls").write_text("a file\n")
         (self.root / "b").mkdir()
         (self.root / "b" / "secrets").write_text("a file where a folder must be\n")
-        self.assertFalse(kept.carry(source / "tls", self.root / "b" / "secrets" / "tls"))
+        self.assertFalse(kept.carry(source / "tls", self.root / "b" / "secrets" / "tls", self.root / "b"))
         self.assertTrue((source / "tls").is_file(), "it stays where it is")
         (self.root / "c").mkdir()
         (self.root / "c" / "tls").write_text("theirs\n")
-        self.assertFalse(kept.carry(source / "tls", self.root / "c" / "tls"))
+        self.assertFalse(kept.carry(source / "tls", self.root / "c" / "tls", self.root / "c"))
         self.assertEqual((self.root / "c" / "tls").read_text(), "theirs\n")
+
+    def test_a_setting_never_goes_through_a_link_on_its_way(self):
+        source = self.root / "a" / "secrets"
+        source.mkdir(parents=True)
+        (source / "tls").write_text("a file\n")
+        elsewhere = self.root / "elsewhere"
+        elsewhere.mkdir()
+        (self.root / "item").mkdir()
+        (self.root / "item" / "secrets").symlink_to(elsewhere)
+        self.assertFalse(kept.carry(source / "tls", self.root / "item" / "secrets" / "tls", self.root / "item"))
+        self.assertEqual(list(elsewhere.iterdir()), [], "nothing lands where the link leads")
+        self.assertTrue((source / "tls").is_file(), "it stays where it is")
+        (self.root / "linked").symlink_to(elsewhere)
+        self.assertFalse(kept.carry(source / "tls", self.root / "linked" / "tls", self.root / "linked"), "the folder itself is no link")
+        self.assertTrue(kept.carry(source / "tls", self.root / "item" / "own" / "tls", self.root / "item"))
 
     def test_the_list_is_answered_whatever_goes_or_breaks_while_it_is_read(self):
         self.made("evil")

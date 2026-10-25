@@ -171,7 +171,7 @@ class Seam(Base):
                                       "apps": [], "addons": [], "members": []}
         return found, {"contract": dict(BARE), "catalogs": registry.inputs(), "raw": {}}
 
-    def review(self, ns, meta, kind, audience, listed, host, ignored, replacing=False, said=None):
+    def review(self, ns, meta, kind, audience, listed, host, ignored, replacing=False):
         """The judgement the test dictates: every unit of the staged tree, by the name of its folder, blocked as `against`
         says and using this machine as `uses` says."""
         judged = {"addon": {}, "setup": {}, "playground": {}}
