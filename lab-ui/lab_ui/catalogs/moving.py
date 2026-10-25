@@ -52,7 +52,7 @@ from pathlib import Path
 from .. import paths
 from ..library import moves, personal as personals, project
 from . import registry, resolve, service
-from .contribute import labelled, mark as _mark, private_of, rewritten, unmark
+from .contribute import _private_of, labelled, mark as _mark, rewritten, unmark
 from .registry import CatalogError
 
 # The rules of the policy that only say an item takes more of this machine (class H), and the one that says it needs such an item
@@ -675,11 +675,12 @@ def copy(kind, uid, users=False, allow=False):
                 here = posixpath.dirname(places[node] if k == "setup" else f"{places[node]}/compose.yml")
                 there = posixpath.dirname(f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{_rel(k, _slug(one))}" + ("" if k == "setup" else "/compose.yml"))
                 text = compose_file.read_text(encoding="utf-8")   # what it holds says its private catalog, resolved now, and whose copy it is
-                private = private_of(text, one, compose_file.parent)
+                private_id, private = _private_of(text, one, compose_file.parent)
                 # Changed as it is and checked as Compose reads it where it is, then written for its new place
-                edited = _mark(labelled(unmark(text), private), one) or text
+                edited = _mark(labelled(unmark(text), private, private_id), one) or text
                 shown = _name(_units(found), node)
-                rewritten(text, edited, {"copy_of": one, "private_from": private}, _slug(one) if shown == one else shown,
+                rewritten(text, edited, {"copy_of": one, "private_from": private, "private_id": private_id if private else None},
+                          _slug(one) if shown == one else shown,
                           "that it is your copy" + (" and its private label" if private else ""), compose_file.parent,
                           compose_file.name)
                 texts[node] = moves.repoint(edited, here, there, table)

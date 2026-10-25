@@ -510,7 +510,7 @@ class Judged(Seam):
     def test_the_copy_is_gone_when_the_judgement_fails_too(self):
         self.patch(contribute, "_judged", mock.Mock(side_effect=compose.ComposeError("boom")))
         answer = self.share(check_only=True)
-        self.assertEqual(answer["problems"], ["Does not load with the platform: boom"])
+        self.assertEqual(answer["problems"], ["Does not load with the platform: Compose cannot read it"])
         self.patch(contribute, "_judged", mock.Mock(side_effect=RuntimeError("fault")))
         with self.assertRaisesRegex(RuntimeError, "fault"):
             self.share(check_only=True)
@@ -538,7 +538,8 @@ class Judged(Seam):
         self.patch(contribute, "_judged", judge)
         problems = self.share(check_only=True)["problems"]
         self.assertEqual(len(problems), 1)
-        self.assertEqual(problems[0], "Does not load with the platform: validating compose.yml: services.a must be a mapping\ncompose.yml: bad")
+        self.assertEqual(problems[0], "Does not load with the platform: Compose cannot read .lab/catalogs/local/addons/scratch/compose.yml",
+                         "the item's own file, by its path in the Lab: never the staged copy, nor what Compose quoted of the file")
 
     def test_an_include_of_another_item_of_this_machine_is_refused_with_the_line_of_section_11(self):
         self.item("addon", "tied", "Tied", "include:\n  - ../scratch/compose.yml\nservices: {}\n")
@@ -737,6 +738,31 @@ class Judged(Seam):
         self.item("addon", "my-other", "Other", self.COPIED.replace("name: Ledger", "name: Other"))
         self.share("local/my-other", "lab-new")
         self.assertEqual((root / "catalog.yml").read_text(), after, "raised once")
+
+    def test_a_copy_that_came_home_through_a_folder_catalog_loses_its_label_by_the_id_written_with_it(self):
+        fixtures.install(self, "lab-new", "folder", audience="private", lab=1, name="Team")
+        # what Copy to Personal writes of an item of the folder Team that a share of a copy of @partner/ledger put there
+        text = ('x-gravitee: {private_from: "Partner fixture", private_id: partner, copy_of: "@lab-new/my-ledger", kind: addon, '
+                'name: Ledger, category: Other, description: Keeps the entries}\nservices: {}\n')
+        self.assertEqual(contribute._private_of(text, "local/my-ledger"), ("partner", "Partner fixture"), "whatever the chain says")
+        self.item("addon", "my-ledger", "Ledger", text)
+        done = self.share("local/my-ledger", "partner")
+        remote = self.remote("partner")
+        shared = remote.git("show", f"{done['branch']}:addons/my-ledger/compose.yml")
+        self.assertNotIn("private_", shared)
+        self.assertEqual(remote.git("show", f"{done['branch']}:catalog.yml"), remote.git("show", "main:catalog.yml"))
+
+    def test_a_folder_whose_catalog_yml_is_read_only_keeps_it_and_the_share_says_so(self):
+        fixtures.install(self, "lab-new", "folder", audience="private", lab=1)
+        manifest_file = self.root / ".lab/catalogs/lab-new/catalog.yml"
+        before = manifest_file.read_text()
+        os.chmod(manifest_file, 0o444)
+        self.addCleanup(lambda: os.chmod(manifest_file, 0o644))
+        self.item("addon", "my-ledger", "Ledger", self.COPIED)
+        done = self.share("local/my-ledger", "lab-new")
+        self.assertEqual(done["warning"], contribute.LAB_NOT_RAISED.format(catalog=done["copied"], level=contribute.LABEL_LEVEL))
+        self.assertEqual((manifest_file.read_text(), oct(os.stat(manifest_file).st_mode & 0o777)), (before, "0o444"),
+                         "its author made it read only: the Lab leaves it")
 
     def test_a_copy_of_a_share_of_a_copy_of_a_private_item_stops_a_share_to_a_public_one(self):
         fixtures.install(self, "lab-new", "folder", audience="private", lab=1)
@@ -989,6 +1015,20 @@ class Published(Seam):
         done = contribute._publish("fixture", "Fixture catalog", "Plain", "addon", "plain", address, branch,
                                    {"name": "A person", "email": "a@example.test"}, plain)
         self.assertEqual(remote.git("show", f"{done['branch']}:catalog.yml"), remote.git("show", "main:catalog.yml"))
+
+    def test_a_level_the_lab_cannot_write_in_a_git_catalog_refuses_the_share_and_pushes_nothing(self):
+        address, branch = contribute._address(registry.entry("fixture"), registry.lock_of("fixture"))
+        text = b'x-gravitee: {private_from: "Partner fixture", kind: addon, name: Ledger}\nservices: {}\n'
+        copy = contribute.Copy({"addons/ledger/compose.yml": ("100644", text)}, text.decode(), text.decode(), [])
+        self.patch(contribute, "lab_raised", side_effect=contribute.LevelNotWritten("its lab cannot be written"))
+        before = self.heads()
+        with self.assertRaises(CatalogError) as raised:
+            contribute._publish("fixture", "Fixture catalog", "Ledger", "addon", "ledger", address, branch,
+                                {"name": "A person", "email": "a@example.test"}, copy)
+        self.assertEqual(lines_of(raised.exception), ("share_level", 409, f"A private label needs `lab: {contribute.LABEL_LEVEL}` in "
+                         "the catalog.yml of Fixture catalog, and the Lab cannot write it there. Fix: write its x-gravitee-catalog "
+                         "block as plain key: value lines, then share again."))
+        self.assertEqual(self.heads(), before, "nothing is pushed")
 
     def test_what_only_this_machine_has_goes_in_the_same_branch_and_one_commit(self):
         self.write(".lab/tested.json", json.dumps({"local/demo": [{"versions": {}, "images": {}, "at": "2026-01-01T00:00:00Z"}]}))
@@ -1999,7 +2039,8 @@ class Real(Base):
         uid = self.plain("x-gravitee: {kind: addon, name: Plain}\nservices:\n  plain-app:\n    image: busybox\n    depends_on: [nope]\n")
         told = [line for line in self.share(uid, "fixture")["problems"] if not line.startswith(("x-gravitee.", "plain-app:"))]
         self.assertEqual(len(told), 1, told)
-        self.assertRegex(told[0], r"^Does not load with the platform: .*nope")
+        self.assertTrue(told[0].startswith("Does not load with the platform: Compose cannot read"), told[0])
+        self.assertNotIn("nope", told[0], "a name the author chose is not said back")
         self.assertNotIn("stage-share", told[0])
         self.assertNotIn(str(self.root), told[0])
         self.assertEqual(self.stages(), [])

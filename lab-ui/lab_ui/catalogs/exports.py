@@ -139,7 +139,8 @@ def _gather(pid):
         name = units[kind][uid]["name"]
         problems += [f"{name}: {line}" for line in copy.problems]
         # What is private content says so in the file (private_from), which the other Lab keeps: it can only add a notice
-        files.update(contribute._unmarked(copy, kind, _slug(uid), contribute.private_of(copy.kept, uid, copy.folder), name).files)
+        private_id, private = contribute._private_of(copy.kept, uid, copy.folder)
+        files.update(contribute._unmarked(copy, kind, _slug(uid), private, name, private_id).files)
     origins, private = _origins(carried, units, copies_of(carried))
     registries = _registries(found, carried, units)
     shared = _shared(carried, units, ns)
@@ -254,7 +255,7 @@ def _catalog_yml(text, gathered):
     if gathered["shared"]:
         text = text.rstrip("\n") + "\n  shared_settings:\n" + "".join(f"    - {name}\n" for name in gathered["shared"])
     if contribute.carries_label(gathered["files"]):   # an item with a private label needs the level the label appeared at
-        text = contribute.lab_raised(text) or text
+        text = contribute.lab_raised(text) or text   # the Lab's own template: it reads back as written
     return text
 
 

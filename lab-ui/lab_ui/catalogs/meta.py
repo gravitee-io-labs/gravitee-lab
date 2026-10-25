@@ -1,7 +1,7 @@
 """The x-gravitee block of a compose text, read and changed as a block: its top-level keys, in block style or in flow style (on
 one line or several), the way YAML reads them. A key is never looked for by a pattern over the whole file, since the same words
 may be in a value, a comment or another block of a file someone else wrote. Only the keys the Lab writes are changed here
-(`copy_of`, `private_from`); their values are text.
+(`copy_of`, `private_from`, `private_id`); their values are text.
 
     value(text, key)            the value of `key` in the block, unquoted, or None
     drop(text, key, override)   the text without `key` in the block; with `override`, a block that takes keys from elsewhere (`<<:`,
@@ -131,10 +131,14 @@ def _name_at(text, index, end):
     return name, after + 1
 
 
-def _block(text):
-    """(style, start, end) of the block: "flow" (its braces at start and end), "lines" (the lines after its key), "alias"
-    (the alias it is); None when the text has none."""
-    head = HEAD.search(text)
+def _head(name):
+    return HEAD if name == "x-gravitee" else re.compile(rf"""(?m)^(?:"{re.escape(name)}"|'{re.escape(name)}'|{re.escape(name)})[ \t]*:""")
+
+
+def _block(text, name="x-gravitee"):
+    """(style, start, end) of the block `name` (x-gravitee by default): "flow" (its braces at start and end), "lines" (the lines
+    after its key), "alias" (the alias it is); None when the text has none."""
+    head = _head(name).search(text)
     if head is None:
         return None
     at = ANCHOR.match(text, head.end()).end()
@@ -179,9 +183,9 @@ def _lines(text, start, end):
     return indent, [tuple(one) for one in entries]
 
 
-def _entries(text):
+def _entries(text, name="x-gravitee"):
     """(style, [(key, start, end)], block) of the block's entries."""
-    block = _block(text)
+    block = _block(text, name)
     if block is None:
         return None, [], None
     style, start, end = block
@@ -243,6 +247,32 @@ def value(text, key):
         if name == key:
             return _unquoted(text[_key(text, start, end)[1]:end])
     return None
+
+
+def replaced(text, key, literal, name="x-gravitee"):
+    """The text with the value of `key` in the block `name` written as `literal` (a scalar as YAML reads it: a number, say), what
+    follows it on its line (a comment, the end of the line) kept; None when the block has no such key, or says it in a way this
+    reader does not change (more than one, an alias, a value on lines of its own)."""
+    style, entries, block = _entries(text or "", name)
+    found = [(start, end) for one, start, end in entries if one == key]
+    if block is None or style == "alias" or len(found) != 1:
+        return None
+    start, end = found[0]
+    at = _key(text, start, end)[1]
+    if style == "flow":
+        value_end = end
+    else:
+        line_end = text.find("\n", at, end)
+        line_end = end if line_end < 0 else line_end
+        comment = re.search(r"[ \t]#", text[at:line_end])
+        value_end = at + comment.start() if comment else line_end
+        if text[value_end - 1:value_end] == "\r":
+            value_end -= 1
+        if text[at:value_end].strip() == "" or text[line_end:end].strip():   # a value on lines of its own
+            return None
+    space = text[at:value_end][:len(text[at:value_end]) - len(text[at:value_end].lstrip(" \t"))] or " "
+    trail = text[at:value_end][len(text[at:value_end].rstrip(" \t")):]
+    return text[:at] + space + literal + trail + text[value_end:]
 
 
 def drop(text, key, override=False):

@@ -71,6 +71,8 @@ LINES = {
     "share_private_copy": (400, "{name} is a copy of an item of {private}, which is private. Fix: share it to a private catalog."),
     "no_identity": (400, "Set your name and email in Git, then share again."),
     "push_rejected": (502, "{host} refused the branch. Check that you can push, then share again."),
+    "share_level": (409, "A private label needs `lab: {level}` in the catalog.yml of {catalog}, and the Lab cannot write it there. "
+                         "Fix: write its x-gravitee-catalog block as plain key: value lines, then share again."),
 }
 UNDECLARED = "Includes {item} ({owner}), which {catalog} does not declare."   # the reason of a disabled destination
 
@@ -556,11 +558,14 @@ def _rules(copy, kind, slug, ns, row):
     return found
 
 
-def _scrub(message, top, kind, slug) -> str:
-    """A line of Compose without the place of the copy it read: the file of the copy is the item's own, `compose.yml`."""
-    for base in (str(paths.ROOT / top), top):
-        message = message.replace(f"{base}/setups/", "").replace(f"{base}/{kind}s/{slug}/", "")
-    return message
+def _scrub(error, real) -> str:
+    """What a share's check says of Compose's failure on the copies it staged: the kind of failure and, of the files the Lab knows,
+    the one it names (compose.cause), a staged copy by the path of the item it stands for (`real`: {staged path: the item's file
+    in the Lab}). Nothing else of what Compose said, which may be a name the file's author chose."""
+    said = compose.cause(error, list(real))
+    for staged, mine in sorted(real.items(), key=lambda pair: -len(pair[0])):
+        said = said.replace(staged, mine)
+    return said
 
 
 def _claim(services, name, tier, names) -> dict:
@@ -774,7 +779,8 @@ def _preflight(project, kind, uid, file, slug, ns, row, rows, copy, along=(), al
             try:
                 lines = _judged(project, k, one, s, ns, row, c, stage, folder, aliases, others)
             except (compose.ComposeError, ValueError) as error:   # Compose's last line, or an answer that is not JSON
-                lines = [f"Does not load with the platform: {_scrub(str(error), top, k, s)}"]
+                real = {stages[(k2, s2)][0]: paths.unit_file(k2, one2) for k2, one2, s2, _ in every}
+                lines = [f"Does not load with the platform: {_scrub(error, real)}"]
                 problems += lines if (k, s) == (kind, slug) else [f"{one.rsplit('/', 1)[-1]}: {line}" for line in lines]
                 continue
             problems += [f"Blocked: {reason}" if (k, s) == (kind, slug) else f"{one.rsplit('/', 1)[-1]}: Blocked: {reason}"
@@ -975,15 +981,15 @@ def _lab_raised_in(ns):
     catalog = (registry.inputs().get(ns) or {}).get("name") or ns
     try:
         mode = os.lstat(file).st_mode
-        if not stat.S_ISREG(mode):
-            raise OSError("not a file")
+        if not stat.S_ISREG(mode) or not mode & stat.S_IWUSR:   # a link, or a file its author made read only: not the Lab's to write
+            raise OSError("not a file it may write")
         raised = lab_raised(file.read_text(encoding="utf-8"))
         if raised is None:
             return None
         install.safe_write(root, temporary, raised.encode("utf-8"), 0o644)
         os.chmod(root / temporary, stat.S_IMODE(mode))
         os.replace(root / temporary, file)
-    except (OSError, ValueError, CatalogError):   # install.Unsafe is one
+    except (OSError, ValueError, CatalogError):   # install.Unsafe is one, LevelNotWritten too
         with contextlib.suppress(OSError):
             os.unlink(root / temporary)
         return LAB_NOT_RAISED.format(catalog=catalog, level=LABEL_LEVEL)
@@ -1128,6 +1134,16 @@ def _said(text, folder=None):
     return (str(found["private_from"]) if found.get("private_from") else None), (str(found["copy_of"]) if found.get("copy_of") else None)
 
 
+def _said_id(text, folder=None):
+    """The `private_id` of an item's x-gravitee block, read as _said reads its label; None when it says none."""
+    try:
+        found = compose.x_gravitee(text, folder or compose.scratch())
+    except compose.ComposeError:
+        return block.value(text, "private_id")
+    found = found.get("private_id") if isinstance(found, dict) else None
+    return str(found) if found else None
+
+
 def private_of(text, uid, folder=None):
     """The name of the private catalog what the item `uid` (its compose `text`, in `folder`) holds comes from: its label or its
     chain, else its own catalog when that is a private catalog of Git; None when it is nobody's private content."""
@@ -1140,7 +1156,11 @@ def _private_of(text, uid, folder=None):
     the Lab wrote with the label), when that catalog has that name; else None."""
     said = _said(text or "", folder)
     source = _private_said(said)
-    if source and source[2] is None and said[1]:   # a label, on a copy that says whose copy it is
+    if source and source[2] is None:   # a label: the id written with it, by the Lab, says which catalog it names
+        named = _said_id(text or "", folder)
+        if named and registry.entry(named) is not None:
+            return named, source[1]
+    if source and source[2] is None and said[1]:   # an older label, on a copy that says whose copy it is
         chain = _private_said((None, said[1]))
         if chain and chain[2] is not None and chain[1] == source[1] and registry.entry(chain[0]) is not None:
             return chain[0], source[1]
@@ -1175,19 +1195,49 @@ def carries_label(files):
                for path, (_, content) in files.items() if path.endswith((".yml", ".yaml")) and path != registry.CATALOG_FILE)
 
 
+class LevelNotWritten(ValueError):
+    """The `lab` of a catalog.yml must be raised and the Lab cannot do it in a way it can read back."""
+
+
 def lab_raised(text, level=LABEL_LEVEL):
     """The text of a catalog.yml with its `lab` raised to `level`, for a catalog that now holds what appeared at that level; None
-    when it says that level or a higher one already, or says none."""
-    found = re.search(r"(?m)^(  lab:[ \t]*)(\d+)", text or "")
-    if not found or int(found.group(2)) >= level:
+    when it says that level or a higher one already. Written with the Lab's block writer (meta.py) in the file's own layout, then
+    read back as `catalog.py check` reads it (manifest.read_catalog): `lab` is `level` and nothing else changed. LevelNotWritten
+    when the file cannot be read so, or its `lab` cannot be changed so."""
+    before = _catalog_read(text)
+    if before is None:
+        raise LevelNotWritten("catalog.yml cannot be read")
+    if isinstance(before.get("lab"), int) and before["lab"] >= level:
         return None
-    return text[:found.start(2)] + str(level) + text[found.end(2):]
+    bom = "\ufeff" if text.startswith("\ufeff") else ""
+    written = block.replaced(text[len(bom):], "lab", str(level), manifest.BLOCK)
+    after = _catalog_read(bom + written) if written is not None else None
+    same = after is not None and {k: v for k, v in after.items() if k != "lab"} == {k: v for k, v in before.items() if k != "lab"}
+    if not same or after.get("lab") != level:
+        raise LevelNotWritten("its lab cannot be written")
+    return bom + written
 
 
-def labelled(text, name):
-    """The compose text whose x-gravitee block says the private catalog what it holds comes from (`private_from`), or says none."""
-    text = block.drop(text, "private_from")
-    return (block.put(text, "private_from", name) or text) if name else text
+def _catalog_read(text):
+    """A catalog.yml's text as `catalog.py check` and the Add read it (manifest.read_catalog), or None when they refuse it."""
+    with tempfile.TemporaryDirectory(dir=compose.scratch()) as folder:
+        file = Path(folder) / registry.CATALOG_FILE
+        file.write_text(text, encoding="utf-8")
+        try:
+            return manifest.read_catalog(str(file))
+        except CatalogError:
+            return None
+
+
+def labelled(text, name, ns=None):
+    """The compose text whose x-gravitee block says the private catalog what it holds comes from: its name for people
+    (`private_from`) and, when the Lab knows it, its id (`private_id`), by which a share knows that very catalog again; or says
+    none of them."""
+    text = block.drop(block.drop(text, "private_id"), "private_from")
+    if not name:
+        return text
+    text = (block.put(text, "private_id", ns) or text) if ns else text
+    return block.put(text, "private_from", name) or text
 
 
 def mark(text, uid):
@@ -1195,15 +1245,16 @@ def mark(text, uid):
     return block.put(text, "copy_of", uid)
 
 
-def _unmarked(copy, kind, slug, private=None, name=None):
+def _unmarked(copy, kind, slug, private=None, name=None, private_id=None):
     """The copy without `x-gravitee.copy_of`: whose copy an item of this machine is, which an item of a catalog never says; and
     with `private`, the name of the private catalog what it holds comes from, as its label, which then goes with it; without, no
     label, the one it had included (it goes back to the very catalog the label names, or it is nobody's private content). The change is
     made to the file as it is (`kept`) and checked as Compose reads it there (`rewritten`), also when the Lab's reader sees nothing
     to change, then written for its new place as `text` was (`place`): else the refusal naming the item (`name`)."""
-    edited = labelled(unmark(copy.kept), private)   # without `private`, a label it had goes: it goes back to that very catalog
+    ns = private_id if private else None
+    edited = labelled(unmark(copy.kept), private, ns)   # without `private`, a label it had goes: it goes back to that very catalog
     labelled_before = bool(block.value(copy.kept, "private_from"))
-    rewritten(copy.kept, edited, {"copy_of": None, "private_from": private}, name or slug,
+    rewritten(copy.kept, edited, {"copy_of": None, "private_from": private, "private_id": ns}, name or slug,
               "its private label and whose copy it is" if private or labelled_before else "whose copy it is", copy.folder,
               f"{slug}.yml" if kind == "setup" else "compose.yml")
     if edited == copy.kept:
@@ -1215,11 +1266,11 @@ def _unmarked(copy, kind, slug, private=None, name=None):
     return copy._replace(files=files, text=text)
 
 
-def _unmarked_or_said(copy, kind, slug, private, name):
+def _unmarked_or_said(copy, kind, slug, private, name, private_id=None):
     """_unmarked for a share: a file Compose cannot read as it is is a problem of the copy, said with the others, which stops the
     share as they do."""
     try:
-        return _unmarked(copy, kind, slug, private, name)
+        return _unmarked(copy, kind, slug, private, name, private_id)
     except CatalogError as error:
         if error.code != "label_unread":
             raise
@@ -1453,8 +1504,9 @@ def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False)
         # What is private content says so in the catalog it goes to, unless it goes back to that very catalog: the private catalog
         # of Git it comes from, known by its id, never a catalog that only has its name
         private = {(k, s): _private_of(other.kept, one, other.folder) for k, one, s, other in [(kind, uid, slug, copy), *along]}
-        copy = _unmarked_or_said(copy, kind, slug, _label_in(private[(kind, slug)], to), name)
-        along = [(k, one, s, _unmarked_or_said(other, k, s, _label_in(private[(k, s)], to), named(k, one))) for k, one, s, other in along]
+        copy = _unmarked_or_said(copy, kind, slug, _label_in(private[(kind, slug)], to), name, private[(kind, slug)][0])
+        along = [(k, one, s, _unmarked_or_said(other, k, s, _label_in(private[(k, s)], to), named(k, one), private[(k, s)][0]))
+                 for k, one, s, other in along]
         renames = _renames([(kind, slug, copy), *[(k, s, c) for k, _, s, c in along]], to)
         copy = _renamed(copy, kind, slug, renames)
         along = [(k, one, s, _renamed(c, k, s, renames)) for k, one, s, c in along]
