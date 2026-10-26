@@ -2198,7 +2198,10 @@ class ApisOfAnEnvironment(Estates):
 
     def test_an_application_without_groups_in_its_file_is_sent_without_any(self):
         self.run_seed()
-        sent = next(c for c in self.sent("POST", ENV + "/applications") if "/DEFAULT/" in c.path)
+        # Every path holds /organizations/DEFAULT/: the application of the environment DEFAULT is the one posted under
+        # /environments/DEFAULT/, whichever environment a worker of the run Together seeded first
+        sent = next(c for c in self.sent("POST", ENV + "/applications") if "/environments/DEFAULT/" in c.path)
+        self.assertEqual(sent.json["name"], "Web")
         self.assertNotIn("groups", sent.json)
 
 
