@@ -25,7 +25,7 @@ from unittest import mock
 from lab_ui.docker import compose
 
 from .. import Case
-from ..fixtures import have_compose
+from ..fixtures import have_compose, oldest_compose
 
 # What the Docker CLI prints when the daemon does not answer
 DOCKER_CLI_SAYS = ("failed to connect to the docker API at unix:///var/run/docker.sock; check if the path is correct "
@@ -292,6 +292,25 @@ class Raw(ProjectFolder):
                       {"target": 80, "published": "8080"}]})
         self.assertEqual(services["mapped"], {"labels": {"io.gravitee.group": "Databases"}, "environment": {"A": "1"}})
         self.assertEqual(services["bare"], {"image": "busybox"})
+
+
+@unittest.skipUnless(COMPOSE_5, "Docker Compose 5 or later is not installed: what it answers is not compared")
+class OldestCompose(ProjectFolder):
+    """What the Lab reads of its block is the same on every Compose it accepts, from 5.0 (which CI installs) to the newest."""
+
+    TEXT = ("x-gravitee: {kind: addon, name: Echo, private_from: [], tested: [[]], nested: {list: [], map: {}}, kept: [a]}\n"
+            "services:\n  echo:\n    image: busybox\n")
+
+    def test_an_empty_list_of_the_labs_block_reads_as_on_the_oldest_compose(self):
+        path = self.write("addons/echo/compose.yml", self.TEXT)
+        here = self.root / "addons/echo"
+        newest = compose.x_gravitee(self.TEXT, here, fresh=True), compose.raw(path)["x-gravitee"]
+        oldest_compose(self)
+        oldest = compose.x_gravitee(self.TEXT, here, fresh=True), compose.raw(path)["x-gravitee"]
+        self.assertEqual(newest, oldest)
+        self.assertEqual(newest[0], {"kind": "addon", "name": "Echo", "private_from": None, "tested": [None],
+                                     "nested": {"list": None, "map": {}}, "kept": ["a"]}, "an empty list is null, its key is there")
+        self.assertEqual(newest[1], newest[0])
 
 
 class Copies(ProjectFolder):

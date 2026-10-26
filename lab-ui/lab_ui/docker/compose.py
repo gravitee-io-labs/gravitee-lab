@@ -388,7 +388,10 @@ def _config(file_args, *options, timeout=120, environ=None):
             # nothing of Compose (`Run 'docker --help' ...`): said as what it is, so that missing() knows it again
             raise ComposeError(NO_COMPOSE)
         raise ComposeError(_last_line(err))
-    return json.loads(out)
+    config = json.loads(out)
+    if isinstance(config, dict) and "x-gravitee" in config:   # the Lab's block, as every Compose from 5.0 answers it
+        config["x-gravitee"] = alike(config["x-gravitee"])
+    return config
 
 
 def _mapping(value):
@@ -597,6 +600,16 @@ def _empty_env():
     return file
 
 
+def alike(value):
+    """A value of an x- key as every Compose from 5.0 answers it: Compose 5.0 says an empty list there as null, 5.6 as [], so an
+    empty list is null on all of them (`private_from: []` reads None, and its key is there)."""
+    if isinstance(value, list):
+        return [alike(one) for one in value] or None
+    if isinstance(value, dict):
+        return {key: alike(one) for key, one in value.items()}
+    return value
+
+
 def x_gravitee(text, folder, fresh=False, name="compose.yml"):
     """The x-gravitee block of a compose text as Compose reads it in `folder`, where the item is, the way raw() reads the item for
     gather: what it includes is found from there, and what it includes under the catalogs' folder that is not there is left out
@@ -633,8 +646,8 @@ def x_gravitee(text, folder, fresh=False, name="compose.yml"):
     if len(out) > ALONE_OUTPUT:
         raise ComposeError("Compose answered more than an item can hold")
     try:
-        found = json.loads(out).get("x-gravitee")
-    except (ValueError, AttributeError):
+        found = alike(json.loads(out).get("x-gravitee"))
+    except (ValueError, AttributeError, RecursionError):
         raise ComposeError("Compose answered what is not a compose file") from None
     _remember(key, found)
     return copy.deepcopy(found)

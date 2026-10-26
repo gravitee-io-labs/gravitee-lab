@@ -8,7 +8,7 @@ import shutil
 import time
 
 from lab_ui import paths
-from lab_ui.catalogs import exports, gitx, moving, registry, service
+from lab_ui.catalogs import contribute, exports, gitx, moving, registry, service
 from lab_ui.catalogs.registry import CatalogError
 from lab_ui.docker import compose, envfiles, files
 from lab_ui.library import check, project
@@ -369,6 +369,14 @@ class Copying(Case):
         self.assertEqual(plan["alone"], {"copies": ["Echo"], "switches": [], "uses_machine": [], "held": ""})
         self.assertEqual(sorted(plan["with_users"]["copies"]), ["Echo", "Echo with the gateway", "Pair"])
         self.assertEqual(plan["with_users"]["switches"], ["Scratch"])
+
+    def test_a_copy_reads_back_on_the_oldest_compose_as_on_the_newest(self):
+        fixtures.oldest_compose(self)   # an empty label is null there: the copy says it has none all the same
+        self.assertEqual(moving.copy("addon", "echo")["id"], "local/echo")
+        text = self.local("addons/echo/compose.yml").read_text()
+        self.assertIn("private_from: []", text)
+        self.assertEqual(contribute.origins(text.replace('copy_of: "echo"', 'copy_of: "@lab-new/notes"'), "local/echo"), [],
+                         "a copy the Lab made says its origins, even none: its copy_of is not followed")
 
     def test_the_copy_is_the_originals_twin_and_neither_blocks_the_other(self):
         done = moving.copy("addon", "echo")

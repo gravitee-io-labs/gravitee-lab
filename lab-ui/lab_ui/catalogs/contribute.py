@@ -1162,7 +1162,7 @@ def origins(text, uid, folder=None, name=None):
     with contextlib.suppress(paths.NotFound, ValueError):
         found += [origin for origin in [_origin_of(paths.origin(uid))] if origin]
     copied = str(said.get("copy_of") or "")
-    if copied and not isinstance(said.get("private_from"), list):   # an older copy
+    if copied and "private_from" not in said:   # an older copy (an empty label reads None: compose.alike)
         try:
             ns = paths.origin(copied)
         except (paths.NotFound, ValueError):
@@ -1389,7 +1389,7 @@ def rewritten(before, after, changed, name, what="its private label and whose co
         raise CatalogError("label_failed", NOT_WRITTEN.format(name=name, what=what), 409) from None   # what the Lab wrote broke it
     old, new = (old if isinstance(old, dict) else {}), ({} if new is None else new)   # no block: nothing it says
     wanted = {**{key: value for key, value in old.items() if key not in changed},
-              **{key: value for key, value in changed.items() if value is not None}}
+              **{key: compose.alike(value) for key, value in changed.items() if value is not None}}   # as Compose answers it
     if not isinstance(new, dict) or {key: value for key, value in new.items() if value != "" or key not in changed} != wanted:
         raise CatalogError("label_failed", NOT_WRITTEN.format(name=name, what=what), 409)
 

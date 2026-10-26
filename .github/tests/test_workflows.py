@@ -839,5 +839,25 @@ class ReaderTest(unittest.TestCase):
             children(text, "on", "push")
 
 
+class ComposeTest(unittest.TestCase):
+    """The Lab UI's tests run on the oldest Compose the Lab accepts: what reads otherwise there (Compose 5.0 prints an empty list
+    under an x- key as null) fails in CI before a person on that release meets it."""
+
+    def test_the_compose_ci_installs_is_the_oldest_the_lab_accepts(self):
+        pinned = re.search(r"default:\s*v(\d+)\.(\d+)\.\d+", (ROOT / ".github/actions/compose/action.yml").read_text())
+        minimum = re.search(r"^COMPOSE_MIN = \((\d+), (\d+)\)", (ROOT / "lab-ui/lab_ui/library/machine.py").read_text(), re.M)
+        self.assertTrue(pinned and minimum)
+        self.assertEqual(pinned.groups(), minimum.groups(), "the release CI installs is the Lab's minimum")
+
+    def test_every_job_that_runs_the_lab_ui_tests_installs_that_release(self):
+        jobs = re.split(r"^  (?=[a-z][a-z0-9-]*:$)", CI.read_text().split("\njobs:\n", 1)[1], flags=re.M)
+        testing = [job for job in jobs if "lab-ui/tests/run.py" in job]
+        self.assertEqual(len(testing), 2, "the whole suite and the lane of Python 3.9")
+        for job in testing:
+            with self.subTest(job=job.split(":", 1)[0]):
+                self.assertIn("uses: ./.github/actions/compose", job)
+                self.assertNotRegex(job, r"\n\s+version:", "no other release than the one the action pins")
+
+
 if __name__ == "__main__":
     unittest.main()
