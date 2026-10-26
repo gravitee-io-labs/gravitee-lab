@@ -92,14 +92,14 @@ class Layout(Fixture):
         self.release("v1.1.0", {"catalog.yml": catalog_yml("1.1.0")}, "Release 1.1.0 and remove the old add-on")
         self.assertEqual(self.run_stage("v1.1.0"), 0, self.err.getvalue())
         self.assertEqual(self.text(), (
-            "## Acme Hub 1.1.0\n\nLab level 1\n\n### New\n\n- addon:new-one\n\n### Changed\n\n- playground:bank\n"
+            "## Acme Hub 1.1.0\n\n### New\n\n- addon:new-one\n\n### Changed\n\n- playground:bank\n"
             "  - Seed the accounts\n  - Write the guide of the bank\n\n### Removed\n\n- addon:old\n"))
         self.assertIn("Notes for v1.1.0: 1 new, 1 changed, 1 removed, since v1.0.0; 0 images", self.out.getvalue())
 
     def test_the_first_release_has_every_unit_new_and_nothing_changed(self):
         self.release("v1.0.0")
         self.assertEqual(self.run_stage("v1.0.0"), 0)
-        self.assertEqual(self.text(), ("## Acme Hub 1.0.0\n\nLab level 1\n\n### New\n\n- addon:mock\n- addon:old\n- playground:bank\n"
+        self.assertEqual(self.text(), ("## Acme Hub 1.0.0\n\n### New\n\n- addon:mock\n- addon:old\n- playground:bank\n"
                                        "- setup:pair\n"))
         self.assertIn("since the start", self.out.getvalue())
 
@@ -107,7 +107,7 @@ class Layout(Fixture):
         self.release("v1.0.0")
         self.release("v1.0.1", {"README.md": "# Hub 2\n", "catalog.yml": catalog_yml("1.0.1")}, "Fix the readme")
         self.run_stage("v1.0.1")
-        self.assertEqual(self.text(), "## Acme Hub 1.0.1\n\nLab level 1\n\nNo add-on, setup or playground changed.\n")
+        self.assertEqual(self.text(), "## Acme Hub 1.0.1\n\nNo add-on, setup or playground changed.\n")
 
     def test_a_setup_is_a_unit_and_its_file_is_its_folder(self):
         self.release("v1.0.0")
@@ -133,7 +133,7 @@ class Layout(Fixture):
     def test_the_name_and_the_level_come_from_the_catalog_at_the_tag(self):
         self.release("v1.0.0", {"catalog.yml": catalog_yml("1.0.0", name="Hub *Two*", lab="3")})
         self.run_stage("v1.0.0")
-        self.assertTrue(self.text().startswith("## Hub \\*Two\\* 1.0.0\n\nLab level 3\n\n"))
+        self.assertTrue(self.text().startswith("## Hub \\*Two\\* 1.0.0\n\n"))
 
     def test_the_subjects_are_at_most_five_each_clipped_to_a_hundred_and_sixty_characters(self):
         self.release("v1.0.0")

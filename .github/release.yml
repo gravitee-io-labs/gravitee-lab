@@ -1,8 +1,13 @@
-# The changelog of a release: the pull requests merged since the version before, grouped by the label that raised the version
+# The changelog of a release: the pull requests merged since the version before, grouped by the label that raised the version.
+# "For catalogs" is what a catalog may use from that version on: a catalog that uses it needs that Gravitee Lab or a later one.
+# GitHub lists a pull request under the first section whose label it has, and only there: `major` comes first, so a change that
+# needs people to act is never missed, even when it is also one for catalogs
 changelog:
   categories:
     - title: Changes that need you to do something
       labels: [major]
+    - title: For catalogs
+      labels: [catalog-format]
     - title: New
       labels: [minor]
     - title: Fixes and improvements

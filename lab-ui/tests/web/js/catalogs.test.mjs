@@ -230,7 +230,7 @@ test("the table is what the server's words say for the states that name a host o
   show([GIT("noaccess")]);
   assert.deepEqual(bubble(row("Acme Hub").querySelector(".tip")), ["No access", "No access to owner/repo.", "Run gh auth login in a terminal, then try again."]);
   show([GIT("lab_old")]);
-  assert.deepEqual(bubble(row("Acme Hub").querySelector(".tip")), ["Written for an older Lab", "This version is too old for this Lab.", "Update it, or ask the owners of Acme Hub to update it."]);
+  assert.deepEqual(bubble(row("Acme Hub").querySelector(".tip")), ["Written for an older Gravitee Lab", "This version is too old for this Lab.", "Update it, or ask the owners of Acme Hub to update it."]);
 });
 
 test("a download shows how far it is under its word; a row with no copy that is not downloading offers Try again, and one that downloads offers nothing", () => {
@@ -1007,7 +1007,7 @@ test("the ports are said as the design words them", async () => {
 
 test("a version older than the newest, the settings found and the catalogs needed are rows of their own", async () => {
   await previewed(BARE({ newer: true, rows: { found: [{ id: "ledger", name: "Ledger" }], needs: [{ id: "p", name: "Partner Bank" }], reads: ["gateway token", "ACME_SETTING"] } }));
-  assert.deepEqual(rowsOf().slice(2), [["Version", "1.4.0 Newer ones need a newer Lab"], ["Runs", "Containers on this machine"], ["Reads", "Your Gravitee Cloud gateway token ACME_SETTING"],
+  assert.deepEqual(rowsOf().slice(2), [["Version", "1.4.0 Newer ones need a newer Gravitee Lab"], ["Runs", "Containers on this machine"], ["Reads", "Your Gravitee Cloud gateway token ACME_SETTING"],
     ["Needs", "Partner Bank Not added"], ["Settings found", "Ledger From before the move"]]);
   shut();
 });

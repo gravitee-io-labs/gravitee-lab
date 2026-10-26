@@ -1334,7 +1334,7 @@ test("a catalog the Lab lists is added at once, with no dialog; the line of one 
 });
 
 test("a Lab that reads a level other than the playground's says so, and what to do", async () => {
-  for (const [compat, name, sub] of [["new", "Needs a newer Lab", "Run make update, then restart the Lab."], ["old", "Written for an older Lab", "Ask its owners to update it."]]) {
+  for (const [compat, name, sub] of [["new", "Needs a newer Gravitee Lab", "Run make update, then restart the Lab."], ["old", "Written for an older Gravitee Lab", "Ask its owners to update it."]]) {
     await visit({ ...off, compat }, { platforms: [], places: [] });
     assert.deepEqual(prepared().filter((line) => line.kind === "warn").map(({ name: said, sub: why }) => [said, why]), [[name, sub]], compat);
     await leave();

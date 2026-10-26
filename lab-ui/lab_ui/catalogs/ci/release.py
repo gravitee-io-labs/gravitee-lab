@@ -12,7 +12,7 @@ The notes come from two deterministic sources and nothing else:
   makes the subject, is the contract: a plain imperative sentence, and what a person reads on GitHub is what the Update dialog
   shows them.
 
-Layout: `## {name} {version}`, `Lab level {lab}`, then `### New`, `### Changed` (by unit) and `### Removed`, each only when it has
+Layout: `## {name} {version}`, then `### New`, `### Changed` (by unit) and `### Removed`, each only when it has
 something. The previous tag is the greatest `vX.Y.Z` below this one that leads to it; the first release has none, and every unit is new.
 
 A subject is a stranger's text in Markdown on GitHub, so each is written with its Markdown made plain, and a word that GitHub would
@@ -161,8 +161,6 @@ def notes_text(found: Release) -> str:
     """The Markdown of the release, in the layout of 5.9."""
     shown_name = plain(found.name[:NAME_SHOWN]) if found.name else "Catalog"
     lines = [f"## {shown_name} {plain(found.version)}", ""]
-    if found.lab:
-        lines += [f"Lab level {plain(found.lab)}", ""]
     if found.new:
         lines += ["### New", ""] + [f"- {unit}" for unit in found.new] + [""]
     if found.changed:

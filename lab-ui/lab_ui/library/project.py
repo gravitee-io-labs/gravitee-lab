@@ -29,7 +29,7 @@ from ..docker import compose, envfiles
 from . import layout
 from ..gravitee import frames, license, platforms
 from .. import paths
-from ..catalogs import registry, resolve, trust
+from ..catalogs import registry, resolve, trust, understood
 from ..paths import CORE_FILE, ENV_FILE, KINDS, LAB_DIR, ROOT
 
 SECRET = re.compile(r"TOKEN|SECRET|PASSWORD|LICENSE|_KEY")
@@ -1009,7 +1009,7 @@ def _unit(kind, uid, inputs, problems):
                           "personal": paths.personal(uid), "category": meta.get("category") or "",
                           "description": meta.get("description") or "", **_placed(uid, path, inputs),
                           # What the judgement settles (_judge_units): nothing is against a unit that is not judged
-                          "blocked": None, "needs_catalogs": [], "compat": "ok", "twin": None, "uses_machine": [],
+                          "blocked": None, "needs_catalogs": [], "compat": "ok", "unknown": [], "twin": None, "uses_machine": [],
                           "verdict": None}
 
 
@@ -1453,6 +1453,25 @@ def _compat(level, contract, floor):
     return "new" if level > contract else "old" if level < floor else "ok"
 
 
+def published(row) -> bool:
+    """Whether a catalog is the published work of someone else: a git catalog the person added (its updates are too), not a
+    folder of the person's own, this machine's items or a working copy linked in place of an install."""
+    return isinstance(row, dict) and row.get("kind") == "git"
+
+
+def _unknown(kind, uid, file, raw, row, inputs, held):
+    """What a unit of a published catalog uses that this Lab does not read, named for a line (`understood`); [] for any other
+    unit, and for one Compose did not read. Its seed is the one beside its file: the stage's, for a catalog being judged before
+    it is put in place (`inputs["seed_folders"]`)."""
+    if not published(row) or not isinstance(raw.get(file), dict):
+        return []
+    folder = (inputs.get("seed_folders") or {}).get(file)
+    if folder is None and kind == "playground":
+        folder = ROOT / paths.unit_folder(kind, uid)
+    partial = bool(((inputs.get("reach") or {}).get(file) or {}).get("missing"))   # read without what it includes from elsewhere
+    return [understood.name(item) for item in understood.of_unit(raw[file], folder, kind, held, ROOT, partial)] if held else []
+
+
 def _sound(name=""):
     """The verdict of a unit that nothing is against, or that is not judged: ok, with nothing to say."""
     return {"state": "ok", "reasons": [], "notes": [], "surface": trust.empty_surface(), "codes": [], "name": name}
@@ -1499,7 +1518,9 @@ def _rank(unit, catalogs):
 
 def _judge_units(inputs, raw, core, addons, setups, playgrounds):
     """Judges the units of the catalogs and settles what the project says of each among the others (and the
-    first half of 10): its verdict (`verdict`, and `blocked` when it cannot start), its level (`compat`), the catalogs it
+    first half of 10): its verdict (`verdict`, and `blocked` when it cannot start), its level (`compat`), what of the contract
+    it uses that this Lab does not read when its catalog is published (`unknown`: the unit needs a newer Gravitee Lab, and is
+    "new"; in a catalog of the person's own, a folder or a working copy, the check names each instead), the catalogs it
     lacks (`needs_catalogs`), what of this machine it uses (`uses_machine`), the unit of this machine it is also (`twin`),
     and `gateway` cleared when its catalog may not declare one (N04). A unit that is blocked brings no service, and so is a
     unit of a catalog while the core cannot be read: it has nothing to be compared with, so nothing is let through. An add-on
@@ -1514,6 +1535,7 @@ def _judge_units(inputs, raw, core, addons, setups, playgrounds):
         return {}
     contract = inputs.get("contract") or {}
     level, floor = contract.get("contract", 1), contract.get("contract_min", 1)
+    held = understood.lock()
     closures = {key: resolve.closure({"addon": addons, "setup": setups, "playground": playgrounds}, *key) for key in units}
     core_names, core_config = set(_services_of(core)), inputs.get("core_config")
     screened, unreadable, errors = inputs.get("screened") or {}, inputs.get("unreadable") or {}, inputs.get("errors") or {}
@@ -1539,6 +1561,11 @@ def _judge_units(inputs, raw, core, addons, setups, playgrounds):
         asked = (meta.get("requires") or {}).get("lab")
         wanted = asked if isinstance(asked, int) and not isinstance(asked, bool) else row.get("lab")
         unit["compat"] = _compat(wanted, level, floor)
+        # A catalog it needs and does not have is what it says first: what that catalog brings cannot be judged without it
+        unit["unknown"] = _unknown(kind, uid, file, raw, row, inputs, held) \
+            if tier in JUDGED and file not in screened and file not in unreadable and not unit["needs_catalogs"] else []
+        if unit["unknown"]:
+            unit["compat"] = "new"
         config = configs.get(file)
         owned[key] = {**resolve.owned_names(config or raw[file], core_config or core, own,
                                             [configs.get(t) or raw[t] for t in direct if t in raw]),
@@ -1553,7 +1580,7 @@ def _judge_units(inputs, raw, core, addons, setups, playgrounds):
                    "closure_services": sorted({name for other in closures[key][1:] for name in own_of.get(other, ())}),
                    "seeder_images": [contract["seeder_image"]] if contract.get("seeder_image") else [],
                    "home": inputs.get("home"), "realpath": realpath, "level": wanted, "contract": level,
-                   "contract_min": floor}
+                   "contract_min": floor, "unknown": list(unit["unknown"])}
         if file in screened:
             context["screened"] = screened[file]
         if file in unreadable or file in errors:
@@ -1920,9 +1947,11 @@ def _staged_inputs(ns, meta, row, replacing):
         return {path: value for path, value in (live.get(key) or {}).items() if not (replacing and path.startswith(final))}
     merged = {key: kept(key) for key in ("raw", "includes", "variables", "configs", "errors", "references",
                                          "seed_references", "reach", "screened", "unreadable")}
-    problems = []
-    for _, _, file in units:
+    problems, seed_folders = [], {}
+    for kind, name, file in units:
         ours = swap(file)
+        if kind == "playground":   # its seed is the stage's, not the one the catalog may have installed
+            seed_folders[ours] = ROOT / paths.CATALOGS_DIR / f".stage-{ns}" / "playgrounds" / name
         found = read.get(file)
         if found is None:
             continue
@@ -1950,9 +1979,47 @@ def _staged_inputs(ns, meta, row, replacing):
     core, core_error = live.get("core_config"), live.get("core_error")
     if core is None and core_error is None:   # no unit of a catalog was there to judge, so the core was not read: it is now
         core, core_error = _core_config()
-    return {**live, **merged, "catalogs": {**(live.get("catalogs") or {}), ns: row}, "shared_settings": shared,
+    return {**live, **merged, "seed_folders": seed_folders,
+            "catalogs": {**(live.get("catalogs") or {}), ns: row}, "shared_settings": shared,
             "catalog_problems": {**(live.get("catalog_problems") or {}), ns: problems}, "core_config": core,
             "core_error": core_error}
+
+
+def staged_unknown(ns):
+    """What the units of the staged tree of `ns` use that this Lab does not read (`understood`), sorted: each unit read as
+    `gather` reads a catalog's (its text screened, then its file as written, with what it includes merged in, the includes
+    that are not there left out, the time a unit has), and only as far as the screen lets it: a unit it refuses, or one that
+    includes what it refuses, says nothing here, and its judgement says it cannot be read. What `pick` reads of a version of a
+    published catalog to know whether this Lab understands it, without the judgement of each unit against the core. None when
+    Docker did not answer for a unit (a time limit, a docker that did not run): this Lab cannot tell."""
+    held = understood.lock()
+    if held is None:
+        return []
+    units = staged_units(ns)
+    screen, _, screened, unreadable = _read_staged(ns, units)
+    live = loaded()[1]
+    bad = {file for _, _, file in units if screened[file] or file in unreadable}
+    world = {file for file in live["raw"] if _catalog_path(file)}
+    world_bad = {*(live.get("screened") or ()), *(live.get("unreadable") or ())}
+    clean = ({file for _, _, file in units} - bad) | (world - world_bad)
+
+    def read(unit):
+        kind, name, file = unit
+        if file in bad:
+            return []
+        reach = _reach(file, bad | world_bad, clean)
+        if held_reasons(reach, bad | world_bad):
+            return []
+        config, problem = _raw(file, skip=reach["missing"], timeout=UNIT_TIMEOUT)
+        if config is None and not _answered({"problem": problem}):
+            return None   # Docker did not answer: nothing is known of the unit, which is not a unit that cannot be read
+        folder = ROOT / paths.CATALOGS_DIR / f".stage-{ns}" / "playgrounds" / name if kind == "playground" else None
+        return understood.of_unit(config, folder, kind, held, ROOT, bool(reach["missing"])) if isinstance(config, dict) else []
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        found = list(pool.map(read, units))
+    if any(one is None for one in found):
+        return None
+    return sorted({item for one in found for item in one})
 
 
 def judge_staged(ns, meta, row, replacing=False):

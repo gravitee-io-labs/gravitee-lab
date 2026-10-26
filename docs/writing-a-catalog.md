@@ -46,19 +46,24 @@ leaves your machine in an installed copy. A unit folder is a unit only with its 
 
 ```yaml
 x-gravitee-catalog:
-  schema: 1
   id: acme            # the name the Lab shows in lists and uses to key what you set
   name: Acme hub
   description: Demos for Gravitee Lab
   version: 0.1.0      # the version of the next release: make release raises it
-  lab: 1              # the contract level of the Lab this catalog was checked against
   license: AGPL-3.0-only
 ```
 
 Optional keys: `requires.catalogs` (other catalogs it needs, with their address and minimum version), `shared_settings`
 (settings every item may read, such as an API key the person gives once), `images` (the registry prefix of the images it
-publishes), `canary` (the items the end-to-end test always tries). `host_access: true` says that some of its items take more of the machine than a container does (a privileged cluster, say), each with its reason in `x-gravitee.host_access`: `check` then judges them by their reasons, as the Lab does once the person has allowed the catalog at Add. The Lab still asks that person: nothing is allowed by the file. `lab` is the contract level: the Lab reads a catalog
-written for a level it reads, and tells the person when it does not.
+publishes), `canary` (the items the end-to-end test always tries). `host_access: true` says that some of its items take more of the machine than a container does (a privileged cluster, say), each with its reason in `x-gravitee.host_access`: `check` then judges them by their reasons, as the Lab does once the person has allowed the catalog at Add. The Lab still asks that person: nothing is allowed by the file.
+
+There is no compatibility number to write. A Lab uses what it understands: when a version of your catalog uses a key, a label
+or a seed folder that someone's Lab does not read yet, that Lab keeps the newest version it reads and tells them to update
+Gravitee Lab. `check` runs with the Gravitee Lab release that `.github/standard.json` pins, so a catalog that passes it works on
+that release and every later one; to use something a newer release adds (its release notes list it under *For catalogs*), move
+the pin with `catalog.py upgrade --lab-ref latest`. The `schema` and `lab` lines that `catalog.py` writes, with their comment,
+are for older Gravitee Labs: leave them to `catalog.py`, which keeps them true (`check` says when one is not, and
+`upgrade --write` fixes it).
 
 ## Check it before you publish
 

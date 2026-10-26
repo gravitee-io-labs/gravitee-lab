@@ -787,7 +787,7 @@ class Platforms(Legacy):
                                   "source", "tags", "terminal", "tested"}}
         platform = {"asks", "deploys_to", "cannot"}   # what a platform makes of each, from its files
         # Where it comes from and whether it can start: none of a unit read before catalogs says anything of them
-        placed = {"catalog", "origin", "readonly", "display_file", "blocked", "needs_catalogs", "compat", "twin",
+        placed = {"catalog", "origin", "readonly", "display_file", "blocked", "needs_catalogs", "compat", "unknown", "twin",
                   "uses_machine", "verdict"}
         new = {"addons": {"gateway"} | platform | placed, "setups": platform | placed, "playgrounds": platform | placed}
         for kind, units in before.items():
@@ -1371,8 +1371,8 @@ class Catalogs(Fixture):
         built = self.built
         self.assertEqual({uid: built["addons"][uid]["compat"] for uid in ("echo", "future", "@lab-new/newer", "@lab-old/older")},
                          {"echo": "ok", "future": "new", "@lab-new/newer": "new", "@lab-old/older": "old"})
-        self.assertEqual(built["addons"]["future"]["blocked"], {"reasons": ["Needs Lab level 99, this Lab reads 1 to 1"]})
-        self.assertEqual(built["addons"]["@lab-old/older"]["blocked"], {"reasons": ["Written for an older Lab (level 0)"]})
+        self.assertEqual(built["addons"]["future"]["blocked"], {"reasons": ["Needs a newer Gravitee Lab"]})
+        self.assertEqual(built["addons"]["@lab-old/older"]["blocked"], {"reasons": ["Written for an older Gravitee Lab"]})
 
     def test_a_blocked_unit_is_listed_and_brings_no_service(self):
         built = self.built
@@ -1401,7 +1401,7 @@ class Catalogs(Fixture):
         self.assertEqual((fixture["name"], fixture["kind"], fixture["counts"]),
                          ("Fixture catalog", "folder", {"playground": 2, "setup": 1, "addon": 7}))
         self.assertEqual([(one["id"], one["reasons"]) for one in fixture["blocked"]], [
-            ("future", ["Needs Lab level 99, this Lab reads 1 to 1"]), ("pair", ["Depends on private content"])])
+            ("future", ["Needs a newer Gravitee Lab"]), ("pair", ["Depends on private content"])])
         self.assertEqual([(use["id"], use["service"], use["what"]) for use in fixture["uses_machine"]],
                          [("cluster", "fixture-cluster", ["runs privileged"])])
         self.assertEqual(summary["local"]["name"], "Personal")
@@ -2254,7 +2254,7 @@ class Names(Case):
         # The first unit of the later catalog is blocked by its level, so the second may keep the name it also defines
         first = addon("first", ["shared-name"], says=", requires: {lab: 99}")
         built = self.read({"addons/first/compose.yml": first, "addons/second/compose.yml": addon("second", ["shared-name"])})
-        self.assertEqual(built["addons"]["@partner/first"]["blocked"]["reasons"], ["Needs Lab level 99, this Lab reads 1 to 1"])
+        self.assertEqual(built["addons"]["@partner/first"]["blocked"]["reasons"], ["Needs a newer Gravitee Lab"])
         self.assertIsNone(built["addons"]["@partner/second"]["blocked"])
 
 
@@ -3030,7 +3030,7 @@ class Catalog(Case):
     def test_a_unit_that_is_blocked_for_another_reason_keeps_no_name(self):
         built = self.build([member("first", "addon", "two", ["shared"], says={"requires": {"lab": 99}}),
                             member("second", "addon", "three", ["shared"])])
-        self.assertEqual(self.reasons(built, "addon", "@first/two"), ["Needs Lab level 99, this Lab reads 1 to 1"])
+        self.assertEqual(self.reasons(built, "addon", "@first/two"), ["Needs a newer Gravitee Lab"])
         self.assertIsNone(self.reasons(built, "addon", "@second/three"))
         self.assertEqual(built["services"]["shared"]["owner"]["id"], "@second/three")
 
@@ -3107,7 +3107,7 @@ class Catalog(Case):
         given["reach"][units[0][0]]["targets"] = [".lab/catalogs/newer/addons/x/compose.yml"]
         two = project.build(given)["addons"]["@first/two"]
         self.assertEqual([need["reason"] for need in two["needs_catalogs"]], ["old"])
-        self.assertEqual(two["blocked"], {"reasons": ["Needs Lab level 99, this Lab reads 1 to 1"]})
+        self.assertEqual(two["blocked"], {"reasons": ["Needs a newer Gravitee Lab"]})
 
     def test_the_problems_of_a_catalog_file_are_its_catalog_s_and_those_of_this_machine_s_are_the_banner_s(self):
         mine = member("local", "addon", "mine", ["mine"])

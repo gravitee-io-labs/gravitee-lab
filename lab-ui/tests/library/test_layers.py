@@ -2664,15 +2664,15 @@ class Real(Case):
     def test_the_map_of_what_must_not_start_is_what_the_project_says_blocked(self):
         found = layers.blocked_files(self.built)
         self.assertEqual(found, {
-            ".lab/catalogs/fixture/addons/future/compose.yml": "Needs Lab level 99, this Lab reads 1 to 1",
+            ".lab/catalogs/fixture/addons/future/compose.yml": "Needs a newer Gravitee Lab",
             ".lab/catalogs/fixture/setups/pair.yml": "Depends on private content",
-            ".lab/catalogs/lab-new/addons/newer/compose.yml": "Needs Lab level 99, this Lab reads 1 to 1",
-            ".lab/catalogs/lab-old/addons/older/compose.yml": "Written for an older Lab (level 0)"})
+            ".lab/catalogs/lab-new/addons/newer/compose.yml": "Needs a newer Gravitee Lab",
+            ".lab/catalogs/lab-old/addons/older/compose.yml": "Written for an older Gravitee Lab"})
 
     def test_a_blocked_unit_is_refused_by_the_plan_and_by_the_writer_and_never_for_a_stop(self):
         plan = self.begin("addon", "future")
-        self.assertEqual(plan["blocked"], "Needs Lab level 99, this Lab reads 1 to 1")
-        with self.assertRaisesRegex(RuntimeError, "^future is blocked: Needs Lab level 99, this Lab reads 1 to 1$"):
+        self.assertEqual(plan["blocked"], "Needs a newer Gravitee Lab")
+        with self.assertRaisesRegex(RuntimeError, "^future is blocked: Needs a newer Gravitee Lab$"):
             layers.write(None, ["future"], blocked=layers.blocked_files(self.built))
         self.assertFalse((self.root / paths.ON_FILE).exists())
         layers.write(None, ["future"])   # it is on, whoever put it there

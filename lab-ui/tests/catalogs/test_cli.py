@@ -617,8 +617,9 @@ class Reading(Tool):
         self.assertEqual((code, err), (1, ""))
         self.assertTrue(out.startswith(self.HEADER))
         self.assertIn("✗ addons/port-core/compose.yml\n    publishes port 8082, like docker-compose.yml\n", out)
-        self.assertIn("✗ addons/future/compose.yml\n    T26 Needs Lab level 99, this Lab reads 1 to 1. Fix: Set `lab:` in `catalog.yml` to a "
-                      "level this Lab reads (1 to 1), or move `lab.ref` in `.github/standard.json`.\n", out)
+        self.assertIn("✗ addons/future/compose.yml\n    T26 Needs a newer Gravitee Lab. Fix: Remove what this Gravitee Lab does not "
+                      "read, or check with the Gravitee Lab release that reads it (`catalog.py upgrade --lab-ref latest`). A `lab` "
+                      "is for older Gravitee Labs: `catalog.py upgrade --write` writes the one of `catalog.yml`.\n", out)
         self.assertIn("✓ addons/echo/compose.yml\n", out)
         self.assertIn("    T24 Depends on private content. Fix: A Public catalog cannot include a Private one", out)
         self.assertTrue(out.rstrip().splitlines()[-1].endswith(" for more."), out[-120:])
@@ -628,7 +629,7 @@ class Reading(Tool):
         code, out, err = self.run_tool("check", "fixture", "--format", "github")
         self.assertEqual((code, err), (1, ""))
         self.assertIn("::error file=addons/port-core/compose.yml::publishes port 8082, like docker-compose.yml\n", out)
-        self.assertIn("::error file=addons/future/compose.yml,title=T26::Needs Lab level 99, this Lab reads 1 to 1. Fix: ", out)
+        self.assertIn("::error file=addons/future/compose.yml,title=T26::Needs a newer Gravitee Lab. Fix: ", out)
         self.assertTrue(all(line.startswith(("::error file=", "::warning file=")) for line in out.splitlines()), out)
         self.assertEqual(self.run_tool("check", PARTNER, "--format", "github"), (0, "", ""))
 

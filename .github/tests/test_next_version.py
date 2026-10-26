@@ -23,6 +23,10 @@ class NextVersion(unittest.TestCase):
     def test_minor_raises_the_minor_number_and_starts_the_patch_again(self):
         self.assertEqual(next_version.next_version("v1.0.4", {"minor"}), "v1.1.0")
 
+    def test_what_catalogs_can_use_is_a_new_feature_and_raises_the_minor_number_at_least(self):
+        self.assertEqual(next_version.next_version("v1.4.2", {"catalog-format"}), "v1.5.0")
+        self.assertEqual(next_version.next_version("v1.4.2", {"catalog-format", "major"}), "v2.0.0")
+
     def test_major_raises_the_major_number_and_starts_the_others_again(self):
         self.assertEqual(next_version.next_version("v1.3.2", {"major"}), "v2.0.0")
 

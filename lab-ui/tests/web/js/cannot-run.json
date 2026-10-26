@@ -8,8 +8,8 @@
    "why": "Needs Partner Bank"},
   {"about": "needs two catalogs, one known only by its id", "unit": {"blocked": null, "needs_catalogs": [{"id": "partner-bank", "name": "Partner Bank", "reason": "missing"}, {"id": "ledger-co", "reason": "old"}], "compat": "ok"},
    "why": "Needs Partner Bank, ledger-co"},
-  {"about": "needs a newer Lab", "unit": {"blocked": null, "needs_catalogs": [], "compat": "new"}, "why": "Needs a newer Lab"},
-  {"about": "written for an older Lab", "unit": {"blocked": null, "needs_catalogs": [], "compat": "old"}, "why": "Was written for an older Lab"},
+  {"about": "needs a newer Lab", "unit": {"blocked": null, "needs_catalogs": [], "compat": "new"}, "why": "Needs a newer Gravitee Lab"},
+  {"about": "written for an older Lab", "unit": {"blocked": null, "needs_catalogs": [], "compat": "old"}, "why": "Written for an older Gravitee Lab"},
   {"about": "everything at once, in the server's order", "unit": {"blocked": {"reasons": ["Mounts the Docker socket"]}, "needs_catalogs": [{"id": "partner-bank", "name": "Partner Bank", "reason": "missing"}], "compat": "new"},
-   "why": "Mounts the Docker socket; Needs Partner Bank; Needs a newer Lab"}
+   "why": "Mounts the Docker socket; Needs Partner Bank; Needs a newer Gravitee Lab"}
 ]

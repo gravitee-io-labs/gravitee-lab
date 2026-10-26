@@ -73,14 +73,14 @@ def stop_at(label):
     return hook
 
 
-def parsed(path, address=None, borrowed=()):
+def parsed(path, address=None, borrowed=(), published=False):
     """manifest.read_catalog without Compose: the scalars of the file, the way the fixtures read them."""
     text = (Path(paths.ROOT) / path).read_text(encoding="utf-8")
     meta = fixtures._meta_of(text)
     return {"schema": 1, "id": meta["id"], "name": meta["name"], "description": meta.get("description", ""),
             "version": meta["version"], "lab": meta["lab"], "license": meta.get("license"), "images": None,
             "contribute": "pull-request", "shared_settings": [], "moved_from": [], "canary": [],
-            "requires": {"catalogs": {}}, "unknown": []}
+            "requires": {"catalogs": {}}, "unknown": [], "unknown_values": []}
 
 
 def meta_of(ns, **more):
@@ -1790,7 +1790,7 @@ class Updating(Base):
         held = Path(paths.ROOT) / ".lab/held/addons/audit"
         held.mkdir(parents=True)
         (held / ".env").write_text("TOKEN=1\n", encoding="utf-8")
-        self.patch(manifest, "read_catalog", lambda path, address=None, borrowed=(): {**parsed(path),
+        self.patch(manifest, "read_catalog", lambda path, address=None, borrowed=(), published=False: {**parsed(path),
                                                                                        "moved_from": ["addon:audit"]})
         target = self.advance(AUDIT)
         self.apply(target)
@@ -2438,7 +2438,7 @@ class Adopting(Base):
         self.held("addon", "audit")
         target = self.remotes["partner"].commit(AUDIT, "Add audit")
         bare.fetch(address, "main", registry.store_dir("partner"))
-        self.patch(manifest, "read_catalog", lambda path, address=None, borrowed=(): {**parsed(path),
+        self.patch(manifest, "read_catalog", lambda path, address=None, borrowed=(), published=False: {**parsed(path),
                                                                                        "moved_from": ["addon:audit"]})
         install.apply_update("partner", install.plan_update("partner", target))
         self.assertEqual((Path(paths.ROOT) / ".lab/catalogs/partner/addons/audit/.env").read_text(encoding="utf-8"),
@@ -2446,7 +2446,7 @@ class Adopting(Base):
 
     def test_a_start_repeats_an_adoption_that_stopped(self):
         self.held("addon", "ledger")
-        self.patch(manifest, "read_catalog", lambda path, address=None, borrowed=(): {**parsed(path),
+        self.patch(manifest, "read_catalog", lambda path, address=None, borrowed=(), published=False: {**parsed(path),
                                                                                        "moved_from": ["addon:ledger"]})
         staged, address, roots = self.prepare("partner")
         self.patch(install, "STEP", stop_at("add:adopt"))
@@ -3064,7 +3064,7 @@ class Stops(Base):
     # -- a stop inside the adoption of the settings that wait -----------------------------------------------------------
 
     def test_a_stop_at_any_step_of_the_adoption_is_finished_by_the_next_start(self):
-        self.patch(manifest, "read_catalog", lambda path, address=None, borrowed=(): {**parsed(path),
+        self.patch(manifest, "read_catalog", lambda path, address=None, borrowed=(), published=False: {**parsed(path),
                                                                                        "moved_from": ["addon:ledger"]})
         self.fresh()
         held = Path(paths.ROOT) / ".lab/held/addons/ledger"

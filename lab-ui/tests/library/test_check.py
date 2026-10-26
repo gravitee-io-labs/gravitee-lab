@@ -449,7 +449,7 @@ class Items(Machine):
             "x-gravitee.requires.license: apim-reporter-tcp: say what needs it"])
         self.assertEqual(list(check._license({"license": {"apim-reporter-tcp": "Traces"}})), [])
 
-    LEVEL = "x-gravitee.requires.lab must be a whole number from 1: the contract level this item was written for"
+    LEVEL = "x-gravitee.requires.lab must be a whole number from 1: older Gravitee Labs read it, and an item does without it"
 
     def test_the_level_a_unit_was_written_for_is_a_whole_number_from_1(self):
         for level in (1, 3, 99):
@@ -1353,7 +1353,7 @@ class Contract(Machine):
 
     def lines(self, level, *units, **more):
         found = self.units(*units, **more)
-        return list(check._lab_lines({"lab": level}, found, self.given["raw"], self.given))
+        return list(check._lab_lines({"schema": 1, "lab": level}, found, self.given["raw"], self.given))
 
     def plain(self):
         return member("fixture", "addon", "echo", ["echo"])
@@ -1362,19 +1362,28 @@ class Contract(Machine):
         # The keys of the x-gravitee block, the labels, the network, the category and the core service: all level 1
         self.assertEqual(self.lines(1, self.plain()), [])
         terminal = member("fixture", "playground", "tour", ["tour-app"], says={"terminal": "tour-app"})
-        self.assertEqual(self.lines(1, terminal), ["lab is 1 but 3 is needed: x-gravitee.terminal (3)"])
+        self.assertEqual(self.lines(1, terminal), ["lab is 1 but must be 3, for x-gravitee.terminal: older Gravitee Labs read it. Fix: run catalog.py upgrade --write, which writes it"])
         self.assertEqual(self.lines(3, terminal), [])
 
     def test_a_lab_that_is_higher_than_needed_is_wrong_too(self):
         said = self.lines(2, self.plain())
         self.assertEqual(len(said), 1)
-        self.assertRegex(said[0], r"^lab is 2 but 1 is needed: [^,]+ \(1\), [^,]+ \(1\), [^,]+ \(1\) and \d+ more$")
-        self.assertIn("category Other (1)", said[0])
-        self.assertEqual(self.lines(0, self.plain())[0][:19], "lab is 0 but 1 is n")
+        self.assertRegex(said[0], r"^lab is 2 but must be 1, for [^,]+, [^,]+, [^,]+ and \d+ more: older Gravitee Labs")
+        self.assertIn("category Other", said[0])
+        self.assertEqual(self.lines(0, self.plain())[0][:23], "lab is 0 but must be 1,")
 
     def test_lab_is_never_above_the_level_this_engine_provides(self):
-        self.assertEqual(self.lines(4, self.plain()), ["lab is 4, above contract 3, the newest level this engine provides"])
-        self.assertEqual(self.lines(99, self.plain()), ["lab is 99, above contract 3, the newest level this engine provides"])
+        self.assertEqual(self.lines(4, self.plain()), ["lab is 4, more than any Gravitee Lab reads: older Gravitee Labs read it. Fix: run catalog.py upgrade --write, which writes it"])
+        self.assertEqual(self.lines(99, self.plain()), ["lab is 99, more than any Gravitee Lab reads: older Gravitee Labs read it. Fix: run catalog.py upgrade --write, which writes it"])
+
+    def test_a_catalog_yml_without_the_lines_of_older_labs_is_a_warning_and_nothing_to_verify(self):
+        terminal = member("fixture", "playground", "tour", ["tour-app"], says={"terminal": "tour-app"})
+        self.assertEqual(self.lines(None, terminal), [check.WARNING_MARK + check.NO_LEGACY])
+        found = check.as_problems([("catalog.yml", check.WARNING_MARK + check.NO_LEGACY)], {"addons": {}, "setups": {},
+                                                                                            "playgrounds": {}}, "fixture")
+        self.assertEqual([(one.severity, one.message) for one in found], [("warning", "catalog.yml has no lines for older Gravitee "
+                                                                           "Labs, which then cannot read it. Fix: catalog.py "
+                                                                           "upgrade --write")])
 
     def test_every_kind_of_item_counts_where_a_unit_uses_it(self):
         def needed(*units, **more):
@@ -1416,7 +1425,7 @@ class Contract(Machine):
         self.assertNotIn(("seed.setting", "OTHER"), found)
         self.assertEqual(max(found.values()), 3)
         self.assertEqual(self.lines(2, seeder, products=["apim"]), [
-            "lab is 2 but 3 is needed: seed file controls.yaml (3)"])
+            "lab is 2 but must be 3, for seed file controls.yaml: older Gravitee Labs read it. Fix: run catalog.py upgrade --write, which writes it"])
 
     def test_a_run_block_of_the_guide_is_an_item_of_the_contract(self):
         play = member("fixture", "playground", "tour", ["tour-app"])
@@ -1502,6 +1511,11 @@ class Descriptor(Machine):
     def test_a_key_the_lab_does_not_read_is_told(self):
         found, _ = self.read({"id": "fixture", "unknown": ["colour"]})
         self.assertEqual(found[1], ["colour is not a key of x-gravitee-catalog: " + ", ".join(check.manifest.KEYS)])
+
+    def test_a_key_of_requires_or_of_a_catalog_it_requires_is_told_by_its_path(self):
+        found, _ = self.read({"id": "fixture", "unknown": ["requires.catalogs.hub.mirror", "requires.gpu"]})
+        self.assertEqual(found[1], ["requires.catalogs.hub.mirror is not a key of a catalog it requires: name, url, min",
+                                    "requires.gpu is not a key of requires: catalogs"])
 
     def test_the_dependencies_a_catalog_declares_are_the_ones_its_units_include_from(self):
         meta = {"requires": {"catalogs": {"partner": {}, "stranger": {}}}}
@@ -1936,6 +1950,48 @@ def snapshot(root):
     return sorted(found)
 
 
+def _odd_ledger():
+    """The partner's ledger with a key of x-gravitee and a label that no Lab reads yet."""
+    text = (fixtures.CATALOGS / "partner" / "addons/ledger/compose.yml").read_text(encoding="utf-8")
+    return text.replace("description: Keeps the entries of a partner}", "description: Keeps the entries of a partner, badge: gold}") \
+        .replace("      io.gravitee.name: Ledger\n", "      io.gravitee.name: Ledger\n      io.gravitee.badge: gold\n"
+                 "      io.gravitee.role: tester\n")
+
+
+NOT_READ = [("addons/ledger/compose.yml", "label io.gravitee.badge is not read by this Gravitee Lab: remove it, or check with "
+                                          "the Gravitee Lab release that reads it (catalog.py upgrade --lab-ref latest)"),
+            ("addons/ledger/compose.yml", "label io.gravitee.role=tester is not read by this Gravitee Lab: remove it, or check "
+                                          "with the Gravitee Lab release that reads it (catalog.py upgrade --lab-ref latest)"),
+            ("addons/ledger/compose.yml", f"x-gravitee.badge is not a key of x-gravitee: {', '.join(sorted(check.META))}")]
+
+
+class NotReadInAFolder(Shared):
+    """What a catalog of the author's own uses that this Lab does not read is a mistake, and each item is named: the unit is
+    not blocked for it, since the person runs what they write."""
+
+    CATALOGS = {"partner": {"files": {"addons/ledger/compose.yml": _odd_ledger()}}}
+
+    def test_each_item_this_lab_does_not_read_is_named(self):
+        self.assertEqual(sorted(self.found("partner")), NOT_READ)
+        self.assertEqual(self.built["addons"]["@partner/ledger"]["blocked"], None)
+
+
+class NotReadInAPublishedCatalog(Shared):
+    """The same catalog published, a git catalog someone added: its unit needs a newer Gravitee Lab and is not run, and the
+    check of it says so besides naming each item."""
+
+    CATALOGS = {"partner": {"kind": "git", "files": {"addons/ledger/compose.yml": _odd_ledger()}}}
+
+    def test_the_unit_is_blocked_as_needing_a_newer_gravitee_lab(self):
+        unit = self.built["addons"]["@partner/ledger"]
+        self.assertEqual((unit["compat"], unit["blocked"]), ("new", {"reasons": [
+            "Needs a newer Gravitee Lab: uses label io.gravitee.badge, label io.gravitee.role=tester, x-gravitee.badge"]}))
+        self.assertEqual(sorted(self.found("partner")), [
+            ("addons/ledger/compose.yml", "Blocked: Needs a newer Gravitee Lab: uses label io.gravitee.badge, label "
+                                          "io.gravitee.role=tester, x-gravitee.badge"),
+            *NOT_READ])
+
+
 class Fixtures(Shared):
     """The catalogs of the tests: `fixture` and `partner` say nothing but what their `lint` states; the others are
     refused for the level they ask for."""
@@ -1968,7 +2024,7 @@ class Fixtures(Shared):
     def test_nothing_else_is_found_in_the_fixture_and_the_partner(self):
         self.assertEqual(self.found("partner"), [])
         self.assertEqual(sorted(self.found("fixture")), [
-            ("addons/future/compose.yml", "Blocked: Needs Lab level 99, this Lab reads 1 to 1"),
+            ("addons/future/compose.yml", "Blocked: Needs a newer Gravitee Lab"),
             ("addons/port-core/compose.yml", "publishes port 8082, like docker-compose.yml"),
             ("setups/pair.yml", "Blocked: Depends on private content")])
 
@@ -1981,14 +2037,15 @@ class Fixtures(Shared):
 
     def test_a_catalog_written_for_a_lab_that_does_not_exist_yet_is_refused_for_its_level(self):
         found = self.found("lab-new")
-        self.assertIn(("catalog.yml", "lab is 99, above contract 1, the newest level this engine provides"), found)
-        self.assertIn(("addons/newer/compose.yml", "Blocked: Needs Lab level 99, this Lab reads 1 to 1"), found)
+        self.assertIn(("catalog.yml", "lab is 99, more than any Gravitee Lab reads: older Gravitee Labs read it. Fix: run "
+                                      "catalog.py upgrade --write, which writes it"), found)
+        self.assertIn(("addons/newer/compose.yml", "Blocked: Needs a newer Gravitee Lab"), found)
 
     def test_a_catalog_written_for_a_lab_no_longer_read_is_refused_for_its_level(self):
         found = self.found("lab-old", "catalog.yml")
         self.assertEqual(len(found), 1)
-        self.assertRegex(found[0][1], r"^lab is 0 but 1 is needed: .+ \(1\)")
-        self.assertIn(("addons/older/compose.yml", "Blocked: Written for an older Lab (level 0)"), self.found("lab-old"))
+        self.assertRegex(found[0][1], r"^lab is 0 but must be 1, for .+: older Gravitee Labs read it")
+        self.assertIn(("addons/older/compose.yml", "Blocked: Written for an older Gravitee Lab"), self.found("lab-old"))
 
     def test_the_fixture_units_that_are_fine_pass_every_lint_of_the_catalog_profile(self):
         # No unit of the fixtures is in the catalog profile's way but the ones the oracle says
@@ -2334,7 +2391,7 @@ class Authoring(Shared):
                 self.assertIn("x-gravitee.kind must be addon", said)
 
     def test_a_level_that_is_none_is_told_of_an_add_on_and_of_a_setup_as_of_a_playground(self):
-        level = "x-gravitee.requires.lab must be a whole number from 1: the contract level this item was written for"
+        level = "x-gravitee.requires.lab must be a whole number from 1: older Gravitee Labs read it, and an item does without it"
         self.assertEqual(self.said("partner", "addons/oldlab/compose.yml").count(level), 1)
         self.assertEqual(self.said("partner", "setups/oldlab.yml").count(level), 1)
         self.assertNotIn(level, self.said("partner", "addons/fine/compose.yml"))

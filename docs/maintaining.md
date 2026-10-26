@@ -112,7 +112,14 @@ Before merging, give the pull request the label of the number it raises:
 | --- | --- | --- |
 | `major` | `2.0.0` | An update that needs a person to do something by hand |
 | `minor` | `1.1.0` | A new feature |
+| `catalog-format` | `1.1.0` | Something catalogs can use: a key, a label, a seed folder, a core service ([the contract](contract.md)) |
 | none | `1.0.1` | A fix, and anything else |
+
+A pull request that adds something catalogs can use gets `catalog-format`, with `major` too when it also needs people to act.
+Its release lists it under *For catalogs*: that section is what a catalog may use from that version on, and an author who uses it
+moves the catalog's pin to that release with `catalog.py upgrade --lab-ref latest`. GitHub lists a pull request under the first
+section whose label it has, and only there: one labeled `major` and `catalog-format` is under *Changes that need you to do
+something*, which comes first so that what needs people to act is never missed. Its title then says what catalogs can use.
 
 When several pull requests are merged while a release is still running, the next release counts them all and raises the highest
 number their labels ask for. A run that runs again does no harm: a commit that a version holds makes no second one, and
@@ -126,7 +133,7 @@ The workflow pushes the tag with a deploy key, since the token of a workflow can
    `publish`, then both files deleted. Only the step that pushes the tag reads it (a test of `.github/tests` keeps it so).
 2. **Two tag rulesets** on every tag: `catalog-tags` forbids deleting or moving a tag, with administrators alone as bypass, and
    `release-tags` forbids creating one, with administrators and deploy keys as bypass.
-3. **The labels** `major` and `minor`.
+3. **The labels** `major`, `minor` and `catalog-format`.
 
 To replace the key, make a new one, set the secret again and delete the old deploy key: nothing else changes.
 

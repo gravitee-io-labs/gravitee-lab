@@ -66,6 +66,10 @@ label io.gravitee.image.tags since=1
 label io.gravitee.license since=1
 label io.gravitee.name since=1
 label io.gravitee.role since=1
+label.value io.gravitee.console.<id>.legacy=false since=1
+label.value io.gravitee.console.<id>.legacy=true since=1
+label.value io.gravitee.license=required since=1
+label.value io.gravitee.role=seed since=1
 seed.folder aim since=1
 seed.folder aim/agents since=1
 seed.folder aim/api-tools since=1

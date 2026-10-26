@@ -8,9 +8,10 @@ prints All good. An item of this machine about to be shared (`sharing`) is the o
 
 The catalog profile (`catalog_problems`, `catalog_files`) is the second half of `catalog.py check`, after the rules of
 `catalogs.audit` (structure, secrets, commits, workflows, Dockerfiles, guides, images): the per-item rules for each unit of
-the catalog, the README tables that its folders keep when they keep any, the names it gives, its ports, what its `catalog.yml`
-says and whether `lab` in it is the true minimum, and the verdict of the trust policy on each unit (a Blocked reason is an
-error). It reads, and never writes. Problems are (file, what is wrong), the file relative to the catalog, which is what a CI
+the catalog, the README tables that its folders keep when they keep any, the names it gives, its ports, what its units use that
+this Lab does not read (`understood`: a published catalog that holds one needs a newer Gravitee Lab), what its `catalog.yml` says
+and whether a `lab` written in it, for older Gravitee Labs, is the true minimum, and the verdict of the trust policy on
+each unit (a Blocked reason is an error). It reads, and never writes. Problems are (file, what is wrong), the file relative to the catalog, which is what a CI
 annotation needs. The images a catalog builds are IM02 and IM04 of the audit, with the Lab's seeder as the one named anchor.
 
 A folder is read where it is (`temporary_link`): the items need the folder as the Lab sees it, under `.lab/catalogs/`, so it is
@@ -35,9 +36,9 @@ from ..docker import compose, images
 from ..gravitee import frames, platforms
 from . import layers
 from .. import paths
-from ..catalogs import defaults, manifest, registry, trust
+from ..catalogs import defaults, manifest, registry, trust, understood
 from ..catalogs.registry import CatalogError
-from ..catalogs.report import ERROR, Problem
+from ..catalogs.report import ERROR, WARNING, Problem
 from ..catalogs.tree import read_inside
 from ..paths import CORE_FILE, KINDS, NOUNS, ROOT
 from .project import REACH_LIMIT, apart, brought, forget, loaded
@@ -51,7 +52,7 @@ KEY_OF = {"gateway": "addon", "tested": "playground", "terminal": "playground"} 
 DURATION = re.compile(r"(?:\d+ h(?: \d{1,2} min)?|\d+ min)")
 # The keys that were read once and are not any more, and why: a file that still has one is told so, not just that the
 # key is unknown
-GONE = {"deploys_to": "compatibility with a platform is computed"}
+GONE = understood.GONE
 # What x-gravitee.requires can ask for: add-ons and setups are included instead
 REQUIRES = {"plugins", "license", "host", "images", "lab"}
 LOOPBACK = "127.0.0.1"   # the only address a shared file publishes a port on
@@ -86,22 +87,15 @@ CODE = re.compile(r"^(```|~~~).*?^\1|`[^`\n]*`", re.M | re.S)
 # A `key: value` line of a YAML file at its top level: the key, then the value in quotes (2, 3) or without (4), then a comment
 FLAT_LINE = re.compile(r"([A-Za-z_][\w-]*):[ \t]*(?:([\"'])(.*?)\2|([^#\"'\s][^#]*?))?[ \t]*(?:#.*)?")
 SEEDER_IMAGE = re.compile(r"[a-z0-9][a-z0-9.-]*(?::[0-9]{1,5})?(?:/[a-z0-9][a-z0-9._-]*)+")   # host/path, no tag
-LOCK_FILE = "contract.lock"   # what the engine promises units, with the level each item appeared at
-LOCK_TOKEN = re.compile(r'"[^"]*"|\S+')
-LOCK_LEVEL = re.compile(r"since=(\d+)")
+LOCK_FILE = understood.LOCK_FILE   # what the engine promises units, with the level each item appeared at
 KEYWORD = re.compile(r"""(?<![\w.$-])["']?(include|extends|env_file|label_file)["']?[ \t]*:""")   # the words the text screen reads
 DEFAULTED = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*:?-([^}$]+)\}")   # ${NAME:-default}, a default that is a plain text
-CONSOLE_LABEL = re.compile(r"io\.gravitee\.console\.[a-z0-9-]+\.(name|url|legacy)")
 RUN_BLOCK = re.compile(r"^(?:```|~~~)[ \t]*run\b", re.M)   # a guide's block that the terminal pane runs
 # Where a depth mistake in an anchor shows: a unit's folder sits five folders under the project
 SEEDER_FROM_A_UNIT, PLUGINS_FROM_A_UNIT = "../../../../../seeder", "../../../../../plugins/{}"
 BIG_FILE = 1 << 20   # the largest file of a unit that the Lab reads (T19)
-SEED_ENTRIES = 5000   # as many entries of a seed folder as the screen reads
-SHOWN = 3   # the items a line spells out before it counts the rest
-# How an item of the lock is named in a line: the keys, the labels and the anchors by their own name, the others by what they are
-ITEM = {"core.service": "core service {}", "core.network": "network {}", "core.variable": "setting {}",
-        "core.image_variable": "setting {}", "core.category": "category {}", "seed.folder": "seed folder {}",
-        "seed.file": "seed file {}", "seed.setting": "seed setting {}", "guide.block": "{} block of a guide"}
+SEED_ENTRIES = understood.SEED_ENTRIES   # as many entries of a seed folder as the screen reads
+SHOWN = understood.SHOWN   # the items a line spells out before it counts the rest
 
 
 class Unavailable(Exception):
@@ -562,10 +556,11 @@ def _tested(sets, project):
 
 
 def _level(requires):
-    """The level an item says it was written for is a whole number from 1, whatever the kind of the item: the Lab
-    reads it from an add-on, a setup and a playground alike, and ignores one written otherwise at run time."""
+    """The legacy level an item says it was written for, for older Gravitee Labs, is a whole number from 1, whatever the
+    kind of the item: the Lab reads it from an add-on, a setup and a playground alike as a hint, and ignores one written otherwise
+    at run time."""
     if isinstance(requires, dict) and "lab" in requires and not (type(requires["lab"]) is int and requires["lab"] >= 1):
-        yield "x-gravitee.requires.lab must be a whole number from 1: the contract level this item was written for"
+        yield "x-gravitee.requires.lab must be a whole number from 1: older Gravitee Labs read it, and an item does without it"
 
 
 def _requires(requires, project):
@@ -1096,7 +1091,7 @@ def _fix(real, anchors):
     if os.path.basename(os.path.dirname(real)) == "plugins":
         return f"the plugin folder of {base} is {PLUGINS_FROM_A_UNIT.format(base)} from the folder of a unit"
     if _within(real, anchors["project"]):
-        return ("keep what it reads in its own folder, or reach an anchor of the contract: the seeder, "
+        return ("keep what it reads in its own folder, or reach a place of the engine that units may use: the seeder, "
                 f"{SEEDER_FROM_A_UNIT}, or a plugin folder, {PLUGINS_FROM_A_UNIT.format('<product>')}")
     return None
 
@@ -1236,115 +1231,101 @@ def _unsafe_notes(file, reach, shown):
 
 def _lock():
     """(contract, contract_min, {(kind, name): since}) of contract.lock, or None when the file is not there or not the
-    engine's: one line for each item with the level it appeared at."""
-    try:
-        text = (ROOT / LOCK_FILE).read_text(encoding="utf-8")
-    except (OSError, ValueError):
-        return None
-    levels, rows = {}, {}
-    for row in text.splitlines():
-        words = LOCK_TOKEN.findall(row)
-        if len(words) == 2 and words[0] in ("contract", "contract_min") and words[1].isdigit():
-            levels[words[0]] = int(words[1])
-        elif len(words) >= 3 and LOCK_LEVEL.fullmatch(words[-1]):
-            rows[(words[0], words[1].strip('"'))] = int(LOCK_LEVEL.fullmatch(words[-1]).group(1))
-    return (levels["contract"], levels["contract_min"], rows) if len(levels) == 2 else None
-
-
-def _label_of(key):
-    """The item of the contract that a label stands for: the console labels are listed with their id as <id>."""
-    found = CONSOLE_LABEL.fullmatch(key)
-    return f"io.gravitee.console.<id>.{found.group(1)}" if found else key
-
-
-def _seed_names(folder):
-    """The folders and files of a seed as the contract names them, relative to the seed folder, to two levels of folders."""
-    base, found = Path(folder) / "seed", set()
-    if os.path.islink(base):
-        return found
-    for top, folders, names in os.walk(base):
-        depth = len(Path(top).relative_to(base).parts)
-        folders[:] = [name for name in folders if not name.startswith(".")] if depth < 3 else []
-        for name in folders:
-            found.add(("seed.folder", (Path(top) / name).relative_to(base).as_posix()))
-        for name in names:
-            if not name.startswith("."):
-                found.add(("seed.file", (Path(top) / name).relative_to(base).as_posix()))
-        if len(found) > SEED_ENTRIES:   # the screen reads no more, and this is no place to walk a bomb
-            break
-    return found
+    engine's: one line for each item with the level it appeared at (`understood.lock`)."""
+    found = understood.lock(ROOT)
+    return (found.contract, found.contract_min, found.rows) if found else None
 
 
 def _used(units, raw, inputs, rows):
-    """{item: the level it appeared at} of the contract items that these units use: the keys of their x-gravitee block,
-    the labels of their services, the core services, networks, variables and categories they refer to, the folders and files
-    of their seed and the settings their seed service reads, the seeder and the plugin folders they build or bind, and the
-    guide blocks they run. Only what the lock lists: the rest is no part of the contract."""
-    core = raw.get(CORE_FILE) or {}
-    core_services = set(core.get("services") or {})
-    seeder, found = os.path.realpath(ROOT / "seeder"), set()
-    plugins = ROOT / "plugins"
+    """{item: the level it appeared at} of the contract items that these units use (`understood.items`: the keys of their
+    x-gravitee block, the labels of their services, the core services and networks they name, their category, the places of
+    the engine they build or bind, the folders and files of their seed and the settings of their seed service), with the
+    variables they refer to and the guide blocks they run. Only what the lock lists: the rest is no part of the contract."""
+    found = set()
     for kind, uid, unit in units:
-        config = raw.get(unit["file"]) or {}
-        meta = _meta(config)
-        found |= {("unit.key", f"x-gravitee.{key}") for key in meta}
-        requires = meta.get("requires")
-        found |= {("unit.key", f"x-gravitee.requires.{key}") for key in requires} if isinstance(requires, dict) else set()
-        found.add(("core.category", str(meta.get("category") or "")))
-        shown = meta.get("consoles") if isinstance(meta.get("consoles"), list) else []
-        found |= {("core.service", name) for name in [*shown, meta.get("terminal")]
-                  if isinstance(name, str) and name in core_services}
-        for name, service in (config.get("services") or {}).items():
-            if not isinstance(service, dict):
-                continue
-            if name in core_services:
-                found.add(("core.service", name))
-            found |= {("label", _label_of(key)) for key in service.get("labels") or {} if str(key).startswith("io.gravitee.")}
-            nets = service.get("networks")
-            found |= {("core.network", net) for net in (nets if isinstance(nets, (list, dict)) else [])}
-            waits = service.get("depends_on")
-            found |= {("core.service", other) for other in (waits if isinstance(waits, (list, dict)) else [])
-                      if other in core_services}
-            build = service.get("build")
-            context = build if isinstance(build, str) else (build or {}).get("context") if isinstance(build, dict) else None
-            if isinstance(context, str) and os.path.realpath(context) == seeder:
-                found.add(("anchor", "seeder"))
-            for volume in service.get("volumes") or []:
-                source = volume.get("source") if isinstance(volume, dict) else None
-                if isinstance(source, str):
-                    real = os.path.realpath(source)
-                    for product in (inputs.get("products") or ()):
-                        if _within(real, os.path.realpath(plugins / product)):
-                            found.add(("anchor", f"plugins/{product}"))
-            if (service.get("labels") or {}).get("io.gravitee.role") == "seed":
-                found |= {("seed.setting", key) for key in (service.get("environment") or {})}
+        folder = ROOT / paths.unit_folder(kind, uid) if kind == "playground" else None
+        found |= understood.items(raw.get(unit["file"]) or {}, folder, kind, ROOT)
         found |= {("core.variable", name) for name in (inputs.get("references") or {}).get(unit["file"], ())}
         found |= {("core.image_variable", name) for name in (inputs.get("references") or {}).get(unit["file"], ())}
-        if kind == "playground":
-            found |= _seed_names(ROOT / paths.unit_folder(kind, uid))
-            if RUN_BLOCK.search((inputs.get("guides") or {}).get(uid) or ""):
-                found.add(("guide.block", "run"))
+        if kind == "playground" and RUN_BLOCK.search((inputs.get("guides") or {}).get(uid) or ""):
+            found.add(("guide.block", "run"))
     return {item: rows[item] for item in found if item in rows}
 
 
-def _lab_lines(meta, units, raw, inputs):
-    """The verdict on `lab` in catalog.yml: it is the highest level among the contract items the catalog uses, no
-    lower (the Lab would start it on an engine that lacks what it needs) and no higher (it would be refused by a Lab that
-    could run it), and never above the `contract` this engine provides."""
+def _not_understood(kind, uid, config, partial=False):
+    """What a unit uses that this Lab does not read, each said where the other rules do not say it already: the keys of
+    x-gravitee (`_metadata`), a playground's keys of `requires` (`_requires`) and the category (`_metadata`) have their own
+    lines. A published catalog that holds one is not used by this Lab and is shown as needing a newer Gravitee Lab, so the
+    author is told before anyone installs it."""
+    folder = ROOT / paths.unit_folder(kind, uid) if kind == "playground" else None
+    for item in understood.of_unit(config or {}, folder, kind, root=ROOT, partial=partial):
+        what, name = item
+        if what == "core.category" or what == "unit.key" and (name.count(".") == 1 or kind == "playground"):
+            continue
+        yield (f"{understood.name(item)} is not read by this Gravitee Lab: remove it, or check with the Gravitee Lab "
+               "release that reads it (catalog.py upgrade --lab-ref latest)")
+
+
+def needed_lab(units, raw, inputs):
+    """The `lab` that older Gravitee Labs need in catalog.yml for these units: the highest level among the contract items
+    they use (`_used`), 1 when they use none, None without the lock."""
     locked = _lock()
+    if locked is None:
+        return None
+    return max(_used(units, raw, inputs, locked[2]).values(), default=1)
+
+
+def folder_lab(folder):
+    """The `lab` that older Gravitee Labs need in the catalog.yml of a folder (`needed_lab`), for `catalog.py` to write.
+    While every item of the lock appeared at the first level, that level is the answer and nothing is read; otherwise the folder
+    is read where it is, as `catalog.py check` reads it (`temporary_link`, the scrubbed environment). None when it cannot be
+    said here: no lock, a catalog.yml without an id, no Compose, a catalog it includes from that is not here."""
+    locked = _lock()
+    if locked is None:
+        return None
+    if max(locked[2].values(), default=1) <= 1:
+        return 1
+    summary = folder_summary(folder)
+    ns = summary.get("id")
+    if not ns or compose_missing():
+        return None
+    needs = sorted(summary.get("requires_catalogs") or {})
+    try:
+        needs_here(ns, needs, registry.inputs())
+    except Unavailable:
+        return None
+    with temporary_link(folder, ns, needs), scrubbed():
+        built, inputs = loaded()
+        return needed_lab(catalog_units(ns, built), inputs["raw"], {**inputs, "products": _anchored(inputs.get("products") or ())})
+
+
+WARNING_MARK = "Warning: "   # a line of `catalog_problems` that is a warning: the catalog works here, and something is left to do
+NO_LEGACY = ("catalog.yml has no lines for older Gravitee Labs, which then cannot read it. Fix: catalog.py upgrade --write")
+
+
+def _lab_lines(meta, units, raw, inputs):
+    """The verdict on `lab` in catalog.yml, when it is there. This Lab reads a catalog by what it uses and needs no `lab`; older Gravitee
+    Labs read this line instead, so a `lab` that is written is the true minimum: the highest level among the contract
+    items the catalog uses, no lower (an older Lab would start it without what it needs) and no higher (one that could run it would
+    refuse it), and never above what this engine provides. `catalog.py upgrade --write` writes it."""
     level = meta.get("lab")
+    if level is None or meta.get("schema") is None:
+        yield WARNING_MARK + NO_LEGACY   # this Lab reads it; one that reads levels refuses it with a line that misleads
+    if level is None:
+        return
+    locked = _lock()
     if locked is None:
         yield f"{LOCK_FILE} is not there or cannot be read, so `lab` cannot be verified"
         return
     contract, _, rows = locked
     used = _used(units, raw, inputs, rows)
     needed = max(used.values(), default=1)
+    fix = "older Gravitee Labs read it. Fix: run catalog.py upgrade --write, which writes it"
     if type(level) is int and level > contract:
-        yield f"lab is {level}, above contract {contract}, the newest level this engine provides"
+        yield f"lab is {level}, more than any Gravitee Lab reads: {fix}"
     elif level != needed:
-        at = sorted(ITEM.get(kind, "{}").format(name) for (kind, name), since in used.items() if since == needed)
-        said = ", ".join(f"{name} ({needed})" for name in at[:SHOWN]) + (f" and {len(at) - SHOWN} more" if len(at) > SHOWN else "")
-        yield f"lab is {level} but {needed} is needed" + (f": {said}" if said else "")
+        at = [item for item, since in used.items() if since == needed]
+        yield f"lab is {level} but must be {needed}" + (f", for {understood.named(at)}" if at else "") + f": {fix}"
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1433,7 +1414,13 @@ def _read_yml(ns, listed):
         registry.check_namespace(meta["id"], listed=listed)
     except CatalogError as error:
         said.append(error.message)
-    said += [f"{key} is not a key of x-gravitee-catalog: {', '.join(manifest.KEYS)}" for key in meta["unknown"]]
+    for key in meta["unknown"]:
+        if key.startswith("requires.catalogs."):
+            said.append(f"{key} is not a key of a catalog it requires: {', '.join(manifest.NEED_KEYS)}")
+        elif key.startswith("requires."):
+            said.append(f"{key} is not a key of requires: {', '.join(manifest.REQUIRES_KEYS)}")
+        else:
+            said.append(f"{key} is not a key of x-gravitee-catalog: {', '.join(manifest.KEYS)}")
     return meta, said
 
 
@@ -1516,6 +1503,8 @@ def catalog_problems(ns, project=None, inputs=None, audited=False):
         if file not in stubs:
             try:
                 here += list(_unit(kind, uid, project, raw, True, context))
+                here += list(_not_understood(kind, uid, raw.get(file),
+                                             bool(((inputs.get("reach") or {}).get(file) or {}).get("missing"))))
             except RecursionError:   # a file nested deeper than anyone writes one: it is said, not left to stop the check
                 here.append("is nested too deep to be checked")
             if kind != "setup":
@@ -1754,16 +1743,18 @@ def _hidden(text, folders):
 def as_problems(found, project, ns, hide=()):
     """The findings of `catalog_problems` as `Problem`s for the report of the command line: a unit that cannot run is the code of
     the rule of the Lab's policy that refuses it and the Lab's reason, with the fix; what the rules of the items say has no code
-    (the standard has none for it yet) and no line. All of them are errors. `hide`: the folders of this machine whose place in a
+    (the standard has none for it yet) and no line. All of them are errors but a line that starts with WARNING_MARK. `hide`: the folders of this machine whose place in a
     line is taken out (the temporary project of a check, the folder that was linked into it)."""
     verdicts = {_shown(unit["file"], ns): (unit.get("verdict") or {}).get("codes") or ()
                 for _, _, unit in catalog_units(ns, project)}
     out = []
     for where, line in found:
-        code, text = "", line
+        code, text, severity = "", line, ERROR
         if line.startswith("Blocked: "):
             code, text = _blocked(line[len("Blocked: "):], verdicts.get(where, ()), ns, where)
-        out.append(Problem(code, ERROR, where, 0, _hidden(text, hide)))
+        elif line.startswith(WARNING_MARK):
+            text, severity = line[len(WARNING_MARK):], WARNING
+        out.append(Problem(code, severity, where, 0, _hidden(text, hide)))
     return out
 
 

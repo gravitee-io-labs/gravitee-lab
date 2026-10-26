@@ -128,7 +128,7 @@ function previewRows(p, allow, all = false) {
     p.imported ? { label: "From", items: p.file ? [{ text: p.file, code: true }] : [] }
       : { label: "From", items: p.address ? [{ text: p.address, code: true }] : [], hint: c.kind === "folder" ? "On this machine" : p.audience === "public" ? "Public" : p.audience === "private" ? "Private" : "" },
     // The newest version needs a newer Lab: the one installed is older
-    { label: "Version", items: p.newer && c.version ? [{ text: c.version, code: true }] : [], hint: "Newer ones need a newer Lab" },
+    { label: "Version", items: p.newer && c.version ? [{ text: c.version, code: true }] : [], hint: "Newer ones need a newer Gravitee Lab" },
     { label: "Runs", html: `<span>Containers on this machine</span>${mark(RUNS, "Runs")}` },
     usesRow(uses),
     { label: "Builds", items: built },

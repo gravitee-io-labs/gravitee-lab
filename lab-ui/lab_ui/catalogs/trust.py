@@ -22,8 +22,8 @@ What judge reads:
   .env and the root .env.
 - `context`: {host_ok (the catalog is listed, or its entry says host: true), listed, local, ns, requires (the namespaces its
   catalog declares), shared_settings, core_variables, license_variable, closure_names, closure_services, seeder_images, home,
-  level, contract, contract_min, realpath, screened (the text screen's reasons), error (why Compose could not read it),
-  audience (the catalog's: "public" or "private") and closure_audiences (the audience of each catalog the unit's closure
+  level, contract, contract_min, unknown (what of the contract a published unit uses that this Lab does not read), realpath,
+  screened (the text screen's reasons), error (why Compose could not read it), audience (the catalog's: "public" or "private") and closure_audiences (the audience of each catalog the unit's closure
   reaches)}. The last two are how a caller that has measured the audiences, the command line with `--online` for one, gets T24
   from judge itself; the Lab's own pipeline adds T24 with `add_reason` and gives neither. Judge measures nothing.
 Every key is optional and absent means the narrowest reading: nothing allowed, no host access. The one exception is `realpath`:
@@ -111,8 +111,8 @@ RULES = {
     "T23": {"class": "P", "lines": ("Includes content from outside the catalog",)},
     "T24": {"class": "P", "lines": ("Depends on private content",)},
     "T25": {"class": "P", "lines": ("Needs {name}, which is blocked",)},
-    "T26": {"class": "P", "lines": ("Needs Lab level {level}, this Lab reads {min} to {max}",
-                                    "Written for an older Lab (level {level})")},
+    "T26": {"class": "P", "lines": ("Needs a newer Gravitee Lab", "Written for an older Gravitee Lab",
+                                    "Needs a newer Gravitee Lab: uses {names}")},
     "T27": {"class": "P", "lines": ("Cannot be read: {last}",)},
     "T28": {"class": "P", "lines": ("Uses this machine without saying why: {service}",)},
     "N01": {"class": "N", "lines": ("Brings its own seed code",)},
@@ -156,8 +156,9 @@ FIXES = {
     "T23": "Include only units of the default catalog, of this catalog, or of catalogs declared in `requires.catalogs`.",
     "T24": "A Public catalog cannot include a Private one: move the shared part to a Public catalog.",
     "T25": "Fix {name} first.",
-    "T26": "Set `lab:` in `catalog.yml` to a level this Lab reads ({min} to {max}), or move `lab.ref` in "
-           "`.github/standard.json`.",
+    "T26": "Remove what this Gravitee Lab does not read, or check with the Gravitee Lab release that reads it "
+           "(`catalog.py upgrade --lab-ref latest`). A `lab` is for older Gravitee Labs: `catalog.py upgrade --write` "
+           "writes the one of `catalog.yml`.",
     "T27": "Run `docker compose -f {file} config` and fix what it prints.",
     "T28": "Say why in `x-gravitee.host_access`, one reason for each service that uses this machine, or remove what it takes.",
     "N01": "Run the Lab's seeder as it is: build its folder with no other key, set no entrypoint or command, and mount only "
@@ -1521,16 +1522,20 @@ class _Run:
             self.say("T24")
 
     def compat(self):
-        """T26: the Lab level the unit needs against what this Lab reads."""
+        """T26: what the unit uses that this Lab does not read (`context["unknown"]`, the items `understood` named, given for
+        the unit of a published catalog), else the legacy level it states against what this Lab reads."""
         context = self.context
         low = context["contract_min"] if isinstance(context.get("contract_min"), int) else 1
         high = context["contract"] if isinstance(context.get("contract"), int) else 1
         level = context.get("level")
-        if isinstance(level, int) and not isinstance(level, bool):
+        unknown = [str(name) for name in _list(context.get("unknown")) if isinstance(name, str)]
+        if unknown:
+            self.say("T26", 2, names=_spelled(unknown))
+        elif isinstance(level, int) and not isinstance(level, bool):
             if level > high:
-                self.say("T26", 0, level=level, min=low, max=high)
+                self.say("T26", 0)
             elif level < low:
-                self.say("T26", 1, level=level)
+                self.say("T26", 1)
 
     def host(self):
         """The class H findings: each blocks with its own line, or is allowed when the catalog may and the unit said why."""

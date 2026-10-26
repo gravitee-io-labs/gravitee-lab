@@ -187,7 +187,7 @@ WORDS = {
     "checking": ("Checking", "muted"), "updating": ("Updating", "working"), "downloading": ("Downloading", "working"),
     "unreachable": ("Unreachable", "warn"), "noaccess": ("No access", "error"), "needs_git": ("Needs Git", "error"),
     "wrong_catalog": ("Wrong catalog", "error"), "rewritten": ("Rewritten", "error"),
-    "lab_new": ("Needs a newer Lab", "warn"), "lab_old": ("Written for an older Lab", "warn"),
+    "lab_new": ("Needs a newer Gravitee Lab", "warn"), "lab_old": ("Written for an older Gravitee Lab", "warn"),
     "damaged": ("Damaged", "error"), "linked": ("Linked", "muted"), "missing_folder": ("Folder not found", "error"),
     "suggested": ("Not added", "muted"), "failed": ("Failed", "error"),
 }
@@ -256,13 +256,15 @@ def _state(key, **fields):
 
 
 def _seen(held):
-    """What the last check learned and the lock does not hold: {target, update, tip, version}, defensively."""
+    """What the last check learned and the lock does not hold: {target, update, tip, version, searched}, defensively.
+    `searched`: the versions the check read when its budget ran out with none this Lab reads, else 0."""
     found = held.get("seen")
     found = found if isinstance(found, dict) else {}
     return {"target": found.get("target") if isinstance(found.get("target"), str) else None,
             "update": found.get("update") is True,
             "tip": found.get("tip") if found.get("tip") in ("ok", "new", "old") else "ok",
-            "version": found.get("version") if isinstance(found.get("version"), str) else None}
+            "version": found.get("version") if isinstance(found.get("version"), str) else None,
+            "searched": found["searched"] if type(found.get("searched")) is int and found["searched"] > 0 else 0}
 
 
 def _update_available(held):
@@ -311,8 +313,11 @@ def _kind_state(ns, found, held, entry, contract):
                       next="Run make update, then try again.")
     if key == "rewritten":
         return _state(key, reason="This catalog was rewritten or moved.", next="Update only if you expected it.")
+    if key == "lab_new" and seen["searched"]:   # what was read is all that is known: the copy may not be the newest it reads
+        return _state(key, reason=f"This Lab found no version of this catalog it reads among the newest {seen['searched']}.",
+                      next="Run make update, then restart the Lab.")
     if key == "lab_new":
-        return _state(key, reason="A newer version needs a newer Lab. This is the newest one this Lab reads.",
+        return _state(key, reason="A newer version needs a newer Gravitee Lab. This is the newest one this Lab reads.",
                       next="Run make update, then restart the Lab.")
     if key == "lab_old":
         if listed:
@@ -825,18 +830,22 @@ def check_address(address, branch=None):
         roots = bare.roots(store_path, tip)
         if len(roots) > install.ROOTS_LIMIT:   # the identity of a catalog is its roots, and the lock keeps this many
             raise gitx.fail("too_large", found_at)
-        offered = manifest.offer(store_path, tip, contract["contract"], contract["contract_min"], found_at)
+        offered = manifest.offer(store_path, tip, contract["contract"], contract["contract_min"], found_at,
+                                 readable=install.readable(store_path))
         listed_at = _listed_ids_at(found_at.display)
         commit = offered.commit
         if commit is None:
-            raise manifest.no_commit(offered.levels, contract["contract"], contract["contract_min"], bool(listed_at))
+            raise manifest.no_commit(offered.levels, contract["contract"], contract["contract_min"], bool(listed_at),
+                                     offered.searched)
         kept, ignored = bare.selected(bare.listing(store_path, commit))
         with _one_stage():
             staged = install.stage(found_at, f"new-{ticket}", store_path, commit, kept, ignored)
-            meta = _read_meta(staged, found_at, contract, listed_at)
+            meta = _read_meta(staged, found_at, contract, listed_at, published=True)
+            _understood(meta)
             staged = install.rename_stage(staged, meta["id"])
             judged, verdicts, mine = _review(meta["id"], meta, "git", audience, bool(listed_at),
                                              "listed" if listed_at else "allowed", ignored)
+            _understood(meta, judged, mine)
         preview = _preview(ticket, meta, "git", found_at, audience, bool(listed_at), ignored, judged, verdicts, mine,
                            newer=offered.tip != "ok")
         _keep(ticket, "add", ns=meta["id"], staged=staged, address=found_at, branch=remote["branch"], audience=audience,
@@ -871,12 +880,25 @@ def _check_folder(asked):
         raise
 
 
-def _read_meta(staged, address, contract, listed_at):
+def _understood(meta, judged=None, mine=()):
+    """Refuses a version of a published catalog that uses what this Lab does not read (`lab_new`: it needs a newer Gravitee
+    Lab): a key of its catalog.yml, or what a unit uses, as the judgement found it (`unknown`). `pick` passes such a version
+    over when it reads it first, so this is the gate for one it could not read: a Lab never runs a file it half understands."""
+    found = manifest.unread(meta)
+    for kind, uid in mine:
+        found += [("", name) for name in (judged[kind][uid].get("unknown") or ())]
+    if found:
+        raise manifest.not_understood(found)
+
+
+def _read_meta(staged, address, contract, listed_at, published=False):
     """catalog.yml of the staged tree, read and checked: its schema and shape, that this Lab reads its level, and
-    that the name it declares is free (a listed one is accepted at its listed address only)."""
+    that the name it declares is free (a listed one is accepted at its listed address only). `published`: a git catalog, whose
+    values of a newer Lab are what it does not read (`_understood`) rather than mistakes."""
     taken = [one["id"] for one in registry.entries()]
     borrowed = [one["name"] for one in defaults.read() if one["id"] not in listed_at]
-    meta = manifest.read_catalog(os.path.relpath(Path(staged.path) / manifest.FILE, paths.ROOT), address, borrowed)
+    meta = manifest.read_catalog(os.path.relpath(Path(staged.path) / manifest.FILE, paths.ROOT), address, borrowed,
+                                 published=published)
     refusal = manifest.compat_error(meta["lab"], contract["contract"], contract["contract_min"], bool(listed_at))
     if refusal is not None:
         raise refusal
@@ -1002,7 +1024,8 @@ def _offered(store_path, held, tip, contract, address=None):
     a copy of commits made after the last release, a release whose tag was deleted) is no offer: the pin is. `moved`: the tag
     of the release installed now names the commit offered, which is another one: the owners moved a release, and the same
     version is not the same files."""
-    found = manifest.offer(store_path, tip, contract["contract"], contract["contract_min"], address)
+    found = manifest.offer(store_path, tip, contract["contract"], contract["contract_min"], address,
+                           readable=install.readable(store_path))
     pin, target = held.get("pin"), found.commit
     if target is not None and pin and target != pin and bare.is_ancestor(store_path, target, pin):
         return found._replace(commit=pin, release=held.get("release")), False
@@ -1040,8 +1063,10 @@ def _ask(ns, entry):
         registry.set_lock(ns, tip=tip, error=_failed_with(ns, "history_changed"))
         return
     mine = held.get("release") or manifest.release_of(store_path, pin, held.get("version"))   # a copy installed before releases
-    registry.set_lock(ns, tip=tip, checked=_utc(), error=_failed_with(ns, None), audience=audience, release=mine,
-                      seen={"target": target, "update": update, "tip": tip_state, "version": version})
+    seen = {"target": target, "update": update, "tip": tip_state, "version": version}
+    if target is None and found.searched:   # the budget ran out: the line says what was read, and no more
+        seen["searched"] = found.searched
+    registry.set_lock(ns, tip=tip, checked=_utc(), error=_failed_with(ns, None), audience=audience, release=mine, seen=seen)
 
 
 def _unstick(ns):
@@ -1296,6 +1321,11 @@ def _plan(ns, op):
         host = (registry.inputs().get(ns) or {}).get("host") or "no"
         judged, verdicts, mine = _review(ns, plan["meta"], "git", held.get("audience") or "private", listed,
                                          "listed" if listed else "allowed", plan["ignored"], replacing=True)
+        try:
+            _understood(plan["meta"], judged, mine)
+        except CatalogError:
+            _remove_stage(ns)   # what was refused is not left to be installed
+            raise
         old_verdicts = project.judge_inputs(live[1])[1]
         gone = {(key.partition(":")[0], _unit_id(ns, *key.split(":", 1))) for key in plan["removes"]}
         breaks = _items_that_include(found, gone, _after(found, ns, plan, judged))
@@ -1362,7 +1392,7 @@ def _settled(ns, plan, before):
     (the plan's target is what `pick` chose from the tip it has), so nothing newer is on offer, whatever the last check said
     (it may have named a commit of the history that was just replaced). A Go back leaves the version it left as the newer one,
     so the row says "Update available" again and the action toggles, and going forward again leaves nothing newer."""
-    seen = _seen(registry.lock_of(ns))
+    seen = {key: value for key, value in _seen(registry.lock_of(ns)).items() if key != "searched"}   # the next check reads again
     if plan["op"] == "update":
         seen.update(target=plan["to"], update=False, version=plan["version"])
         registry.set_lock(ns, seen=seen)

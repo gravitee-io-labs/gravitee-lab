@@ -1,9 +1,9 @@
 """`catalog.py release VERSION [--tag] [--pr]`. Real git on repositories made in a temporary folder, with an origin
 beside each, the person's name set in a temporary home; no network. The first step refuses a tree that is not clean, a branch
-that is behind origin/main, a version that is not greater than the latest tag; it changes the `version:` line and nothing else
-and makes one commit on a new branch. The second step needs origin/main to say the version and makes the annotated tag on it.
-Neither pushes main or a tag: the origin's refs are compared before and after. `--pr` pushes the release branch, which the pull
-request needs, and that branch only."""
+that is behind origin/main, a version that is not greater than the latest tag; it changes the `version:` line, keeps the lines of
+older Labs true, and nothing else, and makes one commit on a new branch. The second step needs origin/main to say the version and
+makes the annotated tag on it. Neither pushes main or a tag: the origin's refs are compared before and after. `--pr` pushes the
+release branch, which the pull request needs, and that branch only."""
 
 import contextlib
 import io
@@ -48,6 +48,18 @@ class Preparing(Case):
         now = (self.repo.root / "catalog.yml").read_bytes()
         self.assertEqual(now, catalog("1.5.0"))
         self.assertEqual(self.repo.git("diff", "--numstat", "main", "HEAD").split(), ["1", "1", "catalog.yml"])
+
+    def test_a_catalog_yml_without_the_lines_of_older_labs_gets_them_with_the_release(self):
+        """A release is a version older Gravitee Labs read too: they need `schema` and read `lab`, so the release writes
+        them, with the comment that says who writes them, and leaves the rest as it was."""
+        text = catalog().decode().replace("  schema: 1   # the format\n", "").replace("  lab: 1\n", "")
+        self.repo.commit({"catalog.yml": text.encode()})
+        self.repo.git("push", "--quiet", "origin", "main")
+        self.release("2.0.0")
+        note = "   # For older Gravitee Labs: written by catalog.py"
+        self.assertEqual((self.repo.root / "catalog.yml").read_text(), text.replace("0.1.0", "2.0.0")
+                         .replace("x-gravitee-catalog:\n", f"x-gravitee-catalog:\n  schema: 1{note}\n")
+                         .replace("# raised by make release\n", f"# raised by make release\n  lab: 1{note}\n"))
 
     def test_the_commit_has_no_trailer_and_no_tool(self):
         self.release("1.5.0")

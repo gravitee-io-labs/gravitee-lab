@@ -54,7 +54,7 @@ that is a folder gets the files. This is the same by hand. The rules are in `doc
    catalog, and "Use the catalog version" moves its settings to the catalog's item, keeps its star and deletes the personal
    copy; what else its folder holds (data, notes) is set aside in `.lab/migration/kept/`, and nothing is deleted while
    anything cannot be moved there. Until then both are listed, and the Lab starts one only while the other is off. It is
-   refused while the catalog's item is blocked or needs a newer Lab: the personal copy is the one that runs.
+   refused while the catalog's item is blocked or needs a newer Gravitee Lab: the personal copy is the one that runs.
 
 A catalog's item is not made personal again: it would leave the catalog for everyone who updates it. For a private
 variant, create a personal item with `new-addon`, `new-setup` or `new-playground`.

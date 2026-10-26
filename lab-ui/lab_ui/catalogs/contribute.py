@@ -887,14 +887,34 @@ def _pull_request(address, branch) -> Optional[str]:
     return None
 
 
-def _publish(ns, catalog, name, kind, slug, address, branch, who, copy, also=()):
+def _needed(project, items) -> int:
+    """The `lab` that older Gravitee Labs need for the units shared (`items`, [(kind, uid)]): the highest level among the
+    items of the contract they use (`check.needed_lab`), 1 when this Lab cannot say."""
+    raw = projects.loaded()[1].get("raw") or {}
+    units = [(k, uid, project[f"{k}s"][uid]) for k, uid in items if uid in project[f"{k}s"]]
+    return check.needed_lab(units, raw, projects.loaded()[1]) or 1
+
+
+def _raised(text, needed) -> Optional[str]:
+    """The text of a catalog.yml whose legacy `lab` is raised to `needed` when it is lower (`manifest.with_legacy`, the line
+    alone), None when nothing changes: a share never lowers it, and never adds the lines a catalog does without."""
+    have = registry.scan(text.encode("utf-8")).get("lab")
+    return manifest.with_legacy(text, needed) if isinstance(have, int) and have < needed else None
+
+
+def _publish(ns, catalog, name, kind, slug, address, branch, who, copy, also=(), needed=1):
     """The target's tip is fetched (the network, no lock), the commit is built on it, the branch is
-    pushed. The tip may have the item by now, or one of what goes with it (`also`): `share_exists`."""
+    pushed. The tip may have the item by now, or one of what goes with it (`also`): `share_exists`. The legacy `lab` of the
+    catalog is raised in the same commit when the item needs more (`needed`), so that an older Lab refuses it cleanly."""
     store = registry.store_dir(ns)
     base = bare.fetch(address, branch, store, stall=30, cap=FETCH_CAP, releases=False)
     for k, s in [(kind, slug), *also]:
         if bare.read(store, base, _place(k, s, ns)[2]) is not None:
             raise _refusal("share_exists", name=name if (k, s) == (kind, slug) else s, catalog=catalog)
+    yml = bare.read(store, base, manifest.FILE)
+    raised = _raised(yml.decode("utf-8", "replace"), needed) if yml else None
+    if raised is not None:
+        copy = copy._replace(files={**copy.files, manifest.FILE: ("100644", raised.encode("utf-8"))})
     commit = _commit(store, base, copy.files, f"Add {name}", who)
     where = _branch(address, slug)
     try:
@@ -1115,6 +1135,21 @@ def _rename_settings(kind, uid):
     paths.write_atomic(path, json.dumps(kept, indent=2, sort_keys=True) + "\n")
 
 
+def _raise_lab(ns, needed):
+    """The legacy `lab` of the catalog.yml of folder catalog `ns`, raised to what a shared item needs (`_raised`), the file
+    written whole. A file that is not a plain one, or not text, is left as it is: `catalog.py check` says what it lacks."""
+    file = Path(os.path.realpath(registry.install_dir(ns))) / manifest.FILE
+    data = _read(file)
+    if data is None:
+        return
+    try:
+        raised = _raised(data.decode("utf-8"), needed)
+    except UnicodeDecodeError:
+        return
+    if raised is not None:
+        paths.write_atomic(file, raised)
+
+
 def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False) -> dict:
     """Shares the personal item `uid` to catalog `to`. With `check_only`, what it would do and what keeps it: ShareCheck
     {destinations, to, audience, problems, changes, identity}, nothing written. Else the share: a repository gets a branch,
@@ -1159,18 +1194,20 @@ def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False)
     if problems:
         raise ValueError(problems[0])
     shared = [(kind, uid, slug), *[(k, one, s) for k, one, s, _ in along]]
+    needed = _needed(project, [(k, one) for k, one, _ in shared])
     if address is not None:
         files = dict(copy.files)
         for _, _, _, other in along:
             files.update(other.files)
         done = _publish(to, row["name"], name, kind, slug, address, branch, who, copy._replace(files=files),
-                        also=[(k, s) for k, _, s, _ in along])
+                        also=[(k, s) for k, _, s, _ in along], needed=needed)
         _remember_renames(to, shared, renames)
         return done
     with registry.flock():
         for k, one, s, other in along:
             _copy_into(to, row["name"], named(k, one), k, s, other)
         _copy_into(to, row["name"], name, kind, slug, copy)
+        _raise_lab(to, needed)
     _remember_renames(to, shared, renames)
     return {"copied": row["name"]}
 
@@ -1324,9 +1361,9 @@ def _cannot_run(unit) -> str:
     if needs:
         why.append(f"Needs {', '.join(str(one) for one in needs)}")
     if unit.get("compat") == "new":
-        why.append("Needs a newer Lab")
+        why.append("Needs a newer Gravitee Lab")
     elif unit.get("compat") == "old":
-        why.append("Was written for an older Lab")
+        why.append("Written for an older Gravitee Lab")
     return "; ".join(why)
 
 

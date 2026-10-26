@@ -65,7 +65,7 @@ REFUSED = ("no_access", "not_found", "ssh_denied", "host_key")
 LINES = {
     "git_missing": "Git is not installed. Install it, then try again.",
     "git_old": "Git{have} is too old. Install Git 2.25 or later, then try again.",
-    "no_readable_version": "The catalog needs a newer Lab. Run make update, then restart the Lab.",
+    "no_readable_version": "The catalog needs a newer Gravitee Lab. Run make update, then restart the Lab.",
     "lab_old": "The catalog is not ready for this version of the Lab. Try again later.",
     "failed": "The catalog could not be downloaded. Try again.",
 }
@@ -361,10 +361,11 @@ def _download(ns: str, entry: Optional[dict], row: Optional[dict]) -> None:
             shutil.rmtree(store_path, ignore_errors=True)   # another repository: nothing of it is worth keeping
             raise install.not_expected(address.repo or address.display)
         contract = _contract()
-        offered = manifest.offer(store_path, tip, contract["contract"], contract["contract_min"], answered)
+        offered = manifest.offer(store_path, tip, contract["contract"], contract["contract_min"], answered,
+                                 readable=install.readable(store_path))
         commit, tip_state = offered.commit, offered.tip
         if commit is None:
-            raise manifest.no_commit(offered.levels, contract["contract"], contract["contract_min"], listed)
+            raise manifest.no_commit(offered.levels, contract["contract"], contract["contract_min"], listed, offered.searched)
         kept, ignored = bare.selected(bare.listing(store_path, commit))
         _set(ns, "stage", 0.0)
         staged = install.stage(answered, ns, store_path, commit, kept, ignored)
@@ -392,13 +393,16 @@ def _download(ns: str, entry: Optional[dict], row: Optional[dict]) -> None:
 
 def _read(staged, address: gitx.Address, contract: dict, ns: str, listed: bool) -> dict:
     """catalog.yml of the staged tree, read as an Add reads it and checked to be the catalog expected: this
-    Lab reads its level, and its `id` is the one asked for (`wrong_catalog`)."""
+    Lab reads its legacy level and every key of it (a key it does not know needs a newer Gravitee Lab), and its `id` is the
+    one asked for (`wrong_catalog`)."""
     here = [one["id"] for one in defaults.read() if registry.display_address(one["url"]) == address.display]
     borrowed = [one["name"] for one in defaults.read() if one["id"] not in here]
-    meta = manifest.read_catalog(os.path.relpath(Path(staged.path) / manifest.FILE, paths.ROOT), address, borrowed)
+    meta = manifest.read_catalog(os.path.relpath(Path(staged.path) / manifest.FILE, paths.ROOT), address, borrowed, published=True)
     refusal = manifest.compat_error(meta["lab"], contract["contract"], contract["contract_min"], listed)
     if refusal is not None:
         raise refusal
+    if manifest.unread(meta):
+        raise manifest.not_understood(manifest.unread(meta))
     if meta["id"] != ns:
         raise install.not_expected(address.repo or address.display)
     return meta

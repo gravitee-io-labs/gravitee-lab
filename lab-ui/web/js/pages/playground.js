@@ -524,8 +524,8 @@ function catalogLine(need) {
   return { name: line, sub: why, button: mend };
 }
 
-// What a Lab that reads a level other than the playground's says: written for a newer one, or for an older one
-const COMPAT = { new: ["Needs a newer Lab", "Run make update, then restart the Lab."], old: ["Written for an older Lab", "Ask its owners to update it."] };
+// What a Lab says of a playground it does not read: it uses what a newer Lab reads, or it was written for an older one
+const COMPAT = { new: ["Needs a newer Gravitee Lab", "Run make update, then restart the Lab."], old: ["Written for an older Gravitee Lab", "Ask its owners to update it."] };
 
 // The checks in three groups: what needs you, what Start does for you, what is already fine.
 // A row says what (name, linked to it when it is an item) and what happens to it (action); a problem is told in full

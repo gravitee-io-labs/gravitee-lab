@@ -105,7 +105,7 @@
   },
   "addon:future": {
     "verdict": "blocked",
-    "reasons": ["Needs Lab level 99, this Lab reads 1 to 1"],
+    "reasons": ["Needs a newer Gravitee Lab"],
     "notes": [],
     "surface": {
       "images": ["busybox"],
