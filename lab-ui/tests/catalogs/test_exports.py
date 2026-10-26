@@ -7,6 +7,7 @@ import base64
 import io
 import json
 import os
+import re
 import shutil
 import stat
 import zipfile
@@ -584,13 +585,17 @@ class FromCatalogs(Case):
                    "  version: 2.0.0\n  lab: 1   # the level\n  license: AGPL-3.0-only\n",
         "crlf": ("x-gravitee-catalog:\n  schema: 1\n  id: partner\n  name: Partner fixture\n  description: d\n  version: 2.0.0\n"
                  "  lab: 1\n  license: AGPL-3.0-only\n").replace("\n", "\r\n"),
+        "tab after the colon": "x-gravitee-catalog:\n  schema: 1\n  id: partner\n  name: Partner fixture\n  description: d\n"
+                               "  version: 2.0.0\n  lab:\t1\n  license: AGPL-3.0-only\n",
+        "bom": "\ufeffx-gravitee-catalog:\n  schema: 1\n  id: partner\n  name: Partner fixture\n  description: d\n  version: 2.0.0\n"
+               "  lab: 1\n  license: AGPL-3.0-only\n",
     }
 
     def test_the_line_of_older_labs_is_raised_in_the_layouts_it_has_and_a_flow_block_is_said(self):
         for name, text in self.LAYOUTS.items():
             with self.subTest(name):
                 raised = contribute._raised(text, 2)
-                self.assertEqual(raised, text.replace("lab: 1", "lab: 2", 1), "nothing else of the file changes")
+                self.assertEqual(raised, re.sub(r"(lab:[ \t])1", r"\g<1>2", text, count=1), "nothing else of the file changes")
                 self.assertIsNone(contribute._raised(raised, 2), "once")
         self.assertIsNone(contribute._raised(self.LAYOUTS["two spaces"].replace("  lab: 1\n", ""), 2),
                           "a catalog.yml without the lines does without them")

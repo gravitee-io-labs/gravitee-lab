@@ -928,7 +928,8 @@ def _raised(text, needed) -> Optional[str]:
     have = registry.scan(text.encode("utf-8")).get("lab")
     if not (isinstance(have, int) and have < needed):
         return None
-    written = manifest.with_legacy(text, needed)
+    bom = "\ufeff" if text.startswith("\ufeff") else ""   # a mark at the start stays, and the block is found after it
+    written = bom + manifest.with_legacy(text[len(bom):], needed)
     if registry.scan(written.encode("utf-8")).get("lab") != needed:
         raise NotRaised("its lab is not on a line of its own")
     return written
