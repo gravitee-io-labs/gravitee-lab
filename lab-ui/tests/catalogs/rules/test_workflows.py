@@ -1605,7 +1605,9 @@ class Hostile(unittest.TestCase):
                     start = time.process_time()
                     found = wf.problems(path, text, wf.ALL, STD)
                     spent = time.process_time() - start
-                    self.assertLess(spent, 1.0, "%s as %s took %.2f s" % (label, path, spent))
+                    # A rule that backtracks takes tens of seconds here; a linear one takes about 0.3 s of a laptop's CPU and three
+                    # times that on a runner of GitHub, so the bound leaves the runner its room and still catches the first
+                    self.assertLess(spent, 3.0, "%s as %s took %.2f s" % (label, path, spent))
                     self.assertIsInstance(found, list)
                     self.assertLessEqual(len(found), 21 * wf.MAX_PER_RULE)
 

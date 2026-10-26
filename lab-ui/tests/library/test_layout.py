@@ -2243,18 +2243,19 @@ class Odd(Machine):
         self.assertEqual(self.marker(), {"layout": 2, "from": 0})   # the marker is not rewritten
 
     def test_status_and_waiting_are_cheap_enough_for_every_poll(self):
+        # The CPU time of this process: the clock on the wall also counts the other tests of a parallel run
         self.build(filler=300)
-        started = time.monotonic()
+        started = time.process_time()
         for _ in range(200):
             layout.status()
             layout.waiting()
-        self.assertLess((time.monotonic() - started) / 200, 0.01)   # well under the 15 ms the fingerprint is allowed
+        self.assertLess((time.process_time() - started) / 200, 0.01)   # well under the 15 ms the fingerprint is allowed
         self.migrate()
-        started = time.monotonic()
+        started = time.process_time()
         for _ in range(200):
             layout.status()
             layout.waiting()
-        self.assertLess((time.monotonic() - started) / 200, 0.005)
+        self.assertLess((time.process_time() - started) / 200, 0.005)
 
     def test_a_setup_that_is_a_folder_or_a_file_in_a_kind_folder_is_left(self):
         self.build()

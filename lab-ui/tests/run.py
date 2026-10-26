@@ -17,8 +17,10 @@ modules run.
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -99,22 +101,30 @@ def main(argv=None):
         names = shard(names, index, count)
     jobs = max(1, min(args.jobs, len(names)))
     took = {}
+    # Each module writes its temporary files in a folder of its own, and the run removes them all at its end: a process a test
+    # stops, which runs no exit handler, leaves nothing behind in the system's temporary folder
+    temporary = tempfile.mkdtemp(prefix="gravitee-lab-tests-")
 
     def run(name):
         start = time.monotonic()
+        mine = os.path.join(temporary, name)
+        os.mkdir(mine)
         done = subprocess.run([sys.executable, "-m", "unittest", name], cwd=LAB_UI, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                              stdin=subprocess.DEVNULL, text=True, errors="replace")
+                              stdin=subprocess.DEVNULL, text=True, errors="replace", env={**os.environ, "TMPDIR": mine})
         took[name] = round(time.monotonic() - start, 1)
         return name, done.returncode, done.stdout
 
     failed, count = 0, 0
-    with ThreadPoolExecutor(jobs) as pool:   # the modules, largest first, as each worker is free
-        for name, code, text in pool.map(run, names):
-            ran = [line for line in text.splitlines() if line.startswith("Ran ")]
-            count += int(ran[-1].split()[1]) if ran else 0
-            if code:
-                failed += 1
-                print(f"== {name}\n{text}")
+    try:
+        with ThreadPoolExecutor(jobs) as pool:   # the modules, largest first, as each worker is free
+            for name, code, text in pool.map(run, names):
+                ran = [line for line in text.splitlines() if line.startswith("Ran ")]
+                count += int(ran[-1].split()[1]) if ran else 0
+                if code:
+                    failed += 1
+                    print(f"== {name}\n{text}")
+    finally:
+        shutil.rmtree(temporary, ignore_errors=True)
     print(f"Ran {count} tests in {len(names)} modules,", "FAILED" if failed else "OK", f"({jobs} processes)")
     if args.time:
         DURATIONS.write_text(json.dumps(dict(sorted(took.items())), indent=1) + "\n", encoding="utf-8")
