@@ -36,7 +36,7 @@ import tempfile
 from pathlib import Path
 
 from .. import paths
-from ..docker import compose
+from ..docker import compose, plugins
 from ..library import project
 from . import exports, resolve
 
@@ -50,7 +50,8 @@ ALERTS = "gravitee_alerts_alertengine"   # the settings of the link to the Alert
 REMOTE = re.compile(r"^(?:[a-z][a-z0-9+.-]*://|git@)")   # a build context that is an address, not a folder of this machine
 LAB_ONLY = ("Save & apply", "Re-seed", "Lab UI")   # words of a setting's comment that only mean something in the Lab
 TROUBLESHOOTING = "https://github.com/gravitee-io-labs/gravitee-lab/blob/main/docs/troubleshooting.md"
-NEVER = ["__pycache__", "*.pyc", "node_modules", ".state", ".env", ".venv", ".pytest_cache", ".DS_Store"]
+NEVER = ["__pycache__", "*.pyc", "node_modules", ".state", ".env", ".env.*", ".git", ".venv", ".pytest_cache", ".DS_Store"]
+KEEP = (".env.example",)   # what NEVER's patterns would take and an archive needs
 ORDER = ["image", "build", "pull_policy", "restart", "command", "entrypoint", "depends_on", "environment", "volumes", "ports",
          "extra_hosts", "networks", "healthcheck", "labels"]
 
@@ -92,18 +93,43 @@ def _kept(gathered):
     return kept
 
 
+def _defaults(gathered):
+    """{variable: its default in the files} of every variable the core and the playground's files name, those they include
+    too. Set in the environment Compose reads them in, they come before the .env files of this machine (the Lab's, an item's):
+    nothing set on this machine reaches the archive. A variable with no default is empty."""
+    files = [compose.CORE_FILE, *[paths.unit_file(kind, uid) for kind, uid in gathered["nodes"]]]
+    found = {}
+    for file in files:
+        for each in compose._closure(file):
+            try:
+                rows = compose.variables(each)
+            except (OSError, ValueError):
+                continue
+            for row in rows:
+                if row["key"] not in found or (not found[row["key"]] and row.get("default")):
+                    found[row["key"]] = row.get("default") or ""
+    return found
+
+
 def _resolve(gathered, kept):
-    """The core and the playground as Compose runs them, in a scrubbed environment where the versions are those of the latest
-    tested set and each kept setting is a mark. A mark Compose refuses where it stands (a port, a policy) gives way to the
-    default there, and that setting is no longer kept. Answers (config, the keys still kept)."""
+    """The core and the playground as Compose runs them, in a scrubbed environment where every variable has its default
+    (`_defaults`), the versions are those of the latest tested set, the keystore's password is the one the certificates are
+    made with, and each kept setting is a mark. A mark Compose refuses where it stands (a port, a policy) gives way to the
+    default there, and that setting is no longer kept. Answers (config, the keys still kept, as the config holds them)."""
     unit = gathered["unit"]
     tested = next((one for one in reversed(unit.get("tested") or []) if one), {})
     keys = [row["key"] for row in kept]
     files = compose.all_files([unit["file"]])
+    defaults = _defaults(gathered)
     while True:
-        environ = {**compose.scrubbed_environment(), **{k: str(v) for k, v in tested.items()}, **{k: MARK.format(k) for k in keys}}
+        environ = {**compose.scrubbed_environment(), **defaults, **{k: str(v) for k, v in tested.items()}, KEYSTORE: "gravitee",
+                   **{k: MARK.format(k) for k in keys}}
         try:
-            return compose.config_json(files, timeout=60, environ=environ), keys
+            config = compose.config_json(files, timeout=60, environ=environ)
+            text = json.dumps(config)
+            # A kept setting that nothing of the archive reads is no setting of it (a catalog's shared one that this playground
+            # does not use): it is left out of .env.example
+            return config, [key for key in keys if MARK.format(key) in text]
         except compose.ComposeError as error:
             refused = [key for key in keys if MARK.format(key) in str(error)]
             if not refused:
@@ -172,20 +198,34 @@ def _place(source, places):
 
 
 def _ignore(folder: Path):
-    """What is never copied of a folder: caches, settings and what a seed recorded, and what its build leaves out
-    (its .dockerignore)."""
+    """What is never copied of a folder: caches, settings (any .env but .env.example), Git and what a seed recorded, a link
+    that leads out of the folder, and what its build leaves out (its .dockerignore, when its patterns are plain names: one that
+    lets files back in with `!` or names a path with `/` is matched from the root by Docker, which a name cannot say, and is
+    left to the build)."""
     never = list(NEVER)
     own = folder / ".dockerignore"
     if own.is_file():
-        never += [line.strip().removeprefix("**/") for line in own.read_text(encoding="utf-8").splitlines()
-                  if line.strip() and not line.lstrip().startswith(("#", "!"))]
-    return shutil.ignore_patterns(*never)
+        lines = [line.strip().removeprefix("**/") for line in own.read_text(encoding="utf-8").splitlines()
+                 if line.strip() and not line.lstrip().startswith("#")]
+        if not any(line.startswith("!") or "/" in line.rstrip("/") for line in lines):
+            never += [line.rstrip("/") for line in lines]
+    names = shutil.ignore_patterns(*never)
+    root = folder.resolve()
+
+    def ignore(directory, entries):
+        left = set(names(directory, entries)) - set(KEEP)
+        for entry in entries:
+            path = Path(directory) / entry
+            if path.is_symlink() and not path.resolve().is_relative_to(root):
+                left.add(entry)
+        return left
+    return ignore
 
 
 def _copy(source: Path, target: Path):
     if source.is_dir():
         shutil.copytree(source, target, ignore=_ignore(source), dirs_exist_ok=True)
-    elif source.is_file():
+    elif source.is_file() and not (source.is_symlink() and not source.resolve().is_relative_to(paths.ROOT.resolve())):
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
 
@@ -197,9 +237,14 @@ def _plugins(unit, product, target: Path):
     (target / ".gitkeep").touch()
     missing = []
     for pid in ((unit.get("requires") or {}).get("plugins") or {}).get(product) or []:
-        files = sorted((paths.ROOT / "plugins" / product).glob(f"{pid}-*.zip"))
+        files = []
+        for file in (paths.ROOT / "plugins" / product).glob("*.zip"):
+            found = plugins.ZIP.match(file.name)
+            if found and found.group("name") == pid:
+                files.append((tuple(int(n) for n in re.findall(r"\d+", found.group("version"))), file))
         if files:
-            shutil.copy2(files[-1], target / files[-1].name)
+            best = max(files)[1]
+            shutil.copy2(best, target / best.name)
         else:
             missing.append(pid)
     return missing
@@ -224,7 +269,15 @@ def _short_port(port):
 
 
 def _short_volume(volume):
-    if volume.get("type") in ("bind", "volume") and set(volume) <= {"type", "source", "target", "read_only", "bind", "volume"}:
+    """A volume in the short form when it says all of it: a source (an anonymous volume has none, and is its target), and
+    nothing in `bind` or `volume` but what the short form means too."""
+    plain = {"bind": ({}, {"create_host_path": True}), "volume": ({},)}
+    if volume.get("type") == "volume" and not volume.get("source") and set(volume) <= {"type", "target", "volume"} \
+            and volume.get("volume", {}) in plain["volume"]:
+        return volume["target"]
+    if volume.get("type") in ("bind", "volume") and volume.get("source") \
+            and set(volume) <= {"type", "source", "target", "read_only", "bind", "volume"} \
+            and volume.get("bind", {}) in plain["bind"] and volume.get("volume", {}) in plain["volume"]:
         return f"{volume['source']}:{volume['target']}" + (":ro" if volume.get("read_only") else "")
     return volume
 
@@ -279,7 +332,13 @@ def _services(config, keep, gathered, root: Path):
                 to = _place(source, places)
                 if source.is_relative_to(paths.ROOT / "plugins"):
                     missing += _plugins(unit, source.name, root / to)
-                elif source.name != ".state" and not source.is_relative_to(paths.ROOT / CERTS):
+                elif source.is_relative_to(paths.ROOT / CERTS):
+                    pass   # made for the archive (_certificates)
+                elif ".state" in source.parts or (source.is_dir() and not volume.get("read_only")):
+                    # What the containers write (what a seed recorded, keys and certificates made at a start, a kubeconfig): the
+                    # folder is there, empty, as a first start finds it; what this machine wrote never leaves it
+                    (root / to).mkdir(parents=True, exist_ok=True)
+                else:
                     _copy(source, root / to)
                 volume = {**{key: value for key, value in volume.items() if key != "bind"}, "source": f"./{to.as_posix()}"}
             volumes.append(volume)
@@ -330,8 +389,8 @@ def _certificates(root: Path):
 
 
 # What YAML reads as something else than the text: a word it knows, a number, an empty text
-PLAIN = re.compile(r"[A-Za-z0-9_./@][A-Za-z0-9_./@:+=,() -]*")
-TAKEN = re.compile(r"(?i)(~|null|true|false|yes|no|on|off|y|n|[-+]?(\d[\d_]*)?(\.\d*)?([eE][-+]?\d+)?|0x[0-9a-f]+|0o[0-7]+)")
+PLAIN = re.compile(r"[A-Za-z_./][A-Za-z0-9_./@:+=,() -]*")   # starts with a letter, `_`, `.` or `/`: a number or a date never is plain
+TAKEN = re.compile(r"(?i)(~|null|true|false|yes|no|on|off|y|n|\.(inf|nan)|[-+]?\.?\d.*)")
 
 
 def _scalar(value):
@@ -341,7 +400,8 @@ def _scalar(value):
     if isinstance(value, bool) or isinstance(value, (int, float)):
         return json.dumps(value)
     text = str(value)
-    if PLAIN.fullmatch(text) and not TAKEN.fullmatch(text) and ": " not in text and " #" not in text and text == text.strip():
+    if PLAIN.fullmatch(text) and not TAKEN.fullmatch(text) and ": " not in text and " #" not in text and not text.endswith(":") \
+            and text == text.strip():
         return text
     return json.dumps(text, ensure_ascii=False)
 
@@ -385,8 +445,10 @@ def _settled(value, defaults):
 
 
 def _compose_text(name, unit, services, config, keys, kept):
-    named = {volume.split(":")[0] for service in services.values() for volume in service.get("volumes") or []
-             if isinstance(volume, str) and not volume.startswith((".", "/"))}
+    named = {volume.split(":")[0] if isinstance(volume, str) else volume.get("source") for service in services.values()
+             for volume in service.get("volumes") or []
+             if (isinstance(volume, str) and ":" in volume and not volume.startswith((".", "/")))
+             or (isinstance(volume, dict) and volume.get("type") == "volume" and volume.get("source"))}
     networks = {net for service in services.values() for net in (service.get("networks") or [])}
     doc = {"name": name, "services": services}
     for key, used in (("networks", networks), ("volumes", named)):
@@ -396,7 +458,7 @@ def _compose_text(name, unit, services, config, keys, kept):
             doc[key] = {each: spec or {} for each, spec in kept_.items()}
     doc = _settled(doc, {row["key"]: row.get("default") or "" for row in kept})
     text = "\n".join(_yaml(doc)) + "\n"
-    head = (f"# {unit['name']}: {unit.get('description') or ''}\n"
+    head = (f"# {unit['name']}: {' '.join((unit.get('description') or '').split())}\n"
             "# cp .env.example .env, put your license in it, then: docker compose up -d. README.md says the rest.\n")
     return head + text
 
@@ -432,6 +494,28 @@ def _default(text):
     return found.group(1) if found else str(text or "")
 
 
+FENCE = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})")
+
+
+def _parts(text):
+    """The text cut into (inside a fenced block, its lines): a block is what the guide shows as code, which no rule rewrites."""
+    parts, inside, opener, lines = [], False, "", []
+    for line in text.splitlines(keepends=True):
+        found = FENCE.match(line)
+        if not inside and found:
+            parts.append((False, "".join(lines)))
+            inside, opener, lines = True, found.group(1), [line]
+        elif inside and found and found.group(1)[0] == opener[0] and len(found.group(1)) >= len(opener) \
+                and not line.strip().strip(opener[0]):
+            lines.append(line)
+            parts.append((True, "".join(lines)))
+            inside, lines = False, []
+        else:
+            lines.append(line)
+    parts.append((inside, "".join(lines)))
+    return [part for part in parts if part[1]]
+
+
 def _guide(text, accounts):
     """The guide as Markdown any viewer shows: an action link is the name of the button of the app, an account link its user
     and password (or key), a block to run a plain block."""
@@ -441,9 +525,25 @@ def _guide(text, accounts):
             return f"**{match.group(1)}**"
         secret = f"password `{_default(one['password'])}`" if one.get("password") else f"key `{_default(one.get('key'))}`"
         return f"**{match.group(1)}** (user `{one['username']}`, {secret})"
-    text = re.sub(r"\[([^\]]+)\]\(account:([^)\s]+)\)", account, text)
-    text = re.sub(r"\[([^\]]+)\]\(action:[^)]+\)", r"**\1**", text)
-    return re.sub(r"^(```+|~~~+)(\w+)\s+run\s*$", r"\1\2", text, flags=re.M)
+    out = []
+    for inside, part in _parts(text):
+        if inside:   # a block to run is a plain block; nothing else of a block changes
+            out.append(re.sub(r"\A([ \t]{0,3}(?:`{3,}|~{3,}))([\w.+-]+)[ \t]+run[ \t]*$", r"\1\2", part, count=1, flags=re.M))
+        else:
+            part = re.sub(r"\[([^\]]+)\]\(account:([^)\s]+)\)", account, part)
+            out.append(re.sub(r"\[([^\]]+)\]\(action:[^)]+\)", r"**\1**", part))
+    return "".join(out)
+
+
+def _first_step(text):
+    """Where the first section of the guide starts (`## `, outside a fenced block), else its end."""
+    at = 0
+    for inside, part in _parts(text):
+        found = None if inside else re.search(r"^## ", part, flags=re.M)
+        if found:
+            return at + found.start()
+        at += len(part)
+    return len(text)
 
 
 def _readme(gathered, raw, services, consoles, seed, missing):
@@ -451,10 +551,14 @@ def _readme(gathered, raw, services, consoles, seed, missing):
     meta, requires = raw.get("x-gravitee") or {}, unit.get("requires") or {}
     accounts = meta.get("accounts") or []
     guide_file = folder / "guide.md"
-    guide = _guide(guide_file.read_text(encoding="utf-8"), {one.get("username"): one for one in accounts if one.get("username")}) \
+    first = {}
+    for one in accounts:
+        if one.get("username"):
+            first.setdefault(one["username"], one)   # the first of a user name, as the page shows it
+    guide = _guide(guide_file.read_text(encoding="utf-8"), first) \
         if guide_file.is_file() else f"# {unit['name']}\n\n{unit.get('description') or ''}\n"
-    first = re.search(r"^## ", guide, flags=re.M)
-    intro, steps = (guide[:first.start()], guide[first.start():]) if first else (guide, "")
+    cut = _first_step(guide)
+    intro, steps = guide[:cut], guide[cut:]
     before = ["## Before you start", "",
               "- **Docker** with Compose 5.0 or later, and 8 GB of memory for Docker, or more. The first start downloads the images"
               + (f" and takes about {unit['first_start']}." if unit.get("first_start") else ".")]

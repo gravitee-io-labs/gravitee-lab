@@ -172,13 +172,13 @@ To import a newer file of the same playground, remove that catalog on the Catalo
 
 | In the folder | What it is |
 |---|---|
-| `docker-compose.yml` | The one Compose file: the playground's services and those of the add-ons it brings, the products of the platform it uses, and what they depend on. A product it does not use is left out (the Alert Engine, often), with its link. The versions are those it was tested with |
-| `.env.example` | The settings a person may change, each with what it is: the license, the platform's passwords, the playground's own settings. Copied to `.env`, which Compose reads |
+| `docker-compose.yml` | The one Compose file: the playground's services and those of the add-ons it brings, the products of the platform it uses, and what they depend on. A product it does not use is left out (the Alert Engine, often), with its link. The images are those of the versions it was tested with, and the files' defaults for the others |
+| `.env.example` | The settings a person may change, each with what it is: the license, the platform's passwords, the playground's own settings that its services read. Copied to `.env`, which Compose reads |
 | `README.md` | The guide, as Markdown any viewer shows, after what to have first (Docker, the license and its features, what the playground asks of the machine) and how to start it, with its consoles and accounts |
 | The playground's folder, `addons/`, `seeder/` | What its services build or mount: its apps and seed, the add-ons' files, the seeder that runs the seed |
 | `plugins/`, `certs/mtls/` | The plugins it asks for, from those this Lab downloaded (one it does not have is said under **Needs**), and demo certificates made for this file |
 
-It never holds this machine's settings, keys or license. What only the Lab UI does is not in it: Start and Stop of one item,
+It never holds this machine's settings, keys or license: every setting has its default from the files, whatever this machine's `.env` says. What the containers write (what a seed recorded, keys and certificates made at a start) does not travel either: those folders are made at the first start, as on a new Lab. Nor do `.env` files, `.git` folders, or links that lead out of an item's folder. What only the Lab UI does is not in it: Start and Stop of one item,
 Re-seed, the change of versions and the updates. An action button of the guide is the name of the button of the playground's
 app; an account link is the user and its password. What comes from a private catalog leaves with the file, and the dialog says
 so under **Private**, as an export does.
