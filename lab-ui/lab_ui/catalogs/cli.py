@@ -833,8 +833,7 @@ def _write_summary(found, skipped):
         complain(f"catalog.py: the summary could not be written: {error.strerror or error}")
 
 
-SD11 = ("The Lab commit {sha7} is not on the Lab's main branch. Fix: pin a commit of the Lab's main "
-        "(catalog.py upgrade --lab-ref COMMIT).")
+SD11 = "The Lab commit {sha7} is not a release of the Lab. Fix: pin the latest release (catalog.py upgrade --lab-ref latest)."
 WORKFLOW = re.compile(r"^[ \t-]*uses:[ \t]*([A-Za-z0-9._-]+/[A-Za-z0-9._-]+)/\.github/workflows/[A-Za-z0-9._-]+@([0-9a-f]{40})\b", re.M)
 
 
@@ -844,24 +843,16 @@ def _line_of(text, needle):
 
 
 def _on_main(sha):
-    """Whether the Lab checkout that runs this holds `sha` and has it on its `origin/main`: "yes", "no", or why it cannot say."""
-    try:
-        have = gitx.run(["cat-file", "-e", f"{sha}^{{commit}}"], cwd=str(LAB), timeout=30)
-        if have.code != 0:
-            return f"the Lab checkout does not hold {sha[:7]}: update it with git pull, then run again"
-        done = gitx.run(["merge-base", "--is-ancestor", sha, "origin/main"], cwd=str(LAB), timeout=30)
-    except (CatalogError, OSError):
-        return "the Lab checkout cannot be asked"
-    if done.code == 0:
-        return "yes"
-    return "no" if done.code == 1 and gitx.run(["rev-parse", "--verify", "--quiet", "origin/main"], cwd=str(LAB),
-                                              timeout=30).code == 0 else "the Lab checkout has no origin/main to compare with"
+    """Whether the Lab checkout that runs this holds `sha` as the commit of a release on its `origin/main` (`standard.release_state`):
+    "yes", "no", or why it cannot say."""
+    from . import standard as standards   # here and not above: the module of the standard, which the other commands do not need
+    return standards.release_state(LAB, sha)
 
 
 def _pin_problems(tree, notes):
     """SD11 for `check --online`: the commit of the Lab that `.github/standard.json` pins, and the commit of each reusable caller
-    (`uses: <the Lab>/.github/workflows/...@<commit>`), has to be on the Lab's `origin/main`, as the Lab checkout that runs this
-    knows it. A pin it cannot place is said, never taken for fine."""
+    (`uses: <the Lab>/.github/workflows/...@<commit>`), has to be a release of the Lab (a tag vX.Y.Z on its `origin/main`), as the
+    Lab checkout that runs this knows it. A pin it cannot place is said, never taken for fine."""
     data = tree.read(".github/standard.json", 4097)
     if data is None or len(data) > 4096:
         return []

@@ -108,10 +108,10 @@ Every rule that `catalog.py check` and the stages of `catalog.py ci` can print, 
 
 ### SD11
 
-*Error.* Lab.ref is not a commit of the Lab's own main (CI).
+*Error.* Lab.ref is not the commit of a release of the Lab (a tag vX.Y.Z on its main) (CI).
 
-- **Message**: The Lab commit {sha7} is not on the Lab's main branch. Fix: pin a commit of the Lab's main (catalog.py upgrade --lab-ref COMMIT).
-- **Fix**: pin a commit of the Lab's main (catalog.py upgrade --lab-ref COMMIT).
+- **Message**: The Lab commit {sha7} is not a release of the Lab. Fix: pin the latest release (catalog.py upgrade --lab-ref latest).
+- **Fix**: pin the latest release (catalog.py upgrade --lab-ref latest).
 - **At Add**: Not judged at Add: this is a rule about the repository, and the Lab judges the files it installs.
 
 ## Structure

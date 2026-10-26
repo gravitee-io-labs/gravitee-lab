@@ -119,11 +119,12 @@ def catalog_repo(case: Case, **more) -> Repo:
 
 def lab_checkout(case: Case, on_origin: bool = True) -> Repo:
     """A Lab checkout: one commit with a `lab-ui` folder, an origin that is `acme/gravitee-lab` on github.com by name, and, when
-    `on_origin`, that commit as origin/main (the Lab's own main, SD11)."""
+    `on_origin`, that commit as origin/main (the Lab's own main) and its release v1.0.0 (what a pin names, SD11)."""
     repo = Repo(case, {"lab-ui/catalog.py": b"print(1)\n"}, name="lab")
     tip = repo.git("rev-parse", "HEAD").strip()
     repo.git("remote", "set-url", "origin", "https://github.com/acme/gravitee-lab.git")
     repo.git("update-ref", "refs/remotes/origin/main", tip)
+    repo.git("tag", "v1.0.0", tip)
     if not on_origin:
         repo.git("update-ref", "-d", "refs/remotes/origin/main")
     return repo

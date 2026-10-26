@@ -917,8 +917,10 @@ class Online(Folder):
         self.assertEqual([one["path"] for one in found], ["setups/pair.yml"])
 
     def lab(self):
-        """A Lab checkout of its own: its origin/main holds one commit, and the checkout is at a second that main does not hold."""
+        """A Lab checkout of its own: its origin/main holds one commit, the release v1.0.0, and the checkout is at a second that main
+        does not hold."""
         folder, main, side = scratch_lab(self)
+        gitfixture.git("-C", str(folder), "tag", "v1.0.0", main)
         isolated(self)
         return folder, main, side
 
@@ -927,7 +929,7 @@ class Online(Folder):
             ".github/standard.json": json.dumps({"form": "inline", "lab": {"ref": ref, "repository": "acme/lab"}, "platforms": ["linux/amd64"],
                                                  "standard": 1}, indent=2) + "\n", **(extra or {})})
 
-    def test_the_lab_pin_has_to_be_on_the_labs_main(self):
+    def test_the_lab_pin_has_to_be_a_release_of_the_lab(self):
         folder, main, side = self.lab()
         notes = []
         with mock.patch.object(catalog, "LAB", folder):
@@ -935,8 +937,18 @@ class Online(Folder):
             found = catalog._pin_problems(self.standard(side), notes)
         self.assertEqual(notes, [])
         self.assertEqual([(one.code, one.path, one.severity, one.line) for one in found], [("SD11", ".github/standard.json", "error", 4)])
-        self.assertEqual(found[0].message, f"The Lab commit {side[:7]} is not on the Lab's main branch. Fix: pin a commit of the Lab's "
-                                           "main (catalog.py upgrade --lab-ref COMMIT).")
+        self.assertEqual(found[0].message, f"The Lab commit {side[:7]} is not a release of the Lab. Fix: pin the latest release "
+                                           "(catalog.py upgrade --lab-ref latest).")
+
+    def test_a_commit_of_the_labs_main_that_no_release_names_is_refused_too(self):
+        folder, main, _ = self.lab()
+        gitfixture.git("-C", str(folder), "tag", "-d", "v1.0.0")
+        gitfixture.git("-C", str(folder), "tag", "nightly", main)
+        with mock.patch.object(catalog, "LAB", folder):
+            found = catalog._pin_problems(self.standard(main), [])
+        self.assertEqual([(one.code, one.message) for one in found], [("SD11", f"The Lab commit {main[:7]} is not a release of the Lab. "
+                                                                               "Fix: pin the latest release (catalog.py upgrade "
+                                                                               "--lab-ref latest).")])
 
     def test_a_commit_the_lab_checkout_does_not_hold_is_said_and_is_no_finding(self):
         folder, main, side = self.lab()

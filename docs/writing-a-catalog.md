@@ -119,7 +119,7 @@ pull requests:
 
 | Workflow | When | What it does |
 |---|---|---|
-| `nightly.yml` | Every night, on `main` | The newest Lab still reads the catalog, the standard files are the newest Lab's, the links of the guides answer, the rules of `main` are still the standard's, and the published images have no fixable critical flaw. A run that fails opens an issue, or adds to the one that is open |
+| `nightly.yml` | Every night, on `main` | The Lab's `main`, ahead of its next release, still reads the catalog (an early warning), the standard files are the newest Lab's, the links of the guides answer, the rules of `main` are still the standard's, and the published images have no fixable critical flaw. A run that fails opens an issue, or adds to the one that is open |
 | `publish.yml` | A push to `main` and a release tag | Builds and publishes the images that changed, and a GitHub release on a tag. It exists only once `catalog.yml` sets `images`: until then nothing is published |
 
 `catalog.py new --with e2e` adds `e2e.yml`, the end-to-end run, which needs a license. When the standard moves,
@@ -190,3 +190,13 @@ python3 lab-ui/catalog.py upgrade .
 
 prints the plan (`--write` applies it on a branch), and `upgrade --fleet OWNER --lab-ref COMMIT` opens one pull request per
 catalog of an owner. A managed file that someone edited by hand is reported (`SD02`) and never overwritten silently.
+
+The pin, `lab.ref`, is the commit of a release of the Lab (a tag `vX.Y.Z` on its `main`), and CI refuses any other (`SD11`): a
+catalog is checked with a Lab that people run, so what passes its CI works on that release and every later one. To use what a
+newer release adds (its notes list it under *For catalogs*), move the pin to the latest release:
+
+```bash
+python3 lab-ui/catalog.py upgrade . --lab-ref latest --write
+```
+
+`new` pins the latest release too.

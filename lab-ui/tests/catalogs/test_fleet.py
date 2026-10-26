@@ -243,9 +243,11 @@ class Upgrade(Fleet):
         self.workdir = self.root / "work"
         self.workdir.mkdir()
         self.remotes, self.gitcalls = {}, []
-        # The Lab checkout that runs the command, as a table of answers: is the pin on its origin/main, and what its log says
-        # between two pins (the default is a checkout that does not hold the old pin, so there is no log)
-        self.lab, self.labcalls, self.lab_answers = self.root / "lab-checkout", [], {"merge-base": 0, "log": (128, "")}
+        # The Lab checkout that runs the command, as a table of answers: is the pin on its origin/main, the tags that name it,
+        # and what its log says between two pins (the default is a release of the Lab, and a checkout that does not hold the old
+        # pin, so there is no log)
+        self.lab, self.labcalls = self.root / "lab-checkout", []
+        self.lab_answers = {"merge-base": 0, "tag": (0, "v1.5.0\n"), "log": (128, "")}
         self.fake_lab = True
 
     def remote(self, name, content=None, **more):
@@ -258,9 +260,9 @@ class Upgrade(Fleet):
         if cwd is not None and Path(cwd) == self.lab:
             self.labcalls.append(list(args))
             if self.fake_lab:
-                if args[0] == "merge-base":
-                    return gitx.Result(self.lab_answers["merge-base"], b"", "")
-                code, text = self.lab_answers["log"]
+                if args[0] in ("cat-file", "rev-parse", "merge-base"):
+                    return gitx.Result(self.lab_answers.get(args[0], 0), b"", "")
+                code, text = self.lab_answers["tag" if args[0] == "tag" else "log"]
                 return gitx.Result(code, text.encode(), "")
             return gitx.run(args, cwd=cwd, timeout=timeout)
         self.gitcalls.append(list(args))
@@ -557,24 +559,30 @@ class Upgrade(Fleet):
 
     # ------------------------------------------------------------------ the Lab commit (SD11)
 
-    SD11 = ("The Lab commit bbbbbbb is not on the Lab's main branch. Fix: pin a commit of the Lab's main "
-            "(catalog.py upgrade --lab-ref COMMIT).")
+    SD11 = "The Lab commit bbbbbbb is not a release of the Lab. Fix: pin the latest release (catalog.py upgrade --lab-ref latest)."
 
-    def test_the_lab_commit_has_to_be_on_the_labs_main_before_anything_is_listed(self):
+    def test_the_lab_commit_has_to_be_a_release_of_the_lab_before_anything_is_listed(self):
         github = Github(repos=[listed("acme/lab-hub")])
         self.remote("acme/lab-hub")
+        asked = [["cat-file", "-e", f"{NEW}^{{commit}}"], ["rev-parse", "--verify", "--quiet", "origin/main"],
+                 ["merge-base", "--is-ancestor", NEW, "origin/main"], ["tag", "--points-at", NEW]]
         for answer in (1, 128, 2):                      # not an ancestor, a commit the checkout does not hold, git failing
             self.lab_answers["merge-base"], self.labcalls[:] = answer, []
             with self.assertRaises(settings.Unusable) as raised:
                 self.run_fleet(github, Standard())
             self.assertEqual(self.SD11, str(raised.exception))
-            self.assertEqual([["merge-base", "--is-ancestor", NEW, "origin/main"]], self.labcalls)
+            self.assertEqual(asked, self.labcalls)
             self.assertEqual(([], [], []), (github.calls, self.gitcalls, list(self.workdir.iterdir())))      # nothing was asked or made
             self.assertEqual(["main"], self.branches("acme/lab-hub"))
         self.lab_answers["merge-base"] = 0
+        for tags in ("", "nightly\n", "v1.5\nv1.5.0-rc.1\n"):   # a commit of main that no release names is no Lab anyone runs
+            self.lab_answers["tag"] = (0, tags)
+            with self.assertRaises(settings.Unusable):
+                self.run_fleet(github, Standard())
+        self.lab_answers["tag"] = (0, "latest\nv2.10.3\n")
         self.assertEqual("opened", self.run_fleet(github, Standard())[0].status)
 
-    def test_the_command_refuses_a_lab_commit_that_is_not_on_the_labs_main_with_one_line(self):
+    def test_the_command_refuses_a_lab_commit_that_is_not_a_release_with_one_line(self):
         github = Github(repos=[listed("acme/lab-hub")])
         self.remote("acme/lab-hub")
         self.lab_answers["merge-base"] = 1
@@ -594,6 +602,7 @@ class Upgrade(Fleet):
         engine = gitfixture.commit(lab, {"lab-ui/engine.py": "2\n"}, "Make the engine read the standard")
         action = gitfixture.commit(lab, {".github/actions/lab/action.yml": "x\n"}, "Pin the Lab action @someone #12")
         gitfixture.git("update-ref", "refs/remotes/origin/main", action, repo=lab)
+        gitfixture.git("tag", "v1.5.0", action, repo=lab)   # the release of the Lab: what a pin names
         tree = gitfixture.git("rev-parse", f"{first}^{{tree}}", repo=lab).strip()
         fork = gitfixture.git("commit-tree", tree, "-p", first, "-m", "A commit of a fork", repo=lab, when=gitfixture.BASE_TIME + 5).strip()
         self.lab, self.fake_lab = lab, False
@@ -603,13 +612,11 @@ class Upgrade(Fleet):
         lab = self.real_lab()
         github = Github(repos=[listed("acme/lab-hub")])
         self.remote("acme/lab-hub", files(lab["first"]))
-        for name in ("fork", "docs"):
-            if name == "docs":
-                continue
+        for name in ("fork", "docs"):   # a commit of a fork, and one of main that no release names
             with self.assertRaises(settings.Unusable) as raised:
                 self.run_fleet(github, Standard(ref=lab[name]), ref=lab[name])
-            self.assertEqual(f"The Lab commit {lab[name][:7]} is not on the Lab's main branch. Fix: pin a commit of the Lab's main "
-                             "(catalog.py upgrade --lab-ref COMMIT).", str(raised.exception))
+            self.assertEqual(f"The Lab commit {lab[name][:7]} is not a release of the Lab. Fix: pin the latest release "
+                             "(catalog.py upgrade --lab-ref latest).", str(raised.exception))
         with self.assertRaises(settings.Unusable):
             self.run_fleet(github, Standard(ref="c" * 40), ref="c" * 40)               # a commit the Lab does not hold at all
         # A Lab that is not a repository, and a folder that is gone, say nothing about the commit: the answer is the same line
@@ -619,9 +626,10 @@ class Upgrade(Fleet):
                 where.mkdir()
             with self.assertRaises(settings.Unusable) as raised:
                 self.run_fleet(github, Standard(ref=lab["action"]), ref=lab["action"], lab=str(where))
-            self.assertEqual(f"The Lab commit {lab['action'][:7]} is not on the Lab's main branch. Fix: pin a commit of the Lab's main "
-                             "(catalog.py upgrade --lab-ref COMMIT).", str(raised.exception))
-        self.assertEqual(([], []), (github.calls, [call for call in self.gitcalls if call[0] != "merge-base"]))      # nothing else was run
+            self.assertEqual(f"The Lab commit {lab['action'][:7]} is not a release of the Lab. Fix: pin the latest release "
+                             "(catalog.py upgrade --lab-ref latest).", str(raised.exception))
+        self.assertEqual(([], []), (github.calls, [call for call in self.gitcalls
+                                                   if call[0] not in ("cat-file", "rev-parse", "merge-base", "tag")]))   # nothing else was run
         # The tip of main, and one before it, are on it. The pull request carries the Lab's own log of lab-ui and .github
         # between the pins (not the guide: it touches neither), as code, so that a subject names nobody and links nothing
         results = self.run_fleet(github, Standard(ref=lab["action"]), ref=lab["action"])
@@ -641,7 +649,7 @@ class Upgrade(Fleet):
         self.assertIn("Make the engine read the standard", message)
         self.assertNotIn("Write a guide", message)
         self.assertNotRegex(message, r"(?i)co-authored|signed-off|generated with|claude|anthropic")
-        # the tip of main is on main, and so is anything before it
+        # the release is the tip of main, which is on main
         self.assertEqual([["merge-base", "--is-ancestor", lab["action"], "origin/main"]],
                          [call for call in self.labcalls if call[0] == "merge-base"][-1:])
 

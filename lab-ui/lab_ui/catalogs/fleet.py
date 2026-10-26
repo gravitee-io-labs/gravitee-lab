@@ -8,7 +8,7 @@
 
 The repositories are listed through `runner` (the transport of settings.py, which wraps the maintainer's own `gh`). The upgrade
 works in a temporary clone of each repository, made by a git that runs no hook, makes no link and checks every object
-(`gitx`), and it asks the Lab's `standard` module to rewrite the managed files there (`upgrade_plan` and `upgrade_apply`). The commit it asks for must be one of the Lab's own `origin/main` (SD11), asked of the Lab checkout that runs the
+(`gitx`), and it asks the Lab's `standard` module to rewrite the managed files there (`upgrade_plan` and `upgrade_apply`). The commit it asks for must be a release of the Lab, a tag vX.Y.Z on its `origin/main` (SD11), asked of the Lab checkout that runs the
 command before anything is listed or cloned, and a file the upgrade changed outside the managed folders (`.github/` and
 `.catalog/`) stops that repository. Nothing is stored: every clone is removed when its repository is done. Nothing is merged and
 nothing is forced. A branch named `standard/<level>-<date>` is pushed once, a repository whose default branch moved while the
@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Callable, List, NamedTuple, Optional
 
 from . import gitx, settings, standard as standards
+from .standard import release_state
 from .tree import FolderTree
 from .settings import FAIL, WARN, Refused, Unusable, Usage, as_dict, as_list, clean, is_int, plan_limit, refusal
 
@@ -374,23 +375,25 @@ def _one(work: _Work, entry: dict) -> Upgraded:
 
 
 def _on_lab_main(work: _Work) -> None:
-    """SD11 for the pin the fleet is about to write in every catalog: the commit has to be one of the `origin/main` of the Lab,
-    as the Lab checkout that runs this knows it. A commit that exists only in a fork of the Lab, or that is a typo, would
-    otherwise become a pull request in each repository, and the code it names would judge every pull request after it."""
-    try:
-        result = work.git(["merge-base", "--is-ancestor", work.lab_ref, "origin/main"], cwd=str(work.lab), timeout=30)
-    except OSError:                                    # the folder of the Lab is gone: nothing says the commit is on its main
-        result = None
-    if result is None or result.code != 0:
-        raise Unusable(f"The Lab commit {work.lab_ref[:7]} is not on the Lab's main branch. Fix: pin a commit of the Lab's main "
-                       "(catalog.py upgrade --lab-ref COMMIT).")
+    """SD11 for the pin the fleet is about to write in every catalog: the commit has to be a release of the Lab, a tag vX.Y.Z on
+    its `origin/main`, as the Lab checkout that runs this knows it (`standard.release_state`). A commit that exists only in a fork
+    of the Lab, one that no release names, or a typo would otherwise become a pull request in each repository, and the code it
+    names would judge every pull request after it."""
+    def git(args):
+        try:
+            return work.git(args, cwd=str(work.lab), timeout=30)
+        except OSError:                                # the folder of the Lab is gone: nothing says the commit is a release
+            return None
+    if release_state(work.lab, work.lab_ref, git=git) != "yes":
+        raise Unusable(f"The Lab commit {work.lab_ref[:7]} is not a release of the Lab. Fix: pin the latest release "
+                       "(catalog.py upgrade --lab-ref latest).")
 
 
 def upgrade_fleet(owner: str, runner: Callable, lab_ref: str, *, standard=None, tree: Optional[Callable] = None,
                   git: Optional[Callable] = None, remote: Optional[Callable] = None, workdir: Optional[str] = None,
                   today: Optional[Callable] = None, lab: Optional[str] = None) -> List[Upgraded]:
     """One Upgraded for each catalog of `owner`. `lab_ref` is the full commit of the Lab that every catalog is moved to; it
-    has to be a commit of the `origin/main` of the Lab checkout that runs this (SD11), or nothing is listed, cloned or
+    has to be a release of the Lab checkout that runs this (SD11), or nothing is listed, cloned or
     written and the answer is Unusable. The keywords are the seams of a test: `standard` (a module with `upgrade_plan(tree,
     options)` and `upgrade_apply(root, plan)`, else the Lab's), `tree` (root -> Tree, else FolderTree), `git` (args, cwd,
     timeout -> gitx.Result, else gitx.run), `remote` (OWNER/REPO -> the address git clones, else its https address),
@@ -435,8 +438,8 @@ def upgrade_exit_code(results) -> int:
 
 def main(argv: Optional[List[str]] = None, runner: Optional[Callable] = None, stdout=None, stderr=None, **seams) -> int:
     """`catalog.py upgrade --fleet OWNER --lab-ref COMMIT [--format text or json or github]`. Exit 0, 1 when a repository could
-    not be upgraded, 2 when it cannot be done: no `gh`, no sign-in, no `standard` module yet, a commit that is not on the
-    Lab's main (SD11), a command line that makes no sense. `seams` are those of `upgrade_fleet`."""
+    not be upgraded, 2 when it cannot be done: no `gh`, no sign-in, no `standard` module yet, a commit that is not a release
+    of the Lab (SD11), a command line that makes no sense. `seams` are those of `upgrade_fleet`."""
     out, err = stdout or sys.stdout, stderr or sys.stderr
     try:
         parser = settings.Parser(prog="catalog.py upgrade", add_help=False)
