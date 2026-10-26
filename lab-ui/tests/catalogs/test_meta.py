@@ -76,3 +76,27 @@ class Block(Case):
                     started = time.process_time()
                     call()
                     self.assertLess(time.process_time() - started, 1.0)
+
+
+class Replaced(Case):
+    """`replaced` writes one value in the block's own layout (what a share uses for the line of older Labs that
+    `manifest.with_legacy` leaves, a flow block say), what follows it on its line kept, and says None where it does not change."""
+
+    def test_the_value_is_written_where_it_is_in_a_block_or_a_flow_and_the_rest_stays(self):
+        cases = {
+            "x-gravitee-catalog:\n  id: hub\n  lab: 1   # older Labs\n": "x-gravitee-catalog:\n  id: hub\n  lab: 2   # older Labs\n",
+            "x-gravitee-catalog:\r\n  lab: 1\r\n  id: hub\r\n": "x-gravitee-catalog:\r\n  lab: 2\r\n  id: hub\r\n",
+            "x-gravitee-catalog: {id: hub, lab: 1, name: Hub}\n": "x-gravitee-catalog: {id: hub, lab: 2, name: Hub}\n",
+            "x-gravitee-catalog: {id: hub,\n  lab: 0x1}\n": "x-gravitee-catalog: {id: hub,\n  lab: 2}\n",
+        }
+        for text, expected in cases.items():
+            with self.subTest(text):
+                self.assertEqual(meta.replaced(text, "lab", "2", "x-gravitee-catalog"), expected)
+
+    def test_a_key_it_does_not_change_alone_is_none(self):
+        for text in ("x-gravitee-catalog:\n  id: hub\n",   # no such key
+                     "x-gravitee-catalog:\n  lab: 1\n  lab: 1\n",   # twice
+                     "x-gravitee-catalog:\n  lab:\n    1\n",   # a value on a line of its own
+                     "x-gravitee-catalog: *base\n"):   # an alias
+            with self.subTest(text):
+                self.assertIsNone(meta.replaced(text, "lab", "2", "x-gravitee-catalog"))

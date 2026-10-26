@@ -176,7 +176,7 @@ private, so everyone in that organization can read what is shared there. It is n
 a Public catalog, and an export, for the Lab or for Docker Compose, says it under **Private** and is made only with each such item
 shown. What the Lab writes in a file, a label or whose copy it is taken out, is checked as Compose reads the file in its folder:
 what it cannot write or take out (an x-gravitee in a form the Lab cannot change, or in a second YAML document) stops the export,
-the share or the copy, which names the item, and so does a file Compose cannot read there. A file someone sends can only add that
+the share or the copy, which names the item, and so does a file Compose cannot read there. A share of a label also keeps the catalog.yml of the catalog readable for older Gravitee Labs, so that they refuse it: a share to a catalog of Git whose catalog.yml the Lab cannot update that way is refused (share_legacy), and a share to a folder says so. A file someone sends can only add that
 notice: an item of it that says whose copy it is (`copy_of`, which only this Lab writes) is blocked, in Imported as in Personal,
 so a file never claims to be a copy of one of yours. An item with the name and the services of one of yours is still its twin,
 as an item of any catalog is. An item that needs a catalog this Lab has not added is not copied: nothing has judged it.

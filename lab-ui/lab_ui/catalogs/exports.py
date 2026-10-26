@@ -257,7 +257,12 @@ def _catalog_yml(text, gathered):
         text = text.rstrip("\n") + "\n  shared_settings:\n" + "".join(f"    - {name}\n" for name in gathered["shared"])
     # The lines of older Labs, true for the files in the archive: an export that carries a private label is one they refuse cleanly,
     # one without is one they read
-    return manifest.with_legacy(text, contribute.files_lab(gathered["files"]))
+    text, needed = manifest.with_legacy(text, 1), contribute.files_lab(gathered["files"])
+    try:
+        return contribute._raised(text, needed) or text   # read back as older Labs read it before it is written
+    except contribute.NotRaised:
+        raise _fail("export_legacy", "The file cannot say what older Gravitee Labs need to refuse it. Fix: make update, then export "
+                                     "it again.", 500) from None
 
 
 def _address(ns):

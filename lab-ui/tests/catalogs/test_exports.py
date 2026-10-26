@@ -11,9 +11,10 @@ import re
 import shutil
 import stat
 import zipfile
+from pathlib import Path
 
 from lab_ui import paths
-from lab_ui.catalogs import contribute, exports, gitx, moving, registry, service, understood
+from lab_ui.catalogs import contribute, exports, gitx, manifest, moving, registry, service, understood
 from lab_ui.catalogs.registry import CatalogError
 from lab_ui.docker import compose, envfiles, files
 from lab_ui.library import check, project
@@ -43,6 +44,54 @@ def shown(plan):
 def root(ns):
     """The origin id of the private catalog of Git `ns`: the first commit of its history."""
     return contribute._history(ns)
+
+
+def _layout(old, new):
+    base = BASE_YML
+    assert old in base, old
+    return base.replace(old, new, 1)
+
+
+BASE_YML = ("x-gravitee-catalog:\n  schema: 1\n  id: partner\n  name: Partner fixture\n  description: d\n  version: 2.0.0\n"
+            "  lab: 1\n  license: AGPL-3.0-only\n")
+# {name: (catalog.yml whose lab is 1 as Compose reads it, or a file it refuses, whether a share writes it)}
+RAISED_LAYOUTS = {
+    "plain": (BASE_YML, True),
+    "comment after": (_layout("  lab: 1\n", "  lab: 1   # the level\n"), True),
+    "comment line under": (_layout("  lab: 1\n", "  lab: 1\n  # the level it needs\n"), True),
+    "comment line over": (_layout("  lab: 1\n", "  # the level it needs\n  lab: 1\n"), True),
+    "blank lines around": (_layout("  lab: 1\n", "\n  lab: 1\n\n"), True),
+    "comment far under": (_layout("  lab: 1\n", "  lab: 1\n                      # more\n"), True),
+    "quoted key": (_layout("  lab: 1\n", "  'lab': 1\n"), True),
+    "double quoted value": (_layout("  lab: 1\n", '  lab: "1"\n'), False),
+    "single quoted value": (_layout("  lab: 1\n", "  lab: '1'\n"), False),
+    "anchor": (_layout("  lab: 1\n", "  lab: &level 1\n"), True),
+    "tag": (_layout("  lab: 1\n", "  lab: !!int 1\n"), True),
+    "leading zero": (_layout("  lab: 1\n", "  lab: 01\n"), True),
+    "plus sign": (_layout("  lab: 1\n", "  lab: +1\n"), True),
+    "hex": (_layout("  lab: 1\n", "  lab: 0x1\n"), True),
+    "value on the next line": (_layout("  lab: 1\n", "  lab:\n    1\n"), False),
+    "four spaces": (BASE_YML.replace("\n  ", "\n    "), True),
+    "crlf": (BASE_YML.replace("\n", "\r\n"), True),
+    "bom": ("\ufeff" + BASE_YML, True),
+    "bom and crlf": ("\ufeff" + BASE_YML.replace("\n", "\r\n"), True),
+    "tab after the colon": (_layout("  lab: 1\n", "  lab:\t1\n"), True),
+    "flow block": ("x-gravitee-catalog: {schema: 1, id: partner, name: Partner fixture, description: d, version: 2.0.0, lab: 1, "
+                   "license: AGPL-3.0-only}\n", True),
+    "flow block on lines": ("x-gravitee-catalog: {schema: 1, id: partner, name: Partner fixture,\n  description: d, version: 2.0.0, "
+                            "lab: 1,\n  license: AGPL-3.0-only}\n", True),
+    "lab twice": (_layout("  lab: 1\n", "  lab: 1\n  lab: 1\n"), False),
+    "explicit key": (_layout("  lab: 1\n", "  ? lab\n  : 1\n"), False),
+    "quoted block key": (BASE_YML.replace("x-gravitee-catalog:", '"x-gravitee-catalog":', 1), True),
+    "document start": ("---\n" + BASE_YML, True),
+    "comment before the block": ("# my catalog\n" + BASE_YML, True),
+    "comment on the key line": (BASE_YML.replace("x-gravitee-catalog:\n", "x-gravitee-catalog:   # hi\n", 1), True),
+    "merge key": ("x-base: &b\n  lab: 1\nx-gravitee-catalog:\n  <<: *b\n  schema: 1\n  id: partner\n  name: Partner fixture\n"
+                  "  description: d\n  version: 2.0.0\n  license: AGPL-3.0-only\n", True),
+    "a lab nested under another key": (_layout("  version: 2.0.0\n", "  version: 2.0.0\n  requires:\n    lab: 1\n"), True),
+    "no lab": (_layout("  lab: 1\n", ""), True),
+    "a lab nested first, then its own": (_layout("  schema: 1\n", "  schema: 1\n  x:\n    lab: 1\n"), True),
+}
 
 
 class Archives(Case):
@@ -407,6 +456,7 @@ class FromCatalogs(Case):
     def setUp(self):
         fixtures.need_compose()
         fixtures.project(self, paths, project, compose, envfiles, check, files, ns="fixture", kind="git", store=True)
+        shutil.copy(fixtures.CORE.parent / "contract.lock", self.root / "contract.lock")   # as every Lab has it: it says the label's level
         fixtures.install(self, "partner", kind="git", audience="private")
         fixtures.local(self, "sandbox")
         fixtures.local(self, "scratch")
@@ -567,7 +617,6 @@ class FromCatalogs(Case):
     def test_a_file_with_a_private_label_says_to_older_labs_the_level_the_label_appeared_at(self):
         """The lines of older Gravitee Labs in the archive's catalog.yml are true for its files: a private label is a key older
         Labs ignore, so they are told to refuse the file; an archive without one stays one they read."""
-        shutil.copy(fixtures.CORE.parent / "contract.lock", self.root / "contract.lock")
         level = understood.lock().rows[("unit.key", "x-gravitee.private_from")]
         made = exports.archive("local/sandbox", private=shown(exports.plan("local/sandbox")))
         with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
@@ -575,6 +624,14 @@ class FromCatalogs(Case):
         self.assertIn(f"  lab: {level}", text)
         self.assertGreater(level, 1, "the label came after the first level")
         self.assertEqual(contribute.files_lab({"addons/a/compose.yml": ("100644", b"x-gravitee: {kind: addon, name: A}\n")}), 1)
+
+    def test_an_export_of_a_label_by_a_lab_that_cannot_read_its_contract_lock_is_refused(self):
+        """Without its contract.lock the Lab does not know the level of the label: it says so rather than a lower one."""
+        (self.root / "contract.lock").unlink()
+        with self.assertRaises(CatalogError) as raised:
+            exports.archive("local/sandbox", private=shown(exports.plan("local/sandbox")))
+        self.assertEqual((raised.exception.code, raised.exception.message),
+                         ("lock_unread", "Gravitee Lab cannot read its contract.lock. Fix: make update."))
 
     LAYOUTS = {
         "two spaces": "x-gravitee-catalog:\n  schema: 1\n  id: partner\n  name: Partner fixture\n  description: d\n  version: 2.0.0\n"
@@ -591,18 +648,41 @@ class FromCatalogs(Case):
                "  lab: 1\n  license: AGPL-3.0-only\n",
     }
 
-    def test_the_line_of_older_labs_is_raised_in_the_layouts_it_has_and_a_flow_block_is_said(self):
-        for name, text in self.LAYOUTS.items():
+    def test_comments_and_blank_lines_around_lab_stay_where_they_are(self):
+        doc = (Path(__file__).resolve().parents[3] / "docs" / "writing-a-catalog.md").read_text(encoding="utf-8")
+        example = re.search(r"```yaml\n(x-gravitee-catalog:\n.*?)```", doc, re.S).group(1)   # the guide's, as an author copies it
+        two = self.LAYOUTS["two spaces"]
+        cases = {"a comment line under it": two.replace("  lab: 1\n", "  lab: 1\n  # the level it needs\n"),
+                 "a comment line over it": two.replace("  lab: 1\n", "  # the level it needs\n  lab: 1\n"),
+                 "blank lines around it": two.replace("  lab: 1\n", "\n  lab: 1\n\n"),
+                 "a comment far under it": two.replace("  lab: 1\n", "  lab: 1\n                      # more\n")}
+        for name, text in cases.items():
             with self.subTest(name):
                 raised = contribute._raised(text, 2)
-                self.assertEqual(raised, re.sub(r"(lab:[ \t])1", r"\g<1>2", text, count=1), "nothing else of the file changes")
+                self.assertEqual(raised, text.replace("lab: 1", "lab: 2", 1))
+                self.assertEqual(contribute._strict(raised)["lab"], 2)
+        raised = contribute._raised(example, 2)   # the guide's has no lines for older Labs: they are written, the rest stays
+        self.assertEqual(contribute._strict(raised)["lab"], 2)
+        self.assertEqual(manifest.with_legacy(example, 2), raised)
+
+    def test_every_layout_is_written_and_read_back_as_check_reads_it_or_refused(self):
+        """Above the first level a share writes what older Labs need to refuse the catalog, verified by reading it back as
+        `catalog.py check` and the Add read it (Compose), or it refuses: never a lower `lab` left in place. Over the layouts an
+        author may write, YAML forms of the number included."""
+        for name, (text, written) in RAISED_LAYOUTS.items():
+            with self.subTest(name):
+                before = contribute._strict(text)
+                if not written:
+                    with self.assertRaises(contribute.NotRaised):
+                        contribute._raised(text, 2)
+                    continue
+                raised = contribute._raised(text, 2)
+                self.assertIsNotNone(raised, "never nothing to change while lab says less")
+                after = contribute._strict(raised)
+                self.assertEqual(after["lab"], 2)
+                self.assertTrue(contribute._same_but_lab(before, after), "nothing else of what the file says changes")
                 self.assertIsNone(contribute._raised(raised, 2), "once")
-        self.assertIsNone(contribute._raised(self.LAYOUTS["two spaces"].replace("  lab: 1\n", ""), 2),
-                          "a catalog.yml without the lines does without them")
-        flow = ("x-gravitee-catalog: {schema: 1, id: partner, name: Partner fixture, description: d, version: 2.0.0, lab: 1, "
-                "license: AGPL-3.0-only}\n")
-        with self.assertRaises(contribute.NotRaised):
-            contribute._raised(flow, 2)
+        self.assertIsNone(contribute._raised(RAISED_LAYOUTS["plain"][0].replace("lab: 1", "lab: 3"), 2), "never lowered")
 
     def test_a_copy_of_an_item_whose_include_is_not_text_or_cannot_be_opened_is_a_clean_refusal(self):
         text = open("tests/data/catalogs/partner/addons/ledger/compose.yml").read()

@@ -917,22 +917,56 @@ def _needed(project, items) -> int:
 
 
 class NotRaised(ValueError):
-    """The legacy `lab` of a catalog.yml must be raised and its layout is not one the Lab changes line by line."""
+    """The legacy `lab` of a catalog.yml must be raised and the Lab cannot write it in a way catalog.py check reads back."""
+
+
+def _strict(text) -> Optional[dict]:
+    """A catalog.yml's text as `catalog.py check`, the Add and older Labs read it (manifest.read_catalog, with Compose), or None
+    when that reading refuses it. The text is written as it is, line ends and all."""
+    with tempfile.TemporaryDirectory(dir=compose.scratch()) as folder:
+        file = Path(folder) / manifest.FILE
+        file.write_bytes(text.encode("utf-8"))
+        try:
+            return manifest.read_catalog(str(file))
+        except CatalogError:
+            return None
+
+
+def _same_but_lab(before, after) -> bool:
+    """Whether two readings of a catalog.yml say the same but for `lab`, and for a `schema` that was not there and now says the
+    format the legacy lines need."""
+    def rest(meta):
+        return {key: value for key, value in meta.items() if key not in ("lab", "schema")}
+    return rest(before) == rest(after) and after.get("schema") in (before.get("schema"), manifest.SCHEMA)
 
 
 def _raised(text, needed) -> Optional[str]:
-    """The text of a catalog.yml whose legacy `lab` is raised to `needed` when it is lower (`manifest.with_legacy`, the line
-    alone), None when nothing changes: a share never lowers it, and never adds the lines a catalog does without. NotRaised when
-    the line could not be changed (a block in flow style): an older Lab, which ignores what it does not know, would read the
-    catalog with what it needs a newer Lab for, a private label among them."""
-    have = registry.scan(text.encode("utf-8")).get("lab")
-    if not (isinstance(have, int) and have < needed):
+    """The text of a catalog.yml whose legacy `lab` says `needed` when it says less, for older Gravitee Labs, which ignore what
+    they do not know (a private label among it) and refuse what needs more than they read; None when nothing is to change. Above
+    the first level the answer is verified with the reader that acts: the text before and after is read as `catalog.py check`
+    and the Add read it (`_strict`), and is taken only when `lab` is `needed` and nothing else changed. The line is changed in
+    place (`manifest.with_legacy`), else the value of the key in the block's own layout, flow style included (`meta.replaced`).
+    NotRaised for anything else (a file that is not read, a layout neither changes, a reading that differs): never a lower
+    `lab` left in place. A share never lowers it."""
+    if needed <= 1:
+        have = registry.scan(text.encode("utf-8")).get("lab")
+        return manifest.with_legacy(text, needed) if isinstance(have, int) and have < needed else None
+    before = _strict(text)
+    if before is None:
+        raise NotRaised("catalog.yml is not read as catalog.py check reads it")
+    if isinstance(before.get("lab"), int) and before["lab"] >= needed:
         return None
     bom = "\ufeff" if text.startswith("\ufeff") else ""   # a mark at the start stays, and the block is found after it
-    written = bom + manifest.with_legacy(text[len(bom):], needed)
-    if registry.scan(written.encode("utf-8")).get("lab") != needed:
-        raise NotRaised("its lab is not on a line of its own")
-    return written
+    body = text[len(bom):]
+    for write in (lambda one: manifest.with_legacy(one, needed), lambda one: block.replaced(one, "lab", str(needed), manifest.BLOCK)):
+        candidate = write(body)
+        if candidate is None or candidate == body:
+            continue
+        after = _strict(bom + candidate)
+        quick = registry.scan((bom + candidate).encode("utf-8")).get("lab")
+        if after is not None and after.get("lab") == needed and _same_but_lab(before, after) and quick in (needed, None):
+            return bom + candidate
+    raise NotRaised("its lab cannot be written so that it is read back")
 
 
 def _publish(ns, catalog, name, kind, slug, address, branch, who, copy, also=(), needed=1):
@@ -1173,17 +1207,21 @@ def carries_label(files):
                for path, (_, content) in files.items() if path.endswith((".yml", ".yaml")) and path != registry.CATALOG_FILE)
 
 
+LABEL_KEYS = {"private_from", "private_id"}   # the keys of the private label, which no Lab of the first level reads
+
+
 def files_lab(files, base: int = 1) -> int:
     """The `lab` that older Gravitee Labs need for these files of a share or an export ({path in the catalog: (mode, bytes)}):
     the highest level (contract.lock) among the keys of x-gravitee their compose files hold, as the files are and not as the
     person's project file is (a share adds the private label to the copy), and `base` at least: what the items use otherwise."""
+    keys = {key for path, (_, content) in files.items() if path.endswith((".yml", ".yaml")) and path != registry.CATALOG_FILE
+            for key in block.keys(content.decode("utf-8", "replace"))}
     held = understood.lock()
-    if held is None:
+    if held is None:   # a broken engine: what it cannot tell the level of is never written lower than it is
+        if keys & LABEL_KEYS:
+            raise CatalogError("lock_unread", "Gravitee Lab cannot read its contract.lock. Fix: make update.", 500)
         return base
-    levels = [held.rows.get(("unit.key", f"x-gravitee.{key}"), 1) for path, (_, content) in files.items()
-              if path.endswith((".yml", ".yaml")) and path != registry.CATALOG_FILE
-              for key in block.keys(content.decode("utf-8", "replace"))]
-    return max([base, *levels])
+    return max([base, *(held.rows.get(("unit.key", f"x-gravitee.{key}"), 1) for key in keys)])
 
 
 def labelled(text, found, keep_empty=False):
@@ -1466,7 +1504,8 @@ def _rename_settings(kind, uid):
 
 
 LEGACY_NOT_RAISED = ("{catalog} now holds what older Gravitee Labs do not read, and its catalog.yml could not be updated for them. "
-                     "Fix: run catalog.py upgrade --write in it.")
+                     "Fix: make its catalog.yml writable, with its x-gravitee-catalog block as plain key: value lines: the next "
+                     "share to it updates it.")
 
 
 def _raise_lab(ns, needed) -> Optional[str]:

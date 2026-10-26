@@ -54,6 +54,7 @@ class Base(Case):
         gitfixture.require()
         self.environ(DOCKER_CONFIG=os.path.join(os.path.expanduser("~"), ".docker"))   # the Compose plugin is found there
         fixtures.project(self, paths, project, compose, envfiles, check, files, ns="fixture", kind="git", store=True)
+        shutil.copy(fixtures.CORE.parent / "contract.lock", self.root / "contract.lock")   # as every Lab has it: it says the label's level
         self.patch(paths, "_default", (None, None))
         self.home = gitfixture.isolate(self)
         self.person()
@@ -789,6 +790,47 @@ class Judged(Seam):
         self.item("addon", "my-other", "Other", self.COPIED.replace("name: Ledger", "name: Other"))
         self.assertNotIn("warning", self.share("local/my-other", "lab-new"), "it says it already: nothing to write, nothing to say")
 
+    def test_a_folder_whose_block_the_lab_cannot_write_says_so_and_its_fix_works(self):
+        """The warning's advice is what works for a folder, made from the template or not (`catalog.py upgrade` needs the
+        template): plain key: value lines in a writable file, and the next share to it updates it and has nothing to say."""
+        level = with_the_lock(self)
+        fixtures.install(self, "lab-new", "folder", audience="private", lab=1, name="Team")
+        folder = self.root / ".lab/catalogs/lab-new"
+        plain = (folder / "catalog.yml").read_text()
+        odd = plain.replace("  lab: 1\n", "  lab:\n    1\n")   # read as 1, by no writer of the Lab
+        self.assertNotEqual(odd, plain)
+        (folder / "catalog.yml").write_text(odd)
+        project.forget()
+        self.item("addon", "my-ledger", "Ledger", self.COPIED)
+        done = self.share("local/my-ledger", "lab-new")
+        self.assertEqual(done["warning"], contribute.LEGACY_NOT_RAISED.format(catalog="Team"))
+        self.assertIn("Fix: make its catalog.yml writable, with its x-gravitee-catalog block as plain key: value lines: the next share "
+                      "to it updates it.", done["warning"])
+        self.assertNotRegex(done["warning"], r"\blab\b|level|contract", "the person reads no number of the Lab")
+        self.assertEqual((folder / "catalog.yml").read_text(), odd, "what it cannot write it leaves")
+        (folder / "catalog.yml").write_text(plain)   # the advice, as its author follows it
+        project.forget()
+        self.item("addon", "my-other", "Other", self.COPIED.replace("name: Ledger", "name: Other"))
+        self.assertNotIn("warning", self.share("local/my-other", "lab-new"))
+        self.assertEqual(contribute._strict((folder / "catalog.yml").read_text())["lab"], level)
+
+    def test_without_its_contract_lock_the_lab_refuses_to_say_a_lower_level_for_a_label(self):
+        """A Lab that cannot read its contract.lock does not know the label's level: rather than write a lower one, the share
+        and the export of a file that holds one stop; a file without one keeps the first level."""
+        (self.root / "contract.lock").unlink()
+        labelled = {"addons/a/compose.yml": ("100644", b'x-gravitee: {private_from: ["P"], kind: addon, name: A}\n')}
+        with self.assertRaises(CatalogError) as raised:
+            contribute.files_lab(labelled)
+        self.assertEqual(lines_of(raised.exception), ("lock_unread", 500, "Gravitee Lab cannot read its contract.lock. Fix: make update."))
+        self.assertEqual(contribute.files_lab({"addons/a/compose.yml": ("100644", b"x-gravitee: {kind: addon, name: A}\n")}), 1)
+        self.item("addon", "my-ledger", "Ledger", self.COPIED)
+        fixtures.install(self, "lab-new", "folder", audience="private", lab=1)
+        before = (self.root / ".lab/catalogs/lab-new/catalog.yml").read_text()
+        with self.assertRaises(CatalogError) as raised:
+            self.share("local/my-ledger", "lab-new")
+        self.assertEqual(raised.exception.code, "lock_unread")
+        self.assertEqual((self.root / ".lab/catalogs/lab-new/catalog.yml").read_text(), before)
+
     def test_a_copy_of_a_share_of_a_copy_of_a_private_item_stops_a_share_to_a_public_one_by_its_label(self):
         fixtures.install(self, "lab-new", "folder", audience="private", lab=1)
         shared = self.root / ".lab/catalogs/lab-new/addons/ledger/compose.yml"   # what a share of a copy of @partner/ledger wrote there
@@ -1061,7 +1103,8 @@ class Published(Seam):
         address, branch = contribute._address(registry.entry("fixture"), registry.lock_of("fixture"))
         text = b'x-gravitee: {private_from: "Partner fixture", kind: addon, name: Ledger}\nservices: {}\n'
         copy = contribute.Copy({"addons/ledger/compose.yml": ("100644", text)}, text.decode(), text.decode(), [])
-        self.patch(manifest, "with_legacy", lambda text, lab: text)   # a layout whose line it cannot change, such as a flow block
+        self.patch(manifest, "with_legacy", lambda text, lab: text)   # a layout neither writer changes, such as a value on the next line
+        self.patch(contribute.block, "replaced", lambda text, key, value, name: None)
         before = self.heads()
         with self.assertRaises(CatalogError) as raised:
             contribute._publish("fixture", "Fixture catalog", "Ledger", "addon", "ledger", address, branch,
@@ -2164,14 +2207,27 @@ if __name__ == "__main__":
 
 class LegacyLab(unittest.TestCase):
     """A share keeps the `lab` that older Gravitee Labs read true: it raises one the shared item needs more than, in the
-    same commit or copy, and never lowers it or adds the lines to a catalog that does without them."""
+    same commit or copy, writes the lines where they are missing, and never lowers them. What it writes is read back as
+    `catalog.py check` reads it (Compose), else the share is refused."""
+
+    TEXT = ("x-gravitee-catalog:\n  schema: 1\n  id: hub\n  name: Hub\n  description: d\n  version: 1.0.0\n  lab: 1   # older Labs\n"
+            "  license: AGPL-3.0-only\n")
+
+    def setUp(self):
+        fixtures.need_compose()
 
     def test_a_lab_lower_than_the_item_needs_is_raised_alone(self):
-        text = "x-gravitee-catalog:\n  schema: 1\n  id: hub\n  version: 1.0.0\n  lab: 1   # older Labs\n"
-        self.assertEqual(contribute._raised(text, 3), text.replace("lab: 1", "lab: 3"))
+        self.assertEqual(contribute._raised(self.TEXT, 3), self.TEXT.replace("lab: 1", "lab: 3"))
 
-    def test_a_lab_that_is_enough_or_absent_is_left_as_it_is(self):
-        text = "x-gravitee-catalog:\n  id: hub\n  version: 1.0.0\n  lab: 4\n"
+    def test_a_lab_that_is_enough_is_left_as_it_is_and_missing_lines_are_written(self):
+        text = self.TEXT.replace("lab: 1   # older Labs", "lab: 4")
         self.assertIsNone(contribute._raised(text, 3))
         self.assertIsNone(contribute._raised(text, 4))
-        self.assertIsNone(contribute._raised(text.replace("  lab: 4\n", ""), 3), "a catalog without the lines keeps without them")
+        written = contribute._raised(self.TEXT.replace("  lab: 1   # older Labs\n", ""), 3)
+        self.assertEqual(contribute._strict(written)["lab"], 3, "without the lines, older Labs would take what it holds")
+
+    def test_a_block_neither_writer_can_change_is_refused_never_left_lower(self):
+        with self.assertRaises(contribute.NotRaised):
+            contribute._raised(self.TEXT.replace("  lab: 1   # older Labs\n", "  lab:\n    1\n"), 2)
+        with self.assertRaises(contribute.NotRaised):
+            contribute._raised("x-gravitee-catalog: [not, a, block]\n", 2)
