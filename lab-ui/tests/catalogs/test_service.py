@@ -133,6 +133,7 @@ class Seam(Base):
         self.patch(service, "_started", {})
         self.patch(service, "_known", {"at": None, "version": None})
         self.patch(manifest, "read_catalog", parsed)
+        self.patch(install, "unknown_at", lambda store, commit: [])   # what the files use is the Real cases' (Understanding)
         self.remotes = {}
         self.against = {}   # {unit id: [reasons]} the stand-in judgement blocks
         self.uses = {}   # {unit id: [{"service", "label", "what", "why"}]} what it says they take of this machine
@@ -1039,10 +1040,10 @@ class Reading(Real):
         self.assertEqual(self.refused(remote.url), ("catalog_invalid", 400,
                                                     "catalog.yml: id must be 2 to 24 lowercase letters, digits and dashes."))
 
-    def test_a_format_newer_than_this_lab_reads_is_schema_new(self):
+    def test_a_format_newer_than_this_lab_reads_is_a_version_that_needs_a_newer_lab(self):
         remote = self.remote("partner", files={"catalog.yml": self.meta(schema=2)})
-        self.assertEqual(self.refused(remote.url), ("schema_new", 400,
-                                                    "This catalog uses a newer format. Run make update, then add it again."))
+        self.assertEqual(self.refused(remote.url), ("no_readable_version", 400, "Every version of this catalog needs a newer "
+                                                                              "Gravitee Lab. Run make update, then add it again."))
 
     def test_a_reserved_name_is_refused_unless_the_listed_address_serves_it(self):
         remote = self.remote("partner", files={"catalog.yml": self.meta(id="lab")})
@@ -1059,17 +1060,18 @@ class Reading(Real):
     def test_a_catalog_written_for_a_lab_that_does_not_exist_yet_is_lab_new_and_one_for_an_older_lab_lab_old(self):
         new = self.remote("partner", lab=99)
         self.assertEqual(self.refused(new.url), ("no_readable_version", 400,
-                                                 "Every version of this catalog needs a newer Lab. Run make update, then add it again."))
+                                                 "Every version of this catalog needs a newer Gravitee Lab. Run make update, then add "
+                                                 "it again."))
         old = fixtures.remote(self, "lab-old")
         self.assertEqual(self.refused(old.url), (
-            "lab_old", 400, "Written for an older Lab (level 0, this Lab reads 1 to 1). Ask its owners to update it."))
+            "lab_old", 400, "Written for an older Gravitee Lab. Ask its owners to update it."))
 
     def test_a_level_the_quick_reading_cannot_be_sure_of_is_refused_on_the_real_one_with_the_line_of_lab_new(self):
         # the reading of the versions in the history is a restricted one (an anchor is beyond it); the staged file is read by
         # Compose, and what it says is the answer
         remote = self.remote("partner", files={"catalog.yml": self.meta().replace("  lab: 1\n", "  lab: &level 99\n")})
         self.assertEqual(self.refused(remote.url), (
-            "lab_new", 400, "Needs Lab level 99, this Lab reads 1 to 1. Run make update, then add it again."))
+            "lab_new", 400, "This catalog needs a newer Gravitee Lab. Run make update, then add it again."))
 
     def test_the_address_the_engine_lists_must_serve_the_catalog_it_lists(self):
         remote = self.remote("partner", files={"catalog.yml": self.meta(id="other-hub")})
@@ -1085,6 +1087,112 @@ class Reading(Real):
         shown = service.check_address(remote.url)
         self.assertEqual((shown["catalog"]["version"], shown["newer"]), ("2.0.0", True))
         self.assertEqual(service.TICKETS[shown["ticket"]]["staged"].commit, older)
+
+
+LEDGER = "addons/ledger/compose.yml"
+
+
+class Understanding(Real):
+    """A Lab uses what it understands: a published catalog (a git catalog the person adds, and its updates) that uses what this
+    Lab does not read is not used, and says it needs a newer Gravitee Lab, the newest version it reads being installed instead;
+    the same in a folder of the person's own is the author's work, used as it is, and the check names the mistake. The
+    lock is this Lab's own (contract.lock)."""
+
+    def setUp(self):
+        super().setUp()
+        shutil.copy(fixtures.CORE.parent / "contract.lock", self.root / "contract.lock")
+
+    def ledger(self, key="badge: gold", label=""):
+        """The partner's ledger with a key of x-gravitee, or a label, that no Lab reads yet."""
+        text = (fixtures.CATALOGS / "partner" / LEDGER).read_text(encoding="utf-8")
+        if key:
+            text = text.replace("description: Keeps the entries of a partner}", f"description: Keeps the entries of a partner, {key}}}")
+        if label:
+            text = text.replace("      io.gravitee.name: Ledger\n", f"      io.gravitee.name: Ledger\n      {label}\n")
+        return text
+
+    def catalog_yml(self, legacy=True, extra="", version="2.0.0"):
+        text = (fixtures.CATALOGS / "partner" / "catalog.yml").read_text(encoding="utf-8").replace("2.0.0", version)
+        if not legacy:
+            text = "".join(line for line in text.splitlines(True) if line.strip().split(":")[0] not in ("schema", "lab"))
+        return text + extra
+
+    def refused(self, address):
+        with self.assertRaises(CatalogError) as raised:
+            service.check_address(address)
+        self.assertEqual(service.TICKETS, {})
+        self.assertEqual(sorted(path.name for path in (self.root / ".lab" / "catalogs").iterdir()), ["fixture"],
+                         "a refusal leaves nothing staged, and the readings of versions leave nothing either")
+        return lines_of(raised.exception)
+
+    def test_a_tip_that_uses_what_this_lab_does_not_read_installs_the_newest_version_it_reads(self):
+        for name, files in (("a key of x-gravitee", {LEDGER: self.ledger()}),
+                            ("a label", {LEDGER: self.ledger(key="", label="io.gravitee.badge: gold")}),
+                            ("a key of catalog.yml", {"catalog.yml": self.catalog_yml(extra="  mirrors: [eu]\n", version="2.1.0")})):
+            with self.subTest(name):
+                remote = fixtures.remote(self, "partner")
+                older = remote.head()
+                remote.commit(files, "Uses what a newer Lab reads")
+                shown = service.check_address(remote.url)
+                self.assertEqual((shown["catalog"]["version"], shown["newer"]), ("2.0.0", True))
+                self.assertEqual(service.TICKETS[shown["ticket"]]["staged"].commit, older)
+                service.forget(shown["ticket"])
+
+    def test_without_the_legacy_fields_the_newest_version_this_lab_reads_is_found_by_its_files(self):
+        """No `lab` to read: the commit that changed the unit is where the newest version this Lab reads ends."""
+        remote = self.remote("partner", files={"catalog.yml": self.catalog_yml(legacy=False)})
+        older = remote.head()
+        remote.commit({LEDGER: self.ledger()}, "Uses a key of a newer Lab, and catalog.yml says nothing")
+        shown = service.check_address(remote.url)
+        self.assertEqual((shown["catalog"]["lab"], shown["newer"]), (None, True))
+        self.assertEqual(service.TICKETS[shown["ticket"]]["staged"].commit, older)
+        service.add(shown["ticket"])
+        self.assertEqual(self.state("partner"), "uptodate")
+        self.assertIsNone(registry.lock_of("partner")["lab"])
+
+    def test_a_catalog_every_version_of_which_uses_what_this_lab_does_not_read_is_refused(self):
+        for legacy in (True, False):
+            with self.subTest(legacy=legacy):
+                remote = fixtures.remote(self, "partner", files={LEDGER: self.ledger(), "catalog.yml": self.catalog_yml(legacy)})
+                self.assertEqual(self.refused(remote.url), (
+                    "no_readable_version", 400, "Every version of this catalog needs a newer Gravitee Lab. Run make update, "
+                                                "then add it again."))
+
+    def test_an_installed_version_that_uses_what_this_lab_does_not_read_is_not_run(self):
+        """A copy installed before this Lab read it so (or by a newer Lab): its unit is blocked, and says why."""
+        done = fixtures.install(self, "partner", kind="git", files={LEDGER: self.ledger()})
+        self.assertTrue(done.commit)
+        project.forget()
+        unit = project.loaded()[0]["addons"]["@partner/ledger"]
+        self.assertEqual((unit["compat"], unit["unknown"]), ("new", ["x-gravitee.badge"]))
+        self.assertEqual(unit["blocked"], {"reasons": ["Needs a newer Gravitee Lab: uses x-gravitee.badge"]})
+
+    def test_the_same_in_a_folder_of_the_persons_own_is_used_as_it_is(self):
+        folder = self.folder_catalog("partner")
+        (folder / LEDGER).write_text(self.ledger(), encoding="utf-8")
+        service.add(service.check_address(str(folder))["ticket"])
+        unit = project.loaded()[0]["addons"]["@partner/ledger"]
+        self.assertEqual((unit["compat"], unit["unknown"], unit["blocked"]), ("ok", [], None),
+                         "an unknown key in the person's own catalog is the author's mistake: catalog.py check names it")
+
+    def test_an_update_offers_the_newest_version_this_lab_reads_and_says_the_tip_needs_a_newer_lab(self):
+        for legacy in (True, False):
+            with self.subTest(legacy=legacy):
+                remote = fixtures.remote(self, "partner", files={"catalog.yml": self.catalog_yml(legacy)})
+                service.add(service.check_address(remote.url)["ticket"])
+                remote.commit({"catalog.yml": self.catalog_yml(legacy, version="2.1.0"), **NEWER}, "Readable")
+                readable = remote.head()
+                remote.commit({LEDGER: self.ledger()}, "Uses a key of a newer Lab")
+                service.check_now("partner")
+                self.assertEqual(registry.lock_of("partner")["seen"], {"target": readable, "update": True, "tip": "new",
+                                                                       "version": "2.1.0"})
+                self.assertEqual(self.state("partner"), "update")
+                plan = service.update("partner", check=True)
+                self.assertEqual(plan["version"], "2.1.0")
+                service.update("partner", ticket=plan["ticket"])
+                self.assertEqual(registry.lock_of("partner")["pin"], readable)
+                self.assertEqual(self.state("partner"), "lab_new", "the newest one this Lab reads is installed")
+                service.remove("partner")
 
 
 class Judging(Real):
@@ -1123,7 +1231,7 @@ class Judging(Real):
         self.assertEqual(shown["catalog"]["id"], "fixture")
         self.assertEqual(shown["counts"], {"playground": 2, "setup": 1, "addon": 7})
         self.assertEqual([(one["id"], one["reasons"]) for one in shown["blocked"]], [
-            ("future", ["Needs Lab level 99, this Lab reads 1 to 1"]), ("pair", ["Depends on private content"])])
+            ("future", ["Needs a newer Gravitee Lab"]), ("pair", ["Depends on private content"])])
         rows = shown["rows"]
         expected = fixtures.expected()
         runnable = [expected[key]["surface"] for key in expected if "@partner/" not in key
@@ -1147,7 +1255,7 @@ class Judging(Real):
                          [("@fixture/cluster", "fixture-cluster", ["runs privileged"])])
         self.assertTrue(uses[0]["why"].startswith("Runs a service manager"), "the reason is the author's, shown")
         self.assertEqual([(one["id"], one["reasons"]) for one in shown["blocked"]], [
-            ("@fixture/future", ["Needs Lab level 99, this Lab reads 1 to 1"]),
+            ("@fixture/future", ["Needs a newer Gravitee Lab"]),
             ("@fixture/pair", ["Depends on private content"])], "partner is added, private, and this one is public")
         self.assertNotIn("@fixture/cluster", [one["id"] for one in shown["blocked"]],
                          "judged as if allowed: the page adds these itself while they are kept blocked")
@@ -2437,7 +2545,7 @@ class GoingBack(Seam):
         # The Lab moved on since: the version the person left is "Written for an older Lab", and going back to it is not offered
         before = (registry.lock_of("partner"), self.digest())
         self.patch(service, "_contract", lambda: {"contract": 2, "contract_min": 2, "seeder_image": ""})
-        for listed, line in ((False, "Written for an older Lab (level 1, this Lab reads 2 to 2). Ask its owners to update it."),
+        for listed, line in ((False, "Written for an older Gravitee Lab. Ask its owners to update it."),
                              (True, "The catalog is not ready for this version of the Lab. Try again later.")):
             if listed:
                 self.list_at("partner", self.remote)
@@ -2923,7 +3031,7 @@ class Gate(Real):
         built = project.loaded()[0]
         with self.assertRaises(RuntimeError) as raised:
             service.preflight(built, [("addon", "future")])
-        self.assertEqual(str(raised.exception), "Future is blocked: Needs Lab level 99, this Lab reads 1 to 1")
+        self.assertEqual(str(raised.exception), "Future is blocked: Needs a newer Gravitee Lab")
 
     def test_an_installed_file_that_changed_after_it_was_installed_is_damaged_in_the_words_of_section_11(self):
         self.added("partner")
@@ -3082,7 +3190,7 @@ class Planning(Real):
         with self.assertRaises(CatalogError) as raised:
             service.update("partner", check=True)
         self.assertEqual(lines_of(raised.exception), ("lab_new", 400,
-                                                      "Needs Lab level 99, this Lab reads 1 to 1. Run make update, then add it again."))
+                                                      "This catalog needs a newer Gravitee Lab. Run make update, then add it again."))
         self.assertFalse((self.root / ".lab" / "catalogs" / ".stage-partner").exists(), "what was refused is not left to install")
         self.assertEqual(service.TICKETS, {})
         self.assertEqual(self.digest(), before[1])

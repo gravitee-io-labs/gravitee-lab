@@ -219,7 +219,9 @@ SPEC_FIXES = {
     "T23": "Include only units of the default catalog, of this catalog, or of catalogs declared in `requires.catalogs`.",
     "T24": "A Public catalog cannot include a Private one: move the shared part to a Public catalog.",
     "T25": "Fix {name} first.",
-    "T26": "Set `lab:` in `catalog.yml` to a level this Lab reads ({min} to {max}), or move `lab.ref` in `.github/standard.json`.",
+    "T26": "Remove what this Gravitee Lab does not read, or check with the Gravitee Lab release that reads it "
+           "(`catalog.py upgrade --lab-ref latest`). A `lab` is for Gravitee Lab 1.4 and older: `catalog.py upgrade --write` "
+           "writes the one of `catalog.yml`.",
     "T27": "Run `docker compose -f {file} config` and fix what it prints.",
 }
 
@@ -269,13 +271,12 @@ class Fixes(Case):
     def test_the_only_blanks_are_the_ones_fix_fills(self):
         found = {code: set(re.findall(r"\{(\w+)\}", text)) for code, text in trust.FIXES.items()}
         self.assertEqual({code: names for code, names in found.items() if names},
-                         {"T01": {"key"}, "T02": {"key"}, "T20": {"NS"}, "T25": {"name"}, "T26": {"min", "max"}, "T27": {"file"}})
+                         {"T01": {"key"}, "T02": {"key"}, "T20": {"NS"}, "T25": {"name"}, "T27": {"file"}})
 
     def test_a_blank_is_filled_with_what_the_caller_knows_and_left_as_written_otherwise(self):
-        self.assertEqual(trust.fix("T26", min=1, max=2),
-                         "Set `lab:` in `catalog.yml` to a level this Lab reads (1 to 2), or move `lab.ref` in `.github/standard.json`.")
+        self.assertEqual(trust.fix("T26", min=1, max=2), trust.FIXES["T26"], "it names no level")
         self.assertEqual(trust.fix("T01", key="frobnicate"), "Remove `frobnicate`, or ask the Lab's maintainers to support it.")
-        self.assertEqual(trust.fix("T26", min=1), trust.FIXES["T26"].replace("{min}", "1"))
+        self.assertEqual(trust.fix("T20", NS="ACME"), trust.FIXES["T20"].replace("{NS}", "ACME"))
         self.assertEqual(trust.fix("T27", file="addons/x/compose.yml"),
                          "Run `docker compose -f addons/x/compose.yml config` and fix what it prints.")
         self.assertEqual(trust.fix("T25", name="Echo"), "Fix Echo first.")
@@ -2551,7 +2552,7 @@ class Vocabulary(Case):
 
     def test_the_reason_lines_are_the_lines_of_section_8_3(self):
         self.assertEqual({code: len(rule["lines"]) for code, rule in trust.RULES.items() if len(rule["lines"]) > 1},
-                         {"T06": 4, "T18": 3, "T19": 2, "T26": 2})
+                         {"T06": 4, "T18": 3, "T19": 2, "T26": 3})
         self.assertEqual(sorted(trust.RULES, key=lambda code: (code[0], int(code[1:]))),
                          [f"N0{n}" for n in range(1, 6)] + [f"T{n:02d}" for n in range(1, 29)])
         for code, rule in trust.RULES.items():
@@ -2564,7 +2565,7 @@ class Vocabulary(Case):
         self.assertEqual((trust.SEED_OWN, trust.SEED_TOKEN), (line("N01"), line("N02")))
         self.assertEqual(trust.NOT_OFFERED, "Not offered by this catalog")
         self.assertEqual(line("T21", owner="Echo"), "Same name as Echo")
-        self.assertEqual(line("T26", 1, level=0), "Written for an older Lab (level 0)")
+        self.assertEqual(line("T26", 1), "Written for an older Gravitee Lab")
 
     def test_no_line_says_a_machine_made_thing(self):
         for rule in trust.RULES.values():
@@ -2747,7 +2748,7 @@ class Verdicts(Golden):
         combined = trust.combine([self.judge(CLEAN), dict(self.judge("t03-privileged"), name=long)])
         self.assertLess(max(len(reason) for reason in combined["reasons"]), 300)
         self.assertLess(len(trust.add_reason(combined, "T21", line("T21", owner=long))["reasons"][-1]), 300)
-        self.assertEqual(line("T26", 0, level=3, min=1, max=2), "Needs Lab level 3, this Lab reads 1 to 2")
+        self.assertEqual(line("T26", 0), "Needs a newer Gravitee Lab")
 
     def test_a_namespace_that_is_a_prefix_of_what_the_person_keeps_is_shown_when_it_is_set(self):
         """T20 passes a name that starts with the namespace of the catalog, so a catalog called like a tool the person keeps a

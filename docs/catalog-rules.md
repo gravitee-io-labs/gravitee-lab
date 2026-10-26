@@ -1175,9 +1175,9 @@ Every rule that `catalog.py check` and the stages of `catalog.py ci` can print, 
 
 *Error.* The Lab's trust policy, class P.
 
-- **Message**: Needs Lab level {level}, this Lab reads {min} to {max}. Fix: Set `lab:` in `catalog.yml` to a level this Lab reads ({min} to {max}), or move `lab.ref` in `.github/standard.json`.
+- **Message**: Needs a newer Gravitee Lab. Fix: Remove what this Gravitee Lab does not read, or check with the Gravitee Lab release that reads it (`catalog.py upgrade --lab-ref latest`). A `lab` is for Gravitee Lab 1.4 and older: `catalog.py upgrade --write` writes the one of `catalog.yml`.
 - **Why**: The Lab will not run an item that breaks this rule without the person agreeing to what it takes of their machine.
-- **Fix**: Set `lab:` in `catalog.yml` to a level this Lab reads ({min} to {max}), or move `lab.ref` in `.github/standard.json`.
+- **Fix**: Remove what this Gravitee Lab does not read, or check with the Gravitee Lab release that reads it (`catalog.py upgrade --lab-ref latest`). A `lab` is for Gravitee Lab 1.4 and older: `catalog.py upgrade --write` writes the one of `catalog.yml`.
 - **At Add**: Blocked at Add, Update and Start, with this reason.
 
 ### T27

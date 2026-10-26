@@ -52,7 +52,9 @@ Lab refuses to start and says why ([What blocked means](#what-blocked-means)). A
 shows. A catalog that needs another one says which; add that one first.
 
 **Update.** Catalogs are checked in the background, five seconds after the Lab UI starts and then every six hours. The row says
-*Update available* when a newer version exists ([Versions](#versions)), with a dot on the Catalogs entry of the menu. **Update**
+*Update available* when a newer version exists ([Versions](#versions)), with a dot on the Catalogs entry of the menu. A version
+that uses what your Lab does not read yet is never installed: the row says it needs a newer Lab, and you keep the newest version
+your Lab reads. **Update**
 is the only way a copy is replaced, except for a catalog the Lab can no longer read, which is brought forward by itself. A catalog
 with something to decide opens a dialog that says what changes first: the version, from the one you have to the new one
 (*Unreleased* when the catalog makes no releases, *Unchanged* when a release was moved), every item it updates, adds, removes or
@@ -113,7 +115,7 @@ recognize is refused. A refused item still shows in the lists, with its reason, 
 | Reads settings that are not its own | The item reads a setting of another item, for example a license | Ask the owner |
 | Same name as another item, Changes the core beyond adding settings | A clash with what is already there | Ask the owner |
 | Needs {name}, which is blocked | It depends on a blocked item | Fix the one it needs |
-| Needs Lab level N, Written for an older Lab | The catalog and the Lab do not read the same contract | Update the Lab, or ask for another version of the catalog |
+| Needs a newer Gravitee Lab, Written for an older Gravitee Lab | The item uses something this Lab does not read yet, or the catalog is older than this Lab reads | Update Gravitee Lab, or ask for another version of the catalog |
 | Cannot be read | A file that does not parse | Ask the owner |
 
 An item that only has notes (**Brings its own seed code**, **Seed data reads a token**) starts, and says what to watch.
@@ -255,6 +257,6 @@ update to move your settings.` and stop. `make stop`, `make down` and `make rese
 | Rewritten | The catalog's history was rewritten | Read what changed; **Update anyway** if you trust it |
 | Damaged | A file of the copy differs from what was installed | **Repair** |
 | Needs a catalog | An item needs another catalog | Add it |
-| Waiting for Lab level N | The catalog asks a newer Lab | Update the Lab |
+| Needs a newer Lab | A newer version of the catalog uses what this Lab does not read: you keep the newest version it reads | Update Gravitee Lab (`make update`), then restart it |
 
 If a line is not here, it names its own fix. `python3 lab-ui/catalog.py explain CODE` gives the long form of a rule code.

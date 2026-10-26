@@ -825,7 +825,8 @@ def check_address(address, branch=None):
         roots = bare.roots(store_path, tip)
         if len(roots) > install.ROOTS_LIMIT:   # the identity of a catalog is its roots, and the lock keeps this many
             raise gitx.fail("too_large", found_at)
-        offered = manifest.offer(store_path, tip, contract["contract"], contract["contract_min"], found_at)
+        offered = manifest.offer(store_path, tip, contract["contract"], contract["contract_min"], found_at,
+                                 readable=install.readable(store_path))
         listed_at = _listed_ids_at(found_at.display)
         commit = offered.commit
         if commit is None:
@@ -834,9 +835,11 @@ def check_address(address, branch=None):
         with _one_stage():
             staged = install.stage(found_at, f"new-{ticket}", store_path, commit, kept, ignored)
             meta = _read_meta(staged, found_at, contract, listed_at)
+            _understood(meta)
             staged = install.rename_stage(staged, meta["id"])
             judged, verdicts, mine = _review(meta["id"], meta, "git", audience, bool(listed_at),
                                              "listed" if listed_at else "allowed", ignored)
+            _understood(meta, judged, mine)
         preview = _preview(ticket, meta, "git", found_at, audience, bool(listed_at), ignored, judged, verdicts, mine,
                            newer=offered.tip != "ok")
         _keep(ticket, "add", ns=meta["id"], staged=staged, address=found_at, branch=remote["branch"], audience=audience,
@@ -869,6 +872,17 @@ def _check_folder(asked):
     except BaseException:
         _clean_up(ticket, staged, None)
         raise
+
+
+def _understood(meta, judged=None, mine=()):
+    """Refuses a version of a published catalog that uses what this Lab does not read (`lab_new`: it needs a newer Gravitee
+    Lab): a key of its catalog.yml, or what a unit uses, as the judgement found it (`unknown`). `pick` passes such a version
+    over when it reads it first, so this is the gate for one it could not read: a Lab never runs a file it half understands."""
+    found = [("catalog.key", key) for key in meta.get("unknown") or ()]
+    for kind, uid in mine:
+        found += [("", name) for name in (judged[kind][uid].get("unknown") or ())]
+    if found:
+        raise manifest.not_understood(found)
 
 
 def _read_meta(staged, address, contract, listed_at):
@@ -1002,7 +1016,8 @@ def _offered(store_path, held, tip, contract, address=None):
     a copy of commits made after the last release, a release whose tag was deleted) is no offer: the pin is. `moved`: the tag
     of the release installed now names the commit offered, which is another one: the owners moved a release, and the same
     version is not the same files."""
-    found = manifest.offer(store_path, tip, contract["contract"], contract["contract_min"], address)
+    found = manifest.offer(store_path, tip, contract["contract"], contract["contract_min"], address,
+                           readable=install.readable(store_path))
     pin, target = held.get("pin"), found.commit
     if target is not None and pin and target != pin and bare.is_ancestor(store_path, target, pin):
         return found._replace(commit=pin, release=held.get("release")), False
@@ -1296,6 +1311,11 @@ def _plan(ns, op):
         host = (registry.inputs().get(ns) or {}).get("host") or "no"
         judged, verdicts, mine = _review(ns, plan["meta"], "git", held.get("audience") or "private", listed,
                                          "listed" if listed else "allowed", plan["ignored"], replacing=True)
+        try:
+            _understood(plan["meta"], judged, mine)
+        except CatalogError:
+            _remove_stage(ns)   # what was refused is not left to be installed
+            raise
         old_verdicts = project.judge_inputs(live[1])[1]
         gone = {(key.partition(":")[0], _unit_id(ns, *key.split(":", 1))) for key in plan["removes"]}
         breaks = _items_that_include(found, gone, _after(found, ns, plan, judged))

@@ -1482,6 +1482,27 @@ class Upgrading(Case):
         self.assertEqual((plan["pending"], plan["refused"], self.actions(plan), plan["owned"]), (False, "", {}, []))
         self.assertEqual(self.upgrade(repo), (0, "Acme Hub is on standard 5. This Lab has standard 5.\n\nNothing to upgrade\n", ""))
 
+    def test_the_lines_older_labs_read_are_written_when_catalog_yml_lacks_them_and_made_true_when_they_are_wrong(self):
+        """Gravitee Lab 1.4 and older need `schema` and read `lab`: `upgrade --write` is the fix `check` names for them."""
+        files = render()
+        bare = files["catalog.yml"].replace(b"  schema: 1\n", b"").replace(b"  lab: 1\n", b"")
+        repo = self.repo(files={**files, "catalog.yml": bare})
+        self.patch(standard, "legacy_lab", lambda root: 1)
+        code, out, _ = self.upgrade(repo, "--write")
+        self.assertEqual(code, 0)
+        note = b"   # For Gravitee Lab 1.4 and older: written by catalog.py"
+        self.assertEqual((repo.root / "catalog.yml").read_bytes(),
+                         bare.replace(b"x-gravitee-catalog:\n", b"x-gravitee-catalog:\n  schema: 1" + note + b"\n")
+                         .replace(b"version: 0.1.0\n", b"version: 0.1.0\n  lab: 1" + note + b"\n"))
+        self.assertIn("catalog.yml", out)
+        repo.commit({"catalog.yml": (repo.root / "catalog.yml").read_bytes()})
+        self.patch(standard, "legacy_lab", lambda root: 2)
+        plan = self.plan(repo, legacy_lab=2)
+        self.assertEqual(self.actions(plan), {"catalog.yml": "update"})
+        self.assertIn(b"  lab: 2" + note, next(each["content"] for each in plan["files"] if each["path"] == "catalog.yml"))
+        self.assertEqual(self.actions(self.plan(repo, legacy_lab=None)), {}, "what this Lab cannot say is left as the file has it")
+        self.assertEqual(self.actions(self.plan(repo)), {}, "a fleet upgrade leaves catalog.yml to its owners")
+
     def test_a_lab_one_level_ahead_gives_a_plan_with_its_notes_and_only_the_files_the_level_changed(self):
         repo = self.repo(files=at(1))
         plan = self.plan(repo, level=2)

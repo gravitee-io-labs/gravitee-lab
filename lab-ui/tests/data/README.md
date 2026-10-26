@@ -125,7 +125,7 @@ Public, `partner` is another catalog and Private, the core says contract 1 and c
 | `lint` | What `catalog.py check` is expected to say of the unit besides its Blocked reasons, which are errors and which `reasons` already holds |
 | `variants` | Where another context changes the answer: `setup:pair` is `ok` when partner is Public |
 
-Two units are blocked: `future` (`Needs Lab level 99, this Lab reads 1 to 1`) and `pair` (`Depends on private content`).
+Two units are blocked: `future` (`Needs a newer Gravitee Lab`) and `pair` (`Depends on private content`).
 
 `port-core` is the only finding known today. It publishes a port that the core publishes, which `make check` reports as
 `publishes port 8082, like docker-compose.yml`. Section 17.1 says `catalog.py check` reports nothing on `fixture` and

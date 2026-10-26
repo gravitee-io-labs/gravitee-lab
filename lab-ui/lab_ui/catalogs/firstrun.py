@@ -361,7 +361,8 @@ def _download(ns: str, entry: Optional[dict], row: Optional[dict]) -> None:
             shutil.rmtree(store_path, ignore_errors=True)   # another repository: nothing of it is worth keeping
             raise install.not_expected(address.repo or address.display)
         contract = _contract()
-        offered = manifest.offer(store_path, tip, contract["contract"], contract["contract_min"], answered)
+        offered = manifest.offer(store_path, tip, contract["contract"], contract["contract_min"], answered,
+                                 readable=install.readable(store_path))
         commit, tip_state = offered.commit, offered.tip
         if commit is None:
             raise manifest.no_commit(offered.levels, contract["contract"], contract["contract_min"], listed)
@@ -392,13 +393,16 @@ def _download(ns: str, entry: Optional[dict], row: Optional[dict]) -> None:
 
 def _read(staged, address: gitx.Address, contract: dict, ns: str, listed: bool) -> dict:
     """catalog.yml of the staged tree, read as an Add reads it and checked to be the catalog expected: this
-    Lab reads its level, and its `id` is the one asked for (`wrong_catalog`)."""
+    Lab reads its legacy level and every key of it (a key it does not know needs a newer Gravitee Lab), and its `id` is the
+    one asked for (`wrong_catalog`)."""
     here = [one["id"] for one in defaults.read() if registry.display_address(one["url"]) == address.display]
     borrowed = [one["name"] for one in defaults.read() if one["id"] not in here]
     meta = manifest.read_catalog(os.path.relpath(Path(staged.path) / manifest.FILE, paths.ROOT), address, borrowed)
     refusal = manifest.compat_error(meta["lab"], contract["contract"], contract["contract_min"], listed)
     if refusal is not None:
         raise refusal
+    if meta["unknown"]:
+        raise manifest.not_understood([("catalog.key", key) for key in meta["unknown"]])
     if meta["id"] != ns:
         raise install.not_expected(address.repo or address.display)
     return meta

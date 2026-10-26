@@ -39,7 +39,9 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import stat
+import threading
 import time
 from pathlib import Path
 from typing import Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
@@ -47,7 +49,7 @@ from typing import Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
 from ..docker import compose
 from ..library import moves, starred
 from .. import paths
-from . import defaults, gitx, manifest, registry, resolve
+from . import defaults, gitx, manifest, registry, resolve, understood
 from . import store as bare
 from .registry import CatalogError
 
@@ -64,6 +66,7 @@ DEEP = 40   # how far down an install is looked into for its machine files
 WALK_LIMIT = 50000   # entries looked at in a folder catalog before it is `too_large`
 ROOTS_LIMIT = 20   # the root commits a lock entry holds (registry): more are not recorded
 WHATSNEW = 30   # the lines of What's new an update says: five for each item, as the notes of a release, up to this
+READ_MEMORY = 256   # the versions whose reading `unknown_at` keeps: each is a commit, and a Lab sees a few of them a day
 
 _NS = re.compile(paths.NS)
 _REMOVED = re.compile(r"\.removed-({ns})-([0-9]{{8}}T[0-9]{{6}}Z)".format(ns=paths.NS))
@@ -1108,6 +1111,64 @@ def _unreadable(meta, contract, entry) -> Optional[CatalogError]:
                                  defaults.listed(entry))
 
 
+_versions = {}   # (store, commit, what this Lab reads) -> what that version uses that this Lab does not read
+_versions_lock = threading.Lock()
+
+
+@contextlib.contextmanager
+def probe(store_path, commit):
+    """The version `commit` of a catalog of the store, written in a staging folder of its own for the length of the block
+    (`.stage-read-<random>`, the files an install would write, read-only, as `stage` writes them), so that it is read as the
+    catalog it would be: its files sit where a catalog's do, its includes and its anchors reach what they would installed.
+    Answers the placeholder namespace of the folder, which is removed at the end."""
+    ns = f"read-{secrets.token_hex(4)}"
+    kept, _ = bare.selected(bare.listing(store_path, commit))
+    target = registry.stage_dir(ns)
+    try:
+        _write_stage(target, store_path, kept)
+        yield ns
+    finally:
+        _clear(target)
+
+
+def unknown_at(store_path, commit) -> list:
+    """What the version `commit` of a published catalog uses that this Lab does not read: the keys of its catalog.yml that
+    this Lab does not know, a `schema` or a legacy `lab` above the ones it reads, and what its units use (`project.staged_unknown`), each an
+    item of `understood`. Read from the files of that version (`probe`), once for each version and each lock: a Lab that is
+    updated reads it again. [] for a version that cannot be read at all: the strict reading at Add and at Update says why."""
+    key = (os.fspath(store_path), commit, understood.fingerprint())
+    with _versions_lock:
+        if key in _versions:
+            return list(_versions[key])
+    from ..library import project   # here and not above: the project reads this package
+    found = []
+    try:
+        with probe(store_path, commit) as ns:
+            try:
+                meta = manifest.read_catalog(os.path.relpath(registry.stage_dir(ns) / manifest.FILE, paths.ROOT))
+                found = [("catalog.key", name) for name in meta["unknown"]]
+                held = understood.lock()
+                if held and isinstance(meta["lab"], int) and manifest.compat(meta["lab"], held.contract, held.contract_min) == "new":
+                    found.append(("catalog.key", "lab"))   # a legacy level the tolerant reading could not be sure of
+            except CatalogError as error:
+                if error.code != "schema_new":
+                    raise
+                found = [("catalog.key", "schema")]
+            found += project.staged_unknown(ns)
+    except TROUBLE:
+        found = []
+    with _versions_lock:
+        if len(_versions) >= READ_MEMORY:
+            _versions.clear()
+        _versions[key] = list(found)
+    return found
+
+
+def readable(store_path):
+    """What `manifest.pick` asks of a version of the catalog in the store: whether this Lab reads all it uses (`unknown_at`)."""
+    return lambda commit: not unknown_at(store_path, commit)
+
+
 def plan_update(ns: str, target: str, context: Optional[dict] = None) -> dict:
     """The plan of an update, for the files: `{"upToDate": True}` when `target` is the pin or changes nothing installable;
     else the plan. The candidate tree is staged in full at `.stage-<ns>` for the caller to judge. The plan: {ns, op
@@ -1120,7 +1181,8 @@ def plan_update(ns: str, target: str, context: Optional[dict] = None) -> dict:
     Go back, the two are not one history), unless the new roots are the ones in `context["vouched"]`; or `context["moved"]`,
     the release installed is a tag the owners moved to the target since, which an update does not take silently either. `context["on"]`, an iterable or a function: the units that are on or up, which the hold
     rule adds to those the on file turns on. `context["contract"]`, `{contract, contract_min}`: the level this Lab reads; a
-    version written for another is refused (`lab_new`, `lab_old`) whatever `pick` made of it, the staged folder cleared. The
+    version written for another is refused (`lab_new`, `lab_old`) whatever `pick` made of it, and so is one whose catalog.yml
+    has a key this Lab does not read (`lab_new`: it needs a newer Gravitee Lab), the staged folder cleared. The
     plan is applied by `apply_update`, which asks again."""
     context = dict(context or {})
     with _guard():
@@ -1147,6 +1209,8 @@ def plan_update(ns: str, target: str, context: Optional[dict] = None) -> dict:
             refusal = _unreadable(meta, context.get("contract"), registry.entry(ns))
             if refusal is not None:
                 raise refusal
+            if meta["unknown"]:   # a published catalog: what this Lab does not read in it needs a newer Gravitee Lab
+                raise manifest.not_understood([("catalog.key", key) for key in meta["unknown"]])
         except CatalogError:
             _clear(registry.stage_dir(ns))   # what was refused is not left to be installed
             raise

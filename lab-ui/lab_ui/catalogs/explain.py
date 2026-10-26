@@ -216,8 +216,9 @@ T_FIXES = {
     "catalog id.", "T22": "On a platform service, set only `environment`, `extra_hosts`, `depends_on`, `labels`, read-only "
     "binds from your folder and loopback ports.", "T23": "Include only units of the default catalog, of this catalog, or of "
     "catalogs declared in `requires.catalogs`.", "T24": "A Public catalog cannot include a Private one: move the shared part "
-    "to a Public catalog.", "T25": "Fix {name} first.", "T26": "Set `lab:` in `catalog.yml` to a level this Lab reads ({min} to "
-    "{max}), or move `lab.ref` in `.github/standard.json`.", "T27": "Run `docker compose -f {file} config` and fix what it "
+    "to a Public catalog.", "T25": "Fix {name} first.", "T26": "Remove what this Gravitee Lab does not read, or "
+    "check with the Gravitee Lab release that reads it (`catalog.py upgrade --lab-ref latest`). A `lab` is for Gravitee Lab "
+    "1.4 and older: `catalog.py upgrade --write` writes the one of `catalog.yml`.", "T27": "Run `docker compose -f {file} config` and fix what it "
     "prints.",
 }
 

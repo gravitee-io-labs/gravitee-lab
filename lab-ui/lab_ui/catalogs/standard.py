@@ -1091,8 +1091,9 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
 
     `options`: lab_ref (40 hex: the new pin), refresh_pins, adopt, replace (paths to replace though they have no marker, with
     adopt), form, with (modules), maintainers / lab_repository / security_contact (for what adopt adds), level (default LEVEL),
-    lab (the Lab checkout: SD11 and the log of a moved pin are asked of it). Pure: it reads the tree and runs `git log` in the
-    Lab checkout; it writes nothing."""
+    lab (the Lab checkout: SD11 and the log of a moved pin are asked of it), legacy_lab (when the key is there, catalog.yml gets
+    the lines Gravitee Lab 1.4 and older read, made true: `schema`, and `lab` as given, or as the file has it when None). Pure:
+    it reads the tree and runs `git log` in the Lab checkout; it writes nothing."""
     options = dict(options or {})
     level = options.get("level") or LEVEL
     adopt = bool(options.get("adopt"))
@@ -1196,6 +1197,13 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
                             dump_standard(new).encode("utf-8")))
     else:
         files.append(_entry(STANDARD, CURRENT, "seeded"))
+    if "legacy_lab" in options:   # what `catalog.py check` names as the fix of a `lab` that is not true
+        from .manifest import with_legacy   # here and not above: the reader of catalog.yml, which nothing else here needs
+        text = meta_raw.decode("utf-8", "replace")
+        legacy = with_legacy(text, options["legacy_lab"])
+        if legacy != text:
+            files.append(_entry("catalog.yml", UPDATE, "seeded", "the lines Gravitee Lab 1.4 and older read",
+                                legacy.encode("utf-8")))
     if adopt:
         problem = _adopt(tree, state, options, repo, ref, level, files, images, extra)
         if problem:
@@ -1713,6 +1721,16 @@ def apply_command(args) -> str:
     return " ".join(words + ["--write"])
 
 
+def legacy_lab(root) -> Optional[int]:
+    """The `lab` that Gravitee Lab 1.4 and older need in the catalog.yml of the folder `root` (`check.folder_lab`), or None when
+    this Lab cannot say it here: the upgrade then keeps the one the file has."""
+    from ..library import check   # here and not above: the units are read as `check` reads them, which nothing else here does
+    try:
+        return check.folder_lab(root)
+    except (check.Unavailable, OSError, ValueError, gitx.CatalogError):
+        return None
+
+
 def main_upgrade(argv: List[str], lab: Optional[Path] = None) -> int:
     """`catalog.py upgrade [DIR] [--write] [--commit] [--lab-ref COMMIT or latest] [--refresh-pins] [--adopt] [--form F]
     [--with e2e] [--format text or github or json]`. Without `--write` it prints the plan and writes nothing (exit 1 when
@@ -1741,7 +1759,7 @@ def main_upgrade(argv: List[str], lab: Optional[Path] = None) -> int:
         plan = upgrade_plan(tree, {"lab_ref": ref, "refresh_pins": args.refresh_pins, "adopt": args.adopt, "replace": args.replace,
                                    "form": args.form, "with": args.with_, "maintainers": args.maintainers,
                                    "lab_repository": args.lab_repo or (_lab_origin(lab) if args.adopt else ""),
-                                   "lab": lab})
+                                   "lab": lab, "legacy_lab": legacy_lab(root)})
     except Usage as error:
         _complain(str(error))
         return 2

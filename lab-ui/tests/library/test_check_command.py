@@ -293,8 +293,10 @@ class Codes(Folder):
         found = {(one["path"], one["code"]): one for one in json.loads(out)}
         future = found[("addons/future/compose.yml", "T26")]
         self.assertEqual(future["severity"], "error")
-        self.assertEqual(future["message"], "Needs Lab level 99, this Lab reads 1 to 1. Fix: Set `lab:` in `catalog.yml` to a level "
-                                            "this Lab reads (1 to 1), or move `lab.ref` in `.github/standard.json`.")
+        self.assertEqual(future["message"], "Needs a newer Gravitee Lab. Fix: Remove what this Gravitee Lab does not read, or check "
+                                            "with the Gravitee Lab release that reads it (`catalog.py upgrade --lab-ref latest`). "
+                                            "A `lab` is for Gravitee Lab 1.4 and older: `catalog.py upgrade --write` writes the "
+                                            "one of `catalog.yml`.")
         self.assertEqual(found[("addons/port-core/compose.yml", "")]["message"], "publishes port 8082, like docker-compose.yml")
         self.assertEqual(set(one["code"] for one in json.loads(out)) - {""}, {"T26", "DF22", "DF23"})
 
@@ -303,7 +305,7 @@ class Codes(Folder):
         folder = self.catalog("fixture")
         out = self.check(folder)[1]
         self.assertIn("✗ addons/port-core/compose.yml\n    publishes port 8082, like docker-compose.yml\n", out)
-        self.assertIn("✗ addons/future/compose.yml\n    T26 Needs Lab level 99", out)
+        self.assertIn("✗ addons/future/compose.yml\n    T26 Needs a newer Gravitee Lab", out)
         self.assertTrue(out.rstrip().endswith(" for more."), out)
         self.assertIn("Run make explain CODE=T26 for more.", out.rstrip().splitlines()[-1])
 
@@ -318,8 +320,9 @@ class Codes(Folder):
         self.assertEqual(code, "T28")
         self.assertTrue(text.startswith("Uses this machine without saying why: web"))
         self.assertEqual(check._blocked("Something the Lab never said", ["T03"], "hub", "a.yml"), ("", "Something the Lab never said"))
-        code, text = check._blocked("Needs Lab level 9, this Lab reads 1 to 2", ["T26"], "hub", "a.yml")
+        code, text = check._blocked("Needs a newer Gravitee Lab: uses x-gravitee.badge", ["T26"], "hub", "a.yml")
         self.assertEqual(code, "T26")
+        self.assertIn("Fix: Remove what this Gravitee Lab does not read", text)
 
     def test_a_code_the_standard_knows_is_one_explain_knows(self):
         out = self.run_tool("explain", "T26")

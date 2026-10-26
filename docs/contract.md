@@ -2,39 +2,52 @@
 
 The engine is the Lab itself: the core platform, the Lab UI and the seeder. The units of a catalog (its add-ons, setups
 and playgrounds) run on it and rely on it: on the core's services, on the labels the Lab UI reads, on the folders a seed
-may hold. This page lists what they may rely on, and the level each item appeared at. Anything not listed here is the
-engine's to change at any time. Read it before you write a unit; the rules of the units themselves are in
-[units.md](units.md) and [playgrounds.md](playgrounds.md).
+may hold. This page lists what they may rely on. Anything not listed here is the engine's to change at any time. Read it
+before you write a unit; the rules of the units themselves are in [units.md](units.md) and [playgrounds.md](playgrounds.md).
 
-`contract.lock`, at the root of the repository, pins the page: one line per item, with its level. A test derives it from
-the files and fails when the two differ, so a change to the contract is always a decision somebody wrote down.
+`contract.lock`, at the root of the repository, pins the page: one line per item. A test derives it from the files and fails
+when the two differ, so a change to the contract is always a decision somebody wrote down.
+
+## How a Lab reads a catalog
+
+A Lab uses what it understands, and says when it needs a newer version. Nobody writes a compatibility number: the items of this
+page that a catalog uses say which Lab reads it.
+
+| The catalog | Uses something this Lab does not list (a key of `catalog.yml` or of `x-gravitee`, a label, a core service or network, a category, an anchor, a seed folder or file, a setting `SEED_*` of the seeder) |
+|---|---|
+| Published: a git catalog the person added, and each of its updates | Not used. The Lab installs the newest version it reads, and the catalog's row says a newer one needs a newer Gravitee Lab, which Update Gravitee Lab brings. A version is never run half understood |
+| The person's own: a folder catalog, Personal, a working copy linked in place of an install | Used as it is: an unknown item is a mistake of its author, and `catalog.py check` names each one |
+
+The Lab finds the newest version it reads by reading the files of each version, newest first, as it reads a catalog it adds
+(`manifest.pick`, `understood`): a few versions at most, each once. A catalog's CI checks it with a released Lab: the commit
+that `.github/standard.json` pins is the commit of a release `vX.Y.Z`. So a catalog that passes its CI is read by that release
+and every later one, and updating to the latest release is always enough for what a catalog publishes. The release notes of
+the Lab list, under *For catalogs*, what each release adds that a catalog can use (the label `catalog-format`,
+[Publishing a version](maintaining.md#publishing-a-version)).
+
+### The fields of older Labs
+
+Gravitee Lab 1.4 and older need `schema` and read `lab` in `catalog.yml`, and they read a unit's `x-gravitee.requires.lab`:
+they ignore what they do not know, so `lab` tells them which catalogs they can run. This Lab needs none of them. `catalog.py`
+keeps them true where it writes `catalog.yml` (`new`, `upgrade --write`, `release`, and the Share of an item into a catalog),
+with the comment `# For Gravitee Lab 1.4 and older: written by catalog.py` on the lines it adds. `catalog.py check` accepts a
+`catalog.yml` without them, and verifies a `lab` that is there: it is the highest level (`since`, below) among the items the
+catalog uses, so that an older Lab refuses cleanly what it cannot run, and the fix is `catalog.py upgrade --write`. This Lab
+reads a `lab` it does not read as a fast hint: that version is passed over without its files being read. These fields are
+removed in a future major version of the Lab.
 
 ## Levels
 
-A level is a whole number. Level 1 is the state of the engine when catalogs were separated from it.
+The levels are the engine's own way to keep the contract in order; nothing a catalog author or a person writes or reads
+mentions them. A level is a whole number. Level 1 is the state of the engine when catalogs were separated from it.
 
 | Where | Name | What it says |
 |---|---|---|
-| `docker-compose.yml`, `x-gravitee` | `contract` | The newest level this engine provides. It grows with every addition to the contract |
+| `docker-compose.yml`, `x-gravitee` | `contract` | The newest level this engine provides. It grows with an addition that an older Lab could not run without |
 | `docker-compose.yml`, `x-gravitee` | `contract_min` | The oldest level this engine still reads. It grows when something is removed or changed |
-| `contract.lock` | `since` | The level an item appeared at |
-| `catalog.yml` | `lab` | The minimum level the catalog needs |
-| A unit's `x-gravitee.requires` | `lab` | The level the unit was written for. Absent, it is the catalog's `lab`, else 1 |
-
-A catalog or a unit written for level `L` is read by an engine like this:
-
-| When | The engine says |
-|---|---|
-| `contract_min <= L <= contract` | It reads it |
-| `L > contract` | Needs a newer Lab |
-| `L < contract_min` | Written for an older Lab |
+| `contract.lock` | `since` | The level an item appeared at: what the legacy `lab` of a catalog that uses it must be |
 
 A core file without `contract` or `contract_min` reads as 1 for both.
-
-**`lab` is verified, never guessed.** `catalog.py check` takes the highest `since` among the items of this page that the
-catalog uses (keys, labels, seed folders and settings, core services, anchors), and fails when `lab` is lower or higher:
-`catalog.yml: lab is 1 but 3 is needed: x-gravitee.terminal (3)`. It also fails when `lab` is above `contract`. A
-catalog's `lab` is the true minimum, and an addition to the engine that the catalog does not use never raises it.
 
 ## What a unit may rely on
 
@@ -131,7 +144,7 @@ the check of a catalog reports it. *Kinds* says which kind of unit may carry the
 | `x-gravitee.requires.plugins` | any | The plugins a product must load |
 | `x-gravitee.requires.license` | any | The license features it needs |
 | `x-gravitee.requires.host` | any | Checks the Lab UI makes from this machine before Start: `name`, `check`, `expect`, `help` |
-| `x-gravitee.requires.lab` | any | The level of this page the unit was written for |
+| `x-gravitee.requires.lab` | any | For Gravitee Lab 1.4 and older: the level the unit was written for ([The fields of older Labs](#the-fields-of-older-labs)). A unit does not need it |
 
 ### Labels
 
@@ -247,6 +260,16 @@ service that `x-gravitee.terminal` names.
 
 ## Changing the contract
 
+**Never change the meaning of an existing key, field or label: add a new one instead.** A Lab that does not know a new key says
+it needs a newer Lab; a Lab that knows a key and reads it another way would misread a catalog without a word. So a key keeps
+what it says, its values and the kinds of unit that may carry it, for as long as it is read; when it must say something else, a
+new key says it, and the old one is removed by the rules of [Raising contract_min](#raising-contract_min). The test of the lock
+enforces what the files show: an item that goes, or whose attributes change (the ports, the healthcheck and the networks of a
+core service, the kinds that read a key), stops the build until `contract_min` is raised and the item is named under
+[Removed](#removed). What a value means is for the review of the pull request.
+
+A pull request that adds an item gets the label `catalog-format`, so that its release lists it under *For catalogs*.
+
 ```mermaid
 flowchart TD
   change["A change to what units rely on"] --> kind{"Which change?"}
@@ -304,11 +327,13 @@ message. One change raises it by one, however many items it adds.
 2. Write the lock. The new items get `since` equal to the new level; the others keep theirs.
 3. Describe the items on this page.
 
-A purely optional addition keeps the level: an older Lab ignores it, so a catalog that uses it still works there. Write
-the lock with `--keep-level`; `since` records the level it appeared at.
+A purely optional addition keeps the level: Gravitee Lab 1.4 and older ignore it, so a catalog that uses it still works
+there. Write the lock with `--keep-level`; `since` records the level it appeared at. Every addition, optional or not, is one
+that a Lab released before it does not read: from this Lab on, a catalog that uses it needs the release that adds it.
 
-Release the engine before a catalog raises its `lab` to the new level. `catalog.py check` tells the catalog its true
-minimum.
+A catalog uses a new item once a release of the Lab has it: its CI checks it with the release its `.github/standard.json` pins,
+which says what is not read yet until the catalog moves to that release (`catalog.py upgrade --lab-ref latest`).
+`catalog.py check` tells the catalog the legacy `lab` that older Labs need.
 
 ### Raising contract_min
 

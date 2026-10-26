@@ -9,8 +9,8 @@
 
 Both refuse what would make a release that people cannot trust: a tree that is not clean, a branch that is behind `origin/main`, a
 version that is not greater than the latest tag. Only the `version:` line of catalog.yml is changed, by a targeted edit of that
-line, so its comments and its other lines stay as they are. Nothing else is ever pushed, `main` and the tag least of all: the
-commands are printed.
+line, and the lines that Gravitee Lab 1.4 and older read (`schema`, `lab`) are kept true or added (`with_legacy`), so its comments
+and its other lines stay as they are. Nothing else is ever pushed, `main` and the tag least of all: the commands are printed.
 
 `origin/main` and the tags are read after a fetch of both from `origin`, so a release is judged against what the server holds. The
 git here is the Lab's (`gitx`): no hook runs, and the person's own name and email sign the commit and the tag. Standard library
@@ -73,6 +73,19 @@ def edit_version(text: str, version: str) -> Tuple[str, str]:
     match = LINE.fullmatch(lines[found[0]])
     lines[found[0]] = match.group("head") + match.group("quote") + version + match.group("quote") + match.group("tail")
     return "\n".join(lines), match.group("number")
+
+
+def with_legacy(root: Path, text: str) -> str:
+    """The text of catalog.yml with the fields of Gravitee Lab 1.4 and older made true (`manifest.with_legacy`): the `lab` the
+    items of the catalog need when this Lab can say it (`check.folder_lab`), else the one the file has. A release is a version
+    that older Labs read too, so it carries them."""
+    from . import manifest   # here and not above: the reader of catalog.yml, which the rest of this command does without
+    from ..library import check
+    try:
+        lab = check.folder_lab(root)
+    except (check.Unavailable, OSError, ValueError, gitx.CatalogError):
+        lab = None
+    return manifest.with_legacy(text, lab)
 
 
 def _run(root, *args, timeout: float = 120):
@@ -181,6 +194,7 @@ def _prepare(root: Path, version: str, pr: bool, gh: Callable) -> List[str]:
         text, old = edit_version(original.decode("utf-8"), version)
     except UnicodeDecodeError:
         raise ReleaseError("catalog.yml is not UTF-8 text.") from None
+    text = with_legacy(root, text)
     if old == version:
         raise ReleaseError(f"catalog.yml already says {version}. Fix: if it is on main, tag it: make release VERSION={version} TAG=1.")
     if numbers(version) < numbers(old):

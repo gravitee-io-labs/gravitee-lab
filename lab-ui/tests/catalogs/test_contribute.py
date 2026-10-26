@@ -1932,3 +1932,18 @@ class Real(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LegacyLab(unittest.TestCase):
+    """A share keeps the `lab` that Gravitee Lab 1.4 and older read true: it raises one the shared item needs more than, in the
+    same commit or copy, and never lowers it or adds the lines to a catalog that does without them."""
+
+    def test_a_lab_lower_than_the_item_needs_is_raised_alone(self):
+        text = "x-gravitee-catalog:\n  schema: 1\n  id: hub\n  version: 1.0.0\n  lab: 1   # older Labs\n"
+        self.assertEqual(contribute._raised(text, 3), text.replace("lab: 1", "lab: 3"))
+
+    def test_a_lab_that_is_enough_or_absent_is_left_as_it_is(self):
+        text = "x-gravitee-catalog:\n  id: hub\n  version: 1.0.0\n  lab: 4\n"
+        self.assertIsNone(contribute._raised(text, 3))
+        self.assertIsNone(contribute._raised(text, 4))
+        self.assertIsNone(contribute._raised(text.replace("  lab: 4\n", ""), 3), "a catalog without the lines keeps without them")

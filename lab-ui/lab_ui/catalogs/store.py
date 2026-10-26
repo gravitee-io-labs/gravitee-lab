@@ -705,10 +705,24 @@ def release_commit(store, version: str) -> Optional[str]:
 def touching(store, tip: str, path: str, limit: int = 50) -> List[str]:
     """The commits, newest first and following first parents, that changed `path`, as `git log --first-parent` lists
     them: where a file such as `catalog.yml` took each of its forms."""
+    return [commit for commit, _ in changes(store, tip, [path], limit)]
+
+
+def changes(store, tip: str, paths: Iterable[str], limit: int = 50, since: Optional[str] = None) -> List[Tuple[str, Optional[str]]]:
+    """[(commit, its first parent or None)] of the commits, newest first and following first parents, that changed one of
+    `paths`, in one `git log --first-parent`. `since`: only the commits after that one, which is left out with what came
+    before it."""
     if not isinstance(limit, int) or not 0 < limit <= 1000:
         raise ValueError(f"not a number of commits: {limit!r}")
-    out = _git(store, "log", "--first-parent", "--format=%H", f"--max-count={limit}", _rev(tip), "--", _pathspec(path)).out
-    return [line for line in out.decode("utf-8", "replace").split() if _SHA.fullmatch(line)]
+    spec = [_pathspec(one) for one in paths]
+    span = f"{_rev(since)}..{_rev(tip)}" if since is not None else _rev(tip)
+    out = _git(store, "log", "--first-parent", "--format=%H %P", f"--max-count={limit}", span, "--", *spec).out
+    found = []
+    for line in out.decode("utf-8", "replace").splitlines():
+        words = line.split()
+        if words and _SHA.fullmatch(words[0]):
+            found.append((words[0], words[1] if len(words) > 1 and _SHA.fullmatch(words[1]) else None))
+    return found
 
 
 def read(store, commit: str, path: str, limit: int = MIB) -> Optional[bytes]:

@@ -1324,8 +1324,10 @@ class FixtureCatalogs(Case):
                 key = f"{kind}:{unit_id(ns, kind, name)}"
                 asked = re.search(r"requires: \{lab: (\d+)\}", _text_of(ns, kind, name))
                 needs = int(asked.group(1)) if asked else catalog_meta(ns)["lab"]
-                if not floor <= needs <= level:
-                    blocked[key] = [f"Needs Lab level {needs}, this Lab reads {floor} to {level}"]
+                if needs > level:
+                    blocked[key] = ["Needs a newer Gravitee Lab"]
+                elif needs < floor:
+                    blocked[key] = ["Written for an older Gravitee Lab"]
                 deeper = [entry for entry in expected()[key]["closure"]
                           if AUDIENCE[_ns_of(entry.split(":", 1)[1])] == "private" and AUDIENCE[ns] == "public"]
                 if deeper:

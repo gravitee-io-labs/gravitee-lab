@@ -150,11 +150,40 @@ class Picking(Case):
         self.assertEqual(manifest.pick([("t", 1), ("a", 0)], 3, 2), (None, "old"), "a level it does not state is still old")
 
     def test_no_commit_never_says_a_level_it_does_not_have(self):
-        """pick takes a version it cannot read for a candidate, so no_commit is not asked about one; asked all the same, it names
-        the level no Lab reads and not "None"."""
+        """A tip that states no `lab` and gave no commit is one whose files this Lab does not read: it needs a newer Lab, and
+        the line names no level, not "None" either."""
         found = manifest.no_commit([("t", None)], 3, 2)
-        self.assertEqual(found.code, "lab_old")
+        self.assertEqual(found.code, "no_readable_version")
         self.assertNotIn("None", found.message)
+        self.assertNotIn("level", found.message)
+
+    def test_a_version_that_states_no_lab_is_read_by_its_files(self):
+        """The form a catalog has now: no `lab`, so `readable` reads the files of the version, newest first."""
+        understood = {"a"}
+        self.assertEqual(manifest.pick([("t", None), ("a", None)], 1, 1, lambda commit: commit in understood), ("a", "new"))
+        self.assertEqual(manifest.pick([("t", None), ("a", None)], 1, 1, lambda commit: True), ("t", "ok"))
+        self.assertEqual(manifest.pick([("t", None), ("a", None)], 1, 1, lambda commit: False), (None, "new"))
+
+    def test_a_legacy_lab_is_a_fast_hint_and_a_version_it_lets_through_is_still_read(self):
+        asked = []
+
+        def readable(commit):
+            asked.append(commit)
+            return commit != "t"
+        self.assertEqual(manifest.pick([("x", 9), ("t", 1), ("a", 1)], 1, 1, readable), ("a", "new"))
+        self.assertEqual(asked, ["t", "a"], "a lab this Lab does not read is passed over unread; one it reads is read")
+
+    def test_at_most_a_few_versions_are_read(self):
+        asked = []
+
+        def readable(commit):
+            asked.append(commit)
+            return False
+        levels = [(str(number), None) for number in range(20)]
+        self.assertEqual(manifest.pick(levels, 1, 1, readable), (None, "new"))
+        self.assertEqual(len(asked), manifest.READS)
+        self.assertEqual(manifest.pick(levels, 1, 1, lambda commit: commit == "3", reads=3), (None, "new"),
+                         "past the reads none is taken")
 
     def test_the_case_table_of_9_2(self):
         # contract 3 and contract_min 2 are this Lab; a level is what a catalog.yml says
@@ -190,13 +219,21 @@ class Refusals(Case):
     def test_a_catalog_that_needs_a_newer_lab(self):
         error = manifest.compat_error(5, 3, 2)
         self.assertEqual((error.code, error.status, error.message),
-                         ("lab_new", 400, "Needs Lab level 5, this Lab reads 2 to 3. Run make update, then add it again."))
+                         ("lab_new", 400, "This catalog needs a newer Gravitee Lab. Run make update, then add it again."))
 
     def test_a_catalog_written_for_an_older_lab(self):
         error = manifest.compat_error(1, 3, 2)
         self.assertEqual((error.code, error.status, error.message),
-                         ("lab_old", 400, "Written for an older Lab (level 1, this Lab reads 2 to 3). Ask its owners to "
-                                          "update it."))
+                         ("lab_old", 400, "Written for an older Gravitee Lab. Ask its owners to update it."))
+
+    def test_a_catalog_that_states_no_level_is_no_refusal_of_its_level(self):
+        self.assertIsNone(manifest.compat_error(None, 3, 2))
+
+    def test_what_a_published_catalog_uses_that_this_lab_does_not_read_needs_a_newer_lab(self):
+        error = manifest.not_understood([("unit.key", "x-gravitee.badge"), ("catalog.key", "mirrors")])
+        self.assertEqual((error.code, error.status, error.message),
+                         ("lab_new", 400, "This catalog needs a newer Gravitee Lab. Run make update, then add it again."))
+        self.assertEqual(error.detail["unknown"], ["x-gravitee.badge", "catalog.yml key mirrors"])
 
     def test_the_catalog_the_engine_lists_has_no_owner_to_ask(self):
         error = manifest.compat_error(1, 3, 2, listed=True)
@@ -210,15 +247,14 @@ class Refusals(Case):
     def test_no_commit_is_the_one_rule_of_9_2(self):
         newer = manifest.no_commit([("t", 5), ("a", 4)], 3, 1)
         self.assertEqual((newer.code, newer.message), ("no_readable_version", "Every version of this catalog needs a newer "
-                                                                                "Lab. Run make update, then add it again."))
+                                                                                "Gravitee Lab. Run make update, then add it again."))
         older = manifest.no_commit([("t", 1)], 4, 3)
-        self.assertEqual((older.code, older.message), ("lab_old", "Written for an older Lab (level 1, this Lab reads 3 to "
-                                                                  "4). Ask its owners to update it."))
+        self.assertEqual((older.code, older.message), ("lab_old", "Written for an older Gravitee Lab. Ask its owners to update "
+                                                                  "it."))
         self.assertEqual(manifest.no_commit([("t", 1)], 4, 3, listed=True).message,
                          "The catalog is not ready for this version of the Lab. Try again later.")
         self.assertEqual(manifest.no_commit([], 4, 3).code, "lab_old")
-        self.assertEqual(manifest.no_commit([], 4, 3).message,
-                         "Written for an older Lab (level 0, this Lab reads 3 to 4). Ask its owners to update it.")
+        self.assertEqual(manifest.no_commit([], 4, 3).message, "Written for an older Gravitee Lab. Ask its owners to update it.")
 
 
 class Fields(Case):
@@ -233,13 +269,19 @@ class Fields(Case):
             self.assertEqual(manifest.validate_catalog(meta), ["x-gravitee-catalog must be a mapping"])
 
     def test_every_required_field_is_required(self):
-        for key in ("schema", "id", "name", "description", "version", "lab"):
+        for key in ("id", "name", "description", "version"):
             self.assertEqual(problems(**{key: ...}), [f"{key} is required"], key)
+
+    def test_a_catalog_yml_without_the_legacy_fields_is_valid_for_this_lab(self):
+        """schema and lab are for Gravitee Lab 1.4 and older: an author never has to write them."""
+        self.assertEqual(problems(schema=..., lab=...), [])
+        self.assertEqual(problems(schema=...), [])
+        self.assertEqual(problems(lab=...), [])
 
     def test_the_schema_is_a_whole_number_this_lab_supports(self):
         for bad in (0, -1, "1", 1.0, True, None, []):
             self.assertEqual(problems(schema=bad), ["schema must be a whole number, such as 1"], repr(bad))
-        self.assertEqual(problems(schema=2), ["schema 2 is newer than this Lab reads"])
+        self.assertEqual(problems(schema=2), ["schema says the catalog needs a newer Gravitee Lab"])
         self.assertEqual(problems(schema=1), [])
 
     def test_an_id_is_two_to_twenty_four_lowercase_letters_digits_and_dashes(self):
@@ -288,7 +330,8 @@ class Fields(Case):
         for good in (0, 1, 2, 99):
             self.assertEqual(problems(lab=good), [], good)
         for bad in (-1, "1", 1.5, True, None, [1]):
-            self.assertEqual(problems(lab=bad), ["lab must be a whole number: the Lab level the catalog needs"], repr(bad))
+            self.assertEqual(problems(lab=bad), ["lab must be a whole number, such as 1: catalog.py upgrade --write writes it"],
+                             repr(bad))
 
     def test_a_license_is_an_spdx_token_or_expression(self):
         for good in ("Apache-2.0", "AGPL-3.0-only", "MIT", "UNLICENSED", "GPL-2.0+", "MIT OR Apache-2.0",
@@ -551,7 +594,7 @@ class Reading(Case):
     def test_a_newer_format_is_asked_for_a_newer_lab_before_anything_else_is_judged(self):
         error = self.assertRaisesCatalog(lambda: self.read({"schema": 2, "id": "A", "lab": "x"}))
         self.assertEqual((error.code, error.status, error.message),
-                         ("schema_new", 400, "This catalog uses a newer format. Run make update, then add it again."))
+                         ("schema_new", 400, "This catalog needs a newer Gravitee Lab. Run make update, then add it again."))
 
     def test_the_first_problem_is_the_line_and_all_of_them_are_in_the_detail(self):
         error = self.assertRaisesCatalog(lambda: self.read({**GOOD, "id": "A", "version": "x"}))
@@ -567,6 +610,11 @@ class Reading(Case):
     def test_a_catalog_may_be_older_than_this_lab_reads_and_still_be_read(self):
         self.assertEqual(self.read({**GOOD, "lab": 0})["lab"], 0)
         self.assertEqual(self.read({**GOOD, "lab": 99})["lab"], 99)
+
+    def test_a_catalog_without_the_legacy_fields_is_read_with_none_for_them(self):
+        meta = {key: value for key, value in GOOD.items() if key not in ("schema", "lab")}
+        found = self.read(meta)
+        self.assertEqual((found["schema"], found["lab"], found["unknown"]), (None, None, []))
 
     def test_a_reserved_namespace_is_read_the_registry_decides(self):
         self.assertEqual(self.read({**GOOD, "id": "official"})["id"], "official")
@@ -841,16 +889,16 @@ class History(Case):
         return manifest.levels(self.store, bare.resolve(self.store, "tip"), **how)
 
     def test_a_catalog_whose_file_never_changed_is_one_version(self):
-        self.push({"addons/a/README.md": "x\n"})
-        self.push({"addons/a/README.md": "y\n"})
+        self.push({"README.md": "x\n"})
+        self.push({"README.md": "y\n"})
         self.assertEqual(self.levels(), [(self.commits[-1], 1)])
 
     def test_each_form_of_the_file_is_one_version_ending_at_the_commit_before_the_next_change(self):
-        self.push({"addons/a/README.md": "x\n"})                      # 1
+        self.push({"README.md": "x\n"})                      # 1
         self.push({"catalog.yml": catalog_yml(2, "2.0.0")})           # 2: lab 2
-        self.push({"addons/a/README.md": "y\n"})                      # 3
+        self.push({"README.md": "y\n"})                      # 3
         self.push({"catalog.yml": catalog_yml(3, "3.0.0")})           # 4: lab 3
-        self.push({"addons/a/README.md": "z\n"})                      # 5: tip
+        self.push({"README.md": "z\n"})                      # 5: tip
         c = self.commits
         self.assertEqual(self.levels(), [(c[5], 3), (c[3], 2), (c[1], 1)])
 
@@ -861,7 +909,7 @@ class History(Case):
 
     def test_the_levels_feed_the_pick(self):
         self.push({"catalog.yml": catalog_yml(2, "2.0.0")})
-        self.push({"addons/a/README.md": "x\n"})
+        self.push({"README.md": "x\n"})
         c = self.commits
         found = self.levels()
         self.assertEqual(manifest.pick(found, 1, 1), (c[0], "new"))
@@ -871,16 +919,40 @@ class History(Case):
     def test_a_revert_is_one_more_version(self):
         self.push({"catalog.yml": catalog_yml(2, "2.0.0")})           # 1
         self.push({"catalog.yml": catalog_yml(1, "1.0.0")})           # 2: back to the first form
-        self.push({"addons/a/README.md": "x\n"})                      # 3
+        self.push({"README.md": "x\n"})                      # 3
         c = self.commits
         self.assertEqual(self.levels(), [(c[3], 1), (c[1], 2), (c[0], 1)])
         self.assertEqual(manifest.pick(self.levels(), 1, 1), (c[3], "ok"))
 
-    def test_a_file_that_does_not_state_a_level_is_a_level_no_lab_reads(self):
-        self.push({"catalog.yml": "x-gravitee-catalog:\n  schema: 1\n  id: history\n"})
+    def test_a_file_that_does_not_state_a_level_is_read_by_its_files(self):
+        """The form a catalog.yml has now: no `lab`. The version is None, and what decides is what its files use."""
+        self.push({"catalog.yml": "x-gravitee-catalog:\n  id: history\n"})
         c = self.commits
-        self.assertEqual(self.levels(), [(c[1], 0), (c[0], 1)])
-        self.assertEqual(manifest.pick(self.levels(), 1, 1), (c[0], "old"))
+        self.assertEqual(self.levels(), [(c[1], None), (c[0], 1)])
+        self.assertEqual(manifest.pick(self.levels(), 1, 1), (c[1], "ok"))
+        self.assertEqual(manifest.pick(self.levels(), 1, 1, lambda commit: commit != c[1]), (c[0], "new"))
+
+    def test_a_form_without_lab_is_a_version_for_each_change_of_its_units(self):
+        """Without `lab` nothing in catalog.yml changes when a unit starts to use what an older Lab does not read: each commit
+        that changed the units is where the newest version this Lab reads may end."""
+        self.push({"catalog.yml": "x-gravitee-catalog:\n  id: history\n"})          # 1: no lab
+        self.push({"addons/a/compose.yml": "services: {a: {image: busybox}}\n"})    # 2: a unit changes
+        self.push({"README.md": "# History\n"})                                      # 3: nothing of a unit
+        self.push({"playgrounds/p/compose.yml": "services: {}\n"})                   # 4: another unit: the tip
+        c = self.commits
+        self.assertEqual(self.levels(), [(c[4], None), (c[3], None), (c[1], None), (c[0], 1)])
+        newest_read = manifest.pick(self.levels(), 1, 1, lambda commit: commit not in (c[4],))
+        self.assertEqual(newest_read, (c[3], "new"), "the newest commit before the unit this Lab does not read")
+        self.assertEqual(manifest.pick(self.levels(), 1, 1, lambda commit: commit in (c[0], c[1])), (c[1], "new"))
+
+    def test_a_form_that_states_its_lab_is_a_version_for_each_change_of_its_units_too(self):
+        """The `lab` a published catalog keeps for older Labs says nothing of a key its units started to use: the files do."""
+        self.push({"addons/a/compose.yml": "services: {a: {image: busybox}}\n"})
+        self.push({"addons/a/compose.yml": "services: {b: {image: busybox}}\n"})
+        c = self.commits
+        self.assertEqual(self.levels(), [(c[2], 1), (c[1], 1), (c[0], 1)])
+        self.assertEqual(manifest.pick(self.levels(), 1, 1, lambda commit: commit != c[2]), (c[1], "new"))
+        self.assertEqual(manifest.pick(self.levels(), 2, 2, lambda commit: True), (None, "old"), "a hint is read first")
 
     def test_a_form_the_reader_cannot_be_sure_of_is_a_level_it_does_not_invent(self):
         """An anchor, a number spelled another way, a scalar on two lines: the tolerant reader leaves them out and says so
@@ -895,13 +967,14 @@ class History(Case):
                 self.assertEqual(manifest.pick(found, 1, 1), (c[-1], "ok"), "and the strict reading refuses it at Add")
 
     def test_a_catalog_that_does_not_state_its_level_is_not_one_that_cannot_be_read(self):
-        """Missing, or an unusual word, is a level no Lab reads (0); only a form the reader gave up on is None."""
-        for how, text in {"no lab": "x-gravitee-catalog:\n  schema: 1\n  id: history\n",
-                          "a word": "x-gravitee-catalog:\n  schema: 1\n  id: history\n  lab: soon\n",
-                          "not yaml": "plain text\n"}.items():
+        """An unusual word, or a file that is no catalog, is a level no Lab reads (0); a file with no `lab` and a form the
+        reader gave up on are None: the files say."""
+        for how, (text, level) in {"no lab": ("x-gravitee-catalog:\n  schema: 1\n  id: history\n", None),
+                                   "a word": ("x-gravitee-catalog:\n  schema: 1\n  id: history\n  lab: soon\n", 0),
+                                   "not yaml": ("plain text\n", 0)}.items():
             with self.subTest(how=how):
                 self.push({"catalog.yml": text})
-                self.assertEqual(self.levels()[0][1], 0)
+                self.assertEqual(self.levels()[0][1], level)
         self.assertEqual(manifest._lab_of(b""), 0)
         self.assertEqual(manifest._lab_of(None), 0)
         self.assertEqual(manifest._lab_of(catalog_yml(3).encode()), 3)
@@ -925,7 +998,7 @@ class History(Case):
         self.assertIn(self.address.repo or self.address.display, raised.exception.message)
 
     def test_a_tip_the_store_does_not_hold_is_the_damage_a_fetch_repairs(self):
-        self.push({"addons/a/README.md": "x\n"})
+        self.push({"README.md": "x\n"})
         with self.assertRaises(registry.CatalogError) as raised:
             manifest.levels(self.store, "a" * 40)
         self.assertEqual(raised.exception.code, "fsck")
