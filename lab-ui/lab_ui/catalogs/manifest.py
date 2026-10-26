@@ -534,14 +534,15 @@ def with_legacy(text: str, lab: Optional[int]) -> str:
     for key, (at, match) in found.items():
         lines[at] = f"{match.group('head')}{wanted[key]}{match.group('tail')}"
     pad = " " * indent
+    end_of_line = "\r" if lines[start].endswith("\r") else ""   # a file written with CRLF stays so
     if "lab" not in found:
         after = next((at for at in range(end - 1, start, -1) if re.match(rf"{pad}[\"']?version[\"']?[ \t]*:", lines[at])), None)
         place = after + 1 if after is not None else end
         while place > start + 1 and place == end and not lines[place - 1].strip():
             place -= 1   # before the blank lines that end the block
-        lines.insert(place, f"{pad}lab: {lab}   {LEGACY_NOTE}")
+        lines.insert(place, f"{pad}lab: {lab}   {LEGACY_NOTE}{end_of_line}")
     if "schema" not in found:
-        lines.insert(start + 1, f"{pad}schema: {SCHEMA}   {LEGACY_NOTE}")
+        lines.insert(start + 1, f"{pad}schema: {SCHEMA}   {LEGACY_NOTE}{end_of_line}")
     return "\n".join(lines)
 
 
@@ -563,9 +564,23 @@ def _lab_of(data) -> Optional[int]:
 
 
 def _states_lab(data) -> bool:
-    """Whether the block of a catalog.yml has a `lab` line at all, whatever it says: one that is no number is no level."""
+    """Whether the x-gravitee-catalog block of a catalog.yml has a `lab` line of its own, at its first level, whatever it says:
+    one that is no number is no level. A `lab` deeper in the block (under `requires`) or in another block is not the catalog's."""
     text = data.decode("utf-8", "replace") if isinstance(data, bytes) else str(data or "")
-    return bool(re.search(r"^[ \t]+[\"']?lab[\"']?[ \t]*:", text, re.M))
+    inside, indent = False, None
+    for line in text.replace("\r\n", "\n").split("\n"):
+        if not line.strip() or line.lstrip(" \t").startswith("#"):
+            continue
+        if line[0] not in " \t":
+            inside = bool(_BLOCK_LINE.fullmatch(line))
+            indent = None
+            continue
+        if inside:
+            here = len(line) - len(line.lstrip(" \t"))
+            indent = here if indent is None else indent
+            if here == indent and re.match(r"[\"']?lab[\"']?[ \t]*:", line.lstrip(" \t")):
+                return True
+    return False
 
 
 def levels(store: Path, tip: str, limit: int = 50, address: Optional[gitx.Address] = None) -> list:

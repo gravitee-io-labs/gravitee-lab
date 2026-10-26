@@ -907,6 +907,24 @@ class Legacy(Case):
         bare = "".join(line for line in template.splitlines(True) if line.rstrip("\n") not in lines)
         self.assertEqual(manifest.with_legacy(bare, 1), template, "the lines it adds are the template's, in the same places")
 
+    def test_a_file_written_with_crlf_stays_so(self):
+        text = "x-gravitee-catalog:\r\n  id: a\r\n  version: 1.0.0\r\n  license: MIT\r\n"
+        written = manifest.with_legacy(text, 2)
+        self.assertEqual(written, f"x-gravitee-catalog:\r\n  schema: 1   {manifest.LEGACY_NOTE}\r\n  id: a\r\n  version: 1.0.0\r\n"
+                                  f"  lab: 2   {manifest.LEGACY_NOTE}\r\n  license: MIT\r\n")
+        self.assertNotIn("\n", written.replace("\r\n", ""), "no line ends otherwise")
+
+    def test_only_the_blocks_own_lab_is_its_lab(self):
+        for text, states in (("x-gravitee-catalog:\n  id: a\n  lab: 2\n", True),
+                             ("x-gravitee-catalog:\n  id: a\n  lab: soon\n", True),
+                             ("x-gravitee-catalog:\n  id: a\n  requires:\n    lab: 2\n", False),
+                             ("x-other:\n  lab: 2\nx-gravitee-catalog:\n  id: a\n", False),
+                             ("x-gravitee-catalog:\r\n  id: a\r\n  lab: 1\r\n", True)):
+            with self.subTest(text=text):
+                self.assertEqual(manifest._states_lab(text.encode()), states)
+        self.assertIsNone(manifest._lab_of(b"x-gravitee-catalog:\n  id: history\n  requires:\n    lab: 2\n"),
+                          "a catalog.yml whose block has no lab of its own is read by its files")
+
     def test_a_line_that_is_there_keeps_its_place_and_its_comment(self):
         text = "x-gravitee-catalog:\n  schema: 1   # mine\n  id: a\n  version: 1.0.0\n  lab: 1\n  license: MIT\n"
         self.assertEqual(manifest.with_legacy(text, 3), text.replace("lab: 1", "lab: 3"))
