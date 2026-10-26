@@ -3,7 +3,8 @@
     python3 -I .github/scripts/next_version.py LAST [LABEL ...]    # LAST is the newest tag vX.Y.Z on main, empty before the first
 
 The label `major` raises the major number (an update that needs a person to do something by hand), `minor` the minor number (a
-new feature), and anything else the patch number: every merge is a version. The highest label of all the pull requests wins, as
+new feature), and anything else the patch number: every merge is a version. `catalog-format` marks something catalogs can use from
+this version on (docs/contract.md), which is a new feature: it raises the minor number at least. The highest label of all the pull requests wins, as
 when two merges land while the release of the first is still running. With no version before it, the first is v1.0.0. Prints the
 tag of the new version."""
 
@@ -24,7 +25,7 @@ def next_version(last, labels):
     major, minor, patch = (int(number) for number in found.groups())
     if "major" in labels:
         return f"v{major + 1}.0.0"
-    if "minor" in labels:
+    if "minor" in labels or "catalog-format" in labels:
         return f"v{major}.{minor + 1}.0"
     return f"v{major}.{minor}.{patch + 1}"
 

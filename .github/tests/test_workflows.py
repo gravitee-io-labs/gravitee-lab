@@ -692,6 +692,32 @@ class CiResultTest(ShellTest):
                 self.assertEqual(self.execute(text, {"RESULTS": results}).returncode, wanted)
 
 
+class ReleaseNotesTest(unittest.TestCase):
+    """.github/release.yml: the changelog GitHub writes for a release, one section for each label. "For catalogs" is the compatibility
+    matrix of the Lab: what a catalog may use from that version on."""
+
+    def categories(self):
+        text = (ROOT / ".github" / "release.yml").read_text(encoding="utf-8")
+        found = re.findall(r"^    - title: (.+)\n      labels: \[(.+)\]$", text, flags=re.M)
+        return [(title, [label.strip().strip('"') for label in labels.split(",")]) for title, labels in found]
+
+    def test_what_catalogs_can_use_is_a_section_of_its_own_before_the_new_features(self):
+        self.assertEqual(self.categories(), [("Changes that need you to do something", ["major"]),
+                                             ("For catalogs", ["catalog-format"]), ("New", ["minor"]),
+                                             ("Fixes and improvements", ["*"])],
+                         "GitHub puts a pull request in the first section whose label it has: a feature catalogs can use is "
+                         "said under For catalogs, a change that needs a person to act stays first")
+
+    def test_every_label_that_raises_a_number_has_its_section_and_is_documented(self):
+        labeled = {label for _, labels in self.categories() for label in labels} - {"*"}
+        self.assertEqual(labeled, {"major", "minor", "catalog-format"})
+        source = (ROOT / ".github" / "scripts" / "next_version.py").read_text(encoding="utf-8")
+        maintaining = (ROOT / "docs" / "maintaining.md").read_text(encoding="utf-8")
+        for label in labeled:
+            self.assertIn(f'"{label}" in labels', source, label)
+            self.assertIn(f"| `{label}` |", maintaining, label)
+
+
 class ReleaseTest(unittest.TestCase):
     """release.yml: every merge to main is a version. The deploy key that may create tags is the one thing it must keep in one step."""
 
