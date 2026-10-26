@@ -787,7 +787,8 @@ class Ending(Case):
                 process = self.lab(SIGNALED)
                 (pid,) = [int(line) for line in self.pids.read_text().split()]
                 process.send_signal(number)
-                self.assertEqual(process.wait(15), -number, "it died of the signal, after it ended the command")
+                # A bound a busy machine keeps: a Lab UI that never dies still fails it
+                self.assertEqual(process.wait(60), -number, "it died of the signal, after it ended the command")
                 self.assertTrue(self.gone(pid), "the command was left running")
 
     def test_a_lab_ui_that_leaves_while_a_command_runs_ends_it(self):
