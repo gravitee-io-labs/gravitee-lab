@@ -145,11 +145,14 @@ def _anchor(source, root: str, lab: str) -> Optional[str]:
     return "/".join(parts[:2]) if parts[0] == "plugins" and len(parts) > 1 else parts[0]
 
 
-def items(config: dict, folder=None, kind: str = "", root: Optional[Path] = None) -> Set[Item]:
+def items(config: dict, folder=None, kind: str = "", root: Optional[Path] = None, partial: bool = False) -> Set[Item]:
     """The items of the contract that a unit uses, from its compose file as `compose.raw` reads it (what it includes merged in):
     the keys of its x-gravitee block and of its `requires`, its category, the `io.gravitee` labels of its services, the networks
     and the core services it names and does not define, the places of the engine it builds or mounts, and, for a playground,
-    the folders and files of its seed (`folder` is the playground's) and the settings of its seed service."""
+    the folders and files of its seed (`folder` is the playground's) and the settings of its seed service. `partial`: the file
+    was read without some of what it includes (a catalog it needs that is not here, an include left out), so a service or a
+    network it names and does not define may well be one of those: they are not taken for the core's, and the unit says it
+    needs that catalog instead."""
     config = _mapping(config)
     meta = _mapping(config.get("x-gravitee"))
     found = {("unit.key", f"x-gravitee.{key}") for key in meta}
@@ -163,10 +166,10 @@ def items(config: dict, folder=None, kind: str = "", root: Optional[Path] = None
     named = [name for name in [*_names(meta.get("consoles")), meta.get("terminal")] if isinstance(name, str)]
     for name, service in services.items():
         service = _mapping(service)
-        if not service.get("image") and not service.get("build"):   # it adds to a service it does not define: the core's
+        if not service.get("image") and not service.get("build") and not partial:   # it adds to a service it does not define
             found.add(("core.service", str(name)))
         named += _names(service.get("depends_on"))
-        found |= {("core.network", net) for net in _names(service.get("networks")) if net not in declared}
+        found |= {("core.network", net) for net in _names(service.get("networks")) if net not in declared and not partial}
         labels = _mapping(service.get("labels"))
         found |= {("label", label_of(str(key))) for key in labels if str(key).startswith("io.gravitee.")}
         build = service.get("build")
@@ -176,7 +179,7 @@ def items(config: dict, folder=None, kind: str = "", root: Optional[Path] = None
         found |= {("anchor", place) for place in (_anchor(source, project_root, lab) for source in sources) if place}
         if labels.get("io.gravitee.role") == "seed":
             found |= {("seed.setting", str(key)) for key in _mapping(service.get("environment"))}
-    found |= {("core.service", name) for name in named if name not in services}
+    found |= {("core.service", name) for name in named if name not in services and not partial}
     if kind == "playground" and folder is not None:
         found |= seed_names(folder)
     return found
@@ -218,7 +221,8 @@ def named(found: Iterable[Item]) -> str:
     return shown + (f" and {len(said) - SHOWN} more" if len(said) > SHOWN else "")
 
 
-def of_unit(config: dict, folder=None, kind: str = "", held: Optional[Lock] = None, root: Optional[Path] = None) -> List[Item]:
+def of_unit(config: dict, folder=None, kind: str = "", held: Optional[Lock] = None, root: Optional[Path] = None,
+            partial: bool = False) -> List[Item]:
     """What a unit uses that this Lab does not read (`items`, then `unknown` against the lock of this Lab)."""
     held = lock(root) if held is None else held
-    return unknown(items(config, folder, kind, root), held) if held is not None else []
+    return unknown(items(config, folder, kind, root, partial), held) if held is not None else []

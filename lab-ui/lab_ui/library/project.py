@@ -1468,7 +1468,8 @@ def _unknown(kind, uid, file, raw, row, inputs, held):
     folder = (inputs.get("seed_folders") or {}).get(file)
     if folder is None and kind == "playground":
         folder = ROOT / paths.unit_folder(kind, uid)
-    return [understood.name(item) for item in understood.of_unit(raw[file], folder, kind, held, ROOT)] if held else []
+    partial = bool(((inputs.get("reach") or {}).get(file) or {}).get("missing"))   # read without what it includes from elsewhere
+    return [understood.name(item) for item in understood.of_unit(raw[file], folder, kind, held, ROOT, partial)] if held else []
 
 
 def _sound(name=""):
@@ -1560,8 +1561,9 @@ def _judge_units(inputs, raw, core, addons, setups, playgrounds):
         asked = (meta.get("requires") or {}).get("lab")
         wanted = asked if isinstance(asked, int) and not isinstance(asked, bool) else row.get("lab")
         unit["compat"] = _compat(wanted, level, floor)
+        # A catalog it needs and does not have is what it says first: what that catalog brings cannot be judged without it
         unit["unknown"] = _unknown(kind, uid, file, raw, row, inputs, held) \
-            if tier in JUDGED and file not in screened and file not in unreadable else []
+            if tier in JUDGED and file not in screened and file not in unreadable and not unit["needs_catalogs"] else []
         if unit["unknown"]:
             unit["compat"] = "new"
         config = configs.get(file)
@@ -2009,7 +2011,7 @@ def staged_unknown(ns) -> list:
             return []
         config, _ = _raw(file, skip=reach["missing"], timeout=UNIT_TIMEOUT)
         folder = ROOT / paths.CATALOGS_DIR / f".stage-{ns}" / "playgrounds" / name if kind == "playground" else None
-        return understood.of_unit(config, folder, kind, held, ROOT) if isinstance(config, dict) else []
+        return understood.of_unit(config, folder, kind, held, ROOT, bool(reach["missing"])) if isinstance(config, dict) else []
     with ThreadPoolExecutor(max_workers=8) as pool:
         return sorted({item for found in pool.map(read, units) for item in found})
 

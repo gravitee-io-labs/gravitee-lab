@@ -1195,6 +1195,52 @@ class Understanding(Real):
         service.update("partner", ticket=plan["ticket"])
         self.assertEqual(registry.lock_of("partner")["pin"], readable)
 
+    def othercat(self):
+        """A folder catalog of the person's, `othercat`, with an add-on whose service another catalog's units wait for."""
+        folder = self.home / "othercat"
+        files = {"catalog.yml": "x-gravitee-catalog:\n  id: othercat\n  name: Other catalog\n  description: A tool\n"
+                                "  version: 1.0.0\n",
+                 "addons/tool/compose.yml": "x-gravitee: {kind: addon, name: Tool, category: Other, description: A tool}\n"
+                                            "services:\n  othercat-tool:\n    image: busybox:1.36\n    labels:\n"
+                                            "      io.gravitee.name: Tool\n      io.gravitee.description: A tool\n"
+                                            "    networks: [internal]\n"}
+        for path, text in files.items():
+            (folder / path).parent.mkdir(parents=True, exist_ok=True)
+            (folder / path).write_text(text, encoding="utf-8")
+        return folder
+
+    def televen(self):
+        """The partner catalog as `televen` publishes it: its ledger includes the tool of `othercat`, waits for it, sets a
+        setting on it and shows it as a console, and catalog.yml declares it needs that catalog."""
+        meta = (self.catalog_yml(legacy=False) + "  requires:\n    catalogs:\n      othercat: {name: Other catalog, url: "
+                "\"https://example.invalid/othercat.git\", min: 1.0.0}\n")
+        ledger = ("x-gravitee: {kind: addon, name: Ledger, category: Other, description: Keeps the entries of a partner, "
+                  "consoles: [othercat-tool]}\ninclude:\n  - ../../../othercat/addons/tool/compose.yml\nservices:\n"
+                  "  partner-ledger:\n    image: busybox:1.36\n    depends_on: [othercat-tool]\n    labels:\n"
+                  "      io.gravitee.name: Ledger\n      io.gravitee.description: Keeps the entries\n    networks: [internal]\n"
+                  "  othercat-tool:\n    environment: {PARTNER_LEDGER_CURRENCY: EUR}\n")
+        return fixtures.remote(self, "partner", files={"catalog.yml": meta, LEDGER: ledger})
+
+    def test_a_catalog_that_needs_another_says_it_needs_it_and_never_that_it_needs_a_newer_lab(self):
+        """What a unit waits for, sets or shows of a catalog that is not here is no core service this Lab lacks: the Add says the
+        catalog it needs, as before, and once added and the other removed, it is that catalog the unit lacks."""
+        remote = self.televen()
+        shown = service.check_address(remote.url)
+        self.assertNotIn("newer", shown)
+        self.assertEqual([one["id"] for one in shown["rows"]["needs"]], ["othercat"])
+        self.assertFalse(any("newer" in reason for one in shown["blocked"] for reason in one["reasons"]), shown["blocked"])
+        service.forget(shown["ticket"])
+        service.add(service.check_address(str(self.othercat()))["ticket"])
+        service.add(service.check_address(remote.url)["ticket"])
+        unit = project.loaded()[0]["addons"]["@partner/ledger"]
+        self.assertEqual((unit["compat"], unit["unknown"], unit["needs_catalogs"]), ("ok", [], []))
+        self.assertNotIn("Needs a newer Gravitee Lab", " ".join((unit["blocked"] or {}).get("reasons") or ()))
+        service.remove("othercat")
+        project.forget()
+        unit = project.loaded()[0]["addons"]["@partner/ledger"]
+        self.assertEqual([one["id"] for one in unit["needs_catalogs"]], ["othercat"])
+        self.assertEqual((unit["compat"], unit["unknown"]), ("ok", []), "the catalog it needs is said first")
+
     def test_an_update_offers_the_newest_version_this_lab_reads_and_says_the_tip_needs_a_newer_lab(self):
         for legacy in (True, False):
             with self.subTest(legacy=legacy):

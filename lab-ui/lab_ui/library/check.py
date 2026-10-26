@@ -1252,13 +1252,13 @@ def _used(units, raw, inputs, rows):
     return {item: rows[item] for item in found if item in rows}
 
 
-def _not_understood(kind, uid, config):
+def _not_understood(kind, uid, config, partial=False):
     """What a unit uses that this Lab does not read, each said where the other rules do not say it already: the keys of
     x-gravitee (`_metadata`), a playground's keys of `requires` (`_requires`) and the category (`_metadata`) have their own
     lines. A published catalog that holds one is not used by this Lab and is shown as needing a newer Gravitee Lab, so the
     author is told before anyone installs it."""
     folder = ROOT / paths.unit_folder(kind, uid) if kind == "playground" else None
-    for item in understood.of_unit(config or {}, folder, kind, root=ROOT):
+    for item in understood.of_unit(config or {}, folder, kind, root=ROOT, partial=partial):
         what, name = item
         if what == "core.category" or what == "unit.key" and (name.count(".") == 1 or kind == "playground"):
             continue
@@ -1491,7 +1491,8 @@ def catalog_problems(ns, project=None, inputs=None, audited=False):
         if file not in stubs:
             try:
                 here += list(_unit(kind, uid, project, raw, True, context))
-                here += list(_not_understood(kind, uid, raw.get(file)))
+                here += list(_not_understood(kind, uid, raw.get(file),
+                                             bool(((inputs.get("reach") or {}).get(file) or {}).get("missing"))))
             except RecursionError:   # a file nested deeper than anyone writes one: it is said, not left to stop the check
                 here.append("is nested too deep to be checked")
             if kind != "setup":
