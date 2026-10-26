@@ -716,6 +716,8 @@ class ReleaseTest(unittest.TestCase):
         holders = [step for step in steps(self.body) if "secrets." in step]
         self.assertEqual(len(holders), 1)
         self.assertIn("name: Tag the version", holders[0])
+        self.assertIn("if: ${{ steps.version.outputs.tag && !steps.version.outputs.tagged }}", holders[0],
+                      "a version tagged already is never pushed again")
         self.assertEqual(re.findall(r"secrets\.(\w+)", self.text), ["RELEASE_DEPLOY_KEY"])
         self.assertNotIn("uses:", holders[0], "no action of anyone else sees the key")
         self.assertIn("StrictHostKeyChecking=yes", holders[0])
@@ -751,11 +753,37 @@ class ReleaseTest(unittest.TestCase):
         git("commit", "-q", "--allow-empty", "-m", "one")
         self.assertEqual(run("major"), "tag=v1.0.0", "the first version is 1.0.0")
         git("tag", "-a", "v1.0.0", "-m", "1.0.0")
-        self.assertEqual(run(), "", "nothing merged since the last version publishes nothing")
+        self.assertEqual(run(), "tag=v1.0.0\ntagged=true", "run again once its tag is pushed: no new tag, the release that may be missing")
         git("commit", "-q", "--allow-empty", "-m", "two")
         self.assertEqual(run(), "tag=v1.0.1")
         self.assertEqual(run("dependencies minor"), "tag=v1.1.0")
         self.assertEqual(run("major"), "tag=v2.0.0")
+        git("tag", "v1.1.0-rc1")
+        self.assertEqual(run(), "tag=v1.0.1", "a tag of another form is no version, and stops nothing")
+        # The run of an older merge, run again once a newer one made its version: that version holds it, nothing is made
+        one = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD~1"], capture_output=True, text=True, env=env).stdout.strip()
+        git("tag", "-a", "v1.0.1", "-m", "1.0.1")
+        git("checkout", "-q", one)
+        git("tag", "-d", "v1.0.0")
+        self.assertEqual(run("major"), "", "v1.0.1 holds the older merge: no v1.0.0 and no v2.0.0 for it")
+
+    def test_a_release_that_exists_is_not_made_again(self):
+        shell = script(step_with(self.body, "name: Publish the release"))
+        top = Path(tempfile.mkdtemp(prefix="release-"))
+        self.addCleanup(shutil.rmtree, top, True)
+        (top / "bin").mkdir()
+        calls = top / "calls"
+        (top / "bin" / "gh").write_text(f'#!/bin/sh\necho "$*" >> {calls}\n[ "$1 $2" != "release view" ] || exit "$VIEW"\n',
+                                        encoding="utf-8")
+        (top / "bin" / "gh").chmod(0o755)
+        for view, made in (("0", False), ("1", True)):
+            with self.subTest(exists=view == "0"):
+                calls.write_text("", encoding="utf-8")
+                done = subprocess.run([BASH, "-eo", "pipefail", "-c", shell], capture_output=True, text=True,
+                                      env={**os.environ, "PATH": f"{top / 'bin'}{os.pathsep}{os.environ['PATH']}", "VIEW": view,
+                                           "TAG": "v1.2.3", "GITHUB_REPOSITORY": "o/r"})
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertEqual(any(line.startswith("release create v1.2.3") for line in calls.read_text().splitlines()), made)
 
 
 class ReaderTest(unittest.TestCase):

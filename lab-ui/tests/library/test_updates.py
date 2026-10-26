@@ -146,6 +146,7 @@ class Versions(Case):
         self.at("v1.0.0")
         started = []
         self.patch(updates, "restart", lambda: started.append(True))
+        self.patch(updates, "_loads", lambda: None)   # the new code starts: this repository holds no Lab UI to load
         self.patch(jobs, "JOBS", jobs.Jobs())
         job = updates.update("1.1.0")
         for _ in range(100):
@@ -160,6 +161,62 @@ class Versions(Case):
             self.assertTrue(any(line.startswith("make init failed") for line in job.lines), job.lines)
         time.sleep(1.8)   # the new start comes once the job said it is over
         self.assertEqual(started, [True])
+
+    def finished(self, job):
+        for _ in range(100):
+            if job.done:
+                return job
+            time.sleep(0.05)
+        self.fail("the job did not end")
+
+    def test_a_version_that_cannot_start_here_leaves_the_lab_as_it_was(self):
+        self.at("v1.0.0")
+        before = git(self.lab, "rev-parse", "HEAD")
+        started = []
+        self.patch(updates, "restart", lambda: started.append(True))
+        self.patch(updates, "_loads", lambda: "SyntaxError: invalid syntax")
+        self.patch(jobs, "JOBS", jobs.Jobs())
+        job = self.finished(updates.update("1.1.0"))
+        self.assertFalse(job.ok)
+        self.assertIn("Gravitee Lab 1.1.0 does not start on this machine: SyntaxError: invalid syntax. This Lab stays as it was",
+                      job.lines[-1])
+        self.assertEqual((git(self.lab, "rev-parse", "HEAD"), git(self.lab, "branch", "--show-current")), (before, "main"))
+        time.sleep(1.8)
+        self.assertEqual(started, [], "the Lab UI that runs is not replaced")
+
+    def test_the_new_code_is_loaded_by_its_own_server_before_the_lab_ui_starts_on_it(self):
+        server = self.lab / "lab-ui" / "server.py"
+        server.parent.mkdir(parents=True)
+        server.write_text("import sys\nsys.exit(0 if sys.argv[1:] == ['--help'] else 3)\n", encoding="utf-8")
+        self.assertIsNone(updates._loads())
+        server.write_text("def broken(:\n", encoding="utf-8")
+        self.assertIn("SyntaxError", updates._loads())
+
+    def test_a_file_git_does_not_track_where_the_new_version_adds_one_is_said_first(self):
+        self.at("v1.0.0")
+        self.commit(self.source, "A new file (#19)")
+        (self.source / "new.txt").write_text("theirs\n", encoding="utf-8")
+        git(self.source, "add", "new.txt")
+        git(self.source, "commit", "-q", "-m", "Adds new.txt (#20)")
+        git(self.source, "tag", "-a", "v1.2.0", "-m", "1.2.0")
+        git(self.source, "push", "-q", str(self.remote), "HEAD:refs/heads/main", "--tags")
+        (self.lab / "new.txt").write_text("mine\n", encoding="utf-8")
+        lab = updates.check()
+        self.assertEqual(lab["latest"], "1.2.0")
+        self.assertEqual(lab["blocked"], "Files of this Lab that Git does not track are where the new version adds its own: new.txt. Move them to update")
+
+    def test_a_tag_of_another_form_hides_no_version_and_a_moved_tag_fails_no_check(self):
+        self.at("v1.1.0")
+        git(self.lab, "tag", "v1.2.0-rc1")
+        updates.forget()
+        self.assertEqual(updates.describe()["version"], "1.1.0", "v1.2.0-rc1 is no version: the Lab is still 1.1.0")
+        self.assertIsNone(updates.check()["error"])
+        # The origin moves v1.1.0 (it should not happen): the check takes the tag as the origin says, and goes on working
+        self.commit(self.source, "After 1.1.0 (#21)")
+        git(self.source, "tag", "-f", "-a", "v1.1.0", "-m", "1.1.0 again")
+        git(self.source, "push", "-q", "-f", str(self.remote), "HEAD:refs/heads/main", "refs/tags/v1.1.0")
+        self.assertIsNone(updates.check()["error"])
+        self.assertEqual(git(self.lab, "rev-parse", "v1.1.0^{commit}"), git(self.source, "rev-parse", "HEAD"))
 
     def test_an_update_to_no_newer_version_is_refused_in_words(self):
         self.at("v1.1.0")
