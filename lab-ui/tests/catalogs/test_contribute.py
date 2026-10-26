@@ -807,7 +807,7 @@ class Judged(Seam):
                                                         'category: Other, description: d}\nservices: {}\n')
         with self.assertRaises(CatalogError) as raised:   # a copy of what this machine does not have is private all the same
             self.share("local/gone-ledger", "fixture", check_only=True)
-        self.assertEqual(raised.exception.code, "share_private_copy")
+        self.assertEqual(raised.exception.code, "share_unknown_copy")
 
     def test_an_image_prefix_and_an_address_of_a_private_catalog_are_names_too(self):
         self.yml["partner"] = {"images": "registry.example.invalid/partner/lab"}

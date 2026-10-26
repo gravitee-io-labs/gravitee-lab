@@ -771,8 +771,27 @@ def ls_remote(address: Address, branch: Optional[str] = None, anonymous: bool = 
         raise fail("no_access", address)
     if not anonymous:
         return _ls_remote(address, branch, timeout, [], {})
+    network = network_options()   # read with the person's home, before it is left behind
     with tempfile.TemporaryDirectory(prefix="gravitee-lab-stranger-") as empty:
-        return _ls_remote(address, branch, timeout, STRANGER, {"HOME": empty, "XDG_CONFIG_HOME": empty})
+        return _ls_remote(address, branch, timeout, [*STRANGER, *network], {"HOME": empty, "XDG_CONFIG_HOME": empty})
+
+
+# The settings of the person's Git that only say how to reach a host (a proxy, the certificates to trust), which a stranger's
+# question takes along: never a credential helper, an askpass, a header, a cookie file or anything else of theirs
+NETWORK = re.compile(r"https?\.proxy|http\.sslcainfo|http\.sslcapath|https?\..+\.proxy")
+
+
+def network_options() -> List[str]:
+    """`-c key=value` options of the person's Git settings that NETWORK names, as their own configuration says them."""
+    result = run(["config", "--null", "--get-regexp", r"^(https?\.|http\..*\.)"], timeout=10)
+    if result.code != 0:
+        return []
+    options = []
+    for record in result.out.decode("utf-8", "replace").split("\0"):
+        key, _, value = record.partition("\n")
+        if NETWORK.fullmatch(key.lower()) and value and "\n" not in value:
+            options += ["-c", f"{key}={value}"]
+    return options
 
 
 def _ls_remote(address, branch, timeout, options, env):

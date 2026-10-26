@@ -1292,10 +1292,37 @@ class Remote(Case):
         self.patch(gitx, "run", watch)
         gitx.ls_remote(self.address, anonymous=True)
         gitx.ls_remote(self.address)
+        seen = [args for args in seen if "ls-remote" in args]
         self.assertEqual(seen[0][:4], ["-c", "credential.helper=", "-c", "http.extraHeader="])
         self.assertNotIn("credential.helper=", seen[1])
-        self.assertEqual(seen[0][4:6], ["ls-remote", "--symref"])
-        self.assertEqual(seen[0][6:8], ["--", self.address.url])
+        self.assertEqual(seen[0][seen[0].index("ls-remote"):seen[0].index("ls-remote") + 2], ["ls-remote", "--symref"])
+        self.assertIn(self.address.url, seen[0])
+
+    def test_an_anonymous_question_takes_the_persons_proxy_and_certificates_and_nothing_else(self):
+        home = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, home, True)
+        (home / ".gitconfig").write_text("[http]\n\tproxy = http://proxy.example.test:3128\n\tsslCAInfo = /etc/company-ca.pem\n"
+                                         "\textraHeader = Authorization: Bearer secret\n\tcookieFile = /tmp/cookies\n"
+                                         "[http \"https://github.com\"]\n\tproxy = http://other.example.test:8080\n"
+                                         "[credential]\n\thelper = store\n[core]\n\taskPass = /bin/echo\n")
+        self.patch(gitx.os, "environ", {**os.environ, "HOME": str(home), "XDG_CONFIG_HOME": str(home / ".config")})
+        options = gitx.network_options()
+        said = {key.lower(): value for key, value in (option.split("=", 1) for option in options[1::2])}
+        self.assertEqual(said, {"http.proxy": "http://proxy.example.test:3128", "http.sslcainfo": "/etc/company-ca.pem",
+                                "http.https://github.com.proxy": "http://other.example.test:8080"})
+        self.assertNotIn("secret", " ".join(options))
+        self.assertFalse([one for one in options if "credential" in one.lower() or "askpass" in one.lower() or "cookie" in one.lower()])
+        seen = []
+        real = gitx.run
+
+        def watch(args, **how):
+            seen.append(list(args))
+            return real(args, **how)
+        self.patch(gitx, "run", watch)
+        gitx.ls_remote(self.address, anonymous=True)
+        asked = next(args for args in seen if "ls-remote" in args)
+        self.assertEqual(asked[:4], ["-c", "credential.helper=", "-c", "http.extraHeader="], "a stranger still")
+        self.assertIn("http.proxy=http://proxy.example.test:3128", asked)
 
     def test_an_ssh_address_cannot_be_asked_anonymously_and_runs_nothing(self):
         with mock.patch.object(gitx, "run", side_effect=AssertionError("ran")):
@@ -1431,7 +1458,8 @@ class Stranger(Case):
         real = gitx.run
 
         def watch(args, **how):
-            seen.append(how["env"])
+            if "ls-remote" in args:   # the question, not the reading of the person's network settings before it
+                seen.append(how["env"])
             return real(args, **how)
         self.patch(gitx, "run", watch)
         self.asked(anonymous=True)

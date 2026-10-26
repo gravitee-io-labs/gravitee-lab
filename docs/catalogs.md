@@ -165,11 +165,14 @@ copy, with your settings kept. A catalog's item that includes the original canno
 copy. The copy takes the original's settings and secrets, not what its seed recorded, nor a link of its folder. A copy of an
 item of a private catalog is that catalog's content: the copy says which private catalogs it comes from (`private_from`), and so do
 the share, the move, the export and the import that follow, whatever comes later at the id it was copied from. Only a share back
-into one of those catalogs takes that one off the list. Before it shares private content to a catalog of Git, the Lab asks its
-repository by its https address, as a stranger would: when it answers, or cannot be asked (an ssh address it cannot turn into an
-https one), the share is refused; add that catalog by its https address. Private means a stranger cannot read it: a repository
-an organization opens to all its members counts as private, so everyone in that organization can read what is shared there. It
-is not shared to
+into one of those catalogs, the catalog of Git itself found private, takes that one off the list: a share into a working copy
+linked in its place keeps the label. A copy made by an older Lab of an item of the default catalog, which is Public, holds no
+private content; one whose catalog the Lab cannot tell any more counts as private content of unknown origin: copy it again from its
+catalog, then share the new copy. Before it shares private content to a catalog of Git, the Lab asks its repository by its https
+address, as a stranger would, and refuses the share in three cases: when the repository answers, make sure it is private; when it
+cannot be asked (an ssh address it cannot turn into an https one), add that catalog by its https address; when no answer comes,
+check the network. Private means a stranger cannot read it: a repository an organization opens to all its members counts as
+private, so everyone in that organization can read what is shared there. It is not shared to
 a Public catalog, and an export, for the Lab or for Docker Compose, says it under **Private** and is made only with each such item
 shown. What the Lab writes in a file, a label or whose copy it is taken out, is checked as Compose reads the file in its folder:
 what it cannot write or take out (an x-gravitee in a form the Lab cannot change, or in a second YAML document) stops the export,

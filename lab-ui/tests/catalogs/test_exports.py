@@ -491,7 +491,7 @@ class FromCatalogs(Case):
         ledger.write_text('x-gravitee: {copy_of: "@partner/ledger", kind: addon, name: Ledger}\nservices: {}\n', encoding="utf-8")
         origins = lambda said: contribute.origins("x-gravitee: {" + said + ", kind: addon, name: L}\n", "local/l")   # noqa: E731
         self.assertEqual(origins('copy_of: "@lab-new/ledger"'), [(root("lab-new"), "Newer Lab fixture")], "never what that item says")
-        self.assertEqual(origins('copy_of: "echo"'), [("", contribute.UNKNOWN)], "an older copy of a public item: the id may name another")
+        self.assertEqual(origins('copy_of: "echo"'), [], "an older copy of the default catalog's item: Public")
         self.assertEqual(origins('copy_of: "@gone/ledger"'), [("", contribute.UNKNOWN)], "what this machine does not have")
         self.assertEqual(origins('copy_of: "../../x"'), [("", contribute.UNKNOWN)])
 

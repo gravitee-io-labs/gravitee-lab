@@ -69,6 +69,9 @@ LINES = {
     "share_secret": (400, "{file} holds what looks like a secret. Remove it and share again."),
     "share_private": (400, "{file} names {private}, which is private. Remove it and share again."),
     "share_private_copy": (400, "{name} is a copy of an item of {private}, which is private. Fix: share it to a private catalog."),
+    "share_unknown_copy": (400, "{name} is a copy of an item of unknown origin, which is private. Fix: copy it again from its catalog, "
+                                "then share the new copy."),
+    "share_item_changed": (409, "{name} changed while it was shared. Fix: share again."),
     "no_identity": (400, "Set your name and email in Git, then share again."),
     "push_rejected": (502, "{host} refused the branch. Check that you can push, then share again."),
     "share_maybe_public": (409, "{catalog} may be public: the Lab cannot share private content there. Fix: {fix}"),
@@ -1089,7 +1092,7 @@ def unmark(text):
     return block.drop(text, "copy_of", override=True)
 
 
-UNKNOWN = "an item of unknown origin"   # the origin of a copy of what this machine does not have: private content all the same
+UNKNOWN = "unknown origin"   # the origin of a copy whose original the Lab cannot tell: private content all the same
 
 
 def _private_git(ns):
@@ -1137,7 +1140,8 @@ def origins(text, uid, folder=None, name=None):
     found = [(ids[n] if n < len(ids) else "", one[:NAME_LIMIT]) for n, one in enumerate(names)]
     with contextlib.suppress(paths.NotFound, ValueError):
         found += [origin for origin in [_origin_of(paths.origin(uid))] if origin]
-    if said.get("copy_of") and not isinstance(said.get("private_from"), list):   # an older copy: no label was written
+    copied = str(said.get("copy_of") or "")
+    if copied and not isinstance(said.get("private_from"), list) and (copied.startswith("@") or "/" in copied):   # an older copy
         try:
             ns = paths.origin(str(said["copy_of"]))
         except (paths.NotFound, ValueError):
@@ -1540,7 +1544,7 @@ def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False)
     # A Public catalog is not asked: what it would refuse it refuses below, naming the item and its origin
     audience, probed = None, None
     if address is not None and row["audience"] != "public" and _holds_private(units, [(kind, uid), *[(k, one) for k, one, _, _ in members]]):
-        audience, probed = _audience_now(address), (address.url, _history(to))
+        audience, probed = _audience_now(address), (dict(entry), _history(to))
         if audience != "private":
             raise _maybe_public(row, audience)
     with registry.flock():
@@ -1552,17 +1556,20 @@ def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False)
         found = {key: [("", UNKNOWN)] if said is None and row["audience"] != "public" else said or [] for key, said in found.items()}
         # What was asked out of the lock holds for what is shared now, to the catalog it was asked of; else nothing goes
         if address is not None and any(found.values()) and row["audience"] != "public":
-            if audience is None:   # private content where there was none when it was asked: it changed meanwhile
-                raise _refusal("share_changed", catalog=row["name"])
+            if audience is None:   # private content where there was none when it was asked: the item changed meanwhile
+                changed = next((k, one) for k, one, s, _ in [(kind, uid, slug, copy), *along] if found[(k, s)])
+                raise _refusal("share_item_changed", name=named(*changed))
             if audience != "private":
                 raise _maybe_public(row, audience)
-            now = registry.entry(to)
-            if now is None or (_address(now, registry.lock_of(to))[0].url, _history(to)) != probed:
+            if (registry.entry(to), _history(to)) != probed:   # removed, added again, linked: another catalog than the one asked
                 raise _refusal("share_changed", catalog=row["name"])
         confirmed = audience == "private"
         for k, one, s, _ in [(kind, uid, slug, copy), *along] if row["audience"] == "public" else ():
             if found[(k, s)]:   # None, a file Compose cannot read, is a problem said with the others
-                raise _refusal("share_private_copy", name=named(k, one), private=found[(k, s)][0][1])
+                known = [called for one_id, called in found[(k, s)] if called != UNKNOWN or one_id]
+                if not known:   # an older copy whose original cannot be told: a new copy says its origins
+                    raise _refusal("share_unknown_copy", name=named(k, one))
+                raise _refusal("share_private_copy", name=named(k, one), private=known[0])
         copy = _unmarked_or_said(copy, kind, slug, without(found[(kind, slug)], to, confirmed), name)
         along = [(k, one, s, _unmarked_or_said(other, k, s, without(found[(k, s)], to, confirmed), named(k, one)))
                  for k, one, s, other in along]
