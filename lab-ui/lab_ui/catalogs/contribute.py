@@ -71,8 +71,8 @@ LINES = {
     "share_private_copy": (400, "{name} is a copy of an item of {private}, which is private. Fix: share it to a private catalog."),
     "no_identity": (400, "Set your name and email in Git, then share again."),
     "push_rejected": (502, "{host} refused the branch. Check that you can push, then share again."),
-    "share_maybe_public": (409, "{catalog} may be public: the Lab cannot share private content there. Fix: make sure its repository is "
-                               "private, then add it by its https address (the Lab asks that address anonymously), and share again."),
+    "share_maybe_public": (409, "{catalog} may be public: the Lab cannot share private content there. Fix: {fix}"),
+    "share_changed": (409, "{catalog} changed while it was shared. Fix: share again."),
     "share_level": (409, "A private label needs `lab: {level}` in the catalog.yml of {catalog}, and the Lab cannot write it there. "
                          "Fix: write its x-gravitee-catalog block as plain key: value lines, then share again."),
 }
@@ -1093,9 +1093,11 @@ UNKNOWN = "an item of unknown origin"   # the origin of a copy of what this mach
 
 
 def _private_git(ns):
-    """Whether `ns` is a catalog of Git of this Lab that is not Public."""
+    """Whether `ns` is a catalog of Git of this Lab that is not Public: one installed from its repository, or a working copy of it
+    linked in its place (a folder entry that `shadows` it), which holds its content and keeps its lock."""
     entry = registry.entry(ns) if ns and ns != LOCAL else None
-    return bool(entry) and entry.get("kind") == "git" and registry.lock_of(ns).get("audience") != "public"
+    git = bool(entry) and (entry.get("kind") == "git" or (entry.get("kind") == "folder" and bool(entry.get("shadows"))))
+    return git and registry.lock_of(ns).get("audience") != "public"
 
 
 def _history(ns):
@@ -1268,12 +1270,12 @@ KNOWN_HOSTS = ("github.com", "gitlab.com", "bitbucket.org")   # hosts whose ssh 
 
 def _audience_now(address):
     """What the repository of a catalog of Git is now, asked as a stranger: "private" when it asks who is asking, "public" when it
-    answers, "unknown" when it cannot be asked (an ssh address of another host) or does not answer. An ssh address of GitHub,
-    GitLab or Bitbucket is asked by its https form."""
+    answers, "unaskable" when it cannot be asked (an ssh address of another host), "unknown" when it does not answer. An ssh address
+    of GitHub, GitLab or Bitbucket is asked by its https form."""
     asked = address
     if gitx.is_ssh(address):
         if address.host not in KNOWN_HOSTS or not address.repo:
-            return "unknown"
+            return "unaskable"
         asked = gitx.parse_address(f"https://{address.host}/{address.repo}.git")
     try:
         gitx.ls_remote(asked, None, anonymous=True)
@@ -1282,6 +1284,15 @@ def _audience_now(address):
     except OSError:
         return "unknown"
     return "public"
+
+
+FIXES = {"public": "make sure its repository is private, then share again.",
+         "unaskable": "add it by its https address (the Lab asks that address anonymously), then share again.",
+         "unknown": "check the network, then share again."}   # what the person does, by what the stranger's question got
+
+
+def _maybe_public(row, audience):
+    return _refusal("share_maybe_public", catalog=row["name"], fix=FIXES.get(audience, FIXES["unknown"]))
 
 
 def _holds_private(units, items):
@@ -1526,11 +1537,12 @@ def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False)
     named = lambda k, one: (units[k].get(one) or {}).get("name") or one.rsplit("/", 1)[-1]   # noqa: E731
     # Private content goes only to a repository asked now, as a stranger, and found private: once, out of the lock, before anything
     # is taken off a label (a Public fork has the history of the private catalog it was forked from)
-    audience = None
-    if address is not None and _holds_private(units, [(kind, uid), *[(k, one) for k, one, _, _ in members]]):
-        audience = _audience_now(address)
+    # A Public catalog is not asked: what it would refuse it refuses below, naming the item and its origin
+    audience, probed = None, None
+    if address is not None and row["audience"] != "public" and _holds_private(units, [(kind, uid), *[(k, one) for k, one, _, _ in members]]):
+        audience, probed = _audience_now(address), (address.url, _history(to))
         if audience != "private":
-            raise _refusal("share_maybe_public", catalog=row["name"])
+            raise _maybe_public(row, audience)
     with registry.flock():
         copy = collect(kind, slug, to, moved=moved)
         along = [(k, one, s, collect(k, s, to, source, moved=moved)) for k, one, s, source in members]
@@ -1538,6 +1550,15 @@ def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False)
         # takes none, so it takes no private content
         found = {(k, s): _origins_or_said(other, k, s, one, named(k, one)) for k, one, s, other in [(kind, uid, slug, copy), *along]}
         found = {key: [("", UNKNOWN)] if said is None and row["audience"] != "public" else said or [] for key, said in found.items()}
+        # What was asked out of the lock holds for what is shared now, to the catalog it was asked of; else nothing goes
+        if address is not None and any(found.values()) and row["audience"] != "public":
+            if audience is None:   # private content where there was none when it was asked: it changed meanwhile
+                raise _refusal("share_changed", catalog=row["name"])
+            if audience != "private":
+                raise _maybe_public(row, audience)
+            now = registry.entry(to)
+            if now is None or (_address(now, registry.lock_of(to))[0].url, _history(to)) != probed:
+                raise _refusal("share_changed", catalog=row["name"])
         confirmed = audience == "private"
         for k, one, s, _ in [(kind, uid, slug, copy), *along] if row["audience"] == "public" else ():
             if found[(k, s)]:   # None, a file Compose cannot read, is a problem said with the others

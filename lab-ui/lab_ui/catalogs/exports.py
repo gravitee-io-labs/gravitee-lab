@@ -185,8 +185,7 @@ def copies_of(nodes):
         file = paths.ROOT / paths.unit_file(kind, uid)
         data = contribute._read(file, bare.TEXT_FILE + 1)
         own = contribute._origin_of(paths.origin(uid))   # said with the catalog the item is in, when it is a private one of Git
-        said = [one for one in contribute.origins(data.decode("utf-8", "replace"), uid, file.parent)
-                if not own or one[0] != own[0]] if data else []
+        said = [one for one in contribute.origins(data.decode("utf-8", "replace"), uid, file.parent) if one != own] if data else []
         if said:
             found[(kind, uid)] = said
     return found
@@ -208,6 +207,9 @@ def _origins(carried, units, copies=None):
         for key, title in (copies or {}).get((kind, uid)) or ():
             said(key, title, kind, uid)
         ns = paths.origin(uid)
+        mine = contribute._origin_of(ns)   # a private catalog of Git, or a working copy of one linked in its place
+        if mine:
+            said(mine[0], mine[1], kind, uid)
         entry = registry.entry(ns) if ns != paths.LOCAL else None
         if not entry or entry.get("kind") != "git":
             continue
@@ -216,9 +218,6 @@ def _origins(carried, units, copies=None):
         name = units[kind][uid]["name"]
         origins.append({"kind": kind, "item": _slug(uid), "name": name, "catalog": ns, "catalog_name": title,
                         "version": held.get("version")})
-        if held.get("audience") != "public":
-            mine = contribute._origin_of(ns)
-            said(mine[0] if mine else "", title, kind, uid)
     return origins, list(private.values())
 
 

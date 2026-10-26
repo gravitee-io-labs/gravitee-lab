@@ -228,22 +228,24 @@ class Identity(Shares):
                     asked = self.patch(gitx, "ls_remote", side_effect=outcome) if outcome else self.patch(gitx, "ls_remote", return_value={})
                     self.assertEqual(AUDIENCE_NOW(gitx.parse_address(address)), said)
                     self.assertEqual(asked.call_args[0][0].url, "https://github.com/acme/hub.git", "the https form of an ssh one")
-        self.assertEqual(AUDIENCE_NOW(gitx.parse_address("git@git.example.test:acme/hub.git")), "unknown", "a host it cannot ask")
+        self.assertEqual(AUDIENCE_NOW(gitx.parse_address("git@git.example.test:acme/hub.git")), "unaskable", "a host it cannot ask")
 
     def labelled(self, said):
         self.item("addon", "my-ledger", "Ledger", notes(said))
 
     def test_private_content_goes_only_to_a_repository_found_private_and_only_then_loses_its_origin(self):
         own = f'private_from: ["Partner fixture"], private_id: ["{root("partner")}"], '
-        refused = ("share_maybe_public", 409, "Partner fixture may be public: the Lab cannot share private content there. Fix: make sure "
-                   "its repository is private, then add it by its https address (the Lab asks that address anonymously), and share again.")
-        for said in ("public", "unknown"):   # a Public fork has partner's history: asked, it answers, so nothing goes there
+        start = "Partner fixture may be public: the Lab cannot share private content there. Fix: "
+        fixes = {"public": "make sure its repository is private, then share again.",
+                 "unknown": "check the network, then share again.",
+                 "unaskable": "add it by its https address (the Lab asks that address anonymously), then share again."}
+        for said, fix in fixes.items():   # a Public fork has partner's history: asked, it answers, so nothing goes there
             with self.subTest(said):
                 self.audience.return_value = said
                 self.labelled(own)
                 with self.assertRaises(CatalogError) as raised:
                     self.share("local/my-ledger", "partner")
-                self.assertEqual(lines_of(raised.exception), refused)
+                self.assertEqual(lines_of(raised.exception), ("share_maybe_public", 409, start + fix))
         self.audience.return_value = "private"   # a private fork, or partner itself: the history and the repository are its
         self.audience.reset_mock()
         self.assertNotIn("private_", self.shared("local/my-ledger", "my-ledger"))
@@ -279,3 +281,69 @@ class Identity(Shares):
         with self.assertRaises(CatalogError) as raised:
             self.share("local/ledger", "fixture", check_only=True)
         self.assertEqual(raised.exception.code, "share_private_copy")
+
+    def test_a_working_copy_linked_in_place_of_a_private_catalog_is_that_catalog(self):
+        fixtures.install(self, "lab-new", kind="git", store=True, audience="private", lab=2, files={"addons/notes/compose.yml": notes()})
+        history = contribute._history("lab-new")
+        entries = registry.entries
+
+        def linked():   # what catalog.py link makes of it: a folder in its place, that remembers the catalog of Git
+            return [{**one, "kind": "folder", "shadows": {"url": one.get("url") or "https://example.invalid/lab-new.git"}}
+                    if one["id"] == "lab-new" else one for one in entries()]
+        self.patch(registry, "entries", linked)
+        project.forget()
+        self.assertEqual(contribute.origins(notes(), "@lab-new/notes"), [(history, contribute._catalog_name("lab-new"))])
+        moving.copy("addon", "@lab-new/notes")
+        project.forget()
+        self.assertIn(f'private_id: ["{history}"]', mine().read_text(), "a copy says it")
+        self.item("addon", "notes", "Notes")
+        with self.assertRaises(CatalogError) as raised:
+            self.share("local/notes", "fixture", check_only=True)
+        self.assertEqual(raised.exception.code, "share_private_copy")
+        units = {"addon": {"@lab-new/notes": {"name": "Notes"}}}
+        self.assertEqual(exports._origins([("addon", "@lab-new/notes")], units)[1],
+                         [{"key": history, "name": contribute._catalog_name("lab-new"), "items": ["Notes"], "item_ids": ["@lab-new/notes"]}],
+                         "an export says it")
+
+    def test_a_known_public_catalog_is_not_asked_and_names_the_item_and_its_origin(self):
+        self.audience.reset_mock()
+        self.item("addon", "my-ledger", "Ledger", notes(f'private_from: ["Partner fixture"], private_id: ["{root("partner")}"], '))
+        with self.assertRaises(CatalogError) as raised:
+            self.share("local/my-ledger", "fixture")
+        self.assertEqual(lines_of(raised.exception), ("share_private_copy", 400, "Ledger is a copy of an item of Partner fixture, which is "
+                                                                                "private. Fix: share it to a private catalog."))
+        self.audience.assert_not_called()
+
+    def test_what_changed_between_the_question_and_the_lock_is_never_shared_on_the_answer(self):
+        self.item("addon", "notes", "Notes", notes())   # no private content when it is looked at: nothing is asked
+        real = contribute.collect
+
+        def labelled_meanwhile(kind, slug, ns, source=paths.LOCAL, moved=()):
+            mine().write_text(notes(f'private_from: ["{self.old}"], private_id: ["{root("lab-old")}"], '))
+            return real(kind, slug, ns, source, moved)
+        self.patch(contribute, "collect", labelled_meanwhile)
+        with self.assertRaises(CatalogError) as raised:
+            self.share("local/notes", "partner")
+        self.assertEqual(lines_of(raised.exception), ("share_changed", 409, "Partner fixture changed while it was shared. Fix: share again."))
+
+    def test_a_catalog_that_is_another_one_by_the_time_of_the_lock_takes_nothing(self):
+        self.item("addon", "my-ledger", "Ledger", notes(f'private_from: ["Partner fixture"], private_id: ["{root("partner")}"], '))
+        lock, flock = registry.lock_of, registry.flock
+
+        def swapped():   # removed and added again under the same id while the question was asked
+            self.patch(registry, "lock_of", lambda ns: {**lock(ns), "roots": ["a" * 40]} if ns == "partner" else lock(ns))
+            return flock()
+        self.patch(registry, "flock", swapped)
+        with self.assertRaises(CatalogError) as raised:
+            self.share("local/my-ledger", "partner")
+        self.assertEqual(raised.exception.code, "share_changed")
+
+    def test_the_export_lists_every_origin_but_the_items_own(self):
+        lock = registry.lock_of
+        self.patch(registry, "lock_of", lambda ns: {**lock(ns), "roots": []} if ns == "partner" else lock(ns))
+        file = self.root / ".lab/catalogs/partner/addons/ledger/compose.yml"
+        os.chmod(file, 0o644)
+        file.write_text(notes('private_from: ["Other team"], '))
+        self.assertEqual(exports.copies_of([("addon", "@partner/ledger")]), {("addon", "@partner/ledger"): [("", "Other team")]},
+                         "partner's own, of no id, goes; another of no id stays")
+
