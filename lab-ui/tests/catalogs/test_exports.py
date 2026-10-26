@@ -43,7 +43,7 @@ def shown(plan):
 
 def root(ns):
     """The origin id of the private catalog of Git `ns`: the first commit of its history."""
-    return contribute._roots(ns)[0]
+    return contribute._history(ns)
 
 
 class Archives(Case):

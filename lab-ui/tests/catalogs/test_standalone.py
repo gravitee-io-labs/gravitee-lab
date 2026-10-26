@@ -164,7 +164,7 @@ class Folder(Case):
                            encoding="utf-8")
         project.forget()
         from lab_ui.catalogs import contribute
-        self.assertEqual(standalone.plan("local/sandbox")["private"], [{"key": contribute._roots("partner")[0], "name": "Partner fixture",
+        self.assertEqual(standalone.plan("local/sandbox")["private"], [{"key": contribute._history("partner"), "name": "Partner fixture",
                                                                        "items": ["Ledger"], "item_ids": ["local/ledger"]}])
         with self.assertRaises(CatalogError) as caught:
             standalone.archive("local/sandbox")
@@ -192,7 +192,7 @@ class Folder(Case):
                            encoding="utf-8")
         project.forget()
         from lab_ui.catalogs import contribute
-        self.assertEqual(standalone.plan("local/sandbox")["private"], [{"key": contribute._roots("partner")[0], "name": "Partner fixture",
+        self.assertEqual(standalone.plan("local/sandbox")["private"], [{"key": contribute._history("partner"), "name": "Partner fixture",
                                                                        "items": ["Ledger"], "item_ids": ["local/ledger"]}])
 
     def test_the_folder_holds_the_compose_file_its_settings_the_guide_and_what_the_services_build_or_mount(self):

@@ -54,6 +54,8 @@ class Base(Case):
         self.patch(contribute, "_PROBES", {})
         self.patch(contribute, "_CATALOG_YML", {})
         self.patch(contribute, "_today", lambda: DAY)
+        # The repositories of these tests are folders, which a stranger may read: as an anonymous probe would find a private host
+        self.audience = self.patch(contribute, "_audience_now", mock.Mock(return_value="private"))
         fixtures.install(self, "partner", kind="git", store=True)
         fixtures.local(self, "scratch")
         project.forget()
@@ -114,7 +116,10 @@ class Base(Case):
 
 def root(ns):
     """The origin id of the private catalog of Git `ns`: the first commit of its history."""
-    return contribute._roots(ns)[0]
+    return contribute._history(ns)
+
+
+AUDIENCE_NOW = contribute._audience_now   # the real one, which Base replaces
 
 
 class Seam(Base):
