@@ -38,7 +38,7 @@ from . import layers
 from .. import paths
 from ..catalogs import defaults, manifest, registry, trust, understood
 from ..catalogs.registry import CatalogError
-from ..catalogs.report import ERROR, Problem
+from ..catalogs.report import ERROR, WARNING, Problem
 from ..catalogs.tree import read_inside
 from ..paths import CORE_FILE, KINDS, NOUNS, ROOT
 from .project import REACH_LIMIT, apart, brought, forget, loaded
@@ -1299,12 +1299,18 @@ def folder_lab(folder):
         return needed_lab(catalog_units(ns, built), inputs["raw"], {**inputs, "products": _anchored(inputs.get("products") or ())})
 
 
+WARNING_MARK = "Warning: "   # a line of `catalog_problems` that is a warning: the catalog works here, and something is left to do
+NO_LEGACY = ("catalog.yml has no lines for older Gravitee Labs, which then cannot read it. Fix: catalog.py upgrade --write")
+
+
 def _lab_lines(meta, units, raw, inputs):
     """The verdict on `lab` in catalog.yml, when it is there. This Lab reads a catalog by what it uses and needs no `lab`; older Gravitee
     Labs read this line instead, so a `lab` that is written is the true minimum: the highest level among the contract
     items the catalog uses, no lower (an older Lab would start it without what it needs) and no higher (one that could run it would
     refuse it), and never above what this engine provides. `catalog.py upgrade --write` writes it."""
     level = meta.get("lab")
+    if level is None or meta.get("schema") is None:
+        yield WARNING_MARK + NO_LEGACY   # this Lab reads it; one that reads levels refuses it with a line that misleads
     if level is None:
         return
     locked = _lock()
@@ -1737,16 +1743,18 @@ def _hidden(text, folders):
 def as_problems(found, project, ns, hide=()):
     """The findings of `catalog_problems` as `Problem`s for the report of the command line: a unit that cannot run is the code of
     the rule of the Lab's policy that refuses it and the Lab's reason, with the fix; what the rules of the items say has no code
-    (the standard has none for it yet) and no line. All of them are errors. `hide`: the folders of this machine whose place in a
+    (the standard has none for it yet) and no line. All of them are errors but a line that starts with WARNING_MARK. `hide`: the folders of this machine whose place in a
     line is taken out (the temporary project of a check, the folder that was linked into it)."""
     verdicts = {_shown(unit["file"], ns): (unit.get("verdict") or {}).get("codes") or ()
                 for _, _, unit in catalog_units(ns, project)}
     out = []
     for where, line in found:
-        code, text = "", line
+        code, text, severity = "", line, ERROR
         if line.startswith("Blocked: "):
             code, text = _blocked(line[len("Blocked: "):], verdicts.get(where, ()), ns, where)
-        out.append(Problem(code, ERROR, where, 0, _hidden(text, hide)))
+        elif line.startswith(WARNING_MARK):
+            text, severity = line[len(WARNING_MARK):], WARNING
+        out.append(Problem(code, severity, where, 0, _hidden(text, hide)))
     return out
 
 

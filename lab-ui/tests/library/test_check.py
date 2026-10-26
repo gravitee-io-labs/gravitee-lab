@@ -1353,7 +1353,7 @@ class Contract(Machine):
 
     def lines(self, level, *units, **more):
         found = self.units(*units, **more)
-        return list(check._lab_lines({"lab": level}, found, self.given["raw"], self.given))
+        return list(check._lab_lines({"schema": 1, "lab": level}, found, self.given["raw"], self.given))
 
     def plain(self):
         return member("fixture", "addon", "echo", ["echo"])
@@ -1368,7 +1368,7 @@ class Contract(Machine):
     def test_a_lab_that_is_higher_than_needed_is_wrong_too(self):
         said = self.lines(2, self.plain())
         self.assertEqual(len(said), 1)
-        self.assertRegex(said[0], r"^lab is 2 but must be 1, for [^,]+, [^,]+, [^,]+ and \d+ more: Gravitee Lab 1\.4 and older")
+        self.assertRegex(said[0], r"^lab is 2 but must be 1, for [^,]+, [^,]+, [^,]+ and \d+ more: older Gravitee Labs")
         self.assertIn("category Other", said[0])
         self.assertEqual(self.lines(0, self.plain())[0][:23], "lab is 0 but must be 1,")
 
@@ -1376,9 +1376,14 @@ class Contract(Machine):
         self.assertEqual(self.lines(4, self.plain()), ["lab is 4, more than any Gravitee Lab reads: older Gravitee Labs read it. Fix: run catalog.py upgrade --write, which writes it"])
         self.assertEqual(self.lines(99, self.plain()), ["lab is 99, more than any Gravitee Lab reads: older Gravitee Labs read it. Fix: run catalog.py upgrade --write, which writes it"])
 
-    def test_a_catalog_yml_without_lab_has_nothing_to_verify(self):
+    def test_a_catalog_yml_without_the_lines_of_older_labs_is_a_warning_and_nothing_to_verify(self):
         terminal = member("fixture", "playground", "tour", ["tour-app"], says={"terminal": "tour-app"})
-        self.assertEqual(self.lines(None, terminal), [])
+        self.assertEqual(self.lines(None, terminal), [check.WARNING_MARK + check.NO_LEGACY])
+        found = check.as_problems([("catalog.yml", check.WARNING_MARK + check.NO_LEGACY)], {"addons": {}, "setups": {},
+                                                                                            "playgrounds": {}}, "fixture")
+        self.assertEqual([(one.severity, one.message) for one in found], [("warning", "catalog.yml has no lines for older Gravitee "
+                                                                           "Labs, which then cannot read it. Fix: catalog.py "
+                                                                           "upgrade --write")])
 
     def test_every_kind_of_item_counts_where_a_unit_uses_it(self):
         def needed(*units, **more):
@@ -2039,7 +2044,7 @@ class Fixtures(Shared):
     def test_a_catalog_written_for_a_lab_no_longer_read_is_refused_for_its_level(self):
         found = self.found("lab-old", "catalog.yml")
         self.assertEqual(len(found), 1)
-        self.assertRegex(found[0][1], r"^lab is 0 but must be 1, for .+: Gravitee Lab 1\.4 and older read it")
+        self.assertRegex(found[0][1], r"^lab is 0 but must be 1, for .+: older Gravitee Labs read it")
         self.assertIn(("addons/older/compose.yml", "Blocked: Written for an older Gravitee Lab"), self.found("lab-old"))
 
     def test_the_fixture_units_that_are_fine_pass_every_lint_of_the_catalog_profile(self):
