@@ -13,7 +13,7 @@ import re
 from pathlib import Path
 from unittest import mock
 
-from lab_ui.catalogs import fleet, gitx, settings
+from lab_ui.catalogs import fleet, gitx, settings, standard
 from lab_ui.catalogs.settings import FAIL, Reply
 
 from .. import Case, gitfixture
@@ -247,7 +247,7 @@ class Upgrade(Fleet):
         # and what its log says between two pins (the default is a release of the Lab, and a checkout that does not hold the old
         # pin, so there is no log)
         self.lab, self.labcalls = self.root / "lab-checkout", []
-        self.lab_answers = {"merge-base": 0, "tag": (0, "v1.5.0\n"), "log": (128, "")}
+        self.lab_answers = {"merge-base": 0, "tag": (0, "v1.5.0\n"), "show": (0, '{"level": 99}'), "log": (128, "")}
         self.fake_lab = True
 
     def remote(self, name, content=None, **more):
@@ -262,7 +262,7 @@ class Upgrade(Fleet):
             if self.fake_lab:
                 if args[0] in ("cat-file", "rev-parse", "merge-base"):
                     return gitx.Result(self.lab_answers.get(args[0], 0), b"", "")
-                code, text = self.lab_answers["tag" if args[0] == "tag" else "log"]
+                code, text = self.lab_answers[args[0] if args[0] in ("tag", "show") else "log"]
                 return gitx.Result(code, text.encode(), "")
             return gitx.run(args, cwd=cwd, timeout=timeout)
         self.gitcalls.append(list(args))
@@ -582,6 +582,20 @@ class Upgrade(Fleet):
         self.lab_answers["tag"] = (0, "latest\nv2.10.3\n")
         self.assertEqual("opened", self.run_fleet(github, Standard())[0].status)
 
+    def test_the_release_has_to_ship_the_standard_the_fleet_writes(self):
+        github = Github(repos=[listed("acme/lab-hub")])
+        self.remote("acme/lab-hub")
+        standard_ = Standard()
+        standard_.LEVEL = 5
+        self.lab_answers["show"] = (0, '{"level": 4}')
+        with self.assertRaises(settings.Unusable) as raised:
+            self.run_fleet(github, standard_)
+        self.assertEqual(str(raised.exception), "The Lab release bbbbbbb has standard 4; this writes standard 5. Fix: pin a release "
+                                                "of the Lab that has it.")
+        self.assertEqual([], github.calls)
+        self.lab_answers["show"] = (0, '{"level": 5}')
+        self.assertEqual("opened", self.run_fleet(github, standard_)[0].status)
+
     def test_the_command_refuses_a_lab_commit_that_is_not_a_release_with_one_line(self):
         github = Github(repos=[listed("acme/lab-hub")])
         self.remote("acme/lab-hub")
@@ -600,7 +614,8 @@ class Upgrade(Fleet):
         first = gitfixture.tip(lab)
         docs = gitfixture.commit(lab, {"docs/a.md": "a\n"}, "Write a guide")
         engine = gitfixture.commit(lab, {"lab-ui/engine.py": "2\n"}, "Make the engine read the standard")
-        action = gitfixture.commit(lab, {".github/actions/lab/action.yml": "x\n"}, "Pin the Lab action @someone #12")
+        action = gitfixture.commit(lab, {".github/actions/lab/action.yml": "x\n", standard.MANIFEST_IN_LAB: '{"level": 99}\n'},
+                                   "Pin the Lab action @someone #12")
         gitfixture.git("update-ref", "refs/remotes/origin/main", action, repo=lab)
         gitfixture.git("tag", "v1.5.0", action, repo=lab)   # the release of the Lab: what a pin names
         tree = gitfixture.git("rev-parse", f"{first}^{{tree}}", repo=lab).strip()

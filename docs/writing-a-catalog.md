@@ -199,4 +199,5 @@ newer release adds (its notes list it under *For catalogs*), move the pin to the
 python3 lab-ui/catalog.py upgrade . --lab-ref latest --write
 ```
 
-`new` pins the latest release too.
+`new` pins the latest release too. The release must ship the standard the catalog is written at, since its workflows call what
+that standard added: while no release of the Lab ships it, `new` and `upgrade` refuse and say so (release the Lab first).

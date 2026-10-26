@@ -32,7 +32,7 @@
         "SECURITY.md": "7fda565285cca835726da295d71342fbb2c6119f5e7e7ab6f12fd4d2d414d630",
         "addons/hello/README.md": "a95512cedec21dd9feeddbc8a29883cedfced30d6b1104116addf1bf5933eaf1",
         "addons/hello/compose.yml": "1e77830b2899a0107423e85472708c57c04f912b919dc20d96d3c072c11381b7",
-        "catalog.yml": "c56eca6746c7e933487d5f39473eb11162eeb17c24d7ba6f780718a2498001ea"
+        "catalog.yml": "a7981d616adb0d1f3f6cf053d8a8fce72aaea57782de5e40e9476793210074ca"
       }
     },
     "2": {
@@ -67,7 +67,7 @@
         "SECURITY.md": "7fda565285cca835726da295d71342fbb2c6119f5e7e7ab6f12fd4d2d414d630",
         "addons/hello/README.md": "a95512cedec21dd9feeddbc8a29883cedfced30d6b1104116addf1bf5933eaf1",
         "addons/hello/compose.yml": "1e77830b2899a0107423e85472708c57c04f912b919dc20d96d3c072c11381b7",
-        "catalog.yml": "c56eca6746c7e933487d5f39473eb11162eeb17c24d7ba6f780718a2498001ea"
+        "catalog.yml": "a7981d616adb0d1f3f6cf053d8a8fce72aaea57782de5e40e9476793210074ca"
       }
     },
     "3": {
@@ -104,7 +104,7 @@
         "SECURITY.md": "7fda565285cca835726da295d71342fbb2c6119f5e7e7ab6f12fd4d2d414d630",
         "addons/hello/README.md": "a95512cedec21dd9feeddbc8a29883cedfced30d6b1104116addf1bf5933eaf1",
         "addons/hello/compose.yml": "1e77830b2899a0107423e85472708c57c04f912b919dc20d96d3c072c11381b7",
-        "catalog.yml": "c56eca6746c7e933487d5f39473eb11162eeb17c24d7ba6f780718a2498001ea"
+        "catalog.yml": "a7981d616adb0d1f3f6cf053d8a8fce72aaea57782de5e40e9476793210074ca"
       }
     },
     "4": {
@@ -141,7 +141,7 @@
         "SECURITY.md": "7fda565285cca835726da295d71342fbb2c6119f5e7e7ab6f12fd4d2d414d630",
         "addons/hello/README.md": "a95512cedec21dd9feeddbc8a29883cedfced30d6b1104116addf1bf5933eaf1",
         "addons/hello/compose.yml": "1e77830b2899a0107423e85472708c57c04f912b919dc20d96d3c072c11381b7",
-        "catalog.yml": "c56eca6746c7e933487d5f39473eb11162eeb17c24d7ba6f780718a2498001ea"
+        "catalog.yml": "a7981d616adb0d1f3f6cf053d8a8fce72aaea57782de5e40e9476793210074ca"
       }
     },
     "5": {
@@ -178,7 +178,7 @@
         "SECURITY.md": "7fda565285cca835726da295d71342fbb2c6119f5e7e7ab6f12fd4d2d414d630",
         "addons/hello/README.md": "a95512cedec21dd9feeddbc8a29883cedfced30d6b1104116addf1bf5933eaf1",
         "addons/hello/compose.yml": "1e77830b2899a0107423e85472708c57c04f912b919dc20d96d3c072c11381b7",
-        "catalog.yml": "c56eca6746c7e933487d5f39473eb11162eeb17c24d7ba6f780718a2498001ea"
+        "catalog.yml": "a7981d616adb0d1f3f6cf053d8a8fce72aaea57782de5e40e9476793210074ca"
       }
     }
   },
@@ -189,6 +189,6 @@
     "README.md": "b62832c74bc698d5b833ab750a163c20c6393b829af7cce6f361e7087ba7ae09",
     "addons/hello/README.md": "a95512cedec21dd9feeddbc8a29883cedfced30d6b1104116addf1bf5933eaf1",
     "addons/hello/compose.yml": "1e77830b2899a0107423e85472708c57c04f912b919dc20d96d3c072c11381b7",
-    "catalog.yml": "f5d46bd82210b4e7f50d312f11338fe1ed0752c5c50eecf784f8bb9dcf340ba9"
+    "catalog.yml": "8a52391d69e46e862323d00daec9fa888783d992632f19cedb96766ed170d3dd"
   }
 }

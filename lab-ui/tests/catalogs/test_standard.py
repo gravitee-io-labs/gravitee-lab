@@ -1350,6 +1350,17 @@ class Commands(Case):
         self.assertEqual(err, f"The Lab checkout has no release, so CI refuses its commit {lab.git('rev-parse', 'HEAD').strip()[:7]} "
                               "(SD11). Fetch its tags (git fetch --tags), then run catalog.py upgrade --lab-ref latest --write.\n")
 
+    def test_a_new_catalog_is_refused_while_no_release_of_the_lab_ships_its_standard(self):
+        lab = self.lab()
+        lab.commit({standard.MANIFEST_IN_LAB: support.release_manifest(standard.LEVEL - 1)}, "An older standard")
+        release = lab.git("rev-parse", "HEAD").strip()
+        lab.git("tag", "v2.0.0", release)
+        lab.git("update-ref", "refs/remotes/origin/main", release)
+        code, out, err = self.new("--maintainers", "@a", lab=lab.root)
+        self.assertEqual((code, out, err), (2, "", f"Standard {standard.LEVEL} is not in a released Gravitee Lab yet. Fix: release "
+                                                  "the Lab first, then run this again.\n"))
+        self.assertFalse((self.work / "hub").exists())
+
     def test_the_pin_of_a_new_catalog_is_the_latest_release_of_the_lab_not_its_tip(self):
         lab = self.lab()
         release = lab.git("rev-parse", "HEAD").strip()
@@ -1364,9 +1375,9 @@ class Commands(Case):
         self.assertEqual((code, err), (0, ""))
         lines = (self.work / "hub" / "catalog.yml").read_text().splitlines()
         legacy = [line for line in lines if line.strip().split(":")[0] in ("schema", "lab")]
-        self.assertEqual(legacy, ["  schema: 1   # For Gravitee Lab 1.4 and older: written by catalog.py",
-                                  "  lab: 1   # For Gravitee Lab 1.4 and older: written by catalog.py"],
-                         "Gravitee Lab 1.4 and older need schema and read lab: the lines are there, and the author leaves them to "
+        self.assertEqual(legacy, ["  schema: 1   # For older Gravitee Labs: written by catalog.py",
+                                  "  lab: 1   # For older Gravitee Labs: written by catalog.py"],
+                         "Older Gravitee Labs need schema and read lab: the lines are there, and the author leaves them to "
                          "catalog.py")
 
     def test_a_given_commit_and_address_are_taken_as_they_are(self):
@@ -2047,7 +2058,8 @@ class MovingThePin(Case):
 
     def setUp(self):
         support.identity(self)
-        self.lab = support.Repo(self, {"lab-ui/catalog.py": b"print(0)\n", ".github/x.yml": b"x\n", "docs/a.md": b"a\n"}, name="lab")
+        self.lab = support.Repo(self, {"lab-ui/catalog.py": b"print(0)\n", ".github/x.yml": b"x\n", "docs/a.md": b"a\n",
+                                       standard.MANIFEST_IN_LAB: support.release_manifest()}, name="lab")
         self.old = self.lab.git("rev-parse", "HEAD").strip()
         self.lab.git("tag", "v1.4.0", self.old)
         for number in range(120):
@@ -2137,6 +2149,34 @@ class MovingThePin(Case):
         self.assertEqual((code, err.getvalue()), (0, ""))
         self.assertEqual(json.loads((self.catalog.root / ".github/standard.json").read_text())["lab"]["ref"], self.new)
         self.assertIn("compare/", out.getvalue())
+
+    def test_a_release_that_does_not_ship_the_standard_written_is_no_pin(self):
+        """The workflows of a standard call what the Lab of that standard has: the release pinned must ship it. When none does
+        yet, the Lab is released first."""
+        older = support.Repo(self, {"lab-ui/catalog.py": b"print(0)\n", standard.MANIFEST_IN_LAB: support.release_manifest(4)},
+                             name="older-lab")
+        release = older.git("rev-parse", "HEAD").strip()
+        older.git("tag", "v1.4.0", release)
+        self.assertEqual((standard.release_level(older.root, release), standard.release_level(older.root, "e" * 40)), (4, None))
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = standard.main_upgrade([str(self.catalog.root), "--lab-ref", "latest", "--write"], lab=older.root)
+        self.assertEqual((code, err.getvalue()), (2, f"Standard {standard.LEVEL} is not in a released Gravitee Lab yet. Fix: release "
+                                                     "the Lab first, then run this again.\n"))
+        self.assertEqual(json.loads((self.catalog.root / ".github/standard.json").read_text())["lab"]["ref"], self.old)
+        # a pin of a release before the standard, when a newer release has it: the latest is the fix
+        self.lab.commit({standard.MANIFEST_IN_LAB: support.release_manifest(4)}, "An older standard")
+        behind = self.lab.git("rev-parse", "HEAD").strip()
+        self.lab.git("tag", "v1.11.0", behind)
+        self.lab.commit({standard.MANIFEST_IN_LAB: support.release_manifest()}, "This standard")
+        ahead = self.lab.git("rev-parse", "HEAD").strip()
+        self.lab.git("tag", "v1.12.0", ahead)
+        self.lab.git("push", "--quiet", "origin", "main")
+        self.lab.git("fetch", "--quiet", "origin")
+        self.assertEqual(self.plan(lab_ref=behind)["refused"],
+                         f"The Lab release {behind[:7]} has standard 4; this writes standard {standard.LEVEL}. Fix: pin the latest "
+                         "release (catalog.py upgrade --lab-ref latest).")
+        self.assertEqual(self.plan(lab_ref=ahead)["refused"], "")
 
     def test_latest_without_a_release_says_how_to_get_one(self):
         bare = support.Repo(self, {"lab-ui/catalog.py": b"print(0)\n"}, name="untagged")

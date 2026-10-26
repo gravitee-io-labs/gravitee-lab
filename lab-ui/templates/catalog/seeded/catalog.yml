@@ -1,10 +1,10 @@
 # What the Lab reads to show this catalog. Raise the version with make release when items change in a way people should notice.
 x-gravitee-catalog:
-  schema: 1   # For Gravitee Lab 1.4 and older: written by catalog.py
+  schema: 1   # For older Gravitee Labs: written by catalog.py
   id: "__CATALOG_ID__"
   name: "__CATALOG_NAME__"
   description: "__DESCRIPTION__"
   version: 0.1.0
-  lab: 1   # For Gravitee Lab 1.4 and older: written by catalog.py
+  lab: 1   # For older Gravitee Labs: written by catalog.py
   license: "__LICENSE__"
   images: __IMAGES__

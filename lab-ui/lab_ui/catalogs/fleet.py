@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Callable, List, NamedTuple, Optional
 
 from . import gitx, settings, standard as standards
-from .standard import release_state
+from .standard import pin_problem, release_state
 from .tree import FolderTree
 from .settings import FAIL, WARN, Refused, Unusable, Usage, as_dict, as_list, clean, is_int, plan_limit, refusal
 
@@ -387,6 +387,9 @@ def _on_lab_main(work: _Work) -> None:
     if release_state(work.lab, work.lab_ref, git=git) != "yes":
         raise Unusable(f"The Lab commit {work.lab_ref[:7]} is not a release of the Lab. Fix: pin the latest release "
                        "(catalog.py upgrade --lab-ref latest).")
+    problem = pin_problem(work.lab, work.lab_ref, getattr(work.standard, "LEVEL", 0), git=git)
+    if problem:   # the release must ship the standard the fleet writes, or the catalogs' CI calls what it does not have
+        raise Unusable(problem)
 
 
 def upgrade_fleet(owner: str, runner: Callable, lab_ref: str, *, standard=None, tree: Optional[Callable] = None,

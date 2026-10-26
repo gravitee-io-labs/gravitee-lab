@@ -985,6 +985,43 @@ def release_state(lab, ref: str, git=None) -> str:
     return "yes" if on_main is not None and on_main.code == 0 and named else "no"
 
 
+MANIFEST_IN_LAB = "lab-ui/templates/catalog/manifest.json"   # where a Lab says the level of the standard it ships
+NOT_RELEASED = "Standard {n} is not in a released Gravitee Lab yet. Fix: release the Lab first, then run this again."
+
+
+def release_level(lab, ref: str, git=None) -> Optional[int]:
+    """The level of the catalog standard that the Lab at `ref` ships (`level` of its manifest.json, 0 when it ships none), as the
+    Lab checkout `lab` holds it; None when the checkout does not hold `ref`. A catalog written at a level is checked by the Lab
+    it pins, which must know that level: its workflows call what that level added."""
+    run = git or _lab_git(lab)
+    have = run(["cat-file", "-e", f"{ref}^{{commit}}"])
+    if have is None or have.code != 0:
+        return None
+    shown = run(["show", f"{ref}:{MANIFEST_IN_LAB}"])
+    try:
+        level = json.loads(shown.out.decode("utf-8")).get("level") if shown is not None and shown.code == 0 else 0
+    except (ValueError, AttributeError):
+        level = 0
+    return level if type(level) is int and level >= 0 else 0
+
+
+def pin_problem(lab, ref: str, level: int, git=None) -> str:
+    """Why the Lab `ref` cannot be the pin of a catalog written at standard `level`, or "": the release it is ships an older
+    standard. When no release of the Lab ships `level` yet, the line says so: the Lab is released before a catalog moves to its
+    standard."""
+    have = release_level(lab, ref, git)
+    if have is None or have >= level:
+        return ""
+    if git is not None:   # a caller with its own git names its release: the latest is not looked for
+        return (f"The Lab release {ref[:7]} has standard {have}; this writes standard {level}. Fix: pin a release of the Lab "
+                "that has it.")
+    newest = latest_release(lab)
+    if newest and newest != ref and (release_level(lab, newest) or 0) >= level:
+        return (f"The Lab release {ref[:7]} has standard {have}; this writes standard {level}. Fix: pin the latest release "
+                "(catalog.py upgrade --lab-ref latest).")
+    return NOT_RELEASED.format(n=level)
+
+
 def _is_release(lab, ref: str) -> bool:
     """Whether `ref` is a release of the Lab checkout `lab` (SD11, `release_state`)."""
     return release_state(lab, ref) == "yes"
@@ -1090,6 +1127,11 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
     if ref_new and lab_checkout is not None and not _is_release(lab_checkout, ref_new):
         return refuse(say(RULES["SD11"].message, sha7=ref_new[:7]))
     old = (state.data or {}).get("lab", {}) if state.data else {}
+    pinned = ref_new or (old.get("ref") if isinstance(old.get("ref"), str) else "")
+    if lab_checkout is not None and _COMMIT.fullmatch(pinned or ""):
+        problem = pin_problem(lab_checkout, pinned, level)
+        if problem:
+            return refuse(problem)
     repo = options.get("lab_repository") or old.get("repository") or ""
     ref = ref_new or old.get("ref") or ""
     if not lab_repository_ok(repo) or not _COMMIT.fullmatch(ref):
@@ -1544,6 +1586,8 @@ def main_new(argv: List[str], lab: Optional[Path] = None) -> int:
                     ref = _lab_head(lab)
                     warning = (f"The Lab checkout has no release, so CI refuses its commit {ref[:7]} (SD11). Fetch its tags "
                                "(git fetch --tags), then run catalog.py upgrade --lab-ref latest --write.")
+                elif pin_problem(lab, ref, LEVEL):
+                    raise Usage(pin_problem(lab, ref, LEVEL))
         params = {"id": args.id, "name": args.name, "maintainers": args.maintainers, "license": args.license, "images": args.images,
                   "description": args.description, "security_contact": args.security_contact, "lab_repository": repository,
                   "lab_ref": ref, "platforms": args.platforms, "form": args.form, "with": args.with_, "local": args.local}
@@ -1699,7 +1743,7 @@ def main_upgrade(argv: List[str], lab: Optional[Path] = None) -> int:
         plan = upgrade_plan(tree, {"lab_ref": ref, "refresh_pins": args.refresh_pins, "adopt": args.adopt, "replace": args.replace,
                                    "form": args.form, "with": args.with_, "maintainers": args.maintainers,
                                    "lab_repository": args.lab_repo or (_lab_origin(lab) if args.adopt else ""),
-                                   "lab": lab if ref else None})
+                                   "lab": lab})
     except Usage as error:
         _complain(str(error))
         return 2

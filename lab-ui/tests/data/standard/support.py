@@ -117,10 +117,15 @@ def catalog_repo(case: Case, **more) -> Repo:
     return Repo(case, render(**more))
 
 
+def release_manifest(level: Optional[int] = None) -> bytes:
+    """The manifest.json of a Lab release as far as a pin reads it: the level of the standard it ships, this Lab's by default."""
+    return json.dumps({"level": standard.LEVEL if level is None else level}).encode()
+
+
 def lab_checkout(case: Case, on_origin: bool = True) -> Repo:
     """A Lab checkout: one commit with a `lab-ui` folder, an origin that is `acme/gravitee-lab` on github.com by name, and, when
     `on_origin`, that commit as origin/main (the Lab's own main) and its release v1.0.0 (what a pin names, SD11)."""
-    repo = Repo(case, {"lab-ui/catalog.py": b"print(1)\n"}, name="lab")
+    repo = Repo(case, {"lab-ui/catalog.py": b"print(1)\n", standard.MANIFEST_IN_LAB: release_manifest()}, name="lab")
     tip = repo.git("rev-parse", "HEAD").strip()
     repo.git("remote", "set-url", "origin", "https://github.com/acme/gravitee-lab.git")
     repo.git("update-ref", "refs/remotes/origin/main", tip)
