@@ -8,6 +8,7 @@ network, no Docker daemon."""
 
 import json
 import os
+import pwd
 import re
 import shutil
 import stat
@@ -365,6 +366,24 @@ class Provision(Served, Case):
         self.assertEqual(held["seen"], {"target": older, "update": False, "tip": "new", "version": "1.0.0"})
         row = service.describe({}, {})[0]
         self.assertEqual(row["state"]["key"], "lab_new", "the row says so at once, before the first check")
+
+    def test_when_the_tip_uses_what_this_lab_does_not_read_the_newest_version_it_reads_is_installed(self):
+        """The first start reads the versions by their files too (`manifest.offer` with `install.readable`): a tip whose unit uses
+        a key of x-gravitee this Lab does not know is passed over, though its catalog.yml did not change."""
+        # The Docker CLI finds its Compose plugin in the person's configuration folder, which the isolated home hides
+        self.start(mock.patch.dict(os.environ, {"DOCKER_CONFIG": os.path.join(pwd.getpwuid(os.getuid()).pw_dir, ".docker")}))
+        self.patch(fixtures, "_compose", [])
+        fixtures.need_compose()
+        self.patch(project, "ROOT", self.root)   # the units of a version are read as the project reads them, in this folder
+        shutil.copy(fixtures.CORE.parent / "contract.lock", self.root / "contract.lock")
+        older = self.remote.head()
+        tip = self.remote.commit({"addons/later/compose.yml": "x-gravitee: {kind: addon, name: Later, badge: gold}\nservices: {}\n"},
+                                 "A unit for a newer Lab")
+        self.started()
+        firstrun.provision(self.ns)
+        held = self.lock()
+        self.assertEqual((held["pin"], held["tip"]), (older, tip))
+        self.assertEqual(registry.units_of(self.ns)["addon"], ["echo"])
 
     def test_when_no_version_is_readable_it_is_no_readable_version_in_the_words_of_the_first_start(self):
         self.world(files={**gitfixture.catalog_files(self.NS), "catalog.yml":

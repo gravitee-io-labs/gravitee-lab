@@ -19,7 +19,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from lab_ui.catalogs import audit, gitx, standard
+from lab_ui.catalogs import audit, gitx, manifest, standard
 from lab_ui.catalogs.rules import commits, workflows
 from lab_ui.catalogs.tree import FolderTree, ListTree, TreeError
 from tests import Case
@@ -1375,8 +1375,7 @@ class Commands(Case):
         self.assertEqual((code, err), (0, ""))
         lines = (self.work / "hub" / "catalog.yml").read_text().splitlines()
         legacy = [line for line in lines if line.strip().split(":")[0] in ("schema", "lab")]
-        self.assertEqual(legacy, ["  schema: 1   # For older Gravitee Labs: written by catalog.py",
-                                  "  lab: 1   # For older Gravitee Labs: written by catalog.py"],
+        self.assertEqual(legacy, [f"  schema: 1   {manifest.LEGACY_NOTE}", f"  lab: 1   {manifest.LEGACY_NOTE}"],
                          "Older Gravitee Labs need schema and read lab: the lines are there, and the author leaves them to "
                          "catalog.py")
 

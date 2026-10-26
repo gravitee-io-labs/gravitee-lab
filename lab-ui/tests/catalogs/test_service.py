@@ -1175,6 +1175,26 @@ class Understanding(Real):
         self.assertEqual((unit["compat"], unit["unknown"], unit["blocked"]), ("ok", [], None),
                          "an unknown key in the person's own catalog is the author's mistake: catalog.py check names it")
 
+    def test_the_release_offered_is_the_newest_one_this_lab_reads_even_when_catalog_yml_states_no_lab(self):
+        """A catalog that makes releases is offered by `manifest.offer`, release by release: each release is read by its files
+        (`install.readable`), so a release that uses what this Lab does not read is passed over though no `lab` says so. Without
+        that reading the Lab would offer, and install, the newest release whatever it holds."""
+        remote = fixtures.remote(self, "partner", files={"catalog.yml": self.catalog_yml(legacy=False)})
+        remote.git("tag", "v2.0.0", remote.head())
+        service.add(service.check_address(remote.url)["ticket"])
+        remote.commit({"catalog.yml": self.catalog_yml(False, version="2.1.0"), **NEWER}, "Readable")
+        readable = remote.head()
+        remote.git("tag", "v2.1.0", readable)
+        remote.commit({"catalog.yml": self.catalog_yml(False, version="2.2.0"), LEDGER: self.ledger()}, "Uses a key of a newer Lab")
+        remote.git("tag", "v2.2.0", remote.head())
+        service.check_now("partner")
+        seen = registry.lock_of("partner")["seen"]
+        self.assertEqual((seen["target"], seen["tip"], seen["version"]), (readable, "new", "2.1.0"))
+        plan = service.update("partner", check=True)
+        self.assertEqual((plan["version"], plan["release"]), ("2.1.0", "2.1.0"))
+        service.update("partner", ticket=plan["ticket"])
+        self.assertEqual(registry.lock_of("partner")["pin"], readable)
+
     def test_an_update_offers_the_newest_version_this_lab_reads_and_says_the_tip_needs_a_newer_lab(self):
         for legacy in (True, False):
             with self.subTest(legacy=legacy):

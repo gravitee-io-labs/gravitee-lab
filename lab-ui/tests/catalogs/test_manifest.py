@@ -16,7 +16,7 @@ from lab_ui.library import check, project
 from lab_ui.docker import compose, envfiles
 from lab_ui.gravitee import license
 from lab_ui import paths
-from lab_ui.catalogs import gitx, manifest, registry
+from lab_ui.catalogs import gitx, manifest, registry, standard
 from lab_ui.catalogs import store as bare
 
 from .. import Case, fixtures, gitfixture
@@ -854,6 +854,24 @@ class WithCompose(Case):
     def test_a_variable_is_not_replaced(self):
         name = self.put("x-gravitee-catalog:\n  schema: 1\n  id: acme-hub\n  name: ${HOME}\n  description: B\n  version: 1.0.0\n  lab: 1\n")
         self.assertEqual(manifest.read_catalog(name)["name"], "${HOME}")
+
+
+class Legacy(Case):
+    """The lines of catalog.yml that Gravitee Lab 1.4 and older read: one comment for them, wherever catalog.py writes them."""
+
+    def test_the_template_writes_them_with_the_comment_with_legacy_writes(self):
+        """`catalog.py new` renders the template and `with_legacy` adds missing lines: the two say the same, from one constant."""
+        template = (standard.TEMPLATE / "seeded" / "catalog.yml").read_text(encoding="utf-8")
+        lines = [line for line in template.splitlines() if line.strip().split(":")[0] in manifest.LEGACY]
+        self.assertEqual(lines, [f"  schema: {manifest.SCHEMA}   {manifest.LEGACY_NOTE}", f"  lab: 1   {manifest.LEGACY_NOTE}"])
+        bare = "".join(line for line in template.splitlines(True) if line.rstrip("\n") not in lines)
+        self.assertEqual(manifest.with_legacy(bare, 1), template, "the lines it adds are the template's, in the same places")
+
+    def test_a_line_that_is_there_keeps_its_place_and_its_comment(self):
+        text = "x-gravitee-catalog:\n  schema: 1   # mine\n  id: a\n  version: 1.0.0\n  lab: 1\n  license: MIT\n"
+        self.assertEqual(manifest.with_legacy(text, 3), text.replace("lab: 1", "lab: 3"))
+        self.assertEqual(manifest.with_legacy(text, None), text, "without a level to write, the one it has stays")
+        self.assertEqual(manifest.with_legacy("plain text\n", 2), "plain text\n", "a file with no block is the check's to tell")
 
 
 # ---------------------------------------------------------------------------------------------------------------------
