@@ -1985,12 +1985,13 @@ def _staged_inputs(ns, meta, row, replacing):
             "core_error": core_error}
 
 
-def staged_unknown(ns) -> list:
+def staged_unknown(ns):
     """What the units of the staged tree of `ns` use that this Lab does not read (`understood`), sorted: each unit read as
     `gather` reads a catalog's (its text screened, then its file as written, with what it includes merged in, the includes
     that are not there left out, the time a unit has), and only as far as the screen lets it: a unit it refuses, or one that
     includes what it refuses, says nothing here, and its judgement says it cannot be read. What `pick` reads of a version of a
-    published catalog to know whether this Lab understands it, without the judgement of each unit against the core."""
+    published catalog to know whether this Lab understands it, without the judgement of each unit against the core. None when
+    Docker did not answer for a unit (a time limit, a docker that did not run): this Lab cannot tell."""
     held = understood.lock()
     if held is None:
         return []
@@ -2009,11 +2010,16 @@ def staged_unknown(ns) -> list:
         reach = _reach(file, bad | world_bad, clean)
         if held_reasons(reach, bad | world_bad):
             return []
-        config, _ = _raw(file, skip=reach["missing"], timeout=UNIT_TIMEOUT)
+        config, problem = _raw(file, skip=reach["missing"], timeout=UNIT_TIMEOUT)
+        if config is None and not _answered({"problem": problem}):
+            return None   # Docker did not answer: nothing is known of the unit, which is not a unit that cannot be read
         folder = ROOT / paths.CATALOGS_DIR / f".stage-{ns}" / "playgrounds" / name if kind == "playground" else None
         return understood.of_unit(config, folder, kind, held, ROOT, bool(reach["missing"])) if isinstance(config, dict) else []
     with ThreadPoolExecutor(max_workers=8) as pool:
-        return sorted({item for found in pool.map(read, units) for item in found})
+        found = list(pool.map(read, units))
+    if any(one is None for one in found):
+        return None
+    return sorted({item for one in found for item in one})
 
 
 def judge_staged(ns, meta, row, replacing=False):

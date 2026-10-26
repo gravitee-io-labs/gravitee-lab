@@ -1131,32 +1131,41 @@ def probe(store_path, commit):
         _clear(target)
 
 
-def unknown_at(store_path, commit) -> list:
+def unknown_at(store_path, commit) -> Optional[list]:
     """What the version `commit` of a published catalog uses that this Lab does not read: the keys of its catalog.yml that
-    this Lab does not know, a `schema` or a legacy `lab` above the ones it reads, and what its units use (`project.staged_unknown`), each an
-    item of `understood`. Read from the files of that version (`probe`), once for each version and each lock: a Lab that is
-    updated reads it again. [] for a version that cannot be read at all: the strict reading at Add and at Update says why."""
+    this Lab does not know, a `schema` or a legacy `lab` above the ones it reads, and what its units use (`project.staged_unknown`),
+    each an item of `understood`. Read from the files of that version (`probe`), once for each version and each lock: a Lab that
+    is updated reads it again. [] for a version whose catalog.yml is not a valid one: the strict reading at Add and at Update
+    says why. None when this Lab could not tell (Docker did not answer in time, the version could not be written to be read):
+    that is no answer, so it is not kept, and the next check reads the version again."""
     key = (os.fspath(store_path), commit, understood.fingerprint())
     with _versions_lock:
         if key in _versions:
             return list(_versions[key])
     from ..library import project   # here and not above: the project reads this package
-    found = []
     try:
         with probe(store_path, commit) as ns:
             try:
                 meta = manifest.read_catalog(os.path.relpath(registry.stage_dir(ns) / manifest.FILE, paths.ROOT))
+            except CatalogError as error:
+                meta = None
+                if error.code == "schema_new":
+                    found = [("catalog.key", "schema")]
+                elif compose.missing(str((error.detail or {}).get("output") or "")):
+                    return None
+                else:
+                    found = []   # not a catalog this Lab reads at all: the strict reading refuses it with the reason
+            if meta is not None:
                 found = [("catalog.key", name) for name in meta["unknown"]]
                 held = understood.lock()
                 if held and isinstance(meta["lab"], int) and manifest.compat(meta["lab"], held.contract, held.contract_min) == "new":
                     found.append(("catalog.key", "lab"))   # a legacy level the tolerant reading could not be sure of
-            except CatalogError as error:
-                if error.code != "schema_new":
-                    raise
-                found = [("catalog.key", "schema")]
-            found += project.staged_unknown(ns)
+            units = project.staged_unknown(ns) if meta is not None else []
+            if units is None:
+                return None
+            found += units
     except TROUBLE:
-        found = []
+        return None
     with _versions_lock:
         if len(_versions) >= READ_MEMORY:
             _versions.clear()
@@ -1165,8 +1174,9 @@ def unknown_at(store_path, commit) -> list:
 
 
 def readable(store_path):
-    """What `manifest.pick` asks of a version of the catalog in the store: whether this Lab reads all it uses (`unknown_at`)."""
-    return lambda commit: not unknown_at(store_path, commit)
+    """What `manifest.pick` asks of a version of the catalog in the store: whether this Lab reads all it uses (`unknown_at`).
+    A version it could not tell of is not one it reads, for now."""
+    return lambda commit: unknown_at(store_path, commit) == []
 
 
 def plan_update(ns: str, target: str, context: Optional[dict] = None) -> dict:

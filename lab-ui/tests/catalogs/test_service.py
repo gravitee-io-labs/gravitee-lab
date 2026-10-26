@@ -1158,6 +1158,19 @@ class Understanding(Real):
         shown = service.check_address(remote.url)
         self.assertEqual((shown["newer"], service.TICKETS[shown["ticket"]]["staged"].commit), (True, older))
 
+    def test_a_version_docker_did_not_answer_for_is_not_kept_and_is_read_again(self):
+        remote = self.remote("partner", files={"catalog.yml": self.catalog_yml(legacy=False)})
+        store = registry.new_store_dir("0123456789abcdef")
+        tip = bare.fetch(gitx.parse_address(remote.url), "main", store)
+        real = project._raw
+        self.patch(project, "_raw", lambda path, **how: (None, {"file": path, "message": "docker did not answer within 15 s"}))
+        self.assertIsNone(install.unknown_at(store, tip), "this Lab could not tell")
+        self.assertFalse(install.readable(store)(tip), "a version it could not tell of is not one it reads, for now")
+        self.patch(project, "_raw", real)
+        self.assertEqual(install.unknown_at(store, tip), [], "the next reading reads it, and is the one kept")
+        self.patch(install, "probe", side_effect=AssertionError("read again"))
+        self.assertEqual(install.unknown_at(store, tip), [])
+
     def test_a_catalog_every_version_of_which_uses_what_this_lab_does_not_read_is_refused(self):
         for legacy in (True, False):
             with self.subTest(legacy=legacy):
