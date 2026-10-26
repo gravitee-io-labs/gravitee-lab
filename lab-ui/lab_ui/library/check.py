@@ -556,10 +556,11 @@ def _tested(sets, project):
 
 
 def _level(requires):
-    """The level an item says it was written for is a whole number from 1, whatever the kind of the item: the Lab
-    reads it from an add-on, a setup and a playground alike, and ignores one written otherwise at run time."""
+    """The legacy level an item says it was written for, for Gravitee Lab 1.4 and older, is a whole number from 1, whatever the
+    kind of the item: the Lab reads it from an add-on, a setup and a playground alike as a hint, and ignores one written otherwise
+    at run time."""
     if isinstance(requires, dict) and "lab" in requires and not (type(requires["lab"]) is int and requires["lab"] >= 1):
-        yield "x-gravitee.requires.lab must be a whole number from 1: the contract level this item was written for"
+        yield "x-gravitee.requires.lab must be a whole number from 1: Gravitee Lab 1.4 and older read it, and an item does without it"
 
 
 def _requires(requires, project):
