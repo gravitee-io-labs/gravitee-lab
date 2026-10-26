@@ -1502,7 +1502,7 @@ class XGravitee(ProjectFolder):
                          "Compose cannot read playgrounds/mine/compose.yml")
 
     def test_what_compose_says_is_explained_with_the_names_the_item_defines_and_a_fix(self):
-        defined = {"plain-app"}
+        defined = {"plain-app", "web", "web.v2", "x" * 80}
         cases = {
             'service "plain-app" depends on undefined service "nope": invalid compose project':
                 ("plain-app depends on a service that is not defined",
@@ -1512,14 +1512,19 @@ class XGravitee(ProjectFolder):
             "validating /x/compose.yml: services.plain-app.ports must be a array":
                 ("services.plain-app.ports must be a list", "write services.plain-app.ports as a list"),
             "services.plain-app must be a mapping": ("services.plain-app must be a mapping", "write services.plain-app as a mapping"),
+            "services.web.v2.ports must be a array": ("services.web.v2.ports must be a list", "write services.web.v2.ports as a list"),
+            f"services.{'x' * 80} must be a mapping": (f"services.{'x' * 59}… must be a mapping", f"write services.{'x' * 59}… as a mapping"),
             'service "other" depends on undefined service "nope": invalid compose project':
-                ("Compose cannot read it", "run docker compose config in addons/plain to see why"),
+                ("Compose cannot read it", "run docker compose -f setups/mine.yml config from the Lab's folder to see why"),
             "services.plain-app.secret-of-mine must be a string": ("a value of services.plain-app has the wrong type",
                                                                   "correct the type of that value"),
         }
         for said, wanted in cases.items():
             with self.subTest(said):
-                self.assertEqual(compose.explained(said, (), defined, "addons/plain"), wanted)
+                self.assertEqual(compose.explained(said, (), defined, "setups/mine.yml"), wanted)
+        self.assertEqual(compose.explained("services.other must be a mapping", (), defined, "setups/mine.yml", fine_here=True),
+                         ("it loads here, and the copy written for that catalog does not",
+                          "make what it includes part of that catalog, or of a catalog it requires"))
 
     def test_no_env_file_of_the_folder_is_read(self):
         text = "x-gravitee: {kind: addon, name: Quiet}\nservices:\n  quiet:\n    image: busybox\n    env_file: [x.env]\n"

@@ -558,12 +558,13 @@ def _rules(copy, kind, slug, ns, row):
     return found
 
 
-def _scrub(error, real, defined=(), folder="") -> str:
+def _scrub(error, real, defined=(), file="", fine_here=False) -> str:
     """What a share's check says of Compose's failure on the copies it staged, and its fix (compose.explained): the kind of failure,
     the services the item's own file defines (`defined`), of the files the Lab knows the one Compose names, a staged copy by the
-    path of the item it stands for (`real`: {staged path: the item's file in the Lab}), and the command to run in its folder
-    (`folder`). Nothing else of what Compose said, which may be a name or a value the file's author chose."""
-    said, fix = compose.explained(error, list(real), defined, folder)
+    path of the item it stands for (`real`: {staged path: the item's file in the Lab}), and the command that tells why for its file
+    (`file`), or that only the copy fails (`fine_here`). Nothing else of what Compose said, which may be a name or a value the file's
+    author chose."""
+    said, fix = compose.explained(error, list(real), defined, file, fine_here)
     for staged, mine in sorted(real.items(), key=lambda pair: -len(pair[0])):
         said, fix = said.replace(staged, mine), fix.replace(staged, mine)
     return f"{said}. Fix: {fix}."
@@ -783,7 +784,8 @@ def _preflight(project, kind, uid, file, slug, ns, row, rows, copy, along=(), al
                 real = {stages[(k2, s2)][0]: paths.unit_file(k2, one2) for k2, one2, s2, _ in every}
                 defined = {name for k2, one2, _, _ in every for name in (project[f"{k2}s"].get(one2) or {}).get("services") or ()
                            if isinstance(name, str)}
-                lines = [f"Does not load with the platform: {_scrub(error, real, defined, posixpath.dirname(paths.unit_file(k, one)))}"]
+                fine = (projects.loaded()[1].get("raw") or {}).get(paths.unit_file(k, one)) is not None
+                lines = [f"Does not load with the platform: {_scrub(error, real, defined, paths.unit_file(k, one), fine)}"]
                 problems += lines if (k, s) == (kind, slug) else [f"{one.rsplit('/', 1)[-1]}: {line}" for line in lines]
                 continue
             problems += [f"Blocked: {reason}" if (k, s) == (kind, slug) else f"{one.rsplit('/', 1)[-1]}: Blocked: {reason}"
@@ -983,7 +985,10 @@ def _lab_raised_in(ns):
     file, temporary = root / registry.CATALOG_FILE, f".{registry.CATALOG_FILE}.lab-{secrets.token_hex(4)}"
     catalog = (registry.inputs().get(ns) or {}).get("name") or ns
     try:
-        raised = lab_raised(file.read_text(encoding="utf-8"))   # what says the level already needs nothing written
+        data, why = registry._read(file, manifest.FILE_LIMIT)   # never a wait on a pipe, never more than a catalog.yml holds
+        if data is None:
+            raise OSError(str(why))
+        raised = lab_raised(data.decode("utf-8"))   # what says the level already needs nothing written
         if raised is None:
             return None
         mode = os.lstat(file).st_mode
@@ -1082,92 +1087,7 @@ def unmark(text):
     return block.drop(text, "copy_of", override=True)
 
 
-CHAIN = 8   # the copies of copies a private origin is looked for through, at most: a longer or a looping chain says nothing
-
-
-def private_source(text, folder=None, _seen=()):
-    """(key, name, original) of the private catalog what an item holds comes from, else None. Its label says it
-    (`x-gravitee.private_from`, written with the original when it was copied, moved, shared, exported or imported). An item made
-    before there was a label says only whose copy it is (`x-gravitee.copy_of`), which may be a copy itself: that chain is followed
-    through the items this machine has, to the first item of a private catalog of Git. A copy of what this machine does not have,
-    or cannot read, and a chain too long or that loops, are taken as private: nothing says otherwise. `folder`: where the file is,
-    which Compose reads it in (_said)."""
-    return _private_said(_said(text or "", folder), _seen)
-
-
-def _private_said(said, _seen=()):
-    """private_source of an item whose x-gravitee says (private_from, copy_of) `said`, or is the block `said` itself."""
-    if isinstance(said, dict):
-        said = ((str(said["private_from"]) if said.get("private_from") else None), (str(said["copy_of"]) if said.get("copy_of") else None))
-    said, uid = said
-    if said:
-        name = said[:NAME_LIMIT]
-        return name, name, None
-    if not uid:
-        return None
-    try:
-        ns = paths.origin(uid)
-    except paths.NotFound:
-        ns = None
-    if not ns or ns == LOCAL or uid in _seen or len(_seen) >= CHAIN:
-        return (ns or "unknown"), _catalog_name(ns) if ns and ns != LOCAL else "an item of unknown origin", uid
-    entry = registry.entry(ns)
-    if entry is not None and entry.get("kind") == "git" and registry.lock_of(ns).get("audience") != "public":
-        return ns, _catalog_name(ns), uid
-    # The original as the project read it, which held, linked or special files never reach: no other folder is read for it
-    read = projects.loaded()[1].get("raw") or {}
-    said = None
-    for kind in paths.KINDS if entry is not None else ():
-        with contextlib.suppress(paths.NotFound, ValueError):
-            said = said or (read.get(paths.unit_file(kind, uid)) or {}).get("x-gravitee")
-    if not isinstance(said, dict):
-        return ns, _catalog_name(ns), uid   # the original is not on this machine, or the Lab does not read it
-    return _private_said(said, (*_seen, uid))
-
-
-def _said(text, folder=None):
-    """(private_from, copy_of) of an item's x-gravitee block as Compose reads it in `folder`, where the item is, the reader the Lab
-    reads every item with; as the Lab's own reading of its own writing (meta.py) only when Compose cannot read the file there.
-    Without a folder it is read where nothing is, as a file that includes nothing."""
-    try:
-        found = compose.x_gravitee(text, folder or compose.scratch())
-    except compose.ComposeError:
-        return block.value(text, "private_from"), block.value(text, "copy_of")
-    found = found if isinstance(found, dict) else {}
-    return (str(found["private_from"]) if found.get("private_from") else None), (str(found["copy_of"]) if found.get("copy_of") else None)
-
-
-def _said_id(text, folder=None):
-    """The `private_id` of an item's x-gravitee block, read as _said reads its label; None when it says none."""
-    try:
-        found = compose.x_gravitee(text, folder or compose.scratch())
-    except compose.ComposeError:
-        return block.value(text, "private_id")
-    found = found.get("private_id") if isinstance(found, dict) else None
-    return str(found) if found else None
-
-
-def private_of(text, uid, folder=None):
-    """The name of the private catalog what the item `uid` (its compose `text`, in `folder`) holds comes from: its label or its
-    chain, else its own catalog when that is a private catalog of Git; None when it is nobody's private content."""
-    return _private_of(text, uid, folder)[1]
-
-
-def _private_of(text, uid, folder=None):
-    """private_of as (the id of that private catalog of Git, when it is one this Lab knows it is, its name); (None, None) when it
-    is nobody's private content. What the Lab knows wins, what a file says can only add: the catalog the item is in, or the one
-    its copy chain reaches through the items of this machine (_known_origin), whatever its file says; else the file's own label,
-    a notice, with an id only when its `private_id` and its `private_from` are a private catalog of Git of this Lab's, both; else
-    a copy of what this machine does not have, taken for private content (private_source)."""
-    label, copied = _said(text or "", folder)
-    known = _known_origin(uid, copied)
-    if known:
-        return known
-    if label:
-        name, ns = label[:NAME_LIMIT], _said_id(text or "", folder)
-        return (ns if ns and _private_git(ns) and _catalog_name(ns) == name else None), name
-    source = _private_said((None, copied)) if copied else None
-    return (None, source[1]) if source else (None, None)
+UNKNOWN = "an item of unknown origin"   # the origin of a copy of what this machine does not have: private content all the same
 
 
 def _private_git(ns):
@@ -1176,36 +1096,64 @@ def _private_git(ns):
     return bool(entry) and entry.get("kind") == "git" and registry.lock_of(ns).get("audience") != "public"
 
 
-def _known_origin(uid, copied):
-    """(id, name) of the private catalog of Git the Lab itself knows what an item holds comes from, None when it knows none: the
-    catalog the item `uid` is in, else the first one its copy chain reaches (`copied`, its copy_of, then each original's, as the
-    project read the items of this machine). Never what a file says of a label."""
+def _listed(value):
+    """A field of a label as a list of strings: a list, one string, or nothing."""
+    return [str(one) for one in (value if isinstance(value, list) else [] if value in (None, "") else [value])]
+
+
+def origins(text, uid, folder=None):
+    """[(id, name)] of the private catalogs of Git what the item `uid` holds (its compose `text`, in `folder`) is content of: the
+    set its label says. What its file says (`private_from` and `private_id`, lists side by side, read with Compose), with what the
+    Lab knows directly: the catalog the item is in, when it is a private catalog of Git; and for a copy without a label (made before
+    there was one) the catalog its copy_of names, one step and no further, or, when this machine does not have that catalog, an
+    origin of unknown name. Never what another item says. A set only grows here: nothing a file says takes an origin away."""
+    try:
+        said = compose.x_gravitee(text or "", folder or compose.scratch())
+    except compose.ComposeError:   # read as the Lab reads its own writing (meta.py), which writes the lists as JSON reads them
+        said = {key: _read_own_list(block.value(text or "", key)) for key in ("private_from", "private_id")}
+        said["copy_of"] = block.value(text or "", "copy_of")
+    said = said if isinstance(said, dict) else {}
+    names, ids = _listed(said.get("private_from")), _listed(said.get("private_id"))
+    found = [(ids[n] if n < len(ids) else "", name[:NAME_LIMIT]) for n, name in enumerate(names)]
     with contextlib.suppress(paths.NotFound, ValueError):
         if _private_git(paths.origin(uid)):
-            return paths.origin(uid), _catalog_name(paths.origin(uid))
-    read, seen = projects.loaded()[1].get("raw") or {}, []
-    while copied and copied not in seen and len(seen) < CHAIN:
-        seen.append(copied)
+            found.append((paths.origin(uid), _catalog_name(paths.origin(uid))))
+    if said.get("copy_of") and not names:
         try:
-            ns = paths.origin(copied)
+            ns = paths.origin(str(said["copy_of"]))
         except (paths.NotFound, ValueError):
-            return None
+            ns = None
         if _private_git(ns):
-            return ns, _catalog_name(ns)
-        said = None
-        for kind in paths.KINDS:
-            with contextlib.suppress(paths.NotFound, ValueError):
-                said = said or (read.get(paths.unit_file(kind, copied)) or {}).get("x-gravitee")
-        copied = str(said["copy_of"]) if isinstance(said, dict) and said.get("copy_of") else None
-    return None
+            found.append((ns, _catalog_name(ns)))
+        elif not ns or ns == LOCAL or registry.entry(ns) is None:
+            found.append((ns if ns and ns != LOCAL else "", UNKNOWN))
+    kept, seen = [], set()
+    for one, name in found:   # each origin once, by its id, else by its name
+        if (one or name) not in seen:
+            seen.add(one or name)
+            kept.append((one, name))
+    return kept
 
 
-def _label_in(private, to):
-    """The private label a copy takes into the catalog `to`, from (id, name) of the private catalog its content comes from
-    (_private_of): its name, unless `to` is that very private catalog of Git, by its id; a catalog that only has the same name, or
-    a label whose id the Lab cannot vouch for, is another."""
-    ns, name = private
-    return None if ns is not None and ns == to and _private_git(to) else name
+def _read_own_list(value):
+    """A field of a label as the Lab wrote it, `["a", "b"]`, or one string; one that reads otherwise is a label all the same."""
+    if not isinstance(value, str) or not value.startswith("["):
+        return value
+    try:
+        return json.loads(value)
+    except ValueError:
+        return ["private content"]
+
+
+def without(found, to):
+    """The origins that stay with a copy that goes to the catalog `to`: all of them, but `to`'s own when it is a private catalog of
+    Git: what is back in it is its own content, which it says itself."""
+    return [(ns, name) for ns, name in found if not (ns == to and _private_git(to))]
+
+
+def _fields(found):
+    """The keys of a label, for `rewritten`: the names and the ids side by side, or None for no label."""
+    return {"private_from": [name for _, name in found] or None, "private_id": [ns or "" for ns, _ in found] or None}
 
 
 def _catalog_name(ns):
@@ -1255,15 +1203,15 @@ def _catalog_read(text):
             return None
 
 
-def labelled(text, name, ns=None):
-    """The compose text whose x-gravitee block says the private catalog what it holds comes from: its name for people
-    (`private_from`) and, when the Lab knows it, its id (`private_id`), by which a share knows that very catalog again; or says
-    none of them."""
+def labelled(text, found):
+    """The compose text whose x-gravitee block says the origins `found` ([(id, name)]: origins) of what it holds, the names for
+    people (`private_from`) and the ids beside them (`private_id`); or says none."""
     text = block.drop(block.drop(text, "private_id"), "private_from")
-    if not name:
+    if not found:
         return text
-    text = (block.put(text, "private_id", ns) or text) if ns else text
-    return block.put(text, "private_from", name) or text
+    fields = _fields(found)
+    text = block.put(text, "private_id", fields["private_id"]) or text
+    return block.put(text, "private_from", fields["private_from"]) or text
 
 
 def mark(text, uid):
@@ -1271,17 +1219,16 @@ def mark(text, uid):
     return block.put(text, "copy_of", uid)
 
 
-def _unmarked(copy, kind, slug, private=None, name=None, private_id=None):
-    """The copy without `x-gravitee.copy_of`: whose copy an item of this machine is, which an item of a catalog never says; and
-    with `private`, the name of the private catalog what it holds comes from, as its label, which then goes with it; without, no
-    label, the one it had included (it goes back to the very catalog the label names, or it is nobody's private content). The change is
+def _unmarked(copy, kind, slug, found=(), name=None):
+    """The copy without `x-gravitee.copy_of`: whose copy an item of this machine is, which an item of a catalog never says; with
+    the label of the origins `found` (origins, less what without() takes away), which then goes with it, or none. The change is
     made to the file as it is (`kept`) and checked as Compose reads it there (`rewritten`), also when the Lab's reader sees nothing
     to change, then written for its new place as `text` was (`place`): else the refusal naming the item (`name`)."""
-    ns = private_id if private else None
-    edited = labelled(unmark(copy.kept), private, ns)   # without `private`, a label it had goes: it goes back to that very catalog
+    found = list(found)
+    edited = labelled(unmark(copy.kept), found)
     labelled_before = bool(block.value(copy.kept, "private_from"))
-    rewritten(copy.kept, edited, {"copy_of": None, "private_from": private, "private_id": ns}, name or slug,
-              "its private label and whose copy it is" if private or labelled_before else "whose copy it is", copy.folder,
+    rewritten(copy.kept, edited, {"copy_of": None, **_fields(found)}, name or slug,
+              "its private label and whose copy it is" if found or labelled_before else "whose copy it is", copy.folder,
               f"{slug}.yml" if kind == "setup" else "compose.yml")
     if edited == copy.kept:
         return copy
@@ -1292,11 +1239,11 @@ def _unmarked(copy, kind, slug, private=None, name=None, private_id=None):
     return copy._replace(files=files, text=text)
 
 
-def _unmarked_or_said(copy, kind, slug, private, name, private_id=None):
+def _unmarked_or_said(copy, kind, slug, found, name):
     """_unmarked for a share: a file Compose cannot read as it is is a problem of the copy, said with the others, which stops the
     share as they do."""
     try:
-        return _unmarked(copy, kind, slug, private, name, private_id)
+        return _unmarked(copy, kind, slug, found, name)
     except CatalogError as error:
         if error.code != "label_unread":
             raise
@@ -1521,18 +1468,14 @@ def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False)
     with registry.flock():
         copy = collect(kind, slug, to, moved=moved)
         along = [(k, one, s, collect(k, s, to, source, moved=moved)) for k, one, s, source in members]
-        for k, one, _, other in [(kind, uid, slug, copy), *along] if row["audience"] == "public" else ():
-            source = private_source(other.kept, other.folder)   # the copy is the private catalog's content, whatever it names
-            if source:
-                raise _refusal("share_private_copy", name=named(k, one), private=source[1])
-        # Whose copy it is goes with a copy of a private catalog's content into another catalog (not Public: refused above), so that
-        # it is still that catalog's content there; else an item of a catalog says nothing of it
-        # What is private content says so in the catalog it goes to, unless it goes back to that very catalog: the private catalog
-        # of Git it comes from, known by its id, never a catalog that only has its name
-        private = {(k, s): _private_of(other.kept, one, other.folder) for k, one, s, other in [(kind, uid, slug, copy), *along]}
-        copy = _unmarked_or_said(copy, kind, slug, _label_in(private[(kind, slug)], to), name, private[(kind, slug)][0])
-        along = [(k, one, s, _unmarked_or_said(other, k, s, _label_in(private[(k, s)], to), named(k, one), private[(k, s)][0]))
-                 for k, one, s, other in along]
+        # What is private content says so in the catalog it goes to, which takes away only its own origin (without); a Public one
+        # takes none, so it takes no private content
+        found = {(k, s): origins(other.kept, one, other.folder) for k, one, s, other in [(kind, uid, slug, copy), *along]}
+        for k, one, s, _ in [(kind, uid, slug, copy), *along] if row["audience"] == "public" else ():
+            if found[(k, s)]:
+                raise _refusal("share_private_copy", name=named(k, one), private=found[(k, s)][0][1])
+        copy = _unmarked_or_said(copy, kind, slug, without(found[(kind, slug)], to), name)
+        along = [(k, one, s, _unmarked_or_said(other, k, s, without(found[(k, s)], to), named(k, one))) for k, one, s, other in along]
         renames = _renames([(kind, slug, copy), *[(k, s, c) for k, _, s, c in along]], to)
         copy = _renamed(copy, kind, slug, renames)
         along = [(k, one, s, _renamed(c, k, s, renames)) for k, one, s, c in along]

@@ -510,8 +510,8 @@ class Judged(Seam):
     def test_the_copy_is_gone_when_the_judgement_fails_too(self):
         self.patch(contribute, "_judged", mock.Mock(side_effect=compose.ComposeError("boom")))
         answer = self.share(check_only=True)
-        self.assertEqual(answer["problems"], ["Does not load with the platform: Compose cannot read it. Fix: run docker compose config "
-                                              "in .lab/catalogs/local/addons/scratch to see why."])
+        self.assertEqual(answer["problems"], ["Does not load with the platform: it loads here, and the copy written for that catalog "
+                                              "does not. Fix: make what it includes part of that catalog, or of a catalog it requires."])
         self.patch(contribute, "_judged", mock.Mock(side_effect=RuntimeError("fault")))
         with self.assertRaisesRegex(RuntimeError, "fault"):
             self.share(check_only=True)
@@ -539,9 +539,9 @@ class Judged(Seam):
         self.patch(contribute, "_judged", judge)
         problems = self.share(check_only=True)["problems"]
         self.assertEqual(len(problems), 1)
-        self.assertEqual(problems[0], "Does not load with the platform: Compose cannot read .lab/catalogs/local/addons/scratch/compose.yml. "
-                                      "Fix: run docker compose config in .lab/catalogs/local/addons/scratch to see why.",
-                         "the item's own file, by its path in the Lab: never the staged copy, nor what Compose quoted of the file")
+        self.assertEqual(problems[0], "Does not load with the platform: it loads here, and the copy written for that catalog does not. "
+                                      "Fix: make what it includes part of that catalog, or of a catalog it requires.",
+                         "never the staged copy, nor what Compose quoted of the file")
 
     def test_an_include_of_another_item_of_this_machine_is_refused_with_the_line_of_section_11(self):
         self.item("addon", "tied", "Tied", "include:\n  - ../scratch/compose.yml\nservices: {}\n")
@@ -662,19 +662,15 @@ class Judged(Seam):
 
     def test_a_catalog_that_only_has_the_name_of_the_private_one_is_another_and_the_label_goes_there(self):
         fixtures.install(self, "lab-new", "folder", link=True, name="Partner fixture", audience="private")
-        self.item("addon", "my-ledger", "Ledger", 'x-gravitee: {copy_of: "@partner/ledger", kind: addon, name: Ledger, category: Other, '
-                                               'description: Keeps the entries of a partner}\nservices: {}\n')
+        self.item("addon", "my-ledger", "Ledger", self.COPIED)
         self.share("local/my-ledger", "lab-new")
         (shared,) = (self.root / ".lab/catalogs/lab-new").rglob("my-ledger/compose.yml")
-        self.assertEqual(contribute.private_source(shared.read_text(), shared.parent), ("Partner fixture", "Partner fixture", None),
+        self.assertEqual(contribute.origins(shared.read_text(), "@lab-new/my-ledger", shared.parent), [("partner", "Partner fixture")],
                          "still that catalog's content: an export says it, a share to Public refuses it")
         self.assertNotIn("copy_of", shared.read_text())
-        self.assertEqual(contribute._label_in(("partner", "Partner fixture"), "lab-new"), "Partner fixture")
-        self.assertIsNone(contribute._label_in(("partner", "Partner fixture"), "partner"), "back to that very catalog: nothing to say")
-        self.assertEqual(contribute._label_in((None, "Partner fixture"), "partner"), "Partner fixture", "a label names, it is no id")
 
-    COPIED = ('x-gravitee: {private_from: "Partner fixture", copy_of: "@partner/ledger", kind: addon, name: Ledger, '
-              'category: Other, description: Keeps the entries}\nservices: {}\n')   # what Copy to Personal writes
+    COPIED = ('x-gravitee: {private_from: ["Partner fixture"], private_id: ["partner"], copy_of: "@partner/ledger", kind: addon, '
+              'name: Ledger, category: Other, description: Keeps the entries}\nservices: {}\n')   # what Copy to Personal writes
 
     def test_an_include_that_is_not_text_or_cannot_be_opened_is_a_problem_in_clean_words(self):
         inner = self.root / ".lab/catalogs/local/addons/inner/compose.yml"
@@ -710,7 +706,8 @@ class Judged(Seam):
                 os.chmod(inner, 0o644) if inner.exists() else None
                 make()
                 with self.assertRaises(CatalogError) as raised:
-                    contribute.rewritten(outer, contribute.labelled(outer, "Partner fixture"), {"private_from": "Partner fixture"},
+                    contribute.rewritten(outer, contribute.labelled(outer, [("partner", "Partner fixture")]),
+                                         contribute._fields([("partner", "Partner fixture")]),
                                          "Outer", folder=base / "outer")
                 self.assertEqual((raised.exception.code, raised.exception.message), ("label_unread", f"inner: its compose file "
                                  f"cannot be read ({said}). Fix: correct it so that docker compose config reads it, then try again."))
@@ -724,8 +721,7 @@ class Judged(Seam):
         self.assertEqual(remote.git("show", f"{done['branch']}:catalog.yml"), remote.git("show", "main:catalog.yml"),
                          "its level stays: nothing in it needs more")
         self.assertEqual(remote.git("log", "-1", "--format=%s", done["branch"]), "Add Ledger")
-        self.assertEqual(contribute._private_of(self.COPIED, "local/my-ledger"), ("partner", "Partner fixture"),
-                         "the label names it for people; whose copy it is says which catalog it is")
+        self.assertEqual(contribute.origins(self.COPIED, "local/my-ledger"), [("partner", "Partner fixture")])
 
     def test_a_copy_shared_to_a_folder_of_another_name_keeps_its_label_and_raises_its_level_once(self):
         fixtures.install(self, "lab-new", "folder", audience="private", lab=1)
@@ -734,7 +730,7 @@ class Judged(Seam):
         self.item("addon", "my-ledger", "Ledger", self.COPIED)
         self.assertNotIn("warning", self.share("local/my-ledger", "lab-new"))
         (shared,) = root.rglob("my-ledger/compose.yml")
-        self.assertIn('private_from: "Partner fixture"', shared.read_text())
+        self.assertIn('private_from: ["Partner fixture"]', shared.read_text())
         after = (root / "catalog.yml").read_text()
         self.assertEqual(after, before.replace("  lab: 1\n", f"  lab: {contribute.LABEL_LEVEL}\n"), "only its level changes")
         self.item("addon", "my-other", "Other", self.COPIED.replace("name: Ledger", "name: Other"))
@@ -744,9 +740,9 @@ class Judged(Seam):
     def test_a_copy_that_came_home_through_a_folder_catalog_loses_its_label_by_the_id_written_with_it(self):
         fixtures.install(self, "lab-new", "folder", audience="private", lab=1, name="Team")
         # what Copy to Personal writes of an item of the folder Team that a share of a copy of @partner/ledger put there
-        text = ('x-gravitee: {private_from: "Partner fixture", private_id: partner, copy_of: "@lab-new/my-ledger", kind: addon, '
+        text = ('x-gravitee: {private_from: ["Partner fixture"], private_id: ["partner"], copy_of: "@lab-new/my-ledger", kind: addon, '
                 'name: Ledger, category: Other, description: Keeps the entries}\nservices: {}\n')
-        self.assertEqual(contribute._private_of(text, "local/my-ledger"), ("partner", "Partner fixture"), "whatever the chain says")
+        self.assertEqual(contribute.origins(text, "local/my-ledger"), [("partner", "Partner fixture")])
         self.item("addon", "my-ledger", "Ledger", text)
         done = self.share("local/my-ledger", "partner")
         remote = self.remote("partner")
@@ -771,20 +767,33 @@ class Judged(Seam):
         self.item("addon", "my-other", "Other", self.COPIED.replace("name: Ledger", "name: Other"))
         self.assertNotIn("warning", self.share("local/my-other", "lab-new"), "it says the level already: nothing to write, nothing to say")
 
-    def test_a_copy_of_a_share_of_a_copy_of_a_private_item_stops_a_share_to_a_public_one(self):
+    def test_a_copy_of_a_share_of_a_copy_of_a_private_item_stops_a_share_to_a_public_one_by_its_label(self):
         fixtures.install(self, "lab-new", "folder", audience="private", lab=1)
-        shared = self.root / ".lab/catalogs/lab-new/addons/ledger/compose.yml"
+        shared = self.root / ".lab/catalogs/lab-new/addons/ledger/compose.yml"   # what a share of a copy of @partner/ledger wrote there
         shared.parent.mkdir(parents=True, exist_ok=True)
-        shared.write_text('x-gravitee: {copy_of: "@partner/ledger", kind: addon, name: Ledger}\nservices: {}\n')
-        self.item("addon", "my-ledger", "Ledger", 'x-gravitee: {copy_of: "@lab-new/ledger", kind: addon, name: Ledger, category: Other, '
-                                               'description: Keeps the entries of a partner}\nservices: {}\n')
+        shared.write_text('x-gravitee: {private_from: ["Partner fixture"], private_id: ["partner"], kind: addon, name: Ledger}\n'
+                          'services: {}\n')
+        self.item("addon", "my-ledger", "Ledger", 'x-gravitee: {private_from: ["Partner fixture"], private_id: ["partner"], '
+                                               'copy_of: "@lab-new/ledger", kind: addon, name: Ledger, category: Other, '
+                                               'description: Keeps the entries of a partner}\nservices: {}\n')   # its Copy to Personal
         with self.assertRaises(CatalogError) as raised:
             self.share("local/my-ledger", "fixture", check_only=True)
         self.assertEqual(lines_of(raised.exception), ("share_private_copy", 400, "Ledger is a copy of an item of Partner fixture, "
                                                                                 "which is private. Fix: share it to a private catalog."))
-        shared.unlink()   # the item it was copied from is no longer here: nothing says the content is not private
-        with self.assertRaises(CatalogError) as raised:
-            self.share("local/my-ledger", "fixture", check_only=True)
+
+    def test_a_copy_without_a_label_is_content_of_the_catalog_its_copy_of_names_and_of_nothing_further(self):
+        fixtures.install(self, "lab-new", "folder", audience="private", lab=1)
+        shared = self.root / ".lab/catalogs/lab-new/addons/ledger/compose.yml"
+        shared.parent.mkdir(parents=True, exist_ok=True)
+        shared.write_text('x-gravitee: {copy_of: "@partner/ledger", kind: addon, name: Ledger}\nservices: {}\n')   # its author's words
+        self.item("addon", "my-ledger", "Ledger", 'x-gravitee: {copy_of: "@lab-new/ledger", kind: addon, name: Ledger, category: Other, '
+                                               'description: Keeps the entries of a partner}\nservices: {}\n')
+        self.assertEqual(contribute.origins((self.root / ".lab/catalogs/local/addons/my-ledger/compose.yml").read_text(),
+                                            "local/my-ledger"), [], "a folder catalog's item says nothing for the Lab")
+        self.item("addon", "gone-ledger", "Gone ledger", 'x-gravitee: {copy_of: "@gone/ledger", kind: addon, name: Gone ledger, '
+                                                        'category: Other, description: d}\nservices: {}\n')
+        with self.assertRaises(CatalogError) as raised:   # a copy of what this machine does not have is private all the same
+            self.share("local/gone-ledger", "fixture", check_only=True)
         self.assertEqual(raised.exception.code, "share_private_copy")
 
     def test_an_image_prefix_and_an_address_of_a_private_catalog_are_names_too(self):

@@ -257,7 +257,7 @@ class RoundTrip(Case):
         scratch = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons" / "scratch" / "compose.yml"
         text = scratch.read_text(encoding="utf-8")
         head = "x-gravitee: {kind: addon, name: Scratch, category: Other, description: Notepad of this machine that brings Echo}\n"
-        self.patch(contribute, "_private_of", lambda text, uid, folder=None: (None, None))   # a copy of public content: no label is due
+        self.patch(contribute, "origins", lambda text, uid, folder=None: [])   # a copy of public content: no label is due
         self.patch(exports, "copies_of", lambda nodes: {})
         shapes = {"escaped key": head.replace("}\n", ', "copy\\x5fof": "@fixture/echo"}\n'),
                   "quote after a colon": head.replace("}\n", ", note: a:'b, copy_of: \"@fixture/echo\", z: x'}\n"),
@@ -420,7 +420,7 @@ class FromCatalogs(Case):
         self.assertEqual(plan["private"], [{"name": "Partner fixture", "items": ["Ledger"], "item_ids": ["local/ledger"]}])
         with zipfile.ZipFile(io.BytesIO(base64.b64decode(exports.archive("local/sandbox", private=["local/ledger"])["data"]))) as archive:
             text = archive.read("sandbox/addons/ledger/compose.yml").decode()
-        self.assertIn('private_from: "Partner fixture"', text, "the label goes with the content: the Lab that imports it keeps it")
+        self.assertIn('private_from: ["Partner fixture"]', text, "the label goes with the content: the Lab that imports it keeps it")
         self.assertNotIn("copy_of", text, "whose copy it is says nothing on another Lab")
 
     def test_a_copy_of_a_private_item_shared_to_a_folder_of_the_person_is_still_private_content(self):
@@ -466,17 +466,16 @@ class FromCatalogs(Case):
             exports.archive("local/sandbox", private=[])
         self.assertEqual(caught.exception.code, "export_private")
 
-    def test_the_origin_said_is_the_first_private_catalog_of_the_chain(self):
+    def test_a_copy_without_a_label_is_content_of_the_catalog_its_copy_of_names_one_step_only(self):
         fixtures.install(self, "lab-new", kind="git", audience="private", lab=1)   # a private catalog of the person's team
         ledger = paths.ROOT / paths.CATALOGS_DIR / "lab-new" / "addons" / "ledger" / "compose.yml"
         ledger.parent.mkdir(parents=True, exist_ok=True)
         ledger.write_text('x-gravitee: {copy_of: "@partner/ledger", kind: addon, name: Ledger}\nservices: {}\n', encoding="utf-8")
-        said = contribute.private_source('x-gravitee: {copy_of: "@lab-new/ledger", kind: addon, name: Ledger}\n')
-        self.assertEqual(said[:2], ("lab-new", "Newer Lab fixture"), "a private catalog of Git says it first")
-        self.assertIsNone(contribute.private_source('x-gravitee: {copy_of: "echo", kind: addon, name: Echo}\n'), "public, and no copy")
-        self.assertEqual(contribute.private_source('x-gravitee: {copy_of: "@gone/ledger", kind: addon}\n')[0], "gone",
-                         "what this machine does not have says nothing otherwise")
-        self.assertEqual(contribute.private_source('x-gravitee: {copy_of: "../../x", kind: addon}\n')[0], "unknown")
+        origins = lambda said: contribute.origins("x-gravitee: {" + said + ", kind: addon, name: L}\n", "local/l")   # noqa: E731
+        self.assertEqual(origins('copy_of: "@lab-new/ledger"'), [("lab-new", "Newer Lab fixture")], "never what that item says")
+        self.assertEqual(origins('copy_of: "echo"'), [], "public, and no label")
+        self.assertEqual(origins('copy_of: "@gone/ledger"'), [("gone", contribute.UNKNOWN)], "what this machine does not have")
+        self.assertEqual(origins('copy_of: "../../x"'), [("", contribute.UNKNOWN)])
 
     def test_an_import_keeps_the_label_of_private_content(self):
         preview = exports.receive(zipped({
@@ -485,7 +484,8 @@ class FromCatalogs(Case):
                                                         'category: Other, description: x}\nservices: {}\n').encode()}))
         exports.to_personal(preview["ticket"])
         home = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL
-        self.assertIn('private_from: "Partner fixture"', (home / "playgrounds/carried/compose.yml").read_text(encoding="utf-8"))
+        self.assertIn('private_from: "Partner fixture"', (home / "playgrounds/carried/compose.yml").read_text(encoding="utf-8"),
+                      "carried as it is")
 
     def carried(self, label):
         said = f'private_from: "{label}", ' if label else ""
@@ -499,20 +499,20 @@ class FromCatalogs(Case):
     def test_a_label_is_never_taken_for_the_id_of_the_catalog_it_is_in(self):
         service.add(exports.receive(self.carried("carried"))["ticket"])   # a private catalog named as this import's id
         project.forget()
-        self.assertEqual(exports.copies_of([("addon", "@carried/books")]), {("addon", "@carried/books"): ("carried", "carried")})
+        self.assertEqual(exports.copies_of([("addon", "@carried/books")]), {("addon", "@carried/books"): [("", "carried")]})
 
     def test_a_copy_says_its_private_origin_as_it_was_when_copied_whatever_comes_later_at_that_id(self):
         service.add(exports.receive(self.carried("Partner fixture"))["ticket"])
         project.forget()
         moving.copy("addon", "@carried/books")
         mine = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons/books/compose.yml"
-        self.assertIn('private_from: "Partner fixture"', mine.read_text())
+        self.assertIn('private_from: ["Partner fixture"]', mine.read_text())
         self.assertIn('copy_of: "@carried/books"', mine.read_text(), "and whose twin it is, on this Lab")
         project.forget()
         service.remove("carried")
         project.forget()
         service.add(exports.receive(self.carried(None))["ticket"])   # another file, of the same id, that says nothing
-        self.assertEqual(contribute.private_source(mine.read_text())[1], "Partner fixture")
+        self.assertEqual(contribute.origins(mine.read_text(), "local/books"), [("", "Partner fixture")])
 
     def ledger(self, head):
         """Partner's Ledger with its x-gravitee block written as `head` says (the rest of its file as the fixture has it)."""
@@ -538,14 +538,14 @@ class FromCatalogs(Case):
                 with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
                     text = archive.read("sandbox/addons/ledger/compose.yml").decode()
                 said = compose.x_gravitee(text, self.root)
-                self.assertEqual((said["private_from"], said["description"]), ("Partner fixture", said["description"]))
+                self.assertEqual((said["private_from"], said["description"]), (["Partner fixture"], said["description"]))
 
     def test_an_apostrophe_in_a_flow_block_is_no_quote_and_the_label_is_written(self):
         self.ledger("x-gravitee: {kind: addon, name: Ledger, category: Other, description: Keeps a partner's entries}\n")
         made = exports.archive("local/sandbox", private=["@partner/ledger"])
         with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
             said = compose.x_gravitee(archive.read("sandbox/addons/ledger/compose.yml").decode(), self.root)
-        self.assertEqual((said["private_from"], said["description"]), ("Partner fixture", "Keeps a partner's entries"))
+        self.assertEqual((said["private_from"], said["description"]), (["Partner fixture"], "Keeps a partner's entries"))
 
     def test_a_file_with_a_private_label_says_the_level_the_label_appeared_at(self):
         made = exports.archive("local/sandbox", private=["@partner/ledger"])
@@ -625,11 +625,11 @@ class FromCatalogs(Case):
         moving.copy("addon", "@partner/ledger")
         copied = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons" / "ledger" / "compose.yml"
         said = compose.x_gravitee(copied.read_text(), copied.parent, fresh=True)
-        self.assertEqual((said["private_from"], said["private_id"], said["copy_of"]), ("Partner fixture", "partner", "@partner/ledger"))
+        self.assertEqual((said["private_from"], said["private_id"], said["copy_of"]), (["Partner fixture"], ["partner"], "@partner/ledger"))
         made = exports.archive("local/sandbox", private=["@partner/ledger"])
         with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
             shipped = compose.x_gravitee(archive.read("sandbox/addons/ledger/compose.yml").decode(), self.root)
-        self.assertEqual((shipped["private_from"], shipped["private_id"]), ("Partner fixture", "partner"), "an export says it too")
+        self.assertEqual((shipped["private_from"], shipped["private_id"]), (["Partner fixture"], ["partner"]), "an export says it too")
 
     def test_a_label_says_any_name_of_a_catalog_as_it_is(self):
         names = ['Partner "core"', "C:\\labs\\partner", "Partner's", "Partner: core", "Partner # core", "Zürich 東京", "  padded  "]
@@ -639,7 +639,7 @@ class FromCatalogs(Case):
                 made = exports.archive("local/sandbox", private=["@partner/ledger"])
                 with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
                     said = compose.x_gravitee(archive.read("sandbox/addons/ledger/compose.yml").decode(), self.root)
-                self.assertEqual(said["private_from"], name)
+                self.assertEqual(said["private_from"], [name])
 
     def test_a_copy_whose_block_the_lab_cannot_write_is_refused_naming_the_item(self):
         self.ledger("x-gravitee: null\n")

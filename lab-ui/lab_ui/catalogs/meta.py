@@ -305,14 +305,15 @@ def drop(text, key, override=False):
 
 
 def put(text, key, value_):
-    """The text with `key: "value"` first in its x-gravitee block (any other `key` dropped); None when it has no block."""
+    """The text with `key: "value"` first in its x-gravitee block (any other `key` dropped), or `key: ["a", "b"]` for a list;
+    None when it has no block."""
     style, entries, block = _entries(text or "")
     if any(name == key for name, _, _ in entries):   # read again only when there was one to drop
         text = drop(text, key)
         style, entries, block = _entries(text or "")
     if block is None or style == "alias":
         return None
-    quoted = _quoted(value_)
+    quoted = "[" + ", ".join(_quoted(one) for one in value_) + "]" if isinstance(value_, list) else _quoted(value_)
     if style == "flow":
         rest = text[block[1] + 1:block[2]]
         return text[:block[1] + 1] + f"{key}: {quoted}" + (", " + rest.lstrip(" ") if rest.strip() else "") + text[block[2]:]

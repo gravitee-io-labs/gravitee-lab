@@ -676,27 +676,47 @@ TYPES = {"mapping": "a mapping", "array": "a list", "list": "a list", "string": 
          "integer": "a number", "boolean": "true or false"}
 
 
-def explained(error, known=(), defined=(), folder=""):
+SAID_NAME = 60   # characters of a name a refusal says, at most
+
+
+def _short(name):
+    return name if len(name) <= SAID_NAME else name[:SAID_NAME - 1] + "…"
+
+
+def _service_of(text, defined):
+    """(the service of `defined` that Compose's `services.<name>` names, the key after it or None), the longest name that matches
+    exactly: a dotted path is never taken for another service than the one it names."""
+    for name in sorted(defined, key=len, reverse=True):
+        found = re.search(rf"\bservices\.{re.escape(name)}(?:\.([A-Za-z_][\w-]*))?(?=[\s:]|$)", text)
+        if found:
+            return name, found.group(1)
+    return None, None
+
+
+def explained(error, known=(), defined=(), file="", fine_here=False):
     """(what is wrong, its fix) of Compose's failure on an item, for a person: a failure Compose words in a way the Lab knows (a
     service that depends on one that is not defined, a key it does not know, a value of the wrong type), with the name of a
-    service only when the item's own file defines it (`defined`) and of a key only when it is Compose's own; anything else as
-    cause() says it, and the command that tells why, in the item's folder (`folder`, in the Lab). Never a value of the file."""
+    service only when the item's own file defines it (`defined`) and of a key only when it is Compose's own; else, when the item
+    loads here and only the copy written for another catalog does not (`fine_here`), that; else as cause() says it, with the
+    command that tells why, for the item's file (`file`, in the Lab). Never a value of the file; a name cut at SAID_NAME."""
     text = str(error)
     found = re.search(r'service "([^"]+)" depends on undefined service', text)
     if found and found.group(1) in defined:
-        return (f"{found.group(1)} depends on a service that is not defined",
+        return (f"{_short(found.group(1))} depends on a service that is not defined",
                 "in its depends_on, name only services of this item or of what it includes")
-    found = re.search(r"\bservices\.([^.\s]+)(?:\.([^.\s]+))? (?:false schema|additional properties)", text)
-    if found and found.group(1) in defined:
-        return f"services.{found.group(1)} has a key Compose does not know", "remove that key, or correct its name"
-    found = re.search(r"\bservices\.([^.\s]+)(?:\.([^.\s]+))? must be an? (\w+)", text)
-    if found and found.group(1) in defined and found.group(3) in TYPES:
-        key = found.group(2)
-        where = f"services.{found.group(1)}" + (f".{key}" if key in SERVICE_KEYS else "")
+    service, key = _service_of(text, defined)
+    typed = re.search(r" must be an? (\w+)", text)
+    if service and re.search(r" (?:false schema|additional properties)", text):
+        return f"services.{_short(service)} has a key Compose does not know", "remove that key, or correct its name"
+    if service and typed and typed.group(1) in TYPES:
         if key is None or key in SERVICE_KEYS:
-            return f"{where} must be {TYPES[found.group(3)]}", f"write {where} as {TYPES[found.group(3)]}"
-        return f"a value of services.{found.group(1)} has the wrong type", "correct the type of that value"
-    return cause(error, known), f"run docker compose config in {folder or 'its folder'} to see why"
+            where = f"services.{_short(service)}" + (f".{key}" if key else "")
+            return f"{where} must be {TYPES[typed.group(1)]}", f"write {where} as {TYPES[typed.group(1)]}"
+        return f"a value of services.{_short(service)} has the wrong type", "correct the type of that value"
+    if fine_here:
+        return ("it loads here, and the copy written for that catalog does not",
+                "make what it includes part of that catalog, or of a catalog it requires")
+    return cause(error, known), f"run docker compose -f {file or 'its compose file'} config from the Lab's folder to see why"
 
 
 def named_by(text, folder, name="compose.yml"):

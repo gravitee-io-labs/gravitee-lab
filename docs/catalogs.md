@@ -163,8 +163,9 @@ the other, only one of the two runs at a time (the Lab says which to turn off), 
 copy, with your settings kept. A catalog's item that includes the original cannot be changed to include your copy: choose
 **<item> and what uses it** to copy those too, up to the playgrounds, and your own items that used one of them then use the
 copy. The copy takes the original's settings and secrets, not what its seed recorded, nor a link of its folder. A copy of an
-item of a private catalog is that catalog's content: the copy says which private catalog it comes from (`private_from`), and so do
-the share, the move, the export and the import that follow, whatever comes later at the id it was copied from. It is not shared to
+item of a private catalog is that catalog's content: the copy says which private catalogs it comes from (`private_from`), and so do
+the share, the move, the export and the import that follow, whatever comes later at the id it was copied from. Only a share back
+into one of those catalogs takes that one off the list. It is not shared to
 a Public catalog, and an export, for the Lab or for Docker Compose, says it under **Private** and is made only with each such item
 shown. What the Lab writes in a file, a label or whose copy it is taken out, is checked as Compose reads the file in its folder:
 what it cannot write or take out (an x-gravitee in a form the Lab cannot change, or in a second YAML document) stops the export,

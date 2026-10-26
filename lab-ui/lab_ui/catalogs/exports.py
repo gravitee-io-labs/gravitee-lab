@@ -139,8 +139,7 @@ def _gather(pid):
         name = units[kind][uid]["name"]
         problems += [f"{name}: {line}" for line in copy.problems]
         # What is private content says so in the file (private_from), which the other Lab keeps: it can only add a notice
-        private_id, private = contribute._private_of(copy.kept, uid, copy.folder)
-        files.update(contribute._unmarked(copy, kind, _slug(uid), private, name, private_id).files)
+        files.update(contribute._unmarked(copy, kind, _slug(uid), contribute.origins(copy.kept, uid, copy.folder), name).files)
     origins, private = _origins(carried, units, copies_of(carried))
     registries = _registries(found, carried, units)
     shared = _shared(carried, units, ns)
@@ -178,32 +177,32 @@ def _registries(found, carried, units):
 
 
 def copies_of(nodes):
-    """{(kind, id): (catalog id, its name)} of the items that are a copy of an item of a private catalog (x-gravitee.copy_of),
-    wherever they are now: in Personal, or in a catalog a share put them in. What they hold is that catalog's content."""
+    """{(kind, id): [(id, name)]} of the origins what the items hold comes from besides the catalog they are in (contribute.origins):
+    a copy of an item of a private catalog, wherever it is now, in Personal or in a catalog a share put it in, is that catalog's
+    content, and so is what a label says."""
     found = {}
     for kind, uid in nodes:
         file = paths.ROOT / paths.unit_file(kind, uid)
         data = contribute._read(file, bare.TEXT_FILE + 1)
-        source = contribute.private_source(data.decode("utf-8", "replace"), file.parent) if data else None
-        # A label (no original) always says private content; an older copy's chain does, but for an item of that very catalog
-        if source and (source[2] is None or source[0] != paths.origin(uid)):
-            found[(kind, uid)] = source[:2]
+        own = paths.origin(uid)
+        said = [one for one in contribute.origins(data.decode("utf-8", "replace"), uid, file.parent) if one[0] != own] if data else []
+        if said:
+            found[(kind, uid)] = said
     return found
 
 
 def _origins(carried, units, copies=None):
     """([{kind, item, name, catalog, catalog_name, version}] of the carried items that come from a catalog of Git, which another
     Lab may have too), and [{name, items, item_ids}] of the private ones among those catalogs: what leaves with the file. The person's
-    copy of an item of a private catalog (`copies`: {(kind, id): (that catalog's id, its name)}) is that catalog's content too."""
+    copy of an item of a private catalog, and what a label says (`copies`: {(kind, id): [(id, name)]}), is that content too."""
     rows = project.loaded()[1].get("catalogs") or {}
     origins, private = [], {}
     for kind, uid in carried:
-        if (kind, uid) in (copies or {}):
-            ns, title = copies[(kind, uid)]
+        for _, title in (copies or {}).get((kind, uid)) or ():
             one = private.setdefault(title, {"name": title, "items": [], "item_ids": []})
-            one["items"].append(units[kind][uid]["name"])
-            one["item_ids"].append(uid)
-            continue
+            if uid not in one["item_ids"]:
+                one["items"].append(units[kind][uid]["name"])
+                one["item_ids"].append(uid)
         ns = paths.origin(uid)
         entry = registry.entry(ns) if ns != paths.LOCAL else None
         if not entry or entry.get("kind") != "git":
@@ -215,8 +214,9 @@ def _origins(carried, units, copies=None):
                         "version": held.get("version")})
         if held.get("audience") != "public":
             one = private.setdefault(title, {"name": title, "items": [], "item_ids": []})
-            one["items"].append(name)
-            one["item_ids"].append(uid)
+            if uid not in one["item_ids"]:
+                one["items"].append(name)
+                one["item_ids"].append(uid)
     return origins, list(private.values())
 
 
