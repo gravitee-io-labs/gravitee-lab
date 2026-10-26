@@ -50,6 +50,8 @@ FILE_LIMIT = 1024 * 1024
 KEYS = ("schema", "id", "name", "description", "version", "lab", "license", "images", "contribute", "shared_settings",
         "moved_from", "canary", "requires", "host_access")
 REQUIRES_KEYS = ("catalogs",)   # the keys of `requires`
+# The keys of the mappings of the block, as the contract lists them (x-gravitee-catalog.<key>.<part>)
+PARTS = {"requires": REQUIRES_KEYS}
 NEED_KEYS = ("name", "url", "min")   # the keys of a catalog of `requires.catalogs`
 CONTRIBUTE = ("pull-request", "none")   # the values of `contribute`
 _VALUE_SHAPE = re.compile(r"[a-z][a-z-]{0,30}")   # a word a newer Lab could give `contribute` or `host_access`

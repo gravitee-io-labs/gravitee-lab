@@ -14,6 +14,8 @@ What it lists, and where each line comes from (`<kind>` is the first word of a l
     core.variable, .image_variable every variable the core file refers to (the settings any unit may read), the image
                                    variables (`*_VERSION`, `*_REGISTRY`) apart
     core.category                  the categories a unit's `category` may take (x-gravitee.categories)
+    catalog.key                    the keys of x-gravitee-catalog in a catalog.yml (`manifest.KEYS`), and the parts of the
+                                   ones that are mappings (`manifest.PARTS`)
     unit.key                       the keys of `check.META` (with the kind that reads one) and of `check.REQUIRES`
     label                          the `io.gravitee.*` labels the Lab UI reads (the string constants of lab_ui/, and the
                                    console labels its pattern accepts: `io.gravitee.console.<id>.name|url|legacy`) and
@@ -55,6 +57,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from lab_ui.library import check, project
+from lab_ui.catalogs import manifest
 from lab_ui.docker import compose
 from lab_ui.gravitee import frames
 from lab_ui.catalogs import understood
@@ -67,8 +70,8 @@ LOCK = "contract.lock"
 DOC = "docs/contract.md"
 COMMAND = "cd lab-ui && python3 -m tests.test_contract"
 # The first word of a line, in the order the lock lists them
-KINDS = ("core.service", "core.network", "core.variable", "core.image_variable", "core.category", "unit.key", "label",
-         "label.value", "seed.folder", "seed.file", "seed.setting", "frame.message", "anchor", "guide.block")
+KINDS = ("core.service", "core.network", "core.variable", "core.image_variable", "core.category", "catalog.key", "unit.key",
+         "label", "label.value", "seed.folder", "seed.file", "seed.setting", "frame.message", "anchor", "guide.block")
 # Level 1 is the state of the tree at the split, with the work that was in flight. These items belong to it and the
 # files cannot state them yet: the keys arrive with the terminal, the host declaration and the verification of `lab`
 # (check.META, check.REQUIRES), the seed folders with their seeder modules. A row that the files state is the files'
@@ -311,6 +314,13 @@ def key_items(meta, owners, requires):
     return items
 
 
+def catalog_items(keys, parts):
+    """The keys a catalog.yml may carry in x-gravitee-catalog, and the parts of those that are mappings."""
+    items = {("catalog.key", f"{manifest.BLOCK}.{key}"): "" for key in keys}
+    items.update({("catalog.key", f"{manifest.BLOCK}.{key}.{part}"): "" for key, names in parts.items() for part in names})
+    return items
+
+
 def core_items(config, variables):
     """The core's services (container ports, healthcheck, networks), networks, variables and categories."""
     items = {}
@@ -370,6 +380,7 @@ def stated(config=None, variables=None):
     config = compose.raw(CORE_FILE) if config is None else config
     names = [found["key"] for found in compose.variables(CORE_FILE)] if variables is None else variables
     items = core_items(config, names)
+    items.update(catalog_items(manifest.KEYS, manifest.PARTS))
     items.update(key_items(check.META, check.KEY_OF, check.REQUIRES))
     items.update(label_items(paths.LAB_UI_DIR / "lab_ui", config, project.CONSOLE_LABEL))
     items.update({("label.value", f"{label}={value}"): "" for label, values in understood.LABEL_VALUES.items() for value in values})
@@ -495,16 +506,24 @@ def removed_section(doc):
     return doc.split("\n## Removed", 1)[1].split("\n## ", 1)[0] if "\n## Removed" in doc else ""
 
 
-def _parent(key):
-    """The item of the lock that an item of a kind it lists for the first time belongs to: a label for one of its values."""
-    return ("label", key[1].partition("=")[0]) if key[0] == "label.value" else None
+FORMAT_LEVEL = 1   # catalog.yml was read with its keys from the split on: what its keys belong to when the lock first lists them
+
+
+def _first_level(key, rows):
+    """The level of an item of a kind the lock lists for the first time, whose items were read before it listed them: a value
+    of a label takes its label's (`rows`), a key of catalog.yml the level of the format it belongs to. None for any other: it is
+    an addition."""
+    if key[0] == "label.value":
+        found = rows.get(("label", key[1].partition("=")[0]))
+        return found[1] if found else None
+    return FORMAT_LEVEL if key[0] == "catalog.key" else None
 
 
 def plan(text, live, contract, floor, removed=None):
     """(the text of the lock to write, what stops writing it): the live items, each with the level it has in the lock
     (a new or changed item gets the level of `contract`). It stops at levels that are wrong, at a lock that is missing
     once `contract` is past 1, at a level that goes down or up by more than one, at an addition when `contract` was not
-    raised, and at a removal when `contract_min` was not. A kind the lock has no line of yet (`_parent`) is listed once at the
+    raised, and at a removal when `contract_min` was not. A kind the lock has no line of yet (`_first_level`) is listed once at the
     level of the items it belongs to, and is no addition: they were read before the lock listed them. `removed` is the text
     under Removed in the page: when given, each item removed or changed must be named in it between backticks."""
     try:
@@ -523,7 +542,7 @@ def plan(text, live, contract, floor, removed=None):
             stops.append(f"{CORE_FILE}: contract rises one level at a time (the lock has {locked}, not {contract - 1})")
         added, gone, changed = differences(rows, live)
         listed_kinds = {kind for kind, _ in rows}
-        first = {key for key in added if key[0] not in listed_kinds and _parent(key) in rows}
+        first = {key for key in added if key[0] not in listed_kinds and _first_level(key, rows) is not None}
         added = [key for key in added if key not in first]
         if added and contract == locked:
             stops.append(f"Added items need `contract` raised to {locked + 1} in {CORE_FILE} first")
@@ -537,8 +556,8 @@ def plan(text, live, contract, floor, removed=None):
     def since(key):
         if key in rows and rows[key][0] == live[key]:
             return rows[key][1]
-        if locked is not None and key[0] not in {kind for kind, _ in rows} and _parent(key) in rows:
-            return rows[_parent(key)][1]
+        if locked is not None and key[0] not in {kind for kind, _ in rows} and _first_level(key, rows) is not None:
+            return _first_level(key, rows)
         return contract
     kept = {key: (live[key], since(key)) for key in live}
     return render(contract, floor, kept), stops
@@ -1098,6 +1117,19 @@ class Level(Case):
                     ("seed.folder", "k8s")):
             with self.subTest(key=key):
                 self.assertEqual(self.rows[key][1], 1)
+
+    def test_the_keys_of_catalog_yml_are_of_the_format_of_level_one(self):
+        self.assertEqual({since for (kind, _), (_, since) in self.rows.items() if kind == "catalog.key"}, {FORMAT_LEVEL})
+
+    def test_the_keys_of_catalog_yml_listed_for_the_first_time_take_the_level_of_the_format_and_a_new_one_raises_contract(self):
+        text = "contract 1\ncontract_min 1\ncore.network edge since=1\n"
+        live = {("core.network", "edge"): "", ("catalog.key", "x-gravitee-catalog.id"): ""}
+        written, stops = plan(text, live, 1, 1)
+        self.assertEqual((stops, parse(written)[2][("catalog.key", "x-gravitee-catalog.id")][1]), ([], 1),
+                         "read since the split: no addition")
+        later = {**live, ("catalog.key", "x-gravitee-catalog.badge"): ""}
+        self.assertEqual(plan(written, later, 1, 1)[1], ["Added items need `contract` raised to 2 in docker-compose.yml first"])
+        self.assertEqual(parse(plan(written, later, 2, 1)[0])[2][("catalog.key", "x-gravitee-catalog.badge")][1], 2)
 
     def test_a_key_is_read_by_one_kind_or_all(self):
         for (kind, name), (attributes, _) in self.rows.items():

@@ -112,6 +112,30 @@ The image variables are the ones the Images page finds in the core. A unit that 
 
 A unit's `category` is one of the core's: `Gravitee Platform`, `AI`, `Event`, `API`, `Observability`, `Other`.
 
+### Keys of catalog.yml
+
+A catalog describes itself in the `x-gravitee-catalog` block of its `catalog.yml`
+([catalog.yml](writing-a-catalog.md#catalogyml)). A key outside this table, or a part of one, is read by nothing: the check of
+a catalog reports it, and a published catalog that has one needs a newer Gravitee Lab.
+
+| Key | What it says |
+|---|---|
+| `x-gravitee-catalog.schema` | For older Gravitee Labs: the format of the file ([The fields of older Labs](#the-fields-of-older-labs)) |
+| `x-gravitee-catalog.id` | The name the Lab keys the catalog by |
+| `x-gravitee-catalog.name` | How the Lab UI names it |
+| `x-gravitee-catalog.description` | One line that says what it holds |
+| `x-gravitee-catalog.version` | The version of its next release |
+| `x-gravitee-catalog.lab` | For older Gravitee Labs ([The fields of older Labs](#the-fields-of-older-labs)) |
+| `x-gravitee-catalog.license` | Its SPDX license |
+| `x-gravitee-catalog.images` | The registry prefix of the images it publishes |
+| `x-gravitee-catalog.contribute` | `pull-request` or `none` |
+| `x-gravitee-catalog.shared_settings` | The settings its items share |
+| `x-gravitee-catalog.moved_from` | The items it received from the Lab repository |
+| `x-gravitee-catalog.canary` | The items the end-to-end test always tries |
+| `x-gravitee-catalog.requires` | What it needs |
+| `x-gravitee-catalog.requires.catalogs` | The catalogs it includes from, with their address and minimum version |
+| `x-gravitee-catalog.host_access` | Some of its items take more of the machine than a container does |
+
 ### Keys of x-gravitee
 
 A unit describes itself in the `x-gravitee` block of its compose file. A key outside this table is read by nothing, and
@@ -320,6 +344,7 @@ label io.gravitee.role since=1
 | `core.variable` | A setting the core refers to | |
 | `core.image_variable` | A version or registry setting of an image | |
 | `core.category` | A category | |
+| `catalog.key` | A key of `x-gravitee-catalog` in `catalog.yml`, or a part of one | |
 | `unit.key` | A key of `x-gravitee` or of its `requires` | `kinds` |
 | `label` | An `io.gravitee` label | |
 | `label.value` | A value of a label the Lab acts on, as `label=value` | |
@@ -340,7 +365,8 @@ change raises it by one, however many items it adds.
 
 There is no optional addition: a Lab released before it does not read a catalog that uses it, so the legacy `lab` of that
 catalog rises with it and older Gravitee Labs, which read levels, refuse it as cleanly. A kind the lock lists for the first
-time, whose items were read before (the values of a label), takes the level of the items it belongs to, once.
+time, whose items were read before, takes the level of what they belong to, once: the values of a label the label's, the keys of
+`catalog.yml` the level of the format, 1.
 
 A catalog uses a new item once a release of the Lab has it: its CI checks it with the release its `.github/standard.json` pins,
 which says what is not read yet until the catalog moves to that release (`catalog.py upgrade --lab-ref latest`).
