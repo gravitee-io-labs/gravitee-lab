@@ -36,6 +36,16 @@ def zipped(entries):
     return out.getvalue()
 
 
+def shown(plan):
+    """What the page sends of what it showed of a plan's private content: each item under each origin."""
+    return [f"{one['key']}|{uid}" for one in plan["private"] for uid in one["item_ids"]]
+
+
+def root(ns):
+    """The origin id of the private catalog of Git `ns`: the first commit of its history."""
+    return contribute._roots(ns)[0]
+
+
 class Archives(Case):
     """What an import refuses before anything is written: the file is not what an export makes, or holds what a catalog cannot."""
 
@@ -83,11 +93,19 @@ class Unseen(Case):
     """exports.unseen_private: the file holds to the items of private content the page showed, not to their catalogs."""
 
     def test_an_item_the_page_did_not_show_refuses_the_file_though_its_catalog_was_shown(self):
-        shown = {"private": [{"name": "Partner fixture", "items": ["Ledger", "Books"], "item_ids": ["@partner/ledger", "local/books"]}]}
+        said = {"private": [{"key": "r1", "name": "Partner fixture", "items": ["Ledger", "Books"], "item_ids": ["@partner/ledger", "local/books"]}]}
         with self.assertRaises(CatalogError) as caught:
-            exports.unseen_private(shown, ["@partner/ledger"])
+            exports.unseen_private(said, ["r1|@partner/ledger"])
         self.assertEqual(caught.exception.code, "export_private")
-        exports.unseen_private(shown, ["@partner/ledger", "local/books"])
+        exports.unseen_private(said, ["r1|@partner/ledger", "r1|local/books"])
+
+    def test_an_origin_an_item_gained_since_refuses_the_file_though_the_item_was_shown(self):
+        said = {"private": [{"key": "r1", "name": "Partner fixture", "items": ["Ledger"], "item_ids": ["local/ledger"]},
+                            {"key": "r2", "name": "Older Lab fixture", "items": ["Ledger"], "item_ids": ["local/ledger"]}]}
+        with self.assertRaises(CatalogError) as caught:
+            exports.unseen_private(said, ["r1|local/ledger"])
+        self.assertEqual(caught.exception.message, "It now carries private content of Older Lab fixture. Fix: export it again to see "
+                                                   "what leaves with it.")
 
 
 class Named(Case):
@@ -407,7 +425,7 @@ class FromCatalogs(Case):
     def test_the_export_carries_what_comes_from_a_private_catalog_and_says_so(self):
         plan = exports.plan("local/sandbox")
         self.assertEqual(sorted(one["id"] for one in plan["carries"]), ["@partner/ledger", "local/sandbox", "local/scratch"])
-        self.assertEqual(plan["private"], [{"name": "Partner fixture", "items": ["Ledger"], "item_ids": ["@partner/ledger"]}])
+        self.assertEqual(plan["private"], [{"key": root("partner"), "name": "Partner fixture", "items": ["Ledger"], "item_ids": ["@partner/ledger"]}])
         self.assertEqual(plan["blocked"], [])
 
     def test_a_copy_of_an_item_of_a_private_catalog_is_private_content_too_and_the_file_says_whose_content_it_is(self):
@@ -417,8 +435,8 @@ class FromCatalogs(Case):
         project.forget()
         plan = exports.plan("local/sandbox")
         self.assertIn("local/ledger", [one["id"] for one in plan["carries"]])
-        self.assertEqual(plan["private"], [{"name": "Partner fixture", "items": ["Ledger"], "item_ids": ["local/ledger"]}])
-        with zipfile.ZipFile(io.BytesIO(base64.b64decode(exports.archive("local/sandbox", private=["local/ledger"])["data"]))) as archive:
+        self.assertEqual(plan["private"], [{"key": root("partner"), "name": "Partner fixture", "items": ["Ledger"], "item_ids": ["local/ledger"]}])
+        with zipfile.ZipFile(io.BytesIO(base64.b64decode(exports.archive("local/sandbox", private=shown(exports.plan("local/sandbox")))["data"]))) as archive:
             text = archive.read("sandbox/addons/ledger/compose.yml").decode()
         self.assertIn('private_from: ["Partner fixture"]', text, "the label goes with the content: the Lab that imports it keeps it")
         self.assertNotIn("copy_of", text, "whose copy it is says nothing on another Lab")
@@ -438,7 +456,7 @@ class FromCatalogs(Case):
         project.forget()
         plan = exports.plan("local/sandbox")
         self.assertIn("@lab-new/ledger", [one["id"] for one in plan["carries"]])
-        self.assertEqual(plan["private"], [{"name": "Partner fixture", "items": ["Ledger"], "item_ids": ["@lab-new/ledger"]}])
+        self.assertEqual(plan["private"], [{"key": root("partner"), "name": "Partner fixture", "items": ["Ledger"], "item_ids": ["@lab-new/ledger"]}])
 
     def shared_and_copied_back(self):
         """Partner's Ledger copied to Personal, changed, shared to Lab new (a folder of the person's), then that one copied back to
@@ -460,7 +478,7 @@ class FromCatalogs(Case):
 
     def test_private_content_keeps_its_label_through_a_copy_of_a_share_of_a_copy(self):
         self.shared_and_copied_back()
-        partner = [{"name": "Partner fixture", "items": ["Ledger"], "item_ids": ["local/ledger"]}]
+        partner = [{"key": root("partner"), "name": "Partner fixture", "items": ["Ledger"], "item_ids": ["local/ledger"]}]
         self.assertEqual(exports.plan("local/sandbox")["private"], partner)
         with self.assertRaises(CatalogError) as caught:
             exports.archive("local/sandbox", private=[])
@@ -472,9 +490,9 @@ class FromCatalogs(Case):
         ledger.parent.mkdir(parents=True, exist_ok=True)
         ledger.write_text('x-gravitee: {copy_of: "@partner/ledger", kind: addon, name: Ledger}\nservices: {}\n', encoding="utf-8")
         origins = lambda said: contribute.origins("x-gravitee: {" + said + ", kind: addon, name: L}\n", "local/l")   # noqa: E731
-        self.assertEqual(origins('copy_of: "@lab-new/ledger"'), [("lab-new", "Newer Lab fixture")], "never what that item says")
-        self.assertEqual(origins('copy_of: "echo"'), [], "public, and no label")
-        self.assertEqual(origins('copy_of: "@gone/ledger"'), [("gone", contribute.UNKNOWN)], "what this machine does not have")
+        self.assertEqual(origins('copy_of: "@lab-new/ledger"'), [(root("lab-new"), "Newer Lab fixture")], "never what that item says")
+        self.assertEqual(origins('copy_of: "echo"'), [("", contribute.UNKNOWN)], "an older copy of a public item: the id may name another")
+        self.assertEqual(origins('copy_of: "@gone/ledger"'), [("", contribute.UNKNOWN)], "what this machine does not have")
         self.assertEqual(origins('copy_of: "../../x"'), [("", contribute.UNKNOWN)])
 
     def test_an_import_keeps_the_label_of_private_content(self):
@@ -529,7 +547,7 @@ class FromCatalogs(Case):
             with self.subTest(name):
                 self.ledger(head)
                 try:
-                    made = exports.archive("local/sandbox", private=["@partner/ledger"])
+                    made = exports.archive("local/sandbox", private=shown(exports.plan("local/sandbox")))
                 except CatalogError as error:
                     self.assertEqual((error.code, error.message), ("label_failed", "Ledger: the Lab cannot write its private label and "
                                      "whose copy it is in this file. Fix: write its x-gravitee as one block of plain key: value lines, "
@@ -542,13 +560,13 @@ class FromCatalogs(Case):
 
     def test_an_apostrophe_in_a_flow_block_is_no_quote_and_the_label_is_written(self):
         self.ledger("x-gravitee: {kind: addon, name: Ledger, category: Other, description: Keeps a partner's entries}\n")
-        made = exports.archive("local/sandbox", private=["@partner/ledger"])
+        made = exports.archive("local/sandbox", private=shown(exports.plan("local/sandbox")))
         with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
             said = compose.x_gravitee(archive.read("sandbox/addons/ledger/compose.yml").decode(), self.root)
         self.assertEqual((said["private_from"], said["description"]), (["Partner fixture"], "Keeps a partner's entries"))
 
     def test_a_file_with_a_private_label_says_the_level_the_label_appeared_at(self):
-        made = exports.archive("local/sandbox", private=["@partner/ledger"])
+        made = exports.archive("local/sandbox", private=shown(exports.plan("local/sandbox")))
         with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
             self.assertIn(f"  lab: {contribute.LABEL_LEVEL}\n", archive.read("sandbox/catalog.yml").decode())
         lines = (Path(__file__).resolve().parents[3] / "contract.lock").read_text(encoding="utf-8").splitlines()
@@ -625,18 +643,18 @@ class FromCatalogs(Case):
         moving.copy("addon", "@partner/ledger")
         copied = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons" / "ledger" / "compose.yml"
         said = compose.x_gravitee(copied.read_text(), copied.parent, fresh=True)
-        self.assertEqual((said["private_from"], said["private_id"], said["copy_of"]), (["Partner fixture"], ["partner"], "@partner/ledger"))
-        made = exports.archive("local/sandbox", private=["@partner/ledger"])
+        self.assertEqual((said["private_from"], said["private_id"], said["copy_of"]), (["Partner fixture"], [root("partner")], "@partner/ledger"))
+        made = exports.archive("local/sandbox", private=shown(exports.plan("local/sandbox")))
         with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
             shipped = compose.x_gravitee(archive.read("sandbox/addons/ledger/compose.yml").decode(), self.root)
-        self.assertEqual((shipped["private_from"], shipped["private_id"]), (["Partner fixture"], ["partner"]), "an export says it too")
+        self.assertEqual((shipped["private_from"], shipped["private_id"]), (["Partner fixture"], [root("partner")]), "an export says it too")
 
     def test_a_label_says_any_name_of_a_catalog_as_it_is(self):
         names = ['Partner "core"', "C:\\labs\\partner", "Partner's", "Partner: core", "Partner # core", "Zürich 東京", "  padded  "]
         for name in names:
             with self.subTest(name=name):
                 self.patch(contribute, "_catalog_name", lambda ns, name=name: name)
-                made = exports.archive("local/sandbox", private=["@partner/ledger"])
+                made = exports.archive("local/sandbox", private=shown(exports.plan("local/sandbox")))
                 with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
                     said = compose.x_gravitee(archive.read("sandbox/addons/ledger/compose.yml").decode(), self.root)
                 self.assertEqual(said["private_from"], [name])
@@ -660,10 +678,10 @@ class FromCatalogs(Case):
             exports.archive("local/sandbox")
         self.assertEqual((caught.exception.code, caught.exception.message), ("export_private", "It now carries private content of "
                                                                              "Partner fixture. Fix: export it again to see what leaves with it."))
-        self.assertTrue(exports.archive("local/sandbox", private=["@partner/ledger"])["data"])
+        self.assertTrue(exports.archive("local/sandbox", private=shown(exports.plan("local/sandbox")))["data"])
 
     def test_the_archive_says_where_each_item_of_a_catalog_comes_from(self):
-        made = exports.archive("local/sandbox", private=["@partner/ledger"])
+        made = exports.archive("local/sandbox", private=shown(exports.plan("local/sandbox")))
         with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
             said = json.loads(archive.read("sandbox/export.json"))
             scratch = archive.read("sandbox/addons/scratch/compose.yml").decode()
@@ -671,7 +689,7 @@ class FromCatalogs(Case):
         self.assertIn("  - ../ledger/compose.yml\n", scratch, "the copy is what Scratch includes in the file")
 
     def test_a_lab_that_has_the_catalog_uses_its_own_item_instead_of_a_second_copy(self):
-        preview = exports.receive(exports.archive("local/sandbox", private=["@partner/ledger"])["data"])
+        preview = exports.receive(exports.archive("local/sandbox", private=shown(exports.plan("local/sandbox")))["data"])
         self.assertEqual(preview["reused"], [{"name": "Ledger", "catalog": "Partner fixture"}])
         self.assertEqual(preview["counts"], {"playground": 1, "setup": 0, "addon": 1})
         folder = paths.ROOT / exports.IMPORTS_DIR / "sandbox"
@@ -681,7 +699,7 @@ class FromCatalogs(Case):
         self.assertEqual(preview.get("blocked") or [], [])
 
     def test_a_lab_without_the_catalog_keeps_the_copy(self):
-        data = exports.archive("local/sandbox", private=["@partner/ledger"])["data"]
+        data = exports.archive("local/sandbox", private=shown(exports.plan("local/sandbox")))["data"]
         entry = registry.entry
         self.patch(exports.registry, "entry", lambda ns: None if ns == "partner" else entry(ns))
         preview = exports.receive(data)

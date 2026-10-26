@@ -9,11 +9,13 @@ import threading
 from pathlib import Path
 
 from lab_ui import paths
-from lab_ui.catalogs import contribute, exports, gitx, moving
+from lab_ui.catalogs import contribute, exports, gitx, moving, registry
+from lab_ui.catalogs.registry import CatalogError
+from lab_ui.docker import compose
 from lab_ui.library import project
 
 from .. import fixtures
-from .test_contribute import Seam
+from .test_contribute import Seam, lines_of, root
 from .test_exports import EVIL_CATALOG, zipped
 
 NOTES = ("x-gravitee: {{{said}kind: addon, name: Notes, category: Other, description: Notes of a team}}\n"
@@ -53,27 +55,27 @@ class Labels(Seam):
 
     def test_an_item_of_a_private_catalog_keeps_the_label_its_file_has_and_gains_its_catalog(self):
         fixtures.install(self, "partner", kind="git", store=True, lab=2,
-                         files={"addons/notes/compose.yml": notes(f'private_from: ["{self.old}"], private_id: [lab-old], ')})
+                         files={"addons/notes/compose.yml": notes(f'private_from: ["{self.old}"], private_id: ["{root("lab-old")}"], ')})
         project.forget()
         moving.copy("addon", "@partner/notes")
         project.forget()
-        self.assertEqual(contribute.origins(mine().read_text(), "local/notes"), [("lab-old", self.old), ("partner", "Partner fixture")])
+        self.assertEqual(contribute.origins(mine().read_text(), "local/notes"), [(root("lab-old"), self.old), (root("partner"), "Partner fixture")])
         os.rename(mine().parent, mine().parent.parent / "notes2")   # renamed, and shared back to partner: lab-old's stays
         project.forget()
         self.item("addon", "notes2", "Notes")
         shared = self.shared("local/notes2", "notes2")
         self.assertIn(f'private_from: ["{self.old}"]', shared)
-        self.assertIn('private_id: ["lab-old"]', shared)
+        self.assertIn(f'private_id: ["{root("lab-old")}"]', shared)
 
     def test_what_another_catalogs_item_says_never_steers_a_copy(self):
         fixtures.install(self, "lab-new", "folder", audience="private", lab=2, name="Team",
-                         files={"addons/notes/compose.yml": notes(f'private_from: ["{self.old}"], private_id: [lab-old], ')})
+                         files={"addons/notes/compose.yml": notes(f'private_from: ["{self.old}"], private_id: ["{root("lab-old")}"], ')})
         project.forget()
         moving.copy("addon", "@lab-new/notes")
         folder_item = self.root / ".lab/catalogs/lab-new/addons/notes/compose.yml"   # its author then says it is partner's copy
-        folder_item.write_text(notes(f'private_from: ["{self.old}"], private_id: [lab-old], copy_of: "@partner/ledger", '))
+        folder_item.write_text(notes(f'private_from: ["{self.old}"], private_id: ["{root("lab-old")}"], copy_of: "@partner/ledger", '))
         project.forget()
-        self.assertEqual(contribute.origins(mine().read_text(), "local/notes"), [("lab-old", self.old)])
+        self.assertEqual(contribute.origins(mine().read_text(), "local/notes"), [(root("lab-old"), self.old)])
         self.item("addon", "notes", "Notes")
         self.assertIn(f'private_from: ["{self.old}"]', self.shared("local/notes", "notes"), "lab-old's label stays on a share to partner")
 
@@ -82,11 +84,11 @@ class Labels(Seam):
         exports.to_personal(exports.receive(books("Acme secret", "partner"))["ticket"])
         project.forget()
         self.item("addon", "books", "Books")
-        self.assertNotIn("private_", self.shared("local/books", "books"), "it says partner's: a share into partner takes it away")
-        exports.to_personal(exports.receive(books("Acme secret", "acme"))["ticket"])
+        self.assertIn('private_from: ["Acme secret"]', self.shared("local/books", "books"), "a catalog's id is no origin: it stays")
+        exports.to_personal(exports.receive(books("Partner content", root("partner")))["ticket"])
         project.forget()
         self.item("addon", "books", "Books")
-        self.assertIn('private_from: ["Acme secret"]', self.shared("local/books", "books"), "another's stays")
+        self.assertNotIn("private_", self.shared("local/books", "books"), "the first commit of partner's history: back in partner")
 
     def test_a_copy_edited_and_shared_back_to_its_catalog_says_nothing_and_leaves_its_level(self):
         moving.copy("addon", "@partner/ledger")
@@ -104,13 +106,13 @@ class Labels(Seam):
 
     def test_a_folder_whose_catalog_yml_is_a_pipe_never_stops_a_share(self):
         fixtures.install(self, "lab-new", "folder", audience="private", lab=1, name="Team")
-        root = self.root / ".lab/catalogs/lab-new"
+        folder = self.root / ".lab/catalogs/lab-new"
         pipe = Path(tempfile.mkdtemp()) / "pipe"
         os.mkfifo(pipe)
-        (root / "catalog.yml").unlink()
-        os.symlink(pipe, root / "catalog.yml")
+        (folder / "catalog.yml").unlink()
+        os.symlink(pipe, folder / "catalog.yml")
         project.forget()
-        self.item("addon", "my-ledger", "Ledger", notes('private_from: ["Partner fixture"], private_id: [partner], '))
+        self.item("addon", "my-ledger", "Ledger", notes(f'private_from: ["Partner fixture"], private_id: ["{root("partner")}"], '))
         result = {}
         worker = threading.Thread(target=lambda: result.update(done=self.share("local/my-ledger", "lab-new")), daemon=True)
         worker.start()
@@ -126,22 +128,25 @@ class Labels(Seam):
     def test_the_rule(self):
         fixtures.install(self, "lab-new", "folder", audience="private", lab=1, name="Team")
         cases = [   # (the item, what its x-gravitee says, the origins)
-            ("@partner/ledger", "", [("partner", "Partner fixture")]),   # the catalog it is in
-            ("@partner/ledger", f'private_from: ["{self.old}"], private_id: [lab-old], ', [("lab-old", self.old),
-                                                                                            ("partner", "Partner fixture")]),
-            ("local/a", 'copy_of: "@partner/ledger", ', [("partner", "Partner fixture")]),   # an older copy: one step
-            ("local/a", 'copy_of: "@lab-new/notes", ', []),   # a folder catalog's item says nothing for the Lab
-            ("local/a", 'copy_of: "echo", ', []),   # nor does a public one's
-            ("local/a", 'copy_of: "@gone/x", ', [("gone", contribute.UNKNOWN)]),   # a copy of what this machine does not have
+            ("@partner/ledger", "", [(root("partner"), "Partner fixture")]),   # the catalog it is in
+            ("@partner/ledger", f'private_from: ["{self.old}"], private_id: ["{root("lab-old")}"], ', [(root("lab-old"), self.old),
+                                                                                            (root("partner"), "Partner fixture")]),
+            ("local/a", 'copy_of: "@partner/ledger", ', [(root("partner"), "Partner fixture")]),   # an older copy: one step
+            ("local/a", 'copy_of: "@lab-new/notes", ', [("", contribute.UNKNOWN)]),   # a folder catalog's item: the id may name another
+            ("local/a", 'copy_of: "echo", ', [("", contribute.UNKNOWN)]),   # a public one's: the same
+            ("local/a", 'copy_of: "@gone/x", ', [("", contribute.UNKNOWN)]),   # a copy of what this machine does not have
             ("local/a", 'private_from: ["Acme"], copy_of: "@partner/ledger", ', [("", "Acme")]),   # a label says it all
             ("@lab-new/notes", 'private_from: ["Acme", "Beta"], private_id: [acme], ', [("acme", "Acme"), ("", "Beta")]),
+            ("local/a", 'private_from: [], copy_of: "echo", ', []),   # a copy the Lab made says its origins: none
+            ("local/a", 'private_from: ["partner", "Wrong name"], private_id: ["", "{P}"], ', [("", "partner"), ("{P}", "Partner fixture")]),
             ("local/a", "", []),
         ]
         for uid, said, wanted in cases:
+            said, wanted = said.replace("{P}", root("partner")), [(one.replace("{P}", root("partner")), name) for one, name in wanted]
             with self.subTest(said or "nothing", uid=uid):
                 self.assertEqual(contribute.origins(notes(said), uid), wanted)
-        both = [("partner", "Partner fixture"), ("lab-old", self.old)]
-        table = [("partner", [("lab-old", self.old)]), ("lab-old", [("partner", "Partner fixture")]), ("lab-new", both),
+        both = [(root("partner"), "Partner fixture"), (root("lab-old"), self.old)]
+        table = [("partner", [(root("lab-old"), self.old)]), ("lab-old", [(root("partner"), "Partner fixture")]), ("lab-new", both),
                  ("fixture", both), ("nowhere", both)]
         for to, wanted in table:   # what a share into each catalog leaves: only a private catalog of Git takes its own away
             with self.subTest(to=to):
@@ -174,3 +179,57 @@ class Labels(Seam):
                 gone = before - after
                 with self.subTest(run=run, operation=operation, to=to):
                     self.assertTrue(not gone or (operation == "share" and gone == {to} and to in privates), (before, after))
+
+
+class Identity(Seam):
+    """An origin is the first commit of a private catalog's history: the same on every Lab, never an id of this Lab's, which a
+    folder, a Public catalog or another repository may hold."""
+
+    def test_a_folder_that_has_the_id_a_label_says_is_another_catalog(self):
+        fixtures.install(self, "lab-new", "folder", audience="private", lab=2, name="Team",
+                         files={"addons/notes/compose.yml": notes('private_from: ["Team secret"], private_id: ["lab-new"], ')})
+        fixtures.local(self, "sandbox")
+        project.forget()
+        found = exports.copies_of([("addon", "@lab-new/notes")])
+        self.assertEqual(found, {("addon", "@lab-new/notes"): [("lab-new", "Team secret")]}, "its own catalog is a folder: nothing is its")
+
+    def test_an_older_copy_of_an_id_a_public_catalog_holds_now_is_private_content(self):
+        self.item("addon", "old-copy", "Old copy", notes('copy_of: "echo", '))
+        with self.assertRaises(CatalogError) as raised:
+            self.share("local/old-copy", "fixture", check_only=True)
+        self.assertEqual(raised.exception.code, "share_private_copy")
+
+    def test_another_repository_under_the_same_id_takes_no_label_away(self):
+        label = [(root("partner"), "Partner fixture")]
+        self.assertEqual(contribute.without(label, "partner"), [])
+        lock = registry.lock_of
+        self.patch(registry, "lock_of", lambda ns: {**lock(ns), "roots": ["f" * 40]} if ns == "partner" else lock(ns))
+        self.assertEqual(contribute.without(label, "partner"), label, "a repository added later under that id, or another Lab's")
+        self.item("addon", "my-ledger", "Ledger", notes(f'private_from: ["Partner fixture"], private_id: ["{"0" * 40}"], '))
+        done = self.share("local/my-ledger", "partner")
+        self.assertIn('private_from: ["Partner fixture"]', self.remote("partner").git("show", f"{done['branch']}:addons/my-ledger/compose.yml"))
+
+    def test_a_label_that_compose_cannot_read_stops_what_would_write_it(self):
+        self.patch(compose, "x_gravitee", side_effect=compose.ComposeError("yaml: line 1: bad"))
+        with self.assertRaises(CatalogError) as raised:
+            contribute.origins(notes('private_from: ["A"], '), "local/a", name="Notes")
+        self.assertEqual(raised.exception.code, "label_unread")
+
+    def test_a_target_that_may_be_public_takes_no_private_content(self):
+        github = gitx.parse_address("git@github.com:acme/hub.git")
+        answers = {"public": None, "private": CatalogError("no_access", "no"), "no answer": CatalogError("timeout", "slow")}
+        for said, outcome in answers.items():
+            with self.subTest(said):
+                self.patch(gitx, "ls_remote", side_effect=outcome) if outcome else self.patch(gitx, "ls_remote", return_value={})
+                self.assertEqual(contribute._may_be_public(github), said != "private")
+        self.assertTrue(contribute._may_be_public(gitx.parse_address("git@git.example.test:acme/hub.git")), "a host it cannot ask")
+        self.assertFalse(contribute._may_be_public(gitx.parse_address("https://github.com/acme/hub.git")), "the audience it was added with")
+        self.patch(contribute, "_may_be_public", return_value=True)
+        self.item("addon", "my-ledger", "Ledger", notes(f'private_from: ["Older content"], private_id: ["{"e" * 40}"], '))
+        with self.assertRaises(CatalogError) as raised:
+            self.share("local/my-ledger", "partner")
+        self.assertEqual(lines_of(raised.exception), ("share_maybe_public", 409, "Partner fixture may be public: the Lab cannot share "
+                         "private content there. Fix: make sure its repository is private and add it again by its https address, then "
+                         "share again."))
+        self.item("addon", "plain", "Plain", notes())
+        self.assertIn("branch", self.share("local/plain", "partner"), "what holds no private content may go")

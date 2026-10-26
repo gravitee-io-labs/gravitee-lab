@@ -1165,7 +1165,7 @@ test("Export for Docker Compose says what the folder runs, leaves out and needs,
   assert.deepEqual(saved, ["hotels-docker-compose.zip"]);
   await leave();
   const plain = server.standalone;
-  server.standalone = { ...plain, license: ["a-feature", "b-feature", "c-feature"], private: [{ name: "Internal", items: ["Ledger"], item_ids: ["@internal/ledger"] }] };
+  server.standalone = { ...plain, license: ["a-feature", "b-feature", "c-feature"], private: [{ key: "1a2b3c", name: "Internal", items: ["Ledger"], item_ids: ["@internal/ledger"] }] };
   await visit({ ...off, ...HUB }, { platforms: [], places: [], id: "@acme-hub/hotels" });
   section.querySelector("#pg-actions [data-more]").click();
   page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item")[1] }));
@@ -1175,7 +1175,7 @@ test("Export for Docker Compose says what the folder runs, leaves out and needs,
   assert.equal(text(page.ids["choice-ok"]), "Export with private content");
   await answer(true);
   await flush();
-  assert.deepEqual(server.calls.at(-1).body, { private: ["@internal/ledger"] }, "the file says what the person saw leave");
+  assert.deepEqual(server.calls.at(-1).body, { private: ["1a2b3c|@internal/ledger"] }, "the file says what the person saw leave, item by item and origin by origin");
   await leave();
   server.standalone = plain;
   page.doc.createElement = make;
@@ -1208,7 +1208,7 @@ test("Export says what the file carries, what it needs and what it leaves out, t
   await leave();
   // What comes from a private catalog leaves with the file: it is said, and so is the button
   const plain = server.exported;
-  server.exported = { ...plain, private: [{ name: "Internal", items: ["Ledger"], item_ids: ["@internal/ledger"] }],
+  server.exported = { ...plain, private: [{ key: "1a2b3c", name: "Internal", items: ["Ledger"], item_ids: ["@internal/ledger"] }],
     registries: [{ registry: "graviteeio.azurecr.io", images: ["graviteeio.azurecr.io/apim-gateway:4.13.0"] }] };
   await visit({ ...off, personal: true, id: "local/hotels", held: { share: "", delete: "" } }, { platforms: [], places: [], id: "local/hotels" });
   section.querySelector("#pg-actions [data-more]").click();
@@ -1219,7 +1219,18 @@ test("Export says what the file carries, what it needs and what it leaves out, t
   assert.equal(text(page.ids["choice-ok"]), "Export with private content");
   await answer(true);
   await flush();
-  assert.deepEqual(server.calls.at(-1).body, { private: ["@internal/ledger"] }, "the file says what the person saw leave");
+  assert.deepEqual(server.calls.at(-1).body, { private: ["1a2b3c|@internal/ledger"] }, "the file says what the person saw leave, item by item and origin by origin");
+  await leave();
+  server.exported = plain;
+  // Many origins fold under a line that counts them, one each: a name that starts with a number is no count
+  server.exported = { ...plain, private: ["12 Tools", "Internal", "Partner", "Ops", "Legal"].map((name, n) => ({ key: `k${n}`, name, items: ["Ledger"],
+    item_ids: ["@internal/ledger"] })) };
+  await visit({ ...off, personal: true, id: "local/hotels", held: { share: "", delete: "" } }, { platforms: [], places: [], id: "local/hotels" });
+  section.querySelector("#pg-actions [data-more]").click();
+  page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item")[0] }));
+  await flush();
+  assert.equal(text(picks.querySelector(".choice-more .choice-summary")), "5 items");
+  await answer(false);
   await leave();
   server.exported = plain;
   // What another Lab would block is said, and the file is not made

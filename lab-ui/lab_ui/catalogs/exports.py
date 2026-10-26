@@ -184,8 +184,9 @@ def copies_of(nodes):
     for kind, uid in nodes:
         file = paths.ROOT / paths.unit_file(kind, uid)
         data = contribute._read(file, bare.TEXT_FILE + 1)
-        own = paths.origin(uid)
-        said = [one for one in contribute.origins(data.decode("utf-8", "replace"), uid, file.parent) if one[0] != own] if data else []
+        own = contribute._origin_of(paths.origin(uid))   # said with the catalog the item is in, when it is a private one of Git
+        said = [one for one in contribute.origins(data.decode("utf-8", "replace"), uid, file.parent)
+                if not own or one[0] != own[0]] if data else []
         if said:
             found[(kind, uid)] = said
     return found
@@ -197,12 +198,15 @@ def _origins(carried, units, copies=None):
     copy of an item of a private catalog, and what a label says (`copies`: {(kind, id): [(id, name)]}), is that content too."""
     rows = project.loaded()[1].get("catalogs") or {}
     origins, private = [], {}
+
+    def said(key, title, kind, uid):   # one entry an origin, by its root commit (or its name), with its items
+        one = private.setdefault(key or title, {"key": key or title, "name": title, "items": [], "item_ids": []})
+        if uid not in one["item_ids"]:
+            one["items"].append(units[kind][uid]["name"])
+            one["item_ids"].append(uid)
     for kind, uid in carried:
-        for _, title in (copies or {}).get((kind, uid)) or ():
-            one = private.setdefault(title, {"name": title, "items": [], "item_ids": []})
-            if uid not in one["item_ids"]:
-                one["items"].append(units[kind][uid]["name"])
-                one["item_ids"].append(uid)
+        for key, title in (copies or {}).get((kind, uid)) or ():
+            said(key, title, kind, uid)
         ns = paths.origin(uid)
         entry = registry.entry(ns) if ns != paths.LOCAL else None
         if not entry or entry.get("kind") != "git":
@@ -213,10 +217,8 @@ def _origins(carried, units, copies=None):
         origins.append({"kind": kind, "item": _slug(uid), "name": name, "catalog": ns, "catalog_name": title,
                         "version": held.get("version")})
         if held.get("audience") != "public":
-            one = private.setdefault(title, {"name": title, "items": [], "item_ids": []})
-            if uid not in one["item_ids"]:
-                one["items"].append(name)
-                one["item_ids"].append(uid)
+            mine = contribute._origin_of(ns)
+            said(mine[0] if mine else "", title, kind, uid)
     return origins, list(private.values())
 
 
@@ -402,8 +404,10 @@ def archive(pid, private=()):
 
 
 def unseen_private(shown, private):
-    """Refuses a file that carries an item of private content the page did not show (`private`: the ids of the items it showed)."""
-    unseen = [one["name"] for one in shown.get("private") or () if set(one.get("item_ids") or ()) - set(private or ())]
+    """Refuses a file that carries private content the page did not show: each item under each of its origins (`private`: the pairs
+    it showed, "<origin key>|<item id>"). An origin an item gained since is content the person did not see leave."""
+    seen = set(private or ())
+    unseen = [one["name"] for one in shown.get("private") or () if {f"{one.get('key')}|{uid}" for uid in one.get("item_ids") or ()} - seen]
     if unseen:
         raise _fail("export_private", f"It now carries private content of {', '.join(unseen)}. Fix: export it again to see what "
                                       "leaves with it.", 409)

@@ -675,11 +675,11 @@ def copy(kind, uid, users=False, allow=False):
                 here = posixpath.dirname(places[node] if k == "setup" else f"{places[node]}/compose.yml")
                 there = posixpath.dirname(f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{_rel(k, _slug(one))}" + ("" if k == "setup" else "/compose.yml"))
                 text = compose_file.read_text(encoding="utf-8")   # what it holds says its private catalog, resolved now, and whose copy it is
-                held = origins(text, one, compose_file.parent)   # what it holds is content of
+                held = origins(text, one, compose_file.parent, _name(_units(found), node))   # what it holds is content of
                 # Changed as it is and checked as Compose reads it where it is, then written for its new place
-                edited = _mark(labelled(unmark(text), held), one) or text
+                edited = _mark(labelled(unmark(text), held, keep_empty=True), one) or text
                 shown = _name(_units(found), node)
-                rewritten(text, edited, {"copy_of": one, **_fields(held)},
+                rewritten(text, edited, {"copy_of": one, **_fields(held, keep_empty=True)},
                           _slug(one) if shown == one else shown,
                           "that it is your copy" + (" and its private label" if held else ""), compose_file.parent,
                           compose_file.name)

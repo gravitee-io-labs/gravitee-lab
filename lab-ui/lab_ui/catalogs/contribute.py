@@ -71,6 +71,8 @@ LINES = {
     "share_private_copy": (400, "{name} is a copy of an item of {private}, which is private. Fix: share it to a private catalog."),
     "no_identity": (400, "Set your name and email in Git, then share again."),
     "push_rejected": (502, "{host} refused the branch. Check that you can push, then share again."),
+    "share_maybe_public": (409, "{catalog} may be public: the Lab cannot share private content there. Fix: make sure its repository is "
+                               "private and add it again by its https address, then share again."),
     "share_level": (409, "A private label needs `lab: {level}` in the catalog.yml of {catalog}, and the Lab cannot write it there. "
                          "Fix: write its x-gravitee-catalog block as plain key: value lines, then share again."),
 }
@@ -1096,64 +1098,78 @@ def _private_git(ns):
     return bool(entry) and entry.get("kind") == "git" and registry.lock_of(ns).get("audience") != "public"
 
 
+def _roots(ns):
+    """The first commits of the history of the private catalog of Git `ns`, the same on every Lab that has it, whatever id it has
+    there; [] for any other catalog."""
+    return sorted(str(one).lower() for one in registry.lock_of(ns).get("roots") or ()) if _private_git(ns) else []
+
+
+def _origin_of(ns):
+    """(its first root commit, its name) of the private catalog of Git `ns`, the origin what it holds is content of; None for any
+    other, or one whose history the Lab does not know."""
+    roots = _roots(ns)
+    return (roots[0], _catalog_name(ns)) if roots else None
+
+
+def _known_names():
+    """{root commit: the name this Lab gives the private catalog of Git that has it}."""
+    return {root: _catalog_name(ns) for ns in registry.inputs() for root in _roots(ns)}
+
+
 def _listed(value):
-    """A field of a label as a list of strings: a list, one string, or nothing."""
+    """A field of a label as a list of strings: a list, one value, or nothing."""
     return [str(one) for one in (value if isinstance(value, list) else [] if value in (None, "") else [value])]
 
 
-def origins(text, uid, folder=None):
-    """[(id, name)] of the private catalogs of Git what the item `uid` holds (its compose `text`, in `folder`) is content of: the
-    set its label says. What its file says (`private_from` and `private_id`, lists side by side, read with Compose), with what the
-    Lab knows directly: the catalog the item is in, when it is a private catalog of Git; and for a copy without a label (made before
-    there was one) the catalog its copy_of names, one step and no further, or, when this machine does not have that catalog, an
-    origin of unknown name. Never what another item says. A set only grows here: nothing a file says takes an origin away."""
+def origins(text, uid, folder=None, name=None):
+    """[(id, name)] of the origins of what the item `uid` holds (its compose `text`, in `folder`): the private catalogs of Git it is
+    content of, each by the first commit of its history (the same on every Lab, whatever id the catalog has there) and its name.
+    What its file says (`private_from` and `private_id`, lists side by side, read with Compose), with what the Lab knows directly:
+    the catalog the item is in, when it is a private catalog of Git; and for an older copy (one that has no label at all) the
+    catalog its copy_of names, one step, when that is a private catalog of Git, else an origin of unknown name: the id may name
+    another catalog now. Never what another item says; nothing a file says takes an origin away. Each origin once, by its id, else
+    by its name among those that have none, with this Lab's name for a catalog it knows. A file Compose cannot read is refused
+    (`label_unread`, by `name`): what is not read is never taken for a smaller set."""
     try:
         said = compose.x_gravitee(text or "", folder or compose.scratch())
-    except compose.ComposeError:   # read as the Lab reads its own writing (meta.py), which writes the lists as JSON reads them
-        said = {key: _read_own_list(block.value(text or "", key)) for key in ("private_from", "private_id")}
-        said["copy_of"] = block.value(text or "", "copy_of")
+    except compose.ComposeError as error:
+        raise _unread(name or uid, error, compose.named_by(text or "", folder) if folder else ()) from None
     said = said if isinstance(said, dict) else {}
     names, ids = _listed(said.get("private_from")), _listed(said.get("private_id"))
-    found = [(ids[n] if n < len(ids) else "", name[:NAME_LIMIT]) for n, name in enumerate(names)]
+    found = [(ids[n] if n < len(ids) else "", one[:NAME_LIMIT]) for n, one in enumerate(names)]
     with contextlib.suppress(paths.NotFound, ValueError):
-        if _private_git(paths.origin(uid)):
-            found.append((paths.origin(uid), _catalog_name(paths.origin(uid))))
-    if said.get("copy_of") and not names:
+        found += [origin for origin in [_origin_of(paths.origin(uid))] if origin]
+    if said.get("copy_of") and not isinstance(said.get("private_from"), list):   # an older copy: no label was written
         try:
             ns = paths.origin(str(said["copy_of"]))
         except (paths.NotFound, ValueError):
             ns = None
-        if _private_git(ns):
-            found.append((ns, _catalog_name(ns)))
-        elif not ns or ns == LOCAL or registry.entry(ns) is None:
-            found.append((ns if ns and ns != LOCAL else "", UNKNOWN))
-    kept, seen = [], set()
-    for one, name in found:   # each origin once, by its id, else by its name
-        if (one or name) not in seen:
-            seen.add(one or name)
-            kept.append((one, name))
+        found.append(_origin_of(ns) or ("", UNKNOWN))
+    known, kept, ids_seen, names_seen = _known_names(), [], set(), set()
+    for one, called in found:
+        if one in known:
+            called = known[one]
+        if one and one not in ids_seen:
+            ids_seen.add(one)
+            kept.append((one, called))
+        elif not one and called not in names_seen:
+            names_seen.add(called)
+            kept.append(("", called))
     return kept
-
-
-def _read_own_list(value):
-    """A field of a label as the Lab wrote it, `["a", "b"]`, or one string; one that reads otherwise is a label all the same."""
-    if not isinstance(value, str) or not value.startswith("["):
-        return value
-    try:
-        return json.loads(value)
-    except ValueError:
-        return ["private content"]
 
 
 def without(found, to):
     """The origins that stay with a copy that goes to the catalog `to`: all of them, but `to`'s own when it is a private catalog of
-    Git: what is back in it is its own content, which it says itself."""
-    return [(ns, name) for ns, name in found if not (ns == to and _private_git(to))]
+    Git, known by the first commits of its history: what is back in it is its own content, which it says itself."""
+    roots = set(_roots(to))
+    return [(one, called) for one, called in found if not (one and one in roots)]
 
 
-def _fields(found):
-    """The keys of a label, for `rewritten`: the names and the ids side by side, or None for no label."""
-    return {"private_from": [name for _, name in found] or None, "private_id": [ns or "" for ns, _ in found] or None}
+def _fields(found, keep_empty=False):
+    """The keys of a label, for `rewritten`: the names and the ids side by side, or None for no label (an empty one with
+    `keep_empty`, as labelled() writes it)."""
+    names, ids = [name for _, name in found], [ns or "" for ns, _ in found]
+    return {"private_from": names, "private_id": ids} if keep_empty else {"private_from": names or None, "private_id": ids or None}
 
 
 def _catalog_name(ns):
@@ -1203,13 +1219,14 @@ def _catalog_read(text):
             return None
 
 
-def labelled(text, found):
+def labelled(text, found, keep_empty=False):
     """The compose text whose x-gravitee block says the origins `found` ([(id, name)]: origins) of what it holds, the names for
-    people (`private_from`) and the ids beside them (`private_id`); or says none."""
+    people (`private_from`) and the ids beside them (`private_id`); or says none, or, with `keep_empty`, says an empty label: a copy
+    the Lab made, whose origins are known, none of them (so it is never read as an older copy)."""
     text = block.drop(block.drop(text, "private_id"), "private_from")
-    if not found:
+    if not found and not keep_empty:
         return text
-    fields = _fields(found)
+    fields = {"private_from": [called for _, called in found], "private_id": [one or "" for one, _ in found]}
     text = block.put(text, "private_id", fields["private_id"]) or text
     return block.put(text, "private_from", fields["private_from"]) or text
 
@@ -1237,6 +1254,38 @@ def _unmarked(copy, kind, slug, found=(), name=None):
     files = dict(copy.files)
     files[head] = (files[head][0], text.encode("utf-8"))
     return copy._replace(files=files, text=text)
+
+
+def _origins_or_said(copy, kind, slug, uid, name):
+    """origins() for a share: a file Compose cannot read is a problem of the copy, said with the others, which stops the share as
+    they do; None then, what it holds taken for private content meanwhile."""
+    try:
+        return origins(copy.kept, uid, copy.folder, name)
+    except CatalogError as error:
+        if error.code != "label_unread":
+            raise
+        copy.problems.append(error.message)
+        return None
+
+
+KNOWN_HOSTS = ("github.com", "gitlab.com", "bitbucket.org")   # hosts whose ssh address has an https form a stranger can ask
+
+
+def _may_be_public(address):
+    """Whether the repository of a catalog of Git may be Public, for a share of private content: an ssh address is asked as a
+    stranger by its https form on a host that has one, and is Public when it answers, or when the question gets no answer; an
+    ssh address of any other host cannot be asked, so it may be. Other addresses keep the audience the catalog was added with."""
+    if not gitx.is_ssh(address):
+        return False
+    if address.host not in KNOWN_HOSTS or not address.repo:
+        return True
+    try:
+        gitx.ls_remote(gitx.parse_address(f"https://{address.host}/{address.repo}.git"), None, anonymous=True)
+    except CatalogError as error:
+        return error.code not in ("no_access", "not_found", "auth_failed")
+    except OSError:
+        return True
+    return True
 
 
 def _unmarked_or_said(copy, kind, slug, found, name):
@@ -1470,10 +1519,12 @@ def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False)
         along = [(k, one, s, collect(k, s, to, source, moved=moved)) for k, one, s, source in members]
         # What is private content says so in the catalog it goes to, which takes away only its own origin (without); a Public one
         # takes none, so it takes no private content
-        found = {(k, s): origins(other.kept, one, other.folder) for k, one, s, other in [(kind, uid, slug, copy), *along]}
+        found = {(k, s): _origins_or_said(other, k, s, one, named(k, one)) for k, one, s, other in [(kind, uid, slug, copy), *along]}
+        found = {key: [("", UNKNOWN)] if said is None and row["audience"] != "public" else said or [] for key, said in found.items()}
         for k, one, s, _ in [(kind, uid, slug, copy), *along] if row["audience"] == "public" else ():
-            if found[(k, s)]:
+            if found[(k, s)]:   # None, a file Compose cannot read, is a problem said with the others
                 raise _refusal("share_private_copy", name=named(k, one), private=found[(k, s)][0][1])
+        labelled_share = address is not None and any(without(found[key], to) for key in found)
         copy = _unmarked_or_said(copy, kind, slug, without(found[(kind, slug)], to), name)
         along = [(k, one, s, _unmarked_or_said(other, k, s, without(found[(k, s)], to), named(k, one))) for k, one, s, other in along]
         renames = _renames([(kind, slug, copy), *[(k, s, c) for k, _, s, c in along]], to)
@@ -1482,6 +1533,8 @@ def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False)
         if kind == "playground":
             copy = _vouched(project, uid, copy)
         problems = _preflight(project, kind, uid, file, slug, to, row, rows, copy, along, allowed)
+    if labelled_share and _may_be_public(address):   # asked out of the lock: the network has its time
+        raise _refusal("share_maybe_public", catalog=row["name"])
     answer = {"destinations": destinations(project, kind, uid), "to": to, "audience": row["audience"], "problems": problems,
               "changes": [_shown(_place(kind, slug, to)[2], kind, slug)] if copy.text != copy.kept else [],
               "identity": who["email"] if who and row["audience"] == "public" else None,
