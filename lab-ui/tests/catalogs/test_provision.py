@@ -474,6 +474,8 @@ class Provision(Served, Case):
             config = {name: value for name, value in env.items() if name.startswith("GIT_CONFIG")}
             self.assertNotIn("osxkeychain", config.values(), "no configuration from the shell")
             self.assertTrue(not config or "credential.helper=" in argv, "the Lab's own, for a stranger's question alone")
+            self.assertFalse([name for name in config if name not in ("GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_COUNT")
+                              and not re.fullmatch(r"GIT_CONFIG_(KEY|VALUE)_\d+", name)], "no other way of configuring git")
             self.assertFalse([value for name, value in config.items() if name.startswith("GIT_CONFIG_KEY_")
                               and not gitx.NETWORK.fullmatch(value.lower())], "how to reach the host, nothing else")
             if "ls-remote" in argv or "fetch" in argv:   # the commands that meet a server, and could be asked for a password

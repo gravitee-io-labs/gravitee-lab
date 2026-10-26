@@ -167,7 +167,7 @@ item of a private catalog is that catalog's content: the copy says which private
 the share, the move, the export and the import that follow, whatever comes later at the id it was copied from. Only a share back
 into one of those catalogs, the catalog of Git itself found private, takes that one off the list: a share into a working copy
 linked in its place keeps the label. A copy made by an older Lab of an item of the default catalog holds no private content when
-that catalog was found Public when it was added; one whose catalog the Lab cannot tell any more counts as private content of
+that catalog was found Public when it was last checked; one whose catalog the Lab cannot tell any more counts as private content of
 unknown origin: copy it again from its catalog, then share the new copy. Before it shares private content to a catalog of Git, the Lab asks its repository by its https
 address, as a stranger would, and refuses the share in three cases: when the repository answers, make sure it is private; when it
 cannot be asked (an ssh address it cannot turn into an https one), add that catalog by its https address; when no answer comes,
