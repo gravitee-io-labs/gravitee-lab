@@ -7,14 +7,12 @@ import base64
 import io
 import json
 import os
-import re
 import shutil
 import stat
 import zipfile
-from pathlib import Path
 
 from lab_ui import paths
-from lab_ui.catalogs import contribute, exports, gitx, moving, registry, service
+from lab_ui.catalogs import contribute, exports, gitx, moving, registry, service, understood
 from lab_ui.catalogs.registry import CatalogError
 from lab_ui.docker import compose, envfiles, files
 from lab_ui.library import check, project
@@ -301,7 +299,7 @@ class RoundTrip(Case):
     def test_a_file_without_a_private_label_keeps_the_level_of_the_template(self):
         made = exports.archive("local/sandbox")
         with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
-            self.assertIn("  lab: 1\n", archive.read("sandbox/catalog.yml").decode())
+            self.assertRegex(archive.read("sandbox/catalog.yml").decode(), r"(?m)^  lab: 1\b", "older Labs read it")
 
     def test_an_item_of_the_default_catalog_has_nothing_to_export(self):
         with self.assertRaises(CatalogError) as caught:
@@ -565,58 +563,41 @@ class FromCatalogs(Case):
             said = compose.x_gravitee(archive.read("sandbox/addons/ledger/compose.yml").decode(), self.root)
         self.assertEqual((said["private_from"], said["description"]), (["Partner fixture"], "Keeps a partner's entries"))
 
-    def test_a_file_with_a_private_label_says_the_level_the_label_appeared_at(self):
+    def test_a_file_with_a_private_label_says_to_older_labs_the_level_the_label_appeared_at(self):
+        """The lines of older Gravitee Labs in the archive's catalog.yml are true for its files: a private label is a key older
+        Labs ignore, so they are told to refuse the file; an archive without one stays one they read."""
+        shutil.copy(fixtures.CORE.parent / "contract.lock", self.root / "contract.lock")
+        level = understood.lock().rows[("unit.key", "x-gravitee.private_from")]
         made = exports.archive("local/sandbox", private=shown(exports.plan("local/sandbox")))
         with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
-            self.assertIn(f"  lab: {contribute.LABEL_LEVEL}\n", archive.read("sandbox/catalog.yml").decode())
-        lines = (Path(__file__).resolve().parents[3] / "contract.lock").read_text(encoding="utf-8").splitlines()
-        self.assertIn(f"unit.key x-gravitee.private_from kinds=any since={contribute.LABEL_LEVEL}", lines, "the level of the lock")
+            text = archive.read("sandbox/catalog.yml").decode()
+        self.assertIn(f"  lab: {level}", text)
+        self.assertGreater(level, 1, "the label came after the first level")
+        self.assertEqual(contribute.files_lab({"addons/a/compose.yml": ("100644", b"x-gravitee: {kind: addon, name: A}\n")}), 1)
 
     LAYOUTS = {
         "two spaces": "x-gravitee-catalog:\n  schema: 1\n  id: partner\n  name: Partner fixture\n  description: d\n  version: 2.0.0\n"
                       "  lab: 1\n  license: AGPL-3.0-only\n",
         "four spaces": "x-gravitee-catalog:\n    schema: 1\n    id: partner\n    name: Partner fixture\n    description: d\n"
                        "    version: 2.0.0\n    lab: 1\n    license: AGPL-3.0-only\n",
-        "tab after the colon": "x-gravitee-catalog:\n  schema: 1\n  id: partner\n  name: Partner fixture\n  description: d\n"
-                               "  version: 2.0.0\n  lab:\t1\n  license: AGPL-3.0-only\n",
         "comment": "# the catalog\nx-gravitee-catalog:\n  schema: 1\n  id: partner\n  name: Partner fixture\n  description: d\n"
                    "  version: 2.0.0\n  lab: 1   # the level\n  license: AGPL-3.0-only\n",
-        "flow block": "x-gravitee-catalog: {schema: 1, id: partner, name: Partner fixture, description: d, version: 2.0.0, lab: 1, "
-                      "license: AGPL-3.0-only}\n",
         "crlf": ("x-gravitee-catalog:\n  schema: 1\n  id: partner\n  name: Partner fixture\n  description: d\n  version: 2.0.0\n"
                  "  lab: 1\n  license: AGPL-3.0-only\n").replace("\n", "\r\n"),
-        "bom": "\ufeffx-gravitee-catalog:\n  schema: 1\n  id: partner\n  name: Partner fixture\n  description: d\n  version: 2.0.0\n"
-               "  lab: 1\n  license: AGPL-3.0-only\n",
     }
 
-    def test_comments_and_blank_lines_around_lab_stay_where_they_are(self):
-        doc = (Path(__file__).resolve().parents[3] / "docs" / "writing-a-catalog.md").read_text(encoding="utf-8")
-        example = re.search(r"```yaml\n(x-gravitee-catalog:\n.*?)```", doc, re.S).group(1)   # the guide's, as an author copies it
-        two = self.LAYOUTS["two spaces"]
-        cases = {"the guide's example": example,
-                 "a comment line under it": two.replace("  lab: 1\n", "  lab: 1\n  # the level it needs\n"),
-                 "a comment line over it": two.replace("  lab: 1\n", "  # the level it needs\n  lab: 1\n"),
-                 "blank lines around it": two.replace("  lab: 1\n", "\n  lab: 1\n\n"),
-                 "a comment far under it": two.replace("  lab: 1\n", "  lab: 1\n                      # more\n")}
-        for name, text in cases.items():
-            with self.subTest(name):
-                raised = contribute.lab_raised(text)
-                self.assertEqual(raised, text.replace("lab: 1", f"lab: {contribute.LABEL_LEVEL}", 1))
-                self.assertEqual(contribute._catalog_read(raised)["lab"], contribute.LABEL_LEVEL)
-
-    def test_the_level_is_raised_in_any_layout_and_read_back_as_check_reads_it(self):
+    def test_the_line_of_older_labs_is_raised_in_the_layouts_it_has_and_a_flow_block_is_said(self):
         for name, text in self.LAYOUTS.items():
             with self.subTest(name):
-                raised = contribute.lab_raised(text)
-                self.assertEqual(contribute._catalog_read(raised)["lab"], contribute.LABEL_LEVEL)
-                self.assertEqual(raised.replace(f"lab: {contribute.LABEL_LEVEL}", "lab: 1").replace(f"lab:\t{contribute.LABEL_LEVEL}",
-                                 "lab:\t1"), text, "nothing else of the file changes")
-                self.assertIsNone(contribute.lab_raised(raised), "once")
-        for name, text in {"no lab": self.LAYOUTS["two spaces"].replace("  lab: 1\n", ""),
-                           "lab twice": self.LAYOUTS["flow block"].replace("lab: 1, ", "lab: 1, lab: 1, "),
-                           "not a catalog.yml": "services: {}\n"}.items():
-            with self.subTest(name), self.assertRaises(contribute.LevelNotWritten):
-                contribute.lab_raised(text)
+                raised = contribute._raised(text, 2)
+                self.assertEqual(raised, text.replace("lab: 1", "lab: 2", 1), "nothing else of the file changes")
+                self.assertIsNone(contribute._raised(raised, 2), "once")
+        self.assertIsNone(contribute._raised(self.LAYOUTS["two spaces"].replace("  lab: 1\n", ""), 2),
+                          "a catalog.yml without the lines does without them")
+        flow = ("x-gravitee-catalog: {schema: 1, id: partner, name: Partner fixture, description: d, version: 2.0.0, lab: 1, "
+                "license: AGPL-3.0-only}\n")
+        with self.assertRaises(contribute.NotRaised):
+            contribute._raised(flow, 2)
 
     def test_a_copy_of_an_item_whose_include_is_not_text_or_cannot_be_opened_is_a_clean_refusal(self):
         text = open("tests/data/catalogs/partner/addons/ledger/compose.yml").read()

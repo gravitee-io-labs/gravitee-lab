@@ -32,7 +32,6 @@ import json
 import os
 import posixpath
 import re
-import secrets
 import shutil
 import stat
 import tempfile
@@ -44,7 +43,7 @@ from urllib.parse import quote
 from ..library import check, layers, moves, personal, project as projects, tested
 from ..docker import compose
 from .. import paths
-from . import defaults, gitx, install, manifest, meta as block, registry, resolve, store as bare, trust
+from . import defaults, gitx, install, manifest, meta as block, registry, resolve, store as bare, trust, understood
 from .registry import CatalogError
 
 LOCAL = paths.LOCAL
@@ -76,8 +75,8 @@ LINES = {
     "push_rejected": (502, "{host} refused the branch. Check that you can push, then share again."),
     "share_maybe_public": (409, "{catalog} may be public: the Lab cannot share private content there. Fix: {fix}"),
     "share_changed": (409, "{catalog} changed while it was shared. Fix: share again."),
-    "share_level": (409, "A private label needs `lab: {level}` in the catalog.yml of {catalog}, and the Lab cannot write it there. "
-                         "Fix: write its x-gravitee-catalog block as plain key: value lines, then share again."),
+    "share_legacy": (409, "The catalog.yml of {catalog} cannot be updated for older Gravitee Labs. Fix: write its x-gravitee-catalog "
+                          "block as plain key: value lines, then share again."),
 }
 UNDECLARED = "Includes {item} ({owner}), which {catalog} does not declare."   # the reason of a disabled destination
 
@@ -913,15 +912,26 @@ def _needed(project, items) -> int:
     """The `lab` that older Gravitee Labs need for the units shared (`items`, [(kind, uid)]): the highest level among the
     items of the contract they use (`check.needed_lab`), 1 when this Lab cannot say."""
     raw = projects.loaded()[1].get("raw") or {}
-    units = [(k, uid, project[f"{k}s"][uid]) for k, uid in items if uid in project[f"{k}s"]]
+    units = [(k, uid, project[f"{k}s"][uid]) for k, uid in items if (project[f"{k}s"].get(uid) or {}).get("file")]
     return check.needed_lab(units, raw, projects.loaded()[1]) or 1
+
+
+class NotRaised(ValueError):
+    """The legacy `lab` of a catalog.yml must be raised and its layout is not one the Lab changes line by line."""
 
 
 def _raised(text, needed) -> Optional[str]:
     """The text of a catalog.yml whose legacy `lab` is raised to `needed` when it is lower (`manifest.with_legacy`, the line
-    alone), None when nothing changes: a share never lowers it, and never adds the lines a catalog does without."""
+    alone), None when nothing changes: a share never lowers it, and never adds the lines a catalog does without. NotRaised when
+    the line could not be changed (a block in flow style): an older Lab, which ignores what it does not know, would read the
+    catalog with what it needs a newer Lab for, a private label among them."""
     have = registry.scan(text.encode("utf-8")).get("lab")
-    return manifest.with_legacy(text, needed) if isinstance(have, int) and have < needed else None
+    if not (isinstance(have, int) and have < needed):
+        return None
+    written = manifest.with_legacy(text, needed)
+    if registry.scan(written.encode("utf-8")).get("lab") != needed:
+        raise NotRaised("its lab is not on a line of its own")
+    return written
 
 
 def _publish(ns, catalog, name, kind, slug, address, branch, who, copy, also=(), needed=1):
@@ -934,10 +944,12 @@ def _publish(ns, catalog, name, kind, slug, address, branch, who, copy, also=(),
         if bare.read(store, base, _place(k, s, ns)[2]) is not None:
             raise _refusal("share_exists", name=name if (k, s) == (kind, slug) else s, catalog=catalog)
     files = dict(copy.files)
-    if carries_label(files):   # the label is in the files shared, not in the person's: the lab of older Labs counts it
-        needed = max(needed, LABEL_LEVEL)
+    needed = files_lab(files, needed)   # what the files shared hold, the label included, and not only the person's
     yml = bare.read(store, base, manifest.FILE)
-    raised = _raised(yml.decode("utf-8", "replace"), needed) if yml else None
+    try:
+        raised = _raised(yml.decode("utf-8", "replace"), needed) if yml else None
+    except NotRaised:   # a commit that older Labs would read without what it needs is no share
+        raise _refusal("share_legacy", catalog=catalog) from None
     if raised is not None:
         files[manifest.FILE] = ("100644", raised.encode("utf-8"))
     commit = _commit(store, base, files, f"Add {name}", who)
@@ -977,36 +989,6 @@ def _copy_into(ns, catalog, name, kind, slug, copy):
     except BaseException:
         _clear(root / hidden)
         raise
-
-
-LAB_NOT_RAISED = ("{catalog} now holds a private label, which needs `lab: {level}` in its catalog.yml, and the Lab could not write it. "
-                  "Fix: set `lab: {level}` there.")
-
-
-def _lab_raised_in(ns):
-    """The catalog.yml of the folder catalog `ns` with its `lab` raised to the level of a private label it now holds, written
-    whole in place of the file (a link is never written through); None, or what to tell the person when it cannot be."""
-    root = Path(os.path.realpath(registry.install_dir(ns)))
-    file, temporary = root / registry.CATALOG_FILE, f".{registry.CATALOG_FILE}.lab-{secrets.token_hex(4)}"
-    catalog = (registry.inputs().get(ns) or {}).get("name") or ns
-    try:
-        data, why = registry._read(file, manifest.FILE_LIMIT)   # never a wait on a pipe, never more than a catalog.yml holds
-        if data is None:
-            raise OSError(str(why))
-        raised = lab_raised(data.decode("utf-8"))   # what says the level already needs nothing written
-        if raised is None:
-            return None
-        mode = os.lstat(file).st_mode
-        if not stat.S_ISREG(mode) or not mode & stat.S_IWUSR:   # a link, or a file its author made read only: not the Lab's to write
-            raise OSError("not a file it may write")
-        install.safe_write(root, temporary, raised.encode("utf-8"), 0o644)
-        os.chmod(root / temporary, stat.S_IMODE(mode))
-        os.replace(root / temporary, file)
-    except (OSError, ValueError, CatalogError):   # install.Unsafe is one, LevelNotWritten too
-        with contextlib.suppress(OSError):
-            os.unlink(root / temporary)
-        return LAB_NOT_RAISED.format(catalog=catalog, level=LABEL_LEVEL)
-    return None
 
 
 def _clear(path):
@@ -1184,47 +1166,23 @@ def _catalog_name(ns):
     return (registry.inputs().get(ns) or {}).get("name") or registry.lock_of(ns).get("name") or ns
 
 
-LABEL_LEVEL = 2   # the level of contract.lock at which x-gravitee.private_from appeared: a catalog that holds one declares it
-
-
 def carries_label(files):
     """Whether any compose file of `files` ({path in the catalog: (mode, bytes)}) says a private label (`private_from`)."""
     return any(block.value(content.decode("utf-8", "replace"), "private_from")
                for path, (_, content) in files.items() if path.endswith((".yml", ".yaml")) and path != registry.CATALOG_FILE)
 
 
-class LevelNotWritten(ValueError):
-    """The `lab` of a catalog.yml must be raised and the Lab cannot do it in a way it can read back."""
-
-
-def lab_raised(text, level=LABEL_LEVEL):
-    """The text of a catalog.yml with its `lab` raised to `level`, for a catalog that now holds what appeared at that level; None
-    when it says that level or a higher one already. Written with the Lab's block writer (meta.py) in the file's own layout, then
-    read back as `catalog.py check` reads it (manifest.read_catalog): `lab` is `level` and nothing else changed. LevelNotWritten
-    when the file cannot be read so, or its `lab` cannot be changed so."""
-    before = _catalog_read(text)
-    if before is None:
-        raise LevelNotWritten("catalog.yml cannot be read")
-    if isinstance(before.get("lab"), int) and before["lab"] >= level:
-        return None
-    bom = "\ufeff" if text.startswith("\ufeff") else ""
-    written = block.replaced(text[len(bom):], "lab", str(level), manifest.BLOCK)
-    after = _catalog_read(bom + written) if written is not None else None
-    same = after is not None and {k: v for k, v in after.items() if k != "lab"} == {k: v for k, v in before.items() if k != "lab"}
-    if not same or after.get("lab") != level:
-        raise LevelNotWritten("its lab cannot be written")
-    return bom + written
-
-
-def _catalog_read(text):
-    """A catalog.yml's text as `catalog.py check` and the Add read it (manifest.read_catalog), or None when they refuse it."""
-    with tempfile.TemporaryDirectory(dir=compose.scratch()) as folder:
-        file = Path(folder) / registry.CATALOG_FILE
-        file.write_text(text, encoding="utf-8")
-        try:
-            return manifest.read_catalog(str(file))
-        except CatalogError:
-            return None
+def files_lab(files, base: int = 1) -> int:
+    """The `lab` that older Gravitee Labs need for these files of a share or an export ({path in the catalog: (mode, bytes)}):
+    the highest level (contract.lock) among the keys of x-gravitee their compose files hold, as the files are and not as the
+    person's project file is (a share adds the private label to the copy), and `base` at least: what the items use otherwise."""
+    held = understood.lock()
+    if held is None:
+        return base
+    levels = [held.rows.get(("unit.key", f"x-gravitee.{key}"), 1) for path, (_, content) in files.items()
+              if path.endswith((".yml", ".yaml")) and path != registry.CATALOG_FILE
+              for key in block.keys(content.decode("utf-8", "replace"))]
+    return max([base, *levels])
 
 
 def labelled(text, found, keep_empty=False):
@@ -1506,19 +1464,35 @@ def _rename_settings(kind, uid):
     paths.write_atomic(path, json.dumps(kept, indent=2, sort_keys=True) + "\n")
 
 
-def _raise_lab(ns, needed):
-    """The legacy `lab` of the catalog.yml of folder catalog `ns`, raised to what a shared item needs (`_raised`), the file
-    written whole. A file that is not a plain one, or not text, is left as it is: `catalog.py check` says what it lacks."""
-    file = Path(os.path.realpath(registry.install_dir(ns))) / manifest.FILE
-    data = _read(file)
-    if data is None:
-        return
+LEGACY_NOT_RAISED = ("{catalog} now holds what older Gravitee Labs do not read, and its catalog.yml could not be updated for them. "
+                     "Fix: run catalog.py upgrade --write in it.")
+
+
+def _raise_lab(ns, needed) -> Optional[str]:
+    """The legacy `lab` of the catalog.yml of folder catalog `ns`, raised to what the items copied need (`_raised`), written whole
+    in place of the file. A link, a file its author made read only, one the Lab cannot read without waiting (a pipe) or a layout it
+    does not change line by line is left as it is, and the answer is what to tell the person; None when nothing is to say."""
+    root = Path(os.path.realpath(registry.install_dir(ns)))
+    file, temporary = root / manifest.FILE, f".{manifest.FILE}.lab-{os.urandom(4).hex()}"
+    catalog = (registry.inputs().get(ns) or {}).get("name") or ns
     try:
+        data, why = registry._read(file, manifest.FILE_LIMIT)   # never a wait on a pipe, never more than a catalog.yml holds
+        if data is None:
+            raise OSError(str(why))
         raised = _raised(data.decode("utf-8"), needed)
-    except UnicodeDecodeError:
-        return
-    if raised is not None:
-        paths.write_atomic(file, raised)
+        if raised is None:
+            return None
+        mode = os.lstat(file).st_mode
+        if not stat.S_ISREG(mode) or not mode & stat.S_IWUSR:   # a link, or a file its author made read only: not the Lab's to write
+            raise OSError("not a file it may write")
+        install.safe_write(root, temporary, raised.encode("utf-8"), 0o644)
+        os.chmod(root / temporary, stat.S_IMODE(mode))
+        os.replace(root / temporary, file)
+    except (OSError, ValueError, CatalogError):   # NotRaised and a text that is not UTF-8 are ValueErrors
+        with contextlib.suppress(OSError):
+            os.unlink(root / temporary)
+        return LEGACY_NOT_RAISED.format(catalog=catalog)
+    return None
 
 
 def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False) -> dict:
@@ -1609,11 +1583,11 @@ def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False)
         for k, one, s, other in along:
             _copy_into(to, row["name"], named(k, one), k, s, other)
         _copy_into(to, row["name"], name, kind, slug, copy)
-        if any(carries_label(one.files) for one in [copy, *(other for *_, other in along)]):
-            needed = max(needed, LABEL_LEVEL)   # the label is in the files copied, not in the person's: older Labs count it
-        _raise_lab(to, needed)
+        for one in [copy, *(other for *_, other in along)]:
+            needed = files_lab(one.files, needed)   # the label is in the files copied, not in the person's: older Labs count it
+        warning = _raise_lab(to, needed)
     _remember_renames(to, shared, renames)
-    return {"copied": row["name"]}
+    return {"copied": row["name"], **({"warning": warning} if warning else {})}
 
 
 # ---------------------------------------------------------------------------------------------------------------------

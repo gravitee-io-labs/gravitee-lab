@@ -128,7 +128,7 @@ class Labels(Shares):
                 pass
             worker.join(10)
         self.assertFalse(stuck, "a pipe is never read")
-        self.assertEqual(result["done"].get("warning"), contribute.LAB_NOT_RAISED.format(catalog="Team", level=contribute.LABEL_LEVEL))
+        self.assertEqual(result["done"].get("warning"), contribute.LEGACY_NOT_RAISED.format(catalog="Team"))
 
     def test_the_rule(self):
         fixtures.install(self, "lab-new", "folder", audience="private", lab=1, name="Team")

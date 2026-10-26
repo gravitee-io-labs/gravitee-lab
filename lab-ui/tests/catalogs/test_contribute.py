@@ -19,10 +19,17 @@ from unittest import mock
 from lab_ui.library import check, layers, layout, moves, project
 from lab_ui.docker import compose, envfiles, files
 from lab_ui import paths
-from lab_ui.catalogs import contribute, gitx, registry
+from lab_ui.catalogs import contribute, gitx, manifest, registry, understood
 from lab_ui.catalogs.registry import CatalogError
 
 from .. import Case, fixtures, gitfixture
+
+
+def with_the_lock(case):
+    """The engine's contract.lock in the case's project folder: what says the level of the label (unit.key x-gravitee.private_from)."""
+    shutil.copy(fixtures.CORE.parent / "contract.lock", case.root / "contract.lock")
+    return understood.lock().rows[("unit.key", "x-gravitee.private_from")]
+
 
 REAL_RULES = contribute._rules   # the rules of the standard, which `Seam` stands in for
 REAL_YML = contribute._yml   # the reading of catalog.yml, which it stands in for too
@@ -735,7 +742,8 @@ class Judged(Seam):
         self.assertEqual(remote.git("log", "-1", "--format=%s", done["branch"]), "Add Ledger")
         self.assertEqual(contribute.origins(self.COPIED, "local/my-ledger"), [(root("partner"), "Partner fixture")])
 
-    def test_a_copy_shared_to_a_folder_of_another_name_keeps_its_label_and_raises_its_level_once(self):
+    def test_a_copy_shared_to_a_folder_of_another_name_keeps_its_label_and_raises_the_line_of_older_labs_once(self):
+        level = with_the_lock(self)
         fixtures.install(self, "lab-new", "folder", audience="private", lab=1)
         root = self.root / ".lab/catalogs/lab-new"
         before = (root / "catalog.yml").read_text()
@@ -744,7 +752,7 @@ class Judged(Seam):
         (shared,) = root.rglob("my-ledger/compose.yml")
         self.assertIn('private_from: ["Partner fixture"]', shared.read_text())
         after = (root / "catalog.yml").read_text()
-        self.assertEqual(after, before.replace("  lab: 1\n", f"  lab: {contribute.LABEL_LEVEL}\n"), "only its level changes")
+        self.assertEqual(after, before.replace("  lab: 1\n", f"  lab: {level}\n"), "only that line changes, for older Labs")
         self.item("addon", "my-other", "Other", self.COPIED.replace("name: Ledger", "name: Other"))
         self.share("local/my-other", "lab-new")
         self.assertEqual((root / "catalog.yml").read_text(), after, "raised once")
@@ -763,6 +771,7 @@ class Judged(Seam):
         self.assertEqual(remote.git("show", f"{done['branch']}:catalog.yml"), remote.git("show", "main:catalog.yml"))
 
     def test_a_folder_whose_catalog_yml_is_read_only_keeps_it_and_the_share_says_so(self):
+        level = with_the_lock(self)
         fixtures.install(self, "lab-new", "folder", audience="private", lab=1)
         manifest_file = self.root / ".lab/catalogs/lab-new/catalog.yml"
         before = manifest_file.read_text()
@@ -770,14 +779,15 @@ class Judged(Seam):
         self.addCleanup(lambda: os.chmod(manifest_file, 0o644))
         self.item("addon", "my-ledger", "Ledger", self.COPIED)
         done = self.share("local/my-ledger", "lab-new")
-        self.assertEqual(done["warning"], contribute.LAB_NOT_RAISED.format(catalog=done["copied"], level=contribute.LABEL_LEVEL))
+        self.assertEqual(done["warning"], contribute.LEGACY_NOT_RAISED.format(catalog=done["copied"]))
+        self.assertNotRegex(done["warning"], r"\blab\b|level|contract", "the person reads no number of the Lab")
         self.assertEqual((manifest_file.read_text(), oct(os.stat(manifest_file).st_mode & 0o777)), (before, "0o444"),
                          "its author made it read only: the Lab leaves it")
         os.chmod(manifest_file, 0o644)
-        manifest_file.write_text(before.replace("  lab: 1\n", f"  lab: {contribute.LABEL_LEVEL}\n"))
+        manifest_file.write_text(before.replace("  lab: 1\n", f"  lab: {level}\n"))
         os.chmod(manifest_file, 0o444)
         self.item("addon", "my-other", "Other", self.COPIED.replace("name: Ledger", "name: Other"))
-        self.assertNotIn("warning", self.share("local/my-other", "lab-new"), "it says the level already: nothing to write, nothing to say")
+        self.assertNotIn("warning", self.share("local/my-other", "lab-new"), "it says it already: nothing to write, nothing to say")
 
     def test_a_copy_of_a_share_of_a_copy_of_a_private_item_stops_a_share_to_a_public_one_by_its_label(self):
         fixtures.install(self, "lab-new", "folder", audience="private", lab=1)
@@ -1026,7 +1036,9 @@ class Published(Seam):
         self.assertEqual(sorted(set(before) - set(after)), [])
         self.assertIn("  - ../echo/compose.yml\n", remote.git("show", f"lab/scratch-{DAY}:addons/scratch/compose.yml") + "\n")
 
-    def test_an_item_with_a_private_label_raises_the_lab_of_the_catalog_in_the_same_commit(self):
+    def test_an_item_with_a_private_label_raises_the_line_of_older_labs_in_the_same_commit(self):
+        """What the files shared hold decides, the label the share adds to the copy among it: not the person's project file."""
+        level = with_the_lock(self)
         remote = self.remote("fixture")
         address, branch = contribute._address(registry.entry("fixture"), registry.lock_of("fixture"))
         text = b'x-gravitee: {private_from: "Partner fixture", kind: addon, name: Ledger}\nservices: {}\n'
@@ -1034,10 +1046,9 @@ class Published(Seam):
         done = contribute._publish("fixture", "Fixture catalog", "Ledger", "addon", "ledger", address, branch,
                                    {"name": "A person", "email": "a@example.test"}, copy)
         manifest = remote.git("show", f"{done['branch']}:catalog.yml")
-        self.assertIn(f"  lab: {contribute.LABEL_LEVEL}\n", manifest + "\n", "the catalog says the Lab it needs from now on")
-        self.assertEqual(remote.git("log", "-1", "--format=%s", done["branch"]),
-                         f"Add Ledger, with lab {contribute.LABEL_LEVEL} in catalog.yml for its private label", "the commit says what it changes")
-        self.assertEqual(remote.git("show", f"{done['branch']}:catalog.yml").replace(f"lab: {contribute.LABEL_LEVEL}", "lab: 1"),
+        self.assertIn(f"  lab: {level}\n", manifest + "\n", "older Labs, which ignore the label, refuse the catalog from now on")
+        self.assertEqual(remote.git("log", "-1", "--format=%s", done["branch"]), "Add Ledger")
+        self.assertEqual(remote.git("show", f"{done['branch']}:catalog.yml").replace(f"lab: {level}", "lab: 1"),
                          remote.git("show", "main:catalog.yml"), "and nothing else of it changes")
         plain = contribute.Copy({"addons/plain/compose.yml": ("100644", b"x-gravitee: {kind: addon, name: Plain}\nservices: {}\n")},
                                 "", "", [])
@@ -1045,18 +1056,18 @@ class Published(Seam):
                                    {"name": "A person", "email": "a@example.test"}, plain)
         self.assertEqual(remote.git("show", f"{done['branch']}:catalog.yml"), remote.git("show", "main:catalog.yml"))
 
-    def test_a_level_the_lab_cannot_write_in_a_git_catalog_refuses_the_share_and_pushes_nothing(self):
+    def test_a_line_of_older_labs_the_lab_cannot_change_in_a_git_catalog_refuses_the_share_and_pushes_nothing(self):
+        with_the_lock(self)
         address, branch = contribute._address(registry.entry("fixture"), registry.lock_of("fixture"))
         text = b'x-gravitee: {private_from: "Partner fixture", kind: addon, name: Ledger}\nservices: {}\n'
         copy = contribute.Copy({"addons/ledger/compose.yml": ("100644", text)}, text.decode(), text.decode(), [])
-        self.patch(contribute, "lab_raised", side_effect=contribute.LevelNotWritten("its lab cannot be written"))
+        self.patch(manifest, "with_legacy", lambda text, lab: text)   # a layout whose line it cannot change, such as a flow block
         before = self.heads()
         with self.assertRaises(CatalogError) as raised:
             contribute._publish("fixture", "Fixture catalog", "Ledger", "addon", "ledger", address, branch,
                                 {"name": "A person", "email": "a@example.test"}, copy)
-        self.assertEqual(lines_of(raised.exception), ("share_level", 409, f"A private label needs `lab: {contribute.LABEL_LEVEL}` in "
-                         "the catalog.yml of Fixture catalog, and the Lab cannot write it there. Fix: write its x-gravitee-catalog "
-                         "block as plain key: value lines, then share again."))
+        self.assertEqual(lines_of(raised.exception), ("share_legacy", 409, "The catalog.yml of Fixture catalog cannot be updated for "
+                         "older Gravitee Labs. Fix: write its x-gravitee-catalog block as plain key: value lines, then share again."))
         self.assertEqual(self.heads(), before, "nothing is pushed")
 
     def test_what_only_this_machine_has_goes_in_the_same_branch_and_one_commit(self):

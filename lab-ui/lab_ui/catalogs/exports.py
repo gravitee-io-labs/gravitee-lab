@@ -255,9 +255,9 @@ def _catalog_yml(text, gathered):
         text = text.rstrip("\n") + "\n  requires:\n    catalogs:\n" + "\n".join(needed) + "\n"
     if gathered["shared"]:
         text = text.rstrip("\n") + "\n  shared_settings:\n" + "".join(f"    - {name}\n" for name in gathered["shared"])
-    if contribute.carries_label(gathered["files"]):   # an item with a private label needs the level the label appeared at
-        text = contribute.lab_raised(text) or text   # the Lab's own template: it reads back as written
-    return text
+    # The lines of older Labs, true for the files in the archive: an export that carries a private label is one they refuse cleanly,
+    # one without is one they read
+    return manifest.with_legacy(text, contribute.files_lab(gathered["files"]))
 
 
 def _address(ns):
