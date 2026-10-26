@@ -43,6 +43,13 @@ Everything the Lab installs is under the three folders. A file the Lab never ins
 `secrets/`, `.state/`, key files, an agent's folder) is dropped and reported by `catalog.py check`, so that nothing private
 leaves your machine in an installed copy. A unit folder is a unit only with its `compose.yml`.
 
+The folder of an add-on or a playground, and the file of a setup, is named after the item's `x-gravitee.name`: in lower case,
+every run of characters other than `a-z` and `0-9` becomes one dash, with no dash at either end. *Event Streams Management with
+Kafka* is `playgrounds/event-streams-management-with-kafka/`, *Kafka streams* is `setups/kafka-streams.yml`. The Lab UI's **New
+add-on**, **New setup** and **New playground** name the folder so, and `catalog.py check` refuses an item that is named otherwise
+(`ST23`). The folder is the item's id, so a name you change later is a rename of the folder too: see
+[Renaming an item](#renaming-an-item).
+
 ## catalog.yml
 
 ```yaml

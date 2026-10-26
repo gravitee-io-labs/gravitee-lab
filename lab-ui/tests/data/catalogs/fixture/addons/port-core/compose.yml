@@ -1,4 +1,4 @@
-x-gravitee: {kind: addon, name: Port of the core, category: Other, description: Container that wants a port the core publishes}
+x-gravitee: {kind: addon, name: Port core, category: Other, description: Container that wants a port the core publishes}
 services:
   fixture-port-core:
     image: busybox:${FIXTURE_PORT_CORE_VERSION:-1.36}   # Image version

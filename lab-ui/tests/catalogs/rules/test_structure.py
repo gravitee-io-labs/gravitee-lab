@@ -129,6 +129,47 @@ class Names(unittest.TestCase):
         one(self, "ST15", "addons/loose.txt", message.format("addons/loose.txt"), {"addons/loose.txt": "x"})
         one(self, "ST15", "setups/deep/a.yml", message.format("setups/deep/a.yml"), {"setups/deep/a.yml": "x"})
 
+    def test_st23_the_folder_of_an_add_on_or_a_playground_is_its_name_in_lower_case_with_one_dash_for_each_run_of_other_characters(self):
+        message = ("The folder of {} is {}; its name says {}. Fix: rename the folder to {}. The folder is the item's id: read "
+                   "Renaming an item in docs/writing-a-catalog.md first.")
+        named = "x-gravitee:\n  kind: playground\n  name: {}\nservices: {{}}\n"
+        found = one(self, "ST23", "playgrounds/streams/compose.yml",
+                    message.format("Event Streams Management with Kafka", "playgrounds/streams",
+                                   "event-streams-management-with-kafka", "event-streams-management-with-kafka"),
+                    {"playgrounds/streams/compose.yml": named.format("Event Streams Management with Kafka"),
+                     "playgrounds/streams/README.md": "# S\n"})
+        self.assertEqual((3, "error"), (found.line, found.severity))
+        one(self, "ST23", "addons/hello/compose.yml",
+            message.format("Hello, World!", "addons/hello", "hello-world", "hello-world"),
+            {"addons/hello/compose.yml": "x-gravitee:\n  kind: addon\n  name: \"Hello, World!\"\nservices: {}\n"})
+        quiet(self, {"playgrounds/event-streams-management-with-kafka/compose.yml": named.format("Event Streams Management with Kafka"),
+                     "playgrounds/event-streams-management-with-kafka/README.md": "# S\n"})
+        quiet(self, {"addons/a-b-2/compose.yml": "x-gravitee:\n  name: '  A -- B__2!  '\nservices: {}\n"})
+        one(self, "ST23", "addons/hello/compose.yml", message.format("Other one", "addons/hello", "other-one", "other-one"),
+            {"addons/hello/compose.yml": "x-gravitee: {kind: addon, name: \"Other one\", category: Other}\nservices: {}\n"})
+        quiet(self, {"addons/hello/compose.yml": "x-gravitee: {kind: addon, name: Hello, category: Other}\nservices: {}\n"})
+
+    def test_st23_the_file_of_a_setup_is_its_name_and_says_so_with_its_own_words(self):
+        one(self, "ST23", "setups/kafka.yml",
+            "The file of Kafka streams is setups/kafka.yml; its name says kafka-streams. Fix: rename the file to kafka-streams.yml. "
+            "The file is the item's id: read Renaming an item in docs/writing-a-catalog.md first.",
+            {"setups/kafka.yml": "x-gravitee:\n  kind: setup\n  name: Kafka streams\ninclude: []\n"})
+        quiet(self, {"setups/kafka-streams.yml": "x-gravitee:\n  kind: setup\n  name: Kafka streams\ninclude: []\n"})
+
+    def test_st23_says_nothing_of_a_name_it_cannot_read_or_that_gives_no_folder_and_leaves_a_bad_folder_name_to_st14(self):
+        for name in ("${HELLO_NAME:-Hello}", "*name", "\u00e9\u00e9", "[a, b]", ""):
+            with self.subTest(name=name):
+                quiet(self, {"addons/hello/compose.yml": f"x-gravitee:\n  kind: addon\n  name: {name}\nservices: {{}}\n"})
+        quiet(self, {"addons/hello/compose.yml": "services: {}\n"})
+        self.assertEqual({"ST14"}, codes(run(structure, {"addons/Bad_Name/compose.yml": "x-gravitee:\n  name: Good\nservices: {}\n",
+                                                         "addons/Bad_Name/README.md": "x"})))
+        self.assertEqual(set(), codes(run(structure, {"addons/hello/docs/compose.yml": "x-gravitee:\n  name: Other\n"})))
+
+    def test_st23_and_the_lab_ui_name_a_new_item_by_one_rule(self):
+        from lab_ui import paths
+        self.assertEqual("event-streams-management-with-kafka", paths.slug("Event Streams Management with Kafka"))
+        self.assertEqual("a-b-2", paths.slug("  A -- B__2!  "))
+
     def test_the_structure_rules_and_the_stores_filter_are_one_definition(self):
         listing = ListTree.from_files({
             "catalog.yml": support.CATALOG, "addons/a/compose.yml": "x", "addons/a/AGENTS.md": "x", "addons/a/.env": "x",
@@ -436,7 +477,7 @@ class Helpers(unittest.TestCase):
     def test_the_messages_of_the_table_are_section_6(self):
         self.assertEqual(
             {"ST01", "ST02", "ST03", "ST04", "ST05", "ST06", "ST07", "ST08", "ST09", "ST10", "ST11", "ST12", "ST13", "ST14", "ST15",
-             "ST16", "ST17", "ST18", "ST19", "ST20", "ST21", "ST22"}, set(structure.RULES))
+             "ST16", "ST17", "ST18", "ST19", "ST20", "ST21", "ST22", "ST23"}, set(structure.RULES))
         self.assertEqual(["warning"], sorted({structure.RULES[code].severity for code in ("ST08", "ST12", "ST20")}))
         self.assertEqual("{unit} holds {found}, the limit is {limit}. Fix: split it.", structure.RULES["ST10"].message)
 

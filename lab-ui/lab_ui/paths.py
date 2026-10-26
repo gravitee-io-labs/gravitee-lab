@@ -369,6 +369,9 @@ def seed_apis(folder):
 
 
 def slug(text):
+    """A name as an id: lower case, every run of characters other than a-z and 0-9 one dash, no dash at either end ("Event
+    Streams Management with Kafka" is event-streams-management-with-kafka). The folder of an item is its name so written: the
+    Lab UI names a new one so, and the check of a catalog asks it of every item (ST23)."""
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
 
 

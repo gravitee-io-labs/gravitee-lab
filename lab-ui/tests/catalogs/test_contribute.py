@@ -103,7 +103,9 @@ class Base(Case):
         folder = self.root / ".lab/catalogs/local/playgrounds/bank"
         shutil.copytree(SHOP, folder)
         file = folder / "compose.yml"
-        file.write_text(file.read_text(encoding="utf-8").replace("__SEEDER_IMAGE__", fixtures.seeder_image(self)), encoding="utf-8")
+        # Named Bank, as the folder is (ST23)
+        text = file.read_text(encoding="utf-8").replace("__SEEDER_IMAGE__", fixtures.seeder_image(self))
+        file.write_text(text.replace("\n  name: Shop\n", "\n  name: Bank\n", 1), encoding="utf-8")
         for path, text in extra.items():
             self.write(f".lab/catalogs/local/playgrounds/bank/{path}", text)
         self.units["playgrounds"]["local/bank"] = {"name": "Shop", "personal": True}
@@ -2004,7 +2006,7 @@ class Real(Base):
         self.assertEqual([line[len("Blocked: "):] for line in told], seen["blocked"]["reasons"])
 
     def test_what_the_catalogs_own_check_finds_in_an_item_is_told_before_it_leaves(self):
-        bad = ("x-gravitee: {kind: addon, name: Bad app, description: Does nothing}\nservices:\n  bad-app:\n    image: busybox:1.36\n"
+        bad = ("x-gravitee: {kind: addon, name: Bad, description: Does nothing}\nservices:\n  bad-app:\n    image: busybox:1.36\n"
                "    container_name: gio-bad-app\n    restart: always\n    networks: [internal]\n")
         uid = self.plain(bad, "bad", readme=None)
         said = ["x-gravitee.category is missing", "README.md is missing next to it: what it adds and how to use it",

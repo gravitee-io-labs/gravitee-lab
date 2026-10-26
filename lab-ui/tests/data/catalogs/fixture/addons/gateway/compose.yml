@@ -1,6 +1,6 @@
 x-gravitee:
   kind: addon
-  name: Fixture gateway
+  name: Gateway
   category: Other
   description: Runs the gateway of a platform on this machine
   gateway: {platform: cloud, service: fixture-gateway, token: FIXTURE_GATEWAY_TOKEN}

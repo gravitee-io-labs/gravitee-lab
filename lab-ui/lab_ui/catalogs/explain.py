@@ -66,6 +66,9 @@ DETAILS: Dict[str, Long] = {
                  "configuration, and a maintainer decides about exceptions.", NOT_AT_ADD),
     "ST22": Long("An editor task, a hook or a development container runs on the machine of whoever opens the folder, so a "
                  "pull request could run code on a reviewer's machine.", "Not installed (or installed as data), and never run."),
+    "ST23": Long("A person finds an item by its name, and the Lab finds it by its folder: its id, what other items include, the "
+                 "prefix of its settings, its stars and its records. One name for both is what a reader expects and what the Lab "
+                 "UI makes for a new item.", "Nothing: the item is installed under its folder as it is."),
     "SE01": Long("A private key in a public repository is a leaked key. It is public in the pull request as soon as it is "
                  "pushed, even if a later commit removes it.", "Not judged: the Lab cannot know a secret."),
     "SE02": Long("These token shapes are what the services they belong to hand out. One in a repository is public.",

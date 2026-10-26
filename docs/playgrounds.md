@@ -35,7 +35,8 @@ playgrounds/<id>/
   .state/         what the seed created, on this machine and in each Gravitee Cloud environment it deployed to (git-ignored)
 ```
 
-The folder name is its id: lowercase letters, digits and dashes. Prefix the playground's own settings with it
+The folder name is its id: its `x-gravitee.name` in lower case, with every run of characters other than `a-z` and `0-9` one
+dash (*Acme Shop* is `acme-shop`). Prefix the playground's own settings with it
 (`ACME_SHOP_*`): [Settings and secrets](configuration.md#settings-and-secrets) has the rule. `seeder/` is the shared
 seeding engine, not a playground. See [`seeder/README.md`](../seeder/README.md).
 
