@@ -7,13 +7,14 @@ Gravitee public, and you can add others.
 1. [What a catalog is](#what-a-catalog-is)
 2. [The first start](#the-first-start)
 3. [Add, update, go back, remove](#add-update-go-back-remove)
-4. [What blocked means](#what-blocked-means)
-5. [Items that use your machine](#items-that-use-your-machine)
-6. [Private catalogs](#private-catalogs)
-7. [Your own items](#your-own-items)
-8. [Offline, privacy and starting over](#offline-privacy-and-starting-over)
-9. [Updating a Lab from before catalogs](#updating-a-lab-from-before-catalogs)
-10. [Errors and what to do](#errors-and-what-to-do)
+4. [Versions](#versions)
+5. [What blocked means](#what-blocked-means)
+6. [Items that use your machine](#items-that-use-your-machine)
+7. [Private catalogs](#private-catalogs)
+8. [Your own items](#your-own-items)
+9. [Offline, privacy and starting over](#offline-privacy-and-starting-over)
+10. [Updating a Lab from before catalogs](#updating-a-lab-from-before-catalogs)
+11. [Errors and what to do](#errors-and-what-to-do)
 
 ## What a catalog is
 
@@ -51,14 +52,15 @@ Lab refuses to start and says why ([What blocked means](#what-blocked-means)). A
 shows. A catalog that needs another one says which; add that one first.
 
 **Update.** Catalogs are checked in the background, five seconds after the Lab UI starts and then every six hours. The row says
-*Update available* when a newer version exists, with a dot on the Catalogs entry of the menu. **Update** is the only way a copy
-is replaced, except for a catalog the Lab can no longer read, which is brought forward by itself. A catalog with something to
-decide opens a dialog that says what changes first: the version (from the one you have, or *Unchanged* when the owners did not
-raise it), every item it updates, adds, removes or breaks with its kind, what changed in the folder of each item it updates
-(`README.md`, `compose.yml`, `seed/`), the subjects of the commits that made it, an item that is on (turn it off first, and the button says so), more asked of your machine, or a history
-that was rewritten, which asks for one more confirmation (**Update anyway**) because the new version is not a continuation of the
-one you have. A catalog with nothing to decide is updated by the click, and **Go back**
-restores the previous copy. From a terminal: `python3 lab-ui/catalog.py update ID`.
+*Update available* when a newer version exists ([Versions](#versions)), with a dot on the Catalogs entry of the menu. **Update**
+is the only way a copy is replaced, except for a catalog the Lab can no longer read, which is brought forward by itself. A catalog
+with something to decide opens a dialog that says what changes first: the version, from the one you have to the new one
+(*Unreleased* when the catalog makes no releases, *Unchanged* when a release was moved), every item it updates, adds, removes or
+breaks with its kind, what changed in the folder of each item it updates (`README.md`, `compose.yml`, `seed/`), what is new in
+them, an item that is on (turn it off first, and the button says so), more asked of your machine, or a history that was rewritten
+or a release that was moved, which asks for one more confirmation (**Update anyway**) because the new version is not a
+continuation of the one you have. A catalog with nothing to decide is updated by the click, and **Go back** restores the previous
+copy. From a terminal: `python3 lab-ui/catalog.py update ID`.
 
 **Go back.** Puts the previous copy back, once. It exists because an update can be wrong.
 
@@ -66,6 +68,35 @@ restores the previous copy. From a terminal: `python3 lab-ui/catalog.py update I
 again) or **Delete them too**. An item that is on blocks the removal until you turn it off.
 
 From a terminal: `python3 lab-ui/catalog.py add|update|undo|remove|list`.
+
+## Versions
+
+A version of a catalog is a **release**: a tag `vX.Y.Z` that its owners made with `catalog.py release`
+([Releases](writing-a-catalog.md#releases)). What is merged into the catalog's branch after its last release waits for the next
+one: the Lab never offers it as an update, so a version number always names the same files.
+
+- **Which tags count.** A tag `vX.Y.Z` (three numbers, nothing after them) on a commit of the branch the Lab follows, whose
+  `catalog.yml` says `version: X.Y.Z`. A tag on a commit the branch does not contain, a tag of another form (`v2`, `v1.0.0-rc1`)
+  and a tag its `catalog.yml` disagrees with are not releases. Add, the first download and Update take the greatest release
+  this Lab reads; when a newer release needs a newer Lab, the row says so, as for any version.
+- **A catalog with no release** is followed commit by commit: Add and Update take the newest commit of its branch. The row says
+  *Unreleased* beside its version, and so does the Version line of the Update dialog. Its first release ends that: from then on
+  only releases are offered.
+- **A copy that is newer than the last release** (installed before that catalog made releases, or from a catalog that made none
+  then) stays as it is: an older release is never offered in its place. Its row says *Unreleased* until the next release.
+- **Tags can be moved; releases cannot.** The Lab fetches the tags that start with `v` with the branch and keeps them apart from
+  everything else: they never run, and only the commit they name is installed. It remembers the commit of the release you have.
+  When the owners move that tag to another commit and an update would install it, the row says *Rewritten*, as for a history
+  that was rewritten, and **Update anyway** is the only way to take it. A tag that was deleted is no longer offered; the copy
+  you have stays.
+- **A branch named at Add** is followed the same way: its releases are the tags of its own commits, and while it has none the
+  Lab follows its newest commit. A branch made from a released main holds that release, so it is what the Lab offers until the
+  branch has a release of its own. To try what is on a branch before it is released, link a working copy instead
+  ([Writing a catalog](writing-a-catalog.md#try-it-in-the-lab)).
+- **What's new** is what the notes of a release say: for each item the update changes, adds or removes, the subjects of the
+  commits that touched it, five at most. The Lab reads them from the catalog's Git history, from the version you have to the
+  one offered, with the same function that writes the notes of the release on GitHub (`ci release-notes`), so an update from one
+  release to the next says the words of that release, and nothing is asked of GitHub.
 
 ## What blocked means
 

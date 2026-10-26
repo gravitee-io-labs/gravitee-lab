@@ -641,14 +641,14 @@ def precedence() -> list:
 # ---------------------------------------------------------------- catalogs.lock
 
 _SHAS = ("pin", "previous", "tip")
-_ORDER = ("pin", "previous", "tip", "roots", "audience", "name", "version", "lab", "installed", "checked", "error",
+_ORDER = ("pin", "previous", "tip", "roots", "audience", "name", "version", "release", "lab", "installed", "checked", "error",
           "pending", "via", "shadowed")
 
 
 def _blank():
     """A lock entry before anything was downloaded."""
     return {"pin": None, "previous": None, "tip": None, "roots": [], "audience": "private", "name": None,
-            "version": None, "lab": None, "installed": None, "checked": None, "error": None, "pending": None}
+            "version": None, "release": None, "lab": None, "installed": None, "checked": None, "error": None, "pending": None}
 
 
 def _pending(value):
@@ -686,8 +686,8 @@ def _lock_entry(raw, strict):
         found["audience"] = audience
     elif audience is not None:
         refuse("audience", "public or private")
-    for field, pattern, limit in (("version", _VERSION, 20), ("installed", _STAMP, 40), ("checked", _STAMP, 40),
-                                  ("error", _CODE, 64)):
+    for field, pattern, limit in (("version", _VERSION, 20), ("release", _VERSION, 20), ("installed", _STAMP, 40),
+                                  ("checked", _STAMP, 40), ("error", _CODE, 64)):
         value = raw.get(field)
         if value is None or (isinstance(value, str) and len(value) <= limit and pattern.fullmatch(value)):
             found[field] = value

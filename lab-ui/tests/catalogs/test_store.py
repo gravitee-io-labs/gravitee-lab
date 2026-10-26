@@ -976,10 +976,25 @@ class Fetching(Remote):
         self.assertTrue(store.has(self.store, first))
         self.assertEqual(store.resolve(self.store, "refs/lab/pin"), first)
 
-    def test_tags_are_not_fetched(self):
+    def test_tags_are_not_tags_of_the_store_and_those_that_may_be_releases_are_kept_apart(self):
         gitfixture.git("tag", "v1", gitfixture.tip(self.repo), repo=self.repo)
+        gitfixture.git("tag", "nightly", gitfixture.tip(self.repo), repo=self.repo)
         self.fetched()
         self.assertEqual(gitfixture.git("tag", "--list", repo=self.store).strip(), "")
+        self.assertEqual(gitfixture.git("for-each-ref", "--format=%(refname)", "refs/lab/releases/", repo=self.store).split(),
+                         ["refs/lab/releases/v1"], "a tag that starts with v, and no other")
+
+    def test_a_fetch_without_releases_brings_no_tag(self):
+        gitfixture.git("tag", "v1.0.0", gitfixture.tip(self.repo), repo=self.repo)
+        store.fetch(self.address, "main", self.store, releases=False)
+        self.assertEqual(gitfixture.git("for-each-ref", "refs/lab/releases/", repo=self.store).strip(), "")
+
+    def test_a_store_says_whether_a_fetch_read_the_releases(self):
+        tip = store.fetch(self.address, "main", self.store, releases=False)
+        self.assertFalse(store.releases_read(self.store), "a fetch without the tags does not say whether there are releases")
+        self.assertEqual(store.fetch(self.address, "main", self.store), tip)
+        self.assertTrue(store.releases_read(self.store))
+        self.assertEqual(gitfixture.git("for-each-ref", "refs/lab/releases/", repo=self.store).strip(), "", "the mark is no release")
 
     def test_the_command_is_the_one_of_section_9(self):
         log = self.root / "args"
@@ -992,7 +1007,7 @@ class Fetching(Remote):
         self.assertEqual(args[end:end + 2], ["--git-dir", str(self.store)])
         wanted = ["-c", "transfer.fsckObjects=true", "-c", "fetch.fsckObjects=true", "-c", "core.hooksPath=/dev/null",
                   "-c", "core.fsmonitor=false", "fetch", "--progress", "--no-tags", "--prune", "--no-recurse-submodules", "--",
-                  self.address.url, "+refs/heads/main:refs/lab/tip"]
+                  self.address.url, "+refs/heads/main:refs/lab/tip", "+refs/tags/v*:refs/lab/releases/v*"]
         self.assertEqual(args[end + 2:], wanted)
         self.assertEqual(tip, gitfixture.tip(self.repo))
 
@@ -1541,6 +1556,62 @@ class Reading(Remote):
         new = gitfixture.commit(self.repo, {"addons/echo/README.md": "Echo\nmore\n"})
         self.fetched()
         self.assertIn("+more", store.diff(self.store, self.tip, new, "addons/echo/README.md"))
+
+
+class Releases(Remote):
+    """The release tags a fetch brings, and what is new between two commits, unit by unit."""
+
+    def tag(self, name, commit=None, annotated=False):
+        target = commit or gitfixture.tip(self.repo)
+        args = ["tag", "-a", "-m", f"Release {name}", name, target] if annotated else ["tag", "-f", name, target]
+        gitfixture.git(*args, repo=self.repo)
+
+    def test_the_release_tags_that_lead_to_the_tip_greatest_first_annotated_or_not(self):
+        first = gitfixture.tip(self.repo)
+        self.tag("v1.0.0", first, annotated=True)
+        second = gitfixture.commit(self.repo, {"addons/echo/README.md": "newer\n"})
+        self.tag("v1.10.0", second)
+        self.tag("v1.9.0", second)
+        for name in ("v2", "v1.0", "v1.0.0-rc1", "va.b.c", "1.0.0", "v01.0.0x"):
+            self.tag(name, second)
+        tip = self.fetched()
+        self.assertEqual(store.release_tags(self.store, tip),
+                         [((1, 10, 0), "v1.10.0", second), ((1, 9, 0), "v1.9.0", second), ((1, 0, 0), "v1.0.0", first)])
+        self.assertEqual(store.release_tags(self.store, first), [((1, 0, 0), "v1.0.0", first)], "not one that comes after")
+        self.assertEqual((store.release_commit(self.store, "1.0.0"), store.release_commit(self.store, "3.0.0")), (first, None))
+        self.assertIsNone(store.release_commit(self.store, "1.0.0 --all"))
+
+    def test_a_tag_on_a_branch_the_tip_does_not_have_is_no_release_of_it(self):
+        gitfixture.git("branch", "side", repo=self.repo)
+        side = gitfixture.git("commit-tree", "-p", gitfixture.tip(self.repo), "-m", "Side",
+                              gitfixture.tip(self.repo) + "^{tree}", repo=self.repo).strip()
+        self.tag("v9.0.0", side)
+        tip = self.fetched()
+        self.assertEqual(store.release_tags(self.store, tip), [])
+        self.assertEqual(store.release_commit(self.store, "9.0.0"), side, "it is in the store all the same")
+
+    def test_a_moved_tag_is_the_remotes_again_and_a_deleted_one_goes(self):
+        first = gitfixture.tip(self.repo)
+        self.tag("v1.0.0", first)
+        self.tag("v1.1.0", first)
+        self.fetched()
+        second = gitfixture.commit(self.repo, {"addons/echo/README.md": "newer\n"})
+        self.tag("v1.0.0", second)
+        gitfixture.git("tag", "-d", "v1.1.0", repo=self.repo)
+        tip = self.fetched()
+        self.assertEqual(store.release_tags(self.store, tip), [((1, 0, 0), "v1.0.0", second)])
+        self.assertIsNone(store.release_commit(self.store, "1.1.0"))
+
+    def test_the_notes_are_the_log_of_each_unit_in_the_order_asked(self):
+        start = self.fetched()
+        gitfixture.commit(self.repo, {"addons/echo/README.md": "a\n", "setups/pair.yml": "x-gravitee: {}\n"}, "Touch two units")
+        gitfixture.commit(self.repo, {"addons/echo/README.md": "b\n"}, "Fix the echo guide")
+        tip = self.fetched()
+        self.assertEqual(store.notes(self.store, start, tip, ["setup:pair", "playground:shop", "addon:echo"]),
+                         [("setup:pair", ["Touch two units"]), ("playground:shop", []),
+                          ("addon:echo", ["Fix the echo guide", "Touch two units"])])
+        self.assertEqual(store.folder_of("setup:pair"), "setups/pair.yml")
+        self.assertEqual(store.folder_of("playground:shop"), "playgrounds/shop")
 
 
 class Fixtures(Case):

@@ -286,7 +286,12 @@ def _plan_lines(plan):
     """The Plan of an Update or a Go back as lines."""
     if plan.get("upToDate"):
         return ["Already up to date."]
-    lines = [f"From {plan.get('from')} to {plan.get('to')}" + (f", version {plan['version']}" if plan.get("version") else "")]
+    version = plan.get("version")
+    if version and plan.get("version_from") and plan["version_from"] != version:
+        version = f"{plan['version_from']} → {version}"
+    if version and "release" in plan and not plan["release"]:
+        version += " (unreleased)"
+    lines = [f"From {plan.get('from')} to {plan.get('to')}" + (f", version {version}" if version else "")]
     if plan.get("rewritten"):
         lines.append("  This catalog was rewritten or moved.")
     for key, label in (("updates", "Updates"), ("adds", "Adds"), ("removes", "Removes")):
@@ -298,6 +303,7 @@ def _plan_lines(plan):
         lines.append(f"  Changes: {one.get('name')} ({one.get('fact')} {one.get('value')})")
     for one in plan.get("blocked") or []:
         lines.append(f"  Cannot run: {one.get('name')} ({'; '.join(one.get('reasons') or [])})")
+    lines += [f"  New: {subject}" for subject in plan.get("whatsnew") or []]
     if plan.get("held"):
         lines.append(f"  Held: {plan['held']}")
     return lines

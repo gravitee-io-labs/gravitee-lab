@@ -42,7 +42,7 @@ def folder_entry(ns, path, **more):
 
 def lock_entry(**fields):
     return {"pin": A, "previous": None, "tip": A, "roots": [B], "audience": "public", "name": "Hub", "version": "1.0.0",
-            "lab": 1, "installed": "2026-10-16T09:00:30Z", "checked": "2026-10-16T09:01:00Z", "error": None,
+            "release": "1.0.0", "lab": 1, "installed": "2026-10-16T09:00:30Z", "checked": "2026-10-16T09:01:00Z", "error": None,
             "pending": None, **fields}
 
 
@@ -465,8 +465,8 @@ class LockRead(Disk):
     def test_every_entry_has_every_field_of_section_2_2(self):
         self.lockfile(**{"acme-hub": {"pin": A}})
         found = registry.lock_of("acme-hub")
-        self.assertEqual(list(found), ["pin", "previous", "tip", "roots", "audience", "name", "version", "lab", "installed",
-                                       "checked", "error", "pending"])
+        self.assertEqual(list(found), ["pin", "previous", "tip", "roots", "audience", "name", "version", "release", "lab",
+                                       "installed", "checked", "error", "pending"])
         self.assertEqual((found["pin"], found["previous"], found["roots"], found["audience"]), (A, None, [], "private"))
 
     def test_a_catalog_with_no_entry_has_the_blank_one(self):
@@ -493,12 +493,12 @@ class LockRead(Disk):
     def test_a_field_of_the_wrong_type_reads_as_its_blank(self):
         self.lockfile(**{"acme-hub": {
             "pin": "garbage", "previous": 5, "tip": A.upper(), "roots": [B, "x"], "audience": "everyone", "name": 7,
-            "version": "1.0", "lab": "1", "installed": "yesterday", "checked": 12, "error": "BAD CODE",
+            "version": "1.0", "release": "v1.0.0", "lab": "1", "installed": "yesterday", "checked": 12, "error": "BAD CODE",
             "pending": {"op": "explode", "to": A}, "via": "ftp", "shadowed": "yes"}})
         found = registry.lock_of("acme-hub")
         self.assertEqual(found, {"pin": None, "previous": None, "tip": None, "roots": [], "audience": "private",
-                                 "name": None, "version": None, "lab": None, "installed": None, "checked": None,
-                                 "error": None, "pending": None})
+                                 "name": None, "version": None, "release": None, "lab": None, "installed": None,
+                                 "checked": None, "error": None, "pending": None})
 
     def test_a_good_entry_reads_as_it_is(self):
         entry = lock_entry(via="ssh", shadowed=True, pending={"op": "update", "from": A, "to": B})
@@ -569,12 +569,12 @@ class LockWrite(Disk):
         self.assertEqual(os.stat(file).st_mode & 0o777, 0o600)
         written = json.loads(file.read_text(encoding="utf-8"))
         self.assertEqual(list(written["catalogs"]["acme-hub"]), ["pin", "previous", "tip", "roots", "audience", "name",
-                                                                  "version", "lab", "installed", "checked", "error",
+                                                                  "version", "release", "lab", "installed", "checked", "error",
                                                                   "pending"])
         self.assertEqual(registry.read_lock(), written)
 
     def test_a_field_of_the_wrong_type_is_a_programmer_s_error_and_nothing_is_written(self):
-        table = {"pin": "abc", "previous": 1, "tip": "G" * 40, "roots": "x", "audience": "everyone", "version": "1",
+        table = {"pin": "abc", "previous": 1, "tip": "G" * 40, "roots": "x", "audience": "everyone", "version": "1", "release": "v1",
                  "lab": True, "installed": "now", "error": "Bad Code", "pending": {"op": "add"}, "via": "ftp",
                  "shadowed": "yes", "name": 3}
         for field, value in table.items():

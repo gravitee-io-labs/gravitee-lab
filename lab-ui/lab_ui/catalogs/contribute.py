@@ -891,7 +891,7 @@ def _publish(ns, catalog, name, kind, slug, address, branch, who, copy, also=())
     """The target's tip is fetched (the network, no lock), the commit is built on it, the branch is
     pushed. The tip may have the item by now, or one of what goes with it (`also`): `share_exists`."""
     store = registry.store_dir(ns)
-    base = bare.fetch(address, branch, store, stall=30, cap=FETCH_CAP)
+    base = bare.fetch(address, branch, store, stall=30, cap=FETCH_CAP, releases=False)
     for k, s in [(kind, slug), *also]:
         if bare.read(store, base, _place(k, s, ns)[2]) is not None:
             raise _refusal("share_exists", name=name if (k, s) == (kind, slug) else s, catalog=catalog)

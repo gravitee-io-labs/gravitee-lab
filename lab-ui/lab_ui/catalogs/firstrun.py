@@ -360,11 +360,11 @@ def _download(ns: str, entry: Optional[dict], row: Optional[dict]) -> None:
         if row is not None and row.get("roots") and sorted(row["roots"]) != sorted(roots):
             shutil.rmtree(store_path, ignore_errors=True)   # another repository: nothing of it is worth keeping
             raise install.not_expected(address.repo or address.display)
-        levels = manifest.levels(store_path, tip, address=answered)
         contract = _contract()
-        commit, tip_state = manifest.pick(levels, contract["contract"], contract["contract_min"])
+        offered = manifest.offer(store_path, tip, contract["contract"], contract["contract_min"], answered)
+        commit, tip_state = offered.commit, offered.tip
         if commit is None:
-            raise manifest.no_commit(levels, contract["contract"], contract["contract_min"], listed)
+            raise manifest.no_commit(offered.levels, contract["contract"], contract["contract_min"], listed)
         kept, ignored = bare.selected(bare.listing(store_path, commit))
         _set(ns, "stage", 0.0)
         staged = install.stage(answered, ns, store_path, commit, kept, ignored)

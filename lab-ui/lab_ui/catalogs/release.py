@@ -2,13 +2,15 @@
 `main`.
 
     release/VERSION    a branch with `version:` of catalog.yml bumped, in one commit "Release VERSION", and the line that opens the
-                       pull request (with `--pr`, `gh pr create` is run when `gh` is here). It is reviewed and squash merged.
+                       pull request (with `--pr`, the branch is pushed and `gh pr create` is run when `gh` is here: opening
+                       the pull request is what was asked, and GitHub needs the branch for it). It is reviewed and squash merged.
     --tag              after the merge: `origin/main` has to say that version; the annotated tag `vVERSION` is made on it, and the
                        line that pushes it is printed. An administrator pushes it, and `publish.yml` takes it from there.
 
 Both refuse what would make a release that people cannot trust: a tree that is not clean, a branch that is behind `origin/main`, a
 version that is not greater than the latest tag. Only the `version:` line of catalog.yml is changed, by a targeted edit of that
-line, so its comments and its other lines stay as they are. Nothing is ever pushed: the commands are printed.
+line, so its comments and its other lines stay as they are. Nothing else is ever pushed, `main` and the tag least of all: the
+commands are printed.
 
 `origin/main` and the tags are read after a fetch of both from `origin`, so a release is judged against what the server holds. The
 git here is the Lab's (`gitx`): no hook runs, and the person's own name and email sign the commit and the tag. Standard library
@@ -181,6 +183,9 @@ def _prepare(root: Path, version: str, pr: bool, gh: Callable) -> List[str]:
         raise ReleaseError("catalog.yml is not UTF-8 text.") from None
     if old == version:
         raise ReleaseError(f"catalog.yml already says {version}. Fix: if it is on main, tag it: make release VERSION={version} TAG=1.")
+    if numbers(version) < numbers(old):
+        raise ReleaseError(f"catalog.yml says {old} already, which is greater than {version}. Fix: tag {old} "
+                           f"(make release VERSION={old} TAG=1), or choose a version above it.")
     made = _run(root, "switch", "--quiet", "-c", name)
     if made.code != 0:
         raise _fail(made, "The branch could not be made")
@@ -216,14 +221,21 @@ def _prepare(root: Path, version: str, pr: bool, gh: Callable) -> List[str]:
     lines = [f"Prepared {name}: catalog.yml says {version} (one commit).", "", "Next", f"  git push -u origin {name}", f"  {line}",
              f"  after it is merged: make release VERSION={version} TAG=1"]
     if pr:
+        # The release branch alone: no tag follows it, whatever the person's git says (push.followTags)
+        pushed = _run(root, "push", "--quiet", "--no-follow-tags", "--set-upstream", "origin", f"refs/heads/{name}:refs/heads/{name}")
+        if pushed.code != 0:
+            return lines + ["", f"git push did not work: {printable(pushed.err).strip()[:SHOWN] or 'it said nothing'}",
+                            "The branch is ready here: push it and open the pull request with the lines above."]
         code, out, err = gh(command, root)
         if code == 127:
             lines += ["", "gh is not installed: run the lines above yourself."]
         elif code != 0:
             lines += ["", "gh pr create did not work: " + (printable(err).strip() or "it said nothing")[:SHOWN],
-                      f"Push the branch first if you have not: git push -u origin {name}"]
+                      f"The branch {name} is on origin: open the pull request with the line above."]
         else:
-            lines += ["", printable(out).strip()[:SHOWN]]
+            # Pushed and opened: what is left is the second step
+            lines = [f"Prepared {name}: catalog.yml says {version} (one commit), pushed, and its pull request opened:",
+                     printable(out).strip()[:SHOWN], "", "Next", f"  after it is merged: make release VERSION={version} TAG=1"]
     return lines
 
 

@@ -1333,7 +1333,7 @@ test("a Try again the server refuses is an error toast in its words, and the row
 // --- Update and Go back ---------------------------------------------------------------------------------------------------------
 
 // What the server answers to the check of an update
-const PLAN = (more = {}) => ({ ticket: "b1c2d3e4f5a60718", from: "9f1c2ab", to: "c4d5e6f", version: "1.5.0", rewritten: false,
+const PLAN = (more = {}) => ({ ticket: "b1c2d3e4f5a60718", from: "9f1c2ab", to: "c4d5e6f", version: "1.5.0", release: "1.5.0", rewritten: false,
   updates: [{ kind: "playground", id: "@acme-hub/bank", name: "Acme Bakery" }], adds: [{ kind: "addon", id: "@acme-hub/ledger", name: "Ledger" }],
   removes: [{ kind: "addon", id: "@acme-hub/old", name: "Old" }], breaks: [{ kind: "playground", id: "local/demo", name: "Demo", needs: "Old" }],
   changes: [{ id: "@acme-hub/bank", name: "Acme Bakery", fact: "port", value: "8141" }], whatsnew: ["Add the ledger"],
@@ -1379,13 +1379,19 @@ test("Update says what changes before it does: the version, who changes, what co
   shut();
 });
 
-test("the version reads from the one installed to the new one when the catalog raised it, and says so when it did not", async () => {
+test("the version reads from the one installed to the new one when the catalog raised it, and says so when it did not or made no release", async () => {
   const version = () => rowsOf().find(([label]) => label === "Version")[1];
   await updating(PLAN({ version_from: "1.4.0" }));
   assert.equal(version(), "1.4.0 → 1.5.0");
   shut();
   await updating(PLAN({ version_from: "1.5.0" }));
   assert.equal(version(), "1.5.0 Unchanged");
+  shut();
+  await updating(PLAN({ version_from: "1.5.0", release: null }));
+  assert.equal(version(), "1.5.0 Unreleased");
+  shut();
+  await updating(PLAN({ version_from: "1.4.0", release: null }));
+  assert.equal(version(), "1.4.0 → 1.5.0 Unreleased");
   shut();
 });
 
@@ -1602,9 +1608,10 @@ test("every growth of power is a line of Changes in the Lab's words", async () =
   shut();
 });
 
-test("what is new is at most five subjects, one to a line", async () => {
+test("what is new is every subject of the notes, one to a line", async () => {
   await updating(PLAN({ whatsnew: ["one", "two", "three", "four", "five", "six"] }));
-  assert.equal(adding().querySelectorAll("#catalog-rows .choice-row").find((r) => text(r.querySelector(".choice-row-label")) === "What's new").querySelectorAll("li").length, 5);
+  assert.deepEqual(adding().querySelectorAll("#catalog-rows .choice-row").find((r) => text(r.querySelector(".choice-row-label")) === "What's new").querySelectorAll("li").map(text),
+    ["one", "two", "three", "four", "five", "six"]);
   shut();
 });
 
