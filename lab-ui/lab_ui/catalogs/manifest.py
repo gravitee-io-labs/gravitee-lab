@@ -24,6 +24,7 @@ import json
 import os
 import re
 import stat
+import time
 from pathlib import Path
 from typing import Iterable, List, NamedTuple, Optional, Tuple
 
@@ -36,7 +37,9 @@ from .registry import CatalogError
 SCHEMA = 1   # the format of catalog.yml and of the layout that this Lab reads
 LEGACY = ("schema", "lab")   # what older Gravitee Labs need in catalog.yml, and this Lab does not
 LEGACY_NOTE = "# For older Gravitee Labs: written by catalog.py"   # the comment of their lines in a file catalog.py writes
-READS = 5   # the versions of a catalog whose files `pick` reads to find one this Lab understands
+# The versions of a catalog whose files `pick` reads to find one this Lab understands, and the seconds it spends on them: a real
+# history has its newest readable version among the first few, and a catalog this Lab cannot read is said once the budget is spent
+READS, READ_SECONDS = 20, 10.0
 UNITS = ("addons", "setups", "playgrounds")   # what holds the units: a version of them is a version of the catalog
 BLOCK = "x-gravitee-catalog"
 FILE = registry.CATALOG_FILE
@@ -109,28 +112,37 @@ def compat(level: int, contract: int, contract_min: int) -> str:
     return "new" if level > high else "old" if level < low else "ok"
 
 
-def pick(levels: list, contract: int, contract_min: int, readable=None, reads: int = READS) -> tuple:
-    """The compatible pin. `levels` is [(commit, lab)], newest first (`levels()`): `levels[0]` is the tip with the `lab` its
-    catalog.yml states. Answers (the first commit this Lab reads, or None; how the tip stands: "ok", "new" when it needs a
-    newer Gravitee Lab, "old"). With nothing to choose from there is no commit and the tip is "old".
+def pick(levels: list, contract: int, contract_min: int, readable=None, reads: int = READS,
+         seconds: float = READ_SECONDS) -> tuple:
+    """The compatible pin. `levels` is [(commit, lab)], newest first (`levels()`, or a catalog's releases): `levels[0]` is the
+    tip with the `lab` its catalog.yml states. Answers (the first commit this Lab reads, or None; how the tip stands: "ok",
+    "new" when it needs a newer Gravitee Lab, "old"). With nothing to choose from there is no commit and the tip is "old".
+    `searched` gives the number of versions read as well, when the budget ran out before one was found.
 
     A `lab` is a fast hint: a version whose `lab` this Lab does not read (`compat`) is passed over, its files unread. Any other
     version is read when `readable` is given, `readable(commit)` saying whether this Lab understands every item of the contract
     that its files use (`understood`): what it does not is a version that needs a newer Gravitee Lab. At most `reads` versions
-    are read; past them none is taken. Without `readable` (a caller that reads the version it stages) a `lab` of None, the
-    form with no `lab` and the form the tolerant reader could not be sure of, is taken for a version this Lab may read, and
-    the strict reading of the staged file decides: a refusal with what it found, never a catalog passed over for a level it
-    was never found to have. Pure but for `readable`."""
+    are read, in at most `seconds`; past them none is taken. Without `readable` (a caller that reads the version it stages) a
+    `lab` of None, the form with no `lab` and the form the tolerant reader could not be sure of, is taken for a version this Lab
+    may read, and the strict reading of the staged file decides. Pure but for `readable` and the clock."""
+    commit, state, _ = searched(levels, contract, contract_min, readable, reads, seconds)
+    return commit, state
+
+
+def searched(levels: list, contract: int, contract_min: int, readable=None, reads: int = READS,
+             seconds: float = READ_SECONDS) -> tuple:
+    """`pick`, with a third answer: the number of versions read when the budget ran out with none found, else 0."""
     if not levels:
-        return None, "old"
-    left = [reads]
+        return None, "old", 0
+    left, began, spent = [reads], time.monotonic(), [False]
 
     def fits(commit, lab):
         if lab is not None and compat(lab, contract, contract_min) != "ok":
             return False
         if readable is None:
             return True
-        if left[0] <= 0:
+        if left[0] <= 0 or time.monotonic() - began > seconds:
+            spent[0] = True
             return False
         left[0] -= 1
         return bool(readable(commit))
@@ -138,13 +150,13 @@ def pick(levels: list, contract: int, contract_min: int, readable=None, reads: i
     if lab is not None and compat(lab, contract, contract_min) != "ok":
         tip_state = compat(lab, contract, contract_min)
     elif fits(tip, lab):
-        return tip, "ok"
+        return tip, "ok", 0
     else:
         tip_state = "new"
     for commit, lab in levels[1:]:
         if fits(commit, lab):
-            return commit, tip_state
-    return None, tip_state
+            return commit, tip_state, 0
+    return None, tip_state, (reads - left[0]) if spent[0] else 0
 
 
 NEWER = "This catalog needs a newer Gravitee Lab. Run make update, then add it again."
@@ -172,10 +184,14 @@ def not_understood(found: Iterable) -> CatalogError:
     return CatalogError("lab_new", NEWER, 400, unknown=[understood.name(item) for item in found])
 
 
-def no_commit(levels: list, contract: int, contract_min: int, listed: bool = False) -> CatalogError:
+def no_commit(levels: list, contract: int, contract_min: int, listed: bool = False, searched: int = 0) -> CatalogError:
     """The refusal when `pick` found no commit (the one rule): `no_readable_version` when the tip needs a newer Lab, by its
     legacy `lab` or by what its files use (so does every version), `lab_old` when the catalog is older than this Lab reads,
-    or there is nothing to choose from. `listed` words `lab_old` for a catalog the engine lists."""
+    or there is nothing to choose from. `listed` words `lab_old` for a catalog the engine lists. `searched`: the versions read
+    when the budget of `pick` ran out, so that the line says what was looked at and no more."""
+    if searched:
+        return CatalogError("no_readable_version", f"This Lab found no version of this catalog it reads among the newest {searched}. "
+                            "Fix: update Gravitee Lab (make update), then add it again.", 400)
     level = levels[0][1] if levels else 0
     if level is None or compat(level, contract, contract_min) != "old":   # None: its files need a newer Lab (`pick`)
         return CatalogError("no_readable_version",
@@ -558,11 +574,12 @@ class Offer(NamedTuple):
     """What a catalog offers this Lab: `commit`, the version to install (None when it has none this Lab reads); `tip`, how
     the newest version stands with this Lab (`pick`'s second answer: "ok", "new" or "old"); `release`, the version of the
     release `commit` is, or None for a catalog that has no release, which is followed commit by commit; `levels`, what
-    `no_commit` reads when there is no commit."""
+    `no_commit` reads when there is no commit; `searched`, the versions read when the budget ran out with none found."""
     commit: Optional[str]
     tip: str
     release: Optional[str]
     levels: list
+    searched: int = 0
 
 
 def offer(store: Path, tip: str, contract: int, contract_min: int, address: Optional[gitx.Address] = None,
@@ -575,14 +592,14 @@ def offer(store: Path, tip: str, contract: int, contract_min: int, address: Opti
     found = releases(store, tip)
     if not found:
         history = levels(store, tip, address=address)
-        commit, state = pick(history, contract, contract_min, readable)
-        return Offer(commit, state, None, history)
+        commit, state, looked = searched(history, contract, contract_min, readable)
+        return Offer(commit, state, None, history, looked)
     if bare.read(store, tip, FILE) is None:
         raise gitx.fail("not_catalog", address)
-    history = [(commit, lab) for commit, lab, _ in found]
-    commit, state = pick(history, contract, contract_min, readable)
+    history = [(commit, lab) for commit, lab, _ in found]   # a catalog that makes releases is offered its releases, and only them
+    commit, state, looked = searched(history, contract, contract_min, readable)
     version = next((version for one, _, version in found if one == commit), None)
-    return Offer(commit, state, version, history)
+    return Offer(commit, state, version, history, looked)
 
 
 def release_of(store: Path, commit: str, version: Optional[str]) -> Optional[str]:

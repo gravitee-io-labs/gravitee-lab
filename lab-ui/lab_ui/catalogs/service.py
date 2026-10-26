@@ -830,7 +830,8 @@ def check_address(address, branch=None):
         listed_at = _listed_ids_at(found_at.display)
         commit = offered.commit
         if commit is None:
-            raise manifest.no_commit(offered.levels, contract["contract"], contract["contract_min"], bool(listed_at))
+            raise manifest.no_commit(offered.levels, contract["contract"], contract["contract_min"], bool(listed_at),
+                                     offered.searched)
         kept, ignored = bare.selected(bare.listing(store_path, commit))
         with _one_stage():
             staged = install.stage(found_at, f"new-{ticket}", store_path, commit, kept, ignored)

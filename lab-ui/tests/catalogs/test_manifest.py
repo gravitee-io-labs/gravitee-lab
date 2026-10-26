@@ -149,6 +149,27 @@ class Picking(Case):
         self.assertEqual(manifest.pick([("t", 5), ("a", 4)], 3, 2), (None, "new"), "without one, as before")
         self.assertEqual(manifest.pick([("t", 1), ("a", 0)], 3, 2), (None, "old"), "a level it does not state is still old")
 
+    def test_a_readable_version_six_back_is_found_and_one_past_the_budget_is_said_truly(self):
+        def readable_at(index):
+            return lambda commit: commit == str(index)
+        six = [(str(number), None) for number in range(10)]
+        self.assertEqual(manifest.searched(six, 1, 1, readable_at(6)), ("6", "new", 0))
+        many = [(str(number), None) for number in range(30)]
+        self.assertEqual(manifest.searched(many, 1, 1, readable_at(25)), (None, "new", manifest.READS))
+        error = manifest.no_commit(many, 1, 1, searched=manifest.READS)
+        self.assertEqual((error.code, error.message), ("no_readable_version", f"This Lab found no version of this catalog it reads "
+                                                       f"among the newest {manifest.READS}. Fix: update Gravitee Lab (make update), "
+                                                       "then add it again."))
+        self.assertEqual(manifest.searched(many, 1, 1, lambda commit: False)[2], manifest.READS)
+        self.assertEqual(manifest.searched(six, 1, 1, lambda commit: False)[2], 0, "every version was read: none needs saying so")
+
+    def test_the_budget_of_time_stops_the_reading_too(self):
+        clock = iter(range(0, 1000, 4))
+        with mock.patch.object(manifest.time, "monotonic", lambda: next(clock)):
+            found = manifest.searched([(str(number), None) for number in range(10)], 1, 1, lambda commit: False, seconds=10)
+        self.assertEqual(found[:2], (None, "new"))
+        self.assertLess(found[2], 5)
+
     def test_no_commit_never_says_a_level_it_does_not_have(self):
         """A tip that states no `lab` and gave no commit is one whose files this Lab does not read: it needs a newer Lab, and
         the line names no level, not "None" either."""

@@ -19,7 +19,7 @@ page that a catalog uses say which Lab reads it.
 | The person's own: a folder catalog, Personal, a working copy linked in place of an install | Used as it is: an unknown item is a mistake of its author, and `catalog.py check` names each one |
 
 The Lab finds the newest version it reads by reading the files of each version, newest first, as it reads a catalog it adds
-(`manifest.pick`, `understood`): a few versions at most, each once. A catalog's CI checks it with a released Lab: the commit
+(`manifest.pick`, `understood`): its releases when it makes releases, else the commits before each change of its units, up to 20 versions in at most 10 seconds, each once. When none of those is one it reads, the Lab says so and how many it read. A catalog's CI checks it with a released Lab: the commit
 that `.github/standard.json` pins is the commit of a release `vX.Y.Z`. So a catalog that passes its CI is read by that release
 and every later one, and updating to the latest release is always enough for what a catalog publishes. The release notes of
 the Lab list, under *For catalogs*, what each release adds that a catalog can use (the label `catalog-format`,

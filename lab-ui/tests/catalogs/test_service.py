@@ -1150,6 +1150,14 @@ class Understanding(Real):
         self.assertEqual(self.state("partner"), "uptodate")
         self.assertIsNone(registry.lock_of("partner")["lab"])
 
+    def test_the_newest_version_this_lab_reads_six_versions_back_is_installed(self):
+        remote = self.remote("partner", files={"catalog.yml": self.catalog_yml(legacy=False)})
+        older = remote.head()
+        for number in range(6):
+            remote.commit({LEDGER: self.ledger(key=f"badge: gold-{number}")}, f"Uses a key of a newer Lab {number}")
+        shown = service.check_address(remote.url)
+        self.assertEqual((shown["newer"], service.TICKETS[shown["ticket"]]["staged"].commit), (True, older))
+
     def test_a_catalog_every_version_of_which_uses_what_this_lab_does_not_read_is_refused(self):
         for legacy in (True, False):
             with self.subTest(legacy=legacy):
