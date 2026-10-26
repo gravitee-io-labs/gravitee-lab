@@ -1485,7 +1485,7 @@ class Upgrading(Case):
     def test_the_lines_older_labs_read_are_written_when_catalog_yml_lacks_them_and_made_true_when_they_are_wrong(self):
         """Gravitee Lab 1.4 and older need `schema` and read `lab`: `upgrade --write` is the fix `check` names for them."""
         files = render()
-        bare = files["catalog.yml"].replace(b"  schema: 1\n", b"").replace(b"  lab: 1\n", b"")
+        bare = b"".join(line for line in files["catalog.yml"].splitlines(True) if line.split(b":")[0].strip() not in (b"schema", b"lab"))
         repo = self.repo(files={**files, "catalog.yml": bare})
         self.patch(standard, "legacy_lab", lambda root: 1)
         code, out, _ = self.upgrade(repo, "--write")
