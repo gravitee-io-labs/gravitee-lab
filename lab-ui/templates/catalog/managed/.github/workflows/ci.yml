@@ -1,9 +1,9 @@
-# Managed by the Lab catalog standard 4: change it with catalog.py upgrade, in a pull request a maintainer reads.
+# Managed by the Lab catalog standard 5: change it with catalog.py upgrade, in a pull request a maintainer reads.
 # The untrusted lane. It runs the code of every pull request, forks included, so its token only reads and it writes nothing. It
 # holds no secret but the read key of the Lab, which exists only while the Lab is private (a fork never gets it). In the order it
 # fails fastest:
-#   Checks       the shape of the tree, the secrets, the files, the Lab's own check with its trust policy, what the change touches, and
-#                whether every image it pulls exists
+#   Checks       the shape of the tree, the secrets, the files, the Lab's own check with its trust policy, what the change touches,
+#                whether every image it pulls exists, and on a push to main what is merged and not released yet
 #   Seed files   the seed files of the playgrounds that changed, read as the seeder reads them, and the catalog's own tests when it
 #                has some
 #   Apps         the apps build on each architecture (a Mac runs arm64), pass their tests in their image with no network, and what
@@ -85,6 +85,12 @@ jobs:
           name: catalog-index
           path: catalog.json
           if-no-files-found: ignore
+      # The Lab offers the releases of a catalog, not its main branch: what was merged since the last tag reaches nobody yet. A warning
+      # and the notes of the next release in the summary, never a failure
+      - name: Not released yet
+        if: ${{ !cancelled() && github.event_name == 'push' }}
+        # A warning at most: a clone git cannot read is said, and fails no run
+        run: python3 -I lab/lab-ui/catalog.py ci unreleased catalog --ci || echo "::warning title=Unreleased::What is not released yet could not be read"
 
   # Python 3.14 and the seeder's requirements, which the Lab pins: nothing the change wrote is installed. The catalog's own tests, when
   # it has a tests/ folder (the default catalog does), are plain unittest, need no network and no secret, and find the seeder's helpers

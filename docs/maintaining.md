@@ -18,9 +18,10 @@ git grep -l 'gravitee-io-labs/gravitee-lab' -- . ':!NOTICE' | xargs sed -i.bak '
 find . -name '*.bak' -not -path './.git/*' -delete
 ```
 
-A catalog pins the Lab by commit (`lab.ref` in its `.github/standard.json`), and its CI fetches that commit. When the history of
-this repository is rewritten or the repository is moved, the pins point at nothing: move them to a commit of the new history,
-`python3 lab-ui/catalog.py upgrade --fleet OWNER --lab-ref COMMIT`, which opens a pull request on each catalog of the owner.
+A catalog pins the Lab by the commit of a release (`lab.ref` in its `.github/standard.json`, a commit that a tag `vX.Y.Z` on `main`
+names: SD11), and its CI fetches that commit. When the history of this repository is rewritten or the repository is moved, the
+pins point at nothing: move them to a release of the new history, `python3 lab-ui/catalog.py upgrade --fleet OWNER --lab-ref COMMIT`,
+which opens a pull request on each catalog of the owner.
 
 Then do these one-time steps on GitHub:
 

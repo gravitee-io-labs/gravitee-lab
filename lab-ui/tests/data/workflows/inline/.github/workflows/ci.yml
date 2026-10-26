@@ -76,6 +76,9 @@ jobs:
           name: catalog-index
           path: catalog.json
           if-no-files-found: ignore
+      - name: Not released yet
+        if: ${{ !cancelled() && github.event_name == 'push' }}
+        run: python3 -I lab/lab-ui/catalog.py ci unreleased catalog --ci
 
   # Python 3.14 and the seeder's requirements, which the Lab pins: nothing the change wrote is installed. The catalog's own tests, when
   # it has a tests/ folder (the default catalog does), are plain unittest, need no network and no secret, and find the seeder's helpers

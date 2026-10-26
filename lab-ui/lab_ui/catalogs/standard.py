@@ -97,9 +97,8 @@ RULES = table([
      ".github/dependabot.yml has no {ecosystem}. Fix: add it."),
     ("SD10", ERROR, "The Makefile does not include .catalog/standard.mk",
      "Makefile does not include .catalog/standard.mk. Fix: add the line: include .catalog/standard.mk"),
-    ("SD11", ERROR, "lab.ref is not a commit of the Lab's own main (CI)",
-     "The Lab commit {sha7} is not on the Lab's main branch. Fix: pin a commit of the Lab's main (catalog.py upgrade "
-     "--lab-ref COMMIT)."),
+    ("SD11", ERROR, "lab.ref is not the commit of a release of the Lab (a tag vX.Y.Z on its main) (CI)",
+     "The Lab commit {sha7} is not a release of the Lab. Fix: pin the latest release (catalog.py upgrade --lab-ref latest)."),
 ])
 GOLDEN_MESSAGE = "The template changed. Raise level in manifest.json, add a note under levels, and refresh golden.json."
 AHEAD_MESSAGE = ("A file of a level the Lab has not shipped yet changed. Refresh golden.json; raise level in manifest.json when "
@@ -952,13 +951,94 @@ def _scalar_pins(a: str, b: str) -> bool:
     return pins(a) == pins(b)
 
 
-def _on_lab_main(lab, ref: str) -> bool:
-    """Whether `ref` is a commit of the `origin/main` of the Lab checkout `lab` (SD11), as that checkout knows it, with no fetch."""
+RELEASE_TAG = re.compile(r"v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})")   # a release of the Lab
+
+
+def _lab_git(lab):
+    """What runs git in the Lab checkout `lab`: its Result, None when it cannot be asked."""
+    def run(args):
+        try:
+            return gitx.run(args, cwd=str(lab), timeout=30)
+        except (gitx.CatalogError, OSError):
+            return None
+    return run
+
+
+def release_state(lab, ref: str, git=None) -> str:
+    """SD11 of a pin, as the Lab checkout `lab` knows it with no fetch: "yes" when `ref` is the commit of a release of the Lab, a
+    tag vX.Y.Z on its `origin/main`; "no" when it is not; else why the checkout cannot say. A catalog is checked with a Lab that
+    people have: a commit of main that no release names is one nobody runs, and a commit of a fork is not the Lab's. `git` (args ->
+    a Result or None) is the seam of a caller that runs git its own way."""
+    run = git or _lab_git(lab)
+    have = run(["cat-file", "-e", f"{ref}^{{commit}}"])
+    if have is None:
+        return "the Lab checkout cannot be asked"
+    if have.code != 0:
+        return f"the Lab checkout does not hold {ref[:7]}: update it with git pull, then run again"
+    main = run(["rev-parse", "--verify", "--quiet", "origin/main"])
+    if main is None or main.code != 0:
+        return "the Lab checkout has no origin/main to compare with"
+    on_main = run(["merge-base", "--is-ancestor", ref, "origin/main"])
+    tags = run(["tag", "--points-at", ref])
+    named = tags is not None and tags.code == 0 and any(RELEASE_TAG.fullmatch(line.strip())
+                                                         for line in tags.out.decode("utf-8", "replace").splitlines())
+    return "yes" if on_main is not None and on_main.code == 0 and named else "no"
+
+
+MANIFEST_IN_LAB = "lab-ui/templates/catalog/manifest.json"   # where a Lab says the level of the standard it ships
+NOT_RELEASED = "Standard {n} is not in a released Gravitee Lab yet. Fix: release the Lab first, then run this again."
+
+
+def release_level(lab, ref: str, git=None) -> Optional[int]:
+    """The level of the catalog standard that the Lab at `ref` ships (`level` of its manifest.json, 0 when it ships none), as the
+    Lab checkout `lab` holds it; None when the checkout does not hold `ref`. A catalog written at a level is checked by the Lab
+    it pins, which must know that level: its workflows call what that level added."""
+    run = git or _lab_git(lab)
+    have = run(["cat-file", "-e", f"{ref}^{{commit}}"])
+    if have is None or have.code != 0:
+        return None
+    shown = run(["show", f"{ref}:{MANIFEST_IN_LAB}"])
     try:
-        result = gitx.run(["merge-base", "--is-ancestor", ref, "origin/main"], cwd=str(lab), timeout=30)
-    except (gitx.CatalogError, OSError):
-        return False
-    return result.code == 0
+        level = json.loads(shown.out.decode("utf-8")).get("level") if shown is not None and shown.code == 0 else 0
+    except (ValueError, AttributeError):
+        level = 0
+    return level if type(level) is int and level >= 0 else 0
+
+
+def pin_problem(lab, ref: str, level: int, git=None) -> str:
+    """Why the Lab `ref` cannot be the pin of a catalog written at standard `level`, or "": the release it is ships an older
+    standard. When no release of the Lab ships `level` yet, the line says so: the Lab is released before a catalog moves to its
+    standard."""
+    have = release_level(lab, ref, git)
+    if have is None or have >= level:
+        return ""
+    newest = latest_release(lab, git)
+    if newest and newest != ref and (release_level(lab, newest, git) or 0) >= level:
+        return (f"The Lab release {ref[:7]} has standard {have}; this writes standard {level}. Fix: pin the latest release "
+                "(catalog.py upgrade --lab-ref latest).")
+    return NOT_RELEASED.format(n=level)
+
+
+def _is_release(lab, ref: str) -> bool:
+    """Whether `ref` is a release of the Lab checkout `lab` (SD11, `release_state`)."""
+    return release_state(lab, ref) == "yes"
+
+
+def latest_release(lab, git=None) -> str:
+    """The commit of the latest release of the Lab, the greatest tag vX.Y.Z on the `origin/main` of the Lab checkout `lab`, as
+    that checkout knows it with no fetch; '' when it has none. What `--lab-ref latest` pins, and what `new` pins by default.
+    `git` is the seam of a caller that runs git its own way (the fleet)."""
+    run = git or _lab_git(lab)
+    listed = run(["tag", "--list", "v[0-9]*.[0-9]*.[0-9]*", "--merged", "origin/main"])
+    if listed is None or listed.code != 0:
+        return ""
+    names = [line.strip() for line in listed.out.decode("utf-8", "replace").splitlines() if RELEASE_TAG.fullmatch(line.strip())]
+    if not names:
+        return ""
+    newest = max(names, key=lambda name: tuple(int(part) for part in RELEASE_TAG.fullmatch(name).groups()))
+    found = run(["rev-parse", "--verify", "--quiet", f"refs/tags/{newest}^{{commit}}"])
+    commit = found.out.decode("utf-8", "replace").strip() if found is not None and found.code == 0 else ""
+    return commit if _COMMIT.fullmatch(commit) else ""
 
 
 def lab_log(lab, old: str, new: str) -> List[str]:
@@ -1042,9 +1122,14 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
     if ref_new and not _COMMIT.fullmatch(ref_new):
         return refuse("--lab-ref takes the full commit of the Lab: 40 hexadecimal characters.")
     lab_checkout = options.get("lab")
-    if ref_new and lab_checkout is not None and not _on_lab_main(lab_checkout, ref_new):
+    if ref_new and lab_checkout is not None and not _is_release(lab_checkout, ref_new):
         return refuse(say(RULES["SD11"].message, sha7=ref_new[:7]))
     old = (state.data or {}).get("lab", {}) if state.data else {}
+    pinned = ref_new or (old.get("ref") if isinstance(old.get("ref"), str) else "")
+    if lab_checkout is not None and _COMMIT.fullmatch(pinned or ""):
+        problem = pin_problem(lab_checkout, pinned, level)
+        if problem:
+            return refuse(problem)
     repo = options.get("lab_repository") or old.get("repository") or ""
     ref = ref_new or old.get("ref") or ""
     if not lab_repository_ok(repo) or not _COMMIT.fullmatch(ref):
@@ -1494,9 +1579,13 @@ def main_new(argv: List[str], lab: Optional[Path] = None) -> int:
             if not repository:
                 raise Usage("The Lab address could not be read. Give --lab-repo OWNER/REPO.")
             if not ref:
-                ref = _lab_head(lab)
-                if ref and not _on_lab_main(lab, ref):
-                    warning = f"The Lab commit {ref[:7]} is not on its origin, so CI will not find it. Push the Lab, or give --lab-ref."
+                ref = latest_release(lab)
+                if not ref:
+                    ref = _lab_head(lab)
+                    warning = (f"The Lab checkout has no release, so CI refuses its commit {ref[:7]} (SD11). Fetch its tags "
+                               "(git fetch --tags), then run catalog.py upgrade --lab-ref latest --write.")
+                elif pin_problem(lab, ref, LEVEL):
+                    raise Usage(pin_problem(lab, ref, LEVEL))
         params = {"id": args.id, "name": args.name, "maintainers": args.maintainers, "license": args.license, "images": args.images,
                   "description": args.description, "security_contact": args.security_contact, "lab_repository": repository,
                   "lab_ref": ref, "platforms": args.platforms, "form": args.form, "with": args.with_, "local": args.local}
@@ -1641,16 +1730,18 @@ def main_upgrade(argv: List[str], lab: Optional[Path] = None) -> int:
             raise Usage(f"{printable(args.dir)[:200]} is not a folder.")
         ref = args.lab_ref or ""
         if ref == "latest":
-            ref = _lab_head(lab)
+            ref = latest_release(lab)
             if not ref:
-                raise Usage("--lab-ref latest: the Lab checkout that runs this has no commit to name.")
+                raise Usage("--lab-ref latest: the Lab checkout that runs this has no release to name. Fix: git fetch --tags, then "
+                            "run again.")
         tree = FolderTree(root)
         if args.adopt and not ref and tree.entry(STANDARD) is None:
-            ref = _lab_head(lab)   # a repository made by hand has no pin yet: it gets the Lab this command runs from
+            # a repository made by hand has no pin yet: it gets the latest release of the Lab this command runs from
+            ref = latest_release(lab) or _lab_head(lab)
         plan = upgrade_plan(tree, {"lab_ref": ref, "refresh_pins": args.refresh_pins, "adopt": args.adopt, "replace": args.replace,
                                    "form": args.form, "with": args.with_, "maintainers": args.maintainers,
                                    "lab_repository": args.lab_repo or (_lab_origin(lab) if args.adopt else ""),
-                                   "lab": lab if ref else None})
+                                   "lab": lab})
     except Usage as error:
         _complain(str(error))
         return 2

@@ -108,7 +108,7 @@ The managed workflows run on every pull request and every push to `main`:
 
 | Job | What it proves |
 |---|---|
-| Checks | The rules of the standard and the Lab's policy (`catalog.py check`), the secrets in every commit, what the change touches, and that every image it pulls exists |
+| Checks | The rules of the standard and the Lab's policy (`catalog.py check`), the secrets in every commit, what the change touches, and that every image it pulls exists. On a push to `main`, it also says what is merged and not released yet ([Releases](#releases)) |
 | Seed files | The seed files of the playgrounds, and the catalog's own tests |
 | Apps | The images a unit builds, built for the architectures listed in `catalog.yml`, the tests of its apps, and the units that do not need the platform, which start and answer their health check |
 | Catalog CI result | The one check a merge waits for: it fails when any job it needs failed or was skipped |
@@ -119,7 +119,7 @@ pull requests:
 
 | Workflow | When | What it does |
 |---|---|---|
-| `nightly.yml` | Every night, on `main` | The newest Lab still reads the catalog, the standard files are the newest Lab's, the links of the guides answer, the rules of `main` are still the standard's, and the published images have no fixable critical flaw. A run that fails opens an issue, or adds to the one that is open |
+| `nightly.yml` | Every night, on `main` | The Lab's `main`, ahead of its next release, still reads the catalog (an early warning), the standard files are the newest Lab's, the links of the guides answer, the rules of `main` are still the standard's, and the published images have no fixable critical flaw. A run that fails opens an issue, or adds to the one that is open |
 | `publish.yml` | A push to `main` and a release tag | Builds and publishes the images that changed, and a GitHub release on a tag. It exists only once `catalog.yml` sets `images`: until then nothing is published |
 
 `catalog.py new --with e2e` adds `e2e.yml`, the end-to-end run, which needs a license. When the standard moves,
@@ -176,8 +176,9 @@ python3 ../gravitee-lab/lab-ui/catalog.py ci unreleased .
 
 says which items changed since the last tag and the command that releases them: `make release VERSION=1.1.0`, or
 `make release VERSION=1.1.0 TAG=1` once the release pull request is merged and only its tag is left. `--format json` gives the
-same for a script (`next`, `tag_only`, and the items), `--ci` the summary of a workflow, with the notes the next release would
-have. It always exits 0: what you release, and when, is your choice.
+same for a script (`next`, `tag_only`, and the items). The **Checks** job runs it with `--ci` on every push to `main`: a warning on
+the run, and the notes the next release would have in its summary. It always exits 0, and the step never fails the run: what
+you release, and when, is your choice.
 
 ## Keeping in step
 
@@ -189,3 +190,14 @@ python3 lab-ui/catalog.py upgrade .
 
 prints the plan (`--write` applies it on a branch), and `upgrade --fleet OWNER --lab-ref COMMIT` opens one pull request per
 catalog of an owner. A managed file that someone edited by hand is reported (`SD02`) and never overwritten silently.
+
+The pin, `lab.ref`, is the commit of a release of the Lab (a tag `vX.Y.Z` on its `main`), and CI refuses any other (`SD11`): a
+catalog is checked with a Lab that people run, so what passes its CI works on that release and every later one. To use what a
+newer release adds (its notes list it under *For catalogs*), move the pin to the latest release:
+
+```bash
+python3 lab-ui/catalog.py upgrade . --lab-ref latest --write
+```
+
+`new` pins the latest release too. The release must ship the standard the catalog is written at, since its workflows call what
+that standard added: while no release of the Lab ships it, `new` and `upgrade` refuse and say so (release the Lab first).

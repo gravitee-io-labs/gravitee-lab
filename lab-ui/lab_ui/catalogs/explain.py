@@ -151,9 +151,8 @@ SD = (
      ".github/dependabot.yml has no {ecosystem}. Fix: add it."),
     ("SD10", ERROR, "The Makefile does not include .catalog/standard.mk",
      "Makefile does not include .catalog/standard.mk. Fix: add the line: include .catalog/standard.mk"),
-    ("SD11", ERROR, "lab.ref is not a commit of the Lab's own main (CI)",
-     "The Lab commit {sha7} is not on the Lab's main branch. Fix: pin a commit of the Lab's main (catalog.py upgrade "
-     "--lab-ref COMMIT)."),
+    ("SD11", ERROR, "lab.ref is not the commit of a release of the Lab (a tag vX.Y.Z on its main) (CI)",
+     "The Lab commit {sha7} is not a release of the Lab. Fix: pin the latest release (catalog.py upgrade --lab-ref latest)."),
     ("CO01", ERROR, "The file lacks the line * or the line /.github/, a line names no owner, or an owner is not @user or "
                     "@organization/team",
      ".github/CODEOWNERS: {path} has no owner. Fix: add the line: {path} {maintainers}"),

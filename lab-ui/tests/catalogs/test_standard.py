@@ -32,7 +32,7 @@ CO_AUTHORED = "Co-" + "authored-by"
 GENERATED = "Generated " + "with"
 # The stage of `catalog.py ci <stage>` that arrives with each level: a managed file of a level calls these and no later one
 STAGES = {"needs": 1, "plan": 1, "gitleaks": 1, "manifests": 1, "build": 1, "test": 1, "run": 1, "smoke": 2, "links": 2, "publish-plan": 3,
-          "publish": 3, "release-notes": 3, "scan-published": 3, "e2e-plan": 3, "e2e-gate": 3}
+          "publish": 3, "release-notes": 3, "scan-published": 3, "e2e-plan": 3, "e2e-gate": 3, "unreleased": 5}
 EVERYTHING = {"images": "ghcr.io/acme/lab-hub", "with": ["e2e"]}
 
 
@@ -79,10 +79,10 @@ def blank(text, anchor, depth=1):
 class Template(unittest.TestCase):
     """The folder `lab-ui/templates/catalog`: what is in it, and that it is consistent."""
 
-    def test_the_level_is_four_and_four_levels_exist(self):
-        # Level 4 adds no file: it changes those that are there, so that a catalog of level 3 is behind, not edited by hand
-        self.assertEqual((standard.LEVEL, standard.levels()), (4, 4))
-        self.assertEqual(sorted(standard.manifest()["notes"]), ["1", "2", "3", "4"])
+    def test_the_level_is_five_and_five_levels_exist(self):
+        # Levels 4 and 5 add no file: they change those that are there, so that a catalog below them is behind, not edited by hand
+        self.assertEqual((standard.LEVEL, standard.levels()), (5, 5))
+        self.assertEqual(sorted(standard.manifest()["notes"]), ["1", "2", "3", "4", "5"])
         self.assertEqual(max(each["since"] for each in standard.manifest()["files"]), 3)
 
     def test_the_manifest_is_a_copy(self):
@@ -144,11 +144,14 @@ class Template(unittest.TestCase):
             self.assertNotIn("\n".join(edit["from"]), low)
             if edit["to"]:
                 self.assertIn("\n".join(edit["to"]), low)
-            self.assertEqual(high.count("\n"), standard.managed_text(edit["path"], 3).count("\n"))
+            # The edits of a level are all that changes the file up to the next level that edits it
+            later = [each["below"] for each in data["edits"] if each["path"] == edit["path"] and each["below"] > above]
+            top = min(later) - 1 if later else standard.LEVEL
+            self.assertEqual(high.count("\n"), standard.managed_text(edit["path"], top).count("\n"))
 
     def test_the_text_of_a_level_that_the_template_has_not_edited_is_the_file_itself(self):
         text = (standard.TEMPLATE / "managed" / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-        self.assertEqual(standard.managed_text(".github/workflows/ci.yml", 4), text)
+        self.assertEqual(standard.managed_text(".github/workflows/ci.yml", 5), text)
 
     def test_an_edit_that_does_not_find_its_lines_once_is_a_mistake_said_when_it_is_rendered(self):
         data = standard.manifest()
@@ -255,7 +258,7 @@ class Golden(Case):
         self.patch(standard, "LEVEL", 2)
         problems = standard.golden_problems()
         self.assertEqual(problems[0], standard.GOLDEN_MESSAGE)
-        self.assertIn("  golden.json is for level 4, the template says 2", problems)
+        self.assertIn("  golden.json is for level 5, the template says 2", problems)
         standard.write_golden()
         self.assertEqual(standard.golden_problems(), [])
 
@@ -439,12 +442,12 @@ class Rendering(unittest.TestCase):
                     self.assertEqual(standard.marker_level(text, path), level, path)
 
     def test_no_file_calls_a_stage_of_a_higher_level(self):
-        for level in (1, 2, 3):
+        for level in (1, 2, 3, 4, 5):
             for path, data in at(level).items():
                 for stage in re.findall(r"catalog\.py ci ([a-z0-9-]+)", data.decode("utf-8")):
                     self.assertLessEqual(STAGES[stage], level, f"{path} at level {level} calls ci {stage}")
         self.assertEqual(sorted(set(re.findall(r"catalog\.py ci ([a-z0-9-]+)", "\n".join(
-            data.decode() for data in at(3).values())))), sorted(set(STAGES) - {"run"}) + [])
+            data.decode() for data in at(5).values())))), sorted(set(STAGES) - {"run"}))
 
     def test_level_one_names_no_stage_of_level_two_or_three_anywhere(self):
         text = "\n".join(data.decode("utf-8") for data in standard.render_files(params(), 1).values())
@@ -505,7 +508,7 @@ class Rendering(unittest.TestCase):
     def test_the_standard_json_is_the_example_of_section_3_2(self):
         text = render()[".github/standard.json"].decode()
         self.assertEqual(text, '{\n  "form": "inline",\n  "lab": {\n    "ref": "%s",\n    "repository": "acme/gravitee-lab"\n  },\n'
-                               '  "platforms": ["linux/amd64"],\n  "standard": 4\n}\n' % LAB_COMMIT)
+                               '  "platforms": ["linux/amd64"],\n  "standard": 5\n}\n' % LAB_COMMIT)
         self.assertEqual(json.loads(text)["standard"], standard.LEVEL)
         both = standard.render_new(params(platforms="linux/amd64,linux/arm64"))[".github/standard.json"].decode()
         self.assertIn('"platforms": ["linux/amd64", "linux/arm64"]', both)
@@ -934,20 +937,21 @@ class Drift(Case):
         self.assertEqual(where(self.check(files), "SD10"), ["Makefile"])
 
     def test_a_file_a_level_changed_is_behind_below_it_and_edited_by_hand_at_it(self):
-        # Level 4 adds no file, it changes the ones that are there: a catalog of level 3 holds their older text, and is told to upgrade
-        older = edited(at(3), ".github/workflows/ci.yml", lambda text: text.replace("    name: Checks\n", ""))
+        # Level 5 adds no file, it changes the ones that are there: a catalog of level 4 holds their older text, and is told to upgrade
+        older = edited(at(4), ".github/workflows/ci.yml", lambda text: text.replace("    name: Checks\n", ""))
         self.assertEqual([(each.code, each.severity, each.path) for each in self.check(older)],
-                         [("SD03", "warning", ".github/workflows/ci.yml")])
-        same = edited(at(4), ".github/workflows/ci.yml", lambda text: text.replace("    name: Checks\n", ""))
+                         [("SD03", "warning", ".github/actions/lab/action.yml"), ("SD03", "warning", ".github/workflows/ci.yml")],
+                         "the Lab action checks at level 5 that the pin is a release")
+        same = edited(at(5), ".github/workflows/ci.yml", lambda text: text.replace("    name: Checks\n", ""))
         self.assertEqual([(each.code, each.severity) for each in self.check(same)], [("SD02", "error")])
 
     def test_a_level_above_the_labs_is_sd05_once_and_no_file_is_compared(self):
-        files = at(4)
-        files[".github/standard.json"] = files[".github/standard.json"].replace(b'"standard": 4', b'"standard": 5')
+        files = at(5)
+        files[".github/standard.json"] = files[".github/standard.json"].replace(b'"standard": 5', b'"standard": 6')
         files = edited(files, ".github/workflows/ci.yml", lambda text: text + "# changed\n")
         found = self.check(files)
         self.assertEqual([(each.code, each.severity, each.path, each.message) for each in found],
-                         [("SD05", "warning", ".github/standard.json", ".github/standard.json says standard 5; this Lab knows 4. Fix: "
+                         [("SD05", "warning", ".github/standard.json", ".github/standard.json says standard 6; this Lab knows 5. Fix: "
                                                                         "update the Lab with git pull, then run again.")])
 
     def test_the_level_going_down_since_the_base_is_sd06(self):
@@ -1172,23 +1176,31 @@ class LabAction(unittest.TestCase):
         code, written, _ = self.run_block(self.good(form="reusable", strict=["DF22"], color="red"))
         self.assertEqual((code, written), (0, f"repository=acme/gravitee-lab\nref={LAB_COMMIT}\n"))
 
-    def test_the_commit_has_to_be_on_the_labs_main_and_a_fake_git_says_so(self):
+    def test_the_commit_has_to_be_a_release_of_the_lab_and_a_fake_git_says_so(self):
+        """SD11 in CI: the pinned commit is on the Lab's main and a tag vX.Y.Z names it. A commit of main that no release names, a
+        tag that is not a version, or a commit that only a fork has, is refused; the nightly run of `latest` asks none of it."""
         script = blank(self.text, "REF: ${{ steps.lab.outputs.ref }}")
         self.assertIn("merge-base --is-ancestor", script)
+        self.assertIn("if: ${{ inputs.latest != 'true' }}", self.text.split("name: The commit is a release of the Lab")[1].split("run:")[0])
         with tempfile.TemporaryDirectory() as folder:
             bin_ = Path(folder) / "bin"
             bin_.mkdir()
             record = Path(folder) / "calls"
-            (bin_ / "git").write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$RECORD"\n[ "$ANSWER" = yes ]\n', encoding="utf-8")
+            (bin_ / "git").write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$RECORD"\n'
+                                      'case "$3" in merge-base) [ "$ANSWER" = yes ];; tag) printf "%s" "$TAGS";; esac\n', encoding="utf-8")
             (bin_ / "git").chmod(0o755)
             env = {"PATH": f"{bin_}{os.pathsep}{os.environ.get('PATH', '')}", "RECORD": str(record), "REF": LAB_COMMIT}
-            done = support.run_shell(script, {**env, "ANSWER": "yes"}, folder)
+            done = support.run_shell(script, {**env, "ANSWER": "yes", "TAGS": "nightly\nv1.5.0\n"}, folder)
             self.assertEqual(done.returncode, 0, done.stderr)
-            self.assertEqual(record.read_text(), f"-C lab merge-base --is-ancestor {LAB_COMMIT} refs/remotes/origin/main\n")
-            done = support.run_shell(script, {**env, "ANSWER": "no"}, folder)
-            self.assertEqual(done.returncode, 1)
-            self.assertIn(f"::error file=.github/standard.json,title=SD11::The Lab commit {LAB_COMMIT[:7]} is not on the Lab's main branch. "
-                          "Fix: pin a commit of the Lab's main (catalog.py upgrade --lab-ref COMMIT).", done.stdout)
+            self.assertEqual(record.read_text(), f"-C lab merge-base --is-ancestor {LAB_COMMIT} refs/remotes/origin/main\n"
+                                                 f"-C lab tag --points-at {LAB_COMMIT}\n")
+            refused = ("::error file=.github/standard.json,title=SD11::The Lab commit "
+                       f"{LAB_COMMIT[:7]} is not a release of the Lab. Fix: pin the latest release (catalog.py upgrade --lab-ref latest).")
+            for answer, tags in (("yes", ""), ("yes", "v1.5\nv1.5.0-rc.1\nlatest\n"), ("yes", "v01.5.0\n"), ("no", "v1.5.0\n")):
+                with self.subTest(answer=answer, tags=tags):
+                    done = support.run_shell(script, {**env, "ANSWER": answer, "TAGS": tags}, folder)
+                    self.assertEqual(done.returncode, 1)
+                    self.assertIn(refused, done.stdout)
 
 
 class Aggregator(unittest.TestCase):
@@ -1241,7 +1253,7 @@ class Commands(Case):
         lab = self.lab()
         code, out, err = self.new("--maintainers", "@acme/maintainers", "--license", "Apache-2.0", "--images", "ghcr.io/acme/lab-hub", lab=lab.root)
         self.assertEqual((code, err), (0, ""))
-        self.assertEqual(out.split("\n")[0], "Created Acme Hub in " + str(self.work / "hub") + " (standard 4, 30 files)")
+        self.assertEqual(out.split("\n")[0], "Created Acme Hub in " + str(self.work / "hub") + " (standard 5, 30 files)")
         self.assertIn('  1. cd ' + str(self.work / "hub") + ' && git init -b main && git add . && git commit -m "Create the catalog"', out)
         self.assertIn("  2. gh repo create OWNER/hub --private --source . --push", out)
         self.assertIn("  3. make settings                see what GitHub still has to set\n"
@@ -1287,10 +1299,11 @@ class Commands(Case):
         self.assertEqual((code, err), (0, ""))
         document = json.loads(out)
         written = sorted(str(path.relative_to(self.work / "hub")) for path in (self.work / "hub").rglob("*") if path.is_file())
-        self.assertEqual((document["files"], document["standard"], document["id"], document["local"]), (written, 4, "acme-hub", False))
+        self.assertEqual((document["files"], document["standard"], document["id"], document["local"]), (written, 5, "acme-hub", False))
         self.assertEqual(document["directory"], str(self.work / "hub"))
-        self.assertEqual(document["warnings"], [f"The Lab commit {lab.git('rev-parse', 'HEAD').strip()[:7]} is not on its origin, so CI will "
-                                                "not find it. Push the Lab, or give --lab-ref."])
+        self.assertEqual(document["warnings"], [f"The Lab checkout has no release, so CI refuses its commit "
+                                                f"{lab.git('rev-parse', 'HEAD').strip()[:7]} (SD11). Fetch its tags (git fetch --tags), "
+                                                "then run catalog.py upgrade --lab-ref latest --write."])
         self.assertIn("make settings APPLY=1 YES=1  make them (needs admin rights)", document["next"])
         code, out, err = self.new("--local", "--format", "json", lab=self.work, folder="mine")
         self.assertEqual((code, err, json.loads(out)["standard"], json.loads(out)["local"]), (0, "", None, True))
@@ -1299,8 +1312,8 @@ class Commands(Case):
         lab = self.lab(push=False)
         code, out, err = self.new("--maintainers", "@a", "--format", "github", lab=lab.root)
         self.assertEqual((code, err), (0, ""))
-        self.assertIn("::warning::The Lab commit ", out)
-        self.assertEqual(self.new("--maintainers", "@a", "--format", "text", lab=lab.root, folder="again")[2].count("The Lab commit"), 1)
+        self.assertIn("::warning::The Lab checkout has no release", out)
+        self.assertEqual(self.new("--maintainers", "@a", "--format", "text", lab=lab.root, folder="again")[2].count("has no release"), 1)
 
     def test_a_format_that_does_not_exist_is_one_line_and_nothing_is_made(self):
         code, out, err = self.new("--maintainers", "@a", "--format", "yaml", "--lab-repo", "acme/lab", "--lab-ref", NEWER_COMMIT)
@@ -1330,11 +1343,42 @@ class Commands(Case):
         found = json.loads((self.work / "hub" / ".github" / "standard.json").read_text())
         self.assertEqual(found["lab"], {"ref": lab.git("rev-parse", "HEAD").strip(), "repository": "acme/gravitee-lab"})
 
-    def test_a_lab_commit_that_is_not_on_its_origin_is_a_warning_and_exit_0(self):
+    def test_a_lab_checkout_with_no_release_on_its_origin_is_a_warning_and_exit_0(self):
         lab = self.lab(push=False)
         code, out, err = self.new("--maintainers", "@a", lab=lab.root)
         self.assertEqual(code, 0)
-        self.assertEqual(err, f"The Lab commit {lab.git('rev-parse', 'HEAD').strip()[:7]} is not on its origin, so CI will not find it. Push the Lab, or give --lab-ref.\n")
+        self.assertEqual(err, f"The Lab checkout has no release, so CI refuses its commit {lab.git('rev-parse', 'HEAD').strip()[:7]} "
+                              "(SD11). Fetch its tags (git fetch --tags), then run catalog.py upgrade --lab-ref latest --write.\n")
+
+    def test_a_new_catalog_is_refused_while_no_release_of_the_lab_ships_its_standard(self):
+        lab = self.lab()
+        lab.commit({standard.MANIFEST_IN_LAB: support.release_manifest(standard.LEVEL - 1)}, "An older standard")
+        release = lab.git("rev-parse", "HEAD").strip()
+        lab.git("tag", "v2.0.0", release)
+        lab.git("update-ref", "refs/remotes/origin/main", release)
+        code, out, err = self.new("--maintainers", "@a", lab=lab.root)
+        self.assertEqual((code, out, err), (2, "", f"Standard {standard.LEVEL} is not in a released Gravitee Lab yet. Fix: release "
+                                                  "the Lab first, then run this again.\n"))
+        self.assertFalse((self.work / "hub").exists())
+
+    def test_the_pin_of_a_new_catalog_is_the_latest_release_of_the_lab_not_its_tip(self):
+        lab = self.lab()
+        release = lab.git("rev-parse", "HEAD").strip()
+        tip = lab.commit({"lab-ui/catalog.py": b"print(2)\n"}, "Not released yet")
+        lab.git("update-ref", "refs/remotes/origin/main", tip)
+        code, _, err = self.new("--maintainers", "@a", lab=lab.root)
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(json.loads((self.work / "hub" / ".github" / "standard.json").read_text())["lab"]["ref"], release)
+
+    def test_a_new_catalog_yml_has_no_number_to_write_and_the_lines_of_older_labs_say_who_writes_them(self):
+        code, _, err = self.new("--maintainers", "@a", lab=self.lab().root)
+        self.assertEqual((code, err), (0, ""))
+        lines = (self.work / "hub" / "catalog.yml").read_text().splitlines()
+        legacy = [line for line in lines if line.strip().split(":")[0] in ("schema", "lab")]
+        self.assertEqual(legacy, ["  schema: 1   # For older Gravitee Labs: written by catalog.py",
+                                  "  lab: 1   # For older Gravitee Labs: written by catalog.py"],
+                         "Older Gravitee Labs need schema and read lab: the lines are there, and the author leaves them to "
+                         "catalog.py")
 
     def test_a_given_commit_and_address_are_taken_as_they_are(self):
         code, out, err = self.new("--maintainers", "@a", "--lab-repo", "acme/other", "--lab-ref", NEWER_COMMIT, lab=self.work)
@@ -1436,7 +1480,7 @@ class Upgrading(Case):
         repo = self.repo()
         plan = self.plan(repo)
         self.assertEqual((plan["pending"], plan["refused"], self.actions(plan), plan["owned"]), (False, "", {}, []))
-        self.assertEqual(self.upgrade(repo), (0, "Acme Hub is on standard 4. This Lab has standard 4.\n\nNothing to upgrade\n", ""))
+        self.assertEqual(self.upgrade(repo), (0, "Acme Hub is on standard 5. This Lab has standard 5.\n\nNothing to upgrade\n", ""))
 
     def test_a_lab_one_level_ahead_gives_a_plan_with_its_notes_and_only_the_files_the_level_changed(self):
         repo = self.repo(files=at(1))
@@ -1451,13 +1495,13 @@ class Upgrading(Case):
         repo = self.repo(files=at(1))
         plan = self.plan(repo)
         self.assertEqual(self.actions(plan), {".github/standard.json": "update", ".github/workflows/ci.yml": "update",
-                                              ".github/workflows/nightly.yml": "add"})
-        self.assertEqual([each["level"] for each in plan["notes"]], [2, 3, 4])
+                                              ".github/workflows/nightly.yml": "add", ".github/actions/lab/action.yml": "update"})
+        self.assertEqual([each["level"] for each in plan["notes"]], [2, 3, 4, 5])
         written = standard.upgrade_apply(repo.root, plan)
         self.assertNotIn(".github/workflows/publish.yml", written)
         self.assertFalse((repo.root / ".github/workflows/publish.yml").exists())
-        self.assertEqual(json.loads((repo.root / ".github/standard.json").read_text())["standard"], 4)
-        self.assertEqual(standard.drift(FolderTree(repo.root), 4), [])
+        self.assertEqual(json.loads((repo.root / ".github/standard.json").read_text())["standard"], 5)
+        self.assertEqual(standard.drift(FolderTree(repo.root), 5), [])
         self.assertFalse(self.plan(repo)["pending"])
         self.assertIn("schedule", (repo.root / ".github/workflows/nightly.yml").read_text())
 
@@ -1465,9 +1509,10 @@ class Upgrading(Case):
         repo = self.repo(files=at(1, images="ghcr.io/acme/lab-hub"))
         plan = self.plan(repo)
         self.assertEqual(self.actions(plan), {".github/standard.json": "update", ".github/workflows/ci.yml": "update",
-                                              ".github/workflows/nightly.yml": "add", ".github/workflows/publish.yml": "add"})
+                                              ".github/workflows/nightly.yml": "add", ".github/workflows/publish.yml": "add",
+                                              ".github/actions/lab/action.yml": "update"})
         standard.upgrade_apply(repo.root, plan)
-        self.assertEqual(standard.drift(FolderTree(repo.root), 4), [])
+        self.assertEqual(standard.drift(FolderTree(repo.root), 5), [])
         self.assertNotIn(".github/workflows/e2e.yml", [each["path"] for each in plan["files"]])
 
     def test_a_catalog_of_level_three_that_sets_a_registry_later_is_asked_for_publish(self):
@@ -1476,7 +1521,7 @@ class Upgrading(Case):
         files = {**render(), "catalog.yml": render(images="ghcr.io/acme/lab-hub")["catalog.yml"]}
         repo = self.repo(files=files)
         self.assertEqual(self.actions(self.plan(repo)), {".github/workflows/publish.yml": "add"})
-        self.assertEqual(where(standard.drift(tree_of(files), 4), "SD01"), [".github/workflows/publish.yml"])
+        self.assertEqual(where(standard.drift(tree_of(files), 5), "SD01"), [".github/workflows/publish.yml"])
 
     def test_the_plan_is_printed_as_section_7_4_shows_it(self):
         repo = self.repo(files=at(1))
@@ -1717,7 +1762,7 @@ class Upgrading(Case):
         code, out, err = self.upgrade(repo, "--commit", "--format", "json")
         document = json.loads(out)
         self.assertEqual((code, err, document["written"]), (0, "", [".github/workflows/ci.yml"]))
-        self.assertRegex(document["branch"], r"^standard/4-\d{8}$")
+        self.assertRegex(document["branch"], r"^standard/5-\d{8}$")
 
     def test_json_stays_empty_on_standard_output_when_the_upgrade_cannot_be_done(self):
         repo = self.repo()
@@ -1875,9 +1920,9 @@ class Upgrading(Case):
 
     def test_a_repository_above_the_labs_level_is_refused(self):
         files = render()
-        files[".github/standard.json"] = files[".github/standard.json"].replace(b'"standard": 4', b'"standard": 5')
+        files[".github/standard.json"] = files[".github/standard.json"].replace(b'"standard": 5', b'"standard": 6')
         plan = standard.upgrade_plan(tree_of(files), {})
-        self.assertEqual(plan["refused"], ".github/standard.json says standard 5; this Lab knows 4. Fix: update the Lab with git pull, then "
+        self.assertEqual(plan["refused"], ".github/standard.json says standard 6; this Lab knows 5. Fix: update the Lab with git pull, then "
                                           "run again.")
 
     def test_a_catalog_that_is_not_one_is_refused(self):
@@ -2008,17 +2053,24 @@ class Upgrading(Case):
 
 
 class MovingThePin(Case):
-    """`--lab-ref` prints the compare link and the Lab's own log, and refuses a commit that is not on the Lab's main."""
+    """`--lab-ref` prints the compare link and the Lab's own log, and refuses a commit that is not a release of the Lab (a tag
+    vX.Y.Z on its main). `latest` is the latest release, not the tip of main."""
 
     def setUp(self):
         support.identity(self)
-        self.lab = support.Repo(self, {"lab-ui/catalog.py": b"print(0)\n", ".github/x.yml": b"x\n", "docs/a.md": b"a\n"}, name="lab")
+        self.lab = support.Repo(self, {"lab-ui/catalog.py": b"print(0)\n", ".github/x.yml": b"x\n", "docs/a.md": b"a\n",
+                                       standard.MANIFEST_IN_LAB: support.release_manifest()}, name="lab")
         self.old = self.lab.git("rev-parse", "HEAD").strip()
+        self.lab.git("tag", "v1.4.0", self.old)
         for number in range(120):
             where_ = "lab-ui/catalog.py" if number % 3 else ("docs/a.md" if number % 2 else ".github/x.yml")
             self.lab.commit({where_: f"v{number}\n".encode()}, f"Change {number} <script>\x1b[31m" if number == 7 else f"Change {number}")
-        self.lab.git("push", "--quiet", "origin", "main")
         self.new = self.lab.git("rev-parse", "HEAD").strip()
+        self.lab.git("tag", "v1.10.0", self.new)   # the latest release: 1.10 is above 1.9, which is a name and not a number
+        self.lab.git("tag", "v1.9.0", self.old)
+        self.lab.git("tag", "nightly", self.new)
+        self.lab.git("push", "--quiet", "origin", "main")
+        self.lab.git("fetch", "--quiet", "origin")
         self.catalog = support.Repo(self, render(lab_ref=self.old, lab_repository="acme/gravitee-lab"), name="hub")
 
     def plan(self, **options):
@@ -2064,25 +2116,76 @@ class MovingThePin(Case):
     def test_a_commit_that_is_not_on_the_labs_main_is_refused_before_anything_is_written(self):
         self.lab.git("switch", "--quiet", "-c", "side")
         side = self.lab.commit({"lab-ui/catalog.py": b"print('x')\n"}, "Only on a branch")
+        self.lab.git("tag", "v9.9.9", side)   # a tag of a branch is no release of the Lab
         before = (self.catalog.root / ".github/standard.json").read_bytes()
         plan = self.plan(lab_ref=side)
-        self.assertEqual(plan["refused"], f"The Lab commit {side[:7]} is not on the Lab's main branch. Fix: pin a commit of the Lab's main "
-                                          "(catalog.py upgrade --lab-ref COMMIT).")
+        self.assertEqual(plan["refused"], f"The Lab commit {side[:7]} is not a release of the Lab. Fix: pin the latest release "
+                                          "(catalog.py upgrade --lab-ref latest).")
         with self.assertRaises(standard.UpgradeError):
             standard.upgrade_apply(self.catalog.root, plan)
         self.assertEqual((self.catalog.root / ".github/standard.json").read_bytes(), before)
 
+    def test_a_commit_of_main_that_no_release_names_is_refused(self):
+        between = self.lab.git("rev-parse", "HEAD~5").strip()
+        self.assertEqual(standard.release_state(self.lab.root, between), "no")
+        self.assertIn("is not a release of the Lab", self.plan(lab_ref=between)["refused"])
+        self.assertEqual((standard.release_state(self.lab.root, self.new), standard.release_state(self.lab.root, self.old)),
+                         ("yes", "yes"))
+
     def test_a_commit_the_lab_checkout_does_not_have_is_refused_too(self):
         plan = self.plan(lab_ref="e" * 40)
-        self.assertIn("is not on the Lab's main branch", plan["refused"])
+        self.assertIn("is not a release of the Lab", plan["refused"])
+        self.assertEqual(standard.release_state(self.lab.root, "e" * 40),
+                         "the Lab checkout does not hold eeeeeee: update it with git pull, then run again")
 
-    def test_the_command_takes_latest_as_the_commit_of_the_lab_checkout(self):
+    def test_the_command_takes_latest_as_the_commit_of_the_latest_release(self):
+        self.lab.commit({"lab-ui/catalog.py": b"print('next')\n"}, "Merged and not released yet")
+        self.lab.git("push", "--quiet", "origin", "main")
+        self.lab.git("fetch", "--quiet", "origin")
+        self.assertEqual(standard.latest_release(self.lab.root), self.new, "the greatest tag vX.Y.Z on main, not its tip")
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = standard.main_upgrade([str(self.catalog.root), "--lab-ref", "latest", "--write"], lab=self.lab.root)
         self.assertEqual((code, err.getvalue()), (0, ""))
         self.assertEqual(json.loads((self.catalog.root / ".github/standard.json").read_text())["lab"]["ref"], self.new)
         self.assertIn("compare/", out.getvalue())
+
+    def test_a_release_that_does_not_ship_the_standard_written_is_no_pin(self):
+        """The workflows of a standard call what the Lab of that standard has: the release pinned must ship it. When none does
+        yet, the Lab is released first."""
+        older = support.Repo(self, {"lab-ui/catalog.py": b"print(0)\n", standard.MANIFEST_IN_LAB: support.release_manifest(4)},
+                             name="older-lab")
+        release = older.git("rev-parse", "HEAD").strip()
+        older.git("tag", "v1.4.0", release)
+        self.assertEqual((standard.release_level(older.root, release), standard.release_level(older.root, "e" * 40)), (4, None))
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = standard.main_upgrade([str(self.catalog.root), "--lab-ref", "latest", "--write"], lab=older.root)
+        self.assertEqual((code, err.getvalue()), (2, f"Standard {standard.LEVEL} is not in a released Gravitee Lab yet. Fix: release "
+                                                     "the Lab first, then run this again.\n"))
+        self.assertEqual(json.loads((self.catalog.root / ".github/standard.json").read_text())["lab"]["ref"], self.old)
+        # a pin of a release before the standard, when a newer release has it: the latest is the fix
+        self.lab.commit({standard.MANIFEST_IN_LAB: support.release_manifest(4)}, "An older standard")
+        behind = self.lab.git("rev-parse", "HEAD").strip()
+        self.lab.git("tag", "v1.11.0", behind)
+        self.lab.commit({standard.MANIFEST_IN_LAB: support.release_manifest()}, "This standard")
+        ahead = self.lab.git("rev-parse", "HEAD").strip()
+        self.lab.git("tag", "v1.12.0", ahead)
+        self.lab.git("push", "--quiet", "origin", "main")
+        self.lab.git("fetch", "--quiet", "origin")
+        self.assertEqual(self.plan(lab_ref=behind)["refused"],
+                         f"The Lab release {behind[:7]} has standard 4; this writes standard {standard.LEVEL}. Fix: pin the latest "
+                         "release (catalog.py upgrade --lab-ref latest).")
+        self.assertEqual(self.plan(lab_ref=ahead)["refused"], "")
+
+    def test_latest_without_a_release_says_how_to_get_one(self):
+        bare = support.Repo(self, {"lab-ui/catalog.py": b"print(0)\n"}, name="untagged")
+        self.assertEqual(standard.latest_release(bare.root), "")
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = standard.main_upgrade([str(self.catalog.root), "--lab-ref", "latest"], lab=bare.root)
+        self.assertEqual((code, err.getvalue()), (2, "--lab-ref latest: the Lab checkout that runs this has no release to name. Fix: "
+                                                     "git fetch --tags, then run again.\n"))
 
     def test_the_fleet_gets_a_plan_without_a_lab_checkout_and_no_log(self):
         plan = standard.upgrade_plan(FolderTree(self.catalog.root), {"lab_ref": self.new})

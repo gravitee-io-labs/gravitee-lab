@@ -146,7 +146,7 @@ class Installed(NamedTuple):
 
 def _meta_of(text):
     """The scalars of the x-gravitee-catalog block of a catalog.yml, {id, name, description, version, license, schema,
-    lab} (the last two as integers). Nothing else of the block is read."""
+    lab} (the last two as integers), without the comment a line ends with. Nothing else of the block is read."""
     found, inside = {}, False
     for line in text.split("\n"):
         if re.fullmatch(r"x-gravitee-catalog:[ \t]*", line):
@@ -154,7 +154,8 @@ def _meta_of(text):
         elif inside and line[:1] not in (" ", ""):
             break
         elif inside:
-            m = re.fullmatch(r"  ([a-z_]+):[ \t]*([^\s{\[#].*?)[ \t]*", line)
+            # a value in quotes, or a plain one up to the comment a line may end with
+            m = re.fullmatch(r"""  ([a-z_]+):[ \t]*("[^"]*"|'[^']*'|[^\s{\[#"'](?:[^#]*[^\s#])?)(?:[ \t]+#.*)?[ \t]*""", line)
             if m:
                 key, value = m.groups()
                 value = value[1:-1] if len(value) > 1 and value[0] == value[-1] and value[0] in "'\"" else value

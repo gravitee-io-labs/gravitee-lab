@@ -1,4 +1,4 @@
-# Managed by the Lab catalog standard 4: change it with catalog.py upgrade, in a pull request a maintainer reads.
+# Managed by the Lab catalog standard 5: change it with catalog.py upgrade, in a pull request a maintainer reads.
 # End to end, for the maintainers: each item a change touches starts on a machine with no lab, with the platform and a license, and
 # has to work, as `make e2e` does in the Lab. It is the one workflow that holds the license, and it is always the workflow of main:
 # a pull request is data for it, never code.

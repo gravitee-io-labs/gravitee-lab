@@ -1,4 +1,4 @@
-# Managed by the Lab catalog standard 4: change it with catalog.py upgrade, in a pull request a maintainer reads.
+# Managed by the Lab catalog standard 5: change it with catalog.py upgrade, in a pull request a maintainer reads.
 # The Lab this catalog is written for: a checkout beside this folder, or LAB=/path/to/gravitee-lab
 LAB ?= ../gravitee-lab
 CATALOG_PY := $(LAB)/lab-ui/catalog.py

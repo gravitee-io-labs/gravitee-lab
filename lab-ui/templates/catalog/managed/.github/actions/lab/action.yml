@@ -1,6 +1,6 @@
-# Managed by the Lab catalog standard 4: change it with catalog.py upgrade, in a pull request a maintainer reads.
+# Managed by the Lab catalog standard 5: change it with catalog.py upgrade, in a pull request a maintainer reads.
 name: Lab
-description: Checks out the Lab this catalog is written for, at the commit .github/standard.json names, checks that it is the Lab's own, and installs Compose 5
+description: Checks out the Lab this catalog is written for, at the release .github/standard.json names, checks that it is a release of the Lab, and installs Compose 5
 
 inputs:
   key:
@@ -8,7 +8,7 @@ inputs:
     required: false
     default: ""
   latest:
-    description: "true: the default branch of the Lab instead of the commit standard.json names (the nightly compatibility run)"
+    description: "true: the default branch of the Lab instead of the release standard.json names (the nightly early warning)"
     required: false
     default: "false"
   compose:
@@ -52,15 +52,17 @@ runs:
       shell: bash
       run: |
         echo "::error title=SD07::The Lab could not be fetched. This is the repository's settings, not your change: a maintainer will run it again. Fix (maintainers): while the Lab is private this repository needs the secret LAB_DEPLOY_KEY (also as a Dependabot secret; a fork's pull request never has it), and .github/standard.json must name a commit that exists."
-    # A commit that exists only in a fork of the Lab would look like a pin of the Lab once the Lab is public: it must be on the Lab's main
-    - name: The commit is on the Lab's main
+    # The pin is a release of the Lab, a tag vX.Y.Z on its main: what people run. A commit that only a fork has would look like a
+    # pin of the Lab once the Lab is public, and a commit of main that no release names is a Lab nobody has
+    - name: The commit is a release of the Lab
       if: ${{ inputs.latest != 'true' }}
       shell: bash
       env:
         REF: ${{ steps.lab.outputs.ref }}
       run: |
-        git -C lab merge-base --is-ancestor "$REF" refs/remotes/origin/main \
-          || { echo "::error file=.github/standard.json,title=SD11::The Lab commit ${REF:0:7} is not on the Lab's main branch. Fix: pin a commit of the Lab's main (catalog.py upgrade --lab-ref COMMIT)."; exit 1; }
+        { git -C lab merge-base --is-ancestor "$REF" refs/remotes/origin/main \
+          && git -C lab tag --points-at "$REF" | grep -Eqx 'v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)'; } \
+          || { echo "::error file=.github/standard.json,title=SD11::The Lab commit ${REF:0:7} is not a release of the Lab. Fix: pin the latest release (catalog.py upgrade --lab-ref latest)."; exit 1; }
     - name: Install Compose
       if: ${{ inputs.compose == 'true' }}
       uses: ./lab/.github/actions/compose
