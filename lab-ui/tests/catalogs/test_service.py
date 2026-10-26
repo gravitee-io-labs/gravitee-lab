@@ -1911,6 +1911,17 @@ class Checking(Seam):
         self.assertEqual(registry.lock_of("partner")["seen"], {"target": self.done.commit, "update": False, "tip": "new",
                                                                "version": "2.0.0"})
 
+    def test_a_check_whose_budget_ran_out_says_how_many_versions_it_read_and_not_that_the_copy_is_the_newest_it_reads(self):
+        for number in range(3):
+            self.remote.commit({"catalog.yml": meta_text(version=f"2.{number + 1}.0")}, f"Version {number}")
+        self.patch(manifest, "READS", 2)
+        self.patch(install, "unknown_at", lambda store, commit: [("unit.key", "x-gravitee.badge")])
+        row = service.check_now("partner")["catalog"]
+        self.assertEqual(registry.lock_of("partner")["seen"]["searched"], 2)
+        self.assertEqual((row["state"]["key"], row["state"]["reason"], row["state"]["next"]),
+                         ("lab_new", "This Lab found no version of this catalog it reads among the newest 2.",
+                          "Run make update, then restart the Lab."))
+
     def test_a_newer_readable_version_below_a_tip_that_is_not_readable_is_still_offered(self):
         self.remote.commit({"catalog.yml": meta_text(version="2.1.0"), **NEWER}, "Readable")
         readable = self.remote.head()

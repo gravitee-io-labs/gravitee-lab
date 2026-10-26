@@ -256,13 +256,15 @@ def _state(key, **fields):
 
 
 def _seen(held):
-    """What the last check learned and the lock does not hold: {target, update, tip, version}, defensively."""
+    """What the last check learned and the lock does not hold: {target, update, tip, version, searched}, defensively.
+    `searched`: the versions the check read when its budget ran out with none this Lab reads, else 0."""
     found = held.get("seen")
     found = found if isinstance(found, dict) else {}
     return {"target": found.get("target") if isinstance(found.get("target"), str) else None,
             "update": found.get("update") is True,
             "tip": found.get("tip") if found.get("tip") in ("ok", "new", "old") else "ok",
-            "version": found.get("version") if isinstance(found.get("version"), str) else None}
+            "version": found.get("version") if isinstance(found.get("version"), str) else None,
+            "searched": found["searched"] if type(found.get("searched")) is int and found["searched"] > 0 else 0}
 
 
 def _update_available(held):
@@ -311,6 +313,9 @@ def _kind_state(ns, found, held, entry, contract):
                       next="Run make update, then try again.")
     if key == "rewritten":
         return _state(key, reason="This catalog was rewritten or moved.", next="Update only if you expected it.")
+    if key == "lab_new" and seen["searched"]:   # what was read is all that is known: the copy may not be the newest it reads
+        return _state(key, reason=f"This Lab found no version of this catalog it reads among the newest {seen['searched']}.",
+                      next="Run make update, then restart the Lab.")
     if key == "lab_new":
         return _state(key, reason="A newer version needs a newer Gravitee Lab. This is the newest one this Lab reads.",
                       next="Run make update, then restart the Lab.")
@@ -1058,8 +1063,10 @@ def _ask(ns, entry):
         registry.set_lock(ns, tip=tip, error=_failed_with(ns, "history_changed"))
         return
     mine = held.get("release") or manifest.release_of(store_path, pin, held.get("version"))   # a copy installed before releases
-    registry.set_lock(ns, tip=tip, checked=_utc(), error=_failed_with(ns, None), audience=audience, release=mine,
-                      seen={"target": target, "update": update, "tip": tip_state, "version": version})
+    seen = {"target": target, "update": update, "tip": tip_state, "version": version}
+    if target is None and found.searched:   # the budget ran out: the line says what was read, and no more
+        seen["searched"] = found.searched
+    registry.set_lock(ns, tip=tip, checked=_utc(), error=_failed_with(ns, None), audience=audience, release=mine, seen=seen)
 
 
 def _unstick(ns):
@@ -1385,7 +1392,7 @@ def _settled(ns, plan, before):
     (the plan's target is what `pick` chose from the tip it has), so nothing newer is on offer, whatever the last check said
     (it may have named a commit of the history that was just replaced). A Go back leaves the version it left as the newer one,
     so the row says "Update available" again and the action toggles, and going forward again leaves nothing newer."""
-    seen = _seen(registry.lock_of(ns))
+    seen = {key: value for key, value in _seen(registry.lock_of(ns)).items() if key != "searched"}   # the next check reads again
     if plan["op"] == "update":
         seen.update(target=plan["to"], update=False, version=plan["version"])
         registry.set_lock(ns, seen=seen)

@@ -53,7 +53,7 @@ shows. A catalog that needs another one says which; add that one first.
 
 **Update.** Catalogs are checked in the background, five seconds after the Lab UI starts and then every six hours. The row says
 *Update available* when a newer version exists ([Versions](#versions)), with a dot on the Catalogs entry of the menu. A version
-that uses what your Lab does not read yet is never installed: the row says it needs a newer Lab, and you keep the newest version
+that uses what your Lab does not read yet is never installed: the row says it needs a newer Gravitee Lab, and you keep the newest version
 your Lab reads. **Update**
 is the only way a copy is replaced, except for a catalog the Lab can no longer read, which is brought forward by itself. A catalog
 with something to decide opens a dialog that says what changes first: the version, from the one you have to the new one
@@ -80,7 +80,7 @@ one: the Lab never offers it as an update, so a version number always names the 
 - **Which tags count.** A tag `vX.Y.Z` (three numbers, nothing after them) on a commit of the branch the Lab follows, whose
   `catalog.yml` says `version: X.Y.Z`. A tag on a commit the branch does not contain, a tag of another form (`v2`, `v1.0.0-rc1`)
   and a tag its `catalog.yml` disagrees with are not releases. Add, the first download and Update take the greatest release
-  this Lab reads; when a newer release needs a newer Lab, the row says so, as for any version.
+  this Lab reads; when a newer release needs a newer Gravitee Lab, the row says so, as for any version.
 - **A catalog with no release** is followed commit by commit: Add and Update take the newest commit of its branch. The row says
   *Unreleased* beside its version, and so does the Version line of the Update dialog. Its first release ends that: from then on
   only releases are offered.

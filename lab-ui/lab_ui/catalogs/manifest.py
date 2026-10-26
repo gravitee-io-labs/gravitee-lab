@@ -116,8 +116,8 @@ def compat(level: int, contract: int, contract_min: int) -> str:
     return "new" if level > high else "old" if level < low else "ok"
 
 
-def pick(levels: list, contract: int, contract_min: int, readable=None, reads: int = READS,
-         seconds: float = READ_SECONDS) -> tuple:
+def pick(levels: list, contract: int, contract_min: int, readable=None, reads: Optional[int] = None,
+         seconds: Optional[float] = None) -> tuple:
     """The compatible pin. `levels` is [(commit, lab)], newest first (`levels()`, or a catalog's releases): `levels[0]` is the
     tip with the `lab` its catalog.yml states. Answers (the first commit this Lab reads, or None; how the tip stands: "ok",
     "new" when it needs a newer Gravitee Lab, "old"). With nothing to choose from there is no commit and the tip is "old".
@@ -126,16 +126,19 @@ def pick(levels: list, contract: int, contract_min: int, readable=None, reads: i
     A `lab` is a fast hint: a version whose `lab` this Lab does not read (`compat`) is passed over, its files unread. Any other
     version is read when `readable` is given, `readable(commit)` saying whether this Lab understands every item of the contract
     that its files use (`understood`): what it does not is a version that needs a newer Gravitee Lab. At most `reads` versions
-    are read, in at most `seconds`; past them none is taken. Without `readable` (a caller that reads the version it stages) a
+    are read (READS by default), and none starts once `seconds` (READ_SECONDS) have gone: a read that started goes on, so the
+    budget is about that long; past it none is taken. Without `readable` (a caller that reads the version it stages) a
     `lab` of None, the form with no `lab` and the form the tolerant reader could not be sure of, is taken for a version this Lab
     may read, and the strict reading of the staged file decides. Pure but for `readable` and the clock."""
     commit, state, _ = searched(levels, contract, contract_min, readable, reads, seconds)
     return commit, state
 
 
-def searched(levels: list, contract: int, contract_min: int, readable=None, reads: int = READS,
-             seconds: float = READ_SECONDS) -> tuple:
+def searched(levels: list, contract: int, contract_min: int, readable=None, reads: Optional[int] = None,
+             seconds: Optional[float] = None) -> tuple:
     """`pick`, with a third answer: the number of versions read when the budget ran out with none found, else 0."""
+    reads = READS if reads is None else reads
+    seconds = READ_SECONDS if seconds is None else seconds
     if not levels:
         return None, "old", 0
     left, began, spent = [reads], time.monotonic(), [False]
