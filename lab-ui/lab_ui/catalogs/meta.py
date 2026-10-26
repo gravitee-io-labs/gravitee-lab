@@ -268,8 +268,9 @@ def replaced(text, key, literal, name="x-gravitee"):
         value_end = at + comment.start() if comment else line_end
         if text[value_end - 1:value_end] == "\r":
             value_end -= 1
-        if text[at:value_end].strip() == "" or text[line_end:end].strip():   # a value on lines of its own
-            return None
+        under = [line.strip() for line in text[line_end:end].split("\n")]
+        if text[at:value_end].strip() == "" or any(line and not line.startswith("#") for line in under):   # a value on lines of its own
+            return None   # (a comment or a blank line under it is no part of it)
     space = text[at:value_end][:len(text[at:value_end]) - len(text[at:value_end].lstrip(" \t"))] or " "
     trail = text[at:value_end][len(text[at:value_end].rstrip(" \t")):]
     return text[:at] + space + literal + trail + text[value_end:]

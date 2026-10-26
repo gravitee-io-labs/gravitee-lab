@@ -666,6 +666,39 @@ def cause(error, known=()):
     return f"Compose cannot read {file}" if file else "Compose cannot read it"
 
 
+SERVICE_KEYS = frozenset((   # the keys of a service Compose knows: a name a refusal may say, being Compose's and not an author's
+    "build", "cap_add", "cap_drop", "command", "configs", "container_name", "depends_on", "deploy", "devices", "dns",
+    "entrypoint", "env_file", "environment", "expose", "extends", "extra_hosts", "group_add", "healthcheck", "hostname",
+    "image", "init", "ipc", "labels", "links", "logging", "network_mode", "networks", "pid", "platform", "ports", "privileged",
+    "profiles", "pull_policy", "read_only", "restart", "secrets", "security_opt", "shm_size", "stdin_open", "stop_grace_period",
+    "stop_signal", "sysctls", "tmpfs", "tty", "ulimits", "user", "volumes", "volumes_from", "working_dir"))
+TYPES = {"mapping": "a mapping", "array": "a list", "list": "a list", "string": "a string", "number": "a number",
+         "integer": "a number", "boolean": "true or false"}
+
+
+def explained(error, known=(), defined=(), folder=""):
+    """(what is wrong, its fix) of Compose's failure on an item, for a person: a failure Compose words in a way the Lab knows (a
+    service that depends on one that is not defined, a key it does not know, a value of the wrong type), with the name of a
+    service only when the item's own file defines it (`defined`) and of a key only when it is Compose's own; anything else as
+    cause() says it, and the command that tells why, in the item's folder (`folder`, in the Lab). Never a value of the file."""
+    text = str(error)
+    found = re.search(r'service "([^"]+)" depends on undefined service', text)
+    if found and found.group(1) in defined:
+        return (f"{found.group(1)} depends on a service that is not defined",
+                "in its depends_on, name only services of this item or of what it includes")
+    found = re.search(r"\bservices\.([^.\s]+)(?:\.([^.\s]+))? (?:false schema|additional properties)", text)
+    if found and found.group(1) in defined:
+        return f"services.{found.group(1)} has a key Compose does not know", "remove that key, or correct its name"
+    found = re.search(r"\bservices\.([^.\s]+)(?:\.([^.\s]+))? must be an? (\w+)", text)
+    if found and found.group(1) in defined and found.group(3) in TYPES:
+        key = found.group(2)
+        where = f"services.{found.group(1)}" + (f".{key}" if key in SERVICE_KEYS else "")
+        if key is None or key in SERVICE_KEYS:
+            return f"{where} must be {TYPES[found.group(3)]}", f"write {where} as {TYPES[found.group(3)]}"
+        return f"a value of services.{found.group(1)} has the wrong type", "correct the type of that value"
+    return cause(error, known), f"run docker compose config in {folder or 'its folder'} to see why"
+
+
 def named_by(text, folder, name="compose.yml"):
     """The project files a refusal may name (cause) of the compose `text`, the file `name` in `folder` of the project: the file
     itself, its folder's .env, which Compose reads with it, and the files its includes reach. None outside the project."""

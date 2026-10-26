@@ -7,6 +7,7 @@ import base64
 import io
 import json
 import os
+import re
 import shutil
 import stat
 import zipfile
@@ -569,6 +570,21 @@ class FromCatalogs(Case):
         "bom": "\ufeffx-gravitee-catalog:\n  schema: 1\n  id: partner\n  name: Partner fixture\n  description: d\n  version: 2.0.0\n"
                "  lab: 1\n  license: AGPL-3.0-only\n",
     }
+
+    def test_comments_and_blank_lines_around_lab_stay_where_they_are(self):
+        doc = (Path(__file__).resolve().parents[3] / "docs" / "writing-a-catalog.md").read_text(encoding="utf-8")
+        example = re.search(r"```yaml\n(x-gravitee-catalog:\n.*?)```", doc, re.S).group(1)   # the guide's, as an author copies it
+        two = self.LAYOUTS["two spaces"]
+        cases = {"the guide's example": example,
+                 "a comment line under it": two.replace("  lab: 1\n", "  lab: 1\n  # the level it needs\n"),
+                 "a comment line over it": two.replace("  lab: 1\n", "  # the level it needs\n  lab: 1\n"),
+                 "blank lines around it": two.replace("  lab: 1\n", "\n  lab: 1\n\n"),
+                 "a comment far under it": two.replace("  lab: 1\n", "  lab: 1\n                      # more\n")}
+        for name, text in cases.items():
+            with self.subTest(name):
+                raised = contribute.lab_raised(text)
+                self.assertEqual(raised, text.replace("lab: 1", f"lab: {contribute.LABEL_LEVEL}", 1))
+                self.assertEqual(contribute._catalog_read(raised)["lab"], contribute.LABEL_LEVEL)
 
     def test_the_level_is_raised_in_any_layout_and_read_back_as_check_reads_it(self):
         for name, text in self.LAYOUTS.items():

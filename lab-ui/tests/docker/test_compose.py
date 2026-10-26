@@ -1501,6 +1501,26 @@ class XGravitee(ProjectFolder):
         self.assertEqual(compose.cause(f"yaml: line 3 in {self.root}/playgrounds/mine/compose.yml: SECRET", known),
                          "Compose cannot read playgrounds/mine/compose.yml")
 
+    def test_what_compose_says_is_explained_with_the_names_the_item_defines_and_a_fix(self):
+        defined = {"plain-app"}
+        cases = {
+            'service "plain-app" depends on undefined service "nope": invalid compose project':
+                ("plain-app depends on a service that is not defined",
+                 "in its depends_on, name only services of this item or of what it includes"),
+            "validating /x/compose.yml: services.plain-app.bogus false schema":
+                ("services.plain-app has a key Compose does not know", "remove that key, or correct its name"),
+            "validating /x/compose.yml: services.plain-app.ports must be a array":
+                ("services.plain-app.ports must be a list", "write services.plain-app.ports as a list"),
+            "services.plain-app must be a mapping": ("services.plain-app must be a mapping", "write services.plain-app as a mapping"),
+            'service "other" depends on undefined service "nope": invalid compose project':
+                ("Compose cannot read it", "run docker compose config in addons/plain to see why"),
+            "services.plain-app.secret-of-mine must be a string": ("a value of services.plain-app has the wrong type",
+                                                                  "correct the type of that value"),
+        }
+        for said, wanted in cases.items():
+            with self.subTest(said):
+                self.assertEqual(compose.explained(said, (), defined, "addons/plain"), wanted)
+
     def test_no_env_file_of_the_folder_is_read(self):
         text = "x-gravitee: {kind: addon, name: Quiet}\nservices:\n  quiet:\n    image: busybox\n    env_file: [x.env]\n"
         for name, make in (("a pipe", lambda file: os.mkfifo(file)), ("a link to an endless file", lambda file: os.symlink("/dev/zero", file))):

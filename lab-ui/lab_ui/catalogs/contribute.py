@@ -558,14 +558,15 @@ def _rules(copy, kind, slug, ns, row):
     return found
 
 
-def _scrub(error, real) -> str:
-    """What a share's check says of Compose's failure on the copies it staged: the kind of failure and, of the files the Lab knows,
-    the one it names (compose.cause), a staged copy by the path of the item it stands for (`real`: {staged path: the item's file
-    in the Lab}). Nothing else of what Compose said, which may be a name the file's author chose."""
-    said = compose.cause(error, list(real))
+def _scrub(error, real, defined=(), folder="") -> str:
+    """What a share's check says of Compose's failure on the copies it staged, and its fix (compose.explained): the kind of failure,
+    the services the item's own file defines (`defined`), of the files the Lab knows the one Compose names, a staged copy by the
+    path of the item it stands for (`real`: {staged path: the item's file in the Lab}), and the command to run in its folder
+    (`folder`). Nothing else of what Compose said, which may be a name or a value the file's author chose."""
+    said, fix = compose.explained(error, list(real), defined, folder)
     for staged, mine in sorted(real.items(), key=lambda pair: -len(pair[0])):
-        said = said.replace(staged, mine)
-    return said
+        said, fix = said.replace(staged, mine), fix.replace(staged, mine)
+    return f"{said}. Fix: {fix}."
 
 
 def _claim(services, name, tier, names) -> dict:
@@ -780,7 +781,9 @@ def _preflight(project, kind, uid, file, slug, ns, row, rows, copy, along=(), al
                 lines = _judged(project, k, one, s, ns, row, c, stage, folder, aliases, others)
             except (compose.ComposeError, ValueError) as error:   # Compose's last line, or an answer that is not JSON
                 real = {stages[(k2, s2)][0]: paths.unit_file(k2, one2) for k2, one2, s2, _ in every}
-                lines = [f"Does not load with the platform: {_scrub(error, real)}"]
+                defined = {name for k2, one2, _, _ in every for name in (project[f"{k2}s"].get(one2) or {}).get("services") or ()
+                           if isinstance(name, str)}
+                lines = [f"Does not load with the platform: {_scrub(error, real, defined, posixpath.dirname(paths.unit_file(k, one)))}"]
                 problems += lines if (k, s) == (kind, slug) else [f"{one.rsplit('/', 1)[-1]}: {line}" for line in lines]
                 continue
             problems += [f"Blocked: {reason}" if (k, s) == (kind, slug) else f"{one.rsplit('/', 1)[-1]}: Blocked: {reason}"
@@ -980,12 +983,12 @@ def _lab_raised_in(ns):
     file, temporary = root / registry.CATALOG_FILE, f".{registry.CATALOG_FILE}.lab-{secrets.token_hex(4)}"
     catalog = (registry.inputs().get(ns) or {}).get("name") or ns
     try:
+        raised = lab_raised(file.read_text(encoding="utf-8"))   # what says the level already needs nothing written
+        if raised is None:
+            return None
         mode = os.lstat(file).st_mode
         if not stat.S_ISREG(mode) or not mode & stat.S_IWUSR:   # a link, or a file its author made read only: not the Lab's to write
             raise OSError("not a file it may write")
-        raised = lab_raised(file.read_text(encoding="utf-8"))
-        if raised is None:
-            return None
         install.safe_write(root, temporary, raised.encode("utf-8"), 0o644)
         os.chmod(root / temporary, stat.S_IMODE(mode))
         os.replace(root / temporary, file)
@@ -1151,35 +1154,58 @@ def private_of(text, uid, folder=None):
 
 
 def _private_of(text, uid, folder=None):
-    """private_of as (the id of that private catalog of Git when the Lab knows it, its name); (None, None) when it is nobody's
-    private content. A label says a name, for people: its id is the one of the catalog the copy's chain leads to (copy_of, which
-    the Lab wrote with the label), when that catalog has that name; else None."""
-    said = _said(text or "", folder)
-    source = _private_said(said)
-    if source and source[2] is None:   # a label: the id written with it, by the Lab, says which catalog it names
-        named = _said_id(text or "", folder)
-        if named and registry.entry(named) is not None:
-            return named, source[1]
-    if source and source[2] is None and said[1]:   # an older label, on a copy that says whose copy it is
-        chain = _private_said((None, said[1]))
-        if chain and chain[2] is not None and chain[1] == source[1] and registry.entry(chain[0]) is not None:
-            return chain[0], source[1]
-    if source:
-        return (source[0] if source[2] is not None else None), source[1]
-    try:
-        ns = paths.origin(uid)
-    except paths.NotFound:
-        return None, None
-    entry = registry.entry(ns) if ns != LOCAL else None
-    private = entry and entry.get("kind") == "git" and registry.lock_of(ns).get("audience") != "public"
-    return (ns, _catalog_name(ns)) if private else (None, None)
+    """private_of as (the id of that private catalog of Git, when it is one this Lab knows it is, its name); (None, None) when it
+    is nobody's private content. What the Lab knows wins, what a file says can only add: the catalog the item is in, or the one
+    its copy chain reaches through the items of this machine (_known_origin), whatever its file says; else the file's own label,
+    a notice, with an id only when its `private_id` and its `private_from` are a private catalog of Git of this Lab's, both; else
+    a copy of what this machine does not have, taken for private content (private_source)."""
+    label, copied = _said(text or "", folder)
+    known = _known_origin(uid, copied)
+    if known:
+        return known
+    if label:
+        name, ns = label[:NAME_LIMIT], _said_id(text or "", folder)
+        return (ns if ns and _private_git(ns) and _catalog_name(ns) == name else None), name
+    source = _private_said((None, copied)) if copied else None
+    return (None, source[1]) if source else (None, None)
+
+
+def _private_git(ns):
+    """Whether `ns` is a catalog of Git of this Lab that is not Public."""
+    entry = registry.entry(ns) if ns and ns != LOCAL else None
+    return bool(entry) and entry.get("kind") == "git" and registry.lock_of(ns).get("audience") != "public"
+
+
+def _known_origin(uid, copied):
+    """(id, name) of the private catalog of Git the Lab itself knows what an item holds comes from, None when it knows none: the
+    catalog the item `uid` is in, else the first one its copy chain reaches (`copied`, its copy_of, then each original's, as the
+    project read the items of this machine). Never what a file says of a label."""
+    with contextlib.suppress(paths.NotFound, ValueError):
+        if _private_git(paths.origin(uid)):
+            return paths.origin(uid), _catalog_name(paths.origin(uid))
+    read, seen = projects.loaded()[1].get("raw") or {}, []
+    while copied and copied not in seen and len(seen) < CHAIN:
+        seen.append(copied)
+        try:
+            ns = paths.origin(copied)
+        except (paths.NotFound, ValueError):
+            return None
+        if _private_git(ns):
+            return ns, _catalog_name(ns)
+        said = None
+        for kind in paths.KINDS:
+            with contextlib.suppress(paths.NotFound, ValueError):
+                said = said or (read.get(paths.unit_file(kind, copied)) or {}).get("x-gravitee")
+        copied = str(said["copy_of"]) if isinstance(said, dict) and said.get("copy_of") else None
+    return None
 
 
 def _label_in(private, to):
-    """The private label a copy takes into the catalog `to`, from (id, name) of the private catalog of Git its content comes from
-    (_private_of): its name, unless `to` is that very catalog, known by its id; a catalog that only has the same name is another."""
+    """The private label a copy takes into the catalog `to`, from (id, name) of the private catalog its content comes from
+    (_private_of): its name, unless `to` is that very private catalog of Git, by its id; a catalog that only has the same name, or
+    a label whose id the Lab cannot vouch for, is another."""
     ns, name = private
-    return None if ns is not None and ns == to and (registry.entry(to) or {}).get("kind") == "git" else name
+    return None if ns is not None and ns == to and _private_git(to) else name
 
 
 def _catalog_name(ns):

@@ -510,7 +510,8 @@ class Judged(Seam):
     def test_the_copy_is_gone_when_the_judgement_fails_too(self):
         self.patch(contribute, "_judged", mock.Mock(side_effect=compose.ComposeError("boom")))
         answer = self.share(check_only=True)
-        self.assertEqual(answer["problems"], ["Does not load with the platform: Compose cannot read it"])
+        self.assertEqual(answer["problems"], ["Does not load with the platform: Compose cannot read it. Fix: run docker compose config "
+                                              "in .lab/catalogs/local/addons/scratch to see why."])
         self.patch(contribute, "_judged", mock.Mock(side_effect=RuntimeError("fault")))
         with self.assertRaisesRegex(RuntimeError, "fault"):
             self.share(check_only=True)
@@ -538,7 +539,8 @@ class Judged(Seam):
         self.patch(contribute, "_judged", judge)
         problems = self.share(check_only=True)["problems"]
         self.assertEqual(len(problems), 1)
-        self.assertEqual(problems[0], "Does not load with the platform: Compose cannot read .lab/catalogs/local/addons/scratch/compose.yml",
+        self.assertEqual(problems[0], "Does not load with the platform: Compose cannot read .lab/catalogs/local/addons/scratch/compose.yml. "
+                                      "Fix: run docker compose config in .lab/catalogs/local/addons/scratch to see why.",
                          "the item's own file, by its path in the Lab: never the staged copy, nor what Compose quoted of the file")
 
     def test_an_include_of_another_item_of_this_machine_is_refused_with_the_line_of_section_11(self):
@@ -763,6 +765,11 @@ class Judged(Seam):
         self.assertEqual(done["warning"], contribute.LAB_NOT_RAISED.format(catalog=done["copied"], level=contribute.LABEL_LEVEL))
         self.assertEqual((manifest_file.read_text(), oct(os.stat(manifest_file).st_mode & 0o777)), (before, "0o444"),
                          "its author made it read only: the Lab leaves it")
+        os.chmod(manifest_file, 0o644)
+        manifest_file.write_text(before.replace("  lab: 1\n", f"  lab: {contribute.LABEL_LEVEL}\n"))
+        os.chmod(manifest_file, 0o444)
+        self.item("addon", "my-other", "Other", self.COPIED.replace("name: Ledger", "name: Other"))
+        self.assertNotIn("warning", self.share("local/my-other", "lab-new"), "it says the level already: nothing to write, nothing to say")
 
     def test_a_copy_of_a_share_of_a_copy_of_a_private_item_stops_a_share_to_a_public_one(self):
         fixtures.install(self, "lab-new", "folder", audience="private", lab=1)
@@ -2039,8 +2046,9 @@ class Real(Base):
         uid = self.plain("x-gravitee: {kind: addon, name: Plain}\nservices:\n  plain-app:\n    image: busybox\n    depends_on: [nope]\n")
         told = [line for line in self.share(uid, "fixture")["problems"] if not line.startswith(("x-gravitee.", "plain-app:"))]
         self.assertEqual(len(told), 1, told)
-        self.assertTrue(told[0].startswith("Does not load with the platform: Compose cannot read"), told[0])
-        self.assertNotIn("nope", told[0], "a name the author chose is not said back")
+        self.assertEqual(told[0], "Does not load with the platform: plain-app depends on a service that is not defined. Fix: in its "
+                                  "depends_on, name only services of this item or of what it includes.")
+        self.assertNotIn("nope", told[0], "a name the author chose and the item does not define is not said back")
         self.assertNotIn("stage-share", told[0])
         self.assertNotIn(str(self.root), told[0])
         self.assertEqual(self.stages(), [])
