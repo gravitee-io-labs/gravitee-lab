@@ -1,5 +1,5 @@
 {
-  "level": 5,
+  "level": 6,
   "levels": {
     "1": {
       "managed": {
@@ -167,6 +167,43 @@
         ".github/ISSUE_TEMPLATE/new_item.yml": "29cc10ae70e5c26992793039c0eab6afb3551b212da8fc5562c66dee010b9ed4",
         ".github/PULL_REQUEST_TEMPLATE.md": "f0f7925c12f91d93e2b5e5bea0cc78ab3b8d2a1b5e5f5abeac0401515cd15552",
         ".github/standard.json": "87a11965e9c94c64bdb73eb1f1265fdd33990df8df3e47f8c44d34038e7d78e4",
+        ".gitignore": "bf62f3bcd9fe7d0756abeb0bbf83c3b05c8c3f16ccd4ec3b9d951571a0fa510f",
+        "AGENTS.md": "d27e21d07a2ab1e73ec2ff19e5d22f5187c261cb125ad41a6cdcf345c6b47670",
+        "CLAUDE.md": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49",
+        "CONTRIBUTING.md": "84ef3c916dafa8290990d97e4bceaf118cda694e42a530e557eab76bec05715d",
+        "LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        "Makefile": "61cd69c014250d5c8c9ab3870fb22591f832b6a14a574f06b7f40df7eef00e8f",
+        "README.md": "40b5fc449021ae724dbc42ac62a47c7ad45c6760146ea89559339e052f1c0905",
+        "REVIEWING.md": "25fe8201637b20f12b2a266803c9e12c3d842fac37c590f42362c4b651bd024b",
+        "SECURITY.md": "7fda565285cca835726da295d71342fbb2c6119f5e7e7ab6f12fd4d2d414d630",
+        "addons/hello/README.md": "a95512cedec21dd9feeddbc8a29883cedfced30d6b1104116addf1bf5933eaf1",
+        "addons/hello/compose.yml": "1e77830b2899a0107423e85472708c57c04f912b919dc20d96d3c072c11381b7",
+        "catalog.yml": "a7981d616adb0d1f3f6cf053d8a8fce72aaea57782de5e40e9476793210074ca"
+      }
+    },
+    "6": {
+      "managed": {
+        ".catalog/standard.mk": "b879c368b56d9d3dba70952b10ba6b4be68a9d330fc5a590f250713a5a60153b",
+        ".github/actions/lab/action.yml": "6b2947e51c55c6c99cada402ceb49f8e9972f9112e05220ec1094053e1524fd1",
+        ".github/dependabot.yml": "445e8a850b276c535bc67ab68e31c0127f4f6a14ce2eb8a87e29ce3d671e4122",
+        ".github/rulesets/default-branch.json": "e8478068e6cffbab2a8d49c7487a2291376cffd66cd4317dfe555bb705ff5dd8",
+        ".github/rulesets/protected-paths.json": "e4b28500cfe8a5fe4a9680e39303f3d6a2c277110059d10e6b3bbf261dcfe46b",
+        ".github/rulesets/push.json": "89d322c22823beea7775dd95b928b940ab4193fa9b3c7945bcdf19cc4947bfb3",
+        ".github/rulesets/tags.json": "b482dea55ebbf05dad6736302f37b0968142c8dfffaad17fe133c153291e6432",
+        ".github/workflows/ci.yml": "e48b93a4cab2931bccaea0550c122677f004eb4613131b0d0dcb9aeff84018e8",
+        ".github/workflows/e2e.yml": "e4a3ea6adb8f2cc0f4a5bbcc2ed1ba5af185d6c0c3ebc25ee42c92cdfbb2d9a4",
+        ".github/workflows/nightly.yml": "c2adad974368a811f2b949f0e7aac3b200d1863f9705e89614eab9760bdc1479",
+        ".github/workflows/publish.yml": "40b44f7b4ba5c5789352387bb12da8f11540cb9fad635517ffba9cb35e88e492"
+      },
+      "seeded": {
+        ".editorconfig": "3ef94e38d92460d7ded2ec6648e69658bd02858cab1e0ab9465ef59a9fc09d3c",
+        ".gitattributes": "d60f352d0db1404c70afb4bb8b2ca3fd1c610572aa40720e8a0b7baa7885418c",
+        ".github/CODEOWNERS": "61cd6fc7af807edbaccf44d5a11deab9fb8c9011e5cc2b65fc9d82fcde7e9b69",
+        ".github/ISSUE_TEMPLATE/bug_report.yml": "8209f0fbdef9a3013dc02f8ec1772afaf98bf543120333ea88a104d6f1b4057d",
+        ".github/ISSUE_TEMPLATE/config.yml": "1f103c6a9dd07cd13a9a6f17ace6b813f47747eb9cb7e00488cb2073caaf91bb",
+        ".github/ISSUE_TEMPLATE/new_item.yml": "29cc10ae70e5c26992793039c0eab6afb3551b212da8fc5562c66dee010b9ed4",
+        ".github/PULL_REQUEST_TEMPLATE.md": "f0f7925c12f91d93e2b5e5bea0cc78ab3b8d2a1b5e5f5abeac0401515cd15552",
+        ".github/standard.json": "c58955a7011efb81a397bb7f96b06b56f3ff793fa84ea011d429768d8e92d9cc",
         ".gitignore": "bf62f3bcd9fe7d0756abeb0bbf83c3b05c8c3f16ccd4ec3b9d951571a0fa510f",
         "AGENTS.md": "d27e21d07a2ab1e73ec2ff19e5d22f5187c261cb125ad41a6cdcf345c6b47670",
         "CLAUDE.md": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49",

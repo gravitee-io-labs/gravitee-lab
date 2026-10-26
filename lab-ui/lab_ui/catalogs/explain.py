@@ -196,7 +196,9 @@ STAGES = (
     ("E2E05", ERROR, "e2e plan", "The change touches {paths}, which this workflow does not try. Fix: merge it first, a maintainer "
                                  "reads it as code, then try the items."),
     ("LK01", WARNING, "nightly", "{path}:{line}: the link {url} answers {status}."),
-    ("SC01", ERROR, "nightly", "{image}: {id} in {package} {version}, fixed in {fixed}. Fix: update the package or the base image."),
+    ("SC01", ERROR, "scan", "{image}: {id} in {package} {version}, fixed in {fixed}. Fix: update the package or the base image."),
+    ("SC02", WARNING, "scan", "{image}: {n} more flaws that fail nothing: {which}. Fix: update the base image or the packages once a "
+                              "fix is out."),
 )
 T_FIXES = {
     "T01": "Remove `{key}`, or ask the Lab's maintainers to support it.", "T02": "Remove `{key}`, or ask the Lab's maintainers "

@@ -115,7 +115,7 @@ The managed workflows run on every pull request and every push to `main`:
 |---|---|
 | Checks | The rules of the standard and the Lab's policy (`catalog.py check`), the secrets in every commit, what the change touches, and that every image it pulls exists. On a push to `main`, it also says what is merged and not released yet ([Releases](#releases)) |
 | Seed files | The seed files of the playgrounds, and the catalog's own tests |
-| Apps | The images a unit builds, built for the architectures listed in `catalog.yml`, the tests of its apps, and the units that do not need the platform, which start and answer their health check |
+| Apps | The images a unit builds, built for the architectures listed in `catalog.yml`, the tests of its apps, the units that do not need the platform, which start and answer their health check, and the scan of the images it built ([The scan of the images](#the-scan-of-the-images)) |
 | Catalog CI result | The one check a merge waits for: it fails when any job it needs failed or was skipped |
 
 A pull request runs with no secret and a read-only token, from the contributor's own copy of the workflows being refused if
@@ -126,6 +126,22 @@ pull requests:
 |---|---|---|
 | `nightly.yml` | Every night, on `main` | The Lab's `main`, ahead of its next release, still reads the catalog (an early warning), the standard files are the newest Lab's, the links of the guides answer, the rules of `main` are still the standard's, and the published images have no fixable critical flaw. A run that fails opens an issue, or adds to the one that is open |
 | `publish.yml` | A push to `main` and a release tag | Builds and publishes the images that changed, and a GitHub release on a tag. It exists only once `catalog.yml` sets `images`: until then nothing is published |
+
+### The scan of the images
+
+The scanner the Lab pins (Trivy, by digest, in `lab-ui/lab_ui/catalogs/ci/tools/Dockerfile` of the Lab) reads every image twice. A pull
+request's **Apps** job scans the images it has just built, on each architecture (`catalog.py ci scan-built`), before anything is merged;
+the night scans the images that `main` published, at `:latest` (`catalog.py ci scan-published`). The two judge alike:
+
+- A critical flaw that has a fixed version fails (`SC01`), with the package, its version and the version that fixes it.
+- The rest is said and fails nothing: one warning for each image (`SC02`) counts its high flaws and the critical ones that have no fix
+  yet, and names the first.
+
+The scan of a pull request needs no secret and no registry: it reads the images from the runner's Docker, so a fork's pull request is
+scanned like any other. It scans only what the change builds, the units it touches: a flaw that appears in a base image fails the
+pull requests that change that unit, never an unrelated one, and the night finds it in what was published. The scanner fetches its
+databases once for each architecture of the job, which adds about a minute; the scan of an image takes seconds. `make ci` runs the same
+scan on your machine.
 
 `catalog.py new --with e2e` adds `e2e.yml`, the end-to-end run, which needs a license. When the standard moves,
 `catalog.py upgrade` brings the new workflows in as a reviewed pull request.

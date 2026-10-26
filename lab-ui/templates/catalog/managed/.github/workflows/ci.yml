@@ -1,4 +1,4 @@
-# Managed by the Lab catalog standard 5: change it with catalog.py upgrade, in a pull request a maintainer reads.
+# Managed by the Lab catalog standard 6: change it with catalog.py upgrade, in a pull request a maintainer reads.
 # The untrusted lane. It runs the code of every pull request, forks included, so its token only reads and it writes nothing. It
 # holds no secret but the read key of the Lab, which exists only while the Lab is private (a fork never gets it). In the order it
 # fails fastest:
@@ -6,8 +6,8 @@
 #                whether every image it pulls exists, and on a push to main what is merged and not released yet
 #   Seed files   the seed files of the playgrounds that changed, read as the seeder reads them, and the catalog's own tests when it
 #                has some
-#   Apps         the apps build on each architecture (a Mac runs arm64), pass their tests in their image with no network, and what
-#                does not need the platform starts and answers its health check
+#   Apps         the apps build on each architecture (a Mac runs arm64), pass their tests in their image with no network, what does
+#                not need the platform starts and answers its health check, and the images built have no critical flaw that has a fix
 #   Catalog CI result   the one check a ruleset asks for
 name: CI
 
@@ -125,7 +125,7 @@ jobs:
           PYTHONPATH: lab/seeder
         run: python -m unittest discover -s catalog/tests
 
-  # Build, test, start. The Dockerfiles of the change run here, so no secret and no registry login reaches this job
+  # Build, test, start, scan. The Dockerfiles of the change run here, so no secret and no registry login reaches this job
   compile:
     name: Apps
     needs: static
@@ -161,6 +161,12 @@ jobs:
         env:
           UNITS: ${{ needs.static.outputs.units }}
         run: python3 -I lab/lab-ui/catalog.py ci smoke catalog --units "$UNITS" --ci
+      # The scanner the Lab pins, on the images this job built: no registry and no secret, so a fork's pull request is scanned too
+      - name: Scan the images it built
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          UNITS: ${{ needs.static.outputs.units }}
+        run: python3 -I lab/lab-ui/catalog.py ci scan-built catalog --units "$UNITS" --ci
 
   # The one check a ruleset asks for. It runs whatever happened. It fails when static failed, when the plan did not answer, and when a
   # job the plan asked for did not end in success: a job skipped by its own condition had nothing to do, one skipped by a failure

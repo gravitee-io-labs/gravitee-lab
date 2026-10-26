@@ -141,6 +141,11 @@ jobs:
         env:
           UNITS: ${{ needs.static.outputs.units }}
         run: python3 -I lab/lab-ui/catalog.py ci smoke catalog --units "$UNITS" --ci
+      - name: Scan the images it built
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          UNITS: ${{ needs.static.outputs.units }}
+        run: python3 -I lab/lab-ui/catalog.py ci scan-built catalog --units "$UNITS" --ci
 
   # The one check a ruleset asks for. It runs whatever happened. It fails when static failed, when the plan did not answer, and when a
   # job the plan asked for did not end in success: a job skipped by its own condition had nothing to do, one skipped by a failure
