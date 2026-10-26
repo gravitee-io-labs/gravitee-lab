@@ -117,7 +117,9 @@ Before merging, give the pull request the label of the number it raises:
 
 A pull request that adds something catalogs can use gets `catalog-format`, with `major` too when it also needs people to act.
 Its release lists it under *For catalogs*: that section is what a catalog may use from that version on, and an author who uses it
-moves the catalog's pin to that release with `catalog.py upgrade --lab-ref latest`.
+moves the catalog's pin to that release with `catalog.py upgrade --lab-ref latest`. GitHub lists a pull request under the first
+section whose label it has, and only there: one labeled `major` and `catalog-format` is under *Changes that need you to do
+something*, which comes first so that what needs people to act is never missed. Its title then says what catalogs can use.
 
 When several pull requests are merged while a release is still running, the next release counts them all and raises the highest
 number their labels ask for. A run that runs again does no harm: a commit that a version holds makes no second one, and
