@@ -118,8 +118,8 @@ test("the sanitizer is told what a guide cannot carry: a form, a style, and a da
 test("each library comes from the address of its version, with the hash of its file, which the browser checks", async () => {
   await render('<pre><code class="language-mermaid">graph TD; A-->B</code></pre>');
   assert.deepEqual(scripts.map((script) => script.src), [
-    "https://cdnjs.cloudflare.com/ajax/libs/marked/18.0.14/lib/marked.umd.min.js",
-    "https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.4.16/purify.min.js",
+    "https://cdnjs.cloudflare.com/ajax/libs/marked/18.1.1/lib/marked.umd.min.js",
+    "https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.4.17/purify.min.js",
     "https://cdnjs.cloudflare.com/ajax/libs/mermaid/11.15.0/mermaid.min.js",
   ]);
   for (const script of scripts) {

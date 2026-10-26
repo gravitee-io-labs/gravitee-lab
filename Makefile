@@ -173,7 +173,7 @@ test: python-ok ## Run the unit tests of the Lab UI (in parallel), the seeder an
 
 # The Node image a catalog's apps run their JavaScript tests in (catalog.py ci reads this line, lab_ui/catalogs/ci/apptests.py): Node 24 (LTS)
 # pinned by the digest of its multi-platform index, so every machine tests with the same image.
-NODE_IMAGE ?= node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1
+NODE_IMAGE ?= node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53
 
 # The run starts the item from nothing and removes what it made: it refuses a machine that holds a lab, which is what a person
 # left, so it belongs to CI. ID is kind:id, TESTED the number of a set of x-gravitee.tested, from 0.

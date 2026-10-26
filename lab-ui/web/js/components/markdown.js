@@ -14,10 +14,10 @@ function accountOf(href) {
 
 // Each library at one version, with the sha384 hash of its file: the browser refuses a file that differs. Another
 // version needs its hash: curl -sL <url> | openssl dgst -sha384 -binary | openssl base64 -A
-const MARKED = "https://cdnjs.cloudflare.com/ajax/libs/marked/18.0.14/lib/marked.umd.min.js";
-const MARKED_HASH = "sha384-J1VD5X/E72gORmmXiADelqS192/84qho9IALLC3d5oxjp1RgEN3He4ANyjqXyz10";
-const PURIFY = "https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.4.16/purify.min.js";
-const PURIFY_HASH = "sha384-a7SzOxErzJ3ZpQz0zJ32d67dSitNzPcbfybc/ykU9KJhMgZkwqfSxlhhdJRS+XGL";
+const MARKED = "https://cdnjs.cloudflare.com/ajax/libs/marked/18.1.1/lib/marked.umd.min.js";
+const MARKED_HASH = "sha384-7sjOQLpS2mL+qbjUOYVEk350vVNi+nPTKMQFruUWMDTzgcxzTJiwye3rHDJCJ9ZL";
+const PURIFY = "https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.4.17/purify.min.js";
+const PURIFY_HASH = "sha384-P0JNneQf81HOl9VwNXK76cQ9VMD6Nfsnepxb0cCOg8+UzEdzgPHAPV4wVQrvYQSx";
 const MERMAID = "https://cdnjs.cloudflare.com/ajax/libs/mermaid/11.15.0/mermaid.min.js";
 const MERMAID_HASH = "sha384-yQ4mmBBT+vhTAwjFH0toJXNYJ6O4usWnt6EPIdWwrRvx2V/n5lXuDZQwQFeSFydF";
 

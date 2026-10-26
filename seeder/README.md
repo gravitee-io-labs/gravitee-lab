@@ -11,7 +11,7 @@ A playground has one service that builds `../../seeder`, mounts its `seed/` fold
 at `/state`, and carries the label `io.gravitee.role: seed`. The Lab UI runs it when a Start sets the playground up and
 on *Re-seed*, and runs `seed.py --remove` for *Delete what it created*. The service and the rules for seed files are in
 [the seed](../docs/playgrounds.md#the-seed). The image is `ghcr.io/gravitee-io-labs/gravitee-lab/seeder`, built from
-[`Dockerfile`](Dockerfile) with Python 3.14, `requirements.txt` and the OpenFGA command-line tool.
+[`Dockerfile`](Dockerfile) with Python 3.15, `requirements.txt` and the OpenFGA command-line tool.
 
 ## Layout of this folder
 

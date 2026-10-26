@@ -59,7 +59,7 @@ services:
   # Databases
 
   mongodb:
-    image: mongo:${MONGODB_VERSION:-8.0.29}
+    image: mongo:${MONGODB_VERSION:-8.0.34}
     container_name: gio-mongodb
     restart: unless-stopped
     ports:
@@ -79,7 +79,7 @@ services:
       - internal
 
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTICSEARCH_VERSION:-9.5.2}
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTICSEARCH_VERSION:-9.5.5}
     container_name: gio-elasticsearch
     restart: unless-stopped
     ports:
@@ -109,7 +109,7 @@ services:
       - internal
 
   redis:
-    image: redis:${REDIS_VERSION:-8.10.1-alpine}
+    image: redis:${REDIS_VERSION:-8.10.2-alpine}
     container_name: gio-redis
     restart: unless-stopped
     command: redis-server --requirepass ${REDIS_PASSWORD:-redispassword}   # Redis password

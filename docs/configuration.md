@@ -106,9 +106,9 @@ The core's variables:
 | API gateway | `APIM_GATEWAY_VERSION` | `APIM_GATEWAY_REGISTRY` | the APIM version with `-debian`, and the APIM registry |
 | Access Management | `AM_VERSION` | `AM_REGISTRY` | 4.12.7 |
 | Alert Engine | `AE_VERSION` | `AE_REGISTRY` | 3.0.2 |
-| MongoDB | `MONGODB_VERSION` | | 8.0.29 |
-| Elasticsearch | `ELASTICSEARCH_VERSION` | | 9.5.2 |
-| Redis | `REDIS_VERSION` | | 8.10.1-alpine |
+| MongoDB | `MONGODB_VERSION` | | 8.0.34 |
+| Elasticsearch | `ELASTICSEARCH_VERSION` | | 9.5.5 |
+| Redis | `REDIS_VERSION` | | 8.10.2-alpine |
 
 The default registry of the Gravitee images is `graviteeio`, on Docker Hub. Each Gravitee component has its own
 registry variable, so components can come from different registries. A component can follow another instead of having

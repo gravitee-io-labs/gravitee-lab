@@ -158,7 +158,7 @@ loader alone: the loader fetches the editor's other files without one.
 
 | Library | Version | From | Loaded | Without internet |
 |---|---|---|---|---|
-| marked, DOMPurify | 18.0.14, 3.4.16 | cdnjs.cloudflare.com | The first time a guide is shown (`js/components/markdown.js`) | The guide shows as plain text |
+| marked, DOMPurify | 18.1.1, 3.4.17 | cdnjs.cloudflare.com | The first time a guide is shown (`js/components/markdown.js`) | The guide shows as plain text |
 | Mermaid | 11.15.0 | cdnjs.cloudflare.com | When a guide has a `mermaid` block (`js/components/markdown.js`) | The block stays as written |
 | Monaco | 0.52.2 | cdn.jsdelivr.net | When the editor opens (`js/dialogs/editor.js`) | A plain text area |
 | xterm.js, its fit addon | 6.0.0, 0.11.0 | cdn.jsdelivr.net | When a playground's terminal is shown (`js/workspace/terminal.js`) | The panel says it needs the internet |
