@@ -434,7 +434,7 @@ class Content(Quiet):
                  "not_found": "No access to example/demos. Run gh auth login in a terminal, then try again.",
                  "certificate": "The certificate of github.com was refused. A company proxy may be in the way.",
                  "wrong_catalog": "example/demos is not the catalog this Lab expects. Run make update, then try again.",
-                 "no_readable_version": "The catalog needs a newer Lab. Run make update, then restart the Lab.",
+                 "no_readable_version": "The catalog needs a newer Gravitee Lab. Run make update, then restart the Lab.",
                  "lab_old": "The catalog is not ready for this version of the Lab. Try again later."}
         self.put(self.git())
         for code, line in table.items():

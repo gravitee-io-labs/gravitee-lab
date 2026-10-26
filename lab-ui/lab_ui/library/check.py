@@ -1091,7 +1091,7 @@ def _fix(real, anchors):
     if os.path.basename(os.path.dirname(real)) == "plugins":
         return f"the plugin folder of {base} is {PLUGINS_FROM_A_UNIT.format(base)} from the folder of a unit"
     if _within(real, anchors["project"]):
-        return ("keep what it reads in its own folder, or reach an anchor of the contract: the seeder, "
+        return ("keep what it reads in its own folder, or reach a place of the engine that units may use: the seeder, "
                 f"{SEEDER_FROM_A_UNIT}, or a plugin folder, {PLUGINS_FROM_A_UNIT.format('<product>')}")
     return None
 

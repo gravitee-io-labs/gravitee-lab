@@ -65,7 +65,7 @@ REFUSED = ("no_access", "not_found", "ssh_denied", "host_key")
 LINES = {
     "git_missing": "Git is not installed. Install it, then try again.",
     "git_old": "Git{have} is too old. Install Git 2.25 or later, then try again.",
-    "no_readable_version": "The catalog needs a newer Lab. Run make update, then restart the Lab.",
+    "no_readable_version": "The catalog needs a newer Gravitee Lab. Run make update, then restart the Lab.",
     "lab_old": "The catalog is not ready for this version of the Lab. Try again later.",
     "failed": "The catalog could not be downloaded. Try again.",
 }

@@ -44,7 +44,7 @@ def stop_at(label):
     return hook
 
 
-def read_catalog(path, address=None, borrowed=()):
+def read_catalog(path, address=None, borrowed=(), published=False):
     """manifest.read_catalog without Compose: the scalars of the file, as the fixtures write them."""
     text = (Path(paths.ROOT) / path).read_text(encoding="utf-8")
 
@@ -52,7 +52,7 @@ def read_catalog(path, address=None, borrowed=()):
         return re.search(rf"^  {key}: (.+)$", text, re.M).group(1).strip()
     return {"schema": 1, "id": scalar("id"), "name": scalar("name"), "description": "", "version": scalar("version"),
             "lab": int(scalar("lab")), "license": None, "images": None, "contribute": "pull-request",
-            "shared_settings": [], "moved_from": [], "canary": [], "requires": {"catalogs": {}}, "unknown": []}
+            "shared_settings": [], "moved_from": [], "canary": [], "requires": {"catalogs": {}}, "unknown": [], "unknown_values": []}
 
 
 def file_address(value):
@@ -392,7 +392,7 @@ class Provision(Served, Case):
         with self.assertRaises(CatalogError) as caught:
             firstrun.provision(self.ns)
         self.assertEqual(caught.exception.code, "no_readable_version")
-        self.assertEqual(caught.exception.message, "The catalog needs a newer Lab. Run make update, then restart the Lab.")
+        self.assertEqual(caught.exception.message, "The catalog needs a newer Gravitee Lab. Run make update, then restart the Lab.")
         self.assertEqual(self.lock()["error"], "no_readable_version")
         self.assertEqual(registry.inputs()[self.ns]["state"], "lab_new")
         self.assertFalse((self.root / ".lab/catalogs" / self.ns).exists())
@@ -1001,8 +1001,8 @@ class Provision(Served, Case):
                  ("no_access", other, "", "No access to team/demos. Sign in with Git on this machine, then try again."),
                  ("certificate", github, "", "The certificate of github.com was refused. A company proxy may be in the way."),
                  ("wrong_catalog", github, "", "example/demos is not the catalog this Lab expects. Run make update, then try again."),
-                 ("no_readable_version", github, "", "The catalog needs a newer Lab. Run make update, then restart the Lab."),
-                 ("lab_new", github, "", "The catalog needs a newer Lab. Run make update, then restart the Lab."),
+                 ("no_readable_version", github, "", "The catalog needs a newer Gravitee Lab. Run make update, then restart the Lab."),
+                 ("lab_new", github, "", "The catalog needs a newer Gravitee Lab. Run make update, then restart the Lab."),
                  ("lab_old", github, "", "The catalog is not ready for this version of the Lab. Try again later."),
                  ("whatever", github, "", "The catalog could not be downloaded. Try again.")]
         for code, address, have, line in table:

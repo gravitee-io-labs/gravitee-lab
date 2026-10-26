@@ -1515,8 +1515,8 @@ class Ended(Seam):
         before, twin = self.tree(), dict(self.units["addons"]["echo"])
         for label, fields, said in (("blocked", {"blocked": {"reasons": ["Needs Lab level 9", "Mounts the Docker socket"]}},
                                      "Needs Lab level 9; Mounts the Docker socket"),
-                                    ("a newer Lab", {"compat": "new"}, "Needs a newer Lab"),
-                                    ("an older Lab", {"compat": "old"}, "Was written for an older Lab"),
+                                    ("a newer Lab", {"compat": "new"}, "Needs a newer Gravitee Lab"),
+                                    ("an older Lab", {"compat": "old"}, "Written for an older Gravitee Lab"),
                                     ("a catalog it lacks", {"needs_catalogs": [{"id": "gone", "name": "Gone catalog"}, {"id": "x"}]},
                                      "Needs Gone catalog, x")):
             self.units["addons"]["echo"] = {**twin, **fields}

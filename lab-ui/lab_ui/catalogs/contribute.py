@@ -1361,9 +1361,9 @@ def _cannot_run(unit) -> str:
     if needs:
         why.append(f"Needs {', '.join(str(one) for one in needs)}")
     if unit.get("compat") == "new":
-        why.append("Needs a newer Lab")
+        why.append("Needs a newer Gravitee Lab")
     elif unit.get("compat") == "old":
-        why.append("Was written for an older Lab")
+        why.append("Written for an older Gravitee Lab")
     return "; ".join(why)
 
 

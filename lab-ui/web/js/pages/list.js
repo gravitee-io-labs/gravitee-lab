@@ -446,8 +446,8 @@ function list(kind, title, noun) {
   function cannotRun(other) {
     const why = [...(other?.blocked?.reasons || [])], lacks = (other?.needs_catalogs || []).map((need) => need.name || need.id);
     if (lacks.length) why.push(`Needs ${lacks.join(", ")}`);
-    if (other?.compat === "new") why.push("Needs a newer Lab");
-    else if (other?.compat === "old") why.push("Was written for an older Lab");
+    if (other?.compat === "new") why.push("Needs a newer Gravitee Lab");
+    else if (other?.compat === "old") why.push("Written for an older Gravitee Lab");
     return why.join("; ");
   }
 

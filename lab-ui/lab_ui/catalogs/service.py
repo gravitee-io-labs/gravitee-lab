@@ -187,7 +187,7 @@ WORDS = {
     "checking": ("Checking", "muted"), "updating": ("Updating", "working"), "downloading": ("Downloading", "working"),
     "unreachable": ("Unreachable", "warn"), "noaccess": ("No access", "error"), "needs_git": ("Needs Git", "error"),
     "wrong_catalog": ("Wrong catalog", "error"), "rewritten": ("Rewritten", "error"),
-    "lab_new": ("Needs a newer Lab", "warn"), "lab_old": ("Written for an older Lab", "warn"),
+    "lab_new": ("Needs a newer Gravitee Lab", "warn"), "lab_old": ("Written for an older Gravitee Lab", "warn"),
     "damaged": ("Damaged", "error"), "linked": ("Linked", "muted"), "missing_folder": ("Folder not found", "error"),
     "suggested": ("Not added", "muted"), "failed": ("Failed", "error"),
 }
@@ -312,7 +312,7 @@ def _kind_state(ns, found, held, entry, contract):
     if key == "rewritten":
         return _state(key, reason="This catalog was rewritten or moved.", next="Update only if you expected it.")
     if key == "lab_new":
-        return _state(key, reason="A newer version needs a newer Lab. This is the newest one this Lab reads.",
+        return _state(key, reason="A newer version needs a newer Gravitee Lab. This is the newest one this Lab reads.",
                       next="Run make update, then restart the Lab.")
     if key == "lab_old":
         if listed:

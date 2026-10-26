@@ -37,14 +37,14 @@ PARTNER = {"name": "Partner fixture", "version": "2.0.0"}
 BARE = {"contract": 1, "contract_min": 1, "seeder_image": ""}   # the level of this Lab, as the core says it
 
 
-def parsed(path, address=None, borrowed=()):
+def parsed(path, address=None, borrowed=(), published=False):
     """manifest.read_catalog without Compose: the scalars of the file, the way the fixtures read them."""
     text = (Path(paths.ROOT) / path).read_text(encoding="utf-8")
     meta = fixtures._meta_of(text)
     return {"schema": 1, "id": meta["id"], "name": meta["name"], "description": meta.get("description", ""),
             "version": meta["version"], "lab": meta["lab"], "license": meta.get("license"), "images": None,
             "contribute": "pull-request", "shared_settings": [], "moved_from": [], "canary": [],
-            "requires": {"catalogs": {}}, "unknown": []}
+            "requires": {"catalogs": {}}, "unknown": [], "unknown_values": []}
 
 
 def lines_of(error):
@@ -501,7 +501,7 @@ class States(Seam):
     def test_a_tip_that_needs_a_newer_lab_is_said_and_no_update_is_offered_for_it(self):
         self.given(seen={"target": None, "update": False, "tip": "new", "version": None}, error=None)
         self.assertEqual(self.said(), (
-            "lab_new", "Needs a newer Lab", "warn", "A newer version needs a newer Lab. This is the newest one this Lab reads.",
+            "lab_new", "Needs a newer Gravitee Lab", "warn", "A newer version needs a newer Gravitee Lab. This is the newest one this Lab reads.",
             "Run make update, then restart the Lab."))
         self.assertEqual(self.row("partner")["attention"], "lab")
 
@@ -515,7 +515,7 @@ class States(Seam):
         rows = service.describe(*project.loaded())
         old = next(row for row in rows if row["id"] == "partner")
         self.assertEqual((old["state"]["key"], old["state"]["label"], old["state"]["reason"], old["state"]["next"]),
-                         ("lab_old", "Written for an older Lab", "This version is too old for this Lab.",
+                         ("lab_old", "Written for an older Gravitee Lab", "This version is too old for this Lab.",
                           "Update it, or ask the owners of Partner fixture to update it."))
         self.assertIsNone(old["attention"], "nothing to press until there is an update")
         registry.set_lock("partner", seen={"target": "c" * 40, "update": True, "tip": "ok", "version": "2.1.0"})
@@ -550,8 +550,8 @@ class States(Seam):
                               "This address does not serve the catalog this Lab expects.", "Run make update, then try again."),
             "history_changed": ("rewritten", "Rewritten", "error", "This catalog was rewritten or moved.",
                                 "Update only if you expected it."),
-            "lab_new": ("lab_new", "Needs a newer Lab", "warn",
-                        "A newer version needs a newer Lab. This is the newest one this Lab reads.",
+            "lab_new": ("lab_new", "Needs a newer Gravitee Lab", "warn",
+                        "A newer version needs a newer Gravitee Lab. This is the newest one this Lab reads.",
                         "Run make update, then restart the Lab."),
         }
         self.installed("partner", url="https://example.com/acme/lab-hub.git")
@@ -1083,7 +1083,7 @@ class Reading(Real):
     def test_a_tip_that_needs_a_newer_lab_installs_the_newest_version_this_lab_reads_and_says_so(self):
         remote = self.remote("partner")
         older = remote.head()
-        remote.commit({"catalog.yml": self.meta(version="3.0.0", lab=99)}, "Needs a newer Lab")
+        remote.commit({"catalog.yml": self.meta(version="3.0.0", lab=99)}, "Needs a newer Gravitee Lab")
         shown = service.check_address(remote.url)
         self.assertEqual((shown["catalog"]["version"], shown["newer"]), ("2.0.0", True))
         self.assertEqual(service.TICKETS[shown["ticket"]]["staged"].commit, older)
@@ -1905,7 +1905,7 @@ class Checking(Seam):
         self.assertEqual(row["state"]["key"], "update")
 
     def test_a_tip_that_needs_a_newer_lab_leaves_the_newest_readable_version_and_offers_no_update_for_it(self):
-        self.remote.commit({"catalog.yml": meta_text(version="3.0.0", lab=99)}, "Needs a newer Lab")
+        self.remote.commit({"catalog.yml": meta_text(version="3.0.0", lab=99)}, "Needs a newer Gravitee Lab")
         row = service.check_now("partner")["catalog"]
         self.assertEqual((row["state"]["key"], row["attention"]), ("lab_new", "lab"))
         self.assertEqual(registry.lock_of("partner")["seen"], {"target": self.done.commit, "update": False, "tip": "new",
@@ -1914,7 +1914,7 @@ class Checking(Seam):
     def test_a_newer_readable_version_below_a_tip_that_is_not_readable_is_still_offered(self):
         self.remote.commit({"catalog.yml": meta_text(version="2.1.0"), **NEWER}, "Readable")
         readable = self.remote.head()
-        self.remote.commit({"catalog.yml": meta_text(version="3.0.0", lab=99)}, "Needs a newer Lab")
+        self.remote.commit({"catalog.yml": meta_text(version="3.0.0", lab=99)}, "Needs a newer Gravitee Lab")
         service.check_now("partner")
         self.assertEqual(registry.lock_of("partner")["seen"], {"target": readable, "update": True, "tip": "new",
                                                                "version": "2.1.0"})
@@ -2126,7 +2126,7 @@ class BringingForward(Seam):
 
     def test_a_newer_version_the_strict_reading_of_its_level_refuses_is_not_brought_and_nothing_is_left_behind(self):
         # `pick` chooses by a tolerant reading that is unsure of a level spelled with an anchor; the plan reads it strictly
-        self.remote.commit({"catalog.yml": meta_text(version="3.0.0").replace("lab: 1", "lab: &level 99"), **NEWER}, "Needs a newer Lab")
+        self.remote.commit({"catalog.yml": meta_text(version="3.0.0").replace("lab: 1", "lab: &level 99"), **NEWER}, "Needs a newer Gravitee Lab")
         before = registry.lock_of("partner")
         service.check_all()
         held = registry.lock_of("partner")
@@ -2632,7 +2632,7 @@ class GoingBack(Seam):
         self.assertEqual(registry.lock_of("partner")["previous"], self.first, "and Go back toggles")
 
     def test_going_back_to_a_version_written_for_a_level_this_lab_no_longer_reads_is_refused_as_an_update_is(self):
-        # The Lab moved on since: the version the person left is "Written for an older Lab", and going back to it is not offered
+        # The Lab moved on since: the version the person left is "Written for an older Gravitee Lab", and going back to it is not offered
         before = (registry.lock_of("partner"), self.digest())
         self.patch(service, "_contract", lambda: {"contract": 2, "contract_min": 2, "seeder_image": ""})
         for listed, line in ((False, "Written for an older Gravitee Lab. Ask its owners to update it."),
