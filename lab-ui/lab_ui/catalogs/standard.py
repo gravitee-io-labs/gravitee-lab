@@ -1012,11 +1012,8 @@ def pin_problem(lab, ref: str, level: int, git=None) -> str:
     have = release_level(lab, ref, git)
     if have is None or have >= level:
         return ""
-    if git is not None:   # a caller with its own git names its release: the latest is not looked for
-        return (f"The Lab release {ref[:7]} has standard {have}; this writes standard {level}. Fix: pin a release of the Lab "
-                "that has it.")
-    newest = latest_release(lab)
-    if newest and newest != ref and (release_level(lab, newest) or 0) >= level:
+    newest = latest_release(lab, git)
+    if newest and newest != ref and (release_level(lab, newest, git) or 0) >= level:
         return (f"The Lab release {ref[:7]} has standard {have}; this writes standard {level}. Fix: pin the latest release "
                 "(catalog.py upgrade --lab-ref latest).")
     return NOT_RELEASED.format(n=level)
@@ -1027,10 +1024,11 @@ def _is_release(lab, ref: str) -> bool:
     return release_state(lab, ref) == "yes"
 
 
-def latest_release(lab) -> str:
+def latest_release(lab, git=None) -> str:
     """The commit of the latest release of the Lab, the greatest tag vX.Y.Z on the `origin/main` of the Lab checkout `lab`, as
-    that checkout knows it with no fetch; '' when it has none. What `--lab-ref latest` pins, and what `new` pins by default."""
-    run = _lab_git(lab)
+    that checkout knows it with no fetch; '' when it has none. What `--lab-ref latest` pins, and what `new` pins by default.
+    `git` is the seam of a caller that runs git its own way (the fleet)."""
+    run = git or _lab_git(lab)
     listed = run(["tag", "--list", "v[0-9]*.[0-9]*.[0-9]*", "--merged", "origin/main"])
     if listed is None or listed.code != 0:
         return ""

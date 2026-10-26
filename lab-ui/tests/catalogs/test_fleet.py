@@ -590,11 +590,23 @@ class Upgrade(Fleet):
         self.lab_answers["show"] = (0, '{"level": 4}')
         with self.assertRaises(settings.Unusable) as raised:
             self.run_fleet(github, standard_)
-        self.assertEqual(str(raised.exception), "The Lab release bbbbbbb has standard 4; this writes standard 5. Fix: pin a release "
-                                                "of the Lab that has it.")
+        self.assertEqual(str(raised.exception), "Standard 5 is not in a released Gravitee Lab yet. Fix: release the Lab first, then "
+                                                "run this again.", "the words of upgrade: no release of this Lab ships it")
         self.assertEqual([], github.calls)
         self.lab_answers["show"] = (0, '{"level": 5}')
         self.assertEqual("opened", self.run_fleet(github, standard_)[0].status)
+
+    def test_an_older_release_is_told_to_pin_the_latest_one_that_ships_the_standard(self):
+        lab = self.real_lab()
+        gitfixture.git("tag", "v1.4.0", lab["engine"], repo=self.lab)   # a release before the Lab shipped the standard
+        github = Github(repos=[listed("acme/lab-hub")])
+        self.remote("acme/lab-hub", files(lab["first"]))
+        standard_ = Standard(ref=lab["engine"])
+        standard_.LEVEL = 5
+        with self.assertRaises(settings.Unusable) as raised:
+            self.run_fleet(github, standard_, ref=lab["engine"])
+        self.assertEqual(str(raised.exception), f"The Lab release {lab['engine'][:7]} has standard 0; this writes standard 5. Fix: "
+                                                "pin the latest release (catalog.py upgrade --lab-ref latest).")
 
     def test_the_command_refuses_a_lab_commit_that_is_not_a_release_with_one_line(self):
         github = Github(repos=[listed("acme/lab-hub")])
