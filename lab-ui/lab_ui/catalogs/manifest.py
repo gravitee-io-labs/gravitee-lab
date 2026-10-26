@@ -3,7 +3,7 @@ compatible pin that picks the newest commit this Lab reads, and the generated in
 
 A Lab uses what it understands: a version of a published catalog is read when every item of the contract it uses is one this
 Lab lists (`understood`), which `pick` learns by reading that version's files (`readable`). `schema` and `lab` are the legacy
-fields that Gravitee Lab 1.4 and older read: a catalog.yml does not need them, a `lab` that is there is a fast hint (a version
+fields that older Gravitee Labs read: a catalog.yml does not need them, a `lab` that is there is a fast hint (a version
 whose `lab` this Lab does not read is passed over without reading its files), and `with_legacy` keeps them true where
 `catalog.py` writes the file.
 
@@ -34,8 +34,8 @@ from . import store as bare
 from .registry import CatalogError
 
 SCHEMA = 1   # the format of catalog.yml and of the layout that this Lab reads
-LEGACY = ("schema", "lab")   # what Gravitee Lab 1.4 and older need in catalog.yml, and this Lab does not
-LEGACY_NOTE = "# For Gravitee Lab 1.4 and older: written by catalog.py"   # the comment of their lines in a file catalog.py writes
+LEGACY = ("schema", "lab")   # what older Gravitee Labs need in catalog.yml, and this Lab does not
+LEGACY_NOTE = "# For older Gravitee Labs: written by catalog.py"   # the comment of their lines in a file catalog.py writes
 READS = 5   # the versions of a catalog whose files `pick` reads to find one this Lab understands
 UNITS = ("addons", "setups", "playgrounds")   # what holds the units: a version of them is a version of the catalog
 BLOCK = "x-gravitee-catalog"
@@ -204,7 +204,7 @@ def _names(value, pattern, limit):
 
 def _required(meta, problems):
     """The checks of the fields every catalog.yml has (id, name, description, version) and of the legacy fields when they are
-    there (schema, lab): Gravitee Lab 1.4 and older read them, this Lab does not need them."""
+    there (schema, lab): older Gravitee Labs read them, this Lab does not need them."""
     if "schema" in meta and (not _whole(meta["schema"]) or meta["schema"] < 1):
         problems.append("schema must be a whole number, such as 1")
     elif "schema" in meta and meta["schema"] > SCHEMA:
@@ -434,7 +434,7 @@ _BLOCK_LINE = re.compile(r"[\"']?x-gravitee-catalog[\"']?:[ \t]*(?:#.*)?\r?")
 
 
 def with_legacy(text: str, lab: Optional[int]) -> str:
-    """The text of a catalog.yml with the fields that Gravitee Lab 1.4 and older read made true: `schema: 1`, and `lab: <lab>`
+    """The text of a catalog.yml with the fields that older Gravitee Labs read made true: `schema: 1`, and `lab: <lab>`
     when `lab` is given (the true minimum, `check.needed_lab`), else the `lab` it has, or 1. A line that is there keeps its
     place and its comment, and only its value changes; a line that is missing is added in the block, with the comment that
     says who writes it (LEGACY_NOTE): `schema` first, `lab` after `version`. Everything else stays as it was, line ends too.

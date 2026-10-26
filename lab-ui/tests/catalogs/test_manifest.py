@@ -273,7 +273,7 @@ class Fields(Case):
             self.assertEqual(problems(**{key: ...}), [f"{key} is required"], key)
 
     def test_a_catalog_yml_without_the_legacy_fields_is_valid_for_this_lab(self):
-        """schema and lab are for Gravitee Lab 1.4 and older: an author never has to write them."""
+        """schema and lab are for older Gravitee Labs: an author never has to write them."""
         self.assertEqual(problems(schema=..., lab=...), [])
         self.assertEqual(problems(schema=...), [])
         self.assertEqual(problems(lab=...), [])
@@ -857,7 +857,7 @@ class WithCompose(Case):
 
 
 class Legacy(Case):
-    """The lines of catalog.yml that Gravitee Lab 1.4 and older read: one comment for them, wherever catalog.py writes them."""
+    """The lines of catalog.yml that older Gravitee Labs read: one comment for them, wherever catalog.py writes them."""
 
     def test_the_template_writes_them_with_the_comment_with_legacy_writes(self):
         """`catalog.py new` renders the template and `with_legacy` adds missing lines: the two say the same, from one constant."""

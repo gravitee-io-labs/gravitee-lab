@@ -9,7 +9,7 @@
 
 Both refuse what would make a release that people cannot trust: a tree that is not clean, a branch that is behind `origin/main`, a
 version that is not greater than the latest tag. Only the `version:` line of catalog.yml is changed, by a targeted edit of that
-line, and the lines that Gravitee Lab 1.4 and older read (`schema`, `lab`) are kept true or added (`with_legacy`), so its comments
+line, and the lines that older Gravitee Labs read (`schema`, `lab`) are kept true or added (`with_legacy`), so its comments
 and its other lines stay as they are. Nothing else is ever pushed, `main` and the tag least of all: the commands are printed.
 
 `origin/main` and the tags are read after a fetch of both from `origin`, so a release is judged against what the server holds. The
@@ -76,7 +76,7 @@ def edit_version(text: str, version: str) -> Tuple[str, str]:
 
 
 def with_legacy(root: Path, text: str) -> str:
-    """The text of catalog.yml with the fields of Gravitee Lab 1.4 and older made true (`manifest.with_legacy`): the `lab` the
+    """The text of catalog.yml with the fields of older Gravitee Labs made true (`manifest.with_legacy`): the `lab` the
     items of the catalog need when this Lab can say it (`check.folder_lab`), else the one the file has. A release is a version
     that older Labs read too, so it carries them."""
     from . import manifest   # here and not above: the reader of catalog.yml, which the rest of this command does without

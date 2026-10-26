@@ -10,7 +10,7 @@ The catalog profile (`catalog_problems`, `catalog_files`) is the second half of 
 `catalogs.audit` (structure, secrets, commits, workflows, Dockerfiles, guides, images): the per-item rules for each unit of
 the catalog, the README tables that its folders keep when they keep any, the names it gives, its ports, what its units use that
 this Lab does not read (`understood`: a published catalog that holds one needs a newer Gravitee Lab), what its `catalog.yml` says
-and whether a `lab` written in it, for Gravitee Lab 1.4 and older, is the true minimum, and the verdict of the trust policy on
+and whether a `lab` written in it, for older Gravitee Labs, is the true minimum, and the verdict of the trust policy on
 each unit (a Blocked reason is an error). It reads, and never writes. Problems are (file, what is wrong), the file relative to the catalog, which is what a CI
 annotation needs. The images a catalog builds are IM02 and IM04 of the audit, with the Lab's seeder as the one named anchor.
 
@@ -556,11 +556,11 @@ def _tested(sets, project):
 
 
 def _level(requires):
-    """The legacy level an item says it was written for, for Gravitee Lab 1.4 and older, is a whole number from 1, whatever the
+    """The legacy level an item says it was written for, for older Gravitee Labs, is a whole number from 1, whatever the
     kind of the item: the Lab reads it from an add-on, a setup and a playground alike as a hint, and ignores one written otherwise
     at run time."""
     if isinstance(requires, dict) and "lab" in requires and not (type(requires["lab"]) is int and requires["lab"] >= 1):
-        yield "x-gravitee.requires.lab must be a whole number from 1: Gravitee Lab 1.4 and older read it, and an item does without it"
+        yield "x-gravitee.requires.lab must be a whole number from 1: older Gravitee Labs read it, and an item does without it"
 
 
 def _requires(requires, project):
@@ -1267,7 +1267,7 @@ def _not_understood(kind, uid, config):
 
 
 def needed_lab(units, raw, inputs):
-    """The `lab` that Gravitee Lab 1.4 and older need in catalog.yml for these units: the highest level among the contract items
+    """The `lab` that older Gravitee Labs need in catalog.yml for these units: the highest level among the contract items
     they use (`_used`), 1 when they use none, None without the lock."""
     locked = _lock()
     if locked is None:
@@ -1276,7 +1276,7 @@ def needed_lab(units, raw, inputs):
 
 
 def folder_lab(folder):
-    """The `lab` that Gravitee Lab 1.4 and older need in the catalog.yml of a folder (`needed_lab`), for `catalog.py` to write.
+    """The `lab` that older Gravitee Labs need in the catalog.yml of a folder (`needed_lab`), for `catalog.py` to write.
     While every item of the lock appeared at the first level, that level is the answer and nothing is read; otherwise the folder
     is read where it is, as `catalog.py check` reads it (`temporary_link`, the scrubbed environment). None when it cannot be
     said here: no lock, a catalog.yml without an id, no Compose, a catalog it includes from that is not here."""
@@ -1300,8 +1300,8 @@ def folder_lab(folder):
 
 
 def _lab_lines(meta, units, raw, inputs):
-    """The verdict on `lab` in catalog.yml, when it is there. This Lab reads a catalog by what it uses and needs no `lab`; Gravitee
-    Lab 1.4 and older read this line instead, so a `lab` that is written is the true minimum: the highest level among the contract
+    """The verdict on `lab` in catalog.yml, when it is there. This Lab reads a catalog by what it uses and needs no `lab`; older Gravitee
+    Labs read this line instead, so a `lab` that is written is the true minimum: the highest level among the contract
     items the catalog uses, no lower (an older Lab would start it without what it needs) and no higher (one that could run it would
     refuse it), and never above what this engine provides. `catalog.py upgrade --write` writes it."""
     level = meta.get("lab")
@@ -1314,7 +1314,7 @@ def _lab_lines(meta, units, raw, inputs):
     contract, _, rows = locked
     used = _used(units, raw, inputs, rows)
     needed = max(used.values(), default=1)
-    fix = "Gravitee Lab 1.4 and older read it. Fix: run catalog.py upgrade --write, which writes it"
+    fix = "older Gravitee Labs read it. Fix: run catalog.py upgrade --write, which writes it"
     if type(level) is int and level > contract:
         yield f"lab is {level}, more than any Gravitee Lab reads: {fix}"
     elif level != needed:

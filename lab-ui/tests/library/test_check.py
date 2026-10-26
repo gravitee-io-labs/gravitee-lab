@@ -449,7 +449,7 @@ class Items(Machine):
             "x-gravitee.requires.license: apim-reporter-tcp: say what needs it"])
         self.assertEqual(list(check._license({"license": {"apim-reporter-tcp": "Traces"}})), [])
 
-    LEVEL = "x-gravitee.requires.lab must be a whole number from 1: Gravitee Lab 1.4 and older read it, and an item does without it"
+    LEVEL = "x-gravitee.requires.lab must be a whole number from 1: older Gravitee Labs read it, and an item does without it"
 
     def test_the_level_a_unit_was_written_for_is_a_whole_number_from_1(self):
         for level in (1, 3, 99):
@@ -1362,7 +1362,7 @@ class Contract(Machine):
         # The keys of the x-gravitee block, the labels, the network, the category and the core service: all level 1
         self.assertEqual(self.lines(1, self.plain()), [])
         terminal = member("fixture", "playground", "tour", ["tour-app"], says={"terminal": "tour-app"})
-        self.assertEqual(self.lines(1, terminal), ["lab is 1 but must be 3, for x-gravitee.terminal: Gravitee Lab 1.4 and older read it. Fix: run catalog.py upgrade --write, which writes it"])
+        self.assertEqual(self.lines(1, terminal), ["lab is 1 but must be 3, for x-gravitee.terminal: older Gravitee Labs read it. Fix: run catalog.py upgrade --write, which writes it"])
         self.assertEqual(self.lines(3, terminal), [])
 
     def test_a_lab_that_is_higher_than_needed_is_wrong_too(self):
@@ -1373,8 +1373,8 @@ class Contract(Machine):
         self.assertEqual(self.lines(0, self.plain())[0][:23], "lab is 0 but must be 1,")
 
     def test_lab_is_never_above_the_level_this_engine_provides(self):
-        self.assertEqual(self.lines(4, self.plain()), ["lab is 4, more than any Gravitee Lab reads: Gravitee Lab 1.4 and older read it. Fix: run catalog.py upgrade --write, which writes it"])
-        self.assertEqual(self.lines(99, self.plain()), ["lab is 99, more than any Gravitee Lab reads: Gravitee Lab 1.4 and older read it. Fix: run catalog.py upgrade --write, which writes it"])
+        self.assertEqual(self.lines(4, self.plain()), ["lab is 4, more than any Gravitee Lab reads: older Gravitee Labs read it. Fix: run catalog.py upgrade --write, which writes it"])
+        self.assertEqual(self.lines(99, self.plain()), ["lab is 99, more than any Gravitee Lab reads: older Gravitee Labs read it. Fix: run catalog.py upgrade --write, which writes it"])
 
     def test_a_catalog_yml_without_lab_has_nothing_to_verify(self):
         terminal = member("fixture", "playground", "tour", ["tour-app"], says={"terminal": "tour-app"})
@@ -1420,7 +1420,7 @@ class Contract(Machine):
         self.assertNotIn(("seed.setting", "OTHER"), found)
         self.assertEqual(max(found.values()), 3)
         self.assertEqual(self.lines(2, seeder, products=["apim"]), [
-            "lab is 2 but must be 3, for seed file controls.yaml: Gravitee Lab 1.4 and older read it. Fix: run catalog.py upgrade --write, which writes it"])
+            "lab is 2 but must be 3, for seed file controls.yaml: older Gravitee Labs read it. Fix: run catalog.py upgrade --write, which writes it"])
 
     def test_a_run_block_of_the_guide_is_an_item_of_the_contract(self):
         play = member("fixture", "playground", "tour", ["tour-app"])
@@ -2023,7 +2023,7 @@ class Fixtures(Shared):
 
     def test_a_catalog_written_for_a_lab_that_does_not_exist_yet_is_refused_for_its_level(self):
         found = self.found("lab-new")
-        self.assertIn(("catalog.yml", "lab is 99, more than any Gravitee Lab reads: Gravitee Lab 1.4 and older read it. Fix: run "
+        self.assertIn(("catalog.yml", "lab is 99, more than any Gravitee Lab reads: older Gravitee Labs read it. Fix: run "
                                       "catalog.py upgrade --write, which writes it"), found)
         self.assertIn(("addons/newer/compose.yml", "Blocked: Needs a newer Gravitee Lab"), found)
 
@@ -2377,7 +2377,7 @@ class Authoring(Shared):
                 self.assertIn("x-gravitee.kind must be addon", said)
 
     def test_a_level_that_is_none_is_told_of_an_add_on_and_of_a_setup_as_of_a_playground(self):
-        level = "x-gravitee.requires.lab must be a whole number from 1: Gravitee Lab 1.4 and older read it, and an item does without it"
+        level = "x-gravitee.requires.lab must be a whole number from 1: older Gravitee Labs read it, and an item does without it"
         self.assertEqual(self.said("partner", "addons/oldlab/compose.yml").count(level), 1)
         self.assertEqual(self.said("partner", "setups/oldlab.yml").count(level), 1)
         self.assertNotIn(level, self.said("partner", "addons/fine/compose.yml"))

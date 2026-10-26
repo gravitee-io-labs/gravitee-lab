@@ -1092,7 +1092,7 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
     `options`: lab_ref (40 hex: the new pin), refresh_pins, adopt, replace (paths to replace though they have no marker, with
     adopt), form, with (modules), maintainers / lab_repository / security_contact (for what adopt adds), level (default LEVEL),
     lab (the Lab checkout: SD11 and the log of a moved pin are asked of it), legacy_lab (when the key is there, catalog.yml gets
-    the lines Gravitee Lab 1.4 and older read, made true: `schema`, and `lab` as given, or as the file has it when None). Pure:
+    the lines older Gravitee Labs read, made true: `schema`, and `lab` as given, or as the file has it when None). Pure:
     it reads the tree and runs `git log` in the Lab checkout; it writes nothing."""
     options = dict(options or {})
     level = options.get("level") or LEVEL
@@ -1202,7 +1202,7 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
         text = meta_raw.decode("utf-8", "replace")
         legacy = with_legacy(text, options["legacy_lab"])
         if legacy != text:
-            files.append(_entry("catalog.yml", UPDATE, "seeded", "the lines Gravitee Lab 1.4 and older read",
+            files.append(_entry("catalog.yml", UPDATE, "seeded", "the lines older Gravitee Labs read",
                                 legacy.encode("utf-8")))
     if adopt:
         problem = _adopt(tree, state, options, repo, ref, level, files, images, extra)
@@ -1722,7 +1722,7 @@ def apply_command(args) -> str:
 
 
 def legacy_lab(root) -> Optional[int]:
-    """The `lab` that Gravitee Lab 1.4 and older need in the catalog.yml of the folder `root` (`check.folder_lab`), or None when
+    """The `lab` that older Gravitee Labs need in the catalog.yml of the folder `root` (`check.folder_lab`), or None when
     this Lab cannot say it here: the upgrade then keeps the one the file has."""
     from ..library import check   # here and not above: the units are read as `check` reads them, which nothing else here does
     try:

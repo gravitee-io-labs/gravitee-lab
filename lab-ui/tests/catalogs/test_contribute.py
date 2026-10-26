@@ -1935,7 +1935,7 @@ if __name__ == "__main__":
 
 
 class LegacyLab(unittest.TestCase):
-    """A share keeps the `lab` that Gravitee Lab 1.4 and older read true: it raises one the shared item needs more than, in the
+    """A share keeps the `lab` that older Gravitee Labs read true: it raises one the shared item needs more than, in the
     same commit or copy, and never lowers it or adds the lines to a catalog that does without them."""
 
     def test_a_lab_lower_than_the_item_needs_is_raised_alone(self):

@@ -888,7 +888,7 @@ def _pull_request(address, branch) -> Optional[str]:
 
 
 def _needed(project, items) -> int:
-    """The `lab` that Gravitee Lab 1.4 and older need for the units shared (`items`, [(kind, uid)]): the highest level among the
+    """The `lab` that older Gravitee Labs need for the units shared (`items`, [(kind, uid)]): the highest level among the
     items of the contract they use (`check.needed_lab`), 1 when this Lab cannot say."""
     raw = projects.loaded()[1].get("raw") or {}
     units = [(k, uid, project[f"{k}s"][uid]) for k, uid in items if uid in project[f"{k}s"]]

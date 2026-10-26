@@ -619,7 +619,7 @@ class Reading(Tool):
         self.assertIn("✗ addons/port-core/compose.yml\n    publishes port 8082, like docker-compose.yml\n", out)
         self.assertIn("✗ addons/future/compose.yml\n    T26 Needs a newer Gravitee Lab. Fix: Remove what this Gravitee Lab does not "
                       "read, or check with the Gravitee Lab release that reads it (`catalog.py upgrade --lab-ref latest`). A `lab` "
-                      "is for Gravitee Lab 1.4 and older: `catalog.py upgrade --write` writes the one of `catalog.yml`.\n", out)
+                      "is for older Gravitee Labs: `catalog.py upgrade --write` writes the one of `catalog.yml`.\n", out)
         self.assertIn("✓ addons/echo/compose.yml\n", out)
         self.assertIn("    T24 Depends on private content. Fix: A Public catalog cannot include a Private one", out)
         self.assertTrue(out.rstrip().splitlines()[-1].endswith(" for more."), out[-120:])

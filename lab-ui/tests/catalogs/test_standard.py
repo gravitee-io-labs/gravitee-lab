@@ -1482,14 +1482,14 @@ class Upgrading(Case):
         self.assertEqual(self.upgrade(repo), (0, "Acme Hub is on standard 5. This Lab has standard 5.\n\nNothing to upgrade\n", ""))
 
     def test_the_lines_older_labs_read_are_written_when_catalog_yml_lacks_them_and_made_true_when_they_are_wrong(self):
-        """Gravitee Lab 1.4 and older need `schema` and read `lab`: `upgrade --write` is the fix `check` names for them."""
+        """Older Gravitee Labs need `schema` and read `lab`: `upgrade --write` is the fix `check` names for them."""
         files = render()
         bare = b"".join(line for line in files["catalog.yml"].splitlines(True) if line.split(b":")[0].strip() not in (b"schema", b"lab"))
         repo = self.repo(files={**files, "catalog.yml": bare})
         self.patch(standard, "legacy_lab", lambda root: 1)
         code, out, _ = self.upgrade(repo, "--write")
         self.assertEqual(code, 0)
-        note = b"   # For Gravitee Lab 1.4 and older: written by catalog.py"
+        note = b"   # For older Gravitee Labs: written by catalog.py"
         self.assertEqual((repo.root / "catalog.yml").read_bytes(),
                          bare.replace(b"x-gravitee-catalog:\n", b"x-gravitee-catalog:\n  schema: 1" + note + b"\n")
                          .replace(b"version: 0.1.0\n", b"version: 0.1.0\n  lab: 1" + note + b"\n"))

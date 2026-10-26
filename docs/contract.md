@@ -27,10 +27,10 @@ the Lab list, under *For catalogs*, what each release adds that a catalog can us
 
 ### The fields of older Labs
 
-Gravitee Lab 1.4 and older need `schema` and read `lab` in `catalog.yml`, and they read a unit's `x-gravitee.requires.lab`:
+Older Gravitee Labs need `schema` and read `lab` in `catalog.yml`, and they read a unit's `x-gravitee.requires.lab`:
 they ignore what they do not know, so `lab` tells them which catalogs they can run. This Lab needs none of them. `catalog.py`
 keeps them true where it writes `catalog.yml` (`new`, `upgrade --write`, `release`, and the Share of an item into a catalog),
-with the comment `# For Gravitee Lab 1.4 and older: written by catalog.py` on the lines it adds. `catalog.py check` accepts a
+with the comment `# For older Gravitee Labs: written by catalog.py` on the lines it adds. `catalog.py check` accepts a
 `catalog.yml` without them, and verifies a `lab` that is there: it is the highest level (`since`, below) among the items the
 catalog uses, so that an older Lab refuses cleanly what it cannot run, and the fix is `catalog.py upgrade --write`. This Lab
 reads a `lab` it does not read as a fast hint: that version is passed over without its files being read. These fields are
@@ -144,7 +144,7 @@ the check of a catalog reports it. *Kinds* says which kind of unit may carry the
 | `x-gravitee.requires.plugins` | any | The plugins a product must load |
 | `x-gravitee.requires.license` | any | The license features it needs |
 | `x-gravitee.requires.host` | any | Checks the Lab UI makes from this machine before Start: `name`, `check`, `expect`, `help` |
-| `x-gravitee.requires.lab` | any | For Gravitee Lab 1.4 and older: the level the unit was written for ([The fields of older Labs](#the-fields-of-older-labs)). A unit does not need it |
+| `x-gravitee.requires.lab` | any | For older Gravitee Labs: the level the unit was written for ([The fields of older Labs](#the-fields-of-older-labs)). A unit does not need it |
 
 ### Labels
 
@@ -327,7 +327,7 @@ message. One change raises it by one, however many items it adds.
 2. Write the lock. The new items get `since` equal to the new level; the others keep theirs.
 3. Describe the items on this page.
 
-A purely optional addition keeps the level: Gravitee Lab 1.4 and older ignore it, so a catalog that uses it still works
+A purely optional addition keeps the level: older Gravitee Labs ignore it, so a catalog that uses it still works
 there. Write the lock with `--keep-level`; `since` records the level it appeared at. Every addition, optional or not, is one
 that a Lab released before it does not read: from this Lab on, a catalog that uses it needs the release that adds it.
 

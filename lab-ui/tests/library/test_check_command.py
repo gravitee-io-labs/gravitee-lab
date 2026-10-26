@@ -295,7 +295,7 @@ class Codes(Folder):
         self.assertEqual(future["severity"], "error")
         self.assertEqual(future["message"], "Needs a newer Gravitee Lab. Fix: Remove what this Gravitee Lab does not read, or check "
                                             "with the Gravitee Lab release that reads it (`catalog.py upgrade --lab-ref latest`). "
-                                            "A `lab` is for Gravitee Lab 1.4 and older: `catalog.py upgrade --write` writes the "
+                                            "A `lab` is for older Gravitee Labs: `catalog.py upgrade --write` writes the "
                                             "one of `catalog.yml`.")
         self.assertEqual(found[("addons/port-core/compose.yml", "")]["message"], "publishes port 8082, like docker-compose.yml")
         self.assertEqual(set(one["code"] for one in json.loads(out)) - {""}, {"T26", "DF22", "DF23"})

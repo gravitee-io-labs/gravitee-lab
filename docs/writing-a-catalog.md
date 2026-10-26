@@ -62,7 +62,7 @@ or a seed folder that someone's Lab does not read yet, that Lab keeps the newest
 Gravitee Lab. `check` runs with the Gravitee Lab release that `.github/standard.json` pins, so a catalog that passes it works on
 that release and every later one; to use something a newer release adds (its release notes list it under *For catalogs*), move
 the pin with `catalog.py upgrade --lab-ref latest`. The `schema` and `lab` lines that `catalog.py` writes, with their comment,
-are for Gravitee Lab 1.4 and older: leave them to `catalog.py`, which keeps them true (`check` says when one is not, and
+are for older Gravitee Labs: leave them to `catalog.py`, which keeps them true (`check` says when one is not, and
 `upgrade --write` fixes it).
 
 ## Check it before you publish

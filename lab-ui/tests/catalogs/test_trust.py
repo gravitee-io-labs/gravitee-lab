@@ -220,7 +220,7 @@ SPEC_FIXES = {
     "T24": "A Public catalog cannot include a Private one: move the shared part to a Public catalog.",
     "T25": "Fix {name} first.",
     "T26": "Remove what this Gravitee Lab does not read, or check with the Gravitee Lab release that reads it "
-           "(`catalog.py upgrade --lab-ref latest`). A `lab` is for Gravitee Lab 1.4 and older: `catalog.py upgrade --write` "
+           "(`catalog.py upgrade --lab-ref latest`). A `lab` is for older Gravitee Labs: `catalog.py upgrade --write` "
            "writes the one of `catalog.yml`.",
     "T27": "Run `docker compose -f {file} config` and fix what it prints.",
 }
