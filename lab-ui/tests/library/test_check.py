@@ -1507,6 +1507,11 @@ class Descriptor(Machine):
         found, _ = self.read({"id": "fixture", "unknown": ["colour"]})
         self.assertEqual(found[1], ["colour is not a key of x-gravitee-catalog: " + ", ".join(check.manifest.KEYS)])
 
+    def test_a_key_of_requires_or_of_a_catalog_it_requires_is_told_by_its_path(self):
+        found, _ = self.read({"id": "fixture", "unknown": ["requires.catalogs.hub.mirror", "requires.gpu"]})
+        self.assertEqual(found[1], ["requires.catalogs.hub.mirror is not a key of a catalog it requires: name, url, min",
+                                    "requires.gpu is not a key of requires: catalogs"])
+
     def test_the_dependencies_a_catalog_declares_are_the_ones_its_units_include_from(self):
         meta = {"requires": {"catalogs": {"partner": {}, "stranger": {}}}}
         built = self.machine([member("fixture", "setup", "pair", include=[("partner", "addon", "ledger")]),
@@ -1944,11 +1949,14 @@ def _odd_ledger():
     """The partner's ledger with a key of x-gravitee and a label that no Lab reads yet."""
     text = (fixtures.CATALOGS / "partner" / "addons/ledger/compose.yml").read_text(encoding="utf-8")
     return text.replace("description: Keeps the entries of a partner}", "description: Keeps the entries of a partner, badge: gold}") \
-        .replace("      io.gravitee.name: Ledger\n", "      io.gravitee.name: Ledger\n      io.gravitee.badge: gold\n")
+        .replace("      io.gravitee.name: Ledger\n", "      io.gravitee.name: Ledger\n      io.gravitee.badge: gold\n"
+                 "      io.gravitee.role: tester\n")
 
 
 NOT_READ = [("addons/ledger/compose.yml", "label io.gravitee.badge is not read by this Gravitee Lab: remove it, or check with "
                                           "the Gravitee Lab release that reads it (catalog.py upgrade --lab-ref latest)"),
+            ("addons/ledger/compose.yml", "label io.gravitee.role=tester is not read by this Gravitee Lab: remove it, or check "
+                                          "with the Gravitee Lab release that reads it (catalog.py upgrade --lab-ref latest)"),
             ("addons/ledger/compose.yml", f"x-gravitee.badge is not a key of x-gravitee: {', '.join(sorted(check.META))}")]
 
 
@@ -1972,9 +1980,10 @@ class NotReadInAPublishedCatalog(Shared):
     def test_the_unit_is_blocked_as_needing_a_newer_gravitee_lab(self):
         unit = self.built["addons"]["@partner/ledger"]
         self.assertEqual((unit["compat"], unit["blocked"]), ("new", {"reasons": [
-            "Needs a newer Gravitee Lab: uses label io.gravitee.badge, x-gravitee.badge"]}))
+            "Needs a newer Gravitee Lab: uses label io.gravitee.badge, label io.gravitee.role=tester, x-gravitee.badge"]}))
         self.assertEqual(sorted(self.found("partner")), [
-            ("addons/ledger/compose.yml", "Blocked: Needs a newer Gravitee Lab: uses label io.gravitee.badge, x-gravitee.badge"),
+            ("addons/ledger/compose.yml", "Blocked: Needs a newer Gravitee Lab: uses label io.gravitee.badge, label "
+                                          "io.gravitee.role=tester, x-gravitee.badge"),
             *NOT_READ])
 
 

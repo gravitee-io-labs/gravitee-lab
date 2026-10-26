@@ -49,6 +49,10 @@ FILE_LIMIT = 1024 * 1024
 # The keys of the block this Lab knows; any other is ignored by the Lab and reported by `catalog.py check`
 KEYS = ("schema", "id", "name", "description", "version", "lab", "license", "images", "contribute", "shared_settings",
         "moved_from", "canary", "requires", "host_access")
+REQUIRES_KEYS = ("catalogs",)   # the keys of `requires`
+NEED_KEYS = ("name", "url", "min")   # the keys of a catalog of `requires.catalogs`
+CONTRIBUTE = ("pull-request", "none")   # the values of `contribute`
+_VALUE_SHAPE = re.compile(r"[a-z][a-z-]{0,30}")   # a word a newer Lab could give `contribute` or `host_access`
 # A name that a catalog may not take, whatever its address: it would read as a seal the Lab never gives
 RESERVED_NAMES = ("official", "verified", "personal", "this machine")
 NAME_LIMIT, DESCRIPTION_LIMIT = 40, 90
@@ -178,6 +182,13 @@ def compat_error(level, contract: int, contract_min: int, listed: bool = False) 
     return None
 
 
+def unread(meta: dict) -> list:
+    """What the catalog.yml of a published catalog, as `read_catalog(published=True)` gives it, holds that this Lab does not
+    read: its keys and its values, as items of `understood`."""
+    return [("catalog.key", key) for key in meta.get("unknown") or ()] + \
+        [("catalog.value", value) for value in meta.get("unknown_values") or ()]
+
+
 def not_understood(found: Iterable) -> CatalogError:
     """The refusal of a version of a published catalog that uses what this Lab does not read: it needs a newer Gravitee Lab.
     `found` are the items (`understood.unknown`), named in the detail and not in the line."""
@@ -242,22 +253,28 @@ def _required(meta, problems):
         problems.append("lab must be a whole number, such as 1: catalog.py upgrade --write writes it")
 
 
-def _optional(meta, problems):
-    """The checks of the fields a catalog.yml may leave out."""
+def _optional(meta, problems, lenient=False):
+    """The checks of the fields a catalog.yml may leave out. `lenient`: a value of a newer Lab (`unknown_values`) is not a
+    problem here, and the caller says the catalog needs a newer Gravitee Lab."""
+    odd = set(unknown_values(meta)) if lenient else set()
     if meta.get("license") is not None and not (isinstance(meta["license"], str) and len(meta["license"]) <= 64
                                                 and _LICENSE.fullmatch(meta["license"])):
         problems.append("license must be an SPDX identifier, such as Apache-2.0")
     if meta.get("images") is not None and not (isinstance(meta["images"], str) and len(meta["images"]) <= 200
                                                and _IMAGES.fullmatch(meta["images"])):
         problems.append("images must be a registry prefix without a tag, such as ghcr.io/acme/lab-hub")
-    if meta.get("contribute") is not None and meta["contribute"] not in ("pull-request", "none"):
+    if meta.get("contribute") is not None and meta["contribute"] not in CONTRIBUTE and f"contribute={meta['contribute']}" not in odd:
         problems.append("contribute must be pull-request or none")
     if meta.get("shared_settings") is not None and _names(meta["shared_settings"], _SETTING, SETTINGS_LIMIT) is None:
         problems.append("shared_settings must be a list of setting names in capitals, such as GEMINI_API_KEY")
-    if meta.get("host_access") is not None and not isinstance(meta["host_access"], bool):
+    if meta.get("host_access") is not None and not isinstance(meta["host_access"], bool) \
+            and f"host_access={meta['host_access']}" not in odd:
         problems.append("host_access must be true or false")
     for key in ("moved_from", "canary"):
-        if meta.get(key) is not None and _names(meta[key], _UNIT, LIST_LIMIT) is None:
+        value = meta.get(key)
+        if isinstance(value, list) and odd:
+            value = [one for one in value if f"{key}={one}" not in odd]
+        if value is not None and _names(value, _UNIT, LIST_LIMIT) is None:
             problems.append(f"{key} must be a list of kind:name, such as addon:echo, at most {LIST_LIMIT}")
 
 
@@ -300,11 +317,12 @@ def _address_ok(value) -> bool:
         return False
 
 
-def validate_catalog(meta: dict, borrowed: Iterable[str] = ()) -> List[str]:
+def validate_catalog(meta: dict, borrowed: Iterable[str] = (), lenient: bool = False) -> List[str]:
     """The problems of the mapping under `x-gravitee-catalog`, each a short phrase that follows "catalog.yml: " (the
     table of 4.1, in its order); [] for a valid one. `borrowed`: the names of the listed catalogs that this one is not,
     so a name that is one of them is refused as a name that is not its own. Pure. A key this Lab does not know is not a
-    problem (`unknown_keys`), and neither is a namespace that is reserved or taken: the registry says that."""
+    problem (`unknown_keys`), and neither is a namespace that is reserved or taken: the registry says that. `lenient`, for a
+    published catalog: a value of a newer Lab (`unknown_values`) is not a problem either, it needs a newer Gravitee Lab."""
     if not isinstance(meta, dict):
         return [f"{BLOCK} must be a mapping"]
     problems = []
@@ -313,15 +331,49 @@ def validate_catalog(meta: dict, borrowed: Iterable[str] = ()) -> List[str]:
     taken = {registry.shown(one, NAME_LIMIT).lower() for one in borrowed if isinstance(one, str)}
     if shown and (shown in RESERVED_NAMES or shown in taken):
         problems.append(f"name cannot be {registry.shown(meta['name'], NAME_LIMIT)}")
-    _optional(meta, problems)
+    _optional(meta, problems, lenient)
     _required_catalogs(meta.get("requires"), problems)
     return problems
 
 
 def unknown_keys(meta: dict) -> List[str]:
-    """The keys of the block that this Lab does not read, sorted: `catalog.py check` reports them, and a published catalog
-    that has one needs a newer Gravitee Lab (`service`, `install.plan_update`)."""
-    return sorted(str(key) for key in meta if key not in KEYS) if isinstance(meta, dict) else []
+    """The keys of the block that this Lab does not read, sorted, those of `requires` and of each catalog it requires by their
+    path (`requires.gpu`, `requires.catalogs.hub.mirror`): `catalog.py check` reports them, and a published catalog that has
+    one needs a newer Gravitee Lab (`service`, `install.plan_update`)."""
+    if not isinstance(meta, dict):
+        return []
+    found = [str(key) for key in meta if key not in KEYS]
+    requires = meta.get("requires") if isinstance(meta.get("requires"), dict) else {}
+    found += [f"requires.{key}" for key in requires if key not in REQUIRES_KEYS]
+    declared = requires.get("catalogs") if isinstance(requires.get("catalogs"), dict) else {}
+    found += [f"requires.catalogs.{ns}.{key}" for ns, want in declared.items() if isinstance(want, dict)
+              for key in want if key not in NEED_KEYS]
+    return sorted(found)
+
+
+def unknown_values(meta: dict) -> List[str]:
+    """The values of the block that a newer Lab could give and this one does not read, as `key=value`, sorted: a word for
+    `contribute` or `host_access` that is not one of theirs, an item of `canary` or `moved_from` of a kind this Lab has no
+    word for (`template:tour`). What is no value of any Lab (a number for `contribute`, a sentence) stays a problem of the
+    file (`validate_catalog`)."""
+    if not isinstance(meta, dict):
+        return []
+    found = []
+    for key, known in (("contribute", CONTRIBUTE), ("host_access", ())):
+        value = meta.get(key)
+        if isinstance(value, str) and value not in known and _VALUE_SHAPE.fullmatch(value):
+            found.append(f"{key}={value}")
+    for key in ("canary", "moved_from"):
+        for one in meta.get(key) if isinstance(meta.get(key), list) else ():
+            kind, _, name = one.partition(":") if isinstance(one, str) else ("", "", "")
+            if kind not in paths.KINDS and _VALUE_SHAPE.fullmatch(kind) and re.fullmatch(r"[a-z0-9-]+", name):
+                found.append(f"{key}={one}")
+    return sorted(set(found))
+
+
+def _kinds_known(value) -> list:
+    """The items of a list of kind:name of the kinds this Lab knows: those of a newer one are the caller's to say."""
+    return [one for one in value if isinstance(one, str) and _UNIT.fullmatch(one)] if isinstance(value, list) else []
 
 
 def normalize(meta: dict) -> dict:
@@ -334,10 +386,10 @@ def normalize(meta: dict) -> dict:
         "schema": meta.get("schema"), "id": meta["id"], "name": registry.shown(meta["name"], NAME_LIMIT),
         "description": registry.shown(meta["description"], DESCRIPTION_LIMIT), "version": meta["version"],
         "lab": meta.get("lab"), "license": meta.get("license"), "images": meta.get("images"),
-        "contribute": meta.get("contribute") or "pull-request",
+        "contribute": meta["contribute"] if meta.get("contribute") in CONTRIBUTE else "pull-request",
         "shared_settings": _names(meta.get("shared_settings") or [], _SETTING, SETTINGS_LIMIT),
-        "moved_from": _names(meta.get("moved_from") or [], _UNIT, LIST_LIMIT),
-        "canary": _names(meta.get("canary") or [], _UNIT, LIST_LIMIT),
+        "moved_from": _names(_kinds_known(meta.get("moved_from")), _UNIT, LIST_LIMIT),
+        "canary": _names(_kinds_known(meta.get("canary")), _UNIT, LIST_LIMIT),
         "host_access": meta.get("host_access") is True,
         "requires": {"catalogs": {ns: {"name": registry.shown(want.get("name") or ns, NAME_LIMIT),
                                        "url": gitx.parse_address(want["url"]).url, "min": want["min"]}
@@ -407,7 +459,7 @@ def _screen(file) -> None:
         raise CatalogError("catalog_invalid", f"catalog.yml: it may hold only the {BLOCK} block.", 400)
 
 
-def read_catalog(path: str, address: Optional[gitx.Address] = None, borrowed: Iterable[str] = ()) -> dict:
+def read_catalog(path: str, address: Optional[gitx.Address] = None, borrowed: Iterable[str] = (), published: bool = False) -> dict:
     """The validated `catalog.yml` at `path` (relative to the project, or absolute), as `normalize` gives it, plus
     `unknown`: the keys it has that this Lab does not read. Read with Compose, so the YAML is Compose's, and never
     through a link, and only after a line screen (`_only_the_block`): the file may hold the `x-gravitee-catalog` block
@@ -438,10 +490,10 @@ def read_catalog(path: str, address: Optional[gitx.Address] = None, borrowed: It
         raise CatalogError("catalog_invalid", f"catalog.yml: {BLOCK} must be a mapping.", 400)
     if _whole(block.get("schema")) and block["schema"] > SCHEMA:
         raise CatalogError("schema_new", NEWER, 400)
-    problems = validate_catalog(block, borrowed)
+    problems = validate_catalog(block, borrowed, lenient=published)
     if problems:
         raise CatalogError("catalog_invalid", f"catalog.yml: {problems[0]}.", 400, problems=problems)
-    return {**normalize(block), "unknown": unknown_keys(block)}
+    return {**normalize(block), "unknown": unknown_keys(block), "unknown_values": unknown_values(block) if published else []}
 
 
 _LEGACY_LINE = re.compile(r"(?P<head>[ \t]+[\"']?(?P<key>schema|lab)[\"']?[ \t]*:[ \t]*)(?P<value>[^#\r]*?)"

@@ -281,6 +281,25 @@ class Refusals(Case):
 class Fields(Case):
     """validate_catalog: the table of 4.1, field by field."""
 
+    def test_a_key_of_requires_or_of_a_required_catalog_this_lab_does_not_know_is_unknown_by_its_path(self):
+        meta = {**FULL, "requires": {"gpu": True, "catalogs": {"gravitee": {**FULL["requires"]["catalogs"]["gravitee"],
+                                                                            "mirror": "https://example.com/x.git"}}}}
+        self.assertEqual(manifest.unknown_keys(meta), ["requires.catalogs.gravitee.mirror", "requires.gpu", "x-note"])
+        self.assertEqual(manifest.validate_catalog(meta), [], "not a mistake of the file: a key a newer Lab may read")
+
+    def test_a_value_a_newer_lab_could_give_is_a_problem_of_a_local_catalog_and_a_newer_lab_for_a_published_one(self):
+        meta = {**GOOD, "contribute": "fork", "host_access": "ask", "canary": ["template:tour", "addon:echo"]}
+        self.assertEqual(manifest.unknown_values(meta), ["canary=template:tour", "contribute=fork", "host_access=ask"])
+        self.assertEqual(manifest.validate_catalog(meta), ["contribute must be pull-request or none",
+                                                            "host_access must be true or false",
+                                                            "canary must be a list of kind:name, such as addon:echo, at most 50"])
+        self.assertEqual(manifest.validate_catalog(meta, lenient=True), [])
+        self.assertEqual((manifest.normalize(meta)["contribute"], manifest.normalize(meta)["canary"]), ("pull-request", ["addon:echo"]))
+        for odd in ({"contribute": 3}, {"contribute": "Fork it, please"}, {"canary": ["addon"]}, {"host_access": 1}):
+            with self.subTest(odd=odd):
+                self.assertEqual(manifest.unknown_values({**GOOD, **odd}), [], "no Lab writes that: it stays a mistake")
+                self.assertEqual(len(manifest.validate_catalog({**GOOD, **odd}, lenient=True)), 1)
+
     def test_a_good_block_has_no_problem(self):
         self.assertEqual(manifest.validate_catalog(GOOD), [])
         self.assertEqual(manifest.validate_catalog(FULL), [])

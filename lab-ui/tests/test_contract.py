@@ -5,7 +5,6 @@ The lock is derived from the live files and never written by hand. From the root
 
     cd lab-ui && python3 -m tests.test_contract                 # prints the lock it would write, and what stops it
     cd lab-ui && python3 -m tests.test_contract --write         # writes contract.lock
-    cd lab-ui && python3 -m tests.test_contract --write --keep-level   # the same, for a purely optional addition
 
 What it lists, and where each line comes from (`<kind>` is the first word of a line):
 
@@ -19,6 +18,7 @@ What it lists, and where each line comes from (`<kind>` is the first word of a l
     label                          the `io.gravitee.*` labels the Lab UI reads (the string constants of lab_ui/, and the
                                    console labels its pattern accepts: `io.gravitee.console.<id>.name|url|legacy`) and
                                    those the core carries
+    label.value                    the values of a label the Lab acts on (`understood.LABEL_VALUES`), as label=value
     seed.folder, seed.file         what the seeder modules read of a seed (`files`, `seed_file`, `has_seed`, `FOLDERS`)
     seed.setting                   the settings they take from the environment (`setting`, `os.getenv`, `os.environ`)
     frame.message                  the `gravitee-lab:*` messages of the page and of lab-ui/frames/location.js
@@ -29,7 +29,10 @@ What it lists, and where each line comes from (`<kind>` is the first word of a l
 Changing the contract is a decision, so the test fails until it is written down:
 
 - An item added needs `contract` raised in docker-compose.yml, then the lock written: the new lines get `since` equal
-  to the new level. A purely optional key that an older Lab ignores keeps the level: write the lock with `--keep-level`.
+  to the new level. Every addition does, optional or not: a Lab released before it does not read a catalog that uses it,
+  and the legacy `lab` of that catalog says so to the Labs that read levels. The one exception is a kind the lock lists for
+  the first time, whose items were read before it listed them (the values of a label): each gets the level of the item it
+  belongs to, once.
 - An item removed or changed needs `contract_min` raised in docker-compose.yml first, an entry under "Removed" in
   docs/contract.md that names it between backticks, and the floor to stay two levels under `contract`, except while
   `contract` is 2 or lower (the policy of docs/contract.md). `contract_min` never passes `contract`: the first removal
@@ -54,6 +57,7 @@ from urllib.parse import urlsplit
 from lab_ui.library import check, project
 from lab_ui.docker import compose
 from lab_ui.gravitee import frames
+from lab_ui.catalogs import understood
 from lab_ui import paths
 from lab_ui.paths import CORE_FILE, ROOT
 
@@ -64,7 +68,7 @@ DOC = "docs/contract.md"
 COMMAND = "cd lab-ui && python3 -m tests.test_contract"
 # The first word of a line, in the order the lock lists them
 KINDS = ("core.service", "core.network", "core.variable", "core.image_variable", "core.category", "unit.key", "label",
-         "seed.folder", "seed.file", "seed.setting", "frame.message", "anchor", "guide.block")
+         "label.value", "seed.folder", "seed.file", "seed.setting", "frame.message", "anchor", "guide.block")
 # Level 1 is the state of the tree at the split, with the work that was in flight. These items belong to it and the
 # files cannot state them yet: the keys arrive with the terminal, the host declaration and the verification of `lab`
 # (check.META, check.REQUIRES), the seed folders with their seeder modules. A row that the files state is the files'
@@ -368,6 +372,7 @@ def stated(config=None, variables=None):
     items = core_items(config, names)
     items.update(key_items(check.META, check.KEY_OF, check.REQUIRES))
     items.update(label_items(paths.LAB_UI_DIR / "lab_ui", config, project.CONSOLE_LABEL))
+    items.update({("label.value", f"{label}={value}"): "" for label, values in understood.LABEL_VALUES.items() for value in values})
     items.update(seed_items(ROOT / "seeder"))
     items.update(frame_items([paths.WEB_DIR / "js", ROOT / "lab-ui" / "frames"]))
     items.update(anchor_items(config, ROOT, frames.PAGES))
@@ -472,8 +477,7 @@ def verdict(text, live, contract, floor):
     added, removed, changed = differences(rows, live)
     if added:
         level = max(contract, locked + 1)
-        found += [f"Added items need `contract` raised to {level} and `{LEVEL}={level}` written.",
-                  "A purely optional key that an older Lab ignores keeps the level: write the lock with --keep-level."]
+        found += [f"Added items need `contract` raised to {level} and `{LEVEL}={level}` written."]
         found += [f"  + {line(key, live[key])}" for key in added]
     if removed or changed:
         if floor <= locked_floor:
@@ -491,12 +495,18 @@ def removed_section(doc):
     return doc.split("\n## Removed", 1)[1].split("\n## ", 1)[0] if "\n## Removed" in doc else ""
 
 
-def plan(text, live, contract, floor, keep_level=False, removed=None):
+def _parent(key):
+    """The item of the lock that an item of a kind it lists for the first time belongs to: a label for one of its values."""
+    return ("label", key[1].partition("=")[0]) if key[0] == "label.value" else None
+
+
+def plan(text, live, contract, floor, removed=None):
     """(the text of the lock to write, what stops writing it): the live items, each with the level it has in the lock
     (a new or changed item gets the level of `contract`). It stops at levels that are wrong, at a lock that is missing
     once `contract` is past 1, at a level that goes down or up by more than one, at an addition when `contract` was not
-    raised (unless `keep_level`), and at a removal when `contract_min` was not. `removed` is the text under Removed in
-    the page: when given, each item removed or changed must be named in it between backticks."""
+    raised, and at a removal when `contract_min` was not. A kind the lock has no line of yet (`_parent`) is listed once at the
+    level of the items it belongs to, and is no addition: they were read before the lock listed them. `removed` is the text
+    under Removed in the page: when given, each item removed or changed must be named in it between backticks."""
     try:
         locked, locked_floor, rows = parse(text) if text is not None else (None, None, {})
     except ValueError as error:
@@ -512,9 +522,11 @@ def plan(text, live, contract, floor, keep_level=False, removed=None):
         if contract > locked + 1:
             stops.append(f"{CORE_FILE}: contract rises one level at a time (the lock has {locked}, not {contract - 1})")
         added, gone, changed = differences(rows, live)
-        if added and contract == locked and not keep_level:
-            stops.append(f"Added items need `contract` raised to {locked + 1} in {CORE_FILE} first, or --keep-level for "
-                         "a purely optional key that an older Lab ignores")
+        listed_kinds = {kind for kind, _ in rows}
+        first = {key for key in added if key[0] not in listed_kinds and _parent(key) in rows}
+        added = [key for key in added if key not in first]
+        if added and contract == locked:
+            stops.append(f"Added items need `contract` raised to {locked + 1} in {CORE_FILE} first")
         if (gone or changed) and floor <= locked_floor:
             stops.append(f"Removed or changed items need `contract_min` raised in {CORE_FILE} first, with an entry under "
                          f"Removed in {DOC}")
@@ -522,7 +534,13 @@ def plan(text, live, contract, floor, keep_level=False, removed=None):
         if unnamed:
             stops.append(f"{DOC} has no entry under Removed that names, between backticks: "
                          + ", ".join(f"`{name}`" for name in unnamed))
-    kept = {key: (live[key], rows[key][1] if key in rows and rows[key][0] == live[key] else contract) for key in live}
+    def since(key):
+        if key in rows and rows[key][0] == live[key]:
+            return rows[key][1]
+        if locked is not None and key[0] not in {kind for kind, _ in rows} and _parent(key) in rows:
+            return rows[_parent(key)][1]
+        return contract
+    kept = {key: (live[key], since(key)) for key in live}
     return render(contract, floor, kept), stops
 
 
@@ -543,8 +561,8 @@ def main(arguments):
     stops it. Exit code 0 when the lock is written or would be; 1 when something stops it; 2 when the files cannot be
     read or the arguments are wrong."""
     flags = set(arguments)
-    if flags - {"--write", "--keep-level"}:
-        print(f"usage: {COMMAND} [--write] [--keep-level]", file=sys.stderr)
+    if flags - {"--write"}:
+        print(f"usage: {COMMAND} [--write]", file=sys.stderr)
         return 2
     try:
         config = compose.raw(CORE_FILE)
@@ -555,7 +573,7 @@ def main(arguments):
         return 2
     file, page = ROOT / LOCK, ROOT / DOC
     text, stops = plan(file.read_text(encoding="utf-8") if file.is_file() else None, live, contract, floor,
-                       "--keep-level" in flags, removed_section(page.read_text(encoding="utf-8")) if page.is_file() else "")
+                       removed_section(page.read_text(encoding="utf-8")) if page.is_file() else "")
     for stop in stops:
         print(stop, file=sys.stderr)
     if stops:
@@ -665,8 +683,7 @@ class Verdict(Case):
         live = {**self.live(), ("core.service", "new-service"): "port=9000 health=no"}
         said = verdict(SAMPLE, live, 2, 1)
         self.assertEqual(said[0], "Added items need `contract` raised to 3 and `since=3` written.")
-        self.assertEqual(said[1], "A purely optional key that an older Lab ignores keeps the level: write the lock with "
-                                  "--keep-level.")
+        self.assertNotIn("keep", " ".join(said), "every addition raises contract: an older Lab never reads a catalog that uses it")
         self.assertIn("  + core.service new-service port=9000 health=no", said)
         self.assertNotIn("Removed", " ".join(said))
 
@@ -717,11 +734,19 @@ class Plan(Case):
         text, stops = plan(None, self.live(), 1, 1)
         self.assertEqual((stops, {since for _, since in parse(text)[2].values()}), ([], {1}))
 
-    def test_an_addition_stops_until_contract_is_raised_or_the_level_is_kept(self):
+    def test_an_addition_stops_until_contract_is_raised(self):
         live = {**self.live(), ("label", "io.gravitee.new"): ""}
-        self.assertIn("Added items need `contract` raised to 3 in docker-compose.yml first", plan(SAMPLE, live, 2, 1)[1][0])
-        text, stops = plan(SAMPLE, live, 2, 1, keep_level=True)
-        self.assertEqual((stops, parse(text)[2][("label", "io.gravitee.new")][1]), ([], 2))
+        self.assertEqual(plan(SAMPLE, live, 2, 1)[1], ["Added items need `contract` raised to 3 in docker-compose.yml first"])
+        self.assertEqual(main(["--write", "--keep-level"]), 2, "there is no level to keep: every addition raises it")
+
+    def test_a_kind_listed_for_the_first_time_takes_the_level_of_what_it_belongs_to(self):
+        """The values of a label were read before the lock listed them: they take the label's level, once, and are no
+        addition; a value added after that is one."""
+        live = {**self.live(), ("label.value", "io.gravitee.role=seed"): ""}
+        text, stops = plan(SAMPLE, live, 2, 1)
+        self.assertEqual((stops, parse(text)[2][("label.value", "io.gravitee.role=seed")][1]), ([], 1))
+        later = {**live, ("label.value", "io.gravitee.role=tester"): ""}
+        self.assertEqual(plan(text, later, 2, 1)[1], ["Added items need `contract` raised to 3 in docker-compose.yml first"])
 
     def test_a_removal_stops_until_contract_min_is_raised(self):
         live = self.live()

@@ -162,6 +162,15 @@ These are the `io.gravitee` labels the Lab UI reads from a service.
 | `io.gravitee.role` | `seed` marks the service of a playground that creates its data in Gravitee |
 | `io.gravitee.license` | `required` marks a service that exits without a usable license |
 
+A label whose value the Lab acts on takes the values of this table, and a published catalog that gives it another needs a newer
+Gravitee Lab:
+
+| Label and value | What it says |
+|---|---|
+| `io.gravitee.role=seed` | The service is the seed of the playground |
+| `io.gravitee.license=required` | The service exits without a usable license |
+| `io.gravitee.console.<id>.legacy=true`, `io.gravitee.console.<id>.legacy=false` | The UI is listed after the others, or not |
+
 ### The seed
 
 A playground's `seed/` folder holds what the seeder reads. A folder or a file that is absent costs nothing: a module
@@ -273,8 +282,7 @@ A pull request that adds an item gets the label `catalog-format`, so that its re
 ```mermaid
 flowchart TD
   change["A change to what units rely on"] --> kind{"Which change?"}
-  kind -->|"A unit could not run without it"| raise["Raise contract by one<br/>and write since"]
-  kind -->|"A purely optional key an older Lab ignores"| keep["Keep contract<br/>and write the lock with --keep-level"]
+  kind -->|"Something added"| raise["Raise contract by one<br/>and write since"]
   kind -->|"Something removed or changed"| floor["Raise contract_min<br/>and add an entry under Removed"]
 ```
 
@@ -312,6 +320,7 @@ label io.gravitee.role since=1
 | `core.category` | A category | |
 | `unit.key` | A key of `x-gravitee` or of its `requires` | `kinds` |
 | `label` | An `io.gravitee` label | |
+| `label.value` | A value of a label the Lab acts on, as `label=value` | |
 | `seed.folder`, `seed.file` | A folder or a file of a seed | |
 | `seed.setting` | A setting of the seeder | |
 | `frame.message` | A message between the Lab UI and a frame | |
@@ -320,16 +329,16 @@ label io.gravitee.role since=1
 
 ### Raising contract
 
-Raise `contract` by one for an addition that a unit could not run without: a service, a key, a label, a seed folder, a
-message. One change raises it by one, however many items it adds.
+Raise `contract` by one for every addition: a service, a key, a label or a value of one, a seed folder, a message. One
+change raises it by one, however many items it adds.
 
 1. Raise `contract` in `docker-compose.yml`.
 2. Write the lock. The new items get `since` equal to the new level; the others keep theirs.
 3. Describe the items on this page.
 
-A purely optional addition keeps the level: older Gravitee Labs ignore it, so a catalog that uses it still works
-there. Write the lock with `--keep-level`; `since` records the level it appeared at. Every addition, optional or not, is one
-that a Lab released before it does not read: from this Lab on, a catalog that uses it needs the release that adds it.
+There is no optional addition: a Lab released before it does not read a catalog that uses it, so the legacy `lab` of that
+catalog rises with it and older Gravitee Labs, which read levels, refuse it as cleanly. A kind the lock lists for the first
+time, whose items were read before (the values of a label), takes the level of the items it belongs to, once.
 
 A catalog uses a new item once a release of the Lab has it: its CI checks it with the release its `.github/standard.json` pins,
 which says what is not read yet until the catalog moves to that release (`catalog.py upgrade --lab-ref latest`).

@@ -1408,7 +1408,13 @@ def _read_yml(ns, listed):
         registry.check_namespace(meta["id"], listed=listed)
     except CatalogError as error:
         said.append(error.message)
-    said += [f"{key} is not a key of x-gravitee-catalog: {', '.join(manifest.KEYS)}" for key in meta["unknown"]]
+    for key in meta["unknown"]:
+        if key.startswith("requires.catalogs."):
+            said.append(f"{key} is not a key of a catalog it requires: {', '.join(manifest.NEED_KEYS)}")
+        elif key.startswith("requires."):
+            said.append(f"{key} is not a key of requires: {', '.join(manifest.REQUIRES_KEYS)}")
+        else:
+            said.append(f"{key} is not a key of x-gravitee-catalog: {', '.join(manifest.KEYS)}")
     return meta, said
 
 

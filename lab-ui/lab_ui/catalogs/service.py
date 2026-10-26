@@ -835,7 +835,7 @@ def check_address(address, branch=None):
         kept, ignored = bare.selected(bare.listing(store_path, commit))
         with _one_stage():
             staged = install.stage(found_at, f"new-{ticket}", store_path, commit, kept, ignored)
-            meta = _read_meta(staged, found_at, contract, listed_at)
+            meta = _read_meta(staged, found_at, contract, listed_at, published=True)
             _understood(meta)
             staged = install.rename_stage(staged, meta["id"])
             judged, verdicts, mine = _review(meta["id"], meta, "git", audience, bool(listed_at),
@@ -879,19 +879,21 @@ def _understood(meta, judged=None, mine=()):
     """Refuses a version of a published catalog that uses what this Lab does not read (`lab_new`: it needs a newer Gravitee
     Lab): a key of its catalog.yml, or what a unit uses, as the judgement found it (`unknown`). `pick` passes such a version
     over when it reads it first, so this is the gate for one it could not read: a Lab never runs a file it half understands."""
-    found = [("catalog.key", key) for key in meta.get("unknown") or ()]
+    found = manifest.unread(meta)
     for kind, uid in mine:
         found += [("", name) for name in (judged[kind][uid].get("unknown") or ())]
     if found:
         raise manifest.not_understood(found)
 
 
-def _read_meta(staged, address, contract, listed_at):
+def _read_meta(staged, address, contract, listed_at, published=False):
     """catalog.yml of the staged tree, read and checked: its schema and shape, that this Lab reads its level, and
-    that the name it declares is free (a listed one is accepted at its listed address only)."""
+    that the name it declares is free (a listed one is accepted at its listed address only). `published`: a git catalog, whose
+    values of a newer Lab are what it does not read (`_understood`) rather than mistakes."""
     taken = [one["id"] for one in registry.entries()]
     borrowed = [one["name"] for one in defaults.read() if one["id"] not in listed_at]
-    meta = manifest.read_catalog(os.path.relpath(Path(staged.path) / manifest.FILE, paths.ROOT), address, borrowed)
+    meta = manifest.read_catalog(os.path.relpath(Path(staged.path) / manifest.FILE, paths.ROOT), address, borrowed,
+                                 published=published)
     refusal = manifest.compat_error(meta["lab"], contract["contract"], contract["contract_min"], bool(listed_at))
     if refusal is not None:
         raise refusal

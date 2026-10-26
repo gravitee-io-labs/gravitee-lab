@@ -1128,7 +1128,10 @@ class Understanding(Real):
     def test_a_tip_that_uses_what_this_lab_does_not_read_installs_the_newest_version_it_reads(self):
         for name, files in (("a key of x-gravitee", {LEDGER: self.ledger()}),
                             ("a label", {LEDGER: self.ledger(key="", label="io.gravitee.badge: gold")}),
-                            ("a key of catalog.yml", {"catalog.yml": self.catalog_yml(extra="  mirrors: [eu]\n", version="2.1.0")})):
+                            ("a key of catalog.yml", {"catalog.yml": self.catalog_yml(extra="  mirrors: [eu]\n", version="2.1.0")}),
+                            ("a value of catalog.yml", {"catalog.yml": self.catalog_yml(extra="  contribute: fork\n", version="2.1.0")}),
+                            ("a key of requires", {"catalog.yml": self.catalog_yml(extra="  requires: {gpu: true}\n", version="2.1.0")}),
+                            ("a value of a label", {LEDGER: self.ledger(key="", label="io.gravitee.role: tester")})):
             with self.subTest(name):
                 remote = fixtures.remote(self, "partner")
                 older = remote.head()

@@ -397,12 +397,12 @@ def _read(staged, address: gitx.Address, contract: dict, ns: str, listed: bool) 
     one asked for (`wrong_catalog`)."""
     here = [one["id"] for one in defaults.read() if registry.display_address(one["url"]) == address.display]
     borrowed = [one["name"] for one in defaults.read() if one["id"] not in here]
-    meta = manifest.read_catalog(os.path.relpath(Path(staged.path) / manifest.FILE, paths.ROOT), address, borrowed)
+    meta = manifest.read_catalog(os.path.relpath(Path(staged.path) / manifest.FILE, paths.ROOT), address, borrowed, published=True)
     refusal = manifest.compat_error(meta["lab"], contract["contract"], contract["contract_min"], listed)
     if refusal is not None:
         raise refusal
-    if meta["unknown"]:
-        raise manifest.not_understood([("catalog.key", key) for key in meta["unknown"]])
+    if manifest.unread(meta):
+        raise manifest.not_understood(manifest.unread(meta))
     if meta["id"] != ns:
         raise install.not_expected(address.repo or address.display)
     return meta

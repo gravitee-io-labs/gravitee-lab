@@ -1146,7 +1146,7 @@ def unknown_at(store_path, commit) -> Optional[list]:
     try:
         with probe(store_path, commit) as ns:
             try:
-                meta = manifest.read_catalog(os.path.relpath(registry.stage_dir(ns) / manifest.FILE, paths.ROOT))
+                meta = manifest.read_catalog(os.path.relpath(registry.stage_dir(ns) / manifest.FILE, paths.ROOT), published=True)
             except CatalogError as error:
                 meta = None
                 if error.code == "schema_new":
@@ -1156,7 +1156,7 @@ def unknown_at(store_path, commit) -> Optional[list]:
                 else:
                     found = []   # not a catalog this Lab reads at all: the strict reading refuses it with the reason
             if meta is not None:
-                found = [("catalog.key", name) for name in meta["unknown"]]
+                found = manifest.unread(meta)
                 held = understood.lock()
                 if held and isinstance(meta["lab"], int) and manifest.compat(meta["lab"], held.contract, held.contract_min) == "new":
                     found.append(("catalog.key", "lab"))   # a legacy level the tolerant reading could not be sure of
@@ -1213,14 +1213,14 @@ def plan_update(ns: str, target: str, context: Optional[dict] = None) -> dict:
         op = "undo" if target == held.get("previous") else "update"
         _write_stage(registry.stage_dir(ns), store_path, kept)
         try:
-            meta = manifest.read_catalog(os.path.relpath(registry.stage_dir(ns) / manifest.FILE, paths.ROOT))
+            meta = manifest.read_catalog(os.path.relpath(registry.stage_dir(ns) / manifest.FILE, paths.ROOT), published=True)
             if meta["id"] != ns:
                 raise not_expected(_entry_name(registry.entry(ns)))
             refusal = _unreadable(meta, context.get("contract"), registry.entry(ns))
             if refusal is not None:
                 raise refusal
-            if meta["unknown"]:   # a published catalog: what this Lab does not read in it needs a newer Gravitee Lab
-                raise manifest.not_understood([("catalog.key", key) for key in meta["unknown"]])
+            if manifest.unread(meta):   # a published catalog: what this Lab does not read in it needs a newer Gravitee Lab
+                raise manifest.not_understood(manifest.unread(meta))
         except CatalogError:
             _clear(registry.stage_dir(ns))   # what was refused is not left to be installed
             raise

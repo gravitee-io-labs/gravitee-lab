@@ -31,6 +31,10 @@ _SINCE = re.compile(r"since=(\d+)")
 CONSOLE = re.compile(r"io\.gravitee\.console\.[a-z0-9-]+\.([A-Za-z0-9_-]+)")
 # The keys that were read once and are not any more, and why: no sign of a newer Lab, and the check tells the file so
 GONE = {"deploys_to": "compatibility with a platform is computed"}
+# The values of a label that the Lab acts on: a service with another value is read by no Lab yet. The lock lists each
+# (`label.value`), as the test of the contract states them from this table
+LABEL_VALUES = {"io.gravitee.role": ("seed",), "io.gravitee.license": ("required",),
+                "io.gravitee.console.<id>.legacy": ("true", "false")}
 SEED_RUN = "SEED_"   # the settings of the seeder's run start with it: one that the lock does not list is a newer seeder's
 SEED_ENTRIES = 5000   # as many entries of a seed folder as the screen reads
 SHOWN = 3   # the items a line spells out before it counts the rest
@@ -38,7 +42,8 @@ SHOWN = 3   # the items a line spells out before it counts the rest
 ITEM = {"core.service": "core service {}", "core.network": "network {}", "core.variable": "setting {}",
         "core.image_variable": "setting {}", "core.category": "category {}", "seed.folder": "seed folder {}",
         "seed.file": "seed file {}", "seed.setting": "seed setting {}", "guide.block": "{} block of a guide",
-        "label": "label {}", "anchor": "anchor {}", "catalog.key": "catalog.yml key {}"}
+        "label": "label {}", "label.value": "label {}", "anchor": "place of the engine {}",
+        "catalog.key": "catalog.yml key {}", "catalog.value": "catalog.yml value {}"}
 
 Item = Tuple[str, str]
 
@@ -172,6 +177,8 @@ def items(config: dict, folder=None, kind: str = "", root: Optional[Path] = None
         found |= {("core.network", net) for net in _names(service.get("networks")) if net not in declared and not partial}
         labels = _mapping(service.get("labels"))
         found |= {("label", label_of(str(key))) for key in labels if str(key).startswith("io.gravitee.")}
+        found |= {("label.value", f"{label_of(str(key))}={value}") for key, value in labels.items()
+                  if label_of(str(key)) in LABEL_VALUES and isinstance(value, str)}
         build = service.get("build")
         context = build if isinstance(build, str) else _mapping(build).get("context")
         sources = [context] + [_mapping(volume).get("source") for volume in (service.get("volumes") or [])
@@ -196,6 +203,7 @@ def unknown(found: Iterable[Item], held: Optional[Lock]) -> List[Item]:
     if held is None:
         return []
     rows, parents, out = held.rows, _parents(held.rows), set()
+    valued = {name.partition("=")[0] for kind, name in rows if kind == "label.value"}   # the labels whose values the lock lists
     for kind, name in found:
         if (kind, name) in rows:
             continue
@@ -203,7 +211,8 @@ def unknown(found: Iterable[Item], held: Optional[Lock]) -> List[Item]:
             continue
         if kind in ("unit.key", "label", "core.service", "core.network", "core.category", "anchor") \
                 or kind in ("seed.folder", "seed.file") and posixpath.dirname(name) in parents \
-                or kind == "seed.setting" and name.startswith(SEED_RUN):
+                or kind == "seed.setting" and name.startswith(SEED_RUN) \
+                or kind == "label.value" and name.partition("=")[0] in valued:
             out.add((kind, name))
     return sorted(out)
 

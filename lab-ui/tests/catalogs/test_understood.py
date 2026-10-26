@@ -54,6 +54,25 @@ class Unknown(Case):
                                                      "org.opencontainers.image.title": "Echo"})
         self.assertEqual(self.unknown(config), [("label", "io.gravitee.badge"), ("label", "io.gravitee.console.<id>.icon")])
 
+    def test_a_value_of_a_label_the_lab_acts_on_that_it_does_not_know(self):
+        config = unit()
+        config["services"]["echo"]["labels"].update({"io.gravitee.role": "tester", "io.gravitee.console.web.legacy": "true",
+                                                     "io.gravitee.console.web.name": "Echo"})
+        self.assertEqual(self.unknown(config), [("label.value", "io.gravitee.role=tester")])
+        config["services"]["echo"]["labels"]["io.gravitee.role"] = "seed"
+        self.assertEqual(self.unknown(config), [])
+        older = self.lock._replace(rows={key: since for key, since in self.lock.rows.items() if key[0] != "label.value"})
+        self.assertEqual(understood.unknown([("label.value", "io.gravitee.role=tester")], older), [],
+                         "a lock that lists no value of a label judges none")
+
+    def test_what_a_unit_names_of_an_include_that_is_not_here_is_no_core_service(self):
+        config = unit()
+        config["services"]["echo"]["depends_on"] = ["othercat-tool"]
+        config["services"]["othercat-tool"] = {"environment": {"A": "1"}}
+        config["services"]["echo"]["networks"] = ["internal", "othercat-net"]
+        self.assertEqual(understood.of_unit(config, held=self.lock, root=self.root, partial=True), [])
+        self.assertEqual([name for kind, name in self.unknown(config)], ["othercat-net", "othercat-tool"])
+
     def test_a_core_service_a_unit_waits_for_shows_or_changes_and_does_not_define(self):
         config = unit()
         config["services"]["echo"]["depends_on"] = ["gamma-gateway"]
