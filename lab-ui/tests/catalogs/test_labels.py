@@ -209,6 +209,16 @@ class Identity(Shares):
         self.assertEqual(lines_of(raised.exception), ("share_unknown_copy", 400, "Other copy is a copy of an item of unknown origin, which "
                                                       "is private. Fix: copy it again from its catalog, then share the new copy."))
 
+    def test_an_older_copy_of_the_default_catalog_has_the_origin_its_audience_says(self):
+        default, text = paths.default_ns(), notes('copy_of: "echo", ')
+        self.assertEqual(registry.lock_of(default)["audience"], "public", "the default catalog of these tests")
+        lock = registry.lock_of
+        self.patch(registry, "lock_of", lambda ns: {**lock(ns), "audience": "private", "roots": ["c" * 40]} if ns == default else lock(ns))
+        self.assertEqual(contribute.origins(text, "local/old-copy"), [("c" * 40, contribute._catalog_name(default))],
+                         "a fork's default catalog that is private: its content")
+        self.patch(paths, "default_ns", lambda: None)
+        self.assertEqual(contribute.origins(text, "local/old-copy"), [("", contribute.UNKNOWN)], "no default catalog to tell")
+
     def test_another_repository_under_the_same_id_takes_no_label_away(self):
         label = [(root("partner"), "Partner fixture")]
         self.assertEqual(contribute.without(label, "partner", confirmed=True), [])

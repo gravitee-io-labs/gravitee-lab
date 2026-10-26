@@ -1095,12 +1095,16 @@ def unmark(text):
 UNKNOWN = "unknown origin"   # the origin of a copy whose original the Lab cannot tell: private content all the same
 
 
-def _private_git(ns):
-    """Whether `ns` is a catalog of Git of this Lab that is not Public: one installed from its repository, or a working copy of it
-    linked in its place (a folder entry that `shadows` it), which holds its content and keeps its lock."""
+def _git(ns):
+    """Whether `ns` is a catalog of Git of this Lab: one installed from its repository, or a working copy of it linked in its place
+    (a folder entry that `shadows` it), which holds its content and keeps its lock."""
     entry = registry.entry(ns) if ns and ns != LOCAL else None
-    git = bool(entry) and (entry.get("kind") == "git" or (entry.get("kind") == "folder" and bool(entry.get("shadows"))))
-    return git and registry.lock_of(ns).get("audience") != "public"
+    return bool(entry) and (entry.get("kind") == "git" or (entry.get("kind") == "folder" and bool(entry.get("shadows"))))
+
+
+def _private_git(ns):
+    """Whether `ns` is a catalog of Git of this Lab that is not Public, as its audience was found when it was added."""
+    return _git(ns) and registry.lock_of(ns).get("audience") != "public"
 
 
 def _history(ns):
@@ -1128,7 +1132,7 @@ def origins(text, uid, folder=None, name=None):
     What its file says (`private_from` and `private_id`, lists side by side, read with Compose), with what the Lab knows directly:
     the catalog the item is in, when it is a private catalog of Git; and for an older copy (one that has no label at all) the
     catalog its copy_of names, one step, when that is a private catalog of Git, else an origin of unknown name: the id may name
-    another catalog now. Never what another item says; nothing a file says takes an origin away. Each origin once, by its id, else
+    another catalog now (none for a bare id when the default catalog was found Public). Never what another item says; nothing a file says takes an origin away. Each origin once, by its id, else
     by its name among those that have none, with this Lab's name for a catalog it knows. A file Compose cannot read is refused
     (`label_unread`, by `name`): what is not read is never taken for a smaller set."""
     try:
@@ -1141,12 +1145,15 @@ def origins(text, uid, folder=None, name=None):
     with contextlib.suppress(paths.NotFound, ValueError):
         found += [origin for origin in [_origin_of(paths.origin(uid))] if origin]
     copied = str(said.get("copy_of") or "")
-    if copied and not isinstance(said.get("private_from"), list) and (copied.startswith("@") or "/" in copied):   # an older copy
+    if copied and not isinstance(said.get("private_from"), list):   # an older copy
         try:
-            ns = paths.origin(str(said["copy_of"]))
+            ns = paths.origin(copied)
         except (paths.NotFound, ValueError):
             ns = None
-        found.append(_origin_of(ns) or ("", UNKNOWN))
+        # A bare id names the default catalog, which this Lab found Public or not when it added it; an @catalog id may name
+        # another catalog now than the one copied from, so only a private one is taken for its origin
+        if not (paths.is_default(copied) and _git(ns) and registry.lock_of(ns).get("audience") == "public"):
+            found.append(_origin_of(ns) or ("", UNKNOWN))
     kept, ids_seen, names_seen = [], set(), set()
     for one, called in found:   # the name an origin was first written with: never one looked up by its id later
         if one and one not in ids_seen:

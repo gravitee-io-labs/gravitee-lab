@@ -471,7 +471,11 @@ class Provision(Served, Case):
             self.assertIn("BatchMode=yes", env["GIT_SSH_COMMAND"], argv)
             self.assertNotIn("SSH_ASKPASS", env)
             self.assertNotIn("DISPLAY", env)
-            self.assertFalse([name for name in env if name.startswith("GIT_CONFIG")], "no configuration from the shell")
+            config = {name: value for name, value in env.items() if name.startswith("GIT_CONFIG")}
+            self.assertNotIn("osxkeychain", config.values(), "no configuration from the shell")
+            self.assertTrue(not config or "credential.helper=" in argv, "the Lab's own, for a stranger's question alone")
+            self.assertFalse([value for name, value in config.items() if name.startswith("GIT_CONFIG_KEY_")
+                              and not gitx.NETWORK.fullmatch(value.lower())], "how to reach the host, nothing else")
             if "ls-remote" in argv or "fetch" in argv:   # the commands that meet a server, and could be asked for a password
                 self.assertEqual(how["stdin"], subprocess.DEVNULL, "git is given no input")
             self.assertTrue(how["start_new_session"], "no controlling terminal to ask on")
