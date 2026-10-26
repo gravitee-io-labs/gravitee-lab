@@ -39,6 +39,26 @@
       "path": ".github/workflows/ci.yml",
       "below": 6,
       "from": [
+        "  # Python 3.15 and the seeder's requirements, which the Lab pins: nothing the change wrote is installed. The catalog's own tests, when"
+      ],
+      "to": [
+        "  # Python 3.14 and the seeder's requirements, which the Lab pins: nothing the change wrote is installed. The catalog's own tests, when"
+      ]
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "below": 6,
+      "from": [
+        "          python-version: \"3.15\""
+      ],
+      "to": [
+        "          python-version: \"3.14\""
+      ]
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "below": 6,
+      "from": [
         "#   Apps         the apps build on each architecture (a Mac runs arm64), pass their tests in their image with no network, what does",
         "#                not need the platform starts and answers its health check, and the images built have no critical flaw that has a fix"
       ],
@@ -249,7 +269,7 @@
       "urgent": false
     },
     "6": {
-      "summary": "The Apps job of a pull request scans the images it built, with the scanner the Lab pins and the policy of the nightly scan: a critical flaw that has a fix fails the pull request (SC01), and the rest is said (SC02). It needs no secret, so a fork's pull request is scanned too, and only the images of the units the change touches are built and scanned. The nightly scan of the published images says the rest as well. No file is added.",
+      "summary": "The Apps job of a pull request scans the images it built, with the scanner the Lab pins and the policy of the nightly scan: a critical flaw that has a fix fails the pull request (SC01), and the rest is said (SC02). It needs no secret, so a fork's pull request is scanned too, and only the images of the units the change touches are built and scanned. The nightly scan of the published images says the rest as well. The Seed files job runs Python 3.15, and a new catalog's sample add-on runs whoami v1.12.0. No file is added.",
       "manual": ["If a pull request says SC01, update the package or the base image of that app to the version the message names, then push again."],
       "settings": [],
       "urgent": false

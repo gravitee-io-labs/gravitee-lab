@@ -351,7 +351,7 @@ The apps of a playground follow these conventions:
 - **Dockerfile**: the same for every app. Add a `COPY` for any other file the app serves.
 
   ```dockerfile
-  FROM python:3.14-slim
+  FROM python:3.15-slim
   ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
   WORKDIR /app
   COPY requirements.txt .

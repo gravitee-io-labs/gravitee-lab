@@ -540,9 +540,9 @@ class Rendering(unittest.TestCase):
         text = render(id="acme-hub")["addons/hello/compose.yml"].decode()
         self.assertIn("  acme-hub-hello:\n", text)
         self.assertIn("container_name: gio-acme-hub-hello", text)
-        self.assertIn("${ACME_HUB_HELLO_VERSION:-v1.11.0}", text)
+        self.assertIn("${ACME_HUB_HELLO_VERSION:-v1.12.0}", text)
         self.assertIn("ACME_HUB_HELLO_VERSION", render(id="acme-hub")["addons/hello/README.md"].decode())
-        self.assertIn("${MY_SHOP_HELLO_VERSION:-v1.11.0}", render(id="my-shop")["addons/hello/compose.yml"].decode())
+        self.assertIn("${MY_SHOP_HELLO_VERSION:-v1.12.0}", render(id="my-shop")["addons/hello/compose.yml"].decode())
 
     def test_the_makefile_includes_the_standard_and_the_standard_has_the_targets(self):
         self.assertTrue(render()["Makefile"].decode().startswith("include .catalog/standard.mk\n"))
