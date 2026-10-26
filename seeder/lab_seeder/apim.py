@@ -668,8 +668,14 @@ class ApiManagement:
     # --- Applications ---------------------------------------------------------------------
 
     def find_application(self, name):
-        return next((a for a in self.api.get(f"{self.v1}/applications", params={"query": name}).json()
-                     if a.get("name") == name), None)
+        """The application of that exact name. The Management API reads `query` as a search, in which a parenthesis or a
+        colon is syntax: a name such as `OpenCode (developer)` finds nothing. A name the search misses is looked for in the
+        whole list, which the same route answers without a query, so that a second run finds what the first one made."""
+        for params in ({"query": name}, {}):
+            found = next((a for a in self.api.get(f"{self.v1}/applications", params=params).json() if a.get("name") == name), None)
+            if found:
+                return found
+        return None
 
     def application(self, spec):
         name = spec["name"]

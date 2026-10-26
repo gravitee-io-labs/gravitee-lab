@@ -19,6 +19,7 @@ from lab_seeder import controls
 from lab_seeder.testkit import PLAYGROUNDS, Seed
 
 V1 = "/management/organizations/DEFAULT/environments/DEFAULT"
+QUERY_SYNTAX = set('()[]{}:"~^*?!\\')   # what the search of applications reads as syntax, not as a character of the name
 V2 = "/management/v2/organizations/DEFAULT/environments/DEFAULT"
 GATEWAY = "http://gateway:8082"
 NO_API = (404, "No context-path matches the request URI.")   # what the gateway answers when no API has the path
@@ -31,6 +32,15 @@ VARIABLES = {
     "AM_GATEWAY_URL": "http://am-gateway:8092", "MCP_RESOURCE_SECRET": "mcp-secret",
     "ACE_LLM_API_KEY": "ace-key-0001", "DEV_LLM_API_KEY": "dev-key-0001", "TRAFFIC_LLM_API_KEY": "traffic-key-0001",
 }
+
+
+def searched(applications, params):
+    """What GET /applications answers: every application without a query; with one, a search, which a name holding query
+    syntax (a parenthesis, a colon) never matches, as the Management API does."""
+    query = params.get("query")
+    if query is None:
+        return list(applications)
+    return [] if QUERY_SYNTAX & set(query) else [a for a in applications if a["name"] == query]
 
 
 class Apim:
@@ -123,7 +133,7 @@ class Apim:
     # --- Applications and subscriptions ---------------------------------------------------------
 
     def applications_named(self, call):
-        return 200, [a for a in self.applications.values() if a["name"] == call.params["query"]]
+        return 200, searched(self.applications.values(), call.params)
 
     def create_application(self, call):
         application = {"id": self.new("application"), **call.json}
@@ -252,6 +262,16 @@ class FirstRun(Playground):
         digest = apim.digest_of(json.loads(common.render(LLM, "llm.json", json_escape=True)))
         self.assertEqual((self.record("ACME LLM")["id"], self.record("ACME LLM")["digest"]), ("llm-id", digest))
         self.assertEqual({x["kind"] for x in common.created()}, {"api", "application", "subscription"})
+
+    def test_an_application_whose_name_holds_query_syntax_is_found_by_its_subscription_and_by_the_next_run(self):
+        self.edit("apim/applications/dev.yaml", lambda text: text.replace("name: Dev", "name: Dev (bank team)"))
+        self.edit("apim/subscriptions/all.yaml", lambda text: text.replace("application: Dev,", "application: Dev (bank team),"))
+        self.run_seed()
+        again = self.run_seed()
+        dev = [i for i, a in self.apim.applications.items() if a["name"] == "Dev (bank team)"]
+        self.assertEqual(len(dev), 1)
+        self.assertEqual([s["planId"] for s in self.apim.subscriptions.values() if s["applicationId"] == dev[0]], ["llm-id-Developers"])
+        self.assertNotIn(("POST", V1 + "/applications"), again)
 
     def test_a_subscription_with_a_key_asks_for_that_custom_key_and_one_without_asks_for_none(self):
         self.run_seed()
@@ -1538,7 +1558,7 @@ class Estate:
     # --- Applications ----------------------------------------------------------------------------
 
     def find_applications(self, call):
-        return 200, [a for a in self.applications.values() if a["env"] == self.env(call) and a["name"] == call.params["query"]]
+        return 200, searched([a for a in self.applications.values() if a["env"] == self.env(call)], call.params)
 
     def create_application(self, call):
         application = {"id": self.new("application"), "env": self.env(call), "groups": [], **call.json}
