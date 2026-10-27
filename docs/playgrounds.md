@@ -266,7 +266,7 @@ x-gravitee:
   gateway:
     platform: cloud                  # the kind of remote platform it serves
     service: apim-hybrid-gateway     # its service, which publishes a port: the domains come from it
-    token: HYBRID_CLOUD_TOKEN        # the setting that takes the gateway's token, without a default
+    token: HYBRID_GATEWAY_CLOUD_TOKEN  # the setting that takes the gateway's token, without a default
 ```
 
 `make check` refuses a kind that does not exist, a `service` that is not the add-on's own or publishes no

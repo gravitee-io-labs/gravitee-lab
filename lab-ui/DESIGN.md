@@ -1301,15 +1301,15 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
   in its row of Gravitee Cloud, and listed on the Gravitee Cloud page.
 - **One hybrid gateway runs on this machine at a time** in this wave. Several at once is a later wave, and nothing in the
   data model blocks it: ids, setting names and keys already carry the gateway's id.
-- *Here* is the gateway whose id is in the claims of the add-on's token (`HYBRID_CLOUD_TOKEN`). *Kept* is a gateway whose
-  token the Lab holds: its own setting, or the one in `HYBRID_CLOUD_TOKEN`. The gateway of a place is the one that runs
+- *Here* is the gateway whose id is in the claims of the add-on's token (`HYBRID_GATEWAY_CLOUD_TOKEN`). *Kept* is a gateway whose
+  token the Lab holds: its own setting, or the one in `HYBRID_GATEWAY_CLOUD_TOKEN`. The gateway of a place is the one that runs
   here when it is in the place's environment, else the first kept gateway of that environment, else none.
-- **Creating a gateway never replaces the one that runs.** Its token is kept, and written as `HYBRID_CLOUD_TOKEN` only
+- **Creating a gateway never replaces the one that runs.** Its token is kept, and written as `HYBRID_GATEWAY_CLOUD_TOKEN` only
   when the add-on holds none, so the first gateway ever created runs at once. The Gravitee Cloud page starts what it creates, which
   is a Start of that gateway and swaps when another one runs.
 - **The swap** is a Start: on the line of another gateway, or of a playground whose place is served by another gateway.
   A dialog says first what it does: *Restarts* the Hybrid gateway (*Recreated to take the changes*), *Serves* the place
-  from now on, *Stops serving* the place it served. The job writes the kept token as `HYBRID_CLOUD_TOKEN`
+  from now on, *Stops serving* the place it served. The job writes the kept token as `HYBRID_GATEWAY_CLOUD_TOKEN`
   (`platforms.swap_gateway`) before Compose recreates the container, whenever the place's gateway is not the one here,
   also when the token the add-on holds belongs to no listed gateway any more. The APIs of the environment that stops
   being served stay in Cloud and answer from nothing here; the note says *Stops serving* for that reason.
@@ -1473,7 +1473,7 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
 - A job says what it acts on (`for`) and what it does (`verb`); the button with that key shows it at work.
   - `for`: `addon:<id>`, `setup:<id>`, `playground:<id>`, `group:<id>`, `service:<name>`, `platform`,
     `plugins:<product>`, `registry:<host>`. A login asked from an item's menu is the item's. The gateway of a platform
-    is the job of its add-on (`addon:hybrid`), whichever button started it.
+    is the job of its add-on (`addon:hybrid-gateway`), whichever button started it.
   - `verb`: start, stop, restart, update, pull, apply, reseed, deploy, delete, down, reset, login. `deploy` is a seed of
     a place that holds no record yet, `delete` what the seed created in one place.
 - A job measures how far it is from what each of its stages waits for, known before the stage begins (`jobs.awaited`): the
