@@ -15,6 +15,8 @@
 git clone https://github.com/gravitee-io-labs/gravitee-lab.git && cd gravitee-lab && make ui
 ```
 
+On a Mac that never ran `git`, macOS first offers its command line tools: click **Install**, then run the command again.
+
 The [Lab UI](http://localhost:9000) opens in your browser, on its Dashboard. Start the platform, then turn on add-ons, setups or playgrounds from the lists to do even more interesting things. They come from [catalogs](docs/catalogs.md): the Lab downloads the default one the first time it starts.
 
 No license is needed to start. [What needs one](docs/installation.md#what-needs-a-license).

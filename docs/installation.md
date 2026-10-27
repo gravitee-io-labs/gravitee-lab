@@ -28,7 +28,9 @@ Clone outside folders synced by OneDrive, iCloud Drive or Google Drive: containe
 
 ### macOS
 
-Install [Docker Desktop](https://docs.docker.com/desktop/setup/install/mac-install/) (`brew install --cask docker-desktop`), then `brew install python` and `xcode-select --install` (git and make). macOS ships openssl.
+Run `xcode-select --install`: Apple's command line tools bring Git, Make and Python. macOS also offers them at the first `git`:
+click **Install**, then run the command again. Then install [Docker Desktop](https://docs.docker.com/desktop/setup/install/mac-install/)
+(`brew install --cask docker-desktop` with Homebrew) and open it once. The Lab UI's first step links to it too. macOS ships openssl.
 
 ### Linux
 
