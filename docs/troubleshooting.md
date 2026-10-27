@@ -45,8 +45,8 @@ stopped from the Containers page stays stopped.
 
 ### Docker or Docker Compose is missing or too old
 
-**Symptom:** `make ui`, `make all`, every other target that uses Docker, and `python3 lab-ui/server.py` stop with one
-line:
+**Symptom:** `make all`, every other target that uses Docker, and `python3 lab-ui/server.py --check` stop with one line.
+`make ui` opens the Lab UI all the same, and its first step, *Your machine*, says what to install:
 
 - `Docker Compose 5.0 or later is needed, found: 2.40.3 (see Prerequisites in README.md)`, with `found: none` when the
   Compose plugin is missing.
@@ -60,6 +60,16 @@ Or Compose says an add-on `conflicts with imported resource`.
 **Fix:** update Docker Desktop. On Linux, install `docker-compose-plugin` from
 [Docker's repository](https://docs.docker.com/engine/install/): the packages of Linux distributions are often older.
 Then check `docker compose version`.
+
+### macOS asks for its command line developer tools
+
+**Symptom:** the first `git` or `make` says `xcode-select: note: No developer tools were found, requesting install`, and a
+window offers to install them. Or that window ends with `Can't install the software`.
+
+**Cause:** a Mac has Git, Make and Python only with Apple's command line tools.
+
+**Fix:** click **Install**, then run the command again. When the install fails, Apple's servers did not answer: run
+`xcode-select --install` again a little later.
 
 ### Python or OpenSSL is missing, or Python is too old
 
