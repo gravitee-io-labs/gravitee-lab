@@ -92,6 +92,13 @@ def lock(root: Optional[Path] = None) -> Optional[Lock]:
     return found
 
 
+def levels(root: Optional[Path] = None) -> dict:
+    """The levels this Lab reads, {contract, contract_min}, from its lock, which says those of the core file (tests/test_contract.py):
+    known without Docker, where the core file is read through Compose. 1 and 1 without a lock."""
+    found = lock(root)
+    return {"contract": found.contract, "contract_min": found.contract_min} if found else {"contract": 1, "contract_min": 1}
+
+
 def fingerprint(root: Optional[Path] = None) -> str:
     """What a memory of a verdict is valid for: the lock as it is now (a Lab that is updated understands more)."""
     found = lock(root)

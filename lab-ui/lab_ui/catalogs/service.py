@@ -28,7 +28,7 @@ from pathlib import Path
 from ..docker import compose, jobs
 from ..library import layers, model, moves, project
 from .. import paths
-from . import defaults, gitx, install, manifest, registry, renames, resolve, trust
+from . import defaults, gitx, install, manifest, registry, renames, resolve, trust, understood
 from . import store as bare
 from .registry import CatalogError
 
@@ -637,9 +637,10 @@ def problems():
 # ---------------------------------------------------------------------------------------------------------------------
 
 def _contract():
-    """The level of this Lab as the core file says it: {contract, contract_min, seeder_image}."""
+    """The level of this Lab (understood.levels), and the seeder image the core file names: {contract, contract_min,
+    seeder_image}."""
     found = project.loaded()[1].get("contract")
-    return found if isinstance(found, dict) else {"contract": 1, "contract_min": 1, "seeder_image": ""}
+    return {"seeder_image": "", **(found if isinstance(found, dict) else {}), **understood.levels()}
 
 
 def _row_of_candidate(meta, kind, audience, listed, host, ignored, units):

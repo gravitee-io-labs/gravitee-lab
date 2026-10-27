@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import Callable, List, Optional
 
 from .. import paths
-from . import defaults, gitx, install, manifest, registry
+from . import defaults, gitx, install, manifest, registry, understood
 from . import store as bare
 from .registry import CatalogError
 
@@ -272,10 +272,8 @@ def _fraction(seen: dict, running: List[dict]) -> Optional[float]:
 # ---------------------------------------------------------------- one download
 
 def _contract() -> dict:
-    """The level this Lab reads, from the core file as the project read it; 1 and 1 when it says nothing."""
-    from ..library import project   # here and not above: the project reads this package
-    found = project.loaded()[1].get("contract")
-    return found if isinstance(found, dict) else {"contract": 1, "contract_min": 1}
+    """The level this Lab reads (understood.levels)."""
+    return understood.levels()
 
 
 def _anonymous(address: gitx.Address) -> str:
