@@ -55,8 +55,8 @@ UI does not start it without one. Whatever else needs a license says so. To get 
 [What needs a license](installation.md#what-needs-a-license).
 
 The license lives in `.env` as `GRAVITEE_LICENSE`, a single line of base64. The APIM and AM Management APIs and
-gateways, the Alert Engine and the hybrid gateway read it; the hybrid gateway reads `HYBRID_GATEWAY_LICENSE` first, when its
-add-on sets one. `.env` is git-ignored and readable by you only.
+gateways and the Alert Engine read it. The hybrid gateway reads only its own, `HYBRID_GATEWAY_LICENSE`, in its add-on's
+settings. `.env` is git-ignored and readable by you only.
 
 The Alert Engine stops at once without a license. The Lab UI does not start it and shows *Needs a license* on its row on
 the Containers page; one that you start by hand keeps restarting, because Docker starts it again. See
