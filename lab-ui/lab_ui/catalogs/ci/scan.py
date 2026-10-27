@@ -1,27 +1,38 @@
-"""`catalog.py ci scan-published PATH` (SC01): the images a catalog published have no flaw that is critical and has a fix. It is a step
-of the nightly run at level 3, in the job that runs the Lab at the commit the catalog pinned (`verify-pinned`, which holds
-`packages: read` and the token for this), and it is not a step of a pull request: a new flaw found in a base image must not turn an
-unrelated pull request red, so the scan lives where only a night can fail.
+"""The images of a catalog have no flaw that is critical and has a fix (SC01), and what else the scanner found is said (SC02). Two
+stages share the scanner, its hardening and this policy:
+
+    scan-built PATH --units JSON [--app NAME] [--ci]   the images `ci build` just built for a change, on this machine
+    scan-published PATH [--tag T]                      the images the catalog published, at `:latest` by default
 
     SC01  {image}: {id} in {package} {version}, fixed in {fixed}. Fix: update the package or the base image.     an error
+    SC02  {image}: {n} more flaws that fail nothing: {which}. Fix: update the base image or the packages once a fix is out.   a warning
 
-What is scanned: the images the tree at `PATH` publishes (`publish.collect`: the services it builds whose image is under the `images`
-prefix of `catalog.yml`; the Lab's seeder is the Lab's), each at `:latest`, the tip of `main`, which is what a person who sets
-`<ID>_PULL_POLICY=always` runs. An image that is not there yet (nothing was published) is said, not a fault.
+**scan-built** is a step of the Apps job of a pull request from standard level 6, after the build, the tests and the start, on each
+architecture the job builds for, and of `make ci`. It scans the images that `ci build` built for the touched units (`build.specs_of`,
+the same list `ci test` reads; the Lab's seeder is the Lab's), as they are in this machine's Docker: nothing is pulled and no registry
+is signed in to, so it needs no secret and a fork's pull request runs it as any other. An image that is not there (its build failed)
+is said, and the build's own finding is what fails. Only the units a change touches are built, so a flaw found in a base image fails
+the pull requests that change that unit, never an unrelated one: a new flaw of an image nobody changes is the night's to find.
+
+**scan-published** is a step of the nightly run from level 3, in the job that runs the Lab at the commit the catalog pinned
+(`verify-pinned`, which holds `packages: read` and the token for this). What it scans: the images the tree at `PATH` publishes
+(`publish.collect`: the services it builds whose image is under the `images` prefix of `catalog.yml`), each at `:latest`, the tip of
+`main`, which is what a person who sets `<ID>_PULL_POLICY=always` runs. An image that is not there yet (nothing was published) is
+said, not a fault.
 
 How, with no credential near a program that is not ours: the scanner is a container **pinned by digest** in `tools/Dockerfile` (the
 `FROM` line named `trivy`; never a marketplace action, whose tag a hijack can move), and it runs in two steps. First it fetches its
 databases into a folder of ours (this step has the network and mounts nothing else, no image and no secret). Then, for each image, the
-stage signs in to ghcr.io itself, reading the token from the environment (`GH_TOKEN`, else `GITHUB_TOKEN`) and passing it on standard
-input to `docker login` in a configuration folder of its own (never on a command line and never in a file of the catalog), pulls the
-image and saves it to a file; and the scanner reads that file with **no network**, a read-only root, no capability and the user of the
-runner, and writes its report to a folder of ours. The token never reaches the container, and the container never reaches the image's
-registry. Only critical flaws that have a fixed version are findings (`--severity CRITICAL --ignore-unfixed`, and the report is read
-for `FixedVersion` again): a flaw nobody can fix yet is no reason to fail a night.
+stage saves it to a file, after `scan-published` signed in to ghcr.io itself, reading the token from the environment (`GH_TOKEN`, else
+`GITHUB_TOKEN`) and passing it on standard input to `docker login` in a configuration folder of its own (never on a command line and
+never in a file of the catalog), and pulled it; and the scanner reads that file with **no network**, a read-only root, no capability
+and the user of the runner, and writes its report to a folder of ours. The token never reaches the container, and the container never
+reaches the image's registry. The scanner is asked for the critical and the high flaws (`--severity CRITICAL,HIGH`). A critical flaw
+that has a fixed version is SC01, an error; the others (high ones, and critical ones nobody can fix yet) are one SC02 warning for each
+image that has some, with their number and the first identifiers: what can be done today fails the check, the rest is said.
 
 Exit 0 nothing to fix, 1 a finding (or a unit that cannot be read), 2 the scan could not run (no Docker, a scanner that is not pinned
-yet, a registry that refuses, no sign-in): a scan that did not run is never a green one. The flags of the scanner are those of Trivy
-0.5x and have not been run against a real registry (rehearsal item V14, the publish rehearsal, is the first time).
+yet, a registry that refuses, no sign-in): a scan that did not run is never a green one.
 
 Python 3.9 and later, standard library only."""
 
@@ -37,11 +48,18 @@ from ...docker import compose
 from .. import report, tree as trees
 from ..report import ERROR, Problem
 from ..rules import catalog_meta, say
-from . import Unavailable, Usage, conclude, docker_ready, entry, parsed, parser, run_limited, tail
+from ..report import WARNING
+from . import (Unavailable, Usage, conclude, docker_ready, entry, host_platform, load, parse_units, parsed, parser, refusals,
+               run_limited, tail)
+from .build import specs_of
 from .gitleaks import BAD_PATH, image as pinned_image
 from .publish import HOST, REPOSITORY, collect
 
-MESSAGES = {"SC01": (ERROR, "{image}: {id} in {package} {version}, fixed in {fixed}. Fix: update the package or the base image.")}
+MESSAGES = {"SC01": (ERROR, "{image}: {id} in {package} {version}, fixed in {fixed}. Fix: update the package or the base image."),
+            "SC02": (WARNING, "{image}: {n} more flaws that fail nothing: {which}. Fix: update the base image or the packages once a "
+                              "fix is out.")}
+SEVERITIES = "CRITICAL,HIGH"   # what the scanner is asked for: SC01 is the critical ones with a fix, SC02 counts the rest
+NAMED = 5   # the identifiers an SC02 names, the first in order
 TOOL = "trivy"
 TAG = "latest"
 FINDINGS = 500
@@ -56,9 +74,9 @@ HARDENED = ["--rm", "--read-only", "--tmpfs", "/tmp:rw,nosuid,nodev,size=2g", "-
             "no-new-privileges", "--pids-limit", "256", "--memory", "6g", "-e", "HOME=/tmp"]
 
 
-def finding(**fields) -> Problem:
-    severity, message = MESSAGES["SC01"]
-    return Problem("SC01", severity, "", 0, say(message, **fields))
+def finding(code: str = "SC01", **fields) -> Problem:
+    severity, message = MESSAGES[code]
+    return Problem(code, severity, "", 0, say(message, **fields))
 
 
 class Folders(NamedTuple):
@@ -107,32 +125,49 @@ def scan_command(scanner: str, folders: Folders, archive: str, user: Optional[st
     """The scan of one saved image: no network, the archive and the cache, and a folder for the report."""
     return ["docker", "run", *HARDENED, "--network", "none", *(["--user", user] if user else []),
             "-v", f"{folders.images}/{archive}:/image.tar:ro", "-v", f"{folders.cache}:/cache", "-v", f"{folders.out}:/out", scanner,
-            "image", "--input", "/image.tar", "--scanners", "vuln", "--severity", "CRITICAL", "--ignore-unfixed",
+            "image", "--input", "/image.tar", "--scanners", "vuln", "--severity", SEVERITIES,
             "--skip-db-update", "--skip-java-db-update", "--cache-dir", "/cache", "--no-progress", "--quiet", "--exit-code", "0",
             "--format", "json", "--output", "/out/report.json"]
 
 
-def findings_of(image: str, document) -> List[Problem]:
-    """SC01 for each critical flaw with a fix in a Trivy report. Every value is checked: a package or a version that is not text, or an
-    identifier that is not one, is left out rather than shown."""
-    found: Dict[Tuple[str, str, str, str], Problem] = {}
+def _flaws(document) -> List[Tuple[str, str, str, str, str]]:
+    """(id, package, version, fixed, severity) of every critical or high flaw of a Trivy report, once each and in order (`fixed` is
+    "" when there is none). Every value is checked: a package or a version that is not text, or an identifier that is not one, is
+    left out rather than shown."""
+    found = set()
     results = document.get("Results") if isinstance(document, dict) else None
     for result in results if isinstance(results, list) else ():
         for each in (result.get("Vulnerabilities") if isinstance(result, dict) else None) or ():
-            if not isinstance(each, dict) or each.get("Severity") != "CRITICAL":
+            if not isinstance(each, dict) or each.get("Severity") not in ("CRITICAL", "HIGH"):
                 continue
             identity, package, version, fixed = (each.get(key) for key in ("VulnerabilityID", "PkgName", "InstalledVersion",
                                                                          "FixedVersion"))
             if not (isinstance(identity, str) and ID.fullmatch(identity) and isinstance(package, str) and isinstance(version, str)
-                    and isinstance(fixed, str) and fixed.strip() and package and version):
+                    and package and version):
                 continue
-            key = (identity, package, version, fixed)
-            if key not in found:
-                found[key] = finding(image=report.printable(image), id=identity, package=report.printable(package)[:100],
-                                     version=report.printable(version)[:60], fixed=report.printable(fixed)[:100])
-        if len(found) >= FINDINGS:
-            break
-    return [found[key] for key in sorted(found)][:FINDINGS]
+            fixed = fixed.strip() if isinstance(fixed, str) else ""
+            found.add((identity, package, version, fixed, each["Severity"]))
+            if len(found) >= FINDINGS * 4:
+                break
+    return sorted(found)
+
+
+def findings_of(image: str, document) -> List[Problem]:
+    """SC01 for each critical flaw with a fix in a Trivy report, then one SC02 that counts the rest: the high flaws and the critical
+    ones with no fix yet."""
+    flaws = _flaws(document)
+    found = [finding(image=report.printable(image), id=identity, package=report.printable(package)[:100],
+                     version=report.printable(version)[:60], fixed=report.printable(fixed)[:100])
+             for identity, package, version, fixed, severity in flaws if severity == "CRITICAL" and fixed][:FINDINGS]
+    rest = [each for each in flaws if not (each[4] == "CRITICAL" and each[3])]
+    if rest:
+        high = sum(1 for each in rest if each[4] == "HIGH")
+        unfixed = len(rest) - high
+        parts = ([f"{high} high"] if high else []) + ([f"{unfixed} critical with no fix yet"] if unfixed else [])
+        names = sorted({each[0] for each in rest})
+        shown = ", ".join(names[:NAMED]) + (f" and {len(names) - NAMED} more" if len(names) > NAMED else "")
+        found.append(finding("SC02", image=report.printable(image), n=len(rest), which=f"{' and '.join(parts)} ({shown})"))
+    return found
 
 
 def read_report(folder: str) -> object:
@@ -157,8 +192,11 @@ def token_of(environ: Optional[Dict[str, str]] = None) -> str:
     return environ.get("GH_TOKEN") or environ.get("GITHUB_TOKEN") or ""
 
 
-def scan_images(images: Sequence[str], scanner: str, token: str, user: str, seams: dict, out) -> Tuple[List[Problem], List[str]]:
-    """(the SC01 findings, the images that were not there to scan). Raises Unavailable when a step could not run."""
+def scan_images(images: Sequence[str], scanner: str, token: str, user: str, seams: dict, out,
+                pull: bool = True) -> Tuple[List[Problem], List[str]]:
+    """(the findings, the images that were not there to scan). With `pull`, each image is pulled from its registry after a sign-in
+    with `token` (scan-published); without, it is the one this machine's Docker holds and nothing is pulled or signed in to
+    (scan-built). Raises Unavailable when a step could not run."""
     runner = seams.get("runner")
     sign_in = seams.get("login") or login
     work = tempfile.mkdtemp(prefix="gravitee-lab-scan-")
@@ -177,20 +215,26 @@ def scan_images(images: Sequence[str], scanner: str, token: str, user: str, seam
                     report.printable(line) for line in tail(more or said, 2)))
         for kind in ("db", "java-db"):
             download(scanner, folders, kind, uid, runner)
-        if token:
+        if token and pull:
             code, why = sign_in(HOST, user, token, folders.config)
             if code != 0:
                 raise Unavailable(f"the sign-in to {HOST} failed" + (": " + report.printable(why.splitlines()[-1])[:120] if why else ""))
         found: List[Problem] = []
         missing: List[str] = []
         for number, reference in enumerate(images):
-            code, said, more = ask(["docker", "pull", "--quiet", reference], PULL_TIMEOUT, folders.config, runner)
-            if code != 0:
-                if NOT_THERE.search((more or "") + (said or "")):
+            if pull:
+                code, said, more = ask(["docker", "pull", "--quiet", reference], PULL_TIMEOUT, folders.config, runner)
+                if code != 0:
+                    if NOT_THERE.search((more or "") + (said or "")):
+                        missing.append(reference)
+                        continue
+                    raise Unavailable(f"{report.printable(reference)} could not be pulled: "
+                                      + " ".join(report.printable(line) for line in tail(more or said, 2)))
+            else:
+                code, _, _ = ask(["docker", "image", "inspect", reference], 60, folders.config, runner)
+                if code != 0:
                     missing.append(reference)
                     continue
-                raise Unavailable(f"{report.printable(reference)} could not be pulled: "
-                                  + " ".join(report.printable(line) for line in tail(more or said, 2)))
             archive = f"{number}.tar"
             code, said, more = ask(["docker", "save", "--output", os.path.join(folders.images, archive), reference], SAVE_TIMEOUT,
                                    folders.config, runner)
@@ -213,6 +257,10 @@ def scan_images(images: Sequence[str], scanner: str, token: str, user: str, seam
         return found, missing
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+def _to_fix(problems: Sequence[Problem]) -> int:
+    return sum(1 for each in problems if each.code == "SC01")
 
 
 @entry
@@ -247,11 +295,40 @@ def main(argv, out, err, **seams) -> int:
         problems += flaws
         skipped += [f"{report.printable(each)} is not in the registry yet, so it was not scanned" for each in missing]
         if args.format != "json":
-            out.write(f"Published images: {len(references) - len(missing)} scanned, {len(flaws)} flaws to fix\n")
+            out.write(f"Published images: {len(references) - len(missing)} scanned, {_to_fix(flaws)} flaws to fix\n")
     elif args.format != "json":
         out.write("Published images: this catalog builds no image under its prefix, so nothing is scanned\n")
     return conclude("scan-published", problems, args, out, "catalog.py ci scan-published", skipped,
                     title="The published images have no flaw to fix")
 
 
-__all__ = ["MESSAGES", "findings_of", "main", "scan_command", "scan_images"]
+@entry
+def built_main(argv, out, err, **seams) -> int:
+    """`ci scan-built`: the images `ci build` built for the touched units, as this machine's Docker holds them."""
+    found = parser("scan-built", "The images built for a change have no critical flaw that has a fix.", units=True)
+    found.add_argument("--app", default=None, help="scan only the image of this app (the folder of its build context)")
+    args = parsed(found, argv)
+    names = parse_units(args.units)
+    if not os.path.isdir(args.path):
+        raise Unavailable(f"{report.printable(args.path)} is not a folder")
+    root = os.path.abspath(args.path)
+    loading = load(root, names)
+    problems = refusals(loading.refused, "scanned")
+    specs, more, _ = specs_of(loading.units, host_platform(), root, seams.get("lab"), args.app, local=True)
+    problems += more
+    references = list(dict.fromkeys(spec.image for spec in specs))
+    skipped: List[str] = []
+    if references:
+        scanner = pinned_image(seams.get("dockerfile"), TOOL)
+        docker_ready(seams.get("runner"))
+        flaws, missing = scan_images(references, scanner, "", "", seams, err if args.format == "json" else out, pull=False)
+        problems += flaws
+        skipped += [f"{report.printable(each)} was not built here, so it was not scanned" for each in missing]
+        if args.format != "json":
+            out.write(f"Built images: {len(references) - len(missing)} scanned, {_to_fix(flaws)} flaws to fix\n")
+    elif args.format != "json":
+        out.write("Built images: the change builds no image, so nothing is scanned\n")
+    return conclude("scan-built", problems, args, out, "make ci", skipped, title="The images built have no flaw to fix")
+
+
+__all__ = ["MESSAGES", "built_main", "findings_of", "main", "scan_command", "scan_images"]

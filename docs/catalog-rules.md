@@ -23,7 +23,7 @@ Every rule that `catalog.py check` and the stages of `catalog.py ci` can print, 
 | [Publish gate](#publish-gate) | `PB01` to `PB08` |
 | [End-to-end plan](#end-to-end-plan) | `E2E01` to `E2E05` |
 | [Links stage](#links-stage) | `LK01` |
-| [Scan stage](#scan-stage) | `SC01` |
+| [Scan stage](#scan-stage) | `SC01` to `SC02` |
 | [The Lab's trust policy](#the-labs-trust-policy) | `T01` to `T29` |
 | [The notes of the trust policy](#the-notes-of-the-trust-policy) | `N01` to `N05` |
 
@@ -938,10 +938,18 @@ Every rule that `catalog.py check` and the stages of `catalog.py ci` can print, 
 
 ### SC01
 
-*Error.* Nightly stage of `catalog.py ci`.
+*Error.* Scan stage of `catalog.py ci`.
 
 - **Message**: {image}: {id} in {package} {version}, fixed in {fixed}. Fix: update the package or the base image.
 - **Fix**: update the package or the base image.
+- **At Add**: Not judged at Add: this is a rule about the repository, and the Lab judges the files it installs.
+
+### SC02
+
+*Warning.* Scan stage of `catalog.py ci`.
+
+- **Message**: {image}: {n} more flaws that fail nothing: {which}. Fix: update the base image or the packages once a fix is out.
+- **Fix**: update the base image or the packages once a fix is out.
 - **At Add**: Not judged at Add: this is a rule about the repository, and the Lab judges the files it installs.
 
 ## The Lab's trust policy

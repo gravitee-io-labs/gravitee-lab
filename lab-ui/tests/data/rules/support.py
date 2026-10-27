@@ -50,7 +50,7 @@ GOOD: Dict[str, object] = {
     "addons/README.md": "# Add-ons\n\n| [Hello](hello/) | Says hello |\n",
     "addons/AGENTS.md": "# Add-ons\n",
     "addons/CLAUDE.md": "@AGENTS.md\n",
-    "addons/hello/compose.yml": "x-gravitee:\n  kind: addon\n  name: Hello\nservices:\n  hello:\n    image: traefik/whoami:v1.11.0\n",
+    "addons/hello/compose.yml": "x-gravitee:\n  kind: addon\n  name: Hello\nservices:\n  hello:\n    image: traefik/whoami:v1.12.0\n",
     "addons/hello/README.md": "# Hello\n",
 }
 

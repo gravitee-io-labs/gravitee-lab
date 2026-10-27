@@ -1,5 +1,5 @@
 {
-  "level": 5,
+  "level": 6,
   "files": [
     {"path": ".catalog/standard.mk", "class": "managed", "since": 1, "when": "always", "scope": "full"},
     {"path": ".github/dependabot.yml", "class": "managed", "since": 1, "when": "always", "scope": "full"},
@@ -35,6 +35,61 @@
   ],
   "removed": [],
   "edits": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "below": 6,
+      "from": [
+        "  # Python 3.15 and the seeder's requirements, which the Lab pins: nothing the change wrote is installed. The catalog's own tests, when"
+      ],
+      "to": [
+        "  # Python 3.14 and the seeder's requirements, which the Lab pins: nothing the change wrote is installed. The catalog's own tests, when"
+      ]
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "below": 6,
+      "from": [
+        "          python-version: \"3.15\""
+      ],
+      "to": [
+        "          python-version: \"3.14\""
+      ]
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "below": 6,
+      "from": [
+        "#   Apps         the apps build on each architecture (a Mac runs arm64), pass their tests in their image with no network, what does",
+        "#                not need the platform starts and answers its health check, and the images built have no critical flaw that has a fix"
+      ],
+      "to": [
+        "#   Apps         the apps build on each architecture (a Mac runs arm64), pass their tests in their image with no network, and what",
+        "#                does not need the platform starts and answers its health check"
+      ]
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "below": 6,
+      "from": [
+        "  # Build, test, start, scan. The Dockerfiles of the change run here, so no secret and no registry login reaches this job"
+      ],
+      "to": [
+        "  # Build, test, start. The Dockerfiles of the change run here, so no secret and no registry login reaches this job"
+      ]
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "below": 6,
+      "from": [
+        "      # The scanner the Lab pins, on the images this job built: no registry and no secret, so a fork's pull request is scanned too",
+        "      - name: Scan the images it built",
+        "        if: ${{ !cancelled() && steps.build.outcome == 'success' }}",
+        "        env:",
+        "          UNITS: ${{ needs.static.outputs.units }}",
+        "        run: python3 -I lab/lab-ui/catalog.py ci scan-built catalog --units \"$UNITS\" --ci"
+      ],
+      "to": []
+    },
     {
       "path": ".github/actions/lab/action.yml",
       "below": 5,
@@ -210,6 +265,12 @@
     "5": {
       "summary": "On a push to main, the Checks job says what is merged and not released yet: a warning, and the notes of the next release in its summary. The Lab offers releases, not main. CI checks the catalog with a release of the Lab: the commit .github/standard.json pins is the commit of a tag vX.Y.Z (SD11), and catalog.py upgrade --lab-ref latest pins the latest one. No file is added.",
       "manual": ["If CI says SD11, pin the latest release of the Lab: catalog.py upgrade --lab-ref latest --write."],
+      "settings": [],
+      "urgent": false
+    },
+    "6": {
+      "summary": "The Apps job of a pull request scans the images it built, with the scanner the Lab pins and the policy of the nightly scan: a critical flaw that has a fix fails the pull request (SC01), and the rest is said (SC02). It needs no secret, so a fork's pull request is scanned too, and only the images of the units the change touches are built and scanned. The nightly scan of the published images says the rest as well. The Seed files job runs Python 3.15, and a new catalog's sample add-on runs whoami v1.12.0. No file is added.",
+      "manual": ["If a pull request says SC01, update the package or the base image of that app to the version the message names, then push again."],
       "settings": [],
       "urgent": false
     }

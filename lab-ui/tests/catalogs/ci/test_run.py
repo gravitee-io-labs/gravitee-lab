@@ -91,13 +91,14 @@ class Order(Fixture):
         self.change({"playgrounds/bank/apps/web/app.py": "print(2)\n"})
         code = self.run_ci()
         self.assertEqual(code, 0, self.err.getvalue())
-        self.assertEqual(self.recorder.names, ["manifests", "build", "test", "smoke", "gitleaks"])   # smoke is a stage of level 2
+        self.assertEqual(self.recorder.names, ["manifests", "build", "test", "smoke", "scan", "gitleaks"])   # smoke of level 2, scan of 6
         calls = {name: argv for name, argv, _ in self.recorder.calls}
         root = str(self.repo)
         units = json.dumps(["playground:bank", "setup:pair"])
         self.assertEqual(calls["manifests"], [root, "--units", units])
         self.assertEqual(calls["build"], [root, "--units", units, "--platform", PLATFORM])
         self.assertEqual(calls["test"], [root, "--units", units])
+        self.assertEqual(calls["scan"], [root, "--units", units])
         self.assertEqual(calls["gitleaks"], [root, "--base", self.first])
         self.assertIn("== plan\nScope: the change and what includes it\nUnits: playground:bank, setup:pair", self.out.getvalue())
 
@@ -106,7 +107,7 @@ class Order(Fixture):
         self.run_ci()
         text = self.out.getvalue()
         for pattern in (r"✓ plan\s+passed: 2 units", r"✓ manifests\s+passed", r"✓ build\s+passed", r"✓ test\s+passed",
-                        r"✓ smoke\s+passed", r"✓ gitleaks\s+passed"):
+                        r"✓ smoke\s+passed", r"✓ scan\s+passed", r"✓ gitleaks\s+passed"):
             self.assertRegex(text, re.compile(pattern))
 
     def test_a_run_that_skipped_nothing_says_all_good_and_one_that_did_not_never_does(self):
@@ -131,7 +132,7 @@ class Order(Fixture):
         self.change({"addons/plain/README.md": "# Plain\n"})
         self.assertEqual(self.run_ci(), 0)
         self.assertEqual(self.recorder.names, ["manifests", "smoke", "gitleaks"])
-        for stage in ("build", "test"):   # (as CI, which does not ask for them: a stage that was not asked is not a skip)
+        for stage in ("build", "test", "scan"):   # (as CI, which does not ask for them: a stage that was not asked is not a skip)
             self.assertRegex(self.out.getvalue(), rf"- {stage}\s+not asked: the change builds nothing \(a README alone, or no app\)")
         self.assertNotIn("skipped", self.out.getvalue())
         self.assertTrue(self.out.getvalue().endswith("All good\n"))
@@ -170,6 +171,7 @@ class Order(Fixture):
         calls = {name: argv for name, argv, _ in self.recorder.calls}
         self.assertEqual(calls["build"][-2:], ["--app", "web"])
         self.assertEqual(calls["test"][-2:], ["--app", "web"])
+        self.assertEqual(calls["scan"][-2:], ["--app", "web"])
         self.assertEqual(json.loads(calls["build"][2]), ["playground:bank"])
         self.assertEqual(json.loads(calls["manifests"][2]), ["playground:bank"])
 
@@ -181,7 +183,8 @@ class Order(Fixture):
             seen.append(ci.load(argv[0], [("addon", "plain")]))
             return 0
         self.change({"addons/plain/compose.yml": COMPOSE.format(name="plain") + "# 1\n"})
-        self.run_ci(stages={"manifests": stage, "build": stage, "test": stage, "smoke": stage, "gitleaks": stage}, loading=loading)
+        self.run_ci(stages={"manifests": stage, "build": stage, "test": stage, "smoke": stage, "scan": stage, "gitleaks": stage},
+                    loading=loading)
         self.assertEqual(len(loading.asked), 1)   # read once for the whole run
         self.assertEqual([each.name for each in seen[0].units], ["plain"])
         self.assertIsNone(ci.LOADER)   # and put back when the run ends
@@ -213,6 +216,22 @@ class Levels(Fixture):
         self.assertRegex(self.out.getvalue(), r"- smoke\s+skipped: this stage is not in this Lab yet")
         self.assertNotIn("All good", self.out.getvalue())
 
+    def test_the_scan_of_the_images_built_is_not_asked_below_level_six_and_runs_from_it(self):
+        with mock.patch.object(run, "level", lambda: 5):
+            self.run_ci()
+        self.assertNotIn("scan", self.recorder.names)
+        self.assertRegex(self.out.getvalue(), r"- scan\s+not asked: not a stage of standard level 5")
+        self.recorder, self.out = Recorder(), io.StringIO()
+        with mock.patch.object(run, "level", lambda: 6):
+            self.run_ci()
+        self.assertEqual(self.recorder.names, ["manifests", "build", "test", "smoke", "scan", "gitleaks"])
+
+    def test_the_scan_step_is_the_stage_scan_built_of_the_command_line(self):
+        self.assertEqual(run.STAGE_OF["scan"], "scan-built")
+        self.assertEqual(ci.STAGES["scan-built"], ("scan", "built_main"))
+        from lab_ui.catalogs.ci import scan
+        self.assertIs(run.stage_function("scan"), scan.built_main)
+
     def test_the_level_is_the_standards_and_one_while_it_is_not_here(self):
         self.assertIsInstance(run.level(), int)
         self.assertGreaterEqual(run.level(), 1)
@@ -239,13 +258,14 @@ class Ends(Fixture):
         self.assertEqual(self.run_ci(), 1)
         self.assertEqual(self.recorder.names, ["manifests", "build", "smoke", "gitleaks"])
         self.assertRegex(self.out.getvalue(), r"- test\s+skipped: the build did not end well, so there is no image to test")
+        self.assertRegex(self.out.getvalue(), r"- scan\s+skipped: the build did not end well, so there is no image to scan")
         self.assertIn("✗ build", self.out.getvalue())
         self.assertIn("1 stage to fix.", self.out.getvalue())
 
     def test_every_stage_runs_even_when_an_earlier_one_found_something(self):
         self.recorder.codes["manifests"] = 1
         self.assertEqual(self.run_ci(), 1)
-        self.assertEqual(self.recorder.names, ["manifests", "build", "test", "smoke", "gitleaks"])
+        self.assertEqual(self.recorder.names, ["manifests", "build", "test", "smoke", "scan", "gitleaks"])
 
     def test_a_stage_the_machine_cannot_run_is_exit_2(self):
         self.recorder.codes["build"] = 2
@@ -265,6 +285,17 @@ class Ends(Fixture):
                 self.assertNotIn("All good", self.out.getvalue())
                 self.assertTrue(self.out.getvalue().endswith("1 stage skipped.\n"))
                 self.assertEqual(self.err.getvalue(), "")   # (the reason is in the line of the stage)
+
+    def test_the_scan_of_the_images_that_cannot_run_here_is_skipped_with_its_reason_as_the_scan_of_the_commits_is(self):
+        said = "the trivy image of the Lab is not pinned yet (its digest is the placeholder of zeros): write the digest"
+        self.recorder = Recorder({"scan": 2}, {"scan": f"catalog.py ci: {said}\n"})
+        self.assertEqual(self.run_ci(), 0)
+        self.assertRegex(self.out.getvalue(), r"- scan\s+skipped: " + re.escape(said[:40]))
+        self.assertTrue(self.out.getvalue().endswith("1 stage skipped.\n"))
+        self.out, self.err = io.StringIO(), io.StringIO()
+        self.recorder = Recorder({"scan": 1})
+        self.assertEqual(self.run_ci(), 1)
+        self.assertIn("✗ scan", self.out.getvalue())
 
     def test_a_scan_that_cannot_run_for_any_other_reason_is_a_stage_that_could_not_run_with_its_own_words(self):
         for said in ("the report of the scan is not JSON", "gitleaks did not run (exit 1): fatal: bad revision",

@@ -1,4 +1,4 @@
-# Managed by the Lab catalog standard 5: change it with catalog.py upgrade, in a pull request a maintainer reads.
+# Managed by the Lab catalog standard 6: change it with catalog.py upgrade, in a pull request a maintainer reads.
 # Every night, on the main branch: what changes while nobody pushes. The newest Lab still reads the catalog, the standard files are the
 # newest Lab's, the links of the guides answer, the rules of the main branch are still the standard's, and the images that were
 # published have no fixable critical flaw. The newest Lab is code nobody has read yet, so the job that runs it holds nothing: no token,

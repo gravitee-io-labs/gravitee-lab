@@ -7,7 +7,7 @@
     build       the apps of the touched units, on one architecture     (build.py)
     test        the tests of each app, in its image, offline           (apps.py)
     run         the local runner behind `make ci`                      (run.py)
-    smoke, publish-plan, publish, release-notes, unreleased, links, scan-published, e2e-plan, e2e-gate
+    smoke, scan-built, publish-plan, publish, release-notes, unreleased, links, scan-published, e2e-plan, e2e-gate
 
 A stage is `main(argv, stdout=None, stderr=None, **seams) -> int` of its module, `argv` being what follows the stage word;
 `STAGES` says which module and which function. A stage whose module is not in this Lab yet answers "not available yet" and
@@ -69,6 +69,7 @@ STAGES = {
     "test": ("apps", "main"),
     "run": ("run", "main"),
     "smoke": ("smoke", "main"),
+    "scan-built": ("scan", "built_main"),
     "publish-plan": ("publish", "plan_main"),
     "publish": ("publish", "main"),
     "release-notes": ("release", "main"),
@@ -87,6 +88,7 @@ SUMMARY = {
     "test": "run the tests of each app in its image",
     "run": "plan, manifests, build and test on this machine, as make ci",
     "smoke": "start what needs no platform",
+    "scan-built": "scan the images built for a change",
     "publish-plan": "the gates and the images to publish",
     "publish": "build and push the images",
     "release-notes": "the notes of a release",

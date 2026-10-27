@@ -6,6 +6,7 @@ machine what the CI of a catalog runs without a license, in the order CI runs it
     build       the apps of those units, for this machine's architecture
     test        the tests of each app in its image, offline (`--app NAME`: that app alone)
     smoke       what does not need the platform starts and answers: from standard level 2, when the stage is in this Lab
+    scan        the images the build made have no critical flaw that has a fix: from standard level 6
     gitleaks    the secrets of every commit since the base, where Docker can run the pinned container
 
 (`make ci` runs `check` first.) The plan is the CI's own function with the same inputs, so the units a person builds before the
@@ -13,7 +14,7 @@ push are the units the pull request will build; the one difference is the archit
 
 A stage that is not in this Lab yet is **said and skipped, never silent**: `make ci` works from level 1, and a run that skipped
 something does not say it is all good. A scan that cannot run here because Docker is not installed or not running, or because the
-Lab's gitleaks image has no digest yet, is skipped the same way, with that reason; the scan that cannot run for any other reason
+Lab's gitleaks or trivy image has no digest yet, is skipped the same way, with that reason; the scan that cannot run for any other reason
 (a base git does not know, a container that failed, a report that is not JSON) is a stage that could not run, with the stage's
 own words. A stage the change does not ask for (no unit changed, or nothing in it builds: a README alone, or no app) is not
 asked, as CI does not ask it, so that such a change can end in All good. A unit the trust policy refuses ends the run before
@@ -41,8 +42,11 @@ from . import SKIPPABLE, STAGES, Usage, entry, host_platform, load, parsed, pars
 from . import plan as planning
 from .build import app_of, specs_of
 
-ORDER = ("manifests", "build", "test", "smoke", "gitleaks")
+ORDER = ("manifests", "build", "test", "smoke", "scan", "gitleaks")
 SMOKE_LEVEL = 2   # the standard level that adds `ci smoke` to the workflow of `compile`
+SCAN_LEVEL = 6    # the standard level that adds `ci scan-built` to it
+STAGE_OF = {"scan": "scan-built"}   # the stage word of a step whose name here is shorter
+SCANS = ("scan", "gitleaks")   # the steps that run a pinned container: one this machine cannot run is a skip, with its reason
 
 
 class Step(NamedTuple):
@@ -67,10 +71,10 @@ def level() -> int:
 
 
 def stage_function(name: str, stages: Optional[Dict[str, Callable]] = None) -> Optional[Callable]:
-    """The `main` of a stage, or None when its module is not in this Lab yet."""
+    """The `main` of a stage (a step of this run, or the stage word it stands for), or None when its module is not in this Lab yet."""
     if stages and name in stages:
         return stages[name]
-    module_name, function = STAGES[name]
+    module_name, function = STAGES[STAGE_OF.get(name, name)]
     target = f"{__package__}.{module_name}"
     try:
         module = importlib.import_module(target)
@@ -152,6 +156,7 @@ def main(argv, out, err, **seams) -> int:
              "build": [root, "--units", units_json, "--platform", platform, *(["--app", args.app] if args.app else [])],
              "test": [root, "--units", units_json, *(["--app", args.app] if args.app else [])],
              "smoke": [root, "--units", units_json],
+             "scan": [root, "--units", units_json, *(["--app", args.app] if args.app else [])],
              "gitleaks": [root, "--base", base]}
     package = sys.modules[__package__]
     before = package.LOADER
@@ -169,25 +174,26 @@ def main(argv, out, err, **seams) -> int:
             if name != "gitleaks" and not plan.units:
                 steps.append(Step(name, "absent", "no unit changed"))
                 continue
-            if name == "smoke" and level() < SMOKE_LEVEL:
+            if (name == "smoke" and level() < SMOKE_LEVEL) or (name == "scan" and level() < SCAN_LEVEL):
                 steps.append(Step(name, "absent", f"not a stage of standard level {level()}"))
                 continue
-            if name in ("build", "test") and not plan.compile:
+            if name in ("build", "test", "scan") and not plan.compile:
                 steps.append(Step(name, "absent", "the change builds nothing (a README alone, or no app)"))
                 continue
-            if name == "test" and not built:
-                steps.append(Step(name, "skipped", "the build did not end well, so there is no image to test"))
+            if name in ("test", "scan") and not built:
+                steps.append(Step(name, "skipped", "the build did not end well, so there is no image to "
+                                  + ("test" if name == "test" else "scan")))
                 continue
             function = stage_function(name, stages)
             if function is None:
                 steps.append(Step(name, "skipped", "this stage is not in this Lab yet"))
                 continue
             print(f"== {name}", file=out)
-            said = io.StringIO() if name == "gitleaks" else err   # (what the scan says it could not do is read, then shown)
+            said = io.StringIO() if name in SCANS else err   # (what a scan says it could not do is read, then shown)
             code = function(asked[name], out, said, **seams)
             if name == "build" and code != 0:
                 built = False
-            why = not_here(said.getvalue()) if name == "gitleaks" and code == 2 else None
+            why = not_here(said.getvalue()) if name in SCANS and code == 2 else None
             if said is not err and why is None:
                 err.write(said.getvalue())
             if code == 0:
