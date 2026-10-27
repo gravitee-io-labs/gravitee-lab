@@ -114,8 +114,14 @@ jobs:
       items: ${{ needs.prepare.outputs.items }}
       base: ${{ needs.prepare.outputs.base }}
       expect-sha: ${{ needs.prepare.outputs.expect_sha }}
+    # By name, never inherit: the run is given what it declares and nothing else. The license and the Docker Hub pair are secrets of the
+    # environments e2e and e2e-nightly, which only the run's e2e job enters: GitHub hands a called workflow an environment secret only
+    # when its caller names it, and an empty one, with no error, when it does not
     secrets:
       CATALOG_DEPLOY_KEY: ${{ secrets.CATALOG_DEPLOY_KEY }}
+      GRAVITEE_LICENSE: ${{ secrets.GRAVITEE_LICENSE }}
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
   # The check to read, under the name it has always had. A job that calls a workflow is shown as `Run / Result`, so this one is
   # the engine's own: it passes when the run did, and when there was no catalog to try. A fork's pull request has none, as the run has

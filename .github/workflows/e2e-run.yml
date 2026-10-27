@@ -11,9 +11,11 @@
 #              approve the environment `e2e`, who has read the change first, and it never runs for a fork's pull request: the
 #              caller of a fork's change is a dispatch from the main branch, which names the pull request and the commit read
 #   result     the one check to read: it fails when anything ended wrong, and waits for e2e
-# The license is in the environment of the repository that calls this, and reaches one step of one job. The deploy keys that read a
-# private repository (read-only, one for each repository, deleted when it becomes public) are secrets the caller passes by name, and
-# reach only the checkout that needs them.
+# The license is in the environment of the repository that calls this, and reaches one step of one job. GitHub gives a called workflow
+# an environment secret only when its caller names it, and an empty one, with no error, when it does not: the caller passes the license
+# and the Docker Hub pair by name, as e2e.yml does, and the job of this file that declares the environment is what reads them. The
+# deploy keys that read a private repository (read-only, one for each repository, deleted when it becomes public) are secrets the
+# caller passes by name too, and reach only the checkout that needs them.
 name: E2E run
 
 on:
@@ -80,6 +82,15 @@ on:
         required: false
       NEEDS_CATALOG_DEPLOY_KEY:
         description: "A read-only deploy key of the repository of the catalog it includes from, while it is private"
+        required: false
+      GRAVITEE_LICENSE:
+        description: "The CI license, a secret of the environments e2e and e2e-nightly that the caller names; the e2e job fails without it"
+        required: false
+      DOCKERHUB_USERNAME:
+        description: "A Docker Hub account of those environments, named by the caller; empty pulls as the runner's address"
+        required: false
+      DOCKERHUB_TOKEN:
+        description: "A read-only access token of that account, named by the caller with it"
         required: false
     outputs:
       count:
@@ -324,7 +335,7 @@ jobs:
         env:
           GRAVITEE_LICENSE: ${{ secrets.GRAVITEE_LICENSE }}
         run: |
-          [ -n "$GRAVITEE_LICENSE" ] || { echo "::error::The secret GRAVITEE_LICENSE is not set in this environment: see docs/maintaining.md"; exit 1; }
+          [ -n "$GRAVITEE_LICENSE" ] || { echo "::error::The secret GRAVITEE_LICENSE is not set in this environment, or the caller does not pass it by name: see docs/maintaining.md"; exit 1; }
           make init
           printf '\nGRAVITEE_LICENSE=%s\n' "$GRAVITEE_LICENSE" >> .env
       - name: Link the catalogs into the engine

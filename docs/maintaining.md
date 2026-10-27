@@ -54,6 +54,9 @@ catalog runs the same test (`e2e-run.yml`) for its own changes. It proves what t
    - `e2e-nightly`: no reviewer, deployment branches limited to `main`. It runs the nightly job, which is the code of `main` alone.
    - Optionally, in both, `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` (a read-only access token): Docker Hub counts what an address pulls
      and the runners share theirs, so that a heavy day can hit its limit.
+
+   `e2e.yml` passes these secrets by name to `e2e-run.yml`: GitHub gives a called workflow an environment secret only when its caller
+   names it, and an empty one otherwise, with no error.
 3. **Actions settings** (Settings > Actions > General): *Require approval for all outside collaborators*, and leave *Send write tokens* and
    *Send secrets to workflows from pull requests* off. Keep the default workflow permission at *Read repository contents*.
 4. **Branch protection** on `main`: require two checks, `CI result` and `E2E result`. `CI result` passes when every job of the CI
