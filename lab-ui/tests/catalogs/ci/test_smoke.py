@@ -185,13 +185,23 @@ class Reading(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(smoke.requires_license(text), expected)
 
+    def test_runs_remote_gateway_reads_the_unit_file_as_text(self):
+        for text, expected in (
+                ("x-gravitee:\n  gateway:\n    platform: cloud\n    service: gw\n    token: GW_TOKEN\nservices: {}\n", True),
+                ("x-gravitee: {gateway: {platform: cloud, service: gw, token: GW_TOKEN}}\n", True),
+                ("x-gravitee:\n  gateway:\n", False), ("x-gravitee: {gateway: {}}\n", False),
+                ("x-gravitee:\n  name: Gateway\n", False), ("services:\n  gateway: {}\n", False), ("", False), (None, False)):
+            with self.subTest(text=text):
+                self.assertEqual(smoke.runs_remote_gateway(text), expected)
+
     def test_a_line_of_a_megabyte_is_read_in_under_a_second(self):
         for text in ("x-gravitee: {" + "[" * 1_000_000, "x-gravitee:\n  requires:\n    license: " + "[" * 1_000_000,
                      "x-gravitee: {requires: {license: " + "a" * 60_000 + "}}", "services:\n" + "  a: &x\n" * 100_000,
                      "x-gravitee:\n" + "  - \n" * 200_000, "x" * 1_000_000):
             with self.subTest(start=text[:24]):
-                _, spent = support.timed(smoke.requires_license, text)
-                self.assertLess(spent, 1.0)
+                for read in (smoke.requires_license, smoke.runs_remote_gateway):
+                    _, spent = support.timed(read, text)
+                    self.assertLess(spent, 1.0)
 
     def test_a_unit_refused_for_a_setting_it_lacks_is_not_a_fault_of_the_unit(self):
         needs = ci.Refused("addon", "x", "addons/x/compose.yml", (
@@ -401,6 +411,17 @@ class Stage(Case):
         self.assertIn("Smoke: 0 started, 0 failed, 1 not tried", text)
         self.assertRegex(text, r"- addon:lic  it needs settings or a license")
         self.assertNotIn("✓", text)
+        self.assertEqual(self.up_calls(), [])
+
+    def test_a_unit_that_runs_the_gateway_of_a_remote_platform_is_not_tried(self):
+        # It works only with the platform's token: started without it, its gateway never becomes healthy
+        text = ("x-gravitee:\n  gateway:\n    platform: cloud\n    service: gw\n    token: GW_TOKEN\n"
+                "services:\n  gw:\n    image: example.test/gw:1\n")
+        code = self.run_stage(unit(kind="addon", name="hub", services={"gw": service()}), files={"addons/hub/compose.yml": text})
+        self.assertEqual(code, 0)
+        text = self.out.getvalue()
+        self.assertIn("Smoke: 0 started, 0 failed, 1 not tried", text)
+        self.assertRegex(text, r"- addon:hub  it needs settings or a license")
         self.assertEqual(self.up_calls(), [])
 
     def test_a_unit_with_nothing_that_starts_without_the_platform_is_left_to_the_end_to_end_run(self):
