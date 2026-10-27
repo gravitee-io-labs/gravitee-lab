@@ -2498,6 +2498,13 @@ class Startup(Case):
             api.main(["--no-open", "--port", "9123"])
         served.assert_called_once()
         self.assertEqual(said.getvalue().strip(), "Gravitee Lab UI: docker not found")
+        # The line points at the page that opens, not at the README the command line points at
+        self.patch(api, "requirement", return_value=f"docker not found: install Docker with Compose 5.0 or later {api.README}")
+        said = io.StringIO()
+        with contextlib.redirect_stderr(said):
+            api.main(["--no-open", "--port", "9123"])
+        self.assertEqual(said.getvalue().strip(), "Gravitee Lab UI: docker not found: install Docker with Compose 5.0 or later. "
+                                                  "The page that opens says how to fix it.")
 
 
 if __name__ == "__main__":

@@ -1082,7 +1082,7 @@ def main(argv=None):
     if missing and (args.check or args.list or args.e2e):
         sys.exit(missing)
     if missing:   # the Lab UI serves all the same: its page says what is missing, and how to fix it (machine)
-        print(f"Gravitee Lab UI: {missing}", file=sys.stderr)
+        print(f"Gravitee Lab UI: {missing.replace(' ' + README, '. The page that opens says how to fix it.')}", file=sys.stderr)
     layers.prepare()
     if args.check:
         sys.exit(check.run())
