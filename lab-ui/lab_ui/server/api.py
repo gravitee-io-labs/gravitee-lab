@@ -950,6 +950,20 @@ class Handler(BaseHTTPRequestHandler):
 # Command line
 # ---------------------------------------------------------------------------------------------------------------------
 
+# Where Docker Desktop puts the `docker` command on a Mac: a Docker installed while the Lab UI runs is found there, the shell's
+# PATH being the one of before it
+DOCKER_BINS = ("/usr/local/bin", "~/.docker/bin", "/Applications/Docker.app/Contents/Resources/bin")
+
+
+def find_docker():
+    """The places of DOCKER_BINS added at the end of PATH on a Mac, those it lacks"""
+    if sys.platform != "darwin":
+        return
+    path = os.environ.get("PATH", "").split(os.pathsep)
+    os.environ["PATH"] = os.pathsep.join(path + [os.path.expanduser(place) for place in DOCKER_BINS
+                                                 if os.path.expanduser(place) not in path])
+
+
 def requirement():
     """What this machine lacks to run the lab, in one line, in the words of the Makefile's; None when it lacks
     nothing."""
@@ -1090,11 +1104,12 @@ def main(argv=None):
     parser.add_argument("--timeout", type=int, default=1800, metavar="SECONDS", help="with --e2e: how long the start may take")
     parser.add_argument("--keep", action="store_true", help="with --e2e: leave what was started running, to look at it")
     args = parser.parse_args(argv)
+    find_docker()
     missing = requirement()
     if missing and (args.check or args.list or args.e2e):
         sys.exit(missing)
     if missing:   # the Lab UI serves all the same: its page says what is missing, and how to fix it (machine)
-        print(f"Gravitee Lab UI: {missing.replace(' ' + README, '. The page that opens says how to fix it.')}", file=sys.stderr)
+        print(f"Gravitee Lab UI: {missing.replace(' ' + README, '. The Lab UI says how to fix it.')}", file=sys.stderr)
     layers.prepare()
     if args.check:
         sys.exit(check.run())

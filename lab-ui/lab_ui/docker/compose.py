@@ -1049,12 +1049,12 @@ _name = {}
 
 def project_name():
     """The core file's `name:`, the Compose project every container belongs to. Read again when the file changes, or
-    Compose does (installed while the Lab UI runs). While the file does not load, or is not there (being saved, synced or
+    Docker and its Compose do (installed while the Lab UI runs). While the file does not load, or is not there (being saved, synced or
     renamed), the last name read still finds the containers; without one, Compose's error is raised, and not asked for
     again until the file or Compose changes."""
     try:
         stat = (ROOT / CORE_FILE).stat()
-        key = (stat.st_mtime_ns, stat.st_size, plugin())
+        key = (stat.st_mtime_ns, stat.st_size, plugin(), shutil.which("docker"))
     except OSError:   # not there: Compose's error says so
         key = None
     if not _name or _name["key"] != key:

@@ -663,6 +663,17 @@ class ProjectName(ProjectFolder):
             raw.side_effect, raw.return_value = None, {"name": "lab"}
             self.assertEqual(compose.project_name(), "lab")
 
+    def test_the_docker_command_that_comes_after_its_plugin_is_asked_again(self):
+        # Docker Desktop copied into Applications: its plugin is there, its `docker` only once it first started
+        self.patch(compose, "plugin", return_value="/Applications/Docker.app/Contents/Resources/cli-plugins/docker-compose")
+        command = self.patch(compose.shutil, "which", return_value=None)
+        with mock.patch.object(compose, "raw", side_effect=compose.ComposeError("docker: command not found")) as raw:
+            with self.assertRaises(compose.ComposeError):
+                compose.project_name()
+            command.return_value = "/usr/local/bin/docker"
+            raw.side_effect, raw.return_value = None, {"name": "lab"}
+            self.assertEqual(compose.project_name(), "lab")
+
     def test_without_a_name_the_error_is_raised_and_docker_is_not_asked(self):
         failure = compose.ComposeError("yaml: line 2: did not find expected key")
         with mock.patch.object(compose, "raw", side_effect=failure) as raw, mock.patch.object(compose, "ps") as ps:

@@ -7,6 +7,7 @@ import errno
 import http.client
 import io
 import json
+import os
 import queue
 import re
 import socket
@@ -1891,6 +1892,16 @@ class CommandLine(LabUI):
         self.assertTrue(stopped.exception.code.startswith(f"Port {port} is used by another program."))
         self.assertFalse(api.answers_on_ipv6(port))
 
+    def test_on_a_mac_the_places_of_docker_desktop_are_added_once_at_the_end_of_path(self):
+        with mock.patch.dict(os.environ, {"PATH": "/usr/bin:/bin:/usr/local/bin"}), mock.patch.object(api.sys, "platform", "darwin"):
+            api.find_docker()
+            api.find_docker()
+            self.assertEqual(os.environ["PATH"].split(os.pathsep), ["/usr/bin", "/bin", "/usr/local/bin",
+                             os.path.expanduser("~/.docker/bin"), "/Applications/Docker.app/Contents/Resources/bin"])
+        with mock.patch.dict(os.environ, {"PATH": "/usr/bin"}), mock.patch.object(api.sys, "platform", "linux"):
+            api.find_docker()
+            self.assertEqual(os.environ["PATH"], "/usr/bin")
+
     def test_what_answers_is_the_lab_ui_by_the_server_header_of_its_page(self):
         self.assertTrue(api.is_lab_ui(self.server.server_port))
         self.assertFalse(api.is_lab_ui(self.another_program()))
@@ -2513,13 +2524,13 @@ class Startup(Case):
             api.main(["--no-open", "--port", "9123"])
         served.assert_called_once()
         self.assertEqual(said.getvalue().strip(), "Gravitee Lab UI: docker not found")
-        # The line points at the page that opens, not at the README the command line points at
+        # The line points at the Lab UI, not at the README the command line points at
         self.patch(api, "requirement", return_value=f"docker not found: install Docker with Compose 5.0 or later {api.README}")
         said = io.StringIO()
         with contextlib.redirect_stderr(said):
             api.main(["--no-open", "--port", "9123"])
         self.assertEqual(said.getvalue().strip(), "Gravitee Lab UI: docker not found: install Docker with Compose 5.0 or later. "
-                                                  "The page that opens says how to fix it.")
+                                                  "The Lab UI says how to fix it.")
 
 
 if __name__ == "__main__":
