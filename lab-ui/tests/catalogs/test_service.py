@@ -546,6 +546,9 @@ class States(Seam):
                          "Connect to it once from a terminal, then try again."),
             "git_missing": ("needs_git", "Needs Git", "error", "Git is not installed.", "Install Git, then try again."),
             "git_old": ("needs_git", "Needs Git", "error", "Git is too old.", "Install Git 2.25 or later, then try again."),
+            "docker_missing": ("needs_docker", "Needs Docker", "error", "Docker is not ready.",
+                               "Start Docker: the catalog is read again by itself."),
+            "unread": ("failed", "Failed", "error", "This Lab could not read the catalog.", "Try again."),
             "wrong_catalog": ("wrong_catalog", "Wrong catalog", "error",
                               "This address does not serve the catalog this Lab expects.", "Run make update, then try again."),
             "history_changed": ("rewritten", "Rewritten", "error", "This catalog was rewritten or moved.",
@@ -1168,7 +1171,9 @@ class Understanding(Real):
         real = project._raw
         self.patch(project, "_raw", lambda path, **how: (None, {"file": path, "message": "docker did not answer within 15 s"}))
         self.assertIsNone(install.unknown_at(store, tip), "this Lab could not tell")
-        self.assertFalse(install.Readable(store)(tip), "a version it could not tell of is not one it reads, for now")
+        with self.assertRaises(CatalogError) as stopped:   # a version it could not tell of stops the choice
+            install.readable(store)(tip)
+        self.assertIn(stopped.exception.code, ("docker_missing", "unread"))
         self.patch(project, "_raw", real)
         self.assertEqual(install.unknown_at(store, tip), [], "the next reading reads it, and is the one kept")
         self.patch(install, "probe", side_effect=AssertionError("read again"))

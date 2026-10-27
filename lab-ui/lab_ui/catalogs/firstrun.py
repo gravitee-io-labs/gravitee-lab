@@ -65,7 +65,7 @@ REFUSED = ("no_access", "not_found", "ssh_denied", "host_key")
 LINES = {
     "git_missing": "Git is not installed. Install it, then try again.",
     "git_old": "Git{have} is too old. Install Git 2.25 or later, then try again.",
-    "docker_missing": "Docker is not installed. The catalog downloads once it is.",
+    "docker_missing": "Docker is not ready. The catalog downloads once it is.",
     "no_readable_version": "The catalog needs a newer Gravitee Lab. Run make update, then restart the Lab.",
     "lab_old": "The catalog is not ready for this version of the Lab. Try again later.",
     "failed": "The catalog could not be downloaded. Try again.",
@@ -362,12 +362,12 @@ def _download(ns: str, entry: Optional[dict], row: Optional[dict]) -> None:
             shutil.rmtree(store_path, ignore_errors=True)   # another repository: nothing of it is worth keeping
             raise install.not_expected(address.repo or address.display)
         contract = _contract()
-        reader = install.Readable(store_path)
-        offered = manifest.offer(store_path, tip, contract["contract"], contract["contract_min"], answered, readable=reader)
+        offered = manifest.offer(store_path, tip, contract["contract"], contract["contract_min"], answered,
+                                 readable=install.readable(store_path))
         commit, tip_state = offered.commit, offered.tip
         if commit is None:
-            raise install.unread(reader) or manifest.no_commit(offered.levels, contract["contract"], contract["contract_min"],
-                                                               listed, offered.searched)
+            raise manifest.no_commit(offered.levels, contract["contract"], contract["contract_min"],
+                                     listed, offered.searched)
         kept, ignored = bare.selected(bare.listing(store_path, commit))
         _set(ns, "stage", 0.0)
         staged = install.stage(answered, ns, store_path, commit, kept, ignored)

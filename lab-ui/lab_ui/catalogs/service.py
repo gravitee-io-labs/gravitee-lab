@@ -251,7 +251,7 @@ def _failure(code, url, installed):
         return ("Git is not installed." if code == "git_missing" else "Git is too old.",
                 "Install Git, then try again." if code == "git_missing" else "Install Git 2.25 or later, then try again.")
     if code == "docker_missing":
-        return ("Docker is not installed.", "Install Docker, then try again.")
+        return ("Docker is not ready.", "Start Docker: the catalog is read again by itself.")
     if code == "unreachable":
         return (f"Cannot reach {host}." + (f" Showing the copy from {installed}." if installed else ""),
                 "Check your connection, then check again." if installed else "Check your connection, then try again.")
@@ -306,7 +306,7 @@ def _kind_state(ns, found, held, entry, contract):
             key = "lab_new"
         elif not held.get("checked"):
             key = "checking"
-    if key in ("unreachable", "noaccess", "needs_git", "failed") and held.get("error"):
+    if key in ("unreachable", "noaccess", "needs_git", "needs_docker", "failed") and held.get("error"):
         reason, after = _failure(held["error"], url, installed if held.get("pin") else "")
         return _state(key, reason=reason, next=after)
     if key == "uptodate":   # a copy that is no release (a catalog that makes none, commits made after the last one) says so
@@ -872,13 +872,13 @@ def check_address(address, branch=None):
         roots = bare.roots(store_path, tip)
         if len(roots) > install.ROOTS_LIMIT:   # the identity of a catalog is its roots, and the lock keeps this many
             raise gitx.fail("too_large", found_at)
-        reader = install.Readable(store_path)
-        offered = manifest.offer(store_path, tip, contract["contract"], contract["contract_min"], found_at, readable=reader)
+        offered = manifest.offer(store_path, tip, contract["contract"], contract["contract_min"], found_at,
+                                 readable=install.readable(store_path))
         listed_at = _listed_ids_at(found_at.display)
         commit = offered.commit
         if commit is None:
-            raise install.unread(reader) or manifest.no_commit(offered.levels, contract["contract"], contract["contract_min"],
-                                                               bool(listed_at), offered.searched)
+            raise manifest.no_commit(offered.levels, contract["contract"], contract["contract_min"],
+                                     bool(listed_at), offered.searched)
         kept, ignored = bare.selected(bare.listing(store_path, commit))
         with _one_stage():
             staged = install.stage(found_at, f"new-{ticket}", store_path, commit, kept, ignored)
@@ -1075,10 +1075,8 @@ def _offered(store_path, held, tip, contract, address=None):
     a copy of commits made after the last release, a release whose tag was deleted) is no offer: the pin is. `moved`: the tag
     of the release installed now names the commit offered, which is another one: the owners moved a release, and the same
     version is not the same files."""
-    reader = install.Readable(store_path)
-    found = manifest.offer(store_path, tip, contract["contract"], contract["contract_min"], address, readable=reader)
-    if found.commit is None and install.unread(reader):   # nothing is learned of a version Docker could not read
-        raise install.unread(reader)
+    found = manifest.offer(store_path, tip, contract["contract"], contract["contract_min"], address,
+                           readable=install.readable(store_path))
     pin, target = held.get("pin"), found.commit
     if target is not None and pin and target != pin and bare.is_ancestor(store_path, target, pin):
         return found._replace(commit=pin, release=held.get("release")), False
@@ -1154,7 +1152,9 @@ def check_now(ns):
     try:
         _ask(ns, entry)
     except CatalogError as error:
-        registry.set_lock(ns, error=_failed_with(ns, error.code))
+        # Docker not ready to read the news says nothing of the copy, which works: the next check reads it again
+        if error.code not in ("docker_missing", "unread"):
+            registry.set_lock(ns, error=_failed_with(ns, error.code))
     return {"catalog": _row_of(ns)}
 
 

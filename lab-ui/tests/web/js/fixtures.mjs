@@ -24,6 +24,7 @@ export const STATES = {
   unreachable: STATE("unreachable", "Unreachable", "warn", "Cannot reach github.com.", "Check your connection, then try again."),
   noaccess: STATE("noaccess", "No access", "error", "No access to owner/repo.", "Run gh auth login in a terminal, then try again."),
   needs_git: STATE("needs_git", "Needs Git", "error", "Git is not installed.", "Install Git, then try again."),
+  needs_docker: STATE("needs_docker", "Needs Docker", "error", "Docker is not ready.", "Start Docker: the catalog is read again by itself."),
   wrong_catalog: STATE("wrong_catalog", "Wrong catalog", "error", "This address does not serve the catalog this Lab expects.", "Run make update, then try again."),
   rewritten: STATE("rewritten", "Rewritten", "error", "This catalog was rewritten or moved.", "Update only if you expected it."),
   lab_new: STATE("lab_new", "Needs a newer Gravitee Lab", "warn", "A newer version needs a newer Gravitee Lab. This is the newest one this Lab reads.", "Run make update, then restart the Lab."),

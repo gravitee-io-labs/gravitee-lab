@@ -103,7 +103,7 @@ def _transient(error) -> bool:
     not be read now (`renames_unread`), Docker could not say what has containers (`docker_unknown`), or the Lab UI is ending. Such an error never marks a
     catalog damaged and never drops what says an operation is under way: the next start has git, and finishes it."""
     detail = getattr(error, "detail", None) or {}
-    return getattr(error, "code", None) in ("git_missing", "git_old", "docker_missing", "docker_unanswered", "timeout", "renames_unread",
+    return getattr(error, "code", None) in ("git_missing", "git_old", "docker_missing", "unread", "timeout", "renames_unread",
                                             "docker_unknown") \
         or gitx.ENDING in str(detail.get("output") or "")
 
@@ -1232,28 +1232,18 @@ def unknown_at(store_path, commit) -> Optional[list]:
     return found
 
 
-class Readable:
-    """What `manifest.pick` asks of a version of the catalog in the store: whether this Lab reads all it uses (`unknown_at`),
-    None when it could not tell (Docker did not answer, or is not there): `unsure` keeps that one was, and `unread` says why."""
-
-    def __init__(self, store_path):
-        self.store_path, self.unsure = store_path, False
-
-    def __call__(self, commit):
-        found = unknown_at(self.store_path, commit)
+def readable(store_path):
+    """What `manifest.pick` asks of a version of the catalog in the store: whether this Lab reads all it uses (`unknown_at`).
+    A version it could not tell of stops the choice: an older one is no answer, and that one is not one that needs a newer
+    Gravitee Lab. It raises `docker_missing` while Docker Compose cannot read here (not installed, not started yet, older
+    than 5), else `unread`."""
+    def reads(commit):
+        found = unknown_at(store_path, commit)
         if found is None:
-            self.unsure = True
-            return None
+            from ..library import check   # here and not above: it reads this package
+            raise gitx.fail("docker_missing" if check.compose_missing() else "unread")
         return found == []
-
-
-def unread(reader):
-    """The refusal when a version went unread (`reader`, the `Readable` that `pick` asked): an older version is no answer, and
-    the one unread is not one that needs a newer Gravitee Lab. `docker_missing` without Compose, else `docker_unanswered`;
-    None when every version asked was read."""
-    if not reader.unsure:
-        return None
-    return gitx.fail("docker_missing" if compose.plugin() is None else "docker_unanswered")
+    return reads
 
 
 def plan_update(ns: str, target: str, context: Optional[dict] = None) -> dict:

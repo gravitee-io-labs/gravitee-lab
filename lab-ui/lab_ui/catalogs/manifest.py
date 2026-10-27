@@ -156,22 +156,16 @@ def searched(levels: list, contract: int, contract_min: int, readable=None, read
             spent[0] = True
             return False
         left[0] -= 1
-        return readable(commit)   # None: it could not tell, and an older version is no answer
+        return bool(readable(commit))
     tip, lab = levels[0]
     if lab is not None and compat(lab, contract, contract_min) != "ok":
         tip_state = compat(lab, contract, contract_min)
+    elif fits(tip, lab):
+        return tip, "ok", 0
     else:
-        found = fits(tip, lab)
-        if found:
-            return tip, "ok", 0
-        if found is None:
-            return None, "new", 0
         tip_state = "new"
     for commit, lab in levels[1:]:
-        found = fits(commit, lab)
-        if found is None:
-            return None, tip_state, 0
-        if found:
+        if fits(commit, lab):
             return commit, tip_state, 0
     return None, tip_state, (reads - left[0]) if spent[0] else 0
 
@@ -747,7 +741,7 @@ def offer(store: Path, tip: str, contract: int, contract_min: int, address: Opti
     with a release on that branch is offered its greatest release this Lab reads, and the commits made since are not offered
     until they are released; one with none is offered the newest commit this Lab reads (`levels`), as it always was. A tip
     with no catalog.yml is `not_catalog`, released or not. `readable` is what `pick` asks of each version, released or not:
-    whether this Lab reads all that its files use (`install.Readable`, which every caller of a published catalog gives)."""
+    whether this Lab reads all that its files use (`install.readable`, which every caller of a published catalog gives)."""
     found = releases(store, tip)
     if not found:
         history = levels(store, tip, address=address)
