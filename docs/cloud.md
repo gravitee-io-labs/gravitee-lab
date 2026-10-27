@@ -42,7 +42,7 @@ flowchart LR
 
 - A Gravitee Cloud account, and a user of it with the role `ACCOUNT_PRIMARY_OWNER` or `ACCOUNT_OWNER`, which creating a
   gateway needs.
-- A license with the feature `apim-bridge-gateway`, for the gateway: the core's, or one in `HYBRID_GATEWAY_LICENSE`
+- A license with the feature `apim-bridge-gateway`, for the gateway, in its add-on's setting `HYBRID_GATEWAY_LICENSE`
   ([Needs](https://github.com/gravitee-io-labs/gravitee-lab-public-catalog/blob/main/addons/hybrid-gateway/README.md#needs)).
 - Outbound HTTPS from your machine to `eu.cloud.gravitee.io` and `eu.cloudgate.gravitee.io`.
 - The lab running: `make ui`. The core can stay stopped.
@@ -132,8 +132,8 @@ The Lab creates the gateway in Cloud with two domains and keeps its token. You n
 you create is the one that runs on this machine: the Lab writes its token in the settings of the Hybrid gateway add-on.
 One hybrid gateway runs here at a time. A gateway you create while another runs is kept, and starting it swaps the
 other one: the form says *The gateway of Test runs here now: starting this one stops it*, and the dialog of the start
-lists what it restarts and which environment it stops serving. The gateway is started at once, unless the add-on lacks a
-license: the row then offers *Add license* and starts nothing.
+lists what it restarts and which environment it stops serving. The gateway is started at once, unless a setting of the add-on
+has no value, such as its license: the row then offers *Settings* and starts nothing.
 
 The row's *Gateway* column shows a dot and a word, on one line. Its popover has the name of the gateway, its version and, while
 it runs here, the address to call (`localhost:8090`; *Copy address* in the row's *More* copies it). An environment with several
@@ -506,9 +506,8 @@ starts, so a token that was revoked meanwhile is refused with the same sentence.
 
 **Symptom:** the job fails with *Hybrid gateway did not connect to Gravitee Cloud*, after 2 minutes.
 
-**Cause:** the license lacks the feature `apim-bridge-gateway` (the add-on's row says *Needs a license*, *License
-expired* or *Not in the license*), the token the add-on holds is not this gateway's, or the container cannot reach
-`eu.cloudgate.gravitee.io`.
+**Cause:** the license in `HYBRID_GATEWAY_LICENSE` lacks the feature `apim-bridge-gateway` or has expired, the token the add-on
+holds is not this gateway's, or the container cannot reach `eu.cloudgate.gravitee.io`.
 
 **Fix:** open *More*, then *Show logs*, on the environment's row. For the license, set `HYBRID_GATEWAY_LICENSE` in the add-on's settings with its key
 button, then choose *Save & apply*: a restart keeps the old value, because a container reads its settings when it is
