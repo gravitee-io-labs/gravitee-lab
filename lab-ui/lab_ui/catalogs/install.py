@@ -26,10 +26,12 @@ from, so whatever a stop leaves is all the machine's. A start without git goes o
 record for a start that has git.
 
 Labels, in order. stage: begin, written. add: begin, manifest, store, pending, install, file (for each file of a merge),
-placed, lock, config, adopt, done. update, undo and repair: pending, apply, removed (each), file (each), manifest, lock,
-refs, adopt, done. remove: config, store, files, marker, vacate, lock, stars, done. shadow: record, move (each), install,
-link, config, lock, done. unshadow: record, link, install, then apply, file, removed and manifest of the repair it makes,
-move (each), config, lock, done. recover: begin, pending, sweep, adopt, done.
+rename, placed, lock, config, adopt, done. update, undo and repair: pending, apply, removed (each), file (each), manifest,
+rename, lock, refs, adopt, done. The renames a catalog declares (`renames.follow`) say rename:entry, :on, :include, :copy,
+:settings before each change, between rename and the step after it. remove: config, store, files, marker,
+vacate, lock, stars, done. shadow: record, move (each), install, link, config, lock, done. unshadow: record, link,
+install, then apply, file, removed and manifest of the repair it makes, move (each), config, lock, done. recover: begin,
+pending, sweep, adopt, done.
 
 The locks are the catalogs lock and the advisory lock of the other processes (`registry.LOCK`, `registry.flock`), then
 `project.exclusive()` around the steps that change what a reader reads, in that order (, rule 11)."""
@@ -49,12 +51,16 @@ from typing import Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
 from ..docker import compose
 from ..library import moves, starred
 from .. import paths
-from . import defaults, gitx, manifest, registry, resolve, understood
+from . import defaults, gitx, manifest, registry, renames, resolve, understood
 from . import store as bare
 from .registry import CatalogError
 
 # A test sets it to a callable that takes the label of the step about to be taken and raises to stop the run there
 STEP = None
+# Which units of a catalog have a container, running or not: a function of the catalog and of `kind:name` keys that the Lab UI
+# sets (`service._containers`) and that raises when Docker cannot say. Nothing of an item is moved while it has one; without the
+# function nothing is asked
+CONTAINERS = None
 
 MARKER = ".kept"   # left by a Remove that kept the settings (rule 12): exactly the machine files and this
 SHADOW = ".shadow-{ns}.json"   # beside the installs: the machine entries a working copy took
@@ -93,10 +99,11 @@ def _step(label):
 
 def _transient(error) -> bool:
     """Whether a refusal says something about this moment and not about the catalog: there is no usable git (or the
-    shim of macOS without its tools), a command ran out of time, or the Lab UI is ending. Such an error never marks a
+    shim of macOS without its tools), a command ran out of time, the catalog.yml whose renames an operation follows could
+    not be read now (`renames_unread`), Docker could not say what has containers (`docker_unknown`), or the Lab UI is ending. Such an error never marks a
     catalog damaged and never drops what says an operation is under way: the next start has git, and finishes it."""
     detail = getattr(error, "detail", None) or {}
-    return getattr(error, "code", None) in ("git_missing", "git_old", "timeout") \
+    return getattr(error, "code", None) in ("git_missing", "git_old", "timeout", "renames_unread", "docker_unknown") \
         or gitx.ENDING in str(detail.get("output") or "")
 
 
@@ -932,6 +939,7 @@ def commit_add(staged: Staged, address: gitx.Address, branch: Optional[str], aud
         with _exclusive():
             _step("add:install")
             _place(ns, staged)
+            _follow(ns, renames.resolve(None, renames.declared(meta)), meta["moved_from"], "add")
         _step("add:placed")
         now = _utc()
         _step("add:lock")
@@ -1022,11 +1030,10 @@ def adopt(ns: str, moved_from: Optional[Iterable[str]] = None) -> List[dict]:
         for name in units.get(kind, []):
             if not moves.has_held(kind, name):
                 continue
-            if ns != default:
-                if declared is None:
-                    declared = _declared(ns)
-                if f"{kind}:{name}" not in declared:
-                    continue
+            if ns != default and declared is None:
+                declared = _declared(ns)
+            if not renames.adopts(ns, f"{kind}:{name}", declared):
+                continue
             result = moves.adopt_held(ns, kind, name)
             if result:
                 found.append({"unit": f"{kind}:{name}", "files": result})
@@ -1060,7 +1067,7 @@ def on_units(ns: str) -> Set[str]:
         if target and target[0] == ns:
             found.add(f"{target[1]}:{target[2]}")
         try:
-            todo += compose.includes(file)
+            todo += compose.includes(file, flow=True)
         except (OSError, ValueError):
             continue
     return found
@@ -1072,6 +1079,57 @@ def _held(ns, keys, context) -> List[str]:
     asked = (context or {}).get("on")
     asked = asked() if callable(asked) else asked
     return sorted(set(keys) & (set(asked or ()) | on_units(ns)))
+
+
+def movable(ns: str, frm: str, to: str, label: str) -> dict:
+    """The renames a roll of catalog `ns` from `frm` to `to` follows (`_moving`), once nothing holds them: the one question of a
+    plan, an update, a Go back, a Repair and a recover. It refuses (`held`, with the `units` and their `services`) while an
+    item it moves away from has a container, running or not (`CONTAINERS`): only an add-on or a playground whose folder is
+    still there, which is all a rename moves under a container, each with its services as the version it is moved from has
+    them (an update that stopped half way has taken its file already). Docker is not asked when nothing would move."""
+    found, base = _moving(ns, registry.store_dir(ns), frm, to, label)
+    moving = sorted(old for old in found["items"] if old.partition(":")[0] != "setup"
+                    and (paths.ROOT / paths.CATALOG_FILES[old.partition(":")[0]].format(
+                        ns=ns, name=old.partition(":")[2])).parent.is_dir())
+    if CONTAINERS is not None and moving:
+        units = {key: _unit_at(ns, key, base) for key in moving}
+        busy = sorted(CONTAINERS(ns, {key: unit["services"] for key, unit in units.items()}))
+        if busy:
+            raise CatalogError("held", f"Turn off {busy[0].partition(':')[2]} first.", 409, units=busy, containers=True,
+                               services={key: sorted(units[key]["services"]) for key in busy},
+                               names={key: units[key]["name"] for key in busy if units[key]["name"]})
+    return found
+
+
+def _unit_at(ns, key, commit) -> dict:
+    """A unit (`kind:name`) in the version `commit` of its catalog: {services: those it runs itself (`compose.own_services`:
+    not the core's nor those of what it includes, which it may extend), name: what it is called, None when not said}."""
+    kind, _, name = key.partition(":")
+    file, inside = paths.CATALOG_FILES[kind].format(ns=ns, name=name), f"{paths.CATALOGS_DIR}/{ns}/"
+
+    def text(path):   # a file of the catalog as that version has it, any other as it is on disk
+        try:
+            data = bare.read(registry.store_dir(ns), commit, path[len(inside):]) if path.startswith(inside) \
+                else (paths.ROOT / path).read_bytes() if (paths.ROOT / path).is_file() else None
+            return data.decode("utf-8") if data else ""
+        except (CatalogError, OSError, ValueError):
+            return ""
+    own = text(file) if commit else ""
+    theirs = {service for _, _, target in compose._include_items(own, paths.ROOT / file, flow=True) if target
+              for service in compose.top_keys(text(target), "services")}
+    try:
+        said = (compose.x_gravitee(own, (paths.ROOT / file).parent) or {}).get("name") if own else None
+    except compose.ComposeError:
+        said = None
+    return {"services": set(compose.own_services(compose.top_keys(own, "services"),
+                                                 compose.top_keys(text(paths.CORE_FILE), "services"), theirs)),
+            "name": said if isinstance(said, str) else None}
+
+
+def _damaged(ns, error=None):
+    """Marks catalog `ns` damaged, which Repair clears. An operation a hold stopped (`held`: an item it renames has a
+    container) stays under way: Repair finishes it once nothing runs, and the row says what holds it."""
+    registry.set_lock(ns, error="damaged", **({} if getattr(error, "code", None) == "held" else {"pending": None}))
 
 
 def _turn_off(keys):
@@ -1183,7 +1241,8 @@ def plan_update(ns: str, target: str, context: Optional[dict] = None) -> dict:
     """The plan of an update, for the files: `{"upToDate": True}` when `target` is the pin or changes nothing installable;
     else the plan. The candidate tree is staged in full at `.stage-<ns>` for the caller to judge. The plan: {ns, op
     (update, or undo when `target` is `lock.previous`), from, to, tip, name, version, lab, adds, updates, removes (unit
-    keys `kind:name`), files {add, change, remove}, touched (what changed in each unit, `store.changed_parts`), rewritten,
+    keys `kind:name`), renamed ({kind:old: kind:new}: the items it renames, which are in neither adds nor removes), files
+    {add, change, remove}, touched (what changed in each unit, `store.changed_parts`), rewritten,
     held (the changed or removed units that are on), release (the version of the release `target` is, or None), whatsnew
     (what is new in the units it changes, adds or removes, unit by unit, as the notes of a release say it: `store.notes`,
     each subject once), ignored, kept (the files written), stage, meta (the validated catalog.yml of the candidate), context}.
@@ -1225,8 +1284,10 @@ def plan_update(ns: str, target: str, context: Optional[dict] = None) -> dict:
             _clear(registry.stage_dir(ns))   # what was refused is not left to be installed
             raise
         before = old["units"]
-        adds = sorted(set(after) - set(before))
-        removes = sorted(set(before) - set(after))
+        moved = renames.resolve(renames.declared_at(store_path, held["pin"]), renames.declared(meta), op == "undo")
+        renamed = _renamed_units(moved["items"], before, after)
+        adds = sorted(set(after) - set(before) - set(renamed.values()))
+        removes = sorted(set(before) - set(after) - set(renamed))
         updates = sorted(key for key in set(before) & set(after) if before[key] != after[key])
         now = {entry.path: entry for entry in kept}
         files = {"add": sorted(set(now) - set(old["files"])),
@@ -1235,13 +1296,23 @@ def plan_update(ns: str, target: str, context: Optional[dict] = None) -> dict:
                                   if (now[path].oid, now[path].mode)
                                   != (_rec(old["files"], path).get("oid"), _rec(old["files"], path).get("mode")))}
         rewritten = _rewritten(ns, store_path, held, target, context, op) or (op == "update" and bool(context.get("moved")))
-        news = _whatsnew(store_path, held["pin"], target, updates + adds + removes) if op == "update" else []
+        news = _whatsnew(store_path, held["pin"], target, updates + adds + removes + sorted(renamed) + sorted(renamed.values())) \
+            if op == "update" else []
         touched = bare.changed_parts(files["add"] + files["change"] + files["remove"])
         return {"ns": ns, "op": op, "from": held["pin"], "to": target, "tip": held.get("tip"), "name": meta["name"],
                 "version": meta["version"], "lab": meta["lab"], "adds": adds, "updates": updates, "removes": removes,
+                "renamed": renamed,
                 "files": files, "touched": touched, "rewritten": rewritten, "held": _held(ns, updates + removes, context),
                 "release": manifest.release_of(store_path, target, meta["version"]), "whatsnew": news, "ignored": ignored, "kept": kept, "stage": os.fspath(registry.stage_dir(ns)),
                 "meta": meta, "context": context}
+
+
+def _renamed_units(items, before, after) -> Dict[str, str]:
+    """{kind:old: kind:new} of the items an update renames, as unit keys: the old one is installed and goes, the new one comes
+    (`items`, the moves of `renames.resolve`). Such a pair is one item that changes its name, not one removed and one added:
+    its settings follow it, and its being on holds nothing back (its containers do: `service._plan`)."""
+    return {old: new for old, new in sorted(items.items())
+            if old in before and old not in after and new in after and new not in before}
 
 
 def _rewritten(ns, store_path, held, target, context, op="update") -> bool:
@@ -1317,9 +1388,14 @@ def apply_update(ns: str, plan: dict, confirm_history: bool = False) -> None:
         if plan.get("ns") != ns or held.get("pin") != plan.get("from"):
             raise CatalogError("ticket_expired", "This took too long. Start again.", 409)
         _need(ns, plan["to"])
-        busy = _held(ns, list(plan["updates"]) + list(plan["removes"]), plan.get("context"))
+        busy = _held(ns, list(plan["updates"]) + list(plan["removes"]) + list(plan.get("hold") or ()), plan.get("context"))
         if busy:
             raise _turn_off(busy)
+        including = (plan.get("context") or {}).get("including")
+        including = including() if callable(including) else {}
+        if including:   # an item that is on includes a renamed one where the Lab cannot write it again
+            raise CatalogError("held", f"Turn off {next(iter(including.values()))} first.", 409)
+        movable(ns, plan["from"], plan["to"], plan["op"])
         if plan["rewritten"] and not confirm_history:
             raise CatalogError("history_changed", "This catalog was rewritten or moved. Confirm to update anyway.", 409)
         going, ours = set(plan["files"]["remove"]), set((registry.read_manifest(ns) or {}).get("files") or ())
@@ -1329,6 +1405,7 @@ def apply_update(ns: str, plan: dict, confirm_history: bool = False) -> None:
             if blocking:   # the machine's file where the catalog now puts one of its own: nothing is started
                 raise Unsafe(f"{blocking} is in the way of {path}", ns)
         label = plan["op"]
+        renames.between(registry.store_dir(ns), plan["from"], plan["to"], label == "undo")   # read now: a refusal changes nothing
         _step(f"{label}:pending")
         registry.set_lock(ns, pending={"op": label, "from": plan["from"], "to": plan["to"]})
         _roll(ns, plan["from"], plan["to"], label, plan.get("meta"))
@@ -1348,7 +1425,9 @@ def _roll(ns, frm, to, label, meta=None):
         roots = bare.roots(store_path, to)   # before any file moves: a git that fails stops the operation clean
         if len(roots) <= ROOTS_LIMIT:
             change["roots"] = roots   # the history the person confirmed is the history now pinned
-    _converge(ns, to, kept, ignored, label, examine_all=frm == to)
+    found = movable(ns, frm, to, label)
+    moved_from = meta["moved_from"] if meta is not None else renames.moved_from_at(store_path, to)
+    _converge(ns, to, kept, ignored, label, examine_all=frm == to, then=lambda: _follow(ns, found, moved_from, label))
     if meta is not None:
         fields = _lock_fields(meta)
     else:
@@ -1441,11 +1520,34 @@ def _apply(ns, commit, kept, label, examine_all, prepared):
     _write_manifest(root, document)
 
 
-def _converge(ns, commit, kept, ignored, label, examine_all):
-    """`_prepared`, then `_apply` under the project lock."""
+def _moving(ns, store_path, frm, to, label):
+    """The renames a roll from `frm` to `to` follows (`renames.between`), from what is installed: a repair after an update that
+    stopped half way follows them back to the pin. A pair into an item the version left had already is two items, not one
+    renamed. Answers them and the version they are followed from."""
+    base = frm if frm != to else ((registry.read_manifest(ns) or {}).get("commit") or frm)
+    found = renames.between(store_path, base, to, label == "undo" or base != frm)
+    if found["items"] and base != to:
+        before = set(bare.unit_digests(bare.selected(bare.listing(store_path, base))[0])) - {"@catalog"}
+        found = {**found, "items": {old: new for old, new in found["items"].items() if new not in before}}
+    return found, base
+
+
+def _converge(ns, commit, kept, ignored, label, examine_all, then=None):
+    """`_prepared`, then `_apply` under the project lock, and `then` under it too: what follows the files, that a reader must
+    see with them (the renames)."""
     prepared = _prepared(ns, commit, kept, ignored)
     with _exclusive():
         _apply(ns, commit, kept, label, examine_all, prepared)
+        if then is not None:
+            then()
+
+
+def _follow(ns, found, moved_from, label):
+    """The renames of a version, followed once its files are in place (`renames.follow`), under the project lock: the on
+    file never names a file the install no longer has."""
+    if any(found.values()):
+        _step(f"{label}:rename")
+        renames.follow(ns, found, moved_from, _step)
 
 
 # ---------------------------------------------------------------- repairing
@@ -1468,6 +1570,7 @@ def repair(ns: str) -> None:
         if not held.get("pin"):
             raise ValueError(f"{ns} has nothing installed")
         _need(ns, held["pin"])
+        movable(ns, held["pin"], held["pin"], "repair")
         _step("repair:pending")
         registry.set_lock(ns, pending={"op": "update", "from": held["pin"], "to": held["pin"]})
         _roll(ns, held["pin"], held["pin"], "repair")
@@ -1822,6 +1925,9 @@ def _finish(ns):
         root = os.fspath(registry.install_dir(ns))
         if _complete(ns, to):
             _restore(ns, root)
+            with _exclusive():
+                _follow(ns, renames.between(registry.store_dir(ns), None, to), renames.moved_from_at(registry.store_dir(ns), to),
+                        "add")
             now = _utc()
             registry.set_lock(ns, pin=to, previous=None, installed=now, checked=now, error=None, pending=None)
             bare.set_ref(registry.store_dir(ns), "pin", to)
@@ -1839,9 +1945,11 @@ def _finish(ns):
     except CatalogError as error:
         if _transient(error):   # git is not here now: the operation stays under way for a start that has it
             raise
-        registry.set_lock(ns, pending=None, error="damaged")
+        _damaged(ns, error)
+        if error.code == "held":   # said to who asked: what holds it, and Repair
+            raise
     except OSError:
-        registry.set_lock(ns, pending=None, error="damaged")
+        _damaged(ns)
 
 
 def _age(path) -> float:
@@ -1948,7 +2056,7 @@ def recover() -> None:
                     _finish(ns)
                 except TROUBLE as error:   # this catalog is damaged, the others are not
                     if not _transient(error):   # without git it is not damaged, it waits
-                        registry.set_lock(ns, pending=None, error="damaged")
+                        _damaged(ns, error)
         for entry in registry.entries():
             record = _read_record(entry["id"])
             try:

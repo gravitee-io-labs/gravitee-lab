@@ -36,7 +36,8 @@ from ..docker import compose, images
 from ..gravitee import frames, platforms
 from . import layers
 from .. import paths
-from ..catalogs import defaults, manifest, registry, trust, understood
+from ..catalogs import defaults, gitx, manifest, registry, trust, understood
+from ..catalogs import store as bare
 from ..catalogs.registry import CatalogError
 from ..catalogs.report import ERROR, WARNING, Problem
 from ..catalogs.tree import read_inside
@@ -1252,6 +1253,21 @@ def _used(units, raw, inputs, rows):
     return {item: rows[item] for item in found if item in rows}
 
 
+def _catalog_keys(meta, rows):
+    """{item: the level it appeared at} of the keys of catalog.yml that the catalog uses, as the lock names them
+    (`catalog.key x-gravitee-catalog.<key>`, and `.<key>.<part>` for a part of a mapping): a key whose value is empty is not
+    used, but a mapping of parts (`renamed`), which an older Lab refuses as soon as it is there, even empty."""
+    found = set()
+    for key in manifest.KEYS:
+        value = (meta or {}).get(key)
+        if value is None or value in ("", [], False) or value == {} and key not in manifest.PARTS:
+            continue
+        parts = [part for part in manifest.PARTS.get(key, ()) if isinstance(value, dict) and value.get(part)]
+        found.add(("catalog.key", f"{manifest.BLOCK}.{key}"))
+        found |= {("catalog.key", f"{manifest.BLOCK}.{key}.{part}") for part in parts}
+    return {item: rows[item] for item in found if item in rows}
+
+
 def _not_understood(kind, uid, config, partial=False):
     """What a unit uses that this Lab does not read, each said where the other rules do not say it already: the keys of
     x-gravitee (`_metadata`), a playground's keys of `requires` (`_requires`) and the category (`_metadata`) have their own
@@ -1266,13 +1282,14 @@ def _not_understood(kind, uid, config, partial=False):
                "release that reads it (catalog.py upgrade --lab-ref latest)")
 
 
-def needed_lab(units, raw, inputs):
-    """The `lab` that older Gravitee Labs need in catalog.yml for these units: the highest level among the contract items
-    they use (`_used`), 1 when they use none, None without the lock."""
+def needed_lab(units, raw, inputs, meta=None):
+    """The `lab` that older Gravitee Labs need in catalog.yml for these units and the keys of its catalog.yml (`meta`, as
+    `manifest.read_catalog` reads it): the highest level among the contract items they use (`_used`, `_catalog_keys`), 1 when
+    they use none, None without the lock."""
     locked = _lock()
     if locked is None:
         return None
-    return max(_used(units, raw, inputs, locked[2]).values(), default=1)
+    return max({**_used(units, raw, inputs, locked[2]), **_catalog_keys(meta, locked[2])}.values(), default=1)
 
 
 def folder_lab(folder):
@@ -1296,7 +1313,12 @@ def folder_lab(folder):
         return None
     with temporary_link(folder, ns, needs), scrubbed():
         built, inputs = loaded()
-        return needed_lab(catalog_units(ns, built), inputs["raw"], {**inputs, "products": _anchored(inputs.get("products") or ())})
+        try:
+            meta = manifest.read_catalog(f"{paths.CATALOGS_DIR}/{ns}/{manifest.FILE}")
+        except CatalogError:
+            meta = None   # the check says what is wrong with it
+        return needed_lab(catalog_units(ns, built), inputs["raw"], {**inputs, "products": _anchored(inputs.get("products") or ())},
+                          meta)
 
 
 WARNING_MARK = "Warning: "   # a line of `catalog_problems` that is a warning: the catalog works here, and something is left to do
@@ -1318,7 +1340,7 @@ def _lab_lines(meta, units, raw, inputs):
         yield f"{LOCK_FILE} is not there or cannot be read, so `lab` cannot be verified"
         return
     contract, _, rows = locked
-    used = _used(units, raw, inputs, rows)
+    used = {**_used(units, raw, inputs, rows), **_catalog_keys(meta, rows)}
     needed = max(used.values(), default=1)
     fix = "older Gravitee Labs read it. Fix: run catalog.py upgrade --write, which writes it"
     if type(level) is int and level > contract:
@@ -1449,6 +1471,111 @@ def _canary(meta, units):
             yield f"canary: {item} is not an item of this catalog"
 
 
+def _history(ns):
+    """A reader of what the files of catalog `ns` were: `read(path, also=None)` finds the newest commit that removed `path`, and
+    answers (`path` just before it, `also` in the release before it, `also` at it), None for a file that is not there; None
+    when no commit removed `path` or there is nothing to read it from. The release before is the greatest version among the
+    release tags that lead to that commit (`store.release_tags`); with release tags but none before, there was nothing yet;
+    with no release tag at all, the commit just before stands for it: what a Lab that follows the branch had. From the git of
+    its folder when it is a repository of its own (a working copy linked here, the catalog's CI), else from the Lab's store
+    of it (an install), never from the network."""
+    folder = os.path.realpath(paths.ROOT / paths.CATALOGS_DIR / ns)
+    store = registry.store_dir(ns)
+    def git(*args):
+        try:
+            return gitx.run(list(args), timeout=20)
+        except CatalogError:   # no usable git: the history is not read, and nothing is said of it
+            return None
+
+    def said(found):
+        return found.out.decode("utf-8", "replace").strip() if found is not None and found.code == 0 else ""
+    top, _, found = said(git("-C", folder, "rev-parse", "--show-toplevel", "--absolute-git-dir")).partition("\n")
+    if found and os.path.realpath(top) == folder:   # its own repository, not one it lies in (the Lab's own clone)
+        where, tip, git_dir, prefix = ["-C", folder], "HEAD", found, "refs/tags/"
+    elif store.is_dir():
+        where, tip, git_dir, prefix = ["--git-dir", str(store)], (registry.lock_of(ns).get("pin") or ""), str(store), bare.RELEASES
+    else:
+        return lambda path, also=None: None
+
+    def show(at, path):
+        shown = git(*where, "show", f"{at}:{path}") if at and path else None
+        return shown.out.decode("utf-8", "replace") if shown is not None and shown.code == 0 else None
+
+    def releases(commit):
+        try:
+            return bare.release_tags(git_dir, commit, prefix) if re.fullmatch(r"[0-9a-f]{40}", commit or "") else []
+        except CatalogError:
+            return []
+
+    def read(path, also=None):
+        commit = said(git(*where, "log", "-1", "--format=%H", "--no-renames", "--diff-filter=D", tip, "--", path))
+        if not re.fullmatch(r"[0-9a-f]{40}", commit):
+            return None
+        parent = said(git(*where, "rev-parse", "--verify", "--quiet", f"{commit}^"))
+        before = releases(parent)
+        release = before[0][2] if before else None if releases(said(git(*where, "rev-parse", tip))) else parent
+        return show(parent, path), show(release, also), show(commit, also)
+    return read
+
+
+def _in_catalog(kind, name):
+    """The file of an item in its catalog, relative to the catalog."""
+    return f"setups/{name}.yml" if kind == "setup" else f"{kind}s/{name}/compose.yml"
+
+
+def _renamed_lines(meta, units, raw, reads=None, history=None, outside=()):
+    """What catalog.yml renames, against what the catalog holds: an old item is no item of it, and the item a chain of renames
+    ends at is one. An old setting is read by no item any more (`reads`: {unit file: [settings]}), since the Lab renames it in
+    every item's .env, and no setting of the map is one of `outside` (the core's and the shared ones, in the Lab's own .env,
+    which the Lab never renames). Then what the history of the catalog (`history`, `_history`) says of each pair, across the
+    commit that made it (the old file just before, the new one there): the new item was no item before it (the Lab keeps two
+    items apart: the old one would be removed, not renamed), its volumes keep their names (a volume with another name is a
+    new, empty one, and the person's data stays in the old one), and a setting the old item read that the new one does not is
+    in the map (the person's value would be left behind). A rename into a name an earlier release had for an item since
+    removed is a warning: who has that release has both. The shape of the map is manifest.py's."""
+    renamed = (meta or {}).get("renamed") or {}
+    have = {f"{kind}:{paths.split_ref(uid)[1]}" for kind, uid, _ in units}
+    pairs = renamed.get("items") or {}
+    for old in sorted(pairs):
+        if old in have:
+            yield f"renamed.items: {old} is an item of this catalog: what is renamed away cannot be there too"
+    for new in sorted({manifest._chain_end(pairs, old) for old in pairs} - {None}):
+        if new not in have:
+            yield f"renamed.items: {new} is not an item of this catalog"
+    settings = renamed.get("settings") or {}
+    for name in sorted({*settings, *settings.values()} & set(outside)):
+        yield (f"renamed.settings: {name} is a setting of the Lab's own .env (the core's, or shared by the catalog's items): "
+               "the Lab renames only the settings of each item's .env")
+    for old in sorted(settings):
+        readers = sorted(paths.split_ref(uid)[1] for _, uid, unit in units if old in ((reads or {}).get(unit["file"]) or ()))
+        if readers:
+            yield (f"renamed.settings: {old} is still read by {', '.join(readers)}: the Lab renames it in the .env of every item "
+                   f"of the catalog, so read {settings[old]} there")
+    for old, new in sorted((renamed.get("items") or {}).items()):
+        if history is None or new not in have:
+            continue
+        kind, _, away = old.partition(":")
+        if history(_in_catalog(kind, new.partition(":")[2])) is not None:
+            yield (f"{WARNING_MARK}renamed.items: {new} is a name an earlier release gave another item: who updates from that "
+                   f"release has both, so {old} is removed there, not renamed")
+        found = history(_in_catalog(kind, away), _in_catalog(kind, new.partition(":")[2]))
+        if found is None:
+            continue
+        before, there, now = found
+        if there is not None:
+            yield (f"renamed.items: {new} was an item already when {old} was renamed into it: the Lab keeps the two apart, so "
+                   f"{old} is removed, not renamed. Fix: rename it into a name that is new")
+        if before is None or now is None:
+            continue
+        for volume in sorted(compose.top_keys(before, "volumes") - compose.top_keys(now, "volumes")):
+            yield (f"renamed.items: {old} had the volume {volume}, which {new} does not: keep the name, or the people who have "
+                   "it lose its data")
+        dropped = {name for name, _, _ in compose.references(before)} - {name for name, _, _ in compose.references(now)}
+        for name in sorted(dropped - set(settings) - set(outside)):
+            yield (f"renamed.settings: {old} read {name}, which {new} no longer reads: map it to the name {new} reads, or the "
+                   "value people set is left behind")
+
+
 def catalog_units(ns, project):
     """[(kind, id, unit)] of the units of catalog `ns` in the project, by kind and id."""
     return [(kind, uid, unit) for kind in KINDS for uid, unit in sorted(project[f"{kind}s"].items())
@@ -1525,6 +1652,10 @@ def catalog_problems(ns, project=None, inputs=None, audited=False):
     if meta is not None:
         found += [(manifest.FILE, line) for line in _dependencies(meta, units, inputs, ns)]
         found += [(manifest.FILE, line) for line in _canary(meta, units)]
+        outside = {*(one["key"] for one in (inputs.get("variables") or {}).get(CORE_FILE, ())), *(meta.get("shared_settings") or ())}
+        history = _history(ns) if (meta.get("renamed") or {}).get("items") else None
+        found += [(manifest.FILE, line) for line in _renamed_lines(meta, units, raw, inputs.get("references") or {}, history,
+                                                                    outside)]
         found += [(manifest.FILE, line) for line in _lab_lines(meta, units, raw, {**inputs, "products": products})]
     return found
 

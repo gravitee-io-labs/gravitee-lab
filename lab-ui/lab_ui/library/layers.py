@@ -16,7 +16,8 @@ from ..docker import compose, envfiles
 from .. import paths
 from ..docker.jobs import JOBS, awaited
 from ..gravitee import platforms
-from ..catalogs import resolve
+from ..catalogs import registry, resolve
+from . import moves
 from .project import _control_plane, _dotenv, brought
 
 LOCKED = f"{paths.ON_FILE} has your own changes"
@@ -229,6 +230,7 @@ def current(project):
     elif broken:
         locked = f"{broken[0]} does not load"
         problems += [{"file": paths.ON_FILE, "message": f"{path} does not load: {OFF}"} for path in broken]
+    problems += _copy_problems(project) + _dangling_problems()
     unset = _unset(project)
     # Where an item runs when it is not this machine: {"<kind>:<id>": the kind of platform}
     where = {f"{unit[0]}:{unit[1]}": kind for path, kind in compose.targets(paths.ON_FILE).items()
@@ -236,6 +238,83 @@ def current(project):
     return {"playground": playground, "explicit": sorted(explicit), "setups": sorted(setups),
             "effective": sorted(_effective(project, playground, explicit)), "targets": where,
             "missing": list(unset), "unset": unset, "problems": problems, "locked": locked}
+
+
+def _named(project, file):
+    """How a person calls the item of a file: its name, else its id; the file itself for one that is no item."""
+    found = paths.unit_of(file)
+    if not found:
+        return file
+    return ((project.get(f"{found[0]}s") or {}).get(found[1]) or {}).get("name") or found[1].rsplit("/", 1)[-1]
+
+
+def _copy_problems(project):
+    """The copies written for a platform (`.lab/targets`) that the on file includes and that do not load: one that is not
+    there, and one that includes a file that is not there (its original included an item that moved since it was written).
+    Compose would refuse the whole project for either: each is said under the file of the item, by the names of the items."""
+    found = []
+    for original, platform in compose.targets(paths.ON_FILE).items():
+        if not (paths.ROOT / original).is_file():   # its item is gone, or being moved: the entries say it
+            continue
+        name, copy = _named(project, original), compose.target_copy(original, platform)
+        try:
+            text = (paths.ROOT / copy).read_text(encoding="utf-8")
+        except (OSError, ValueError):
+            found.append({"file": original, "message": f"what {name} runs on its platform is missing: turn {name} off and on again"})
+            continue
+        for _, _, target in compose._include_items(text, paths.ROOT / original):
+            if target and not (paths.ROOT / target).is_file():
+                found.append({"file": original, "message": f"what {name} runs on its platform includes "
+                                                           f"{_named(project, target)}, which is not there any more: "
+                                                           f"turn {name} off and on again"})
+    return found
+
+
+_UNIT_PATH = re.compile(rf"{re.escape(paths.CATALOGS_DIR)}/({paths.NS})/(addons|playgrounds)/([a-z0-9-]+)(?:/|$)")
+_dangling = {}   # (file, its modification time, its size) -> its problems: a file is read again only when it changed
+
+
+def _dangling_problems():
+    """The paths of the files of this machine that lead into the folder of an item of a catalog that the catalog no longer
+    has (it was renamed, or removed), wherever the Lab does not write them again: a bind in a list written on one line, a
+    path in a command. Compose reads such a file all the same, and the container finds nothing there: each is said under the
+    file, by the name of the item, until it no longer names it. A comment names nothing."""
+    found = []
+    for file in moves._personal_files():
+        try:
+            info = file.stat()
+        except OSError:
+            continue
+        key = (str(file), info.st_mtime_ns, info.st_size)
+        if key not in _dangling:
+            if len(_dangling) >= 1000:   # what was read of files since changed is not kept for ever
+                _dangling.clear()
+            _dangling[key] = _dangling_in(file)
+        for problem in _dangling[key]:
+            if not (paths.ROOT / problem["folder"]).is_dir():
+                catalog = registry.lock_of(problem["ns"]).get("name") or problem["ns"]
+                found.append({"file": problem["file"], "message": f"names a folder that {catalog} no longer has (an item it "
+                                                                  "renamed or removed): change it"})
+    return found
+
+
+def _dangling_in(file):
+    """The paths of one file into the folder of an item of a catalog: [{file, ns, folder}], `folder` being where it leads."""
+    try:
+        text = file.read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        return []
+    rel = os.path.relpath(file, paths.ROOT).replace(os.sep, "/")
+    folder, found = os.path.dirname(rel), []
+    lines = "\n".join(compose.COMMENT.sub("", line) for line in text.splitlines())
+    for written in sorted(set(moves.UPWARD.findall(lines))):
+        target = _UNIT_PATH.match(os.path.normpath(os.path.join(folder, written)).replace(os.sep, "/"))
+        if not target or written.rstrip("/").endswith(".yml"):   # an include: the project says when its file is not there
+            continue
+        ns, kind, name = target.groups()
+        if (paths.ROOT / paths.CATALOGS_DIR / ns).is_dir():
+            found.append({"file": rel, "ns": ns, "folder": f"{paths.CATALOGS_DIR}/{ns}/{kind}/{name}"})
+    return found
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -607,7 +686,7 @@ def need_line(need):
             }.get(need.get("reason"), f"Needs the catalog {name}")
 
 
-def _why_not(unit):
+def why_not(unit):
     """Why a unit cannot start, in one line: the first reason it is blocked, else the first catalog it lacks. None when
     nothing is against it. A unit that does not say (a hand-made one) has nothing against it."""
     reasons = (unit.get("blocked") or {}).get("reasons") or []
@@ -632,7 +711,7 @@ def _unusable(project, kind, uid):
     catalog it lacks. The item's own reason comes first; a unit it brings that is blocked blocks it too (T25), and a
     hand-made unit may say it of the units it brings alone."""
     for node in _reach(project, kind, uid):
-        why = _why_not(project[node[0] + "s"][node[1]])
+        why = why_not(project[node[0] + "s"][node[1]])
         if why:
             return why
     return None
@@ -642,7 +721,7 @@ def blocked_files(project):
     """{unit file: why it cannot be turned on} for every unit the policy blocks or that lacks a catalog: the `blocked` map
     that `write` takes, so that no entry is added for a unit that must not start."""
     return {unit["file"]: why for group in ("addons", "setups", "playgrounds") for unit in project[group].values()
-            if unit.get("file") and (why := _why_not(unit))}
+            if unit.get("file") and (why := why_not(unit))}
 
 
 def _on_or_up(project, state, up, kind, uid):

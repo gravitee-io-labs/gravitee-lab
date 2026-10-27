@@ -1408,6 +1408,29 @@ class Contract(Machine):
         found = needed(wants)
         self.assertEqual((found[("unit.key", "x-gravitee.requires")], found[("unit.key", "x-gravitee.requires.images")]), (1, 2))
 
+    def test_a_key_of_catalog_yml_counts_once_the_catalog_gives_it_something_and_renamed_counts_once_it_is_there(self):
+        rows = {**self.ROWS, ("catalog.key", "x-gravitee-catalog.lab"): 1, ("catalog.key", "x-gravitee-catalog.canary"): 1,
+                ("catalog.key", "x-gravitee-catalog.renamed"): 3, ("catalog.key", "x-gravitee-catalog.renamed.items"): 3,
+                ("catalog.key", "x-gravitee-catalog.renamed.settings"): 3}
+        self.lock.return_value = (3, 1, rows)
+        empty = {"items": {}, "settings": {}}
+        self.assertEqual(check._catalog_keys({"lab": 1, "canary": [], "renamed": None}, rows),
+                         {("catalog.key", "x-gravitee-catalog.lab"): 1}, "an empty list or no renamed uses nothing")
+        self.assertEqual(check._catalog_keys({"renamed": empty}, rows), {("catalog.key", "x-gravitee-catalog.renamed"): 3},
+                         "an empty renamed is a key an older Lab refuses all the same")
+        renamed = {**empty, "items": {"addon:gate": "addon:gate-keeper"}}
+        self.assertEqual(check._catalog_keys({"renamed": renamed}, rows), {("catalog.key", "x-gravitee-catalog.renamed"): 3,
+                                                                          ("catalog.key", "x-gravitee-catalog.renamed.items"): 3})
+        found = self.units(self.plain())
+        said = list(check._lab_lines({"schema": 1, "lab": 1, "renamed": renamed}, found, self.given["raw"], self.given))
+        self.assertEqual(said, ["lab is 1 but must be 3, for catalog.yml key x-gravitee-catalog.renamed, catalog.yml key "
+                                "x-gravitee-catalog.renamed.items: older Gravitee Labs read it. Fix: run catalog.py upgrade "
+                                "--write, which writes it"])
+        self.assertEqual(list(check._lab_lines({"schema": 1, "lab": 3, "renamed": renamed}, found, self.given["raw"], self.given)), [])
+        self.assertEqual(check.needed_lab(found, self.given["raw"], self.given, {"renamed": renamed}), 3,
+                         "what catalog.py writes for older Gravitee Labs")
+        self.assertEqual(check.needed_lab(found, self.given["raw"], self.given), 1)
+
     def test_the_seeder_a_plugin_folder_and_the_seed_settings_are_anchors_and_settings_of_the_contract(self):
         seeder = member("fixture", "playground", "tour", ["tour-seed"])
         seed = seeder[1]["services"]["tour-seed"]
@@ -1532,6 +1555,95 @@ class Descriptor(Machine):
         units = [("playground", "tour", built["playgrounds"]["tour"]), ("addon", "echo", built["addons"]["echo"])]
         self.assertEqual(list(check._canary({"canary": ["playground:tour", "playground:ghost", "addon:tour"]}, units)), [
             "canary: playground:ghost is not an item of this catalog", "canary: addon:tour is not an item of this catalog"])
+
+
+class Renamed(Machine):
+    """What catalog.yml renames, against what the catalog holds."""
+
+    def units(self):
+        built = self.machine([member("fixture", "addon", "gate-keeper", ["gate-keeper-proxy"]),
+                              member("fixture", "playground", "tide-pools", ["tide-pools-app"])])
+        return [("addon", "gate-keeper", built["addons"]["gate-keeper"]),
+                ("playground", "tide-pools", built["playgrounds"]["tide-pools"])]
+
+    def lines(self, **renamed):
+        return list(check._renamed_lines({"renamed": renamed}, self.units(), self.given["raw"]))
+
+    def test_an_old_item_is_gone_from_the_catalog_and_the_end_of_its_chain_is_there(self):
+        self.assertEqual(self.lines(items={"addon:gate": "addon:gate-keeper", "playground:tides": "playground:tide-lab",
+                                           "playground:tide-lab": "playground:tide-pools"}), [], "a chain ends at an item")
+        self.assertEqual(self.lines(items={"addon:gate": "addon:keeper"}),
+                         ["renamed.items: addon:keeper is not an item of this catalog"])
+        self.assertEqual(self.lines(items={"addon:gate-keeper": "addon:gate"}), [
+            "renamed.items: addon:gate-keeper is an item of this catalog: what is renamed away cannot be there too",
+            "renamed.items: addon:gate is not an item of this catalog"],
+            "a rename away from an id the catalog still has would move a person's settings out of an item that is there")
+
+    def test_an_old_setting_that_an_item_still_reads_is_refused(self):
+        units = self.units()
+        reads = {units[0][2]["file"]: ["GATE_LICENSE"]}
+        self.assertEqual(list(check._renamed_lines({"renamed": {"settings": {"GATE_LICENSE": "GATE_KEEPER_LICENSE"}}}, units,
+                                                   self.given["raw"], reads)),
+                         ["renamed.settings: GATE_LICENSE is still read by gate-keeper: the Lab renames it in the .env of every "
+                          "item of the catalog, so read GATE_KEEPER_LICENSE there"])
+
+    def test_the_history_says_a_volume_the_renamed_item_no_longer_has_and_a_setting_it_left_behind(self):
+        units = self.units()
+        self.write(units[0][2]["file"], "services:\n  gate-keeper-proxy:\n    image: x:${GATE_KEEPER_VERSION:-1}\n"
+                                        "    environment: {T: \"${GATE_KEEPER_TOKEN:-}\", L: \"${GRAVITEE_LICENSE:-}\"}\n"
+                                        "volumes:\n  gate-keeper-data: {}\n")
+        before = ("services:\n  gate:\n    image: x:${GATE_VERSION:-1}\n    environment: {T: \"${GATE_TOKEN:-}\", "
+                  "L: \"${GRAVITEE_LICENSE:-}\"}\nvolumes:\n  gate-data:\n    driver: local\n")
+        then = (self.root / units[0][2]["file"]).read_text()
+        commits = {"addons/gate/compose.yml": (before, None, then)}   # the commit that renamed it: gate before, gate-keeper there
+
+        def read(path, also=None):
+            return commits.get(path)
+        meta = {"renamed": {"items": {"addon:gate": "addon:gate-keeper"}, "settings": {"GATE_TOKEN": "GATE_KEEPER_TOKEN"}}}
+        said = list(check._renamed_lines(meta, units, self.given["raw"], {}, read, {"GRAVITEE_LICENSE"}))
+        self.assertEqual(said, [
+            "renamed.items: addon:gate had the volume gate-data, which addon:gate-keeper does not: keep the name, or the people "
+            "who have it lose its data",
+            "renamed.settings: addon:gate read GATE_VERSION, which addon:gate-keeper no longer reads: map it to the name "
+            "addon:gate-keeper reads, or the value people set is left behind"], "a setting of the core is the Lab's .env's")
+        meta["renamed"]["settings"]["GATE_VERSION"] = "GATE_KEEPER_VERSION"
+        commits["addons/gate/compose.yml"] = (before, None, then.replace("gate-keeper-data", "gate-data"))
+        self.assertEqual(list(check._renamed_lines(meta, units, self.given["raw"], {}, read, {"GRAVITEE_LICENSE"})), [])
+        self.write(units[0][2]["file"], "services:\n  gate-keeper-proxy:\n    image: x:1\n")
+        self.assertEqual(list(check._renamed_lines(meta, units, self.given["raw"], {}, read, {"GRAVITEE_LICENSE"})), [],
+                         "a later release that drops a setting or a volume is not the rename's: only its commit is read")
+        self.assertEqual(list(check._renamed_lines(meta, units, self.given["raw"], {}, lambda path, also=None: None)), [],
+                         "with no history to read, nothing is said of it")
+
+    def test_a_rename_into_an_item_the_release_before_had_is_refused(self):
+        units = self.units()
+        commits = {"addons/gate/compose.yml": ("services: {}\n", "services: {}\n", "services: {}\n")}
+        said = list(check._renamed_lines({"renamed": {"items": {"addon:gate": "addon:gate-keeper"}}}, units, self.given["raw"], {},
+                                         lambda path, also=None: commits.get(path)))
+        self.assertEqual(said, ["renamed.items: addon:gate-keeper was an item already when addon:gate was renamed into it: the "
+                                "Lab keeps the two apart, so addon:gate is removed, not renamed. Fix: rename it into a name that "
+                                "is new"])
+
+    def test_a_setting_of_the_core_or_a_shared_one_is_never_renamed(self):
+        said = list(check._renamed_lines({"renamed": {"settings": {"GRAVITEE_LICENSE": "GATE_LICENSE"}}}, self.units(),
+                                         self.given["raw"], {}, None, {"GRAVITEE_LICENSE"}))
+        self.assertEqual(said, ["renamed.settings: GRAVITEE_LICENSE is a setting of the Lab's own .env (the core's, or shared by "
+                                "the catalog's items): the Lab renames only the settings of each item's .env"])
+
+    def test_a_rename_into_a_name_an_earlier_release_gave_another_item_is_a_warning(self):
+        units = self.units()
+        commits = {"addons/gate-keeper/compose.yml": ("services: {}\n", None, None)}   # an item before, and was removed
+
+        def read(path, also=None):
+            return commits.get(path)
+        said = list(check._renamed_lines({"renamed": {"items": {"addon:gate": "addon:gate-keeper"}}}, units, self.given["raw"], {},
+                                         read))
+        self.assertEqual(said, [check.WARNING_MARK + "renamed.items: addon:gate-keeper is a name an earlier release gave another "
+                                "item: who updates from that release has both, so addon:gate is removed there, not renamed"])
+
+    def test_settings_are_not_judged_against_the_tree_and_nothing_is_nothing(self):
+        self.assertEqual(self.lines(settings={"GATE_LICENSE": "GATE_KEEPER_LICENSE"}), [])
+        self.assertEqual(list(check._renamed_lines({}, self.units(), self.given["raw"])), [])
 
 
 class Availability(Case):

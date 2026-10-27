@@ -64,6 +64,24 @@ or a release that was moved, which asks for one more confirmation (**Update anyw
 continuation of the one you have. A catalog with nothing to decide is updated by the click, and **Go back** restores the previous
 copy. From a terminal: `python3 lab-ui/catalog.py update ID`.
 
+**Renamed items.** A catalog can rename an item. The Update dialog lists it under **Renames**, by its new name, with the name it
+had (or *Same name* when only its folder changes): it is one item, not one removed and one added. Your settings, secrets and what
+its seed created move with it, its settings take their new names with their values, and your star, what is on, the items of yours
+that include it (and their copies for a Cloud platform) and your copy of it follow. A file of yours whose place is taken in the
+renamed item's folder is never written over: it is kept aside in `.lab/migration/kept/<catalog>/`. **Go back** renames them back.
+
+The update waits while the renamed item has containers, running or stopped: turn it off first, which removes them (for one that
+is off, **Remove containers**), so that nothing is moved under a container; while Docker does not answer, it waits too. An item
+that is on and has none stays on. What else holds the update, as for any item that
+is on: a new version of it that cannot run, and an item that is on and includes it in a way the Lab cannot write again (an item
+of another catalog, or a path the Lab does not reach): turn that one off first. A file of yours that still names what moved
+where the Lab does not write it again (a path in a list written on one line) is listed in the problems of the Lab UI until you
+change it, and one that names an old service (`depends_on`) is one Compose refuses, which the problems say too. If a file could
+not be moved (it belongs to another user, or is on another disk), the update stops and says so: make it yours again, click
+**Repair**, which puts back what it had moved and waits for containers the same way, then update again. An update that a
+start of the Lab finds stopped half way, with the item's containers back, is shown damaged with what holds it: turn the item
+off or remove its containers, then **Repair** finishes the update.
+
 **Go back.** Puts the previous copy back, once. It exists because an update can be wrong.
 
 **Remove.** Takes the copy away. Choose **Keep my settings** (what you set and what its playgrounds created, if you add it

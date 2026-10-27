@@ -1,4 +1,4 @@
-contract 2
+contract 3
 contract_min 1
 core.service alert-engine health=yes networks=internal since=1
 core.service am-gateway port=8092 health=yes networks=edge,internal since=1
@@ -35,6 +35,24 @@ core.category Event since=1
 core.category "Gravitee Platform" since=1
 core.category Observability since=1
 core.category Other since=1
+catalog.key x-gravitee-catalog.canary since=1
+catalog.key x-gravitee-catalog.contribute since=1
+catalog.key x-gravitee-catalog.description since=1
+catalog.key x-gravitee-catalog.host_access since=1
+catalog.key x-gravitee-catalog.id since=1
+catalog.key x-gravitee-catalog.images since=1
+catalog.key x-gravitee-catalog.lab since=1
+catalog.key x-gravitee-catalog.license since=1
+catalog.key x-gravitee-catalog.moved_from since=1
+catalog.key x-gravitee-catalog.name since=1
+catalog.key x-gravitee-catalog.renamed since=3
+catalog.key x-gravitee-catalog.renamed.items since=3
+catalog.key x-gravitee-catalog.renamed.settings since=3
+catalog.key x-gravitee-catalog.requires since=1
+catalog.key x-gravitee-catalog.requires.catalogs since=1
+catalog.key x-gravitee-catalog.schema since=1
+catalog.key x-gravitee-catalog.shared_settings since=1
+catalog.key x-gravitee-catalog.version since=1
 unit.key x-gravitee.accounts kinds=any since=1
 unit.key x-gravitee.category kinds=any since=1
 unit.key x-gravitee.conflicts kinds=any since=1

@@ -1324,13 +1324,14 @@ def _facts(ns, one, held):
 def _state(kind, one, held, found, folder_here):
     """The state key a catalog is in as far as the disk says it, without the network: `machine` for the
     personal area; for a folder `linked` or `missing_folder`; for a git catalog `updating` or `downloading` while an
-    operation is under way, `damaged` when its manifest is not valid for the pin, the state its last failure names
+    operation is under way (`damaged` when a hold stopped it, for Repair to finish), `damaged` when its manifest is not valid
+    for the pin, the state its last failure names
     (FAILURES, `failed` for a code that has none), `downloading` when it has no pin and no failure yet, else `uptodate`.
     Whether the newest version differs and which Lab it needs are the check's to say (describe), not the disk's."""
     if kind != "git":
         return "machine" if kind == "machine" else "linked" if folder_here else "missing_folder"
     pending = held.get("pending")
-    if pending:
+    if pending and held.get("error") != "damaged":
         return "downloading" if pending["op"] == "add" and not held.get("pin") else "updating"
     if held.get("pin") and found is None:
         return "damaged"

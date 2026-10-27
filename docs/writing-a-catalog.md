@@ -8,12 +8,13 @@ of the items is in [the format of add-ons, setups and playgrounds](units.md) and
 1. [Start](#start)
 2. [The structure](#the-structure)
 3. [catalog.yml](#catalogyml)
-4. [Check it before you publish](#check-it-before-you-publish)
-5. [Try it in the Lab](#try-it-in-the-lab)
-6. [The CI of a catalog](#the-ci-of-a-catalog)
-7. [Securing the repository](#securing-the-repository)
-8. [Releases](#releases)
-9. [Keeping in step](#keeping-in-step)
+4. [Renaming an item](#renaming-an-item)
+5. [Check it before you publish](#check-it-before-you-publish)
+6. [Try it in the Lab](#try-it-in-the-lab)
+7. [The CI of a catalog](#the-ci-of-a-catalog)
+8. [Securing the repository](#securing-the-repository)
+9. [Releases](#releases)
+10. [Keeping in step](#keeping-in-step)
 
 ## Start
 
@@ -55,7 +56,7 @@ x-gravitee-catalog:
 
 Optional keys: `requires.catalogs` (other catalogs it needs, with their address and minimum version), `shared_settings`
 (settings every item may read, such as an API key the person gives once), `images` (the registry prefix of the images it
-publishes), `canary` (the items the end-to-end test always tries). `host_access: true` says that some of its items take more of the machine than a container does (a privileged cluster, say), each with its reason in `x-gravitee.host_access`: `check` then judges them by their reasons, as the Lab does once the person has allowed the catalog at Add. The Lab still asks that person: nothing is allowed by the file.
+publishes), `canary` (the items the end-to-end test always tries), `renamed` (what it renamed: [Renaming an item](#renaming-an-item)). `host_access: true` says that some of its items take more of the machine than a container does (a privileged cluster, say), each with its reason in `x-gravitee.host_access`: `check` then judges them by their reasons, as the Lab does once the person has allowed the catalog at Add. The Lab still asks that person: nothing is allowed by the file.
 
 There is no compatibility number to write. A Lab uses what it understands: when a version of your catalog uses a key, a label
 or a seed folder that someone's Lab does not read yet, that Lab keeps the newest version it reads and tells them to update
@@ -64,6 +65,57 @@ that release and every later one; to use something a newer release adds (its rel
 the pin with `catalog.py upgrade --lab-ref latest`. The `schema` and `lab` lines that `catalog.py` writes, with their comment,
 are for older Gravitee Labs: leave them to `catalog.py`, which keeps them true (`check` says when one is not, and
 `upgrade --write` fixes it).
+
+## Renaming an item
+
+An item's folder is named after its name: lowercase, with each run of other characters as one dash (`Kiosk browser` is
+`addons/kiosk-browser`). To rename an item, rename its folder, its name and its own settings, and say what you renamed in
+`catalog.yml`:
+
+```yaml
+x-gravitee-catalog:
+  renamed:
+    items:              # kind:old: kind:new
+      addon:kiosk: addon:kiosk-browser
+    settings:           # OLD: NEW, in the .env of the catalog's items
+      KIOSK_TOKEN: KIOSK_BROWSER_TOKEN
+```
+
+A person who updates to that release keeps everything under the new name: the item's `.env`, `secrets/` and `.state/` move to
+its new folder, its settings take their new names with their values, and its star, its line in what is on, the includes of their
+own items and their copies of it follow. The update waits while the item has containers, running or stopped: the person turns it
+off first, so nothing is moved under a container. An item that is on and has none stays on, unless an item of another catalog
+that is on includes it: that one breaks, and the update waits until it is off. Without the declaration, the Lab sees one item
+removed and another added: the update waits until the item is turned off, and the new item starts with nothing.
+
+- **Only what people may have.** A pair is needed for an item that a person may have installed: one that was in a release, or,
+  for the Labs that follow a branch of your catalog, one that was on that branch. An item that never left your working copy, or a
+  catalog that makes releases and renames an item before its first release, needs none: rename the folder and that is all.
+- **Keep every pair.** A person may skip releases: the Lab reads the declaration of the release it installs, so a name renamed
+  again is a chain (`addon:a: addon:b`, then `addon:b: addon:c` beside it), never a pair you replace.
+- **A kind stays a kind**, a name is never renamed to itself or in a circle, and two names become one only along a chain: two
+  items renamed into one would put the settings of both in one folder.
+- **What is renamed away is gone.** `check` refuses an old item that the catalog still has, and a chain that does not end at an
+  item it has.
+- **Keep the volume names.** A volume is named in the Compose project of the person's Lab, not in the item's folder: a volume
+  with another name is a new, empty one, and their data stays in the old one. `check` reads your history and refuses a rename
+  whose commit drops a volume the old item had. Each pair is judged across the commit that made it: what a later release changes
+  is a change like any other.
+- **Map every setting the item read.** The Lab renames the settings of the map in the `.env` of every item of the catalog, so
+  `check` refuses an old name that an item still reads, and, from your history, a setting the old item read that the new one no
+  longer reads and that the map leaves out (its version, its pull policy): the value a person set would be left behind. A
+  setting of the core and a shared setting are the person's, in the Lab's own `.env`: they keep their names, and `check`
+  refuses them in the map.
+- **Services keep their names when they can.** A file of a person's that names the old service (`depends_on`) is one Compose
+  refuses until they change it. Another catalog that includes the item breaks until it includes the new one.
+- **A new name is a new name.** `check` refuses a rename into an item the release before had: the Lab keeps two items apart, and
+  would remove the old one instead of renaming it. It warns of a rename into a name an earlier release gave an item since
+  removed: a person who updates from that release has both, and the same happens there.
+- **Go back** renames back what the release it leaves renamed.
+
+`renamed` came with a release of Gravitee Lab ([Keys of catalog.yml](contract.md#keys-of-catalogyml)): a Lab released before it
+keeps the newest version of your catalog it reads and tells its person to update Gravitee Lab. Move `lab.ref` to that release
+first (`catalog.py upgrade --lab-ref latest`), and let `catalog.py upgrade --write` keep the lines for older Gravitee Labs true.
 
 ## Check it before you publish
 

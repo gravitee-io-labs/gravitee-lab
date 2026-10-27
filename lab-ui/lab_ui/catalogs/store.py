@@ -672,19 +672,19 @@ def _blobs(store, wanted):
             yield oid, body
 
 
-def release_tags(store, tip: str) -> List[Tuple[Tuple[int, int, int], str, str]]:
-    """The release tags the last fetch brought (`refs/lab/releases/`) that lead to `tip`: [((major, minor, patch), "vX.Y.Z",
-    commit)], the greatest version first. A tag that is not `v` and three numbers, or that does not name a commit (an
-    annotated tag is read through to its commit), is no release. Whether the commit says that version in its catalog.yml is the
-    caller's question (`manifest.releases`)."""
+def release_tags(store, tip: str, prefix: str = RELEASES) -> List[Tuple[Tuple[int, int, int], str, str]]:
+    """The release tags the last fetch brought (`refs/lab/releases/`, or `prefix`: `refs/tags/` in a working copy) that lead
+    to `tip`: [((major, minor, patch), "vX.Y.Z", commit)], the greatest version first. A tag that is not `v` and three
+    numbers, or that does not name a commit (an annotated tag is read through to its commit), is no release. Whether the
+    commit says that version in its catalog.yml is the caller's question (`manifest.releases`)."""
     out = _git(store, "for-each-ref", f"--merged={_rev(tip)}",
-               "--format=%(refname)%00%(objecttype)%00%(objectname)%00%(*objecttype)%00%(*objectname)", RELEASES).out
+               "--format=%(refname)%00%(objecttype)%00%(objectname)%00%(*objecttype)%00%(*objectname)", prefix).out
     found = []
     for line in out.decode("utf-8", "replace").splitlines():
         parts = line.split("\0")
-        if len(parts) != 5 or not parts[0].startswith(RELEASES):
+        if len(parts) != 5 or not parts[0].startswith(prefix):
             continue
-        name = parts[0][len(RELEASES):]
+        name = parts[0][len(prefix):]
         number = _RELEASE.fullmatch(name)
         commit = parts[2] if parts[1] == "commit" else parts[4] if parts[3] == "commit" else None
         if number and commit and _SHA.fullmatch(commit):

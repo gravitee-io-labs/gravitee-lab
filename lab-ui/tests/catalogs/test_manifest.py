@@ -415,6 +415,47 @@ class Fields(Case):
         self.assertIs(manifest.normalize({**GOOD})["host_access"], False)
         self.assertIs(manifest.normalize({**GOOD, "host_access": True})["host_access"], True)
 
+    def test_renamed_maps_old_names_to_new_ones_in_three_parts(self):
+        good = {"items": {"addon:gate": "addon:gate-keeper", "playground:tides": "playground:tide-pools"},
+                "settings": {"GATE_LICENSE": "GATE_KEEPER_LICENSE"}}
+        self.assertEqual(problems(renamed=good), [])
+        self.assertEqual(problems(renamed={}), [])
+        self.assertEqual(problems(renamed={"items": {"addon:a": "addon:b", "addon:b": "addon:c"}}), [], "a chain is a history")
+        self.assertEqual(manifest.normalize({**GOOD, "renamed": {"items": good["items"]}})["renamed"],
+                         {"items": good["items"], "settings": {}})
+        self.assertEqual(manifest.normalize(GOOD)["renamed"], None, "a file without the key says none")
+        self.assertEqual(manifest.normalize({**GOOD, "renamed": None})["renamed"], {"items": {}, "settings": {}},
+                         "an empty key is there: an older Lab refuses it")
+
+    def test_a_part_of_renamed_or_an_item_kind_this_lab_does_not_know_is_a_newer_labs(self):
+        meta = {**GOOD, "renamed": {"items": {"template:tour": "template:city-tour", "addon:a": "addon:b"}, "aliases": {}}}
+        self.assertEqual(manifest.unknown_keys(meta), ["renamed.aliases"])
+        self.assertEqual(manifest.unknown_keys({**GOOD, "renamed": {"services": {"kiosk": "kiosk-board"}}}), ["renamed.services"],
+                         "a service is not renamed: an item that is renamed has no container left when it is")
+        self.assertEqual(manifest.unknown_values(meta), ["renamed.items=template:city-tour", "renamed.items=template:tour"])
+        self.assertEqual(manifest.validate_catalog(meta, lenient=True), [], "a published catalog: it needs a newer Gravitee Lab")
+        self.assertTrue(manifest.validate_catalog(meta), "anywhere else, a mistake of its author")
+        self.assertEqual(manifest.normalize(meta)["renamed"]["items"], {"addon:a": "addon:b"})
+
+    def test_renamed_refuses_what_it_cannot_follow_and_says_which_part(self):
+        for bad, said in (
+                (["addon:a"], "renamed must be a mapping of items and settings"),
+                ({"items": ["addon:a"]}, "renamed.items must map old names to new ones, both kind:name, such as addon:echo, at most 200"),
+                ({"items": {"addon:a": "b"}}, "renamed.items must map old names to new ones, both kind:name, such as addon:echo, at most 200"),
+                ({"items": {"addon:a": "playground:a"}}, "renamed.items: addon:a cannot become playground:a, an item of another kind"),
+                ({"items": {"addon:a": "addon:a"}}, "renamed.items: addon:a is renamed to itself"),
+                ({"items": {"addon:a": "addon:b", "addon:b": "addon:a"}}, "renamed.items: addon:a is renamed in a circle"),
+                ({"items": {"addon:a": "addon:c", "addon:b": "addon:c"}},
+                 "renamed.items: addon:a and addon:b are both renamed to addon:c: two names become one only when one was renamed "
+                 "to the other before"),
+                ({"settings": {"gate_license": "GATE_KEEPER_LICENSE"}},
+                 "renamed.settings must map old names to new ones, both setting names in capitals, at most 200"),
+                ({"settings": {"A": "B", "B": "C", "C": "A"}}, "renamed.settings: A is renamed in a circle"),
+                ({"items": {f"addon:a{n}": f"addon:b{n}" for n in range(201)}},
+                 "renamed.items must map old names to new ones, both kind:name, such as addon:echo, at most 200")):
+            with self.subTest(bad=str(bad)[:60]):
+                self.assertEqual(problems(renamed=bad), [said])
+
     def test_moved_from_and_canary_are_lists_of_kind_and_name(self):
         for key in ("moved_from", "canary"):
             wanted = f"{key} must be a list of kind:name, such as addon:echo, at most 50"
@@ -474,7 +515,8 @@ class Fields(Case):
 
     def test_the_known_keys_are_the_table_of_4_1(self):
         self.assertEqual(set(manifest.KEYS), {"schema", "id", "name", "description", "version", "lab", "license", "images",
-                                              "contribute", "shared_settings", "moved_from", "canary", "requires", "host_access"})
+                                              "contribute", "shared_settings", "moved_from", "canary", "requires", "host_access",
+                                              "renamed"})
 
     def test_validation_reads_nothing_and_runs_nothing(self):
         with mock.patch("subprocess.Popen", side_effect=AssertionError("ran a command")), \
@@ -812,6 +854,15 @@ class WithCompose(Case):
         self.assertEqual(manifest.read_catalog(os.path.join(fixtures.CATALOGS, "hostile", "catalog.yml"))["shared_settings"],
                          ["FIXTURE_SHARED_TOKEN"])
         self.assertEqual(manifest.read_catalog(os.path.join(fixtures.CATALOGS, "lab-old", "catalog.yml"))["lab"], 0)
+
+    def test_a_renamed_block_reads_with_compose_whose_keys_hold_a_colon(self):
+        name = self.put("x-gravitee-catalog:\n  schema: 1\n  id: acme\n  name: Acme\n  description: Units\n  version: 1.1.0\n"
+                        "  lab: 2\n  renamed:\n    items:\n      addon:gate: addon:gate-keeper   # the folder follows the name\n"
+                        "    settings: {GATE_LICENSE: GATE_KEEPER_LICENSE}\n")
+        found = manifest.read_catalog(name)
+        self.assertEqual(found["renamed"], {"items": {"addon:gate": "addon:gate-keeper"},
+                                            "settings": {"GATE_LICENSE": "GATE_KEEPER_LICENSE"}})
+        self.assertEqual(found["unknown"], [])
 
     def test_the_example_of_section_4_1_is_valid_with_its_comments(self):
         name = self.put("""x-gravitee-catalog:

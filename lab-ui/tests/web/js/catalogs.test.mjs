@@ -1478,6 +1478,17 @@ test("Update says what changes before it does: the version, who changes, what co
   shut();
 });
 
+test("Update names an item it renames under its new name with the one it had, or says its name is the same, that the settings follow, and that an item that is on stays on", async () => {
+  await updating(PLAIN({ renames: [{ kind: "addon", id: "@acme-hub/trace-viewer", name: "Trace viewer", was: "Viewer", on: true },
+    { kind: "playground", id: "@acme-hub/tide-pools", name: "Tide pools", was: "Tides", on: false },
+    { kind: "addon", id: "@acme-hub/kiosk-browser", name: "Kiosk", was: "Kiosk", on: false }] }));
+  assert.deepEqual(rowsOf().find(([label]) => label === "Renames"),
+    ["Renames", "Your settings follow Trace viewer Was Viewer, stays on Add-on Tide pools Was Tides Playground Kiosk Same name Add-on"],
+    "a name that stays the same is no news: its folder is");
+  assert.deepEqual(buttons(), ["Cancel", "Show changes", "Update"], "a rename holds nothing back");
+  shut();
+});
+
 test("the version reads from the one installed to the new one when the catalog raised it, and says so when it did not or made no release", async () => {
   const version = () => rowsOf().find(([label]) => label === "Version")[1];
   await updating(PLAN({ version_from: "1.4.0" }));
