@@ -272,8 +272,11 @@ def _fraction(seen: dict, running: List[dict]) -> Optional[float]:
 # ---------------------------------------------------------------- one download
 
 def _contract() -> dict:
-    """The level this Lab reads (understood.levels)."""
-    return understood.levels()
+    """The level this Lab reads: its lock's (understood.levels), else the core file's as the project read it; 1 and 1 when
+    neither says it."""
+    from ..library import project   # here and not above: the project reads this package
+    found = project.loaded()[1].get("contract")
+    return understood.levels() or (found if isinstance(found, dict) else {"contract": 1, "contract_min": 1})
 
 
 def _anonymous(address: gitx.Address) -> str:
