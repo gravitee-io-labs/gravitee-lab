@@ -741,7 +741,7 @@ def offer(store: Path, tip: str, contract: int, contract_min: int, address: Opti
     with a release on that branch is offered its greatest release this Lab reads, and the commits made since are not offered
     until they are released; one with none is offered the newest commit this Lab reads (`levels`), as it always was. A tip
     with no catalog.yml is `not_catalog`, released or not. `readable` is what `pick` asks of each version, released or not:
-    whether this Lab reads all that its files use (`install.readable`, which every caller of a published catalog gives)."""
+    whether this Lab reads all that its files use (`install.Readable`, which every caller of a published catalog gives)."""
     found = releases(store, tip)
     if not found:
         history = levels(store, tip, address=address)

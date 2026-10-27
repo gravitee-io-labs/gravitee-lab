@@ -103,7 +103,8 @@ def _transient(error) -> bool:
     not be read now (`renames_unread`), Docker could not say what has containers (`docker_unknown`), or the Lab UI is ending. Such an error never marks a
     catalog damaged and never drops what says an operation is under way: the next start has git, and finishes it."""
     detail = getattr(error, "detail", None) or {}
-    return getattr(error, "code", None) in ("git_missing", "git_old", "timeout", "renames_unread", "docker_unknown") \
+    return getattr(error, "code", None) in ("git_missing", "git_old", "docker_missing", "timeout", "renames_unread",
+                                            "docker_unknown") \
         or gitx.ENDING in str(detail.get("output") or "")
 
 
@@ -1231,10 +1232,25 @@ def unknown_at(store_path, commit) -> Optional[list]:
     return found
 
 
-def readable(store_path):
+class Readable:
     """What `manifest.pick` asks of a version of the catalog in the store: whether this Lab reads all it uses (`unknown_at`).
-    A version it could not tell of is not one it reads, for now."""
-    return lambda commit: unknown_at(store_path, commit) == []
+    A version it could not tell of is not one it reads, for now, and `unsure` keeps that one was."""
+
+    def __init__(self, store_path):
+        self.store_path, self.unsure = store_path, False
+
+    def __call__(self, commit):
+        found = unknown_at(self.store_path, commit)
+        self.unsure = self.unsure or found is None
+        return found == []
+
+
+def without_docker(error, reader):
+    """`error`, the refusal of a catalog with no version this Lab reads, or `docker_missing` when a version went unread for
+    want of Docker Compose (`reader`, the `Readable` that `pick` asked): it would be taken for one that needs a newer Lab."""
+    if reader.unsure and compose.plugin() is None:
+        return gitx.fail("docker_missing")
+    return error
 
 
 def plan_update(ns: str, target: str, context: Optional[dict] = None) -> dict:

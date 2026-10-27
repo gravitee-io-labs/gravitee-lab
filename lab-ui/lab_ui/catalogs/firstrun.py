@@ -65,11 +65,12 @@ REFUSED = ("no_access", "not_found", "ssh_denied", "host_key")
 LINES = {
     "git_missing": "Git is not installed. Install it, then try again.",
     "git_old": "Git{have} is too old. Install Git 2.25 or later, then try again.",
+    "docker_missing": "Docker is not installed. The catalog downloads once it is.",
     "no_readable_version": "The catalog needs a newer Gravitee Lab. Run make update, then restart the Lab.",
     "lab_old": "The catalog is not ready for this version of the Lab. Try again later.",
     "failed": "The catalog could not be downloaded. Try again.",
 }
-REWORDED = ("git_missing", "git_old", "no_readable_version", "no_access")   # what a failure of the first start words again
+REWORDED = ("git_missing", "git_old", "docker_missing", "no_readable_version", "no_access")   # what a failure of the first start words again
 # The codes that read as another one on a first start. GitHub answers 404 to a private repository; the address is the
 # engine's own, so "check the address" would send a person the wrong way
 ALIASES = {"not_found": "no_access", "lab_new": "no_readable_version", "schema_new": "no_readable_version"}
@@ -361,11 +362,12 @@ def _download(ns: str, entry: Optional[dict], row: Optional[dict]) -> None:
             shutil.rmtree(store_path, ignore_errors=True)   # another repository: nothing of it is worth keeping
             raise install.not_expected(address.repo or address.display)
         contract = _contract()
-        offered = manifest.offer(store_path, tip, contract["contract"], contract["contract_min"], answered,
-                                 readable=install.readable(store_path))
+        reader = install.Readable(store_path)
+        offered = manifest.offer(store_path, tip, contract["contract"], contract["contract_min"], answered, readable=reader)
         commit, tip_state = offered.commit, offered.tip
         if commit is None:
-            raise manifest.no_commit(offered.levels, contract["contract"], contract["contract_min"], listed, offered.searched)
+            raise install.without_docker(manifest.no_commit(offered.levels, contract["contract"], contract["contract_min"],
+                                                            listed, offered.searched), reader)
         kept, ignored = bare.selected(bare.listing(store_path, commit))
         _set(ns, "stage", 0.0)
         staged = install.stage(answered, ns, store_path, commit, kept, ignored)
@@ -561,7 +563,8 @@ class Worker:
                 if _ending(error):
                     self.stop.set()
                     return
-                failed = True
+                # Docker missing is no failure of the catalog: it is asked again every minute, not on the slower schedule
+                failed = failed or error.code != "docker_missing"
             except Exception as error:  # noqa: BLE001 - a fault of this attempt is its failure, said once, and retried
                 print(f"Gravitee Lab UI: could not download {ns} ({type(error).__name__}: {error})", file=sys.stderr)
                 failed = True

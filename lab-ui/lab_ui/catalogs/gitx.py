@@ -63,6 +63,7 @@ PASSED = ("PATH", "HOME", "USER", "LOGNAME", "TMPDIR", "TZ", "SSH_AUTH_SOCK", "X
 MESSAGES = {
     "git_missing": (400, "Git is not installed. Install it, then add the catalog again."),
     "git_old": (400, "Git {have} is too old. Install Git 2.25 or later, then add the catalog again."),
+    "docker_missing": (400, "Docker is not installed. Install it, then add the catalog again."),
     "bad_address": (400, "Use owner/repo, a Git address such as https://github.com/owner/repo, or the path of a folder."),
     "bad_address_secret": (400, "Remove the user name and token from the address. Git uses the sign-in of this machine."),
     "no_access": (400, "No access to {repo}. {signin}, then try again."),

@@ -1994,7 +1994,7 @@ class States(Disk):
         self.assertEqual(row["pending"], {"op": "undo", "from": A, "to": B})
 
     def test_the_last_failure_names_the_state(self):
-        table = {"git_missing": "needs_git", "git_old": "needs_git", "no_access": "noaccess", "not_found": "noaccess",
+        table = {"git_missing": "needs_git", "git_old": "needs_git", "docker_missing": "needs_docker", "no_access": "noaccess", "not_found": "noaccess",
                  "ssh_denied": "noaccess", "host_key": "noaccess", "unreachable": "unreachable", "timeout": "unreachable",
                  "certificate": "unreachable", "wrong_catalog": "wrong_catalog", "history_changed": "rewritten",
                  "lab_new": "lab_new", "no_readable_version": "lab_new", "lab_old": "lab_old", "damaged": "damaged",

@@ -1168,7 +1168,7 @@ class Understanding(Real):
         real = project._raw
         self.patch(project, "_raw", lambda path, **how: (None, {"file": path, "message": "docker did not answer within 15 s"}))
         self.assertIsNone(install.unknown_at(store, tip), "this Lab could not tell")
-        self.assertFalse(install.readable(store)(tip), "a version it could not tell of is not one it reads, for now")
+        self.assertFalse(install.Readable(store)(tip), "a version it could not tell of is not one it reads, for now")
         self.patch(project, "_raw", real)
         self.assertEqual(install.unknown_at(store, tip), [], "the next reading reads it, and is the one kept")
         self.patch(install, "probe", side_effect=AssertionError("read again"))
@@ -1201,7 +1201,7 @@ class Understanding(Real):
 
     def test_the_release_offered_is_the_newest_one_this_lab_reads_even_when_catalog_yml_states_no_lab(self):
         """A catalog that makes releases is offered by `manifest.offer`, release by release: each release is read by its files
-        (`install.readable`), so a release that uses what this Lab does not read is passed over though no `lab` says so. Without
+        (`install.Readable`), so a release that uses what this Lab does not read is passed over though no `lab` says so. Without
         that reading the Lab would offer, and install, the newest release whatever it holds."""
         remote = fixtures.remote(self, "partner", files={"catalog.yml": self.catalog_yml(legacy=False)})
         remote.git("tag", "v2.0.0", remote.head())

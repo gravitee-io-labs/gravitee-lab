@@ -196,6 +196,7 @@ WORDS = {
     "machine": ("", "muted"), "uptodate": ("Up to date", "muted"), "update": ("Update available", "warn"),
     "checking": ("Checking", "muted"), "updating": ("Updating", "working"), "downloading": ("Downloading", "working"),
     "unreachable": ("Unreachable", "warn"), "noaccess": ("No access", "error"), "needs_git": ("Needs Git", "error"),
+    "needs_docker": ("Needs Docker", "error"),
     "wrong_catalog": ("Wrong catalog", "error"), "rewritten": ("Rewritten", "error"),
     "lab_new": ("Needs a newer Gravitee Lab", "warn"), "lab_old": ("Written for an older Gravitee Lab", "warn"),
     "damaged": ("Damaged", "error"), "linked": ("Linked", "muted"), "missing_folder": ("Folder not found", "error"),
@@ -249,6 +250,8 @@ def _failure(code, url, installed):
     if code in ("git_missing", "git_old"):
         return ("Git is not installed." if code == "git_missing" else "Git is too old.",
                 "Install Git, then try again." if code == "git_missing" else "Install Git 2.25 or later, then try again.")
+    if code == "docker_missing":
+        return ("Docker is not installed.", "Install Docker, then try again.")
     if code == "unreachable":
         return (f"Cannot reach {host}." + (f" Showing the copy from {installed}." if installed else ""),
                 "Check your connection, then check again." if installed else "Check your connection, then try again.")
@@ -869,13 +872,13 @@ def check_address(address, branch=None):
         roots = bare.roots(store_path, tip)
         if len(roots) > install.ROOTS_LIMIT:   # the identity of a catalog is its roots, and the lock keeps this many
             raise gitx.fail("too_large", found_at)
-        offered = manifest.offer(store_path, tip, contract["contract"], contract["contract_min"], found_at,
-                                 readable=install.readable(store_path))
+        reader = install.Readable(store_path)
+        offered = manifest.offer(store_path, tip, contract["contract"], contract["contract_min"], found_at, readable=reader)
         listed_at = _listed_ids_at(found_at.display)
         commit = offered.commit
         if commit is None:
-            raise manifest.no_commit(offered.levels, contract["contract"], contract["contract_min"], bool(listed_at),
-                                     offered.searched)
+            raise install.without_docker(manifest.no_commit(offered.levels, contract["contract"], contract["contract_min"],
+                                                            bool(listed_at), offered.searched), reader)
         kept, ignored = bare.selected(bare.listing(store_path, commit))
         with _one_stage():
             staged = install.stage(found_at, f"new-{ticket}", store_path, commit, kept, ignored)
@@ -1073,7 +1076,7 @@ def _offered(store_path, held, tip, contract, address=None):
     of the release installed now names the commit offered, which is another one: the owners moved a release, and the same
     version is not the same files."""
     found = manifest.offer(store_path, tip, contract["contract"], contract["contract_min"], address,
-                           readable=install.readable(store_path))
+                           readable=install.Readable(store_path))
     pin, target = held.get("pin"), found.commit
     if target is not None and pin and target != pin and bare.is_ancestor(store_path, target, pin):
         return found._replace(commit=pin, release=held.get("release")), False

@@ -368,7 +368,7 @@ class Provision(Served, Case):
         self.assertEqual(row["state"]["key"], "lab_new", "the row says so at once, before the first check")
 
     def test_when_the_tip_uses_what_this_lab_does_not_read_the_newest_version_it_reads_is_installed(self):
-        """The first start reads the versions by their files too (`manifest.offer` with `install.readable`): a tip whose unit uses
+        """The first start reads the versions by their files too (`manifest.offer` with `install.Readable`): a tip whose unit uses
         a key of x-gravitee this Lab does not know is passed over, though its catalog.yml did not change."""
         # The Docker CLI finds its Compose plugin in the person's configuration folder, which the isolated home hides
         self.start(mock.patch.dict(os.environ, {"DOCKER_CONFIG": os.path.join(pwd.getpwuid(os.getuid()).pw_dir, ".docker")}))
@@ -396,6 +396,24 @@ class Provision(Served, Case):
         self.assertEqual(self.lock()["error"], "no_readable_version")
         self.assertEqual(registry.inputs()[self.ns]["state"], "lab_new")
         self.assertFalse((self.root / ".lab/catalogs" / self.ns).exists())
+
+    def test_a_version_left_unread_for_want_of_docker_is_docker_missing_and_not_a_newer_lab(self):
+        self.patch(install, "unknown_at", return_value=None)   # what Compose would read, with no Compose to read it
+        self.patch(compose, "plugin", return_value=None)
+        self.started()
+        with self.assertRaises(CatalogError) as caught:
+            firstrun.provision(self.ns)
+        self.assertEqual((caught.exception.code, caught.exception.message),
+                         ("docker_missing", "Docker is not installed. The catalog downloads once it is."))
+        self.assertEqual(registry.inputs()[self.ns]["state"], "needs_docker")
+
+    def test_with_docker_a_version_it_could_not_tell_of_is_still_no_readable_version(self):
+        self.patch(install, "unknown_at", return_value=None)
+        self.patch(compose, "plugin", return_value="/usr/libexec/docker/cli-plugins/docker-compose")
+        self.started()
+        with self.assertRaises(CatalogError) as caught:
+            firstrun.provision(self.ns)
+        self.assertEqual(caught.exception.code, "no_readable_version")
 
     def test_a_catalog_older_than_this_lab_reads_has_the_listed_wording(self):
         self.patch(firstrun, "_contract", return_value={"contract": 3, "contract_min": 2})
@@ -1073,6 +1091,16 @@ class Beat(Served, Case):
             now[0] += wait
         self.assertEqual(attempts, [(0, 1, 15), (15, 1, 60), (75, 1, 300), (375, 1, 1800), (2175, 1, 1800),
                                     (3975, 1, 1800), (5775, 1, 1800)])
+
+    def test_without_docker_it_is_asked_again_every_minute_and_not_on_the_slower_schedule(self):
+        self.failing("docker_missing")
+        now, worker = self.worker()
+        waits = []
+        for _ in range(6):
+            waits.append(round(worker.tick()))
+            now[0] += waits[-1]
+        self.assertEqual((len(self.calls), worker.failures, worker.retry_at), (6, 0, None))
+        self.assertTrue(all(wait <= firstrun.NAP for wait in waits), waits)   # Docker installed: the catalog follows within a minute
 
     def test_nothing_is_attempted_before_the_retry_is_due(self):
         self.failing()
