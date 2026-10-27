@@ -740,7 +740,12 @@ const tipped = (e) => {
   if (el?.hasAttribute("data-why")) adopt(el);
   return el?.dataset.tip ? el : null;
 };
-document.addEventListener("mouseover", (e) => { const el = tipped(e); if (el) showFloat(el); });
+// Over what has no tooltip, none shows: the control that had one may have gone from under the pointer (Stop all, once it stopped)
+document.addEventListener("mouseover", (e) => {
+  const el = tipped(e);
+  if (el) showFloat(el);
+  else if (!floating?.contains(e.target)) hideFloat();
+});
 document.addEventListener("focusin", (e) => { const el = tipped(e); if (el) showFloat(el); });
 document.addEventListener("mouseout", (e) => { const el = e.target.closest?.("[data-tip]"); if (el && !el.contains(e.relatedTarget)) hideFloat(); });
 document.addEventListener("focusout", (e) => { if (e.target.closest?.("[data-tip]")) hideFloat(); });
