@@ -16,9 +16,11 @@ export const machine = { report: null };
 let timer = null;
 let listener = null;
 
-// The lines in red keep the platform from starting
 // A line in red, or a fix on its way (Docker starting, Git installing), keeps the platform from starting: the server says it
 export const machineBlocked = (report = machine.report) => !!report && !report.ready;
+// The fix on its way, while no line is in red: what the platform waits for
+export const machineWorking = (report = machine.report) =>
+  (report?.checks?.some((c) => c.state === "error") ? null : report?.checks?.find((c) => c.state === "working")) || null;
 export const machineToFix = (report = machine.report) => (report?.checks || []).filter((c) => c.state === "error" || c.state === "warn").length;
 
 export async function refreshMachine(fresh = false) {
@@ -80,8 +82,8 @@ export function machineRowsHtml(report = machine.report) {
 export function machineSummary(report = machine.report) {
   if (!report) return { tone: "", html: '<span class="spinner" aria-hidden="true"></span><span>Checking your machine</span>' };
   const missing = report.checks.filter((c) => c.state === "error").length, look = report.checks.filter((c) => c.state === "warn").length;
-  const working = report.checks.find((c) => c.state === "working");
-  if (working && !missing) return { tone: "", html: `<span class="spinner" aria-hidden="true"></span><span>${esc(working.detail)}</span>` };
+  const working = machineWorking(report);
+  if (working) return { tone: "", html: `<span class="spinner" aria-hidden="true"></span><span>${esc(working.detail)}</span>` };
   if (missing) {
     return { tone: "err", html: `${icon("alert")}<span>The platform cannot start until ${missing === 1 ? "the line in red is" : `the ${missing} lines in red are`} fixed</span>` };
   }

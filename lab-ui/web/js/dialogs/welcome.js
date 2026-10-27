@@ -9,7 +9,7 @@ import { paintBusy, licenseForm, contentLead, setOff } from "../components/ui.js
 import { runPlatform } from "../activity/jobs.js";
 import { CHOICES, coreOf, onCloud, movable, linkedPlaces, chooseCore, environmentControl, pickEnvironment, runCore, gatewayWhy } from "../platform/core-choice.js";
 import { License } from "./license.js";
-import { machine, machineBlocked, machineToFix, machineRowsHtml, machineSummary, watchMachine, unwatchMachine, refreshMachine, actMachine } from "./machine.js";
+import { machine, machineBlocked, machineToFix, machineWorking, machineRowsHtml, machineSummary, watchMachine, unwatchMachine, refreshMachine, actMachine } from "./machine.js";
 import { REGISTER } from "./platform.js";
 
 const REPOSITORY = "https://github.com/gravitee-io-labs/gravitee-lab";   // where the source of the Lab is
@@ -106,8 +106,8 @@ const running = () => (onCloud() ? !coreOf().start?.needed : store.state?.platfo
 function stepOf(id) {
   if (id === "machine") {
     if (!machine.report) return { state: "checking", line: "Checking" };
-    const working = machine.report.checks.find((c) => c.state === "working");
-    if (working && !machine.report.checks.some((c) => c.state === "error")) return { state: "checking", line: `Waiting for ${working.title}` };
+    const working = machineWorking();
+    if (working) return { state: "checking", line: `Waiting for ${working.title}` };
     if (machineBlocked()) return { state: "attention", line: `${machineToFix()} to fix` };
     return { state: "done", line: machineToFix() ? `Ready, ${machineToFix()} to look at` : "Ready" };
   }
@@ -201,7 +201,7 @@ function footHtml() {
   if (current === "machine") {
     const blocked = machineBlocked() || !machine.report;
     return `<span class="grow"></span><button type="button" class="btn${blocked ? "" : " primary"}" data-next${
-      blocked ? ` aria-disabled="true" data-why="${machine.report ? "Fix the lines in red first" : "Checking your machine"}"` : ""}>Continue</button>`;
+      blocked ? ` aria-disabled="true" data-why="${esc(!machine.report ? "Checking your machine" : machineWorking()?.detail || "Fix the lines in red first")}"` : ""}>Continue</button>`;
   }
   if (current === "core") return `${back}<span class="grow"></span><button type="button" class="btn primary" data-next>Continue</button>`;
   const state = store.state, chosen = [...(state?.playgrounds || []), ...(state?.addons || [])].some((x) => x.on);

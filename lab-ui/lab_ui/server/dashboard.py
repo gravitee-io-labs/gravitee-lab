@@ -453,15 +453,16 @@ class Stats:
             try:
                 process = self._start(closed)
             except OSError:   # no docker command yet: it is asked again, Docker can be installed while the page is open
-                process = False
+                if closed.wait(RESTART):
+                    return
+                continue
             if process is None:
                 return
-            if process:
-                for line in process.stdout:
-                    if closed.is_set():
-                        break
-                    self.feed(line)
-                process.wait()   # reaped: it ended, or was killed
+            for line in process.stdout:
+                if closed.is_set():
+                    break
+                self.feed(line)
+            process.wait()   # reaped: it ended, or was killed
             if closed.wait(RESTART):
                 return
 
