@@ -68,8 +68,9 @@ window offers to install them. Or that window ends with `Can't install the softw
 
 **Cause:** a Mac has Git, Make and Python only with Apple's command line tools.
 
-**Fix:** click **Install**, then run the command again. When the install fails, Apple's servers did not answer: run
-`xcode-select --install` again a little later.
+**Fix:** click **Install**, then run the command again. When the install fails, the disk is short of space (it needs a few
+GB, more when macOS has an update waiting) or Apple's servers did not answer: free some space, then run
+`xcode-select --install` again.
 
 ### Python or OpenSSL is missing, or Python is too old
 
