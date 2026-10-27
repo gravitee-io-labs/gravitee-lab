@@ -50,8 +50,8 @@ STATS_EVERY = 1    # seconds between two events of the containers' load
 POLICY = "; ".join([
     "default-src 'self'",
     "script-src 'self' https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.11.0/ https://cdn.jsdelivr.net/npm/@xterm/xterm@6.0.0/ "
-    "https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/ https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.4.16/ "
-    "https://cdnjs.cloudflare.com/ajax/libs/marked/18.0.14/ https://cdnjs.cloudflare.com/ajax/libs/mermaid/11.15.0/",
+    "https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/ https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.4.17/ "
+    "https://cdnjs.cloudflare.com/ajax/libs/marked/18.1.1/ https://cdnjs.cloudflare.com/ajax/libs/mermaid/11.15.0/",
     "style-src 'self' https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.11.0/ https://cdn.jsdelivr.net/npm/@xterm/xterm@6.0.0/ "
     "https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/ 'unsafe-inline'",
     "font-src 'self' https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/",

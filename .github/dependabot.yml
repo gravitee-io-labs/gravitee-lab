@@ -31,6 +31,7 @@ updates:
   - package-ecosystem: docker
     directories:
       - "/seeder"
+      - "/lab-ui/lab_ui/catalogs/ci/tools"   # the scanners the stages of catalog.py ci run: gitleaks and trivy
     schedule:
       interval: weekly
     cooldown:

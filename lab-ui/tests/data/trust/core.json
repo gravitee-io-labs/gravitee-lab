@@ -542,7 +542,7 @@
         ],
         "timeout": "3s"
       },
-      "image": "docker.elastic.co/elasticsearch/elasticsearch:9.5.2",
+      "image": "docker.elastic.co/elasticsearch/elasticsearch:9.5.5",
       "labels": {
         "io.gravitee.description": "Stores analytics and logs of API traffic",
         "io.gravitee.group": "Databases",
@@ -656,7 +656,7 @@
         ],
         "timeout": "3s"
       },
-      "image": "mongo:8.0.29",
+      "image": "mongo:8.0.34",
       "labels": {
         "io.gravitee.description": "Stores APIs, applications and configuration",
         "io.gravitee.group": "Databases",
@@ -702,7 +702,7 @@
         ],
         "timeout": "3s"
       },
-      "image": "redis:8.10.1-alpine",
+      "image": "redis:8.10.2-alpine",
       "labels": {
         "io.gravitee.description": "Stores gateway rate limit counters",
         "io.gravitee.group": "Databases",
