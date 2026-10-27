@@ -230,11 +230,13 @@ class RunTest(unittest.TestCase):
         used = set(re.findall(r"inputs\.([\w-]+)", self.text.split("\njobs:\n", 1)[1]))
         self.assertEqual(used, declared)
 
-    def test_the_secrets_it_reads_are_the_ones_it_declares_or_the_environment_holds(self):
+    def test_the_secrets_it_reads_are_the_ones_it_declares_and_it_declares_none_it_does_not_read(self):
+        """An environment secret too: a called workflow gets one only when its caller names it, so a secret it reads and does not
+        declare is a secret no caller can pass, and it is empty in the run with no error."""
         declared = set(children(self.text, "on", "workflow_call", "secrets"))
         used = set(re.findall(r"secrets\.(\w+)", self.text.split("\njobs:\n", 1)[1]))
-        self.assertEqual(used - declared, {"GRAVITEE_LICENSE", "DOCKERHUB_USERNAME", "DOCKERHUB_TOKEN"}, "the environment's, not the caller's")
-        self.assertEqual(declared - used, set())
+        self.assertEqual(used, declared)
+        self.assertLessEqual({"GRAVITEE_LICENSE", "DOCKERHUB_USERNAME", "DOCKERHUB_TOKEN"}, declared)
 
     def test_every_input_has_a_type_and_what_is_required_has_no_default(self):
         for name, lines in children(self.text, "on", "workflow_call", "inputs").items():
@@ -244,7 +246,10 @@ class RunTest(unittest.TestCase):
                 self.assertRegex(body, r"description: ")
                 self.assertTrue(("required: true" in body) != ("default:" in body), "required, or with a default")
 
-    def test_the_tokens_that_read_are_not_required(self):
+    def test_no_secret_is_required_and_the_license_step_says_when_it_is_missing(self):
+        # A deploy key is only for a private repository. The license is refused when empty by the step that writes it, with its name
+        # and where to look: `required: true` would only check that a caller names it, not that the environment holds it
+        self.assertIn("or the caller does not pass it by name", step_with(self.jobs["e2e"], "secrets.GRAVITEE_LICENSE"))
         for name, lines in children(self.text, "on", "workflow_call", "secrets").items():
             with self.subTest(secret=name):
                 self.assertIn("required: false", "\n".join(lines))
@@ -289,17 +294,40 @@ class EngineCallerTest(unittest.TestCase):
         self.assertIn("refs/heads/main", script_text)
         self.assertIn("refs/pull/$PR/head", script_text)
 
-    def test_it_calls_the_run_of_this_repository_and_holds_no_license(self):
+    def test_it_calls_the_run_of_this_repository_and_names_the_license_in_its_call_alone(self):
+        """The license is named once in this file, as an entry of the call's `secrets:`, which no step reads: the one step that
+        writes it is the run's. No job of this file enters an environment, so none of its own steps could read it."""
         body = self.jobs["try"]
         self.assertIn("uses: ./.github/workflows/e2e-run.yml", body)
-        self.assertNotIn("GRAVITEE_LICENSE", self.text)
+        self.assertEqual(re.findall(r"(?m)^.*GRAVITEE_LICENSE.*$", self.text), ["      GRAVITEE_LICENSE: ${{ secrets.GRAVITEE_LICENSE }}"])
+        self.assertEqual(children(self.text, "jobs", "try", "secrets")["GRAVITEE_LICENSE"], [])
+        for name, other in self.jobs.items():
+            if name != "try":
+                self.assertNotRegex(other, r"secrets\.", f"{name} reads no secret")
         self.assertNotIn("environment:", self.text)
         self.assertNotIn("steps:", body, "a job that calls a workflow has none of its own")
 
-    def test_it_hands_over_one_secret_by_name_the_one_that_reads_the_catalog(self):
+    def test_it_hands_over_by_name_the_key_that_reads_the_catalog_and_the_secrets_of_the_environment(self):
         secrets = children(self.text, "jobs", "try", "secrets")
-        self.assertEqual(list(secrets), ["CATALOG_DEPLOY_KEY"])
-        self.assertEqual(sorted(set(re.findall(r"secrets\.(\w+)", self.text))), ["CATALOG_DEPLOY_KEY"])
+        self.assertEqual(list(secrets), ["CATALOG_DEPLOY_KEY", "GRAVITEE_LICENSE", "DOCKERHUB_USERNAME", "DOCKERHUB_TOKEN"])
+        for name in secrets:
+            with self.subTest(secret=name):
+                self.assertRegex(self.text, rf"(?m)^      {name}: \$\{{\{{ secrets\.{name} \}}\}}$", "by its own name, nothing else")
+        self.assertEqual(sorted(set(re.findall(r"secrets\.(\w+)", self.text))), sorted(secrets))
+        self.assertNotRegex(self.text, r"secrets:\s*inherit", "inherit hands over every secret of the repository")
+
+    def test_it_passes_every_secret_the_run_s_environment_job_reads(self):
+        """The bug this keeps away: the run's e2e job enters the environment that holds the license, but GitHub gives a called
+        workflow an environment secret only when its caller names it, and an empty one, with no error, when it does not. Every
+        secret that job reads, except the deploy keys of repositories this one does not need, is passed here."""
+        run = jobs(RUN.read_text(encoding="utf-8"))["e2e"]
+        read = set(re.findall(r"secrets\.(\w+)", run)) - {"LAB_DEPLOY_KEY", "NEEDS_CATALOG_DEPLOY_KEY"}
+        self.assertEqual(read, {"CATALOG_DEPLOY_KEY", "GRAVITEE_LICENSE", "DOCKERHUB_USERNAME", "DOCKERHUB_TOKEN"})
+        self.assertLessEqual(read, set(children(self.text, "jobs", "try", "secrets")))
+
+    def test_it_passes_only_secrets_the_run_declares(self):
+        declared = set(children(RUN.read_text(encoding="utf-8"), "on", "workflow_call", "secrets"))
+        self.assertLessEqual(set(children(self.text, "jobs", "try", "secrets")), declared)
 
     def test_it_gives_the_run_the_inputs_it_declares_and_all_that_it_requires(self):
         declared = children(RUN.read_text(encoding="utf-8"), "on", "workflow_call", "inputs")
