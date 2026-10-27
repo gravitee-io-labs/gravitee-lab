@@ -70,6 +70,16 @@ test("the whole says in one line whether the platform can start", async () => {
   assert.deepEqual([machineSummary().tone, text(draw(machineSummary().html))], ["ok", "Your machine is ready"]);
 });
 
+test("a fix on its way keeps the platform waiting and the whole says what it waits for", async () => {
+  server.machine = { ready: false, problems: 2, checks: [row("docker", "working", "Docker Desktop is starting"),
+    row("disk", "warn", "14 GB free: the first start downloads about 15 GB")] };
+  await refreshMachine(true);
+  assert.equal(machineBlocked(), true, "Continue and Start wait for Docker");
+  assert.deepEqual([machineSummary().tone, text(draw(machineSummary().html))], ["", "Docker Desktop is starting"]);
+  server.machine = READY;
+  await refreshMachine(true);
+});
+
 test("an answer that is not a report keeps the last one", async () => {
   server.machine = { error: "busy" };
   await refreshMachine(true);

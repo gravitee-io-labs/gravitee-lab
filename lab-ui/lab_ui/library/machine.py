@@ -73,14 +73,15 @@ def _waiting(what, seconds=120):
 
 
 def docker_app():
-    """The app that runs Docker on a Mac, by the name `open -a` knows it and the name people know; None elsewhere or without
-    one"""
+    """The app that runs Docker on a Mac, by its path and the name people know; None elsewhere or without one. The path, not
+    the name: an app just copied into Applications is not known by its name to `open -a` yet."""
     if system() != "mac":
         return None
     places = [Path("/Applications"), Path.home() / "Applications"]
     for bundle, name in (("Docker.app", "Docker Desktop"), ("OrbStack.app", "OrbStack")):
-        if any((place / bundle).is_dir() for place in places):
-            return bundle[:-4], name
+        for place in places:
+            if (place / bundle).is_dir():
+                return str(place / bundle), name
     return None
 
 
@@ -111,9 +112,10 @@ def _docker():
     if compose.run(["docker", "--version"], timeout=10)[0] == 127:
         app = docker_app()
         if app:
-            state = "working" if _waiting("docker") else "error"
-            return _check("docker", state, title, f"{app[1]} is installed and has not been started yet",
-                          [] if state == "working" else [_action("open-docker", f"Open {app[1]}", True)]), None
+            if _waiting("docker"):
+                return _check("docker", "working", title, f"{app[1]} is starting"), None
+            return _check("docker", "error", title, f"{app[1]} is installed and has not been started yet",
+                          [_action("open-docker", f"Open {app[1]}", True)]), None
         return _check("docker", "error", title, "Docker is not installed", _install_docker()), None
     info = _info()
     if info is None:
@@ -263,10 +265,10 @@ def report(fresh=False):
 def act(action):
     """Runs a fix that runs on this machine: open the app that runs Docker, or Apple's installer of Git"""
     if action == "open-docker" and docker_app():
-        _asked["docker"] = time.monotonic()
-        rc, _, err = compose.run(["open", "-a", docker_app()[0]], timeout=20)
+        rc, _, err = compose.run(["open", docker_app()[0]], timeout=20)
         if rc != 0:
             raise CatalogError("machine_action", err.strip() or "The app did not open", 400)
+        _asked["docker"] = time.monotonic()
     elif action == "install-clt" and system() == "mac":
         _asked["git"] = time.monotonic()
         compose.run(["/usr/bin/xcode-select", "--install"], timeout=20)

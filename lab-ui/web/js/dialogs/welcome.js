@@ -106,6 +106,8 @@ const running = () => (onCloud() ? !coreOf().start?.needed : store.state?.platfo
 function stepOf(id) {
   if (id === "machine") {
     if (!machine.report) return { state: "checking", line: "Checking" };
+    const working = machine.report.checks.find((c) => c.state === "working");
+    if (working && !machine.report.checks.some((c) => c.state === "error")) return { state: "checking", line: `Waiting for ${working.title}` };
     if (machineBlocked()) return { state: "attention", line: `${machineToFix()} to fix` };
     return { state: "done", line: machineToFix() ? `Ready, ${machineToFix()} to look at` : "Ready" };
   }

@@ -31,7 +31,7 @@ class Machine(Case):
         self.patch(machine.compose, "run", side_effect=run)
         self.patch(machine.compose, "project_name", return_value="gravitee")
         self.patch(machine, "system", return_value="mac")
-        self.patch(machine, "docker_app", return_value=("Docker", "Docker Desktop"))
+        self.patch(machine, "docker_app", return_value=("/Applications/Docker.app", "Docker Desktop"))
         self.patch(machine, "core_ports", return_value={9200: "Elasticsearch", 27017: "MongoDB"})
         self.patch(machine, "_taken", return_value=False)
         self.patch(machine.shutil, "which", side_effect=lambda name: f"/opt/homebrew/bin/{name}")
@@ -67,10 +67,22 @@ class Machine(Case):
         self.assertEqual((docker["state"], docker["detail"], docker["actions"][0]["label"]),
                          ("error", "Docker Desktop is not running", "Open Docker Desktop"))
         self.assertEqual((self.check("memory")["state"], self.check("ports")["detail"]), ("idle", "Known once Docker runs"))
-        self.answers[("open", "-a")] = (0, "", "")
+        self.answers[("open", "/Applications/Docker.app")] = (0, "", "")
         machine.act("open-docker")
-        self.assertIn(["open", "-a", "Docker"], self.ran)
+        self.assertIn(["open", "/Applications/Docker.app"], self.ran)
         self.assertEqual((self.check("docker")["state"], self.check("docker")["detail"]), ("working", "Docker Desktop is starting"))
+
+    def test_an_app_just_installed_is_opened_by_its_path_and_said_as_starting_only_once_it_opened(self):
+        self.answers[("docker", "--version")] = (127, "", "")
+        self.answers[("open", "/Applications/Docker.app")] = (1, "", "The application cannot be opened.")
+        with self.assertRaises(CatalogError):
+            machine.act("open-docker")
+        self.assertEqual(self.check("docker")["detail"], "Docker Desktop is installed and has not been started yet")
+        self.answers[("open", "/Applications/Docker.app")] = (0, "", "")
+        machine.act("open-docker")
+        docker = self.check("docker")
+        self.assertEqual((docker["state"], docker["detail"], docker["actions"]), ("working", "Docker Desktop is starting", []))
+        self.assertFalse(machine.report(fresh=True)["ready"], "the platform waits for Docker")
 
     def test_on_linux_the_command_that_starts_docker_is_given_to_copy(self):
         self.patch(machine, "system", return_value="linux")
