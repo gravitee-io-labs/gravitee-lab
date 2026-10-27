@@ -7,7 +7,7 @@ Every rule that `catalog.py check` and the stages of `catalog.py ci` can print, 
 | Family | Codes |
 |---|---|
 | [Managed files](#managed-files) | `SD01` to `SD11` |
-| [Structure](#structure) | `ST01` to `ST22` |
+| [Structure](#structure) | `ST01` to `ST23` |
 | [Secrets](#secrets) | `SE01` to `SE07` |
 | [Commits](#commits) | `CR01` to `CR02` |
 | [Workflows](#workflows) | `WF01` to `WF21` |
@@ -311,6 +311,16 @@ Every rule that `catalog.py check` and the stages of `catalog.py ci` can print, 
 - **Why**: An editor task, a hook or a development container runs on the machine of whoever opens the folder, so a pull request could run code on a reviewer's machine.
 - **Fix**: remove it; a unit is Compose files, data and the sources of its apps.
 - **At Add**: Not installed (or installed as data), and never run.
+
+### ST23
+
+*Error.* A unit folder or setup file not named after the unit's x-gravitee.name: lower case, every run of characters other than a-z and 0-9 one dash, no dash at either end.
+
+- **Message**: The folder of {name} is {folder}; its name says {slug}. Fix: rename the folder to {slug}. The folder is the item's id: read Renaming an item in docs/writing-a-catalog.md first.
+  The file of {name} is {folder}; its name says {slug}. Fix: rename the file to {slug}.yml. The file is the item's id: read Renaming an item in docs/writing-a-catalog.md first.
+- **Why**: A person finds an item by its name, and the Lab finds it by its folder: its id, what other items include, the prefix of its settings, its stars and its records. One name for both is what a reader expects and what the Lab UI makes for a new item.
+- **Fix**: rename the folder to {slug}. The folder is the item's id: read Renaming an item in docs/writing-a-catalog.md first.
+- **At Add**: Nothing: the item is installed under its folder as it is.
 
 ## Secrets
 

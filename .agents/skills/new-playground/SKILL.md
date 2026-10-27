@@ -12,8 +12,10 @@ The rules are in `docs/units.md`, and the authoring reference in `docs/playgroun
    are in `.lab/catalogs/`, which git ignores: name the folder (`.lab/catalogs/<catalog id>/playgrounds/`, the id of the
    default catalog is in `catalogs.default.json`) and do not search the tree by pattern, which skips it.
 2. Settle what the request does not say. Infer what you can, ask the rest:
-   - **Its name**, and its id: the name in lowercase letters, digits and dashes. Not `local`, and not the id of a playground
-     of any catalog. Its own settings start with its id (`ACME_SHOP_*`).
+   - **Its name**, and its id: the name in lower case, with every run of characters other than a-z and 0-9 one dash and
+     no dash at either end (*Acme Shop* is `acme-shop`). The id names its folder, and the check refuses another
+     (ST23). Not `local`, and not the id of a playground of any catalog. Its own settings start with its id
+     (`ACME_SHOP_*`).
    - **The use case**: the add-ons and setups it needs, its apps and where they are built from (their own folder or a
      repository), what it creates in Gravitee (APIs, applications, users) and the lessons of its guide.
    - **Whether it also deploys to Gravitee Cloud**: nothing to declare, the Lab works it out. A seed of `seed/apim/`

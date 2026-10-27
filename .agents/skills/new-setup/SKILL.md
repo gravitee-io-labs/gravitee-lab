@@ -12,8 +12,9 @@ A setup is a compose file that includes add-ons, and nothing else: they start an
    `.lab/catalogs/`, which git ignores: name the folder (`.lab/catalogs/<catalog id>/setups/`, the id of the default catalog
    is in `catalogs.default.json`) and do not search the tree by pattern, which skips it.
 2. Settle what the request does not say. Infer what you can, ask the rest:
-   - **Its name**, and its id: the name in lowercase letters, digits and dashes. Not `local`, and not the id of a setup of
-     any catalog.
+   - **Its name**, and its id: the name in lower case, with every run of characters other than a-z and 0-9 one dash and
+     no dash at either end (*Kafka streams* is `kafka-streams`). The id names its file, and the check refuses another
+     (ST23). Not `local`, and not the id of a setup of any catalog.
    - **Its add-ons**: the folders of `addons/` of the catalogs and of `.lab/catalogs/local/addons/`. The `x-gravitee` block
      of each `compose.yml` says what it adds and what it cannot run with. One is missing: create it first, with the
      `new-addon` skill.

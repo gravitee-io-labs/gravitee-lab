@@ -1,4 +1,4 @@
-x-gravitee: {kind: addon, name: Echo with the gateway, category: Other, description: Echo wired to the gateway of the core}
+x-gravitee: {kind: addon, name: Echo core, category: Other, description: Echo wired to the gateway of the core}
 include:
   - ../../addons/echo/compose.yml
 services:

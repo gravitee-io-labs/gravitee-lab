@@ -7,7 +7,8 @@ of it, never decided again here. What it cannot know (a `.env` at the top of a c
 no less a problem) is `store.refusal`'s, for the entries outside the installable places. The rest is this module's: case twins
 over the whole tree (ST13), invisible characters (ST11), line endings (ST12), programs and archives (ST16), the files a
 standard catalog has (ST17), its license (ST18), Git LFS (ST19), code in a seed (ST20), a scanner's configuration (ST21), the
-files that run on a reader's machine (ST22), and a warning for a path in no place the Lab reads (ST08).
+files that run on a reader's machine (ST22), a unit named otherwise than its `x-gravitee.name` says (ST23), and a warning for
+a path in no place the Lab reads (ST08).
 
 A file with a NUL byte is read like any other (`text_of`): only a file that is mostly not UTF-8 (an image, a font) is spared ST11
 and, with any NUL, ST12. Paths are compared to a depth of nine folders: a deeper path is an ST04 error already.
@@ -17,11 +18,13 @@ Pure: it reads the tree and writes nothing, opens no link, runs nothing of what 
 import re
 from typing import Dict, List, Optional, Set, Tuple
 
+from ... import paths
 from .. import store
 from ..report import ERROR, WARNING, Problem
 from ..tree import REGULAR
-from . import AREAS, Context, basename, context, garbled, is_binary, line_of, newlines, problem, read_limit, say, table, text_of, \
-    unit_of
+from .secrets import flow_items, flow_key
+from . import AREAS, TEXT_LIMIT, Context, basename, context, garbled, is_binary, line_of, newlines, outline, problem, read_limit, \
+    say, scalar, table, text_of, unit_of
 
 RULES = table([
     ("ST01", ERROR, "Symbolic link (git mode 120000)",
@@ -77,7 +80,14 @@ RULES = table([
      "and a maintainer decides what it may skip."),
     ("ST22", ERROR, "A file that runs on the machine of whoever opens the folder",
      "{path} would run on a reader's machine. Fix: remove it; a unit is Compose files, data and the sources of its apps."),
+    ("ST23", ERROR, "A unit folder or setup file not named after the unit's x-gravitee.name: lower case, every run of "
+                    "characters other than a-z and 0-9 one dash, no dash at either end",
+     "The folder of {name} is {folder}; its name says {slug}. Fix: rename the folder to {slug}. The folder is the item's id: "
+     "read Renaming an item in docs/writing-a-catalog.md first."),
 ])
+# The second message of ST23: a setup is a file, not a folder
+MORE = {"ST23": ("The file of {name} is {folder}; its name says {slug}. Fix: rename the file to {slug}.yml. The file is the "
+                 "item's id: read Renaming an item in docs/writing-a-catalog.md first.",)}
 
 # The codes store.rejections answers per file (ST10 and ST13 are decided here: one finding for the whole, not one per file)
 FROM_STORE = ("ST01", "ST02", "ST03", "ST04", "ST05", "ST06", "ST07", "ST09", "ST14", "ST15")
@@ -106,6 +116,8 @@ MAGIC = (b"\x7fELF", b"\xfe\xed\xfa\xce", b"\xfe\xed\xfa\xcf", b"\xce\xfa\xed\xf
          b"\xbe\xba\xfe\xca", b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08", b"\x1f\x8b\x08", b"\xfd7zXZ\x00", b"7z\xbc\xaf\x27\x1c",
          b"\x28\xb5\x2f\xfd")
 HEAD = 4096   # the bytes read from a file to see what it is
+_UNIT_NAME = re.compile(r"[a-z0-9-]+")
+SHOWN = 80   # the characters of a name a message shows
 # The folders of a path that are looked at when paths are compared: a path of more than 8 folders is an ST04 error already, and
 # a path of thousands would cost the square of its depth
 FOLDERS = 9
@@ -334,8 +346,57 @@ def _files(entries, ctx: Context) -> List[Problem]:
     return found
 
 
+def _x_gravitee_name(text: str) -> Optional[Tuple[str, int]]:
+    """(name, line) of `x-gravitee.name` of a Compose file, in a block or a flow mapping (`x-gravitee: {kind: addon, name: Echo}`),
+    or None when the file has none that is a plain scalar: an alias, a block scalar or a variable is not read, for a name is never
+    guessed."""
+    for node in outline(text).root.children:
+        if node.key != "x-gravitee":
+            continue
+        value, line = None, node.line
+        if node.value.startswith("{") and node.value.endswith("}"):
+            for item in flow_items(node.value[1:-1]):
+                key, found = flow_key(item.strip())
+                if key == "name":
+                    value = found
+        elif node.get("name") is not None:
+            value, line = node.get("name").value, node.get("name").line
+        if not value or value[:1] in ("[", "{", "*", "&", "|", ">", "!") or "$" in value:
+            return None
+        return scalar(value), line
+    return None
+
+
+def _named(tree, entries) -> List[Problem]:
+    """ST23: the folder of an add-on or a playground, or the file of a setup, is its `x-gravitee.name` as `paths.slug` writes it
+    (lower case, every run of characters other than a-z and 0-9 one dash, no dash at either end). A unit whose
+    folder is no unit name already (ST14), whose name gives no slug, or whose name cannot be read is left to the other rules."""
+    found: List[Problem] = []
+    for entry in entries:
+        unit = unit_of(entry.path)
+        if unit is None or entry.mode not in REGULAR or entry.size > TEXT_LIMIT:
+            continue
+        kind, folder = unit
+        if entry.path != (f"setups/{folder}.yml" if kind == "setup" else f"{kind}s/{folder}/compose.yml"):
+            continue
+        if not _UNIT_NAME.fullmatch(folder):
+            continue
+        data = tree.read(entry.path, TEXT_LIMIT)
+        named = _x_gravitee_name(text_of(data)) if data is not None else None
+        if named is None:
+            continue
+        name, line = named
+        wanted = paths.slug(name)   # the one rule the Lab UI also names a new item by
+        if wanted and wanted != folder:
+            shown = name if len(name) <= SHOWN else name[:SHOWN - 3] + "..."
+            place = entry.path if kind == "setup" else f"{kind}s/{folder}"
+            found.append(problem(RULES, "ST23", entry.path, line, template=MORE["ST23"][0] if kind == "setup" else None,
+                                 name=shown, folder=place, slug=wanted))
+    return found
+
+
 def check(tree, ctx: Optional[Context] = None) -> List[Problem]:
-    """ST01 to ST22 over a tree."""
+    """ST01 to ST23 over a tree."""
     ctx = ctx if ctx is not None else context(tree)
     entries = tree.entries()
     found, flagged = _from_store(entries)
@@ -347,9 +408,10 @@ def check(tree, ctx: Optional[Context] = None) -> List[Problem]:
         flagged.add(path)
     found += _contents(tree, entries, ctx)
     found += _files(entries, ctx)
+    found += _named(tree, entries)
     flagged |= {each.path for each in found if each.path and each.severity == ERROR}
     found += _place(entries, flagged)
     return found
 
 
-__all__ = ["RULES", "check", "case_twins", "program", "runs_on_reader", "scanner_file", "say"]
+__all__ = ["MORE", "RULES", "check", "case_twins", "program", "runs_on_reader", "scanner_file", "say"]

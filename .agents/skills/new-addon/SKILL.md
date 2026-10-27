@@ -12,8 +12,9 @@ An add-on is one capability on top of the core platform: a folder with its `comp
    are in `.lab/catalogs/`, which git ignores: name the folder (`.lab/catalogs/<catalog id>/addons/`, the id of the default
    catalog is in `catalogs.default.json`) and do not search the tree by pattern, which skips it.
 2. Settle what the request does not say. Infer what you can, ask the rest:
-   - **Its name**, and its id: the name in lowercase letters, digits and dashes. Not `local`, and not the id of an add-on of
-     any catalog or the name of a service the project has.
+   - **Its name**, and its id: the name in lower case, with every run of characters other than a-z and 0-9 one dash and
+     no dash at either end (*Acme Console* is `acme-console`). The id names its folder, and the check refuses another
+     (ST23). Not `local`, and not the id of an add-on of any catalog or the name of a service the project has.
    - **What it adds**: the image and its version, the port to open, the settings and secrets it needs, the keys it sets
      on core services, the add-ons it needs or cannot run with. Its own settings start with its id (`ACME_CONSOLE_*`).
    - **Its category and a description**: a noun phrase without a leading article or final period that says what it

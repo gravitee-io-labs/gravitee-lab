@@ -1,6 +1,6 @@
 x-gravitee:
   kind: addon
-  name: Fixture cluster
+  name: Cluster
   category: Other
   description: Runs a container that needs full privileges
   host_access:

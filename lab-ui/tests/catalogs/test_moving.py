@@ -367,7 +367,7 @@ class Copying(Case):
     def test_the_plan_says_what_each_choice_copies_and_switches(self):
         plan = moving.copy_plan("addon", "echo")
         self.assertEqual(plan["alone"], {"copies": ["Echo"], "switches": [], "uses_machine": [], "held": ""})
-        self.assertEqual(sorted(plan["with_users"]["copies"]), ["Echo", "Echo with the gateway", "Pair"])
+        self.assertEqual(sorted(plan["with_users"]["copies"]), ["Echo", "Echo core", "Pair"])
         self.assertEqual(plan["with_users"]["switches"], ["Scratch"])
 
     def test_a_copy_reads_back_on_the_oldest_compose_as_on_the_newest(self):

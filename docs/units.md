@@ -2,6 +2,8 @@
 
 The rules a unit follows, whatever catalog it lives in: its files, its keys, its labels and what the Lab UI reads. A unit is
 an add-on (`addons/<name>/compose.yml`), a setup (`setups/<name>.yml`) or a playground (`playgrounds/<name>/compose.yml`).
+Its folder, or a setup's file, is its `x-gravitee.name` in lower case with every run of characters other than `a-z` and `0-9`
+one dash (*Acme Console* is `addons/acme-console/`): that is its id ([Writing a catalog](writing-a-catalog.md#the-structure)).
 What the Lab promises to a unit is in [the contract](contract.md); how a catalog is made is in
 [Writing a catalog](writing-a-catalog.md).
 

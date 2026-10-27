@@ -230,7 +230,7 @@ def flow_items(body: str) -> List[str]:
     return items
 
 
-def _flow_key(item: str) -> Tuple[str, str]:
+def flow_key(item: str) -> Tuple[str, str]:
     """(key, value) of the `key: value` item of a flow mapping, or ("", "") for an item with no colon."""
     if item[:1] in "\"'":
         end = item.find(item[0], 1)
@@ -267,7 +267,7 @@ def flow_pairs(text: str) -> List[Tuple[str, str]]:
             if not item:
                 continue
             if mapping:
-                name, value = _flow_key(item)
+                name, value = flow_key(item)
                 if name:
                     pairs.append((name, value))
                     work.append(value)
@@ -471,5 +471,5 @@ def check(tree, ctx: Optional[Context] = None) -> List[Problem]:
     return found
 
 
-__all__ = ["KINDS", "NOT_SECRET", "RULES", "SECRET_NAME", "check", "compose_literals", "env_literal", "flow_items", "flow_pairs",
+__all__ = ["KINDS", "NOT_SECRET", "RULES", "SECRET_NAME", "check", "compose_literals", "env_literal", "flow_items", "flow_key", "flow_pairs",
            "jwts", "names_a_secret", "scan_added", "scan_text", "se03", "token_hits"]
