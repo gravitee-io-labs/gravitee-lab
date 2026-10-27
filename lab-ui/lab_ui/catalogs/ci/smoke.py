@@ -10,8 +10,9 @@ For each unit the trust policy judged OK (`ci.load`, the same reading the build 
    (`io.gravitee.license: required`) and every service whose `depends_on` reaches, through own services, a service of the core or
    of another unit (also `links`, `volumes_from` and `service:` modes). That is standard Compose and no new label: in a bank, the MCP
    server with no dependency is started and the agent that needs both gateways is left to the end-to-end run.
-2. A unit that needs settings (Compose cannot read it without a setting that has no default) or a license
-   (`x-gravitee.requires.license`) is **not tried**: said (SM03, a warning) and never taken for a pass, the convention of the
+2. A unit that needs settings (Compose cannot read it without a setting that has no default), a license
+   (`x-gravitee.requires.license`) or a remote platform (`x-gravitee.gateway`: it runs the gateway of a platform, and works only
+   with that platform's token) is **not tried**: said (SM03, a warning) and never taken for a pass, the convention of the
    engine's `e2e.py`, whose exit code 2 is "not tried".
 3. The bind directories the unit keeps its state in (`.state/` inside its own folder) are made, mode 777, as the Lab's `make init`
    did, then `docker compose -p catalog-smoke-<unit> -f docker-compose.yml -f on.yml up -d --wait --wait-timeout 240 --no-build
@@ -96,12 +97,29 @@ def needs_settings(refused: Refused) -> bool:
     return bool(refused.reasons) and bool(NEEDS_SETTING.match(refused.reasons[0] if isinstance(refused.reasons[0], str) else ""))
 
 
+def x_gravitee(text: Optional[str]):
+    """The `x-gravitee` node of a unit's file read as the text it is, None when it has none."""
+    if not text:
+        return None
+    return next((node for node in outline(text).root.children if node.key == "x-gravitee"), None)
+
+
+def runs_remote_gateway(text: Optional[str]) -> bool:
+    """Whether the `x-gravitee` block of a unit's file says `gateway:` with something in it: the unit runs the gateway of a
+    remote platform, which works only with that platform's token. Read as the text it is, as requires_license reads it."""
+    found = x_gravitee(text)
+    if found is None:
+        return False
+    if found.value.startswith("{"):   # the block in flow style, on one line
+        return bool(re.search(r"\bgateway\s*:\s*\{\s*[^}\s]", found.value))
+    gateway = found.get("gateway")
+    return gateway is not None and bool(gateway.children)
+
+
 def requires_license(text: Optional[str]) -> bool:
     """Whether the `x-gravitee` block of a unit's file says `requires: license:` with something in it. Read as the text it is
     (the merged JSON of Compose has the core's `x-gravitee`, not the unit's)."""
-    if not text:
-        return False
-    found = next((node for node in outline(text).root.children if node.key == "x-gravitee"), None)
+    found = x_gravitee(text)
     if found is None:
         return False
     if found.value.startswith("{"):   # the block in flow style, on one line
@@ -507,7 +525,8 @@ def main(argv, out, err, **seams) -> int:
             outcomes.append(Outcome(unit.key, unit.file, "nothing", (), 0.0, "it only includes other units"))
             continue
         selection = select(unit)
-        if requires_license(tree.text(unit.file)):
+        text = tree.text(unit.file)
+        if requires_license(text) or runs_remote_gateway(text):
             problems.append(finding("SM03", unit.file, unit=unit.key))
             outcomes.append(Outcome(unit.key, unit.file, "not_tried", (), 0.0, "it needs settings or a license"))
             continue
@@ -555,5 +574,5 @@ def main(argv, out, err, **seams) -> int:
 
 
 __all__ = ["MESSAGES", "Outcome", "SETTLE", "Selection", "Session", "WAIT", "dependencies", "finding", "labels_of", "main", "make_state",
-           "needs_settings", "project_name", "project_session", "ps_rows", "requires_license", "select", "state_folders",
+           "needs_settings", "project_name", "project_session", "ps_rows", "requires_license", "runs_remote_gateway", "select", "state_folders",
            "state_of", "up_command"]
