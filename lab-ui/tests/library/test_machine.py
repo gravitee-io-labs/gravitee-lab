@@ -16,6 +16,7 @@ HEALTHY = {
     ("docker", "ps"): (0, "127.0.0.1:9200->9200/tcp\n", ""),
     ("git", "--version"): (0, "git version 2.43.2", ""),
     ("/usr/bin/xcode-select", "-p"): (0, "/Library/Developer/CommandLineTools", ""),
+    ("pgrep", "-f"): (1, "", ""),   # the app that runs Docker is not open
 }
 
 
@@ -85,6 +86,16 @@ class Machine(Case):
         self.assertEqual((docker["state"], docker["detail"], docker["actions"]), ("working", "Docker Desktop is starting", []))
         self.assertFalse(machine.report(fresh=True)["ready"], "the platform waits for Docker")
 
+    def test_docker_desktop_open_for_its_first_start_is_starting_however_long_the_person_takes(self):
+        self.answers[("docker", "--version")] = (127, "", "")
+        self.answers[("pgrep", "-f")] = (0, "4242\n", "")   # opened by the person, not from here: no wait was asked
+        docker = self.check("docker")
+        self.assertEqual((docker["state"], docker["detail"]), ("working", "Docker Desktop is starting"))
+        self.assertIn(["pgrep", "-f", "/Applications/Docker.app/Contents/MacOS/"], self.ran)
+        self.answers[("docker", "--version")] = (0, "Docker version 29.8.2", "")
+        self.answers[("docker", "info")] = (1, "", "Cannot connect to the Docker daemon")
+        self.assertEqual(self.check("docker")["detail"], "Docker Desktop is starting", "its daemon not answering yet")
+
     def test_on_linux_the_command_that_starts_docker_is_given_to_copy(self):
         self.patch(machine, "system", return_value="linux")
         self.patch(machine, "docker_app", return_value=None)
@@ -116,12 +127,16 @@ class Machine(Case):
         self.assertNotIn("folder", [c["id"] for c in machine.report(fresh=True)["checks"]])
         for root, name in (("/Users/me/Library/CloudStorage/GoogleDrive-me@example.com/My Drive/lab", "Google Drive"),
                            ("/Users/me/Library/Mobile Documents/com~apple~CloudDocs/lab", "iCloud Drive"),
-                           ("/mnt/c/Users/me/OneDrive/lab", "OneDrive")):
+                           ("/mnt/c/Users/me/OneDrive/lab", "OneDrive"),
+                           ("/Users/me/OneDrive - Contoso/lab", "OneDrive"), ("/Users/me/Dropbox (Acme)/lab", "Dropbox"),
+                           ("/Users/me/Library/CloudStorage/Box-Box/lab", "Box"), ("/Users/me/Google Drive/lab", "Google Drive")):
             self.patch(machine.paths, "ROOT", Path(root))
             folder = self.check("folder")
             self.assertEqual((folder["state"], folder["detail"]), ("warn", f"In {name}, whose sync can lock the files the containers write"))
             self.assertEqual(folder["actions"][0]["copy"], machine.CLONE)
         self.assertTrue(machine.report(fresh=True)["ready"], "a warning: the platform still starts")
+        self.patch(machine.paths, "ROOT", Path("/Users/me/src/Box/gravitee-lab"))   # a folder of that name, no sync client's
+        self.assertNotIn("folder", [c["id"] for c in machine.report(fresh=True)["checks"]])
 
     def test_short_memory_is_a_warning_that_lets_the_platform_start(self):
         self.answers[("docker", "info")] = (0, f"29.8.2|Docker Desktop|{6 * 2 ** 30}|/var/lib/docker", "")

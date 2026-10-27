@@ -35,10 +35,12 @@ WSL_MEMORY = f"{TROUBLESHOOTING}#windows-and-wsl-2"
 # Where Homebrew puts Compose on Apple silicon: Docker does not look there until the plugin is linked where it does
 BREW_COMPOSE = "/opt/homebrew/lib/docker/cli-plugins/docker-compose"
 LINK_COMPOSE = f"mkdir -p ~/.docker/cli-plugins && ln -sfn {BREW_COMPOSE} ~/.docker/cli-plugins/docker-compose"
-# Folders a sync client watches, by a part of their path and the name people know: the containers write into the lab's folder,
-# and a sync client can lock or rewrite what they write. Google Drive, OneDrive, Dropbox and Box are under CloudStorage on a Mac
-SYNCED = {"Mobile Documents": "iCloud Drive", "GoogleDrive": "Google Drive", "OneDrive": "OneDrive", "Dropbox": "Dropbox",
-          "Box": "Box"}
+# Folders a sync client watches, by how the folder it keeps begins and the name people know: the containers write into the lab's
+# folder, and a sync client can lock or rewrite what they write. On a Mac they are under Library/CloudStorage ("GoogleDrive-me@x",
+# "OneDrive-Contoso", "Box-Box"), iCloud's is Library/Mobile Documents; older ones are in the home ("Google Drive",
+# "OneDrive - Contoso", "Dropbox (Acme)"). Box's "Box" is a common word: it counts only where a sync client puts it.
+SYNCED = (("Mobile Documents", "iCloud Drive"), ("GoogleDrive", "Google Drive"), ("Google Drive", "Google Drive"),
+          ("OneDrive", "OneDrive"), ("Dropbox", "Dropbox"))
 CLONE = "git clone https://github.com/gravitee-io-labs/gravitee-lab.git ~/gravitee-lab"
 FRESH = 3   # seconds a report is reused: the page asks every few seconds, and so may two tabs
 
@@ -91,6 +93,12 @@ def docker_app():
     return None
 
 
+def _opening(app):
+    """Whether the app that runs Docker is open (its first start asks for its license and a password, which takes as long
+    as the person does), or was asked to open a moment ago"""
+    return _waiting("docker") or compose.run(["pgrep", "-f", f"{app[0]}/Contents/MacOS/"], timeout=5)[0] == 0
+
+
 def _info():
     """What Docker says of itself, or None when it does not answer"""
     rc, out, _ = compose.run(["docker", "info", "--format",
@@ -118,7 +126,7 @@ def _docker():
     if compose.run(["docker", "--version"], timeout=10)[0] == 127:
         app = docker_app()
         if app:
-            if _waiting("docker"):
+            if _opening(app):
                 return _check("docker", "working", title, f"{app[1]} is starting"), None
             return _check("docker", "error", title, f"{app[1]} is installed and has not been started yet",
                           [_action("open-docker", f"Open {app[1]}", True)]), None
@@ -127,7 +135,7 @@ def _docker():
     if info is None:
         app = docker_app()
         name = app[1] if app else "Docker"
-        if app and _waiting("docker"):
+        if app and _opening(app):
             return _check("docker", "working", title, f"{name} is starting"), None
         if app:
             actions = [_action("open-docker", f"Open {name}", True)]
@@ -238,8 +246,11 @@ def _ports(info):
 
 def _folder():
     """The lab's folder, a line only when a sync client watches it: one more line to read is one too many otherwise"""
-    for part in paths.ROOT.resolve().parts:
-        name = SYNCED.get(part.split("-")[0])
+    parts = paths.ROOT.resolve().parts
+    for at, part in enumerate(parts):
+        name = next((name for start, name in SYNCED if part.startswith(start)), None)
+        if not name and (part == "Box" or part.startswith("Box-")) and at and parts[at - 1] in ("CloudStorage", Path.home().name):
+            name = "Box"
         if name:
             return _check("folder", "warn", "Lab folder", f"In {name}, whose sync can lock the files the containers write",
                           [_action("clone-outside", "Copy the command", True, copy=CLONE)])
