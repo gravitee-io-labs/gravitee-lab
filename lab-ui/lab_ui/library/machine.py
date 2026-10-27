@@ -18,6 +18,7 @@ import threading
 import time
 from pathlib import Path
 
+from .. import paths
 from ..catalogs.registry import CatalogError
 from ..docker import compose
 from . import model
@@ -34,6 +35,11 @@ WSL_MEMORY = f"{TROUBLESHOOTING}#windows-and-wsl-2"
 # Where Homebrew puts Compose on Apple silicon: Docker does not look there until the plugin is linked where it does
 BREW_COMPOSE = "/opt/homebrew/lib/docker/cli-plugins/docker-compose"
 LINK_COMPOSE = f"mkdir -p ~/.docker/cli-plugins && ln -sfn {BREW_COMPOSE} ~/.docker/cli-plugins/docker-compose"
+# Folders a sync client watches, by a part of their path and the name people know: the containers write into the lab's folder,
+# and a sync client can lock or rewrite what they write. Google Drive, OneDrive, Dropbox and Box are under CloudStorage on a Mac
+SYNCED = {"Mobile Documents": "iCloud Drive", "GoogleDrive": "Google Drive", "OneDrive": "OneDrive", "Dropbox": "Dropbox",
+          "Box": "Box"}
+CLONE = "git clone https://github.com/gravitee-io-labs/gravitee-lab.git ~/gravitee-lab"
 FRESH = 3   # seconds a report is reused: the page asks every few seconds, and so may two tabs
 
 _lock = threading.Lock()
@@ -230,6 +236,16 @@ def _ports(info):
     return _check("ports", "warn", title, f"{named} {verb} used by another program: stop it before the platform starts")
 
 
+def _folder():
+    """The lab's folder, a line only when a sync client watches it: one more line to read is one too many otherwise"""
+    for part in paths.ROOT.resolve().parts:
+        name = SYNCED.get(part.split("-")[0])
+        if name:
+            return _check("folder", "warn", "Lab folder", f"In {name}, whose sync can lock the files the containers write",
+                          [_action("clone-outside", "Copy the command", True, copy=CLONE)])
+    return None
+
+
 def _git():
     title = "Git"
     clt_stub = system() == "mac" and shutil.which("git") == "/usr/bin/git" and \
@@ -253,7 +269,8 @@ def report(fresh=False):
         if not fresh and _last["report"] and time.monotonic() - _last["at"] < FRESH:
             return _last["report"]
     docker, info = _docker()
-    checks = [docker, _memory(info), _disk(info), _ports(info), _git()]
+    checks = [docker, _memory(info), _disk(info), _ports(info), _git(), _folder()]
+    checks = [check for check in checks if check]
     problems = sum(1 for c in checks if c["state"] in ("error", "warn", "working"))
     result = {"checks": checks, "ready": all(c["state"] in ("ok", "warn", "idle") for c in checks), "problems": problems,
               "system": system()}

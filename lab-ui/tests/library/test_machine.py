@@ -33,6 +33,7 @@ class Machine(Case):
         self.patch(machine, "system", return_value="mac")
         self.patch(machine, "docker_app", return_value=("/Applications/Docker.app", "Docker Desktop"))
         self.patch(machine, "core_ports", return_value={9200: "Elasticsearch", 27017: "MongoDB"})
+        self.patch(machine.paths, "ROOT", Path("/Users/me/gravitee-lab"))   # where the tests run is no sync client's
         self.patch(machine, "_taken", return_value=False)
         self.patch(machine.shutil, "which", side_effect=lambda name: f"/opt/homebrew/bin/{name}")
         machine._asked.clear()
@@ -109,6 +110,18 @@ class Machine(Case):
         docker = self.check("docker")
         self.assertEqual((docker["state"], docker["detail"]), ("error", "Compose is installed, and Docker does not find it"))
         self.assertEqual([(a["label"], "copy" in a) for a in docker["actions"]], [("Copy the command", True)])
+
+    def test_a_lab_folder_a_sync_client_watches_is_a_warning_with_the_clone_to_copy_and_no_line_otherwise(self):
+        self.patch(machine.paths, "ROOT", Path("/Users/me/gravitee-lab"))
+        self.assertNotIn("folder", [c["id"] for c in machine.report(fresh=True)["checks"]])
+        for root, name in (("/Users/me/Library/CloudStorage/GoogleDrive-me@example.com/My Drive/lab", "Google Drive"),
+                           ("/Users/me/Library/Mobile Documents/com~apple~CloudDocs/lab", "iCloud Drive"),
+                           ("/mnt/c/Users/me/OneDrive/lab", "OneDrive")):
+            self.patch(machine.paths, "ROOT", Path(root))
+            folder = self.check("folder")
+            self.assertEqual((folder["state"], folder["detail"]), ("warn", f"In {name}, whose sync can lock the files the containers write"))
+            self.assertEqual(folder["actions"][0]["copy"], machine.CLONE)
+        self.assertTrue(machine.report(fresh=True)["ready"], "a warning: the platform still starts")
 
     def test_short_memory_is_a_warning_that_lets_the_platform_start(self):
         self.answers[("docker", "info")] = (0, f"29.8.2|Docker Desktop|{6 * 2 ** 30}|/var/lib/docker", "")

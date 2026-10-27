@@ -90,7 +90,8 @@ Gravitee Cloud runs without the core.
 
 What this machine needs to run the lab, one line each: Docker with Compose 5.0 or later, the memory Docker has (8 GB), the free
 disk where Docker keeps its images (15 GB for the first start), the ports the platform publishes (one held by another program is
-named with its service), and Git for the catalogs. Each line says its state and has the one fix that answers it: a download, a
+named with its service), and Git for the catalogs. A lab folder in iCloud Drive, Google Drive, OneDrive, Dropbox or Box adds a line:
+the sync can lock the files the containers write, and the line gives the clone to run outside it. Each line says its state and has the one fix that answers it: a download, a
 command to copy, or, on a Mac, *Open Docker Desktop* and Apple's installer of Git, which the Lab UI runs. The lines are asked again
 every few seconds while the step shows, so a fix turns its line right by itself.
 
