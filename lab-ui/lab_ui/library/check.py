@@ -1771,6 +1771,7 @@ def temporary_link(folder, ns, needs=(), audiences=None):
     measured by `--online`. A catalog.yml that says `host_access: true` is read with the allowance a person gives at Add: the
     rules judge what its items take of this machine by the reasons they give, as they do for a catalog the person allowed. Answers a Linked."""
     lab = Path(paths.ROOT)
+    folder = Path(os.path.realpath(folder))   # a link to a relative path would be read from the temporary folder
     host = bool(folder_summary(folder).get("host_access"))   # the catalog says its items use this machine: the rules read it as allowed
     config, lock = registry.read_config() or {"catalogs": []}, registry.read_lock()
     entries = [dict(one) for one in config["catalogs"] if one["id"] in needs and one["id"] not in (ns, paths.LOCAL)]
