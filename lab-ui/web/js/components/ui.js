@@ -690,6 +690,7 @@ const placeTip = (tip) => {
 // of the page on hover and on keyboard focus, never on a click, which is the control's. It is the control's description for a screen
 // reader too (aria-describedby).
 let floating = null;
+let floatingFor = null;   // the control the bubble shows for
 // An open dialog sits in the browser's top layer, above everything that is not in it: the bubble is hosted in the dialog of the control that
 // asks for it, so that the reason a control of a dialog cannot be used shows there, else in the body. Not in the last dialog of the document: the
 // order of the top layer is the order the dialogs were opened in, which the document does not know (a confirmation of index.html opened over
@@ -723,6 +724,7 @@ function showFloat(el) {
   floating.className = `${card ? "tip-card" : "tip-text"} tip-float shown`;
   floating.innerHTML = card ? cardHtml(card) : `<span>${esc(said)}</span>`;
   el.setAttribute("aria-describedby", "tip-float");
+  floatingFor = el;
   place(floating, el.getBoundingClientRect(), card ? 460 : 280);
 }
 const hideFloat = () => floating?.classList.remove("shown");
@@ -1034,6 +1036,11 @@ function showOff(b) {
   const tip = (b._off && b._why) || b._tip;
   if (tip) b.dataset.tip = tip;
   else delete b.dataset.tip;
+  // The bubble of the control it shows for says what it says now ("Checking your machine", then what to fix)
+  if (b === floatingFor && floating?.classList.contains("shown")) {
+    if (tip) showFloat(b);
+    else hideFloat();
+  }
 }
 // `off`: whether it cannot be used, `why` what it says then; `tip`, when given, its own tooltip from now on ("" for none). A button at
 // work says what runs, and gets this back as its face comes back (paint).

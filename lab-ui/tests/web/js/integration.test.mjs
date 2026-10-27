@@ -149,6 +149,20 @@ test("the pointer over what has no tooltip hides the bubble: the control that ha
   start.remove();
 });
 
+test("the bubble of a control whose reason changes while it shows says the new one", () => {
+  const float = () => page.doc.querySelector("#tip-float");
+  const next = page.doc.createElement("button");
+  page.doc.body.append(next);
+  ui.setOff(next, true, "Checking your machine");
+  page.doc.dispatchEvent(new Ev("mouseover", { target: next }));
+  assert.equal(text(float()), "Checking your machine");
+  ui.setOff(next, true, "Fix the lines in red first");
+  assert.equal(text(float()), "Fix the lines in red first");
+  ui.setOff(next, false);
+  assert.ok(!float().classList.contains("shown"), "usable, with no tooltip of its own: none");
+  next.remove();
+});
+
 test("the bubble of a control that cannot be used is hosted in the dialog that is open, so that it shows above it, and goes back to the page when it closes", () => {
   const float = () => page.doc.querySelector("#tip-float");
   const outside = page.doc.createElement("button");
