@@ -42,10 +42,14 @@ def tabs(links, consoles):
 
 
 def declared(p, pid):
-    """The tabs a playground of the project declares: the consoles it lists, in its order."""
-    listed = p["playgrounds"][pid].get("consoles")
+    """The tabs a playground of the project declares: the consoles it lists, in its order, as they are with it on (with
+    the add-ons it brings): a console it puts on a service of the core is its tab, whether it is on yet or not. The
+    project is looked up when asked, because it reads this module."""
+    from ..library import project
+    playground = p["playgrounds"][pid]
+    listed = playground.get("consoles")
     consoles = [name for name in listed if isinstance(name, str)] if isinstance(listed, list) else []
-    return tabs(p["links"], consoles)
+    return tabs(project.shown(p["links"], pid, playground.get("addons") or (), tabs=True), consoles)
 
 
 def allowed(p, pid, url):

@@ -3156,12 +3156,14 @@ class Catalog(Case):
         self.assertEqual(project.build(given)["services"]["apim-gateway"]["depends_on"], ["one-svc", "two-svc"])
 
     def overlay(self, units, **labels):
-        """catalog_inputs whose aggregate holds the gateway, and whose first unit sets what it waits for and these labels on it."""
+        """catalog_inputs whose aggregate holds the gateway, and whose first unit sets what it waits for and these labels on it,
+        in its file as written and in its configuration with the core."""
         given = catalog_inputs(units)
         given["resolved"] = {"apim-gateway": copy.deepcopy(PLATFORM["services"]["apim-gateway"])}
         gateway = given["configs"][units[0][0]]["services"]["apim-gateway"]
         gateway["depends_on"] = {"one-svc": {}, "ghost": {}}
         gateway["labels"] = {**gateway["labels"], **labels}
+        given["raw"][units[0][0]]["services"]["apim-gateway"] = {"depends_on": {"one-svc": {}, "ghost": {}}, "labels": dict(labels)}
         return given
 
     PHISH = {"io.gravitee.console.evil.name": "Sign in again", "io.gravitee.console.evil.url": "https://phish.example/login"}
@@ -3200,6 +3202,91 @@ class Catalog(Case):
         built = project.build(given)
         self.assertEqual([found["label"] for found in built["services"]["apim-gateway"]["consoles"]], ["Sign in again"])
         self.assertEqual(built["services"]["apim-gateway"]["depends_on"], ["ghost", "one-svc"])
+
+    GAMMA = {"io.gravitee.console.gamma.name": "Gamma Console", "io.gravitee.console.gamma.url": "http://localhost:${GAMMA_PORT:-8086}"}
+    DEEP = "http://localhost:8086/environments/lumen/platform/integrations"
+
+    def pointed(self, ns, url=DEEP, kind="playground"):
+        """catalog_inputs whose core gives the gateway Gamma's console, and a unit of `ns` that points that console at `url`, a
+        deep page of it: in its file as written, and in the aggregate, which has every unit merged in, on or not."""
+        unit = member(ns, kind, "lumen", ["lumen-web"])
+        given = catalog_inputs([unit], env={".env": {"GAMMA_PORT": "8086"}})
+        given["raw"][project.CORE_FILE]["services"]["apim-gateway"]["labels"].update(self.GAMMA)
+        given["raw"][unit[0]]["services"]["apim-gateway"] = {"labels": {"io.gravitee.console.gamma.url": url}}
+        gateway = copy.deepcopy(PLATFORM["services"]["apim-gateway"])
+        gateway["labels"].update({"io.gravitee.console.gamma.name": "Gamma Console", "io.gravitee.console.gamma.url": url})
+        given["resolved"] = {"apim-gateway": gateway}
+        return given
+
+    @staticmethod
+    def gamma(built, playground=None, effective=(), tabs=True):
+        return [(link["label"], link["url"]) for link in project.shown(built["links"], playground, effective, tabs=tabs)
+                if link["service"] == "apim-gateway"]
+
+    def test_a_unit_never_changes_the_address_of_a_console_of_the_core_whatever_is_on(self):
+        for ns, uid, kind in (("local", "local/lumen", "playground"), ("first", "@first/lumen", "playground"),
+                              ("local", "local/lumen", "addon")):
+            with self.subTest(ns, kind=kind):
+                built = project.build(self.pointed(ns, kind=kind))
+                on = (uid, []) if kind == "playground" else (None, [uid])
+                for playground, effective in ((None, []), ("other", ["kafka"]), on):
+                    self.assertEqual(self.gamma(built, playground, effective, tabs=False),
+                                     [("Gamma Console", "http://localhost:8086")], "the core's, its setting read")
+
+    def test_a_unit_that_is_off_changes_no_tab_on_a_console_of_the_core_and_one_that_is_on_does(self):
+        for ns, uid in (("local", "local/lumen"), ("first", "@first/lumen")):
+            with self.subTest(ns):
+                built = project.build(self.pointed(ns))
+                self.assertEqual(self.gamma(built), [("Gamma Console", "http://localhost:8086")], "the core's, its setting read")
+                self.assertEqual(self.gamma(built, "other", ["kafka"]), [("Gamma Console", "http://localhost:8086")])
+                self.assertEqual(self.gamma(built, uid), [("Gamma Console", self.DEEP)], "on, it opens where it says")
+
+    def test_an_add_on_changes_a_tab_on_a_console_of_the_core_while_it_is_on(self):
+        for ns, uid in (("local", "local/lumen"), ("first", "@first/lumen")):
+            with self.subTest(ns):
+                built = project.build(self.pointed(ns, kind="addon"))
+                self.assertEqual(self.gamma(built, None, []), [("Gamma Console", "http://localhost:8086")])
+                self.assertEqual(self.gamma(built, None, [uid]), [("Gamma Console", self.DEEP)])
+
+    def test_a_console_a_unit_adds_on_a_service_of_the_core_shows_while_it_is_on(self):
+        unit = member("local", "addon", "beam", ["beam-svc"])
+        given = catalog_inputs([unit])
+        given["raw"][unit[0]]["services"]["apim-gateway"] = {"labels": {"io.gravitee.console.beam.name": "Beam",
+                                                                         "io.gravitee.console.beam.url": "http://localhost:8099"}}
+        built = project.build(given)
+        self.assertEqual(self.gamma(built, None, [], tabs=False), [])
+        self.assertEqual(self.gamma(built, None, ["local/beam"], tabs=False), [("Beam", "http://localhost:8099")])
+
+    def test_the_units_that_are_on_change_a_tab_on_a_console_of_the_core_key_by_key_in_the_order_of_the_on_file(self):
+        # The playground names the console and an add-on that is on points it: both hold, as Compose merges them
+        named, pointed = member("local", "playground", "lumen", ["lumen-web"]), member("local", "addon", "beam", ["beam-svc"])
+        given = catalog_inputs([named, pointed])
+        given["raw"][project.CORE_FILE]["services"]["apim-gateway"]["labels"].update(
+            {"io.gravitee.console.gamma.name": "Gamma Console", "io.gravitee.console.gamma.url": "http://localhost:8086"})
+        given["raw"][named[0]]["services"]["apim-gateway"] = {"labels": {"io.gravitee.console.gamma.name": "Gamma"}}
+        given["raw"][pointed[0]]["services"]["apim-gateway"] = {"labels": {"io.gravitee.console.gamma.url": self.DEEP}}
+        built = project.build(given)
+        self.assertEqual(self.gamma(built, "local/lumen", ["local/beam"]), [("Gamma", self.DEEP)])
+        self.assertEqual(self.gamma(built, None, ["local/beam"]), [("Gamma Console", self.DEEP)])
+        self.assertEqual(self.gamma(built, "local/lumen"), [("Gamma", "http://localhost:8086")])
+        # Two that set the same key: the first in the on file wins, the playground before the add-ons, the add-ons by id
+        given["raw"][named[0]]["services"]["apim-gateway"]["labels"]["io.gravitee.console.gamma.url"] = "http://localhost:8086/mine"
+        built = project.build(given)
+        self.assertEqual(self.gamma(built, "local/lumen", ["local/beam"]), [("Gamma", "http://localhost:8086/mine")])
+
+    def test_a_unit_of_a_catalog_never_points_a_console_of_the_core_off_this_machine(self):
+        built = project.build(self.pointed("first", "https://phish.example/login"))
+        self.assertEqual(self.gamma(built, "@first/lumen"), [("Gamma Console", "http://localhost:8086")])
+        mine = project.build(self.pointed("local", "https://example.com/gamma"))
+        self.assertEqual(self.gamma(mine, "local/lumen"), [("Gamma Console", "https://example.com/gamma")],
+                         "the person's own is not held back")
+
+    def test_a_unit_that_cannot_start_changes_no_console_of_the_core_even_on(self):
+        given = self.pointed("first")
+        given["raw"][fixtures.unit_file("first", "playground", "lumen")]["x-gravitee"]["requires"] = {"lab": 99}
+        built = project.build(given)
+        self.assertTrue(built["playgrounds"]["@first/lumen"]["blocked"])
+        self.assertEqual(self.gamma(built, "@first/lumen"), [("Gamma Console", "http://localhost:8086")])
 
     def test_a_machine_with_catalogs_and_no_other_input_still_builds(self):
         # What a test that does not know the catalogs gives: the units are listed, and none can be judged without a core
