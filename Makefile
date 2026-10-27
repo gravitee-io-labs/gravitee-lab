@@ -65,7 +65,8 @@ openssl-ok:
 
 ##@ Run the lab
 
-ui: init ## Open the Lab UI on http://localhost:9000
+# Docker is not checked here: the Lab UI's first step checks the machine and gives the fix of what is missing, Docker included
+ui: python-ok init ## Open the Lab UI on http://localhost:9000
 	@$(PYTHON) lab-ui/server.py
 
 # A machine that was updated from the layout before catalogs still names add-ons by their old paths in .lab/on.yml, which Compose
@@ -80,7 +81,7 @@ all: docker-up legacy-ok init ## Create and start the core and what is on
 
 # The plugin folders are made here, writable by all: Docker would make them as root, and the containers unpack plugins
 # there as uid 1001 (.work). Nothing is made for an add-on: what one needs, it makes itself when it starts.
-init: compose-ok python-ok openssl-ok $(on) ## Create what a fresh clone lacks: .env, demo certificates, plugin folders, .lab/on.yml (ui and all run it)
+init: openssl-ok $(on) ## Create what a fresh clone lacks: .env, demo certificates, plugin folders, .lab/on.yml (ui and all run it)
 	@[ -f .env ] || { cp .env.example .env && chmod 600 .env && echo "Created .env from .env.example"; }
 	@grep -q '^COMPOSE_FILE=' .env || printf '\n%s\nCOMPOSE_FILE=%s\n' \
 		'# The files Compose reads: the core, and what is on. Keep it: without it, docker compose runs the core alone' \
