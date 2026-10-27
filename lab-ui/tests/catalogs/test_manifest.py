@@ -130,6 +130,12 @@ class Picking(Case):
         self.assertEqual(manifest.pick(levels, 1, 1), ("r", "new"))
         self.assertEqual(manifest.pick([("t", 1), ("r", 2), ("o", 1)], 1, 1), ("t", "ok"))
 
+    def test_a_version_it_could_not_tell_of_stops_the_search_and_no_older_one_is_taken(self):
+        said = {"t": None, "a": True}
+        self.assertEqual(manifest.pick([("t", None), ("a", None)], 2, 1, readable=said.get), (None, "new"))
+        said = {"t": False, "a": None, "b": True}
+        self.assertEqual(manifest.pick([("t", None), ("a", None), ("b", None)], 2, 1, readable=said.get), (None, "new"))
+
     def test_the_newest_is_taken_even_when_older_ones_are_read_too(self):
         self.assertEqual(manifest.pick([("t", 2), ("a", 2), ("b", 1)], 2, 1), ("t", "ok"))
 

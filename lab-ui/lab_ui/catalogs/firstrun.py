@@ -366,8 +366,8 @@ def _download(ns: str, entry: Optional[dict], row: Optional[dict]) -> None:
         offered = manifest.offer(store_path, tip, contract["contract"], contract["contract_min"], answered, readable=reader)
         commit, tip_state = offered.commit, offered.tip
         if commit is None:
-            raise install.without_docker(manifest.no_commit(offered.levels, contract["contract"], contract["contract_min"],
-                                                            listed, offered.searched), reader)
+            raise install.unread(reader) or manifest.no_commit(offered.levels, contract["contract"], contract["contract_min"],
+                                                               listed, offered.searched)
         kept, ignored = bare.selected(bare.listing(store_path, commit))
         _set(ns, "stage", 0.0)
         staged = install.stage(answered, ns, store_path, commit, kept, ignored)

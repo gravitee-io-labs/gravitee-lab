@@ -156,16 +156,22 @@ def searched(levels: list, contract: int, contract_min: int, readable=None, read
             spent[0] = True
             return False
         left[0] -= 1
-        return bool(readable(commit))
+        return readable(commit)   # None: it could not tell, and an older version is no answer
     tip, lab = levels[0]
     if lab is not None and compat(lab, contract, contract_min) != "ok":
         tip_state = compat(lab, contract, contract_min)
-    elif fits(tip, lab):
-        return tip, "ok", 0
     else:
+        found = fits(tip, lab)
+        if found:
+            return tip, "ok", 0
+        if found is None:
+            return None, "new", 0
         tip_state = "new"
     for commit, lab in levels[1:]:
-        if fits(commit, lab):
+        found = fits(commit, lab)
+        if found is None:
+            return None, tip_state, 0
+        if found:
             return commit, tip_state, 0
     return None, tip_state, (reads - left[0]) if spent[0] else 0
 

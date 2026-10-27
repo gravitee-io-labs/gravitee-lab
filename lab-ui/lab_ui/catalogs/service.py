@@ -877,8 +877,8 @@ def check_address(address, branch=None):
         listed_at = _listed_ids_at(found_at.display)
         commit = offered.commit
         if commit is None:
-            raise install.without_docker(manifest.no_commit(offered.levels, contract["contract"], contract["contract_min"],
-                                                            bool(listed_at), offered.searched), reader)
+            raise install.unread(reader) or manifest.no_commit(offered.levels, contract["contract"], contract["contract_min"],
+                                                               bool(listed_at), offered.searched)
         kept, ignored = bare.selected(bare.listing(store_path, commit))
         with _one_stage():
             staged = install.stage(found_at, f"new-{ticket}", store_path, commit, kept, ignored)
@@ -1075,8 +1075,10 @@ def _offered(store_path, held, tip, contract, address=None):
     a copy of commits made after the last release, a release whose tag was deleted) is no offer: the pin is. `moved`: the tag
     of the release installed now names the commit offered, which is another one: the owners moved a release, and the same
     version is not the same files."""
-    found = manifest.offer(store_path, tip, contract["contract"], contract["contract_min"], address,
-                           readable=install.Readable(store_path))
+    reader = install.Readable(store_path)
+    found = manifest.offer(store_path, tip, contract["contract"], contract["contract_min"], address, readable=reader)
+    if found.commit is None and install.unread(reader):   # nothing is learned of a version Docker could not read
+        raise install.unread(reader)
     pin, target = held.get("pin"), found.commit
     if target is not None and pin and target != pin and bare.is_ancestor(store_path, target, pin):
         return found._replace(commit=pin, release=held.get("release")), False

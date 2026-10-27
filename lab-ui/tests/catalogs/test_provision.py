@@ -407,13 +407,16 @@ class Provision(Served, Case):
                          ("docker_missing", "Docker is not installed. The catalog downloads once it is."))
         self.assertEqual(registry.inputs()[self.ns]["state"], "needs_docker")
 
-    def test_with_docker_a_version_it_could_not_tell_of_is_still_no_readable_version(self):
-        self.patch(install, "unknown_at", return_value=None)
+    def test_with_docker_a_version_it_could_not_tell_of_is_docker_unanswered_and_no_older_one_is_taken(self):
+        older = self.remote.head()
+        self.remote.commit({"README.md": "newer\n"}, "A newer version")
+        self.patch(install, "unknown_at", side_effect=lambda store, commit: None if commit != older else [])
         self.patch(compose, "plugin", return_value="/usr/libexec/docker/cli-plugins/docker-compose")
         self.started()
         with self.assertRaises(CatalogError) as caught:
             firstrun.provision(self.ns)
-        self.assertEqual(caught.exception.code, "no_readable_version")
+        self.assertEqual(caught.exception.code, "docker_unanswered")
+        self.assertIsNone(self.lock().get("pin"), "the older version is not installed in its place")
 
     def test_a_catalog_older_than_this_lab_reads_has_the_listed_wording(self):
         self.patch(firstrun, "_contract", return_value={"contract": 3, "contract_min": 2})

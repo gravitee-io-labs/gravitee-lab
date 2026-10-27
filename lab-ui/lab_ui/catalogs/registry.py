@@ -77,7 +77,7 @@ _CODE = re.compile(r"[a-z][a-z0-9_]{0,63}")
 
 # The state of a catalog that its last failure names (the keys of), by the code of the catalogue of errors
 FAILURES = {
-    "git_missing": "needs_git", "git_old": "needs_git", "docker_missing": "needs_docker",
+    "git_missing": "needs_git", "git_old": "needs_git", "docker_missing": "needs_docker", "docker_unanswered": "needs_docker",
     "no_access": "noaccess", "not_found": "noaccess", "ssh_denied": "noaccess", "host_key": "noaccess",
     "unreachable": "unreachable", "timeout": "unreachable", "certificate": "unreachable",
     "wrong_catalog": "wrong_catalog", "history_changed": "rewritten",
