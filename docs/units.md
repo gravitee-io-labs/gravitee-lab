@@ -119,7 +119,7 @@ services:
     gateway:
       platform: cloud                  # the kind of platform it serves (a key of KINDS in platforms.py)
       service: apim-hybrid-gateway     # its service, which publishes a port
-      token: HYBRID_CLOUD_TOKEN        # the required setting that takes the gateway's token, written by the Gravitee Cloud page
+      token: HYBRID_GATEWAY_CLOUD_TOKEN  # the required setting that takes the gateway's token, written by the Gravitee Cloud page
   ```
 
   The domains of the gateway are derived, never listed: `localhost:<first published port>` for a browser and

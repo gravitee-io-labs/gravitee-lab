@@ -34,7 +34,7 @@ flowchart LR
 | | Where | What it does |
 |---|---|---|
 | Control plane | Gravitee Cloud, EU region | API Management, at the version its gateways report. You design and deploy APIs in its console, or a playground's seed does |
-| Gateway | Your machine: the [Hybrid gateway](https://github.com/gravitee-io-labs/gravitee-lab-public-catalog/blob/main/addons/hybrid/README.md) add-on, `apim-hybrid-gateway`, port 8090 | Pulls the APIs from Cloud every 10 seconds, applies their policies, calls the backends and sends its analytics to Cloud |
+| Gateway | Your machine: the [Hybrid gateway](https://github.com/gravitee-io-labs/gravitee-lab-public-catalog/blob/main/addons/hybrid-gateway/README.md) add-on, `apim-hybrid-gateway`, port 8090 | Pulls the APIs from Cloud every 10 seconds, applies their policies, calls the backends and sends its analytics to Cloud |
 | Backends | Your machine: any container of the lab | Reached as `http://<service>:<container port>` on the lab's internal network |
 | Lab UI | Your machine: the Gravitee Cloud page and the *Deploy to* picker | Registers your account, creates the gateway, keeps your tokens, deploys a playground |
 
@@ -42,8 +42,8 @@ flowchart LR
 
 - A Gravitee Cloud account, and a user of it with the role `ACCOUNT_PRIMARY_OWNER` or `ACCOUNT_OWNER`, which creating a
   gateway needs.
-- A license with the feature `apim-bridge-gateway`, for the gateway: the core's, or one in `HYBRID_LICENSE`
-  ([Needs](https://github.com/gravitee-io-labs/gravitee-lab-public-catalog/blob/main/addons/hybrid/README.md#needs)).
+- A license with the feature `apim-bridge-gateway`, for the gateway: the core's, or one in `HYBRID_GATEWAY_LICENSE`
+  ([Needs](https://github.com/gravitee-io-labs/gravitee-lab-public-catalog/blob/main/addons/hybrid-gateway/README.md#needs)).
 - Outbound HTTPS from your machine to `eu.cloud.gravitee.io` and `eu.cloudgate.gravitee.io`.
 - The lab running: `make ui`. The core can stay stopped.
 
@@ -304,7 +304,7 @@ Cloud calls three different credentials tokens. The Lab asks for the first two a
 |---|---|---|---|
 | Account Token | Cloud, Settings > Account Tokens. Asked once, in *Connect account* | Lists the environments, creates and deletes gateways. It acts as the user who made it | `PLATFORM_<ID>_TOKEN` in the core's `.env` |
 | Cloud Token | Cloud, Settings > Cloud Tokens, type Automation. One per environment, asked when you deploy | The only one that deploys: it creates the APIs in one environment | `PLATFORM_<ID>_ENV_<ENVIRONMENT>_TOKEN` in the core's `.env` |
-| Gateway token | Cloud shows it once, when the gateway is created. The Lab takes it | Lets one hybrid gateway pull its APIs | `PLATFORM_<ID>_GATEWAY_<GATEWAY>_TOKEN` in the core's `.env`, and `HYBRID_CLOUD_TOKEN` in `addons/hybrid/.env` for the gateway that runs here |
+| Gateway token | Cloud shows it once, when the gateway is created. The Lab takes it | Lets one hybrid gateway pull its APIs | `PLATFORM_<ID>_GATEWAY_<GATEWAY>_TOKEN` in the core's `.env`, and `HYBRID_GATEWAY_CLOUD_TOKEN` in `addons/hybrid-gateway/.env` for the gateway that runs here |
 
 The Cloud console's gateway wizard calls the gateway token a Cloud Token too. The Lab never asks for it, so a *Cloud
 Token* on its pages is always the one of type Automation. No token is ever shown again, written in a log, or put in the
@@ -319,7 +319,7 @@ One hybrid gateway runs on this machine at a time. *Start gateway* on the row of
 that runs (or *Start <name>* in *More* for another gateway of the same environment), or a deploy to an environment that
 the running gateway does not serve, swaps it. The dialog says so first: *Restarts* lists the Hybrid gateway,
 *Serves* names the environment from now on and *Stops serving* the one it served. The Lab writes the kept token of the
-new gateway as `HYBRID_CLOUD_TOKEN` and recreates the container.
+new gateway as `HYBRID_GATEWAY_CLOUD_TOKEN` and recreates the container.
 
 The APIs of the environment that stops being served stay in Cloud, and answer from nothing here until its gateway
 runs again. A gateway whose token the Lab did not keep, one made in the Cloud console for example, cannot be started here: its row
@@ -386,8 +386,8 @@ The Cloud console creates a gateway too:
 
 1. Open Dashboard > Deploy Gateway > Hybrid Gateway, and enter `localhost:8090` as the HTTP domain.
 2. Copy the Cloud Token the console shows once, which is the gateway token, and the License Key it issues.
-3. On the **Add-ons** page, open the settings of the Hybrid gateway with its key button. Set `HYBRID_CLOUD_TOKEN` to the
-   token and `HYBRID_LICENSE` to the key, then start the add-on.
+3. On the **Add-ons** page, open the settings of the Hybrid gateway with its key button. Set `HYBRID_GATEWAY_CLOUD_TOKEN` to the
+   token and `HYBRID_GATEWAY_LICENSE` to the key, then start the add-on.
 
 Call `curl http://localhost:8090/<path>` as above. Add `apim-hybrid-gateway:8082` as a second domain if a container of
 the lab must call the gateway. With an account connected, the Gravitee Cloud page shows that gateway as the one that
@@ -510,7 +510,7 @@ starts, so a token that was revoked meanwhile is refused with the same sentence.
 expired* or *Not in the license*), the token the add-on holds is not this gateway's, or the container cannot reach
 `eu.cloudgate.gravitee.io`.
 
-**Fix:** open *More*, then *Show logs*, on the environment's row. For the license, set `HYBRID_LICENSE` in the add-on's settings with its key
+**Fix:** open *More*, then *Show logs*, on the environment's row. For the license, set `HYBRID_GATEWAY_LICENSE` in the add-on's settings with its key
 button, then choose *Save & apply*: a restart keeps the old value, because a container reads its settings when it is
 created ([Change a password](configuration.md#change-a-password)). For a token set by hand, start the gateway from its
 row again: the Lab writes the token it kept for it.
