@@ -91,7 +91,10 @@ def env(extra: Optional[Dict[str, str]] = None, when: Optional[int] = None) -> D
     """The environment of the fixture's own git: a temporary home, no global or system configuration, a fixed
     author, and the dates of `when` (seconds since the epoch) when given."""
     base = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(home()), "GIT_CONFIG_GLOBAL": os.devnull,
-            "GIT_CONFIG_NOSYSTEM": "1", "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C", **IDENTITY}
+            "GIT_CONFIG_NOSYSTEM": "1", "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C", **IDENTITY,
+            # No maintenance in the background: a commit may start one that writes in .git while a test reads it
+            "GIT_CONFIG_COUNT": "2", "GIT_CONFIG_KEY_0": "gc.auto", "GIT_CONFIG_VALUE_0": "0",
+            "GIT_CONFIG_KEY_1": "maintenance.auto", "GIT_CONFIG_VALUE_1": "false"}
     if when is not None:
         base["GIT_AUTHOR_DATE"] = base["GIT_COMMITTER_DATE"] = f"{when} +0000"
     return {**base, **(extra or {})}
