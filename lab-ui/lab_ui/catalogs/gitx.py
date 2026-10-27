@@ -762,17 +762,49 @@ def ls_remote(address: Address, branch: Optional[str] = None, anonymous: bool = 
     """What the remote has: {"branch": the branch asked for or the default one, "head": the sha it points to}. Raises
     the classified error of a failure; `branch_missing` for a branch the remote lacks (an empty `branch` asks for the
     default one: `asked_branch`); `not_catalog` for an empty repository. `anonymous` asks as a stranger would, to
-    measure whether the catalog is Public: no credential helper, no stored header, and a home folder that is empty, so
-    that the `.netrc` of the person, which the HTTP library answers a 401 with, and their configuration are not read.
-    An ssh address cannot be asked that way and answers `no_access` without a command."""
+    measure whether the catalog is Public: no credential helper, no stored header, a home folder that is empty, so that
+    the `.netrc` of the person, which the HTTP library answers a 401 with, is not read, and neither their configuration nor
+    the system's (/etc/gitconfig, Homebrew's), whose headers, cookies or rewritten addresses could answer for them. Only
+    how to reach the host is carried (network_options), in the environment of the command, never in its arguments, which
+    anyone on the machine may list. An ssh address cannot be asked that way and answers `no_access` without a command."""
     checked(address)
     branch = asked_branch(branch, address)
     if anonymous and is_ssh(address):
         raise fail("no_access", address)
     if not anonymous:
         return _ls_remote(address, branch, timeout, [], {})
+    network = network_options()   # read with the person's and the system's configuration, before both are left behind
     with tempfile.TemporaryDirectory(prefix="gravitee-lab-stranger-") as empty:
-        return _ls_remote(address, branch, timeout, STRANGER, {"HOME": empty, "XDG_CONFIG_HOME": empty})
+        alone = {"HOME": empty, "XDG_CONFIG_HOME": empty, "GIT_CONFIG_NOSYSTEM": "1",
+                 "GIT_CONFIG_GLOBAL": os.path.join(empty, "gitconfig"), **_config_env(network)}
+        return _ls_remote(address, branch, timeout, STRANGER, alone)
+
+
+# The settings of the person's Git that only say how to reach a host (a proxy, the certificates to trust), which a stranger's
+# question takes along: never a credential helper, an askpass, a header, a cookie file or anything else of theirs
+NETWORK = re.compile(r"https?\.proxy|http\.sslcainfo|http\.sslcapath|https?\..+\.proxy")
+
+
+def network_options() -> List[Tuple[str, str]]:
+    """[(key, value)] of the Git settings of the person and of the system that NETWORK names, as their configuration says them."""
+    result = run(["config", "--null", "--get-regexp", r"^(https?\.|http\..*\.)"], timeout=10)
+    if result.code != 0:
+        return []
+    settings = []
+    for record in result.out.decode("utf-8", "replace").split("\0"):
+        key, _, value = record.partition("\n")
+        if NETWORK.fullmatch(key.lower()) and value and "\n" not in value:
+            settings.append((key, value))
+    return settings
+
+
+def _config_env(settings) -> Dict[str, str]:
+    """The settings as git reads them from its environment (Git 2.31 and later: an older one asks without them, and a doubt is
+    private), where a key may hold an equals sign and a value, a proxy's password, is not in the command line."""
+    env = {"GIT_CONFIG_COUNT": str(len(settings))}
+    for n, (key, value) in enumerate(settings):
+        env[f"GIT_CONFIG_KEY_{n}"], env[f"GIT_CONFIG_VALUE_{n}"] = key, value
+    return env
 
 
 def _ls_remote(address, branch, timeout, options, env):

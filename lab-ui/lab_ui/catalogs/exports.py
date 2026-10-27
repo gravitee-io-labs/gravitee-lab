@@ -17,19 +17,26 @@ uses its own item instead of a second copy of the same one (`_reuse`), and the i
 from a registry that asks for a login is said too (`registries`): the person who receives the file needs that access.
 
 An import is that Add: the archive is read with the limits of a catalog (`store`), written under `.lab/imports/<id>`, which the Lab
-owns, and checked; the page shows the preview of an Add, and Import is its Add. Or the person keeps it as their own: Personal
-(`to_personal`), where nothing is blocked any more. The preview has judged it first, as for the Add: what it blocks cannot go to
-Personal, and what it asks of this machine was shown before the person chose. An item of Personal with the same name is replaced,
-unless it is the same (then it is used), and the preview says so (`personal`). A folder of `.lab/imports` that no catalog uses is
-what an import left before it was confirmed: the next import of the same playground replaces it.
+owns, and checked; the page shows the preview of an Add, and Import is its Add. Its folder is named as its catalog, whose settings
+start with that id. Or the person keeps it as their own: Personal (`to_personal`), where nothing is blocked any more. The preview
+has judged it first, as for the Add, and Personal takes only what it judged, as it judged it (the digest of the files): what it
+blocks cannot go there, nor what waits for a catalog this Lab lacks, which nothing could judge (`_waiting`), and what takes more
+of this machine goes there once the person allowed it. An item of Personal with the same name is replaced, unless it is the same
+(then it is used), and the preview says so (`personal`). A folder of `.lab/imports` that no catalog uses and no preview waits for
+is what an import left before it was confirmed: the next import of the same playground replaces it. A removed import whose person
+kept the settings leaves them in a folder the Lab owns (`KEPT_DIR`), with what the file held (`RECORD`): the same file imported
+again takes them, any other file of that name leaves them where they are, and the preview says which (`kept`).
 
     plan(pid)                  what the export of a playground carries, needs, and what another Lab will make of it
-    archive(pid)               plan(pid) and the file: {"file", "data" (base64)}
+    archive(pid, private)      plan(pid) and the file: {"file", "data" (base64)}, made as the person saw it
     receive(data)              the bytes of an archive, written and checked: the preview of the Add that imports it
+    to_personal(ticket, allow) the import of a preview kept in Personal
 """
 
 import base64
 import binascii
+import contextlib
+import hashlib
 import io
 import json
 import os
@@ -39,13 +46,14 @@ import secrets
 import shutil
 import stat
 import tempfile
+import time
 import zipfile
 from pathlib import Path
 
 from .. import paths
 from ..docker import images
-from ..library import moves, personal as personals, project
-from . import contribute, defaults, manifest, registry, resolve, service, standard
+from ..library import moves, project
+from . import contribute, defaults, kept, manifest, meta as block, moving, registry, resolve, service, standard, trust
 from . import store as bare
 from .registry import CatalogError
 
@@ -130,8 +138,9 @@ def _gather(pid):
             raise leak
         name = units[kind][uid]["name"]
         problems += [f"{name}: {line}" for line in copy.problems]
-        files.update(copy.files)
-    origins, private = _origins(carried, units)
+        # What is private content says so in the file (private_from), which the other Lab keeps: it can only add a notice
+        files.update(contribute._unmarked(copy, kind, _slug(uid), contribute.origins(copy.kept, uid, copy.folder), name).files)
+    origins, private = _origins(carried, units, copies_of(carried))
     registries = _registries(found, carried, units)
     shared = _shared(carried, units, ns)
     if len(shared) > manifest.SETTINGS_LIMIT:
@@ -167,13 +176,40 @@ def _registries(found, carried, units):
             for registry, found_images in sorted(images.private_images(pulled).items())]
 
 
-def _origins(carried, units):
+def copies_of(nodes):
+    """{(kind, id): [(id, name)]} of the origins what the items hold comes from besides the catalog they are in (contribute.origins):
+    a copy of an item of a private catalog, wherever it is now, in Personal or in a catalog a share put it in, is that catalog's
+    content, and so is what a label says."""
+    found = {}
+    for kind, uid in nodes:
+        file = paths.ROOT / paths.unit_file(kind, uid)
+        data = contribute._read(file, bare.TEXT_FILE + 1)
+        own = contribute._origin_of(paths.origin(uid))   # said with the catalog the item is in, when it is a private one of Git
+        said = [one for one in contribute.origins(data.decode("utf-8", "replace"), uid, file.parent) if one != own] if data else []
+        if said:
+            found[(kind, uid)] = said
+    return found
+
+
+def _origins(carried, units, copies=None):
     """([{kind, item, name, catalog, catalog_name, version}] of the carried items that come from a catalog of Git, which another
-    Lab may have too), and [{id, name, items}] of the private ones among those catalogs: what leaves with the file."""
+    Lab may have too), and [{name, items, item_ids}] of the private ones among those catalogs: what leaves with the file. The person's
+    copy of an item of a private catalog, and what a label says (`copies`: {(kind, id): [(id, name)]}), is that content too."""
     rows = project.loaded()[1].get("catalogs") or {}
     origins, private = [], {}
+
+    def said(key, title, kind, uid):   # one entry an origin, by its root commit (or its name), with its items
+        one = private.setdefault(key or title, {"key": key or title, "name": title, "items": [], "item_ids": []})
+        if uid not in one["item_ids"]:
+            one["items"].append(units[kind][uid]["name"])
+            one["item_ids"].append(uid)
     for kind, uid in carried:
+        for key, title in (copies or {}).get((kind, uid)) or ():
+            said(key, title, kind, uid)
         ns = paths.origin(uid)
+        mine = contribute._origin_of(ns)   # a private catalog of Git, or a working copy of one linked in its place
+        if mine:
+            said(mine[0], mine[1], kind, uid)
         entry = registry.entry(ns) if ns != paths.LOCAL else None
         if not entry or entry.get("kind") != "git":
             continue
@@ -182,8 +218,6 @@ def _origins(carried, units):
         name = units[kind][uid]["name"]
         origins.append({"kind": kind, "item": _slug(uid), "name": name, "catalog": ns, "catalog_name": title,
                         "version": held.get("version")})
-        if held.get("audience") != "public":
-            private.setdefault(ns, {"id": ns, "name": title, "items": []})["items"].append(name)
     return origins, list(private.values())
 
 
@@ -221,7 +255,14 @@ def _catalog_yml(text, gathered):
         text = text.rstrip("\n") + "\n  requires:\n    catalogs:\n" + "\n".join(needed) + "\n"
     if gathered["shared"]:
         text = text.rstrip("\n") + "\n  shared_settings:\n" + "".join(f"    - {name}\n" for name in gathered["shared"])
-    return text
+    # The lines of older Labs, true for the files in the archive: an export that carries a private label is one they refuse cleanly,
+    # one without is one they read
+    text, needed = manifest.with_legacy(text, 1), contribute.files_lab(gathered["files"])
+    try:
+        return contribute._raised(text, needed) or text   # read back as older Labs read it before it is written
+    except contribute.NotRaised:
+        raise _fail("export_legacy", "The file cannot say what older Gravitee Labs need to refuse it. Fix: make update, then export "
+                                     "it again.", 500) from None
 
 
 def _address(ns):
@@ -352,10 +393,28 @@ def plan(pid):
     return _made(pid)[0]
 
 
-def archive(pid):
-    """The plan and the archive, base64: what the page saves as a file."""
+def archive(pid, private=()):
+    """The plan and the archive, base64: what the page saves as a file. The plan is made again with the file, and holds it to what
+    the person saw: what another Lab would block is no file, and what comes from a private catalog leaves only when the page
+    showed that catalog (`private`: the ids it showed)."""
     shown, data = _made(pid)
+    if shown["blocked"]:
+        one = shown["blocked"][0]
+        reason = (one.get("reasons") or ["it cannot run"])[0]
+        raise _fail("export_blocked", f"{one['name']} would be blocked on another Lab: {reason[:1].lower()}{reason[1:]}. Fix: export it again "
+                                      "to see what blocks it.", 409)
+    unseen_private(shown, private)
     return {**shown, "data": base64.b64encode(data).decode("ascii")}
+
+
+def unseen_private(shown, private):
+    """Refuses a file that carries private content the page did not show: each item under each of its origins (`private`: the pairs
+    it showed, "<origin key>|<item id>"). An origin an item gained since is content the person did not see leave."""
+    seen = set(private or ())
+    unseen = [one["name"] for one in shown.get("private") or () if {f"{one.get('key')}|{uid}" for uid in one.get("item_ids") or ()} - seen]
+    if unseen:
+        raise _fail("export_private", f"It now carries private content of {', '.join(unseen)}. Fix: export it again to see what "
+                                      "leaves with it.", 409)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -399,17 +458,103 @@ def _name_of(archive, top):
         text = archive.read(f"{top}/catalog.yml")[:65536].decode("utf-8", "replace")
     except KeyError:
         return top
+    return _catalog_title(text, top)
+
+
+def _catalog_title(text, fallback):
+    """The name a catalog.yml gives its catalog, which is the playground's an export made; `fallback` when it says none."""
     said = re.search(r'(?m)^  name:\s*"?([^"\n]+?)"?\s*$', text)
-    return said.group(1) if said else top
+    return said.group(1) if said else fallback
 
 
-def _sweep(keep=()):
-    """The folders of .lab/imports that no catalog uses, and the half-written ones: what an import left before it was confirmed."""
+MACHINE_FILES, KEPT_DIR = kept.MACHINE_FILES, kept.KEPT_DIR
+
+
+def _kept_view(top, content):
+    """What the preview says of the settings kept from a removed import of the same name: {used, where}, or None. Only the same
+    file imported again uses them: any file can be named as the one that was removed."""
+    listed, used = kept.found(top), kept.used_by(top, content)
+    if not listed:
+        return None
+    return {"used": used is not None, "where": f"{KEPT_DIR}/{(used or listed[0][0]).name}"}
+
+
+def added(ns, data):
+    """An import kept as a catalog (service.add): what its file held is recorded, for a Remove that keeps its settings, and the
+    settings kept from a removed import of the same file go back to its items, where they have none."""
+    if not data.get("imported") or not data.get("content"):
+        return
+    found = kept.record()
+    found["imported"][ns] = data["content"]
+    kept.write_record(found)
+    folder, where = kept.used_by(ns, data["content"]), Path((registry.entry(ns) or {}).get("path") or "")
+    if folder is None or not where.is_dir() or _digest(where) != data.get("digest"):
+        return   # another file of that name, or files that changed after the preview: the kept settings stay where they are
+    for rel, name in kept.settings_of(folder):
+        if (where / rel).is_dir() and not os.path.lexists(where / rel / name):
+            kept.carry(folder / rel / name, where / rel / name, where)
+    if not kept.settings_of(folder):
+        kept.forget(ns, folder)
+
+
+def _sweep(replacing=None):
+    """The folders of .lab/imports that no catalog uses and no preview waits for, and the half-written ones: what an import left
+    before it was confirmed. The folder of `replacing`, the playground being imported again, goes with the previews of it: a
+    preview is of the files it judged, which the new ones replace. A half-written folder younger than a preview may be another
+    import at work. What of the person's a folder still holds (a Remove the Lab did not finish) goes to the kept settings first,
+    and what cannot be moved stays."""
     base = paths.ROOT / IMPORTS_DIR
     used = {os.path.realpath(one.get("path") or "") for one in registry.entries() if one.get("kind") == "folder"}
+    waiting = service.imports()
     for child in (base.iterdir() if base.is_dir() else ()):
-        if child.name not in keep and os.path.realpath(child) not in used:
-            shutil.rmtree(child, ignore_errors=True)
+        real = os.path.realpath(child)
+        if real in used:
+            continue
+        if child.name == replacing:
+            for ticket in waiting.get(real, ()):
+                service.forget(ticket)
+        elif real in waiting or child.name in _reading or \
+                (child.name.startswith(".incoming-") and time.time() - child.stat().st_mtime < service.TTL):
+            continue
+        # A folder no catalog uses may still hold the person's settings (the Lab stopped in a Remove): they go to the kept ones
+        failed = _keep_settings(child, child.name, _content_of(child)) if not child.name.startswith(".") else []
+        kept.remove_but(child, [child / rel / name for rel, name in failed])
+
+
+def _snapshot(folder: Path, people=True):
+    """{path: (mode, bytes)} of the files of an import's folder, read once: what is judged, digested and staged is the same.
+    Without `people`, the person's settings, secrets and state of its items are not read."""
+    found = {}
+    for path in sorted(p for p in folder.rglob("*") if p.is_file() and not p.is_symlink()):
+        rel = path.relative_to(folder).as_posix()
+        parts = rel.split("/")
+        if not people and len(parts) > 2 and parts[0] in ("addons", "playgrounds") and parts[2] in MACHINE_FILES:
+            continue
+        found[rel] = (0o755 if os.stat(path).st_mode & 0o111 else 0o644, path.read_bytes())
+    return found
+
+
+def _digest(folder, people=True):
+    """What the files of an import's folder (or a `_snapshot` of it) are, as one digest: its paths, whether each runs, and their
+    bytes. What a preview judged is what goes to Personal. Without `people`, the person's settings, secrets and state of its
+    items are left out."""
+    found = hashlib.sha256()
+    for rel, (mode, data) in sorted((folder if isinstance(folder, dict) else _snapshot(folder, people)).items()):
+        parts = rel.split("/")
+        if not people and len(parts) > 2 and parts[0] in ("addons", "playgrounds") and parts[2] in MACHINE_FILES:
+            continue
+        found.update(f"{rel}\0{mode & 0o111}\0".encode("utf-8"))
+        found.update(hashlib.sha256(data).digest())
+    return found.hexdigest()
+
+
+def _content_of(folder: Path):
+    """The digest of the file an import came with: the one its Add recorded, else (an import added before the record was kept) the
+    digest of its folder as it is, without the person's settings, which the same file imported again gives too."""
+    try:
+        return kept.record()["imported"].get(folder.name) or _digest(folder, people=False)
+    except OSError:
+        return None   # a file it cannot read: what is kept is bound to no file, and shown
 
 
 def _said_origins(folder: Path):
@@ -494,30 +639,34 @@ def _compose_rel(kind, rel):
     return rel if kind == "setup" else f"{rel}/compose.yml"
 
 
+HEAD_LIMIT = 65536   # characters of an item's file read for its name in a message (moving._names_of)
+
+
 def _named(text, fallback):
-    """The name an item's x-gravitee block gives it, for the words of the page; its folder's when it says none."""
-    said = re.search(r"(?m)^x-gravitee:\s*\{[^}]*?\bname:\s*([^,}\n]+)", text) \
-        or re.search(r"(?m)^x-gravitee:\s*(?:#.*)?\n(?:[ \t]+.*\n)*?[ \t]+name:\s*(.+)", text)
-    return said.group(1).strip().strip("'\"") if said else fallback
+    """The name an item's x-gravitee block gives it, for the words of the page; its folder's when it says none. Only the block's
+    own top-level `name`, in block or flow style, as the Lab reads its own keys (meta.py): never a `name:` nested deeper (an
+    account's) or inside a value (a description that says "name: any"). The Lab's reading, Compose's, is used where there is one."""
+    said = block.value(text or "", "name")
+    return said.strip() if isinstance(said, str) and said.strip() else fallback
 
 
-def _for_personal(folder: Path, top):
+def _for_personal(folder: Path, top, snapshot=None):
     """The archive's items as Personal holds them: [(kind, slug, rel, name, {path: (mode, bytes)})], each compose file written
-    again for its place in .lab/catalogs/local, and the includes of one another with it."""
+    again for its place in .lab/catalogs/local, and the includes of one another with it; from `snapshot` when given."""
+    files_of = snapshot if snapshot is not None else _snapshot(folder)
     units = _units(folder)
     table = [(f"{paths.CATALOGS_DIR}/{top}/{rel}", f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{rel}") for _, _, rel in units]
     found = []
     for kind, slug, rel in units:
         compose_rel = _compose_rel(kind, rel)
-        text = (folder / compose_rel).read_text(encoding="utf-8")
+        if compose_rel not in files_of:
+            continue
+        text = files_of[compose_rel][1].decode("utf-8")
         here = posixpath.dirname(compose_rel)
         written = moves.repoint(text, f"{paths.CATALOGS_DIR}/{top}/{here}", f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{here}", table)
         files = {compose_rel: (0o644, written.encode("utf-8"))}
         if kind != "setup":
-            for path in sorted(p for p in (folder / rel).rglob("*") if p.is_file() and not p.is_symlink()):
-                rel_path = path.relative_to(folder).as_posix()
-                if rel_path != compose_rel:
-                    files[rel_path] = (0o755 if os.stat(path).st_mode & 0o111 else 0o644, path.read_bytes())
+            files.update({path: entry for path, entry in files_of.items() if path.startswith(rel + "/") and path != compose_rel})
         found.append((kind, slug, rel, _named(written, slug), files))
     return found
 
@@ -530,73 +679,160 @@ def _personal_now(kind, rel):
         return None
 
 
-def _personal_plan(folder: Path, top):
-    """What going to Personal does to the items of Personal: {replaces: [names], same: [names]}."""
+def _same_in_personal(kind, slug, rel, name, files):
+    now = _personal_now(kind, rel)
+    return now is not None and now.encode("utf-8") == files[_compose_rel(kind, rel)][1]
+
+
+def _personal_plan(items):
+    """What going to Personal does to the items of Personal (`_for_personal`): {replaces: [names], same: [names]}."""
     replaces, same = [], []
-    for kind, _, rel, name, files in _for_personal(folder, top):
+    for kind, _, rel, name, files in items:
         now = _personal_now(kind, rel)
         if now is not None:
             (same if now.encode("utf-8") == files[_compose_rel(kind, rel)][1] else replaces).append(name)
     return {"replaces": replaces, "same": same}
 
 
-MACHINE_FILES = (".env", ".state", "secrets")   # what Personal keeps of an item it replaces: the person's, never the file's
-
-
-def _clear(target: Path):
-    """The folder of an item of Personal emptied of what its files were, keeping the person's settings, secrets and state."""
-    for child in target.iterdir():
-        if child.name in MACHINE_FILES:
-            continue
-        if child.is_dir() and not child.is_symlink():
-            shutil.rmtree(child)
-        else:
-            child.unlink()
-
-
-def to_personal(ticket):
+def to_personal(ticket, allow=False):
     """The import the preview `ticket` showed, kept in Personal instead of as a catalog: refused when the preview found an item that
-    cannot run (Personal would run it unjudged) or when an item it replaces is on. Answers {items: [{kind, id}], playground}."""
+    cannot run (Personal would run it unjudged), when an item uses this machine and the person did not allow it (`allow`), when the
+    files are no longer those the preview judged, or when an item it replaces is on. The items are written whole beside Personal
+    with no lock, then swapped in under the lock of the catalogs (moving.replace). Answers {items: [{kind, id}], playground, kept,
+    warning}."""
     data = service._held(ticket, "add")
     folder = Path(getattr(data.get("address"), "path", "") or "")
     base = (paths.ROOT / IMPORTS_DIR).resolve()
     if not folder.is_dir() or folder.resolve().parent != base or not data.get("imported"):
         raise _fail("not_an_import", "This is not a playground being imported. Choose its file again.", 409)
+    unread = data.get("unread") or []
+    if unread:
+        raise _fail("unread_personal", f"{', '.join(unread)} cannot be read: Compose does not load its compose file. Fix: import it "
+                                       "to Imported, where the Lab says why.", 409)
     blocked = data.get("blocked") or []
     if blocked:
         raise _fail("blocked_personal", f"{', '.join(blocked)} cannot run: import to Imported, where it stays blocked.", 409)
-    top = folder.name
-    items = _for_personal(folder, top)
-    found = project.load()
-    for kind, slug, rel, name, files in items:
-        now = _personal_now(kind, rel)
-        if now is not None and now.encode("utf-8") != files[_compose_rel(kind, rel)][1]:
-            try:
-                personals._not_held(found, kind, f"{paths.LOCAL}/{slug}")
-            except RuntimeError as error:
-                raise _fail("held", str(error), 409) from None
-    home = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL
-    for kind, slug, rel, name, files in items:
-        now = _personal_now(kind, rel)
-        if now is not None and now.encode("utf-8") == files[_compose_rel(kind, rel)][1]:
-            continue   # the same item: Personal's is used
-        if kind != "setup" and (home / rel).is_dir():
-            _clear(home / rel)
-        for path, (mode, content) in files.items():
-            target = home / path
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(content)
-            os.chmod(target, mode)
-    service.forget(ticket)
-    shutil.rmtree(folder, ignore_errors=True)
-    project.forget()
+    claimed = data.get("claimed") or []
+    if claimed:
+        one = len(claimed) == 1
+        raise _fail("twin_claimed", f"{', '.join(claimed)} {'says it is a copy' if one else 'say they are copies'} of an item of this "
+                                    f"Lab, which only this Lab writes: {'it' if one else 'they'} cannot run. Fix: ask for "
+                                    f"{'its file' if one else 'their file'} again, without copy_of.", 409)
+    uses = data.get("uses") or []
+    if uses and allow is not True:
+        raise _fail("allow_machine", f"{', '.join(uses)} uses this machine: allow it to import it to Personal.")
+    top, snapshot = folder.name, _snapshot(folder)   # what is staged is what is digested: the preview's, or a refusal
+    items = _for_personal(folder, top, snapshot)
+    going = [one for one in items if not _same_in_personal(*one)]   # the same item is used as Personal has it
+
+    def write(root):
+        for _, _, _, _, files in going:
+            for path, (mode, content) in files.items():
+                (root / path).parent.mkdir(parents=True, exist_ok=True)
+                (root / path).write_bytes(content)
+                os.chmod(root / path, mode)
+    swap = moving.stage(write)
+    try:
+        with service._changing():
+            recovered = moving.recover()
+            with moving.telling(recovered):
+                if data.get("digest") != _digest(snapshot):
+                    raise _fail("import_changed", "The files of this import changed after its preview. Fix: choose its file again.", 409)
+                found = project.load()
+                held = next(filter(None, (moving.replaced_on(found, kind, slug) for kind, slug, rel, _, _ in going
+                                          if _personal_now(kind, rel) is not None)), "")
+                if held:
+                    raise _fail("held", held, 409)
+            rels = [rel for _, _, rel, _, _ in going]
+            said = moving.swap_in(swap, rels, moving.placed_without_claims(rels))
+            service.forget(ticket)
+            shutil.rmtree(folder, ignore_errors=True)
+            stayed = _kept_to_personal(top, data.get("content"), items)
+            project.forget()
+    finally:
+        moving.discard(swap)   # what was not swapped in: nothing when the change was made
+    warning = " ".join(one for one in (recovered, said) if one)
     playground = next((f"{paths.LOCAL}/{slug}" for kind, slug, _, _, _ in items if kind == "playground"), None)
-    return {"items": [{"kind": kind, "id": f"{paths.LOCAL}/{slug}"} for kind, slug, _, _, _ in items], "playground": playground}
+    return {"items": [{"kind": kind, "id": f"{paths.LOCAL}/{slug}"} for kind, slug, _, _, _ in items], "playground": playground,
+            **({"kept": stayed} if stayed else {}), **({"warning": warning} if warning else {})}
+
+
+def _kept_to_personal(top, content, items):
+    """The settings kept from a removed import of the same file, given to its items in Personal where they have none. What
+    Personal has already stays as it is, and so do the kept ones, which are never deleted unused: answers {items: [names], where}
+    of those that stayed, or None."""
+    folder = kept.used_by(top, content)
+    if folder is None:
+        return None
+    home, names, stayed = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL, {rel: name for _, _, rel, name, _ in items}, []
+    for rel, name in kept.settings_of(folder):
+        target = home / rel / name
+        if rel not in names or not (home / rel).is_dir() or os.path.lexists(target) or not kept.carry(folder / rel / name, target, home):
+            stayed.append(names.get(rel, rel.rsplit("/", 1)[-1]))
+    if not stayed:
+        kept.forget(top, folder)
+        return None
+    return {"items": list(dict.fromkeys(stayed)), "where": f"{KEPT_DIR}/{folder.name}"}
+
+
+def _waiting(preview):
+    """The preview of an import, where an item that waits for a catalog this Lab lacks is one that cannot run: nothing judged it,
+    and Personal, which judges nothing either, cannot take it."""
+    for one in preview.pop("waits", None) or ():
+        why = moving.waiting(one)
+        if why:
+            preview["blocked"] = [*(preview.get("blocked") or ()), {"kind": one["kind"], "id": one["id"], "name": one["name"],
+                                                                    "reasons": [why[0].replace("it needs", "Needs", 1)]}]
+    return preview
+
+
+_reading = set()   # the imports placed and being judged, outside the lock: no other import replaces or sweeps them meanwhile
 
 
 def receive(data):
-    """The import of an archive (its bytes, or base64 text): written under .lab/imports/<id> and checked as the Add of a folder
-    catalog. Answers that preview, whose ticket the Add takes; `already_imported` when this Lab has the catalog."""
+    """The import of an archive (its bytes, or base64 text): read, written in a folder of its own and checked as the Add of a folder
+    catalog. Answers that preview, whose ticket the Add takes; `already_imported` when this Lab has the catalog. Only placing the
+    folder at `.lab/imports/<id>` takes the lock of the catalogs: the file is read and judged without it, so that another change is
+    never kept waiting by an import, and the files judged are checked to be those placed."""
+    archive = _opened(data)
+    with archive:
+        top, members = _members(archive)
+        _refused_id(archive, top)
+        base = paths.ROOT / IMPORTS_DIR
+        base.mkdir(parents=True, exist_ok=True)
+        incoming = base / f".incoming-{secrets.token_hex(4)}"
+        os.mkdir(incoming, 0o755)
+        try:
+            _extract(archive, members, incoming)
+            content = _digest(incoming)   # what the file holds, as it came: what settings kept from an import of it are bound to
+            reused = _reuse(incoming, top)
+            final = base / top
+            with service._changing():
+                recovered = moving.recover()
+                with moving.telling(recovered):
+                    _refused_id(archive, top)
+                    if top in _reading:
+                        raise registry.busy()
+                    _sweep(top)
+                    if os.path.lexists(final):
+                        raise _leftover(archive, top)   # what a removal could not delete, the sweep could not either
+                    os.replace(incoming, final)
+                    _reading.add(top)
+        except BaseException:
+            shutil.rmtree(incoming, ignore_errors=True)
+            raise
+    try:
+        with moving.telling(recovered):
+            preview = _judged_import(final, top, content, reused)
+        return {**preview, **({"warning": recovered} if recovered else {})}
+    except BaseException:
+        shutil.rmtree(final, ignore_errors=True)
+        raise
+    finally:
+        _reading.discard(top)
+
+
+def _opened(data):
     if isinstance(data, str):
         try:
             data = base64.b64decode(data, validate=True)
@@ -607,54 +843,129 @@ def receive(data):
     if len(data) > MAX_ARCHIVE:
         raise _fail("import_too_large", "This file is larger than an exported playground can be: 64 MB.", 413)
     try:
-        archive = zipfile.ZipFile(io.BytesIO(data))
+        return zipfile.ZipFile(io.BytesIO(data))
     except (zipfile.BadZipFile, ValueError):
         raise _fail("import_invalid", NOT_A_PLAYGROUND) from None
-    with archive:
-        top, members = _members(archive)
-        if registry.entry(top) is not None:
-            raise _fail("already_imported", f"{_name_of(archive, top)} is already in this Lab. To import it again, remove it on "
-                                            "the Catalogs page first.", 409)
-        base = paths.ROOT / IMPORTS_DIR
-        base.mkdir(parents=True, exist_ok=True)
-        _sweep()
-        incoming = base / f".incoming-{secrets.token_hex(4)}"
-        os.mkdir(incoming, 0o755)
-        try:
-            written = 0
-            for rel, mode, info in members:
-                target = incoming / rel
-                target.parent.mkdir(parents=True, exist_ok=True)
-                with archive.open(info) as source, open(target, "xb") as out:
-                    while True:   # what the archive says of a size is not trusted: what is read is counted
-                        chunk = source.read(1 << 16)
-                        if not chunk:
-                            break
-                        written += len(chunk)
-                        if written > MAX_BYTES:
-                            raise _fail("import_too_large", "This playground holds more than a catalog may: 10,000 files, 100 MB.",
-                                        413)
-                        out.write(chunk)
-                os.chmod(target, mode)
-            final = base / top
-            os.replace(incoming, final)
-        except BaseException:
-            shutil.rmtree(incoming, ignore_errors=True)
-            raise
-    try:
-        reused = _reuse(final, top)
-        preview = service.check_address(str(final))
-        blocked = [one.get("name") for one in preview.get("blocked") or ()]
-        service.note(preview.get("ticket"), imported=True, blocked=blocked)
-        return {**preview, "imported": True, "reused": reused, "personal": _personal_plan(final, top)}
-    except BaseException:
-        shutil.rmtree(final, ignore_errors=True)
-        raise
 
 
-def forget_folder(entry):
-    """The files of an imported playground's catalog go when the catalog is removed: they are the Lab's, in .lab/imports."""
+def _refused_id(archive, top):
+    if registry.entry(top) is not None and not registry.imported(top):   # another catalog, which a Remove would lose
+        other = (registry.inputs().get(top) or {}).get("name") or registry.lock_of(top).get("name") or top
+        raise _fail("import_taken", f"{_name_of(archive, top)} has the id of a catalog of this Lab, {other}. Fix: ask for it "
+                                    "exported again from a playground of another name.", 409)
+    if registry.entry(top) is not None:
+        raise _fail("already_imported", f"{_name_of(archive, top)} is already in this Lab. To import it again, remove it on "
+                                        "the Catalogs page first.", 409)
+
+
+def _extract(archive, members, folder):
+    written = 0
+    for rel, mode, info in members:
+        target = folder / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with archive.open(info) as source, open(target, "xb") as out:
+            while True:   # what the archive says of a size is not trusted: what is read is counted
+                chunk = source.read(1 << 16)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if written > MAX_BYTES:
+                    raise _fail("import_too_large", "This playground holds more than a catalog may: 10,000 files, 100 MB.", 413)
+                out.write(chunk)
+        os.chmod(target, mode)
+
+
+TWIN_CLAIMED = trust.line("T29")   # an item that says whose copy it is: only this Lab writes copy_of, in Personal
+
+
+def _judged_import(final, top, content, reused):
+    """The preview of the import placed at `final`, judged as the Add of a folder catalog, with what Personal would take of it."""
+    placed = _digest(final)
+    preview = _waiting(service.check_address(str(final)))
+    if preview["catalog"]["id"] != top:   # its settings start with the id: the folder and the catalog are one name
+        service.forget(preview.get("ticket"))
+        raise _fail("import_invalid", f"{NOT_A_PLAYGROUND} Its folder, {top}, is not the id of its catalog, {preview['catalog']['id']}.")
+    items = _for_personal(final, top)
+    # What the judgement did not produce, since Compose could not read it, is judged by nothing: it cannot go to Personal
+    judged = set(service._held(preview["ticket"], "add").get("judged") or ())
+    unread = [name for _, slug, _, name, _ in items if f"@{top}/{slug}" not in judged]
+    preview["blocked"] = [*(preview.get("blocked") or ()), *({"kind": kind, "id": f"@{top}/{slug}", "name": name,
+                                                              "reasons": ["Its compose file cannot be read"]}
+                                                             for kind, slug, _, name, _ in items if f"@{top}/{slug}" not in judged)]
+    # An item that says whose copy it is is blocked by the policy (T29), as the Lab reads it once added; Import to Personal says it
+    # in words of its own when that is all that blocks it. Items are told apart by id: two may have the same name
+    reasons, names = {}, {}
+    for one in preview["blocked"]:
+        reasons.setdefault(one.get("id"), []).extend(one.get("reasons") or ())
+        names.setdefault(one.get("id"), one.get("name"))
+    claimed_ids = [uid for uid, lines in reasons.items() if lines and all(line == TWIN_CLAIMED for line in lines)]
+    blocked = [names[uid] for uid in reasons if uid not in claimed_ids]
+    claimed = [names[uid] for uid in claimed_ids]
+    # What Personal would run unjudged that takes more of this machine: the person allows it, as for a Move
+    named = {f"@{top}/{slug}": name for _, slug, _, name, _ in items}
+    uses = list(dict.fromkeys(named.get(one.get("id"), one.get("name")) for one in (preview.get("rows") or {}).get("uses_machine") or ()))
+    if _digest(final) != placed:   # what was judged is what is there
+        service.forget(preview.get("ticket"))
+        raise _fail("import_changed", "The files of this import changed while it was read. Fix: choose its file again.", 409)
+    shown = _kept_view(top, content)
+    service.note(preview.get("ticket"), imported=True, blocked=blocked, claimed=claimed, unread=unread, uses=uses, digest=placed,
+                 content=content)
+    return {**preview, "imported": True, "reused": reused, "personal": _personal_plan(items), **({"kept": shown} if shown else {})}
+
+
+def _leftover(archive, top):
+    """The refusal of an import whose folder holds what an earlier one left and the Lab cannot delete: the person's settings
+    among it are named first, to copy out, so that what is said to remove never takes them."""
+    held = [f"{rel}/{name}" for rel, name in kept.settings_of(paths.ROOT / IMPORTS_DIR / top)]
+    if held:
+        return _fail("import_leftover", f"What an earlier import of {_name_of(archive, top)} left cannot be deleted, and holds its "
+                                        f"settings {', '.join(held)}. Fix: copy them out of {IMPORTS_DIR}/{top}, then remove that "
+                                        "folder with administrator rights, and import it again.", 409)
+    return _fail("import_leftover", f"What an earlier import of {_name_of(archive, top)} left cannot be deleted. Fix: remove the "
+                                    f"folder {IMPORTS_DIR}/{top} with administrator rights, then import it again.", 409)
+
+
+PARTIAL = "Some files were created by Docker and could not be deleted. Remove the folder {where} with administrator rights."
+
+
+def forget_folder(entry, keep_settings=True):
+    """The files of an imported playground's catalog go when the catalog is removed: they are the Lab's, in .lab/imports. With
+    `keep_settings` the person's settings, secrets and state of its items go first to a folder of their own (`KEPT_DIR`), bound
+    to the file the import came from: only that file imported again takes them. A setting that cannot be moved stays where it
+    is, and is said with where it is; what else cannot be deleted stays apart from the kept settings, and is said. Answers that
+    warning, or None. Called under the lock of the change, which no import gets in between."""
     where = os.path.realpath((entry or {}).get("path") or "")
     base = os.path.realpath(paths.ROOT / IMPORTS_DIR)
-    if where.startswith(base + os.sep) and posixpath.dirname(where) == base:
-        shutil.rmtree(where, ignore_errors=True)
+    if not (where.startswith(base + os.sep) and posixpath.dirname(where) == base):
+        return None
+    folder = Path(where)
+    ns = folder.name
+    failed = _keep_settings(folder, ns, _content_of(folder)) if keep_settings and folder.is_dir() else []
+    found = kept.record()
+    found["imported"].pop(ns, None)
+    kept.write_record(found)
+    kept.remove_but(folder, [folder / rel / name for rel, name in failed])
+    if failed:
+        return NOT_KEPT.format(paths=", ".join(f"{area}/{item}/{name}" for area, item, name in
+                                               ((*rel.split("/", 1), name) for rel, name in failed)), where=f"{IMPORTS_DIR}/{ns}")
+    return PARTIAL.format(where=f"{IMPORTS_DIR}/{folder.name}") if os.path.lexists(where) else None
+
+
+NOT_KEPT = ("The settings of {paths} could not be kept and are still in {where}: copy them out, then remove that folder with "
+            "administrator rights.")
+
+
+def _keep_settings(folder: Path, ns, content):
+    """The person's settings, secrets and state of an import's items moved to a folder of kept settings of their own. Answers
+    [(rel, name)] of those that could not be moved, which stay whole where they are."""
+    settings = kept.settings_of(folder)
+    names = {}
+    for rel, _ in settings:
+        with contextlib.suppress(OSError):
+            names[rel] = _named((folder / rel / "compose.yml").read_text(encoding="utf-8", errors="replace"), rel.rsplit("/", 1)[-1])
+    try:
+        title = _catalog_title((folder / "catalog.yml").read_text(encoding="utf-8", errors="replace")[:65536], ns)
+    except OSError:
+        title = ns
+    _, failed = kept.keep(ns, content, [(folder / rel / name, f"{rel}/{name}") for rel, name in settings], names, title)
+    return [(rel, name) for rel, name in settings if folder / rel / name in failed]

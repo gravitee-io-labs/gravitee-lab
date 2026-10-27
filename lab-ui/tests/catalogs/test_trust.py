@@ -242,8 +242,8 @@ class Fixes(Case):
         self.assertEqual(sorted(SPEC_FIXES), [f"T{number:02d}" for number in range(1, 28)])
 
     def test_the_rules_the_standard_does_not_table_have_a_fix_of_the_same_kind(self):
-        self.assertEqual(sorted(set(trust.FIXES) - set(SPEC_FIXES)), ["N01", "N02", "N03", "N04", "N05", "T28"])
-        for code in ("T28", "N01", "N02", "N03", "N04", "N05"):
+        self.assertEqual(sorted(set(trust.FIXES) - set(SPEC_FIXES)), ["N01", "N02", "N03", "N04", "N05", "T28", "T29"])
+        for code in ("T28", "T29", "N01", "N02", "N03", "N04", "N05"):
             self.assertRegex(trust.FIXES[code], r"^[A-Z].*\.$", code)
 
     def test_a_fix_is_a_plain_sentence(self):
@@ -2026,7 +2026,7 @@ class Includes(Golden):
         self.assertEqual((combined["state"], combined["reasons"]), ("blocked", [line("T25", name="Writable bind")]))
 
     def test_t26_a_unit_written_for_a_newer_lab_blocks(self):
-        self.assertEqual(self.judge("t26-newer-lab")["reasons"], [line("T26", 0, level=99, min=1, max=1)])
+        self.assertEqual(self.judge("t26-newer-lab")["reasons"], [line("T26", 0, level=99, min=regen.LEVELS[1], max=regen.LEVELS[0])])
         self.assertEqual(self.judge("t26-newer-lab", contract=99)["state"], "ok")
 
     def test_t26_a_unit_written_for_an_older_lab_blocks(self):
@@ -2072,6 +2072,17 @@ class Includes(Golden):
 
     def test_t27_a_readable_unit_has_no_such_reason(self):
         self.silent(CLEAN, "T27")
+
+    def test_t29_an_item_that_says_whose_copy_it_is_is_blocked_and_one_of_this_machine_is_not(self):
+        def claims(arguments):
+            arguments["unit"]["meta"]["copy_of"] = "tour"
+        self.assertEqual(self.changed(CLEAN, claims)["reasons"], [line("T29")])
+        self.silent(CLEAN, "T29")
+
+        def mine(arguments):
+            claims(arguments)
+            arguments["context"]["local"] = True
+        self.assertEqual(self.changed(CLEAN, mine)["reasons"], [], "the person's copy says it, as the Lab wrote it")
 
     def test_t28_a_class_h_finding_with_no_declaration_is_told_off(self):
         self.assertEqual(self.judge("t03-privileged", listed=True)["reasons"], [line("T28", service="hostile-privileged")])
@@ -2128,7 +2139,7 @@ class Audience(Golden):
             arguments["context"].update(audience="public", closure_audiences=["private"], level=5)
         verdict = self.changed(CLEAN, edit)
         self.assertEqual(verdict["codes"], ["T20", "T24", "T26"])
-        self.assertEqual(verdict["reasons"], [line("T20", names="HOME"), line("T24"), line("T26", 0, level=5, min=1, max=1)])
+        self.assertEqual(verdict["reasons"], [line("T20", names="HOME"), line("T24"), line("T26", 0, level=5, min=regen.LEVELS[1], max=regen.LEVELS[0])])
 
     def test_a_unit_that_compose_could_not_read_is_still_judged_on_its_audience(self):
         verdict = self.judge("t23-include-outside", audience="public", closure_audiences=["private"])
@@ -2554,7 +2565,7 @@ class Vocabulary(Case):
         self.assertEqual({code: len(rule["lines"]) for code, rule in trust.RULES.items() if len(rule["lines"]) > 1},
                          {"T06": 4, "T18": 3, "T19": 2, "T26": 3})
         self.assertEqual(sorted(trust.RULES, key=lambda code: (code[0], int(code[1:]))),
-                         [f"N0{n}" for n in range(1, 6)] + [f"T{n:02d}" for n in range(1, 29)])
+                         [f"N0{n}" for n in range(1, 6)] + [f"T{n:02d}" for n in range(1, 30)])
         for code, rule in trust.RULES.items():
             self.assertIn(rule["class"], "PHN")
             self.assertEqual(rule["class"] == "H", code in {f"T{n:02d}" for n in range(3, 12)})

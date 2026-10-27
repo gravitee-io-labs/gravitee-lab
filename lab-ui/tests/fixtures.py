@@ -15,6 +15,7 @@ test must not touch the repository.
     lock(case, ns, ...)                 the lock entry of a catalog, and its cached version and level
     local(case, name)                   a unit of data/local, in the personal area
     render(root, *files)                `docker compose config` of the core with unit files on top (never a daemon)
+    oldest_compose(case)                Compose answers as 5.0 does, whatever release is installed
 
 A patch that no state of the Lab can be (an unknown key, a value of the wrong type, `link` for a git catalog) is a
 ValueError and writes nothing.
@@ -313,6 +314,29 @@ def have_compose():
                 found = False
         _compose.append(found)
     return _compose[0]
+
+
+def _as_oldest(value):
+    if isinstance(value, list):
+        return [_as_oldest(one) for one in value] if value else None
+    if isinstance(value, dict):
+        return {key: _as_oldest(one) for key, one in value.items()}
+    return value
+
+
+def oldest_compose(case):
+    """Compose answers `config --format json` the way 5.0 does, the oldest the Lab accepts and the one CI installs, whatever
+    release this machine has: an empty list under an x- key is null there (5.6 prints [])."""
+    from lab_ui.docker import compose
+    real = compose.run
+
+    def run(cmd, *args, **how):
+        rc, out, err = real(cmd, *args, **how)
+        if rc == 0 and "config" in cmd and "json" in cmd:
+            config = json.loads(out)
+            out = json.dumps({key: _as_oldest(value) if key.startswith("x-") else value for key, value in config.items()})
+        return rc, out, err
+    case.patch(compose, "run", run)
 
 
 def _module(name, wp, *names):

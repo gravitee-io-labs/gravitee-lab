@@ -25,7 +25,7 @@ from unittest import mock
 from lab_ui.docker import compose
 
 from .. import Case
-from ..fixtures import have_compose
+from ..fixtures import have_compose, oldest_compose
 
 # What the Docker CLI prints when the daemon does not answer
 DOCKER_CLI_SAYS = ("failed to connect to the docker API at unix:///var/run/docker.sock; check if the path is correct "
@@ -292,6 +292,25 @@ class Raw(ProjectFolder):
                       {"target": 80, "published": "8080"}]})
         self.assertEqual(services["mapped"], {"labels": {"io.gravitee.group": "Databases"}, "environment": {"A": "1"}})
         self.assertEqual(services["bare"], {"image": "busybox"})
+
+
+@unittest.skipUnless(COMPOSE_5, "Docker Compose 5 or later is not installed: what it answers is not compared")
+class OldestCompose(ProjectFolder):
+    """What the Lab reads of its block is the same on every Compose it accepts, from 5.0 (which CI installs) to the newest."""
+
+    TEXT = ("x-gravitee: {kind: addon, name: Echo, private_from: [], tested: [[]], nested: {list: [], map: {}}, kept: [a]}\n"
+            "services:\n  echo:\n    image: busybox\n")
+
+    def test_an_empty_list_of_the_labs_block_reads_as_on_the_oldest_compose(self):
+        path = self.write("addons/echo/compose.yml", self.TEXT)
+        here = self.root / "addons/echo"
+        newest = compose.x_gravitee(self.TEXT, here, fresh=True), compose.raw(path)["x-gravitee"]
+        oldest_compose(self)
+        oldest = compose.x_gravitee(self.TEXT, here, fresh=True), compose.raw(path)["x-gravitee"]
+        self.assertEqual(newest, oldest)
+        self.assertEqual(newest[0], {"kind": "addon", "name": "Echo", "private_from": None, "tested": [None],
+                                     "nested": {"list": None, "map": {}}, "kept": ["a"]}, "an empty list is null, its key is there")
+        self.assertEqual(newest[1], newest[0])
 
 
 class Copies(ProjectFolder):
@@ -1425,3 +1444,129 @@ class Compose5(ProjectFolder):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(have_compose(), "needs docker compose")
+class XGravitee(ProjectFolder):
+    """The x-gravitee block of a text, as Compose reads it in the item's folder: from its input, nothing written, bounded."""
+
+    def setUp(self):
+        super().setUp()
+        self.write("addons/base/compose.yml", "services:\n  base:\n    image: busybox\n")
+        self.here = self.root / "playgrounds" / "mine"
+        self.here.mkdir(parents=True)
+
+    def test_every_way_of_writing_an_include_is_read_where_the_item_is(self):
+        block = "x-gravitee: {kind: playground, name: Mine}\n"
+        for name, include in {"list": "include:\n  - ../../addons/base/compose.yml\n",
+                              "path list": "include:\n  - path:\n      - ../../addons/base/compose.yml\n",
+                              "flow": "include: [../../addons/base/compose.yml]\n",
+                              "quoted key": '"include":\n  - ../../addons/base/compose.yml\n'}.items():
+            with self.subTest(name):
+                self.assertEqual(compose.x_gravitee(include + block, self.here), {"kind": "playground", "name": "Mine"})
+        self.assertEqual(list(self.here.iterdir()), [], "nothing is written where the item is")
+
+    def test_a_text_that_takes_too_long_or_answers_too_much_cannot_be_read_and_leaves_nothing_running(self):
+        os.mkfifo(self.here / "never")   # a file that never ends: Compose waits on it
+        self.patch(compose, "ALONE_TIMEOUT", 2)
+        started = time.monotonic()
+        with self.assertRaisesRegex(compose.ComposeError, "did not answer within 2 s"):
+            compose.x_gravitee("include: [never]\nx-gravitee: {kind: addon}\n", self.here)
+        self.assertLess(time.monotonic() - started, 10)
+        self.assertTrue(settled(lambda: not holding(str(self.here))), "the Compose that waited on it is ended, with its plugin")
+        self.patch(compose, "ALONE_OUTPUT", 10)
+        with self.assertRaisesRegex(compose.ComposeError, "^Compose answered more than an item can hold$"):
+            compose.x_gravitee("x-gravitee: {kind: addon, name: Long}\n", self.here)
+
+    def test_the_env_file_of_an_include_is_bounded_and_what_a_file_holds_is_never_said(self):
+        self.write("playgrounds/mine/tool.yml", "services:\n  tool:\n    image: busybox\n")
+        os.mkfifo(self.here / "tool.env")
+        self.patch(compose, "ALONE_TIMEOUT", 2)
+        text = "x-gravitee: {kind: playground}\ninclude:\n  - path: tool.yml\n    env_file: tool.env\n"
+        started = time.monotonic()
+        try:
+            compose.x_gravitee(text, self.here, fresh=True)
+        except compose.ComposeError as error:
+            self.assertIn(compose.cause(error), ("Compose took too long to read it", "Compose cannot read it"))
+        self.assertLess(time.monotonic() - started, 10)
+        self.assertTrue(settled(lambda: not holding(str(self.here))))
+        (self.here / "tool.env").unlink()
+        (self.here / "tool.env").write_text("SECRET hunter2 is no line of variables\n")
+        try:
+            compose.x_gravitee(text, self.here, fresh=True)
+        except compose.ComposeError as error:
+            self.assertNotIn("hunter2", compose.cause(error))
+
+    def test_what_is_left_out_is_what_raw_leaves_out_for_gather(self):
+        folder = self.root / ".lab/catalogs/local/playgrounds/mine"
+        text = ("x-gravitee: {kind: playground, name: Mine, copy_of: tour}\ninclude:\n  - ../../addons/gone/compose.yml\n"
+                "services:\n  mine:\n    image: busybox\n")
+        path = self.write(".lab/catalogs/local/playgrounds/mine/compose.yml", text)
+        self.assertEqual(compose.left_out(text, path), [".lab/catalogs/local/addons/gone/compose.yml"])
+        read = compose.raw(path, skip=compose.left_out(text, path))["x-gravitee"]
+        self.assertEqual(compose.x_gravitee(text, folder, fresh=True), read)
+        edited = text.replace(", copy_of: tour", "")
+        self.assertEqual(compose.x_gravitee(edited, folder, fresh=True), {"kind": "playground", "name": "Mine"},
+                         "a text of the Lab's, not on disk, read the same way")
+
+    def test_a_refusal_may_name_the_items_own_file_its_env_file_and_what_it_includes(self):
+        self.write("playgrounds/mine/tool.yml", "services:\n  tool:\n    image: busybox\n")
+        text = "x-gravitee: {kind: playground}\ninclude:\n  - tool.yml\n"
+        known = compose.named_by(text, self.here)
+        self.assertEqual(known, ["playgrounds/mine/compose.yml", "playgrounds/mine/.env", "playgrounds/mine/tool.yml"])
+        self.assertEqual(compose.named_by(text, self.root / "setups", "mine.yml")[:2], ["setups/mine.yml", "setups/.env"])
+        self.assertEqual(compose.cause(f"open {self.root}/playgrounds/mine/.env: permission denied", known),
+                         "playgrounds/mine/.env cannot be opened")
+        self.assertEqual(compose.cause(f"yaml: line 3 in {self.root}/playgrounds/mine/compose.yml: SECRET", known),
+                         "Compose cannot read playgrounds/mine/compose.yml")
+
+    def test_what_compose_says_is_explained_with_the_names_the_item_defines_and_a_fix(self):
+        defined = {"plain-app", "web", "web.v2", "x" * 80}
+        cases = {
+            'service "plain-app" depends on undefined service "nope": invalid compose project':
+                ("plain-app depends on a service that is not defined",
+                 "in its depends_on, name only services of this item or of what it includes"),
+            "validating /x/compose.yml: services.plain-app.bogus false schema":
+                ("services.plain-app has a key Compose does not know", "remove that key, or correct its name"),
+            "validating /x/compose.yml: services.plain-app.ports must be a array":
+                ("services.plain-app.ports must be a list", "write services.plain-app.ports as a list"),
+            "services.plain-app must be a mapping": ("services.plain-app must be a mapping", "write services.plain-app as a mapping"),
+            "services.web.v2.ports must be a array": ("services.web.v2.ports must be a list", "write services.web.v2.ports as a list"),
+            f"services.{'x' * 80} must be a mapping": (f"services.{'x' * 59}… must be a mapping", f"write services.{'x' * 59}… as a mapping"),
+            'service "other" depends on undefined service "nope": invalid compose project':
+                ("Compose cannot read it", "run docker compose -f setups/mine.yml config from the Lab's folder to see why"),
+            "services.plain-app.secret-of-mine must be a string": ("a value of services.plain-app has the wrong type",
+                                                                  "correct the type of that value"),
+        }
+        for said, wanted in cases.items():
+            with self.subTest(said):
+                self.assertEqual(compose.explained(said, (), defined, "setups/mine.yml"), wanted)
+        self.assertEqual(compose.explained("services.other must be a mapping", (), defined, "setups/mine.yml", fine_here=True),
+                         ("it loads here, and the copy written for that catalog does not",
+                          "make what it includes part of that catalog, or of a catalog it requires"))
+
+    def test_no_env_file_of_the_folder_is_read(self):
+        text = "x-gravitee: {kind: addon, name: Quiet}\nservices:\n  quiet:\n    image: busybox\n    env_file: [x.env]\n"
+        for name, make in (("a pipe", lambda file: os.mkfifo(file)), ("a link to an endless file", lambda file: os.symlink("/dev/zero", file))):
+            with self.subTest(name):
+                for one in (".env", "x.env"):
+                    make(self.here / one)
+                started = time.monotonic()
+                self.assertEqual(compose.x_gravitee(text, self.here, fresh=True), {"kind": "addon", "name": "Quiet"})
+                self.assertLess(time.monotonic() - started, 5, "answered at once: neither file is opened")
+                self.assertTrue(settled(lambda: not holding(str(self.here))))
+                for one in (".env", "x.env"):
+                    (self.here / one).unlink()
+
+    def test_the_same_text_in_the_same_folder_is_read_once_and_a_file_raw_read_is_not_read_again(self):
+        text = "x-gravitee: {kind: addon, name: Once}\nservices:\n  once:\n    image: busybox\n"
+        real, runs = compose.run, []
+        self.patch(compose, "run", lambda cmd, **more: runs.append(cmd) or real(cmd, **more))
+        first = compose.x_gravitee(text, self.here)
+        first["name"] = "changed by its caller"
+        self.assertEqual(compose.x_gravitee(text, self.here), {"kind": "addon", "name": "Once"})
+        self.assertEqual(len(runs), 1)
+        self.write("addons/read/compose.yml", text.replace("Once", "Read"))
+        compose.raw("addons/read/compose.yml")
+        self.assertEqual(compose.x_gravitee(text.replace("Once", "Read"), self.root / "addons" / "read"), {"kind": "addon", "name": "Read"})
+        self.assertEqual(len(runs), 2, "raw's reading answers")

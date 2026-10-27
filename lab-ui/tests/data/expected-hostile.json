@@ -1734,5 +1734,30 @@
       "uses_machine": []
     },
     "verdict": "blocked"
+  },
+  "t29-claims-a-copy": {
+    "closure": [
+      "addon:t29-claims-a-copy"
+    ],
+    "notes": [],
+    "ports": [],
+    "reasons": [
+      "Says it is a copy of an item of this Lab, which only this Lab writes"
+    ],
+    "surface": {
+      "builds": [],
+      "core": [],
+      "images": [
+        "busybox"
+      ],
+      "needs": [],
+      "plugins": [],
+      "ports": [],
+      "reads": [],
+      "seed": null,
+      "shell": null,
+      "uses_machine": []
+    },
+    "verdict": "blocked"
   }
 }

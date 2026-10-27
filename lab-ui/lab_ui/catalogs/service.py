@@ -170,6 +170,16 @@ def _spend(ticket):
         TICKETS.pop(ticket, None)
 
 
+def imports():
+    """{the real path of its folder: [tickets]} of the imports whose preview is still valid: their folder waits for the change."""
+    found = {}
+    with _lock:
+        for ticket, data in TICKETS.items():
+            if data.get("imported") and _now() - data["made"] <= TTL:
+                found.setdefault(os.path.realpath(getattr(data.get("address"), "path", "") or ""), []).append(ticket)
+    return found
+
+
 def forget(ticket):
     """Lets a check go before it is used, with what it staged: the judgement an export makes of its archive."""
     with _lock:
@@ -873,7 +883,7 @@ def _check_folder(asked):
             judged, verdicts, mine = _review(meta["id"], meta, "folder", "private", False, "allowed", ignored)
         preview = _preview(ticket, meta, "folder", asked, "private", False, ignored, judged, verdicts, mine)
         _keep(ticket, "add", ns=meta["id"], staged=staged, address=asked, branch=None, audience="private", roots=[],
-              meta=meta, store=None, listed=False)
+              meta=meta, store=None, listed=False, judged=sorted(uid for _, uid in mine))
         return preview
     except BaseException:
         _clean_up(ticket, staged, None)
@@ -919,6 +929,12 @@ def _preview(ticket, meta, kind, address, audience, listed, ignored, judged, ver
              "blocked": _blocked_of(judged, mine), "ignored": ignored}
     if newer:
         shown["newer"] = True
+    # What Compose could not read for want of a catalog was not judged: an import says it cannot run until that catalog comes
+    waits = [{"kind": k, "id": uid, "name": resolve.shown(judged[k][uid]["name"], NAME_CUT),
+              "needs_catalogs": copy.deepcopy(judged[k][uid]["needs_catalogs"])}
+             for k, uid in mine if judged[k][uid].get("needs_catalogs") and not judged[k][uid].get("blocked")]
+    if waits:
+        shown["waits"] = waits
     return shown
 
 
@@ -930,6 +946,9 @@ def add(ticket, host=False):
     with _changing():
         install.commit_add(staged, data["address"], data["branch"], data["audience"], data["roots"], meta=data["meta"],
                            host=bool(host) and not data["listed"], auto=True)
+        if data.get("imported"):   # an imported playground: what its file held is recorded, and settings kept for it go back
+            from . import exports   # here and not above: exports reads this module
+            exports.added(ns, data)
     _spend(ticket)
     with contextlib.suppress(OSError):   # the .env is for a docker compose typed by hand: the catalog is added all the same
         layers.prepare_catalogs()
@@ -1472,7 +1491,8 @@ def _removal(ns, entry):
 
 def remove(ns, check=False, keep_settings=True):
     """Remove: with `check`, what it would do and what holds it; without, the removal. A job that runs and an item of the
-    catalog that is on or up refuse it (`job_running`, `held`); a folder catalog loses its link and nothing else. Answers
+    catalog that is on or up refuse it (`job_running`, `held`); a folder catalog loses its link and nothing else, but for an
+    imported playground's, whose folder the Lab keeps: it goes, but for the person's settings with `keep_settings`. Answers
     {"warning": ...} (the line of `removed_partial` when Docker made files that could not be deleted)."""
     entry = _entry(ns)
     if check:
@@ -1487,11 +1507,12 @@ def remove(ns, check=False, keep_settings=True):
             raise CatalogError("held", f"{_turn_off_line(found, ns, on | running, running)}.", 409,
                                units=sorted(on | running))
         done = install.remove(ns, keep_settings)
-    if entry.get("kind") == "folder":   # an imported playground's catalog is the Lab's own folder: it goes with it
-        from .exports import forget_folder   # here and not above: exports reads this module
-        forget_folder(entry)
+        warning = None
+        if entry.get("kind") == "folder":   # an imported playground's catalog is the Lab's own folder: it goes with it, under the lock
+            from . import exports   # here and not above: exports reads this module
+            warning = exports.forget_folder(entry, keep_settings)
     project.forget()
-    return {"warning": done.get("warning")}
+    return {"warning": done.get("warning") or warning}
 
 
 def repair(ns):

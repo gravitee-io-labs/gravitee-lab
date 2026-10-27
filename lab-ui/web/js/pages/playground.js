@@ -93,7 +93,7 @@ async function exportPlayground(x) {
     { label: "Carries", items: plan.carries || [] },
 
     { label: "Needs", items: (plan.needs || []).map(({ name }) => ({ name, kind: "catalog" })) },
-    { label: "Private", items: (plan.private || []).map((one) => one.name), note: true },
+    { label: "Private", items: (plan.private || []).map((one) => ({ name: one.name, literal: true })), note: true },
     // A registry that asks for a login: the person who receives the file needs that access to pull its images
     { label: "Needs access", items: (plan.registries || []).map((one) => one.registry), note: true },
     { label: "Asks to use the machine", items: (plan.uses_machine || []).map((use) => `${use.name}: ${(use.what || []).join(", ")}`), note: true },
@@ -105,7 +105,9 @@ async function exportPlayground(x) {
     action: () => ((plan.private || []).length ? "Export with private content" : "Export"), unchosen: "" });
   if (!go) return;
   try {
-    const made = await busy(key, "export", api(route, {}));
+    // The items of private content the person saw, each under each origin: the server makes the file only if it carries no other
+    const seen = (plan.private || []).flatMap((one) => (one.item_ids || []).map((id) => `${one.key}|${id}`));
+    const made = await busy(key, "export", api(route, seen.length ? { private: seen } : {}));
     save(made.file, made.data);
     toast(`Exported ${made.file}`);
   } catch (err) {
@@ -134,14 +136,16 @@ async function exportStandalone(x) {
     { label: "Runs", items: plan.runs || [] },
     { label: "Leaves out", items: [...(plan.leaves_out || []), "The Lab UI", "Its settings", "The license"], note: true },
     { label: "Needs", items: [license, ...(plan.host || []), ...(plan.plugins_missing || []).map((id) => `The plugin ${id}`)], note: true },
-    { label: "Private", items: (plan.private || []).map((one) => one.name), note: true },
+    { label: "Private", items: (plan.private || []).map((one) => ({ name: one.name, literal: true })), note: true },
     { label: "Needs access", items: (plan.registries || []).map((one) => one.registry), note: true },
   ];
   const go = await effectsDialog({ title: `Export ${x.name} for Docker Compose`, options: [{ rows }],
     action: () => ((plan.private || []).length ? "Export with private content" : "Export"), unchosen: "" });
   if (!go) return;
   try {
-    const made = await busy(key, "export", api(route, {}));
+    // The items of private content the person saw, each under each origin: the server makes the file only if it carries no other
+    const seen = (plan.private || []).flatMap((one) => (one.item_ids || []).map((id) => `${one.key}|${id}`));
+    const made = await busy(key, "export", api(route, seen.length ? { private: seen } : {}));
     save(made.file, made.data);
     toast(`Exported ${made.file}`);
   } catch (err) {
@@ -177,7 +181,7 @@ async function moveToPersonal(x) {
   if (!chosen) return;
   try {
     const moved = await busy(key, "move", api(route, { together: chosen === "together", ...(allows(chosen) ? { allow: true } : {}) }));
-    toast("Moved");
+    toast(moved.warning ? `Moved. ${moved.warning}` : "Moved", !!moved.warning);
     await store.refresh();
     // The page of what was imported is gone: the one of the item in Personal takes its place in the history
     router.replace(x.kind === "playground" ? `#/playgrounds/${moved.id}` : `#/${x.kind}s/${moved.id}`);
@@ -210,7 +214,7 @@ async function copyToPersonal(x) {
   if (!chosen) return;
   try {
     const copied = await busy(key, "copy", api(route, { users: chosen === "users", ...(allows(chosen) ? { allow: true } : {}) }));
-    toast("Copied");
+    toast(copied.warning ? `Copied. ${copied.warning}` : "Copied", !!copied.warning);
     await store.refresh();
     router.replace(x.kind === "playground" ? `#/playgrounds/${copied.id}` : `#/${x.kind}s/${copied.id}`);
   } catch (err) {

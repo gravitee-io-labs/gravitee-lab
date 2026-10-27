@@ -7,11 +7,13 @@ import atexit
 import calendar
 import concurrent.futures.thread   # noqa: F401  (see _end: its exit hook has to be registered before ours)
 import contextlib
+import copy
 import functools
 import hashlib
 import importlib
 import json
 import os
+import posixpath
 import re
 import shutil
 import signal
@@ -22,7 +24,7 @@ import threading
 import time
 from pathlib import Path
 
-from ..paths import COMPOSE_FILE, CORE_FILE, ON_FILE, ROOT, write_atomic
+from ..paths import CATALOGS_DIR, COMPOSE_FILE, CORE_FILE, ON_FILE, ROOT, write_atomic
 
 COMPOSE = ["docker", "compose", "--progress", "plain"]
 
@@ -336,9 +338,10 @@ def stop_on_signals():
             signal.signal(number, ending)
 
 
-def run(cmd, timeout=120, cwd=None, env=None, environ=None):
-    """Runs a command from the project root: (exit code, output, errors). It gets no input: a question it asks
-    would wait on the terminal the Lab UI was started from, and it has no terminal to ask on. Past `timeout` seconds
+def run(cmd, timeout=120, cwd=None, env=None, environ=None, given=None):
+    """Runs a command from the project root: (exit code, output, errors). It gets no input but `given`, a text it reads
+    whole: a question it asks would wait on the terminal the Lab UI was started from, and it has no terminal to ask on.
+    Past `timeout` seconds
     it is ended with everything it started (_stop): (124, "", what happened). While the Lab UI exits it is not run:
     (130, "", what happened). `env`: variables set for it, which Compose reads before what the .env files hold.
     `environ`: the whole environment it gets in place of environment(): scrubbed_environment() for a command that reads
@@ -348,7 +351,8 @@ def run(cmd, timeout=120, cwd=None, env=None, environ=None):
     try:
         process = subprocess.Popen(cmd, cwd=cwd or ROOT,
                                    env={**(environment() if environ is None else environ), "PWD": str(cwd or ROOT), **(env or {})},
-                                   stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   stdin=subprocess.DEVNULL if given is None else subprocess.PIPE, stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE,
                                    encoding="utf-8", errors="replace", start_new_session=True)
     except OSError as error:
         return 127, "", str(error)
@@ -358,7 +362,7 @@ def run(cmd, timeout=120, cwd=None, env=None, environ=None):
     try:
         with process:
             try:
-                out, err = process.communicate(timeout=timeout)
+                out, err = process.communicate(given, timeout=timeout)
             except subprocess.TimeoutExpired:
                 _stop(process)
                 return 124, "", f"{cmd[0]} did not answer within {timeout} s"
@@ -384,7 +388,10 @@ def _config(file_args, *options, timeout=120, environ=None):
             # nothing of Compose (`Run 'docker --help' ...`): said as what it is, so that missing() knows it again
             raise ComposeError(NO_COMPOSE)
         raise ComposeError(_last_line(err))
-    return json.loads(out)
+    config = json.loads(out)
+    if isinstance(config, dict) and "x-gravitee" in config:   # the Lab's block, as every Compose from 5.0 answers it
+        config["x-gravitee"] = alike(config["x-gravitee"])
+    return config
 
 
 def _mapping(value):
@@ -430,16 +437,40 @@ def _policies_written(text):
     return "\n".join(written(line) for line in text.split("\n"))
 
 
-def _closure(path, skip=()):
+def _closure(path, skip=(), text=None):
     """A project file and the project files it includes, and theirs, in the order they are found. A file in `skip` is
-    not followed."""
+    not followed. `text`: what the first file holds, when it is not what is on disk."""
     found, todo = [], [path]
     while todo:
         file = todo.pop(0)
         if file not in found:
             found.append(file)
-            todo += [target for target in includes(file) if target not in skip]
+            try:
+                named = _targets(file, text) if file == path and text is not None else includes(file)
+            except (OSError, ValueError):   # not text, or not readable: Compose says what is wrong with it
+                named = []
+            todo += [target for target in named if target not in skip]
     return found
+
+
+def _targets(path, text):
+    """The project files the include list of `text`, the compose file at `path`, names itself (includes())."""
+    return [target for _, _, target in _include_items(text, ROOT / path, ROOT if path == ON_FILE else None) if target]
+
+
+def left_out(text, path):
+    """What a reading of `text`, the compose file at `path`, leaves out as gather does (project._reach's `missing`): the files
+    its include closure names under the catalogs' folder that are not there, a catalog not added yet."""
+    prefix = f"{CATALOGS_DIR}/"
+    return [file for file in _closure(path, (), text)[1:] if file.startswith(prefix) and not _there(file)]
+
+
+def _there(file):
+    """Whether the project file is a file: a name the system cannot even look up (too long, not text) is none."""
+    try:
+        return (ROOT / file).is_file()
+    except (OSError, ValueError):
+        return False
 
 
 def _items(file, text):
@@ -463,24 +494,37 @@ def _extent(lines, number):
 
 
 @contextlib.contextmanager
-def _readable(path, skip=()):
+def _readable(path, skip=(), text=None):
     """What raw() tells Compose to read: the file itself (`-f path`), or, when it or a file it includes has a
     `pull_policy` variable (_policies_written) or an include in `skip`, copies in a folder removed afterwards: each
     with its pull policies written as their defaults and without the items of its include list that name a file in
     `skip` (a list left empty is read as none). A copy is read from the folder of its original, so that its relative
     paths are the same, and what includes a file includes its copy: with the folder of the original as its project
-    directory, unless the item names one, which is kept (it is relative to the same folder). Answers (the arguments,
-    {copy: the file it stands for})."""
+    directory, unless the item names one, which is kept (it is relative to the same folder). `text`: what the file holds
+    when it is not on disk (x_gravitee): it is read as a copy, with the folder of the file as its project directory, the same
+    way. The items are found by the Lab's reader of include lists (_include_items), line by line: a file of the person's own
+    that writes something like an include list inside a string or a comment can be read otherwise than Compose reads it whole
+    when what it seems to name is left out. A file someone else wrote never reaches this so written: the screen holds a unit
+    whose includes it cannot name as YAML reads them (project._reach, trust.include_targets). Answers (the arguments, {copy: the
+    file it stands for})."""
     skip = frozenset(skip)
     try:
-        texts = {file: (ROOT / file).read_text(encoding="utf-8") for file in _closure(path, skip)
-                 if (ROOT / file).is_file()}
+        texts = {file: (ROOT / file).read_text(encoding="utf-8") for file in _closure(path, skip, text)
+                 if (file != path or text is None) and _there(file)}
     except (OSError, ValueError):   # being saved, or not text: Compose says what is wrong with it
         texts = {}
-    changed = {file: _policies_written(text) for file, text in texts.items()}
-    if changed == texts and not (skip and any(target in skip for file, text in texts.items()
-                                              for _, _, target in _items(file, text))):
-        yield ["-f", path], {}
+    if text is not None:
+        texts = {path: text, **{file: one for file, one in texts.items() if file != path}}
+    changed = {file: _policies_written(one) for file, one in texts.items()}
+    if changed == texts and not (skip and any(target in skip for file, one in texts.items()
+                                              for _, _, target in _items(file, one))):
+        if text is None:
+            yield ["-f", path], {}
+            return
+        with tempfile.TemporaryDirectory(dir=scratch()) as folder:   # the text as it is, read from the folder of its file
+            copy_of_text = Path(folder) / "compose.yml"
+            copy_of_text.write_text(text, encoding="utf-8")
+            yield ["--project-directory", str((ROOT / path).parent), "-f", str(copy_of_text)], {str(copy_of_text): str(ROOT / path)}
         return
     with tempfile.TemporaryDirectory(dir=scratch()) as folder:
         copies = {file: Path(folder) / f"{number}.yml" for number, file in enumerate(texts)}
@@ -504,12 +548,24 @@ def _readable(path, skip=()):
                {str(copy): str(ROOT / file) for file, copy in copies.items()})
 
 
+def _text_of(file):
+    try:
+        return Path(file).read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        return None
+
+
+def _key_of(text, folder):
+    return hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest(), str(folder)
+
+
 def raw(path, skip=(), timeout=120):
     """A compose file as written, with what it includes merged in. Not interpolated: ${VAR} references are kept,
     except in a `pull_policy`, which Compose 5.5.1 and later refuse (_policies_written). Not checked for consistency:
     a file read alone may refer to services of the core. Labels, environment and ports come in one shape, whichever
     way the file writes them. `skip`: project files that it includes and that are not there, which are left out so
     that it still loads and says what it is. `timeout`: seconds Compose has to answer, else ComposeError."""
+    before = _text_of(ROOT / path)
     with _readable(path, skip) as (arguments, originals):
         try:
             config = _config(arguments, "--no-interpolate", "--no-consistency", timeout=timeout)
@@ -518,6 +574,8 @@ def raw(path, skip=(), timeout=120):
             for copy, original in originals.items():
                 message = message.replace(copy, original)
             raise ComposeError(message) from None
+    if before is not None and _text_of(ROOT / path) == before:   # what x_gravitee() answers of that text there: not asked again
+        _remember(_key_of(before, (ROOT / path).parent), config.get("x-gravitee"))
     for service in (config.get("services") or {}).values():
         for key in ("labels", "environment"):
             if key in service:
@@ -525,6 +583,172 @@ def raw(path, skip=(), timeout=120):
         if service.get("ports"):
             service["ports"] = [_port(port) for port in service["ports"]]
     return config
+
+
+ALONE_TIMEOUT = 15   # seconds Compose has to read one item's text: a file that takes longer is one that cannot be read
+ALONE_OUTPUT = 4 << 20   # the most its answer may hold: more is no item, but a file that makes Compose write without end
+READ_KEPT = 512   # readings of an x-gravitee block remembered (_said_by_compose): more than the items of a large Lab
+_said_by_compose = {}   # {(sha-256 of a compose text, its folder): its x-gravitee as Compose read it there}, oldest first
+_said_lock = threading.Lock()
+
+
+def _empty_env():
+    """An empty file of this run, given to Compose as the .env of a reading that must read none (x_gravitee)."""
+    file = scratch() / "empty.env"
+    if not file.is_file():
+        file.write_text("", encoding="utf-8")
+    return file
+
+
+def alike(value):
+    """A value of an x- key as every Compose from 5.0 answers it: Compose 5.0 says an empty list there as null, 5.6 as [], so an
+    empty list is null on all of them (`private_from: []` reads None, and its key is there)."""
+    if isinstance(value, list):
+        return [alike(one) for one in value] or None
+    if isinstance(value, dict):
+        return {key: alike(one) for key, one in value.items()}
+    return value
+
+
+def x_gravitee(text, folder, fresh=False, name="compose.yml"):
+    """The x-gravitee block of a compose text as Compose reads it in `folder`, where the item is, the way raw() reads the item for
+    gather: what it includes is found from there, and what it includes under the catalogs' folder that is not there is left out
+    by the same rule and the same code (left_out, _readable), so that the readings agree; an included file never brings an x- key
+    of its own (Compose keeps those of the file it reads). The scrubbed environment, no interpolation, no remote include, no
+    .env and no env_file read. Nothing of the project is written: the text is read as a copy in a folder of this run. A copy of
+    what it answered, None for no block. ComposeError when Compose cannot read it, takes more than ALONE_TIMEOUT seconds, or
+    answers more than ALONE_OUTPUT: never a wait without end. The same text in the same folder is answered from what was read of
+    it before, here or by raw(), unless `fresh`: a reading remembered says the text was readable then, not that it is now.
+    `name`: the file's name in `folder`, by which Compose's words name it."""
+    folder = Path(folder)
+    key = _key_of(text, folder)
+    if not fresh:
+        with _said_lock:
+            if key in _said_by_compose:
+                return copy.deepcopy(_said_by_compose[key])
+    try:
+        rel = folder.relative_to(ROOT).as_posix() if folder.is_absolute() else None
+    except ValueError:
+        rel = None
+    asked = ["config", "--format", "json", "--no-interpolate", "--no-consistency", "--no-env-resolution"]
+    quiet = {"timeout": ALONE_TIMEOUT, "environ": scrubbed_environment()}
+    if rel is None:   # not a folder of the project: nothing there is the Lab's to include
+        rc, out, err = run([*COMPOSE, "--project-directory", str(folder), "--env-file", str(_empty_env()), "-f", "-", *asked],
+                           cwd=folder if folder.is_dir() else None, given=_policies_written(text), **quiet)
+    else:
+        path = f"{rel}/{name}" if rel != "." else name
+        with _readable(path, left_out(text, path), text) as (arguments, originals):
+            rc, out, err = run([*COMPOSE, "--env-file", str(_empty_env()), *arguments, *asked], **quiet)
+            for written, original in originals.items():   # Compose names the copy it read: the file is the original
+                err = err.replace(written, original)
+    if rc != 0:
+        raise ComposeError(_last_line(err))
+    if len(out) > ALONE_OUTPUT:
+        raise ComposeError("Compose answered more than an item can hold")
+    try:
+        found = alike(json.loads(out).get("x-gravitee"))
+    except (ValueError, AttributeError, RecursionError):
+        raise ComposeError("Compose answered what is not a compose file") from None
+    _remember(key, found)
+    return copy.deepcopy(found)
+
+
+def cause(error, known=()):
+    """What a refusal shows of why Compose could not read a file: the kind of failure, and of the files the Lab knows the item
+    reads (`known`: project paths, the files it includes) the one Compose names, by its path in the Lab's folder. Nothing else
+    of what Compose said: it may print back what a file holds, or a name its author chose."""
+    text, spots = str(error), []
+    for rel in dict.fromkeys(known):
+        for spelling in (str(ROOT / rel), os.path.realpath(ROOT / rel), rel):
+            at = text.find(spelling)
+            if at >= 0:
+                spots.append((at, rel))
+                break
+    file = min(spots)[1] if spots else ""
+    low = text.lower()
+    if "did not answer within" in low:
+        return "Compose took too long to read it"
+    if "more than an item can hold" in low:
+        return "Compose answered more than an item can hold"
+    if "no such file or directory" in low and file:
+        return f"{file} is not there"
+    if "permission denied" in low and file:
+        return f"{file} cannot be opened"
+    if "is a directory" in low and file:
+        return f"{file} is a folder"
+    return f"Compose cannot read {file}" if file else "Compose cannot read it"
+
+
+SERVICE_KEYS = frozenset((   # the keys of a service Compose knows: a name a refusal may say, being Compose's and not an author's
+    "build", "cap_add", "cap_drop", "command", "configs", "container_name", "depends_on", "deploy", "devices", "dns",
+    "entrypoint", "env_file", "environment", "expose", "extends", "extra_hosts", "group_add", "healthcheck", "hostname",
+    "image", "init", "ipc", "labels", "links", "logging", "network_mode", "networks", "pid", "platform", "ports", "privileged",
+    "profiles", "pull_policy", "read_only", "restart", "secrets", "security_opt", "shm_size", "stdin_open", "stop_grace_period",
+    "stop_signal", "sysctls", "tmpfs", "tty", "ulimits", "user", "volumes", "volumes_from", "working_dir"))
+TYPES = {"mapping": "a mapping", "array": "a list", "list": "a list", "string": "a string", "number": "a number",
+         "integer": "a number", "boolean": "true or false"}
+
+
+SAID_NAME = 60   # characters of a name a refusal says, at most
+
+
+def _short(name):
+    return name if len(name) <= SAID_NAME else name[:SAID_NAME - 1] + "…"
+
+
+def _service_of(text, defined):
+    """(the service of `defined` that Compose's `services.<name>` names, the key after it or None), the longest name that matches
+    exactly: a dotted path is never taken for another service than the one it names."""
+    for name in sorted(defined, key=len, reverse=True):
+        found = re.search(rf"\bservices\.{re.escape(name)}(?:\.([A-Za-z_][\w-]*))?(?=[\s:]|$)", text)
+        if found:
+            return name, found.group(1)
+    return None, None
+
+
+def explained(error, known=(), defined=(), file="", fine_here=False):
+    """(what is wrong, its fix) of Compose's failure on an item, for a person: a failure Compose words in a way the Lab knows (a
+    service that depends on one that is not defined, a key it does not know, a value of the wrong type), with the name of a
+    service only when the item's own file defines it (`defined`) and of a key only when it is Compose's own; else, when the item
+    loads here and only the copy written for another catalog does not (`fine_here`), that; else as cause() says it, with the
+    command that tells why, for the item's file (`file`, in the Lab). Never a value of the file; a name cut at SAID_NAME."""
+    text = str(error)
+    found = re.search(r'service "([^"]+)" depends on undefined service', text)
+    if found and found.group(1) in defined:
+        return (f"{_short(found.group(1))} depends on a service that is not defined",
+                "in its depends_on, name only services of this item or of what it includes")
+    service, key = _service_of(text, defined)
+    typed = re.search(r" must be an? (\w+)", text)
+    if service and re.search(r" (?:false schema|additional properties)", text):
+        return f"services.{_short(service)} has a key Compose does not know", "remove that key, or correct its name"
+    if service and typed and typed.group(1) in TYPES:
+        if key is None or key in SERVICE_KEYS:
+            where = f"services.{_short(service)}" + (f".{key}" if key else "")
+            return f"{where} must be {TYPES[typed.group(1)]}", f"write {where} as {TYPES[typed.group(1)]}"
+        return f"a value of services.{_short(service)} has the wrong type", "correct the type of that value"
+    if fine_here:
+        return ("it loads here, and the copy written for that catalog does not",
+                "make what it includes part of that catalog, or of a catalog it requires")
+    return cause(error, known), f"run docker compose -f {file or 'its compose file'} config from the Lab's folder to see why"
+
+
+def named_by(text, folder, name="compose.yml"):
+    """The project files a refusal may name (cause) of the compose `text`, the file `name` in `folder` of the project: the file
+    itself, its folder's .env, which Compose reads with it, and the files its includes reach. None outside the project."""
+    try:
+        rel = Path(folder).relative_to(ROOT).as_posix()
+    except ValueError:
+        return []
+    path = f"{rel}/{name}" if rel != "." else name
+    return [path, f"{posixpath.dirname(path)}/.env" if "/" in path else ".env", *_closure(path, (), text)[1:]]
+
+
+def _remember(key, found):
+    with _said_lock:
+        _said_by_compose.pop(key, None)
+        _said_by_compose[key] = copy.deepcopy(found)
+        while len(_said_by_compose) > READ_KEPT:
+            del _said_by_compose[next(iter(_said_by_compose))]
 
 
 def config_json(file_args, timeout=15, environ=None):

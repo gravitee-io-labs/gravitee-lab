@@ -1,4 +1,4 @@
-contract 1
+contract 2
 contract_min 1
 core.service alert-engine health=yes networks=internal since=1
 core.service am-gateway port=8092 health=yes networks=edge,internal since=1
@@ -47,6 +47,8 @@ unit.key x-gravitee.gateway kinds=addon since=1
 unit.key x-gravitee.host_access kinds=any since=1
 unit.key x-gravitee.kind kinds=any since=1
 unit.key x-gravitee.name kinds=any since=1
+unit.key x-gravitee.private_from kinds=any since=2
+unit.key x-gravitee.private_id kinds=any since=2
 unit.key x-gravitee.requires kinds=any since=1
 unit.key x-gravitee.requires.host kinds=any since=1
 unit.key x-gravitee.requires.images kinds=any since=1

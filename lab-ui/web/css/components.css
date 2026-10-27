@@ -668,6 +668,8 @@ p.panel-row { padding-block: 9px; }
 .panel-fact > :first-child { flex: 0 0 var(--label); color: var(--muted); }
 .panel-fact > :last-child { min-width: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; }
 .panel-fact .muted { display: block; }   /* why, under what it is said of */
+.panel-fact > .panel-value { flex: 1; align-items: center; }   /* a line with an action: it is at the end of the row, as on every row */
+.panel-more { margin-left: auto; }
 /* Rows that share the columns of their headings: a name, two values, the buttons of the row. The name gives way
    first. */
 .panel-table { display: grid; grid-template-columns: minmax(130px, 1fr) auto minmax(0, max-content) auto; }

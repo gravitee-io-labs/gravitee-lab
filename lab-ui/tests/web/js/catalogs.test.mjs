@@ -187,9 +187,49 @@ test("the imported playgrounds are one row, Imported, in Local: it counts them a
   page.doc.dispatchEvent(new Ev("keydown", { key: "Escape" }));
 });
 
-test("Personal is drawn only once it holds something", () => {
-  show([FIRST(), PERSONAL({ counts: { playground: 0, setup: 0, addon: 0 } })]);
+test("kept settings are listed where they came from, by the names of their items, and go at the person's word only, saying what goes", async () => {
+  clearToasts();
+  const kept = [{ folder: "contoso-1a2b3c4d", from: "Contoso demo", personal: false, items: [{ name: "Kiosk", kinds: ["Settings", "Secrets"] }], at: "2026-10-20T08:00:00Z" },
+    { folder: "local-0a1b2c3d", from: "Personal", personal: true, items: [{ name: "Echo Tool", kinds: ["Settings", "Secrets", "State"] }], at: "2026-10-21T08:00:00Z" }];
+  show([FIRST(), PERSONAL()], { kept_settings: kept });
+  assert.deepEqual([...section.querySelector(".list-rows").children].map((li) => (li.className === "stack-sep" ? text(li) : text(li.querySelector(".list-name")))),
+    ["Local", "Imported", "Personal", "Remote", "Gravitee public"], "Imported is there for kept settings alone");
+  open(row("Imported"));
+  const [imported] = panels(row("Imported"));
+  assert.deepEqual(pairs(imported).map(([name, value]) => [name, value.replace(/ \d+ \w+ ago$/, "")]), [["Kiosk", "From Contoso demo,"]]);
+  open(row("Personal"));
+  const personal = panels(row("Personal")).find((panel) => text(panel).startsWith("Kept settings"));
+  assert.deepEqual(pairs(personal).map(([name]) => name), ["Echo Tool"], "what came from Personal is on Personal's row");
+  assert.ok(!text(section).includes(".lab/") && !text(section).includes("echo-tool"), "nothing of the Lab's own naming");
+  const button = personal.querySelector('[data-kept="local-0a1b2c3d"] [data-kept-more]');
+  assert.ok(button.getAttribute("class").includes("panel-more"), "at the end of the row, as every More");
+  server.answers["/api/kept-settings/delete"] = {};
+  button.click();
+  assert.deepEqual(names(menu()), ["Remove"]);
+  press(menu().querySelectorAll(".menu-item")[0]);
+  await flush();
+  assert.equal(text(page.ids["choice-title"]), "Remove kept settings");
+  assert.ok(text(page.ids["choice-list"]).includes("Echo Tool: Settings, Secrets, State"), "what goes, item by item");
+  assert.equal(calls("/api/kept-settings/delete").length, 0, "nothing goes before the person says so");
+  page.ids.choice.returnValue = "ok";
+  page.ids.choice.onclose();
+  await settle();
+  assert.deepEqual(last().body, { folder: "local-0a1b2c3d" });
+  assert.deepEqual(toasts(), ["Removed"]);
+  show([FIRST(), PERSONAL()], { kept_settings: kept });   // the rows it opened are closed again
+});
+
+test("Personal is drawn only once it holds something, or the Lab keeps settings of it", () => {
+  const empty = PERSONAL({ counts: { playground: 0, setup: 0, addon: 0 } });
+  show([FIRST(), empty]);
   assert.deepEqual(items().map((li) => text(li.querySelector(".list-name"))), ["Gravitee public"]);
+  show([FIRST(), empty], { kept_settings: [{ folder: "local-0a1b2c3d", from: "Personal", personal: true, items: [{ name: "Echo Tool", kinds: ["Settings"] }],
+    at: "2026-10-21T08:00:00Z" }] });
+  assert.deepEqual(items().map((li) => text(li.querySelector(".list-name"))), ["Personal", "Gravitee public"], "its kept settings can still be removed");
+  open(row("Personal"));
+  const kept = panels(row("Personal")).find((panel) => text(panel).startsWith("Kept settings"));
+  assert.deepEqual(pairs(kept).map(([name]) => name), ["Echo Tool"]);
+  show([FIRST(), empty]);   // the row it opened is closed again
 });
 
 test("a row is 56 px of the lists' grid: a toggle named for the catalog, its name and line, its items, its state, its actions", () => {
@@ -818,7 +858,7 @@ test("Import to Personal keeps the playground as the person's own, says what it 
   server.answers["/api/catalogs/import"] = PREVIEW({ catalog: { id: "contoso", name: "Contoso demo", version: "1.0.0", lab: 1, kind: "folder" },
     imported: true, counts: { playground: 1, setup: 0, addon: 1 }, blocked: [], rows: {}, personal: { replaces: ["Kiosk"], same: [] } });
   await drop(new File([new Uint8Array([80, 75, 5, 6])], "contoso.zip"));
-  assert.deepEqual(rowsOf().find(([label]) => label === "Replaces"), ["Replaces", "Kiosk Your settings stay"]);
+  assert.deepEqual(rowsOf().find(([label]) => label === "Replaces"), ["Replaces", "Kiosk The new version gets your settings"]);
   server.answers["/api/catalogs/import/personal"] = { items: [], playground: "local/contoso" };
   const went = [];
   const go = router.go;
@@ -838,6 +878,65 @@ test("Import to Personal keeps the playground as the person's own, says what it 
   assert.deepEqual([personal.getAttribute("aria-disabled"), personal.getAttribute("data-why")], ["true", "What cannot run stays in Imported"]);
   assert.equal(adding().querySelector('[data-dest="imported"]').getAttribute("aria-checked"), "true");
   adding().closest("dialog").close();
+});
+
+test("Import to Personal of what uses this machine is the person's allowance: the button says Allow and import, and the request carries it", async () => {
+  show([FIRST()]);
+  openImport();
+  const drop = async (file) => {
+    adding().querySelector("#catalog-file").dispatchEvent(Object.assign(new Ev("drop"), { dataTransfer: { files: [file] }, preventDefault() {} }));
+    await settle();
+  };
+  server.answers["/api/catalogs/import"] = PREVIEW({ catalog: { id: "contoso", name: "Contoso demo", version: "1.0.0", lab: 1, kind: "folder" },
+    imported: true, counts: { playground: 1, setup: 0, addon: 0 }, blocked: [],
+    rows: { uses_machine: [{ id: "@contoso/kiosk", name: "kiosk", service: "kiosk", what: ["runs privileged"], why: "Runs a service manager" }] },
+    personal: { replaces: [], same: [] } });
+  await drop(new File([new Uint8Array([80, 75, 5, 6])], "contoso.zip"));
+  assert.equal(face(primary()), "Allow and import");
+  click(adding().querySelector('[data-dest="imported"]'));
+  assert.equal(face(primary()), "Import", "Imported asks with its own choice");
+  click(adding().querySelector('[data-dest="personal"]'));
+  assert.equal(face(primary()), "Allow and import");
+  server.answers["/api/catalogs/import/personal"] = { items: [], playground: "local/contoso" };
+  const go = router.go;
+  router.go = () => {};
+  await submit(primary());
+  await settle();
+  router.go = go;
+  assert.deepEqual([last().path, last().body], ["/api/catalogs/import/personal", { ticket: "9f3a4c1d2e5b6a70", allow: true }]);
+});
+
+test("Settings kept from a removed import of that name are said, used or not, and what Personal does not take is said once imported", async () => {
+  show([FIRST()]);
+  clearToasts();
+  openImport();
+  const drop = async (file) => {
+    adding().querySelector("#catalog-file").dispatchEvent(Object.assign(new Ev("drop"), { dataTransfer: { files: [file] }, preventDefault() {} }));
+    await settle();
+  };
+  const preview = (used) => PREVIEW({ catalog: { id: "contoso", name: "Contoso demo", version: "1.0.0", lab: 1, kind: "folder" },
+    imported: true, counts: { playground: 1, setup: 0, addon: 0 }, blocked: [], rows: {}, personal: { replaces: [], same: [] },
+    kept: { used, where: ".lab/kept-settings/contoso-1a2b3c4d" } });
+  server.answers["/api/catalogs/import"] = { ...preview(false), warning: "A change that stopped midway had set kiosk aside: they are in Personal again." };
+  await drop(new File([new Uint8Array([80, 75, 5, 6])], "contoso.zip"));
+  assert.deepEqual(rowsOf().find(([label]) => label === "Kept settings"), ["Kept settings", "From an earlier import Not used by this file"]);
+  assert.deepEqual(toasts(), ["A change that stopped midway had set kiosk aside: they are in Personal again."], "what came back is said");
+  clearToasts();
+  click(adding().querySelector('[data-dest="imported"]'));
+  assert.deepEqual(rowsOf().find(([label]) => label === "Kept settings"), ["Kept settings", "From an earlier import Not used by this file"]);
+  adding().closest("dialog").close();
+  openImport();
+  server.answers["/api/catalogs/import"] = preview(true);
+  await drop(new File([new Uint8Array([80, 75, 5, 6])], "contoso.zip"));
+  assert.deepEqual(rowsOf().find(([label]) => label === "Kept settings"), ["Kept settings", "From an earlier import Used"]);
+  server.answers["/api/catalogs/import/personal"] = { items: [], playground: "local/contoso",
+    kept: { items: ["Kiosk"], where: ".lab/kept-settings/contoso-1a2b3c4d" } };
+  const go = router.go;
+  router.go = () => {};
+  await submit(primary());
+  await settle();
+  router.go = go;
+  assert.deepEqual(toasts(), ["Imported. The kept settings of Kiosk stay apart: see Kept settings on the Catalogs page."]);
 });
 
 test("Import takes the file of an exported playground, shows the preview of an Add from that file, and opens the playground once imported", async () => {

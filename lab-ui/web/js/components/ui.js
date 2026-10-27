@@ -124,8 +124,8 @@ const step = (r) => `<li class="step ${esc(r.tone || "")}"><span class="step-num
   <div class="step-head"><strong>${esc(r.label)}</strong>${r.hint ? `<span class="muted">${esc(r.hint)}</span>` : ""}</div>
   <ul class="step-items">${r.items.map(line).join("")}</ul></div></li>`;
 // A few items sit on the row as pills; many ("3 APIs", "12 access rules", ...) fold under a line that counts them, and open on a
-// list of one line each: the count in its own column, then what it counts
-const counted = (i) => /^(\d+)\s+(.+)$/.exec(named(i).name);
+// list of one line each: the count in its own column, then what it counts. An item that is a name (`literal`) counts as one
+const counted = (i) => (named(i).literal ? null : /^(\d+)\s+(.+)$/.exec(named(i).name));   // a name is never a count
 const more = (r) => {
   const total = r.items.reduce((sum, i) => sum + (+counted(i)?.[1] || 1), 0);
   const lines = r.items.map((i) => (counted(i) ? `<li><b>${esc(counted(i)[1])}</b><span>${esc(counted(i)[2])}</span></li>`

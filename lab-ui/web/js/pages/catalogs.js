@@ -7,7 +7,7 @@
 // says so in its state (a menu entry has no button to show it on) and offers nothing else to press. The dialogs are dialogs/catalog.js's.
 
 import { $, esc, icon, setHTML, api, store, router, ago, copyButton } from "../core.js";
-import { toast, openMenu, keyed, statusHtml, progressBar, tipHtml, paintActions, actionButton, holdOff, contentStatus, GAP } from "../components/ui.js";
+import { toast, openMenu, keyed, statusHtml, progressBar, tipHtml, paintActions, actionButton, holdOff, contentStatus, confirmEffects, GAP } from "../components/ui.js";
 import { busy } from "../activity/jobs.js";
 import { selectCatalog } from "./list.js";
 import { NO_GIT, usesCard, openAdd, addCatalog, tryAgain, openUpdate, openGoBack, openRemove, openAllow, openNew } from "../dialogs/catalog.js";
@@ -123,11 +123,16 @@ function about(row) {
 }
 
 // The playgrounds imported from a file and kept as catalogs of their own: one place to the person, Imported, which lists each of them with its
-// menu (Remove, and the allowance of what uses this machine)
+// menu (Remove, and the allowance of what uses this machine), and the settings that an import, a removal or a move kept, each with Remove
 const IMPORTED = "imported";
+// The settings the Lab keeps (an import removed with Keep settings, an item of Personal that a new version replaced): each list is
+// with where they came from, those of Personal on Personal's row and those of an import on Imported's
+const keptOf = (row) => (store.state?.kept_settings || []).filter((k) => (row.kind === "machine" ? k.personal === true
+  : row.kind === "imports" && k.personal !== true));
+
 function grouped(rows) {
-  const imports = rows.filter((r) => r.imported);
-  if (!imports.length) return rows;
+  const imports = rows.filter((r) => r.imported), kept = keptOf({ kind: "imports" });
+  if (!imports.length && !kept.length) return rows;
   const counts = Object.fromEntries(HOLDS.map(([kind]) => [kind, imports.reduce((sum, r) => sum + (r.counts?.[kind] || 0), 0)]));
   const group = { id: IMPORTED, kind: "imports", name: "Imported", counts, members: imports, state: { key: "machine" },
     blocked: imports.flatMap((r) => r.blocked || []), problems: imports.flatMap((r) => r.problems || []) };
@@ -135,11 +140,39 @@ function grouped(rows) {
   return at < 0 ? [...rest, group] : [...rest.slice(0, at), group, ...rest.slice(at)];
 }
 
+// A line of a panel with its More at the end of the row, as every row has it
+const more = (attr, label) => `<button class="icon-btn panel-more" ${attr} data-tip="More" aria-label="${esc(label)}" aria-haspopup="true">${icon("more")}</button>`;
+
 function members(row) {
-  if (row.kind !== "imports") return "";
-  const line = (m) => `<div class="panel-row panel-fact" data-member="${esc(m.id)}"><span>${esc(m.name)}</span><span>${total(m.counts)} ${total(m.counts) === 1 ? "item" : "items"}${
-    menu(m).length ? `<button class="icon-btn" data-member-more data-tip="More" aria-label="${esc(`More for ${m.name}`)}" aria-haspopup="true">${icon("more")}</button>` : ""}</span></div>`;
+  if (row.kind !== "imports" || !row.members.length) return "";
+  const line = (m) => `<div class="panel-row panel-fact" data-member="${esc(m.id)}"><span>${esc(m.name)}</span><span class="panel-value">${
+    total(m.counts)} ${total(m.counts) === 1 ? "item" : "items"}${menu(m).length ? more("data-member-more", `More for ${m.name}`) : ""}</span></div>`;
   return `<section class="panel">${heading("Imports")}${row.members.map(line).join("")}</section>`;
+}
+
+function kept(row) {
+  const list = keptOf(row);
+  if (!list.length) return "";
+  const line = (k) => {
+    const names = k.items.map((one) => one.name).join(", ");
+    return `<div class="panel-row panel-fact" data-kept="${esc(k.folder)}"><span>${esc(names)}</span><span class="panel-value">${
+      esc([k.personal !== true ? `From ${k.from}` : "", old(k.at)].filter(Boolean).join(", "))}${more("data-kept-more", `More for the settings kept of ${names}`)}</span></div>`;
+  };
+  return `<section class="panel">${heading("Kept settings")}${list.map(line).join("")}</section>`;
+}
+
+// Kept settings go at the person's word only: they are theirs, and nothing else deletes them. The dialog says what goes, item by item
+async function removeKept(k) {
+  const rows = [{ label: "Deletes", items: k.items.map((one) => `${one.name}: ${one.kinds.join(", ")}`) }];
+  if (!(await confirmEffects("Remove kept settings", rows, "Remove", true))) return;
+  try {
+    const answer = await api("/api/kept-settings/delete", { folder: k.folder });
+    toast(answer.warning || "Removed", !!answer.warning);
+  } catch (err) {
+    toast(err.message, true);
+  } finally {
+    store.refresh();
+  }
 }
 
 // What it holds: a button for each kind that sets that list's catalog filter to this catalog and goes there; below, what in it cannot run, one
@@ -236,10 +269,10 @@ async function repair(row) {
 
 // --- The page -----------------------------------------------------------------------------------------------------------------
 
-// Whether an entry of the list is a row: a catalog that is there or offered, and Personal once it holds something. Any other entry (the one
-// that carries how far the fetch of the Add dialog is, `kind: "progress"`) is no row.
+// Whether an entry of the list is a row: a catalog that is there or offered, and Personal once it holds something or the Lab keeps
+// settings of it. Any other entry (the one that carries how far the fetch of the Add dialog is, `kind: "progress"`) is no row.
 const ROWS = ["git", "folder", "suggested"];
-const shown = (row) => ROWS.includes(row?.kind) || (row?.kind === "machine" && total(row.counts) > 0);
+const shown = (row) => ROWS.includes(row?.kind) || (row?.kind === "machine" && (total(row.counts) > 0 || keptOf(row).length > 0));
 
 // The table has two sections, on a band each: what is on this machine (Personal, a folder linked as a catalog), then what is fetched
 // from a repository (an added catalog, a suggested one). A section with no row has no band.
@@ -260,7 +293,7 @@ function drawRows(ul, all) {
     $(".s-toggle", top)?.setAttribute("aria-expanded", String(open));
     detail.id = detailId(row);
     detail.hidden = !open;
-    setHTML(detail, open ? about(row) + members(row) + holds(row) : "");
+    setHTML(detail, open ? about(row) + members(row) + kept(row) + holds(row) : "");
   });
 }
 
@@ -341,6 +374,10 @@ function init(el) {
     else if ("retry" in data) tryAgain(row.id);
     else if ("add" in data) addCatalog(row);
     else if ("memberMore" in data && member) openMenu(button, menu(member));
+    else if ("keptMore" in data) {
+      const k = keptOf(row).find((one) => one.folder === button.closest("[data-kept]")?.dataset.kept);
+      if (k) openMenu(button, [{ label: "Remove", danger: true, disabled: !!offline(), reason: offline(), onSelect: () => removeKept(k) }]);
+    }
     else if ("more" in data) openMenu(button, menu(row));
     else if ("holds" in data) showHeld(data.holds, row.id);
   });

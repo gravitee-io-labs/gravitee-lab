@@ -777,7 +777,7 @@ def gather():
             "problems": problems,
             # What the catalogs add: where each unit comes from, what the screen and Compose said of it, the
             # catalogs as the disk says them, the level of the core, and the state of the migration
-            "default": default, "catalogs": catalogs, "reach": reach,
+            "default": default, "catalogs": catalogs, "reach": reach, "bad": sorted(bad), "clean": sorted(clean),
             "screened": {**{file: screened[file] for file in bad if screened[file]}, **held}, "unreadable": unreadable,
             "configs": {path: found["config"] for path, found in loaded.items() if found.get("config") is not None},
             "own_configs": {path: found["own_config"] for path, found in loaded.items() if found.get("own_config") is not None},
@@ -2040,6 +2040,24 @@ def brought(unit):
 
 _cache = {"key": None, "project": None, "inputs": None}
 _lock = threading.RLock()   # reentrant: whoever holds it exclusively (exclusive) loads the project too
+
+
+def read_own(file):
+    """A unit file of this machine read as gather() reads it, alone and now: its include closure followed as gather follows it,
+    from what the last gather screened of the catalogs, then Compose's raw reading of it (the includes that are not there read as
+    nothing). (config, None), or (None, why) when gather would not read it (its closure reaches what must not be given to Compose)
+    or Compose cannot. What a change put in Personal is checked with this, one file at a time, without reading the project again."""
+    with _lock:
+        inputs = _cache.get("inputs")
+    if inputs is None:
+        inputs = loaded()[1]
+    bad, clean = set(inputs.get("bad") or ()), set(inputs.get("clean") or ())
+    reach = _reach(file, bad, clean)
+    held = held_reasons(reach, bad)
+    if held:
+        return None, held[0]
+    config, problem = _raw(file, skip=reach["missing"]) if reach["missing"] else _raw(file)
+    return config, (None if config is not None else compose.cause((problem or {}).get("message") or "", reach["targets"]))
 
 
 def loaded():

@@ -115,6 +115,7 @@ RULES = {
                                     "Needs a newer Gravitee Lab: uses {names}")},
     "T27": {"class": "P", "lines": ("Cannot be read: {last}",)},
     "T28": {"class": "P", "lines": ("Uses this machine without saying why: {service}",)},
+    "T29": {"class": "P", "lines": ("Says it is a copy of an item of this Lab, which only this Lab writes",)},
     "N01": {"class": "N", "lines": ("Brings its own seed code",)},
     "N02": {"class": "N", "lines": ("Seed data reads a token",)},
     "N03": {"class": "N", "lines": ("Some of its addresses are not on this machine, so they are not opened",)},
@@ -161,6 +162,7 @@ FIXES = {
            "writes the one of `catalog.yml`.",
     "T27": "Run `docker compose -f {file} config` and fix what it prints.",
     "T28": "Say why in `x-gravitee.host_access`, one reason for each service that uses this machine, or remove what it takes.",
+    "T29": "Remove `x-gravitee.copy_of`: only the Lab writes it, in the person's own copy of an item.",
     "N01": "Run the Lab's seeder as it is: build its folder with no other key, set no entrypoint or command, and mount only "
            "`/seed` and `/state`.",
     "N02": "Do not read `APIM_TOKEN` or a secret in `seed/`: the Lab hands the seeder what it needs.",
@@ -1537,6 +1539,12 @@ class _Run:
             elif level < low:
                 self.say("T26", 1)
 
+    def copy(self):
+        """T29: whose copy an item is (`copy_of`) is the Lab's to write, in the person's copy in Personal; an item of a catalog,
+        or of a file someone sent, that says it would be taken for the twin of an item of this Lab."""
+        if self.meta.get("copy_of"):
+            self.say("T29")
+
     def host(self):
         """The class H findings: each blocks with its own line, or is allowed when the catalog may and the unit said why."""
         declared = {name for name, why in _dict(self.meta.get("host_access")).items()
@@ -1653,6 +1661,7 @@ class _Run:
         self.includes()
         self.audience()
         self.compat()
+        self.copy()
         if self.config is None:
             self.say("T27", last=_clean(_scrubbed(self.context.get("error") or "unreadable", self.root()), 160))
         if self.local:   # a unit of this machine is not blocked by the policy: only its restrictions and its surface remain

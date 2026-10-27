@@ -43,7 +43,7 @@ from urllib.parse import quote
 from ..library import check, layers, moves, personal, project as projects, tested
 from ..docker import compose
 from .. import paths
-from . import defaults, gitx, install, manifest, registry, resolve, store as bare, trust
+from . import defaults, gitx, install, manifest, meta as block, registry, resolve, store as bare, trust, understood
 from .registry import CatalogError
 
 LOCAL = paths.LOCAL
@@ -67,8 +67,16 @@ LINES = {
     "share_use_catalog": (400, "Includes {item}, which {catalog} has already: use the catalog version of it, then share this."),
     "share_secret": (400, "{file} holds what looks like a secret. Remove it and share again."),
     "share_private": (400, "{file} names {private}, which is private. Remove it and share again."),
+    "share_private_copy": (400, "{name} is a copy of an item of {private}, which is private. Fix: share it to a private catalog."),
+    "share_unknown_copy": (400, "{name} is a copy of an item of unknown origin, which is private. Fix: copy it again from its catalog, "
+                                "then share the new copy."),
+    "share_item_changed": (409, "{name} changed while it was shared. Fix: share again."),
     "no_identity": (400, "Set your name and email in Git, then share again."),
     "push_rejected": (502, "{host} refused the branch. Check that you can push, then share again."),
+    "share_maybe_public": (409, "{catalog} may be public: the Lab cannot share private content there. Fix: {fix}"),
+    "share_changed": (409, "{catalog} changed while it was shared. Fix: share again."),
+    "share_legacy": (409, "The catalog.yml of {catalog} cannot be updated for older Gravitee Labs. Fix: write its x-gravitee-catalog "
+                          "block as plain key: value lines, then share again."),
 }
 UNDECLARED = "Includes {item} ({owner}), which {catalog} does not declare."   # the reason of a disabled destination
 
@@ -286,11 +294,14 @@ LOOK = 2 * bare.UNIT_FILES   # entries of a folder looked at before it is too la
 
 class Copy(NamedTuple):
     """What a share would put in a catalog: `files` {path in the catalog: (git mode, bytes)}, the compose file as it will be
-    written (`text`) and as it was (`kept`), and what keeps the item from being shared as it is (`problems`)."""
+    written (`text`) and as it was (`kept`), and what keeps the item from being shared as it is (`problems`). `folder`: where the
+    compose file is, which Compose reads `kept` in; `place`: (was, now, table), how `text` was written from `kept` (moves.repoint)."""
     files: Dict[str, Tuple[str, bytes]]
     text: str
     kept: str
     problems: List[str]
+    folder: str = ""
+    place: tuple = ()
 
 
 def _scratch(name) -> bool:
@@ -421,8 +432,9 @@ def collect(kind, slug, ns, source=LOCAL, moved=()) -> Copy:
     table = [(paths.unit_file(kind, uid), f"{paths.CATALOGS_DIR}/{ns}/{head}")] if kind == "setup" else [(before, after)]
     table += list(moved)
     text = moves.repoint(kept, before, after, table)
+    where, place = str((paths.ROOT / paths.unit_file(kind, uid)).parent), (before, after, table)
     if kind == "setup":
-        return Copy({head: ("100644", text.encode("utf-8"))}, text, kept, problems)
+        return Copy({head: ("100644", text.encode("utf-8"))}, text, kept, problems, where, place)
     base, named, machine, listing = str(paths.ROOT / before), _named(kept), [], {}
     for rel in sorted({*TOP, *TREES, *named}):
         listing.update({one: (mode, size) for one, mode, size in _walk(base, rel, problems, machine)})
@@ -445,7 +457,7 @@ def collect(kind, slug, ns, source=LOCAL, moved=()) -> Copy:
                 files[entry.path] = (entry.mode, content)
     problems += [MISSED.format(rel=one) for one in machine
                  if one != STATE and any(also == one or also.startswith(one + "/") for also in named)]
-    return Copy(files, text, kept, list(dict.fromkeys(problems)))
+    return Copy(files, text, kept, list(dict.fromkeys(problems)), where, place)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -550,11 +562,16 @@ def _rules(copy, kind, slug, ns, row):
     return found
 
 
-def _scrub(message, top, kind, slug) -> str:
-    """A line of Compose without the place of the copy it read: the file of the copy is the item's own, `compose.yml`."""
-    for base in (str(paths.ROOT / top), top):
-        message = message.replace(f"{base}/setups/", "").replace(f"{base}/{kind}s/{slug}/", "")
-    return message
+def _scrub(error, real, defined=(), file="", fine_here=False) -> str:
+    """What a share's check says of Compose's failure on the copies it staged, and its fix (compose.explained): the kind of failure,
+    the services the item's own file defines (`defined`), of the files the Lab knows the one Compose names, a staged copy by the
+    path of the item it stands for (`real`: {staged path: the item's file in the Lab}), and the command that tells why for its file
+    (`file`), or that only the copy fails (`fine_here`). Nothing else of what Compose said, which may be a name or a value the file's
+    author chose."""
+    said, fix = compose.explained(error, list(real), defined, file, fine_here)
+    for staged, mine in sorted(real.items(), key=lambda pair: -len(pair[0])):
+        said, fix = said.replace(staged, mine), fix.replace(staged, mine)
+    return f"{said}. Fix: {fix}."
 
 
 def _claim(services, name, tier, names) -> dict:
@@ -768,7 +785,11 @@ def _preflight(project, kind, uid, file, slug, ns, row, rows, copy, along=(), al
             try:
                 lines = _judged(project, k, one, s, ns, row, c, stage, folder, aliases, others)
             except (compose.ComposeError, ValueError) as error:   # Compose's last line, or an answer that is not JSON
-                lines = [f"Does not load with the platform: {_scrub(str(error), top, k, s)}"]
+                real = {stages[(k2, s2)][0]: paths.unit_file(k2, one2) for k2, one2, s2, _ in every}
+                defined = {name for k2, one2, _, _ in every for name in (project[f"{k2}s"].get(one2) or {}).get("services") or ()
+                           if isinstance(name, str)}
+                fine = (projects.loaded()[1].get("raw") or {}).get(paths.unit_file(k, one)) is not None
+                lines = [f"Does not load with the platform: {_scrub(error, real, defined, paths.unit_file(k, one), fine)}"]
                 problems += lines if (k, s) == (kind, slug) else [f"{one.rsplit('/', 1)[-1]}: {line}" for line in lines]
                 continue
             problems += [f"Blocked: {reason}" if (k, s) == (kind, slug) else f"{one.rsplit('/', 1)[-1]}: Blocked: {reason}"
@@ -891,15 +912,61 @@ def _needed(project, items) -> int:
     """The `lab` that older Gravitee Labs need for the units shared (`items`, [(kind, uid)]): the highest level among the
     items of the contract they use (`check.needed_lab`), 1 when this Lab cannot say."""
     raw = projects.loaded()[1].get("raw") or {}
-    units = [(k, uid, project[f"{k}s"][uid]) for k, uid in items if uid in project[f"{k}s"]]
+    units = [(k, uid, project[f"{k}s"][uid]) for k, uid in items if (project[f"{k}s"].get(uid) or {}).get("file")]
     return check.needed_lab(units, raw, projects.loaded()[1]) or 1
 
 
+class NotRaised(ValueError):
+    """The legacy `lab` of a catalog.yml must be raised and the Lab cannot write it in a way catalog.py check reads back."""
+
+
+def _strict(text) -> Optional[dict]:
+    """A catalog.yml's text as `catalog.py check`, the Add and older Labs read it (manifest.read_catalog, with Compose), or None
+    when that reading refuses it. The text is written as it is, line ends and all."""
+    with tempfile.TemporaryDirectory(dir=compose.scratch()) as folder:
+        file = Path(folder) / manifest.FILE
+        file.write_bytes(text.encode("utf-8"))
+        try:
+            return manifest.read_catalog(str(file))
+        except CatalogError:
+            return None
+
+
+def _same_but_lab(before, after) -> bool:
+    """Whether two readings of a catalog.yml say the same but for `lab`, and for a `schema` that was not there and now says the
+    format the legacy lines need."""
+    def rest(meta):
+        return {key: value for key, value in meta.items() if key not in ("lab", "schema")}
+    return rest(before) == rest(after) and after.get("schema") in (before.get("schema"), manifest.SCHEMA)
+
+
 def _raised(text, needed) -> Optional[str]:
-    """The text of a catalog.yml whose legacy `lab` is raised to `needed` when it is lower (`manifest.with_legacy`, the line
-    alone), None when nothing changes: a share never lowers it, and never adds the lines a catalog does without."""
-    have = registry.scan(text.encode("utf-8")).get("lab")
-    return manifest.with_legacy(text, needed) if isinstance(have, int) and have < needed else None
+    """The text of a catalog.yml whose legacy `lab` says `needed` when it says less, for older Gravitee Labs, which ignore what
+    they do not know (a private label among it) and refuse what needs more than they read; None when nothing is to change. Above
+    the first level the answer is verified with the reader that acts: the text before and after is read as `catalog.py check`
+    and the Add read it (`_strict`), and is taken only when `lab` is `needed` and nothing else changed. The line is changed in
+    place (`manifest.with_legacy`), else the value of the key in the block's own layout, flow style included (`meta.replaced`).
+    NotRaised for anything else (a file that is not read, a layout neither changes, a reading that differs): never a lower
+    `lab` left in place. A share never lowers it."""
+    if needed <= 1:
+        have = registry.scan(text.encode("utf-8")).get("lab")
+        return manifest.with_legacy(text, needed) if isinstance(have, int) and have < needed else None
+    before = _strict(text)
+    if before is None:
+        raise NotRaised("catalog.yml is not read as catalog.py check reads it")
+    if isinstance(before.get("lab"), int) and before["lab"] >= needed:
+        return None
+    bom = "\ufeff" if text.startswith("\ufeff") else ""   # a mark at the start stays, and the block is found after it
+    body = text[len(bom):]
+    for write in (lambda one: manifest.with_legacy(one, needed), lambda one: block.replaced(one, "lab", str(needed), manifest.BLOCK)):
+        candidate = write(body)
+        if candidate is None or candidate == body:
+            continue
+        after = _strict(bom + candidate)
+        quick = registry.scan((bom + candidate).encode("utf-8")).get("lab")
+        if after is not None and after.get("lab") == needed and _same_but_lab(before, after) and quick in (needed, None):
+            return bom + candidate
+    raise NotRaised("its lab cannot be written so that it is read back")
 
 
 def _publish(ns, catalog, name, kind, slug, address, branch, who, copy, also=(), needed=1):
@@ -911,11 +978,16 @@ def _publish(ns, catalog, name, kind, slug, address, branch, who, copy, also=(),
     for k, s in [(kind, slug), *also]:
         if bare.read(store, base, _place(k, s, ns)[2]) is not None:
             raise _refusal("share_exists", name=name if (k, s) == (kind, slug) else s, catalog=catalog)
+    files = dict(copy.files)
+    needed = files_lab(files, needed)   # what the files shared hold, the label included, and not only the person's
     yml = bare.read(store, base, manifest.FILE)
-    raised = _raised(yml.decode("utf-8", "replace"), needed) if yml else None
+    try:
+        raised = _raised(yml.decode("utf-8", "replace"), needed) if yml else None
+    except NotRaised:   # a commit that older Labs would read without what it needs is no share
+        raise _refusal("share_legacy", catalog=catalog) from None
     if raised is not None:
-        copy = copy._replace(files={**copy.files, manifest.FILE: ("100644", raised.encode("utf-8"))})
-    commit = _commit(store, base, copy.files, f"Add {name}", who)
+        files[manifest.FILE] = ("100644", raised.encode("utf-8"))
+    commit = _commit(store, base, files, f"Add {name}", who)
     where = _branch(address, slug)
     try:
         _push(address, store, commit, where, catalog)
@@ -1031,18 +1103,295 @@ def _here(kind, uid):
     return paths.unit_file(kind, uid) if kind == "setup" else paths.unit_folder(kind, uid)
 
 
-COPY_OF = re.compile(r'(?m)^[ \t]+copy_of:[^\n]*\n|copy_of:\s*("[^"]*"|\'[^\']*\'|[^,}\s]+)\s*,?\s*')
+def unmark(text):
+    """A compose text without `x-gravitee.copy_of`: whose copy an item of this machine is, which says nothing true elsewhere. Every
+    copy_of of the block goes, and a block that takes keys from elsewhere says none (meta.drop)."""
+    return block.drop(text, "copy_of", override=True)
 
 
-def _unmarked(copy, kind, slug):
-    """The copy without `x-gravitee.copy_of`: whose copy an item of this machine is, which an item of a catalog never says."""
-    text = COPY_OF.sub("", copy.text, count=1) if "copy_of" in copy.text else copy.text
-    if text == copy.text:
+UNKNOWN = "unknown origin"   # the origin of a copy whose original the Lab cannot tell: private content all the same
+
+
+def _git(ns):
+    """Whether `ns` is a catalog of Git of this Lab: one installed from its repository, or a working copy of it linked in its place
+    (a folder entry that `shadows` it), which holds its content and keeps its lock."""
+    entry = registry.entry(ns) if ns and ns != LOCAL else None
+    return bool(entry) and (entry.get("kind") == "git" or (entry.get("kind") == "folder" and bool(entry.get("shadows"))))
+
+
+def _private_git(ns):
+    """Whether `ns` is a catalog of Git of this Lab that is not Public, as its audience was found when it was added."""
+    return _git(ns) and registry.lock_of(ns).get("audience") != "public"
+
+
+def _history(ns):
+    """The id of the history of the private catalog of Git `ns`: the first commits of its history, all of them, sorted and joined,
+    the same on every Lab that has it, whatever id it has there; "" for one whose history the Lab does not know, or another catalog.
+    A fork has the history of what it was forked from: it is told apart by asking its repository (_audience_now)."""
+    roots = sorted(str(one).lower() for one in registry.lock_of(ns).get("roots") or ()) if _private_git(ns) else []
+    return ",".join(roots)
+
+
+def _origin_of(ns):
+    """(the id of its history, its name now) of the private catalog of Git `ns`, the origin what it holds is content of: an origin
+    of no id when its history is not known, never none; None for any other catalog."""
+    return (_history(ns), _catalog_name(ns)) if _private_git(ns) else None
+
+
+def _listed(value):
+    """A field of a label as a list of strings: a list, one value, or nothing."""
+    return [str(one) for one in (value if isinstance(value, list) else [] if value in (None, "") else [value])]
+
+
+def origins(text, uid, folder=None, name=None):
+    """[(id, name)] of the origins of what the item `uid` holds (its compose `text`, in `folder`): the private catalogs of Git it is
+    content of, each by the first commit of its history (the same on every Lab, whatever id the catalog has there) and its name.
+    What its file says (`private_from` and `private_id`, lists side by side, read with Compose), with what the Lab knows directly:
+    the catalog the item is in, when it is a private catalog of Git; and for an older copy (one that has no label at all) the
+    catalog its copy_of names, one step, when that is a private catalog of Git, else an origin of unknown name: the id may name
+    another catalog now (none for a bare id when the default catalog was found Public). Never what another item says; nothing a file says takes an origin away. Each origin once, by its id, else
+    by its name among those that have none, with this Lab's name for a catalog it knows. A file Compose cannot read is refused
+    (`label_unread`, by `name`): what is not read is never taken for a smaller set."""
+    try:
+        said = compose.x_gravitee(text or "", folder or compose.scratch())
+    except compose.ComposeError as error:
+        raise _unread(name or uid, error, compose.named_by(text or "", folder) if folder else ()) from None
+    said = said if isinstance(said, dict) else {}
+    names, ids = _listed(said.get("private_from")), _listed(said.get("private_id"))
+    found = [(ids[n] if n < len(ids) else "", one[:NAME_LIMIT]) for n, one in enumerate(names)]
+    with contextlib.suppress(paths.NotFound, ValueError):
+        found += [origin for origin in [_origin_of(paths.origin(uid))] if origin]
+    copied = str(said.get("copy_of") or "")
+    if copied and "private_from" not in said:   # an older copy (an empty label reads None: compose.alike)
+        try:
+            ns = paths.origin(copied)
+        except (paths.NotFound, ValueError):
+            ns = None
+        # A bare id names the default catalog, which this Lab found Public or not when it added it; an @catalog id may name
+        # another catalog now than the one copied from, so only a private one is taken for its origin
+        if not (paths.is_default(copied) and _git(ns) and registry.lock_of(ns).get("audience") == "public"):
+            found.append(_origin_of(ns) or ("", UNKNOWN))
+    kept, ids_seen, names_seen = [], set(), set()
+    for one, called in found:   # the name an origin was first written with: never one looked up by its id later
+        if one and one not in ids_seen:
+            ids_seen.add(one)
+            kept.append((one, called))
+        elif not one and called not in names_seen:
+            names_seen.add(called)
+            kept.append(("", called))
+    return kept
+
+
+def without(found, to, confirmed=False):
+    """The origins that stay with a copy that goes to the catalog `to`: all of them, but `to`'s own when it is a private catalog of
+    Git whose history is the origin's (the same first commits, all of them) and whose repository is `confirmed` private, asked as a
+    stranger (_audience_now): what is back in it is its own content, which it says itself. A Public fork has that history too."""
+    history = _history(to) if confirmed else ""
+    return [(one, called) for one, called in found if not (history and one == history)]
+
+
+def _fields(found, keep_empty=False):
+    """The keys of a label, for `rewritten`: the names and the ids side by side, or None for no label (an empty one with
+    `keep_empty`, as labelled() writes it)."""
+    names, ids = [name for _, name in found], [ns or "" for ns, _ in found]
+    return {"private_from": names, "private_id": ids} if keep_empty else {"private_from": names or None, "private_id": ids or None}
+
+
+def _catalog_name(ns):
+    return (registry.inputs().get(ns) or {}).get("name") or registry.lock_of(ns).get("name") or ns
+
+
+def carries_label(files):
+    """Whether any compose file of `files` ({path in the catalog: (mode, bytes)}) says a private label (`private_from`)."""
+    return any(block.value(content.decode("utf-8", "replace"), "private_from")
+               for path, (_, content) in files.items() if path.endswith((".yml", ".yaml")) and path != registry.CATALOG_FILE)
+
+
+LABEL_KEYS = {"private_from", "private_id"}   # the keys of the private label, which no Lab of the first level reads
+
+
+def files_lab(files, base: int = 1) -> int:
+    """The `lab` that older Gravitee Labs need for these files of a share or an export ({path in the catalog: (mode, bytes)}):
+    the highest level (contract.lock) among the keys of x-gravitee their compose files hold, as the files are and not as the
+    person's project file is (a share adds the private label to the copy), and `base` at least: what the items use otherwise."""
+    keys = {key for path, (_, content) in files.items() if path.endswith((".yml", ".yaml")) and path != registry.CATALOG_FILE
+            for key in block.keys(content.decode("utf-8", "replace"))}
+    held = understood.lock()
+    if held is None:   # a broken engine: what it cannot tell the level of is never written lower than it is
+        if keys & LABEL_KEYS:
+            raise CatalogError("lock_unread", "Gravitee Lab cannot read its contract.lock. Fix: make update.", 500)
+        return base
+    return max([base, *(held.rows.get(("unit.key", f"x-gravitee.{key}"), 1) for key in keys)])
+
+
+def labelled(text, found, keep_empty=False):
+    """The compose text whose x-gravitee block says the origins `found` ([(id, name)]: origins) of what it holds, the names for
+    people (`private_from`) and the ids beside them (`private_id`); or says none, or, with `keep_empty`, says an empty label: a copy
+    the Lab made, whose origins are known, none of them (so it is never read as an older copy)."""
+    text = block.drop(block.drop(text, "private_id"), "private_from")
+    if not found and not keep_empty:
+        return text
+    fields = {"private_from": [called for _, called in found], "private_id": [one or "" for one, _ in found]}
+    text = block.put(text, "private_id", fields["private_id"]) or text
+    return block.put(text, "private_from", fields["private_from"]) or text
+
+
+def mark(text, uid):
+    """The compose text whose x-gravitee block says it is a copy of `uid` (copy_of); None when it has no block."""
+    return block.put(text, "copy_of", uid)
+
+
+def _unmarked(copy, kind, slug, found=(), name=None):
+    """The copy without `x-gravitee.copy_of`: whose copy an item of this machine is, which an item of a catalog never says; with
+    the label of the origins `found` (origins, less what without() takes away), which then goes with it, or none. The change is
+    made to the file as it is (`kept`) and checked as Compose reads it there (`rewritten`), also when the Lab's reader sees nothing
+    to change, then written for its new place as `text` was (`place`): else the refusal naming the item (`name`)."""
+    found = list(found)
+    edited = labelled(unmark(copy.kept), found)
+    labelled_before = bool(block.value(copy.kept, "private_from"))
+    rewritten(copy.kept, edited, {"copy_of": None, **_fields(found)}, name or slug,
+              "its private label and whose copy it is" if found or labelled_before else "whose copy it is", copy.folder,
+              f"{slug}.yml" if kind == "setup" else "compose.yml")
+    if edited == copy.kept:
         return copy
+    text = moves.repoint(edited, *copy.place) if copy.place else edited
     head = next(path for path in copy.files if path == f"setups/{slug}.yml" or path == f"{kind}s/{slug}/compose.yml")
     files = dict(copy.files)
     files[head] = (files[head][0], text.encode("utf-8"))
     return copy._replace(files=files, text=text)
+
+
+def _origins_or_said(copy, kind, slug, uid, name):
+    """origins() for a share: a file Compose cannot read is a problem of the copy, said with the others, which stops the share as
+    they do; None then, what it holds taken for private content meanwhile."""
+    try:
+        return origins(copy.kept, uid, copy.folder, name)
+    except CatalogError as error:
+        if error.code != "label_unread":
+            raise
+        copy.problems.append(error.message)
+        return None
+
+
+KNOWN_HOSTS = ("github.com", "gitlab.com", "bitbucket.org")   # hosts whose ssh address has an https form a stranger can ask
+
+
+def _audience_now(address):
+    """What the repository of a catalog of Git is now, asked as a stranger: "private" when it asks who is asking, "public" when it
+    answers, "unaskable" when it cannot be asked (an ssh address of another host), "unknown" when it does not answer. An ssh address
+    of GitHub, GitLab or Bitbucket is asked by its https form."""
+    asked = address
+    if gitx.is_ssh(address):
+        if address.host not in KNOWN_HOSTS or not address.repo:
+            return "unaskable"
+        asked = gitx.parse_address(f"https://{address.host}/{address.repo}.git")
+    try:
+        gitx.ls_remote(asked, None, anonymous=True)
+    except CatalogError as error:
+        return "private" if error.code in ("no_access", "not_found", "auth_failed") else "unknown"
+    except OSError:
+        return "unknown"
+    return "public"
+
+
+FIXES = {"public": "make sure its repository is private, then share again.",
+         "unaskable": "add it by its https address (the Lab asks that address anonymously), then share again.",
+         "unknown": "check the network, then share again."}   # what the person does, by what the stranger's question got
+
+
+def _maybe_public(row, audience):
+    return _refusal("share_maybe_public", catalog=row["name"], fix=FIXES.get(audience, FIXES["unknown"]))
+
+
+def _holds_private(units, items):
+    """Whether any of the items of Personal (or of a catalog) `items` ([(kind, id)]) holds private content, as origins() says of its
+    file where it is; one Compose cannot read is taken to."""
+    for kind, uid in items:
+        file = paths.ROOT / paths.unit_file(kind, uid)
+        data = _read(file, bare.TEXT_FILE + 1)
+        try:
+            if data is None or origins(data.decode("utf-8", "replace"), uid, file.parent):
+                return True
+        except CatalogError:
+            return True
+    return False
+
+
+def _unmarked_or_said(copy, kind, slug, found, name):
+    """_unmarked for a share: a file Compose cannot read as it is is a problem of the copy, said with the others, which stops the
+    share as they do."""
+    try:
+        return _unmarked(copy, kind, slug, found, name)
+    except CatalogError as error:
+        if error.code != "label_unread":
+            raise
+        return copy._replace(problems=[*copy.problems, error.message])
+
+
+NOT_WRITTEN = ("{name}: the Lab cannot write {what} in this file. Fix: write its x-gravitee as one block of plain key: value "
+               "lines, in a file of one YAML document (in a catalog, ask its author to), then try again.")
+NOT_READ = "{name}: its compose file cannot be read ({error}). Fix: correct it so that docker compose config reads it, then try again."
+
+
+def _relative(error):
+    """What Compose said, the paths of the Lab's folder written from it."""
+    text = str(error)
+    for root in sorted({str(paths.ROOT), os.path.realpath(paths.ROOT)}, key=len, reverse=True):
+        text = text.replace(root + "/", "")
+    return text
+
+
+def _mode(file):
+    try:
+        return os.lstat(file).st_mode
+    except OSError:
+        return 0
+
+
+def _unread(name, error, known=()):
+    """The refusal of an item whose file, or a file it includes, Compose cannot read: named by the item whose file Compose names
+    among the files the Lab knows it reads (`known`: an add-on it includes, say), else by `name`."""
+    cause, culprit = compose.cause(error, known), name
+    said = _relative(error)
+    for rel in sorted((one for one in known if paths.unit_of(one) and one in said), key=said.find):
+        unit = paths.unit_of(rel)   # its name as its own block says it, else its folder's
+        file = paths.ROOT / rel
+        data = (_read(file, bare.TEXT_FILE + 1) if stat.S_ISREG(_mode(file)) else None) or b""
+        try:
+            said_name = block.value(data.decode("utf-8"), "name")
+        except ValueError:   # not text: its folder names it
+            said_name = None
+        culprit = said_name or unit[1].rsplit("/", 1)[-1]
+        break
+    return CatalogError("label_unread", NOT_READ.format(name=culprit, error=cause), 409)
+
+
+def rewritten(before, after, changed, name, what="its private label and whose copy it is", folder=None, file="compose.yml"):
+    """What the Lab wrote in a compose text (`after`, from `before`), checked as the Lab reads it, with Compose in `folder`, where
+    the file is: its x-gravitee is the one of `before` with the keys of `changed` set to their values (None: gone, or empty) and
+    nothing else, and it still loads. Else the refusal that names the item and says why, decided on what is true now: a file
+    Compose cannot read as it is (`label_unread`, _unread), or a label or a copy_of the Lab could not write, or whose writing broke
+    a file that reads (`label_failed`, NOT_WRITTEN). A reading remembered (compose.x_gravitee) says a text was readable, not that
+    it is: when what the Lab wrote cannot be read, the file as it is is read again before the Lab takes the fault."""
+    where = folder or compose.scratch()
+    known = compose.named_by(before, where, file)
+    try:
+        old = compose.x_gravitee(before, where, name=file)
+    except compose.ComposeError as error:
+        raise _unread(name, error, known) from None
+    try:
+        new = old if after == before else compose.x_gravitee(after, where, name=file)
+    except compose.ComposeError:
+        try:
+            compose.x_gravitee(before, where, fresh=True, name=file)
+        except compose.ComposeError as error:   # the file itself cannot be read now: not what the Lab wrote
+            raise _unread(name, error, known) from None
+        raise CatalogError("label_failed", NOT_WRITTEN.format(name=name, what=what), 409) from None   # what the Lab wrote broke it
+    old, new = (old if isinstance(old, dict) else {}), ({} if new is None else new)   # no block: nothing it says
+    wanted = {**{key: value for key, value in old.items() if key not in changed},
+              **{key: compose.alike(value) for key, value in changed.items() if value is not None}}   # as Compose answers it
+    if not isinstance(new, dict) or {key: value for key, value in new.items() if value != "" or key not in changed} != wanted:
+        raise CatalogError("label_failed", NOT_WRITTEN.format(name=name, what=what), 409)
 
 
 IMAGE_SETTINGS = ("_VERSION", "_REGISTRY", "_PULL_POLICY")   # what any item may read under any name (T20): never renamed
@@ -1084,23 +1433,42 @@ def _renames(items, to) -> Dict[str, str]:
 
 
 def _renamed(copy, kind, slug, mapping):
-    """The copy with the settings of `mapping` renamed in every text file it carries: compose file, seed, guide, README."""
+    """The copy with the settings of `mapping` renamed where they are settings: the references of its compose file (${NAME},
+    $NAME), those of its seed that read a setting by its own name, and its guides, README and .env.example. A name the compose file
+    gives a container (an environment key, outside a reference) is what the program in it, and the seed of the service, read: it
+    stays, and the reference that fills it is the one renamed. Another file is what a container reads, not a setting."""
     if not mapping:
         return copy
-    pattern = re.compile(r"(?<![A-Za-z0-9_])(" + "|".join(map(re.escape, sorted(mapping, key=len, reverse=True))) + r")(?![A-Za-z0-9_])")
+    names = "|".join(map(re.escape, sorted(mapping, key=len, reverse=True)))
+    word = re.compile(rf"(?<![A-Za-z0-9_])({names})(?![A-Za-z0-9_])")
+    reference = re.compile(rf"(?<!\$)(\$\{{?)({names})(?![A-Za-z0-9_])")   # $$ is a dollar sign, not a reference
+    head = f"setups/{slug}.yml" if kind == "setup" else f"{kind}s/{slug}/compose.yml"
+    compose_text = _text_of(copy.files.get(head)) or ""
+    given = set(word.findall(reference.sub("", compose_text)))
     files = {}
     for path, (mode, data) in copy.files.items():
-        if b"\0" in data[:8192]:
+        text, base = _text_of((mode, data)), path.rsplit("/", 1)[-1]
+        if text is None:
             files[path] = (mode, data)
             continue
-        try:
-            text = data.decode("utf-8")
-        except ValueError:
-            files[path] = (mode, data)
-            continue
-        files[path] = (mode, pattern.sub(lambda hit: mapping[hit.group(1)], text).encode("utf-8"))
-    head = f"setups/{slug}.yml" if kind == "setup" else f"{kind}s/{slug}/compose.yml"
+        if path == head:
+            text = reference.sub(lambda hit: hit.group(1) + mapping[hit.group(2)], text)
+        elif path.startswith(f"{kind}s/{slug}/seed/"):
+            text = reference.sub(lambda hit: hit.group(1) + (hit.group(2) if hit.group(2) in given else mapping[hit.group(2)]), text)
+        elif base.lower().endswith(".md") or base == ".env.example":
+            text = word.sub(lambda hit: mapping[hit.group(1)], text)
+        files[path] = (mode, text.encode("utf-8"))
     return copy._replace(files=files, text=files[head][1].decode("utf-8") if head in files else copy.text)
+
+
+def _text_of(entry):
+    """The text of a file of a copy, None when it is not UTF-8 text."""
+    if not entry or b"\0" in entry[1][:8192]:
+        return None
+    try:
+        return entry[1].decode("utf-8")
+    except ValueError:
+        return None
 
 
 def _remember_renames(to, items, mapping):
@@ -1135,19 +1503,36 @@ def _rename_settings(kind, uid):
     paths.write_atomic(path, json.dumps(kept, indent=2, sort_keys=True) + "\n")
 
 
-def _raise_lab(ns, needed):
-    """The legacy `lab` of the catalog.yml of folder catalog `ns`, raised to what a shared item needs (`_raised`), the file
-    written whole. A file that is not a plain one, or not text, is left as it is: `catalog.py check` says what it lacks."""
-    file = Path(os.path.realpath(registry.install_dir(ns))) / manifest.FILE
-    data = _read(file)
-    if data is None:
-        return
+LEGACY_NOT_RAISED = ("{catalog} now holds what older Gravitee Labs do not read, and its catalog.yml could not be updated for them. "
+                     "Fix: make its catalog.yml writable, with its x-gravitee-catalog block as plain key: value lines: the next "
+                     "share to it updates it.")
+
+
+def _raise_lab(ns, needed) -> Optional[str]:
+    """The legacy `lab` of the catalog.yml of folder catalog `ns`, raised to what the items copied need (`_raised`), written whole
+    in place of the file. A link, a file its author made read only, one the Lab cannot read without waiting (a pipe) or a layout it
+    does not change line by line is left as it is, and the answer is what to tell the person; None when nothing is to say."""
+    root = Path(os.path.realpath(registry.install_dir(ns)))
+    file, temporary = root / manifest.FILE, f".{manifest.FILE}.lab-{os.urandom(4).hex()}"
+    catalog = (registry.inputs().get(ns) or {}).get("name") or ns
     try:
+        data, why = registry._read(file, manifest.FILE_LIMIT)   # never a wait on a pipe, never more than a catalog.yml holds
+        if data is None:
+            raise OSError(str(why))
         raised = _raised(data.decode("utf-8"), needed)
-    except UnicodeDecodeError:
-        return
-    if raised is not None:
-        paths.write_atomic(file, raised)
+        if raised is None:
+            return None
+        mode = os.lstat(file).st_mode
+        if not stat.S_ISREG(mode) or not mode & stat.S_IWUSR:   # a link, or a file its author made read only: not the Lab's to write
+            raise OSError("not a file it may write")
+        install.safe_write(root, temporary, raised.encode("utf-8"), 0o644)
+        os.chmod(root / temporary, stat.S_IMODE(mode))
+        os.replace(root / temporary, file)
+    except (OSError, ValueError, CatalogError):   # NotRaised and a text that is not UTF-8 are ValueErrors
+        with contextlib.suppress(OSError):
+            os.unlink(root / temporary)
+        return LEGACY_NOT_RAISED.format(catalog=catalog)
+    return None
 
 
 def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False) -> dict:
@@ -1175,9 +1560,40 @@ def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False)
     allowed = {one for _, one, _, _ in members} | {one for _, one, _ in reused}
     units = {"addon": project["addons"], "setup": project["setups"], "playground": project["playgrounds"]}
     named = lambda k, one: (units[k].get(one) or {}).get("name") or one.rsplit("/", 1)[-1]   # noqa: E731
+    # Private content goes only to a repository asked now, as a stranger, and found private: once, out of the lock, before anything
+    # is taken off a label (a Public fork has the history of the private catalog it was forked from)
+    # A Public catalog is not asked: what it would refuse it refuses below, naming the item and its origin
+    audience, probed = None, None
+    if address is not None and row["audience"] != "public" and _holds_private(units, [(kind, uid), *[(k, one) for k, one, _, _ in members]]):
+        audience, probed = _audience_now(address), (dict(entry), _history(to))
+        if audience != "private":
+            raise _maybe_public(row, audience)
     with registry.flock():
-        copy = _unmarked(collect(kind, slug, to, moved=moved), kind, slug)
-        along = [(k, one, s, _unmarked(collect(k, s, to, source, moved=moved), k, s)) for k, one, s, source in members]
+        copy = collect(kind, slug, to, moved=moved)
+        along = [(k, one, s, collect(k, s, to, source, moved=moved)) for k, one, s, source in members]
+        # What is private content says so in the catalog it goes to, which takes away only its own origin (without); a Public one
+        # takes none, so it takes no private content
+        found = {(k, s): _origins_or_said(other, k, s, one, named(k, one)) for k, one, s, other in [(kind, uid, slug, copy), *along]}
+        found = {key: [("", UNKNOWN)] if said is None and row["audience"] != "public" else said or [] for key, said in found.items()}
+        # What was asked out of the lock holds for what is shared now, to the catalog it was asked of; else nothing goes
+        if address is not None and any(found.values()) and row["audience"] != "public":
+            if audience is None:   # private content where there was none when it was asked: the item changed meanwhile
+                changed = next((k, one) for k, one, s, _ in [(kind, uid, slug, copy), *along] if found[(k, s)])
+                raise _refusal("share_item_changed", name=named(*changed))
+            if audience != "private":
+                raise _maybe_public(row, audience)
+            if (registry.entry(to), _history(to)) != probed:   # removed, added again, linked: another catalog than the one asked
+                raise _refusal("share_changed", catalog=row["name"])
+        confirmed = audience == "private"
+        for k, one, s, _ in [(kind, uid, slug, copy), *along] if row["audience"] == "public" else ():
+            if found[(k, s)]:   # None, a file Compose cannot read, is a problem said with the others
+                known = [called for one_id, called in found[(k, s)] if called != UNKNOWN or one_id]
+                if not known:   # an older copy whose original cannot be told: a new copy says its origins
+                    raise _refusal("share_unknown_copy", name=named(k, one))
+                raise _refusal("share_private_copy", name=named(k, one), private=known[0])
+        copy = _unmarked_or_said(copy, kind, slug, without(found[(kind, slug)], to, confirmed), name)
+        along = [(k, one, s, _unmarked_or_said(other, k, s, without(found[(k, s)], to, confirmed), named(k, one)))
+                 for k, one, s, other in along]
         renames = _renames([(kind, slug, copy), *[(k, s, c) for k, _, s, c in along]], to)
         copy = _renamed(copy, kind, slug, renames)
         along = [(k, one, s, _renamed(c, k, s, renames)) for k, one, s, c in along]
@@ -1207,9 +1623,11 @@ def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False)
         for k, one, s, other in along:
             _copy_into(to, row["name"], named(k, one), k, s, other)
         _copy_into(to, row["name"], name, kind, slug, copy)
-        _raise_lab(to, needed)
+        for one in [copy, *(other for *_, other in along)]:
+            needed = files_lab(one.files, needed)   # the label is in the files copied, not in the person's: older Labs count it
+        warning = _raise_lab(to, needed)
     _remember_renames(to, shared, renames)
-    return {"copied": row["name"]}
+    return {"copied": row["name"], **({"warning": warning} if warning else {})}
 
 
 # ---------------------------------------------------------------------------------------------------------------------
