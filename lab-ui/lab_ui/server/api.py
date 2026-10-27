@@ -977,7 +977,7 @@ def listing():
     names += [p["addons"][uid]["name"] for uid in on["effective"]]
     print(f"On top of the platform: {', '.join(names) or 'nothing'}")
     running = layers.up_services(p, on["playground"], on["effective"])
-    shown = [link for link in p["links"] if link["service"] in running]
+    shown = [link for link in project.shown(p["links"], on["playground"], on["effective"]) if link["service"] in running]
     sections = [group["name"] for group in p["groups"]]
     sections += sorted({link["section"] for link in shown} - set(sections))
     for section in sections:

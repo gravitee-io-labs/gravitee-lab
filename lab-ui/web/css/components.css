@@ -765,7 +765,11 @@ p.panel-row { padding-block: 9px; }
   color: var(--text); text-decoration: none; white-space: nowrap; min-width: 0;
 }
 .link strong { font-weight: var(--fw-2); overflow: hidden; text-overflow: ellipsis; }
-.link-port { font-family: var(--mono); font-size: var(--fs-1); color: var(--muted); }
+/* Where it answers takes the room the name leaves, cut at its end: the name is cut only once there is none. Measured (fitLinks),
+   it counts up to 16 characters, so a long path never widens the columns */
+.link-port { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  font-family: var(--mono); font-size: var(--fs-1); color: var(--muted); }
+.links.fitting .link-port { flex: none; max-width: 16ch; }
 .link svg { margin-left: auto; color: var(--muted); width: 13px; height: 13px; opacity: 0; transition: opacity var(--dur-1) var(--ease); }
 .link[href]:hover { background: var(--accent-soft); }
 .link[href]:hover svg, .link:focus-visible svg { opacity: 1; }

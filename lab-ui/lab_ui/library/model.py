@@ -9,7 +9,7 @@ from ..gravitee import frames, license, platforms
 from . import layers, personal, reasons, tested
 from .. import paths
 from ..catalogs import resolve
-from .project import license_features, tag
+from .project import license_features, shown, tag
 
 # A running container, by its health check: (state, label)
 HEALTH = {"healthy": ("healthy", "Healthy"), "starting": ("starting", "Starting"), "unhealthy": ("issue", "Unhealthy")}
@@ -1079,7 +1079,8 @@ def build(project, state, containers, job, failures, license_features, docker, c
          if license_status and license_status["status"] == "none" else [],
          "deployed": deployed or {},
          "last": last, "moved": layers.changing(project, last["changes"]) if last else {},
-         "links": [dict(link, up=services[link["service"]]["state"]["running"]) for link in project["links"]]}
+         "links": [dict(link, up=services[link["service"]]["state"]["running"])
+                   for link in shown(project["links"], state["playground"], state["effective"])]}
     for name, service in services.items():   # what its own Start on the Stack starts first, and makes again
         service["brings"] = _brings(c, [name])
         service["recreates"] = _recreates(c, [name])

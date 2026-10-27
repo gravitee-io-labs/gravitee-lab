@@ -382,12 +382,14 @@ function whereOf(link) {
 }
 
 // A console to open, with the state of the service behind it; one that is down cannot be opened, and says so. The console
-// of a platform has no service here: a dot with no state.
+// of a platform has no service here: a dot with no state. Where it answers takes the room its name leaves, and says itself
+// whole on hover when that cuts it.
 function linkHtml(link, service) {
   const target = link.up ? `href="${esc(safeHref(link.url))}" target="_blank" rel="noopener"`
     : `aria-disabled="true" data-tip="${esc(unopened(link))}"`;
+  const where = link.port ? `<span class="link-port" data-tip="${esc(whereOf(link))}" data-tip-cut>${esc(whereOf(link))}</span>` : "";
   return `<a class="link ${link.up ? "" : "off"}" ${target}>
-    ${stateDot(service?.state || { key: "" })}<strong>${esc(link.label)}</strong>${link.port ? `<span class="link-port">${esc(whereOf(link))}</span>` : ""}${icon("external")}</a>`;
+    ${stateDot(service?.state || { key: "" })}<strong>${esc(link.label)}</strong>${where}${icon("external")}</a>`;
 }
 
 // The consoles of the platforms a playground deployed to, as paintLinks takes them: a group named after each platform, in the order
@@ -407,15 +409,18 @@ export function platformLinks(playground) {
 // components under their section (the platform's groups in their order, the playground's own, then the categories of
 // the add-ons), each link opening in a browser tab. The columns are as wide as the widest link, its name and port in full,
 // as far as the card allows (`--link-width`, components.css): a link's width does not depend on the page's, so it is
-// measured once the links change and are in view, the moment they come into it too (a tab shown later).
+// measured once the links change and are in view, the moment they come into it too (a tab shown later). It is measured
+// `fitting`, where its port and path count up to a few characters: a long path is cut, it never widens the columns.
 const drawn = new WeakMap();    // the links of each element: {html, measured}
 function fitLinks(el) {
   const now = drawn.get(el);
   if (now.measured || !el.offsetParent) return;
   const all = $$(".link", el);
+  el.classList.add("fitting");
   all.forEach((a) => (a.style.width = "max-content"));
   const widest = Math.max(0, ...all.map((a) => a.offsetWidth));
   all.forEach((a) => (a.style.width = ""));
+  el.classList.remove("fitting");
   el.style.setProperty("--link-width", `${widest}px`);
   now.measured = true;
 }
@@ -694,7 +699,12 @@ function hostFloat(el) {
   if (floating.parentElement !== host) host.append(floating);
 }
 function showFloat(el) {
-  if (el.hasAttribute("data-tip-cut") && el.scrollWidth <= el.clientWidth) return;   // a text cut says itself whole, one that is not has nothing to add
+  // A text cut says itself whole; one that is not has nothing to add, and what it is in says its own (a console that is down, why)
+  if (el.hasAttribute("data-tip-cut") && el.scrollWidth <= el.clientWidth) {
+    const outer = el.parentElement?.closest("[data-tip]");
+    if (outer) showFloat(outer);
+    return;
+  }
   // The name of an item of the menu, while only its icon shows. An entry that says more than its name (`data-tip`) says that otherwise, and
   // its name, in `data-tip-collapsed`, while only its icon shows.
   const collapsed = document.body.classList.contains("nav-collapsed");

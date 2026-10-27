@@ -105,3 +105,20 @@ test("links drawn out of view are measured when they come into it, so that a pan
   page.resized.run();
   assert.equal(hidden.styleValues["--link-width"], before, "once is enough");
 });
+
+test("a long location is cut, never the name: it says itself whole on hover, and it is measured fitting, so it never widens the columns", () => {
+  const where = ":8086/environments/lumen/platform/integrations";
+  const long = { ...link("Gamma Console", "gamma-ui", "API Management", true, "8086"), url: `http://localhost${where}` };
+  const el = page.el("links-long");
+  const seen = [];
+  const measure = Object.getOwnPropertyDescriptor(El.prototype, "offsetWidth");
+  Object.defineProperty(El.prototype, "offsetWidth", { get() { seen.push(el.classList.contains("fitting")); return measure.get.call(this); }, configurable: true });
+  try { paintLinks(el, state, [long]); } finally { Object.defineProperty(El.prototype, "offsetWidth", measure); }
+  const port = el.querySelector(".link-port");
+  assert.equal(port.textContent, where);
+  assert.equal(port.getAttribute("data-tip"), where, "its whole text, shown once it is cut");
+  assert.equal(port.hasAttribute("data-tip-cut"), true);
+  assert.equal(el.querySelector(".link strong").textContent, "Gamma Console");
+  assert.ok(seen.length && seen.every(Boolean), "measured while fitting, where its port counts a few characters");
+  assert.equal(el.classList.contains("fitting"), false, "and drawn at its own size after");
+});

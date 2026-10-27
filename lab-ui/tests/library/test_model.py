@@ -1145,6 +1145,33 @@ class State(Built):
         welcome.update(consoles=[])
         self.assertEqual(self.item("playground", "welcome", containers=CORE)["tabs"], [])
 
+    def test_a_console_a_unit_puts_on_a_core_service_never_changes_its_address_and_is_the_tab_of_its_playground(self):
+        # Gamma's console as the core gives it, and as the welcome and Kafka would point it, each with its unit (`by`)
+        owner = self.project["services"]["apim-management-api"]["owner"]["name"]
+
+        def gamma(url, by=None):
+            return {"label": "Gamma Console", "url": url, "port": "8086", "service": "apim-management-api", "section": owner,
+                    "legacy": False, "console": "gamma", "labels": {"io.gravitee.console.gamma.name": "Gamma Console",
+                                                                    "io.gravitee.console.gamma.url": url},
+                    **({"by": by} if by else {})}
+        self.project["links"] += [gamma("http://localhost:8086"),
+                                  gamma("http://localhost:8086/welcome", {"kind": "playground", "id": "welcome", "name": "Welcome"}),
+                                  gamma("http://localhost:8086/kafka", {"kind": "addon", "id": "kafka", "name": "Kafka"})]
+        self.project["playgrounds"]["welcome"]["consoles"] = ["apim-management-api"]
+
+        def urls(body):
+            return [link["url"] for link in body["links"] if link["service"] == "apim-management-api"]
+        self.assertEqual(urls(self.build()), ["http://localhost:8086"])
+        self.assertEqual(urls(self.build(playground="welcome")), ["http://localhost:8086"], "whatever is on")
+        self.assertEqual(urls(self.build(explicit=["kafka"])), ["http://localhost:8086"])
+        self.assertEqual(sorted(self.build(explicit=["kafka"])["links"][0]),
+                         ["label", "legacy", "port", "section", "service", "up", "url"], "the page gets no layer")
+        # The playground's own row says what runs; its tab is where it opens, before it is on too
+        welcome = self.item("playground", "welcome")
+        self.assertEqual([link["url"] for link in welcome["links"] if link["service"] == "apim-management-api"],
+                         ["http://localhost:8086"])
+        self.assertEqual([tab["url"] for tab in welcome["tabs"]], ["http://localhost:8086/welcome"])
+
     def test_a_service_listed_as_a_console_and_run_by_the_playground_is_listed_once_among_its_links(self):
         # Its own app is a console it lists: the list of what to open names it once, and has no flag of a tab
         self.project["playgrounds"]["welcome"]["consoles"] = ["hello-app"]

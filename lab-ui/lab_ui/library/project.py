@@ -186,8 +186,9 @@ def _seed_uses(uid, safe=False):
 
 def _resolved(raw, problems, only=None):
     """Images, ports and labels with variables replaced: one configuration of the core with every add-on and
-    playground that loads, whether it is on or not. `only`: the files to put on top of the core, which in a project with
-    catalogs are the units of this machine, since the units of a catalog are resolved one by one."""
+    playground that loads, whether it is on or not, so not what the consoles of a core service are while one is off
+    (_console_layers). `only`: the files to put on top of the core, which in a project with catalogs are the units of
+    this machine, since the units of a catalog are resolved one by one."""
     on_top = [paths.unit_file(kind, uid) for kind in ("addon", "playground") for uid in _ids(raw, kind)]
     if only is not None:
         on_top = [file for file in on_top if file in only]
@@ -1031,19 +1032,26 @@ def _setup(uid, inputs, problems):
             "members": _brought(inputs["includes"], unit["file"])}
 
 
-def _accounts(uid, accounts, inputs):
-    """The accounts of a playground, with the settings in their values replaced by what they are now, as Compose would
-    read them: the Lab UI's environment, then the root .env, then the playground's own .env (Compose gives the root
-    one precedence over an included file's: the playground's only applies where the root sets nothing), then the
-    default the value gives. Only text is read; what else a file writes stays as it is."""
+def _reader(inputs, env_file=None):
+    """What reads a value of a file of the project with its settings replaced by what they are now, as Compose would read
+    them: the Lab UI's environment, then the root .env, then the unit's own .env, `env_file` (Compose gives the root one
+    precedence over an included file's: the unit's only applies where the root sets nothing), then the default the value
+    gives. Only text is read; anything else stays as it is."""
     sources = [inputs["environ"], inputs["env"].get(ENV_FILE) or {},
-               inputs["env"].get(paths.unit_env("playground", uid)) or {}]
+               *([inputs["env"].get(env_file) or {}] if env_file else [])]
 
     def lookup(name):
         return next((values[name] for values in sources if name in values), None)
 
     def read(value):
         return compose.interpolated(value, lookup) if isinstance(value, str) else value
+    return read
+
+
+def _accounts(uid, accounts, inputs):
+    """The accounts of a playground, with the settings in their values replaced by what they are now, as Compose would
+    read them (_reader, with the playground's own .env). Only text is read; what else a file writes stays as it is."""
+    read = _reader(inputs, paths.unit_env("playground", uid))
     if not isinstance(accounts, list):
         return accounts
     return [{key: read(value) for key, value in account.items()} if isinstance(account, dict) else account
@@ -1100,17 +1108,21 @@ def _owners(core, addons, playgrounds):
     return owners, claims
 
 
-def _consoles(labels):
-    """The consoles a service declares with io.gravitee.console.<id>.name / .url (and .legacy) labels; one whose url is
-    no web address (http or https) is none: the page opens it as a link, and `make check` says it."""
+def _console_ids(labels):
+    """The consoles a service declares with io.gravitee.console.<id>.name / .url (and .legacy) labels, by id; one whose url
+    is no web address (http or https) is none: the page opens it as a link, and `make check` says it."""
     found = {}
     for key, value in labels.items():
         m = CONSOLE_LABEL.fullmatch(key)
         if m:
             found.setdefault(m.group(1), {})[m.group(2)] = value
-    consoles = [{"label": c["name"], "url": c["url"], "legacy": c.get("legacy") == "true"}
-                for c in found.values() if "name" in c and re.match(r"https?://", str(c.get("url", "")), re.I)]
-    return sorted(consoles, key=lambda c: (c["legacy"], c["label"]))
+    return {cid: {"label": c["name"], "url": c["url"], "legacy": c.get("legacy") == "true"}
+            for cid, c in found.items() if "name" in c and re.match(r"https?://", str(c.get("url", "")), re.I)}
+
+
+def _consoles(labels):
+    """The consoles a service declares (_console_ids), the current ones first, then by name."""
+    return sorted(_console_ids(labels).values(), key=lambda c: (c["legacy"], c["label"]))
 
 
 def tag(image):
@@ -1243,12 +1255,72 @@ def _port(url):
     return m.group(1) if m else None
 
 
-def _links(services, owners):
-    """Every console, the current ones first: the section is the platform group, the add-on's category or Playground."""
-    links = [{"label": c["label"], "url": c["url"], "port": _port(c["url"]), "service": name,
-              "section": owners[name][1], "legacy": c["legacy"]}
-             for name, service in services.items() for c in service["consoles"]]
+def _links(services, owners, layers):
+    """Every console, the current ones first: the section is the platform group, the add-on's category or Playground. A
+    service of the core has a link for each console the core gives it, then one for each console a unit puts labels on
+    (`layers`, from _console_layers), with that unit as `by`: what it would show with that unit alone on top of the core.
+    Each carries its `console` id and the `labels` of that console its layer writes, which `shown` merges as Compose does
+    for what is on."""
+    def link(name, found, **more):
+        return {"label": found["label"], "url": found["url"], "port": _port(found["url"]), "service": name,
+                "section": owners[name][1], "legacy": found["legacy"], **more}
+
+    def of(labels, cid):
+        return {key: value for key, value in labels.items() if CONSOLE_LABEL.fullmatch(key).group(1) == cid}
+    links = []
+    for name, service in services.items():
+        if name not in layers:
+            links += [link(name, found) for found in service["consoles"]]
+            continue
+        (_, core), *units = layers[name]
+        links += [link(name, found, console=cid, labels=of(core, cid)) for cid, found in _console_ids(core).items()]
+        for by, labels in units:
+            changed = {CONSOLE_LABEL.fullmatch(key).group(1) for key in labels}
+            links += [link(name, found, console=cid, by=by, labels=of(labels, cid))
+                      for cid, found in _console_ids({**core, **labels}).items() if cid in changed]
     return sorted(links, key=lambda link: (link["legacy"], link["label"]))
+
+
+def shown(links, playground, effective, tabs=False):
+    """The consoles with what is on (`playground`, the one that is on or None, and `effective`, the add-ons that are on,
+    as layers.current says them). A console of a service of the core is one link, whatever is on: the core's address of
+    a component never changes, so what a unit that is on writes on it only adds what the core does not set. With `tabs`,
+    the tabs of a playground's own page, it is as Compose runs it: the labels of every unit that is on put over the
+    core's key by key in the order of the on file (the playground, then the add-ons by id: layers.write), where the first
+    file to set a key wins, as with Compose's include. A unit that is off changes nothing. Every other link is as it is,
+    in their order."""
+    order = [("playground", playground)] * bool(playground) + [("addon", uid) for uid in sorted(effective)]
+    rank = {unit: number for number, unit in enumerate(order)}
+    found, groups = [], {}
+    for link in links:
+        if "console" not in link:
+            found.append(link)
+            continue
+        key = (link["service"], link["console"])
+        if key not in groups:
+            groups[key] = []
+            found.append(key)
+        groups[key].append(link)
+
+    def merged(key):
+        core = [link for link in groups[key] if link.get("by") is None]
+        units = sorted((link for link in groups[key] if link.get("by") and (link["by"]["kind"], link["by"]["id"]) in rank),
+                       key=lambda link: rank[(link["by"]["kind"], link["by"]["id"])])
+        if not core and not units:
+            return None
+        labels = {}
+        for link in units:
+            for label, value in link["labels"].items():
+                labels.setdefault(label, value)
+        own = core[0]["labels"] if core else {}
+        console = _console_ids({**own, **labels} if tabs else {**labels, **own}).get(key[1])
+        if not console:
+            return None
+        first = (core or units)[0]
+        kept = {name: value for name, value in first.items() if name not in ("by", "labels")}
+        return {**kept, "label": console["label"], "url": console["url"], "port": _port(console["url"]),
+                "legacy": console["legacy"]}
+    return [one for one in (merged(item) if isinstance(item, tuple) else item for item in found) if one]
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1755,6 +1827,32 @@ def _consoles_added(added, held):
     return kept, left
 
 
+def _console_layers(inputs, units, core_names):
+    """The console labels of each service of the core, layer by layer, as Compose merges them: {service: [(None, the core's
+    own), then ({kind, id, name} of a unit, the console labels it writes on the service) for each unit that can start and
+    writes some]}. Each is read from the files as written, with its settings as they are now (_reader): the aggregate has
+    every unit merged in, on or not, and keeps only the last value of a label, so it cannot tell what the core shows
+    alone. A unit of a catalog keeps only the consoles on this machine (N03), as `_run_as` does."""
+    core = _services_of(inputs["raw"].get(CORE_FILE) or {})
+    read = _reader(inputs)
+    layers = {name: [(None, {key: read(value) for key, value in _labels(core[name]).items() if CONSOLE_LABEL.fullmatch(key)})]
+              for name in sorted(core_names) if name in core}
+    for unit in units:
+        if unit.get("blocked"):
+            continue
+        theirs = _tier(unit["file"], inputs.get("default")) in JUDGED
+        read = _reader(inputs, unit["env_file"])
+        for name, service in _services_of(inputs["raw"].get(unit["file"]) or {}).items():
+            if name not in layers or not isinstance(service.get("labels"), dict):
+                continue
+            labels = {key: read(value) for key, value in service["labels"].items() if CONSOLE_LABEL.fullmatch(key)}
+            if theirs:
+                labels = _consoles_added(labels, layers[name][0][1])[0]
+            if labels:
+                layers[name].append(({"kind": unit["kind"], "id": unit["id"], "name": unit["name"]}, labels))
+    return layers
+
+
 def _run_as(inputs, units, core_names):
     """The services as Compose runs them: the configuration of the units of this machine and of the core (the aggregate,
     `resolved`), and, for each service a unit of a catalog defines itself, the one its own configuration gave.
@@ -1852,7 +1950,8 @@ def build(inputs):
             "license_services": sorted(_license_readers(core)), "license_usable": inputs["license_usable"],
             "groups": groups, "products": products,
             "addons": addons, "setups": setups, "playgrounds": playgrounds,
-            "services": services, "links": _links(services, owners),
+            "services": services,
+            "links": _links(services, owners, _console_layers(inputs, [*addons.values(), *playgrounds.values()], core_names)),
             "core_variables": core_variables, "problems": banner,
             # What the catalogs add: what the units found out about each catalog, the problems of their files, which
             # are not the banner's, and the add-on that runs the gateway of each kind of platform

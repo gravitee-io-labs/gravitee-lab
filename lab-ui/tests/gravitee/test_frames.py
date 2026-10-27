@@ -69,6 +69,21 @@ class Declared(Case):
         found = frames.declared(self.project(), "bank")
         self.assertEqual([(tab["label"], tab["service"]) for tab in found], [("Acme Bakery", "bakery-web"), ("Gamma Console", "gamma-ui")])
 
+    def test_a_console_another_unit_puts_on_a_service_of_the_core_is_not_a_tab_of_this_one(self):
+        # The tab is the console as the playground makes it, with the add-ons it brings: another unit's is not asked for
+        p = self.project()
+        mine, theirs = {"kind": "addon", "id": "tracing", "name": "Tracing"}, {"kind": "playground", "id": "other", "name": "Other"}
+        def gamma(url, **more):
+            labels = {"io.gravitee.console.gamma.name": "Gamma Console", "io.gravitee.console.gamma.url": url}
+            return dict(link("Gamma Console", url, "gamma-ui"), console="gamma", labels=labels, **more)
+        p["links"] = [gamma(GAMMA) if each["service"] == "gamma-ui" else each for each in p["links"]]
+        p["links"].append(gamma(GAMMA + "/other", by=theirs))
+        self.assertEqual(frames.allowed(p, "bank", GAMMA), GAMMA)
+        self.assertIsNone(frames.allowed(p, "bank", GAMMA + "/other"))
+        p["links"].append(gamma(GAMMA + "/bank", by=mine))
+        self.assertEqual([tab["url"] for tab in frames.declared(p, "bank")], ["http://localhost:8110", GAMMA + "/bank"])
+        self.assertIsNone(frames.allowed(p, "bank", GAMMA), "what it replaces is not its tab")
+
     def test_a_playground_that_lists_no_console_has_no_tab_whatever_it_runs(self):
         self.assertEqual(frames.declared(self.project(), "none"), [])
 
