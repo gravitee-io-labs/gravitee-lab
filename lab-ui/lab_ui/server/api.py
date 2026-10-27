@@ -988,6 +988,16 @@ def listing():
             print(f"  {link['label']:<26} {link['url']}")
 
 
+def answers_on_ipv6(port):
+    """Whether a program answers on this port of the IPv6 loopback, where `localhost` can lead the browser even while
+    127.0.0.1 is free"""
+    try:
+        with socket.create_connection(("::1", port), timeout=1):
+            return True
+    except OSError:
+        return False
+
+
 def is_lab_ui(port):
     """Whether what answers on this port of the machine is a Lab UI, by the Server header of its home page. Any
     error means it is not."""
@@ -1023,6 +1033,8 @@ def start_up():
 def serve(port, browser):
     url = f"http://localhost:{port}"
     try:
+        if answers_on_ipv6(port):   # the browser may go there for localhost, and find another program
+            raise OSError(errno.EADDRINUSE, f"Port {port} is used on ::1")
         server = ThreadingHTTPServer(("127.0.0.1", port), Handler)   # this machine only
     except OSError as error:
         if error.errno != errno.EADDRINUSE:

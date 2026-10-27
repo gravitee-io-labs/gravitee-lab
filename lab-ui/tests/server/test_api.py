@@ -1876,6 +1876,21 @@ class CommandLine(LabUI):
                          "another port)")
         opened.assert_not_called()
 
+    def test_a_program_on_the_ipv6_loopback_is_another_program_though_127_0_0_1_is_free(self):
+        # A browser may take localhost for ::1 and show that program in place of the Lab
+        with socket.socket(socket.AF_INET6) as other:
+            try:
+                other.bind(("::1", 0))
+            except OSError:
+                self.skipTest("this machine has no IPv6 loopback")
+            other.listen()
+            port = other.getsockname()[1]
+            self.assertTrue(api.answers_on_ipv6(port))
+            with self.assertRaises(SystemExit) as stopped:
+                api.serve(port, browser=False)
+        self.assertTrue(stopped.exception.code.startswith(f"Port {port} is used by another program."))
+        self.assertFalse(api.answers_on_ipv6(port))
+
     def test_what_answers_is_the_lab_ui_by_the_server_header_of_its_page(self):
         self.assertTrue(api.is_lab_ui(self.server.server_port))
         self.assertFalse(api.is_lab_ui(self.another_program()))
