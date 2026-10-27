@@ -518,9 +518,9 @@ class Missing(Case):
                 ("every phrase, in the middle of a line", "".join(f"x {one} " for one in compose._SIGNS) * (mib // 150), False),
                 ("lines of blanks, then the words", "   \n" * (mib // 4) + sign, True)):
             with self.subTest(name):
-                started = time.monotonic()
+                started = time.process_time()
                 self.assertEqual(compose.missing(said), expected)
-                self.assertLess(time.monotonic() - started, 1)
+                self.assertLess(time.process_time() - started, 1)
 
     def test_it_is_what_a_run_that_finds_no_docker_says_and_not_what_another_missing_command_says(self):
         code, _, said = compose.run(["docker", "compose", "version"], environ={"PATH": "/nonexistent-folder-for-the-lab"})

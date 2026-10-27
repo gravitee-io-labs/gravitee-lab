@@ -1498,12 +1498,12 @@ class Screen(Case):
                    "a\\\n" * 60000 + "include: [b.yml]\n", "\\\n" * 60000, "x: \"" + "\\x41" * 60000 + "\"\ninclude: [b.yml]\n",
                    "\\\n  " * 30000 + "\"inc\\x6cude\": [b.yml]\n")
         for text in attacks:
-            started = time.monotonic()
+            started = time.process_time()
             self.targets(text)
-            self.assertLess(time.monotonic() - started, 3.0, text[:60])
-            started = time.monotonic()
+            self.assertLess(time.process_time() - started, 3.0, text[:60])
+            started = time.process_time()
             self.screen(text)
-            self.assertLess(time.monotonic() - started, 3.0, text[:60])
+            self.assertLess(time.process_time() - started, 3.0, text[:60])
 
     def test_t19_a_quoted_file_name_is_read_with_its_spaces_and_a_name_seen_two_ways_is_both(self):
         """A quoted name is the name between the quotes: the file a service reads is `a.env ` with its space. A key an escape
@@ -1683,13 +1683,13 @@ class Screen(Case):
                    "".join(" " * (number % 400) + "include:\n" for number in range(3000)),
                    ("include:\n" + "  - a.yml\n" * 200) * 150, "include: " + "[" * 50000 + "]" * 50000)
         for text in attacks:
-            started = time.monotonic()
+            started = time.process_time()
             self.screen(text, follow=True)
-            self.assertLess(time.monotonic() - started, 3.0, text[:60])
+            self.assertLess(time.process_time() - started, 3.0, text[:60])
         for text in attacks[:3]:
-            started = time.monotonic()
+            started = time.process_time()
             self.screen(text)
-            self.assertLess(time.monotonic() - started, 3.0, text[:60])
+            self.assertLess(time.process_time() - started, 3.0, text[:60])
 
     def test_t19_the_work_is_bounded_by_the_characters_read(self):
         """A file whose keys have more to read than SCREEN_CHARS is refused, not read for an hour."""

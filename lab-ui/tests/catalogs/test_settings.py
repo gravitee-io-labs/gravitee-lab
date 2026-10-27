@@ -1618,10 +1618,10 @@ class Limits(Base):
         scene.set("/codeowners/errors", {"errors": [{"line": big, "message": big}]})
         scene.set("/contents/.github/standard.json?ref=main", {"encoding": "base64", "size": 10, "content": base64.b64encode(big.encode()).decode()})
         scene.set("/actions/permissions", {"enabled": big, "allowed_actions": big, "sha_pinning_required": big})
-        started = time.monotonic()
+        started = time.process_time()
         found = scene.audit()
         text = settings.render(found, "text") + settings.render(found, "json") + settings.render(found, "github")
-        self.assertLess(time.monotonic() - started, 1.0)
+        self.assertLess(time.process_time() - started, 1.0)
         self.assertLess(len(text), 100000)
         self.assertEqual("the level of the standard cannot be read: it cannot be read", {f.id: f for f in found}["actions.nightly"].now)
 

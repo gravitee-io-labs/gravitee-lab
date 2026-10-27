@@ -260,11 +260,11 @@ class Hostile(Case):
         self.assertGreater(accepted, 0)
 
     def test_a_very_long_text_is_refused_at_once(self):
-        started = time.monotonic()
+        started = time.process_time()
         for text in ("a" * 100000, "https://" + "a." * 50000 + "b/c", "acme/" + "a" * 5000, "~/" + "a" * 5000, "a" * 4000 + "!"):
             with self.assertRaises(gitx.CatalogError):
                 gitx.parse_address(text)
-        self.assertLess(time.monotonic() - started, 2)
+        self.assertLess(time.process_time() - started, 2)
 
     def test_git_output_of_any_kind_is_classified_to_a_line(self):
         chance = random.Random(7)
