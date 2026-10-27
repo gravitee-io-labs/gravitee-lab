@@ -1817,6 +1817,14 @@ class Linking(Case):
         self.assertEqual(self.taken(), before)
         self.assertEqual((paths.ROOT, check.ROOT, project.ROOT, compose.ROOT), (self.root,) * 4)
 
+    def test_a_folder_named_from_where_the_command_runs_is_linked_by_its_full_path(self):
+        here = os.getcwd()
+        self.addCleanup(os.chdir, here)
+        os.chdir(self.folder_of.parent)
+        with check.temporary_link(Path("hub"), "partner") as linked:
+            self.assertEqual(os.readlink(linked.root / ".lab/catalogs/partner"), str(self.folder_of))
+            self.assertEqual(registry.units_of("partner")["addon"], ["ledger"])
+
     def test_a_catalog_that_says_host_access_is_linked_as_allowed_and_one_that_does_not_is_not(self):
         with check.temporary_link(self.folder_of, "partner"):
             self.assertNotIn("host", registry.entry("partner"))
