@@ -1118,8 +1118,11 @@ class Level(Case):
             with self.subTest(key=key):
                 self.assertEqual(self.rows[key][1], 1)
 
-    def test_the_keys_of_catalog_yml_are_of_the_format_of_level_one(self):
-        self.assertEqual({since for (kind, _), (_, since) in self.rows.items() if kind == "catalog.key"}, {FORMAT_LEVEL})
+    def test_the_keys_of_catalog_yml_are_of_the_format_of_level_one_but_renamed_which_came_after(self):
+        later = {f"x-gravitee-catalog.renamed{part}" for part in ("", ".items", ".settings")}
+        listed = {name: since for (kind, name), (_, since) in self.rows.items() if kind == "catalog.key"}
+        self.assertEqual({name for name, since in listed.items() if since > FORMAT_LEVEL}, later)
+        self.assertEqual(len({listed[name] for name in later}), 1, "one change, one level")
 
     def test_the_keys_of_catalog_yml_listed_for_the_first_time_take_the_level_of_the_format_and_a_new_one_raises_contract(self):
         text = "contract 1\ncontract_min 1\ncore.network edge since=1\n"
@@ -1127,9 +1130,9 @@ class Level(Case):
         written, stops = plan(text, live, 1, 1)
         self.assertEqual((stops, parse(written)[2][("catalog.key", "x-gravitee-catalog.id")][1]), ([], 1),
                          "read since the split: no addition")
-        later = {**live, ("catalog.key", "x-gravitee-catalog.badge"): ""}
+        later = {**live, ("catalog.key", "x-gravitee-catalog.renamed"): ""}
         self.assertEqual(plan(written, later, 1, 1)[1], ["Added items need `contract` raised to 2 in docker-compose.yml first"])
-        self.assertEqual(parse(plan(written, later, 2, 1)[0])[2][("catalog.key", "x-gravitee-catalog.badge")][1], 2)
+        self.assertEqual(parse(plan(written, later, 2, 1)[0])[2][("catalog.key", "x-gravitee-catalog.renamed")][1], 2)
 
     def test_a_key_is_read_by_one_kind_or_all(self):
         for (kind, name), (attributes, _) in self.rows.items():

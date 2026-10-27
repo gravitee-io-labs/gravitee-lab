@@ -183,8 +183,13 @@ function versionItems(p) {
   return [{ text: p.version, code: true, hint: p.version_from || !p.release ? hint : "" }];
 }
 
+// What is said of an item a plan renames: the name it had, or that its name is the same (only its folder changed), and that one
+// that is on stays on
+const renamedHint = (r) => `${r.was && r.was !== r.name ? `Was ${r.was}` : "Same name"}${r.on ? ", stays on" : ""}`;
+
 // What an update, or going back, says it does: its version, the items it touches, each with what changed in it, then what its commits say
-// (the authors' words). A history that changed is an error for an update, which goes on only after the person said so (`confirm_history`);
+// (the authors' words). An item it renames is one item under a new name, with the name it had: what the person has of it follows it, and
+// one that is on stays on. A history that changed is an error for an update, which goes on only after the person said so (`confirm_history`);
 // going back is the person's own choice of an older version, which the server takes as confirmed, so the line is said without the tone that
 // asks for care.
 function planRows(p, allow, kind) {
@@ -196,6 +201,7 @@ function planRows(p, allow, kind) {
     { label: "Version", items: versionItems(p) },
     { label: "Updates", names: true, items: names(p.updates, (u) => parts(u.what)) },
     { label: "Adds", names: true, items: names(p.adds) },
+    { label: "Renames", names: true, hint: "Your settings follow", items: names(p.renames, renamedHint) },
     { label: "Removes", names: true, hint: "No longer in the catalog", items: names(p.removes) },
     { label: "Breaks", names: true, items: names(p.breaks, (b) => `Needs ${b.needs}`) },
     { label: "What's new", html: (p.whatsnew || []).length ? sentences(p.whatsnew) : "" },

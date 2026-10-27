@@ -835,14 +835,50 @@ def target_names(copy):
     return dict(pair.split("=", 1) for pair in found.group(1).split(",") if "=" in pair) if found else {}
 
 
-def _include_items(text, file, base=None, nested=True):
+def own_services(names, core_names, theirs):
+    """The services a file runs itself among `names`: not the core's (`core_names`) nor those of what it includes
+    (`theirs`), which it may extend."""
+    return [name for name in names if name not in set(core_names) and name not in set(theirs)]
+
+
+def top_keys(text, block):
+    """The names a compose file declares under one of its top-level keys (`services`, `volumes`), read by their indent."""
+    found, inside, indent = set(), False, None
+    for line in (text or "").splitlines():
+        if re.match(rf"{block}\s*:\s*(?:#.*)?$", line):
+            inside, indent = True, None
+            continue
+        if re.match(r"[^\s#]", line):
+            inside = False
+        if inside and line.strip() and not line.lstrip().startswith("#"):
+            here = len(line) - len(line.lstrip())
+            indent = here if indent is None else indent
+            key = re.match(r"\s*[\"']?([A-Za-z0-9][A-Za-z0-9_.-]*)[\"']?\s*:", line)
+            if here == indent and key:
+                found.add(key.group(1))
+    return found
+
+
+FLOW_INCLUDE = re.compile(r"include:\s*\[([^\]]*)\]\s*(?:#.*)?$")
+
+
+def _include_items(text, file, base=None, nested=True, flow=False):
     """The items of a compose file's `include` list: (line number, the path as written, the project file it names, or
-    None outside the project). The next top-level key ends the list. An item in long form holds keys below its dash,
+    None outside the project). With `flow`, a list on one line gives its plain items, for a caller that only reads them (the
+    rewrites handle the lines of a list). The next top-level key ends the list. An item in long form holds keys below its dash,
     and a list under one of them (`env_file`) is not a list of items; but the files of its `path:`, when it lists
     them, are, unless `nested` is False."""
     inside, column, key = False, None, None   # the column of the dashes of the items, the last key opened without a value
     for number, line in enumerate(text.split("\n")):
         indent = len(line) - len(line.lstrip())
+        one_line = FLOW_INCLUDE.match(line) if flow else None
+        if one_line:   # the list on one line: its plain items
+            for written in (item.strip().strip("\"'") for item in one_line.group(1).split(",")):
+                if written and not re.search(r"[{}:#\s]", written):
+                    path = Path(os.path.normpath((base or file.parent) / written))
+                    yield number, written, path.relative_to(ROOT).as_posix() if path.is_relative_to(ROOT) else None
+            inside = False
+            continue
         if re.match(r"include:\s*(#.*)?$", line):
             inside, column, key = True, None, None
             continue
@@ -873,13 +909,14 @@ def _include_items(text, file, base=None, nested=True):
             yield number, written, path.relative_to(ROOT).as_posix() if path.is_relative_to(ROOT) else None
 
 
-def includes(path):
+def includes(path, flow=False):
     """The project files a compose file includes itself, each written relative to the file that includes it; those
-    of the on file relative to the project, as Compose reads a file it is given."""
+    of the on file relative to the project, as Compose reads a file it is given. `flow`: those of a list on one line too, for
+    a caller that only reads what is on (`_include_items`)."""
     file = ROOT / path
     text = file.read_text(encoding="utf-8") if file.is_file() else ""
     base = ROOT if path == ON_FILE else None
-    return [target for _, _, target in _include_items(text, file, base) if target]
+    return [target for _, _, target in _include_items(text, file, base, flow=flow) if target]
 
 
 def retargeted(path, text, targets):

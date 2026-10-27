@@ -1,4 +1,4 @@
-contract 2
+contract 3
 contract_min 1
 core.service alert-engine health=yes networks=internal since=1
 core.service am-gateway port=8092 health=yes networks=edge,internal since=1
@@ -45,6 +45,9 @@ catalog.key x-gravitee-catalog.lab since=1
 catalog.key x-gravitee-catalog.license since=1
 catalog.key x-gravitee-catalog.moved_from since=1
 catalog.key x-gravitee-catalog.name since=1
+catalog.key x-gravitee-catalog.renamed since=3
+catalog.key x-gravitee-catalog.renamed.items since=3
+catalog.key x-gravitee-catalog.renamed.settings since=3
 catalog.key x-gravitee-catalog.requires since=1
 catalog.key x-gravitee-catalog.requires.catalogs since=1
 catalog.key x-gravitee-catalog.schema since=1

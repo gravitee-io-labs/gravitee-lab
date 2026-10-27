@@ -29,7 +29,7 @@ from ..docker import compose, envfiles
 from . import layout
 from ..gravitee import frames, license, platforms
 from .. import paths
-from ..catalogs import registry, resolve, trust, understood
+from ..catalogs import registry, renames, resolve, trust, understood
 from ..paths import CORE_FILE, ENV_FILE, KINDS, LAB_DIR, ROOT
 
 SECRET = re.compile(r"TOKEN|SECRET|PASSWORD|LICENSE|_KEY")
@@ -339,9 +339,9 @@ def _seed_scan(folder):
 
 
 def _includes(path):
-    """compose.includes of a file that may be anything: nothing when it cannot be read."""
+    """compose.includes of a file that may be anything, a list on one line too: nothing when it cannot be read."""
     try:
-        return compose.includes(path)
+        return compose.includes(path, flow=True)
     except (OSError, ValueError):
         return []
 
@@ -842,8 +842,7 @@ def _written(path):
 def _own(path, config, others, core_names):
     """The services a file runs itself: not the core's, nor those of the add-ons it includes, in the order the file
     writes them."""
-    theirs = {name for other in others for name in _services_of(other)}
-    names = [name for name in _services_of(config) if name not in core_names and name not in theirs]
+    names = compose.own_services(_services_of(config), core_names, {name for other in others for name in _services_of(other)})
     written = _written(path) if names else []
     return sorted(names, key=lambda name: written.index(name) if name in written else len(written))
 
@@ -1922,11 +1921,13 @@ def _read_staged(ns, units):
     return screen, seeds, screened, unreadable
 
 
-def _staged_inputs(ns, meta, row, replacing):
+def _staged_inputs(ns, meta, row, replacing, renamed=None):
     """The inputs of the project (`gather`'s) as they would be with the staged catalog installed as `ns`: the live ones, with
     the units of the stage read as `gather` reads a catalog's and put under the names they will have, and the catalog's
     row in `catalogs`. With `replacing`, the units the catalog has now are taken out first (an Update judges the new version in
-    their place). Nothing of the live inputs is changed."""
+    their place). `renamed` ({kind:old: kind:new}): the items the version renames, which the files of this machine and of an
+    imported playground include under their new names once it is in place (`renames.follow`), so they are judged so. Nothing of
+    the live inputs is changed."""
     live = loaded()[1]
     swap, units = _alias(ns), staged_units(ns)
     final = f"{paths.CATALOGS_DIR}/{ns}/"
@@ -1947,6 +1948,10 @@ def _staged_inputs(ns, meta, row, replacing):
         return {path: value for path, value in (live.get(key) or {}).items() if not (replacing and path.startswith(final))}
     merged = {key: kept(key) for key in ("raw", "includes", "variables", "configs", "errors", "references",
                                          "seed_references", "reach", "screened", "unreadable")}
+    moved = renames.files(ns, renamed or {})
+    if moved:
+        merged["includes"] = {file: [moved.get(target, target) for target in targets] if renames.follows(file, moved) else targets
+                              for file, targets in merged["includes"].items()}
     problems, seed_folders = [], {}
     for kind, name, file in units:
         ours = swap(file)
@@ -2022,14 +2027,15 @@ def staged_unknown(ns):
     return sorted({item for one in found for item in one})
 
 
-def judge_staged(ns, meta, row, replacing=False):
+def judge_staged(ns, meta, row, replacing=False, renamed=None):
     """The judgement of the staged tree of catalog `ns` as the project would judge it installed under that name, against
     everything installed: ({kind: {id: unit}}, {(kind, id): own verdict}), the units
     of every catalog and of this machine, and the verdict of each unit alone. `meta` is the validated catalog.yml of the stage
     and `row` the catalog's row as `registry.inputs()` gives it (`staged_units` are the units to count in it). With
     `replacing`, the units the catalog has now are left out of the world first: an Update judges the new version in their
-    place. Reads the disk and asks Compose, as `gather` does; changes nothing."""
-    return judge_inputs(_staged_inputs(ns, meta, row, replacing))
+    place, with `renamed`, the items it renames, under their new names in the files that follow them (`_staged_inputs`).
+    Reads the disk and asks Compose, as `gather` does; changes nothing."""
+    return judge_inputs(_staged_inputs(ns, meta, row, replacing, renamed))
 
 
 def brought(unit):

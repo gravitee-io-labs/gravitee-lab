@@ -135,6 +135,9 @@ a catalog reports it, and a published catalog that has one needs a newer Gravite
 | `x-gravitee-catalog.requires` | What it needs |
 | `x-gravitee-catalog.requires.catalogs` | The catalogs it includes from, with their address and minimum version |
 | `x-gravitee-catalog.host_access` | Some of its items take more of the machine than a container does |
+| `x-gravitee-catalog.renamed` | What it renamed, every pair it ever made: the Lab keeps what a person has of an item under its new name ([Renaming an item](writing-a-catalog.md#renaming-an-item)) |
+| `x-gravitee-catalog.renamed.items` | `{kind:old: kind:new}`: the items |
+| `x-gravitee-catalog.renamed.settings` | `{OLD: NEW}`: the settings of its items, renamed in each item's `.env` |
 
 ### Keys of x-gravitee
 

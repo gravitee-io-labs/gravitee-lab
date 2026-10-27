@@ -95,6 +95,19 @@ class Includes(ProjectFolder):
                                 "  - ../../../setups/local/mine.yml\n  - ../../../addons/local/whoami/compose.yml\n")
         self.assertEqual(compose.includes(playground), ["setups/local/mine.yml", "addons/local/whoami/compose.yml"])
 
+    def test_a_list_on_one_line_is_read_only_by_a_caller_that_asks_and_a_copy_keeps_it_as_written(self):
+        self.write("b-x/compose.yml", "services:\n  bee:\n    image: alpine\n    pull_policy: ${B_PULL_POLICY:-missing}\n")
+        self.write("c/compose.yml", "services:\n  cee:\n    image: alpine\n")
+        line = "include: [../b-x/compose.yml, ../c/compose.yml]"
+        path = self.write("a/compose.yml", f"{line}\nservices:\n  app:\n    image: alpine\n")
+        self.assertEqual(compose.includes(path), [], "what is written again is written from the lines of a list")
+        self.assertEqual(compose.includes(path, flow=True), ["b-x/compose.yml", "c/compose.yml"], "what is on reads them")
+        for skip in ((), ["c/compose.yml"]):
+            with self.subTest(skip=skip), compose._readable(path, skip=skip) as (_, copies):
+                for copy, original in copies.items():
+                    if original.endswith("a/compose.yml"):
+                        self.assertIn(line, Path(copy).read_text(encoding="utf-8"), "a copy never loses an include")
+
     def test_quotes_comments_and_long_form(self):
         path = self.write(".lab/on.yml", "include:\n"
                           "  # the playground first\n"

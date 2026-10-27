@@ -1421,7 +1421,7 @@ class Catalogs(Fixture):
     def test_what_gather_read_for_the_policy_is_given_with_the_inputs(self):
         inputs = self.inputs
         self.assertEqual(inputs["default"], "fixture")
-        self.assertEqual(inputs["contract"], {"contract": 2, "contract_min": 1, "seeder_image": fixtures.seeder_image(self.holder)})
+        self.assertEqual(inputs["contract"], {"contract": 3, "contract_min": 1, "seeder_image": fixtures.seeder_image(self.holder)})
         self.assertEqual(inputs["layout"], {"phase": "ready", "notice": None})
         self.assertEqual(list(inputs["catalogs"]), ["fixture", "local", "partner", "lab-new", "lab-old"])
         self.assertEqual(inputs["screened"], {})
@@ -3476,9 +3476,9 @@ class Reading(Case):
         self.write(mine, "include:\n  - ../../../xx/addons/a/compose.yml\n")
         screen = {a: ("include: [../b/compose.yml]\n", [], None)}
         self.assertEqual(project._direct(a, screen), [b], "read as the screen reads it")
-        self.assertEqual(project._includes(a), [], "which compose.includes does not, for a flow list")
+        self.assertEqual(project._includes(a), [b], "a list on one line too")
         self.assertEqual(project._direct(mine, screen), [a], "this machine's own: what compose.includes names")
-        self.assertEqual(project._direct(a, {}), [], "no text read for it: compose.includes, which names none of a flow list")
+        self.assertEqual(project._direct(a, {}), [b], "no text read for it: what compose.includes names")
         self.assertEqual(project._direct("absent.yml", screen), [])
         self.assertEqual(project._direct(a, {a: (None, [], "not UTF-8 text")}), [], "nothing to read")
 

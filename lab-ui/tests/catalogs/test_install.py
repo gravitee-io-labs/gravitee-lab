@@ -37,6 +37,7 @@ ODD = {".env": "SECRET=1\n", ".state/created.json": "{}\n", "secrets/token": "t\
        "certs/ca.txt": "ca\n"}   # the machine's files of a unit: three that names tell, two that no name does
 REAL_READ = manifest.read_catalog   # Compose's reading of catalog.yml, before the tests put the fixtures' in its place
 REAL_VACATE = install._vacate
+REAL_HOME = os.path.expanduser("~")   # where the Docker CLI finds its Compose plugin, before a test isolates the home folder
 
 # What is the same for every test is made once for the run: the folder the remotes are in (so that an address written in
 # catalogs.json is the same in every test), the Lab's store of a repository as a fetch makes it (a fetch is store.py's to
@@ -1345,6 +1346,23 @@ class Updating(Base):
         plan = install.plan_update("partner", target, {"contract": {"contract": 2, "contract_min": 1}})
         self.assertEqual((plan["lab"], plan["version"]), (2, "2.2.0"), "a Lab that reads the level takes it")
         self.assertEqual(install.plan_update("partner", target)["lab"], 2, "and one whose level the caller gave not is not asked")
+
+    def test_a_rename_into_an_item_the_installed_version_has_already_is_no_rename(self):
+        with mock.patch.dict(os.environ, {"HOME": REAL_HOME}):
+            fixtures.need_compose()
+        self.start(mock.patch.dict(os.environ, {"DOCKER_CONFIG": os.path.join(REAL_HOME, ".docker")}))
+        self.patch(manifest, "read_catalog", REAL_READ)
+        self.apply(self.advance({**AUDIT, "catalog.yml": self.version("2.1.0")}))
+        self.machine("partner", **{".env": "PARTNER_LEDGER_CURRENCY=CHF\n"})
+        target = self.advance({"catalog.yml": self.version("2.2.0").replace("lab: 1", "lab: 2")
+                               + "  renamed:\n    items: {addon:ledger: addon:audit}\n"}, remove=[LEDGER])
+        plan = install.plan_update("partner", target, {"on": {"addon:ledger"}})
+        self.assertEqual((plan["renamed"], plan["removes"], plan["held"]), ({}, ["addon:ledger"], ["addon:ledger"]),
+                         "two items made one: the one that goes is removed, and is held while it is on")
+        install.apply_update("partner", install.plan_update("partner", target))
+        base = Path(paths.ROOT) / ".lab/catalogs/partner/addons"
+        self.assertEqual(((base / "ledger/.env").is_file(), (base / "audit/.env").exists()), (True, False),
+                         "the settings of the item removed stay where they were, as for any item removed")
 
     def test_a_go_back_to_a_version_this_lab_no_longer_reads_is_refused_as_well(self):
         target = self.advance({"catalog.yml": self.version("2.1.0").replace("lab: 1", "lab: 2"), **AUDIT})
@@ -2921,6 +2939,53 @@ class Stops(Base):
         for wanted in ("update:pending", "update:apply", "update:file", "update:manifest", "update:lock", "update:refs",
                        "update:adopt", "update:done"):
             self.assertIn(wanted, labels)
+
+    def test_a_stop_at_any_step_of_an_update_that_renames_an_item_that_is_on_ends_with_everything_under_one_name(self):
+        with mock.patch.dict(os.environ, {"HOME": REAL_HOME}):
+            fixtures.need_compose()
+        self.start(mock.patch.dict(os.environ, {"DOCKER_CONFIG": os.path.join(REAL_HOME, ".docker")}))
+        self.patch(manifest, "read_catalog", REAL_READ)
+        catalog = (fixtures.CATALOGS / "partner/catalog.yml").read_text(encoding="utf-8")
+        books = (fixtures.CATALOGS / "partner" / LEDGER / "compose.yml").read_text(encoding="utf-8").replace(
+            "PARTNER_LEDGER_CURRENCY", "PARTNER_BOOKS_CURRENCY")
+        on = f"include:\n  - .lab/catalogs/partner/{LEDGER}/compose.yml\n"
+
+        def build():
+            self.add("partner")
+            self.machine("partner", **{".env": "PARTNER_LEDGER_CURRENCY=CHF\n", ".state/created.json": "[]\n"})
+            self.write(paths.ON_FILE, on)
+            self.write(starred.FILE, json.dumps({"addon": ["@partner/ledger"]}))
+            first = registry.lock_of("partner")["pin"]
+            target = self.remotes["partner"].commit({
+                "catalog.yml": catalog.replace("2.0.0", "2.1.0").replace("lab: 1", "lab: 2")
+                + "  renamed:\n    items: {addon:ledger: addon:books}\n    settings: {PARTNER_LEDGER_CURRENCY: PARTNER_BOOKS_CURRENCY}\n",
+                "addons/books/compose.yml": books, "addons/books/README.md": "Books\n"}, "Rename the ledger", [LEDGER])
+            bare.fetch(gitx.parse_address(self.remotes["partner"].url), "main", registry.store_dir("partner"))
+            registry.set_lock("partner", tip=target)
+            plan = install.plan_update("partner", target, {"on": {"addon:ledger"}})
+            self.assertEqual((plan["renamed"], plan["adds"], plan["removes"], plan["held"]),
+                             ({"addon:ledger": "addon:books"}, [], [], []), "one item renamed, which is on and holds nothing")
+            return {"first": first, "target": target, "plan": plan}
+
+        def check(world, step, label):
+            held = registry.lock_of("partner")
+            self.assertIsNone(held["pending"], label)
+            self.intact("partner")
+            base = Path(paths.ROOT) / ".lab/catalogs/partner/addons"
+            if held["pin"] == world["first"]:
+                self.assertEqual((base / "ledger/.env").read_text(), "PARTNER_LEDGER_CURRENCY=CHF\n", label)
+                self.assertEqual((Path(paths.ROOT) / paths.ON_FILE).read_text(), on, label)
+                install.apply_update("partner", install.plan_update("partner", world["target"], {"on": {"addon:ledger"}}))
+            self.assertEqual(registry.lock_of("partner")["pin"], world["target"], label)
+            self.assertEqual((base / "books/.env").read_text(), "PARTNER_BOOKS_CURRENCY=CHF\n", label)
+            self.assertEqual((base / "books/.state/created.json").read_text(), "[]\n", label)
+            self.assertFalse((base / "ledger").exists(), label)
+            self.assertEqual((Path(paths.ROOT) / paths.ON_FILE).read_text(), on.replace("ledger", "books"), label)
+            self.assertEqual(starred.read()["addon"], {"@partner/books"}, label)
+        labels = self.runs(build, lambda world: install.apply_update("partner", world["plan"]), check)
+        for wanted in ("update:rename", "rename:entry", "rename:on", "rename:settings", "update:lock"):
+            self.assertIn(wanted, labels)
+        self.assertLess(labels.index("rename:on"), labels.index("update:lock"), "what follows the files is done before the commit")
 
     def test_a_stop_at_any_step_of_going_back_ends_at_one_version_or_the_other(self):
         def build():

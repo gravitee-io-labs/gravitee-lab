@@ -171,7 +171,7 @@ class Seam(Base):
                                       "apps": [], "addons": [], "members": []}
         return found, {"contract": dict(BARE), "catalogs": registry.inputs(), "raw": {}}
 
-    def review(self, ns, meta, kind, audience, listed, host, ignored, replacing=False):
+    def review(self, ns, meta, kind, audience, listed, host, ignored, replacing=False, renamed=None):
         """The judgement the test dictates: every unit of the staged tree, by the name of its folder, blocked as `against`
         says and using this machine as `uses` says."""
         judged = {"addon": {}, "setup": {}, "playground": {}}
@@ -722,7 +722,7 @@ class Holds(Seam):
             encoding="utf-8")
         walked = []
         real = compose.includes
-        self.patch(compose, "includes", lambda path: walked.append(path) or real(path))
+        self.patch(compose, "includes", lambda path, flow=False: walked.append(path) or real(path, flow))
         found = service._on_by_catalog()
         self.assertEqual(found, {"partner": {"addon:ledger"}, "lab-old": {"addon:older"}})
         self.assertEqual(sorted(found), sorted(ns for ns in found if install.on_units(ns)))
@@ -2203,7 +2203,7 @@ class Updating(Seam):
         target = self.news()
         plan = self.plan()
         self.assertEqual(sorted(plan), ["adds", "blocked", "breaks", "changes", "expires", "from", "held", "release", "removes",
-                                        "rewritten", "ticket", "to", "updates", "uses_machine", "version", "version_from",
+                                        "renames", "rewritten", "ticket", "to", "updates", "uses_machine", "version", "version_from",
                                         "whatsnew"])
         self.assertEqual((plan["from"], plan["to"], plan["version"], plan["rewritten"], plan["expires"], plan["held"]),
                          (self.first[:7], target[:7], "2.1.0", False, 600, None))

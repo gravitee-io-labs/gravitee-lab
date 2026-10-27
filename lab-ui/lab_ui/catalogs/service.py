@@ -28,7 +28,7 @@ from pathlib import Path
 from ..docker import compose, jobs
 from ..library import layers, model, moves, project
 from .. import paths
-from . import defaults, gitx, install, manifest, registry, resolve, trust
+from . import defaults, gitx, install, manifest, registry, renames, resolve, trust
 from . import store as bare
 from .registry import CatalogError
 
@@ -335,8 +335,36 @@ def _kind_state(ns, found, held, entry, contract):
         return _state(key, reason="This version is too old for this Lab.",
                       next=f"Update it, or ask the owners of {found.get('name') or ns} to update it.")
     if key == "damaged":
-        return _state(key, reason="Some installed files changed.", next="Repair it from the menu.")
+        line = _under_way_hold(ns, held) if held.get("pending") else None
+        reason = f"{line}." if line else "An update stopped half way." if held.get("pending") else "Some installed files changed."
+        return _state(key, reason=reason, next="Repair it from the menu.")
     return _state(key)
+
+
+def _movable_line(ns, frm, to, label):
+    """What holds the renames of a roll (`install.movable`), as the line of a hold: "Stop X first", "Start Docker first";
+    None when nothing does. Any other refusal of it is its own, and is raised."""
+    try:
+        install.movable(ns, frm, to, label)
+    except CatalogError as error:
+        if error.code == "docker_unknown":
+            return "Start Docker first"
+        if error.code == "held":
+            return _named(ns, error).message.rstrip(".")
+        raise
+    return None
+
+
+def _under_way_hold(ns, held):
+    """The line of what holds the operation a hold left under way, as Repair, an update or a Remove will ask it
+    (`_movable_line`); None when nothing does, or nothing is under way."""
+    pending = held.get("pending")
+    if not pending:
+        return None
+    try:
+        return _movable_line(ns, pending["from"], pending["to"], "repair" if pending["from"] == pending["to"] else pending["op"])
+    except CatalogError:   # what cannot be said now is said when the person acts
+        return None
 
 
 def _folder_state(key):
@@ -469,7 +497,7 @@ def _on_by_catalog():
         if target:
             found.setdefault(target[0], set()).add(f"{target[1]}:{target[2]}")
         try:
-            todo += compose.includes(file)
+            todo += compose.includes(file, flow=True)
         except (OSError, ValueError):
             continue
     return found
@@ -620,12 +648,13 @@ def _row_of_candidate(meta, kind, audience, listed, host, ignored, units):
             "error": None, "pending": None, "listed": listed, "host": host}
 
 
-def _review(ns, meta, kind, audience, listed, host, ignored, replacing=False):
+def _review(ns, meta, kind, audience, listed, host, ignored, replacing=False, renamed=None):
     """The judgement of the staged catalog `ns` (the candidate of an Add, the new version of an Update): ({kind: {id: unit}},
     {(kind, id): own verdict}, [the keys of the catalog's own units]). The catalog is judged as installed under its name,
-    allowed to use this machine as `host` says ("listed", "allowed" or "no"), against everything else installed."""
+    allowed to use this machine as `host` says ("listed", "allowed" or "no"), against everything else installed, the files of
+    this machine including what it renames (`renamed`) under the new names they will have."""
     row = _row_of_candidate(meta, kind, audience, listed, host, ignored, project.staged_units(ns))
-    judged, verdicts = project.judge_staged(ns, meta, row, replacing)
+    judged, verdicts = project.judge_staged(ns, meta, row, replacing, renamed)
     mine = [(k, uid) for k in paths.KINDS for uid, unit in judged[k].items() if unit.get("catalog") == ns]
     return judged, verdicts, mine
 
@@ -1273,8 +1302,9 @@ def _after(found, ns, plan, judged):
     """The units as they will be once the plan is applied: the installed ones, with the units of the catalog
     that the plan drops left out and those it rewrites replaced by the new version's. An item of the catalog that the same
     release rewrites, or removes, is not broken by what it no longer includes."""
-    changed = {(key.partition(":")[0], _unit_id(ns, *key.split(":", 1))) for key in plan["updates"] + plan["removes"]}
-    dropped = {(key.partition(":")[0], _unit_id(ns, *key.split(":", 1))) for key in plan["removes"]}
+    going = list(plan["removes"]) + sorted(plan.get("renamed") or {})   # an item renamed is not there under its old id
+    changed = {(key.partition(":")[0], _unit_id(ns, *key.split(":", 1))) for key in plan["updates"] + going}
+    dropped = {(key.partition(":")[0], _unit_id(ns, *key.split(":", 1))) for key in going}
     world = {}
     for kind in paths.KINDS:
         world[kind] = {uid: unit for uid, unit in (found.get(f"{kind}s") or {}).items() if (kind, uid) not in changed}
@@ -1332,14 +1362,18 @@ def _plan(ns, op):
         return {"upToDate": True}
     context = {"on": _on_keys(ns), "vouched": _vouched(entry), "contract": _contract(), "moved": moved}
     with _changing():
-        plan = install.plan_update(ns, target, context)
+        try:
+            plan = install.plan_update(ns, target, context)
+        except CatalogError as error:   # what was under way and is held, said by the names of the items
+            raise _named(ns, error) from None
         if plan.get("upToDate"):
             return {"upToDate": True}
         live = project.loaded()
         found, listed = live[0], defaults.listed(entry)
         host = (registry.inputs().get(ns) or {}).get("host") or "no"
         judged, verdicts, mine = _review(ns, plan["meta"], "git", held.get("audience") or "private", listed,
-                                         "listed" if listed else "allowed", plan["ignored"], replacing=True)
+                                         "listed" if listed else "allowed", plan["ignored"], replacing=True,
+                                         renamed=plan.get("renamed"))
         try:
             _understood(plan["meta"], judged, mine)
         except CatalogError:
@@ -1347,9 +1381,26 @@ def _plan(ns, op):
             raise
         old_verdicts = project.judge_inputs(live[1])[1]
         gone = {(key.partition(":")[0], _unit_id(ns, *key.split(":", 1))) for key in plan["removes"]}
-        breaks = _items_that_include(found, gone, _after(found, ns, plan, judged))
-        running = _running(found, ns)
-        stop = _waiting() or _turn_off_line(found, ns, plan["held"], running)
+        renamed = {(key.partition(":")[0], _unit_id(ns, *key.split(":", 1))) for key in plan.get("renamed") or {}}
+        after = _after(found, ns, plan, judged)
+        moved = renames.files(ns, plan.get("renamed") or {})
+        lost = [one for one in _items_that_include(found, renamed, after) if not _follows(found, one, moved)]
+        breaks = _items_that_include(found, gone, after) + lost
+        running, on = _running(found, ns), install.on_units(ns)
+        # A renamed item waits while it has a container, running or not, as the update will ask (`install.movable`): nothing
+        # is moved under one, and none is left that the files no longer name. One that is on and has none stays on, unless
+        # its new version cannot run, or an item that is on includes it where the Lab cannot write it again: either holds the
+        # update, as for any item that is on
+        emptied = _movable_line(ns, plan["from"], plan["to"], plan["op"])
+        def cannot_run(key):
+            kind, _, name = key.partition(":")
+            return layers.why_not((judged.get(kind) or {}).get(_unit_id(ns, kind, name)) or {}) is not None
+        including = _on_includers(found, ns, plan.get("renamed") or {}, after, moved)
+        # What includes a renamed item is asked again when the update is applied, as it is then
+        plan["context"]["including"] = lambda: _on_includers(project.loaded()[0], ns, plan.get("renamed") or {}, after, moved)
+        plan["hold"] = sorted(old for old, new in (plan.get("renamed") or {}).items() if old in on and cannot_run(new))
+        stop = _waiting() or (f"Turn off {next(iter(including.values()))} first" if including else None) or emptied \
+            or _turn_off_line(found, ns, list(plan["held"]) + plan["hold"], running)
         uses = [] if host in ("listed", "allowed") else _uses_of(judged, verdicts, mine)
         ticket = secrets.token_hex(8)
         _keep(ticket, op, ns=ns, plan=plan)
@@ -1359,9 +1410,124 @@ def _plan(ns, op):
             "version": plan["version"], "version_from": held.get("version"), "release": plan["release"],
             "rewritten": bool(plan["rewritten"]),
             "updates": updates, "adds": _names_of_new(plan["adds"], ns, judged),
-            "removes": _names_of(found, ns, plan["removes"]), "breaks": breaks,
+            "removes": _names_of(found, ns, plan["removes"]), "renames": _renames_of(found, ns, plan, judged, on | running),
+            "breaks": breaks,
             "changes": _changes_of(plan, ns, judged, verdicts, old_verdicts), "whatsnew": list(plan["whatsnew"]),
             "blocked": _blocked_of(judged, mine), "uses_machine": uses, "held": stop}
+
+
+def _on_includers(found, ns, renamed, after, moved):
+    """{kind:old: the name of the item that holds it}: the items renamed that an item that is on includes (the on file turns it
+    on, or what it is part of) where the Lab cannot write it again (`_follows`): it would lose what it includes, and the update
+    waits until it is off, as it does for an item removed."""
+    if not renamed:
+        return {}
+    on = _on_by_catalog()
+
+    def is_on(item):
+        file = ((found.get(f"{item['kind']}s") or {}).get(item["id"]) or {}).get("file")
+        target = resolve.target_of(file) if file else None
+        return bool(target) and f"{target[1]}:{target[2]}" in on.get(target[0], ())
+    held = {}
+    for old in sorted(renamed):
+        kind, _, name = old.partition(":")
+        for one in _items_that_include(found, {(kind, _unit_id(ns, kind, name))}, after):
+            if is_on(one) and not _follows(found, one, moved):
+                held.setdefault(old, one["name"])
+    return held
+
+
+def _follows(found, item, moved):
+    """Whether the Lab writes again what an item includes of the files `moved` ({old file: new file}) so that it leads to their
+    new places (`renames.follows`): an item of this machine, or of a playground imported from a file, whose paths it reaches.
+    An item of another catalog is its owners' to change."""
+    file = ((found.get(f"{item['kind']}s") or {}).get(item["id"]) or {}).get("file")
+    return bool(file) and renames.follows(file, moved)
+
+
+def _contained(found, ns, services):
+    """The units of catalog `ns` among `services` ({kind:name: their services}) that have a container in the project, running
+    or not. A container whose service an item of another origin that is on defines too (the person's copy, under the names of
+    the original) is that item's. Docker not answering is `docker_unknown`: nothing of a renamed item is moved on a guess."""
+    if not services:
+        return set()
+    made = set(_ps())
+    state = layers.current(found)
+    on = [("addons", uid) for uid in state["effective"]] + ([("playgrounds", state["playground"])] if state["playground"] else [])
+    made -= {name for kind, uid in on for unit in [(found.get(kind) or {}).get(uid) or {}] if unit.get("catalog") != ns
+             for name in unit.get("services") or ()}
+    return {key for key, names in services.items() if made & set(names)}
+
+
+def _ps():
+    """The project's containers (`compose.ps`), or `docker_unknown` when Docker does not answer or answers what does not read."""
+    try:
+        return compose.ps()
+    except (compose.ComposeError, OSError, KeyError, TypeError, ValueError):
+        raise CatalogError("docker_unknown", DOCKER_UNKNOWN, 503) from None
+
+
+def _containers(ns, services):
+    """`install.CONTAINERS`: `_contained`, in the project as it is now."""
+    return _contained(project.loaded()[0], ns, services)
+
+
+install.CONTAINERS = _containers
+DOCKER_UNKNOWN = ("Docker is not answering, and an item this renames must have no container first. "
+                  "Fix: start Docker, then try again.")
+
+
+def _emptying_line(found, ns, key, on, running, name=None):
+    """The line of a hold for a unit that has containers: turning it off removes them, and so does stopping one that runs
+    without being on; the stopped containers of one that is off go with Remove containers. `name`: what the version it is
+    moved from calls it, when the project no longer shows it."""
+    name = resolve.shown(name, NAME_CUT) if name else _item_name(found, ns, key)
+    return f"Turn off {name} first" if key in on else f"Stop {name} first" if key in running \
+        else f"Remove the containers of {name} first"
+
+
+def _item_name(found, ns, key):
+    """`_unit_name`, and for a unit the project does not show (a catalog that is damaged) the name its file gives it."""
+    kind, _, name = key.partition(":")
+    if (found.get(f"{kind}s") or {}).get(_unit_id(ns, kind, name)) is None:
+        file = paths.ROOT / paths.CATALOG_FILES[kind].format(ns=ns, name=name)
+        try:
+            said = compose.x_gravitee(file.read_text(encoding="utf-8"), file.parent, name=file.name) or {}
+        except (OSError, ValueError, compose.ComposeError):
+            said = {}
+        if isinstance(said.get("name"), str):
+            return resolve.shown(said["name"], NAME_CUT)
+    return _unit_name(found, ns, key)
+
+
+def _named(ns, error):
+    """A refusal of `install` about units (`units`), said by their names: what holds it, or what could not be moved."""
+    units = error.detail.get("units") or []
+    if error.code not in ("held", "rename_stuck") or not units:
+        return error
+    found = project.loaded()[0]
+    if error.code == "rename_stuck":
+        return CatalogError("rename_stuck", renames.STUCK.format(name=_item_name(found, ns, units[0])), 409, units=units)
+    on, running = _used(ns, found)
+    if error.detail.get("containers"):   # what runs is asked of the containers: a damaged catalog shows no unit
+        with contextlib.suppress(CatalogError):
+            containers = _ps()
+            running |= {key for key in units if any((containers.get(service) or {}).get("state") == "running"
+                                                    for service in (error.detail.get("services") or {}).get(key) or ())}
+    first, names = sorted(units)[0], error.detail.get("names") or {}
+    line = _emptying_line(found, ns, first, on, running, names.get(first)) if error.detail.get("containers") \
+        else _turn_off_line(found, ns, units, running)
+    return CatalogError("held", f"{line}.", 409, units=units)
+
+
+def _renames_of(found, ns, plan, judged, on):
+    """The items an update renames, as the new version names them, with the name they had (`was`) and whether one is on or up
+    (`on`, of `on`, the keys that are): it stays on under its new name."""
+    rows = []
+    for old, new in sorted((plan.get("renamed") or {}).items()):
+        row = _names_of_new([new], ns, judged)[0]
+        rows.append({**row, "was": _unit_name(found, ns, old), "on": old in on})
+    return rows
 
 
 def _names_of_new(keys, ns, judged):
@@ -1390,11 +1556,7 @@ def _apply(ns, ticket, confirm_history, op):
             try:
                 install.apply_update(ns, plan, bool(confirm_history) or op == "undo")
             except CatalogError as error:
-                if error.code == "held" and error.detail.get("units"):
-                    found = project.loaded()[0]
-                    raise CatalogError("held", f"{_turn_off_line(found, ns, error.detail['units'], _running(found, ns))}.", 409,
-                                       units=error.detail["units"]) from None
-                raise
+                raise _named(ns, error) from None
             _settled(ns, plan, before)
     except Exception:
         _unstick(ns)
@@ -1483,7 +1645,7 @@ def _removal(ns, entry):
     found = project.loaded()[0]
     units = registry.units_of(ns)
     going = {(kind, _unit_id(ns, kind, name)) for kind, names in units.items() for name in names}
-    return {"held": _hold(ns, None, found), "items": sum(len(names) for names in units.values()),
+    return {"held": _hold(ns, None, found) or _under_way_hold(ns, held), "items": sum(len(names) for names in units.values()),
             "folder": entry["kind"] == "folder", "breaks": [{k: one[k] for k in ("kind", "id", "name")}
                                                             for one in _items_that_include(found, going)],
             "stays": _stays(found, ns)}
@@ -1506,7 +1668,10 @@ def remove(ns, check=False, keep_settings=True):
         if on | running:
             raise CatalogError("held", f"{_turn_off_line(found, ns, on | running, running)}.", 409,
                                units=sorted(on | running))
-        done = install.remove(ns, keep_settings)
+        try:
+            done = install.remove(ns, keep_settings)
+        except CatalogError as error:   # what holds what was under way, said by the names of the items
+            raise _named(ns, error) from None
         warning = None
         if entry.get("kind") == "folder":   # an imported playground's catalog is the Lab's own folder: it goes with it, under the lock
             from . import exports   # here and not above: exports reads this module
@@ -1528,6 +1693,9 @@ def repair(ns):
             _refetch(ns, entry)
             with _changing():
                 install.repair(ns)
+    except CatalogError as error:
+        _unstick(ns)
+        raise _named(ns, error) from None
     except Exception:
         _unstick(ns)
         raise

@@ -48,10 +48,11 @@ FILE = registry.CATALOG_FILE
 FILE_LIMIT = 1024 * 1024
 # The keys of the block this Lab knows; any other is ignored by the Lab and reported by `catalog.py check`
 KEYS = ("schema", "id", "name", "description", "version", "lab", "license", "images", "contribute", "shared_settings",
-        "moved_from", "canary", "requires", "host_access")
+        "moved_from", "canary", "requires", "host_access", "renamed")
 REQUIRES_KEYS = ("catalogs",)   # the keys of `requires`
+RENAMED_KEYS = ("items", "settings")   # the parts of `renamed`
 # The keys of the mappings of the block, as the contract lists them (x-gravitee-catalog.<key>.<part>)
-PARTS = {"requires": REQUIRES_KEYS}
+PARTS = {"requires": REQUIRES_KEYS, "renamed": RENAMED_KEYS}
 NEED_KEYS = ("name", "url", "min")   # the keys of a catalog of `requires.catalogs`
 CONTRIBUTE = ("pull-request", "none")   # the values of `contribute`
 _VALUE_SHAPE = re.compile(r"[a-z][a-z-]{0,30}")   # a word a newer Lab could give `contribute` or `host_access`
@@ -60,6 +61,7 @@ RESERVED_NAMES = ("official", "verified", "personal", "this machine")
 NAME_LIMIT, DESCRIPTION_LIMIT = 40, 90
 LIST_LIMIT = 50   # moved_from and canary: more than this is not a list a person wrote
 SETTINGS_LIMIT = 100
+RENAMED_LIMIT = 200   # the pairs of one part of `renamed`: every rename a catalog ever made is kept there
 # The file of the standard a catalog follows (governance 3.2): the index carries its level. The Lab never installs it, so it is
 # found beside a catalog that is a linked folder (the CI of a catalog), not in an install
 STANDARD_FILE = ".github/standard.json"
@@ -283,6 +285,73 @@ def _optional(meta, problems, lenient=False):
             problems.append(f"{key} must be a list of kind:name, such as addon:echo, at most {LIST_LIMIT}")
 
 
+def _chain_end(mapping, name):
+    """Where a name ends when it is renamed again and again (a to b, then b to c), or None when the renames lead back to a name
+    they passed (a cycle)."""
+    seen = set()
+    while name in mapping:
+        if name in seen:
+            return None
+        seen.add(name)
+        name = mapping[name]
+    return name
+
+
+def _chain(mapping, name):
+    """The names `name` takes, renamed again and again, the last included."""
+    found = [name]
+    while found[-1] in mapping and len(found) <= len(mapping):
+        found.append(mapping[found[-1]])
+    return found
+
+
+def _merged(pairs):
+    """[(old, other old)] of two names that end at one name and neither of which was renamed into the other on the way: two
+    items made one, whose settings would meet in one folder. Sorted, each pair once."""
+    ends = {}
+    for old in sorted(pairs):
+        ends.setdefault(_chain_end(pairs, old), []).append(old)
+    return [(one, other) for names in ends.values() for at, one in enumerate(names) for other in names[at + 1:]
+            if other not in _chain(pairs, one) and one not in _chain(pairs, other)]
+
+
+def _renamed(renamed, problems, odd=frozenset()):
+    """The checks of `renamed`: {items: {kind:old: kind:new}, settings: {OLD: NEW}}, each a mapping of
+    old names to new ones of its kind, a name never renamed to itself, an item to one of its kind, and no cycle. A part this
+    Lab does not know is a key of a newer one (`unknown_keys`), and so is, for a published catalog, an item of a kind it has no
+    word for (`odd`, `unknown_values`). That an old item is gone from the catalog and the new one is there is the catalog
+    check's (`check.py`), which reads the tree."""
+    if renamed is None:
+        return
+    if not isinstance(renamed, dict):
+        problems.append("renamed must be a mapping of items and settings")
+        return
+    shapes = {"items": (_UNIT, "kind:name, such as addon:echo"), "settings": (_SETTING, "setting names in capitals")}
+    for part, (pattern, what) in shapes.items():
+        pairs = renamed.get(part)
+        if pairs is None:
+            continue
+        if part == "items" and isinstance(pairs, dict) and odd:
+            pairs = {old: new for old, new in pairs.items() if f"renamed.items={old}" not in odd and f"renamed.items={new}" not in odd}
+        where = f"renamed.{part}"
+        if not isinstance(pairs, dict) or len(pairs) > RENAMED_LIMIT \
+                or not all(isinstance(one, str) and pattern.fullmatch(one) for pair in pairs.items() for one in pair):
+            problems.append(f"{where} must map old names to new ones, both {what}, at most {RENAMED_LIMIT}")
+            continue
+        for old, new in pairs.items():
+            if old == new:
+                problems.append(f"{where}: {old} is renamed to itself")
+            elif part == "items" and old.partition(":")[0] != new.partition(":")[0]:
+                problems.append(f"{where}: {old} cannot become {new}, an item of another kind")
+        looping = sorted(old for old, new in pairs.items() if old != new and _chain_end(pairs, old) is None)
+        if looping:
+            problems.append(f"{where}: {looping[0]} is renamed in a circle")
+            continue
+        for first, second in _merged(pairs):
+            problems.append(f"{where}: {first} and {second} are both renamed to {_chain_end(pairs, first)}: two names become one "
+                            "only when one was renamed to the other before")
+
+
 def _required_catalogs(requires, problems):
     """The checks of `requires.catalogs`: a mapping of namespace to {name, url, min}."""
     if requires is None:
@@ -338,6 +407,7 @@ def validate_catalog(meta: dict, borrowed: Iterable[str] = (), lenient: bool = F
         problems.append(f"name cannot be {registry.shown(meta['name'], NAME_LIMIT)}")
     _optional(meta, problems, lenient)
     _required_catalogs(meta.get("requires"), problems)
+    _renamed(meta.get("renamed"), problems, set(unknown_values(meta)) if lenient else frozenset())
     return problems
 
 
@@ -353,13 +423,15 @@ def unknown_keys(meta: dict) -> List[str]:
     declared = requires.get("catalogs") if isinstance(requires.get("catalogs"), dict) else {}
     found += [f"requires.catalogs.{ns}.{key}" for ns, want in declared.items() if isinstance(want, dict)
               for key in want if key not in NEED_KEYS]
+    renamed = meta.get("renamed") if isinstance(meta.get("renamed"), dict) else {}
+    found += [f"renamed.{key}" for key in renamed if key not in RENAMED_KEYS]
     return sorted(found)
 
 
 def unknown_values(meta: dict) -> List[str]:
     """The values of the block that a newer Lab could give and this one does not read, as `key=value`, sorted: a word for
-    `contribute` or `host_access` that is not one of theirs, an item of `canary` or `moved_from` of a kind this Lab has no
-    word for (`template:tour`). What is no value of any Lab (a number for `contribute`, a sentence) stays a problem of the
+    `contribute` or `host_access` that is not one of theirs, an item of `canary`, `moved_from` or `renamed.items` of a kind
+    this Lab has no word for (`template:tour`). What is no value of any Lab (a number for `contribute`, a sentence) stays a problem of the
     file (`validate_catalog`)."""
     if not isinstance(meta, dict):
         return []
@@ -368,8 +440,11 @@ def unknown_values(meta: dict) -> List[str]:
         value = meta.get(key)
         if isinstance(value, str) and value not in known and _VALUE_SHAPE.fullmatch(value):
             found.append(f"{key}={value}")
-    for key in ("canary", "moved_from"):
-        for one in meta.get(key) if isinstance(meta.get(key), list) else ():
+    renamed = meta.get("renamed") if isinstance(meta.get("renamed"), dict) else {}
+    items = renamed.get("items") if isinstance(renamed.get("items"), dict) else {}
+    for key, listed in (("canary", meta.get("canary")), ("moved_from", meta.get("moved_from")),
+                        ("renamed.items", [one for pair in items.items() for one in pair])):
+        for one in listed if isinstance(listed, list) else ():
             kind, _, name = one.partition(":") if isinstance(one, str) else ("", "", "")
             if kind not in paths.KINDS and _VALUE_SHAPE.fullmatch(kind) and re.fullmatch(r"[a-z0-9-]+", name):
                 found.append(f"{key}={one}")
@@ -385,8 +460,11 @@ def normalize(meta: dict) -> dict:
     """A valid block (`validate_catalog` answered nothing) as the Lab keeps it: names and descriptions for a person
     (normalized, control characters out, white space collapsed, cut), lists without repeats, every optional key present.
     {schema, id, name, description, version, lab, license, images, contribute, shared_settings, moved_from, canary,
-    host_access, requires: {catalogs: {ns: {name, url, min}}}}, `schema` and `lab` None when the file does not state them."""
+    host_access, requires: {catalogs: {ns: {name, url, min}}}, renamed: {items, settings}}, `schema`, `lab` and `renamed`
+    None when the file does not state them, each part of `renamed` a mapping of old names to new ones, empty when the file has
+    none."""
     declared = (meta.get("requires") or {}).get("catalogs") or {}
+    renamed = meta.get("renamed") or {}
     return {
         "schema": meta.get("schema"), "id": meta["id"], "name": registry.shown(meta["name"], NAME_LIMIT),
         "description": registry.shown(meta["description"], DESCRIPTION_LIMIT), "version": meta["version"],
@@ -398,7 +476,10 @@ def normalize(meta: dict) -> dict:
         "host_access": meta.get("host_access") is True,
         "requires": {"catalogs": {ns: {"name": registry.shown(want.get("name") or ns, NAME_LIMIT),
                                        "url": gitx.parse_address(want["url"]).url, "min": want["min"]}
-                                  for ns, want in declared.items()}}}
+                                  for ns, want in declared.items()}},
+        "renamed": None if "renamed" not in meta else {
+            part: {old: new for old, new in (renamed.get(part) or {}).items()
+                   if part != "items" or (_UNIT.fullmatch(old) and _UNIT.fullmatch(new))} for part in RENAMED_KEYS}}
 
 
 def _missing(address):
