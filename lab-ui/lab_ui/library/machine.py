@@ -31,6 +31,9 @@ DOCKER_DESKTOP_WINDOWS = "https://docs.docker.com/desktop/setup/install/windows-
 ORBSTACK = "https://orbstack.dev/download"
 TROUBLESHOOTING = "https://github.com/gravitee-io-labs/gravitee-lab/blob/main/docs/troubleshooting.md"
 WSL_MEMORY = f"{TROUBLESHOOTING}#windows-and-wsl-2"
+# Where Homebrew puts Compose on Apple silicon: Docker does not look there until the plugin is linked where it does
+BREW_COMPOSE = "/opt/homebrew/lib/docker/cli-plugins/docker-compose"
+LINK_COMPOSE = f"mkdir -p ~/.docker/cli-plugins && ln -sfn {BREW_COMPOSE} ~/.docker/cli-plugins/docker-compose"
 FRESH = 3   # seconds a report is reused: the page asks every few seconds, and so may two tabs
 
 _lock = threading.Lock()
@@ -132,6 +135,9 @@ def _docker():
     found = _version(out) if rc == 0 else None
     engine = ("Docker Desktop" if "Docker Desktop" in info["system"] else "OrbStack" if info["system"] == "OrbStack"
               else "Docker Engine")
+    if found is None and Path(BREW_COMPOSE).is_file():
+        return _check("docker", "error", title, "Compose is installed, and Docker does not find it",
+                      [_action("link-compose", "Copy the command", True, copy=LINK_COMPOSE)]), info
     if found is None or found[:2] < COMPOSE_MIN:
         app = docker_app()
         said = f"Compose {_dotted(found)} is too old" if found else "Compose is missing"

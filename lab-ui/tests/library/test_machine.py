@@ -86,6 +86,18 @@ class Machine(Case):
         self.assertEqual((docker["state"], docker["detail"]),
                          ("error", "Compose 2.29.7 is too old: update Docker Desktop to get Compose 5.0 or later"))
 
+    def test_compose_from_homebrew_that_docker_does_not_find_is_linked_with_one_command(self):
+        self.answers[("docker", "compose")] = (1, "", "docker: unknown command: docker compose")
+        self.folder()
+        self.patch(machine, "BREW_COMPOSE", str(self.root / "missing"))
+        self.assertEqual(self.check("docker")["detail"], "Compose is missing: update Docker Desktop to get Compose 5.0 or later")
+        installed = self.root / "docker-compose"
+        installed.write_text("")
+        self.patch(machine, "BREW_COMPOSE", str(installed))
+        docker = self.check("docker")
+        self.assertEqual((docker["state"], docker["detail"]), ("error", "Compose is installed, and Docker does not find it"))
+        self.assertEqual([(a["label"], "copy" in a) for a in docker["actions"]], [("Copy the command", True)])
+
     def test_short_memory_is_a_warning_that_lets_the_platform_start(self):
         self.answers[("docker", "info")] = (0, f"29.8.2|Docker Desktop|{6 * 2 ** 30}|/var/lib/docker", "")
         memory = self.check("memory")
