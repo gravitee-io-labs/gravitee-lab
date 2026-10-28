@@ -48,8 +48,12 @@ ask() {
     esac
 }
 
+# Python 3.9 or later, as python3 or beside an older one (python3.11): the Makefile looks for the same names
 python_ok() {
-    command -v python3 > /dev/null 2>&1 && python3 -c 'import sys; sys.exit(sys.version_info < (3, 9))' 2> /dev/null
+    for python in python3 python3.14 python3.13 python3.12 python3.11 python3.10 python3.9; do
+        command -v "$python" > /dev/null 2>&1 && "$python" -c 'import sys; sys.exit(sys.version_info < (3, 9))' 2> /dev/null && return
+    done
+    return 1
 }
 
 # The tools of the lab that are missing, by the name of their command
@@ -91,14 +95,20 @@ linux_tools() {
         return
     fi
     packages=$gone
+    # A system whose python3 is older than 3.9 ships a later one under another name: the first its manager has is installed
+    newer=''
     if command -v apt-get > /dev/null 2>&1; then
         install='apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq'
+        newer='python3.12 python3.11 python3.10 python3.9'
     elif command -v dnf > /dev/null 2>&1; then
         install='dnf install -y -q'
+        newer='python3.12 python3.11 python39'
     elif command -v yum > /dev/null 2>&1; then
         install='yum install -y -q'
+        newer='python3.11 python39'
     elif command -v zypper > /dev/null 2>&1; then
         install='zypper --non-interactive --quiet install'
+        newer='python313 python312 python311 python310 python39'
     elif command -v pacman > /dev/null 2>&1; then
         install='pacman -S --needed --noconfirm'
         packages=$(echo "$gone" | sed 's/python3/python/')
@@ -124,9 +134,17 @@ linux_tools() {
         rm -f "$log"
         halt "${packages}did not install: ${install%% *} says why above. Is the internet reachable from this machine?" '#linux'
     fi
+    if ! python_ok; then
+        say 'The python3 of this system is older than 3.9: installing a later one beside it'
+        for package in $newer; do
+            # shellcheck disable=SC2086
+            $root sh -c "$install $package" > "$log" 2>&1 && python_ok && packages="$packages$package " && break
+        done
+    fi
     rm -f "$log"
+    python_ok || halt "Python 3.9 or later is missing, and the package manager of this system has none: install one, then run this command again." '#linux'
     gone=$(missing)
-    [ -z "$gone" ] || halt "${gone}is still missing: install Python 3.9 or later. The version this system ships is older." '#linux'
+    [ -z "$gone" ] || halt "${gone}is still missing: install it, then run this command again." '#linux'
     ok "Installed ${packages% }"
 }
 
