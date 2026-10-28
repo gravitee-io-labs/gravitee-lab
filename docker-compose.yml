@@ -179,6 +179,7 @@ services:
 
       # Modules
       gravitee_modules_aim_catalog_mcp-discovery_allow-private-endpoints: "true"   # Allow private endpoints in MCP server, model and agent discovery
+      gravitee_modules_aim_credentials_gateway_enabled: "true"   # Sync vault credentials to the gateways, which LLM proxies reach their providers with
 
       # JVM heap
       GIO_MIN_MEM: 256m
