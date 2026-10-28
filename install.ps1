@@ -32,8 +32,24 @@
     # The look of install.sh, so that the two read as one. A step shows a live line while it works (a spinner, its name on
     # 13 columns, what it does now, the time), then one line with its outcome: a mark, its name, what it found or did, and its
     # time from 2s on. A failure shows the last lines of its tool, what to do in red, and where to read more. Its marks where
-    # the console draws them (Windows Terminal, a UTF-8 console), plain ones elsewhere; no live line in a log or in CI
+    # the console draws them (Windows Terminal, a UTF-8 console), plain ones elsewhere; no live line in a log or in CI.
+    # Windows Terminal is known by the process that owns the window of this console: WT_SESSION is set in its own tabs only,
+    # not in a console Windows hands it, as Windows 11 does by default
     $fancy = [bool]$env:WT_SESSION -or [Console]::OutputEncoding.CodePage -eq 65001
+    if (-not $fancy) {
+        try {
+            if (-not ('GraviteeLab.Window' -as [type])) {
+                Add-Type -Namespace GraviteeLab -Name Window -ErrorAction Stop -MemberDefinition @'
+[DllImport("kernel32.dll")] public static extern System.IntPtr GetConsoleWindow();
+[DllImport("user32.dll")] public static extern System.IntPtr GetAncestor(System.IntPtr window, int flags);
+[DllImport("user32.dll")] public static extern int GetWindowThreadProcessId(System.IntPtr window, out int process);
+'@
+            }
+            $owner = 0
+            [void][GraviteeLab.Window]::GetWindowThreadProcessId([GraviteeLab.Window]::GetAncestor([GraviteeLab.Window]::GetConsoleWindow(), 3), [ref]$owner)
+            $fancy = (Get-Process -Id $owner -ErrorAction Stop).ProcessName -eq 'WindowsTerminal'
+        } catch { $fancy = $false }
+    }
     if ($fancy) {
         $good, $warn, $bad, $halted, $more = [string][char]0x2714, [string][char]0x25B2, [string][char]0x2716, [string][char]0x25A0, [string][char]0x2026
         $frames = 0x280B, 0x2819, 0x2839, 0x2838, 0x283C, 0x2834, 0x2826, 0x2827, 0x2807, 0x280F | ForEach-Object { [string][char]$_ }
