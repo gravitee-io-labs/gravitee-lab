@@ -106,6 +106,27 @@ class Review(unittest.TestCase):
         self.assertEqual([job["item"] for job in jobs], ["playground:shop"])
         self.assertIn("next night", said[-1])
 
+    def test_a_set_that_says_only_some_of_the_variables_stays_until_one_that_says_them_all_has_its_line(self):
+        keys = ["APIM_VERSION", "AM_VERSION"]
+        older = {"APIM_VERSION": "4.11.3", "APIM_REGISTRY": "graviteeio"}
+        sets = [older, both("4.12.3", "4.12.1")]
+        self.assertEqual(compat.merged(sets, [both("4.13.1", "4.13.1")], keys), [older, both("4.12.3", "4.12.1"), both("4.13.1", "4.13.1")])
+        self.assertEqual(compat.merged(sets, [both("4.11.31", "4.11.20")], keys), [both("4.11.31", "4.11.20"), both("4.12.3", "4.12.1")],
+                         "a set that says them all wins its line")
+
+    def test_another_image_of_a_set_is_neither_judged_nor_a_reason_to_stop_following_it(self):
+        for other in ({"DEMO_DB_VERSION": "7.0"}, {"DEMO_DB_VERSION": "7.0.12", "DEMO_DB_REGISTRY": "mirror.gcr.io/library"}):
+            with self.subTest(other=other):
+                sets = [{"APIM_VERSION": "4.12.3", "APIM_REGISTRY": "graviteeio", **other}]
+                found = compat.candidates(unit(sets, {"APIM_VERSION": "4.12"}), self.tags, follow={"APIM_VERSION"})
+                self.assertEqual(found, [{"APIM_VERSION": version, "APIM_REGISTRY": "graviteeio", **other} for version in ("4.12.25", "4.13.1")])
+
+    def test_the_nights_take_the_playgrounds_in_turn(self):
+        built = {"playgrounds": {name: {**unit([], {"APIM_VERSION": "4.13"}), "name": name, "catalog": "acme"} for name in ("a", "b", "c")}}
+        tags = lambda project, key, registry: TAGS[key]   # noqa: E731
+        self.assertEqual([job["item"] for job in compat.plan(built, "acme", tags, night=1)],
+                         ["playground:b", "playground:c", "playground:a"])
+
     def test_a_night_tries_max_jobs_at_most(self):
         built = {"playgrounds": {f"p{n}": {**unit([], {"APIM_VERSION": "4.9"}), "catalog": "acme"} for n in range(20)}}
         said = []

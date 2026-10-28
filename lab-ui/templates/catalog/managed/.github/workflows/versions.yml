@@ -172,6 +172,14 @@ jobs:
           [ -z "$VERSION" ] || refs+=("refs/tags/v$VERSION")
           GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o UserKnownHostsFile=$hosts -o StrictHostKeyChecking=yes" \
             git push --atomic "git@github.com:$GITHUB_REPOSITORY.git" "${refs[@]}"
+      # A playground whose file the record does not write was left out: the others are pushed, and the run fails, which opens the issue
+      - name: Say what was left out
+        if: ${{ steps.record.outputs.left_out != '' }}
+        env:
+          LEFT_OUT: ${{ steps.record.outputs.left_out }}
+        run: |
+          echo "::error::$LEFT_OUT playground files were left out: the log of the step that writes says which and why"
+          exit 1
 
   report:
     name: Report what does not work

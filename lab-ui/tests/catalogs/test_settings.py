@@ -1045,6 +1045,11 @@ class Audit(Base):
         found = scene(keys=(("versions", False), ("old", False), ("lab", True))).finding("rules.deploy_key")
         self.assertEqual((FAIL, "2 deploy keys write: keep the one of versions.yml and make the others read only"), (found.status, found.now))
         self.assertEqual(MANUAL, scene(keys=None).finding("rules.deploy_key").status, "an administrator reads the deploy keys")
+        # A history ruleset of another branch keeps nothing of main
+        elsewhere = scene()
+        elsewhere.set("/rulesets/1003", {**history, "conditions": {"ref_name": {"include": ["refs/heads/legacy"], "exclude": []}}})
+        found = elsewhere.finding("rules.deploy_key")
+        self.assertEqual((FAIL, "nothing keeps a deploy key from deleting or rewriting main"), (found.status, found.now))
 
     @covers("rules.tags")
     def test_rules_tags(self):

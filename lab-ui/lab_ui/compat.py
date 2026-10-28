@@ -30,11 +30,15 @@ HUB = ("graviteeio", "docker.io/graviteeio")   # where Gravitee publishes its re
 # Versions
 # ---------------------------------------------------------------------------------------------------------------------
 
-def _versions(found):
-    """The version variables of a set and their parsed versions, {variable: (numbers, pre-release)}; None when one of them is
-    no version (a build that moves, amp-demo-latest) or when it names a registry Gravitee does not publish to."""
+def _versions(found, follow=None):
+    """The version variables of a set that are followed (`follow`, all when None) and their parsed versions, {variable: (numbers,
+    pre-release)}; None when one of them is no version (a build that moves, amp-demo-latest) or when its registry is not one
+    Gravitee publishes to. A version of another image says nothing of Gravitee's: it is not judged."""
     parsed = {}
     for key, value in found.items():
+        followed = (key[:-len("_REGISTRY")] + "_VERSION" if key.endswith("_REGISTRY") else key)
+        if follow is not None and followed not in follow:
+            continue
         if key.endswith("_REGISTRY") and str(value) not in HUB:
             return None
         if VERSION_KEY.fullmatch(key):
@@ -80,9 +84,9 @@ def newest(tags):
 MAX_JOBS = 64   # the jobs of one night: GitHub runs 256 at most in a matrix, and the next night tries the rest
 
 
-def _numeric(unit):
+def _numeric(unit, follow=None):
     """The sets of a playground that are releases or pre-releases of Gravitee's registry, as they are written."""
-    return [found for found in unit.get("tested") or [] if found and _versions(found)]
+    return [found for found in unit.get("tested") or [] if found and _versions(found, follow)]
 
 
 def variables(unit, follow=None):
@@ -91,7 +95,7 @@ def variables(unit, follow=None):
     a playground whose sets are all builds of its own: it is not followed."""
     sets = [found for found in unit.get("tested") or [] if found]
     found = []
-    for tested in _numeric(unit):
+    for tested in _numeric(unit, follow):
         found += [key for key in tested if VERSION_KEY.fullmatch(key) and key not in found]
     if not sets:
         asked = (unit.get("requires") or {}).get("images") or {}
@@ -102,7 +106,7 @@ def variables(unit, follow=None):
 def registries(unit, keys):
     """The registry each version variable is written with in the playground's sets of releases, {REGISTRY variable: value}."""
     found = {}
-    for tested in _numeric(unit):
+    for tested in _numeric(unit, set(keys)):
         for key, value in tested.items():
             if key.endswith("_REGISTRY") and key[:-len("_REGISTRY")] + "_VERSION" in keys:
                 found.setdefault(key, str(value))
@@ -135,13 +139,13 @@ def candidates(unit, tags, follow=None):
     if all(pres) and len({pre[0][:2] for pre in pres}) == 1:
         chosen.append(dict(zip(keys, pres)))
     have = {}
-    for found in _numeric(unit):
-        versions = _versions(found)
+    for found in _numeric(unit, set(keys)):
+        versions = _versions(found, set(keys))
         if all(key in versions for key in keys):
             line = _line_of(versions, keys)
             if line not in have or _newer(versions, have[line], keys):
                 have[line] = versions
-    latest = _numeric(unit)[-1] if _numeric(unit) else {}
+    latest = _numeric(unit, set(keys))[-1] if _numeric(unit, set(keys)) else {}
     carried = {key: str(value) for key, value in latest.items()
                if key not in keys and key[:-len("_REGISTRY")] + "_VERSION" not in keys}
     extra = registries(unit, keys)
@@ -156,10 +160,12 @@ def candidates(unit, tags, follow=None):
     return sets
 
 
-def plan(built, ns=None, tags=None, warn=None):
+def plan(built, ns=None, tags=None, warn=None, night=0):
     """The jobs of a night: [{item, versions (a JSON object as text), name}] for each shared playground of the catalog `ns`
-    (every catalog when None) and each set it is to be tried on, MAX_JOBS at most. `tags(built, variable, registry)` lists the
-    tags of an image. A playground whose tags cannot be read is said to `warn(sentence)` and left for the next night."""
+    (every catalog when None) and each set it is to be tried on, MAX_JOBS at most: the playgrounds are taken in turn from the
+    one `night` (a day's number) points at, so that one whose sets keep failing never takes the place of the others for good.
+    `tags(built, variable, registry)` lists the tags of an image. A playground whose tags cannot be read is said to
+    `warn(sentence)` and left for the next night."""
     import json
     from .docker import images
     tags = tags or (lambda project, key, registry: [tag["name"] for tag in images.tags(project, key, registry)])
@@ -167,9 +173,10 @@ def plan(built, ns=None, tags=None, warn=None):
               if component.get("registry_key") and "graviteeio" in str(component.get("registry_default") or "")} \
         if "services" in built else None
     jobs = []
-    for uid, unit in sorted(built["playgrounds"].items()):
-        if paths.personal(uid) or (ns is not None and unit.get("catalog") != ns):
-            continue
+    shared = [(uid, unit) for uid, unit in sorted(built["playgrounds"].items())
+              if not paths.personal(uid) and (ns is None or unit.get("catalog") == ns)]
+    turn = night % len(shared) if shared else 0
+    for uid, unit in shared[turn:] + shared[:turn]:
         hub = registries(unit, variables(unit, follow))
 
         def listed(key, hub=hub):
@@ -197,26 +204,38 @@ def plan(built, ns=None, tags=None, warn=None):
 def merged(sets, passed, keys=None):
     """The sets a playground says it was tested with once `passed` (sets that a run tried well) are in: a passed set replaces
     the set of its line when it is newer, a line out of the MINORS newest goes, and so does a pre-release whose line has a
-    release. `keys`, the variables a set is judged on, in order (`variables`; those of the first set by default). The builds come
-    first as they were, then the pre-releases, then the releases oldest first."""
-    builds = [found for found in sets if found and not _versions(found)]
-    numbered = [found for found in [*sets, *passed] if found and _versions(found)]
+    release. `keys`, the variables a set is judged on, in order (`variables`; those of the first set by default). A set that
+    says only some of them (an older set, before the playground used Access Management) stays under its own line until a set
+    that says them all is there for that line. The builds come first as they were, then the pre-releases, then the releases
+    oldest first."""
+    follow = set(keys) if keys else None
+    builds = [found for found in sets if found and not _versions(found, follow)]
+    numbered = [found for found in [*sets, *passed] if found and _versions(found, follow)]
     if not numbered:
         return builds
     keys = keys or [key for key in numbered[0] if VERSION_KEY.fullmatch(key)]
     by_line = {}
     for found in numbered:
-        versions = _versions(found)
-        if not all(key in versions for key in keys):
+        versions = _versions(found, follow)
+        said = tuple(key for key in keys if key in versions)
+        if not said:
+            builds.append(found)
             continue
-        line = _line_of(versions, keys)
+        line = (*_line_of(versions, said), said)
         kept = by_line.get(line)
-        if kept is None or _newer(versions, _versions(kept), keys):
+        if kept is None or _newer(versions, _versions(kept, follow), said):
             by_line[line] = found
-    releases = sorted(line for line, pre in by_line if not pre)
-    releases = [line for line in releases if line in releases[-MINORS:]]
-    pres = sorted(line for line, pre in by_line if pre and line not in releases and (not releases or line > releases[-1]))
-    return [*builds, *(by_line[(line, True)] for line in pres), *(by_line[(line, False)] for line in releases)]
+    full = tuple(keys)
+    by_line = {line: found for line, found in by_line.items()
+               if line[2] == full or (line[0], line[1], full) not in by_line}   # a set that says them all wins its line
+    releases = sorted({numbers for numbers, pre, _ in by_line if not pre})[-MINORS:]
+    pres = sorted({numbers for numbers, pre, _ in by_line if pre and numbers not in releases
+                   and (not releases or numbers > releases[-1])})
+
+    def of(numbers, pre):
+        return [found for (line, early, _), found in sorted(by_line.items(), key=lambda item: item[0][2] != full)
+                if line == numbers and early == pre]
+    return [*builds, *(found for line in pres for found in of(line, True)), *(found for line in releases for found in of(line, False))]
 
 
 TESTED = re.compile(r"^  tested:[^\n]*\n(?:(?:    [^\n]*|[ \t]*)\n)*", re.M)

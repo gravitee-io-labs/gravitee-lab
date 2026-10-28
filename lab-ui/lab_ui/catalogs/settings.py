@@ -1203,7 +1203,7 @@ class _Audit:
         for key, target, allowed in (("history", "branch", ()), ("tag_history", "tag", ADMINS)):
             guarded = any(item["target"] == target and {"deletion", "non_fast_forward"} <= {
                 as_dict(rule).get("type") for rule in as_list(body.get("rules"))} and outsiders(body, allowed) == []
-                and (target == "branch" or reaches_every_tag(body.get("conditions")))
+                and (self.reaches_main(body.get("conditions")) if target == "branch" else reaches_every_tag(body.get("conditions")))
                 for item, body in details.values())
             if not guarded:
                 problems.append(f"nothing keeps a deploy key from deleting or rewriting {'main' if target == 'branch' else 'a tag'}")
@@ -1220,6 +1220,12 @@ class _Audit:
         if problems:
             return self.add("rules.deploy_key", FAIL, now="; ".join(problems), fix=fixes or None)
         self.add("rules.deploy_key", OK)
+
+    def reaches_main(self, conditions) -> bool:
+        """Whether the conditions of a branch ruleset name the default branch and do not leave it out."""
+        names = as_dict(as_dict(conditions).get("ref_name"))
+        main = {"~DEFAULT_BRANCH", "~ALL", f"refs/heads/{self.default or 'main'}"}
+        return bool(main & set(as_list(names.get("include")))) and not main & set(as_list(names.get("exclude")))
 
     def push_rules(self):
         for key, id in (("push", "rules.push"), ("paths", "rules.protected_paths")):

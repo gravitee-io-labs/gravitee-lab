@@ -85,6 +85,16 @@ class Steps(unittest.TestCase):
                 self.assertIn("nothing is written", err)
                 self.assertEqual(self.compose.read_text(encoding="utf-8"), FILE)
 
+    def test_a_file_written_another_way_is_left_out_and_said_and_the_others_are_recorded(self):
+        self.compose.write_bytes(FILE.replace("\n", "\r\n").encode("utf-8"))
+        target = self.folder / "output"
+        target.write_text("", encoding="utf-8")
+        with mock.patch.dict("os.environ", {"GITHUB_OUTPUT": str(target)}):
+            code, out, err = self.record(lambda: BUILT)
+        self.assertEqual((code, out), (0, ""))
+        self.assertIn("playgrounds/shop/compose.yml is left out: its line ends are not LF", err)
+        self.assertEqual("left_out=1\n", target.read_text(encoding="utf-8"))
+
     def git(self, *command):
         subprocess.run(["git", "-C", str(self.catalog), *command], check=True, capture_output=True)
 

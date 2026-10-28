@@ -9,8 +9,9 @@ of what is tried and what is kept are the Lab's (`lab_ui/compat.py`). Each step 
     versions-record PATH --plan FILE --results DIR
         Writes in the catalog at PATH the sets that passed: each file of DIR is `{item, versions, code}`, which a run wrote, and only
         a job of the plan (FILE, the matrix the plan wrote) whose code is 0 counts. Prints a line for each playground it wrote,
-        with the sets it kept. Each file is read again by the Lab once written: a `tested` that is not the sets it meant, or any
-        other change, puts every file back and fails (exit 1), so that nothing is pushed.
+        with the sets it kept. A file it does not write the way a person writes it is left out and said (with `$GITHUB_OUTPUT`,
+        `left_out`, how many): the others are recorded. Each file is read again by the Lab once written: a `tested` that is not
+        the sets it meant, or any other change, puts every file back and fails (exit 1), so that nothing is pushed.
     versions-release PATH
         Raises the patch number of `version` in catalog.yml past the newest tag, and prints the new version. Prints nothing, and
         changes nothing, for a catalog that has no release (it is followed commit by commit) or whose catalog.yml already says a
@@ -22,7 +23,9 @@ error, a catalog that cannot be read here).
 
 Python 3.9 and later, standard library only."""
 
+import datetime
 import json
+import os
 import re
 from pathlib import Path
 
@@ -54,7 +57,8 @@ def plan_main(argv, out, err, **seams) -> int:
     found.add_argument("--github-output", action="store_true", help="write matrix and count to $GITHUB_OUTPUT")
     args = parsed(found, argv)
     _, ns = _catalog(args.path)
-    jobs = compat.plan(seams.get("project") or _project(), ns, seams.get("tags"), warn=lambda said: err.write(f"{said}\n"))
+    night = seams.get("night", datetime.date.today().toordinal())
+    jobs = compat.plan(seams.get("project") or _project(), ns, seams.get("tags"), warn=lambda said: err.write(f"{said}\n"), night=night)
     out.write("".join(f"{job['name']}\n" for job in jobs) or "Every playground is tested on the newest versions\n")
     if args.github_output:
         write_outputs({"matrix": json_line({"include": jobs}), "count": str(len(jobs))})
@@ -109,7 +113,7 @@ def record_main(argv, out, err, **seams) -> int:
     built = seams.get("project") or _project()
     follow = _follow(built)
     results = sorted(Path(args.results).rglob("*.json")) if Path(args.results).is_dir() else []
-    written, said, meant = {}, [], {}
+    written, said, meant, left_out = {}, [], {}, 0
     try:
         for item, sets in sorted(passed(planned, results, err).items()):
             kind, uid = e2e.parse(item, built)
@@ -123,13 +127,15 @@ def record_main(argv, out, err, **seams) -> int:
             tested = compat.merged(unit.get("tested") or [], sets, compat.variables(unit, follow) or None)
             if _plain(tested) == _plain(unit.get("tested")):
                 continue
-            text = path.read_text(encoding="utf-8")
+            text = path.read_bytes().decode("utf-8")   # as it is: read_text would make CRLF line ends LF unseen
             try:
                 changed = compat.write(text, tested)
             except ValueError as error:
-                raise RuntimeError(f"{unit['name']}: {path.relative_to(folder)} is not written: {error}") from None
+                err.write(f"{unit['name']}: {path.relative_to(folder)} is left out: {error}. Write it as the other playgrounds do\n")
+                left_out += 1
+                continue
             written[path] = text
-            path.write_text(changed, encoding="utf-8")
+            path.write_bytes(changed.encode("utf-8"))
             meant[uid] = (unit, tested)
             kept = [one for one in sets if one in tested]
             keys = compat.variables(unit, follow) or sorted(key for one in kept for key in one if compat.VERSION_KEY.fullmatch(key))
@@ -139,10 +145,12 @@ def record_main(argv, out, err, **seams) -> int:
             _check(meant, seams.get("reload") or _reload)
     except RuntimeError as error:
         for path, text in written.items():
-            path.write_text(text, encoding="utf-8")
+            path.write_bytes(text.encode("utf-8"))
         err.write(f"{error}\n")
         return 1
     out.write("".join(f"{line}\n" for line in said))
+    if left_out and os.environ.get("GITHUB_OUTPUT"):
+        write_outputs({"left_out": str(left_out)})
     return 0
 
 
