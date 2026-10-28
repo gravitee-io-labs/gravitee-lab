@@ -1,5 +1,5 @@
 {
-  "level": 6,
+  "level": 7,
   "files": [
     {"path": ".catalog/standard.mk", "class": "managed", "since": 1, "when": "always", "scope": "full"},
     {"path": ".github/dependabot.yml", "class": "managed", "since": 1, "when": "always", "scope": "full"},
@@ -8,6 +8,7 @@
     {"path": ".github/workflows/nightly.yml", "class": "managed", "since": 2, "when": "always", "scope": "full"},
     {"path": ".github/workflows/publish.yml", "class": "managed", "since": 3, "when": "images", "scope": "full"},
     {"path": ".github/workflows/e2e.yml", "class": "managed", "since": 3, "when": "module:e2e", "scope": "full"},
+    {"path": ".github/workflows/versions.yml", "class": "managed", "since": 7, "when": "module:e2e", "scope": "full"},
     {"path": ".github/rulesets/default-branch.json", "class": "managed", "since": 1, "when": "always", "scope": "full"},
     {"path": ".github/rulesets/tags.json", "class": "managed", "since": 1, "when": "always", "scope": "full"},
     {"path": ".github/rulesets/push.json", "class": "managed", "since": 1, "when": "always", "scope": "full"},
@@ -35,6 +36,39 @@
   ],
   "removed": [],
   "edits": [
+    {
+      "path": ".github/rulesets/default-branch.json",
+      "below": 7,
+      "from": [
+        "  \"bypass_actors\": [",
+        "    {",
+        "      \"actor_id\": null,",
+        "      \"actor_type\": \"DeployKey\",",
+        "      \"bypass_mode\": \"always\"",
+        "    }",
+        "  ],"
+      ],
+      "to": [
+        "  \"bypass_actors\": [],"
+      ]
+    },
+    {
+      "path": ".github/rulesets/tags.json",
+      "below": 7,
+      "from": [
+        "      \"bypass_mode\": \"always\"",
+        "    },",
+        "    {",
+        "      \"actor_id\": null,",
+        "      \"actor_type\": \"DeployKey\",",
+        "      \"bypass_mode\": \"always\"",
+        "    }"
+      ],
+      "to": [
+        "      \"bypass_mode\": \"always\"",
+        "    }"
+      ]
+    },
     {
       "path": ".github/workflows/ci.yml",
       "below": 6,
@@ -272,6 +306,12 @@
       "summary": "The Apps job of a pull request scans the images it built, with the scanner the Lab pins and the policy of the nightly scan: a critical flaw that has a fix fails the pull request (SC01), and the rest is said (SC02). It needs no secret, so a fork's pull request is scanned too, and only the images of the units the change touches are built and scanned. The nightly scan of the published images says the rest as well. The Seed files job runs Python 3.15, and a new catalog's sample add-on runs whoami v1.12.0. No file is added.",
       "manual": ["If a pull request says SC01, update the package or the base image of that app to the version the message names, then push again."],
       "settings": [],
+      "urgent": false
+    },
+    "7": {
+      "summary": "Adds versions.yml to the e2e module: every night each playground is tried on the releases of Gravitee it does not say it was tested with yet (the newest release of each of the five newest minor versions, and a pre-release above them). What works is written in its x-gravitee.tested, committed to main and released as the next patch version; what does not work opens an issue. The rulesets of main and of the tags let a deploy key through, for that commit and that tag.",
+      "manual": ["Give versions.yml its key, in the repository's folder: ssh-keygen -t ed25519 -N '' -C versions -f versions-key, then gh repo deploy-key add versions-key.pub --allow-write --title versions, then gh secret set VERSIONS_DEPLOY_KEY --env versions < versions-key, then rm versions-key versions-key.pub."],
+      "settings": ["Create the environment versions, limited to main, and apply the rulesets again: make settings APPLY=1 shows the requests."],
       "urgent": false
     }
   }

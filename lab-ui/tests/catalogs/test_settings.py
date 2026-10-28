@@ -987,6 +987,14 @@ class Audit(Base):
             detail["bypass_actors"] = actors
             scene.set("/rulesets/1001", detail)
             self.assertEqual(FAIL, scene.finding("rules.bypass").status, actors)
+        # The deploy key that versions.yml pushes the versions it recorded with is no one who merges a pull request
+        key = {"actor_id": None, "actor_type": "DeployKey", "bypass_mode": "always"}
+        for actors, status in (([key], OK), ([solo, key], WARN)):
+            scene = Scene("public-standard")
+            detail = copy.deepcopy(scene.get("/rulesets/1001").body)
+            detail["bypass_actors"] = actors
+            scene.set("/rulesets/1001", detail)
+            self.assertEqual(status, scene.finding("rules.bypass").status, actors)
         scene = Scene("public-standard")
         scene.remove("/rulesets/1001", "bypass_actors")             # a reader who is not an administrator is not told
         found = scene.finding("rules.bypass")
@@ -1056,7 +1064,8 @@ class Audit(Base):
             self.assertEqual((FAIL, "bypass for someone but an administrator"), (found.status, found.now), actors)
             method, path, body = requests_of(found)[0]
             self.assertEqual(("PUT", "repos/acme-labs/lab-hub/rulesets/1002", [admin]), (method, path, body["bypass_actors"]))
-        for actors in ([admin], [], [{**admin, "bypass_mode": "pull_request"}]):
+        for actors in ([admin], [], [{**admin, "bypass_mode": "pull_request"}],
+                       [admin, {"actor_id": None, "actor_type": "DeployKey", "bypass_mode": "always"}]):
             scene = Scene("public-standard")
             self.tag_ruleset(scene, bypass_actors=actors)
             self.assertEqual(OK, scene.finding("rules.tags").status, actors)

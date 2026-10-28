@@ -128,12 +128,17 @@ COMPARE = {("pull_request", "required_approving_review_count"): "min",
 # The environments the standard knows, and the branches and tags each may deploy from, as (name, type)
 ENVIRONMENTS = {"publish": (("main", "branch"), ("v*", "tag")),
                 "e2e": (("main", "branch"),),
-                "e2e-nightly": (("main", "branch"),)}
+                "e2e-nightly": (("main", "branch"),),
+                "versions": (("main", "branch"),)}
 PUBLISH_POLICY = {"protected_branches": False, "custom_branch_policies": True}
 
 SOLO_BYPASS = {"actor_id": ADMIN_ROLE, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}
 SOLO_TUPLE = ("RepositoryRole", ADMIN_ROLE, "pull_request")
-ADMINS = (("RepositoryRole", ADMIN_ROLE),)       # (actor type, actor id) of who may bypass a tag or a protected path
+# The deploy keys of the repository: versions.yml pushes the versions it recorded to main and tags their release with one
+DEPLOY_KEY = {"actor_id": None, "actor_type": "DeployKey", "bypass_mode": "always"}
+DEPLOY_TUPLE = ("DeployKey", None, "always")
+ADMINS = (("RepositoryRole", ADMIN_ROLE),)       # (actor type, actor id) of who may bypass a protected path
+TAGGERS = ADMINS + (("DeployKey", None),)       # and a tag
 HIDDEN_BYPASS = "bypass_actors are returned to administrators only"
 BYPASS_OTHERS = "bypass for someone but an administrator"
 BYPASS_ANYONE = "bypass for someone"
@@ -584,10 +589,11 @@ class _Audit:
         if body is None:
             return None
         if key == "main":
+            keys = [dict(DEPLOY_KEY)] if DEPLOY_KEY in body.get("bypass_actors", []) else []
             if self.solo if solo is None else solo:
-                body["bypass_actors"] = [dict(SOLO_BYPASS)]
+                body["bypass_actors"] = [dict(SOLO_BYPASS), *keys]
             elif "bypass_actors" in body:
-                body["bypass_actors"] = []
+                body["bypass_actors"] = keys
             if self.options["required_checks"]:
                 for rule in body["rules"]:
                     if isinstance(rule, dict) and rule.get("type") == "required_status_checks":
@@ -1119,7 +1125,7 @@ class _Audit:
                        for a in as_list(body["bypass_actors"])]
         if hidden or not ids:
             return self.add("rules.bypass", MANUAL, now=hidden or "GitHub did not say which ruleset the rules come from")
-        actors = sorted(set(actors), key=repr)
+        actors = sorted(set(actors) - {DEPLOY_TUPLE}, key=repr)   # a deploy key pushes what versions.yml recorded
         if not actors:
             if self.solo:
                 return self.add("rules.bypass", FAIL, now="--solo asks for one administrator, in pull request mode, and there "
@@ -1150,7 +1156,7 @@ class _Audit:
                     continue
                 active = True
                 types = {r["type"] for r in map(as_dict, as_list(body.get("rules"))) if isinstance(r.get("type"), str)}
-                odd = outsiders(body, ADMINS)
+                odd = outsiders(body, TAGGERS)
                 (hidden if odd is None else loose if odd else bound).update(types)
         if need <= bound:
             return self.add("rules.tags", OK)

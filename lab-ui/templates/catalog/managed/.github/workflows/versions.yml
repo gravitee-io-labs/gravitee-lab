@@ -1,0 +1,182 @@
+# Managed by the Lab catalog standard 7: change it with catalog.py upgrade, in a pull request a maintainer reads.
+# Every night, on the main branch: each playground is tried on the releases of Gravitee it does not say it was tested with yet (the newest
+# release of each of the five newest minor versions, and a pre-release above them), on a machine with no lab and with the license, as
+# `make e2e` does. What works is written in its x-gravitee.tested, committed to main and released as the next patch version, so that
+# every Lab sees it at its next check. What does not work opens an issue, or adds to the one that is open.
+#   plan     what each playground is tried on: no secret
+#   try      one job a playground and a set of versions, in the environment e2e-nightly, which holds the license
+#   record   the one job that writes: the Lab writes the sets that passed, the results being data that the plan checks, then the last
+#            step commits, tags and pushes them with VERSIONS_DEPLOY_KEY, a secret of the environment versions: the deploy key that the
+#            rulesets let push to main and create a tag. Nothing of the catalog runs in this job
+name: Gravitee versions
+
+on:
+  schedule:
+    - cron: "13 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: versions
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Plan
+    if: ${{ !github.event.repository.fork && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      count: ${{ steps.plan.outputs.count }}
+    steps:
+      - name: Check out the catalog
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: catalog
+          persist-credentials: false
+      - name: Check out the Lab
+        uses: ./catalog/.github/actions/lab
+        with:
+          key: ${{ secrets.LAB_DEPLOY_KEY }}
+      - name: Plan the jobs
+        id: plan
+        run: |
+          python3 -I lab/lab-ui/catalog.py link catalog
+          python3 -I lab/lab-ui/catalog.py ci versions-plan catalog --github-output
+
+  try:
+    name: ${{ matrix.name }}
+    needs: plan
+    if: ${{ needs.plan.outputs.count != '0' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: e2e-nightly
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - name: Check out the catalog
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: catalog
+          persist-credentials: false
+      - name: Check out the Lab
+        uses: ./catalog/.github/actions/lab
+        with:
+          key: ${{ secrets.LAB_DEPLOY_KEY }}
+      # The images of the platform and a database take the room a runner has: what it comes with and the lab does not use goes
+      - name: Make room
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY"
+          df -h /
+      - name: Make the lab's files and give it the license
+        working-directory: lab
+        env:
+          GRAVITEE_LICENSE: ${{ secrets.GRAVITEE_LICENSE }}
+        run: |
+          [ -n "$GRAVITEE_LICENSE" ] || { echo "::error::The secret GRAVITEE_LICENSE is not set in this environment"; exit 1; }
+          make init
+          printf '\nGRAVITEE_LICENSE=%s\n' "$GRAVITEE_LICENSE" >> .env
+      # Exit code 2 is "not tried" (a login or a setting only a person can give): a warning, never a pass
+      - name: Try it
+        working-directory: lab
+        env:
+          ITEM: ${{ matrix.item }}
+          VERSIONS: ${{ matrix.versions }}
+        run: |
+          python3 -I lab-ui/catalog.py link ../catalog
+          set +e
+          python3 -I lab-ui/server.py --e2e "$ITEM" --versions "$VERSIONS"
+          code=$?
+          mkdir -p ../result
+          jq -n --arg item "$ITEM" --arg versions "$VERSIONS" --argjson code "$code" \
+            '{item: $item, versions: $versions, code: $code}' > ../result/result.json
+          [ "$code" -eq 2 ] && exit 0
+          exit "$code"
+      - name: Keep the result
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: result-${{ strategy.job-index }}
+          path: result/result.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+  record:
+    name: Record and release
+    needs: [plan, try]
+    if: ${{ always() && needs.plan.result == 'success' && needs.plan.outputs.count != '0' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: versions
+    steps:
+      - name: Check out the catalog
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: catalog
+          fetch-depth: 0   # the tags, to number the release
+          persist-credentials: false
+      - name: Check out the Lab
+        uses: ./catalog/.github/actions/lab
+        with:
+          key: ${{ secrets.LAB_DEPLOY_KEY }}
+      - name: Fetch the results
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: result-*
+          path: results
+      - name: Write the versions that passed
+        id: record
+        env:
+          MATRIX: ${{ needs.plan.outputs.matrix }}
+        run: |
+          printf '%s' "$MATRIX" > plan.json
+          python3 -I lab/lab-ui/catalog.py link catalog
+          python3 -I lab/lab-ui/catalog.py ci versions-record catalog --plan plan.json --results results | tee recorded.txt
+          if [ -s recorded.txt ]; then echo "changed=true" >> "$GITHUB_OUTPUT"; fi
+      # GitHub's host keys are the ones its API publishes: the key is offered to github.com and to nothing else
+      - name: Release them
+        if: ${{ steps.record.outputs.changed == 'true' }}
+        working-directory: catalog
+        env:
+          VERSIONS_DEPLOY_KEY: ${{ secrets.VERSIONS_DEPLOY_KEY }}
+        run: |
+          [ -n "$VERSIONS_DEPLOY_KEY" ] || { echo "::error::The secret VERSIONS_DEPLOY_KEY is not set in the environment versions"; exit 1; }
+          version=$(python3 -I ../lab/lab-ui/catalog.py ci versions-release .)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -q -a -m "Tested on the newest Gravitee releases" -m "$(cat ../recorded.txt)"
+          git tag -a "v$version" -m "v$version"
+          key="$RUNNER_TEMP/versions-key" hosts="$RUNNER_TEMP/github-hosts"
+          (umask 077; printf '%s\n' "$VERSIONS_DEPLOY_KEY" > "$key")
+          curl -fsS https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com " + .' > "$hosts"
+          GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o UserKnownHostsFile=$hosts -o StrictHostKeyChecking=yes" \
+            git push "git@github.com:$GITHUB_REPOSITORY.git" HEAD:refs/heads/main "refs/tags/v$version"
+          rm -f "$key"
+
+  report:
+    name: Report what does not work
+    needs: [plan, try, record]
+    if: ${{ always() && (contains(fromJSON('["failure","cancelled"]'), needs.plan.result) || contains(fromJSON('["failure","cancelled"]'), needs.try.result) || contains(fromJSON('["failure","cancelled"]'), needs.record.result)) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh label create versions --repo "$GITHUB_REPOSITORY" --color FBCA04 --description "A playground does not work on a new Gravitee release" 2>/dev/null || true
+          open=$(gh issue list --repo "$GITHUB_REPOSITORY" --label versions --state open --json number --jq '.[0].number // empty')
+          body="A playground does not work on a newer Gravitee release, or its record failed, on $(date -u +%F): $RUN"
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --label versions --title "A playground does not work on a new Gravitee release" --body "$body"
+          fi
