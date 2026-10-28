@@ -2430,7 +2430,7 @@ class Startup(Case):
         self.assertEqual(self.events, [("bind", ("127.0.0.1", 9000)), ("signals",), ("layout", "ensure"), ("service", "recover"),
                                        ("contribute", "sweep"), ("firstrun", "reconcile"), ("firstrun", "start_worker"),
                                        ("serve",)])
-        self.assertEqual(said, "Gravitee Lab UI on http://localhost:9000  (Ctrl+C to stop)\n")
+        self.assertEqual(said, "  Gravitee Lab UI on http://localhost:9000  (Ctrl+C to stop)\n")
 
     def test_the_browser_opens_once_the_steps_are_done_and_not_when_it_is_not_asked(self):
         self.serve(browser=True)

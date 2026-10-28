@@ -1075,7 +1075,7 @@ def serve(port, browser):
             open_browser(url)
         return   # a Lab serves already: nothing on disk is touched, so nothing of its work is finished or swept from here
     server.daemon_threads = True   # an open log stream does not keep the Lab UI from stopping
-    print(f"Gravitee Lab UI on {url}  (Ctrl+C to stop)")
+    print(f"  Gravitee Lab UI on {url}  (Ctrl+C to stop)")   # in line with what install.sh printed above it
     compose.stop_on_signals()   # once, from the main thread, before it serves: a closed terminal ends what runs
     start_up()
     if browser:
@@ -1122,7 +1122,7 @@ def main(argv=None):
     if missing and (args.check or args.list or args.e2e):
         sys.exit(missing)
     if missing:   # the Lab UI serves all the same: its page says what is missing, and how to fix it (machine)
-        print(f"Gravitee Lab UI: {missing.replace(' ' + README, '. The Lab UI says how to fix it.')}", file=sys.stderr)
+        print(f"  Gravitee Lab UI: {missing.replace(' ' + README, '. The Lab UI says how to fix it.')}", file=sys.stderr)
     layers.prepare()
     if args.check:
         sys.exit(check.run())
