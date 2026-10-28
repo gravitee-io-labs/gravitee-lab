@@ -447,10 +447,11 @@
     }
 
     # A shortcut that opens the Lab UI next time, in a window named Gravitee Lab, which stays open on an error so that it can
-    # be read
+    # be read. It opens in the console this one is, by the setting of Windows: plain marks where this one draws no others
+    $plain = if ($fancy) { '' } else { 'env LC_CTYPE=C ' }
     $link = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path ([Environment]::GetFolderPath('Programs')) 'Gravitee Lab.lnk'))
     $link.TargetPath = Join-Path $env:SystemRoot 'System32\cmd.exe'
-    $link.Arguments = "/c title Gravitee Lab && wsl.exe -d $distro -- $lab/bin/gravitee-lab || pause"
+    $link.Arguments = "/c title Gravitee Lab && wsl.exe -d $distro -- $plain$lab/bin/gravitee-lab || pause"
     $link.IconLocation = (Join-Path $env:SystemRoot 'System32\wsl.exe') + ',0'
     $link.Description = 'Opens the Gravitee Lab UI'
     $link.Save()
