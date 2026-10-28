@@ -116,11 +116,18 @@ linux_tools() {
     fi
     ask "Install ${packages}with ${install%% *}?${root:+ sudo asks for your password.}" \
         || halt "Install ${packages}with ${install%% *}, then run this command again." '#linux'
+    say "Installing ${packages}"
+    log=$(mktemp)
     # shellcheck disable=SC2086
-    $root sh -c "$install $packages" > /dev/null || halt "${packages}did not install. Is the internet reachable from this machine?" '#linux'
+    if ! $root sh -c "$install $packages" > "$log" 2>&1; then
+        tail -n 5 "$log" | sed 's/^/      /'
+        rm -f "$log"
+        halt "${packages}did not install: ${install%% *} says why above. Is the internet reachable from this machine?" '#linux'
+    fi
+    rm -f "$log"
     gone=$(missing)
     [ -z "$gone" ] || halt "${gone}is still missing: install Python 3.9 or later. The version this system ships is older." '#linux'
-    ok 'All there'
+    ok "Installed ${packages% }"
 }
 
 # Docker's command: on the PATH, or where Docker Desktop puts it when a terminal opened before it was installed does not
@@ -176,7 +183,7 @@ command_on_path() {
     ln -sf "$lab/bin/gravitee-lab" "$HOME/.local/bin/gravitee-lab"
     case :$PATH: in
         *:"$HOME/.local/bin":*)
-            ok 'gravitee-lab'
+            ok 'gravitee-lab is on the PATH'
             return
             ;;
     esac
