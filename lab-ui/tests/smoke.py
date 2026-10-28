@@ -277,7 +277,7 @@ def twice(lab_ui):
     done = subprocess.run([sys.executable, str(LAB_UI / "server.py"), "--port", str(lab_ui.port), "--no-open"],
                           capture_output=True, encoding="utf-8", errors="replace", timeout=60)
     assert done.returncode == 0, f"it exited with {done.returncode}: {done.stdout}{done.stderr}"
-    assert f"already running on http://localhost:{lab_ui.port}" in done.stdout, done.stdout
+    assert f"Lab UI   http://localhost:{lab_ui.port}\n     Already running." in done.stdout, done.stdout
 
 
 def run(name, check, *args):

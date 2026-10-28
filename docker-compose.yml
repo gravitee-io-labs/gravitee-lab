@@ -4,7 +4,7 @@ x-gravitee:
   name: Gravitee Platform
   groups: [API Management, Access Management, Alert Engine, Databases]
   categories: [Gravitee Platform, AI, Event, API, Observability, Other]
-  contract: 3       # The newest level of what units rely on (docs/contract.md): grows with every addition to it
+  contract: 4       # The newest level of what units rely on (docs/contract.md): grows with every addition to it
   contract_min: 1   # The oldest level still read: grows when something is removed or changed
   seeder:
     image: ghcr.io/gravitee-io-labs/gravitee-lab/seeder   # The seeder image, built from ./seeder: the only image a seed service may have
@@ -150,7 +150,7 @@ services:
   # API Management
 
   apim-management-api:
-    image: ${APIM_REGISTRY:-graviteeio}/apim-management-api:${APIM_VERSION:-4.12.20}
+    image: ${APIM_REGISTRY:-graviteeio}/apim-management-api:${APIM_VERSION:-4.13.1}
     container_name: gio-apim-management-api
     restart: unless-stopped
     depends_on:
@@ -179,6 +179,7 @@ services:
 
       # Modules
       gravitee_modules_aim_catalog_mcp-discovery_allow-private-endpoints: "true"   # Allow private endpoints in MCP server, model and agent discovery
+      gravitee_modules_aim_credentials_gateway_enabled: "true"   # Sync vault credentials to the gateways, which LLM proxies reach their providers with
 
       # JVM heap
       GIO_MIN_MEM: 256m
@@ -195,7 +196,7 @@ services:
       - internal
 
   apim-gateway:
-    image: ${APIM_GATEWAY_REGISTRY:-${APIM_REGISTRY:-graviteeio}}/apim-gateway:${APIM_GATEWAY_VERSION:-${APIM_VERSION:-4.12.20}-debian}
+    image: ${APIM_GATEWAY_REGISTRY:-${APIM_REGISTRY:-graviteeio}}/apim-gateway:${APIM_GATEWAY_VERSION:-${APIM_VERSION:-4.13.1}-debian}
     container_name: gio-apim-gateway
     restart: unless-stopped
     depends_on:
@@ -269,7 +270,7 @@ services:
       - internal
 
   gamma-ui:
-    image: ${APIM_REGISTRY:-graviteeio}/gamma-ui:${APIM_VERSION:-4.12.20}
+    image: ${APIM_REGISTRY:-graviteeio}/gamma-ui:${APIM_VERSION:-4.13.1}
     container_name: gio-gamma-ui
     restart: unless-stopped
     command: *ui-frames
@@ -291,12 +292,14 @@ services:
       io.gravitee.group: API Management
       io.gravitee.console.gamma.name: Gamma Console
       io.gravitee.console.gamma.url: http://localhost:8086
+      io.gravitee.console.gamma.username: admin
+      io.gravitee.console.gamma.password: admin
     healthcheck: *ui-healthcheck
     networks:
       - edge
 
   apim-portal-ui:
-    image: ${APIM_REGISTRY:-graviteeio}/apim-portal-ui:${APIM_VERSION:-4.12.20}
+    image: ${APIM_REGISTRY:-graviteeio}/apim-portal-ui:${APIM_VERSION:-4.13.1}
     container_name: gio-apim-portal-ui
     restart: unless-stopped
     depends_on:
@@ -314,15 +317,19 @@ services:
       io.gravitee.group: API Management
       io.gravitee.console.portal.name: Developer Portal
       io.gravitee.console.portal.url: http://localhost:8085/next/
+      io.gravitee.console.portal.username: admin
+      io.gravitee.console.portal.password: admin
       io.gravitee.console.portal-legacy.name: Classic Developer Portal
       io.gravitee.console.portal-legacy.url: http://localhost:8085
+      io.gravitee.console.portal-legacy.username: admin
+      io.gravitee.console.portal-legacy.password: admin
       io.gravitee.console.portal-legacy.legacy: "true"
     healthcheck: *ui-healthcheck
     networks:
       - edge
 
   apim-management-ui:
-    image: ${APIM_REGISTRY:-graviteeio}/apim-management-ui:${APIM_VERSION:-4.12.20}
+    image: ${APIM_REGISTRY:-graviteeio}/apim-management-ui:${APIM_VERSION:-4.13.1}
     container_name: gio-apim-management-ui
     restart: unless-stopped
     command: *ui-frames
@@ -341,6 +348,8 @@ services:
       io.gravitee.group: API Management
       io.gravitee.console.apim.name: APIM Console
       io.gravitee.console.apim.url: http://localhost:8084
+      io.gravitee.console.apim.username: admin
+      io.gravitee.console.apim.password: admin
       io.gravitee.console.apim.legacy: "true"
     healthcheck: *ui-healthcheck
     networks:
@@ -349,7 +358,7 @@ services:
   # Access Management
 
   am-management-api:
-    image: ${AM_REGISTRY:-graviteeio}/am-management-api:${AM_VERSION:-4.12.7}
+    image: ${AM_REGISTRY:-graviteeio}/am-management-api:${AM_VERSION:-4.13.1}
     container_name: gio-am-management-api
     restart: unless-stopped
     depends_on:
@@ -373,7 +382,7 @@ services:
       - internal
 
   am-gateway:
-    image: ${AM_REGISTRY:-graviteeio}/am-gateway:${AM_VERSION:-4.12.7}
+    image: ${AM_REGISTRY:-graviteeio}/am-gateway:${AM_VERSION:-4.13.1}
     container_name: gio-am-gateway
     restart: unless-stopped
     depends_on:
@@ -399,7 +408,7 @@ services:
       - internal
 
   am-management-ui:
-    image: ${AM_REGISTRY:-graviteeio}/am-management-ui:${AM_VERSION:-4.12.7}
+    image: ${AM_REGISTRY:-graviteeio}/am-management-ui:${AM_VERSION:-4.13.1}
     container_name: gio-am-management-ui
     restart: unless-stopped
     depends_on:
@@ -416,6 +425,8 @@ services:
       io.gravitee.group: Access Management
       io.gravitee.console.am.name: AM Console
       io.gravitee.console.am.url: http://localhost:8081
+      io.gravitee.console.am.username: admin
+      io.gravitee.console.am.password: adminadmin
     healthcheck: *ui-healthcheck
     networks:
       - edge

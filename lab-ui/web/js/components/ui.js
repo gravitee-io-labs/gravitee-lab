@@ -547,7 +547,10 @@ const popover = (lines) => lines.length > 1 || String(lines[0] ?? "").length > L
 export function tipHtml(inner, line, cls = "", label = "", { title = true, tab = true, said = "", short = false } = {}) {
   const lines = typeof line === "object" && !Array.isArray(line) ? null : [].concat(line);
   const card = lines ? (popover(lines) ? cardOf(lines, title) : null) : line;
-  const words = said || (lines ? lines.map((one, i) => (i < lines.length - 1 ? one.replace(/\.$/, "") : one)).join(". ") : cardSaid(card));
+  // A card titled with the name of its control is said once: the name, then the rest of the card
+  const told = lines && label && lines.length > 1 && lines[0] === label ? lines.slice(1) : lines;
+  const words = said || (told ? told.map((one, i) => (i < told.length - 1 ? one.replace(/\.$/, "") : one)).join(". ")
+    : cardSaid(label && card.title === label ? { ...card, title: "" } : card));
   const bubble = card ? `<span class="tip-card" role="tooltip"${card.action ? "" : ' aria-hidden="true"'}>${cardHtml(card)}</span>`
     : `<span class="tip-text" role="tooltip" aria-hidden="true"><span>${esc(lines[0])}</span></span>`;
   const names = short ? `aria-label="${esc(label)}" aria-description="${esc(words)}"` : `aria-label="${esc(label ? `${label}: ${words}` : words)}"`;
@@ -690,6 +693,7 @@ const placeTip = (tip) => {
 // of the page on hover and on keyboard focus, never on a click, which is the control's. It is the control's description for a screen
 // reader too (aria-describedby).
 let floating = null;
+let floatingFor = null;   // the control the bubble shows for
 // An open dialog sits in the browser's top layer, above everything that is not in it: the bubble is hosted in the dialog of the control that
 // asks for it, so that the reason a control of a dialog cannot be used shows there, else in the body. Not in the last dialog of the document: the
 // order of the top layer is the order the dialogs were opened in, which the document does not know (a confirmation of index.html opened over
@@ -723,6 +727,7 @@ function showFloat(el) {
   floating.className = `${card ? "tip-card" : "tip-text"} tip-float shown`;
   floating.innerHTML = card ? cardHtml(card) : `<span>${esc(said)}</span>`;
   el.setAttribute("aria-describedby", "tip-float");
+  floatingFor = el;
   place(floating, el.getBoundingClientRect(), card ? 460 : 280);
 }
 const hideFloat = () => floating?.classList.remove("shown");
@@ -740,7 +745,12 @@ const tipped = (e) => {
   if (el?.hasAttribute("data-why")) adopt(el);
   return el?.dataset.tip ? el : null;
 };
-document.addEventListener("mouseover", (e) => { const el = tipped(e); if (el) showFloat(el); });
+// Over what has no tooltip, none shows: the control that had one may have gone from under the pointer (Stop all, once it stopped)
+document.addEventListener("mouseover", (e) => {
+  const el = tipped(e);
+  if (el) showFloat(el);
+  else if (!floating?.contains(e.target)) hideFloat();
+});
 document.addEventListener("focusin", (e) => { const el = tipped(e); if (el) showFloat(el); });
 document.addEventListener("mouseout", (e) => { const el = e.target.closest?.("[data-tip]"); if (el && !el.contains(e.relatedTarget)) hideFloat(); });
 document.addEventListener("focusout", (e) => { if (e.target.closest?.("[data-tip]")) hideFloat(); });
@@ -1029,6 +1039,11 @@ function showOff(b) {
   const tip = (b._off && b._why) || b._tip;
   if (tip) b.dataset.tip = tip;
   else delete b.dataset.tip;
+  // The bubble of the control it shows for says what it says now ("Checking your machine", then what to fix)
+  if (b === floatingFor && floating?.classList.contains("shown")) {
+    if (tip) showFloat(b);
+    else hideFloat();
+  }
 }
 // `off`: whether it cannot be used, `why` what it says then; `tip`, when given, its own tooltip from now on ("" for none). A button at
 // work says what runs, and gets this back as its face comes back (paint).

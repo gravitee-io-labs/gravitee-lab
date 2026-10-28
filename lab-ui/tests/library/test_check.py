@@ -1062,6 +1062,11 @@ class Literals(Case):
             f"x-bank-secrets: demo-password {self.LITERAL}",
             f"x-nested.deep[0]: client_secret {self.LITERAL}"])
 
+    def test_the_password_of_a_console_sign_in_is_shown_and_no_secret(self):
+        config = {"services": {"ui": {"labels": {"io.gravitee.console.ui.username": "admin", "io.gravitee.console.ui.password": "admin",
+                                                 "io.gravitee.console.password": "admin"}}}}
+        self.assertEqual(self.found(config), [f"ui labels: io.gravitee.console.password {self.LITERAL}"], "a label of no console is one")
+
     def test_the_names_of_a_secret(self):
         for key in ("PASSWORD", "DB_PASSWD", "KEYSTORE_PASSPHRASE", "CLIENT_SECRET", "LLM_API_KEY", "OPENAI_APIKEY",
                     "ADMIN_TOKEN", "token", "gravitee_ratelimit_redis_password", "Admin_Password", "KAFKA_CLIENT_PASSWORDS"):

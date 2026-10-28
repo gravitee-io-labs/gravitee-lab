@@ -11,9 +11,21 @@
 
 ## Run it
 
+On macOS and Linux, in a terminal:
+
 ```bash
-git clone https://github.com/gravitee-io-labs/gravitee-lab.git && cd gravitee-lab && make ui
+curl -fsSL https://raw.githubusercontent.com/gravitee-io-labs/gravitee-lab/main/install.sh | sh
 ```
+
+On Windows, in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/gravitee-io-labs/gravitee-lab/main/install.ps1 | iex
+```
+
+Each adds only what is missing (the tools the lab needs, the clone in `~/gravitee-lab`), asks before it installs anything, and
+can run again at any time ([what it does](docs/installation.md#install)). Next time, run `gravitee-lab`, or on Windows open
+**Gravitee Lab** from the Start menu.
 
 The [Lab UI](http://localhost:9000) opens in your browser, on its Dashboard. Start the platform, then turn on add-ons, setups or playgrounds from the lists to do even more interesting things. They come from [catalogs](docs/catalogs.md): the Lab downloads the default one the first time it starts.
 

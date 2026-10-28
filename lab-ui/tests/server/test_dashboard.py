@@ -799,6 +799,22 @@ class Process(Case):
         self.stop()
         self.assertTrue(all(process.waited for process in self.spawned))
 
+    def test_a_machine_without_docker_is_asked_again_until_it_has_it(self):
+        self.patch(dashboard, "RESTART", 0)
+        tries = []
+
+        def spawn():
+            tries.append(1)
+            if len(tries) < 3:
+                raise FileNotFoundError(2, "No such file or directory", "docker")
+            return self.spawn()
+        self.stats.spawn = spawn
+        self.stats.join()
+        waited(self, lambda: len(self.spawned) == 1)   # Docker installed while the page was open
+        self.stats.leave()
+        self.stop()
+        self.assertTrue(self.spawned[0].killed)
+
     def test_the_process_is_a_docker_stats_of_json_lines_read_as_utf8(self):
         popen = self.patch(dashboard.subprocess, "Popen")
         dashboard._stats_process()

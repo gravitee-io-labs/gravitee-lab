@@ -90,9 +90,13 @@ Gravitee Cloud runs without the core.
 
 What this machine needs to run the lab, one line each: Docker with Compose 5.0 or later, the memory Docker has (8 GB), the free
 disk where Docker keeps its images (15 GB for the first start), the ports the platform publishes (one held by another program is
-named with its service), and Git for the catalogs. Each line says its state and has the one fix that answers it: a download, a
-command to copy, or, on a Mac, *Open Docker Desktop* and Apple's installer of Git, which the Lab UI runs. The lines are asked again
-every few seconds while the step shows, so a fix turns its line right by itself.
+named with its service), and Git for the catalogs. A lab folder in iCloud Drive, Google Drive, OneDrive, Dropbox or Box adds a line:
+the sync can lock the files the containers write, and the line gives the clone to run outside it. In WSL, so does a lab folder on a
+disk of Windows (`/mnt/c`), which the containers read slowly. Each line says its state and has the one fix that answers it: a download, a
+command to copy, or one the Lab UI runs: on a Mac, *Open Docker Desktop* and Apple's installer of Git; in WSL, *Start Docker Desktop*,
+*Reconnect* when Docker Desktop lost the distribution (it does each time the distribution restarts), and *Open Docker Desktop* to turn
+on the distribution in its WSL integration. The lines are asked again every few seconds while the step shows, so a fix turns its line
+right by itself.
 
 It is the first step of *Welcome to Gravitee Lab*. A line in red keeps the platform from starting: until it is fixed, *Continue*
 and the steps after it wait. The notice that Docker is not reachable or not ready, and the one about Docker's memory, open it with
@@ -355,7 +359,8 @@ the last lines of each service load again.
 
 - **Form** writes the compose file for you. **AI agent** has an agent write it: say what it should do, then open Claude (the
   app or Claude Code), Codex or Cursor with the prompt written and not sent, or copy the prompt for another agent. The
-  agents that take a folder open on the Lab's.
+  agents that take a folder open on the Lab's. In WSL they are apps of Windows: they get the folder by its Windows path
+  (`\\wsl.localhost\Ubuntu\...`), and the prompt tells them to run the lab's commands in the distribution with `wsl.exe`.
 - **Personal** keeps it on this machine, in `.lab/catalogs/local/`, which git ignores, with the id `local/<name>`. A catalog that
   is a folder of yours keeps it there instead, to edit as you like.
 

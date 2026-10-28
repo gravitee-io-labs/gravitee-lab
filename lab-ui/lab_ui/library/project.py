@@ -35,7 +35,7 @@ from ..paths import CORE_FILE, ENV_FILE, KINDS, LAB_DIR, ROOT
 SECRET = re.compile(r"TOKEN|SECRET|PASSWORD|LICENSE|_KEY")
 LICENSE_KEY = "gravitee_license_key"   # where a Gravitee component reads its license, in its environment
 LICENSE_LABEL = "io.gravitee.license"   # `required` on a service that exits without a usable license
-CONSOLE_LABEL = re.compile(r"io\.gravitee\.console\.([a-z0-9-]+)\.(name|url|legacy)")
+CONSOLE_LABEL = re.compile(r"io\.gravitee\.console\.([a-z0-9-]+)\.(name|url|legacy|username|password)")
 CHAPTER = re.compile(r"^## \d+\.\s*(.+)$", re.M)   # the guide's numbered sections: "## 1. Semantic caching"
 URL_PORT = re.compile(r"\w+://[^/:]+:(\d+)")
 BROUGHT = {"addon": "needs", "setup": "members", "playground": "addons"}   # where a unit lists what it brings
@@ -1109,14 +1109,16 @@ def _owners(core, addons, playgrounds):
 
 
 def _console_ids(labels):
-    """The consoles a service declares with io.gravitee.console.<id>.name / .url (and .legacy) labels, by id; one whose url
-    is no web address (http or https) is none: the page opens it as a link, and `make check` says it."""
+    """The consoles a service declares with io.gravitee.console.<id>.name / .url (and .legacy, and the demo sign-in .username
+    / .password) labels, by id; one whose url is no web address (http or https) is none: the page opens it as a link, and
+    `make check` says it."""
     found = {}
     for key, value in labels.items():
         m = CONSOLE_LABEL.fullmatch(key)
         if m:
             found.setdefault(m.group(1), {})[m.group(2)] = value
-    return {cid: {"label": c["name"], "url": c["url"], "legacy": c.get("legacy") == "true"}
+    return {cid: {"label": c["name"], "url": c["url"], "legacy": c.get("legacy") == "true",
+                  "username": c.get("username"), "password": c.get("password")}
             for cid, c in found.items() if "name" in c and re.match(r"https?://", str(c.get("url", "")), re.I)}
 
 
@@ -1263,7 +1265,8 @@ def _links(services, owners, layers):
     for what is on."""
     def link(name, found, **more):
         return {"label": found["label"], "url": found["url"], "port": _port(found["url"]), "service": name,
-                "section": owners[name][1], "legacy": found["legacy"], **more}
+                "section": owners[name][1], "legacy": found["legacy"], "username": found["username"],
+                "password": found["password"], **more}
 
     def of(labels, cid):
         return {key: value for key, value in labels.items() if CONSOLE_LABEL.fullmatch(key).group(1) == cid}
@@ -1319,7 +1322,7 @@ def shown(links, playground, effective, tabs=False):
         first = (core or units)[0]
         kept = {name: value for name, value in first.items() if name not in ("by", "labels")}
         return {**kept, "label": console["label"], "url": console["url"], "port": _port(console["url"]),
-                "legacy": console["legacy"]}
+                "legacy": console["legacy"], "username": console["username"], "password": console["password"]}
     return [one for one in (merged(item) if isinstance(item, tuple) else item for item in found) if one]
 
 

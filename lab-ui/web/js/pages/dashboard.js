@@ -186,12 +186,14 @@ function statusOf(unit, product, asking) {
 
 // The consoles of a product that run, as one kind of control. A card with room has a button for each, in the order of the state's
 // links, and the older ones (the `legacy` of the link) together in one More menu. A narrower card has one Open button: the console
-// itself when there is one, else the menu of them all, so that a product with one console and a product with several look alike.
+// itself when there is one, else the menu of them all, so that a product with one console and a product with several look alike. The tooltip
+// of a button says the demo sign-in of its console.
 const linksOf = (unit, state) => state.links.filter((link) => link.up && unit.services.includes(link.service));
 function consolesCell(unit, state) {
   const mine = linksOf(unit, state), main = mine.filter((link) => !link.legacy), older = mine.length - main.length;
   if (!mine.length) return "";
-  const open = (link, label = link.label) => `<a class="btn" href="${esc(safeHref(link.url))}" target="_blank" rel="noopener" data-tip="Open ${esc(link.label)}" aria-label="Open ${esc(link.label)}">${icon("external")}<span class="dash-clip">${esc(label)}</span></a>`;
+  const tip = (link) => `Open ${link.label}${link.username ? `, sign in as ${link.username} / ${link.password || ""}` : ""}`;
+  const open = (link, label = link.label) => `<a class="btn" href="${esc(safeHref(link.url))}" target="_blank" rel="noopener" data-tip="${esc(tip(link))}" aria-label="Open ${esc(link.label)}">${icon("external")}<span class="dash-clip">${esc(label)}</span></a>`;
   const more = older ? `<button class="btn" data-consoles="older:${esc(unit.id)}" aria-haspopup="true" aria-label="More, consoles of ${esc(unit.name)}">More${icon("chevron")}</button>` : "";
   const all = mine.length === 1 ? open(mine[0], "Open")
     : `<button class="btn" data-consoles="all:${esc(unit.id)}" aria-haspopup="true" aria-label="Open, consoles of ${esc(unit.name)}">Open${icon("chevron")}</button>`;
