@@ -132,14 +132,25 @@ docker_cli() {
     done
 }
 
-# The clone: one that is there is used as it is, the Lab UI updates it
+# A folder as a person reads it: ~ for the home folder
+shown() {
+    case $1 in
+        "$HOME"/*) echo "~/${1#"$HOME"/}" ;;
+        *) echo "$1" ;;
+    esac
+}
+
+# The clone: one that is there is used as it is, whatever its origin (a fork) or its branch, and the Lab UI updates it
 clone() {
     if [ -e "$lab" ]; then
-        if git -C "$lab" remote get-url origin 2> /dev/null | grep -q 'gravitee-lab'; then
-            ok "Already there"
+        if [ -f "$lab/lab-ui/server.py" ] && [ -f "$lab/bin/gravitee-lab" ] && git -C "$lab" rev-parse --git-dir > /dev/null 2>&1; then
+            ok 'Already there'
             return
         fi
-        halt "$lab holds something else. Move it, or name another folder with GRAVITEE_LAB_DIR, then run this command again."
+        if [ -f "$lab/lab-ui/server.py" ]; then
+            halt "$(shown "$lab") holds a Gravitee Lab older than the command gravitee-lab. Update it (cd $(shown "$lab") && make update), then run this command again."
+        fi
+        halt "$(shown "$lab") holds something else. Move it, or name another folder with GRAVITEE_LAB_DIR, then run this command again."
     fi
     git clone --quiet --branch "$branch" "$repository" "$lab" \
         || halt "The clone failed. Behind a proxy that inspects HTTPS, git needs the certificate of your company: see Corporate proxy in docs/troubleshooting.md." '#prerequisites'
@@ -205,7 +216,7 @@ main() {
     step 1 'Git, Make, Python 3.9 or later and OpenSSL'
     if [ "$system" = macOS ]; then mac_tools; else linux_tools; fi
 
-    step 2 "Gravitee Lab in ${lab#"$HOME"/}"
+    step 2 "Gravitee Lab in $(shown "$lab")"
     clone
 
     step 3 'The command gravitee-lab'
