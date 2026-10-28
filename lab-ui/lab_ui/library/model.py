@@ -726,7 +726,8 @@ def _setup(c, setup, addons):
     on = bool(members) and all(member["on"] for member in members)
     services = [name for member in members for name in member["services"]]
     return {**_item(c, setup, setup_fold(members), on, any(member["up"] for member in members), services),
-            "includes": setup["includes"], "members": _named(c["project"]["addons"], setup["members"])}
+            "includes": setup["includes"], "members": _named(c["project"]["addons"], setup["members"]),
+            "services": services}   # those of the add-ons it groups: what is up when it is
 
 
 def seed_reason(project, state, up, playground):

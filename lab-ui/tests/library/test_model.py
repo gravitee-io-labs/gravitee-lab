@@ -1077,6 +1077,8 @@ class State(Built):
         self.assertEqual((setup["on"], setup["up"], setup["state"]["key"], setup["note"], setup["note_title"]),
                          (False, True, "off", "Partly on", "On: Jade"))
         self.assertEqual(setup["members"], [{"id": "jade", "name": "Jade"}, {"id": "kiosk", "name": "Kiosk"}])
+        # Its services are those of its add-ons: what the end-to-end run waits for once it starts it
+        self.assertEqual(setup["services"], [*addons["jade"]["services"], *addons["kiosk"]["services"]])
         playground = body["playgrounds"][0]
         # What belongs to this machine says so, whatever its kind
         self.assertEqual([item["id"] for kind in ("addons", "setups", "playgrounds") for item in body[kind]
