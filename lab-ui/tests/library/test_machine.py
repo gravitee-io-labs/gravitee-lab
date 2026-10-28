@@ -137,6 +137,12 @@ class Machine(Case):
         self.assertIn([DESKTOP, "desktop", "restart", "--detach"], self.ran)
         self.assertEqual(self.check("docker")["detail"], "Docker Desktop is connecting to Ubuntu")
 
+    def test_in_wsl_a_reconnect_that_stops_containers_says_so_first(self):
+        self.in_wsl(linked=True)
+        self.answers[(DESKTOP, "ps")] = (0, "4f2a9c\n81be07\n", "")   # another project's containers run in Docker Desktop
+        self.assertEqual(self.check("docker")["detail"],
+                         "Docker Desktop lost Ubuntu: Reconnect restarts it, which stops the 2 containers that run")
+
     def test_in_wsl_docker_desktop_that_never_served_the_distribution_says_where_to_turn_it_on(self):
         self.in_wsl()
         docker = self.check("docker")

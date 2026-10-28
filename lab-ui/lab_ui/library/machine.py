@@ -138,8 +138,11 @@ def _desktop(title):
                       [_action("start-desktop", "Start Docker Desktop", True)])
     if _waiting("docker", 60):
         return _check("docker", "working", title, f"Docker Desktop is connecting to {distro}")
-    if os.path.islink(DESKTOP_LINK):
-        return _check("docker", "error", title, f"Docker Desktop lost {distro}",
+    if os.path.islink(DESKTOP_LINK):   # a restart serves it again, and stops what runs: said first
+        rc, out, _ = compose.run([cli, "ps", "-q"], timeout=15)
+        running = len(out.split()) if rc == 0 else 0
+        said = f": Reconnect restarts it, which stops the {running} containers that run" if running else ""
+        return _check("docker", "error", title, f"Docker Desktop lost {distro}{said}",
                       [_action("reconnect-desktop", "Reconnect", True)])
     return _check("docker", "error", title,
                   f"Docker Desktop does not serve {distro}: turn it on in Settings > Resources > WSL integration",
