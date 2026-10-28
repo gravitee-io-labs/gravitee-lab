@@ -1,0 +1,57 @@
+#!/bin/sh
+# gravitee-lab, the command install.sh puts on the PATH. Alone, it opens the Lab UI. With a word, it runs that target of the
+# Makefile, with what follows it (gravitee-lab stop, gravitee-lab logs SVC=apim-gateway). `gravitee-lab help` lists them, and
+# `gravitee-lab uninstall` takes the command off the PATH. It finds the Lab from where it is: the link install.sh made points
+# into the clone, so the command is updated with the Lab.
+
+self=$0
+while [ -L "$self" ]; do
+    target=$(readlink "$self")
+    case $target in
+        /*) self=$target ;;
+        *) self=$(dirname "$self")/$target ;;
+    esac
+done
+lab=$(cd "$(dirname "$self")/.." && pwd -P)
+marker='# Added by Gravitee Lab'
+
+# What install.sh added: the link on the PATH, and the line of a shell's profile that puts ~/.local/bin on it. The Lab, its
+# settings and its data stay
+uninstall() {
+    link="$HOME/.local/bin/gravitee-lab"
+    [ -L "$link" ] && rm -f "$link" && echo "Removed $link"
+    for profile in "$HOME/.zshrc" "${ZDOTDIR:-$HOME}/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile" \
+        "$HOME/.config/fish/conf.d/gravitee-lab.fish"; do
+        if [ ! -f "$profile" ] || ! grep -q "$marker" "$profile"; then
+            continue
+        fi
+        case $profile in
+            *.fish) rm -f "$profile" ;;
+            *) grep -v "$marker" "$profile" > "$profile.gravitee-lab" && cat "$profile.gravitee-lab" > "$profile" && rm -f "$profile.gravitee-lab" ;;
+        esac
+        echo "Removed the line of $profile that puts ~/.local/bin on the PATH"
+    done
+    echo "The Lab stays in $lab, with its data. To remove it too: make -C \"$lab\" reset, then delete the folder."
+}
+
+case ${1:-ui} in
+    help | -h | --help)
+        echo 'Usage: gravitee-lab [command]   With no command, it opens the Lab UI.'
+        exec make -C "$lab" --no-print-directory help
+        ;;
+    uninstall)
+        uninstall
+        ;;
+    *)
+        [ $# -gt 0 ] || set -- ui
+        case $1 in
+            *[!a-z0-9-]* | -*) known=false ;;
+            *) grep -Eq "^$1:" "$lab/Makefile" 2>/dev/null && known=true || known=false ;;
+        esac
+        if [ "$known" = false ]; then
+            echo "gravitee-lab: there is no command $1. Run: gravitee-lab help" >&2
+            exit 2
+        fi
+        exec make -C "$lab" --no-print-directory "$@"
+        ;;
+esac
