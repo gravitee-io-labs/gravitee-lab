@@ -86,26 +86,30 @@ The lab runs in WSL 2, in a Linux distribution, with Docker Desktop. In PowerShe
 irm https://raw.githubusercontent.com/gravitee-io-labs/gravitee-lab/main/install.ps1 | iex
 ```
 
-It uses what your computer has, adds only what is missing, then opens the Lab UI in your browser:
+It does what only Windows can do, then hands the distribution to `install.sh`, the installer of macOS and Linux. It uses
+what your computer has and adds only what is missing:
 
-1. It installs WSL if it is not there, and asks you to restart Windows and to run the command again. Windows asks for
-   administrator rights.
+1. It installs WSL if it is not there, and asks you to restart Windows and to run the command again, which it puts in your
+   clipboard. Windows asks for administrator rights.
 2. It uses your Ubuntu or Debian distribution, the default one first, and installs Ubuntu when you have none. A new
    Ubuntu asks for a user name and a password for Linux. They are not your Windows ones: `sudo` asks for this password.
    It asks before it moves a distribution of WSL 1 to WSL 2.
-3. It installs the tools it lacks among Git, Make, Python and OpenSSL.
-4. It uses the Docker that answers in the distribution, Docker Desktop or Docker Engine. Without one, it offers to
+3. It uses the Docker that answers in the distribution, Docker Desktop or Docker Engine. Without one, it offers to
    install Docker Desktop with `winget`: at work, Docker Desktop can need your company's subscription, and your IT may
    install it for you. It starts Docker Desktop and connects it to the distribution. It asks before it restarts Docker
    Desktop while containers run, and makes the distribution the default of WSL only when the default was Docker
    Desktop's own.
-5. It clones the lab in the distribution's own disk, in `~/gravitee-lab`: the containers read a folder of Windows
-   slowly. A clone already there is kept, and a folder of that name that holds something else stops it.
-6. It adds **Gravitee Lab** to the Start menu, which opens the Lab UI next time, then starts the Lab UI.
+4. It checks that the distribution reaches the internet as Windows does: a VPN that keeps it from resolving names is said
+   at once, and the certificate of a proxy of your company that inspects HTTPS is offered to the distribution.
+5. It adds **Gravitee Lab** to the Start menu, which opens the Lab UI next time.
+6. `install.sh` runs in the distribution: it installs the tools it lacks among Git, Make, Python and OpenSSL (as root
+   through WSL: no password to type), clones the lab in `~/gravitee-lab`, in the distribution's own disk, makes its
+   settings and the command `gravitee-lab`, then opens the Lab UI.
 
 Run it again at any time: it skips what is done and never deletes anything. Keep its window open while you use the lab:
-Ctrl+C stops the Lab UI, and the containers keep running. `GRAVITEE_LAB_DISTRO` names the distribution to use. The
-commands of this page run in the distribution: open it from the Start menu, then `cd ~/gravitee-lab`. PowerShell, cmd
+Ctrl+C stops the Lab UI, and the containers keep running. `GRAVITEE_LAB_DISTRO` names the distribution to use, and the
+settings of `install.sh` (`GRAVITEE_LAB_BRANCH`, `GRAVITEE_LAB_DIR`, `GRAVITEE_LAB_YES`) pass through. The commands of this
+page run in the distribution: open it from the Start menu, then `cd ~/gravitee-lab`, or run `gravitee-lab` there. PowerShell, cmd
 and Git Bash cannot run the lab. Items that run AI models through Ollama on Windows are untested.
 
 To read the script before it runs, download it, open it, then run it:

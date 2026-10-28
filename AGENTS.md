@@ -13,7 +13,7 @@ project, people and AI agents alike. The process (branches, pull requests, CI) i
 | `docker-compose.yml` | The core: the platform and its databases. See [The core](#the-core) |
 | `.env.example`, `Makefile` | The template that `make init` copies to `.env`; every command (`make help`) |
 | `install.sh` | macOS and Linux from nothing to the Lab UI: the tools (Apple's command line tools, or the package manager's), the clone, the command `gravitee-lab` on the PATH |
-| `install.ps1` | Windows from nothing to the Lab UI: WSL, a distribution and its tools, Docker Desktop serving it, the clone, a Start menu shortcut |
+| `install.ps1` | Windows from nothing to the Lab UI: WSL, a distribution and its user, Docker Desktop serving it, the network as Windows sees it, a Start menu shortcut; then `install.sh` in the distribution |
 | `bin/gravitee-lab` | The command `install.sh` links into `~/.local/bin`: alone it opens the Lab UI, with a word it runs that target of the Makefile |
 | `.lab/catalogs/<id>/` | Machine-local. A catalog installed whole (`addons/`, `setups/`, `playgrounds/`, `catalog.yml`), read only: an update replaces it. The default one is Gravitee public; [Catalogs](docs/catalogs.md) |
 | `seeder/` | The engine that creates a playground's data in Gravitee: the `lab_seeder/` package, its image and its tests |
@@ -95,7 +95,7 @@ the default catalog, `@<catalog>/<id>` for another.
 - **Portable.** Scripts are POSIX `sh` with LF line endings and use no GNU-only option on the host (macOS ships BSD
   tools). The Makefile runs with make 3.81. `install.sh` and `bin/gravitee-lab` are POSIX `sh` too, and `shellcheck -s sh`
   says nothing of them. Windows is supported through WSL 2 only: `install.ps1`, in ASCII for Windows PowerShell 5.1, sets it
-  up and runs the rest in the distribution.
+  up and hands the distribution to `install.sh`.
 
 ## The core
 

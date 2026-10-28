@@ -1,44 +1,67 @@
-# Gravitee Lab on Windows: everything from a bare Windows to the Lab UI in your browser. The lab runs in WSL 2, in a Linux
-# distribution, with Docker. In PowerShell (no administrator needed: Windows asks when a step needs it):
+# Gravitee Lab on Windows: from a bare Windows to the Lab UI in your browser. The lab runs in WSL 2, in a Linux distribution,
+# with Docker. In PowerShell (no administrator needed: Windows asks when a step needs it):
 #
 #   irm https://raw.githubusercontent.com/gravitee-io-labs/gravitee-lab/main/install.ps1 | iex
 #
-# It uses what the laptop has and adds only what is missing: WSL, a distribution (an Ubuntu or a Debian already there,
-# else Ubuntu) and its Linux user, the tools the lab needs in it, a Docker that answers in it (Docker Desktop when there is
-# none), the clone in ~/gravitee-lab, a Gravitee Lab shortcut in the Start menu, then the Lab UI. It asks before it changes
-# what was there (a distribution of WSL 1, a Docker Desktop that runs containers, the certificates the distribution trusts),
-# and never deletes anything. What keeps it from going on (a VPN, a proxy that inspects HTTPS, a port taken on Windows) it
-# says in a line. Run it again at any time, also after a restart it asks for.
+# It does what only Windows can do, then hands the distribution to install.sh, the installer of macOS and Linux, which installs
+# the tools, clones the lab in ~/gravitee-lab, makes its settings and the command gravitee-lab. From Windows: WSL, a
+# distribution (an Ubuntu or a Debian already there, else Ubuntu) and its Linux user, a Docker that answers in it (Docker
+# Desktop when there is none), what keeps the distribution from the internet while Windows reaches it (a VPN, a proxy that
+# inspects HTTPS, whose certificate Windows trusts), a Gravitee Lab shortcut in the Start menu, then the Lab UI. It uses what
+# the computer has, asks before it changes what was there (a distribution of WSL 1, a Docker Desktop that runs containers,
+# the certificates the distribution trusts), and never deletes anything. Run it again at any time, also after a restart it
+# asks for.
 #
-# GRAVITEE_LAB_DISTRO names the distribution to use, GRAVITEE_LAB_BRANCH the branch to clone.
-# Written for Windows PowerShell 5.1, the one every Windows has, in ASCII: it reads no other encoding without a byte
-# order mark.
+# GRAVITEE_LAB_DISTRO names the distribution to use. GRAVITEE_LAB_BRANCH, GRAVITEE_LAB_DIR, GRAVITEE_LAB_REPOSITORY and
+# GRAVITEE_LAB_YES are install.sh's, and GRAVITEE_LAB_YES=1 answers yes here too. Written for Windows PowerShell 5.1, the
+# one every Windows has, in ASCII: it reads no other encoding without a byte order mark.
 
 & {
     # Each step reads the exit code of what it runs: with errors that stop, Windows PowerShell 5.1 stops at the first line a
     # program writes to its error output
     $ErrorActionPreference = 'Continue'
     $env:WSL_UTF8 = '1'   # wsl.exe answers in UTF-16 otherwise
-    $repository = 'https://github.com/gravitee-io-labs/gravitee-lab.git'
     $branch = if ($env:GRAVITEE_LAB_BRANCH) { $env:GRAVITEE_LAB_BRANCH } else { 'main' }
+    $raw = "https://raw.githubusercontent.com/gravitee-io-labs/gravitee-lab/$branch"
     $help = 'https://github.com/gravitee-io-labs/gravitee-lab/blob/main/docs/installation.md#windows-with-wsl-2'
     $network = 'https://github.com/gravitee-io-labs/gravitee-lab/blob/main/docs/troubleshooting.md#windows-and-wsl-2'
     $command = 'irm https://raw.githubusercontent.com/gravitee-io-labs/gravitee-lab/main/install.ps1 | iex'
-    $steps = 6
 
-    function Step($number, $text) { Write-Host ''; Write-Host "[$number/$steps] $text" -ForegroundColor Cyan }
-    function Say($text) { Write-Host "      $text" }
-    function Ok($text) { Write-Host "      $text" -ForegroundColor Green }
-    function Halt($text) {
-        Write-Host ''
-        Write-Host $text -ForegroundColor Yellow
-        Write-Host "Help: $help"
+    # The look of install.sh, so that the two read as one: two spaces, a mark, the step's name on 13 columns, what it found or
+    # did. Its marks where the console draws them (Windows Terminal, a UTF-8 console), plain ones elsewhere
+    $fancy = [bool]$env:WT_SESSION -or [Console]::OutputEncoding.CodePage -eq 65001
+    $good, $warn, $bad = if ($fancy) { [string][char]0x2714, [string][char]0x25B2, [string][char]0x2716 } else { '+', '!', 'x' }
+
+    function Mark($mark, $color, $label, $text) {
+        Write-Host '  ' -NoNewline
+        Write-Host $mark -ForegroundColor $color -NoNewline
+        Write-Host (' {0,-13} ' -f $label) -ForegroundColor White -NoNewline
+        Write-Host $text
     }
-    function Yes($question) { (Read-Host "      $question [y/N]") -match '^[yY]' }
+    function Passed($label, $text) { Mark $good Green $label $text }
+    function Warned($label, $text) { Mark $warn Yellow $label $text }
+    # What a step does now, for a step that takes a while
+    function Note($text) { Write-Host "    $text" -ForegroundColor DarkGray }
+    # The end: the step that failed, what to do, and where to read more
+    function Halt($label, $text, $more) {
+        if ($label) { Mark $bad Red $label '' }
+        Write-Host ''
+        Write-Host "  $text" -ForegroundColor Red
+        Write-Host "  Help: $(if ($more) { $more } else { $help })" -ForegroundColor DarkGray
+        Write-Host ''
+    }
     # A stop for a step the person finishes outside, a restart or a sign-out: the command to run next, in the clipboard too
-    function Again($text) {
-        Halt $text
-        try { Set-Clipboard -Value $command; Write-Host "Then run: $command   (in your clipboard)" } catch { Write-Host "Then run: $command" }
+    function Again($label, $text) {
+        Halt $label $text
+        try { Set-Clipboard -Value $command; Write-Host "  Then run: $command   (in your clipboard)" } catch { Write-Host "  Then run: $command" }
+        Write-Host ''
+    }
+    # A question about something the person set up: no unless they say yes
+    function Yes($question) {
+        if ($env:GRAVITEE_LAB_YES -eq '1') { return $true }
+        Write-Host '  ' -NoNewline
+        Write-Host '?' -ForegroundColor Cyan -NoNewline
+        (Read-Host " $question (y/N)") -match '^[yY]'
     }
 
     # A script for sh in the distribution, passed in base64: Windows PowerShell 5.1 loses the quotes of an argument it
@@ -68,7 +91,7 @@
     }
 
     # The distribution to use: the one named, else the default one when it is an Ubuntu or a Debian, else the first of
-    # these, else Ubuntu, which is installed. The lab installs its tools with apt.
+    # these, else Ubuntu, which is installed. install.sh knows other package managers; these are the ones tested on Windows
     function Choose($wsl) {
         if ($env:GRAVITEE_LAB_DISTRO) { return $env:GRAVITEE_LAB_DISTRO }
         $apt = @($wsl.Names | Where-Object { $_ -match '^(Ubuntu|Debian)' })
@@ -90,13 +113,20 @@
 
     function DesktopApp($cli) { Join-Path (Split-Path (Split-Path (Split-Path $cli))) 'Docker Desktop.exe' }
 
-    # Whether a command answers within the time given, asked every few seconds
-    function WaitFor([scriptblock]$answers, [int]$seconds) {
-        $until = (Get-Date).AddSeconds($seconds)
-        while ((Get-Date) -lt $until) {
-            if (& $answers) { return $true }
+    # Whether a command answers within the time given, asked every few seconds, on a line that says what is awaited and since
+    # when, redrawn in place in a console and left out of a log
+    function WaitFor([scriptblock]$answers, [int]$seconds, $label, $text) {
+        $since = Get-Date
+        $live = -not [Console]::IsOutputRedirected
+        while (((Get-Date) - $since).TotalSeconds -lt $seconds) {
+            if (& $answers) {
+                if ($live) { Write-Host ("`r" + (' ' * 78) + "`r") -NoNewline }
+                return $true
+            }
+            if ($live) { Write-Host ("`r  {0} {1,-13} {2}  {3}s " -f '.', $label, $text, [int]((Get-Date) - $since).TotalSeconds) -NoNewline }
             Start-Sleep -Seconds 3
         }
+        if ($live) { Write-Host '' }
         return $false
     }
 
@@ -106,14 +136,17 @@
 
     # Whether the distribution resolves the names of sites: without, apt and git wait minutes before they fail
     function Resolves { [bool](Linux 'timeout 20 getent hosts github.com >/dev/null && echo yes') }
-    $noNames = "cannot resolve the names of sites while Windows can, which a VPN often causes."
 
-    # Why the distribution does not reach a site that Windows reaches, from what git or apt said: names it cannot resolve
-    # (a VPN often), the certificate of a proxy that inspects HTTPS, which it does not trust, or the network
-    function Unreachable([string]$said) {
-        if (-not (Resolves)) { return "$distro $noNames" }
-        if ($said -match 'certificate|SSL') { return "$distro does not trust the certificate of the sites it reaches." }
-        return "$distro cannot reach the internet. Behind a proxy, WSL needs it too."
+    # Whether the distribution trusts the sites it reaches over HTTPS, by the first client it has: ok, certificate (a proxy of
+    # the company signs them), or unknown (no client yet, as on a minimal Debian, or another failure)
+    function Https {
+        $said = Linux ('if command -v curl >/dev/null; then curl -sS -o /dev/null --max-time 20 https://github.com 2>&1; ' +
+            'elif command -v git >/dev/null; then git ls-remote https://github.com/gravitee-io-labs/gravitee-lab.git HEAD 2>&1 >/dev/null; ' +
+            'elif command -v python3 >/dev/null; then python3 -c "import urllib.request as u; u.urlopen(\"https://github.com\", timeout=20)" 2>&1; ' +
+            'else echo unknown; exit 1; fi')
+        if ($LASTEXITCODE -eq 0) { return 'ok' }
+        if (($said -join ' ') -match 'certificate|SSL|CERTIFICATE') { return 'certificate' }
+        return 'unknown'
     }
 
     # The root certificate that Windows trusts for github.com: behind a proxy that inspects HTTPS, the company's own
@@ -134,68 +167,70 @@
     function TrustWindowsRoot {
         $root = WindowsRoot
         if (-not $root) { return $false }
-        Say "A proxy of your company inspects HTTPS with the certificate $($root.GetNameInfo('SimpleName', $false)). Windows trusts it, $distro does not."
+        Warned 'Certificates' "A proxy of your company inspects HTTPS with $($root.GetNameInfo('SimpleName', $false)): Windows trusts it, $distro does not"
         if (-not (Yes "Add it to the certificates $distro trusts?")) { return $false }
         $pem = "-----BEGIN CERTIFICATE-----`n" + ([Convert]::ToBase64String($root.RawData, 'InsertLineBreaks') -replace "`r", '') + "`n-----END CERTIFICATE-----`n"
         Linux ("command -v update-ca-certificates >/dev/null || DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ca-certificates >/dev/null; " +
             "mkdir -p /usr/local/share/ca-certificates && printf '%s' '$pem' > /usr/local/share/ca-certificates/windows-$($root.Thumbprint).crt && " +
             'update-ca-certificates >/dev/null 2>&1') 'root' | Out-Null
-        return $LASTEXITCODE -eq 0
+        if ($LASTEXITCODE -ne 0) { return $false }
+        Passed 'Certificates' "$distro trusts the certificate of your company"
+        return $true
     }
 
-    Write-Host 'Gravitee Lab for Windows' -ForegroundColor White
-    Write-Host 'It uses what this computer has, adds what is missing, and asks before it changes anything you set up.'
+    $edition = (Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue).Caption -replace '^Microsoft ', ''
+    Write-Host ''
+    Write-Host '  Gravitee Lab' -ForegroundColor White -NoNewline
+    Write-Host "  $edition, $env:PROCESSOR_ARCHITECTURE" -ForegroundColor DarkGray
+    Write-Host ''
 
     # WSL, a distribution, Docker Desktop and the images of the platform take about 25 GB of the disk of Windows
     $free = [math]::Floor((Get-PSDrive $env:SystemDrive.TrimEnd(':')).Free / 1GB)
     if ($free -lt 25) {
-        Write-Host ''
-        Say "$env:SystemDrive has $free GB free, and the lab takes about 25 GB with the images of the platform."
-        if (-not (Yes 'Go on anyway?')) { return Halt 'Free some space, then run this command again.' }
+        Warned 'Disk' "$env:SystemDrive has $free GB free, and the lab takes about 25 GB with the images of the platform"
+        if (-not (Yes 'Go on anyway?')) { return Halt '' 'Free some space, then run this command again.' }
     }
 
-    # 1. WSL. `wsl --version` answers only from the WSL of the Store, the one Docker Desktop needs
-    Step 1 'WSL 2'
-    & wsl.exe --version *> $null
+    # WSL. `wsl --version` answers only from the WSL of the Store, the one Docker Desktop needs
+    $version = & wsl.exe --version 2> $null
     if ($LASTEXITCODE -ne 0) {
-        Say 'Installing WSL. Windows asks for administrator rights.'
+        Note 'Installing WSL: Windows asks for administrator rights'
         $install = Start-Process wsl.exe -ArgumentList '--install', '--no-distribution' -Verb RunAs -Wait -PassThru
         if ($install.ExitCode -ne 0) {
-            return Halt 'WSL did not install. Turn on virtualization in the firmware of this computer if WSL says so, then run this command again.'
+            return Halt 'WSL' 'WSL did not install. Turn on virtualization in the firmware of this computer if WSL says so, then run this command again.'
         }
-        return Again 'WSL is installed. Restart Windows.'
+        return Again 'WSL' 'WSL is installed. Restart Windows.'
     }
-    Ok 'WSL is installed'
+    Passed 'WSL' "$([regex]::Match(($version -join ' '), '\d+(\.\d+)+').Value)"
 
-    # 2. The distribution
+    # The distribution and its Linux user
     $wsl = Distributions
     $distro = Choose $wsl
-    Step 2 "Linux distribution: $distro"
     if ($wsl.Names -notcontains $distro) {
-        Say "Installing $distro"
-        & wsl.exe --install -d $distro --no-launch
-        if ($LASTEXITCODE -ne 0) { return Halt "$distro did not install." }
+        Note "Installing $distro"
+        $said = & wsl.exe --install -d $distro --no-launch 2>&1
+        if ($LASTEXITCODE -ne 0) { return Halt $distro "$distro did not install: $($said -join ' ')" }
     }
     if (-not ((Linux 'uname -r') -match 'WSL2')) {
-        Say "$distro runs on WSL 1, and Docker needs WSL 2. Its files stay, and the move takes a few minutes."
+        Warned $distro 'Runs on WSL 1, and Docker needs WSL 2: its files stay, and the move takes a few minutes'
         if (-not (Yes "Move $distro to WSL 2?")) {
-            return Halt "Move $distro to WSL 2 (wsl --set-version $distro 2), or name another distribution in GRAVITEE_LAB_DISTRO, then run this command again."
+            return Halt $distro "Move $distro to WSL 2 (wsl --set-version $distro 2), or name another distribution in GRAVITEE_LAB_DISTRO, then run this command again."
         }
-        & wsl.exe --set-version $distro 2
-        if ($LASTEXITCODE -ne 0) { return Halt "$distro could not move to WSL 2." }
+        & wsl.exe --set-version $distro 2 | Out-Null
+        if ($LASTEXITCODE -ne 0) { return Halt $distro "$distro could not move to WSL 2." }
     }
     $user = Linux 'getent passwd | awk -F: ''$3 >= 1000 && $3 < 65534 { print $1; exit }''' 'root'
     if (-not $user) {
-        Say "$distro asks for a user name and a password for Linux. They are not your Windows ones: sudo asks for this password."
+        Note "$distro asks for a user name and a password for Linux. They are not your Windows ones: sudo asks for this password."
         if (Linux 'test -x /usr/lib/wsl/wsl-setup && echo yes' 'root') {
             & wsl.exe -d $distro -u root -- /usr/lib/wsl/wsl-setup
         } else {
-            $name = Read-Host 'Linux user name'
+            $name = Read-Host '  Linux user name'
             & wsl.exe -d $distro -u root -- adduser $name
             Linux "usermod -aG sudo $name && printf '\n[user]\ndefault=$name\n' >> /etc/wsl.conf" 'root'
         }
         $user = Linux 'getent passwd | awk -F: ''$3 >= 1000 && $3 < 65534 { print $1; exit }''' 'root'
-        if (-not $user) { return Halt "$distro has no Linux user yet. Run this command again to create one." }
+        if (-not $user) { return Halt $distro "$distro has no Linux user yet. Run this command again to create one." }
     }
     # The user that /etc/wsl.conf names is the default one only once the distribution restarts, which would make Docker
     # Desktop lose it: WSL is told now, and an older WSL that cannot be is restarted. A default user set otherwise is kept.
@@ -204,119 +239,119 @@
         & wsl.exe --manage $distro --set-default-user $named | Out-Null
         if ($LASTEXITCODE -ne 0) { & wsl.exe --terminate $distro | Out-Null }
     }
-    Ok "$distro, user $(Linux 'id -un')"
+    Passed $distro "user $(Linux 'id -un')"
 
-    # 3. The tools of the lab in the distribution, installed as root: no password to type
-    Step 3 'Git, Make, Python and OpenSSL'
-    $missing = Linux 'for tool in git make python3 openssl; do command -v $tool >/dev/null || printf "%s " $tool; done'
-    if ($missing) {
-        if (-not (Linux 'command -v apt-get' 'root')) { return Halt "Install $missing in $distro, then run this command again." }
-        if (-not (Resolves)) { return Halt "$distro $noNames See $network" }
-        Say "Installing $missing"
-        $said = Linux "export DEBIAN_FRONTEND=noninteractive; apt-get update -qq 2>&1 && apt-get install -y -qq $missing 2>&1 >/dev/null" 'root'
-        if ($LASTEXITCODE -ne 0) {
-            return Halt "The tools did not install. $(Unreachable ($said -join ' ')) See $network"
-        }
-    }
-    Ok 'All there'
-
-    # 4. A Docker that answers in the distribution: the one there (Docker Desktop, Docker Engine in it...), else Docker
-    # Desktop, started and serving it
-    Step 4 'Docker'
+    # A Docker that answers in the distribution: the one there (Docker Desktop, Docker Engine in it...) is used as it is,
+    # and install.sh says so; else Docker Desktop, installed, started and serving it
     if (-not (LinuxDocker)) {
         $cli = DesktopCli
         if (-not $cli -and (Linux 'command -v dockerd')) {
-            return Halt "Docker Engine is installed in $distro and does not answer: start it (sudo service docker start), then run this command again."
+            return Halt 'Docker' "Docker Engine is installed in $distro and does not answer: start it (sudo service docker start), then run this command again."
         }
         if (-not $cli) {
-            Say 'Docker Desktop is not installed. At work, your company may need a Docker subscription, and your IT may install it for you.'
+            Warned 'Docker' 'Docker Desktop is not installed. At work, your company may need a Docker subscription, and your IT may install it for you'
             if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) {
-                return Halt 'Install Docker Desktop (https://docs.docker.com/desktop/setup/install/windows-install/), then run this command again.'
+                return Halt '' 'Install Docker Desktop (https://docs.docker.com/desktop/setup/install/windows-install/), then run this command again.'
             }
             if (-not (Yes 'Install Docker Desktop now with winget? Windows asks for administrator rights')) {
-                return Halt 'Install Docker Desktop, then run this command again.'
+                return Halt '' 'Install Docker Desktop, then run this command again.'
             }
             & winget.exe install --exact --id Docker.DockerDesktop --source winget
             $cli = DesktopCli
-            if (-not $cli) { return Halt 'Docker Desktop did not install.' }
+            if (-not $cli) { return Halt 'Docker' 'Docker Desktop did not install.' }
             if (-not (whoami /groups | Select-String -SimpleMatch 'docker-users' -Quiet) -and (Get-LocalGroup docker-users -ErrorAction SilentlyContinue)) {
-                return Again 'Docker Desktop is installed. Sign out of Windows and in again, so that it lets you use it.'
+                return Again 'Docker' 'Docker Desktop is installed. Sign out of Windows and in again, so that it lets you use it.'
             }
         }
         if (-not (WindowsDocker $cli)) {
-            Say 'Starting Docker Desktop. The first time, accept its agreement in its window.'
             Start-Process (DesktopApp $cli)
-            if (-not (WaitFor { WindowsDocker $cli } 600)) { return Halt 'Docker Desktop did not start. Open it, then run this command again.' }
+            Note 'The first time, accept the agreement in the window of Docker Desktop'
+            if (-not (WaitFor { WindowsDocker $cli } 600 'Docker' 'Starting Docker Desktop')) {
+                return Halt 'Docker' 'Docker Desktop did not start. Open it, then run this command again.'
+            }
         }
-        $served = WaitFor { LinuxDocker } 30
+        $served = WaitFor { LinuxDocker } 30 'Docker' "Waiting for Docker Desktop to serve $distro"
         $wsl = Distributions
         if (-not $served -and (-not $wsl.Default -or $wsl.Default -like 'docker-desktop*')) {
             # Docker Desktop serves the default distribution, and its own is no distribution to work in
-            Say "$distro becomes the default distribution of WSL, the one Docker Desktop serves"
+            Note "$distro becomes the default distribution of WSL, the one Docker Desktop serves"
             & wsl.exe --set-default $distro | Out-Null
             $wsl = Distributions
-            $served = WaitFor { LinuxDocker } 30
+            $served = WaitFor { LinuxDocker } 30 'Docker' "Waiting for Docker Desktop to serve $distro"
         }
         # It served the distribution and lost it (a link of its integration is left), which it does each time the distribution
         # restarts, or it serves the default one and has not seen it yet: a restart of Docker Desktop serves it again
         if (-not $served -and ($wsl.Default -eq $distro -or (Linux 'test -L /usr/bin/docker && echo yes'))) {
-            $running = @(& $cli ps -q 2>$null).Count
+            $running = @(& $cli ps -q 2> $null).Count
             if ($running) {
-                Say "Docker Desktop must restart to reach $distro, which stops the $running containers that run now."
+                Warned 'Docker' "Docker Desktop must restart to reach $distro, which stops the $running containers that run now"
                 if (-not (Yes 'Restart Docker Desktop now?')) {
-                    return Halt 'Restart Docker Desktop when you can, then run this command again.'
+                    return Halt '' 'Restart Docker Desktop when you can, then run this command again.'
                 }
-            } else {
-                Say "Restarting Docker Desktop to reach $distro"
             }
             & $cli desktop restart *> $null
-            $served = WaitFor { LinuxDocker } 120
+            $served = WaitFor { LinuxDocker } 120 'Docker' 'Restarting Docker Desktop'
         }
         if (-not $served) {
-            Say "In Docker Desktop, open Settings > Resources > WSL integration, turn on $distro, then Apply. Waiting for it..."
             Start-Process (DesktopApp $cli)
-            if (-not (WaitFor { LinuxDocker } 900)) { return Halt "Docker Desktop does not serve $distro yet." }
+            Note "In Docker Desktop, open Settings > Resources > WSL integration, turn on $distro, then Apply"
+            if (-not (WaitFor { LinuxDocker } 900 'Docker' "Waiting for $distro in the WSL integration")) {
+                return Halt 'Docker' "Docker Desktop does not serve $distro yet."
+            }
         }
+        Passed 'Docker' "Docker Desktop serves $distro"
     }
-    Ok "Docker answers in $distro"
 
-    # 5. The clone, in the distribution's own disk: the containers read a folder of Windows slowly
-    Step 5 'Gravitee Lab in ~/gravitee-lab'
-    if (Linux 'git -C ~/gravitee-lab remote get-url origin 2>/dev/null | grep -q gravitee-lab && echo yes') {
-        Ok 'Already there'
-    } elseif (Linux 'test -e ~/gravitee-lab && echo yes') {
-        return Halt "~/gravitee-lab in $distro holds something else. Move it, then run this command again."
-    } else {
-        $clone = "git clone --quiet --branch $branch $repository ~/gravitee-lab 2>&1"
-        $said = Linux $clone
-        if ($LASTEXITCODE -ne 0 -and ($said -join ' ') -match 'certificate|SSL' -and (TrustWindowsRoot)) { $said = Linux $clone }
-        if ($LASTEXITCODE -ne 0) { return Halt "The clone failed. $(Unreachable ($said -join ' ')) See $network" }
-        Ok 'Cloned'
+    # What keeps the distribution from the internet while Windows reaches it, said here where Windows can tell: names it does
+    # not resolve, which apt and git would wait on for minutes, and a proxy of the company whose certificate it does not trust
+    if (-not (Resolves)) {
+        return Halt 'Network' "$distro cannot resolve the names of sites while Windows can, which a VPN often causes." $network
     }
-    # Its path, not ~: PowerShell 7 makes ~ the folder of Windows before wsl.exe reads it
-    $lab = Linux 'cd ~/gravitee-lab && pwd'
+    if ((Https) -eq 'certificate' -and -not (TrustWindowsRoot)) {
+        return Halt 'Network' "$distro does not trust the certificate of the sites it reaches." $network
+    }
 
-    # 6. A shortcut that starts the Lab UI, next time
-    Step 6 'Shortcut'
-    $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'Gravitee Lab.lnk'
-    $link = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcut)
-    # In a window named Gravitee Lab, which stays open on an error so that it can be read
-    $link.TargetPath = Join-Path $env:SystemRoot 'System32\cmd.exe'
-    $link.Arguments = "/c title Gravitee Lab && wsl.exe -d $distro --cd $lab -- make ui || pause"
-    $link.IconLocation = (Join-Path $env:SystemRoot 'System32\wsl.exe') + ',0'
-    $link.Description = 'Opens the Gravitee Lab UI'
-    $link.Save()
-    Ok 'Gravitee Lab is in the Start menu: it opens the Lab UI next time'
+    # Where install.sh clones the lab, by its path: PowerShell 7 makes ~ the folder of Windows before wsl.exe reads it
+    $lab = Linux "echo $(if ($env:GRAVITEE_LAB_DIR) { $env:GRAVITEE_LAB_DIR } else { '$HOME/gravitee-lab' })"
 
     # Port 9000 held on Windows by another program: the browser would find that program in place of the Lab UI, which
     # listens in the distribution and reaches Windows through WSL's relay
     $holder = Get-NetTCPConnection -LocalPort 9000 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
     $name = if ($holder) { (Get-Process -Id $holder.OwningProcess -ErrorAction SilentlyContinue).ProcessName }
     if ($name -and $name -notmatch '^wsl') {
-        return Halt "Port 9000, the Lab UI's, is used by $name on Windows. Stop it, then run this command again."
+        return Halt 'Lab UI' "Port 9000, the Lab UI's, is used by $name on Windows. Stop it, then run this command again."
     }
 
-    Write-Host ''
-    Write-Host 'Opening the Lab UI in your browser. Keep this window open while you use it: Ctrl+C stops the Lab UI, and the containers keep running.' -ForegroundColor Green
-    & wsl.exe -d $distro --cd $lab -- make ui
+    # A shortcut that opens the Lab UI next time, in a window named Gravitee Lab, which stays open on an error so that it can
+    # be read
+    $link = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path ([Environment]::GetFolderPath('Programs')) 'Gravitee Lab.lnk'))
+    $link.TargetPath = Join-Path $env:SystemRoot 'System32\cmd.exe'
+    $link.Arguments = "/c title Gravitee Lab && wsl.exe -d $distro -- $lab/bin/gravitee-lab || pause"
+    $link.IconLocation = (Join-Path $env:SystemRoot 'System32\wsl.exe') + ',0'
+    $link.Description = 'Opens the Gravitee Lab UI'
+    $link.Save()
+    Passed 'Shortcut' 'Gravitee Lab, in the Start menu: it opens the Lab UI next time'
+
+    # The rest is install.sh's, in the distribution: the tools, the clone, the settings, the command gravitee-lab, then the
+    # Lab UI in this window. It is read by Windows, which trusts what the company's proxy shows, and run from Windows'
+    # temporary folder
+    try { $script = Invoke-RestMethod "$raw/install.sh" } catch {
+        return Halt 'Gravitee Lab' "install.sh could not be downloaded: $($_.Exception.Message)"
+    }
+    $file = Join-Path $env:TEMP 'gravitee-lab-install.sh'
+    [IO.File]::WriteAllText($file, ($script -replace "`r", ''))
+    $path = Linux "wslpath -u '$file'"
+    $settings = @()
+    if (-not $fancy) { $settings += 'LC_CTYPE=C' }   # install.sh draws its marks as this console can, in plain ones then
+    foreach ($name in 'GRAVITEE_LAB_BRANCH', 'GRAVITEE_LAB_DIR', 'GRAVITEE_LAB_REPOSITORY', 'GRAVITEE_LAB_YES', 'GRAVITEE_LAB_NO_START', 'NO_COLOR') {
+        $value = [Environment]::GetEnvironmentVariable($name)
+        if ($value) { $settings += "$name=$value" }
+    }
+    $homeDir = Linux 'echo $HOME'
+    & wsl.exe -d $distro --cd $homeDir -- env @settings sh $path
+    # A minimal distribution had no client to tell a certificate it does not trust before the clone: it has git now. A lab
+    # that is there failed later, or its Lab UI was stopped: install.sh said what it had to
+    if ($LASTEXITCODE -ne 0 -and -not (Linux "test -d '$lab/.git' && echo yes") -and (Https) -eq 'certificate' -and (TrustWindowsRoot)) {
+        & wsl.exe -d $distro --cd $homeDir -- env @settings sh $path
+    }
 }

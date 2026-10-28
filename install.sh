@@ -259,7 +259,8 @@ mac_tools() {
     passed "$(versions)"
 }
 
-# Linux: what is missing, from the package manager, as root through sudo. Each manager has its own name for Python
+# Linux: what is missing, from the package manager, as root through sudo; in WSL through wsl.exe, which makes Windows' user root
+# of its distributions with no password to type (one set long ago is often forgotten). Each manager has its own name for Python
 linux_tools() {
     step Tools 'Looking for Git, Make, Python and OpenSSL'
     gone=$(missing)
@@ -294,6 +295,8 @@ linux_tools() {
     fi
     if [ "$(id -u)" = 0 ]; then
         root=''
+    elif [ -n "${WSL_DISTRO_NAME:-}" ] && command -v wsl.exe > /dev/null 2>&1 && wsl.exe -d "$WSL_DISTRO_NAME" -u root -- true < /dev/null > /dev/null 2>&1; then
+        root="wsl.exe -d $WSL_DISTRO_NAME -u root --"
     elif command -v sudo > /dev/null 2>&1; then
         root='sudo'
     else
@@ -301,7 +304,7 @@ linux_tools() {
     fi
     ask "Install $(echo "$packages" | sed 's/ $//;s/ /, /g') with $manager?" \
         || halt "Install ${packages}with $manager, then run this command again.$unasked" '#linux'
-    if [ -n "$root" ] && ! sudo -n true 2> /dev/null; then
+    if [ "$root" = sudo ] && ! sudo -n true 2> /dev/null; then
         calm
         printf '%s' "$show"
         # shellcheck disable=SC2024 # sudo reads the password from the terminal
@@ -312,14 +315,15 @@ linux_tools() {
         if sudo -n true 2> /dev/null; then resume; else live=false; fi
     fi
     note "Installing $(echo "$packages" | sed 's/ $//;s/ /, /g') with $manager"
+    # No input: nothing asks for one with -y, and wsl.exe would read the keys typed in the terminal
     # shellcheck disable=SC2086
-    quiet $root sh -c "$install $packages" \
+    quiet $root sh -c "$install $packages" < /dev/null \
         || halt "${packages}did not install: $manager says why above. Is the internet reachable from this machine?" '#linux'
     if ! python_ok; then
         note 'The python3 of this system is older than 3.9: adding a later one beside it'
         for package in $newer; do
             # shellcheck disable=SC2086
-            quiet $root sh -c "$install $package" && python_ok && break
+            quiet $root sh -c "$install $package" < /dev/null && python_ok && break
         done
     fi
     python_ok || halt "Python 3.9 or later is missing, and the package manager of this system has none: install one, then run this command again." '#linux'
