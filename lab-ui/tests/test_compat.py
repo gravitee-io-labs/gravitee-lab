@@ -136,6 +136,19 @@ class Write(unittest.TestCase):
       APIM_REGISTRY: graviteeio
 '''))
 
+    def test_the_variables_keep_the_order_the_file_gave_them(self):
+        text = TEXT.replace('''      APIM_REGISTRY: graviteeio
+''', '''      APIM_REGISTRY: graviteeio
+      AM_VERSION: "4.12.7"
+''')
+        found = compat.write(text, [{"AM_REGISTRY": "graviteeio", "AM_VERSION": "4.13.1", "APIM_REGISTRY": "graviteeio", "APIM_VERSION": "4.13.1"}])
+        self.assertIn('''  tested:
+    - APIM_VERSION: "4.13.1"
+      APIM_REGISTRY: graviteeio
+      AM_VERSION: "4.13.1"
+      AM_REGISTRY: graviteeio
+''', found)
+
     def test_a_file_without_the_block_gets_it_after_requires(self):
         bare = TEXT.replace('''  tested:                    # the versions it was built and checked on
     - APIM_VERSION: "4.12.20"

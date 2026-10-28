@@ -172,19 +172,20 @@ TESTED = re.compile(r"^  tested:[^\n]*\n(?:(?:    [^\n]*|[ \t]*)\n)*", re.M)
 KEY = re.compile(r"^  [A-Za-z_][A-Za-z0-9_-]*:", re.M)
 
 
-def _ordered(found):
-    """A set with each version variable followed by its registry, as a person writes it."""
+def _ordered(found, order=()):
+    """A set with each version variable followed by its registry, as a person writes it, the variables in the `order` the file
+    gave them (`APIM_VERSION` before `AM_VERSION`), then the others."""
     keys = []
-    for key in found:
+    for key in sorted(found, key=lambda key: list(order).index(key) if key in order else len(order)):
         if VERSION_KEY.fullmatch(key):
             keys += [key, *([key[:-len("_VERSION")] + "_REGISTRY"] if key[:-len("_VERSION")] + "_REGISTRY" in found else [])]
     return [(key, found[key]) for key in [*keys, *(key for key in found if key not in keys)]]
 
 
-def _block(sets):
+def _block(sets, order=()):
     lines = ["  tested:"]
     for found in sets:
-        for index, (key, value) in enumerate(_ordered(found)):
+        for index, (key, value) in enumerate(_ordered(found, order)):
             text = f'"{value}"' if VERSION_KEY.fullmatch(key) else str(value)
             lines.append(f"    {'- ' if index == 0 else '  '}{key}: {text}")
     return "\n".join(lines) + "\n"
@@ -202,7 +203,8 @@ def write(text, sets):
     body = text[start.end():end]
     found = TESTED.search(body)
     if found:
-        body = body[:found.start()] + _block(sets) + body[found.end():]
+        order = list(dict.fromkeys(re.findall(r"^    [ -] ([A-Z][A-Z0-9_]*):", found.group(0), re.M)))
+        body = body[:found.start()] + _block(sets, order) + body[found.end():]
     else:
         keys = list(KEY.finditer(body))
         after = next((key for key in keys if key.group(0) == "  requires:"), None)
