@@ -1,5 +1,5 @@
 {
-  "_managed": "Managed by the Lab catalog standard 8: change it with catalog.py upgrade, in a pull request a maintainer reads.",
+  "_managed": "Managed by the Lab catalog standard 9: change it with catalog.py upgrade, in a pull request a maintainer reads.",
   "name": "catalog-tags",
   "target": "tag",
   "enforcement": "active",

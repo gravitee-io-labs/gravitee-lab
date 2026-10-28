@@ -116,7 +116,9 @@ RULES = _table([
              "as the same-named entry of a caller's `secrets:`; `GITHUB_TOKEN` or `REGISTRY_TOKEN` as the "
              "`password:` of `docker/login-action` in `publish.yml` (and `catalog-publish.yml`, its reusable "
              "counterpart in the Lab); `GRAVITEE_LICENSE` in exactly one step of `e2e.yml` and of `versions.yml`; "
-             "`VERSIONS_DEPLOY_KEY` in the step of `versions.yml` that pushes (`git push --atomic`) and runs no `catalog.py`. Never "
+             "`VERSIONS_DEPLOY_KEY` in the step of `versions.yml` that pushes (`git push --atomic`) and runs no `catalog.py`; "
+             "`GRAVITEE_REGISTRY_USERNAME` and `GRAVITEE_REGISTRY_PASSWORD` in the step of `e2e.yml` and of `versions.yml` "
+             "that logs in to `graviteeio.azurecr.io` and runs nothing of the Lab. Never "
              "`secrets: inherit`",
      "{file}:{line}: secrets.{name} is read where no rule allows it. Pass it by name to the one step that needs "
      "it."),
@@ -1092,6 +1094,9 @@ _KEY = "${{ secrets.LAB_DEPLOY_KEY }}"
 _NEEDS_KEY = "${{ secrets.NEEDS_DEPLOY_KEY }}"
 _LICENSE = "${{ secrets.GRAVITEE_LICENSE }}"
 _VERSIONS_KEY = "${{ secrets.VERSIONS_DEPLOY_KEY }}"
+_REGISTRY = {"GRAVITEE_REGISTRY_USERNAME": "${{ secrets.GRAVITEE_REGISTRY_USERNAME }}",
+             "GRAVITEE_REGISTRY_PASSWORD": "${{ secrets.GRAVITEE_REGISTRY_PASSWORD }}"}
+_REGISTRY_LOGIN = re.compile(r"\bdocker login graviteeio\.azurecr\.io\b")   # the step that holds the token logs in, and runs nothing of the Lab
 _VERSIONS_PUSH = re.compile(r"\bgit push --atomic\b")   # the one step that holds the key pushes, and runs nothing of the Lab
 _PASSWORD = re.compile(r"\$\{\{ secrets\.(?:GITHUB_TOKEN|REGISTRY_TOKEN)(?: \|\| secrets\.(?:GITHUB_TOKEN|REGISTRY_TOKEN))? \}\}\Z")
 # A name that is not part of a longer one: `load-secrets.sh` and `inputs.secrets` are not the context. GitHub names may hold a dash
@@ -1124,6 +1129,11 @@ def _blessed(doc: _Doc) -> Tuple[Set[int], Set[int]]:
         elif entry.name == "VERSIONS_DEPLOY_KEY" and text == _VERSIONS_KEY and name == "env" and doc.family == "versions" \
                 and doc.get(step, "run") is not None and _VERSIONS_PUSH.search(_text_of(doc.get(step, "run").value)) \
                 and "catalog.py" not in _text_of(doc.get(step, "run").value):
+            allowed.add(entry.line)
+        elif entry.name in ("REGISTRY_USERNAME", "REGISTRY_PASSWORD") and text == _REGISTRY.get(f"GRAVITEE_{entry.name}") \
+                and name == "env" and doc.family in ("e2e", "versions") and doc.get(step, "run") is not None \
+                and _REGISTRY_LOGIN.search(_text_of(doc.get(step, "run").value)) \
+                and not re.search(r"catalog\.py|server\.py|\bmake\b", _text_of(doc.get(step, "run").value)):
             allowed.add(entry.line)
         elif entry.name == "GRAVITEE_LICENSE" and text == _LICENSE and name == "env" and doc.family in ("e2e", "versions") \
                 and (doc.get(step, "run") is not None or doc.get(step, "uses") is not None):

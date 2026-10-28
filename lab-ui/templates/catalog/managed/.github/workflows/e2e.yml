@@ -1,4 +1,4 @@
-# Managed by the Lab catalog standard 8: change it with catalog.py upgrade, in a pull request a maintainer reads.
+# Managed by the Lab catalog standard 9: change it with catalog.py upgrade, in a pull request a maintainer reads.
 # End to end, for the maintainers: each item a change touches starts on a machine with no lab, with the platform and a license, and
 # has to work, as `make e2e` does in the Lab. It is the one workflow that holds the license, and it is always the workflow of main:
 # a pull request is data for it, never code.
@@ -146,6 +146,14 @@ jobs:
           [ -n "$GRAVITEE_LICENSE" ] || { echo "::error::The secret GRAVITEE_LICENSE is not set in this environment"; exit 1; }
           make init
           printf '\nGRAVITEE_LICENSE=%s\n' "$GRAVITEE_LICENSE" >> .env
+      # Gravitee's private registry, for an item that pulls from it: logged in when the environment holds a token that reads it
+      - name: Log in to Gravitee's private registry
+        env:
+          REGISTRY_USERNAME: ${{ secrets.GRAVITEE_REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.GRAVITEE_REGISTRY_PASSWORD }}
+        run: |
+          [ -n "$REGISTRY_USERNAME" ] || exit 0
+          printf '%s' "$REGISTRY_PASSWORD" | docker login graviteeio.azurecr.io --username "$REGISTRY_USERNAME" --password-stdin
       # Not `make e2e`: make answers 2 for any recipe that fails, and 2 here is "not tried" (a setting only a person can give), which is a
       # warning, where 1 is a failure
       - name: Try it

@@ -1,4 +1,4 @@
-# Managed by the Lab catalog standard 8: change it with catalog.py upgrade, in a pull request a maintainer reads.
+# Managed by the Lab catalog standard 9: change it with catalog.py upgrade, in a pull request a maintainer reads.
 # Every night, on the main branch: each playground is tried on the releases of Gravitee it does not say it was tested with yet (the newest
 # release of each of the five newest minor versions, and a pre-release above them), on a machine with no lab and with the license, as
 # `make e2e` does. What works is written in its x-gravitee.tested, committed to main and released as the next patch version, so that
@@ -83,6 +83,14 @@ jobs:
           [ -n "$GRAVITEE_LICENSE" ] || { echo "::error::The secret GRAVITEE_LICENSE is not set in this environment"; exit 1; }
           make init
           printf '\nGRAVITEE_LICENSE=%s\n' "$GRAVITEE_LICENSE" >> .env
+      # Gravitee's private registry, for an item that pulls from it: logged in when the environment holds a token that reads it
+      - name: Log in to Gravitee's private registry
+        env:
+          REGISTRY_USERNAME: ${{ secrets.GRAVITEE_REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.GRAVITEE_REGISTRY_PASSWORD }}
+        run: |
+          [ -n "$REGISTRY_USERNAME" ] || exit 0
+          printf '%s' "$REGISTRY_PASSWORD" | docker login graviteeio.azurecr.io --username "$REGISTRY_USERNAME" --password-stdin
       # Exit code 2 is "not tried" (a login or a setting only a person can give): a warning, never a pass
       - name: Try it
         working-directory: lab
