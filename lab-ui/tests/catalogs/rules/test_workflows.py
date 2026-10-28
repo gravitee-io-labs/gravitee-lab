@@ -52,8 +52,8 @@ SPEC = {
             "makes: a self-hosted runner keeps what a pull request leaves on it.",
     "WF07": "{file}:{line}: actions/checkout leaves its token in .git. Add persist-credentials: false.",
     "WF08": "{file}:{line}: secrets.{name} is read where no rule allows it. Pass it by name to the one step that needs it.",
-    "WF09": "{file}: job {job} holds {permission}: write. Only publish.yml's images, attest and release jobs, and nightly.yml's "
-            "report job, may write.",
+    "WF09": "{file}: job {job} holds {permission}: write. Only publish.yml's images, attest and release jobs, and the "
+            "report jobs of nightly.yml and versions.yml, may write.",
     "WF10": "{file}: job {job} writes packages without an environment. Add environment: publish.",
     "WF11": "{file}: add a concurrency group, so that a push does not pile runs up.",
     "WF12": "{file}:{line}: a download is piped into a shell. Download it, check a digest, then run it.",
@@ -84,12 +84,13 @@ RULE_TEXT = {
     "WF08": "Each secret is read only where a rule allows: `LAB_DEPLOY_KEY` as the `key:` of the `lab` action or "
           "as the same-named entry of a caller's `secrets:`; `GITHUB_TOKEN` or `REGISTRY_TOKEN` as the "
           "`password:` of `docker/login-action` in `publish.yml` (and `catalog-publish.yml`, its reusable "
-          "counterpart in the Lab); `GRAVITEE_LICENSE` in exactly one step of `e2e.yml`. Never `secrets: "
-          "inherit`",
+          "counterpart in the Lab); `GRAVITEE_LICENSE` in exactly one step of `e2e.yml` and of `versions.yml`; "
+          "`VERSIONS_DEPLOY_KEY` in the step of `versions.yml` that runs `catalog.py ci versions-release`. Never "
+          "`secrets: inherit`",
     "WF09": "Write permissions only where the file may have them: none in `ci.yml` and `e2e.yml`; `issues` in the "
-          "job `report` of `nightly.yml`; `packages` in `images` and `attest`, `id-token` and `attestations` in "
-          "`attest`, `contents` in `release`, of `publish.yml`; in the reusable form the single call job of "
-          "`publish.yml` holds their union",
+          "job `report` of `nightly.yml` and of `versions.yml`; `packages` in `images` and `attest`, `id-token` and "
+          "`attestations` in `attest`, `contents` in `release`, of `publish.yml`; in the reusable form the single call "
+          "job of `publish.yml` holds their union",
     "WF10": "A job with steps and `packages: write` declares an `environment` (a call job of the reusable form is "
           "exempt: the jobs of its callee are checked)",
     "WF11": "A `concurrency:` group exists (not in a reusable file)",
@@ -1083,7 +1084,7 @@ class Mutations(unittest.TestCase):
                                                       "to the one step that needs it." % line_of(text, "NPM_TOKEN"))
         self.assertEqual(message("ci", in_job(text_of("ci"), "static", "permissions:", "  issues: write"), "WF09"),
                          path + ": job static holds issues: write. Only publish.yml's images, attest and release jobs, and "
-                                "nightly.yml's report job, may write.")
+                                "the report jobs of nightly.yml and versions.yml, may write.")
         self.assertEqual(message("publish", edit(text_of("publish"), IMAGES, "    permissions:\n      contents: read\n      packages: write\n    outputs:"), "WF10"),
                          ".github/workflows/publish.yml: job images writes packages without an environment. Add environment: publish.")
         text = edit(text_of("publish"), "needs.images.result == 'success'", "needs.images.result != 'failure'")

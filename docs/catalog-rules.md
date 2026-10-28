@@ -461,7 +461,7 @@ Every rule that `catalog.py check` and the stages of `catalog.py ci` can print, 
 
 *Error.* Write permissions only where the file may have them: none in `ci.yml` and `e2e.yml`; `issues` in the job `report` of `nightly.yml` and of `versions.yml`; `packages` in `images` and `attest`, `id-token` and `attestations` in `attest`, `contents` in `release`, of `publish.yml`; in the reusable form the single call job of `publish.yml` holds their union.
 
-- **Message**: {file}: job {job} holds {permission}: write. Only publish.yml's images, attest and release jobs, and nightly.yml's report job, may write.
+- **Message**: {file}: job {job} holds {permission}: write. Only publish.yml's images, attest and release jobs, and the report jobs of nightly.yml and versions.yml, may write.
 
 ### WF10
 

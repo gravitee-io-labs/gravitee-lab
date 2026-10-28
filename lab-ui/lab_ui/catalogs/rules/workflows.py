@@ -121,11 +121,11 @@ RULES = _table([
      "{file}:{line}: secrets.{name} is read where no rule allows it. Pass it by name to the one step that needs "
      "it."),
     ("WF09", "Write permissions only where the file may have them: none in `ci.yml` and `e2e.yml`; `issues` in the "
-             "job `report` of `nightly.yml` and of `versions.yml`; `packages` in `images` and `attest`, `id-token` and `attestations` in "
-             "`attest`, `contents` in `release`, of `publish.yml`; in the reusable form the single call job of "
-             "`publish.yml` holds their union",
-     "{file}: job {job} holds {permission}: write. Only publish.yml's images, attest and release jobs, and "
-     "nightly.yml's report job, may write."),
+             "job `report` of `nightly.yml` and of `versions.yml`; `packages` in `images` and `attest`, `id-token` and "
+             "`attestations` in `attest`, `contents` in `release`, of `publish.yml`; in the reusable form the single call "
+             "job of `publish.yml` holds their union",
+     "{file}: job {job} holds {permission}: write. Only publish.yml's images, attest and release jobs, and the "
+     "report jobs of nightly.yml and versions.yml, may write."),
     ("WF10", "A job with steps and `packages: write` declares an `environment` (a call job of the reusable form is "
              "exempt: the jobs of its callee are checked)",
      "{file}: job {job} writes packages without an environment. Add environment: publish."),
