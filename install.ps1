@@ -472,10 +472,7 @@
         if ($value) { $settings += "$name=$value" }
     }
     $homeDir = Linux 'echo $HOME'
-    # The classic console of Windows sends ^H for Backspace, which the terminal of the distribution takes as a character and
-    # not as erasing the one before: a Y typed after an n would read as n^HY. Windows Terminal sends what it expects
-    $erase = if ($env:WT_SESSION) { '' } else { 'stty erase ^H 2>/dev/null; ' }
-    $handOff = "${erase}exec env $($settings -join ' ') sh $path"
+    $handOff = "exec env $($settings -join ' ') sh $path"
     & wsl.exe -d $distro --cd $homeDir -- sh -c $handOff
     # A minimal distribution had no client to tell a certificate it does not trust before the clone: it has git now. A lab
     # that is there failed later, or its Lab UI was stopped: install.sh said what it had to
