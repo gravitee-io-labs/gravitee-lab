@@ -98,8 +98,9 @@ class Install(unittest.TestCase):
                              text=True, timeout=120, start_new_session=True)
         return run.returncode, run.stdout + run.stderr
 
-    def terminal(self, interrupt_on=None, **env):
-        """install.sh in a pseudo-terminal of 100 columns: its exit code and all it printed. Ctrl+C when `interrupt_on` shows."""
+    def terminal(self, interrupt_on=None, answer=None, **env):
+        """install.sh in a pseudo-terminal of 100 columns: its exit code and all it printed. Ctrl+C when `interrupt_on` shows,
+        and the keys of `answer` at its question."""
         import fcntl
         import pty
         import struct
@@ -122,6 +123,9 @@ class Install(unittest.TestCase):
             if interrupt_on and interrupt_on.encode() in printed:
                 interrupt_on = None
                 os.write(fd, b"\x03")
+            if answer and b"(Y/n)" in printed:
+                os.write(fd, answer)
+                answer = None
         else:
             os.kill(pid, signal.SIGKILL)
         os.close(fd)
@@ -258,6 +262,14 @@ class Install(unittest.TestCase):
         self.assertRegex(said, r"2/3  \x1b\[2mInstalling git ")
         for raw in ("fetch https", "(2/3)", "OK: 25 MiB"):
             self.assertNotIn(raw, said)
+        self.assertRegex(said, r"✔\x1b\[0m \x1b\[1mTools")
+
+    def test_a_backspace_the_terminal_did_not_erase_still_erases_in_the_answer(self):
+        # The classic Windows console sends ^H, which a tty whose erase is ^? keeps as a character
+        tools = {key: value for key, value in self.linux_without_git().items() if key != "GRAVITEE_LAB_YES"}
+        code, said = self.terminal(answer=b"n\x08Y\r", **tools)
+        self.assertEqual(code, 0, said)
+        self.assertIn("The Lab needs git to run. Install it with apk?", said)
         self.assertRegex(said, r"✔\x1b\[0m \x1b\[1mTools")
 
     def test_a_failure_that_is_known_says_what_it_means_under_the_words_of_its_tool(self):

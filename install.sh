@@ -279,6 +279,15 @@ ask() {
     printf '  %s%s%s %s %s(Y/n)%s %s' "$cyan" "$ask_mark" "$off" "$1" "$dim" "$off" "$show"
     read -r answer < /dev/tty || answer=n
     asking=false
+    # A terminal whose erase key is not the one of the tty (the classic Windows console sends ^H) leaves it in the answer
+    answer=$(printf '%s\n' "$answer" | awk '{
+        for (i = 1; i <= length($0); i++) {
+            c = substr($0, i, 1)
+            if (c == "\b" || c == "\177") kept = substr(kept, 1, length(kept) - 1)
+            else if (c !~ /[[:cntrl:]]/) kept = kept c
+        }
+        print kept
+    }')
     printf '%s' "$hide"
     case $answer in
         '' | [yY]*) resume ;;
@@ -398,7 +407,7 @@ linux_tools() {
     else
         halt "sudo is not here to install $(listed "$gone"): install $them as root, then run this command again." 'installation.md#linux'
     fi
-    ask "Missing: $(listed "$gone"). Install $them with $manager?" \
+    ask "The Lab needs $(listed "$gone") to run. Install $them with $manager?" \
         || halt "Install $(listed "$packages") with $manager, then run this command again.$unasked" 'installation.md#linux'
     if [ "$root" = sudo ] && ! sudo -n true 2> /dev/null; then
         calm
