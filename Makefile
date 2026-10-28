@@ -70,8 +70,9 @@ openssl-ok:
 ##@ Run the lab
 
 # Docker is not checked here: the Lab UI's first step checks the machine and gives the fix of what is missing, Docker included
+# Python keeps the locale of the terminal (a C locale stays C, in UTF-8 mode), so the Lab UI draws its marks as install.sh did
 ui: python-ok init ## Open the Lab UI on http://localhost:9000
-	@$(PYTHON) lab-ui/server.py
+	@PYTHONCOERCECLOCALE=0 $(PYTHON) lab-ui/server.py
 
 # A machine that was updated from the layout before catalogs still names add-ons by their old paths in .lab/on.yml, which Compose
 # cannot open any more: those targets stop and say what to do. The ones that use the project name and no files (stop, down,

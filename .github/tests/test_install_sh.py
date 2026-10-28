@@ -3,6 +3,7 @@ and what they print in a terminal and out of one. Nothing is installed: the tool
 takes away is left off the PATH."""
 
 import os
+import re
 import select
 import shutil
 import signal
@@ -98,7 +99,7 @@ class Install(unittest.TestCase):
                              text=True, timeout=120, start_new_session=True)
         return run.returncode, run.stdout + run.stderr
 
-    def terminal(self, interrupt_on=None, answer=None, **env):
+    def terminal(self, interrupt_on=None, answer=None, columns=100, **env):
         """install.sh in a pseudo-terminal of 100 columns: its exit code and all it printed. Ctrl+C when `interrupt_on` shows,
         and the keys of `answer` at its question."""
         import fcntl
@@ -108,7 +109,7 @@ class Install(unittest.TestCase):
         pid, fd = pty.fork()
         if pid == 0:
             os.execve("/bin/sh", ["sh", str(INSTALL)], {**self.env, **env})
-        fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
+        fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 30, columns, 0, 0))
         printed, deadline = b"", time.monotonic() + 120
         while time.monotonic() < deadline:
             if not select.select([fd], [], [], 1)[0]:
@@ -244,6 +245,14 @@ class Install(unittest.TestCase):
             self.assertRegex(said, rf"✔\x1b\[0m \x1b\[1m{step}")
         self.assertTrue(said.startswith("\033[?25l"), "the cursor hides while the line runs")
         self.assertTrue(said.rstrip().endswith("\033[?25h"), "and it is back at the end")
+
+    def test_a_narrow_terminal_folds_the_lines_between_words(self):
+        code, said = self.terminal(columns=60, **self.slow_git(), FAKE_WAIT="1")
+        self.assertEqual(code, 0, said)
+        # What stays on the screen: each line as it ends, without its colors
+        screen = [re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", line.rstrip("\r").split("\r")[-1]) for line in said.split("\n")]
+        self.assertEqual([line for line in screen if len(line) > 60], [])
+        self.assertTrue(any(re.match(r"  \S+ Ready in \d+s\.", line) for line in screen), said)
 
     def test_a_terminal_that_is_not_utf8_gets_ascii_and_no_color_gets_none(self):
         code, said = self.terminal(LANG="C")

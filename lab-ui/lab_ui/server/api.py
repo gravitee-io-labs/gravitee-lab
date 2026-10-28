@@ -13,6 +13,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import textwrap
 import threading
 import time
 import webbrowser
@@ -1094,7 +1095,10 @@ def address(url, then):
     bold, cyan, dim, off = ("\033[1m", "\033[36m", "\033[2m", "\033[0m") if styled else ("", "", "", "")
     encoding = os.environ.get("LC_ALL") or os.environ.get("LC_CTYPE") or os.environ.get("LANG") or ""
     arrow = "➜" if re.search(r"utf-?8", encoding, re.IGNORECASE) else ">"
-    print(f"\n  {cyan}{arrow}{off}  {bold}Lab UI{off}   {cyan}{url}{off}\n     {dim}{then}{off}\n", flush=True)
+    # Folded between words under the address, in a terminal narrower than the line; never in a log
+    lines = textwrap.wrap(then, max(shutil.get_terminal_size().columns - 6, 20)) if sys.stdout.isatty() else [then]
+    said = "".join(f"\n     {dim}{line}{off}" for line in lines)
+    print(f"\n  {cyan}{arrow}{off}  {bold}Lab UI{off}   {cyan}{url}{off}{said}\n", flush=True)
 
 
 def port_number(text):

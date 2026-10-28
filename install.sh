@@ -63,6 +63,11 @@ width() {
     echo "$cols"
 }
 
+# The width a line folds at: the terminal's, none in a log
+room() {
+    if $live; then width; else echo 1000; fi
+}
+
 # Seconds since $1, as people read them
 took() {
     s=$(($(date +%s) - $1))
@@ -212,7 +217,13 @@ ended() {
     calm
     time=$(took "$started")
     case $time in 0s | 1s) time='' ;; esac
-    printf '  %s%s%s %s%-13s%s %s%s%s%s\n' "$2" "$1" "$off" "$bold" "$label" "$off" "$3" "${time:+  }" "$dim" "$time$off"
+    # What it found, folded between words under itself when the terminal is too narrow for it
+    room=$(($(room) - 18))
+    [ -z "$time" ] || room=$((room - ${#time} - 2))
+    [ "$room" -ge 20 ] || room=20
+    found=$(printf '%s\n' "$3" | fold -s -w "$room" | sed 's/ *$//')
+    printf '  %s%s%s %s%-13s%s %s%s%s%s\n' "$2" "$1" "$off" "$bold" "$label" "$off" "$(printf '%s\n' "$found" | sed -n 1p)" "${time:+  }" "$dim" "$time$off"
+    printf '%s\n' "$found" | sed '1d;s/^/                  /'
     label=''
 }
 passed() { ended "$good" "$green" "$1"; }
@@ -579,7 +590,9 @@ main() {
     command_on_path
     docker_state
 
-    printf '\n  %s%s Ready in %s.%s Next time, run %sgravitee-lab%s%s.\n' "$green" "$good" "$(took "$begun")" "$off" "$bold" "$off" "$fresh"
+    printf '\n'
+    printf '%s\n' "$good Ready in $(took "$begun"). Next time, run gravitee-lab$fresh." | fold -s -w $(($(room) - 4)) \
+        | sed "s/ *\$//;1s/^\($good Ready in [^.]*\.\)/$green\1$off/;s/gravitee-lab/$bold&$off/;1s/^/  /;2,\$s/^/    /"
     if [ "${GRAVITEE_LAB_NO_START:-}" = 1 ]; then
         printf '\n'
         return

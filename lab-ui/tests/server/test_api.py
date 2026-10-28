@@ -2433,6 +2433,15 @@ class Startup(Case):
         self.assertEqual(said, "\n  >  Lab UI   http://localhost:9000\n     Keep this terminal open: Ctrl+C stops the Lab UI, "
                                "and the containers keep running.\n\n")
 
+    def test_a_narrow_terminal_folds_the_line_under_the_address_between_words(self):
+        printed = io.StringIO()
+        printed.isatty = lambda: True
+        with contextlib.redirect_stdout(printed), mock.patch.dict("os.environ", {"LC_ALL": "C", "NO_COLOR": "1"}), \
+                mock.patch.object(api.shutil, "get_terminal_size", return_value=os.terminal_size((60, 30))):
+            api.serve(9000, False)
+        self.assertEqual(printed.getvalue(), "\n  >  Lab UI   http://localhost:9000\n     Keep this terminal open: Ctrl+C "
+                                             "stops the Lab UI, and\n     the containers keep running.\n\n")
+
     def test_the_browser_opens_once_the_steps_are_done_and_not_when_it_is_not_asked(self):
         self.serve(browser=True)
         self.timer.assert_called_once_with(0.5, api.open_browser, args=("http://localhost:9000",))
