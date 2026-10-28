@@ -63,7 +63,7 @@ x-gravitee-catalog:
 
 Optional keys: `requires.catalogs` (other catalogs it needs, with their address and minimum version), `shared_settings`
 (settings every item may read, such as an API key the person gives once), `images` (the registry prefix of the images it
-publishes), `canary` (the items the end-to-end test always tries), `renamed` (what it renamed: [Renaming an item](#renaming-an-item)). `host_access: true` says that some of its items take more of the machine than a container does (a privileged cluster, say), each with its reason in `x-gravitee.host_access`: `check` then judges them by their reasons, as the Lab does once the person has allowed the catalog at Add. The Lab still asks that person: nothing is allowed by the file.
+publishes), `canary` (the items the end-to-end test always tries), `renamed` (what it renamed: [Renaming an item](#renaming-an-item)). `host_access: true` says that some of its items take more of the machine than a container does (a privileged cluster, say), each with its reason in `x-gravitee.host_access`: `check` then judges them by their reasons, as the Lab does once the person has allowed the catalog at Add. The Lab still asks that person: nothing is allowed by the file. The catalog's own runs on `main`, the end-to-end one and `versions.yml`, allow it, since what is on `main` was reviewed; the run of a pull request never does.
 
 There is no compatibility number to write. A Lab uses what it understands: when a version of your catalog uses a key, a label
 or a seed folder that someone's Lab does not read yet, that Lab keeps the newest version it reads and tells them to update

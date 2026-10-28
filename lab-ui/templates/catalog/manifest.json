@@ -1,5 +1,5 @@
 {
-  "level": 7,
+  "level": 8,
   "files": [
     {"path": ".catalog/standard.mk", "class": "managed", "since": 1, "when": "always", "scope": "full"},
     {"path": ".github/dependabot.yml", "class": "managed", "since": 1, "when": "always", "scope": "full"},
@@ -38,6 +38,72 @@
   ],
   "removed": [],
   "edits": [
+    {
+      "path": ".github/workflows/e2e.yml",
+      "below": 8,
+      "from": [
+        "          FROM: ${{ inputs.pr != '' && 'change' || 'catalog' }}",
+        "          # What is on main was reviewed: its items may use this machine, each for the reason its x-gravitee.host_access gives, as",
+        "          # once a person allows the catalog at Add. A pull request never may",
+        "          MACHINE: ${{ inputs.pr == '' && github.ref == 'refs/heads/main' }}",
+        "        run: |",
+        "          if [ \"$MACHINE\" = true ]; then",
+        "            python3 -I lab-ui/catalog.py link \"../$FROM\" --allow-machine",
+        "          else",
+        "            python3 -I lab-ui/catalog.py link \"../$FROM\"",
+        "          fi"
+      ],
+      "to": [
+        "          FROM: ${{ inputs.pr != '' && 'change' || 'catalog' }}",
+        "        run: |",
+        "          python3 -I lab-ui/catalog.py link \"../$FROM\""
+      ]
+    },
+    {
+      "path": ".github/workflows/versions.yml",
+      "below": 8,
+      "from": [
+        "#   try      one job a playground and a set of versions, in the environment e2e-nightly, which holds the license. What is on main was",
+        "#            reviewed: its items may use this machine, each for the reason its x-gravitee.host_access gives"
+      ],
+      "to": [
+        "#   try      one job a playground and a set of versions, in the environment e2e-nightly, which holds the license"
+      ]
+    },
+    {
+      "path": ".github/workflows/versions.yml",
+      "below": 8,
+      "from": [
+        "          python3 -I lab/lab-ui/catalog.py link catalog --allow-machine",
+        "          python3 -I lab/lab-ui/catalog.py ci versions-plan catalog --github-output"
+      ],
+      "to": [
+        "          python3 -I lab/lab-ui/catalog.py link catalog",
+        "          python3 -I lab/lab-ui/catalog.py ci versions-plan catalog --github-output"
+      ]
+    },
+    {
+      "path": ".github/workflows/versions.yml",
+      "below": 8,
+      "from": [
+        "          python3 -I lab-ui/catalog.py link ../catalog --allow-machine"
+      ],
+      "to": [
+        "          python3 -I lab-ui/catalog.py link ../catalog"
+      ]
+    },
+    {
+      "path": ".github/workflows/versions.yml",
+      "below": 8,
+      "from": [
+        "          python3 -I lab/lab-ui/catalog.py link catalog --allow-machine",
+        "          python3 -I lab/lab-ui/catalog.py ci versions-record catalog --plan plan.json --results results | tee recorded.txt"
+      ],
+      "to": [
+        "          python3 -I lab/lab-ui/catalog.py link catalog",
+        "          python3 -I lab/lab-ui/catalog.py ci versions-record catalog --plan plan.json --results results | tee recorded.txt"
+      ]
+    },
     {
       "path": ".github/rulesets/default-branch.json",
       "below": 7,
@@ -314,6 +380,12 @@
       "summary": "Adds versions.yml to the e2e module: every night each playground is tried on the releases of Gravitee it does not say it was tested with yet (the newest release of each of the five newest minor versions, and a pre-release above them). What works is written in its x-gravitee.tested, committed to main and released as the next patch version; what does not work opens an issue. The rulesets of main and of the tags let a deploy key through, for that commit and that tag, and two rulesets that no deploy key passes, history.json and tag-history.json, keep it from deleting or rewriting main or a tag.",
       "manual": ["Give versions.yml its key, in the repository's folder: ssh-keygen -t ed25519 -N '' -C versions -f versions-key, then gh repo deploy-key add versions-key.pub --allow-write --title versions, then gh secret set VERSIONS_DEPLOY_KEY --env versions < versions-key, then rm versions-key versions-key.pub."],
       "settings": ["Create the environment versions, limited to main, and apply the rulesets again: make settings APPLY=1 shows the requests."],
+      "urgent": false
+    },
+    "8": {
+      "summary": "The catalog's own runs on main, the end-to-end one and versions.yml, allow its items to use the machine, each for the reason its x-gravitee.host_access gives, as a person does at Add: what is on main was reviewed. The run of a pull request never does. A playground that needs a privileged cluster is now tried every night like the others. No file is added.",
+      "manual": [],
+      "settings": [],
       "urgent": false
     }
   }

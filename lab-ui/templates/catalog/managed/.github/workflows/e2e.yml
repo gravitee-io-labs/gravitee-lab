@@ -1,4 +1,4 @@
-# Managed by the Lab catalog standard 7: change it with catalog.py upgrade, in a pull request a maintainer reads.
+# Managed by the Lab catalog standard 8: change it with catalog.py upgrade, in a pull request a maintainer reads.
 # End to end, for the maintainers: each item a change touches starts on a machine with no lab, with the platform and a license, and
 # has to work, as `make e2e` does in the Lab. It is the one workflow that holds the license, and it is always the workflow of main:
 # a pull request is data for it, never code.
@@ -154,8 +154,15 @@ jobs:
           ITEM: ${{ matrix.item }}
           TESTED: ${{ matrix.tested }}
           FROM: ${{ inputs.pr != '' && 'change' || 'catalog' }}
+          # What is on main was reviewed: its items may use this machine, each for the reason its x-gravitee.host_access gives, as
+          # once a person allows the catalog at Add. A pull request never may
+          MACHINE: ${{ inputs.pr == '' && github.ref == 'refs/heads/main' }}
         run: |
-          python3 -I lab-ui/catalog.py link "../$FROM"
+          if [ "$MACHINE" = true ]; then
+            python3 -I lab-ui/catalog.py link "../$FROM" --allow-machine
+          else
+            python3 -I lab-ui/catalog.py link "../$FROM"
+          fi
           set +e
           python3 -I lab-ui/server.py --e2e "$ITEM" ${TESTED:+--tested "$TESTED"}
           code=$?

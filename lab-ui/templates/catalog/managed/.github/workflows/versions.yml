@@ -1,10 +1,11 @@
-# Managed by the Lab catalog standard 7: change it with catalog.py upgrade, in a pull request a maintainer reads.
+# Managed by the Lab catalog standard 8: change it with catalog.py upgrade, in a pull request a maintainer reads.
 # Every night, on the main branch: each playground is tried on the releases of Gravitee it does not say it was tested with yet (the newest
 # release of each of the five newest minor versions, and a pre-release above them), on a machine with no lab and with the license, as
 # `make e2e` does. What works is written in its x-gravitee.tested, committed to main and released as the next patch version, so that
 # every Lab sees it at its next check. What does not work opens an issue, or adds to the one that is open.
 #   plan     what each playground is tried on: no secret
-#   try      one job a playground and a set of versions, in the environment e2e-nightly, which holds the license
+#   try      one job a playground and a set of versions, in the environment e2e-nightly, which holds the license. What is on main was
+#            reviewed: its items may use this machine, each for the reason its x-gravitee.host_access gives
 #   record   the one job that writes: the Lab writes the sets that passed, the results being data that the plan checks and the Lab
 #            reads again, then commits them and tags the release. The last step alone holds VERSIONS_DEPLOY_KEY, a secret of the
 #            environment versions, the deploy key that the rulesets let push to main and create a tag; it runs git and nothing else.
@@ -45,7 +46,7 @@ jobs:
       - name: Plan the jobs
         id: plan
         run: |
-          python3 -I lab/lab-ui/catalog.py link catalog
+          python3 -I lab/lab-ui/catalog.py link catalog --allow-machine
           python3 -I lab/lab-ui/catalog.py ci versions-plan catalog --github-output
 
   try:
@@ -89,7 +90,7 @@ jobs:
           ITEM: ${{ matrix.item }}
           VERSIONS: ${{ matrix.versions }}
         run: |
-          python3 -I lab-ui/catalog.py link ../catalog
+          python3 -I lab-ui/catalog.py link ../catalog --allow-machine
           set +e
           python3 -I lab-ui/server.py --e2e "$ITEM" --versions "$VERSIONS"
           code=$?
@@ -138,7 +139,7 @@ jobs:
         run: |
           set -o pipefail
           printf '%s' "$MATRIX" > plan.json
-          python3 -I lab/lab-ui/catalog.py link catalog
+          python3 -I lab/lab-ui/catalog.py link catalog --allow-machine
           python3 -I lab/lab-ui/catalog.py ci versions-record catalog --plan plan.json --results results | tee recorded.txt
           if [ -s recorded.txt ]; then echo "changed=true" >> "$GITHUB_OUTPUT"; fi
       - name: Commit them and tag the release
