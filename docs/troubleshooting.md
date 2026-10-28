@@ -342,7 +342,7 @@ then no longer match the volumes, so run `make reset` there too before you use i
 ### Windows and WSL 2
 
 Windows is supported through WSL 2 only. Native PowerShell, `cmd` and Git Bash are not supported. The maintainer tests on
-macOS with Apple silicon. Linux and WSL 2 are expected to work, so tell us what you find. Items that run AI models through
+Windows 11 with WSL 2, Ubuntu and Docker Desktop, so tell us what you find elsewhere. Items that run AI models through
 Ollama on Windows are untested.
 
 - **Run everything in WSL.** `install.ps1` sets it up ([Windows with WSL 2](installation.md#windows-with-wsl-2)). To

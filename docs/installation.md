@@ -24,7 +24,7 @@ whole path: what to install, how to start it, what needs a license, and how to s
 
 Clone outside folders synced by OneDrive, iCloud Drive or Google Drive: containers write into the clone, and a sync client can lock or rewrite those files.
 
-**Tested on** macOS (Apple silicon) by the maintainer. CI runs the checks and the tests on Ubuntu. Linux and Windows with WSL 2 are expected to work.
+**Tested on** macOS (Apple silicon), and Windows 11 with WSL 2 and Docker Desktop from `install.ps1`, by the maintainer. CI runs the checks and the tests on Ubuntu. Linux is expected to work.
 
 ### macOS
 
