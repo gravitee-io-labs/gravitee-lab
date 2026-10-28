@@ -37,6 +37,9 @@ jobs:
           python-version: "3.15"
       - name: Lint
         run: make setup && make lint
+      # The runner image has ShellCheck
+      - name: Check install.sh and bin/gravitee-lab
+        run: shellcheck -s sh install.sh bin/gravitee-lab
 
   # Every add-on, setup and playground, then the project as a whole, with the Compose release the lab pins and with the newest one,
   # which is what a Linux user gets from Docker's repository. Then the builds of the lab-images workflow, printed and not run: every
@@ -65,7 +68,8 @@ jobs:
       - name: Check with the newest Compose
         run: make check
 
-  # The Makefile's messages and helpers, the images script, the workflows and the conventions of the Compose files
+  # The Makefile's messages and helpers, install.sh and gravitee-lab, the images script, the workflows and the conventions of the
+  # Compose files
   repository:
     name: Repository tests
     runs-on: ubuntu-24.04
