@@ -1045,6 +1045,25 @@ class Audit(Base):
         found = scene(keys=(("versions", False), ("old", False), ("lab", True))).finding("rules.deploy_key")
         self.assertEqual((FAIL, "2 deploy keys write: keep the one of versions.yml and make the others read only"), (found.status, found.now))
         self.assertEqual(MANUAL, scene(keys=None).finding("rules.deploy_key").status, "an administrator reads the deploy keys")
+        # The key of versions.yml is there and no ruleset lets it through: what it records never reaches main. The fix adds the key
+        # to the bypass of main and of the tags, and keeps the administrator who bypasses, then creates the history rulesets
+        unset = Scene("public-standard")
+        main = copy.deepcopy(unset.get("/rulesets/1001").body)
+        admin = {"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}
+        main["bypass_actors"] = [admin]
+        unset.set("/rulesets/1001", main)
+        unset.set("/keys", [{"id": 1, "title": "versions", "read_only": False}])
+        found = unset.finding("rules.deploy_key")
+        self.assertEqual(FAIL, found.status)
+        self.assertIn("what it records never reaches main", found.now)
+        sent = requests_of(found)
+        put = {path: body for method, path, body in sent if method == "PUT"}
+        self.assertEqual(put["repos/acme-labs/lab-hub/rulesets/1001"]["bypass_actors"], [admin, key])
+        self.assertEqual(put["repos/acme-labs/lab-hub/rulesets/1002"]["bypass_actors"][-1], key)
+        self.assertEqual(put["repos/acme-labs/lab-hub/rulesets/1001"]["rules"], main["rules"], "nothing else changes")
+        self.assertEqual({"catalog-main-history", "catalog-tag-history"}, {body["name"] for method, _, body in sent if method == "POST"})
+        unset.set("/keys", [{"id": 1, "title": "lab", "read_only": True}])
+        self.assertEqual(OK, unset.finding("rules.deploy_key").status, "no key that writes: versions.yml is not set up")
         # A history ruleset of another branch keeps nothing of main
         elsewhere = scene()
         elsewhere.set("/rulesets/1003", {**history, "conditions": {"ref_name": {"include": ["refs/heads/legacy"], "exclude": []}}})
