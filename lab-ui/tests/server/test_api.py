@@ -1821,8 +1821,8 @@ class JobRoutes(LabUI):
 
 class CommandLine(LabUI):
 
-    RUNNING = "Gravitee Lab UI is already running on http://localhost:{}. " \
-              "To load a new version: stop it with Ctrl+C in its terminal, then run make ui again"
+    RUNNING = "\n  >  Lab UI   http://localhost:{}\n     Already running. To load a new version, stop it with Ctrl+C in its " \
+              "terminal, then run gravitee-lab again.\n"
 
     def another_program(self, handler=None):
         """A web server that is not the Lab UI, on a free port of its own: answers its port."""
@@ -1862,7 +1862,7 @@ class CommandLine(LabUI):
     def test_busy_port_opens_the_lab_ui_that_runs(self):
         port = self.server.server_port
         opened, printed = self.patch(api, "open_browser"), io.StringIO()
-        with contextlib.redirect_stdout(printed):
+        with contextlib.redirect_stdout(printed), mock.patch.dict("os.environ", {"LC_ALL": "C"}):
             api.serve(port, browser=False)
             opened.assert_not_called()
             api.serve(port, browser=True)
@@ -1875,7 +1875,7 @@ class CommandLine(LabUI):
             api.serve(port, browser=True)
         self.assertEqual(stopped.exception.code,
                          f"Port {port} is used by another program. Free it, or use another port: "
-                         f"UI_PORT={port + 1} make ui (the UIs of a playground do not show next to the guide on "
+                         f"UI_PORT={port + 1} gravitee-lab (the UIs of a playground do not show next to the guide on "
                          "another port)")
         opened.assert_not_called()
 
@@ -2421,7 +2421,7 @@ class Startup(Case):
 
     def serve(self, browser=False):
         printed = io.StringIO()
-        with contextlib.redirect_stdout(printed):
+        with contextlib.redirect_stdout(printed), mock.patch.dict("os.environ", {"LC_ALL": "C"}):   # an ASCII arrow
             api.serve(9000, browser)
         return printed.getvalue()
 
@@ -2430,7 +2430,8 @@ class Startup(Case):
         self.assertEqual(self.events, [("bind", ("127.0.0.1", 9000)), ("signals",), ("layout", "ensure"), ("service", "recover"),
                                        ("contribute", "sweep"), ("firstrun", "reconcile"), ("firstrun", "start_worker"),
                                        ("serve",)])
-        self.assertEqual(said, "  Gravitee Lab UI on http://localhost:9000  (Ctrl+C to stop)\n")
+        self.assertEqual(said, "\n  >  Lab UI   http://localhost:9000\n     Keep this terminal open: Ctrl+C stops the Lab UI, "
+                               "and the containers keep running.\n\n")
 
     def test_the_browser_opens_once_the_steps_are_done_and_not_when_it_is_not_asked(self):
         self.serve(browser=True)
@@ -2447,7 +2448,7 @@ class Startup(Case):
         self.patch(api, "ThreadingHTTPServer", side_effect=OSError(errno.EADDRINUSE, "Address already in use"))
         self.patch(api, "is_lab_ui", return_value=True)
         said = self.serve(browser=True)
-        self.assertIn("is already running", said)
+        self.assertIn("Already running", said)
         self.opened.assert_called_once_with("http://localhost:9000")
 
     def test_another_program_on_the_port_is_an_exit_and_touches_nothing(self):
@@ -2519,20 +2520,13 @@ class Startup(Case):
                 self.assertEqual(stopped.exception.code, "docker not found")
         prepared.assert_not_called()
         self.assertEqual(self.events, [])
-        # The page says what is missing, with its fix (machine): the Lab UI serves, and the terminal says it in a line
+        # The page says what is missing, with its fix (machine): the Lab UI serves, and the terminal does not say it twice
         served = self.patch(api, "serve")
         said = io.StringIO()
-        with contextlib.redirect_stderr(said):
+        with contextlib.redirect_stderr(said), contextlib.redirect_stdout(said):
             api.main(["--no-open", "--port", "9123"])
         served.assert_called_once()
-        self.assertEqual(said.getvalue().strip(), "Gravitee Lab UI: docker not found")
-        # The line points at the Lab UI, not at the README the command line points at
-        self.patch(api, "requirement", return_value=f"docker not found: install Docker with Compose 5.0 or later {api.README}")
-        said = io.StringIO()
-        with contextlib.redirect_stderr(said):
-            api.main(["--no-open", "--port", "9123"])
-        self.assertEqual(said.getvalue().strip(), "Gravitee Lab UI: docker not found: install Docker with Compose 5.0 or later. "
-                                                  "The Lab UI says how to fix it.")
+        self.assertEqual(said.getvalue(), "")
 
 
 if __name__ == "__main__":

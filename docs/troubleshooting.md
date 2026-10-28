@@ -120,12 +120,12 @@ each other at these addresses. [Ports](configuration.md#ports) lists every port.
 
 ### Port 9000 is taken, or the Lab UI is already running
 
-**Symptom:** `make ui` prints one of:
+**Symptom:** `gravitee-lab` (or `make ui`) prints one of:
 
-- `Port 9000 is used by another program. Free it, or use another port: UI_PORT=9001 make ui (the UIs of a playground do
-  not show next to the guide on another port)`
-- `Gravitee Lab UI is already running on http://localhost:9000. To load a new version: stop it with Ctrl+C in its
-  terminal, then run make ui again`
+- `Port 9000 is used by another program. Free it, or use another port: UI_PORT=9001 gravitee-lab (the UIs of a playground
+  do not show next to the guide on another port)`
+- `Already running. To load a new version, stop it with Ctrl+C in its terminal, then run gravitee-lab again.`, under the
+  address of the Lab UI
 - `UI_PORT must be a port number, for example 9001`
 
 **Cause:** another program listens on 9000, you started the Lab UI twice, or `UI_PORT` holds something else than a port

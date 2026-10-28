@@ -1068,14 +1068,14 @@ def serve(port, browser):
             raise
         if not is_lab_ui(port):
             sys.exit(f"Port {port} is used by another program. Free it, or use another port: UI_PORT={port + 1} "
-                     "make ui (the UIs of a playground do not show next to the guide on another port)")
-        print(f"Gravitee Lab UI is already running on {url}. To load a new version: stop it with Ctrl+C in its "
-              "terminal, then run make ui again")
+                     "gravitee-lab (the UIs of a playground do not show next to the guide on another port)")
+        address(url, "Already running. To load a new version, stop it with Ctrl+C in its terminal, then run gravitee-lab "
+                     "again.")
         if browser:
             open_browser(url)
         return   # a Lab serves already: nothing on disk is touched, so nothing of its work is finished or swept from here
     server.daemon_threads = True   # an open log stream does not keep the Lab UI from stopping
-    print(f"  Gravitee Lab UI on {url}  (Ctrl+C to stop)")   # in line with what install.sh printed above it
+    address(url, "Keep this terminal open: Ctrl+C stops the Lab UI, and the containers keep running.")
     compose.stop_on_signals()   # once, from the main thread, before it serves: a closed terminal ends what runs
     start_up()
     if browser:
@@ -1084,6 +1084,17 @@ def serve(port, browser):
         server.serve_forever()
     except KeyboardInterrupt:
         pass
+
+
+def address(url, then):
+    """The address of the Lab UI, the line to click, then what to know about it: in the look of install.sh, which printed
+    the lines above it. Colors in a terminal (none with NO_COLOR), an arrow when it is UTF-8. What the machine lacks is not
+    said here: the page says it, with its fix (machine)."""
+    styled = sys.stdout.isatty() and not os.environ.get("NO_COLOR") and os.environ.get("TERM", "dumb") != "dumb"
+    bold, cyan, dim, off = ("\033[1m", "\033[36m", "\033[2m", "\033[0m") if styled else ("", "", "", "")
+    encoding = os.environ.get("LC_ALL") or os.environ.get("LC_CTYPE") or os.environ.get("LANG") or ""
+    arrow = "➜" if re.search(r"utf-?8", encoding, re.IGNORECASE) else ">"
+    print(f"\n  {cyan}{arrow}{off}  {bold}Lab UI{off}   {cyan}{url}{off}\n     {dim}{then}{off}\n", flush=True)
 
 
 def port_number(text):
@@ -1121,8 +1132,6 @@ def main(argv=None):
     missing = requirement()
     if missing and (args.check or args.list or args.e2e):
         sys.exit(missing)
-    if missing:   # the Lab UI serves all the same: its page says what is missing, and how to fix it (machine)
-        print(f"  Gravitee Lab UI: {missing.replace(' ' + README, '. The Lab UI says how to fix it.')}", file=sys.stderr)
     layers.prepare()
     if args.check:
         sys.exit(check.run())
