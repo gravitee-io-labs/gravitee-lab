@@ -42,8 +42,10 @@ CONSOLES = 90       # seconds a console has to answer, once everything is up
 LOG_LINES = 80      # lines of the log of a container that is not up, which the report prints
 LOG_CHARS = 20000   # characters of such a log that the report keeps (the end of it): a summary of a job is 1 MiB at most
 NAME_LIMIT = 200    # characters of an item named on a command line
-# What a start that cannot happen here says: a license it lacks, a setting only a person gives
-UNABLE = re.compile(r"Needs settings|Needs a license|Not in the license|License expired|The license")
+# What a start that cannot happen here says: a license it lacks, a setting only a person gives, versions it does not run on (a
+# start that would switch them), a registry that needs a login
+UNABLE = re.compile(r"Needs settings|Needs a license|Not in the license|License expired|The license|Would also change|"
+                    r"Not logged in")
 # What a container may be once started and settled: up, or a one-shot that ended well
 UP = {"running", "healthy", "done"}
 # What a set of versions may name: a setting in capitals that says the version, the tag, the registry, the image, the repository or
@@ -114,20 +116,26 @@ def image_variables(built):
     return {key for service in built["services"].values() for key, _, _ in compose.references(service.get("raw_image") or "")}
 
 
-def versions(unit, index, known=None):
-    """The variables of the set of versions `index` (from 0) of `x-gravitee.tested` of a playground, as strings: what the
-    process gives Compose. {} without an index: the core's defaults. A set is text a catalog wrote and the run has the license,
-    so it sets the version or the registry of an image (SETTING, and one of `known`, the variables of the images, when they are
-    given) and never a variable of the process or of the tools it runs (PROCESS)."""
-    if index is None:
+def versions(unit, index, known=None, given=None):
+    """The variables of the set of versions `index` (from 0) of `x-gravitee.tested` of a playground, or the set `given`
+    (`--versions`, the one the workflow Gravitee versions tries), as strings: what the process gives Compose. {} without
+    either: the core's defaults. A set is text a catalog wrote and the run has the license, so it sets the version or the
+    registry of an image (SETTING, and one of `known`, the variables of the images, when they are given) and never a variable
+    of the process or of the tools it runs (PROCESS)."""
+    if given is not None:
+        if not isinstance(given, dict) or not given or not all(isinstance(value, str) for value in given.values()):
+            raise ValueError("The versions are a JSON object of variables and their values, as a set of x-gravitee.tested")
+        chosen = {str(key): value for key, value in given.items()}
+    elif index is None:
         return {}
-    sets = [tested for tested in unit.get("tested") or [] if tested]
-    if not sets:
-        raise ValueError(f"{unit['name']} says no versions it was tested with: it has no set {index}")
-    if not 0 <= index < len(sets):
-        raise ValueError(f"{unit['name']} was tested with {len(sets)} set{'s' if len(sets) != 1 else ''} of versions: "
-                         f"choose from 0 to {len(sets) - 1}")
-    chosen = {str(key): str(value) for key, value in sets[index].items()}
+    else:
+        sets = [tested for tested in unit.get("tested") or [] if tested]
+        if not sets:
+            raise ValueError(f"{unit['name']} says no versions it was tested with: it has no set {index}")
+        if not 0 <= index < len(sets):
+            raise ValueError(f"{unit['name']} was tested with {len(sets)} set{'s' if len(sets) != 1 else ''} of versions: "
+                             f"choose from 0 to {len(sets) - 1}")
+        chosen = {str(key): str(value) for key, value in sets[index].items()}
     for key in chosen:
         if not SETTING.fullmatch(key) or PROCESS.fullmatch(key) or (known is not None and key not in known):
             raise ValueError(f"{unit['name']} sets {shortened(key)} in its versions, which is not the version or the "
@@ -456,13 +464,14 @@ def report(run, outcome, versions_used, message="", logs=None, out=print, summar
 # The run
 # ---------------------------------------------------------------------------------------------------------------------
 
-def run(text, tested=None, timeout=1800, keep=False, out=print):
-    """Tries the item named `text` (`kind:id`) on set `tested` of its versions, and answers the exit code."""
+def run(text, tested=None, timeout=1800, keep=False, out=print, given=None):
+    """Tries the item named `text` (`kind:id`) on set `tested` of its versions, or on the set `given`, and answers the exit
+    code."""
     layers.prepare()
     built = project.load()
     try:
         kind, uid = target(text, built)
-        used = versions(built[f"{kind}s"][uid], tested, image_variables(built))
+        used = versions(built[f"{kind}s"][uid], tested, image_variables(built), given)
     except ValueError as error:   # a unit's own name may be in it: said as data
         with data(out, os.environ.get("GITHUB_ACTIONS") == "true"):
             out(" ".join(str(error).split()))

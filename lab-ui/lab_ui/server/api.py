@@ -1075,6 +1075,8 @@ def main(argv=None):
                         "check that it works, remove what it made, then exit (for CI: see docs/maintaining.md)")
     parser.add_argument("--tested", type=int, metavar="N", help="with --e2e: the versions of the N-th set of x-gravitee.tested, "
                         "from 0; without it, the defaults of the core")
+    parser.add_argument("--versions", metavar="JSON", help="with --e2e: a set of versions to try it on, as a set of "
+                        "x-gravitee.tested is written ({\"APIM_VERSION\": \"4.13.1\"})")
     parser.add_argument("--timeout", type=int, default=1800, metavar="SECONDS", help="with --e2e: how long the start may take")
     parser.add_argument("--keep", action="store_true", help="with --e2e: leave what was started running, to look at it")
     args = parser.parse_args(argv)
@@ -1090,6 +1092,14 @@ def main(argv=None):
         return listing()
     if args.e2e:
         from .. import e2e   # only a run needs it
-        sys.exit(e2e.run(args.e2e, args.tested, args.timeout, args.keep))
+        given = None
+        if args.versions is not None and args.tested is not None:
+            sys.exit("--versions and --tested each choose the versions: give one")
+        if args.versions is not None:
+            try:
+                given = json.loads(args.versions)
+            except ValueError:
+                sys.exit("--versions is not JSON: write an object, for example {\"APIM_VERSION\": \"4.13.1\"}")
+        sys.exit(e2e.run(args.e2e, args.tested, args.timeout, args.keep, given=given))
     # The Lab UI that an update started again opens no browser: the page that asked for the update is there, and reloads
     return serve(args.port or configured_port(), not args.no_open and not os.environ.get(updates.RESTARTED))

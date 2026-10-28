@@ -2468,7 +2468,7 @@ class Startup(Case):
         self.patch(api.check, "run", side_effect=lambda: order.append("check") or 0)
         self.patch(api, "listing", side_effect=lambda: order.append("list"))
         e2e = types.ModuleType("lab_ui.e2e")
-        e2e.run = lambda *args: order.append("e2e") or 0
+        e2e.run = lambda *args, **more: order.append("e2e") or 0
         with mock.patch.dict(sys.modules, {"lab_ui.e2e": e2e}), mock.patch.object(lab_ui, "e2e", e2e, create=True):   # `from . import e2e` looks at the package first
             api.main(["--no-open", "--port", "9123"])
             self.assertEqual(order, ["requirement", "prepare", "serve"])
