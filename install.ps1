@@ -25,7 +25,9 @@
     $raw = "https://raw.githubusercontent.com/gravitee-io-labs/gravitee-lab/$branch"
     $help = 'https://github.com/gravitee-io-labs/gravitee-lab/blob/main/docs/installation.md#windows-with-wsl-2'
     $network = 'https://github.com/gravitee-io-labs/gravitee-lab/blob/main/docs/troubleshooting.md#windows-and-wsl-2'
-    $command = 'irm https://raw.githubusercontent.com/gravitee-io-labs/gravitee-lab/main/install.ps1 | iex'
+    # The command to run again after a restart or a sign-out: the one that ran, with its branch when it is not main
+    $command = "irm $raw/install.ps1 | iex"
+    if ($branch -ne 'main') { $command = "`$env:GRAVITEE_LAB_BRANCH='$branch'; $command" }
 
     # The look of install.sh, so that the two read as one. A step shows a live line while it works (a spinner, its name on
     # 13 columns, what it does now, the time), then one line with its outcome: a mark, its name, what it found or did, and its
@@ -88,10 +90,15 @@
         Write-Host "  Help: $(if ($more) { $more } else { $help })" -ForegroundColor DarkGray
         Write-Host ''
     }
-    # A stop for a step the person finishes outside, a restart or a sign-out: the command to run next, in the clipboard too
+    # A stop for a step the person finishes outside, a restart or a sign-out: no failure, so the step's mark says it is done,
+    # then the command to run next, in the clipboard too
     function Again($label, $text) {
-        Halt $label $text
-        try { Set-Clipboard -Value $command; Write-Host "  Then run: $command   (in your clipboard)" } catch { Write-Host "  Then run: $command" }
+        Mark $warn Yellow $label $text
+        Write-Host ''
+        $copied = try { Set-Clipboard -Value $command; $true } catch { $false }
+        Write-Host '  Then run this command again' -NoNewline
+        Write-Host $(if ($copied) { ', which is in your clipboard:' } else { ':' })
+        Write-Host "  $command" -ForegroundColor Cyan
         Write-Host ''
     }
     # A question about something the person set up: no unless they say yes
@@ -253,14 +260,16 @@
     }
 
     # WSL. `wsl --version` answers only from the WSL of the Store, the one Docker Desktop needs
-    $version = & wsl.exe --version 2> $null
+    # Through cmd, which drops what the stub of Windows writes when WSL is missing: PowerShell 5.1 would show it as its own
+    # red error, the first thing a new user sees
+    $version = cmd /c 'wsl.exe --version 2>nul'
     if ($LASTEXITCODE -ne 0) {
         Note 'Installing WSL: Windows asks for administrator rights'
         $install = Start-Process wsl.exe -ArgumentList '--install', '--no-distribution' -Verb RunAs -Wait -PassThru
         if ($install.ExitCode -ne 0) {
             return Halt 'WSL' 'WSL did not install. Turn on virtualization in the firmware of this computer if WSL says so, then run this command again.'
         }
-        return Again 'WSL' 'WSL is installed. Restart Windows.'
+        return Again 'WSL' 'Installed: restart Windows'
     }
     Passed 'WSL' "$([regex]::Match(($version -join ' '), '\d+(\.\d+)+').Value)"
 
@@ -332,7 +341,7 @@
             $cli = DesktopCli
             if (-not $cli) { return Halt 'Docker' 'Docker Desktop did not install.' }
             if (-not (whoami /groups | Select-String -SimpleMatch 'docker-users' -Quiet) -and (Get-LocalGroup docker-users -ErrorAction SilentlyContinue)) {
-                return Again 'Docker' 'Docker Desktop is installed. Sign out of Windows and in again, so that it lets you use it.'
+                return Again 'Docker' 'Docker Desktop is installed: sign out of Windows and in again, so that it lets you use it'
             }
         }
         if (-not (WindowsDocker $cli)) {
