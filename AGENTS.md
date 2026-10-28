@@ -72,7 +72,9 @@ the default catalog, `@<catalog>/<id>` for another.
   `API_KEY` or ends in `_TOKEN`, in the `password` and `key` of `x-gravitee.accounts`, and in a URI
   (`postgres://user:password@host`). It cannot see a secret under another name: make it a setting too. A script that
   puts a secret in a file, as the `generate.sh` of the certificates does, reads the same setting, from the environment
-  or the `.env`.
+  or the `.env`. The one literal it accepts is the demo sign-in a console shows (`io.gravitee.console.<id>.password`),
+  which sets nothing: the core's consoles say the password their image comes with. A console whose password is a
+  setting says that setting.
 - **Seeds use endpoints, not container names.** Seed files hold `${VAR}` for every address and the seed service sets
   them, because the seeder reads every endpoint from its settings. `make test` fails on a literal address.
 - **Names.** An id is lowercase letters, digits and dashes. Service names are global to the project, because services

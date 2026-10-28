@@ -1,12 +1,12 @@
-// Welcome to Gravitee Lab: How it works at the top of the rail at the left, then the steps from a fresh machine to a running playground, each
+// Welcome to Gravitee Lab: How it works at the top of the rail at the left, then the steps from a fresh machine to a running platform, each
 // with its state: your machine (what it needs, each line with its fix), where API Management runs (the one choice the Lab asks), and the start
-// (the platform, then a playground). A step after a machine that keeps the platform from starting is locked, and says why. A first visit opens
+// (the platform, followed until it runs, then its consoles and the playgrounds). A step after a machine that keeps the platform from starting is locked, and says why. A first visit opens
 // it on your machine, unless where API Management runs was chosen on this machine already; the info button of the menu on How it works, or on
 // your machine while a line of it is red; the notices about Docker on your machine. What it says follows the lab while it is open.
 
 import { $, esc, icon, setHTML, recall, remember, api, store } from "../core.js";
-import { paintBusy, licenseForm, contentLead, setOff } from "../components/ui.js";
-import { runPlatform } from "../activity/jobs.js";
+import { paintBusy, licenseForm, contentLead, setOff, statusHtml, progressBar, paintProgress, safeHref } from "../components/ui.js";
+import { runPlatform, showOutput } from "../activity/jobs.js";
 import { CHOICES, coreOf, onCloud, movable, linkedPlaces, chooseCore, environmentControl, pickEnvironment, runCore, gatewayWhy } from "../platform/core-choice.js";
 import { License } from "./license.js";
 import { machine, machineBlocked, machineToFix, machineWorking, machineRowsHtml, machineSummary, watchMachine, unwatchMachine, refreshMachine, actMachine } from "./machine.js";
@@ -101,6 +101,18 @@ const stopped = () => {
   return onCloud() ? !!core.start?.needed && !!core.start.enabled && !core.stop?.needed : store.state?.platform?.state?.key === "stopped";
 };
 const running = () => (onCloud() ? !coreOf().start?.needed : store.state?.platform?.state?.key === "running");
+// The platform's last Start, while it is the lab's job; on its way while it runs or its containers get healthy; failed when it ended
+// badly or left a container with an issue, said by the job or else by the groups
+const startJob = () => { const job = store.state?.job; return job?.for === "platform" && job.verb === "start" ? job : null; };
+const starting = () => !running() && (startJob()?.done === false || store.state?.platform?.state?.key === "starting");
+function failure() {
+  if (running() || starting()) return "";
+  const job = startJob();
+  if (job?.done && !job.ok && job.error !== "Canceled") return job.error || "The start failed";
+  if (store.state?.platform?.state?.key !== "issue") return "";
+  const group = store.state.platform.groups.find((g) => g.note && ["err", "warn"].includes(g.note_tone));
+  return group ? `${group.name}: ${group.note}` : "A container has an issue";
+}
 
 // Each step as the rail draws it: {state: done, todo, attention, checking or locked, line: what it says under its name}
 function stepOf(id) {
@@ -113,7 +125,9 @@ function stepOf(id) {
   }
   if (machineBlocked()) return { state: "locked", line: "Once your machine is ready" };
   if (id === "core") return { state: coreOf().chosen || choseWhere ? "done" : "todo", line: onCloud() ? "Gravitee Cloud" : "This machine" };
-  return { state: running() ? "done" : "todo", line: running() ? "Running" : "Not started yet" };
+  if (running()) return { state: "done", line: "Running" };
+  if (starting()) return { state: "checking", line: "Starting" };
+  return failure() ? { state: "attention", line: "Did not start" } : { state: "todo", line: "Not started yet" };
 }
 
 const TITLE = { machine: "Your machine", core: () => product(), start: "Start", guide: "How it works" };
@@ -148,23 +162,44 @@ function corePanel() {
     <div class="welcome-core">${coreChoice()}</div>`;
 }
 
-// The start: the platform first, a playground then, a console last; the license while there is none
+// The start: the platform started here and followed until it runs, then its consoles, each with its demo sign-in; the license while there
+// is none
 function startPanel() {
-  const on = running(), cloud = onCloud();
+  const cloud = onCloud(), why = failure();
   const unlicensed = store.state?.license?.status === "none";
+  const license = unlicensed ? `<div class="welcome-license">${icon("key")}<span>No license: Enterprise features are off</span>
+      <button class="btn" ${licenseForm()}>Set license</button></div>` : "";
   const first = cloud ? `Start all starts the hybrid gateway of ${esc(coreOf().name)} and the rest of the platform on this machine.`
     : "Its first start downloads about 15 GB of images: about 10 to 15 minutes.";
-  const item = (n, name, text, done) => `<li class="start-item" data-state="${done ? "done" : "todo"}"><span class="start-num">${done ? icon("check") : n}</span>
-    <span class="start-text"><strong>${name}</strong><span>${text}</span></span></li>`;
-  return `<h2>${on ? "Your platform is running" : "Start the platform"}</h2>
-    <ol class="start-list">
-      ${item(1, cloud ? "Start all" : "Start the platform", on ? "Running" : first, on)}
-      ${item(2, "Choose a playground", "Its page lists what it needs: a license, versions, settings.", false)}
-      ${item(3, "Open a console", `From the ${page("Dashboard", "#/dashboard")}, the console of each product.`, false)}
-    </ol>
-    ${unlicensed ? `<div class="welcome-license">${icon("key")}<span>No license: Enterprise features are off</span>
-      <button class="btn" ${licenseForm()}>Set license</button></div>` : ""}`;
+  if (running()) {
+    return `<h2>Your platform is running</h2>
+      <ul class="start-list">${consoles().map(consoleItem).join("") || '<li class="empty">No console runs</li>'}</ul>${license}`;
+  }
+  if (starting()) {
+    return `<h2>Starting the platform</h2>
+      <p class="welcome-lead">${first}</p>
+      <div class="welcome-starting">${statusHtml("starting", "Starting")}${progressBar("platform")}</div>${license}`;
+  }
+  if (why) {
+    return `<h2>The platform did not start</h2>
+      <p class="welcome-lead err-text">${esc(why)}</p>${license}`;
+  }
+  return `<h2>Start the platform</h2>
+    <p class="welcome-lead">${first}</p>${license}`;
 }
+
+// The consoles of the platform that run, the current ones (the older ones are on the Dashboard), and with the product in Gravitee Cloud
+// its console there first
+function consoles() {
+  const state = store.state, mine = new Set(state.platform.groups.flatMap((g) => g.services || []));
+  const local = (state.links || []).filter((link) => link.up && !link.legacy && mine.has(link.service));
+  const core = coreOf(), cloud = onCloud() ? store.platforms.find((p) => p.id === core.platform?.id) : null;
+  return [...(cloud?.url ? [{ label: core.name, url: cloud.url }] : []), ...local];
+}
+
+const consoleItem = (link) => `<li class="start-item"><span class="start-num">${icon("external")}</span>
+    <span class="start-text"><strong>${esc(link.label)}</strong><span>${link.username ? `<code>${esc(link.username)}</code> / <code>${esc(link.password || "")}</code>` : esc(link.url)}</span></span>
+    <a class="btn" href="${esc(safeHref(link.url))}" target="_blank" rel="noopener" aria-label="Open ${esc(link.label)}">Open</a></li>`;
 
 function guidePanel() {
   return `<h2>How Gravitee Lab works</h2>
@@ -193,8 +228,8 @@ function guidePanel() {
 
 const PANELS = { machine: machinePanel, core: corePanel, start: startPanel, guide: guidePanel };
 
-// The foot of a step: Back, then what moves on. On the start, the slots are the same in every state (paintLead writes into them): Done, to
-// go on later, Start the platform while it is stopped, Choose a playground, the one that leads primary.
+// The foot of a step: Back, then what moves on. On the start: Done, to go on later, then Start the platform while it is stopped (Try again
+// once it failed, with its output), nothing more while it starts, and Discover the playgrounds once it runs (paintLead writes into it).
 function footHtml() {
   const order = steps(), at = order.indexOf(current), back = at > 0 ? '<button type="button" class="btn" data-back>Back</button>' : "";
   if (current === "guide") return '<span class="grow"></span><button type="button" class="btn primary" data-close>Close</button>';
@@ -204,13 +239,13 @@ function footHtml() {
       blocked ? ` aria-disabled="true" data-why="${esc(!machine.report ? "Checking your machine" : machineWorking()?.detail || "Fix the lines in red first")}"` : ""}>Continue</button>`;
   }
   if (current === "core") return `${back}<span class="grow"></span><button type="button" class="btn primary" data-next>Continue</button>`;
-  const state = store.state, chosen = [...(state?.playgrounds || []), ...(state?.addons || [])].some((x) => x.on);
-  const leadStart = stopped() && chosen;
   const gap = onCloud() && gatewayWhy() ? ` aria-disabled="true" data-why="${esc(gatewayWhy())}"` : "";
-  return `${back}<span class="grow"></span>
-    <button type="button" class="btn" data-close>Done</button>
-    ${stopped() ? `<button class="btn ${leadStart ? "primary" : ""}" data-start data-busy${gap}>${icon("play")}${onCloud() ? "Start all" : "Start the platform"}</button>` : ""}
-    <a class="btn ${leadStart ? "" : "primary"}" href="#/playgrounds">Choose a playground</a>`;
+  const done = '<button type="button" class="btn" data-close>Done</button>';
+  if (running()) return `${back}<span class="grow"></span>${done}<a class="btn primary" href="#/playgrounds">Discover the playgrounds</a>`;
+  if (starting() || !stopped() && !failure()) return `${back}<span class="grow"></span>${done}`;
+  const output = failure() && startJob() ? `<button type="button" class="btn" data-output>${icon("logs")}Show output</button>` : "";
+  return `${back}<span class="grow"></span>${done}${output}
+    <button class="btn primary" data-start data-busy${gap}>${icon("play")}${failure() ? "Try again" : onCloud() ? "Start all" : "Start the platform"}</button>`;
 }
 
 const dialog = document.createElement("dialog");
@@ -232,7 +267,7 @@ dialog.innerHTML = `
   </div>`;
 document.body.append(dialog);
 
-// While the catalogs are not there, Choose a playground stays where it is, disabled, saying why in the words of the lists; a failed download has
+// While the catalogs are not there, Discover the playgrounds stays where it is, disabled, saying why in the words of the lists; a failed download has
 // a Try again before it, and a lab with no catalog the button that adds the one that is listed. Written into the nodes, never the foot again:
 // the keyboard stays where it was and nothing moves under the pointer when the download ends.
 function paintLead(actions, state) {
@@ -272,6 +307,7 @@ function render() {
     actions._extraEl = null;
   }
   paintLead(actions, store.state);
+  paintProgress(dialog);
   // Your machine is asked again on a timer while it shows, and no longer once another step does
   if (current === "machine" && !watching) {
     watching = true;
@@ -306,7 +342,8 @@ dialog.addEventListener("click", (e) => {
   if (on("[data-back]")) { const order = steps(); return go(order[Math.max(order.indexOf(current) - 1, 0)]); }
   if (on("[data-act]")) return actMachine(on("[data-act]"));
   if (on('[data-close], a[href^="#/"]')) dialog.close();
-  else if (on("[data-start]")) { dialog.close(); if (onCloud()) runCore("start"); else runPlatform("start"); }
+  else if (on("[data-start]")) { if (onCloud()) runCore("start"); else runPlatform("start"); }
+  else if (on("[data-output]")) { dialog.close(); showOutput(startJob().id); }
   else if (on("[data-core-env]")) pickEnvironment(on("[data-core-env]"));
   else if (on("[data-license]")) { dialog.close(); License.show({ form: true }); }
 });

@@ -113,7 +113,7 @@ LEVEL = "since"
 TOKEN = re.compile(r'"[^"]*"|\S+')   # a word of a line: a name with a space is in double quotes
 IMAGE_VARIABLE = re.compile(r"_(?:VERSION|REGISTRY)$")
 LABEL = re.compile(r"io\.gravitee\.[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*")
-CONSOLE = re.compile(r"io\.gravitee\.console\.[a-z0-9-]+\.(name|url|legacy)")
+CONSOLE = re.compile(r"io\.gravitee\.console\.[a-z0-9-]+\.([A-Za-z0-9_-]+)")   # any part: the lock lists the id as <id>
 CONSOLE_START = r"io\.gravitee\.console\."   # how the Lab UI's pattern for a console label starts, as its source says it
 FRAME = re.compile(r"""["'`](gravitee-lab:[a-z][a-z0-9-]*)["'`]""")
 SETTING = re.compile(r"[A-Z][A-Z0-9_]*")
@@ -895,7 +895,8 @@ def go(kind, name):
         listed = label_items(self.root / "lab_ui", {"services": {}}, project.CONSOLE_LABEL)
         self.assertEqual(sorted(name for _, name in listed),
                          ["io.gravitee.console.<id>.legacy", "io.gravitee.console.<id>.name",
-                          "io.gravitee.console.<id>.url", "io.gravitee.role"])
+                          "io.gravitee.console.<id>.password", "io.gravitee.console.<id>.url",
+                          "io.gravitee.console.<id>.username", "io.gravitee.role"])
         self.assertEqual(sorted(console_labels(re.compile(r"io\.gravitee\.console\.([a-z0-9-]+)\.(name|extra)"))),
                          [("label", "io.gravitee.console.<id>.extra"), ("label", "io.gravitee.console.<id>.name")])
         for pattern in (r"io\.gravitee\.console\.([a-z0-9-]+)\.name", r"io\.gravitee\.consoles\.(a|b)", r"(name|url)"):

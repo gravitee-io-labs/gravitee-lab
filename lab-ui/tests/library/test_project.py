@@ -120,7 +120,9 @@ RAW = {
                         "io.gravitee.console.portal-legacy.url": "http://localhost:8085",
                         "io.gravitee.console.portal-legacy.legacy": "true",
                         "io.gravitee.console.portal.name": "Developer Portal",
-                        "io.gravitee.console.portal.url": "http://localhost:8085/next/"}),
+                        "io.gravitee.console.portal.url": "http://localhost:8085/next/",
+                        "io.gravitee.console.portal.username": "admin",
+                        "io.gravitee.console.portal.password": "admin"}),
         },
     },
     KAFKA: {
@@ -527,9 +529,16 @@ class Build(Legacy):
 
     def test_consoles_current_first(self):
         portal = self.project["services"]["apim-portal-ui"]["consoles"]
-        self.assertEqual(portal, [{"label": "Developer Portal", "url": "http://localhost:8085/next/", "legacy": False},
-                                  {"label": "Legacy Developer Portal", "url": "http://localhost:8085", "legacy": True}])
+        self.assertEqual(portal, [{"label": "Developer Portal", "url": "http://localhost:8085/next/", "legacy": False,
+                                   "username": "admin", "password": "admin"},
+                                  {"label": "Legacy Developer Portal", "url": "http://localhost:8085", "legacy": True,
+                                   "username": None, "password": None}])
         self.assertEqual(self.project["services"]["redis"]["consoles"], [])
+
+    def test_a_link_says_the_demo_sign_in_of_its_console(self):
+        found = {link["label"]: (link["username"], link["password"]) for link in self.project["links"]}
+        self.assertEqual(found["Developer Portal"], ("admin", "admin"))
+        self.assertEqual(found["Legacy Developer Portal"], (None, None))
 
     def test_links_current_first_then_by_label(self):
         links = self.project["links"]
@@ -1421,7 +1430,7 @@ class Catalogs(Fixture):
     def test_what_gather_read_for_the_policy_is_given_with_the_inputs(self):
         inputs = self.inputs
         self.assertEqual(inputs["default"], "fixture")
-        self.assertEqual(inputs["contract"], {"contract": 3, "contract_min": 1, "seeder_image": fixtures.seeder_image(self.holder)})
+        self.assertEqual(inputs["contract"], {"contract": 4, "contract_min": 1, "seeder_image": fixtures.seeder_image(self.holder)})
         self.assertEqual(inputs["layout"], {"phase": "ready", "notice": None})
         self.assertEqual(list(inputs["catalogs"]), ["fixture", "local", "partner", "lab-new", "lab-old"])
         self.assertEqual(inputs["screened"], {})
