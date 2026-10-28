@@ -121,9 +121,11 @@ def snapshot():
                        created, saved=saved, license_status=license.status(p), platforms=platforms.read(),
                        deployed=deployed, changed=changed, git=model.git_state(service.git_version()),
                        catalogs=service.describe(p, read), content=firstrun.content(p, read), layout=layout.status())
-    # What the page gives an AI agent to create an item: where the project is, and the skills to follow. Where API
-    # Management runs, from this machine's choice and what its platform last said
-    body.update(root=str(paths.ROOT), skills=personal.skills(), lab=updates.describe(), kept_settings=kept.listed(),
+    # What the page gives an AI agent to create an item: where the project is, the folder and the word on its commands
+    # for the agent (machine.agent), and the skills to follow. Where API Management runs, from this machine's choice and
+    # what its platform last said
+    body.update(root=str(paths.ROOT), agent=machine.agent(), skills=personal.skills(), lab=updates.describe(),
+                kept_settings=kept.listed(),
                 core=core.describe(p, on, containers if known else {}, saved, body.get("wait")))
     _docker_down(body)
     unread = service.problems()   # the files that record the catalogs cannot be read: nothing would be shown, and no word said

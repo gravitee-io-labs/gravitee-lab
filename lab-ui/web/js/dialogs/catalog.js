@@ -11,7 +11,7 @@ import { $, $$, esc, icon, setHTML, loading, api, store, router, copyButton } fr
 import { toast, tipHtml, actionButton, paintActions, progressBar, effectsDialog } from "../components/ui.js";
 import { busy } from "../activity/jobs.js";
 import { field, formDialog } from "./form.js";
-import { agentLinks } from "../components/agent.js";
+import { agentLinks, agentFolder, forAgent } from "../components/agent.js";
 
 export const NO_GIT = "Git is not installed";
 
@@ -900,7 +900,7 @@ const line = (name, value, copy) => `<div><dt>${name}</dt><dd>${value}${copy ? c
 
 // The form or the prompt: a prompt is copied, there is nothing to create here
 function drawNew() {
-  const skill = store.state?.skills?.catalog, agent = how === "agent" && !!skill, root = store.state?.root;
+  const skill = store.state?.skills?.catalog, agent = how === "agent" && !!skill, root = agentFolder();
   $$("[data-how]").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.how === (agent ? "agent" : "form"))));
   $("#catalog-new-form").hidden = agent;
   $("#catalog-new-agent").hidden = !agent;
@@ -917,7 +917,7 @@ function drawNew() {
   links.hidden = !agent;
   if (!agent) return;
   const task = $("#catalog-task").value.trim();
-  const prompt = `Use the ${skill.split("/").slice(-2)[0]} skill (${skill}) to create a catalog.${task ? ` What it should hold: ${task}` : ""}`;
+  const prompt = forAgent(`Use the ${skill.split("/").slice(-2)[0]} skill (${skill}) to create a catalog.${task ? ` What it should hold: ${task}` : ""}`);
   $("#catalog-new-agent").innerHTML = line("Prompt", `<code class="snippet">${esc(prompt)}</code>`, prompt) + (root ? line("Folder", `<code>${esc(root)}</code>`, root) : "");
   setHTML(links, agentLinks(prompt, root));
 }

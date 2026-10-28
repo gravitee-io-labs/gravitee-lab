@@ -59,6 +59,7 @@ FRESH = 3   # seconds a report is reused: the page asks every few seconds, and s
 _lock = threading.Lock()
 _last = {"at": 0.0, "report": None}
 _asked = {}   # a fix that takes a while, by check id: when it was asked
+_agents = {}   # what an agent is given in WSL, by the lab's folder
 
 
 def system():
@@ -398,6 +399,23 @@ def act(action):
     with _lock:
         _last["report"] = None
     return report(fresh=True)
+
+
+def agent():
+    """What an AI agent is given to work on the lab: the folder to open, and how it runs the lab's commands. In WSL the agents
+    are apps of Windows (the Claude app, Codex, Cursor): they open the folder by its Windows path and run the commands in
+    the distribution through wsl.exe, as Windows has no make or Python and its git refuses a folder of WSL. Elsewhere the
+    folder alone."""
+    root = str(paths.ROOT)
+    if system() != "wsl":
+        return {"folder": root, "note": ""}
+    if root not in _agents:   # the state asks every few seconds, and the answer stays while the Lab UI runs
+        rc, out, _ = compose.run(["wslpath", "-w", root], timeout=10)
+        distro = os.environ.get("WSL_DISTRO_NAME") or "Ubuntu"
+        _agents[root] = {"folder": out.strip() if rc == 0 and out.strip() else root,
+                         "note": f"The lab runs in WSL: run its commands (make, git, python3) in {distro}, as "
+                                 f"wsl.exe -d {distro} --cd {root} -- followed by the command."}
+    return _agents[root]
 
 
 def summary():

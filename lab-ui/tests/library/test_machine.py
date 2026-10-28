@@ -183,6 +183,19 @@ class Machine(Case):
         self.patch(machine, "system", return_value="mac")
         self.assertEqual(self.check("ports")["state"], "ok", "netstat.exe is asked in WSL only")
 
+    def test_in_wsl_an_agent_of_windows_gets_the_windows_path_and_runs_the_commands_in_the_distribution(self):
+        self.assertEqual(machine.agent(), {"folder": "/Users/me/gravitee-lab", "note": ""}, "a Mac: the folder alone")
+        self.in_wsl()
+        self.patch(machine.paths, "ROOT", Path("/home/me/gravitee-lab"))
+        self.answers[("wslpath", "-w")] = (0, "\\\\wsl.localhost\\Ubuntu\\home\\me\\gravitee-lab\n", "")
+        machine._agents.clear()
+        self.assertEqual(machine.agent(), {
+            "folder": "\\\\wsl.localhost\\Ubuntu\\home\\me\\gravitee-lab",
+            "note": "The lab runs in WSL: run its commands (make, git, python3) in Ubuntu, as "
+                    "wsl.exe -d Ubuntu --cd /home/me/gravitee-lab -- followed by the command."})
+        machine.agent()
+        self.assertEqual(sum(1 for cmd in self.ran if cmd[0] == "wslpath"), 1, "asked once while the Lab UI runs")
+
     def test_in_wsl_the_disk_is_the_one_of_windows_and_a_lab_on_it_is_a_warning(self):
         seen = []
         self.patch(machine.shutil, "disk_usage", side_effect=lambda where: seen.append(Path(where)) or type("U", (), {"free": 9e11})())

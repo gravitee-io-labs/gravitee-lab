@@ -359,7 +359,8 @@ the last lines of each service load again.
 
 - **Form** writes the compose file for you. **AI agent** has an agent write it: say what it should do, then open Claude (the
   app or Claude Code), Codex or Cursor with the prompt written and not sent, or copy the prompt for another agent. The
-  agents that take a folder open on the Lab's.
+  agents that take a folder open on the Lab's. In WSL they are apps of Windows: they get the folder by its Windows path
+  (`\\wsl.localhost\Ubuntu\...`), and the prompt tells them to run the lab's commands in the distribution with `wsl.exe`.
 - **Personal** keeps it on this machine, in `.lab/catalogs/local/`, which git ignores, with the id `local/<name>`. A catalog that
   is a folder of yours keeps it there instead, to edit as you like.
 
