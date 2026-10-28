@@ -124,7 +124,12 @@
         }
         $user = Linux 'getent passwd | awk -F: ''$3 >= 1000 && $3 < 65534 { print $1; exit }''' 'root'
         if (-not $user) { return Halt "$distro has no Linux user yet. Run this command again to create one." }
-        & wsl.exe --terminate $distro | Out-Null   # its default user is read when it starts: before Docker Desktop serves it
+    }
+    if ((Linux 'id -u') -eq '0') {
+        # The user is the default one only once the distribution restarts, which would make Docker Desktop lose it: WSL is
+        # told now, and an older WSL that cannot be is restarted
+        & wsl.exe --manage $distro --set-default-user $user | Out-Null
+        if ($LASTEXITCODE -ne 0) { & wsl.exe --terminate $distro | Out-Null }
     }
     Ok "$distro, user $user"
 
@@ -193,18 +198,20 @@
         }
         Ok 'Cloned'
     }
+    # Its path, not ~: PowerShell 7 makes ~ the folder of Windows before wsl.exe reads it
+    $lab = Linux 'cd ~/gravitee-lab && pwd'
 
     # 6. A shortcut that starts the Lab UI, next time
     Step 6 'Shortcut'
     $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'Gravitee Lab.lnk'
     $link = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcut)
     $link.TargetPath = Join-Path $env:SystemRoot 'System32\wsl.exe'
-    $link.Arguments = "-d $distro --cd ~ -- make --no-print-directory -C gravitee-lab ui"
+    $link.Arguments = "-d $distro --cd $lab -- make ui"
     $link.Description = 'Opens the Gravitee Lab UI'
     $link.Save()
     Ok 'Gravitee Lab is in the Start menu: it opens the Lab UI next time'
 
     Write-Host ''
     Write-Host 'Opening the Lab UI in your browser. Keep this window open while you use it: Ctrl+C stops the Lab UI, and the containers keep running.' -ForegroundColor Green
-    & wsl.exe -d $distro --cd ~ -- make --no-print-directory -C gravitee-lab ui
+    & wsl.exe -d $distro --cd $lab -- make ui
 }
