@@ -652,12 +652,14 @@ class Products(LabUI):
         found = {"bundled": {}, "bundled_error": None, "ext": {}, "features": {"gravitee-policy-a": "feature-a",
                                                                               "gravitee-policy-b": "feature-b"}}
         installed = self.patch(api.plugins, "installed", return_value=found)
+        self.patch(api.compose, "loaded", return_value={"apim-gateway", "apim-management-api"})
         self.start(mock.patch.dict(api.license._known, packs=None))   # no license model: a feature by its id
         self.patch(api.license, "status", return_value={"status": "valid", "date": None})
         self.patch(api.license, "info", return_value={"readable": True, "valid": True, "expired": False,
                                                       "features": ["feature-a"]})
         status, _, body = self.request("GET", "/api/plugins/installed?product=apim")
-        installed.assert_called_once_with(PROJECT, "apim")
+        # The services Compose reads: the image of an add-on that is off is neither pulled nor read
+        installed.assert_called_once_with(PROJECT, "apim", {"apim-gateway", "apim-management-api"})
         self.assertEqual((status, json.loads(body)["licensed"]), (200, {"gravitee-policy-b": {
             "note": "Not in the license", "note_tone": "warn", "note_title": "Uses: feature-b", "note_target": None,
             "note_file": ".env", "note_causes": [{"kind": "license", "features": ["feature-b"]}]}}))

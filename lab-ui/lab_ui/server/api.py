@@ -269,9 +269,10 @@ def effects(req):
 def installed(req):
     """What a product loads (plugins.installed), with what the license says of each of its plugins that needs a
     feature it does not give, in the words of a row (`licensed`: {plugin: note}, model.license_note): the plugins
-    page says it as the lists do."""
+    page says it as the lists do. Only the services Compose reads now: the image of an add-on that is off (the hybrid
+    gateway shares the plugins of API Management) is neither pulled nor started, so it has nothing to say."""
     p = project.load()
-    found = plugins.installed(p, req.query.get("product"))
+    found = plugins.installed(p, req.query.get("product"), compose.loaded())
     status, features = license.status(p), license.allowed(license.info(p))
     notes = {name: model.license_note(status, features, [feature]) for name, feature in found["features"].items()}
     return {**found, "licensed": {name: note for name, note in notes.items() if note}}
