@@ -399,7 +399,7 @@ runs here. Its token is only the add-on's setting, so once you start another gat
 A fake Cloud stands in for the account API and for Cloud Gate. It has two accounts: My Account, with Development,
 Test and Production, and Client Lab, with Development and Test. It prints the Account Tokens, the Account IDs and a
 Cloud Token for each environment. A gateway you create on it reads *Connected* a few seconds later, and reports the
-scope `APIM` and the version that `--version` gives (4.12.20 by default), as the real Cloud does.
+scope `APIM` and the version that `--version` gives (4.13.1 by default), as the real Cloud does.
 
 ```bash
 python3 lab-ui/tests/fake_cloud.py --port 9990

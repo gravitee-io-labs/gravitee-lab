@@ -150,7 +150,7 @@ services:
   # API Management
 
   apim-management-api:
-    image: ${APIM_REGISTRY:-graviteeio}/apim-management-api:${APIM_VERSION:-4.12.20}
+    image: ${APIM_REGISTRY:-graviteeio}/apim-management-api:${APIM_VERSION:-4.13.1}
     container_name: gio-apim-management-api
     restart: unless-stopped
     depends_on:
@@ -195,7 +195,7 @@ services:
       - internal
 
   apim-gateway:
-    image: ${APIM_GATEWAY_REGISTRY:-${APIM_REGISTRY:-graviteeio}}/apim-gateway:${APIM_GATEWAY_VERSION:-${APIM_VERSION:-4.12.20}-debian}
+    image: ${APIM_GATEWAY_REGISTRY:-${APIM_REGISTRY:-graviteeio}}/apim-gateway:${APIM_GATEWAY_VERSION:-${APIM_VERSION:-4.13.1}-debian}
     container_name: gio-apim-gateway
     restart: unless-stopped
     depends_on:
@@ -269,7 +269,7 @@ services:
       - internal
 
   gamma-ui:
-    image: ${APIM_REGISTRY:-graviteeio}/gamma-ui:${APIM_VERSION:-4.12.20}
+    image: ${APIM_REGISTRY:-graviteeio}/gamma-ui:${APIM_VERSION:-4.13.1}
     container_name: gio-gamma-ui
     restart: unless-stopped
     command: *ui-frames
@@ -298,7 +298,7 @@ services:
       - edge
 
   apim-portal-ui:
-    image: ${APIM_REGISTRY:-graviteeio}/apim-portal-ui:${APIM_VERSION:-4.12.20}
+    image: ${APIM_REGISTRY:-graviteeio}/apim-portal-ui:${APIM_VERSION:-4.13.1}
     container_name: gio-apim-portal-ui
     restart: unless-stopped
     depends_on:
@@ -328,7 +328,7 @@ services:
       - edge
 
   apim-management-ui:
-    image: ${APIM_REGISTRY:-graviteeio}/apim-management-ui:${APIM_VERSION:-4.12.20}
+    image: ${APIM_REGISTRY:-graviteeio}/apim-management-ui:${APIM_VERSION:-4.13.1}
     container_name: gio-apim-management-ui
     restart: unless-stopped
     command: *ui-frames
@@ -357,7 +357,7 @@ services:
   # Access Management
 
   am-management-api:
-    image: ${AM_REGISTRY:-graviteeio}/am-management-api:${AM_VERSION:-4.12.7}
+    image: ${AM_REGISTRY:-graviteeio}/am-management-api:${AM_VERSION:-4.13.1}
     container_name: gio-am-management-api
     restart: unless-stopped
     depends_on:
@@ -381,7 +381,7 @@ services:
       - internal
 
   am-gateway:
-    image: ${AM_REGISTRY:-graviteeio}/am-gateway:${AM_VERSION:-4.12.7}
+    image: ${AM_REGISTRY:-graviteeio}/am-gateway:${AM_VERSION:-4.13.1}
     container_name: gio-am-gateway
     restart: unless-stopped
     depends_on:
@@ -407,7 +407,7 @@ services:
       - internal
 
   am-management-ui:
-    image: ${AM_REGISTRY:-graviteeio}/am-management-ui:${AM_VERSION:-4.12.7}
+    image: ${AM_REGISTRY:-graviteeio}/am-management-ui:${AM_VERSION:-4.13.1}
     container_name: gio-am-management-ui
     restart: unless-stopped
     depends_on:
