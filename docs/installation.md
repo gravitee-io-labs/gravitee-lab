@@ -44,21 +44,27 @@ The lab runs in WSL 2, in a Linux distribution, with Docker Desktop. In PowerShe
 irm https://raw.githubusercontent.com/gravitee-io-labs/gravitee-lab/main/install.ps1 | iex
 ```
 
-It does what is missing, then opens the Lab UI in your browser:
+It uses what your computer has, adds only what is missing, then opens the Lab UI in your browser:
 
-1. It installs WSL, and asks you to restart Windows and to run the command again. Windows asks for administrator rights.
-2. It installs Ubuntu, which asks for a user name and a password for Linux. They are not your Windows ones: `sudo` asks
-   for this password.
-3. It installs Git, Make, Python and OpenSSL in Ubuntu.
-4. It offers to install Docker Desktop with `winget`, starts it, and connects it to Ubuntu. At work, Docker Desktop can
-   need your company's subscription, and your IT may install it for you.
-5. It clones the lab in Ubuntu's own disk, in `~/gravitee-lab`: the containers read a folder of Windows slowly.
+1. It installs WSL if it is not there, and asks you to restart Windows and to run the command again. Windows asks for
+   administrator rights.
+2. It uses your Ubuntu or Debian distribution, the default one first, and installs Ubuntu when you have none. A new
+   Ubuntu asks for a user name and a password for Linux. They are not your Windows ones: `sudo` asks for this password.
+   It asks before it moves a distribution of WSL 1 to WSL 2.
+3. It installs the tools it lacks among Git, Make, Python and OpenSSL.
+4. It uses the Docker that answers in the distribution, Docker Desktop or Docker Engine. Without one, it offers to
+   install Docker Desktop with `winget`: at work, Docker Desktop can need your company's subscription, and your IT may
+   install it for you. It starts Docker Desktop and connects it to the distribution. It asks before it restarts Docker
+   Desktop while containers run, and makes the distribution the default of WSL only when the default was Docker
+   Desktop's own.
+5. It clones the lab in the distribution's own disk, in `~/gravitee-lab`: the containers read a folder of Windows
+   slowly. A clone already there is kept, and a folder of that name that holds something else stops it.
 6. It adds **Gravitee Lab** to the Start menu, which opens the Lab UI next time, then starts the Lab UI.
 
 Run it again at any time: it skips what is done and never deletes anything. Keep its window open while you use the lab:
-Ctrl+C stops the Lab UI, and the containers keep running. `GRAVITEE_LAB_DISTRO` names another distribution to use. The
-commands of this page run in Ubuntu: open it from the Start menu, then `cd ~/gravitee-lab`. PowerShell, cmd and Git Bash
-cannot run the lab. Items that run AI models through Ollama on Windows are untested.
+Ctrl+C stops the Lab UI, and the containers keep running. `GRAVITEE_LAB_DISTRO` names the distribution to use. The
+commands of this page run in the distribution: open it from the Start menu, then `cd ~/gravitee-lab`. PowerShell, cmd
+and Git Bash cannot run the lab. Items that run AI models through Ollama on Windows are untested.
 
 To do it yourself: run `wsl --install`, install [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/)
 and turn on your distribution in its Settings > Resources > WSL integration, install the tools in the distribution as on

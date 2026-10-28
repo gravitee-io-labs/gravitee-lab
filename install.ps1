@@ -1,13 +1,15 @@
 # Gravitee Lab on Windows: everything from a bare Windows to the Lab UI in your browser. The lab runs in WSL 2, in a Linux
-# distribution, with Docker Desktop. In PowerShell (no administrator needed: Windows asks when a step needs it):
+# distribution, with Docker. In PowerShell (no administrator needed: Windows asks when a step needs it):
 #
 #   irm https://raw.githubusercontent.com/gravitee-io-labs/gravitee-lab/main/install.ps1 | iex
 #
-# Each run does only what is missing, so run it again after a restart it asks for, or at any time: WSL, a distribution
-# (Ubuntu) and its Linux user, the tools the lab needs in it, Docker Desktop serving it, the clone in ~/gravitee-lab, a
-# Gravitee Lab shortcut in the Start menu, then the Lab UI. It never deletes anything.
+# It uses what the laptop has and adds only what is missing: WSL, a distribution (an Ubuntu or a Debian already there,
+# else Ubuntu) and its Linux user, the tools the lab needs in it, a Docker that answers in it (Docker Desktop when there is
+# none), the clone in ~/gravitee-lab, a Gravitee Lab shortcut in the Start menu, then the Lab UI. It asks before it changes
+# what was there (a distribution of WSL 1, a Docker Desktop that runs containers), and never deletes anything. Run it again
+# at any time, also after a restart it asks for.
 #
-# GRAVITEE_LAB_DISTRO names another distribution to use, GRAVITEE_LAB_BRANCH the branch to clone.
+# GRAVITEE_LAB_DISTRO names the distribution to use, GRAVITEE_LAB_BRANCH the branch to clone.
 # Written for Windows PowerShell 5.1, the one every Windows has, in ASCII: it reads no other encoding without a byte
 # order mark.
 
@@ -17,7 +19,6 @@
     $ErrorActionPreference = 'Continue'
     $env:WSL_UTF8 = '1'   # wsl.exe answers in UTF-16 otherwise
     $repository = 'https://github.com/gravitee-io-labs/gravitee-lab.git'
-    $distro = if ($env:GRAVITEE_LAB_DISTRO) { $env:GRAVITEE_LAB_DISTRO } else { 'Ubuntu' }
     $branch = if ($env:GRAVITEE_LAB_BRANCH) { $env:GRAVITEE_LAB_BRANCH } else { 'main' }
     $help = 'https://github.com/gravitee-io-labs/gravitee-lab/blob/main/docs/installation.md#windows-with-wsl-2'
     $steps = 6
@@ -30,13 +31,15 @@
         Write-Host $text -ForegroundColor Yellow
         Write-Host "Help: $help"
     }
+    function Yes($question) { (Read-Host "      $question [y/N]") -match '^[yY]' }
 
     # A script for sh in the distribution, passed in base64: Windows PowerShell 5.1 loses the quotes of an argument it
-    # gives a program, and writes CRLF line ends to its input. The default user runs it unless a user is named.
+    # gives a program, and writes CRLF line ends to its input. The default user runs it unless a user is named. It gets no
+    # input: wsl.exe would read what the person types for the next question.
     function Linux([string]$script, [string]$user) {
         $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($script -replace "`r", '')))
         $as = if ($user) { @('-u', $user) } else { @() }
-        & wsl.exe -d $distro @as -- sh -c "echo $encoded | base64 -d | sh"
+        $null | & wsl.exe -d $distro @as -- sh -c "echo $encoded | base64 -d | sh"
     }
 
     # The distributions WSL has, by name, and the default one, from the registry: wsl.exe says which is the default in the
@@ -54,6 +57,16 @@
             }
         }
         return $found
+    }
+
+    # The distribution to use: the one named, else the default one when it is an Ubuntu or a Debian, else the first of
+    # these, else Ubuntu, which is installed. The lab installs its tools with apt.
+    function Choose($wsl) {
+        if ($env:GRAVITEE_LAB_DISTRO) { return $env:GRAVITEE_LAB_DISTRO }
+        $apt = @($wsl.Names | Where-Object { $_ -match '^(Ubuntu|Debian)' })
+        if ($wsl.Default -and $apt -contains $wsl.Default) { return $wsl.Default }
+        if ($apt.Count) { return $apt[0] }
+        return 'Ubuntu'
     }
 
     # Docker Desktop's command for Windows, where it installs it or on the PATH; $null without Docker Desktop
@@ -84,6 +97,7 @@
     function WindowsDocker($cli) { & $cli info *> $null; return $LASTEXITCODE -eq 0 }
 
     Write-Host 'Gravitee Lab for Windows' -ForegroundColor White
+    Write-Host 'It uses what this computer has, adds what is missing, and asks before it changes anything you set up.'
 
     # 1. WSL. `wsl --version` answers only from the WSL of the Store, the one Docker Desktop needs
     Step 1 'WSL 2'
@@ -99,16 +113,19 @@
     Ok 'WSL is installed'
 
     # 2. The distribution
-    Step 2 "Linux distribution: $distro"
     $wsl = Distributions
+    $distro = Choose $wsl
+    Step 2 "Linux distribution: $distro"
     if ($wsl.Names -notcontains $distro) {
         Say "Installing $distro"
         & wsl.exe --install -d $distro --no-launch
         if ($LASTEXITCODE -ne 0) { return Halt "$distro did not install." }
-        $wsl = Distributions
     }
     if (-not ((Linux 'uname -r') -match 'WSL2')) {
-        Say "Moving $distro to WSL 2, which Docker Desktop needs. This takes a few minutes."
+        Say "$distro runs on WSL 1, and Docker needs WSL 2. Its files stay, and the move takes a few minutes."
+        if (-not (Yes "Move $distro to WSL 2?")) {
+            return Halt "Move $distro to WSL 2 (wsl --set-version $distro 2), or name another distribution in GRAVITEE_LAB_DISTRO, then run this command again."
+        }
         & wsl.exe --set-version $distro 2
         if ($LASTEXITCODE -ne 0) { return Halt "$distro could not move to WSL 2." }
     }
@@ -125,13 +142,14 @@
         $user = Linux 'getent passwd | awk -F: ''$3 >= 1000 && $3 < 65534 { print $1; exit }''' 'root'
         if (-not $user) { return Halt "$distro has no Linux user yet. Run this command again to create one." }
     }
-    if ((Linux 'id -u') -eq '0') {
-        # The user is the default one only once the distribution restarts, which would make Docker Desktop lose it: WSL is
-        # told now, and an older WSL that cannot be is restarted
-        & wsl.exe --manage $distro --set-default-user $user | Out-Null
+    # The user that /etc/wsl.conf names is the default one only once the distribution restarts, which would make Docker
+    # Desktop lose it: WSL is told now, and an older WSL that cannot be is restarted. A default user set otherwise is kept.
+    $named = Linux 'sed -n ''/^\[user\]/,/^\[/s/^[[:space:]]*default[[:space:]]*=[[:space:]]*//p'' /etc/wsl.conf 2>/dev/null' 'root'
+    if ($named -and (Linux 'id -un') -ne $named) {
+        & wsl.exe --manage $distro --set-default-user $named | Out-Null
         if ($LASTEXITCODE -ne 0) { & wsl.exe --terminate $distro | Out-Null }
     }
-    Ok "$distro, user $user"
+    Ok "$distro, user $(Linux 'id -un')"
 
     # 3. The tools of the lab in the distribution, installed as root: no password to type
     Step 3 'Git, Make, Python and OpenSSL'
@@ -139,43 +157,58 @@
     if ($missing) {
         if (-not (Linux 'command -v apt-get' 'root')) { return Halt "Install $missing in $distro, then run this command again." }
         Say "Installing $missing"
-        Linux 'export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq git make python3 openssl ca-certificates >/dev/null' 'root'
+        Linux "export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq $missing >/dev/null" 'root'
         if ($LASTEXITCODE -ne 0) { return Halt "The tools did not install in $distro. Is the internet reachable from it?" }
     }
     Ok 'All there'
 
-    # 4. Docker Desktop, running and serving the distribution
-    Step 4 'Docker Desktop'
-    $cli = DesktopCli
-    if (-not $cli) {
-        Say 'Docker Desktop is not installed. At work, your company may need a Docker subscription, and your IT may install it for you.'
-        if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) {
-            return Halt 'Install Docker Desktop (https://docs.docker.com/desktop/setup/install/windows-install/), then run this command again.'
-        }
-        if ((Read-Host 'Install Docker Desktop now with winget? Windows asks for administrator rights [Y/n]') -match '^[nN]') {
-            return Halt 'Install Docker Desktop, then run this command again.'
-        }
-        & winget.exe install --exact --id Docker.DockerDesktop --source winget
-        $cli = DesktopCli
-        if (-not $cli) { return Halt 'Docker Desktop did not install.' }
-        Say 'If Windows asks you to sign out to finish the install of Docker Desktop, do it, then run this command again.'
-    }
-    if (-not (WindowsDocker $cli)) {
-        Say 'Starting Docker Desktop. The first time, accept its agreement in its window.'
-        Start-Process (DesktopApp $cli)
-        if (-not (WaitFor { WindowsDocker $cli } 600)) { return Halt 'Docker Desktop did not start. Open it, then run this command again.' }
-    }
+    # 4. A Docker that answers in the distribution: the one there (Docker Desktop, Docker Engine in it...), else Docker
+    # Desktop, started and serving it
+    Step 4 'Docker'
     if (-not (LinuxDocker)) {
-        $wsl = Distributions
-        if (-not $wsl.Default -or $wsl.Default -like 'docker-desktop*') {
-            # Docker Desktop serves the default distribution, and its own is no distribution to work in
-            & wsl.exe --set-default $distro | Out-Null
-            $served = WaitFor { LinuxDocker } 30
-        } else {
-            $served = $false
+        $cli = DesktopCli
+        if (-not $cli -and (Linux 'command -v dockerd')) {
+            return Halt "Docker Engine is installed in $distro and does not answer: start it (sudo service docker start), then run this command again."
         }
-        if (-not $served) {
-            Say "Reconnecting Docker Desktop to $distro"
+        if (-not $cli) {
+            Say 'Docker Desktop is not installed. At work, your company may need a Docker subscription, and your IT may install it for you.'
+            if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) {
+                return Halt 'Install Docker Desktop (https://docs.docker.com/desktop/setup/install/windows-install/), then run this command again.'
+            }
+            if (-not (Yes 'Install Docker Desktop now with winget? Windows asks for administrator rights')) {
+                return Halt 'Install Docker Desktop, then run this command again.'
+            }
+            & winget.exe install --exact --id Docker.DockerDesktop --source winget
+            $cli = DesktopCli
+            if (-not $cli) { return Halt 'Docker Desktop did not install.' }
+            Say 'If Windows asks you to sign out to finish the install of Docker Desktop, do it, then run this command again.'
+        }
+        if (-not (WindowsDocker $cli)) {
+            Say 'Starting Docker Desktop. The first time, accept its agreement in its window.'
+            Start-Process (DesktopApp $cli)
+            if (-not (WaitFor { WindowsDocker $cli } 600)) { return Halt 'Docker Desktop did not start. Open it, then run this command again.' }
+        }
+        $served = WaitFor { LinuxDocker } 30
+        $wsl = Distributions
+        if (-not $served -and (-not $wsl.Default -or $wsl.Default -like 'docker-desktop*')) {
+            # Docker Desktop serves the default distribution, and its own is no distribution to work in
+            Say "$distro becomes the default distribution of WSL, the one Docker Desktop serves"
+            & wsl.exe --set-default $distro | Out-Null
+            $wsl = Distributions
+            $served = WaitFor { LinuxDocker } 30
+        }
+        # It served the distribution and lost it (a link of its integration is left), which it does each time the distribution
+        # restarts, or it serves the default one and has not seen it yet: a restart of Docker Desktop serves it again
+        if (-not $served -and ($wsl.Default -eq $distro -or (Linux 'test -L /usr/bin/docker && echo yes'))) {
+            $running = @(& $cli ps -q 2>$null).Count
+            if ($running) {
+                Say "Docker Desktop must restart to reach $distro, which stops the $running containers that run now."
+                if (-not (Yes 'Restart Docker Desktop now?')) {
+                    return Halt 'Restart Docker Desktop when you can, then run this command again.'
+                }
+            } else {
+                Say "Restarting Docker Desktop to reach $distro"
+            }
             & $cli desktop restart *> $null
             $served = WaitFor { LinuxDocker } 120
         }
@@ -185,12 +218,14 @@
             if (-not (WaitFor { LinuxDocker } 900)) { return Halt "Docker Desktop does not serve $distro yet." }
         }
     }
-    Ok "Docker Desktop serves $distro"
+    Ok "Docker answers in $distro"
 
     # 5. The clone, in the distribution's own disk: the containers read a folder of Windows slowly
     Step 5 'Gravitee Lab in ~/gravitee-lab'
-    if (Linux 'test -d ~/gravitee-lab/.git && echo yes') {
+    if (Linux 'git -C ~/gravitee-lab remote get-url origin 2>/dev/null | grep -q gravitee-lab && echo yes') {
         Ok 'Already there'
+    } elseif (Linux 'test -e ~/gravitee-lab && echo yes') {
+        return Halt "~/gravitee-lab in $distro holds something else. Move it, then run this command again."
     } else {
         Linux "git clone --quiet --branch $branch $repository ~/gravitee-lab"
         if ($LASTEXITCODE -ne 0) {
