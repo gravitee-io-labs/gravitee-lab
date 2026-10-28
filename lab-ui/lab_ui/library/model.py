@@ -1098,7 +1098,8 @@ def build(project, state, containers, job, failures, license_features, docker, c
             "setups": _by_name(_setup(c, setup, addons) for setup in project["setups"].values()),
             "addons": _by_name(addons.values()),
             "services": services,
-            "links": [{key: link[key] for key in ("label", "url", "port", "service", "section", "legacy", "up")}
+            "links": [{key: link.get(key) for key in ("label", "url", "port", "service", "section", "legacy", "up", "username",
+                                                       "password")}
                       for link in c["links"]],
             "problems": [_problem(problem, readonly) for problem in project["problems"] + state["problems"]],
             "running": {"explicit": state["explicit"]}, **forwarded}

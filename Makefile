@@ -8,8 +8,12 @@
 makefile := $(MAKEFILE_LIST)
 SVC ?=
 
-# The Python that makes .venv, and that runs the lab when there is no .venv: PYTHON3=python3.12 make setup
-PYTHON3 ?= python3
+# The Python that makes .venv, and that runs the lab when there is no .venv: the first of these that is 3.9 or later, as a system
+# whose python3 is older installs a later one beside it (python3.11). PYTHON3=python3.12 make setup chooses one
+ifeq ($(origin PYTHON3),undefined)
+PYTHON3 := $(or $(shell for p in python3 python3.14 python3.13 python3.12 python3.11 python3.10 python3.9; do \
+	$$p -c 'import sys; sys.exit(sys.version_info < (3, 9))' 2>/dev/null && { echo $$p; break; }; done),python3)
+endif
 
 # The Python to run: the one of .venv when `make setup` made it, else PYTHON3
 PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,$(PYTHON3))
@@ -65,8 +69,10 @@ openssl-ok:
 
 ##@ Run the lab
 
-ui: init ## Open the Lab UI on http://localhost:9000
-	@$(PYTHON) lab-ui/server.py
+# Docker is not checked here: the Lab UI's first step checks the machine and gives the fix of what is missing, Docker included
+# Python keeps the locale of the terminal (a C locale stays C, in UTF-8 mode), so the Lab UI draws its marks as install.sh did
+ui: python-ok init ## Open the Lab UI on http://localhost:9000
+	@PYTHONCOERCECLOCALE=0 $(PYTHON) lab-ui/server.py
 
 # A machine that was updated from the layout before catalogs still names add-ons by their old paths in .lab/on.yml, which Compose
 # cannot open any more: those targets stop and say what to do. The ones that use the project name and no files (stop, down,
@@ -80,7 +86,7 @@ all: docker-up legacy-ok init ## Create and start the core and what is on
 
 # The plugin folders are made here, writable by all: Docker would make them as root, and the containers unpack plugins
 # there as uid 1001 (.work). Nothing is made for an add-on: what one needs, it makes itself when it starts.
-init: compose-ok python-ok openssl-ok $(on) ## Create what a fresh clone lacks: .env, demo certificates, plugin folders, .lab/on.yml (ui and all run it)
+init: openssl-ok $(on) ## Create what a fresh clone lacks: .env, demo certificates, plugin folders, .lab/on.yml (ui and all run it)
 	@[ -f .env ] || { cp .env.example .env && chmod 600 .env && echo "Created .env from .env.example"; }
 	@grep -q '^COMPOSE_FILE=' .env || printf '\n%s\nCOMPOSE_FILE=%s\n' \
 		'# The files Compose reads: the core, and what is on. Keep it: without it, docker compose runs the core alone' \

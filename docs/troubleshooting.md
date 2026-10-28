@@ -45,8 +45,8 @@ stopped from the Containers page stays stopped.
 
 ### Docker or Docker Compose is missing or too old
 
-**Symptom:** `make ui`, `make all`, every other target that uses Docker, and `python3 lab-ui/server.py` stop with one
-line:
+**Symptom:** `make all`, every other target that uses Docker, and `python3 lab-ui/server.py --check` stop with one line.
+`make ui` opens the Lab UI all the same, and its first step, *Your machine*, says what to install:
 
 - `Docker Compose 5.0 or later is needed, found: 2.40.3 (see Prerequisites in README.md)`, with `found: none` when the
   Compose plugin is missing.
@@ -60,6 +60,17 @@ Or Compose says an add-on `conflicts with imported resource`.
 **Fix:** update Docker Desktop. On Linux, install `docker-compose-plugin` from
 [Docker's repository](https://docs.docker.com/engine/install/): the packages of Linux distributions are often older.
 Then check `docker compose version`.
+
+### macOS asks for its command line developer tools
+
+**Symptom:** the first `git` or `make` says `xcode-select: note: No developer tools were found, requesting install`, and a
+window offers to install them. Or that window ends with `Can't install the software`.
+
+**Cause:** a Mac has Git, Make and Python only with Apple's command line tools.
+
+**Fix:** click **Install**, then run the command again. When the install fails, the disk is short of space (it needs a few
+GB, more when macOS has an update waiting) or Apple's servers did not answer: free some space, then run
+`xcode-select --install` again.
 
 ### Python or OpenSSL is missing, or Python is too old
 
@@ -109,12 +120,12 @@ each other at these addresses. [Ports](configuration.md#ports) lists every port.
 
 ### Port 9000 is taken, or the Lab UI is already running
 
-**Symptom:** `make ui` prints one of:
+**Symptom:** `gravitee-lab` (or `make ui`) prints one of:
 
-- `Port 9000 is used by another program. Free it, or use another port: UI_PORT=9001 make ui (the UIs of a playground do
-  not show next to the guide on another port)`
-- `Gravitee Lab UI is already running on http://localhost:9000. To load a new version: stop it with Ctrl+C in its
-  terminal, then run make ui again`
+- `Port 9000 is used by another program. Free it, or use another port: UI_PORT=9001 gravitee-lab (the UIs of a playground
+  do not show next to the guide on another port)`
+- `Already running. To load a new version, stop it with Ctrl+C in its terminal, then run gravitee-lab again.`, under the
+  address of the Lab UI
 - `UI_PORT must be a port number, for example 9001`
 
 **Cause:** another program listens on 9000, you started the Lab UI twice, or `UI_PORT` holds something else than a port
@@ -331,13 +342,22 @@ then no longer match the volumes, so run `make reset` there too before you use i
 ### Windows and WSL 2
 
 Windows is supported through WSL 2 only. Native PowerShell, `cmd` and Git Bash are not supported. The maintainer tests on
-macOS with Apple silicon. Linux and WSL 2 are expected to work, so tell us what you find. Items that run AI models through
+Windows 11 with WSL 2, Ubuntu and Docker Desktop, so tell us what you find elsewhere. Items that run AI models through
 Ollama on Windows are untested.
 
-- **Run everything in WSL.** Open an Ubuntu distribution, install the tools with `sudo apt install git make
-  openssl python3`, then clone and run `make ui` there.
+- **Run everything in WSL.** `install.ps1` sets it up ([Windows with WSL 2](installation.md#windows-with-wsl-2)). To
+  do it yourself, open an Ubuntu distribution, install the tools with `sudo apt install git make openssl python3`, then
+  clone and run `make ui` there.
 - **Docker.** Use Docker Desktop with WSL integration turned on for your distribution, or Docker Engine inside it.
-  Check `docker compose version` inside WSL.
+  Check `docker compose version` inside WSL. The Lab UI's first step starts Docker Desktop when it is stopped. A new
+  Docker Desktop (4.97 and later) serves no distribution until it is turned on in its Settings > Resources > WSL
+  integration: `install.ps1` turns yours on.
+- **Docker Desktop lost Ubuntu.** When the distribution restarts (`wsl --shutdown`, `wsl --terminate`), Docker Desktop
+  stops serving it until Docker Desktop restarts, and may say "Restart the WSL integration". Click **Reconnect** in the
+  Lab UI's first step, or run `docker desktop restart` in PowerShell.
+- **The `docker` of Windows in WSL.** Without the integration, `docker` in the distribution is Docker Desktop's command
+  for Windows, which only says to turn the integration on: turn it on in Docker Desktop's Settings > Resources > WSL
+  integration.
 - **Clone in the Linux filesystem**, for example in `~/gravitee-lab`, not under `/mnt/c`. Access under `/mnt/c` is
   slow, and it does not reliably keep the Unix permissions that the certificates and `.env` rely on.
 - **Memory.** Docker's memory comes from WSL. Create `%UserProfile%\.wslconfig` with the lines below, then run `wsl
@@ -348,7 +368,20 @@ Ollama on Windows are untested.
   memory=12GB
   ```
 
-- **Browser.** Open http://localhost:9000 in your Windows browser. If `make ui` opens no browser, open it yourself.
+- **Browser.** `make ui` opens http://localhost:9000 in your Windows browser. If it opens none, open it yourself.
+- **A VPN.** A VPN often keeps WSL from resolving the names of sites while Windows resolves them: `apt`, `git clone` and
+  the catalogs fail, and `install.ps1` says so. Add the lines below to `%UserProfile%\.wslconfig`, run `wsl --shutdown`
+  in PowerShell, then start Docker Desktop and the command again. If it still fails, add `networkingMode=mirrored` under
+  the same heading.
+
+  ```ini
+  [wsl2]
+  dnsTunneling=true
+  ```
+
+- **A port held by a program of Windows.** Docker Desktop publishes the platform's ports on Windows, so a database or a
+  server installed on Windows that listens on one of them keeps the platform from starting. The Lab UI's first step names
+  the port. Port 9000, the Lab UI's, held on Windows sends the browser to that program: `install.ps1` names it.
 - **Hosts file.** A client of an add-on that asks for host names, such as a Kafka client, that runs on Windows reads
   `C:\Windows\System32\drivers\etc\hosts`. Edit it as an administrator. The add-on's README has the names.
 
@@ -383,6 +416,11 @@ Docker pulls the images, so Docker needs the proxy: set it in Docker Desktop, or
 UI reads `HTTP_PROXY` and `HTTPS_PROXY` from the shell that started it, for the plugin catalog, the image tags and the
 checks of other hosts, such as huggingface.co. Addresses on this machine (`localhost`, `127.0.0.1`, `::1`), such as the
 check for Ollama, never go through the proxy.
+
+A proxy that inspects HTTPS signs each site with your company's certificate. Windows trusts it, a Linux of WSL does not, so
+`git clone` and the catalogs fail with a certificate error. `install.ps1` finds the certificate Windows trusts for github.com
+and, once you say yes, adds it to the distribution. To do it yourself, ask your IT for that certificate (a `.crt` file in
+PEM), then in the distribution run `sudo cp company.crt /usr/local/share/ca-certificates/ && sudo update-ca-certificates`.
 
 Without internet, once the images are pulled and the apps are built, the platform runs. These degrade:
 

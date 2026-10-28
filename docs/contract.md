@@ -187,6 +187,7 @@ These are the `io.gravitee` labels the Lab UI reads from a service.
 | `io.gravitee.console.<id>.name` | The name of a UI to open, once per UI |
 | `io.gravitee.console.<id>.url` | Its address, a web address |
 | `io.gravitee.console.<id>.legacy` | `"true"` lists it after the others |
+| `io.gravitee.console.<id>.username`, `io.gravitee.console.<id>.password` | The demo sign-in of that UI, shown next to it |
 | `io.gravitee.image.tags` | The Docker Hub repository that lists the image's tags, when its own registry lists them badly |
 | `io.gravitee.role` | `seed` marks the service of a playground that creates its data in Gravitee |
 | `io.gravitee.license` | `required` marks a service that exits without a usable license |

@@ -7,6 +7,7 @@ import errno
 import http.client
 import io
 import json
+import os
 import queue
 import re
 import socket
@@ -303,12 +304,14 @@ class State(LabUI):
         self.patch(api.license, "features_cached", return_value=None)
         self.patch(api.playgrounds, "created", return_value=[{"what": "APIs", "count": 3}])
         self.patch(api.personal, "skills", return_value={"addon": ".agents/skills/new-addon/SKILL.md"})
+        self.agent = {"folder": str(paths.ROOT), "note": ""}   # the folder an agent opens (test_machine)
+        self.patch(api.machine, "agent", return_value=self.agent)
         # Where the core runs, from this machine's choice (test_core)
         self.core = self.patch(api.core, "describe", return_value={"place": "machine", "chosen": False})
         # The Lab's own version, from its Git clone (test_updates)
         self.lab = {"version": "1.0.0", "update": False}
         self.patch(api.updates, "describe", return_value=self.lab)
-        self.more = {"root": str(paths.ROOT), "skills": {"addon": ".agents/skills/new-addon/SKILL.md"},
+        self.more = {"root": str(paths.ROOT), "agent": self.agent, "skills": {"addon": ".agents/skills/new-addon/SKILL.md"},
                      "core": {"place": "machine", "chosen": False}, "lab": self.lab, "kept_settings": []}
         # ... and what the state says of the catalogs: git, the rows, the content and the layout
         self.catalogued = {"git": {"available": True, "version": "2.43.2"}, "catalogs": self.rows,
@@ -649,12 +652,14 @@ class Products(LabUI):
         found = {"bundled": {}, "bundled_error": None, "ext": {}, "features": {"gravitee-policy-a": "feature-a",
                                                                               "gravitee-policy-b": "feature-b"}}
         installed = self.patch(api.plugins, "installed", return_value=found)
+        self.patch(api.compose, "loaded", return_value={"apim-gateway", "apim-management-api"})
         self.start(mock.patch.dict(api.license._known, packs=None))   # no license model: a feature by its id
         self.patch(api.license, "status", return_value={"status": "valid", "date": None})
         self.patch(api.license, "info", return_value={"readable": True, "valid": True, "expired": False,
                                                       "features": ["feature-a"]})
         status, _, body = self.request("GET", "/api/plugins/installed?product=apim")
-        installed.assert_called_once_with(PROJECT, "apim")
+        # The services Compose reads: the image of an add-on that is off is neither pulled nor read
+        installed.assert_called_once_with(PROJECT, "apim", {"apim-gateway", "apim-management-api"})
         self.assertEqual((status, json.loads(body)["licensed"]), (200, {"gravitee-policy-b": {
             "note": "Not in the license", "note_tone": "warn", "note_title": "Uses: feature-b", "note_target": None,
             "note_file": ".env", "note_causes": [{"kind": "license", "features": ["feature-b"]}]}}))
@@ -1818,8 +1823,8 @@ class JobRoutes(LabUI):
 
 class CommandLine(LabUI):
 
-    RUNNING = "Gravitee Lab UI is already running on http://localhost:{}. " \
-              "To load a new version: stop it with Ctrl+C in its terminal, then run make ui again"
+    RUNNING = "\n  >  Lab UI   http://localhost:{}\n     Already running. To load a new version, stop it with Ctrl+C in its " \
+              "terminal, then run gravitee-lab again.\n"
 
     def another_program(self, handler=None):
         """A web server that is not the Lab UI, on a free port of its own: answers its port."""
@@ -1858,8 +1863,8 @@ class CommandLine(LabUI):
 
     def test_busy_port_opens_the_lab_ui_that_runs(self):
         port = self.server.server_port
-        opened, printed = self.patch(api.webbrowser, "open"), io.StringIO()
-        with contextlib.redirect_stdout(printed):
+        opened, printed = self.patch(api, "open_browser"), io.StringIO()
+        with contextlib.redirect_stdout(printed), mock.patch.dict("os.environ", {"LC_ALL": "C"}):
             api.serve(port, browser=False)
             opened.assert_not_called()
             api.serve(port, browser=True)
@@ -1867,14 +1872,39 @@ class CommandLine(LabUI):
         self.assertEqual(printed.getvalue(), (self.RUNNING.format(port) + "\n") * 2)
 
     def test_busy_port_of_another_program_is_said_with_the_port_to_use_instead(self):
-        port, opened = self.another_program(), self.patch(api.webbrowser, "open")
+        port, opened = self.another_program(), self.patch(api, "open_browser")
         with self.assertRaises(SystemExit) as stopped:
             api.serve(port, browser=True)
         self.assertEqual(stopped.exception.code,
                          f"Port {port} is used by another program. Free it, or use another port: "
-                         f"UI_PORT={port + 1} make ui (the UIs of a playground do not show next to the guide on "
+                         f"UI_PORT={port + 1} gravitee-lab (the UIs of a playground do not show next to the guide on "
                          "another port)")
         opened.assert_not_called()
+
+    def test_a_program_on_the_ipv6_loopback_is_another_program_though_127_0_0_1_is_free(self):
+        # A browser may take localhost for ::1 and show that program in place of the Lab
+        with socket.socket(socket.AF_INET6) as other:
+            try:
+                other.bind(("::1", 0))
+            except OSError:
+                self.skipTest("this machine has no IPv6 loopback")
+            other.listen()
+            port = other.getsockname()[1]
+            self.assertTrue(api.answers_on_ipv6(port))
+            with self.assertRaises(SystemExit) as stopped:
+                api.serve(port, browser=False)
+        self.assertTrue(stopped.exception.code.startswith(f"Port {port} is used by another program."))
+        self.assertFalse(api.answers_on_ipv6(port))
+
+    def test_on_a_mac_the_places_of_docker_desktop_are_added_once_at_the_end_of_path(self):
+        with mock.patch.dict(os.environ, {"PATH": "/usr/bin:/bin:/usr/local/bin"}), mock.patch.object(api.sys, "platform", "darwin"):
+            api.find_docker()
+            api.find_docker()
+            self.assertEqual(os.environ["PATH"].split(os.pathsep), ["/usr/bin", "/bin", "/usr/local/bin",
+                             os.path.expanduser("~/.docker/bin"), "/Applications/Docker.app/Contents/Resources/bin"])
+        with mock.patch.dict(os.environ, {"PATH": "/usr/bin"}), mock.patch.object(api.sys, "platform", "linux"):
+            api.find_docker()
+            self.assertEqual(os.environ["PATH"], "/usr/bin")
 
     def test_what_answers_is_the_lab_ui_by_the_server_header_of_its_page(self):
         self.assertTrue(api.is_lab_ui(self.server.server_port))
@@ -2389,11 +2419,11 @@ class Startup(Case):
             self.patch(getattr(api, module), name, side_effect=lambda module=module, name=name: events.append((module, name)))
         self.patch(api.compose, "stop_on_signals", side_effect=lambda: events.append(("signals",)))
         self.timer = self.patch(api.threading, "Timer")
-        self.opened = self.patch(api.webbrowser, "open")
+        self.opened = self.patch(api, "open_browser")
 
     def serve(self, browser=False):
         printed = io.StringIO()
-        with contextlib.redirect_stdout(printed):
+        with contextlib.redirect_stdout(printed), mock.patch.dict("os.environ", {"LC_ALL": "C"}):   # an ASCII arrow
             api.serve(9000, browser)
         return printed.getvalue()
 
@@ -2402,11 +2432,21 @@ class Startup(Case):
         self.assertEqual(self.events, [("bind", ("127.0.0.1", 9000)), ("signals",), ("layout", "ensure"), ("service", "recover"),
                                        ("contribute", "sweep"), ("firstrun", "reconcile"), ("firstrun", "start_worker"),
                                        ("serve",)])
-        self.assertEqual(said, "Gravitee Lab UI on http://localhost:9000  (Ctrl+C to stop)\n")
+        self.assertEqual(said, "\n  >  Lab UI   http://localhost:9000\n     Keep this terminal open: Ctrl+C stops the Lab UI, "
+                               "and the containers keep running.\n\n")
+
+    def test_a_narrow_terminal_folds_the_line_under_the_address_between_words(self):
+        printed = io.StringIO()
+        printed.isatty = lambda: True
+        with contextlib.redirect_stdout(printed), mock.patch.dict("os.environ", {"LC_ALL": "C", "NO_COLOR": "1"}), \
+                mock.patch.object(api.shutil, "get_terminal_size", return_value=os.terminal_size((60, 30))):
+            api.serve(9000, False)
+        self.assertEqual(printed.getvalue(), "\n  >  Lab UI   http://localhost:9000\n     Keep this terminal open: Ctrl+C "
+                                             "stops the Lab UI, and\n     the containers keep running.\n\n")
 
     def test_the_browser_opens_once_the_steps_are_done_and_not_when_it_is_not_asked(self):
         self.serve(browser=True)
-        self.timer.assert_called_once_with(0.5, api.webbrowser.open, args=("http://localhost:9000",))
+        self.timer.assert_called_once_with(0.5, api.open_browser, args=("http://localhost:9000",))
         self.timer.return_value.start.assert_called_once_with()
         self.timer.reset_mock()
         self.serve(browser=False)
@@ -2419,7 +2459,7 @@ class Startup(Case):
         self.patch(api, "ThreadingHTTPServer", side_effect=OSError(errno.EADDRINUSE, "Address already in use"))
         self.patch(api, "is_lab_ui", return_value=True)
         said = self.serve(browser=True)
-        self.assertIn("is already running", said)
+        self.assertIn("Already running", said)
         self.opened.assert_called_once_with("http://localhost:9000")
 
     def test_another_program_on_the_port_is_an_exit_and_touches_nothing(self):
@@ -2491,13 +2531,13 @@ class Startup(Case):
                 self.assertEqual(stopped.exception.code, "docker not found")
         prepared.assert_not_called()
         self.assertEqual(self.events, [])
-        # The page says what is missing, with its fix (machine): the Lab UI serves, and the terminal says it in a line
+        # The page says what is missing, with its fix (machine): the Lab UI serves, and the terminal does not say it twice
         served = self.patch(api, "serve")
         said = io.StringIO()
-        with contextlib.redirect_stderr(said):
+        with contextlib.redirect_stderr(said), contextlib.redirect_stdout(said):
             api.main(["--no-open", "--port", "9123"])
         served.assert_called_once()
-        self.assertEqual(said.getvalue().strip(), "Gravitee Lab UI: docker not found")
+        self.assertEqual(said.getvalue(), "")
 
 
 if __name__ == "__main__":
@@ -2632,3 +2672,19 @@ class Terminal(LabUI):
         self.attached.side_effect = RuntimeError("gio-hello-shell is not running")
         status, headers, body = self.request("GET", self.PATH)
         self.assertEqual((status, headers["Content-Type"]), (409, "application/json"))
+
+
+class Browser(Case):
+    def test_in_wsl_the_browser_of_windows_opens_the_page(self):
+        popen, opened = self.patch(api.subprocess, "Popen"), self.patch(api.webbrowser, "open")
+        self.patch(api.shutil, "which", return_value="/mnt/c/WINDOWS/explorer.exe")
+        self.patch(api.machine, "system", return_value="wsl")
+        api.open_browser("http://localhost:9000")
+        self.assertEqual(popen.call_args.args[0], ["explorer.exe", "http://localhost:9000"])
+        opened.assert_not_called()
+        for system, explorer in (("mac", "/mnt/c/WINDOWS/explorer.exe"), ("wsl", None)):   # no Windows to reach: Python's own
+            self.patch(api.machine, "system", return_value=system)
+            self.patch(api.shutil, "which", return_value=explorer)
+            api.open_browser("http://localhost:9000")
+        self.assertEqual(opened.call_count, 2)
+        self.assertEqual(popen.call_count, 1)

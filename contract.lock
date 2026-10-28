@@ -1,4 +1,4 @@
-contract 3
+contract 4
 contract_min 1
 core.service alert-engine health=yes networks=internal since=1
 core.service am-gateway port=8092 health=yes networks=edge,internal since=1
@@ -79,7 +79,9 @@ unit.key x-gravitee.terminal kinds=playground since=1
 unit.key x-gravitee.tested kinds=playground since=1
 label io.gravitee.console.<id>.legacy since=1
 label io.gravitee.console.<id>.name since=1
+label io.gravitee.console.<id>.password since=4
 label io.gravitee.console.<id>.url since=1
+label io.gravitee.console.<id>.username since=4
 label io.gravitee.description since=1
 label io.gravitee.group since=1
 label io.gravitee.image.tags since=1

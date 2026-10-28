@@ -1165,7 +1165,7 @@ class State(Built):
         self.assertEqual(urls(self.build(playground="welcome")), ["http://localhost:8086"], "whatever is on")
         self.assertEqual(urls(self.build(explicit=["kafka"])), ["http://localhost:8086"])
         self.assertEqual(sorted(self.build(explicit=["kafka"])["links"][0]),
-                         ["label", "legacy", "port", "section", "service", "up", "url"], "the page gets no layer")
+                         ["label", "legacy", "password", "port", "section", "service", "up", "url", "username"], "the page gets no layer")
         # The playground's own row says what runs; its tab is where it opens, before it is on too
         welcome = self.item("playground", "welcome")
         self.assertEqual([link["url"] for link in welcome["links"] if link["service"] == "apim-management-api"],
@@ -1271,7 +1271,7 @@ class State(Built):
         self.assertEqual({link["service"]: link["up"] for link in body["links"] if link["section"] == "Kafka"},
                          {"kafka": True, "kafka-ui": False})
         # In the server's order, the legacy ones last, each saying whether it is one
-        self.assertEqual(sorted(body["links"][0]), ["label", "legacy", "port", "section", "service", "up", "url"])
+        self.assertEqual(sorted(body["links"][0]), ["label", "legacy", "password", "port", "section", "service", "up", "url", "username"])
         # Every row says the same things
         rows = [item for kind in ("addons", "setups", "playgrounds") for item in body[kind]]
         self.assertEqual({key for item in rows for key in ("note_target", "note_file", "secondary", "login")}

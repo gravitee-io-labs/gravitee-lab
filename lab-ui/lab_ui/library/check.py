@@ -77,6 +77,7 @@ SECRET_NAME = re.compile(r"PASSWORD|PASSWD|PASSPHRASE|SECRET|API[_.-]?KEY|(?:^|[
 NOT_SECRET = re.compile(r"(?:URL|URI|PATH|FILE|TYPE|ENDPOINT|ENABLED|HOST|PORT|METHOD|POLICY|REGEX|NAMESPACE|PROVIDER"
                         r"|TIMEOUT|TIMEOUTMS)$", re.I)
 URI_USER = re.compile(r"://([^/?#\s@]*)@")   # what a URI holds before the @: user, or user:password
+SIGN_IN = re.compile(r"io\.gravitee\.console\.[a-z0-9-]+\.password")   # the demo sign-in a console shows next to it: no secret
 FEATURE = re.compile(r"[a-z0-9]+(?:[.-][a-z0-9]+)*")   # a license feature, as the license model writes it
 STEP = re.compile(r"^## (\d+)\.", re.M)   # a numbered section of a guide: one of its steps
 # An action link of a guide, [text](action:id), a title after it too
@@ -263,9 +264,10 @@ def _texts(node, path=()):
 
 def _names_a_secret(path, key):
     """Whether the key of an entry says that it is a secret: by its name, or `key` in an account. Of x-gravitee only the
-    accounts hold secrets: the Lab UI reads the rest, and a license feature may be named after a secret manager."""
+    accounts hold secrets: the Lab UI reads the rest, and a license feature may be named after a secret manager. The
+    password of a console's sign-in is there to be shown."""
     account = _is_account(path)
-    if path[:1] == ("x-gravitee",) and not account:
+    if (path[:1] == ("x-gravitee",) and not account) or SIGN_IN.fullmatch(key):
         return False
     return bool(SECRET_NAME.search(key) and not NOT_SECRET.search(key)) or (account and key.lower() == "key")
 

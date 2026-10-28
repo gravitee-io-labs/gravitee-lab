@@ -1,6 +1,7 @@
-// Welcome to Gravitee Lab (web/js/dialogs/welcome.js): the steps from a fresh machine to a running playground, in a rail at the left, each with
+// Welcome to Gravitee Lab (web/js/dialogs/welcome.js): the steps from a fresh machine to a running platform, in a rail at the left, each with
 // its state. Your machine comes first, and while a line in red keeps the platform from starting, what follows is locked and says why; then where
-// API Management runs, a choice of two cards; then the start, which follows the platform and the catalogs. How it works stays in the rail, apart,
+// API Management runs, a choice of two cards; then the start, which starts the platform and follows it until it runs, then lists its consoles
+// with their sign-in and leads to the playgrounds once the catalogs are there. How it works stays in the rail, apart,
 // and the rail ends with where the Lab comes from: its license, a link to its source and one to its troubleshooting guide, both built from the
 // repository, which is written once, at the top of the module. What the catalogs do to it: its layers say they come from a catalog, the example
 // of the on file names the folder of a catalog, and the foot of the start draws the same slots whatever the content is, writing into those nodes
@@ -37,9 +38,19 @@ const settle = async () => { for (let i = 0; i < 4; i += 1) await flush(); };
 
 // The lab as the first state says it: the platform's groups, API Management the one that can run in the Cloud, chosen nowhere yet
 const GROUP = { id: "api-management", name: "API Management" };
-const GROUPS = ["API Management", "Access Management", "Alert Engine", "Databases"].map((name) => ({ name }));
-store.state = { platform: { groups: GROUPS, state: { key: "running" } }, products: [], addons: [], playgrounds: [],
+const GROUPS = [["API Management", ["gamma-ui", "apim-management-ui"]], ["Access Management", ["am-management-ui"]], ["Alert Engine", []],
+  ["Databases", ["mongodb"]]].map(([name, services]) => ({ name, services }));
+// The consoles as the state says them: the current ones and a legacy one of the platform, and one of an add-on, which is not the platform's
+const LINKS = [
+  { label: "AM Console", url: "http://localhost:8081", service: "am-management-ui", legacy: false, up: true, username: "admin", password: "adminadmin" },
+  { label: "Gamma Console", url: "http://localhost:8086", service: "gamma-ui", legacy: false, up: true, username: "admin", password: "admin" },
+  { label: "Kafka UI", url: "http://localhost:8180", service: "kafka-ui", legacy: false, up: true },
+  { label: "APIM Console", url: "http://localhost:8084", service: "apim-management-ui", legacy: true, up: true, username: "admin", password: "admin" },
+];
+const START = { start: {} };   // the platform's Start, with no plan to confirm
+store.state = { platform: { groups: GROUPS, state: { key: "running" }, ...START }, links: LINKS, products: [], addons: [], playgrounds: [],
   core: { place: "machine", chosen: false, group: GROUP } };
+globalThis.EventSource ??= class { addEventListener() {} close() {} };   // the stream of a job that started
 Welcome.init();
 await settle();
 const dialog = page.doc.querySelector(".welcome-dialog");
@@ -120,7 +131,7 @@ test("Continue asks where API Management runs: two cards of one choice, This mac
   assert.ok(!calls.some((call) => call.path.startsWith("/api/machine")), "asked only while it shows");
 });
 
-test("Continue keeps This machine and moves on at once to the start, which says the platform runs and leads to a playground", async () => {
+test("Continue keeps This machine and moves on at once to the start, which says the platform runs, lists its consoles with their sign-in and leads to the playgrounds", async () => {
   calls.length = 0;
   actions().querySelector("[data-next]").click();
   assert.equal(body.getAttribute("data-step"), "start", "without waiting for the save");
@@ -129,10 +140,12 @@ test("Continue keeps This machine and moves on at once to the start, which says 
   assert.equal(step("core").getAttribute("data-state"), "done");
   assert.equal(heading(), "Your platform is running");
   const items = body.querySelectorAll(".start-item");
-  assert.deepEqual(items.map((item) => text(item.querySelector("strong"))), ["Start the platform", "Choose a playground", "Open a console"]);
-  assert.deepEqual(items.map((item) => item.getAttribute("data-state")), ["done", "todo", "todo"]);
-  assert.equal(items[2].querySelector("a").getAttribute("href"), "#/dashboard", "the Dashboard's name leads to it");
-  assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Done", "Choose a playground"]);
+  assert.deepEqual(items.map((item) => item.querySelectorAll(".start-text > *").map(text)), [["Gamma Console", "admin / admin"], ["AM Console", "admin / adminadmin"]],
+    "the platform's current consoles, product by product: an add-on's is not one, the older ones are on the Dashboard");
+  assert.deepEqual(items.map((item) => [item.querySelector("a").getAttribute("href"), item.querySelector("a").getAttribute("target")]),
+    [["http://localhost:8086", "_blank"], ["http://localhost:8081", "_blank"]]);
+  assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Done", "Discover the playgrounds"]);
+  assert.equal(actions().querySelector('a[href="#/playgrounds"]').getAttribute("class"), "btn primary");
 });
 
 test("Done closes the dialog from the start, to go on later", () => {
@@ -143,15 +156,37 @@ test("Done closes the dialog from the start, to go on later", () => {
   dialog.showModal();
 });
 
-test("a stopped platform is started from the start, and Choose a playground leads while nothing is on", async () => {
-  store.state = { ...store.state, platform: { groups: GROUPS, state: { key: "stopped" } } };
+test("a stopped platform is started from the start, which stays open and follows it until it runs; a start that fails says why and offers Try again", async () => {
+  const platform = (key) => ({ groups: GROUPS, state: { key }, ...START });
+  store.state = { ...store.state, platform: platform("stopped") };
   store.notify();
   assert.equal(heading(), "Start the platform");
+  assert.equal(text(body.querySelector(".welcome-lead")), "Its first start downloads about 15 GB of images: about 10 to 15 minutes.");
   assert.equal(step("start").getAttribute("data-state"), "todo");
-  assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Done", "Start the platform", "Choose a playground"]);
-  assert.equal(actions().querySelector('a[href="#/playgrounds"]').getAttribute("class"), "btn primary");
-  store.state = { ...store.state, platform: { groups: GROUPS, state: { key: "running" } } };
+  assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Done", "Start the platform"]);
+  assert.ok(actions().querySelector("[data-start]").classList.contains("primary"), "the start is the one thing to do");
+  calls.length = 0;
+  actions().querySelector("[data-start]").click();
+  await settle();
+  page.doc.body.hidden = false;   // the drawer follows the job, and hides the parent of its output: here the body, which holds every id flat
+  assert.ok(dialog.hasAttribute("open"), "the dialog stays, to follow the start");
+  assert.deepEqual(calls.filter((call) => call.path === "/api/stack/start").map((call) => call.body), [{}]);
+  store.state = { ...store.state, platform: platform("starting"), job: { id: "j1", for: "platform", verb: "start", done: false } };
   store.notify();
+  assert.equal(heading(), "Starting the platform");
+  assert.deepEqual([step("start").getAttribute("data-state"), text(step("start").querySelector(".welcome-step-text > span"))], ["checking", "Starting"]);
+  assert.ok(body.querySelector('[data-progress="platform"]'), "how far it is");
+  assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Done"], "nothing to do while it starts: Done leaves it starting");
+  store.state = { ...store.state, platform: platform("issue"), job: { id: "j1", for: "platform", verb: "start", done: true, ok: false, error: "Container gio-apim-gateway exited (1)" } };
+  store.notify();
+  assert.equal(heading(), "The platform did not start");
+  assert.equal(text(body.querySelector(".welcome-lead")), "Container gio-apim-gateway exited (1)");
+  assert.deepEqual([step("start").getAttribute("data-state"), text(step("start").querySelector(".welcome-step-text > span"))], ["attention", "Did not start"]);
+  assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Done", "Show output", "Try again"]);
+  store.state = { ...store.state, platform: platform("running"), job: { id: "j2", for: "platform", verb: "start", done: true, ok: true } };
+  store.notify();
+  assert.equal(heading(), "Your platform is running");
+  assert.equal(step("start").getAttribute("data-state"), "done");
 });
 
 test("the info button of the menu opens How it works once the machine is ready, and your machine while a line of it is red", async () => {
@@ -209,7 +244,7 @@ test("with API Management in the Cloud, the start says Start all, and the Core l
   assert.match(text(body.querySelectorAll(".core-card")[1]), /Development \(My Account\)$/, "the card says the environment it is");
   assert.equal(text(step("core").querySelector(".welcome-step-text > span")), "Gravitee Cloud");
   await go("start");
-  assert.equal(text(body.querySelector(".start-item .start-text > span")), "Start all starts the hybrid gateway of Development (My Account) and the rest of the platform on this machine.");
+  assert.equal(text(body.querySelector(".welcome-lead")), "Start all starts the hybrid gateway of Development (My Account) and the rest of the platform on this machine.");
   assert.match(text(actions()), /Start all/, "Start all, which follows where API Management runs");
 });
 
@@ -250,12 +285,12 @@ test("the pages it points to are the Library's and the Catalogs, each leading to
   assert.equal(text(body.querySelectorAll(".pairs > div")[2].querySelector("dd")), "Catalogs: where they come from, to add and to update");
 });
 
-test("with the catalogs there, or a server that does not say, the foot of the start is what it always was: Back, and Choose a playground that works", async () => {
+test("with the catalogs there, or a server that does not say, the foot of the start is what it always was: Back, and Discover the playgrounds that works", async () => {
   await go("start");
   for (const state of [{ content: content("ready"), catalogs: [FIRST()] }, { content: undefined }]) {
     say({ ...state, platform: { name: "Gravitee platform", groups: GROUPS, state: { key: "running" } } });
-    assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Done", "Choose a playground"]);
-    assert.deepEqual(lead(), ["Choose a playground", false, ""]);
+    assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Done", "Discover the playgrounds"]);
+    assert.deepEqual(lead(), ["Discover the playgrounds", false, ""]);
     assert.equal(slot().getAttribute("class"), "btn primary");
     assert.deepEqual(extra(), []);
   }
@@ -263,19 +298,19 @@ test("with the catalogs there, or a server that does not say, the foot of the st
 
 test("while the catalogs download the lead stays in its place and waits, saying why; a failure adds Try again before it, no catalog Add Gravitee public", () => {
   say({ content: content("downloading"), catalogs: [catalog({ id: "gravitee", commit: "", progress: 0.4 })] });
-  assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Done", "Choose a playground"]);
-  assert.deepEqual(lead(), ["Choose a playground", true, WAITING]);
+  assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Done", "Discover the playgrounds"]);
+  assert.deepEqual(lead(), ["Discover the playgrounds", true, WAITING]);
   assert.deepEqual(extra(), []);
   say({ content: content("failed"), catalogs: [catalog({ id: "gravitee", commit: "" })] });
-  assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Done", "Try again", "Choose a playground"], "before the lead");
-  assert.deepEqual(lead(), ["Choose a playground", true, "Cannot reach github.com. Check your connection, then try again."]);
+  assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Done", "Try again", "Discover the playgrounds"], "before the lead");
+  assert.deepEqual(lead(), ["Discover the playgrounds", true, "Cannot reach github.com. Check your connection, then try again."]);
   assert.deepEqual(extra(), [["retry", "gravitee", "Try again"]]);
   say({ content: content("none") });
-  assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Done", "Add Gravitee public", "Choose a playground"]);
-  assert.deepEqual(lead(), ["Choose a playground", true, "No catalog added"]);
+  assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Done", "Add Gravitee public", "Discover the playgrounds"]);
+  assert.deepEqual(lead(), ["Discover the playgrounds", true, "No catalog added"]);
   assert.deepEqual(extra(), [["add", "gravitee", "Add Gravitee public"]]);
   say({ content: content("none", { offer: null }) });
-  assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Done", "Browse catalogs", "Choose a playground"]);
+  assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Done", "Browse catalogs", "Discover the playgrounds"]);
 });
 
 test("when the download ends while the dialog is open the nodes are updated, not drawn again: the focus stays and nothing moves under the pointer", () => {
@@ -289,7 +324,7 @@ test("when the download ends while the dialog is open the nodes are updated, not
   assert.ok(!actions().querySelector("[data-content-act]"), "the secondary button left");
   say({ content: content("ready"), catalogs: [FIRST()] });
   assert.ok(actions().querySelector("[data-back]") === back && slot() === anchor, "the same nodes, with their new words");
-  assert.deepEqual(lead(), ["Choose a playground", false, ""]);
+  assert.deepEqual(lead(), ["Discover the playgrounds", false, ""]);
   assert.ok(!anchor.hasAttribute("aria-disabled") && !anchor.hasAttribute("data-why"));
   assert.equal(page.focused(), null, "the button that was focused left with the failure, which the person mended: the focus is not moved to another");
   back.focus();

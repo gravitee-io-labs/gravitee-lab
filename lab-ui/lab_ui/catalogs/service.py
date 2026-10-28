@@ -28,7 +28,7 @@ from pathlib import Path
 from ..docker import compose, jobs
 from ..library import layers, model, moves, project
 from .. import paths
-from . import defaults, gitx, install, manifest, registry, renames, resolve, trust
+from . import defaults, gitx, install, manifest, registry, renames, resolve, trust, understood
 from . import store as bare
 from .registry import CatalogError
 
@@ -196,6 +196,7 @@ WORDS = {
     "machine": ("", "muted"), "uptodate": ("Up to date", "muted"), "update": ("Update available", "warn"),
     "checking": ("Checking", "muted"), "updating": ("Updating", "working"), "downloading": ("Downloading", "working"),
     "unreachable": ("Unreachable", "warn"), "noaccess": ("No access", "error"), "needs_git": ("Needs Git", "error"),
+    "needs_docker": ("Needs Docker", "error"),
     "wrong_catalog": ("Wrong catalog", "error"), "rewritten": ("Rewritten", "error"),
     "lab_new": ("Needs a newer Gravitee Lab", "warn"), "lab_old": ("Written for an older Gravitee Lab", "warn"),
     "damaged": ("Damaged", "error"), "linked": ("Linked", "muted"), "missing_folder": ("Folder not found", "error"),
@@ -249,6 +250,8 @@ def _failure(code, url, installed):
     if code in ("git_missing", "git_old"):
         return ("Git is not installed." if code == "git_missing" else "Git is too old.",
                 "Install Git, then try again." if code == "git_missing" else "Install Git 2.25 or later, then try again.")
+    if code == "docker_missing":
+        return ("Docker is not ready.", "Start Docker: the catalog is read again by itself.")
     if code == "unreachable":
         return (f"Cannot reach {host}." + (f" Showing the copy from {installed}." if installed else ""),
                 "Check your connection, then check again." if installed else "Check your connection, then try again.")
@@ -303,7 +306,7 @@ def _kind_state(ns, found, held, entry, contract):
             key = "lab_new"
         elif not held.get("checked"):
             key = "checking"
-    if key in ("unreachable", "noaccess", "needs_git", "failed") and held.get("error"):
+    if key in ("unreachable", "noaccess", "needs_git", "needs_docker", "failed") and held.get("error"):
         reason, after = _failure(held["error"], url, installed if held.get("pin") else "")
         return _state(key, reason=reason, next=after)
     if key == "uptodate":   # a copy that is no release (a catalog that makes none, commits made after the last one) says so
@@ -634,9 +637,11 @@ def problems():
 # ---------------------------------------------------------------------------------------------------------------------
 
 def _contract():
-    """The level of this Lab as the core file says it: {contract, contract_min, seeder_image}."""
+    """The level of this Lab, its lock's (understood.levels) else the core file's, and the seeder image the core file names:
+    {contract, contract_min, seeder_image}."""
     found = project.loaded()[1].get("contract")
-    return found if isinstance(found, dict) else {"contract": 1, "contract_min": 1, "seeder_image": ""}
+    return {"contract": 1, "contract_min": 1, "seeder_image": "", **(found if isinstance(found, dict) else {}),
+            **(understood.levels() or {})}
 
 
 def _row_of_candidate(meta, kind, audience, listed, host, ignored, units):
@@ -874,8 +879,8 @@ def check_address(address, branch=None):
         listed_at = _listed_ids_at(found_at.display)
         commit = offered.commit
         if commit is None:
-            raise manifest.no_commit(offered.levels, contract["contract"], contract["contract_min"], bool(listed_at),
-                                     offered.searched)
+            raise manifest.no_commit(offered.levels, contract["contract"], contract["contract_min"],
+                                     bool(listed_at), offered.searched)
         kept, ignored = bare.selected(bare.listing(store_path, commit))
         with _one_stage():
             staged = install.stage(found_at, f"new-{ticket}", store_path, commit, kept, ignored)
@@ -1149,7 +1154,9 @@ def check_now(ns):
     try:
         _ask(ns, entry)
     except CatalogError as error:
-        registry.set_lock(ns, error=_failed_with(ns, error.code))
+        # Docker not ready to read the news says nothing of the copy, which works: the next check reads it again
+        if error.code not in ("docker_missing", "unread"):
+            registry.set_lock(ns, error=_failed_with(ns, error.code))
     return {"catalog": _row_of(ns)}
 
 

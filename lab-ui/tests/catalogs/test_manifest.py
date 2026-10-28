@@ -18,6 +18,7 @@ from lab_ui.gravitee import license
 from lab_ui import paths
 from lab_ui.catalogs import gitx, manifest, registry, standard
 from lab_ui.catalogs import store as bare
+from lab_ui.catalogs.registry import CatalogError
 
 from .. import Case, fixtures, gitfixture
 
@@ -129,6 +130,14 @@ class Picking(Case):
         self.assertEqual(manifest.pick(levels, 2, 1), ("r", "new"))
         self.assertEqual(manifest.pick(levels, 1, 1), ("r", "new"))
         self.assertEqual(manifest.pick([("t", 1), ("r", 2), ("o", 1)], 1, 1), ("t", "ok"))
+
+    def test_a_version_it_could_not_tell_of_stops_the_search_and_no_older_one_is_taken(self):
+        def reads(commit):
+            if commit == "a":
+                raise CatalogError("unread", "This Lab could not read the catalog. Try again.", 503)
+            return commit == "b"
+        with self.assertRaises(CatalogError):
+            manifest.pick([("t", None), ("a", None), ("b", None)], 2, 1, readable=reads)
 
     def test_the_newest_is_taken_even_when_older_ones_are_read_too(self):
         self.assertEqual(manifest.pick([("t", 2), ("a", 2), ("b", 1)], 2, 1), ("t", "ok"))

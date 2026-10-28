@@ -134,7 +134,7 @@ services:
   |---|---|
   | `io.gravitee.name` | The display name |
   | `io.gravitee.description` | What the service is, in one short line, shown with its name. Every service of a shared add-on has one (`make check`) |
-  | `io.gravitee.console.<id>.name` / `.url` | A link to open, once per UI. `.legacy: "true"` lists it after the others, which are listed by name. A playground shows a service's first one in a tab when it lists the service in its `consoles` |
+  | `io.gravitee.console.<id>.name` / `.url` | A link to open, once per UI. `.legacy: "true"` lists it after the others, which are listed by name. `.username` and `.password` give its demo sign-in, shown next to it: a password that is a setting is written as that setting. A playground shows a service's first one in a tab when it lists the service in its `consoles` |
   | `io.gravitee.image.tags` | The Docker Hub repository that lists the image's tags, when its own registry lists them badly |
   | `io.gravitee.role: seed` | In a playground only: the service that creates its data in Gravitee |
   | `io.gravitee.license: required` | A service that exits without a usable license. The Lab UI does not start it then and shows **Needs a license** on its row |
