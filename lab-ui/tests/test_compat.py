@@ -64,6 +64,56 @@ class Candidates(unittest.TestCase):
         self.assertEqual(compat.candidates(unit(), self.tags), [], "nothing said: not followed")
 
 
+class Review(unittest.TestCase):
+    """What a review of the record found: each case is a night that would try the same set for ever, or write it wrong."""
+
+    def tags(self, key):
+        return TAGS[key]
+
+    def test_a_pre_release_of_a_line_that_has_a_release_is_no_news(self):
+        self.assertIsNone(compat.newest([*APIM, "4.13.2-rc.1"])[1], "4.13.1 is out: a 4.13 pre-release is not a line to follow")
+
+    def test_a_set_older_than_the_one_of_its_line_is_not_tried(self):
+        found = compat.candidates(unit([both("4.12.26", "4.12.11"), both("4.13.1", "4.13.1")], {"APIM_VERSION": "4.12"}), self.tags)
+        self.assertEqual(found, [], "Docker Hub's window shows 4.12.25, older than what it has")
+
+    def test_a_playground_of_private_builds_with_a_minimum_is_not_followed_on_docker_hub(self):
+        private = {"APIM_VERSION": "4.13.1", "APIM_REGISTRY": "graviteeio.azurecr.io"}
+        self.assertEqual(compat.candidates(unit([private], {"APIM_VERSION": "4.12"}), self.tags), [])
+
+    def test_a_version_of_another_image_is_carried_over(self):
+        sets = [{"APIM_VERSION": "4.12.25", "APIM_REGISTRY": "graviteeio", "SHOP_VERSION": "2.1.0"}]
+        found = compat.candidates(unit(sets, {"APIM_VERSION": "4.12"}), self.tags, follow={"APIM_VERSION"})
+        self.assertEqual(found, [{"APIM_VERSION": "4.13.1", "APIM_REGISTRY": "graviteeio", "SHOP_VERSION": "2.1.0"}])
+
+    def test_a_newer_set_replaces_its_line_whatever_the_order_of_its_variables(self):
+        old = {"APIM_VERSION": "4.10.3", "APIM_REGISTRY": "graviteeio", "AM_VERSION": "4.10.1", "AM_REGISTRY": "graviteeio"}
+        new = {"AM_REGISTRY": "graviteeio", "AM_VERSION": "4.10.2", "APIM_REGISTRY": "graviteeio", "APIM_VERSION": "4.10.5"}
+        self.assertEqual(compat.merged([old], [new], ["APIM_VERSION", "AM_VERSION"]), [new])
+        self.assertEqual(compat.merged([new], [old], ["APIM_VERSION", "AM_VERSION"]), [new], "an older one never replaces it")
+
+    def test_a_tag_that_reads_badly_leaves_the_playground_for_the_next_night_and_the_others_go_on(self):
+        built = {"playgrounds": {"bank": {**unit([both("4.12.25", "4.12.10")], {"APIM_VERSION": "4.12"}), "catalog": "acme"},
+                                 "shop": {**unit([both("4.12.25", "4.12.10")], {"APIM_VERSION": "4.12"}), "catalog": "acme"}}}
+        said = []
+
+        def tags(project, key, registry):
+            if not said:
+                said.append("asked")
+                raise RuntimeError("Not published on Docker Hub")
+            return TAGS[key]
+        jobs = compat.plan(built, "acme", tags, warn=said.append)
+        self.assertEqual([job["item"] for job in jobs], ["playground:shop"])
+        self.assertIn("next night", said[-1])
+
+    def test_a_night_tries_max_jobs_at_most(self):
+        built = {"playgrounds": {f"p{n}": {**unit([], {"APIM_VERSION": "4.9"}), "catalog": "acme"} for n in range(20)}}
+        said = []
+        jobs = compat.plan(built, "acme", lambda project, key, registry: TAGS[key], warn=said.append)
+        self.assertEqual(len(jobs), compat.MAX_JOBS)
+        self.assertEqual(said, ["100 sets to try: 64 tonight, the rest the next nights"])
+
+
 class Plan(unittest.TestCase):
     def test_a_job_for_each_shared_playground_of_the_catalog_and_each_set(self):
         built = {"playgrounds": {
@@ -128,13 +178,12 @@ class Write(unittest.TestCase):
         self.assertEqual(found, TEXT.replace('''  tested:                    # the versions it was built and checked on
     - APIM_VERSION: "4.12.20"
       APIM_REGISTRY: graviteeio
-
 ''', '''  tested:
     - APIM_VERSION: "4.12.25"
       APIM_REGISTRY: graviteeio
     - APIM_VERSION: "4.13.1"
       APIM_REGISTRY: graviteeio
-'''))
+'''), "the blank line after it stays")
 
     def test_the_variables_keep_the_order_the_file_gave_them(self):
         text = TEXT.replace('''      APIM_REGISTRY: graviteeio
@@ -164,6 +213,25 @@ class Write(unittest.TestCase):
     def test_a_file_without_x_gravitee_at_the_top_is_refused(self):
         with self.assertRaises(ValueError):
             compat.write("services: {}\n", [])
+
+    def test_a_file_written_another_way_is_refused_rather_than_written_wrong(self):
+        block = '  tested:                    # the versions it was built and checked on\n    - APIM_VERSION: "4.12.20"\n      APIM_REGISTRY: graviteeio\n'
+        for text in (TEXT.replace("\n", "\r\n"),
+                     TEXT.replace(block, '  tested:\n  - APIM_VERSION: "4.12.20"\n    APIM_REGISTRY: graviteeio\n'),
+                     TEXT.replace(block, '  tested: [\n    {APIM_VERSION: "4.12.20"}]\n'),
+                     'x-gravitee:\n    kind: playground\n    tested:\n      - APIM_VERSION: "4.12.20"\n'):
+            with self.subTest(text=text[-60:]), self.assertRaises(ValueError):
+                compat.write(text, [{"APIM_VERSION": "4.13.1"}])
+
+    def test_a_comment_at_the_start_of_a_line_and_a_last_line_with_no_end_are_kept_in_their_place(self):
+        text = "x-gravitee:\n  kind: playground\n# the guide\n  name: Shop"
+        self.assertEqual(compat.write(text, [{"APIM_VERSION": "4.13.1"}]),
+                         'x-gravitee:\n  kind: playground\n# the guide\n  name: Shop\n  tested:\n    - APIM_VERSION: "4.13.1"\n')
+
+    def test_a_value_yaml_would_read_as_a_number_or_a_word_is_quoted(self):
+        found = compat.write("x-gravitee:\n  kind: playground\n", [{"APIM_VERSION": "4.13.1", "APIM_TAG": "4.13", "SHOP_REGISTRY": "no"}])
+        self.assertIn('APIM_TAG: "4.13"', found)
+        self.assertIn('SHOP_REGISTRY: "no"', found)
 
 
 if __name__ == "__main__":

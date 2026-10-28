@@ -51,7 +51,8 @@ PROBES = (".github/CODEOWNERS", ".github/standard.json", ".github/dependabot.yml
           ".github/workflows/ci.yml", ".github/workflows/nightly.yml", ".github/workflows/publish.yml", ".github/workflows/e2e.yml",
           ".github/workflows/versions.yml",
           ".github/actions/lab/action.yml", ".github/rulesets/default-branch.json", ".github/rulesets/tags.json",
-          ".github/rulesets/push.json", ".github/rulesets/protected-paths.json")
+          ".github/rulesets/push.json", ".github/rulesets/protected-paths.json", ".github/rulesets/history.json",
+          ".github/rulesets/tag-history.json")
 _NAMES = tuple(tuple(path.split("/")) for path in PROBES)
 _FILES = frozenset(PROBES)
 _FOLDERS = frozenset("/".join(names[:cut]) for names in _NAMES for cut in range(1, len(names)))

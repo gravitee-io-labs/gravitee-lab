@@ -219,7 +219,9 @@ falls out of the five newest goes, and a pre-release goes once a release of its 
 labeled `versions`, or adds to the one that is open.
 
 The commit and the tag go past the rules of `main` and of the tags with a deploy key: the rulesets of the standard let a deploy key
-through, and the job that holds it runs nothing of the catalog. To give it the key, in the repository's folder:
+through, and two more, `history.json` and `tag-history.json`, which no deploy key passes, keep it from deleting or rewriting `main`
+or a tag. In the job that records, only the step that pushes holds the key, and it runs `git` alone. `repo-settings` checks that
+the key of `versions.yml` is the one deploy key that writes (`rules.deploy_key`). To give it the key, in the repository's folder:
 
 ```bash
 ssh-keygen -t ed25519 -N '' -C versions -f versions-key

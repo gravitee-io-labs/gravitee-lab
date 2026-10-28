@@ -85,7 +85,7 @@ RULE_TEXT = {
           "as the same-named entry of a caller's `secrets:`; `GITHUB_TOKEN` or `REGISTRY_TOKEN` as the "
           "`password:` of `docker/login-action` in `publish.yml` (and `catalog-publish.yml`, its reusable "
           "counterpart in the Lab); `GRAVITEE_LICENSE` in exactly one step of `e2e.yml` and of `versions.yml`; "
-          "`VERSIONS_DEPLOY_KEY` in the step of `versions.yml` that runs `catalog.py ci versions-release`. Never "
+          "`VERSIONS_DEPLOY_KEY` in the step of `versions.yml` that pushes (`git push --atomic`) and runs no `catalog.py`. Never "
           "`secrets: inherit`",
     "WF09": "Write permissions only where the file may have them: none in `ci.yml` and `e2e.yml`; `issues` in the "
           "job `report` of `nightly.yml` and of `versions.yml`; `packages` in `images` and `attest`, `id-token` and "

@@ -224,14 +224,16 @@
         ".github/actions/lab/action.yml": "9a78df7deb0edbc17e0b67588950bddfc99fbf63f2e4941afdbeb3ea1805dc9f",
         ".github/dependabot.yml": "04a3f63a20ca894139880baf86d5a39569e9dfff8fd06d1a5e837f39e1628bbf",
         ".github/rulesets/default-branch.json": "681d056bced55b332b60dfc2ef3d62cdbeb2effc26af24d70be207dcaad5bdcf",
+        ".github/rulesets/history.json": "1d919a3359dc72c8c02ba74899116794df4dfaa1f004bad69daa1d39bce74d16",
         ".github/rulesets/protected-paths.json": "a8cd9e8118e84fc5b520f5d703b8479741fbc87fd8f48f5942c561e8839e619e",
         ".github/rulesets/push.json": "c03d377b6c58cd08f1b973e65b27e84141704e3ea4ffc74412c6bbf9b5a73ae5",
+        ".github/rulesets/tag-history.json": "029732f84205c379f5a503554ca50ff3ba7dcb49cfb60be72e8fec593f887d76",
         ".github/rulesets/tags.json": "9e2f95320ef501526f702d6db337b470cf118187bd1d3f0b201b958db3465497",
         ".github/workflows/ci.yml": "ea2364386bae6d76b8a2a892fe0be003f973473a7d6fcb8eb986283e8db91e0d",
         ".github/workflows/e2e.yml": "20e36117306f752c4d299db6837e558c1e36532cb5d55be7b5b7704ec9076aee",
         ".github/workflows/nightly.yml": "a171ae9fef2194945a41c8f262ca70fb67d2d5d19f9ea36fe81fe1af9fbfef1e",
         ".github/workflows/publish.yml": "af567bd06c8f4941d0fb4d0feffb9496c87c3e3efe3b9a7960f57e42764ca335",
-        ".github/workflows/versions.yml": "b473aa32759d3cb2a81bf95b62532aa1033c332670d5f6f5843dca8349608e21"
+        ".github/workflows/versions.yml": "6121586b6ba06f72e5c6275f8f74eedc5414564bf396e1ff4f0cc9c7b74d0277"
       },
       "seeded": {
         ".editorconfig": "3ef94e38d92460d7ded2ec6648e69658bd02858cab1e0ab9465ef59a9fc09d3c",

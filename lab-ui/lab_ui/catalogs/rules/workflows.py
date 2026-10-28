@@ -116,7 +116,7 @@ RULES = _table([
              "as the same-named entry of a caller's `secrets:`; `GITHUB_TOKEN` or `REGISTRY_TOKEN` as the "
              "`password:` of `docker/login-action` in `publish.yml` (and `catalog-publish.yml`, its reusable "
              "counterpart in the Lab); `GRAVITEE_LICENSE` in exactly one step of `e2e.yml` and of `versions.yml`; "
-             "`VERSIONS_DEPLOY_KEY` in the step of `versions.yml` that runs `catalog.py ci versions-release`. Never "
+             "`VERSIONS_DEPLOY_KEY` in the step of `versions.yml` that pushes (`git push --atomic`) and runs no `catalog.py`. Never "
              "`secrets: inherit`",
      "{file}:{line}: secrets.{name} is read where no rule allows it. Pass it by name to the one step that needs "
      "it."),
@@ -1092,6 +1092,7 @@ _KEY = "${{ secrets.LAB_DEPLOY_KEY }}"
 _NEEDS_KEY = "${{ secrets.NEEDS_DEPLOY_KEY }}"
 _LICENSE = "${{ secrets.GRAVITEE_LICENSE }}"
 _VERSIONS_KEY = "${{ secrets.VERSIONS_DEPLOY_KEY }}"
+_VERSIONS_PUSH = re.compile(r"\bgit push --atomic\b")   # the one step that holds the key pushes, and runs nothing of the Lab
 _PASSWORD = re.compile(r"\$\{\{ secrets\.(?:GITHUB_TOKEN|REGISTRY_TOKEN)(?: \|\| secrets\.(?:GITHUB_TOKEN|REGISTRY_TOKEN))? \}\}\Z")
 # A name that is not part of a longer one: `load-secrets.sh` and `inputs.secrets` are not the context. GitHub names may hold a dash
 _SECRET = re.compile(r"(?<![\w.-])secrets\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)", re.I)
@@ -1121,7 +1122,8 @@ def _blessed(doc: _Doc) -> Tuple[Set[int], Set[int]]:
                 and doc.action_of(step) == "docker/login-action" and _PASSWORD.match(text):
             allowed.add(entry.line)
         elif entry.name == "VERSIONS_DEPLOY_KEY" and text == _VERSIONS_KEY and name == "env" and doc.family == "versions" \
-                and doc.get(step, "run") is not None and "catalog.py ci versions-release" in _text_of(doc.get(step, "run").value):
+                and doc.get(step, "run") is not None and _VERSIONS_PUSH.search(_text_of(doc.get(step, "run").value)) \
+                and "catalog.py" not in _text_of(doc.get(step, "run").value):
             allowed.add(entry.line)
         elif entry.name == "GRAVITEE_LICENSE" and text == _LICENSE and name == "env" and doc.family in ("e2e", "versions") \
                 and (doc.get(step, "run") is not None or doc.get(step, "uses") is not None):

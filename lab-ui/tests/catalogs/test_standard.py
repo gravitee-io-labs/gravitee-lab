@@ -181,7 +181,7 @@ class Template(unittest.TestCase):
     def test_the_rulesets_are_what_repo_settings_sends(self):
         from lab_ui.catalogs import settings
         loaded, why = settings.load_rulesets()
-        self.assertEqual((sorted(loaded), why), (["main", "paths", "push", "tags"], ""))
+        self.assertEqual((sorted(loaded), why), (["history", "main", "paths", "push", "tag_history", "tags"], ""))
         self.assertEqual(settings.template_level(), standard.LEVEL)
 
     def test_the_fleet_may_change_only_the_folders_of_the_managed_files(self):
@@ -411,7 +411,7 @@ class Rendering(unittest.TestCase):
 
     def test_the_lab_level_adds_nightly_and_publishes_only_with_a_registry(self):
         files = render()
-        self.assertEqual(len(files), 29)
+        self.assertEqual(len(files), 31)
         self.assertEqual([path for path in files if path.startswith(".github/workflows/")],
                          [".github/workflows/ci.yml", ".github/workflows/nightly.yml"])
         self.assertIn(".github/workflows/publish.yml", render(images="ghcr.io/acme/lab-hub"))
@@ -943,7 +943,8 @@ class Drift(Case):
     def test_a_file_a_level_changed_is_behind_below_it_and_edited_by_hand_at_it(self):
         # Level 7 changes the rulesets: a catalog of level 6 holds their older text, and is told to upgrade
         self.assertEqual([(each.code, each.severity, each.path) for each in self.check(at(6))],
-                         [("SD03", "warning", ".github/rulesets/default-branch.json"), ("SD03", "warning", ".github/rulesets/tags.json")],
+                         [("SD03", "warning", ".github/rulesets/default-branch.json"), ("SD03", "warning", ".github/rulesets/tags.json"),
+                          ("SD03", "warning", ".github/rulesets/history.json"), ("SD03", "warning", ".github/rulesets/tag-history.json")],
                          "a deploy key may push to main and create a tag at level 7")
         same = edited(at(7), ".github/workflows/ci.yml", lambda text: text.replace("    name: Checks\n", ""))
         self.assertEqual([(each.code, each.severity) for each in self.check(same)], [("SD02", "error")])
@@ -1256,7 +1257,7 @@ class Commands(Case):
         lab = self.lab()
         code, out, err = self.new("--maintainers", "@acme/maintainers", "--license", "Apache-2.0", "--images", "ghcr.io/acme/lab-hub", lab=lab.root)
         self.assertEqual((code, err), (0, ""))
-        self.assertEqual(out.split("\n")[0], "Created Acme Hub in " + str(self.work / "hub") + " (standard 7, 30 files)")
+        self.assertEqual(out.split("\n")[0], "Created Acme Hub in " + str(self.work / "hub") + " (standard 7, 32 files)")
         self.assertIn('  1. cd ' + str(self.work / "hub") + ' && git init -b main && git add . && git commit -m "Create the catalog"', out)
         self.assertIn("  2. gh repo create OWNER/hub --private --source . --push", out)
         self.assertIn("  3. make settings                see what GitHub still has to set\n"
@@ -1519,7 +1520,8 @@ class Upgrading(Case):
         plan = self.plan(repo)
         self.assertEqual(self.actions(plan), {".github/standard.json": "update", ".github/workflows/ci.yml": "update",
                                               ".github/workflows/nightly.yml": "add", ".github/actions/lab/action.yml": "update",
-                                              ".github/rulesets/default-branch.json": "update", ".github/rulesets/tags.json": "update"})
+                                              ".github/rulesets/default-branch.json": "update", ".github/rulesets/tags.json": "update",
+                                              ".github/rulesets/history.json": "add", ".github/rulesets/tag-history.json": "add"})
         self.assertEqual([each["level"] for each in plan["notes"]], [2, 3, 4, 5, 6, 7])
         written = standard.upgrade_apply(repo.root, plan)
         self.assertNotIn(".github/workflows/publish.yml", written)
@@ -1535,7 +1537,8 @@ class Upgrading(Case):
         self.assertEqual(self.actions(plan), {".github/standard.json": "update", ".github/workflows/ci.yml": "update",
                                               ".github/workflows/nightly.yml": "add", ".github/workflows/publish.yml": "add",
                                               ".github/actions/lab/action.yml": "update", ".github/rulesets/default-branch.json": "update",
-                                              ".github/rulesets/tags.json": "update"})
+                                              ".github/rulesets/tags.json": "update", ".github/rulesets/history.json": "add",
+                                              ".github/rulesets/tag-history.json": "add"})
         standard.upgrade_apply(repo.root, plan)
         self.assertEqual(standard.drift(FolderTree(repo.root), 7), [])
         self.assertNotIn(".github/workflows/e2e.yml", [each["path"] for each in plan["files"]])
@@ -1685,8 +1688,8 @@ class Upgrading(Case):
         support.Repo.git_in(inner, "init", "--quiet")                                    # a nested repository
         plan = self.plan(repo)
         self.assertEqual(sorted(path for path, action in self.actions(plan).items() if action == "add"),
-                         [".github/rulesets/default-branch.json", ".github/rulesets/protected-paths.json", ".github/rulesets/push.json",
-                          ".github/rulesets/tags.json"])
+                         [".github/rulesets/default-branch.json", ".github/rulesets/history.json", ".github/rulesets/protected-paths.json",
+                          ".github/rulesets/push.json", ".github/rulesets/tag-history.json", ".github/rulesets/tags.json"])
         with self.assertRaisesRegex(standard.UpgradeError, r"^\.github/rulesets is the work tree of another repository"):
             standard.upgrade_apply(repo.root, plan)
         self.assertEqual(os.listdir(inner), [".git"])

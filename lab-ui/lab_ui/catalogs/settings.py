@@ -48,7 +48,10 @@ DOCKER_PATTERNS = ("docker/*",)
 # The Lab's own copy of the rulesets: the managed files of the template, applied as they are
 RULESETS = Path(__file__).resolve().parents[2] / "templates" / "catalog" / "managed" / ".github" / "rulesets"
 PUSH_RULE_TYPES = ("file_path_restriction", "file_extension_restriction", "max_file_size", "max_file_path_length")
-RULESET_FILES = {"main": "default-branch.json", "tags": "tags.json", "push": "push.json", "paths": "protected-paths.json"}
+COMPANIONS = {"main": "history", "tags": "tag_history"}
+OPTIONAL_RULESETS = ("history", "tag_history")   # standard 7 brought them: a template of an older standard has none   # the ruleset that keeps the history of what the first one guards
+RULESET_FILES = {"main": "default-branch.json", "tags": "tags.json", "push": "push.json", "paths": "protected-paths.json",
+                 "history": "history.json", "tag_history": "tag-history.json"}
 RULESET_LIMIT = 64 * 1024
 
 OK, FAIL, WARN, NA, MANUAL = "ok", "fail", "warn", "n.a.", "manual"
@@ -103,6 +106,7 @@ TITLES = {
     "rules.checks": "The check " + REQUIRED_CHECK + ", run by GitHub Actions, passes first, on an up to date branch",
     "rules.bypass": "Nobody bypasses the rules",
     "rules.tags": "Only an administrator creates, moves or deletes a tag",
+    "rules.deploy_key": "The deploy key of versions.yml is the only one that writes, and it never deletes or rewrites main or a tag",
     "rules.push": "Machine files never enter",
     "rules.protected_paths": "Only an administrator changes the files that run with a token",
     "security.scanning": "Secret scanning and push protection",
@@ -381,6 +385,8 @@ def load_rulesets(folder: Optional[Path] = None) -> Tuple[Dict[str, dict], str]:
     try:
         root = os.path.realpath(folder)
         for key, name in RULESET_FILES.items():
+            if key in OPTIONAL_RULESETS and not os.path.lexists(folder / name):
+                continue   # a template before standard 7
             real = os.path.realpath(folder / name)
             if os.path.dirname(real) != root:
                 return {}, f"{name} is not in the template's folder"
@@ -603,14 +609,23 @@ class _Audit:
 
     def ruleset_fix(self, key: str, solo: Optional[bool] = None):
         """The request that makes the template's ruleset `key` the one in force: the replacement of the ruleset of its name
-        when there is one, else its creation (`apply` asks again before it sends). Words when the template cannot be read."""
+        when there is one, else its creation (`apply` asks again before it sends). Words when the template cannot be read. The
+        rulesets of main and of the tags come with their history (COMPANIONS): a deploy key passes the first, never the second."""
         body = self.ruleset(key, solo)
         if body is None:
             return f"The Lab's rulesets are not here: {self.templates()[1] or 'update the Lab'}."
+        found = [self._ruleset_request(body)]
+        companion = self.ruleset(COMPANIONS[key]) if key in COMPANIONS else None
+        if companion is not None and not any(item["name"] == companion["name"] and item["target"] == companion["target"]
+                                             and item["source"] == "Repository" for item in self.rulesets()):
+            found.append(self._ruleset_request(companion))
+        return found
+
+    def _ruleset_request(self, body):
         for item in self.rulesets():
             if item["name"] == body["name"] and item["target"] == body["target"] and item["source"] == "Repository":
-                return [request("PUT", f"repos/{self.repo}/rulesets/{item['id']}", body, ruleset=body["name"])]
-        return [request("POST", f"repos/{self.repo}/rulesets", body, ruleset=body["name"])]
+                return request("PUT", f"repos/{self.repo}/rulesets/{item['id']}", body, ruleset=body["name"])
+        return request("POST", f"repos/{self.repo}/rulesets", body, ruleset=body["name"])
 
     def rulesets(self) -> list:
         """[{id, name, target, enforcement, source}] of the rulesets that apply to the repository, the organization's
@@ -1069,6 +1084,7 @@ class _Audit:
         if not self.effective_only:
             self.bypass(effective)
             self.tags()
+            self.deploy_key()
             self.push_rules()
 
     def pull_request(self, by_type, want, fix):
@@ -1167,6 +1183,43 @@ class _Audit:
         if need <= bound | hidden:
             return self.add("rules.tags", MANUAL, now=HIDDEN_BYPASS)
         self.add("rules.tags", FAIL, now=BYPASS_OTHERS, fix=self.ruleset_fix("tags"))
+
+    def deploy_key(self):
+        """A deploy key may push past the rules of main and create a tag, for versions.yml (DEPLOY_KEY in the rulesets): then
+        the rulesets that no deploy key passes keep main and the tags from being deleted or rewritten, and the repository has
+        one deploy key that writes, at most."""
+        listing = self.rulesets()
+        details = {}
+        for item in listing:
+            if item["enforcement"] == "active" and item["source"] == "Repository":
+                reply = self.detail(item["id"])
+                if reply.code != 200 or not isinstance(as_dict(reply.body).get("bypass_actors"), list):
+                    return self.add("rules.deploy_key", MANUAL, now=HIDDEN_BYPASS)
+                details[item["id"]] = (item, as_dict(reply.body))
+        keyed = [item for item, body in details.values() if DEPLOY_KEY in as_list(body.get("bypass_actors"))]
+        if not keyed:
+            return self.add("rules.deploy_key", OK, now="no deploy key passes the rules")
+        problems, fixes = [], []
+        for key, target, allowed in (("history", "branch", ()), ("tag_history", "tag", ADMINS)):
+            guarded = any(item["target"] == target and {"deletion", "non_fast_forward"} <= {
+                as_dict(rule).get("type") for rule in as_list(body.get("rules"))} and outsiders(body, allowed) == []
+                and (target == "branch" or reaches_every_tag(body.get("conditions")))
+                for item, body in details.values())
+            if not guarded:
+                problems.append(f"nothing keeps a deploy key from deleting or rewriting {'main' if target == 'branch' else 'a tag'}")
+                fix = self.ruleset_fix(key)
+                fixes += fix if isinstance(fix, list) else []
+        reply, keys = self.reads.pages(f"repos/{self.repo}/keys")
+        if reply.code != 200 and not problems:
+            return self.add("rules.deploy_key", MANUAL, now=f"the deploy keys cannot be read ({refusal(reply)})",
+                            fix="An administrator checks under Settings, Deploy keys, that only the key of versions.yml can write")
+        if reply.code == 200:
+            writers = [as_dict(key).get("title") for key in keys if as_dict(key).get("read_only") is False]
+            if len(writers) > 1:
+                problems.append(f"{len(writers)} deploy keys write: keep the one of versions.yml and make the others read only")
+        if problems:
+            return self.add("rules.deploy_key", FAIL, now="; ".join(problems), fix=fixes or None)
+        self.add("rules.deploy_key", OK)
 
     def push_rules(self):
         for key, id in (("push", "rules.push"), ("paths", "rules.protected_paths")):

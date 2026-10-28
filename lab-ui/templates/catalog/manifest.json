@@ -13,6 +13,8 @@
     {"path": ".github/rulesets/tags.json", "class": "managed", "since": 1, "when": "always", "scope": "full"},
     {"path": ".github/rulesets/push.json", "class": "managed", "since": 1, "when": "always", "scope": "full"},
     {"path": ".github/rulesets/protected-paths.json", "class": "managed", "since": 1, "when": "always", "scope": "full"},
+    {"path": ".github/rulesets/history.json", "class": "managed", "since": 7, "when": "always", "scope": "full"},
+    {"path": ".github/rulesets/tag-history.json", "class": "managed", "since": 7, "when": "always", "scope": "full"},
     {"path": "catalog.yml", "class": "seeded", "since": 1, "when": "always", "scope": "both"},
     {"path": "README.md", "class": "seeded", "since": 1, "when": "always", "scope": "both", "local": "local/README.md"},
     {"path": "LICENSE", "class": "seeded", "since": 1, "when": "always", "scope": "both", "license": true},
@@ -309,7 +311,7 @@
       "urgent": false
     },
     "7": {
-      "summary": "Adds versions.yml to the e2e module: every night each playground is tried on the releases of Gravitee it does not say it was tested with yet (the newest release of each of the five newest minor versions, and a pre-release above them). What works is written in its x-gravitee.tested, committed to main and released as the next patch version; what does not work opens an issue. The rulesets of main and of the tags let a deploy key through, for that commit and that tag.",
+      "summary": "Adds versions.yml to the e2e module: every night each playground is tried on the releases of Gravitee it does not say it was tested with yet (the newest release of each of the five newest minor versions, and a pre-release above them). What works is written in its x-gravitee.tested, committed to main and released as the next patch version; what does not work opens an issue. The rulesets of main and of the tags let a deploy key through, for that commit and that tag, and two rulesets that no deploy key passes, history.json and tag-history.json, keep it from deleting or rewriting main or a tag.",
       "manual": ["Give versions.yml its key, in the repository's folder: ssh-keygen -t ed25519 -N '' -C versions -f versions-key, then gh repo deploy-key add versions-key.pub --allow-write --title versions, then gh secret set VERSIONS_DEPLOY_KEY --env versions < versions-key, then rm versions-key versions-key.pub."],
       "settings": ["Create the environment versions, limited to main, and apply the rulesets again: make settings APPLY=1 shows the requests."],
       "urgent": false

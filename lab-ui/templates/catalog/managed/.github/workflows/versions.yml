@@ -5,9 +5,10 @@
 # every Lab sees it at its next check. What does not work opens an issue, or adds to the one that is open.
 #   plan     what each playground is tried on: no secret
 #   try      one job a playground and a set of versions, in the environment e2e-nightly, which holds the license
-#   record   the one job that writes: the Lab writes the sets that passed, the results being data that the plan checks, then the last
-#            step commits, tags and pushes them with VERSIONS_DEPLOY_KEY, a secret of the environment versions: the deploy key that the
-#            rulesets let push to main and create a tag. Nothing of the catalog runs in this job
+#   record   the one job that writes: the Lab writes the sets that passed, the results being data that the plan checks and the Lab
+#            reads again, then commits them and tags the release. The last step alone holds VERSIONS_DEPLOY_KEY, a secret of the
+#            environment versions, the deploy key that the rulesets let push to main and create a tag; it runs git and nothing else.
+#            The playgrounds do not run in this job: what of the catalog runs is its lab action, a path its CODEOWNERS protect
 name: Gravitee versions
 
 on:
@@ -104,12 +105,13 @@ jobs:
           name: result-${{ strategy.job-index }}
           path: result/result.json
           if-no-files-found: ignore
+          overwrite: true   # a job run again replaces its result
           retention-days: 7
 
   record:
     name: Record and release
     needs: [plan, try]
-    if: ${{ always() && needs.plan.result == 'success' && needs.plan.outputs.count != '0' }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.count != '0' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: versions
@@ -134,30 +136,42 @@ jobs:
         env:
           MATRIX: ${{ needs.plan.outputs.matrix }}
         run: |
+          set -o pipefail
           printf '%s' "$MATRIX" > plan.json
           python3 -I lab/lab-ui/catalog.py link catalog
           python3 -I lab/lab-ui/catalog.py ci versions-record catalog --plan plan.json --results results | tee recorded.txt
           if [ -s recorded.txt ]; then echo "changed=true" >> "$GITHUB_OUTPUT"; fi
-      # GitHub's host keys are the ones its API publishes: the key is offered to github.com and to nothing else
-      - name: Release them
+      - name: Commit them and tag the release
+        id: release
         if: ${{ steps.record.outputs.changed == 'true' }}
         working-directory: catalog
-        env:
-          VERSIONS_DEPLOY_KEY: ${{ secrets.VERSIONS_DEPLOY_KEY }}
-          GH_TOKEN: ${{ github.token }}
         run: |
-          [ -n "$VERSIONS_DEPLOY_KEY" ] || { echo "::error::The secret VERSIONS_DEPLOY_KEY is not set in the environment versions"; exit 1; }
+          set -o pipefail
           version=$(python3 -I ../lab/lab-ui/catalog.py ci versions-release .)
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -q -a -m "Tested on the newest Gravitee releases" -m "$(cat ../recorded.txt)"
-          git tag -a "v$version" -m "v$version"
+          if [ -n "$version" ]; then git tag -a "v$version" -m "v$version"; fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      # One push for the commit and its tag (--atomic: a main that moved meanwhile takes neither). GitHub's host keys are the ones its
+      # API publishes: the key is offered to github.com and to nothing else
+      - name: Push them
+        if: ${{ steps.record.outputs.changed == 'true' }}
+        working-directory: catalog
+        env:
+          VERSIONS_DEPLOY_KEY: ${{ secrets.VERSIONS_DEPLOY_KEY }}
+          VERSION: ${{ steps.release.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [ -n "$VERSIONS_DEPLOY_KEY" ] || { echo "::error::The secret VERSIONS_DEPLOY_KEY is not set in the environment versions"; exit 1; }
           key="$RUNNER_TEMP/versions-key" hosts="$RUNNER_TEMP/github-hosts"
+          trap 'rm -f "$key"' EXIT
           (umask 077; printf '%s\n' "$VERSIONS_DEPLOY_KEY" > "$key")
           gh api meta --jq '.ssh_keys[] | "github.com " + .' > "$hosts"
+          refs=(HEAD:refs/heads/main)
+          [ -z "$VERSION" ] || refs+=("refs/tags/v$VERSION")
           GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o UserKnownHostsFile=$hosts -o StrictHostKeyChecking=yes" \
-            git push "git@github.com:$GITHUB_REPOSITORY.git" HEAD:refs/heads/main "refs/tags/v$version"
-          rm -f "$key"
+            git push --atomic "git@github.com:$GITHUB_REPOSITORY.git" "${refs[@]}"
 
   report:
     name: Report what does not work

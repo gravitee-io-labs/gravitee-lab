@@ -8,18 +8,22 @@ of what is tried and what is kept are the Lab's (`lab_ui/compat.py`). Each step 
         writes two outputs, `matrix` (`{"include": [{item, versions, name}]}`) and `count`.
     versions-record PATH --plan FILE --results DIR
         Writes in the catalog at PATH the sets that passed: each file of DIR is `{item, versions, code}`, which a run wrote, and only
-        a job of the plan (FILE, the matrix the plan wrote) whose code is 0 counts. Prints a line for each playground it wrote.
+        a job of the plan (FILE, the matrix the plan wrote) whose code is 0 counts. Prints a line for each playground it wrote,
+        with the sets it kept. Each file is read again by the Lab once written: a `tested` that is not the sets it meant, or any
+        other change, puts every file back and fails (exit 1), so that nothing is pushed.
     versions-release PATH
-        Raises the patch number of `version` in catalog.yml past the newest tag, and prints the new version.
+        Raises the patch number of `version` in catalog.yml past the newest tag, and prints the new version. Prints nothing, and
+        changes nothing, for a catalog that has no release (it is followed commit by commit) or whose catalog.yml already says a
+        version newer than its newest tag (a release its maintainers prepared: what was recorded ships with it).
 
-The job that records holds the key that writes main. It runs nothing of the catalog: the results are data, checked against the
-plan, and what it writes is the one block of each file that the record makes. Exit 0 it worked, 2 it cannot be done (a usage
+The job that records runs nothing of the catalog: the results are data, checked against the plan, and what it writes is the one
+block of each file that the record makes. Exit 0 it worked, 1 a file could not be written as meant, 2 it cannot be done (a usage
 error, a catalog that cannot be read here).
 
 Python 3.9 and later, standard library only."""
 
 import json
-import os
+import re
 from pathlib import Path
 
 from ... import compat, e2e
@@ -50,7 +54,7 @@ def plan_main(argv, out, err, **seams) -> int:
     found.add_argument("--github-output", action="store_true", help="write matrix and count to $GITHUB_OUTPUT")
     args = parsed(found, argv)
     _, ns = _catalog(args.path)
-    jobs = compat.plan(seams.get("project") or _project(), ns, seams.get("tags"))
+    jobs = compat.plan(seams.get("project") or _project(), ns, seams.get("tags"), warn=lambda said: err.write(f"{said}\n"))
     out.write("".join(f"{job['name']}\n" for job in jobs) or "Every playground is tested on the newest versions\n")
     if args.github_output:
         write_outputs({"matrix": json_line({"include": jobs}), "count": str(len(jobs))})
@@ -76,6 +80,19 @@ def passed(planned, results, err):
     return found
 
 
+def _follow(built):
+    """The version variables of Gravitee's images (compat.plan's `follow`); None for a project that lists no services."""
+    if "services" not in built:
+        return None
+    from ...docker import images
+    return {component["id"] for component in images.components(built)
+            if component.get("registry_key") and "graviteeio" in str(component.get("registry_default") or "")}
+
+
+def _plain(sets):
+    return [{str(key): str(value) for key, value in found.items()} for found in sets or [] if found]
+
+
 @entry
 def record_main(argv, out, err, **seams) -> int:
     """`ci versions-record`."""
@@ -90,23 +107,64 @@ def record_main(argv, out, err, **seams) -> int:
     except (OSError, ValueError, KeyError, TypeError):
         raise Usage("--plan is the matrix the plan wrote: {\"include\": [...]}") from None
     built = seams.get("project") or _project()
+    follow = _follow(built)
     results = sorted(Path(args.results).rglob("*.json")) if Path(args.results).is_dir() else []
-    for item, sets in sorted(passed(planned, results, err).items()):
-        kind, uid = e2e.parse(item, built)
-        unit = built["playgrounds"].get(uid)
-        if kind != "playground" or unit is None or unit.get("catalog") != ns:
-            continue
-        local = uid.split("/", 1)[1] if uid.startswith("@") else uid
-        path = (folder / "playgrounds" / local / "compose.yml").resolve()
-        if folder not in path.parents:
-            continue
-        text = path.read_text(encoding="utf-8")
-        written = compat.write(text, compat.merged(unit.get("tested") or [], sets))
-        if written != text:
-            path.write_text(written, encoding="utf-8")
-            said = "; ".join(", ".join(f"{key} {value}" for key, value in one.items() if not key.endswith("_REGISTRY")) for one in sets)
-            out.write(f"{unit['name']}: tested on {said}\n")
+    written, said, meant = {}, [], {}
+    try:
+        for item, sets in sorted(passed(planned, results, err).items()):
+            kind, uid = e2e.parse(item, built)
+            unit = built["playgrounds"].get(uid)
+            if kind != "playground" or unit is None or unit.get("catalog") != ns:
+                continue
+            local = uid.split("/", 1)[1] if uid.startswith("@") else uid
+            path = (folder / "playgrounds" / local / "compose.yml").resolve()
+            if folder not in path.parents:
+                continue
+            tested = compat.merged(unit.get("tested") or [], sets, compat.variables(unit, follow) or None)
+            if _plain(tested) == _plain(unit.get("tested")):
+                continue
+            text = path.read_text(encoding="utf-8")
+            try:
+                changed = compat.write(text, tested)
+            except ValueError as error:
+                raise RuntimeError(f"{unit['name']}: {path.relative_to(folder)} is not written: {error}") from None
+            written[path] = text
+            path.write_text(changed, encoding="utf-8")
+            meant[uid] = (unit, tested)
+            kept = [one for one in sets if one in tested]
+            keys = compat.variables(unit, follow) or sorted(key for one in kept for key in one if compat.VERSION_KEY.fullmatch(key))
+            said.append(f"{unit['name']}: tested on " + "; ".join(", ".join(f"{key} {one[key]}" for key in dict.fromkeys(keys) if key in one)
+                                                                         for one in kept))
+        if written:
+            _check(meant, seams.get("reload") or _reload)
+    except RuntimeError as error:
+        for path, text in written.items():
+            path.write_text(text, encoding="utf-8")
+        err.write(f"{error}\n")
+        return 1
+    out.write("".join(f"{line}\n" for line in said))
     return 0
+
+
+def _reload():
+    from ...docker import compose
+    from ...library import project
+    compose.CACHE.drop()
+    project.forget()
+    return _project()
+
+
+def _check(meant, reload):
+    """Each file written says, read again by the Lab, the sets it was meant to, and nothing else of its playground changed.
+    RuntimeError otherwise."""
+    built = reload()
+    for uid, (before, tested) in meant.items():
+        after = built["playgrounds"].get(uid)
+        if after is None or _plain(after.get("tested")) != _plain(tested):
+            raise RuntimeError(f"{before['name']}: its file does not say the sets that were meant once written; nothing is written")
+        if {key: value for key, value in after.items() if key != "tested"} != {key: value for key, value in before.items()
+                                                                                 if key != "tested"}:
+            raise RuntimeError(f"{before['name']}: writing its versions changed more than them; nothing is written")
 
 
 @entry
@@ -116,15 +174,23 @@ def release_main(argv, out, err, **seams) -> int:
     found.add_argument("path", nargs="?", default=".", help="the catalog folder, a git checkout with its tags")
     args = parsed(found, argv)
     folder = Path(args.path)
-    if not (folder / "catalog.yml").is_file():
+    file = folder / "catalog.yml"
+    if not file.is_file():
         raise Usage(f"{args.path} has no catalog.yml")
     latest = releases.latest_tag(folder)
-    numbers = releases.numbers(latest[1:]) if latest else (0, 0, 0)
+    text = file.read_text(encoding="utf-8")
+    current = _version_of(text)
+    if latest is None or (current and releases.numbers(current) > releases.numbers(latest[1:])):
+        return 0   # no release to make: commit by commit, or a release its maintainers prepared
+    numbers = releases.numbers(latest[1:])
     version = f"{numbers[0]}.{numbers[1]}.{numbers[2] + 1}"
-    file = folder / "catalog.yml"
-    text, _ = releases.edit_version(file.read_text(encoding="utf-8"), version)
+    text, _ = releases.edit_version(text, version)
     file.write_text(releases.with_legacy(folder, text), encoding="utf-8")
     out.write(f"{version}\n")
-    if os.environ.get("GITHUB_OUTPUT"):
-        write_outputs({"version": version})
     return 0
+
+
+def _version_of(text):
+    """The `version` catalog.yml says, three numbers, or None."""
+    found = re.search(r"^  version:\s*[\"']?(\d+\.\d+\.\d+)[\"']?\s*(?:#.*)?$", text, re.M)
+    return found.group(1) if found else None
