@@ -42,8 +42,8 @@ const GROUPS = [["API Management", ["gamma-ui", "apim-management-ui"]], ["Access
   ["Databases", ["mongodb"]]].map(([name, services]) => ({ name, services }));
 // The consoles as the state says them: the current ones and a legacy one of the platform, and one of an add-on, which is not the platform's
 const LINKS = [
-  { label: "Gamma Console", url: "http://localhost:8086", service: "gamma-ui", legacy: false, up: true, username: "admin", password: "admin" },
   { label: "AM Console", url: "http://localhost:8081", service: "am-management-ui", legacy: false, up: true, username: "admin", password: "adminadmin" },
+  { label: "Gamma Console", url: "http://localhost:8086", service: "gamma-ui", legacy: false, up: true, username: "admin", password: "admin" },
   { label: "Kafka UI", url: "http://localhost:8180", service: "kafka-ui", legacy: false, up: true },
   { label: "APIM Console", url: "http://localhost:8084", service: "apim-management-ui", legacy: true, up: true, username: "admin", password: "admin" },
 ];
@@ -141,7 +141,7 @@ test("Continue keeps This machine and moves on at once to the start, which says 
   assert.equal(heading(), "Your platform is running");
   const items = body.querySelectorAll(".start-item");
   assert.deepEqual(items.map((item) => item.querySelectorAll(".start-text > *").map(text)), [["Gamma Console", "admin / admin"], ["AM Console", "admin / adminadmin"]],
-    "the platform's current consoles: an add-on's is not one, the older ones are on the Dashboard");
+    "the platform's current consoles, product by product: an add-on's is not one, the older ones are on the Dashboard");
   assert.deepEqual(items.map((item) => [item.querySelector("a").getAttribute("href"), item.querySelector("a").getAttribute("target")]),
     [["http://localhost:8086", "_blank"], ["http://localhost:8081", "_blank"]]);
   assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Done", "Discover the playgrounds"]);

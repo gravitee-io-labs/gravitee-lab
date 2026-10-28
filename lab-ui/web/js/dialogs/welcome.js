@@ -188,11 +188,11 @@ function startPanel() {
     <p class="welcome-lead">${first}</p>${license}`;
 }
 
-// The consoles of the platform that run, the current ones (the older ones are on the Dashboard), and with the product in Gravitee Cloud
-// its console there first
+// The consoles of the platform that run, the current ones (the older ones are on the Dashboard), product by product as the platform lists
+// them, and with the product in Gravitee Cloud its console there first
 function consoles() {
-  const state = store.state, mine = new Set(state.platform.groups.flatMap((g) => g.services || []));
-  const local = (state.links || []).filter((link) => link.up && !link.legacy && mine.has(link.service));
+  const state = store.state, links = (state.links || []).filter((link) => link.up && !link.legacy);
+  const local = state.platform.groups.flatMap((g) => links.filter((link) => (g.services || []).includes(link.service)));
   const core = coreOf(), cloud = onCloud() ? store.platforms.find((p) => p.id === core.platform?.id) : null;
   return [...(cloud?.url ? [{ label: core.name, url: cloud.url }] : []), ...local];
 }
