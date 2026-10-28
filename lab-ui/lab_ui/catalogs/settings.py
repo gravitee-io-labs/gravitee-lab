@@ -1198,6 +1198,14 @@ class _Audit:
                 details[item["id"]] = (item, as_dict(reply.body))
         keyed = [item for item, body in details.values() if DEPLOY_KEY in as_list(body.get("bypass_actors"))]
         if not keyed:
+            # A key that writes is the one of versions.yml: what it records reaches main only when the rulesets let it through
+            reply, keys = self.reads.pages(f"repos/{self.repo}/keys")
+            writes = reply.code == 200 and any(as_dict(key).get("read_only") is False for key in keys)
+            fixes = self.deploy_key_fixes(details) if writes else []
+            if fixes:
+                return self.add("rules.deploy_key", FAIL, fix=fixes,
+                                now="versions.yml has its deploy key, and the rulesets of main and of the tags do not let it "
+                                    "through: what it records never reaches main")
             return self.add("rules.deploy_key", OK, now="no deploy key passes the rules")
         problems, fixes = [], []
         for key, target, allowed in (("history", "branch", ()), ("tag_history", "tag", ADMINS)):
@@ -1220,6 +1228,28 @@ class _Audit:
         if problems:
             return self.add("rules.deploy_key", FAIL, now="; ".join(problems), fix=fixes or None)
         self.add("rules.deploy_key", OK)
+
+    def deploy_key_fixes(self, details) -> list:
+        """The requests that let the deploy key of versions.yml through the rulesets of main and of the tags, as the template of
+        this standard does: the key added to their bypass, nothing else changed (an administrator who bypasses keeps it), and
+        the rulesets that keep it from deleting or rewriting main and the tags created when they are not there. None when the
+        template lets no deploy key through (a standard before 7)."""
+        requests = []
+        for key in ("main", "tags"):
+            template = self.ruleset(key)
+            if template is None or DEPLOY_KEY not in as_list(template.get("bypass_actors")):
+                return []
+            for item, body in details.values():
+                if item["name"] == template["name"] and item["target"] == template["target"] \
+                        and DEPLOY_KEY not in as_list(body.get("bypass_actors")):
+                    kept = {field: body[field] for field in ("name", "target", "enforcement", "conditions", "rules") if field in body}
+                    kept["bypass_actors"] = [*as_list(body.get("bypass_actors")), dict(DEPLOY_KEY)]
+                    requests.append(request("PUT", f"repos/{self.repo}/rulesets/{item['id']}", kept, ruleset=item["name"]))
+            companion = self.ruleset(COMPANIONS[key])
+            if companion is not None and not any(item["name"] == companion["name"] and item["target"] == companion["target"]
+                                                 and item["source"] == "Repository" for item in self.rulesets()):
+                requests.append(self._ruleset_request(companion))
+        return requests
 
     def reaches_main(self, conditions) -> bool:
         """Whether the conditions of a branch ruleset name the default branch and do not leave it out."""
