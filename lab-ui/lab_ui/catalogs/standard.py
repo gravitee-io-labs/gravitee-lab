@@ -1147,6 +1147,9 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
     refresh = bool(options.get("refresh_pins"))
     images = bool(meta.get("images"))
     data = manifest()
+    # A module the catalog has, by any of its files: a file the new standard adds to that module comes with the upgrade
+    extra = tuple(dict.fromkeys((*extra, *(entry["when"][len("module:"):] for entry in data["files"]
+                                           if entry["when"].startswith("module:") and _file(tree, entry["path"])[0] != "missing"))))
     files: List[dict] = []
     for entry in data["files"]:
         if entry["class"] != "managed" or entry["since"] > level:

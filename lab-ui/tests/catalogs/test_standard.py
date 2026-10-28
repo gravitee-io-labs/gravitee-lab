@@ -2043,6 +2043,13 @@ class Upgrading(Case):
         self.assertNotIn(".github/workflows/e2e.yml", self.actions(self.plan(repo, level=3)))
         self.assertEqual(self.actions(self.plan(repo, level=3, **{"with": ["e2e"]})), {".github/workflows/e2e.yml": "add"})
 
+    def test_a_file_the_standard_adds_to_a_module_the_catalog_has_comes_without_asking(self):
+        # A catalog of standard 6 with its end-to-end run gets versions.yml at 7; one without the module does not
+        repo = self.repo(files=standard.render_files(params(**{"with": ["e2e"]}), 6))
+        self.assertEqual(self.actions(self.plan(repo, level=7)).get(".github/workflows/versions.yml"), "add")
+        repo = self.repo(files=standard.render_files(params(), 6))
+        self.assertNotIn(".github/workflows/versions.yml", self.actions(self.plan(repo, level=7)))
+
     def test_a_fleet_command_is_handed_to_the_fleet_module(self):
         from lab_ui.catalogs import fleet
         with mock.patch.object(fleet, "main", return_value=7) as called:
