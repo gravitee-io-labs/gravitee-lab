@@ -14,6 +14,9 @@ runs:
       uses: docker/setup-compose-action@54042514f505b273907334ae2b9cdbb9a0213c1a # v2.4.0
       with:
         version: ${{ inputs.version }}
+        # Never from the Actions cache: a job that runs a catalog's code with the license could leave a binary there that a job
+        # holding a key would then run
+        cache-binary: false
     - name: Show the Compose version
       run: docker compose version
       shell: bash

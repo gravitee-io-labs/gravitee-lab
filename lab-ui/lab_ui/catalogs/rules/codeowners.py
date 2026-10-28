@@ -49,8 +49,10 @@ WORK = 2000           # patterns with a wildcard that are matched in one file; t
 PROBES = (".github/CODEOWNERS", ".github/standard.json", ".github/dependabot.yml", ".github/PULL_REQUEST_TEMPLATE.md",
           ".github/ISSUE_TEMPLATE/config.yml", ".github/ISSUE_TEMPLATE/bug_report.yml", ".github/ISSUE_TEMPLATE/new_item.yml",
           ".github/workflows/ci.yml", ".github/workflows/nightly.yml", ".github/workflows/publish.yml", ".github/workflows/e2e.yml",
+          ".github/workflows/versions.yml",
           ".github/actions/lab/action.yml", ".github/rulesets/default-branch.json", ".github/rulesets/tags.json",
-          ".github/rulesets/push.json", ".github/rulesets/protected-paths.json")
+          ".github/rulesets/push.json", ".github/rulesets/protected-paths.json", ".github/rulesets/history.json",
+          ".github/rulesets/tag-history.json")
 _NAMES = tuple(tuple(path.split("/")) for path in PROBES)
 _FILES = frozenset(PROBES)
 _FOLDERS = frozenset("/".join(names[:cut]) for names in _NAMES for cut in range(1, len(names)))

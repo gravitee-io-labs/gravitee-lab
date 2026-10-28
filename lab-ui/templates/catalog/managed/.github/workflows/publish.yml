@@ -1,4 +1,4 @@
-# Managed by the Lab catalog standard 6: change it with catalog.py upgrade, in a pull request a maintainer reads.
+# Managed by the Lab catalog standard 7: change it with catalog.py upgrade, in a pull request a maintainer reads.
 # The trusted lane. The only workflow that writes packages and releases, and it runs only on the main branch and on a release tag:
 # what a pull request writes never reaches it. Nothing has to be pulled: the default builds every image from the files, and a pull
 # that is refused builds too. A person who wants the images sets `<ID>_PULL_POLICY=always`.

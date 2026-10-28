@@ -21,6 +21,7 @@ from .. import Case, gitfixture
 
 DATA = Path(__file__).resolve().parents[1] / "data" / "settings"
 TEMPLATE = DATA / "rulesets"
+REAL_RULESETS = settings.RULESETS   # the Lab's own, of the standard it ships
 SOURCE = Path(settings.__file__).read_text(encoding="utf-8")
 
 
@@ -987,6 +988,14 @@ class Audit(Base):
             detail["bypass_actors"] = actors
             scene.set("/rulesets/1001", detail)
             self.assertEqual(FAIL, scene.finding("rules.bypass").status, actors)
+        # The deploy key that versions.yml pushes the versions it recorded with is no one who merges a pull request
+        key = {"actor_id": None, "actor_type": "DeployKey", "bypass_mode": "always"}
+        for actors, status in (([key], OK), ([solo, key], WARN)):
+            scene = Scene("public-standard")
+            detail = copy.deepcopy(scene.get("/rulesets/1001").body)
+            detail["bypass_actors"] = actors
+            scene.set("/rulesets/1001", detail)
+            self.assertEqual(status, scene.finding("rules.bypass").status, actors)
         scene = Scene("public-standard")
         scene.remove("/rulesets/1001", "bypass_actors")             # a reader who is not an administrator is not told
         found = scene.finding("rules.bypass")
@@ -995,6 +1004,52 @@ class Audit(Base):
         scene = Scene("public-standard")
         scene.set("/rules/branches/main", [{"type": "deletion"}])
         self.assertEqual(MANUAL, scene.finding("rules.bypass").status)
+
+    @covers("rules.deploy_key")
+    def test_rules_deploy_key(self):
+        """The deploy key of versions.yml passes the rules of main and of the tags: then rulesets that it does not pass keep it from
+        deleting or rewriting them, and it is the one deploy key that writes. Read with the rulesets of standard 7."""
+        self.patch(settings, "RULESETS", REAL_RULESETS)
+        key = {"actor_id": None, "actor_type": "DeployKey", "bypass_mode": "always"}
+        history = {"id": 1003, "name": "catalog-main-history", "target": "branch", "enforcement": "active", "source_type": "Repository",
+                   "source": "acme-labs/lab-hub", "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}},
+                   "rules": [{"type": "deletion"}, {"type": "non_fast_forward"}], "bypass_actors": []}
+        tag_history = {**history, "id": 1004, "name": "catalog-tag-history", "target": "tag",
+                       "conditions": {"ref_name": {"include": ["~ALL"], "exclude": []}},
+                       "bypass_actors": [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}]}
+
+        def scene(with_history=True, keys=(("versions", False),)):
+            found = Scene("public-standard")
+            detail = copy.deepcopy(found.get("/rulesets/1001").body)
+            detail["bypass_actors"] = [key]
+            found.set("/rulesets/1001", detail)
+            tags = copy.deepcopy(found.get("/rulesets/1002").body)
+            tags["bypass_actors"] = [*tags["bypass_actors"], key]
+            found.set("/rulesets/1002", tags)
+            if with_history:
+                listing = copy.deepcopy(found.get("/rulesets").body)
+                listing += [{name: one[name] for name in ("id", "name", "target", "enforcement", "source", "source_type")}
+                            for one in (history, tag_history)]
+                found.set("/rulesets", listing)
+                found.set("/rulesets/1003", history)
+                found.set("/rulesets/1004", tag_history)
+            if keys is not None:
+                found.set("/keys", [{"id": n, "title": title, "read_only": read_only} for n, (title, read_only) in enumerate(keys)])
+            return found
+        self.assertEqual(OK, Scene("public-standard").finding("rules.deploy_key").status, "no deploy key passes: nothing to keep")
+        self.assertEqual(OK, scene().finding("rules.deploy_key").status)
+        found = scene(with_history=False).finding("rules.deploy_key")
+        self.assertEqual(FAIL, found.status)
+        self.assertIn("nothing keeps a deploy key from deleting or rewriting main", found.now)
+        self.assertEqual({"catalog-main-history", "catalog-tag-history"}, {body["name"] for _, _, body in requests_of(found)})
+        found = scene(keys=(("versions", False), ("old", False), ("lab", True))).finding("rules.deploy_key")
+        self.assertEqual((FAIL, "2 deploy keys write: keep the one of versions.yml and make the others read only"), (found.status, found.now))
+        self.assertEqual(MANUAL, scene(keys=None).finding("rules.deploy_key").status, "an administrator reads the deploy keys")
+        # A history ruleset of another branch keeps nothing of main
+        elsewhere = scene()
+        elsewhere.set("/rulesets/1003", {**history, "conditions": {"ref_name": {"include": ["refs/heads/legacy"], "exclude": []}}})
+        found = elsewhere.finding("rules.deploy_key")
+        self.assertEqual((FAIL, "nothing keeps a deploy key from deleting or rewriting main"), (found.status, found.now))
 
     @covers("rules.tags")
     def test_rules_tags(self):
@@ -1056,7 +1111,8 @@ class Audit(Base):
             self.assertEqual((FAIL, "bypass for someone but an administrator"), (found.status, found.now), actors)
             method, path, body = requests_of(found)[0]
             self.assertEqual(("PUT", "repos/acme-labs/lab-hub/rulesets/1002", [admin]), (method, path, body["bypass_actors"]))
-        for actors in ([admin], [], [{**admin, "bypass_mode": "pull_request"}]):
+        for actors in ([admin], [], [{**admin, "bypass_mode": "pull_request"}],
+                       [admin, {"actor_id": None, "actor_type": "DeployKey", "bypass_mode": "always"}]):
             scene = Scene("public-standard")
             self.tag_ruleset(scene, bypass_actors=actors)
             self.assertEqual(OK, scene.finding("rules.tags").status, actors)
@@ -1391,7 +1447,7 @@ EXPECTED_IDS = (
     "actions.listed", "actions.token", "actions.fork", "actions.access", "actions.retention", "actions.secrets",
     "actions.org_secrets", "actions.runners", "actions.oidc", "actions.nightly", "lab.key", "environments.policy",
     "packages.actions_access", "rules.deletion", "rules.non_fast_forward", "rules.required_linear_history",
-    "rules.required_signatures", "rules.pull_request", "rules.checks", "rules.bypass", "rules.tags", "rules.push",
+    "rules.required_signatures", "rules.pull_request", "rules.checks", "rules.bypass", "rules.tags", "rules.deploy_key", "rules.push",
     "rules.protected_paths", "security.scanning", "security.dependabot", "security.reporting", "files.codeowners", "people.write")
 
 
@@ -1415,7 +1471,7 @@ class Whole(Base):
     def test_the_personal_repository_says_what_the_plan_cannot_give(self):
         found = Scene("user-private-free").audit()
         self.assertEqual(list(EXPECTED_IDS), [f.id for f in found])               # every identifier, in the order of the table
-        self.assertEqual({FAIL: 5, WARN: 3, OK: 6, NA: 18, MANUAL: 2}, settings.summary(found))
+        self.assertEqual({FAIL: 5, WARN: 3, OK: 6, NA: 19, MANUAL: 2}, settings.summary(found))
         by = {f.id: f for f in found}
         for id, (status, title, now) in SAMPLE.items():
             self.assertEqual(status, by[id].status, id)
@@ -1435,7 +1491,7 @@ class Whole(Base):
         self.assertIn("n.a. repo.forking Nobody forks a private repository", have)
         self.assertIn("why: the repository belongs to a user", have)
         self.assertIn("fix: PATCH repos/acme/lab-hub", have)
-        self.assertEqual("Summary: 5 fail, 3 warn, 6 ok, 18 n.a., 2 manual", lines[-1])
+        self.assertEqual("Summary: 5 fail, 3 warn, 6 ok, 19 n.a., 2 manual", lines[-1])
         width = max(len(i) for i in EXPECTED_IDS)
         self.assertIn(f"  {FAIL:<6} {'repo.merge':<{width}} {SAMPLE['repo.merge'][1]}", lines)      # the columns of the sample
 
@@ -1453,7 +1509,7 @@ class Whole(Base):
         self.assertEqual(["about", "findings", "not_applicable", "repository", "standard", "summary"], list(document))
         self.assertEqual(["fix", "id", "now", "status", "title"], list(document["findings"][0]))
         self.assertEqual(list(EXPECTED_IDS), [f["id"] for f in document["findings"]])
-        self.assertEqual({"fail": 5, "warn": 3, "ok": 6, "n.a.": 18, "manual": 2}, document["summary"])
+        self.assertEqual({"fail": 5, "warn": 3, "ok": 6, "n.a.": 19, "manual": 2}, document["summary"])
         self.assertEqual(["actions.nightly", "actions.oidc", "actions.org_secrets", "repo.forking", "security.reporting"], document["not_applicable"])
         merge = [f for f in document["findings"] if f["id"] == "repo.merge"][0]
         self.assertEqual("PATCH", merge["fix"][0]["method"])
@@ -1770,7 +1826,7 @@ class Hostile(Base):
 class Coverage(unittest.TestCase):
     def test_the_identifiers_are_those_of_the_table_of_7_5(self):
         self.assertEqual(EXPECTED_IDS, settings.IDS)
-        self.assertEqual(34, len(set(settings.IDS)))
+        self.assertEqual(35, len(set(settings.IDS)))
 
     def test_every_identifier_has_a_test_of_its_own(self):
         covered = {}
@@ -2180,7 +2236,7 @@ class Command(Base):
         run = Run(["acme/lab-hub"], scene)
         self.assertEqual((1, ""), (run.code, run.error))
         self.assertTrue(run.text.startswith("Catalog standard 1 for acme/lab-hub (private, user-owned)\n"))
-        self.assertTrue(run.text.rstrip().endswith("Summary: 5 fail, 3 warn, 6 ok, 18 n.a., 2 manual"))
+        self.assertTrue(run.text.rstrip().endswith("Summary: 5 fail, 3 warn, 6 ok, 19 n.a., 2 manual"))
         self.assertEqual([], scene.hub.writes())
         self.assertEqual(0, Run(["acme-labs/lab-hub"], Scene("public-standard")).code)
         self.assertEqual(0, Run(["acme-labs/lab-hub", "--strict"], Scene("public-standard")).code)

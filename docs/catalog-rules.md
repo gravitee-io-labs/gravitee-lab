@@ -453,15 +453,15 @@ Every rule that `catalog.py check` and the stages of `catalog.py ci` can print, 
 
 ### WF08
 
-*Error.* Each secret is read only where a rule allows: `LAB_DEPLOY_KEY` as the `key:` of the `lab` action or as the same-named entry of a caller's `secrets:`; `GITHUB_TOKEN` or `REGISTRY_TOKEN` as the `password:` of `docker/login-action` in `publish.yml` (and `catalog-publish.yml`, its reusable counterpart in the Lab); `GRAVITEE_LICENSE` in exactly one step of `e2e.yml`. Never `secrets: inherit`.
+*Error.* Each secret is read only where a rule allows: `LAB_DEPLOY_KEY` as the `key:` of the `lab` action or as the same-named entry of a caller's `secrets:`; `GITHUB_TOKEN` or `REGISTRY_TOKEN` as the `password:` of `docker/login-action` in `publish.yml` (and `catalog-publish.yml`, its reusable counterpart in the Lab); `GRAVITEE_LICENSE` in exactly one step of `e2e.yml` and of `versions.yml`; `VERSIONS_DEPLOY_KEY` in the step of `versions.yml` that pushes (`git push --atomic`) and runs no `catalog.py`. Never `secrets: inherit`.
 
 - **Message**: {file}:{line}: secrets.{name} is read where no rule allows it. Pass it by name to the one step that needs it.
 
 ### WF09
 
-*Error.* Write permissions only where the file may have them: none in `ci.yml` and `e2e.yml`; `issues` in the job `report` of `nightly.yml`; `packages` in `images` and `attest`, `id-token` and `attestations` in `attest`, `contents` in `release`, of `publish.yml`; in the reusable form the single call job of `publish.yml` holds their union.
+*Error.* Write permissions only where the file may have them: none in `ci.yml` and `e2e.yml`; `issues` in the job `report` of `nightly.yml` and of `versions.yml`; `packages` in `images` and `attest`, `id-token` and `attestations` in `attest`, `contents` in `release`, of `publish.yml`; in the reusable form the single call job of `publish.yml` holds their union.
 
-- **Message**: {file}: job {job} holds {permission}: write. Only publish.yml's images, attest and release jobs, and nightly.yml's report job, may write.
+- **Message**: {file}: job {job} holds {permission}: write. Only publish.yml's images, attest and release jobs, and the report jobs of nightly.yml and versions.yml, may write.
 
 ### WF10
 

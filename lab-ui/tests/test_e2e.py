@@ -167,6 +167,19 @@ class Versions(Case):
             with self.subTest(variable=variable), self.assertRaisesRegex(ValueError, "not the version or the registry of an image"):
                 e2e.versions({"name": "Shop", "tested": [{variable: "x"}]}, 0, None if variable.isupper() else known | {variable})
 
+    def test_a_set_given_is_tried_as_it_is_with_the_rules_of_a_set_of_the_catalog(self):
+        known = {"APIM_VERSION", "APIM_REGISTRY"}
+        self.assertEqual(e2e.versions(self.UNIT, None, known, {"APIM_VERSION": "4.12.25", "APIM_REGISTRY": "graviteeio"}),
+                         {"APIM_VERSION": "4.12.25", "APIM_REGISTRY": "graviteeio"}, "whatever the playground says")
+        for given in ({"PATH": "/tmp"}, {"SHOP_VERSION": "1"}, {}, [], {"APIM_VERSION": 4}):
+            with self.subTest(given=given), self.assertRaises(ValueError):
+                e2e.versions(self.UNIT, None, known, given)
+
+    def test_a_start_that_would_switch_versions_or_needs_a_registry_login_is_not_tried(self):
+        for reason in ("Would also change API Management 4.12.25 → 4.13.1", "Not logged in to Azure"):
+            with self.subTest(reason=reason):
+                self.assertTrue(e2e.UNABLE.search(reason))
+
     def test_a_variable_the_tools_read_is_not_a_version_even_when_an_image_is_written_with_it(self):
         """The catalog that writes the sets writes the images too: `known` is no barrier, the form of a setting is."""
         read = ("HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR", "KUBECONFIG", "BUILDX_CONFIG", "BUILDX_BUILDER",

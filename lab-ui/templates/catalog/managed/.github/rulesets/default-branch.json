@@ -1,9 +1,15 @@
 {
-  "_managed": "Managed by the Lab catalog standard 6: change it with catalog.py upgrade, in a pull request a maintainer reads.",
+  "_managed": "Managed by the Lab catalog standard 7: change it with catalog.py upgrade, in a pull request a maintainer reads.",
   "name": "catalog-main",
   "target": "branch",
   "enforcement": "active",
-  "bypass_actors": [],
+  "bypass_actors": [
+    {
+      "actor_id": null,
+      "actor_type": "DeployKey",
+      "bypass_mode": "always"
+    }
+  ],
   "conditions": {
     "ref_name": {
       "include": [

@@ -115,16 +115,17 @@ RULES = _table([
     ("WF08", "Each secret is read only where a rule allows: `LAB_DEPLOY_KEY` as the `key:` of the `lab` action or "
              "as the same-named entry of a caller's `secrets:`; `GITHUB_TOKEN` or `REGISTRY_TOKEN` as the "
              "`password:` of `docker/login-action` in `publish.yml` (and `catalog-publish.yml`, its reusable "
-             "counterpart in the Lab); `GRAVITEE_LICENSE` in exactly one step of `e2e.yml`. Never `secrets: "
-             "inherit`",
+             "counterpart in the Lab); `GRAVITEE_LICENSE` in exactly one step of `e2e.yml` and of `versions.yml`; "
+             "`VERSIONS_DEPLOY_KEY` in the step of `versions.yml` that pushes (`git push --atomic`) and runs no `catalog.py`. Never "
+             "`secrets: inherit`",
      "{file}:{line}: secrets.{name} is read where no rule allows it. Pass it by name to the one step that needs "
      "it."),
     ("WF09", "Write permissions only where the file may have them: none in `ci.yml` and `e2e.yml`; `issues` in the "
-             "job `report` of `nightly.yml`; `packages` in `images` and `attest`, `id-token` and `attestations` in "
-             "`attest`, `contents` in `release`, of `publish.yml`; in the reusable form the single call job of "
-             "`publish.yml` holds their union",
-     "{file}: job {job} holds {permission}: write. Only publish.yml's images, attest and release jobs, and "
-     "nightly.yml's report job, may write."),
+             "job `report` of `nightly.yml` and of `versions.yml`; `packages` in `images` and `attest`, `id-token` and "
+             "`attestations` in `attest`, `contents` in `release`, of `publish.yml`; in the reusable form the single call "
+             "job of `publish.yml` holds their union",
+     "{file}: job {job} holds {permission}: write. Only publish.yml's images, attest and release jobs, and the "
+     "report jobs of nightly.yml and versions.yml, may write."),
     ("WF10", "A job with steps and `packages: write` declares an `environment` (a call job of the reusable form is "
              "exempt: the jobs of its callee are checked)",
      "{file}: job {job} writes packages without an environment. Add environment: publish."),
@@ -176,12 +177,14 @@ ALL = GENERIC | LANES
 # The workflows the standard ships, by file name, and the family each belongs to: a file of the Lab that a caller calls
 # (`catalog-*.yml`) has the rights of the file that calls it. Any other name has the rights of none.
 FAMILY = {"ci.yml": "ci", "catalog-ci.yml": "ci", "publish.yml": "publish", "catalog-publish.yml": "publish",
-          "nightly.yml": "nightly", "catalog-nightly.yml": "nightly", "e2e.yml": "e2e", "catalog-e2e.yml": "e2e"}
+          "nightly.yml": "nightly", "catalog-nightly.yml": "nightly", "e2e.yml": "e2e", "catalog-e2e.yml": "e2e",
+          "versions.yml": "versions", "catalog-versions.yml": "versions"}
 # The jobs that may hold a write permission, and which. A job that calls a reusable workflow holds the union of its file
 # (the reusable form, 5.11: the callee cannot hold more than its caller)
 MAY_WRITE = {
     "publish": {"images": ("packages",), "attest": ("packages", "id-token", "attestations"), "release": ("contents",)},
     "nightly": {"report": ("issues",)},
+    "versions": {"report": ("issues",)},
 }
 
 # Only the root of the catalog is read as workflows: GitHub runs no other, and a folder of the content that holds a `.github` is
@@ -1088,6 +1091,8 @@ _LAB_ACTION = re.compile(r"\./(?:catalog/)?\.github/actions/lab\Z")
 _KEY = "${{ secrets.LAB_DEPLOY_KEY }}"
 _NEEDS_KEY = "${{ secrets.NEEDS_DEPLOY_KEY }}"
 _LICENSE = "${{ secrets.GRAVITEE_LICENSE }}"
+_VERSIONS_KEY = "${{ secrets.VERSIONS_DEPLOY_KEY }}"
+_VERSIONS_PUSH = re.compile(r"\bgit push --atomic\b")   # the one step that holds the key pushes, and runs nothing of the Lab
 _PASSWORD = re.compile(r"\$\{\{ secrets\.(?:GITHUB_TOKEN|REGISTRY_TOKEN)(?: \|\| secrets\.(?:GITHUB_TOKEN|REGISTRY_TOKEN))? \}\}\Z")
 # A name that is not part of a longer one: `load-secrets.sh` and `inputs.secrets` are not the context. GitHub names may hold a dash
 _SECRET = re.compile(r"(?<![\w.-])secrets\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)", re.I)
@@ -1116,7 +1121,11 @@ def _blessed(doc: _Doc) -> Tuple[Set[int], Set[int]]:
         elif entry.name == "password" and name == "with" and doc.family == "publish" \
                 and doc.action_of(step) == "docker/login-action" and _PASSWORD.match(text):
             allowed.add(entry.line)
-        elif entry.name == "GRAVITEE_LICENSE" and text == _LICENSE and name == "env" and doc.family == "e2e" \
+        elif entry.name == "VERSIONS_DEPLOY_KEY" and text == _VERSIONS_KEY and name == "env" and doc.family == "versions" \
+                and doc.get(step, "run") is not None and _VERSIONS_PUSH.search(_text_of(doc.get(step, "run").value)) \
+                and "catalog.py" not in _text_of(doc.get(step, "run").value):
+            allowed.add(entry.line)
+        elif entry.name == "GRAVITEE_LICENSE" and text == _LICENSE and name == "env" and doc.family in ("e2e", "versions") \
                 and (doc.get(step, "run") is not None or doc.get(step, "uses") is not None):
             first_by_step.setdefault(id(step), entry.line)
             allowed.add(entry.line)

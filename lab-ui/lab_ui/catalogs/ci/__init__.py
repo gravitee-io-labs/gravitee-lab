@@ -7,7 +7,8 @@
     build       the apps of the touched units, on one architecture     (build.py)
     test        the tests of each app, in its image, offline           (apps.py)
     run         the local runner behind `make ci`                      (run.py)
-    smoke, scan-built, publish-plan, publish, release-notes, unreleased, links, scan-published, e2e-plan, e2e-gate
+    smoke, scan-built, publish-plan, publish, release-notes, unreleased, links, scan-published, e2e-plan, e2e-gate,
+    versions-plan, versions-record, versions-release
 
 A stage is `main(argv, stdout=None, stderr=None, **seams) -> int` of its module, `argv` being what follows the stage word;
 `STAGES` says which module and which function. A stage whose module is not in this Lab yet answers "not available yet" and
@@ -78,6 +79,9 @@ STAGES = {
     "scan-published": ("scan", "main"),
     "e2e-plan": ("e2e", "plan_main"),
     "e2e-gate": ("e2e", "gate_main"),
+    "versions-plan": ("versions", "plan_main"),
+    "versions-record": ("versions", "record_main"),
+    "versions-release": ("versions", "release_main"),
 }
 SUMMARY = {
     "needs": "fetch and link the catalogs this one requires",
@@ -97,6 +101,9 @@ SUMMARY = {
     "scan-published": "scan the published images",
     "e2e-plan": "the matrix of the end-to-end run",
     "e2e-gate": "the end-to-end run's last gate",
+    "versions-plan": "the versions of Gravitee the playgrounds are tried on",
+    "versions-record": "write the versions that passed in x-gravitee.tested",
+    "versions-release": "raise the patch number of the catalog",
 }
 
 UNIT = re.compile(r"(addon|playground|setup):([a-z0-9-]{1,100})")

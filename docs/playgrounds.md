@@ -148,7 +148,8 @@ there is also enough for its minimum. Only a release (`4.13.7`) is taken as it i
 `4.13.0-alpha.5`, a demo build, `latest`) is not tested unless the playground names that very version, in `tested` or as the
 `requires.images` it asks for. Without a tested version to go to, the warning says to choose a release and Start offers only
 *Start anyway*. Gravitee changes things between versions, whatever its numbers say, and a playground that is not run on its versions may end on its
-seed after the whole setup. Each item is a set: what was checked together. The saved images are tested when they match
+seed after the whole setup. In a catalog of the standard, the nightly `versions.yml` tries each playground on the newest releases and
+writes the sets that work ([Gravitee versions](writing-a-catalog.md#gravitee-versions)): a set written by hand is the starting point. Each item is a set: what was checked together. The saved images are tested when they match
 every image of one set:
 
 - A version it was tested with matches itself, whatever the image is built on (`-debian`).
