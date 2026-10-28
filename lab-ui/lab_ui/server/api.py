@@ -9,6 +9,7 @@ import json
 import os
 import queue
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -1044,6 +1045,16 @@ def start_up():
             print(f"Gravitee Lab UI: {what} failed ({type(error).__name__}: {error})", file=sys.stderr)
 
 
+def open_browser(url):
+    """The page in the person's browser. In WSL it is the browser of Windows, which explorer.exe opens: a browser of Linux
+    is rarely there, and the one WSLg offers answers with an error"""
+    if machine.system() == "wsl" and shutil.which("explorer.exe"):
+        subprocess.Popen(["explorer.exe", url], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+    else:
+        webbrowser.open(url)
+
+
 def serve(port, browser):
     url = f"http://localhost:{port}"
     try:
@@ -1059,14 +1070,14 @@ def serve(port, browser):
         print(f"Gravitee Lab UI is already running on {url}. To load a new version: stop it with Ctrl+C in its "
               "terminal, then run make ui again")
         if browser:
-            webbrowser.open(url)
+            open_browser(url)
         return   # a Lab serves already: nothing on disk is touched, so nothing of its work is finished or swept from here
     server.daemon_threads = True   # an open log stream does not keep the Lab UI from stopping
     print(f"Gravitee Lab UI on {url}  (Ctrl+C to stop)")
     compose.stop_on_signals()   # once, from the main thread, before it serves: a closed terminal ends what runs
     start_up()
     if browser:
-        threading.Timer(0.5, webbrowser.open, args=(url,)).start()
+        threading.Timer(0.5, open_browser, args=(url,)).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:

@@ -1859,7 +1859,7 @@ class CommandLine(LabUI):
 
     def test_busy_port_opens_the_lab_ui_that_runs(self):
         port = self.server.server_port
-        opened, printed = self.patch(api.webbrowser, "open"), io.StringIO()
+        opened, printed = self.patch(api, "open_browser"), io.StringIO()
         with contextlib.redirect_stdout(printed):
             api.serve(port, browser=False)
             opened.assert_not_called()
@@ -1868,7 +1868,7 @@ class CommandLine(LabUI):
         self.assertEqual(printed.getvalue(), (self.RUNNING.format(port) + "\n") * 2)
 
     def test_busy_port_of_another_program_is_said_with_the_port_to_use_instead(self):
-        port, opened = self.another_program(), self.patch(api.webbrowser, "open")
+        port, opened = self.another_program(), self.patch(api, "open_browser")
         with self.assertRaises(SystemExit) as stopped:
             api.serve(port, browser=True)
         self.assertEqual(stopped.exception.code,
@@ -2415,7 +2415,7 @@ class Startup(Case):
             self.patch(getattr(api, module), name, side_effect=lambda module=module, name=name: events.append((module, name)))
         self.patch(api.compose, "stop_on_signals", side_effect=lambda: events.append(("signals",)))
         self.timer = self.patch(api.threading, "Timer")
-        self.opened = self.patch(api.webbrowser, "open")
+        self.opened = self.patch(api, "open_browser")
 
     def serve(self, browser=False):
         printed = io.StringIO()
@@ -2432,7 +2432,7 @@ class Startup(Case):
 
     def test_the_browser_opens_once_the_steps_are_done_and_not_when_it_is_not_asked(self):
         self.serve(browser=True)
-        self.timer.assert_called_once_with(0.5, api.webbrowser.open, args=("http://localhost:9000",))
+        self.timer.assert_called_once_with(0.5, api.open_browser, args=("http://localhost:9000",))
         self.timer.return_value.start.assert_called_once_with()
         self.timer.reset_mock()
         self.serve(browser=False)
@@ -2665,3 +2665,19 @@ class Terminal(LabUI):
         self.attached.side_effect = RuntimeError("gio-hello-shell is not running")
         status, headers, body = self.request("GET", self.PATH)
         self.assertEqual((status, headers["Content-Type"]), (409, "application/json"))
+
+
+class Browser(Case):
+    def test_in_wsl_the_browser_of_windows_opens_the_page(self):
+        popen, opened = self.patch(api.subprocess, "Popen"), self.patch(api.webbrowser, "open")
+        self.patch(api.shutil, "which", return_value="/mnt/c/WINDOWS/explorer.exe")
+        self.patch(api.machine, "system", return_value="wsl")
+        api.open_browser("http://localhost:9000")
+        self.assertEqual(popen.call_args.args[0], ["explorer.exe", "http://localhost:9000"])
+        opened.assert_not_called()
+        for system, explorer in (("mac", "/mnt/c/WINDOWS/explorer.exe"), ("wsl", None)):   # no Windows to reach: Python's own
+            self.patch(api.machine, "system", return_value=system)
+            self.patch(api.shutil, "which", return_value=explorer)
+            api.open_browser("http://localhost:9000")
+        self.assertEqual(opened.call_count, 2)
+        self.assertEqual(popen.call_count, 1)
