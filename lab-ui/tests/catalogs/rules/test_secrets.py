@@ -276,6 +276,7 @@ class Patterns(unittest.TestCase):
             self.skipTest("check.py has no SECRET_NAME")
         self.assertEqual(check.SECRET_NAME.pattern, secrets.SECRET_NAME.pattern)
         self.assertEqual(check.SECRET_NAME.flags, secrets.SECRET_NAME.flags)
+        self.assertEqual(check.SIGN_IN.pattern, secrets.SIGN_IN.pattern)
         self.assertEqual(check.NOT_SECRET.pattern, secrets.NOT_SECRET.pattern)
         if hasattr(check, "_secrets"):
             sample = {"services": {"a": {"environment": {"DB_PASSWORD": "hunter2", "OK": "${X}", "A_TOKEN_URL": "u", "KEY": "v"}}}}

@@ -156,6 +156,13 @@ class Lock(Case):
         self.assertIsNone(understood.lock())
         self.assertEqual(understood.fingerprint(), "")
 
+    def test_the_levels_of_this_lab_come_from_its_lock_with_no_docker_asked(self):
+        # Compose reads the core file: on a machine without Docker yet, the lock still says which catalogs this Lab reads
+        self.write("contract.lock", "contract 3\ncontract_min 1\nlabel io.gravitee.name since=1\n")
+        self.assertEqual(understood.levels(), {"contract": 3, "contract_min": 1})
+        os.remove(self.root / "contract.lock")
+        self.assertIsNone(understood.levels())
+
     def test_the_lock_of_this_lab_lists_what_its_published_catalogs_use(self):
         """Every item the default catalogs of the Lab use today is in the lock: none of them needs a newer Lab."""
         found = understood.parse((REPO / understood.LOCK_FILE).read_text(encoding="utf-8"))

@@ -1,0 +1,48 @@
+# Every morning: whether Gravitee published a release newer than a default of the core, which follows Gravitee's releases as soon as
+# they are out (docs/maintaining.md). A newer one opens an issue, or updates the one that is open; none closes it.
+name: Gravitee versions
+
+on:
+  schedule:
+    - cron: "41 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gravitee-versions
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Newer Gravitee releases
+    if: ${{ !github.event.repository.fork }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Find the newer releases
+        id: found
+        run: python3 -I .github/scripts/gravitee_versions.py --github-output
+      - name: Open, update or close the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BODY: ${{ steps.found.outputs.body }}
+        run: |
+          gh label create gravitee-versions --repo "$GITHUB_REPOSITORY" --color 0E8A16 --description "A newer Gravitee release is out" 2>/dev/null || true
+          open=$(gh issue list --repo "$GITHUB_REPOSITORY" --label gravitee-versions --state open --json number --jq '.[0].number // empty')
+          text=$(printf 'Gravitee published releases newer than the defaults of the core:\n\n%s\n\nRaise them in docker-compose.yml and docs/configuration.md, then the tested sets of the catalogs.' "$BODY")
+          if [ -n "$BODY" ] && [ -n "$open" ]; then
+            gh issue edit "$open" --repo "$GITHUB_REPOSITORY" --body "$text"
+          elif [ -n "$BODY" ]; then
+            gh issue create --repo "$GITHUB_REPOSITORY" --label gravitee-versions --title "Newer Gravitee releases are out" --body "$text"
+          elif [ -n "$open" ]; then
+            gh issue close "$open" --repo "$GITHUB_REPOSITORY" --comment "The defaults of the core are the latest releases."
+          fi

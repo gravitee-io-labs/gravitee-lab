@@ -10,7 +10,7 @@ import { busy } from "../activity/jobs.js";
 import { selectField } from "../components/combo.js";
 import { openAdd, openNew } from "./catalog.js";
 import { openFile } from "./editor.js";
-import { agentLinks } from "../components/agent.js";
+import { agentLinks, agentFolder, forAgent } from "../components/agent.js";
 
 const NOUN = { addon: "add-on", setup: "setup", playground: "playground" };   // a kind, in a sentence
 const A = { addon: "an add-on", setup: "a setup", playground: "a playground" };
@@ -159,9 +159,9 @@ function drawSubmit() {
 // The text to paste to an AI agent, from what is chosen and typed, then what goes with it: the skill the agent
 // follows, the folder to open the agent in, and that the skill is called by its name
 function drawPrompt() {
-  const { skills, root } = store.state, path = skills[kind];
-  const text = ask(path, chosen.catalog ? `create ${A[kind]} in the catalog ${nameOf(chosen.catalog)}` : `create a personal ${NOUN[kind]}`)
-    + (task.value.trim() ? ` What it should do: ${task.value.trim()}` : "");
+  const { skills } = store.state, path = skills[kind], root = agentFolder();
+  const text = forAgent(ask(path, chosen.catalog ? `create ${A[kind]} in the catalog ${nameOf(chosen.catalog)}` : `create a personal ${NOUN[kind]}`)
+    + (task.value.trim() ? ` What it should do: ${task.value.trim()}` : ""));
   $("#create-prompt", dialog).innerHTML = promptLine(text) + line("Folder", `<code>${esc(root)}</code>`, root);
   setHTML($("#create-agent-actions", dialog), agentLinks(text, root));
 }
@@ -373,9 +373,9 @@ const destinationsOf = (answer) => (Array.isArray(answer?.destinations) ? answer
 export async function share(item) {
   const route = `/api/${item.kind}s/${item.id}/share`, key = `${item.kind}:${item.id}`, skill = store.state.skills.share;
   const fixFirst = (problems) => {
-    const text = skill ? ask(skill, `share the personal ${NOUN[item.kind]} ${item.name}`) : "";
+    const text = skill ? forAgent(ask(skill, `share the personal ${NOUN[item.kind]} ${item.name}`)) : "";
     say(item, problems.map((p, i) => line(i ? "" : "Fix first", esc(p))).join("") + (text ? promptLine(text) : ""),
-      `${text ? agentLinks(text, store.state.root) : ""}${CLOSE}`);   // the agents of the creation dialog, for the same prompt
+      `${text ? agentLinks(text, agentFolder()) : ""}${CLOSE}`);   // the agents of the creation dialog, for the same prompt
   };
   try {
     // The check of each destination that can take the item, said on the item's button as "Sharing"; in the error tone when nothing can be

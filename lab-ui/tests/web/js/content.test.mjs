@@ -276,8 +276,8 @@ test("a menu that shows its words says what the entry is for; one that shows ico
 // --- The fixtures ---------------------------------------------------------------------------------------------------------------
 
 test("the fixtures hold a state for every key of the table, so that a page is tried against each of them", () => {
-  const keys = ["machine", "uptodate", "update", "checking", "updating", "downloading", "unreachable", "noaccess", "needs_git", "wrong_catalog", "rewritten",
-    "lab_new", "lab_old", "damaged", "linked", "missing_folder", "suggested"];
+  const keys = ["machine", "uptodate", "update", "checking", "updating", "downloading", "unreachable", "noaccess", "needs_git", "needs_docker", "wrong_catalog",
+    "rewritten", "lab_new", "lab_old", "damaged", "linked", "missing_folder", "suggested"];
   assert.deepEqual([PERSONAL().state.key, ...Object.keys(STATES)].sort(), [...keys].sort());
   for (const [key, state] of Object.entries(STATES)) {
     assert.equal(state.key, key);
@@ -285,7 +285,7 @@ test("the fixtures hold a state for every key of the table, so that a page is tr
     assert.deepEqual(Object.keys(state), Object.keys(STATE("x", "X")), `${key}: the shape of one`);
   }
   // The states that are not a plain one tell what happened and what to do, as the table of the Catalogs page words them
-  for (const key of ["unreachable", "noaccess", "needs_git", "wrong_catalog", "rewritten", "lab_new", "lab_old", "damaged", "missing_folder"]) {
+  for (const key of ["unreachable", "noaccess", "needs_git", "needs_docker", "wrong_catalog", "rewritten", "lab_new", "lab_old", "damaged", "missing_folder"]) {
     assert.ok(STATES[key].reason && STATES[key].next, `${key}: a reason and a next step`);
   }
 });

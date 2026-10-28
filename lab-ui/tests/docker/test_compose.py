@@ -653,6 +653,27 @@ class ProjectName(ProjectFolder):
             with self.assertRaisesRegex(compose.ComposeError, "no such file"):
                 compose.project_name()
 
+    def test_compose_installed_while_the_lab_ui_runs_is_asked_again(self):
+        # Before Docker: Compose's refusal is the answer. Once it is there, the name, with no restart
+        found = self.patch(compose, "plugin", return_value=None)
+        with mock.patch.object(compose, "raw", side_effect=compose.ComposeError("Run 'docker --help' for more information")) as raw:
+            with self.assertRaises(compose.ComposeError):
+                compose.project_name()
+            found.return_value = "/opt/homebrew/lib/docker/cli-plugins/docker-compose"
+            raw.side_effect, raw.return_value = None, {"name": "lab"}
+            self.assertEqual(compose.project_name(), "lab")
+
+    def test_the_docker_command_that_comes_after_its_plugin_is_asked_again(self):
+        # Docker Desktop copied into Applications: its plugin is there, its `docker` only once it first started
+        self.patch(compose, "plugin", return_value="/Applications/Docker.app/Contents/Resources/cli-plugins/docker-compose")
+        command = self.patch(compose.shutil, "which", return_value=None)
+        with mock.patch.object(compose, "raw", side_effect=compose.ComposeError("docker: command not found")) as raw:
+            with self.assertRaises(compose.ComposeError):
+                compose.project_name()
+            command.return_value = "/usr/local/bin/docker"
+            raw.side_effect, raw.return_value = None, {"name": "lab"}
+            self.assertEqual(compose.project_name(), "lab")
+
     def test_without_a_name_the_error_is_raised_and_docker_is_not_asked(self):
         failure = compose.ComposeError("yaml: line 2: did not find expected key")
         with mock.patch.object(compose, "raw", side_effect=failure) as raw, mock.patch.object(compose, "ps") as ps:

@@ -515,7 +515,7 @@ class Early(Case):
     def test_a_second_make_ui_finds_the_first_and_touches_nothing(self):
         self.patch(api, "ThreadingHTTPServer", side_effect=OSError(errno.EADDRINUSE, "Address already in use"))
         self.patch(api, "is_lab_ui", return_value=True)
-        opened = self.patch(api.webbrowser, "open")
+        opened = self.patch(api, "open_browser")
         with mock.patch("builtins.print"):
             api.serve(9000, True)
         opened.assert_called_once_with("http://localhost:9000")

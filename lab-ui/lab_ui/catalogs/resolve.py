@@ -16,7 +16,7 @@ TARGET = re.compile(r"\.lab/catalogs/([a-z][a-z0-9-]{0,22}[a-z0-9])/"
 KIND_OF = {"addons": "addon", "setups": "setup", "playgrounds": "playground"}
 ORDER = {"setup": 0, "addon": 1, "playground": 2}   # what layers.write puts first after the item itself
 AUDIENCE = {"public": 0, "private": 1}   # a unit may depend on a unit of its own rank or a lower one
-FAILED = ("unreachable", "noaccess", "needs_git", "wrong_catalog", "rewritten", "lab_new", "lab_old", "damaged",
+FAILED = ("unreachable", "noaccess", "needs_git", "needs_docker", "wrong_catalog", "rewritten", "lab_new", "lab_old", "damaged",
           "missing_folder")   # the states of a catalog that are a failure, not progress
 
 

@@ -1,7 +1,7 @@
 """What this machine needs to run the lab, each need with its state and the one fix that answers it: Docker with Compose 5.0
 or later, the memory Docker has, the free disk where Docker keeps its images, the ports the platform publishes, and Git for
 the catalogs. The page asks again every few seconds while it shows them, so that a line turns right by itself once it is
-fixed. A fix is a link to open, a command to copy, or, on a Mac, an app to open, which is run here.
+fixed. A fix is a link to open, a command to copy, or, on a Mac and in WSL, Docker Desktop to start, which is run here.
 
     report()        {checks: [{id, state, title, detail, actions}], ready, problems}
     act(id)         runs a fix that runs here; CatalogError `machine_action` (400) for any other
@@ -9,6 +9,7 @@ fixed. A fix is a link to open, a command to copy, or, on a Mac, an app to open,
 A state is ok, warn (the lab starts, with a risk), error (it does not), working (a fix is on its way) or idle (known once
 Docker runs). An action is {id, label, primary} and, for a link, `href`; for a command to copy, `copy`."""
 
+import os
 import platform as host
 import re
 import shutil
@@ -18,6 +19,7 @@ import threading
 import time
 from pathlib import Path
 
+from .. import paths
 from ..catalogs.registry import CatalogError
 from ..docker import compose
 from . import model
@@ -31,11 +33,33 @@ DOCKER_DESKTOP_WINDOWS = "https://docs.docker.com/desktop/setup/install/windows-
 ORBSTACK = "https://orbstack.dev/download"
 TROUBLESHOOTING = "https://github.com/gravitee-io-labs/gravitee-lab/blob/main/docs/troubleshooting.md"
 WSL_MEMORY = f"{TROUBLESHOOTING}#windows-and-wsl-2"
+# Where Docker Desktop for Windows keeps its commands, seen from WSL, when the PATH that Windows gives WSL does not name them
+DESKTOP_WINDOWS_BIN = "/mnt/c/Program Files/Docker/Docker/resources/bin"
+# What Docker Desktop's WSL integration links in a distribution it serves: a link left without its target is a distribution it
+# served and lost, which it does each time the distribution restarts, until Docker Desktop restarts
+DESKTOP_LINK = "/usr/bin/docker"
+WINDOWS_DISK = "/mnt/c"
+# A line of `netstat -ano -p TCP` for a port listened on, on the loopback or on every address of Windows
+WINDOWS_LISTENING = re.compile(r"^\s*TCP\s+(?:127\.0\.0\.1|0\.0\.0\.0):(\d+)\s+0\.0\.0\.0:0\s", re.MULTILINE)
+# A lab folder on a disk of Windows, seen from WSL: the containers read it slowly, and it does not keep the permissions of
+# the certificates and the .env
+WINDOWS_DRIVE = re.compile(r"^/mnt/[a-z]/")
+# Where Homebrew puts Compose on Apple silicon: Docker does not look there until the plugin is linked where it does
+BREW_COMPOSE = "/opt/homebrew/lib/docker/cli-plugins/docker-compose"
+LINK_COMPOSE = f"mkdir -p ~/.docker/cli-plugins && ln -sfn {BREW_COMPOSE} ~/.docker/cli-plugins/docker-compose"
+# Folders a sync client watches, by how the folder it keeps begins and the name people know: the containers write into the lab's
+# folder, and a sync client can lock or rewrite what they write. On a Mac they are under Library/CloudStorage ("GoogleDrive-me@x",
+# "OneDrive-Contoso", "Box-Box"), iCloud's is Library/Mobile Documents; older ones are in the home ("Google Drive",
+# "OneDrive - Contoso", "Dropbox (Acme)"). Box's "Box" is a common word: it counts only where a sync client puts it.
+SYNCED = (("Mobile Documents", "iCloud Drive"), ("GoogleDrive", "Google Drive"), ("Google Drive", "Google Drive"),
+          ("OneDrive", "OneDrive"), ("Dropbox", "Dropbox"))
+CLONE = "git clone https://github.com/gravitee-io-labs/gravitee-lab.git ~/gravitee-lab"
 FRESH = 3   # seconds a report is reused: the page asks every few seconds, and so may two tabs
 
 _lock = threading.Lock()
 _last = {"at": 0.0, "report": None}
 _asked = {}   # a fix that takes a while, by check id: when it was asked
+_agents = {}   # what an agent is given in WSL, by the lab's folder
 
 
 def system():
@@ -70,15 +94,62 @@ def _waiting(what, seconds=120):
 
 
 def docker_app():
-    """The app that runs Docker on a Mac, by the name `open -a` knows it and the name people know; None elsewhere or without
-    one"""
+    """The app that runs Docker on a Mac, by its path and the name people know; None elsewhere or without one. The path, not
+    the name: an app just copied into Applications is not known by its name to `open -a` yet."""
     if system() != "mac":
         return None
     places = [Path("/Applications"), Path.home() / "Applications"]
     for bundle, name in (("Docker.app", "Docker Desktop"), ("OrbStack.app", "OrbStack")):
-        if any((place / bundle).is_dir() for place in places):
-            return bundle[:-4], name
+        for place in places:
+            if (place / bundle).is_dir():
+                return str(place / bundle), name
     return None
+
+
+def _opening(app):
+    """Whether the app that runs Docker is open (its first start asks for its license and a password, which takes as long
+    as the person does), or was asked to open a moment ago"""
+    return _waiting("docker") or compose.run(["pgrep", "-f", f"{app[0]}/Contents/MacOS/"], timeout=5)[0] == 0
+
+
+def desktop_cli():
+    """In WSL, the docker.exe of Docker Desktop for Windows, through which the Lab asks its state, starts it and reconnects
+    it: on the PATH that Windows gives WSL, else where it installs; None elsewhere or without one"""
+    if system() != "wsl":
+        return None
+    folders = [folder for folder in os.environ.get("PATH", "").split(os.pathsep) if folder.startswith("/mnt/")]
+    for folder in folders + [DESKTOP_WINDOWS_BIN]:
+        if (Path(folder) / "docker.exe").is_file():
+            return str(Path(folder) / "docker.exe")
+    return None
+
+
+def _desktop(title):
+    """The Docker row in WSL when Docker does not answer in it: Docker Desktop for Windows not installed, not running,
+    starting, or running without this distribution, which it lost (a link of its own is left) or was never told to serve"""
+    cli = desktop_cli()
+    if not cli:
+        return _check("docker", "error", title, "Docker is not installed", _install_docker())
+    distro = os.environ.get("WSL_DISTRO_NAME") or "this distribution"
+    rc, out, _ = compose.run([cli, "desktop", "status"], timeout=15)
+    found = re.search(r"^Status\s+(\w+)", out, re.MULTILINE) if rc == 0 else None
+    status = found.group(1).lower() if found else None
+    if status != "running":
+        if _waiting("docker") or status == "starting":
+            return _check("docker", "working", title, "Docker Desktop is starting")
+        return _check("docker", "error", title, "Docker Desktop is not running",
+                      [_action("start-desktop", "Start Docker Desktop", True)])
+    if _waiting("docker", 60):
+        return _check("docker", "working", title, f"Docker Desktop is connecting to {distro}")
+    if os.path.islink(DESKTOP_LINK):   # a restart serves it again, and stops what runs: said first
+        rc, out, _ = compose.run([cli, "ps", "-q"], timeout=15)
+        running = len(out.split()) if rc == 0 else 0
+        said = f": Reconnect restarts it, which stops the {running} containers that run" if running else ""
+        return _check("docker", "error", title, f"Docker Desktop lost {distro}{said}",
+                      [_action("reconnect-desktop", "Reconnect", True)])
+    return _check("docker", "error", title,
+                  f"Docker Desktop does not serve {distro}: turn it on in Settings > Resources > WSL integration",
+                  [_action("open-desktop", "Open Docker Desktop", True)])
 
 
 def _info():
@@ -105,33 +176,40 @@ def _install_docker():
 def _docker():
     """The Docker row, and what Docker says of itself when it answers"""
     title = "Docker"
-    if compose.run(["docker", "--version"], timeout=10)[0] == 127:
+    # In WSL without Docker Desktop's integration, `docker` is Docker Desktop's command for Windows: it only says so
+    windows = system() == "wsl" and (shutil.which("docker") or "").startswith("/mnt/")
+    if windows or compose.run(["docker", "--version"], timeout=10)[0] == 127:
+        if system() == "wsl":
+            return _desktop(title), None
         app = docker_app()
         if app:
-            state = "working" if _waiting("docker") else "error"
-            return _check("docker", state, title, f"{app[1]} is installed and has not been started yet",
-                          [] if state == "working" else [_action("open-docker", f"Open {app[1]}", True)]), None
+            if _opening(app):
+                return _check("docker", "working", title, f"{app[1]} is starting"), None
+            return _check("docker", "error", title, f"{app[1]} is installed and has not been started yet",
+                          [_action("open-docker", f"Open {app[1]}", True)]), None
         return _check("docker", "error", title, "Docker is not installed", _install_docker()), None
     info = _info()
+    if info is None and desktop_cli():
+        return _desktop(title), None
     if info is None:
         app = docker_app()
         name = app[1] if app else "Docker"
-        if app and _waiting("docker"):
+        if app and _opening(app):
             return _check("docker", "working", title, f"{name} is starting"), None
         if app:
             actions = [_action("open-docker", f"Open {name}", True)]
-        elif system() == "linux":
+        elif system() in ("linux", "wsl"):   # in WSL without Docker Desktop, Docker Engine runs in the distribution
             actions = [_action("start-docker", "Copy the command", True, copy="sudo systemctl start docker")]
-        elif system() == "wsl":
-            actions = [_action("wsl-docker", "How to connect it", True, href=WSL_MEMORY)]
         else:
             actions = []
-        detail = f"{name} is not running" if system() != "wsl" else "Docker does not answer: start Docker Desktop on Windows"
-        return _check("docker", "error", title, detail, actions), None
+        return _check("docker", "error", title, f"{name} is not running", actions), None
     rc, out, _ = compose.run(["docker", "compose", "version", "--short"], timeout=15)
     found = _version(out) if rc == 0 else None
     engine = ("Docker Desktop" if "Docker Desktop" in info["system"] else "OrbStack" if info["system"] == "OrbStack"
               else "Docker Engine")
+    if found is None and Path(BREW_COMPOSE).is_file():
+        return _check("docker", "error", title, "Compose is installed, and Docker does not find it",
+                      [_action("link-compose", "Copy the command", True, copy=LINK_COMPOSE)]), info
     if found is None or found[:2] < COMPOSE_MIN:
         app = docker_app()
         said = f"Compose {_dotted(found)} is too old" if found else "Compose is missing"
@@ -159,9 +237,16 @@ def _memory(info):
 
 
 def _disk(info):
-    """Free space where Docker keeps its images: its own folder on Linux, the home disk on a Mac, where its disk image is"""
+    """Free space where Docker keeps its images: its own folder on Linux, the home disk on a Mac, where its disk image is, and
+    in WSL the disk of Windows, where the disks of WSL and of Docker Desktop are (the free space of the distribution's own
+    disk says nothing: it grows as it is written)"""
     title = "Disk space"
-    where = Path(info["root"]) if info and system() in ("linux",) and info.get("root") else Path.home()
+    if info and system() == "linux" and info.get("root"):
+        where = Path(info["root"])
+    elif system() == "wsl" and Path(WINDOWS_DISK).is_dir():
+        where = Path(WINDOWS_DISK)
+    else:
+        where = Path.home()
     try:
         free = shutil.disk_usage(where).free / 1e9
     except OSError:
@@ -206,6 +291,16 @@ def _taken(port):
     return False
 
 
+def _windows_ports():
+    """In WSL, the TCP ports that a program of Windows listens on, on the loopback or on every address: Docker Desktop
+    publishes the containers' ports there, where the distribution does not see them. Read from netstat, whose lines are
+    the same in every language of Windows but their headings: a listening line has the remote address 0.0.0.0:0."""
+    if system() != "wsl":
+        return set()
+    rc, out, _ = compose.run(["netstat.exe", "-ano", "-p", "TCP"], timeout=10)
+    return {int(port) for port in WINDOWS_LISTENING.findall(out)} if rc == 0 else set()
+
+
 def _ports(info):
     title = "Ports"
     if not info:
@@ -214,12 +309,30 @@ def _ports(info):
     if not ports:
         return _check("ports", "idle", title, "Known once the platform's file loads")
     ours = _lab_ports() if info else set()
-    busy = sorted(port for port in ports if port not in ours and _taken(port))
+    windows = _windows_ports()
+    busy = sorted(port for port in ports if port not in ours and (port in windows or _taken(port)))
     if not busy:
         return _check("ports", "ok", title, f"No other program uses the {len(ports)} ports of the platform")
     named = ", ".join(f"{port} ({ports[port]})" for port in busy[:4]) + (" and more" if len(busy) > 4 else "")
     verb = "is" if len(busy) == 1 else "are"
     return _check("ports", "warn", title, f"{named} {verb} used by another program: stop it before the platform starts")
+
+
+def _folder():
+    """The lab's folder, a line only when a sync client watches it or, in WSL, when it is on a disk of Windows: one more line
+    to read is one too many otherwise"""
+    if system() == "wsl" and WINDOWS_DRIVE.match(paths.ROOT.resolve().as_posix()):
+        return _check("folder", "warn", "Lab folder", "On a disk of Windows, which the containers read slowly",
+                      [_action("clone-outside", "Copy the command", True, copy=CLONE)])
+    parts = paths.ROOT.resolve().parts
+    for at, part in enumerate(parts):
+        name = next((name for start, name in SYNCED if part.startswith(start)), None)
+        if not name and (part == "Box" or part.startswith("Box-")) and at and parts[at - 1] in ("CloudStorage", Path.home().name):
+            name = "Box"
+        if name:
+            return _check("folder", "warn", "Lab folder", f"In {name}, whose sync can lock the files the containers write",
+                          [_action("clone-outside", "Copy the command", True, copy=CLONE)])
+    return None
 
 
 def _git():
@@ -245,7 +358,8 @@ def report(fresh=False):
         if not fresh and _last["report"] and time.monotonic() - _last["at"] < FRESH:
             return _last["report"]
     docker, info = _docker()
-    checks = [docker, _memory(info), _disk(info), _ports(info), _git()]
+    checks = [docker, _memory(info), _disk(info), _ports(info), _git(), _folder()]
+    checks = [check for check in checks if check]
     problems = sum(1 for c in checks if c["state"] in ("error", "warn", "working"))
     result = {"checks": checks, "ready": all(c["state"] in ("ok", "warn", "idle") for c in checks), "problems": problems,
               "system": system()}
@@ -254,13 +368,29 @@ def report(fresh=False):
     return result
 
 
+# What each fix of Docker Desktop asks its command, in WSL: a restart serves again the distributions it lost. Open runs
+# the app, two folders above its command, which shows the window of the one that runs
+DESKTOP_ACTIONS = {"start-desktop": ("start", "--detach"), "reconnect-desktop": ("restart", "--detach"), "open-desktop": ()}
+DESKTOP_APP = "Docker Desktop.exe"
+
+
 def act(action):
-    """Runs a fix that runs on this machine: open the app that runs Docker, or Apple's installer of Git"""
+    """Runs a fix that runs on this machine: open the app that runs Docker, start or reconnect Docker Desktop from WSL, or
+    Apple's installer of Git"""
+    cli = desktop_cli()
     if action == "open-docker" and docker_app():
-        _asked["docker"] = time.monotonic()
-        rc, _, err = compose.run(["open", "-a", docker_app()[0]], timeout=20)
+        rc, _, err = compose.run(["open", docker_app()[0]], timeout=20)
         if rc != 0:
             raise CatalogError("machine_action", err.strip() or "The app did not open", 400)
+        _asked["docker"] = time.monotonic()
+    elif action in DESKTOP_ACTIONS and cli:
+        command = [str(Path(cli).parents[2] / DESKTOP_APP)] if action == "open-desktop" else \
+            [cli, "desktop", *DESKTOP_ACTIONS[action]]
+        rc, _, err = compose.run(command, timeout=30)
+        if rc != 0:
+            raise CatalogError("machine_action", err.strip() or "Docker Desktop did not answer", 400)
+        if action != "open-desktop":
+            _asked["docker"] = time.monotonic()
     elif action == "install-clt" and system() == "mac":
         _asked["git"] = time.monotonic()
         compose.run(["/usr/bin/xcode-select", "--install"], timeout=20)
@@ -269,6 +399,23 @@ def act(action):
     with _lock:
         _last["report"] = None
     return report(fresh=True)
+
+
+def agent():
+    """What an AI agent is given to work on the lab: the folder to open, and how it runs the lab's commands. In WSL the agents
+    are apps of Windows (the Claude app, Codex, Cursor): they open the folder by its Windows path and run the commands in
+    the distribution through wsl.exe, as Windows has no make or Python and its git refuses a folder of WSL. Elsewhere the
+    folder alone."""
+    root = str(paths.ROOT)
+    if system() != "wsl":
+        return {"folder": root, "note": ""}
+    if root not in _agents:   # the state asks every few seconds, and the answer stays while the Lab UI runs
+        rc, out, _ = compose.run(["wslpath", "-w", root], timeout=10)
+        distro = os.environ.get("WSL_DISTRO_NAME") or "Ubuntu"
+        _agents[root] = {"folder": out.strip() if rc == 0 and out.strip() else root,
+                         "note": f"The lab runs in WSL: run its commands (make, git, python3) in {distro}, as "
+                                 f"wsl.exe -d {distro} --cd {root} -- followed by the command."}
+    return _agents[root]
 
 
 def summary():

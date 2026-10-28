@@ -250,7 +250,7 @@ const dot = (li) => li.querySelector(".list-state .dot-status").getAttribute("cl
 
 test("every state is a dot and a word, with a popover of its title, its reason and its next step, and nothing to say where the word says it all", () => {
   const dots = { uptodate: "done", update: "warn", checking: "", updating: "starting", downloading: "starting", unreachable: "warn", noaccess: "issue",
-    needs_git: "issue", wrong_catalog: "issue", rewritten: "issue", lab_new: "warn", lab_old: "warn", damaged: "issue", linked: "done",
+    needs_git: "issue", needs_docker: "issue", wrong_catalog: "issue", rewritten: "issue", lab_new: "warn", lab_old: "warn", damaged: "issue", linked: "done",
     missing_folder: "issue", suggested: "off" };
   for (const [key, state] of Object.entries(STATES)) {
     show([GIT(key, { id: "x-catalog", name: "X catalog", commit: "9f1c2ab", kind: key === "suggested" ? "suggested" : "git" })]);

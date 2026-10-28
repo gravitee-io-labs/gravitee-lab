@@ -102,9 +102,9 @@ The core's variables:
 
 | Component | Version | Registry | Default |
 |---|---|---|---|
-| API Management (Management API, Console, Portal, Gamma Console) | `APIM_VERSION` | `APIM_REGISTRY` | 4.12.20 |
+| API Management (Management API, Console, Portal, Gamma Console) | `APIM_VERSION` | `APIM_REGISTRY` | 4.13.1 |
 | API gateway | `APIM_GATEWAY_VERSION` | `APIM_GATEWAY_REGISTRY` | the APIM version with `-debian`, and the APIM registry |
-| Access Management | `AM_VERSION` | `AM_REGISTRY` | 4.12.7 |
+| Access Management | `AM_VERSION` | `AM_REGISTRY` | 4.13.1 |
 | Alert Engine | `AE_VERSION` | `AE_REGISTRY` | 3.0.2 |
 | MongoDB | `MONGODB_VERSION` | | 8.0.34 |
 | Elasticsearch | `ELASTICSEARCH_VERSION` | | 9.5.5 |

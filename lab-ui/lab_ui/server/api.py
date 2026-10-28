@@ -9,9 +9,11 @@ import json
 import os
 import queue
 import re
+import shutil
 import socket
 import subprocess
 import sys
+import textwrap
 import threading
 import time
 import webbrowser
@@ -120,9 +122,11 @@ def snapshot():
                        created, saved=saved, license_status=license.status(p), platforms=platforms.read(),
                        deployed=deployed, changed=changed, git=model.git_state(service.git_version()),
                        catalogs=service.describe(p, read), content=firstrun.content(p, read), layout=layout.status())
-    # What the page gives an AI agent to create an item: where the project is, and the skills to follow. Where API
-    # Management runs, from this machine's choice and what its platform last said
-    body.update(root=str(paths.ROOT), skills=personal.skills(), lab=updates.describe(), kept_settings=kept.listed(),
+    # What the page gives an AI agent to create an item: where the project is, the folder and the word on its commands
+    # for the agent (machine.agent), and the skills to follow. Where API Management runs, from this machine's choice and
+    # what its platform last said
+    body.update(root=str(paths.ROOT), agent=machine.agent(), skills=personal.skills(), lab=updates.describe(),
+                kept_settings=kept.listed(),
                 core=core.describe(p, on, containers if known else {}, saved, body.get("wait")))
     _docker_down(body)
     unread = service.problems()   # the files that record the catalogs cannot be read: nothing would be shown, and no word said
@@ -950,6 +954,20 @@ class Handler(BaseHTTPRequestHandler):
 # Command line
 # ---------------------------------------------------------------------------------------------------------------------
 
+# Where Docker Desktop puts the `docker` command on a Mac: a Docker installed while the Lab UI runs is found there, the shell's
+# PATH being the one of before it
+DOCKER_BINS = ("/usr/local/bin", "~/.docker/bin", "/Applications/Docker.app/Contents/Resources/bin")
+
+
+def find_docker():
+    """The places of DOCKER_BINS added at the end of PATH on a Mac, those it lacks"""
+    if sys.platform != "darwin":
+        return
+    path = os.environ.get("PATH", "").split(os.pathsep)
+    os.environ["PATH"] = os.pathsep.join(path + [os.path.expanduser(place) for place in DOCKER_BINS
+                                                 if os.path.expanduser(place) not in path])
+
+
 def requirement():
     """What this machine lacks to run the lab, in one line, in the words of the Makefile's; None when it lacks
     nothing."""
@@ -988,6 +1006,16 @@ def listing():
             print(f"  {link['label']:<26} {link['url']}")
 
 
+def answers_on_ipv6(port):
+    """Whether a program answers on this port of the IPv6 loopback, where `localhost` can lead the browser even while
+    127.0.0.1 is free"""
+    try:
+        with socket.create_connection(("::1", port), timeout=1):
+            return True
+    except OSError:
+        return False
+
+
 def is_lab_ui(port):
     """Whether what answers on this port of the machine is a Lab UI, by the Server header of its home page. Any
     error means it is not."""
@@ -1020,31 +1048,57 @@ def start_up():
             print(f"Gravitee Lab UI: {what} failed ({type(error).__name__}: {error})", file=sys.stderr)
 
 
+def open_browser(url):
+    """The page in the person's browser. In WSL it is the browser of Windows, which explorer.exe opens: a browser of Linux
+    is rarely there, and the one WSLg offers answers with an error"""
+    if machine.system() == "wsl" and shutil.which("explorer.exe"):
+        subprocess.Popen(["explorer.exe", url], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+    else:
+        webbrowser.open(url)
+
+
 def serve(port, browser):
     url = f"http://localhost:{port}"
     try:
+        if answers_on_ipv6(port):   # the browser may go there for localhost, and find another program
+            raise OSError(errno.EADDRINUSE, f"Port {port} is used on ::1")
         server = ThreadingHTTPServer(("127.0.0.1", port), Handler)   # this machine only
     except OSError as error:
         if error.errno != errno.EADDRINUSE:
             raise
         if not is_lab_ui(port):
             sys.exit(f"Port {port} is used by another program. Free it, or use another port: UI_PORT={port + 1} "
-                     "make ui (the UIs of a playground do not show next to the guide on another port)")
-        print(f"Gravitee Lab UI is already running on {url}. To load a new version: stop it with Ctrl+C in its "
-              "terminal, then run make ui again")
+                     "gravitee-lab (the UIs of a playground do not show next to the guide on another port)")
+        address(url, "Already running. To load a new version, stop it with Ctrl+C in its terminal, then run gravitee-lab "
+                     "again.")
         if browser:
-            webbrowser.open(url)
+            open_browser(url)
         return   # a Lab serves already: nothing on disk is touched, so nothing of its work is finished or swept from here
     server.daemon_threads = True   # an open log stream does not keep the Lab UI from stopping
-    print(f"Gravitee Lab UI on {url}  (Ctrl+C to stop)")
+    address(url, "Keep this terminal open: Ctrl+C stops the Lab UI, and the containers keep running.")
     compose.stop_on_signals()   # once, from the main thread, before it serves: a closed terminal ends what runs
     start_up()
     if browser:
-        threading.Timer(0.5, webbrowser.open, args=(url,)).start()
+        threading.Timer(0.5, open_browser, args=(url,)).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
+
+
+def address(url, then):
+    """The address of the Lab UI, the line to click, then what to know about it: in the look of install.sh, which printed
+    the lines above it. Colors in a terminal (none with NO_COLOR), an arrow when it is UTF-8. What the machine lacks is not
+    said here: the page says it, with its fix (machine)."""
+    styled = sys.stdout.isatty() and not os.environ.get("NO_COLOR") and os.environ.get("TERM", "dumb") != "dumb"
+    bold, cyan, dim, off = ("\033[1m", "\033[36m", "\033[2m", "\033[0m") if styled else ("", "", "", "")
+    encoding = os.environ.get("LC_ALL") or os.environ.get("LC_CTYPE") or os.environ.get("LANG") or ""
+    arrow = "➜" if re.search(r"utf-?8", encoding, re.IGNORECASE) else ">"
+    # Folded between words under the address, in a terminal narrower than the line; never in a log
+    lines = textwrap.wrap(then, max(shutil.get_terminal_size().columns - 6, 20)) if sys.stdout.isatty() else [then]
+    said = "".join(f"\n     {dim}{line}{off}" for line in lines)
+    print(f"\n  {cyan}{arrow}{off}  {bold}Lab UI{off}   {cyan}{url}{off}{said}\n", flush=True)
 
 
 def port_number(text):
@@ -1078,11 +1132,10 @@ def main(argv=None):
     parser.add_argument("--timeout", type=int, default=1800, metavar="SECONDS", help="with --e2e: how long the start may take")
     parser.add_argument("--keep", action="store_true", help="with --e2e: leave what was started running, to look at it")
     args = parser.parse_args(argv)
+    find_docker()
     missing = requirement()
     if missing and (args.check or args.list or args.e2e):
         sys.exit(missing)
-    if missing:   # the Lab UI serves all the same: its page says what is missing, and how to fix it (machine)
-        print(f"Gravitee Lab UI: {missing}", file=sys.stderr)
     layers.prepare()
     if args.check:
         sys.exit(check.run())

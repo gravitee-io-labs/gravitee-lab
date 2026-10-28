@@ -1120,6 +1120,8 @@ mark { background: var(--hl); color: var(--hl-text); border-radius: 2px; padding
 .start-text { display: grid; gap: 2px; min-width: 0; }
 .start-text strong { color: var(--text); font-size: var(--fs-3); }
 .start-text span { color: var(--muted); font-size: var(--fs-2); }
+.start-item > .btn { margin-left: auto; flex: none; }
+.welcome-starting { display: grid; gap: var(--sp-2); max-width: 640px; }
 @media (max-width: 760px) {
   .welcome-frame { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
   .welcome-rail { border-right: 0; border-bottom: 1px solid var(--border); gap: var(--sp-3); padding: var(--sp-3); }

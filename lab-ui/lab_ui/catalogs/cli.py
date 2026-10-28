@@ -60,7 +60,8 @@ from .report import Problem
 
 # The refusals that are the person's usage or this machine's state, not a problem found in a catalog: exit 2
 ENVIRONMENT = ("bad_address", "bad_address_secret", "folder_missing", "folder_not_catalog", "folder_not_shared",
-               "branch_missing", "not_listed", "symlink_unsupported", "git_missing", "git_old", "busy")
+               "branch_missing", "not_listed", "symlink_unsupported", "git_missing", "git_old", "docker_missing", "unread",
+               "busy")
 FORMATS = ("text", "github", "json")
 SUGGEST_LIMIT = 50   # as many entries as the Lab reads of the suggestions file
 POLL = 0.2   # seconds between two looks at where a download is

@@ -144,3 +144,16 @@ To replace the key, make a new one, set the secret again and delete the old depl
 
 Dependabot updates the actions, the Python requirements and the Dockerfiles. A few pins sit in text it does not read:
 the header of `.github/workflows/ci.yml` lists them.
+
+## Gravitee versions
+
+The core runs the latest Gravitee release by default, so that a first start shows no update on the Dashboard. Gravitee's own
+images follow its releases as soon as they are out; the other images, the actions and the Python requirements wait a week
+(Dependabot's `cooldown`), the usual time a release published to do harm is withdrawn.
+
+Every morning, the workflow *Gravitee versions* compares the defaults of `docker-compose.yml` with the releases on Docker Hub. A
+newer one opens an issue with the label `gravitee-versions`, or updates the one that is open; the issue closes by itself once the
+defaults are the latest. To follow a release:
+
+1. Raise the default in `docker-compose.yml` and in the table of [Configuration](configuration.md#images-and-versions).
+2. Start the platform on it, then each playground of the catalogs, and move their `x-gravitee.tested` sets to it.
