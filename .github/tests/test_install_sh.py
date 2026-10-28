@@ -39,6 +39,31 @@ fi
 exec "$REAL_GIT" "$@"
 """
 
+# A Linux with no git, whatever this machine is: uname says Linux, sudo runs what it is given, and apk says what the real one
+# says while it installs, then puts git on the PATH; FAKE_APK=locked fails the way it does when another install runs
+UNAME = """#!/bin/sh
+if [ "$1" = -s ]; then echo Linux; else exec "$REAL_UNAME" "$@"; fi
+"""
+SUDO = """#!/bin/sh
+[ "$1" = -n ] && exit 0
+exec "$@"
+"""
+APK = """#!/bin/sh
+if [ "$FAKE_APK" = locked ]; then
+    echo 'ERROR: Unable to lock database: temporary error (try again later)'
+    exit 99
+fi
+echo 'fetch https://dl-cdn.alpinelinux.org/alpine/v3.20/main/aarch64/APKINDEX.tar.gz'
+sleep 0.6
+echo '(1/3) Installing pcre2 (10.43-r0)'
+sleep 0.6
+echo '(2/3) Installing git (2.45.4-r0)'
+sleep 0.6
+echo '(3/3) Installing git-init-template (2.45.4-r0)'
+ln -s "$REAL_GIT" "$TOOLS/git"
+echo 'OK: 25 MiB in 30 packages'
+"""
+
 FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
 
@@ -111,6 +136,22 @@ class Install(unittest.TestCase):
         (folder / "git").chmod(0o755)
         return {"PATH": f"{folder}{os.pathsep}{self.env['PATH']}", "REAL_GIT": shutil.which("git")}
 
+    def linux_without_git(self):
+        """The PATH of a Linux with no git and apk as its package manager: the programs of this machine but git, the package
+        managers, sudo and uname, and fakes for the last three."""
+        tools = self.folder / "tools"
+        tools.mkdir()
+        left_out = {"git", "apt-get", "dnf", "yum", "zypper", "pacman", "apk", "sudo", "uname", "wsl.exe"}
+        for folder in ("/usr/bin", "/bin"):
+            for program in Path(folder).iterdir():
+                if program.name not in left_out and not (tools / program.name).exists():
+                    (tools / program.name).symlink_to(program)
+        for name, text in (("uname", UNAME), ("sudo", SUDO), ("apk", APK)):
+            (tools / name).write_text(text)
+            (tools / name).chmod(0o755)
+        return {"PATH": str(tools), "TOOLS": str(tools), "REAL_GIT": shutil.which("git"), "REAL_UNAME": shutil.which("uname"),
+                "GRAVITEE_LAB_YES": "1"}
+
     def test_a_bare_home_gets_the_clone_its_settings_the_command_and_the_line_of_its_profile(self):
         code, said = self.install()
         self.assertEqual(code, 0, said)
@@ -118,7 +159,7 @@ class Install(unittest.TestCase):
         link = self.home / ".local" / "bin" / "gravitee-lab"
         self.assertEqual(os.readlink(link), str(self.lab / "bin" / "gravitee-lab"))
         self.assertEqual((self.home / PROFILE).read_text().count(MARKER), 1)
-        for step in ("Tools", "Gravitee Lab", "Settings", "Command", "Docker", "Ready in"):
+        for step in ("Tools", "Gravitee Lab", "Command", "Docker", "Ready in"):
             self.assertIn(step, said)
         self.assertNotIn("\033", said, "no color and no live line out of a terminal")
 
@@ -185,7 +226,7 @@ class Install(unittest.TestCase):
                     (tools / program.name).symlink_to(program)
         code, said = self.install(PATH=str(tools))
         self.assertEqual(code, 1, said)
-        self.assertRegex(said, r"git (is still missing|is missing|with)")
+        self.assertRegex(said, r"yet git cannot run|Install git with")
         self.assertFalse(self.lab.exists())
 
     def test_in_a_terminal_a_live_line_runs_and_each_step_ends_on_its_mark(self):
@@ -193,8 +234,9 @@ class Install(unittest.TestCase):
         self.assertEqual(code, 0, said)
         self.assertTrue(any(frame in said for frame in FRAMES), "the spinner turned")
         self.assertIn("━", said, "the percentage of the clone shows as a bar")
-        self.assertIn(" 50%  Receiving objects, 1.00 MiB, 2.00 MiB/s", said)
-        for step in ("Tools", "Gravitee Lab", "Settings", "Command"):
+        self.assertIn("45%  \x1b[2mDownloading 1.00 MiB, 2.00 MiB/s", said, "git's phases make one bar, in words")
+        self.assertNotIn("Receiving objects", said)
+        for step in ("Tools", "Gravitee Lab", "Command"):
             self.assertRegex(said, rf"✔\x1b\[0m \x1b\[1m{step}")
         self.assertTrue(said.startswith("\033[?25l"), "the cursor hides while the line runs")
         self.assertTrue(said.rstrip().endswith("\033[?25h"), "and it is back at the end")
@@ -209,11 +251,36 @@ class Install(unittest.TestCase):
         self.assertIn("✔ Tools", said)
         self.assertNotRegex(said, r"\x1b\[(1|2|3\d)m")
 
+    def test_a_package_manager_shows_as_a_count_and_words_never_as_its_own_lines(self):
+        code, said = self.terminal(**self.linux_without_git())
+        self.assertEqual(code, 0, said)
+        self.assertIn("Updating the package lists", said)
+        self.assertRegex(said, r"2/3  \x1b\[2mInstalling git ")
+        for raw in ("fetch https", "(2/3)", "OK: 25 MiB"):
+            self.assertNotIn(raw, said)
+        self.assertRegex(said, r"✔\x1b\[0m \x1b\[1mTools")
+
+    def test_a_failure_that_is_known_says_what_it_means_under_the_words_of_its_tool(self):
+        code, said = self.install(**self.linux_without_git(), FAKE_APK="locked")
+        self.assertEqual(code, 1, said)
+        self.assertIn("ERROR: Unable to lock database", said, "the words of the tool, for who wants them")
+        self.assertIn("Another install is running, often the automatic updates: wait until it ends", " ".join(said.split()))
+        code, said = self.install(GRAVITEE_LAB_REPOSITORY=str(self.folder / "nothing"))
+        self.assertEqual(code, 1, said)
+        self.assertIn(f"{self.folder / 'nothing'} does not exist, or is private", " ".join(said.split()))
+
+    def test_ci_prints_plain_lines_even_in_a_terminal(self):
+        code, said = self.terminal(CI="true")
+        self.assertEqual(code, 0, said)
+        self.assertNotIn("\033", said)
+        self.assertIn("✔ Tools", said)
+
     def test_ctrl_c_stops_it_with_the_cursor_back_and_says_how_to_go_on(self):
-        code, said = self.terminal(interrupt_on="Receiving objects", **self.slow_git(), FAKE_WAIT="30")
+        code, said = self.terminal(interrupt_on="Downloading", **self.slow_git(), FAKE_WAIT="30")
         self.assertEqual(code, 130, said)
-        self.assertIn("Stopped. Run the command again to go on", said)
-        self.assertIn("\033[?25h", said.split("Stopped")[0][-40:], "the cursor is back before the message")
+        self.assertRegex(said, r"■\x1b\[0m \x1b\[1mGravitee Lab \x1b\[0m Stopped", "the step that ran keeps its line")
+        self.assertIn("Run the command again to go on: what is done stays done.", said)
+        self.assertIn("\033[?25h", said.split("Run the command again")[0][-40:], "the cursor is back before the message")
         self.assertFalse((self.home / PROFILE).exists())
 
 
