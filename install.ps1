@@ -400,7 +400,7 @@
     $link.IconLocation = (Join-Path $env:SystemRoot 'System32\wsl.exe') + ',0'
     $link.Description = 'Opens the Gravitee Lab UI'
     $link.Save()
-    Passed 'Shortcut' 'Gravitee Lab, in the Start menu: it opens the Lab UI next time'
+    Passed 'Shortcut' 'Gravitee Lab in the Start menu opens the Lab UI'
 
     # The rest is install.sh's, in the distribution: the tools, the clone, the settings, the command gravitee-lab, then the
     # Lab UI in this window. It is read by Windows, which trusts what the company's proxy shows, and run from Windows'
