@@ -41,7 +41,7 @@ GATE = "/apim/rest"
 NAME = re.compile(r"^[a-zA-Z0-9\s\-_.]+$")
 YEAR = 365 * 24 * 3600
 SIGNATURE = "fake-signature"   # every token of the fake is signed with it, which is how it knows its own
-VERSION = "4.13.1"   # the version of API Management its gateways answer, by default
+VERSION = "4.12.20"   # the version of API Management its gateways answer, by default
 
 
 def environments(organization, label, *named):

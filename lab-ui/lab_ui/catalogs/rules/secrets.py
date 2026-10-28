@@ -58,6 +58,8 @@ RULES = table([
 SECRET_NAME = re.compile(r"PASSWORD|PASSWD|PASSPHRASE|SECRET|API[_.-]?KEY|(?:^|[_.-])TOKEN$|(?<!PUBLIC)[_.-]KEY$", re.I)
 NOT_SECRET = re.compile(r"(?:URL|URI|PATH|FILE|TYPE|ENDPOINT|ENABLED|HOST|PORT|METHOD|POLICY|REGEX|NAMESPACE|PROVIDER"
                         r"|TIMEOUT|TIMEOUTMS)$", re.I)
+# The demo sign-in a console shows next to it, which sets nothing: no secret (`check.SIGN_IN`, kept equal by the same test)
+SIGN_IN = re.compile(r"io\.gravitee\.console\.[a-z0-9-]+\.password")
 
 KINDS = {"github": "a GitHub token", "aws": "an AWS access key", "slack": "a Slack token", "google": "a Google API key",
          "jwt": "a JWT", "sk": "an API key that starts with sk-"}
@@ -166,7 +168,7 @@ def allow_markers(text: str) -> List[int]:
 
 def names_a_secret(key: str) -> bool:
     """Whether the name of a setting says that its value is a secret (the engine's rule, `check.SECRET_NAME`)."""
-    return bool(SECRET_NAME.search(key) and not NOT_SECRET.search(key))
+    return bool(SECRET_NAME.search(key) and not NOT_SECRET.search(key)) and not SIGN_IN.fullmatch(key)
 
 
 def is_literal(value: str) -> bool:
