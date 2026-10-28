@@ -17,6 +17,12 @@ git clone https://github.com/gravitee-io-labs/gravitee-lab.git && cd gravitee-la
 
 On a Mac that never ran `git`, macOS first offers its command line tools: click **Install**, then run the command again.
 
+On Windows, in PowerShell, this sets up WSL, Ubuntu and Docker Desktop as needed, then does the same ([what it does](docs/installation.md#windows-with-wsl-2)):
+
+```powershell
+irm https://raw.githubusercontent.com/gravitee-io-labs/gravitee-lab/main/install.ps1 | iex
+```
+
 The [Lab UI](http://localhost:9000) opens in your browser, on its Dashboard. Start the platform, then turn on add-ons, setups or playgrounds from the lists to do even more interesting things. They come from [catalogs](docs/catalogs.md): the Lab downloads the default one the first time it starts.
 
 No license is needed to start. [What needs one](docs/installation.md#what-needs-a-license).

@@ -38,16 +38,32 @@ Install Docker Engine and the Compose plugin from [Docker's repository](https://
 
 ### Windows with WSL 2
 
-The lab runs in WSL 2. PowerShell, cmd and Git Bash are not supported. Items that run AI models through Ollama on Windows are untested.
+The lab runs in WSL 2, in a Linux distribution, with Docker Desktop. In PowerShell, run:
 
-1. In PowerShell, run `wsl --install` to get an Ubuntu distribution, and restart Windows if it asks ([Microsoft's guide](https://learn.microsoft.com/en-us/windows/wsl/install)).
-2. Install [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/) and turn on WSL integration for your distribution (Settings > Resources > WSL integration), or install Docker Engine inside the distribution as on Linux.
-3. In the WSL terminal, install the tools as on Linux.
-4. Clone inside the Linux filesystem (`~/gravitee-lab`), not under `/mnt/c`.
-5. Run every command in the WSL terminal, and open http://localhost:9000 in your Windows browser.
-6. Set the memory in `%UserProfile%\.wslconfig` (`[wsl2]` and, for example, `memory=12GB`), then run `wsl --shutdown`.
+```powershell
+irm https://raw.githubusercontent.com/gravitee-io-labs/gravitee-lab/main/install.ps1 | iex
+```
 
-[Windows and WSL 2](troubleshooting.md#windows-and-wsl-2) has the details.
+It does what is missing, then opens the Lab UI in your browser:
+
+1. It installs WSL, and asks you to restart Windows and to run the command again. Windows asks for administrator rights.
+2. It installs Ubuntu, which asks for a user name and a password for Linux. They are not your Windows ones: `sudo` asks
+   for this password.
+3. It installs Git, Make, Python and OpenSSL in Ubuntu.
+4. It offers to install Docker Desktop with `winget`, starts it, and connects it to Ubuntu. At work, Docker Desktop can
+   need your company's subscription, and your IT may install it for you.
+5. It clones the lab in Ubuntu's own disk, in `~/gravitee-lab`: the containers read a folder of Windows slowly.
+6. It adds **Gravitee Lab** to the Start menu, which opens the Lab UI next time, then starts the Lab UI.
+
+Run it again at any time: it skips what is done and never deletes anything. Keep its window open while you use the lab:
+Ctrl+C stops the Lab UI, and the containers keep running. `GRAVITEE_LAB_DISTRO` names another distribution to use. The
+commands of this page run in Ubuntu: open it from the Start menu, then `cd ~/gravitee-lab`. PowerShell, cmd and Git Bash
+cannot run the lab. Items that run AI models through Ollama on Windows are untested.
+
+To do it yourself: run `wsl --install`, install [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/)
+and turn on your distribution in its Settings > Resources > WSL integration, install the tools in the distribution as on
+Linux, then clone in `~/gravitee-lab` and run `make ui` there. [Windows and WSL 2](troubleshooting.md#windows-and-wsl-2)
+has the details.
 
 ## Run it
 

@@ -345,10 +345,17 @@ Windows is supported through WSL 2 only. Native PowerShell, `cmd` and Git Bash a
 macOS with Apple silicon. Linux and WSL 2 are expected to work, so tell us what you find. Items that run AI models through
 Ollama on Windows are untested.
 
-- **Run everything in WSL.** Open an Ubuntu distribution, install the tools with `sudo apt install git make
-  openssl python3`, then clone and run `make ui` there.
+- **Run everything in WSL.** `install.ps1` sets it up ([Windows with WSL 2](installation.md#windows-with-wsl-2)). To
+  do it yourself, open an Ubuntu distribution, install the tools with `sudo apt install git make openssl python3`, then
+  clone and run `make ui` there.
 - **Docker.** Use Docker Desktop with WSL integration turned on for your distribution, or Docker Engine inside it.
-  Check `docker compose version` inside WSL.
+  Check `docker compose version` inside WSL. The Lab UI's first step starts Docker Desktop when it is stopped.
+- **Docker Desktop lost Ubuntu.** When the distribution restarts (`wsl --shutdown`, `wsl --terminate`), Docker Desktop
+  stops serving it until Docker Desktop restarts, and may say "Restart the WSL integration". Click **Reconnect** in the
+  Lab UI's first step, or run `docker desktop restart` in PowerShell.
+- **The `docker` of Windows in WSL.** Without the integration, `docker` in the distribution is Docker Desktop's command
+  for Windows, which only says to turn the integration on: turn it on in Docker Desktop's Settings > Resources > WSL
+  integration.
 - **Clone in the Linux filesystem**, for example in `~/gravitee-lab`, not under `/mnt/c`. Access under `/mnt/c` is
   slow, and it does not reliably keep the Unix permissions that the certificates and `.env` rely on.
 - **Memory.** Docker's memory comes from WSL. Create `%UserProfile%\.wslconfig` with the lines below, then run `wsl
@@ -359,7 +366,7 @@ Ollama on Windows are untested.
   memory=12GB
   ```
 
-- **Browser.** Open http://localhost:9000 in your Windows browser. If `make ui` opens no browser, open it yourself.
+- **Browser.** `make ui` opens http://localhost:9000 in your Windows browser. If it opens none, open it yourself.
 - **Hosts file.** A client of an add-on that asks for host names, such as a Kafka client, that runs on Windows reads
   `C:\Windows\System32\drivers\etc\hosts`. Edit it as an administrator. The add-on's README has the names.
 
@@ -394,6 +401,10 @@ Docker pulls the images, so Docker needs the proxy: set it in Docker Desktop, or
 UI reads `HTTP_PROXY` and `HTTPS_PROXY` from the shell that started it, for the plugin catalog, the image tags and the
 checks of other hosts, such as huggingface.co. Addresses on this machine (`localhost`, `127.0.0.1`, `::1`), such as the
 check for Ollama, never go through the proxy.
+
+A proxy that inspects HTTPS signs each site with your company's certificate. Windows trusts it, a Linux of WSL does not, so
+`git clone` and the catalogs fail with a certificate error. Ask your IT for that certificate (a `.crt` file in PEM), then in
+the distribution run `sudo cp company.crt /usr/local/share/ca-certificates/ && sudo update-ca-certificates`.
 
 Without internet, once the images are pulled and the apps are built, the platform runs. These degrade:
 
