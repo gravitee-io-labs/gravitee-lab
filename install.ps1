@@ -6,8 +6,9 @@
 # It uses what the laptop has and adds only what is missing: WSL, a distribution (an Ubuntu or a Debian already there,
 # else Ubuntu) and its Linux user, the tools the lab needs in it, a Docker that answers in it (Docker Desktop when there is
 # none), the clone in ~/gravitee-lab, a Gravitee Lab shortcut in the Start menu, then the Lab UI. It asks before it changes
-# what was there (a distribution of WSL 1, a Docker Desktop that runs containers), and never deletes anything. Run it again
-# at any time, also after a restart it asks for.
+# what was there (a distribution of WSL 1, a Docker Desktop that runs containers, the certificates the distribution trusts),
+# and never deletes anything. What keeps it from going on (a VPN, a proxy that inspects HTTPS, a port taken on Windows) it
+# says in a line. Run it again at any time, also after a restart it asks for.
 #
 # GRAVITEE_LAB_DISTRO names the distribution to use, GRAVITEE_LAB_BRANCH the branch to clone.
 # Written for Windows PowerShell 5.1, the one every Windows has, in ASCII: it reads no other encoding without a byte
@@ -21,6 +22,8 @@
     $repository = 'https://github.com/gravitee-io-labs/gravitee-lab.git'
     $branch = if ($env:GRAVITEE_LAB_BRANCH) { $env:GRAVITEE_LAB_BRANCH } else { 'main' }
     $help = 'https://github.com/gravitee-io-labs/gravitee-lab/blob/main/docs/installation.md#windows-with-wsl-2'
+    $network = 'https://github.com/gravitee-io-labs/gravitee-lab/blob/main/docs/troubleshooting.md#windows-and-wsl-2'
+    $command = 'irm https://raw.githubusercontent.com/gravitee-io-labs/gravitee-lab/main/install.ps1 | iex'
     $steps = 6
 
     function Step($number, $text) { Write-Host ''; Write-Host "[$number/$steps] $text" -ForegroundColor Cyan }
@@ -32,6 +35,11 @@
         Write-Host "Help: $help"
     }
     function Yes($question) { (Read-Host "      $question [y/N]") -match '^[yY]' }
+    # A stop for a step the person finishes outside, a restart or a sign-out: the command to run next, in the clipboard too
+    function Again($text) {
+        Halt $text
+        try { Set-Clipboard -Value $command; Write-Host "Then run: $command   (in your clipboard)" } catch { Write-Host "Then run: $command" }
+    }
 
     # A script for sh in the distribution, passed in base64: Windows PowerShell 5.1 loses the quotes of an argument it
     # gives a program, and writes CRLF line ends to its input. The default user runs it unless a user is named. It gets no
@@ -96,8 +104,55 @@
 
     function WindowsDocker($cli) { & $cli info *> $null; return $LASTEXITCODE -eq 0 }
 
+    # Whether the distribution resolves the names of sites: without, apt and git wait minutes before they fail
+    function Resolves { [bool](Linux 'timeout 20 getent hosts github.com >/dev/null && echo yes') }
+    $noNames = "cannot resolve the names of sites while Windows can, which a VPN often causes."
+
+    # Why the distribution does not reach a site that Windows reaches, from what git or apt said: names it cannot resolve
+    # (a VPN often), the certificate of a proxy that inspects HTTPS, which it does not trust, or the network
+    function Unreachable([string]$said) {
+        if (-not (Resolves)) { return "$distro $noNames" }
+        if ($said -match 'certificate|SSL') { return "$distro does not trust the certificate of the sites it reaches." }
+        return "$distro cannot reach the internet. Behind a proxy, WSL needs it too."
+    }
+
+    # The root certificate that Windows trusts for github.com: behind a proxy that inspects HTTPS, the company's own
+    function WindowsRoot {
+        try {
+            $tcp = New-Object Net.Sockets.TcpClient('github.com', 443)
+            try {
+                $ssl = New-Object Net.Security.SslStream($tcp.GetStream())
+                $ssl.AuthenticateAsClient('github.com')
+                $chain = New-Object Security.Cryptography.X509Certificates.X509Chain
+                [void]$chain.Build((New-Object Security.Cryptography.X509Certificates.X509Certificate2 $ssl.RemoteCertificate))
+                return $chain.ChainElements[$chain.ChainElements.Count - 1].Certificate
+            } finally { $tcp.Close() }
+        } catch { return $null }
+    }
+
+    # That certificate added to the ones the distribution trusts, once the person says yes: whether it was
+    function TrustWindowsRoot {
+        $root = WindowsRoot
+        if (-not $root) { return $false }
+        Say "A proxy of your company inspects HTTPS with the certificate $($root.GetNameInfo('SimpleName', $false)). Windows trusts it, $distro does not."
+        if (-not (Yes "Add it to the certificates $distro trusts?")) { return $false }
+        $pem = "-----BEGIN CERTIFICATE-----`n" + ([Convert]::ToBase64String($root.RawData, 'InsertLineBreaks') -replace "`r", '') + "`n-----END CERTIFICATE-----`n"
+        Linux ("command -v update-ca-certificates >/dev/null || DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ca-certificates >/dev/null; " +
+            "mkdir -p /usr/local/share/ca-certificates && printf '%s' '$pem' > /usr/local/share/ca-certificates/windows-$($root.Thumbprint).crt && " +
+            'update-ca-certificates >/dev/null 2>&1') 'root' | Out-Null
+        return $LASTEXITCODE -eq 0
+    }
+
     Write-Host 'Gravitee Lab for Windows' -ForegroundColor White
     Write-Host 'It uses what this computer has, adds what is missing, and asks before it changes anything you set up.'
+
+    # WSL, a distribution, Docker Desktop and the images of the platform take about 25 GB of the disk of Windows
+    $free = [math]::Floor((Get-PSDrive $env:SystemDrive.TrimEnd(':')).Free / 1GB)
+    if ($free -lt 25) {
+        Write-Host ''
+        Say "$env:SystemDrive has $free GB free, and the lab takes about 25 GB with the images of the platform."
+        if (-not (Yes 'Go on anyway?')) { return Halt 'Free some space, then run this command again.' }
+    }
 
     # 1. WSL. `wsl --version` answers only from the WSL of the Store, the one Docker Desktop needs
     Step 1 'WSL 2'
@@ -108,7 +163,7 @@
         if ($install.ExitCode -ne 0) {
             return Halt 'WSL did not install. Turn on virtualization in the firmware of this computer if WSL says so, then run this command again.'
         }
-        return Halt 'WSL is installed. Restart Windows, then run this command again.'
+        return Again 'WSL is installed. Restart Windows.'
     }
     Ok 'WSL is installed'
 
@@ -156,9 +211,12 @@
     $missing = Linux 'for tool in git make python3 openssl; do command -v $tool >/dev/null || printf "%s " $tool; done'
     if ($missing) {
         if (-not (Linux 'command -v apt-get' 'root')) { return Halt "Install $missing in $distro, then run this command again." }
+        if (-not (Resolves)) { return Halt "$distro $noNames See $network" }
         Say "Installing $missing"
-        Linux "export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq $missing >/dev/null" 'root'
-        if ($LASTEXITCODE -ne 0) { return Halt "The tools did not install in $distro. Is the internet reachable from it?" }
+        $said = Linux "export DEBIAN_FRONTEND=noninteractive; apt-get update -qq 2>&1 && apt-get install -y -qq $missing 2>&1 >/dev/null" 'root'
+        if ($LASTEXITCODE -ne 0) {
+            return Halt "The tools did not install. $(Unreachable ($said -join ' ')) See $network"
+        }
     }
     Ok 'All there'
 
@@ -181,7 +239,9 @@
             & winget.exe install --exact --id Docker.DockerDesktop --source winget
             $cli = DesktopCli
             if (-not $cli) { return Halt 'Docker Desktop did not install.' }
-            Say 'If Windows asks you to sign out to finish the install of Docker Desktop, do it, then run this command again.'
+            if (-not (whoami /groups | Select-String -SimpleMatch 'docker-users' -Quiet) -and (Get-LocalGroup docker-users -ErrorAction SilentlyContinue)) {
+                return Again 'Docker Desktop is installed. Sign out of Windows and in again, so that it lets you use it.'
+            }
         }
         if (-not (WindowsDocker $cli)) {
             Say 'Starting Docker Desktop. The first time, accept its agreement in its window.'
@@ -227,10 +287,10 @@
     } elseif (Linux 'test -e ~/gravitee-lab && echo yes') {
         return Halt "~/gravitee-lab in $distro holds something else. Move it, then run this command again."
     } else {
-        Linux "git clone --quiet --branch $branch $repository ~/gravitee-lab"
-        if ($LASTEXITCODE -ne 0) {
-            return Halt 'The clone failed. Behind a proxy that inspects HTTPS, Linux needs the certificate of your company: see Corporate proxy in docs/troubleshooting.md.'
-        }
+        $clone = "git clone --quiet --branch $branch $repository ~/gravitee-lab 2>&1"
+        $said = Linux $clone
+        if ($LASTEXITCODE -ne 0 -and ($said -join ' ') -match 'certificate|SSL' -and (TrustWindowsRoot)) { $said = Linux $clone }
+        if ($LASTEXITCODE -ne 0) { return Halt "The clone failed. $(Unreachable ($said -join ' ')) See $network" }
         Ok 'Cloned'
     }
     # Its path, not ~: PowerShell 7 makes ~ the folder of Windows before wsl.exe reads it
@@ -240,11 +300,21 @@
     Step 6 'Shortcut'
     $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'Gravitee Lab.lnk'
     $link = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcut)
-    $link.TargetPath = Join-Path $env:SystemRoot 'System32\wsl.exe'
-    $link.Arguments = "-d $distro --cd $lab -- make ui"
+    # In a window named Gravitee Lab, which stays open on an error so that it can be read
+    $link.TargetPath = Join-Path $env:SystemRoot 'System32\cmd.exe'
+    $link.Arguments = "/c title Gravitee Lab && wsl.exe -d $distro --cd $lab -- make ui || pause"
+    $link.IconLocation = (Join-Path $env:SystemRoot 'System32\wsl.exe') + ',0'
     $link.Description = 'Opens the Gravitee Lab UI'
     $link.Save()
     Ok 'Gravitee Lab is in the Start menu: it opens the Lab UI next time'
+
+    # Port 9000 held on Windows by another program: the browser would find that program in place of the Lab UI, which
+    # listens in the distribution and reaches Windows through WSL's relay
+    $holder = Get-NetTCPConnection -LocalPort 9000 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+    $name = if ($holder) { (Get-Process -Id $holder.OwningProcess -ErrorAction SilentlyContinue).ProcessName }
+    if ($name -and $name -notmatch '^wsl') {
+        return Halt "Port 9000, the Lab UI's, is used by $name on Windows. Stop it, then run this command again."
+    }
 
     Write-Host ''
     Write-Host 'Opening the Lab UI in your browser. Keep this window open while you use it: Ctrl+C stops the Lab UI, and the containers keep running.' -ForegroundColor Green

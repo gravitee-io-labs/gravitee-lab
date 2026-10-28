@@ -66,6 +66,19 @@ Ctrl+C stops the Lab UI, and the containers keep running. `GRAVITEE_LAB_DISTRO` 
 commands of this page run in the distribution: open it from the Start menu, then `cd ~/gravitee-lab`. PowerShell, cmd
 and Git Bash cannot run the lab. Items that run AI models through Ollama on Windows are untested.
 
+To read the script before it runs, download it, open it, then run it:
+
+```powershell
+irm https://raw.githubusercontent.com/gravitee-io-labs/gravitee-lab/main/install.ps1 -OutFile install.ps1
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+When something stops it (a VPN, a proxy of your company, a port taken on Windows), it says why and links to
+[Windows and WSL 2](troubleshooting.md#windows-and-wsl-2).
+
 To do it yourself: run `wsl --install`, install [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/)
 and turn on your distribution in its Settings > Resources > WSL integration, install the tools in the distribution as on
 Linux, then clone in `~/gravitee-lab` and run `make ui` there. [Windows and WSL 2](troubleshooting.md#windows-and-wsl-2)
@@ -124,7 +137,7 @@ Run `make init` once before a `docker compose` command that you type yourself: `
 - **Stop the Lab UI**: press Ctrl+C in its terminal. The containers keep running.
 - **Stop the containers**: run `make stop`, or click **Stop** on the Containers page. The data stays.
 - **Update**: click **Update to** in the menu when a newer version is out ([Versions of the Lab](lab-ui.md#versions-of-the-lab)). From a terminal, or for a clone with changes of its own: stop the platform with `make stop`, run `make update` (a fast-forward `git pull`, then the download of the catalogs and the move of your settings if the layout changed: see [Updating a Lab from before catalogs](catalogs.md#updating-a-lab-from-before-catalogs)), then `make ui`. **Update** on the Containers page pulls newer images of the versions you chose.
-- **Remove**: run `make reset` to delete the containers, the data volumes and what the seeds recorded (a seed is a one-time job that creates a playground's sample APIs and users; `make reset` asks first), then delete the folder. To start clean and keep the folder, run `make reset` and start again, or use **Reset** in the Containers page's menu, which also turns off the playground that is on. On Linux, containers can leave files that your user cannot delete (in `plugins/` and in the `.state/` folders of the installed playgrounds): if `rm` says "Permission denied", use `sudo rm -rf`. To free the disk, `docker image prune -a` removes every image that no container uses, also those of other projects.
+- **Remove**: run `make reset` to delete the containers, the data volumes and what the seeds recorded (a seed is a one-time job that creates a playground's sample APIs and users; `make reset` asks first), then delete the folder. To start clean and keep the folder, run `make reset` and start again, or use **Reset** in the Containers page's menu, which also turns off the playground that is on. On Linux, containers can leave files that your user cannot delete (in `plugins/` and in the `.state/` folders of the installed playgrounds): if `rm` says "Permission denied", use `sudo rm -rf`. To free the disk, `docker image prune -a` removes every image that no container uses, also those of other projects. On Windows, run `make reset` in the distribution, delete `~/gravitee-lab` there and **Gravitee Lab** from the Start menu; `install.ps1` leaves WSL, the distribution and Docker Desktop, which you may use for other things: remove them from Windows' Settings > Apps if you do not.
 
 ## Help
 

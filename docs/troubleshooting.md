@@ -367,6 +367,19 @@ Ollama on Windows are untested.
   ```
 
 - **Browser.** `make ui` opens http://localhost:9000 in your Windows browser. If it opens none, open it yourself.
+- **A VPN.** A VPN often keeps WSL from resolving the names of sites while Windows resolves them: `apt`, `git clone` and
+  the catalogs fail, and `install.ps1` says so. Add the lines below to `%UserProfile%\.wslconfig`, run `wsl --shutdown`
+  in PowerShell, then start Docker Desktop and the command again. If it still fails, add `networkingMode=mirrored` under
+  the same heading.
+
+  ```ini
+  [wsl2]
+  dnsTunneling=true
+  ```
+
+- **A port held by a program of Windows.** Docker Desktop publishes the platform's ports on Windows, so a database or a
+  server installed on Windows that listens on one of them keeps the platform from starting. The Lab UI's first step names
+  the port. Port 9000, the Lab UI's, held on Windows sends the browser to that program: `install.ps1` names it.
 - **Hosts file.** A client of an add-on that asks for host names, such as a Kafka client, that runs on Windows reads
   `C:\Windows\System32\drivers\etc\hosts`. Edit it as an administrator. The add-on's README has the names.
 
@@ -403,8 +416,9 @@ checks of other hosts, such as huggingface.co. Addresses on this machine (`local
 check for Ollama, never go through the proxy.
 
 A proxy that inspects HTTPS signs each site with your company's certificate. Windows trusts it, a Linux of WSL does not, so
-`git clone` and the catalogs fail with a certificate error. Ask your IT for that certificate (a `.crt` file in PEM), then in
-the distribution run `sudo cp company.crt /usr/local/share/ca-certificates/ && sudo update-ca-certificates`.
+`git clone` and the catalogs fail with a certificate error. `install.ps1` finds the certificate Windows trusts for github.com
+and, once you say yes, adds it to the distribution. To do it yourself, ask your IT for that certificate (a `.crt` file in
+PEM), then in the distribution run `sudo cp company.crt /usr/local/share/ca-certificates/ && sudo update-ca-certificates`.
 
 Without internet, once the images are pulled and the apps are built, the platform runs. These degrade:
 
