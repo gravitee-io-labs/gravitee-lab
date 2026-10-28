@@ -111,6 +111,8 @@ linux_tools() {
         newer='python313 python312 python311 python310 python39'
     elif command -v pacman > /dev/null 2>&1; then
         install='pacman -S --needed --noconfirm'
+        # A system that never synced its databases (a new container) syncs them first, and upgrades nothing
+        ls /var/lib/pacman/sync/*.db > /dev/null 2>&1 || install="pacman -Sy --noconfirm && $install"
         packages=$(echo "$gone" | sed 's/python3/python/')
     elif command -v apk > /dev/null 2>&1; then
         install='apk add --quiet'
