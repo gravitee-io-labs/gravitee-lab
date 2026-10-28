@@ -160,7 +160,7 @@ docker_cli() {
 # A folder as a person reads it: ~ for the home folder
 shown() {
     case $1 in
-        "$HOME"/*) echo "~/${1#"$HOME"/}" ;;
+        "$HOME"/*) printf '~/%s\n' "${1#"$HOME"/}" ;;
         *) echo "$1" ;;
     esac
 }
