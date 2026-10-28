@@ -2,6 +2,7 @@
 adding or removing plugins in the folder the host shares with them."""
 
 import hashlib
+import http.client
 import re
 import shutil
 import time
@@ -21,6 +22,7 @@ DOWNLOADS = "https://download.gravitee.io"
 ZIP = re.compile(r"^(?P<name>.+?)-(?P<version>\d+\.\d+[^/]*)\.zip$")
 PLUGIN_PATH = re.compile(r"(graviteeio-[a-z]+/|graviteeio-ee/[a-z]+/|)plugins/[a-z-]+/[A-Za-z0-9._-]+/")
 CHUNK = 64 * 1024   # a download is read by pieces, so that the job says how far it is
+DOWNLOAD_TRIES = 3   # a plugin download cut short or refused by a server error is tried again, then fails
 
 # The plugin zips of a folder with their modification times; nothing, and no error, when it has none
 STAT_SCRIPT = 'for f in "$0"/*.zip; do [ -e "$f" ] && stat -c "%Y %n" "$f"; done; true'
@@ -262,28 +264,52 @@ def _downloads(names):
 
 def _download(job, folder, plugin, version):
     """Downloads a plugin version into the shared folder as a hidden .part file, which no product loads, its SHA-1
-    checked: answers that file, for _place(). Nothing is left of a download that failed, was cut short or does not
-    match its checksum."""
+    checked: answers that file, for _place(). A download cut short, or that the site fails to serve (a 5xx, the network),
+    is tried again, up to DOWNLOAD_TRIES times: a nightly test must not fail on a transfer. Nothing is left of a download
+    that failed."""
     folder.mkdir(parents=True, exist_ok=True)
     url, unit = f"{DOWNLOADS}/{plugin['path']}{version['file']}", ("Download", plugin["name"])
     job.lines.append(f"Downloading {version['file']} ({max(1, version['size'] // 1024)} KB)")
-    part, digest = folder / f".{version['file']}.part", hashlib.sha1()
-    try:
-        with urllib.request.urlopen(url, timeout=120) as response, open(part, "wb") as f:
-            read = 0
-            for chunk in iter(lambda: response.read(CHUNK), b""):
-                f.write(chunk)
-                digest.update(chunk)
-                read += len(chunk)
-                job.unit(unit, read / max(read, version["size"]))   # the listing may give no size
-        expected = _published_sha1(url)
-        if expected and digest.hexdigest() != expected:
-            raise JobFailed(f"{version['file']}: checksum mismatch, download discarded")
-    except BaseException:
-        part.unlink(missing_ok=True)
-        raise
+    part = folder / f".{version['file']}.part"
+    for attempt in range(1, DOWNLOAD_TRIES + 1):
+        try:
+            expected = _fetch_part(job, url, part, unit, version["size"])
+            break
+        except BaseException as error:
+            part.unlink(missing_ok=True)
+            if attempt == DOWNLOAD_TRIES or not _transient(error):
+                raise
+            job.lines.append(f"  Downloading again: {error}")
+            time.sleep(2 ** attempt)
     job.lines.append("  SHA-1 verified" if expected else "  No published checksum")
     return part
+
+
+def _fetch_part(job, url, part, unit, size):
+    """One try of _download(): the file in `part`, checked against the SHA-1 the site publishes, which it answers."""
+    digest = hashlib.sha1()
+    with urllib.request.urlopen(url, timeout=120) as response, open(part, "wb") as f:
+        read = 0
+        for chunk in iter(lambda: response.read(CHUNK), b""):
+            f.write(chunk)
+            digest.update(chunk)
+            read += len(chunk)
+            job.unit(unit, read / max(read, size))   # the listing may give no size
+    expected = _published_sha1(url)
+    if expected and digest.hexdigest() != expected:
+        raise Mismatch(f"{part.name[1:-len('.part')]}: checksum mismatch, download discarded")
+    return expected
+
+
+class Mismatch(JobFailed):
+    """A download whose SHA-1 is not the published one: cut short, most of the time."""
+
+
+def _transient(error):
+    """Whether a failed download may work when tried again: cut short, a server error, the network. Not a 4xx."""
+    if isinstance(error, urllib.error.HTTPError):
+        return error.code >= 500
+    return isinstance(error, (Mismatch, urllib.error.URLError, http.client.HTTPException, ConnectionError, TimeoutError))
 
 
 def _place(job, folder, plugin, version, part):

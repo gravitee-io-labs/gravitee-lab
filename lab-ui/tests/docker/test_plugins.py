@@ -405,14 +405,43 @@ class Installed(Case):
         class Broken(io.BytesIO):
             def read(self, size=-1):
                 raise TimeoutError("timed out")
+        slept = self.patch(plugins.time, "sleep")
         for answers, error in (({url: b"zip", url + ".sha1": b"0000  x\n"}, JobFailed),
-                               ({url: Broken()}, TimeoutError)):
-            opened = {asked: answer if isinstance(answer, io.BytesIO) else io.BytesIO(answer)
-                      for asked, answer in answers.items()}
-            self.patch(plugins.urllib.request, "urlopen", lambda asked, timeout: opened[asked])
+                               ({url: Broken}, TimeoutError)):
+            self.patch(plugins.urllib.request, "urlopen", lambda asked, timeout, answers=answers:
+                       answers[asked]() if callable(answers[asked]) else io.BytesIO(answers[asked]))
             with self.assertRaises(error):
                 plugins._download(Job("Plugins", []), folder, plugin, {"file": file, "size": 3})
             self.assertEqual(list(folder.iterdir()), [], error)
+        self.assertEqual([c.args for c in slept.call_args_list], [(2,), (4,)] * 2, "tried three times, each")
+
+    def test_a_download_cut_short_is_tried_again(self):
+        content, file = b"0123456789" * 4, "gravitee-policy-x-1.2.0.zip"
+        sha1 = f"{hashlib.sha1(content).hexdigest()}  {file}\n".encode()
+        served = iter([content[:12], content])   # the first transfer ends early, as a dropped connection does
+        self.patch(plugins.urllib.request, "urlopen",
+                   lambda asked, timeout: io.BytesIO(sha1 if asked.endswith(".sha1") else next(served)))
+        self.patch(plugins.time, "sleep")
+        job, folder = Job("Plugins", []), self.root / "plugins/apim"
+        job.unit = lambda name, fraction: None
+        plugin = {"name": "gravitee-policy-x", "path": "plugins/policies/gravitee-policy-x/"}
+        part = plugins._download(job, folder, plugin, {"file": file, "size": 40})
+        self.assertEqual(part.read_bytes(), content)
+        self.assertEqual(job.lines[-2:], [f"  Downloading again: {file}: checksum mismatch, download discarded",
+                                          "  SHA-1 verified"])
+
+    def test_a_plugin_the_site_does_not_have_is_not_asked_again(self):
+        file = "gravitee-policy-x-1.2.0.zip"
+        asked = []
+
+        def missing(url, timeout):
+            asked.append(url)
+            raise plugins.urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+        self.patch(plugins.urllib.request, "urlopen", missing)
+        plugin = {"name": "gravitee-policy-x", "path": "plugins/policies/gravitee-policy-x/"}
+        with self.assertRaises(plugins.urllib.error.HTTPError):
+            plugins._download(Job("Plugins", []), self.root / "plugins/apim", plugin, {"file": file, "size": 3})
+        self.assertEqual(len(asked), 1)
 
     def test_a_missing_plugin_is_downloaded_then_the_product_stops(self):
         present = {"bundled": {"gravitee-policy-a": {}}, "bundled_error": None, "ext": {}}
