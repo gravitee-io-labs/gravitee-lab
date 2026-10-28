@@ -65,26 +65,37 @@ missing() {
 }
 
 # macOS: Apple's command line tools bring git, make and python3, and the system has openssl. Without them, their commands are
-# stubs that open the install window: it is opened once, then the tools are waited for
+# stubs that open the install window. The window is opened once, brought to the front (it opens behind the terminal), and
+# followed: the tools once they are there, a Cancel or a failed install (a full disk) as soon as the window closes
 mac_tools() {
     if xcode-select -p > /dev/null 2>&1 && [ -z "$(missing)" ]; then
         ok 'All there'
         return
     fi
     if ! xcode-select -p > /dev/null 2>&1; then
+        installer='/System/Library/CoreServices/Install Command Line Developer Tools.app'
         xcode-select --install > /dev/null 2>&1
         say "macOS opens a window for its command line tools: click Install, then Agree. About 1 GB, a few minutes."
         say 'Waiting for them...'
+        seen=0
         waited=0
         until xcode-select -p > /dev/null 2>&1; do
-            sleep 5
-            waited=$((waited + 5))
-            [ $waited -lt 3600 ] || halt "The command line tools did not install. If the window said the software could not be installed, free some disk space, then run this command again." '#macos'
+            if pgrep -f "$installer" > /dev/null 2>&1; then
+                seen=$((seen + 1))
+                # Its window opens behind the terminal: brought forward once it is drawn
+                [ $seen != 2 ] || open -a "$installer" 2> /dev/null
+            elif [ $seen -gt 0 ] || [ $waited -ge 30 ]; then
+                sleep 3   # the tools are written just before the window closes
+                xcode-select -p > /dev/null 2>&1 && break
+                halt "The command line tools are not installed: their window was closed before the end, or macOS could not install them (they need a few GB of free disk). Run this command again to try again." '#macos'
+            fi
+            sleep 2
+            waited=$((waited + 2))
         done
     fi
     gone=$(missing)
     [ -z "$gone" ] || halt "The command line tools are installed and ${gone}is still missing. Run: sudo xcode-select --reset, then run this command again." '#macos'
-    ok 'All there'
+    ok 'Installed'
 }
 
 # Linux: what is missing, from the package manager, as root through sudo. Each manager has its own name for Python
