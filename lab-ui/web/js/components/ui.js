@@ -547,7 +547,10 @@ const popover = (lines) => lines.length > 1 || String(lines[0] ?? "").length > L
 export function tipHtml(inner, line, cls = "", label = "", { title = true, tab = true, said = "", short = false } = {}) {
   const lines = typeof line === "object" && !Array.isArray(line) ? null : [].concat(line);
   const card = lines ? (popover(lines) ? cardOf(lines, title) : null) : line;
-  const words = said || (lines ? lines.map((one, i) => (i < lines.length - 1 ? one.replace(/\.$/, "") : one)).join(". ") : cardSaid(card));
+  // A card titled with the name of its control is said once: the name, then the rest of the card
+  const told = lines && label && lines.length > 1 && lines[0] === label ? lines.slice(1) : lines;
+  const words = said || (told ? told.map((one, i) => (i < told.length - 1 ? one.replace(/\.$/, "") : one)).join(". ")
+    : cardSaid(label && card.title === label ? { ...card, title: "" } : card));
   const bubble = card ? `<span class="tip-card" role="tooltip"${card.action ? "" : ' aria-hidden="true"'}>${cardHtml(card)}</span>`
     : `<span class="tip-text" role="tooltip" aria-hidden="true"><span>${esc(lines[0])}</span></span>`;
   const names = short ? `aria-label="${esc(label)}" aria-description="${esc(words)}"` : `aria-label="${esc(label ? `${label}: ${words}` : words)}"`;

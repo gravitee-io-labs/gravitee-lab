@@ -66,6 +66,8 @@ test("one line is a tooltip; several lines are a popover whose first line is its
   assert.deepEqual([root.querySelector(".tip-card").getAttribute("role"), root.querySelector(".tip-card").getAttribute("aria-hidden")], ["tooltip", "true"]);
   assert.equal(root.querySelector(".tip-btn").getAttribute("aria-label"), "Images. 58.9 GB, 42.7 GB unused. A volume can hold data.");
   assert.equal(draw(tipHtml("CPU", ["Load", "Of the cores"], "", "CPU")).querySelector(".tip-btn").getAttribute("aria-label"), "CPU: Load. Of the cores");
+  assert.equal(draw(tipHtml("Up to date", ["Up to date", "4.13.1 is the latest release"], "", "Up to date")).querySelector(".tip-btn").getAttribute("aria-label"),
+    "Up to date: 4.13.1 is the latest release", "a title that is the name of its control is said once");
   // Lines of equals (what is wrong, a line for each product) have no title
   const apart = draw(tipHtml("x", [`API Management: ${WHY}`, `Alert Engine: ${WHY}`], "", "", { title: false }));
   assert.equal(text(apart.querySelector(".pop-title")), "");
