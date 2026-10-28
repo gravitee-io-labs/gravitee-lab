@@ -117,14 +117,17 @@
         Write-Host "  $command" -ForegroundColor Cyan
         Write-Host ''
     }
-    # A question about something the person set up: no unless they say yes
-    function Yes($question) {
+    # A question, asked as install.sh asks: what the lab lacks is installed unless the person says no (-Missing), what they set
+    # up is changed only when they say yes
+    function Yes($question, [switch]$Missing) {
         if ($env:GRAVITEE_LAB_YES -eq '1') { return $true }
         Write-Host '  ' -NoNewline
         Write-Host '?' -ForegroundColor Cyan -NoNewline
         Write-Host " $question " -NoNewline
-        Write-Host '(y/N) ' -ForegroundColor DarkGray -NoNewline
-        (Read-Host) -match '^[yY]'
+        Write-Host $(if ($Missing) { '(Y/n) ' } else { '(y/N) ' }) -ForegroundColor DarkGray -NoNewline
+        $answer = Read-Host
+        if ($Missing) { return $answer -notmatch '^\s*[nN]' }
+        return $answer -match '^\s*[yY]'
     }
 
     # The live line of a step that waits: drawn again every quarter of a second, the answer asked every 3 seconds. A Ctrl+C
@@ -318,6 +321,9 @@
     $distro = Choose $wsl
     $since = Get-Date
     if ($wsl.Names -notcontains $distro) {
+        if (-not (Yes "The Lab runs in a Linux of WSL. Install $distro from the Microsoft Store?" -Missing)) {
+            return Halt '' "Install a Linux distribution (wsl --install -d Ubuntu), or name yours in GRAVITEE_LAB_DISTRO, then run this command again."
+        }
         $done = Run $distro "Installing $distro from the Microsoft Store" 'wsl.exe' @('--install', '-d', $distro, '--no-launch')
         if ($done.Code -ne 0) { return Halt $distro "$distro did not install: wsl.exe says why above." '' $done.Said }
     }
@@ -376,7 +382,7 @@
             if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) {
                 return Halt '' 'Install Docker Desktop (https://docs.docker.com/desktop/setup/install/windows-install/), then run this command again.'
             }
-            if (-not (Yes 'Install Docker Desktop now with winget? Windows asks for administrator rights')) {
+            if (-not (Yes 'Install Docker Desktop with winget? Windows asks for administrator rights' -Missing)) {
                 return Halt '' 'Install Docker Desktop, then run this command again.'
             }
             # In this window: winget shows its download, says that Windows asks next, and asks itself for what it needs

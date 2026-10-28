@@ -349,7 +349,9 @@ Ollama on Windows are untested.
   do it yourself, open an Ubuntu distribution, install the tools with `sudo apt install git make openssl python3`, then
   clone and run `make ui` there.
 - **Docker.** Use Docker Desktop with WSL integration turned on for your distribution, or Docker Engine inside it.
-  Check `docker compose version` inside WSL. The Lab UI's first step starts Docker Desktop when it is stopped.
+  Check `docker compose version` inside WSL. The Lab UI's first step starts Docker Desktop when it is stopped. A new
+  Docker Desktop (4.97 and later) serves no distribution until it is turned on in its Settings > Resources > WSL
+  integration: `install.ps1` turns yours on.
 - **Docker Desktop lost Ubuntu.** When the distribution restarts (`wsl --shutdown`, `wsl --terminate`), Docker Desktop
   stops serving it until Docker Desktop restarts, and may say "Restart the WSL integration". Click **Reconnect** in the
   Lab UI's first step, or run `docker desktop restart` in PowerShell.

@@ -61,7 +61,7 @@ On Windows, see [Windows with WSL 2](#windows-with-wsl-2). To install by hand, s
 
 Clone outside folders synced by OneDrive, iCloud Drive or Google Drive: containers write into the clone, and a sync client can lock or rewrite those files.
 
-**Tested on** macOS (Apple silicon), and Windows 11 with WSL 2 and Docker Desktop from `install.ps1`, by the maintainer. CI runs the checks and the tests on Ubuntu. Linux is expected to work.
+**Tested on** macOS (Apple silicon), and Windows 11 from a computer with no WSL and no Docker through `install.ps1`, by the maintainer. CI runs the checks and the tests on Ubuntu. Linux is expected to work.
 
 ### macOS
 
@@ -91,8 +91,8 @@ what your computer has and adds only what is missing:
 
 1. It installs WSL if it is not there, and asks you to restart Windows and to run the command again, which it puts in your
    clipboard. Windows asks for administrator rights.
-2. It uses your Ubuntu or Debian distribution, the default one first, and installs Ubuntu when you have none. A new
-   Ubuntu asks for a user name and a password for Linux. They are not your Windows ones: `sudo` asks for this password.
+2. It uses your Ubuntu or Debian distribution, the default one first, and asks, then installs Ubuntu when you have none.
+   A new Ubuntu asks for a user name and a password for Linux. They are not your Windows ones: `sudo` asks for this password.
    It asks before it moves a distribution of WSL 1 to WSL 2.
 3. It uses the Docker that answers in the distribution, Docker Desktop or Docker Engine. Without one, it offers to
    install Docker Desktop with `winget`: at work, Docker Desktop can need your company's subscription, and your IT may
@@ -102,9 +102,9 @@ what your computer has and adds only what is missing:
 4. It checks that the distribution reaches the internet as Windows does: a VPN that keeps it from resolving names is said
    at once, and the certificate of a proxy of your company that inspects HTTPS is offered to the distribution.
 5. It adds **Gravitee Lab** to the Start menu, which opens the Lab UI next time.
-6. `install.sh` runs in the distribution: it installs the tools it lacks among Git, Make, Python and OpenSSL (as root
-   through WSL: no password to type), clones the lab in `~/gravitee-lab`, in the distribution's own disk, makes its
-   settings and the command `gravitee-lab`, then opens the Lab UI.
+6. `install.sh` runs in the distribution: it asks, then installs the tools it lacks among Git, Make, Python and OpenSSL
+   (as root through WSL: no password to type), clones the lab in `~/gravitee-lab`, in the distribution's own disk, makes
+   its settings and the command `gravitee-lab`, then opens the Lab UI.
 
 Run it again at any time: it skips what is done and never deletes anything. Keep its window open while you use the lab:
 Ctrl+C stops the Lab UI, and the containers keep running. `GRAVITEE_LAB_DISTRO` names the distribution to use, and the
