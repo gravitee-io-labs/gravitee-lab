@@ -1,8 +1,10 @@
 """library/machine.py: what this machine needs to run the lab, each need with its state and its fix, from what the commands
 answer (stood in for here): Docker not there, there and stopped, with a Compose older than 5.0, short of memory; the ports of
-the platform held by another program; Git missing. A fix runs here only on a Mac; a link or a command to copy otherwise."""
+the platform held by another program; Git missing; in WSL, Docker Desktop for Windows stopped, lost or never told to serve the
+distribution, and a lab on a disk of Windows. A fix runs here on a Mac and in WSL; a link or a command to copy otherwise."""
 
 from pathlib import Path
+from unittest import mock
 
 from lab_ui.catalogs.registry import CatalogError
 from lab_ui.library import machine
@@ -18,6 +20,7 @@ HEALTHY = {
     ("/usr/bin/xcode-select", "-p"): (0, "/Library/Developer/CommandLineTools", ""),
     ("pgrep", "-f"): (1, "", ""),   # the app that runs Docker is not open
 }
+DESKTOP = "/mnt/c/Program Files/Docker/Docker/resources/bin/docker.exe"   # Docker Desktop's command for Windows, seen from WSL
 
 
 class Machine(Case):
@@ -103,6 +106,74 @@ class Machine(Case):
         docker = self.check("docker")
         self.assertEqual(docker["actions"], [{"id": "start-docker", "label": "Copy the command", "primary": True,
                                               "copy": "sudo systemctl start docker"}])
+
+    def in_wsl(self, status="running", linked=False):
+        """WSL with Docker Desktop for Windows in this state, and its command for Windows as the `docker` of the distribution
+        until its integration links the real one"""
+        self.patch(machine, "system", return_value="wsl")
+        self.patch(machine, "docker_app", return_value=None)
+        self.patch(machine, "desktop_cli", return_value=DESKTOP)
+        self.patch(machine.shutil, "which", side_effect=lambda name: "/mnt/c/Program Files/Docker/Docker/resources/bin/docker")
+        self.patch(machine.os.path, "islink", side_effect=lambda path: linked and path == machine.DESKTOP_LINK)
+        self.answers[(DESKTOP, "desktop")] = (0, f"Name                Value\nStatus              {status}\n", "")
+        self.start(mock.patch.dict(machine.os.environ, {"WSL_DISTRO_NAME": "Ubuntu"}))
+
+    def test_in_wsl_docker_desktop_for_windows_is_started_from_here_and_said_as_starting(self):
+        self.in_wsl(status="stopped")
+        docker = self.check("docker")
+        self.assertEqual((docker["state"], docker["detail"], docker["actions"][0]["label"]),
+                         ("error", "Docker Desktop is not running", "Start Docker Desktop"))
+        machine.act("start-desktop")
+        self.assertIn([DESKTOP, "desktop", "start", "--detach"], self.ran)
+        self.assertEqual((self.check("docker")["state"], self.check("docker")["detail"]), ("working", "Docker Desktop is starting"))
+        self.assertFalse(machine.report(fresh=True)["ready"], "the platform waits for Docker")
+
+    def test_in_wsl_docker_desktop_that_lost_the_distribution_is_reconnected_by_a_restart(self):
+        self.in_wsl(linked=True)   # the link of its integration is left: it served Ubuntu, and Ubuntu restarted since
+        docker = self.check("docker")
+        self.assertEqual((docker["state"], docker["detail"], docker["actions"][0]["label"]),
+                         ("error", "Docker Desktop lost Ubuntu", "Reconnect"))
+        machine.act("reconnect-desktop")
+        self.assertIn([DESKTOP, "desktop", "restart", "--detach"], self.ran)
+        self.assertEqual(self.check("docker")["detail"], "Docker Desktop is connecting to Ubuntu")
+
+    def test_in_wsl_docker_desktop_that_never_served_the_distribution_says_where_to_turn_it_on(self):
+        self.in_wsl()
+        docker = self.check("docker")
+        self.assertEqual((docker["state"], docker["detail"]),
+                         ("error", "Docker Desktop does not serve Ubuntu: turn it on in Settings > Resources > WSL integration"))
+        machine.act("open-desktop")
+        self.assertIn(["/mnt/c/Program Files/Docker/Docker/Docker Desktop.exe"], self.ran, "its window, not a restart")
+        self.assertEqual(self.check("docker")["state"], "error", "nothing is on its way until the person turns it on")
+
+    def test_in_wsl_the_docker_of_the_distribution_that_does_not_answer_is_docker_desktop_s_to_start(self):
+        self.in_wsl(status="stopped")
+        self.patch(machine.shutil, "which", side_effect=lambda name: f"/usr/bin/{name}")
+        self.answers[("docker", "info")] = (1, "", "Cannot connect to the Docker daemon")
+        self.assertEqual(self.check("docker")["detail"], "Docker Desktop is not running")
+        self.patch(machine, "desktop_cli", return_value=None)   # Docker Engine in the distribution
+        docker = self.check("docker")
+        self.assertEqual((docker["detail"], docker["actions"][0]["copy"]), ("Docker is not running", "sudo systemctl start docker"))
+
+    def test_in_wsl_without_docker_desktop_its_install_is_the_fix(self):
+        self.in_wsl()
+        self.patch(machine, "desktop_cli", return_value=None)
+        self.answers[("docker", "--version")] = (127, "", "")
+        docker = self.check("docker")
+        self.assertEqual((docker["detail"], docker["actions"][0]["href"]), ("Docker is not installed", machine.DOCKER_DESKTOP_WINDOWS))
+
+    def test_in_wsl_the_disk_is_the_one_of_windows_and_a_lab_on_it_is_a_warning(self):
+        seen = []
+        self.patch(machine.shutil, "disk_usage", side_effect=lambda where: seen.append(Path(where)) or type("U", (), {"free": 9e11})())
+        self.patch(machine, "system", return_value="wsl")
+        self.patch(machine, "WINDOWS_DISK", str(self.folder()))
+        self.check("disk")
+        self.assertEqual(seen[-1], Path(machine.WINDOWS_DISK), "the distribution's own disk grows as it is written")
+        self.assertNotIn("folder", [c["id"] for c in machine.report(fresh=True)["checks"]])
+        self.patch(machine.paths, "ROOT", Path("/mnt/c/Users/me/gravitee-lab"))
+        folder = self.check("folder")
+        self.assertEqual((folder["state"], folder["detail"], folder["actions"][0]["copy"]),
+                         ("warn", "On a disk of Windows, which the containers read slowly", machine.CLONE))
 
     def test_a_compose_older_than_5_keeps_the_platform_from_starting(self):
         self.answers[("docker", "compose")] = (0, "2.29.7", "")
