@@ -198,9 +198,33 @@
 
     function DesktopApp($cli) { Join-Path (Split-Path (Split-Path (Split-Path $cli))) 'Docker Desktop.exe' }
 
+    # Docker Desktop's settings, in the person's Roaming folder: among them, the distributions it serves
+    $desktopSettings = Join-Path $env:APPDATA 'Docker\settings-store.json'
+    # Whether Docker Desktop's settings name the distribution, or say to serve the default one and it is that one
+    function Integrated($name) {
+        try { $set = Get-Content -Raw $desktopSettings -ErrorAction Stop | ConvertFrom-Json } catch { return $false }
+        if (@($set.IntegratedWslDistros) -contains $name) { return $true }
+        return [bool]$set.EnableIntegrationWithDefaultWslDistro -and (Distributions).Default -eq $name
+    }
+    # The distribution added to those Docker Desktop serves, written while it is stopped (it writes its settings when it
+    # ends), in UTF-8 with no byte order mark as it writes them: whether it was
+    function Integrate($name) {
+        try {
+            $set = Get-Content -Raw $desktopSettings -ErrorAction Stop | ConvertFrom-Json
+            $names = @(@($set.IntegratedWslDistros) | Where-Object { $_ -and $_ -ne $name }) + $name
+            $set | Add-Member -Force -NotePropertyName IntegratedWslDistros -NotePropertyValue $names
+            [IO.File]::WriteAllText($desktopSettings, ($set | ConvertTo-Json -Depth 32))
+            return $true
+        } catch { return $false }
+    }
+
     function LinuxDocker { Linux 'docker info >/dev/null 2>&1' | Out-Null; return $LASTEXITCODE -eq 0 }
 
-    function WindowsDocker($cli) { & $cli info *> $null; return $LASTEXITCODE -eq 0 }
+    # A program whose error output is not wanted: Windows PowerShell 5.1 shows it as its own red error even when it is
+    # redirected, unless errors are silent while the program runs
+    function Silently([scriptblock]$run) { $ErrorActionPreference = 'SilentlyContinue'; & $run }
+
+    function WindowsDocker($cli) { Silently { & $cli info *> $null }; return $LASTEXITCODE -eq 0 }
 
     # Whether the distribution resolves the names of sites: without, apt and git wait minutes before they fail
     function Resolves { [bool](Linux 'timeout 20 getent hosts github.com >/dev/null && echo yes') }
@@ -326,20 +350,25 @@
     if (-not (LinuxDocker)) {
         $since = Get-Date
         $cli = DesktopCli
+        $fresh = $false   # installed by this run: none of its settings is the person's yet
         if (-not $cli -and (Linux 'command -v dockerd')) {
             return Halt 'Docker' "Docker Engine is installed in $distro and does not answer: start it (sudo service docker start), then run this command again."
         }
         if (-not $cli) {
-            Warned 'Docker' 'Docker Desktop is not installed. At work, your company may need a Docker subscription, and your IT may install it for you'
+            Warned 'Docker' 'Docker Desktop is not installed'
+            Note 'At work, Docker Desktop can need a subscription of your company, and your IT may install it for you.'
             if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) {
                 return Halt '' 'Install Docker Desktop (https://docs.docker.com/desktop/setup/install/windows-install/), then run this command again.'
             }
             if (-not (Yes 'Install Docker Desktop now with winget? Windows asks for administrator rights')) {
                 return Halt '' 'Install Docker Desktop, then run this command again.'
             }
+            # In this window: winget shows its download, says that Windows asks next, and asks itself for what it needs
             & winget.exe install --exact --id Docker.DockerDesktop --source winget
+            $since = Get-Date
             $cli = DesktopCli
-            if (-not $cli) { return Halt 'Docker' 'Docker Desktop did not install.' }
+            if (-not $cli) { return Halt 'Docker' 'Docker Desktop did not install: winget says why above.' }
+            $fresh = $true
             if (-not (whoami /groups | Select-String -SimpleMatch 'docker-users' -Quiet) -and (Get-LocalGroup docker-users -ErrorAction SilentlyContinue)) {
                 return Again 'Docker' 'Docker Desktop is installed: sign out of Windows and in again, so that it lets you use it'
             }
@@ -350,30 +379,46 @@
                 return Halt 'Docker' 'Docker Desktop did not start. Open it, then run this command again.'
             }
         }
-        $served = WaitFor { LinuxDocker } 30 'Docker' "Waiting for Docker Desktop to serve $distro" $since
+        # Docker's own distribution as the default one of WSL is none to work in: `wsl` opens this one instead
         $wsl = Distributions
-        if (-not $served -and (-not $wsl.Default -or $wsl.Default -like 'docker-desktop*')) {
-            # Docker Desktop serves the default distribution, and its own is no distribution to work in
-            & wsl.exe --set-default $distro | Out-Null
-            $wsl = Distributions
-            $served = WaitFor { LinuxDocker } 30 'Docker' "$distro is the default of WSL now, which Docker Desktop serves" $since
+        if (-not $wsl.Default -or $wsl.Default -like 'docker-desktop*') { & wsl.exe --set-default $distro | Out-Null }
+
+        $served = WaitFor { LinuxDocker } 20 'Docker' "Waiting for Docker Desktop to serve $distro" $since
+        # Docker Desktop serves the distributions its settings name, and a new one serves no other: it is turned on in its
+        # settings, read once Docker Desktop stops. A Docker Desktop that was here is the person's: asked first
+        if (-not $served -and -not (Integrated $distro)) {
+            $running = @(Silently { & $cli ps -q 2> $null }).Count
+            if (-not $fresh) {
+                Warned 'Docker' "Docker Desktop does not serve $distro$(if ($running) { ", and turning it on stops the $running containers that run now" })"
+                if (-not (Yes "Turn on $distro in the WSL integration of Docker Desktop? It restarts")) {
+                    return Halt '' "Turn on $distro in Docker Desktop's Settings > Resources > WSL integration, then run this command again."
+                }
+            }
+            Silently { & $cli desktop stop --detach *> $null }
+            [void](WaitFor { -not (WindowsDocker $cli) } 120 'Docker' "Turning on $distro in Docker Desktop" $since)
+            if (Integrate $distro) {
+                Silently { & $cli desktop start --detach *> $null }
+                $served = WaitFor { LinuxDocker } 180 'Docker' "Starting Docker Desktop with $distro" $since
+            } else {
+                Start-Process (DesktopApp $cli)
+            }
         }
         # It served the distribution and lost it (a link of its integration is left), which it does each time the distribution
-        # restarts, or it serves the default one and has not seen it yet: a restart of Docker Desktop serves it again
-        if (-not $served -and ($wsl.Default -eq $distro -or (Linux 'test -L /usr/bin/docker && echo yes'))) {
-            $running = @(& $cli ps -q 2> $null).Count
+        # restarts: a restart of Docker Desktop serves it again
+        if (-not $served -and (Linux 'test -L /usr/bin/docker && echo yes')) {
+            $running = @(Silently { & $cli ps -q 2> $null }).Count
             if ($running) {
                 Warned 'Docker' "Docker Desktop must restart to reach $distro, which stops the $running containers that run now"
                 if (-not (Yes 'Restart Docker Desktop now?')) {
                     return Halt '' 'Restart Docker Desktop when you can, then run this command again.'
                 }
             }
-            & $cli desktop restart --detach *> $null
+            Silently { & $cli desktop restart --detach *> $null }
             $served = WaitFor { LinuxDocker } 120 'Docker' 'Restarting Docker Desktop' $since
         }
         if (-not $served) {
             Start-Process (DesktopApp $cli)
-            Note "In Docker Desktop, open Settings > Resources > WSL integration, turn on $distro, then Apply"
+            Note "In Docker Desktop, open Settings > Resources > WSL integration, turn on $distro, then Apply."
             if (-not (WaitFor { LinuxDocker } 900 'Docker' "Waiting for $distro in the WSL integration" $since)) {
                 return Halt 'Docker' "Docker Desktop does not serve $distro yet."
             }
