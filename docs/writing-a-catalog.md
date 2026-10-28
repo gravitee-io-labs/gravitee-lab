@@ -202,8 +202,33 @@ pull requests that change that unit, never an unrelated one, and the night finds
 databases once for each architecture of the job, which adds about a minute; the scan of an image takes seconds. `make ci` runs the same
 scan on your machine.
 
-`catalog.py new --with e2e` adds `e2e.yml`, the end-to-end run, which needs a license. When the standard moves,
-`catalog.py upgrade` brings the new workflows in as a reviewed pull request.
+`catalog.py new --with e2e` adds `e2e.yml`, the end-to-end run, which needs a license, and `versions.yml`, which keeps what each
+playground says it was tested with up with Gravitee's releases. When the standard moves, `catalog.py upgrade` brings the new
+workflows in as a reviewed pull request.
+
+### Gravitee versions
+
+Every night `versions.yml` tries each playground on the releases of Gravitee it does not say it was tested with yet: the newest
+release of each of the five newest minor versions, and a pre-release above them all. A version below what the playground requires
+(`requires.images`) is never tried, nor a set it has already, nor a playground whose sets are builds of its own (`amp-demo-latest`,
+a registry other than Docker Hub's). Each one starts on a machine with no lab, with the license, as the end-to-end run does.
+
+What works is written in the playground's `tested`: a newer release replaces the set of its minor version, a minor version that
+falls out of the five newest goes, and a pre-release goes once a release of its minor version is there. The workflow commits that to
+`main` and tags it as the next patch version, so that every Lab sees it at its next check. What does not work opens an issue,
+labeled `versions`, or adds to the one that is open.
+
+The commit and the tag go past the rules of `main` and of the tags with a deploy key: the rulesets of the standard let a deploy key
+through, and the job that holds it runs nothing of the catalog. To give it the key, in the repository's folder:
+
+```bash
+ssh-keygen -t ed25519 -N '' -C versions -f versions-key
+gh repo deploy-key add versions-key.pub --allow-write --title versions
+gh secret set VERSIONS_DEPLOY_KEY --env versions < versions-key
+rm versions-key versions-key.pub
+```
+
+The environment `versions` deploys from `main` only, as `repo-settings` checks; `make settings APPLY=1` applies the rulesets again.
 
 You can run the same stages on your machine: `make check`, `make ci`, `make index` (see `.catalog/standard.mk`). Never run
 `make` or a script from a contributor's checkout: `catalog.py check --pr N` reads the pull request's Git objects instead.

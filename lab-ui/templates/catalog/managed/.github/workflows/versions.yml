@@ -144,6 +144,7 @@ jobs:
         working-directory: catalog
         env:
           VERSIONS_DEPLOY_KEY: ${{ secrets.VERSIONS_DEPLOY_KEY }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           [ -n "$VERSIONS_DEPLOY_KEY" ] || { echo "::error::The secret VERSIONS_DEPLOY_KEY is not set in the environment versions"; exit 1; }
           version=$(python3 -I ../lab/lab-ui/catalog.py ci versions-release .)
@@ -153,7 +154,7 @@ jobs:
           git tag -a "v$version" -m "v$version"
           key="$RUNNER_TEMP/versions-key" hosts="$RUNNER_TEMP/github-hosts"
           (umask 077; printf '%s\n' "$VERSIONS_DEPLOY_KEY" > "$key")
-          curl -fsS https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com " + .' > "$hosts"
+          gh api meta --jq '.ssh_keys[] | "github.com " + .' > "$hosts"
           GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o UserKnownHostsFile=$hosts -o StrictHostKeyChecking=yes" \
             git push "git@github.com:$GITHUB_REPOSITORY.git" HEAD:refs/heads/main "refs/tags/v$version"
           rm -f "$key"

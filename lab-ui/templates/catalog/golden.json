@@ -231,7 +231,7 @@
         ".github/workflows/e2e.yml": "20e36117306f752c4d299db6837e558c1e36532cb5d55be7b5b7704ec9076aee",
         ".github/workflows/nightly.yml": "a171ae9fef2194945a41c8f262ca70fb67d2d5d19f9ea36fe81fe1af9fbfef1e",
         ".github/workflows/publish.yml": "af567bd06c8f4941d0fb4d0feffb9496c87c3e3efe3b9a7960f57e42764ca335",
-        ".github/workflows/versions.yml": "65aed66e2f70446326b39877fd43ca292fa51a985a7d7c459e59a9aec252ebbd"
+        ".github/workflows/versions.yml": "b473aa32759d3cb2a81bf95b62532aa1033c332670d5f6f5843dca8349608e21"
       },
       "seeded": {
         ".editorconfig": "3ef94e38d92460d7ded2ec6648e69658bd02858cab1e0ab9465ef59a9fc09d3c",
