@@ -331,7 +331,7 @@
                 return Halt $distro "$name cannot be a Linux user name: lowercase letters, digits, _ and -, starting with a letter. Run this command again."
             }
             & wsl.exe -d $distro -u root -- adduser '--gecos=' $name
-            if ($LASTEXITCODE -eq 0) { Linux "usermod -aG sudo $name && printf '\n[user]\ndefault=$name\n' >> /etc/wsl.conf" 'root' | Out-Null }
+            if ($LASTEXITCODE -eq 0) { Linux "usermod -aG sudo $name 2>/dev/null; printf '\n[user]\ndefault=$name\n' >> /etc/wsl.conf" 'root' | Out-Null }
         }
         $user = Linux 'getent passwd | awk -F: ''$3 >= 1000 && $3 < 65534 { print $1; exit }''' 'root'
         if (-not $user) { return Halt $distro "$distro has no Linux user yet. Run this command again to create one." }
@@ -390,7 +390,7 @@
             $running = @(Silently { & $cli ps -q 2> $null }).Count
             if (-not $fresh) {
                 Warned 'Docker' "Docker Desktop does not serve $distro$(if ($running) { ", and turning it on stops the $running containers that run now" })"
-                if (-not (Yes "Turn on $distro in the WSL integration of Docker Desktop? It restarts")) {
+                if (-not (Yes "Turn on $distro in Docker Desktop's WSL integration? Docker Desktop restarts")) {
                     return Halt '' "Turn on $distro in Docker Desktop's Settings > Resources > WSL integration, then run this command again."
                 }
             }

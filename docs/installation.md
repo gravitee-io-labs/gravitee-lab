@@ -96,9 +96,9 @@ what your computer has and adds only what is missing:
    It asks before it moves a distribution of WSL 1 to WSL 2.
 3. It uses the Docker that answers in the distribution, Docker Desktop or Docker Engine. Without one, it offers to
    install Docker Desktop with `winget`: at work, Docker Desktop can need your company's subscription, and your IT may
-   install it for you. It starts Docker Desktop and connects it to the distribution. It asks before it restarts Docker
-   Desktop while containers run, and makes the distribution the default of WSL only when the default was Docker
-   Desktop's own.
+   install it for you. It starts Docker Desktop and turns the distribution on in its WSL integration, which a new Docker
+   Desktop leaves off: when Docker Desktop was already there, it asks first, and says how many running containers its
+   restart stops. When the default distribution of WSL is Docker Desktop's own, the distribution becomes the default.
 4. It checks that the distribution reaches the internet as Windows does: a VPN that keeps it from resolving names is said
    at once, and the certificate of a proxy of your company that inspects HTTPS is offered to the distribution.
 5. It adds **Gravitee Lab** to the Start menu, which opens the Lab UI next time.
