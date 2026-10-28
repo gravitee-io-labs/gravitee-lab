@@ -168,6 +168,21 @@ class Machine(Case):
         docker = self.check("docker")
         self.assertEqual((docker["detail"], docker["actions"][0]["href"]), ("Docker is not installed", machine.DOCKER_DESKTOP_WINDOWS))
 
+    def test_in_wsl_a_port_a_program_of_windows_holds_is_named_and_one_the_lab_holds_is_not(self):
+        self.in_wsl()
+        self.answers[("docker", "--version")] = (0, "Docker version 29.8.2", "")   # Docker Desktop serves the distribution
+        self.patch(machine.shutil, "which", side_effect=lambda name: f"/usr/bin/{name}")
+        self.answers[("netstat.exe", "-ano")] = (0, "\r\nActive Connections\r\n\r\n  Proto  Local Address  Foreign Address  State\r\n"
+                                                    "  TCP    0.0.0.0:135            0.0.0.0:0              LISTENING       1780\r\n"
+                                                    "  TCP    127.0.0.1:9200         0.0.0.0:0              LISTENING       15956\r\n"
+                                                    "  TCP    127.0.0.1:27017        0.0.0.0:0              LISTENING       4242\r\n"
+                                                    "  TCP    127.0.0.1:9000         127.0.0.1:49500        TIME_WAIT       0\r\n", "")
+        ports = self.check("ports")   # 9200 is the lab's own Elasticsearch, published by Docker Desktop
+        self.assertEqual((ports["state"], ports["detail"]),
+                         ("warn", "27017 (MongoDB) is used by another program: stop it before the platform starts"))
+        self.patch(machine, "system", return_value="mac")
+        self.assertEqual(self.check("ports")["state"], "ok", "netstat.exe is asked in WSL only")
+
     def test_in_wsl_the_disk_is_the_one_of_windows_and_a_lab_on_it_is_a_warning(self):
         seen = []
         self.patch(machine.shutil, "disk_usage", side_effect=lambda where: seen.append(Path(where)) or type("U", (), {"free": 9e11})())

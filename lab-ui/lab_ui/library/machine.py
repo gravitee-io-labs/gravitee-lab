@@ -39,6 +39,8 @@ DESKTOP_WINDOWS_BIN = "/mnt/c/Program Files/Docker/Docker/resources/bin"
 # served and lost, which it does each time the distribution restarts, until Docker Desktop restarts
 DESKTOP_LINK = "/usr/bin/docker"
 WINDOWS_DISK = "/mnt/c"
+# A line of `netstat -ano -p TCP` for a port listened on, on the loopback or on every address of Windows
+WINDOWS_LISTENING = re.compile(r"^\s*TCP\s+(?:127\.0\.0\.1|0\.0\.0\.0):(\d+)\s+0\.0\.0\.0:0\s", re.MULTILINE)
 # A lab folder on a disk of Windows, seen from WSL: the containers read it slowly, and it does not keep the permissions of
 # the certificates and the .env
 WINDOWS_DRIVE = re.compile(r"^/mnt/[a-z]/")
@@ -288,6 +290,16 @@ def _taken(port):
     return False
 
 
+def _windows_ports():
+    """In WSL, the TCP ports that a program of Windows listens on, on the loopback or on every address: Docker Desktop
+    publishes the containers' ports there, where the distribution does not see them. Read from netstat, whose lines are
+    the same in every language of Windows but their headings: a listening line has the remote address 0.0.0.0:0."""
+    if system() != "wsl":
+        return set()
+    rc, out, _ = compose.run(["netstat.exe", "-ano", "-p", "TCP"], timeout=10)
+    return {int(port) for port in WINDOWS_LISTENING.findall(out)} if rc == 0 else set()
+
+
 def _ports(info):
     title = "Ports"
     if not info:
@@ -296,7 +308,8 @@ def _ports(info):
     if not ports:
         return _check("ports", "idle", title, "Known once the platform's file loads")
     ours = _lab_ports() if info else set()
-    busy = sorted(port for port in ports if port not in ours and _taken(port))
+    windows = _windows_ports()
+    busy = sorted(port for port in ports if port not in ours and (port in windows or _taken(port)))
     if not busy:
         return _check("ports", "ok", title, f"No other program uses the {len(ports)} ports of the platform")
     named = ", ".join(f"{port} ({ports[port]})" for port in busy[:4]) + (" and more" if len(busy) > 4 else "")
