@@ -27,26 +27,64 @@
     $network = 'https://github.com/gravitee-io-labs/gravitee-lab/blob/main/docs/troubleshooting.md#windows-and-wsl-2'
     $command = 'irm https://raw.githubusercontent.com/gravitee-io-labs/gravitee-lab/main/install.ps1 | iex'
 
-    # The look of install.sh, so that the two read as one: two spaces, a mark, the step's name on 13 columns, what it found or
-    # did. Its marks where the console draws them (Windows Terminal, a UTF-8 console), plain ones elsewhere
+    # The look of install.sh, so that the two read as one. A step shows a live line while it works (a spinner, its name on
+    # 13 columns, what it does now, the time), then one line with its outcome: a mark, its name, what it found or did, and its
+    # time from 2s on. A failure shows the last lines of its tool, what to do in red, and where to read more. Its marks where
+    # the console draws them (Windows Terminal, a UTF-8 console), plain ones elsewhere; no live line in a log or in CI
     $fancy = [bool]$env:WT_SESSION -or [Console]::OutputEncoding.CodePage -eq 65001
-    $good, $warn, $bad = if ($fancy) { [string][char]0x2714, [string][char]0x25B2, [string][char]0x2716 } else { '+', '!', 'x' }
+    if ($fancy) {
+        $good, $warn, $bad, $halted, $more = [string][char]0x2714, [string][char]0x25B2, [string][char]0x2716, [string][char]0x25A0, [string][char]0x2026
+        $frames = 0x280B, 0x2819, 0x2839, 0x2838, 0x283C, 0x2834, 0x2826, 0x2827, 0x2807, 0x280F | ForEach-Object { [string][char]$_ }
+    } else {
+        $good, $warn, $bad, $halted, $more = '+', '!', 'x', '-', '...'
+        $frames = '-', '\', '|', '/'
+    }
+    $live = -not [Console]::IsOutputRedirected -and @('', 'false', '0') -contains "$env:CI"
 
-    function Mark($mark, $color, $label, $text) {
+    function Width { try { [Math]::Max(40, [Console]::WindowWidth) } catch { 80 } }
+    # Seconds since a moment, as people read them; nothing under 2s unless asked
+    function Took($since, [switch]$always) {
+        $s = [int]((Get-Date) - $since).TotalSeconds
+        if ($s -lt 2 -and -not $always) { return '' }
+        if ($s -ge 60) { return '{0}m {1:00}s' -f [Math]::Floor($s / 60), ($s % 60) }
+        return "${s}s"
+    }
+    # A text cut to the room it has, with a mark that says so
+    function Fit([string]$text, [int]$room) {
+        if ($text.Length -le $room) { return $text }
+        return $text.Substring(0, [Math]::Max(0, $room - $more.Length)) + $more
+    }
+    # A paragraph folded to the window, each line indented by two
+    function Fold([string]$text) {
+        $line = ''
+        foreach ($word in $text -split ' ') {
+            if ($line -and ($line.Length + 1 + $word.Length) -gt (Width) - 4) { "  $line"; $line = $word } else { $line = (($line, $word) -join ' ').Trim() }
+        }
+        if ($line) { "  $line" }
+    }
+
+    function Mark($mark, $color, $label, $text, $since) {
+        $time = if ($since) { Took $since } else { '' }
         Write-Host '  ' -NoNewline
         Write-Host $mark -ForegroundColor $color -NoNewline
         Write-Host (' {0,-13} ' -f $label) -ForegroundColor White -NoNewline
-        Write-Host $text
+        Write-Host (Fit $text ((Width) - 20 - $time.Length)) -NoNewline
+        if ($time) { Write-Host "  $time" -ForegroundColor DarkGray } else { Write-Host '' }
     }
-    function Passed($label, $text) { Mark $good Green $label $text }
-    function Warned($label, $text) { Mark $warn Yellow $label $text }
-    # What a step does now, for a step that takes a while
-    function Note($text) { Write-Host "    $text" -ForegroundColor DarkGray }
-    # The end: the step that failed, what to do, and where to read more
-    function Halt($label, $text, $more) {
+    function Passed($label, $text, $since) { Mark $good Green $label $text $since }
+    function Warned($label, $text, $since) { Mark $warn Yellow $label $text $since }
+    # What the person does outside this window for a step to go on (a window of Windows, a setting): a line that stays
+    function Note($text) { Fold $text | ForEach-Object { Write-Host "  $_" -ForegroundColor DarkGray } }
+    # The end: the step that failed with the last lines of its tool, what to do, and where to read more
+    function Halt($label, $text, $more, $said) {
         if ($label) { Mark $bad Red $label '' }
+        $lines = @($said | ForEach-Object { "$_" } | Where-Object { $_.Trim() } | Select-Object -Last 6)
+        if ($lines) {
+            Write-Host ''
+            $lines | ForEach-Object { Write-Host "    $(Fit $_ ((Width) - 6))" -ForegroundColor DarkGray }
+        }
         Write-Host ''
-        Write-Host "  $text" -ForegroundColor Red
+        Fold $text | ForEach-Object { Write-Host $_ -ForegroundColor Red }
         Write-Host "  Help: $(if ($more) { $more } else { $help })" -ForegroundColor DarkGray
         Write-Host ''
     }
@@ -61,7 +99,47 @@
         if ($env:GRAVITEE_LAB_YES -eq '1') { return $true }
         Write-Host '  ' -NoNewline
         Write-Host '?' -ForegroundColor Cyan -NoNewline
-        (Read-Host " $question (y/N)") -match '^[yY]'
+        Write-Host " $question " -NoNewline
+        Write-Host '(y/N) ' -ForegroundColor DarkGray -NoNewline
+        (Read-Host) -match '^[yY]'
+    }
+
+    # The live line of a step that waits: drawn again every quarter of a second, the answer asked every 3 seconds. A Ctrl+C
+    # leaves the step on its mark, Stopped, as install.sh does
+    function WaitFor([scriptblock]$answers, [int]$seconds, $label, $text, $since = (Get-Date)) {
+        $start, $n, $ended = (Get-Date), 0, $false
+        try {
+            while (((Get-Date) - $start).TotalSeconds -lt $seconds) {
+                if (& $answers) { $ended = $true; return $true }
+                for ($tick = 0; $tick -lt 12; $tick++) {
+                    if ($live) {
+                        $time = Took $since -always
+                        Write-Host "`r  " -NoNewline
+                        Write-Host $frames[$n++ % $frames.Count] -ForegroundColor Cyan -NoNewline
+                        Write-Host (' {0,-13} ' -f $label) -ForegroundColor White -NoNewline
+                        $shown = Fit $text ((Width) - 21 - $time.Length)
+                        Write-Host $shown -ForegroundColor DarkGray -NoNewline
+                        Write-Host ("  $time".PadRight((Width) - 20 - $shown.Length)) -ForegroundColor DarkGray -NoNewline
+                    }
+                    Start-Sleep -Milliseconds 250
+                }
+            }
+            $ended = $true
+            return $false
+        } finally {
+            if ($live) { Write-Host ("`r" + (' ' * ((Width) - 1)) + "`r") -NoNewline }
+            if (-not $ended) { Mark $halted Yellow $label 'Stopped' $since; Write-Host '' }
+        }
+    }
+
+    # A program of Windows that takes a while, on a live line: its exit code and what it wrote, for a failure to show
+    function Run($label, $text, $program, [string[]]$arguments) {
+        $log = Join-Path $env:TEMP "gravitee-lab-$label.log"
+        $process = Start-Process $program -ArgumentList $arguments -NoNewWindow -PassThru -RedirectStandardOutput $log -RedirectStandardError "$log.err"
+        $null = $process.Handle   # kept, so that the exit code is there once it ends
+        [void](WaitFor { $process.HasExited } 86400 $label $text)
+        $process.WaitForExit()
+        @{ Code = $process.ExitCode; Said = @(Get-Content $log, "$log.err" -ErrorAction SilentlyContinue) }
     }
 
     # A script for sh in the distribution, passed in base64: Windows PowerShell 5.1 loses the quotes of an argument it
@@ -112,23 +190,6 @@
     }
 
     function DesktopApp($cli) { Join-Path (Split-Path (Split-Path (Split-Path $cli))) 'Docker Desktop.exe' }
-
-    # Whether a command answers within the time given, asked every few seconds, on a line that says what is awaited and since
-    # when, redrawn in place in a console and left out of a log
-    function WaitFor([scriptblock]$answers, [int]$seconds, $label, $text) {
-        $since = Get-Date
-        $live = -not [Console]::IsOutputRedirected
-        while (((Get-Date) - $since).TotalSeconds -lt $seconds) {
-            if (& $answers) {
-                if ($live) { Write-Host ("`r" + (' ' * 78) + "`r") -NoNewline }
-                return $true
-            }
-            if ($live) { Write-Host ("`r  {0} {1,-13} {2}  {3}s " -f '.', $label, $text, [int]((Get-Date) - $since).TotalSeconds) -NoNewline }
-            Start-Sleep -Seconds 3
-        }
-        if ($live) { Write-Host '' }
-        return $false
-    }
 
     function LinuxDocker { Linux 'docker info >/dev/null 2>&1' | Out-Null; return $LASTEXITCODE -eq 0 }
 
@@ -206,18 +267,18 @@
     # The distribution and its Linux user
     $wsl = Distributions
     $distro = Choose $wsl
+    $since = Get-Date
     if ($wsl.Names -notcontains $distro) {
-        Note "Installing $distro"
-        $said = & wsl.exe --install -d $distro --no-launch 2>&1
-        if ($LASTEXITCODE -ne 0) { return Halt $distro "$distro did not install: $($said -join ' ')" }
+        $done = Run $distro "Installing $distro from the Microsoft Store" 'wsl.exe' @('--install', '-d', $distro, '--no-launch')
+        if ($done.Code -ne 0) { return Halt $distro "$distro did not install: wsl.exe says why above." '' $done.Said }
     }
     if (-not ((Linux 'uname -r') -match 'WSL2')) {
         Warned $distro 'Runs on WSL 1, and Docker needs WSL 2: its files stay, and the move takes a few minutes'
         if (-not (Yes "Move $distro to WSL 2?")) {
             return Halt $distro "Move $distro to WSL 2 (wsl --set-version $distro 2), or name another distribution in GRAVITEE_LAB_DISTRO, then run this command again."
         }
-        & wsl.exe --set-version $distro 2 | Out-Null
-        if ($LASTEXITCODE -ne 0) { return Halt $distro "$distro could not move to WSL 2." }
+        $done = Run $distro "Moving $distro to WSL 2" 'wsl.exe' @('--set-version', $distro, '2')
+        if ($done.Code -ne 0) { return Halt $distro "$distro could not move to WSL 2: wsl.exe says why above." '' $done.Said }
     }
     $user = Linux 'getent passwd | awk -F: ''$3 >= 1000 && $3 < 65534 { print $1; exit }''' 'root'
     if (-not $user) {
@@ -225,9 +286,19 @@
         if (Linux 'test -x /usr/lib/wsl/wsl-setup && echo yes' 'root') {
             & wsl.exe -d $distro -u root -- /usr/lib/wsl/wsl-setup
         } else {
-            $name = Read-Host '  Linux user name'
-            & wsl.exe -d $distro -u root -- adduser $name
-            Linux "usermod -aG sudo $name && printf '\n[user]\ndefault=$name\n' >> /etc/wsl.conf" 'root'
+            # As Ubuntu's own setup does: a valid name, the one of Windows by default, then its password from adduser
+            $default = ($env:USERNAME.ToLower() -replace '[^a-z0-9_-]', '') -replace '^[^a-z_]+', ''
+            Write-Host '  ' -NoNewline
+            Write-Host '?' -ForegroundColor Cyan -NoNewline
+            Write-Host ' Linux user name ' -NoNewline
+            Write-Host "($default) " -ForegroundColor DarkGray -NoNewline
+            $name = Read-Host
+            if (-not $name) { $name = $default }
+            if ($name -notmatch '^[a-z_][a-z0-9_-]*$') {
+                return Halt $distro "$name cannot be a Linux user name: lowercase letters, digits, _ and -, starting with a letter. Run this command again."
+            }
+            & wsl.exe -d $distro -u root -- adduser '--gecos=' $name
+            if ($LASTEXITCODE -eq 0) { Linux "usermod -aG sudo $name && printf '\n[user]\ndefault=$name\n' >> /etc/wsl.conf" 'root' | Out-Null }
         }
         $user = Linux 'getent passwd | awk -F: ''$3 >= 1000 && $3 < 65534 { print $1; exit }''' 'root'
         if (-not $user) { return Halt $distro "$distro has no Linux user yet. Run this command again to create one." }
@@ -239,11 +310,12 @@
         & wsl.exe --manage $distro --set-default-user $named | Out-Null
         if ($LASTEXITCODE -ne 0) { & wsl.exe --terminate $distro | Out-Null }
     }
-    Passed $distro "user $(Linux 'id -un')"
+    Passed $distro "user $(Linux 'id -un')" $since
 
     # A Docker that answers in the distribution: the one there (Docker Desktop, Docker Engine in it...) is used as it is,
     # and install.sh says so; else Docker Desktop, installed, started and serving it
     if (-not (LinuxDocker)) {
+        $since = Get-Date
         $cli = DesktopCli
         if (-not $cli -and (Linux 'command -v dockerd')) {
             return Halt 'Docker' "Docker Engine is installed in $distro and does not answer: start it (sudo service docker start), then run this command again."
@@ -265,19 +337,17 @@
         }
         if (-not (WindowsDocker $cli)) {
             Start-Process (DesktopApp $cli)
-            Note 'The first time, accept the agreement in the window of Docker Desktop'
-            if (-not (WaitFor { WindowsDocker $cli } 600 'Docker' 'Starting Docker Desktop')) {
+            if (-not (WaitFor { WindowsDocker $cli } 600 'Docker' 'Starting Docker Desktop: the first time, accept its agreement in its window' $since)) {
                 return Halt 'Docker' 'Docker Desktop did not start. Open it, then run this command again.'
             }
         }
-        $served = WaitFor { LinuxDocker } 30 'Docker' "Waiting for Docker Desktop to serve $distro"
+        $served = WaitFor { LinuxDocker } 30 'Docker' "Waiting for Docker Desktop to serve $distro" $since
         $wsl = Distributions
         if (-not $served -and (-not $wsl.Default -or $wsl.Default -like 'docker-desktop*')) {
             # Docker Desktop serves the default distribution, and its own is no distribution to work in
-            Note "$distro becomes the default distribution of WSL, the one Docker Desktop serves"
             & wsl.exe --set-default $distro | Out-Null
             $wsl = Distributions
-            $served = WaitFor { LinuxDocker } 30 'Docker' "Waiting for Docker Desktop to serve $distro"
+            $served = WaitFor { LinuxDocker } 30 'Docker' "$distro is the default of WSL now, which Docker Desktop serves" $since
         }
         # It served the distribution and lost it (a link of its integration is left), which it does each time the distribution
         # restarts, or it serves the default one and has not seen it yet: a restart of Docker Desktop serves it again
@@ -289,17 +359,17 @@
                     return Halt '' 'Restart Docker Desktop when you can, then run this command again.'
                 }
             }
-            & $cli desktop restart *> $null
-            $served = WaitFor { LinuxDocker } 120 'Docker' 'Restarting Docker Desktop'
+            & $cli desktop restart --detach *> $null
+            $served = WaitFor { LinuxDocker } 120 'Docker' 'Restarting Docker Desktop' $since
         }
         if (-not $served) {
             Start-Process (DesktopApp $cli)
             Note "In Docker Desktop, open Settings > Resources > WSL integration, turn on $distro, then Apply"
-            if (-not (WaitFor { LinuxDocker } 900 'Docker' "Waiting for $distro in the WSL integration")) {
+            if (-not (WaitFor { LinuxDocker } 900 'Docker' "Waiting for $distro in the WSL integration" $since)) {
                 return Halt 'Docker' "Docker Desktop does not serve $distro yet."
             }
         }
-        Passed 'Docker' "Docker Desktop serves $distro"
+        Passed 'Docker' "Docker Desktop serves $distro" $since
     }
 
     # What keeps the distribution from the internet while Windows reaches it, said here where Windows can tell: names it does
@@ -343,7 +413,7 @@
     $path = Linux "wslpath -u '$file'"
     $settings = @()
     if (-not $fancy) { $settings += 'LC_CTYPE=C' }   # install.sh draws its marks as this console can, in plain ones then
-    foreach ($name in 'GRAVITEE_LAB_BRANCH', 'GRAVITEE_LAB_DIR', 'GRAVITEE_LAB_REPOSITORY', 'GRAVITEE_LAB_YES', 'GRAVITEE_LAB_NO_START', 'NO_COLOR') {
+    foreach ($name in 'GRAVITEE_LAB_BRANCH', 'GRAVITEE_LAB_DIR', 'GRAVITEE_LAB_REPOSITORY', 'GRAVITEE_LAB_YES', 'GRAVITEE_LAB_NO_START', 'NO_COLOR', 'CI') {
         $value = [Environment]::GetEnvironmentVariable($name)
         if ($value) { $settings += "$name=$value" }
     }
