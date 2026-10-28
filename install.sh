@@ -158,6 +158,7 @@ docker_cli() {
 }
 
 # A folder as a person reads it: ~ for the home folder
+# shellcheck disable=SC2088 # the ~ is what is shown, not a path
 shown() {
     case $1 in
         "$HOME"/*) printf '~/%s\n' "${1#"$HOME"/}" ;;
@@ -178,7 +179,7 @@ clone() {
         halt "$(shown "$lab") holds something else. Move it, or name another folder with GRAVITEE_LAB_DIR, then run this command again."
     fi
     git clone --quiet --branch "$branch" "$repository" "$lab" \
-        || halt "The clone failed. Behind a proxy that inspects HTTPS, git needs the certificate of your company: see Corporate proxy in docs/troubleshooting.md." '#prerequisites'
+        || halt "The clone failed: git says why above. Behind a proxy that inspects HTTPS, git needs the certificate of your company (Corporate proxy, in docs/troubleshooting.md)." '#prerequisites'
     ok 'Cloned'
 }
 
