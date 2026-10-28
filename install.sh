@@ -187,10 +187,14 @@ halt() {
 }
 
 # A question, answered from the terminal: the script itself is what `curl | sh` gives as input. Yes with GRAVITEE_LAB_YES=1;
-# no when there is no terminal to ask in
+# no when there is no terminal to ask in, and then `unasked` says how to answer
 ask() {
+    unasked=''
     [ "${GRAVITEE_LAB_YES:-}" = 1 ] && return 0
-    { true < /dev/tty; } 2> /dev/null || return 1
+    if ! { true < /dev/tty; } 2> /dev/null; then
+        unasked=' With no terminal to ask in, GRAVITEE_LAB_YES=1 answers yes.'
+        return 1
+    fi
     calm
     printf '  %s%s%s %s %s(Y/n)%s %s' "$cyan" "$ask_mark" "$off" "$1" "$dim" "$off" "$show"
     read -r answer < /dev/tty || answer=n
@@ -267,29 +271,27 @@ linux_tools() {
     # A system whose python3 is older than 3.9 ships a later one under another name: the first its manager has is installed
     newer=''
     if command -v apt-get > /dev/null 2>&1; then
-        install='apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y'
+        manager=apt-get install='apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y'
         newer='python3.12 python3.11 python3.10 python3.9'
     elif command -v dnf > /dev/null 2>&1; then
-        install='dnf install -y'
+        manager=dnf install='dnf install -y'
         newer='python3.12 python3.11 python39'
     elif command -v yum > /dev/null 2>&1; then
-        install='yum install -y'
+        manager=yum install='yum install -y'
         newer='python3.11 python39'
     elif command -v zypper > /dev/null 2>&1; then
-        install='zypper --non-interactive install'
+        manager=zypper install='zypper --non-interactive install'
         newer='python313 python312 python311 python310 python39'
     elif command -v pacman > /dev/null 2>&1; then
-        install='pacman -S --needed --noconfirm'
+        manager=pacman install='pacman -S --needed --noconfirm'
         # A system that never synced its databases (a new container) syncs them first, and upgrades nothing
         ls /var/lib/pacman/sync/*.db > /dev/null 2>&1 || install="pacman -Sy --noconfirm && $install"
         packages=$(echo "$gone" | sed 's/python3/python/')
     elif command -v apk > /dev/null 2>&1; then
-        install='apk add'
+        manager=apk install='apk add'
     else
         halt "Install ${gone}with the package manager of this system, then run this command again." '#linux'
     fi
-    manager=${install##*&& }
-    manager=${manager%% *}
     if [ "$(id -u)" = 0 ]; then
         root=''
     elif command -v sudo > /dev/null 2>&1; then
@@ -298,7 +300,7 @@ linux_tools() {
         halt "${gone}is missing and sudo is not here to install it. Install ${gone}as root, then run this command again." '#linux'
     fi
     ask "Install $(echo "$packages" | sed 's/ $//;s/ /, /g') with $manager?" \
-        || halt "Install ${packages}with $manager, then run this command again." '#linux'
+        || halt "Install ${packages}with $manager, then run this command again.$unasked" '#linux'
     if [ -n "$root" ] && ! sudo -n true 2> /dev/null; then
         calm
         printf '%s' "$show"
@@ -348,8 +350,9 @@ clone() {
         fi
         halt "$(shown "$lab") holds something else. Move it, or name another folder with GRAVITEE_LAB_DIR, then run this command again."
     fi
-    quiet git clone --progress --branch "$branch" "$repository" "$lab" \
-        || halt "The clone failed: git says why above. Behind a proxy that inspects HTTPS, git needs the certificate of your company (Corporate proxy, in docs/troubleshooting.md)." '#prerequisites'
+    # A repository that asks for a sign-in (a typo, a private fork) fails at once rather than ask under the live line
+    GIT_TERMINAL_PROMPT=0 quiet git clone --progress --branch "$branch" "$repository" "$lab" \
+        || halt "The clone of $repository failed: git says why above. Behind a proxy that inspects HTTPS, git needs the certificate of your company (Corporate proxy, in docs/troubleshooting.md)." '#prerequisites'
     passed "$(shown "$lab")"
 }
 
@@ -395,7 +398,7 @@ command_on_path() {
         esac
     fi
     fresh=' in a new terminal'
-    passed "gravitee-lab, in new terminals ($(shown "$file") puts ~/.local/bin on the PATH)"
+    passed "gravitee-lab, in new terminals (PATH set in $(shown "$file"))"
 }
 
 # Docker's command: on the PATH, or where Docker Desktop puts it when a terminal opened before it was installed does not
