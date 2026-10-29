@@ -1,5 +1,5 @@
 {
-  "level": 8,
+  "level": 9,
   "files": [
     {"path": ".catalog/standard.mk", "class": "managed", "since": 1, "when": "always", "scope": "full"},
     {"path": ".github/dependabot.yml", "class": "managed", "since": 1, "when": "always", "scope": "full"},
@@ -38,6 +38,42 @@
   ],
   "removed": [],
   "edits": [
+    {
+      "path": ".github/workflows/e2e.yml",
+      "below": 9,
+      "from": [
+        "          printf '\\nGRAVITEE_LICENSE=%s\\n' \"$GRAVITEE_LICENSE\" >> .env",
+        "      # Gravitee's private registry, for an item that pulls from it: logged in when the environment holds a token that reads it",
+        "      - name: Log in to Gravitee's private registry",
+        "        env:",
+        "          REGISTRY_USERNAME: ${{ secrets.GRAVITEE_REGISTRY_USERNAME }}",
+        "          REGISTRY_PASSWORD: ${{ secrets.GRAVITEE_REGISTRY_PASSWORD }}",
+        "        run: |",
+        "          [ -n \"$REGISTRY_USERNAME\" ] || exit 0",
+        "          printf '%s' \"$REGISTRY_PASSWORD\" | docker login graviteeio.azurecr.io --username \"$REGISTRY_USERNAME\" --password-stdin"
+      ],
+      "to": [
+        "          printf '\\nGRAVITEE_LICENSE=%s\\n' \"$GRAVITEE_LICENSE\" >> .env"
+      ]
+    },
+    {
+      "path": ".github/workflows/versions.yml",
+      "below": 9,
+      "from": [
+        "          printf '\\nGRAVITEE_LICENSE=%s\\n' \"$GRAVITEE_LICENSE\" >> .env",
+        "      # Gravitee's private registry, for an item that pulls from it: logged in when the environment holds a token that reads it",
+        "      - name: Log in to Gravitee's private registry",
+        "        env:",
+        "          REGISTRY_USERNAME: ${{ secrets.GRAVITEE_REGISTRY_USERNAME }}",
+        "          REGISTRY_PASSWORD: ${{ secrets.GRAVITEE_REGISTRY_PASSWORD }}",
+        "        run: |",
+        "          [ -n \"$REGISTRY_USERNAME\" ] || exit 0",
+        "          printf '%s' \"$REGISTRY_PASSWORD\" | docker login graviteeio.azurecr.io --username \"$REGISTRY_USERNAME\" --password-stdin"
+      ],
+      "to": [
+        "          printf '\\nGRAVITEE_LICENSE=%s\\n' \"$GRAVITEE_LICENSE\" >> .env"
+      ]
+    },
     {
       "path": ".github/workflows/e2e.yml",
       "below": 8,
@@ -385,6 +421,12 @@
     "8": {
       "summary": "The catalog's own runs on main, the end-to-end one and versions.yml, allow its items to use the machine, each for the reason its x-gravitee.host_access gives, as a person does at Add: what is on main was reviewed. The run of a pull request never does. A playground that needs a privileged cluster is now tried every night like the others. No file is added.",
       "manual": [],
+      "settings": [],
+      "urgent": false
+    },
+    "9": {
+      "summary": "The end-to-end run and versions.yml log in to Gravitee's private registry, graviteeio.azurecr.io, before they start an item, when the environment holds a token that reads it: an item that pulls from it is tried like the others. Without the token nothing changes. No file is added.",
+      "manual": ["When an item pulls from graviteeio.azurecr.io: a token of that registry that only reads (az acr token create --scope-map _repositories_pull), in the environments e2e and e2e-nightly, as GRAVITEE_REGISTRY_USERNAME and GRAVITEE_REGISTRY_PASSWORD."],
       "settings": [],
       "urgent": false
     }

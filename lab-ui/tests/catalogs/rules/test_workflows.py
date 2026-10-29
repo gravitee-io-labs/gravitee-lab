@@ -85,8 +85,9 @@ RULE_TEXT = {
           "as the same-named entry of a caller's `secrets:`; `GITHUB_TOKEN` or `REGISTRY_TOKEN` as the "
           "`password:` of `docker/login-action` in `publish.yml` (and `catalog-publish.yml`, its reusable "
           "counterpart in the Lab); `GRAVITEE_LICENSE` in exactly one step of `e2e.yml` and of `versions.yml`; "
-          "`VERSIONS_DEPLOY_KEY` in the step of `versions.yml` that pushes (`git push --atomic`) and runs no `catalog.py`. Never "
-          "`secrets: inherit`",
+          "`VERSIONS_DEPLOY_KEY` in the step of `versions.yml` that pushes (`git push --atomic`) and runs no `catalog.py`; "
+          "`GRAVITEE_REGISTRY_USERNAME` and `GRAVITEE_REGISTRY_PASSWORD` in the step of `e2e.yml` and of `versions.yml` "
+          "that logs in to `graviteeio.azurecr.io` and runs nothing of the Lab. Never `secrets: inherit`",
     "WF09": "Write permissions only where the file may have them: none in `ci.yml` and `e2e.yml`; `issues` in the "
           "job `report` of `nightly.yml` and of `versions.yml`; `packages` in `images` and `attest`, `id-token` and "
           "`attestations` in `attest`, `contents` in `release`, of `publish.yml`; in the reusable form the single call "
@@ -401,6 +402,15 @@ MUTATIONS = {
         step("e2e", "the license in a second step", ["WF08"], "env:", "  GRAVITEE_LICENSE: ${{ secrets.GRAVITEE_LICENSE }}", "run: echo hi", job="e2e"),
         step("ci", "the license outside the end-to-end module", ["WF08"], "env:", "  GRAVITEE_LICENSE: ${{ secrets.GRAVITEE_LICENSE }}", "run: echo hi"),
         job_key("e2e", "the license for the whole job", ["WF08"], "e2e", "env:", "  GRAVITEE_LICENSE: ${{ secrets.GRAVITEE_LICENSE }}"),
+        step("e2e", "the registry token in a step that runs the Lab", ["WF08"], "env:",
+             "  REGISTRY_PASSWORD: ${{ secrets.GRAVITEE_REGISTRY_PASSWORD }}",
+             "run: docker login graviteeio.azurecr.io && make init", job="e2e"),
+        step("e2e", "the registry token in a step that logs in elsewhere", ["WF08"], "env:",
+             "  REGISTRY_PASSWORD: ${{ secrets.GRAVITEE_REGISTRY_PASSWORD }}", "run: docker login example.com", job="e2e"),
+        step("ci", "the registry token outside the end-to-end module", ["WF08"], "env:",
+             "  REGISTRY_PASSWORD: ${{ secrets.GRAVITEE_REGISTRY_PASSWORD }}", "run: docker login graviteeio.azurecr.io"),
+        step("e2e", "the registry token under another name", ["WF08"], "env:",
+             "  TOKEN: ${{ secrets.GRAVITEE_REGISTRY_PASSWORD }}", "run: docker login graviteeio.azurecr.io", job="e2e"),
         swap("r-ci", "secrets: inherit", ["WF08", "WF16"], SECRETS, "    secrets: inherit\n"),
         swap("r-ci", "a second secret", ["WF08", "WF16"], SECRETS, SECRETS + "      OTHER: ${{ secrets.OTHER }}\n"),
         swap("r-ci", "the Lab key from another secret", ["WF08", "WF16"], SECRETS,
