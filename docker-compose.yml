@@ -130,7 +130,7 @@ services:
   # Alert Engine
 
   alert-engine:
-    image: ${AE_REGISTRY:-graviteeio}/ae-engine:${AE_VERSION:-3.0.2}
+    image: ${AE_REGISTRY:-graviteeio}/ae-engine:${AE_VERSION:-3.0.3}
     container_name: gio-alert-engine
     restart: unless-stopped
     environment:
