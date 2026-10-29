@@ -9,52 +9,102 @@
   <img src="https://img.shields.io/badge/for-local%20demos-orange" alt="For local demos">
 </p>
 
-## Run it
+<p align="center">
+  <b>The whole Gravitee platform on your laptop, with ready-made use cases to try, demo and learn.</b><br>
+  One command to install, then everything is a click.
+</p>
 
-On macOS and Linux, in a terminal:
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/lab-ui-dark.png">
+  <img src="docs/images/lab-ui-light.png" width="100%" alt="The Lab UI with the platform running and a playground open on its guide">
+</picture>
+
+## Get started
+
+You need Docker with 8 GB of memory and 15 GB of free disk. The installer brings the rest.
+
+### 1. Install
+
+**macOS or Linux**, in a terminal:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/gravitee-io-labs/gravitee-lab/main/install.sh | sh
+curl -fsSL https://github.com/gravitee-io-labs/gravitee-lab/raw/main/install.sh | sh
 ```
 
-On Windows, in PowerShell:
+**Windows**, in PowerShell:
 
 ```powershell
 irm https://raw.githubusercontent.com/gravitee-io-labs/gravitee-lab/main/install.ps1 | iex
 ```
 
-Each adds only what is missing (the tools the lab needs, the clone in `~/gravitee-lab`), asks before it installs anything, and
-can run again at any time ([what it does](docs/installation.md#install)). Next time, run `gravitee-lab`, or on Windows open
-**Gravitee Lab** from the Start menu.
+It asks before it installs anything, adds only what is missing and can run again at any time.
+[What it does](docs/installation.md#install).
 
-The [Lab UI](http://localhost:9000) opens in your browser, on its Dashboard. Start the platform, then turn on add-ons, setups or playgrounds from the lists to do even more interesting things. They come from [catalogs](docs/catalogs.md): the Lab downloads the default one the first time it starts.
+<details>
+<summary>Install by hand</summary>
 
-No license is needed to start. [What needs one](docs/installation.md#what-needs-a-license).
+With Git, Make, Python 3.9 or later and OpenSSL ([details](docs/installation.md#prerequisites)):
 
-## Prerequisites
+```bash
+git clone https://github.com/gravitee-io-labs/gravitee-lab.git
+```
 
-Docker with Compose 5.0 or later (8 GB of memory), Git, Make, Python 3.9 or later and OpenSSL, on macOS, Linux or Windows through WSL 2. [Install steps for each system](docs/installation.md#prerequisites).
+```bash
+cd gravitee-lab && make ui
+```
+
+</details>
+
+### 2. Start
+
+The [Lab UI](http://localhost:9000) opens in your browser. Click **Start all**.
+
+The first start downloads about 15 GB of images: allow 10 to 15 minutes.
+
+### 3. Play
+
+Open a console from the **Dashboard**, or pick a playground: a use case with its apps, sample data and a guide that walks
+you through it.
+
+| Console | Sign in |
+|---|---|
+| API Management and Gamma | `admin` / `admin` |
+| Access Management | `admin` / `adminadmin` |
+
+No license is needed to start: [what needs one](docs/installation.md#what-needs-a-license). Stuck? See
+[Troubleshooting](docs/troubleshooting.md).
+
+## Already installed
+
+| To | Do |
+|---|---|
+| Open the Lab UI | Run `gravitee-lab`, or on Windows open **Gravitee Lab** from the Start menu |
+| Update the Lab | Click **Update** in the Lab UI |
+| Stop the containers | Click **Stop** on the Containers page, or run `gravitee-lab stop`. The data stays |
+| See every command | Run `gravitee-lab help` |
+| Remove it | Run `gravitee-lab uninstall`, then [delete the data and the folder](docs/installation.md#stop-update-remove) |
+
+Cloned it yourself? `make ui` in the clone does what `gravitee-lab` does. Run the installer once to get the command: it keeps
+your clone as it is.
 
 ## What is inside
 
-| | |
-|---|---|
-| **Core** | API Management, Access Management, Alert Engine, Gamma and their databases |
-| **[Catalogs](docs/catalogs.md)** | Where everything else comes from. The default one, Gravitee public, holds the playgrounds (a use case with its apps, sample data and a guide) and the add-ons they build on (a tracing console, an authorization server and more); a catalog can also hold setups (several add-ons started together). Add your own or your team's |
+- **The platform**: API Management, Access Management, Alert Engine, Gamma and their databases, ready to use.
+- **Playgrounds**: use cases with their apps, sample data and a guide, from AI agents to event streams.
+- **Add-ons**: one extra capability each, such as a tracing console, an authorization server or Kafka.
+- **Setups**: several add-ons that start and stop as one.
+
+They come from [catalogs](docs/catalogs.md). The Lab downloads the default one the first time it starts, and you can add
+your own or your team's.
 
 ## Learn more
 
-- [Install and run](docs/installation.md)
-- [Lab UI](docs/lab-ui.md)
-- [Configuration](docs/configuration.md)
-- [Gravitee Cloud](docs/cloud.md)
-- [Troubleshooting](docs/troubleshooting.md)
-- [Catalogs](docs/catalogs.md)
-- [Writing a catalog](docs/writing-a-catalog.md)
-- [Reading a failed check](docs/catalog-rules.md)
-- [The format of add-ons, setups and playgrounds](docs/units.md)
-- [Writing a playground](docs/playgrounds.md)
-- [Contributing](CONTRIBUTING.md)
-- [Security](SECURITY.md)
+| Use the Lab | Build for the Lab | Take part |
+|---|---|---|
+| [Install and run](docs/installation.md) | [Catalogs](docs/catalogs.md) | [Contributing](CONTRIBUTING.md) |
+| [Lab UI](docs/lab-ui.md) | [Writing a catalog](docs/writing-a-catalog.md) | [Security](SECURITY.md) |
+| [Configuration](docs/configuration.md) | [Writing a playground](docs/playgrounds.md) | |
+| [Gravitee Cloud](docs/cloud.md) | [Add-ons, setups and playgrounds](docs/units.md) | |
+| [Troubleshooting](docs/troubleshooting.md) | [Reading a failed check](docs/catalog-rules.md) | |
 
 For local demos and learning, not for production. Licensed under the [AGPL-3.0](LICENSE), with the attribution in [NOTICE](NOTICE).

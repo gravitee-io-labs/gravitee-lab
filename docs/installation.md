@@ -14,7 +14,7 @@ whole path: what to install, how to start it, what needs a license, and how to s
 On macOS and Linux, in a terminal, without `sudo`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/gravitee-io-labs/gravitee-lab/main/install.sh | sh
+curl -fsSL https://github.com/gravitee-io-labs/gravitee-lab/raw/main/install.sh | sh
 ```
 
 It uses what your machine has, adds only what is missing, then opens the Lab UI in your browser:
@@ -42,7 +42,7 @@ open while you use the Lab UI: Ctrl+C stops the Lab UI, and the containers keep 
 | `GRAVITEE_LAB_NO_START=1` | Stops before the Lab UI |
 | `NO_COLOR=1` | Prints without colors |
 
-Put a variable before `sh`: `curl -fsSL https://raw.githubusercontent.com/gravitee-io-labs/gravitee-lab/main/install.sh | GRAVITEE_LAB_DIR=~/labs/gravitee sh`.
+Put a variable before `sh`: `curl -fsSL https://github.com/gravitee-io-labs/gravitee-lab/raw/main/install.sh | GRAVITEE_LAB_DIR=~/labs/gravitee sh`.
 
 On Windows, see [Windows with WSL 2](#windows-with-wsl-2). To install by hand, see [Prerequisites](#prerequisites), then
 [Run it](#run-it).
