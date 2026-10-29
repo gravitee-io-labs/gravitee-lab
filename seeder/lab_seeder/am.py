@@ -13,6 +13,9 @@ file says is not saved again: AM reloads a domain or an application on every sav
 (what the tokens carry) is found first and kept as the file says, next to the fields AM adds at the first sign-in.
 An item marked `optional: true` only warns when it fails (typically a feature the license does not include).
 
+With AM_GATEWAY_URL set, the seed ends once the gateway serves the domain and signs in each application that has a
+`clientSecret`, so that a service that starts after it and signs in at once finds them there.
+
 An agent keeps what its kind gives it (grant types, response types, validities): the file adds its `scopes` (the ones it
 may ask a person for), its claims and its redirect URIs. A hosted or autonomous agent starts with a key pair to sign in
 with, which nothing here holds: when the file gives it a `clientSecret`, it signs in with that secret. The secret is the
@@ -376,15 +379,48 @@ class AccessManagement:
                domain=self.domain_id)
         log(SECTION, f"✓ Authorization engine '{spec['name']}' created")
 
+    # --- The gateway ----------------------------------------------------------------------
+
+    def wait_served(self, applications):
+        """Waits until the gateway of AM_GATEWAY_URL serves the domain and knows each of `applications` with its secret.
+        A service that starts once the seed has ended signs in at once, and the gateway takes a new domain or application
+        only at its next synchronization. Without AM_GATEWAY_URL it does not wait."""
+        url = os.getenv("AM_GATEWAY_URL")
+        if not url:
+            return
+        domain = self.api.get(self.domain_url).json()
+        gateway = Api(url.rstrip("/") + (domain.get("path") or "/" + (domain.get("hrid") or domain["name"])))
+        wait_until(SECTION, f"Domain '{domain['name']}' on the gateway",
+                   lambda: gateway.get("/oidc/.well-known/openid-configuration", timeout=10))
+        for spec in applications:
+            method = self._oauth(spec).get("tokenEndpointAuthMethod", "client_secret_basic")
+            if method in ("client_secret_basic", "client_secret_post"):
+                wait_until(SECTION, f"Application '{spec['name']}' on the gateway", lambda: signs_in(gateway, spec, method))
+
+
+def signs_in(gateway, spec, method):
+    """Asks for a token as the application: the gateway knows it and its secret unless it answers 404 (no such domain)
+    or 401 (no such client). Any other answer will do, a grant the application may not use among them."""
+    form = {"grant_type": "client_credentials"}
+    if method == "client_secret_post":
+        form.update(client_id=spec["clientId"], client_secret=spec["clientSecret"])
+        auth = None
+    else:
+        auth = (spec["clientId"], spec["clientSecret"])
+    gateway.call("POST", "/oauth/token", expect=[s for s in range(200, 500) if s not in (401, 404)], timeout=10, data=form,
+                 auth=auth, headers={"Content-Type": None})
+
 
 def optional(spec, step):
-    """Runs a step; an optional one only warns when it fails."""
+    """Runs a step; an optional one only warns when it fails. Whether it ran."""
     try:
         step()
+        return True
     except SeedError as e:
         if not spec.get("optional"):
             raise
         log(SECTION, f"! Skipped '{spec.get('name', spec.get('username', ''))}': {e}")
+        return False
 
 
 def seed(stores):
@@ -396,9 +432,11 @@ def seed(stores):
     am.connect()
     am.domain(domain)
     am.scopes(domain.get("scopes", []))
+    with_secret = []
     for path in files("am", "applications"):
         spec = load(path)
-        optional(spec, lambda: am.application(spec))
+        if optional(spec, lambda: am.application(spec)) and spec.get("clientSecret"):
+            with_secret.append(spec)
     for spec in domain.get("users", []):
         optional(spec, lambda: am.user(spec))
     for spec in domain.get("groups", []):
@@ -408,6 +446,7 @@ def seed(stores):
         optional(spec, lambda: am.protected_resource(spec))
     for spec in domain.get("authorizationEngines", []):
         optional(spec, lambda: am.authorization_engine(spec, stores))
+    am.wait_served(with_secret)
 
 
 def remove(records):

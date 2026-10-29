@@ -1,4 +1,4 @@
-contract 4
+contract 5
 contract_min 1
 core.service alert-engine health=yes networks=internal since=1
 core.service am-gateway port=8092 health=yes networks=edge,internal since=1
@@ -131,6 +131,7 @@ seed.file refills.yaml since=1
 seed.setting AIM_AUTOMATION_URL since=1
 seed.setting AIM_GAMMA_URL since=1
 seed.setting AM_ENV since=1
+seed.setting AM_GATEWAY_URL since=5
 seed.setting AM_MANAGEMENT_URL since=1
 seed.setting AM_ORG since=1
 seed.setting AM_PASSWORD since=1
