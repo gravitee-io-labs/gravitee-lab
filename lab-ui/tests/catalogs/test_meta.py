@@ -63,19 +63,28 @@ class Block(Case):
         self.assertEqual(meta.drop(text, "copy_of"), "x-gravitee: {kind: addon, note: a:'b, name: X}\n")
         self.assertEqual(meta.value('x-gravitee: {"kind":\'addon\', name: X}\n', "kind"), "addon", "after a quoted key, it opens")
 
-    def test_a_megabyte_of_any_shape_is_read_and_changed_in_under_a_second(self):
+    def test_a_megabyte_of_any_shape_is_read_and_changed_in_linear_time(self):
         import time
-        size = 1 << 20
-        shapes = {"spaces": "x-gravitee:\n  a" + " " * size + "\n", "tabs": "x-gravitee: {a" + "\t" * size + "}\n",
-                  "long key": "x-gravitee:\n  " + "k" * size + ": v\n", "spaces then a colon": "x-gravitee:\n  a" + " " * size + "b: c\n",
-                  "lines": "x-gravitee:\n" + "   x\n" * (size // 5), "flow entries": "x-gravitee: {" + "a: b," * (size // 5) + "}\n"}
-        for name, text in shapes.items():
-            for call in (lambda: meta.value(text, "copy_of"), lambda: meta.drop(text, "copy_of", override=True),
-                         lambda: meta.put(text, "private_from", "x")):
-                with self.subTest(name):   # the time of this process, not the clock's: the suite runs several at once
-                    started = time.process_time()
-                    call()
-                    self.assertLess(time.process_time() - started, 1.0)
+
+        def shapes(size):
+            return {"spaces": "x-gravitee:\n  a" + " " * size + "\n", "tabs": "x-gravitee: {a" + "\t" * size + "}\n",
+                    "long key": "x-gravitee:\n  " + "k" * size + ": v\n", "spaces then a colon": "x-gravitee:\n  a" + " " * size + "b: c\n",
+                    "lines": "x-gravitee:\n" + "   x\n" * (size // 5), "flow entries": "x-gravitee: {" + "a: b," * (size // 5) + "}\n"}
+
+        def spent(call, text):   # the time of this process, not the clock's: the suite runs several at once
+            started = time.process_time()
+            call(text)
+            return time.process_time() - started
+
+        # Four times the text takes about four times as long when the work is linear and sixteen when it is quadratic. A bound
+        # in seconds says how fast the runner is, and a loaded one went past it with linear code; this ratio does not
+        small, large = shapes(1 << 18), shapes(1 << 20)
+        for name in large:
+            for call in (lambda text: meta.value(text, "copy_of"), lambda text: meta.drop(text, "copy_of", override=True),
+                         lambda text: meta.put(text, "private_from", "x")):
+                with self.subTest(name):
+                    quarter = spent(call, small[name])
+                    self.assertLess(spent(call, large[name]), 8 * quarter + 0.05, f"a quarter of it took {quarter:.3f} s")
 
 
 class Replaced(Case):
