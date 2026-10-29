@@ -2,7 +2,7 @@
 # Gravitee Lab on macOS and Linux: from a bare machine to the Lab UI in your browser, and the command gravitee-lab for next
 # time. In a terminal (no sudo: it asks when a step needs it):
 #
-#   curl -fsSL https://raw.githubusercontent.com/gravitee-io-labs/gravitee-lab/main/install.sh | sh
+#   curl -fsSL https://github.com/gravitee-io-labs/gravitee-lab/raw/main/install.sh | sh
 #
 # It uses what the machine has and adds only what is missing: the tools the lab needs (on macOS, Apple's command line tools;
 # on Linux, from the package manager, after asking), the clone in ~/gravitee-lab and its settings, the command gravitee-lab in
