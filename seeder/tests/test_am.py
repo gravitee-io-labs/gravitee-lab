@@ -572,5 +572,70 @@ class Session(Case):
         self.assertEqual(access.api.session.headers["Authorization"], "Bearer ok")
 
 
+class Gateway(Case):
+    """With AM_GATEWAY_URL, the seed ends once the gateway serves the domain and knows each application that has a secret:
+    an agent that starts after the seed signs in at once, and the gateway takes them only at its next synchronization."""
+
+    DOMAIN = "http://am-gateway:8092/acme-bakery"
+    DISCOVERY = DOMAIN + "/oidc/.well-known/openid-configuration"
+    TOKEN = DOMAIN + "/oauth/token"
+
+    def setUp(self):
+        super().setUp()
+        self.env(AM_GATEWAY_URL="http://am-gateway:8092/")
+
+    def gateway(self, discovery, token, domain=DOMAIN):
+        self.platform.add({("GET", domain + "/oidc/.well-known/openid-configuration"): discovery,
+                           ("POST", domain + "/oauth/token"): token})
+
+    def asked(self, token=TOKEN):
+        return self.platform.sent("POST", token)
+
+    def test_it_waits_for_the_domain_then_for_each_application_with_its_secret(self):
+        known = set()
+
+        def token(call):   # the gateway does not know an application the first time it is asked
+            if call.auth in known:
+                return 200, {"access_token": "a token"}
+            known.add(call.auth)
+            return 401, {"error": "invalid_client"}
+        self.use_bank_files()
+        self.gateway([404, 404, (200, {})], token)
+        am.seed({})
+        calls = [call.url for call in self.platform.calls]
+        self.assertEqual(calls.count(self.DISCOVERY), 3)
+        self.assertLess(max(i for i, url in enumerate(calls) if url == self.DISCOVERY), calls.index(self.TOKEN),
+                        "the domain comes first")
+        self.assertEqual([call.auth for call in self.asked()][1::2], [("ace-agent", "ace-secret"),
+                         ("acme-bakery-traffic", "traffic-secret"), ("acme-bakery-web", "web-secret")])
+        self.assertEqual({str(call.data) for call in self.asked()}, {str({"grant_type": "client_credentials"})})
+
+    def test_a_grant_the_application_may_not_use_still_says_the_gateway_knows_it(self):
+        self.use_bank_files()
+        self.gateway((200, {}), (400, {"error": "unauthorized_client"}))
+        am.seed({})
+        self.assertEqual(len(self.asked()), 3)
+
+    def test_a_domain_the_gateway_never_serves_ends_the_seed_with_an_error_that_names_it(self):
+        self.use_bank_files()
+        self.gateway(404, (200, {}))
+        with self.assertRaisesRegex(common.SeedError, "Domain 'acme-bakery' on the gateway not ready"):
+            am.seed({})
+        self.assertEqual(self.asked(), [])
+
+    def test_the_domain_is_reached_on_its_path_and_a_secret_sent_in_the_form_is_sent_there(self):
+        self.am.domains["domain-0"] = {"id": "domain-0", "name": "kiosk", "path": "/kiosk-orders"}
+        self.seed_files({"am/domain.yaml": "name: kiosk\n",
+                         "am/applications/till.yaml": "name: Till\ntype: SERVICE\nclientId: till\nclientSecret: till-secret\n"
+                                                      "oauth:\n  grantTypes: [client_credentials]\n"
+                                                      "  tokenEndpointAuthMethod: client_secret_post\n",
+                         "am/applications/screen.yaml": "name: Screen\ntype: BROWSER\nclientId: screen\n"})
+        self.gateway((200, {}), (200, {"access_token": "a token"}), "http://am-gateway:8092/kiosk-orders")
+        am.seed({})
+        [call] = self.asked("http://am-gateway:8092/kiosk-orders/oauth/token")
+        self.assertEqual((call.auth, call.data), (None, {"grant_type": "client_credentials", "client_id": "till",
+                                                         "client_secret": "till-secret"}))
+
+
 if __name__ == "__main__":
     unittest.main()

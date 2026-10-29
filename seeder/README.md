@@ -73,7 +73,9 @@ What a seed makes, it makes in this order only where one thing depends on anothe
   it within seconds. `SEED_WAIT_GATEWAY=1` brings the waits back (every API served, the protections and the budgets in force, a
   chat through every LLM proxy), put off to the end of the seed (`common.later`) so the steps that do not need them go on
   meanwhile. What the seed must wait for to be right stays: an API that is replaced leaves the gateway before it is imported
-  again, and a user that a group has just made is looked for until the platform lists it.
+  again, a user that a group has just made is looked for until the platform lists it, and with `AM_GATEWAY_URL` the AM gateway
+  serves the domain and knows each application that has a secret, which a service that starts after the seed signs in with
+  at once.
 - **Load.** `SEED_WORKERS` (4 by default) is the number of requests in flight at any moment, whatever the number of steps that
   wait for an answer; `1` runs everything in order. The first step that fails stops the others at their next request, and
   its failure is the last line of the output.

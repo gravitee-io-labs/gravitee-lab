@@ -1430,7 +1430,7 @@ class Catalogs(Fixture):
     def test_what_gather_read_for_the_policy_is_given_with_the_inputs(self):
         inputs = self.inputs
         self.assertEqual(inputs["default"], "fixture")
-        self.assertEqual(inputs["contract"], {"contract": 4, "contract_min": 1, "seeder_image": fixtures.seeder_image(self.holder)})
+        self.assertEqual(inputs["contract"], {"contract": 5, "contract_min": 1, "seeder_image": fixtures.seeder_image(self.holder)})
         self.assertEqual(inputs["layout"], {"phase": "ready", "notice": None})
         self.assertEqual(list(inputs["catalogs"]), ["fixture", "local", "partner", "lab-new", "lab-old"])
         self.assertEqual(inputs["screened"], {})
