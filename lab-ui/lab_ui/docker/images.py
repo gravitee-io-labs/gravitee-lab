@@ -308,9 +308,30 @@ def _oci_tags(host, repository):
     return [{"name": name, "updated": None} for name in reversed(names) if not name.startswith("sha256-")]
 
 
+SUBSCRIPTIONS = {}   # the Azure subscription that holds each registry, by name, as found once per run of the Lab UI
+
+
+def _subscription(name):
+    """The flags that name the Azure subscription holding registry `name`: none when the session's own subscription has
+    it, else the first of the account's subscriptions that does (a registry is often in another one than the default)."""
+    if name not in SUBSCRIPTIONS:
+        found = None
+        rc, _, _ = compose.run([AZ, "acr", "show", "--name", name, "--query", "id", "-o", "tsv"], timeout=60)
+        if rc != 0:
+            rc, out, _ = compose.run([AZ, "account", "list", "--query", "[].id", "-o", "tsv"], timeout=60)
+            for subscription in out.split() if rc == 0 else []:
+                if compose.run([AZ, "acr", "show", "--name", name, "--subscription", subscription, "--query", "id",
+                                "-o", "tsv"], timeout=60)[0] == 0:
+                    found = subscription
+                    break
+        SUBSCRIPTIONS[name] = found
+    return ["--subscription", SUBSCRIPTIONS[name]] if SUBSCRIPTIONS[name] else []
+
+
 def _azure_tags(host, repository):
     """An Azure registry lists its tags to the Azure CLI's session, newest first."""
-    rc, out, err = compose.run([AZ, "acr", "repository", "show-tags", "--name", host.split(".")[0],
+    name = host.split(".")[0]
+    rc, out, err = compose.run([AZ, "acr", "repository", "show-tags", "--name", name, *_subscription(name),
                                 "--repository", repository, "--orderby", "time_desc", "--top", "300", "--detail",
                                 "-o", "json"], timeout=90)
     if rc != 0:
@@ -469,5 +490,6 @@ def login(host, key=None):
         raise ValueError("Not an Azure registry")
     if key is not None and not ITEM.fullmatch(str(key)):
         raise ValueError("Not an add-on, a setup or a playground")
-    return JOBS.start("Log in to Azure registry", [[AZ, "acr", "login", "--name", host.split(".")[0]]],
+    name = host.split(".")[0]
+    return JOBS.start("Log in to Azure registry", [[AZ, "acr", "login", "--name", name, *_subscription(name)]],
                       key=key or f"registry:{host}", verb="login")

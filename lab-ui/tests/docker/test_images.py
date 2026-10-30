@@ -282,6 +282,7 @@ class Images(Case):
 
     def test_the_azure_cli_is_found_once_and_every_command_runs_it(self):
         self.patch(images, "AZ", "/opt/az/bin/az")
+        self.patch(images, "SUBSCRIPTIONS", {})
         jobs, run = self.patch(images, "JOBS"), self.patch(compose, "run", return_value=(0, "[]", ""))
         images.login("graviteeio.azurecr.io")
         self.assertEqual(self.started(jobs)[1][0][0], "/opt/az/bin/az")
@@ -291,9 +292,35 @@ class Images(Case):
         self.patch(images, "_can_pull", return_value=True)
         images.registry_status(self.project)
         self.assertEqual({call.args[0][0] for call in run.call_args_list}, {"/opt/az/bin/az"})
-        self.assertEqual(len(run.call_args_list), 2)
+        self.assertEqual(len(run.call_args_list), 3)   # where the registry is, once; its tags; the session
+
+    def test_a_registry_in_another_subscription_than_the_sessions_is_found_there_once(self):
+        self.patch(images, "SUBSCRIPTIONS", {})
+        jobs = self.patch(images, "JOBS")
+
+        def az(command, timeout=None):
+            if command[1:3] == ["account", "list"]:
+                return 0, "sub-a\nsub-b\nsub-c\n", ""
+            if command[1:3] == ["acr", "show"]:
+                held = "--subscription" in command and command[command.index("--subscription") + 1] == "sub-b"
+                return (0, "/registry", "") if held else (1, "", "ResourceNotFound")
+            return 0, "[]", ""
+        run = self.patch(compose, "run", side_effect=az)
+        images.login("graviteeio.azurecr.io")
+        self.assertEqual(self.started(jobs)[1][0], [images.AZ, "acr", "login", "--name", "graviteeio", "--subscription", "sub-b"])
+        asked = len(run.call_args_list)
+        images._azure_tags("graviteeio.azurecr.io", "apim-management-api")
+        self.assertEqual(run.call_args_list[-1].args[0][:6], [images.AZ, "acr", "repository", "show-tags", "--name", "graviteeio"])
+        self.assertIn("sub-b", run.call_args_list[-1].args[0])
+        self.assertEqual(len(run.call_args_list), asked + 1)   # found once
+        # Nowhere: no subscription is named, and the CLI says why
+        self.patch(images, "SUBSCRIPTIONS", {})
+        self.patch(compose, "run", return_value=(1, "", "ResourceNotFound"))
+        images.login("graviteeio.azurecr.io")
+        self.assertEqual(self.started(jobs)[1][0], [images.AZ, "acr", "login", "--name", "graviteeio"])
 
     def test_login_only_to_an_azure_registry(self):
+        self.patch(images, "SUBSCRIPTIONS", {"graviteeio": None})
         jobs = self.patch(images, "JOBS")
         images.login("graviteeio.azurecr.io")
         self.assertEqual(self.started(jobs)[1:], ([[images.AZ, "acr", "login", "--name", "graviteeio"]],
