@@ -4,10 +4,9 @@ tab, whatever a file says."""
 
 from urllib.parse import urlsplit
 
+from ..library import project
+
 PORTS = {"http": 80, "https": 443}   # the port of a scheme, when an address names none
-# The pages of the Lab UI that the platform's UIs and the apps let frame them (x-ui-frames in docker-compose.yml, the
-# frame-ancestors of the apps): the Lab UI is served on its own port, 9000
-PAGES = ("http://localhost:9000", "http://127.0.0.1:9000")
 
 
 def origin(url):
@@ -43,9 +42,7 @@ def tabs(links, consoles):
 
 def declared(p, pid):
     """The tabs a playground of the project declares: the consoles it lists, in its order, as they are with it on (with
-    the add-ons it brings): a console it puts on a service of the core is its tab, whether it is on yet or not. The
-    project is looked up when asked, because it reads this module."""
-    from ..library import project
+    the add-ons it brings): a console it puts on a service of the core is its tab, whether it is on yet or not."""
     playground = p["playgrounds"][pid]
     return tabs(project.shown(p["links"], pid, playground.get("addons") or (), tabs=True), playground.get("consoles") or [])
 

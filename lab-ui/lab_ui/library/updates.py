@@ -26,6 +26,8 @@ import threading
 import time
 
 from .. import paths
+from ..catalogs.registry import CatalogError
+from ..docker import jobs
 
 TAG = re.compile(r"v(\d{1,4})\.(\d{1,4})\.(\d{1,4})")
 MAIN = "refs/remotes/origin/main"   # where the versions are: a tag elsewhere is not offered
@@ -201,9 +203,8 @@ def _held(here, target):
 
 def _busy():
     """"Wait for <the job> to end" while a job runs, else None."""
-    from ..docker.jobs import JOBS   # here and not above: the jobs read the project, which reads this module's package
-    if JOBS.current and not JOBS.current.done:
-        return f"Wait for {JOBS.current.title} to end"
+    if jobs.JOBS.current and not jobs.JOBS.current.done:
+        return f"Wait for {jobs.JOBS.current.title} to end"
     return None
 
 
@@ -318,7 +319,6 @@ def _loop():
 
 def _not_now(reason):
     """An update that cannot be made here: its reason, in the page's words."""
-    from ..catalogs.registry import CatalogError   # here and not above: the catalogs read this package
     return CatalogError("update_blocked", reason, 409)
 
 
@@ -337,7 +337,6 @@ def update(version):
     if reason:
         raise _not_now(reason)
     tag, detached, before = match[1], found["local"]["branch"] is None, found["local"]["commit"]
-    from ..docker.jobs import JOBS, JobFailed
 
     def move(job):
         job.step(f"Move to {version}")
@@ -349,19 +348,19 @@ def update(version):
         if loads:
             job.exec(["git", "checkout", "--quiet", before] if detached else ["git", "reset", "--quiet", "--keep", before])
             forget()
-            raise JobFailed(f"Gravitee Lab {version} does not start on this machine: {loads}. This Lab stays as it was")
+            raise jobs.JobFailed(f"Gravitee Lab {version} does not start on this machine: {loads}. This Lab stays as it was")
         # What `make ui` makes before it starts the Lab UI, which a new version may add to; the Lab UI that starts says what is missing
         # when it fails, and it starts on the new code either way
         job.step("Start the Lab UI again")
         if shutil.which("make"):
             try:
                 job.exec(["make", "--no-print-directory", "init"])
-            except JobFailed as error:
+            except jobs.JobFailed as error:
                 job.lines.append(f"make init failed: {error}")
         # The Lab UI that starts downloads what the new version lists and moves what it moved, as at every start
         job.lines.append(f"Gravitee Lab {version}: the page reloads once the Lab UI answers")
         threading.Timer(1.5, restart).start()
-    return JOBS.start(f"Update Gravitee Lab to {version}", [move], key="lab", verb="update",
+    return jobs.JOBS.start(f"Update Gravitee Lab to {version}", [move], key="lab", verb="update",
                       phases=[f"Move to {version}", "Start the Lab UI again"])
 
 

@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from lab_ui.gravitee import frames
+from lab_ui.library import project
 
 from .. import Case
 
@@ -132,14 +133,14 @@ class Origin(Case):
 
 class Pages(Case):
     """The pages of the Lab UI that may frame the UIs are named in the core file, which no code reads: they have to agree
-    with frames.PAGES. The apps of a catalog name them too; a catalog tests its own."""
+    with project.PAGES. The apps of a catalog name them too; a catalog tests its own."""
 
     ROOT = Path(__file__).resolve().parents[3]
 
     def test_the_platform_names_the_pages_the_lab_ui_is_served_from(self):
         core = (self.ROOT / "docker-compose.yml").read_text(encoding="utf-8")
         anchor = core[core.index("x-ui-frames: &ui-frames"):core.index("\nservices:")]
-        for page in frames.PAGES:
+        for page in project.PAGES:
             self.assertIn(page, anchor)
         self.assertIn("/X-Frame-Options/d", anchor)
 

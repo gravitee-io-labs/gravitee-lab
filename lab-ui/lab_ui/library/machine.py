@@ -22,7 +22,7 @@ from pathlib import Path
 from .. import paths
 from ..catalogs.registry import CatalogError
 from ..docker import compose
-from . import model
+from . import project
 
 COMPOSE_MIN = (5, 0)
 DISK_MIN_GB = 15.0
@@ -55,6 +55,7 @@ SYNCED = (("Mobile Documents", "iCloud Drive"), ("GoogleDrive", "Google Drive"),
           ("OneDrive", "OneDrive"), ("Dropbox", "Dropbox"))
 CLONE = "git clone https://github.com/gravitee-io-labs/gravitee-lab.git ~/gravitee-lab"
 FRESH = 3   # seconds a report is reused: the page asks every few seconds, and so may two tabs
+LOW_MEMORY = 7.5 * 2 ** 30   # under 8 GB, Docker struggles once add-ons run with the platform
 
 _lock = threading.Lock()
 _last = {"at": 0.0, "report": None}
@@ -223,7 +224,7 @@ def _memory(info):
     if not info or not info["memory"]:
         return _check("memory", "idle", title, "Known once Docker runs")
     shown = f"{info['memory'] / 2 ** 30:.0f} GB"
-    if info["memory"] >= model.LOW_MEMORY:
+    if info["memory"] >= LOW_MEMORY:
         return _check("memory", "ok", title, shown)
     app = docker_app()
     if app:
@@ -257,7 +258,6 @@ def _disk(info):
 
 def core_ports():
     """The ports of this machine that the platform publishes: {port: the name of its service}"""
-    from . import project   # the project reads the machine's state too: imported when asked
     try:
         services = project.load()["services"]
     except Exception:  # noqa: BLE001 - a core that does not load has its own notice

@@ -11,7 +11,8 @@ import time
 import unittest
 
 from lab_ui.gravitee import cloud, platforms
-from lab_ui.docker import envfiles, files
+from lab_ui.docker import envfiles
+from lab_ui.library import files
 from lab_ui import paths
 
 from .. import Case, fixtures, fake_cloud

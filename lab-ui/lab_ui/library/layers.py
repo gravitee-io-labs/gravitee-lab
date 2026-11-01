@@ -10,17 +10,16 @@ of the on file, adds no entry for a unit that is blocked, and writes nothing ove
 plan."""
 
 import functools
-import importlib
 import os
 import re
 import stat
 
-from ..docker import compose, envfiles
+from ..docker import compose, envfiles, images
 from .. import paths
 from ..docker.jobs import JOBS, JobFailed, awaited
 from ..gravitee import platforms
 from ..catalogs import registry, resolve
-from . import moves, versions
+from . import machine, moves, versions
 from .project import _control_plane, _dotenv, brought
 
 LOCKED = f"{paths.ON_FILE} has your own changes"
@@ -443,7 +442,6 @@ def _after(project, state, kind, unit, do, kept=frozenset()):
 def _sets(raw_image):
     """The variables an image line sets itself, its registry's and its version's (images._parts): what a line says is
     the same each time it is read, so it is read once."""
-    from ..docker import images   # images imports this module
     return frozenset((key or (None,))[0] for key in images._parts(raw_image)[::2]) - {None}
 
 
@@ -522,7 +520,6 @@ def switch_rows(project, to):
     """The rows of what a switch changes, one for each image ("API Management 4.12.20 → 4.13.0-alpha.3", with the registry it comes from
     when that changes too), as (what goes forward or sideways, what goes back: _goes_back). `component` and `to` are for whoever says it
     in other words (the checks of a playground's page)."""
-    from ..docker import images   # images imports this module
     rows, back = {}, set()
     for variable in sorted(to):
         image = re.sub(r"_(VERSION|REGISTRY)$", "", variable)
@@ -786,7 +783,6 @@ def taken(project, names):
     """The host ports these services publish that another program uses now (machine.held), sorted: Compose would fail to
     publish them once the on file names what publishes them, and every later Start all with it. Asked when a start is
     clicked, never for the state: it binds each port for an instant."""
-    from . import machine   # the machine's checks read the model, which reads this module
     return machine.held(_published(project, names))
 
 
@@ -1175,7 +1171,6 @@ def plan(project, state, up, kind, uid, do, fresh=False, behind=frozenset(), pla
     # those images is made again with it
     to = switch(project, unit, switching) if (kind, do) == ("playground", "start") and not remote else None
     if to:
-        from ..docker import images   # images imports this module
         named = {row["id"] for row in restarts}
         restarts = sorted(restarts + [_service_row(project, name) for name in images.changing(project, to)
                                       if name in up["services"] and name not in named], key=lambda row: row["id"])
@@ -1330,8 +1325,8 @@ def check(project, plan, accept):
     of_catalogs = [node for node in _on_the_file(project, plan)
                    if project[node[0] + "s"][node[1]].get("catalog") not in (None, paths.LOCAL)]
     if of_catalogs:
-        # Looked up when asked: the service reads the project, which reads this module
-        importlib.import_module("lab_ui.catalogs.service").preflight(project, of_catalogs)
+        from ..catalogs import service   # the catalogs' preflight reads this module: imported when a start needs it
+        service.preflight(project, of_catalogs)
 
 
 # ---------------------------------------------------------------------------------------------------------------------

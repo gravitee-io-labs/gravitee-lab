@@ -10,7 +10,7 @@ import threading
 import time
 from urllib.parse import urljoin, urlsplit
 
-from ..gravitee import frames
+from . import frames
 
 TTL = 4            # seconds an answer is kept: the page asks again while a notice shows
 TIMEOUT = 3        # seconds a UI has to answer

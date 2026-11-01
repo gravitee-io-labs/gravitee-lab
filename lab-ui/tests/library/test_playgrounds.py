@@ -15,8 +15,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
 from lab_ui.gravitee import cloud, license, places, platforms
-from lab_ui.docker import compose, envfiles, jobs, plugins
-from lab_ui.library import layers, layout, playgrounds, project as projects, versions
+from lab_ui.docker import compose, envfiles, jobs
+from lab_ui.library import layers, layout, playgrounds, plugins, project as projects, versions
 from lab_ui import paths
 from lab_ui.catalogs import trust
 from lab_ui.docker.jobs import Job, JobFailed, awaited

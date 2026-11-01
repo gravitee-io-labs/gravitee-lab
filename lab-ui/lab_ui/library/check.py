@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from ..docker import compose, images
-from ..gravitee import frames, platforms
+from ..gravitee import platforms
 from . import layers
 from .. import paths
 from ..catalogs import defaults, gitx, manifest, registry, trust, understood
@@ -42,7 +42,7 @@ from ..catalogs.registry import CatalogError
 from ..catalogs.report import ERROR, WARNING, Problem
 from ..catalogs.tree import read_inside
 from ..paths import CORE_FILE, KINDS, NOUNS, ROOT
-from .project import REACH_LIMIT, apart, brought, forget, loaded
+from .project import PAGES, REACH_LIMIT, apart, brought, forget, loaded
 
 # What x-gravitee can say, of any item: a key outside it is read by nothing, and so does nothing (a typo, or a key
 # the Lab UI does not know)
@@ -670,7 +670,7 @@ def _frameable(service):
     """Whether the Lab UI's pages may frame a console of the platform: its command lets them (x-ui-frames) and drops
     X-Frame-Options, which would refuse every page but its own, or a setting of its own names them as the pages that may."""
     command = service.get("command") or ""
-    return bool(service.get("lets_frame")) or (all(page in command for page in frames.PAGES) and "X-Frame-Options" in command)
+    return bool(service.get("lets_frame")) or (all(page in command for page in PAGES) and "X-Frame-Options" in command)
 
 
 def _consoles(playground, project):
@@ -691,7 +691,7 @@ def _consoles(playground, project):
             yield f"x-gravitee.consoles: {name} is not a service with a console that this playground runs"
         elif owner[0] == "platform" and not _frameable(service):
             yield (f"x-gravitee.consoles: {name} is shown in a frame, so its command must name "
-                   f"{' and '.join(frames.PAGES)} and remove X-Frame-Options (x-ui-frames in docker-compose.yml), "
+                   f"{' and '.join(PAGES)} and remove X-Frame-Options (x-ui-frames in docker-compose.yml), "
                    "or a setting of it must name them as the pages that may frame it")
 
 
@@ -1843,11 +1843,10 @@ def _pattern(line):
 
 def _blocked(reason, codes, ns, file):
     """(code, the words of the problem) for a reason of a unit that cannot run: the code of the rule of the policy that says that
-    line among those the unit's verdict names, the reason as the Lab says it, then `Fix:` from the table of fixes (trust.FIXES,
-    else the standard's, explain.T_FIXES) with its blanks filled from the reason and the catalog. A reason that two of those rules
-    say alike, with different fixes, has no code: it would send the author to the wrong one."""
-    from ..catalogs import explain   # here and not above: it reads the rule modules, which the engine's check has no use for
-    fixes = getattr(trust, "FIXES", None) or explain.T_FIXES
+    line among those the unit's verdict names, the reason as the Lab says it, then `Fix:` from the table of fixes (trust.FIXES)
+    with its blanks filled from the reason and the catalog. A reason that two of those rules say alike, with different fixes,
+    has no code: it would send the author to the wrong one."""
+    fixes = trust.FIXES
     found = []
     for code in codes:
         for line in (trust.RULES.get(code) or {}).get("lines") or ():

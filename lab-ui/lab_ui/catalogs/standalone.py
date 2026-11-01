@@ -37,7 +37,8 @@ import tempfile
 from pathlib import Path
 
 from .. import paths
-from ..docker import compose, plugins
+from ..docker import compose
+from ..library import plugins
 from ..library import project
 from . import exports, resolve
 

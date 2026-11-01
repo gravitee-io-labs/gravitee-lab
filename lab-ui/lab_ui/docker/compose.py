@@ -19,7 +19,6 @@ import re
 import shutil
 import signal
 import subprocess
-import sys
 import tempfile
 import threading
 import time
@@ -341,9 +340,6 @@ def _end():
     global _ending
     _ending = True
     stop_running()
-    git = sys.modules.get("lab_ui.catalogs.gitx")   # only if git was ever run
-    if git is not None:
-        git.stop_running()
 
 
 atexit.register(_end)
@@ -351,13 +347,16 @@ if hasattr(threading, "_register_atexit"):   # CPython 3.9 and later
     threading._register_atexit(_end)
 
 
-def stop_on_signals():
-    """Makes a hang-up (the terminal closed) and a termination of the Lab UI end what runs (_end) before the Lab UI ends
-    as it would have. A command leads a session of its own (run, spawn), so these signals, which the terminal sends to the
-    Lab UI's process group, no longer reach it, and Python does not run its exit functions for them. A signal that the
-    Lab UI ignores (`nohup`) or handles stays as it is. Called once by what starts the Lab UI, from the main thread."""
+def stop_on_signals(*others):
+    """Makes a hang-up (the terminal closed) and a termination of the Lab UI end what runs (_end, then each of `others`:
+    what ends the commands another module runs, gitx.stop_running) before the Lab UI ends as it would have. A command
+    leads a session of its own (run, spawn), so these signals, which the terminal sends to the Lab UI's process group, no
+    longer reach it, and Python does not run its exit functions for them. A signal that the Lab UI ignores (`nohup`) or
+    handles stays as it is. Called once by what starts the Lab UI, from the main thread."""
     def ending(number, frame):
         _end()
+        for stop in others:
+            stop()
         signal.signal(number, signal.SIG_DFL)
         signal.raise_signal(number)
     for name in ("SIGHUP", "SIGTERM"):

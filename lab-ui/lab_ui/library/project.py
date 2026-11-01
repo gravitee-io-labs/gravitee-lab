@@ -27,7 +27,7 @@ from pathlib import Path, PurePosixPath
 
 from ..docker import compose, envfiles
 from . import layout
-from ..gravitee import frames, license, platforms
+from ..gravitee import license, platforms
 from .. import paths
 from ..catalogs import registry, renames, resolve, trust, understood
 from ..products import AM, APIM, APIM_FEATURES, DEPLOYED, LOCAL_PRODUCTS, SEEDED, SEEDED_HERE
@@ -48,6 +48,9 @@ PLUGIN_KINDS = ("entrypoint", "endpoint", "policy", "resource")   # what an API 
 # The lists of an API definition whose items name a plugin by their `type`, and the kind of that plugin
 TYPED = {"entrypoints": "entrypoint", "endpointGroups": "endpoint", "endpoints": "endpoint", "resources": "resource"}
 URL_HOST = re.compile(r"://(?:[^/?#\s@]*@)?([\w.-]+)")   # the host a URL names, after the user and password it may hold
+# The pages of the Lab UI that the platform's UIs and the apps let frame them (x-ui-frames in docker-compose.yml, the
+# frame-ancestors of the apps): the Lab UI is served on its own port, 9000
+PAGES = ("http://localhost:9000", "http://127.0.0.1:9000")
 LOCK_FILE = "contract.lock"   # what the engine promises units: its anchors say which plugin folders a unit may mount
 ANCHOR = re.compile(r"anchor[ \t]+plugins/([a-z0-9-]+)(?:[ \t]|$)")   # one line of it: `anchor plugins/apim since=1`
 
@@ -1267,7 +1270,7 @@ def _service(name, written, running, owner, project_name):
             "depends_on": sorted(running.get("depends_on") or {}),   # what Compose starts first
             "command": " ".join(command) if isinstance(command, list) else str(command),
             # A setting of its own names the Lab UI's pages: how a UI that is configured, not patched, lets them frame it
-            "lets_frame": any(all(page in str(value) for page in frames.PAGES) for value in (running.get("environment") or {}).values()),
+            "lets_frame": any(all(page in str(value) for page in PAGES) for value in (running.get("environment") or {}).values()),
             "built": bool(running.get("build")), "pull_policy": running.get("pull_policy"),
             "role": labels.get("io.gravitee.role"),
             "needs_license": labels.get(LICENSE_LABEL) == "required"}

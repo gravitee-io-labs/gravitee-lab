@@ -6,7 +6,7 @@ import re
 
 from ..docker import compose, images
 from ..gravitee import frames, license, platforms
-from . import layers, personal, reasons, tested
+from . import layers, machine, personal, reasons, tested
 from .. import paths
 from ..catalogs import resolve
 from .project import license_features, shown, tag
@@ -27,7 +27,6 @@ FINE = ("healthy", "running", "done")
 SERVICE_KEYS = ("label", "description", "container", "image", "tag", "registry", "built", "role", "needs_license")
 PLAYGROUND_KEYS = ("tags", "duration", "first_start", "source", "chapters", "guide", "accounts", "requires", "services",
                    "apps", "seed")
-LOW_MEMORY = 7.5 * 2 ** 30   # under 8 GB, Docker struggles once add-ons run with the platform
 APPLY = "Apply needed"   # what runs behind what is saved, as a row says it
 NEWER = "Needs newer versions"   # a playground whose images are older than it needs
 UNTESTED = "Not tested with these versions"   # a playground whose images are not those it was tested with
@@ -984,7 +983,7 @@ def _wait(docker, job, loaded, unread=None):
 
 def memory_warning(memory):
     """What to know of the memory Docker has, whatever is on: None when it is enough, or not known."""
-    if memory and memory < LOW_MEMORY:
+    if memory and memory < machine.LOW_MEMORY:
         return f"{memory / 2 ** 30:.1f} GB, 8 GB+ recommended"
     return None
 

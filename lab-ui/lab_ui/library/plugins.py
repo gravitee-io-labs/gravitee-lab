@@ -13,11 +13,11 @@ import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import compose
-from .compose import CACHE, COMPOSE
-from .images import web_error
-from .jobs import JOBS, JobFailed, awaited
-from ..library import layers
+from ..docker import compose
+from ..docker.compose import CACHE, COMPOSE
+from ..docker.images import web_error
+from ..docker.jobs import JOBS, JobFailed, awaited
+from . import layers
 from ..paths import NotFound, ROOT
 
 DOWNLOADS = "https://download.gravitee.io"

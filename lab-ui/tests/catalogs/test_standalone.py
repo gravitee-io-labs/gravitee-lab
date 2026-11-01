@@ -12,8 +12,8 @@ from pathlib import Path
 
 from lab_ui import paths
 from lab_ui.catalogs import standalone
-from lab_ui.docker import compose, envfiles, files
-from lab_ui.library import check, project
+from lab_ui.docker import compose, envfiles
+from lab_ui.library import check, files, project
 
 from .. import Case, fixtures
 

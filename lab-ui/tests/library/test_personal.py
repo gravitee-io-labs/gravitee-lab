@@ -12,8 +12,9 @@ from unittest import mock
 
 from lab_ui.catalogs import cli as catalog
 
-from lab_ui.library import check, layers, layout, moves, personal
-from lab_ui.docker import compose, envfiles, files
+from lab_ui.gravitee import places
+from lab_ui.library import check, files, layers, layout, moves, personal, playgrounds
+from lab_ui.docker import compose, envfiles
 from lab_ui import paths
 from lab_ui.catalogs.registry import CatalogError
 
@@ -515,8 +516,10 @@ class Deleted(Folder):
         state.mkdir(parents=True)
         (state / "created.json").write_text(json.dumps([{"kind": "api", "label": "APIs"}]), encoding="utf-8")
         (state / "meta.json").write_text(json.dumps({"environment": "Development"}), encoding="utf-8")
+        def delete():   # as the route deletes it: with the records of the places (api.delete)
+            personal.delete(self.project, "playground", "local/sandbox", places.deployed("local/sandbox", playgrounds.created))
         with self.assertRaisesRegex(RuntimeError, "^Delete what it created in Development first$"):
-            personal.delete(self.project, "playground", "local/sandbox")
+            delete()
         self.assertTrue(state.is_dir())
         on = {"playground": None, "effective": [], "setups": []}
         deployed = [{"place": "my-account/dev-env", "environment": "Development", "created": [{"what": "APIs", "count": 1}]}]
@@ -526,7 +529,7 @@ class Deleted(Folder):
         (state / "created.json").write_text("[]", encoding="utf-8")
         self.assertEqual(personal.held(self.project, on, "playground", "local/sandbox", deleting=True,
                                        deployed=[{**deployed[0], "created": []}]), "")
-        personal.delete(self.project, "playground", "local/sandbox")
+        delete()
         self.assertFalse((self.root / SANDBOX).exists())
         self.assertNotEqual(self.tree(), before)
 
@@ -600,17 +603,15 @@ class Sharing(Folder):
 
     def test_without_a_destination_there_is_nothing_to_share(self):
         before = self.tree()
-        for to in ("", None):
-            with self.subTest(to=to), self.assertRaisesRegex(ValueError, "Choose where to share"):
-                personal.share(self.project, "addon", "local/whoami", to=to)
+        with self.assertRaisesRegex(ValueError, "Choose where to share"):
+            personal.share(self.project, "addon", "local/whoami")
         self.assertEqual(self.tree(), before)
 
     def test_only_what_belongs_to_this_machine(self):
         before = self.tree()
         for kind, uid in (("addon", "kafka"), ("addon", "local/../kafka"), ("setup", "observability")):
-            for to in ("", "acme-hub"):
-                with self.subTest(uid=uid, to=to), self.assertRaisesRegex(ValueError, "Only your own .* can be shared here"):
-                    personal.share(self.project, kind, uid, True, to)
+            with self.subTest(uid=uid), self.assertRaisesRegex(ValueError, "Only your own .* can be shared here"):
+                personal.share(self.project, kind, uid, True)
         with self.assertRaises(paths.NotFound):
             personal.share(self.project, "playground", "local/gone", True)
         self.assertEqual(self.tree(), before)
@@ -619,15 +620,6 @@ class Sharing(Folder):
         self.write(paths.ON_FILE, f"include:\n  - {WHOAMI}\n  - {MINE}\n")
         for kind, uid in (("addon", "local/whoami"), ("setup", "local/mine")):
             self.assertEqual(personal.share(self.project, kind, uid, True)["problems"], [])
-
-    def test_with_a_destination_it_is_the_business_of_contribute(self):
-        shared = mock.Mock(return_value={"branch": "lab/whoami-20261016"})
-        with mock.patch("lab_ui.catalogs.contribute.share", shared):
-            self.assertEqual(personal.share(self.project, "addon", "local/whoami", False, "acme-hub"),
-                             {"branch": "lab/whoami-20261016"})
-            personal.share(self.project, "setup", "local/mine", check_only=True, to="acme-hub")
-        self.assertEqual(shared.call_args_list, [mock.call(self.project, "addon", "local/whoami", "acme-hub", False),
-                                                 mock.call(self.project, "setup", "local/mine", "acme-hub", True)])
 
 
 class Following(Folder):

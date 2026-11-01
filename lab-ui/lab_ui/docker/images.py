@@ -12,8 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from . import compose, envfiles, files
-from ..library import layers
+from . import compose, envfiles
 from .. import paths
 from ..products import AZURE
 from .jobs import JOBS
@@ -196,13 +195,14 @@ def local_images():
     return None if held is None else set(held)
 
 
-def state(project):
+def state(project, is_on, outside):
     """What the Images page shows: every component with the value its .env holds (or its default), the image that
     value gives, what runs and what is pulled (None when Docker does not answer); the registries in use; and
     whether a component that is on takes its images from an Azure registry (`azure_in_use`): pulling them takes a
-    login. A component that runs without its owner being on has its note (`outside`, layers.outside)."""
+    login. What is on is the caller's to say: `is_on(owner)`, whether the owner of a component runs with it, and
+    `outside`, the note of a component that runs without its owner being on (layers.is_on, layers.outside)."""
     services, found = project["services"], components(project)
-    on, local = layers.current(project), local_images()
+    local = local_images()
     containers, _ = compose.containers()   # none when Docker does not answer: the versions still show
     targets = {c["id"]: _env_files(services, c) for c in found}
     envs = {path: envfiles.read(path) for written in targets.values() for path in written}
@@ -217,13 +217,13 @@ def state(project):
         # docker images lists Docker Hub images without docker.io/ and library/
         pulled = None if local is None else all(re.sub(r"^docker\.io/(library/)?", "", image) in local
                                                 for image in configured)
-        enabled = layers.is_on(owner["kind"], owner["id"], on["playground"], on["effective"])
+        enabled = is_on(owner)
         listed.append({**c, "version": _bare(env.get(c["version_key"]), unset) or c["version_default"] or "",
                        "registry": _bare(env.get(c["registry_key"]), unset) or c["registry_default"],
                        "version_resolved": first["tag"], "registry_resolved": first["registry"],
                        "configured": configured, "running": sorted(running), "pulled": pulled, "enabled": enabled,
                        # what runs without its owner being on says so, in the words of its owner's row
-                       "outside": layers.outside(owner["kind"]) if running and not enabled else None})
+                       "outside": outside if running and not enabled else None})
     return {"components": listed,
             "registries": [{"value": r, "label": registry_label(r)} for r in _registries(project, found)],
             "azure_in_use": any(c["enabled"] and _azure(c["registry_resolved"]) for c in listed if c["registry_key"])}
@@ -281,12 +281,13 @@ def save(project, values):
         envfiles.write(path, change)
 
 
-def drafted(project, values):
-    """What Compose would make each service of what is on from, were these versions and registries saved as save()
-    writes them: (hashes, exact), as files.drafted() says it."""
+def as_saved(project, values):
+    """These versions and registries as save() would write them, for what Compose would make of them (files.drafted):
+    (the change of the core's .env or None, {an add-on's .env: its values}), each add-on's by its own .env, which Compose
+    reads for every file and which another add-on's must not reach."""
     changes, given = _changes(project, values)
     core = changes.pop(paths.ENV_FILE, None)
-    return files.drafted(project, core, {path: {key: given[key] for key in change} for path, change in changes.items()})
+    return core, {path: {key: given[key] for key in change} for path, change in changes.items()}
 
 
 def changing(project, values):

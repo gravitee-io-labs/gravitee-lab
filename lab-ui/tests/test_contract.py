@@ -59,7 +59,6 @@ from urllib.parse import urlsplit
 from lab_ui.library import check, project
 from lab_ui.catalogs import manifest
 from lab_ui.docker import compose
-from lab_ui.gravitee import frames
 from lab_ui.catalogs import understood
 from lab_ui import paths
 from lab_ui.paths import CORE_FILE, ROOT
@@ -386,7 +385,7 @@ def stated(config=None, variables=None):
     items.update({("label.value", f"{label}={value}"): "" for label, values in understood.LABEL_VALUES.items() for value in values})
     items.update(seed_items(ROOT / "seeder"))
     items.update(frame_items([paths.WEB_DIR / "js", ROOT / "lab-ui" / "frames"]))
-    items.update(anchor_items(config, ROOT, frames.PAGES))
+    items.update(anchor_items(config, ROOT, project.PAGES))
     return items
 
 

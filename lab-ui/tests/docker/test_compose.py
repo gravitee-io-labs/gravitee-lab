@@ -1273,11 +1273,18 @@ class Run(Commands):
         self.assertNotEqual(answered[0][0], 0)
         self.assertTrue(settled(lambda: not alive(pid)))
 
+    def test_a_signal_ends_what_another_module_runs_too(self):
+        # Git's commands (gitx.stop_running), which this module does not know: what starts the Lab UI hands their end over
+        handlers, ended = {}, []
+        with mock.patch.object(compose.signal, "getsignal", return_value=signal.SIG_DFL), \
+                mock.patch.object(compose.signal, "signal", side_effect=lambda number, handler: handlers.setdefault(number, handler)), \
+                mock.patch.object(compose.signal, "raise_signal"), mock.patch.object(compose, "_end", lambda: ended.append("compose")):
+            compose.stop_on_signals(lambda: ended.append("git"))
+            handlers[signal.SIGTERM](signal.SIGTERM, None)
+        self.assertEqual(ended, ["compose", "git"])
+
     def test_the_exit_function_ends_what_runs_and_nothing_is_started_after_it(self):
         self.patch(compose, "_ending", False)
-        git = sys.modules.get("lab_ui.catalogs.gitx")   # _end ends its commands too, and leaves it ending for the rest of the run
-        if git is not None:
-            self.patch(git, "_ending", False)
         answered = []
         thread = threading.Thread(target=lambda: answered.append(
             compose.run(["sh", "-c", f"{self.record}; exec sleep {FOREVER}"], timeout=FOREVER)))
