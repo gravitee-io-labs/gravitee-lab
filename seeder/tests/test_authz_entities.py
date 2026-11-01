@@ -8,6 +8,8 @@ import re
 import unittest
 from unittest import mock
 
+import requests
+
 from lab_seeder import authz
 from lab_seeder import common
 from lab_seeder.testkit import PERSONAL, PLAYGROUNDS, Seed
@@ -496,6 +498,37 @@ class Refusals(Case):
         with self.assertRaises(common.SeedError):
             authz.seed()
         self.assertEqual(common.notes(authz.SECTION, "entities"), [], "the answer said what was saved, and that is recorded")
+
+    def lose_the_answer(self):
+        """A run whose bulk request the platform saves whole, and whose answer never comes back."""
+        def made(call):
+            self.world.bulk(call)
+            raise requests.ReadTimeout("slow")
+        self.platform.add({("POST", BULK): made})
+        with self.assertRaises(common.SeedError):
+            authz.seed()
+        self.platform.add({("POST", BULK): self.world.bulk})
+        self.assertEqual((len(self.world.entities), authz.made_entities()), (4, set()))
+
+    def test_a_refused_request_after_a_lost_answer_keeps_what_the_lost_one_saved_as_the_seeds(self):
+        self.lose_the_answer()
+        self.platform.add({("POST", BULK): (400, {"message": "entity C-1001: the type 'Customer' is not allowed"})})
+        with self.assertRaises(common.SeedError):
+            authz.seed()
+        self.assertEqual(authz.made_entities(), {"C-1001", "O-5001", "C-2001", "O-6001"})
+        self.platform.add({("POST", BULK): self.world.bulk})
+        authz.seed()
+        self.assertEqual(authz.made_entities(), {"C-1001", "O-5001", "C-2001", "O-6001"})
+
+    def test_a_refusal_of_one_the_lost_answer_saved_keeps_it_as_the_seeds_too(self):
+        self.lose_the_answer()
+        self.world.refused["O-6001"] = "attribute 'customer' is not an entity"
+        with self.assertRaises(common.SeedError):
+            authz.seed()
+        self.world.refused.clear()
+        authz.seed()
+        self.assertEqual(authz.made_entities(), {"C-1001", "O-5001", "C-2001", "O-6001"})
+        self.assertEqual(common.notes(authz.SECTION, "entities"), [])
 
     def test_a_failed_count_without_the_errors_is_still_a_refusal_and_the_request_is_taken_as_saved(self):
         self.platform.add({("POST", BULK): (200, {"status": "PARTIAL", "created": 3, "failed": 1, "results": [], "errors": []})})

@@ -339,7 +339,7 @@ def put_entities(api, spec):
     noted = {entity_id for x in notes(SECTION, "entities") if x["name"] == sending for entity_id in x.get("ids", [])}
     present = {held["entityId"]: held for held in api.rows("/entities", LISTS, source=source)}
     present_elsewhere = elsewhere(api, [body["entityId"] for body in bodies if body["entityId"] not in present])
-    changed, new = [], set()
+    changed, new, lost = [], set(), []
     for body in bodies:
         entity_id = body["entityId"]
         current = present.get(entity_id) or present_elsewhere.get(entity_id)
@@ -348,11 +348,17 @@ def put_entities(api, spec):
                             "not create it: it is left alone")
         if not current:
             new.add(entity_id)
+        elif entity_id not in mine:   # noted: an earlier seed saved it and lost the answer
+            lost.append(body)
         if not current or entity_id not in mine or not entity_is_as_wanted(current, body):   # one an earlier seed sent and lost
             changed.append(body)                                                              # the answer of is saved again
     if not changed:
         log(SECTION, f"{len(bodies)} entities of '{source}' as the file says")
         return
+    if lost:   # recorded before this run's note replaces the old one, which a refusal below takes back
+        remember(source, lost, bodies, ranks)
+        log(SECTION, f"! {len(lost)} entities of '{source}': saved by an earlier seed that lost the platform's answer, now "
+                     "known as the seed's")
     # Noted before the first request (common.making): a bulk answer that is lost leaves entities that the next run saves again
     with making(SECTION, "entities", "entities", sending, ids=[body["entityId"] for body in changed]):
         for start in range(0, len(changed), BULK):
@@ -369,7 +375,8 @@ def put_entities(api, spec):
 def send_entities(api, source, sending, chunk, bodies, ranks):
     """One bulk request. What the platform saved is recorded before the refusal of the rest is reported, so that a
     removal deletes it and the next run finds it as the seed's. A refusal, of the request or of some of it, takes back the
-    note of what is being saved (`sending`): what the platform saved is recorded, and the rest was not saved."""
+    note of what is being saved (`sending`): what the platform saved is recorded, what an earlier run saved and lost the
+    answer of was recorded before the first request (`put_entities`), and the rest was not saved."""
     try:
         answer = api.post("/entities/_bulk", json={"entities": chunk})
     except HttpError as e:
