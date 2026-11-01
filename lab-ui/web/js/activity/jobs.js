@@ -30,6 +30,7 @@ const JobView = (() => {
   const untagged = (image) => (image || "").replace(/^docker\.io\//, "").replace(/:[^\s/]+$/, "");
   const names = (image, service) => image === service || image.endsWith(`-${service}`) || image.endsWith(`/${service}`);
   let steps = new Map(), lines = [], pulls = null;   // pulls: how far the images are downloaded, as the server says
+  let over = false;   // the job ended: what was still at work in it (an image interrupted, a container waited for) is not
 
   const label = (kind, name) => {
     if (kind !== "Container") return name.replace(/^docker\.io\//, "");
@@ -38,7 +39,13 @@ const JobView = (() => {
   };
 
   function reset() {
-    steps = new Map(); lines = []; pulls = null;
+    steps = new Map(); lines = []; pulls = null; over = false;
+    render();
+  }
+
+  // The job ended: its rows say where they were, none at work
+  function end() {
+    over = true;
     render();
   }
 
@@ -76,7 +83,7 @@ const JobView = (() => {
     const list = $("#job-steps");
     list.hidden = steps.size === 0;
     const groups = ["Build", "Image", "Network", "Volume", "Container"].map((kind) => [kind, [...steps.values()].filter((s) => s.kind === kind)]);
-    const download = (s) => s.kind === "Image" && !s.warn && /^Pulling/.test(s.status)
+    const download = (s) => !over && s.kind === "Image" && !s.warn && /^Pulling/.test(s.status)
       && pulls?.images.find((found) => found.image === s.image && found.state !== "pulled" && found.state !== "failed");
     // The rows are kept from one render to the next and only what changed in them is written: a row that is drawn again would
     // start its spinner over at every byte that arrives, and it would never turn
@@ -87,7 +94,9 @@ const JobView = (() => {
       const note = kind === "Image" && pulls && totals(pulls) ? `<span class="job-group-note">${esc(totals(pulls))}</span>` : "";
       wanted.push({ key: `group:${kind}`, cls: "job-group", html: `${kind}s${note}` });
       for (const s of items) {
-        const cls = s.warn ? "warn" : BAD.test(s.status) ? "failed" : DONE.test(s.status) ? "ok" : "", going = download(s);
+        const cls = s.warn ? "warn" : BAD.test(s.status) ? "failed" : DONE.test(s.status) ? "ok"
+          : over || /^Interrupted/.test(s.status) ? "idle" : "";
+        const going = download(s);
         wanted.push({ key: `step:${kind}:${s.name}`, cls: "job-step", state: cls, name: s.name,
           status: going ? pullStatus(s.name, going) : `<span class="job-step-status ${cls}">${esc(s.status)}</span>` });
       }
@@ -126,7 +135,7 @@ const JobView = (() => {
     if (atBottom) out.scrollTop = out.scrollHeight;
   }
 
-  return { reset, add, pulled, render };
+  return { reset, add, pulled, end, render };
 })();
 
 // The stream is over: the drawer keeps the output, with the state of the job
@@ -135,7 +144,7 @@ function settle(state) {
   clearInterval(tick);
   $("#job-state").className = `job-state ${state}`;
   $("#job-cancel").hidden = $("#job-progress").hidden = true;
-  JobView.render();
+  JobView.end();
 }
 
 // What a click waits for, from the click on: its button says so (paintActions) until the function this answers is

@@ -75,3 +75,20 @@ test("a build row is done when its image is named, whatever the service is calle
   send(["#10 naming to ghcr.io/acme/lab/seeder:latest done"]);
   assert.match(steps().textContent, /shop-seed\s*Built/);
 });
+
+test("once the job ended, what was still at work in it no longer turns", () => {
+  // An image interrupted when another one was refused, a container that Compose waited for when the job failed
+  send(["Image valkey:9 Pulling", "Image busybox:1.37 Pulling", "Image busybox:1.37 Interrupted", "Container gio-mongodb Waiting"]);
+  pulls(["valkey:9", "downloading", 10, 100]);
+  const row = (name) => [...steps().querySelectorAll(".job-step")].find((li) => li.textContent.includes(name));
+  assert.equal(row("busybox:1.37").querySelector(".job-state").className, "job-state idle");
+  assert.equal(row("valkey:9").querySelector(".job-state").className, "job-state");
+  assert.ok(row("valkey:9").querySelector(".progress"));
+  stream.listeners.done({ data: JSON.stringify({ id: "j1", title: "Start the stack", done: true, ok: false,
+    error: "gio-mongodb keeps restarting", started: 0, ended: 1 }) });
+  for (const name of ["valkey:9", "gio-mongodb"]) {
+    assert.equal(row(name).querySelector(".job-state").className, "job-state idle", name);
+  }
+  assert.equal(row("valkey:9").querySelector(".progress"), null);
+  assert.match(row("valkey:9").textContent, /Pulling/);
+});

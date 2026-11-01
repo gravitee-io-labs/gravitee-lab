@@ -9,7 +9,9 @@ from .. import paths
 from ..docker.compose import COMPOSE
 from ..docker.jobs import JOBS, awaited
 
-PULL = [*COMPOSE, "pull", "--ignore-buildable"]   # the images of what is on, but those built here
+# The images of what is on, but those built here. One refused does not stop the others: the job fails on it once they
+# are pulled (jobs.Job._spawn)
+PULL = [*COMPOSE, "pull", "--ignore-buildable", "--ignore-pull-failures"]
 
 
 def _units(state):

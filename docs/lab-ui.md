@@ -165,7 +165,8 @@ shows how far the job is.
 - **Jobs**: one job runs at a time. The other buttons wait and say *Wait for* the job. The Activity chip, in the menu
   while the job runs, opens its output and a *Cancel* button. An image that is not there yet is downloaded first, and each
   one shows a bar, a percentage and the bytes downloaded of its total; the title of the list adds what all of them come to
-  and how fast they go. Once downloaded, an image shows *Extracting* until it is *Pulled*. A job does not wait for ever:
+  and how fast they go. Once downloaded, an image shows *Extracting* until it is *Pulled*. An image that cannot be pulled
+  fails the job with Docker's reason (`Could not pull ...`), once the other images are pulled. A job does not wait for ever:
   it fails when a container it waits for keeps restarting (`gio-mongodb keeps restarting`), or when nothing happens for
   15 minutes. Ctrl+C in the Lab UI's terminal stops the job that runs, and the terminal says which.
 - **A failed or canceled job**: the item stays on. Its row says *Failed*, or *Canceled* after a *Cancel*. The last line

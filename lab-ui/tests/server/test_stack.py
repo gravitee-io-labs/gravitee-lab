@@ -105,7 +105,7 @@ class StackActions(Case):
         # What changed is not known before the pull: what runs is named, Compose makes again what got another image,
         # built here or pulled. The playground's app does not run: it is not started
         stack.action(PROJECT, "update")
-        pull = [*self.COMPOSE, "pull", "--ignore-buildable"]
+        pull = [*self.COMPOSE, "pull", "--ignore-buildable", "--ignore-pull-failures"]
         up = [*self.COMPOSE, "up", "-d", "--no-deps", "kafka", "kafka-ui", "mongodb", "redis"]
         runs = ["kafka", "kafka-ui", "mongodb", "redis"]
         self.assertEqual(self.started(self.jobs), ("Update the stack", [pull, up], {
@@ -316,9 +316,10 @@ class StackActions(Case):
 
     def test_pull(self):
         stack.action(PROJECT, "pull")
-        self.assertEqual(self.started(self.jobs)[1:], ([[*self.COMPOSE, "pull", "--ignore-buildable"]],
-                                                       {"key": "platform", "verb": "pull", "changes": None,
-                                                        "waits": [self.PULLS]}))
+        # Every image it can, past one that is refused
+        pull = [*self.COMPOSE, "pull", "--ignore-buildable", "--ignore-pull-failures"]
+        self.assertEqual(self.started(self.jobs)[1:], ([pull], {"key": "platform", "verb": "pull", "changes": None,
+                                                                "waits": [self.PULLS]}))
 
     def test_own_changes_in_the_on_file_run_as_compose_reads_them(self):
         # Everything the files hold is named, what only the user's own on file adds too, but a seed, which its

@@ -81,7 +81,8 @@ def _command(cmd):
 
 def _pull_before(cmd):
     """The pull that comes before an `up`: what is missing of the images it names, which Compose shows layer by layer
-    here and not when it pulls them itself, as it starts. What it cannot pull is left to the `up`, which says why."""
+    here and not when it pulls them itself, as it starts. An image it cannot pull is missing and has no build to fall
+    back on (`--ignore-buildable`): the `up` would only try again and fail, so the job fails on it (_spawn)."""
     found = _command(cmd)
     if not found or found[1] != "up":
         return None
@@ -444,7 +445,8 @@ class Job:
 
     def _spawn(self, cmd, env, lenient=False):
         """One command, run as compose.spawn() runs one: the Lab UI ends it as it exits. A pull is read as JSON, its
-        progress told as a plain one would; `lenient`: it does not fail the job, nor does it say what it could not pull.
+        progress told as a plain one would; it fails the job on an image it could not pull, once it pulled the rest.
+        `lenient`: its exit code and its plain lines (warnings) do not count, the `up` it comes before says those.
         One that prints nothing for SILENT seconds is ended (_watch), and so is one that waits for what will not get
         there (observe): the job fails with the reason."""
         pull = (_command(cmd) or (0, ""))[1] == "pull"
@@ -460,14 +462,14 @@ class Job:
             self._process, self._waiting, self._issues, self._heard = process, set(), {}, time.monotonic()
         if self._canceled:   # canceled while the command was starting
             compose.end(process)
-        over = threading.Event()
+        over, refused = threading.Event(), []
         threading.Thread(target=self._watch, args=(process, over), daemon=True).start()
         try:
             for line in process.stdout:
                 self._heard = time.monotonic()
                 event = _event(line) if pull else None
                 if event is not None:
-                    self._pulled(event, lenient)
+                    self._pulled(event, lenient, refused)
                 elif not (lenient or LAYER_PROGRESS.match(line)):
                     self._printed(line)   # first: a line in the output is one the job took in
                     self.lines.append(line.rstrip("\n"))
@@ -478,13 +480,27 @@ class Job:
         why = self._why
         if why and why[0] is process and not self._canceled:
             raise JobFailed(why[1])
+        if refused and not self._canceled:   # what could be pulled was: the job fails on the rest, with Docker's reason
+            reasons = dict(self.pulls.refused())
+            first = reasons.get(refused[0])
+            raise JobFailed(f"Could not pull {', '.join(refused)}" + (f": {first}" if first else ""))
         if code != 0 and not lenient:
             raise JobFailed(self.last_line(start) or f"Failed with exit code {process.returncode}")
 
-    def _pulled(self, event, lenient):
-        """A line of a pull's progress: what a plain one would print, and how far the image is."""
+    def _pulled(self, event, lenient, refused):
+        """A line of a pull's progress: what a plain one would print, and how far the image is; an image it could not
+        pull goes to `refused`. Compose's own last word when the command fails ({"error": true, "message"}), which names
+        no image, is a line of the output too, but of a pull that may fail."""
+        if event.get("error") is True:
+            said = [line.strip() for line in str(event.get("message") or "").splitlines() if line.strip()]
+            if not lenient:
+                with self._lock:
+                    self.lines.extend(dict.fromkeys(said))   # once each: Compose repeats the reason of every image
+            return
         with self._lock:
-            line = self.pulls.event(event, lenient)
+            line = self.pulls.event(event)
+            if event.get("text") == "Error" and (event.get("id") or "").startswith("Image "):
+                refused.append(event["id"][6:])
             if line:
                 self.lines.append(line)
                 self._printed(line)

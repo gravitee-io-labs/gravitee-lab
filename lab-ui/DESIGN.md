@@ -1046,6 +1046,11 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
   - A service that runs the image another one builds reads "local build" too.
   - A pull a registry refuses says "Not logged in to <registry>" in the warn tone. Compose then runs the image it has,
     or builds it.
+  - Pull images and Update pull every image they can, past one a registry refuses, then fail on it: "Could not pull
+    <images>: <Docker's reason>", or "Not logged in to Azure". The pull before an `up` (what is missing of its images,
+    none built here) fails its job at once on an image it could not pull: the `up` would try again and fail. Compose's
+    own reason for a pull that fails, which names no image, is its last line. An image interrupted is no longer
+    pulled; once a job ended, its drawer's rows show where they were, none at work.
 - What is read from an image (the plugins it bundles, the license model) is kept by the image the container runs, and
   read again once it runs another. An image not pulled is said so ("<image> is not pulled"), with Pull images.
 

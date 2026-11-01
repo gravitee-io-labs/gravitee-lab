@@ -28,7 +28,7 @@ def ended(title, ok, key=None, **changes):
 
 def prepull(cmd):
     """Whether a command is the pull that comes before an `up`: it prints nothing here, the images are there."""
-    return "--ignore-pull-failures" in cmd
+    return "pull" in cmd and "--policy" in cmd
 
 
 def replay(job, *outputs, code=0, refresh=None):
