@@ -151,7 +151,8 @@ Lab UI at http://localhost:9000`.
 
 **Symptom:** a tab of a playground says `cannot be shown here`.
 
-**Cause:** the Lab UI is not on port 9000, or the app's own headers refuse frames.
+**Cause:** the Lab UI is not on port 9000, the app's own headers refuse frames, or this machine does not trust the
+certificate of a UI on `https` (the line under the notice says `Its certificate is not trusted`).
 
 **Fix:** open http://localhost:9000, or use *Open in a new tab*.
 
