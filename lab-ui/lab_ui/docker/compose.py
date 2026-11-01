@@ -33,6 +33,9 @@ COMPOSE = ["docker", "compose", "--progress", "plain"]
 RESTART_WINDOW = 300
 # How long the images Docker holds, and the memory it has, are kept, in seconds: a job drops the images it may move
 IMAGES_TTL, MEMORY_TTL = 60, 600
+# How long Docker has to list the containers, in seconds: every state's refresh and every action asks it, and a Docker
+# that hangs (its machine asleep, an update) is said so then, not after the long limit of a command
+PS_TIMEOUT = 10
 
 NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 COMMENT = re.compile(r"(?:^|\s)#(.*)$")
@@ -1131,7 +1134,7 @@ def _inspect(names, variable=None):
     if not names:
         return {}
     fields = INSPECT + (VARIABLE % variable if variable else "")
-    _, out, _ = run(["docker", "container", "inspect", "--format", fields, *names], timeout=20)
+    _, out, _ = run(["docker", "container", "inspect", "--format", fields, *names], timeout=PS_TIMEOUT)
     found = {}
     for parts in (line.split("|", 6) for line in out.splitlines()):
         if len(parts) < (7 if variable else 6):
@@ -1150,11 +1153,13 @@ def ps(variable=None):
     """The project's containers, by service: {state, health, status, image, exit_code, name, ports, oom, restarts,
     config_hash, image_id, variable} (_inspect: `variable` names the variable of their environment to report a digest
     of). Asked by project name from a folder without compose files, so containers of what was turned off since are
-    listed too."""
+    listed too. Docker has PS_TIMEOUT seconds to answer: "Docker did not answer within 10 s" otherwise."""
     command = [*by_name(), "ps", "-a", "--format", "json"]
-    rc, out, err = run(command, timeout=30, cwd=scratch())
+    rc, out, err = run(command, timeout=PS_TIMEOUT, cwd=scratch())
     if rc != 0 and "No such container" in err:   # removed while Compose was listing them: a job recreates it
-        rc, out, err = run(command, timeout=30, cwd=scratch())
+        rc, out, err = run(command, timeout=PS_TIMEOUT, cwd=scratch())
+    if rc == 124:
+        raise ComposeError(f"Docker did not answer within {PS_TIMEOUT} s")
     if rc != 0:
         raise ComposeError(_last_line(err))
     containers = {}

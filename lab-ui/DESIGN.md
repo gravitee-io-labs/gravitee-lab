@@ -1458,7 +1458,9 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
 
 ### Docker, jobs and progress
 
-- What runs is not known while Docker does not answer or `docker-compose.yml` does not load (`blind`).
+- What runs is not known while Docker does not answer or `docker-compose.yml` does not load (`blind`). Docker has 10
+  seconds to list the containers (`compose.PS_TIMEOUT`): one that hangs is said so then ("Docker did not answer within
+  10 s"), on the state's refresh as on an action.
   - No dot is colored, no state is said, and every action waits, saying which ("Docker is not reachable",
     "docker-compose.yml does not load").
   - While only Docker does not answer, what is on still says so, with its ring and "Starts with the platform": the files

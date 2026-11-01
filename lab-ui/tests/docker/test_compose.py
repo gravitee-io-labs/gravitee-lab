@@ -767,6 +767,15 @@ class Containers(Case):
             self.ps((1, "", "warning\nCannot connect to the Docker daemon\n"))
         self.assertEqual(str(raised.exception), "Cannot connect to the Docker daemon")
 
+    def test_a_docker_that_hangs_is_said_so_within_seconds(self):
+        # Its machine asleep, an update: every state's refresh would wait for it, the page showing what ran before
+        self.assertEqual(self.ps((124, "", "docker did not answer within 10 s"), call=compose.containers),
+                         ({}, "Docker did not answer within 10 s"))
+        with mock.patch.object(compose, "project_name", return_value="lab"), \
+                mock.patch.object(compose, "run", return_value=(124, "", "")) as run:
+            compose.containers()
+        self.assertEqual(run.call_args.kwargs["timeout"], 10)
+
     def test_containers_says_why_docker_did_not_answer(self):
         self.assertEqual(self.ps((1, "", "Cannot connect to the Docker daemon\n"), call=compose.containers),
                          ({}, "Cannot connect to the Docker daemon"))
