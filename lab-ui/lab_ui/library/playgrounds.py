@@ -498,8 +498,9 @@ def unit_checks(project, kind, uid, place):
 def deploy_unit(project, kind, uid, accept, place):
     """Starts an add-on or a setup on a place: the gateway of the platform and what the item needs of this machine's
     platform, then the item, written for that gateway (layers.write), none of the core. The place is asked now
-    (places.verify) before any job; a gateway that serves another place takes this one's token first
-    (platforms.swap_gateway). Waits for the platform to say that the gateway is connected."""
+    (places.verify) before any job; a gateway that serves another place takes this one's token once what goes is
+    removed, just before the on file is written (layers.steps, `swap`; platforms.swap_gateway). Waits for the platform
+    to say that the gateway is connected."""
     unit = layers.lookup(project, kind, uid)
     state = layers.current(project)
     found = places.verify(project, place)

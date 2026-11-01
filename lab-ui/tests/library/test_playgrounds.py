@@ -2030,6 +2030,19 @@ class Deploying(Deploys):
         job, calls = self.execute()
         self.assertEqual((job.ok, job.error(), calls, self.written), (False, "Its token is not kept here", [], []))
 
+    def test_a_unit_s_deploy_gives_the_gateway_this_place_s_token_once_what_goes_is_removed(self):
+        # deploy_unit: Redpanda cannot run with Kafka, which is on and runs: the deploy removes Kafka, then the gateway
+        # takes this place's token, then the on file is written and Compose starts what it names
+        self.project["addons"]["redpanda"]["deploys_to"] = ["cloud"]
+        self.ready()
+        order = []
+        self.patch(platforms, "swap_gateway", lambda *args: order.append("swap"))
+        envfiles.write(ADDON_ENV, {"HYBRID_CLOUD_TOKEN": None})
+        self.state, self.containers = on(self.project, ["kafka"]), running("kafka", "kafka-ui")
+        playgrounds.deploy_unit(self.project, "addon", "redpanda", ["addon:kafka"], PLACE)
+        job, calls = self.execute(seen=lambda command, options: order.append("rm" if "rm" in command else "up"))
+        self.assertEqual(order[:3], ["rm", "swap", "up"], (order, job.lines))
+
     def test_a_deploy_whose_removal_fails_leaves_the_token_the_gateway_holds(self):
         # The add-on holds no token of this place's gateway; what the deploy also stops cannot be removed: the job changed
         # nothing
