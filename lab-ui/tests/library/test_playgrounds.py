@@ -725,6 +725,84 @@ class Playgrounds(Case):
             job.run()
             self.assertEqual((job.ok, job.error()), (False, error))
 
+    def test_a_seed_ended_from_outside_says_so_rather_than_where_it_was(self):
+        # Killed for its memory, or stopped (137, 143), it printed no ✗: its last line is only where it was
+        follow = playgrounds._follow_seed(self.project, self.project["playgrounds"]["welcome"])
+        for state, error in (("137 true", "The seed ran out of memory"), ("137 false", "The seed was stopped before it ended"),
+                             ("143 false", "The seed was stopped before it ended"), ("1 false", "[apim] Creating API Orders")):
+            self.patch(compose, "run", lambda cmd, **how: (0, f"{state}\n", ""))
+            job = Job("Test", [follow])
+            job.exec = lambda cmd, quiet=False: job.lines.append("[apim] Creating API Orders")
+            job.run()
+            self.assertEqual((job.ok, job.error()), (False, error), state)
+        self.assertEqual(playgrounds._seed_reason("[seed] ✗ No such store: hello", 137, True), "No such store: hello")
+
+    def canceling(self, word):
+        """Docker as a canceled job sees it: the seed's container still runs; the command that holds `word` is canceled
+        while it runs. Answers the commands run outside the job, and the function that runs the job's steps."""
+        outside = []
+
+        def run(cmd, **how):
+            outside.append(cmd)
+            if "{{.State.StartedAt}}" in cmd:
+                return 0, f"{STARTED}\n", ""
+            return (0, "c0ffee\n", "") if cmd[:3] == ["docker", "ps", "-q"] else (0, "143 false\n", "")
+        self.patch(compose, "run", run)
+
+        def go(steps, more=None):
+            job = Job("Test", steps, **(more or {}))
+
+            def command(cmd, quiet=False):
+                if word in cmd:
+                    job.cancel()   # the person cancels while it runs: the command ends
+                    raise JobFailed("Failed with exit code 143")
+            job.exec = command
+            job.run()
+            return job
+        return outside, go
+
+    def test_a_job_canceled_while_its_seed_runs_stops_the_seed(self):
+        # Compose started it detached, or runs it apart: ending the job's command leaves it running, so it is stopped, by
+        # the labels Compose gives its containers
+        stop = ["docker", "stop", "c0ffee"]
+        asked = ["docker", "ps", "-q", "--filter", "label=com.docker.compose.project=gravitee", "--filter",
+                 "label=com.docker.compose.service=seed"]
+        self.state = on(self.project, playground="welcome")
+        for word, call in (("logs", lambda: playgrounds.reseed(self.project, "welcome")),
+                           ("--force-recreate", lambda: playgrounds.reseed(self.project, "welcome"))):
+            outside, go = self.canceling(word)
+            call()
+            title, steps, more = self.started(self.jobs)
+            job = go(steps, {"phases": more["phases"], "waits": more["waits"]})
+            self.assertEqual(job.error(), "Canceled", word)
+            self.assertIn(asked, outside, word)
+            self.assertIn(stop, outside, word)
+            self.assertIn("Stopping the seed", job.lines)
+        # The run of its delete too
+        outside, go = self.canceling("--remove")
+        self.containers = running(*CORE, "agent-lens", "hello-app")
+        self.record("APIs")
+        playgrounds.stop(self.project, "welcome", True, ["addon:agent-lens"])
+        job = go(self.started(self.jobs)[1])
+        self.assertEqual(job.error(), "Canceled")
+        self.assertIn(stop, outside)
+        # A seed that ends by itself is left alone
+        outside, go = self.canceling("never")
+        playgrounds.reseed(self.project, "welcome")
+        go(self.started(self.jobs)[1])
+        self.assertNotIn(stop, outside)
+
+    def test_a_seed_that_still_runs_is_not_seeded_again_nor_its_record_deleted(self):
+        # A job canceled while it seeded, whose seed could not be stopped: another run would race it on its record
+        self.state = on(self.project, playground="welcome")
+        self.containers = running(*CORE, "agent-lens", "hello-app", "seed")
+        self.record("APIs")
+        with self.assertRaisesRegex(RuntimeError, "^Seed is still running$"):
+            playgrounds.reseed(self.project, "welcome")
+        with self.assertRaisesRegex(RuntimeError, "^Seed is still running$"):
+            playgrounds.stop(self.project, "welcome", True, ["addon:agent-lens"])
+        self.jobs.start.assert_not_called()
+
     def test_reseed_waits_for_what_the_seed_needs(self):
         # The seed would wait for the management API, then fail: it is refused with the reason the page shows
         self.project["services"]["seed"]["depends_on"] = ["apim-management-api"]

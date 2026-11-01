@@ -661,16 +661,38 @@ def _job(title, steps, pid, verb, phases, waits, changes=None):
     return JOBS.start(title, steps, key=f"playground:{pid}", verb=verb, changes=changes, phases=phases, waits=waits)
 
 
-def _seed_reason(line):
+KILLED = (137, 143)   # the exit codes of a process ended from outside (SIGKILL, SIGTERM): it had no word to say
+
+
+def _seed_reason(line, code=None, memory=False):
     """Why the seed failed, from the last line it printed: what follows "✗" in "[seed] ✗ <why>", or the end of a
-    traceback; "The seed failed" when it printed nothing."""
+    traceback; "The seed failed" when it printed nothing. A seed ended from outside, which said nothing of it, is said so
+    (`code`, its exit code, `memory`, Docker killed it for the memory it took): its last line is only where it was."""
+    if "✗" not in line and memory:
+        return "The seed ran out of memory"
+    if "✗" not in line and code in KILLED:
+        return "The seed was stopped before it ended"
     return line.split("✗", 1)[-1].strip() or "The seed failed"
+
+
+def _stop_seed(job, playground):
+    """Stops the seed of a playground once its job is canceled: ending the job's command leaves it running, whether Compose
+    started it detached (`up -d`) or it runs apart (`run`, whose container outlives it), and whatever it still did would
+    race what comes next (a Re-seed, a delete of what it created). Its containers are found by the labels Compose gives
+    them, its own and those of a run. A job that is not canceled leaves it as it is."""
+    if not (job.canceled and playground["seed"]):
+        return
+    rc, out, _ = compose.run(["docker", "ps", "-q", "--filter", f"label=com.docker.compose.project={compose.project_name()}",
+                              "--filter", f"label=com.docker.compose.service={playground['seed']}"])
+    if rc == 0 and out.split():
+        job.lines.append("Stopping the seed")
+        compose.run(["docker", "stop", *out.split()], timeout=60)
 
 
 def _follow_seed(project, playground):
     """A step that streams the seed's output until it ends, and fails the job when the seed failed, with the reason
     it printed last (`_seed_reason`). Only the output of its last start: a seed that failed runs again in the same
-    container, which still holds the output of the run before."""
+    container, which still holds the output of the run before. Canceled, it stops the seed (_stop_seed)."""
     container = project["services"][playground["seed"]]["container"]
 
     def follow(job):
@@ -679,10 +701,14 @@ def _follow_seed(project, playground):
         start = len(job.lines)
         rc, out, _ = compose.run(["docker", "inspect", "-f", "{{.State.StartedAt}}", container])
         since = ["--since", out.strip()] if rc == 0 and out.strip() else []
-        job.exec(["docker", "logs", "-f", *since, container], quiet=True)
-        rc, out, _ = compose.run(["docker", "inspect", "-f", "{{.State.ExitCode}}", container])
-        if rc != 0 or out.strip() != "0":
-            raise JobFailed(_seed_reason(job.last_line(start)))
+        try:
+            job.exec(["docker", "logs", "-f", *since, container], quiet=True)
+        finally:
+            _stop_seed(job, playground)
+        rc, out, _ = compose.run(["docker", "inspect", "-f", "{{.State.ExitCode}} {{.State.OOMKilled}}", container])
+        code, _, memory = out.strip().partition(" ")
+        if rc != 0 or code != "0":
+            raise JobFailed(_seed_reason(job.last_line(start), int(code) if code.isdigit() else None, memory == "true"))
     return follow
 
 
@@ -770,13 +796,16 @@ def reseed(project, pid, place=None, accept=None):
     if not playground["seed"]:
         raise RuntimeError(f"{playground['name']} has no seed")
     _seed_waits(project, state, model.up(project, compose.ps()), playground)
+    def begin(job):
+        job.step("Start the seed")
+        try:
+            job.exec([*COMPOSE, "up", "-d", "--force-recreate", "--no-deps", playground["seed"]])
+        finally:   # canceled while `up` started it
+            _stop_seed(job, playground)
+    # Once the seed ended well, the playground works on the versions it runs on: what a start that failed on its seed, then fixed, leaves
+    steps = [begin, _follow_seed(project, playground), lambda job: tested.record(project, pid)]
     # Its image built and its container made again, which Compose measures; the container is ready once the seed
     # ended well, which following its output has nothing more to count for
-    # Once the seed ended well, the playground works on the versions it runs on: what a start that failed on its seed, then fixed, leaves
-    steps = [lambda job: job.step("Start the seed"),
-             [*COMPOSE, "up", "-d", "--force-recreate", "--no-deps", playground["seed"]],
-             _follow_seed(project, playground),
-             lambda job: tested.record(project, pid)]
     waits = [awaited(project["services"], start=[playground["seed"]]), None]
     return _job(f"Re-seed {playground['name']}", steps, pid, "reseed", ["Start the seed", "Seed"], waits)
 
@@ -821,6 +850,7 @@ def _delete_created(project, playground, elsewhere):
                 job.exec([*COMPOSE, *compose.all_files([playground["file"]]), "run", "--rm", "--no-deps", "--pull=missing",
                           playground["seed"], "--remove"])
             except JobFailed as failed:   # "[seed] ✗ <why>": its reason, as a start says it
+                _stop_seed(job, playground)
                 raise JobFailed(_seed_reason(str(failed))) from None
         for where, name in recorded:
             job.lines.append(f"Deletes from {name}")
@@ -903,6 +933,7 @@ def _seed_apart(job, project, playground, place, remove=False):
                   *(["--remove"] if remove else [])],
                  env=values)
     except JobFailed as failed:   # "[seed] ✗ <why>": its reason, as a start says it
+        _stop_seed(job, playground)
         raise JobFailed(_seed_reason(str(failed))) from None
 
 
