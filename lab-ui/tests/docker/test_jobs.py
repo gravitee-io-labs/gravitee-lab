@@ -344,10 +344,12 @@ class Cut(Case):
         self.assertEqual((caught, job.ok, job.error()), (["gio-hybrid keeps restarting"], False, "gio-api keeps restarting"))
 
     def test_plugins_up_is_not_left_to_wait_for_ever_once_its_first_wait_was_ended(self):
-        # The real step: the add-on's gateway starts alone with --wait, the rest after it, each saying nothing
+        # The real step: one of the two is made, then waited for alone, a wait that says nothing; the other starts after
+        # it and says nothing either. The pulls before them have nothing to do
         self.patch(jobs, "SILENT", 0.3)
         self.patch(jobs, "WATCH", 0.05)
-        self.patch(plugins, "COMPOSE", ["sh", "-c", "exec sleep 600", "compose"])
+        script = 'case " $* " in *" pull "*) exit 0;; *" --wait "*) exec sleep 600;; *" api "*) exit 0;; esac; exec sleep 600'
+        self.patch(plugins, "COMPOSE", ["sh", "-c", script, "compose"])
 
         def service(container):
             return {"container": container, "image": f"graviteeio/{container}:4", "label": container, "oneshot": False,
@@ -357,9 +359,11 @@ class Cut(Case):
         project = {"products": {"apim": product}, "services": {"api": service("gio-api"), "hybrid": service("gio-hybrid")}}
         job, thread = self.run_job(lambda job: plugins.up(job, project, ["hybrid", "api"]))
         thread.join(10)
-        self.assertFalse(thread.is_alive(), "plugins.up still waits on its second `up`")
-        self.assertEqual(len([line for line in job.lines if line.startswith("$")]), 2)   # each `up` ended
+        self.assertFalse(thread.is_alive(), "plugins.up still waits on the `up` of the rest")
+        self.assertEqual([line.split(" compose ")[-1] for line in job.lines if line.startswith("$")],
+                         ["up -d --no-deps api", "up -d --no-deps hybrid"])   # the wait in between is quiet, and was ended
         self.assertIs(job.ok, False)
+        self.assertTrue(job.error().startswith("Stopped: nothing happened for"), job.error())
 
 
 UP = ["docker", "compose", "up", "-d"]
