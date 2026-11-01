@@ -429,20 +429,22 @@ def refusals(said):
 
 def remember(source, saved, bodies, ranks):
     """Adds the entities just saved to the record of their type: one record for each type, with its ids in dependency
-    order (the ids the file no longer has come first: those of the record as it has them, then those just saved as
-    `saved` has them), and the rank that orders a removal: the file's, else the record's for a type the file no longer
-    has, else one more than the highest of the types its entities point at."""
-    position = {body["entityId"]: index for index, body in enumerate(bodies)}
+    order (each after what it points at, as the file or `saved` says; an id only the record has keeps its place in it,
+    the record being in that order when it was written), and the rank that orders a removal: the file's, else the
+    record's for a type the file no longer has, else one more than the highest of the types its entities point at."""
+    known = {body["entityId"]: body for body in [*bodies, *saved]}
+    points = {entity_id: points_of(body) for entity_id, body in known.items()}
     for entity_type in dict.fromkeys(body["entityType"] for body in saved):
         name = f"{source}/{entity_type}"
         earlier = next((x for x in created() if (x["product"], x["kind"], x["name"]) == (SECTION, "entities", name)), {})
-        ids = list(dict.fromkeys([*earlier.get("ids", []),
-                                  *(body["entityId"] for body in saved if body["entityType"] == entity_type)]))
-        ids.sort(key=lambda entity_id: position.get(entity_id, -1))   # stable: those the file no longer has keep their order
+        ids = [*earlier.get("ids", []), *(body["entityId"] for body in saved if body["entityType"] == entity_type)]
+        # An id only the record has: what it points at is not known here, so it stays where the record has it
+        of_type = {entity_id: known.get(entity_id, {"entityId": entity_id, "entityType": entity_type}) for entity_id in ids}
+        order = in_dependency_order(of_type, {entity_id: points.get(entity_id, []) for entity_id in of_type})
+        ids = [body["entityId"] for body in order]
         rank = ranks.get(entity_type, earlier.get("rank"))
         if rank is None:   # saved by a lost answer, and in neither the file nor a record: what it points at says
-            known = {body["entityId"]: body for body in [*bodies, *saved]}
-            rank = type_ranks(known, {entity_id: points_of(body) for entity_id, body in known.items()})[entity_type]
+            rank = type_ranks(known, points)[entity_type]
         record(SECTION, "entities", f"{entity_type} entities", name, name, ids=ids, count=len(ids), rank=rank,
                source=source)
 
