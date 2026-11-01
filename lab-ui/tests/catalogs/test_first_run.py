@@ -5,7 +5,6 @@ exists left as the person's decision (a removed listed catalog is a Not added ro
 second `make ui` start nothing). Everything is on disk in a temporary project folder (a visible skip without git): no
 network, no Docker daemon."""
 
-import errno
 import http.client
 import json
 import os
@@ -513,8 +512,8 @@ class Early(Case):
         said.assert_called_once_with()
 
     def test_a_second_make_ui_finds_the_first_and_touches_nothing(self):
-        self.patch(api, "ThreadingHTTPServer", side_effect=OSError(errno.EADDRINUSE, "Address already in use"))
-        self.patch(api, "is_lab_ui", return_value=True)
+        self.patch(api.paths, "serve_here", return_value=9000)   # the Lab UI of this folder holds it (paths.serve_here)
+        self.patch(api, "ThreadingHTTPServer", side_effect=AssertionError("the port was bound"))
         opened = self.patch(api, "open_browser")
         with mock.patch("builtins.print"):
             api.serve(9000, True)
