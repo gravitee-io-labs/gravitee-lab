@@ -561,7 +561,7 @@ not set`, and a variable a seed file uses with no value stops it with the file's
 | `AIM_AUTOMATION_URL` | Where `/automation` is served: Gamma's objects, and the groups and portals of an environment of its own | `APIM_MANAGEMENT_URL` |
 | `GAMMA_AM_URL` | The AM management API, as the APIM management API reaches it | `AM_MANAGEMENT_URL` |
 | `AM_PUBLIC_URL` | The AM gateway, as a browser reaches it | Required for `seed/am/gamma-link.yaml` |
-| `AM_GATEWAY_URL` | The AM gateway, as the API gateway reaches it. Used by seed files | |
+| `AM_GATEWAY_URL` | The AM gateway, as the API gateway and the seed reach it. Used by seed files, and the seed ends once it serves the domain and knows each application that has a `clientSecret`: a service that starts after the seed signs in at once | Unset: no wait |
 | `APIM_GATEWAY_URL` | The API gateway, as a user reaches it. Used by seed files | |
 | `GATEWAY_INTERNAL_URL` | The API gateway, as the seed reaches it. With `SEED_WAIT_GATEWAY=1` the seed waits until it serves what was imported, in every environment; without it, it only uses it to wait for a replaced API to leave it | Unset: no wait |
 | `SEED_WAIT_GATEWAY` | `1` makes the seed wait for the gateway to take what it deployed: every API served, the protections and the budgets in force, a chat through every LLM proxy (`LLM_PROBE_KEY`). By default it does not: the seed ends when the management API holds everything, and the gateway takes it within seconds (an AI model downloads at its first deployment, which takes longer) | `0` |
