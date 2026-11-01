@@ -306,14 +306,14 @@ def _windows_ports():
 def held(ports):
     """The ports among these that another program uses on this machine, sorted: not those the lab's own containers
     publish (_lab_ports), and in WSL those Windows listens on too, where Docker Desktop publishes the containers' ports.
-    None is said while the lab's own cannot be told, its core file not loading or Docker not listing its containers: they
-    would read as another program's."""
+    None while the lab's own cannot be told, its core file not loading or Docker not listing its containers: they would
+    read as another program's, and an empty list would say that none is."""
     if not ports:
         return []
     try:
         ours = _lab_ports()
     except compose.ComposeError:
-        return []
+        return None
     windows = _windows_ports()
     return sorted(port for port in ports if port not in ours and (port in windows or _taken(port)))
 
@@ -326,6 +326,8 @@ def _ports(info):
     if not ports:
         return _check("ports", "idle", title, "Known once the platform's file loads")
     busy = held(ports)
+    if busy is None:
+        return _check("ports", "idle", title, "Known once Docker lists the lab's containers")
     if not busy:
         return _check("ports", "ok", title, f"No other program uses the {len(ports)} ports of the platform")
     named = ", ".join(f"{port} ({ports[port]})" for port in busy[:4]) + (" and more" if len(busy) > 4 else "")
