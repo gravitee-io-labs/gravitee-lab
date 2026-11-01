@@ -2,6 +2,7 @@
 command prints the lines, and the clock is a list of instants."""
 
 import json
+import threading
 import unittest
 from unittest import mock
 
@@ -186,6 +187,24 @@ class Run(unittest.TestCase):
         self.assertEqual(job.lines[1:3], ["Image ghcr.io/acme/x:1 Pulling", "Image ghcr.io/acme/x:1 Error denied"])
         job, started = self.run_job(UP, ["a warning"], ["Container gio-redis  Started"], code=1)   # only a warning
         self.assertEqual((len(started), job.ok), (2, False))
+
+    def test_a_pull_before_an_up_that_stalls_is_ended_and_the_up_not_run(self):
+        # A registry that stops sending: nothing more comes, and the job does not wait for ever
+        ended, started = threading.Event(), []
+
+        def command(cmd, **options):
+            started.append(cmd)
+
+            def lines():
+                yield json.dumps({"id": IMAGE, "status": "Working", "text": "Pulling"}) + "\n"
+                ended.wait(10)
+            return mock.Mock(stdout=lines(), wait=lambda: -15, returncode=-15, poll=lambda: -15 if ended.is_set() else None)
+        job = Job("Start the stack", [UP], key="platform", verb="start")
+        with mock.patch.object(jobs.subprocess, "Popen", command), mock.patch.multiple(jobs, SILENT=0.2, WATCH=0.02), \
+                mock.patch.object(jobs.compose, "end", side_effect=lambda process: ended.set()):
+            job.run()
+        self.assertEqual((len(started), job.ok), (1, False))
+        self.assertTrue(job.error().startswith("Stopped: nothing happened for"), job.error())
 
     def test_an_explicit_pull_that_fails_says_why(self):
         refused = {"id": "Image ghcr.io/acme/x:1", "status": "Error", "text": "Error", "details": "denied"}
