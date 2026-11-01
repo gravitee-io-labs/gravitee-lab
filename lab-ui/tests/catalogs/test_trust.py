@@ -2134,12 +2134,15 @@ class Audience(Golden):
                 self.assertEqual(self.judge(CLEAN, audience=audience, closure_audiences=theirs)["state"], state)
 
     def test_the_reason_goes_with_the_others_in_the_order_of_the_rules(self):
+        newer = regen.LEVELS[0] + 1   # a level this Lab does not read yet
+
         def edit(arguments):
             arguments["unit"]["references"] = ["HOME"]
-            arguments["context"].update(audience="public", closure_audiences=["private"], level=5)
+            arguments["context"].update(audience="public", closure_audiences=["private"], level=newer)
         verdict = self.changed(CLEAN, edit)
         self.assertEqual(verdict["codes"], ["T20", "T24", "T26"])
-        self.assertEqual(verdict["reasons"], [line("T20", names="HOME"), line("T24"), line("T26", 0, level=5, min=regen.LEVELS[1], max=regen.LEVELS[0])])
+        self.assertEqual(verdict["reasons"], [line("T20", names="HOME"), line("T24"),
+                                              line("T26", 0, level=newer, min=regen.LEVELS[1], max=regen.LEVELS[0])])
 
     def test_a_unit_that_compose_could_not_read_is_still_judged_on_its_audience(self):
         verdict = self.judge("t23-include-outside", audience="public", closure_audiences=["private"])
