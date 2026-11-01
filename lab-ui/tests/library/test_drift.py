@@ -4,7 +4,7 @@ labels, said as a kind; never valued, asked once for a pair of hashes."""
 import json
 
 from lab_ui.docker import compose
-from lab_ui.library import drift
+from lab_ui.library import drift, reasons
 
 from .. import Case
 
@@ -57,6 +57,15 @@ class Changes(Case):
     def test_a_variable_that_two_settings_make_is_named_as_it_is(self):
         self.has[3] = "both=y"
         self.assertEqual(self.ask()["engine"]["settings"], ["GRAVITEE_LICENSE", "ONE", "TWO"])
+
+    def test_a_variable_that_a_changed_file_adds_is_no_setting_the_person_changed(self):
+        # A Lab update adds REDISCLI_AUTH: ${REDIS_PASSWORD:-redispassword}; the container made before it has none of it
+        self.has[0] = "gravitee_license_key=new-secret"
+        self.resolved.return_value["engine"]["environment"]["REDISCLI_AUTH"] = "redispassword"
+        raw = {"docker-compose.yml": {"services": {"engine": {"environment": {"REDISCLI_AUTH": "${REDIS_PASSWORD:-redispassword}"}}}}}
+        found = self.ask(raw).get("engine", {})
+        why = reasons.why({"tag": "", "built": False}, {}, "config", found.get("settings", ()), found.get("labels", False))
+        self.assertEqual(reasons.line({"engine": why}), "Its configuration changed since it started.")
 
     def test_a_label_that_compose_sets_now_is_a_difference_and_never_named(self):
         # A container made before a label was added to its service has none of it
