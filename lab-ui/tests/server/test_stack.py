@@ -127,10 +127,11 @@ class StackActions(Case):
 
     def test_stop_down_and_reset_go_by_project_name(self):
         # A job is named as the action that started it, and does what it says
-        for name, title, command in (("stop", "Stop the stack", ["stop"]), ("down", "Remove containers", ["down"])):
+        for name, title, commands in (("stop", "Stop the stack", [["stop"]]),
+                                      ("down", "Remove containers", [["rm", "--stop", "--force", "-v"], ["down"]])):
             stack.action(PROJECT, name)
             self.assertEqual(self.started(self.jobs),
-                             (title, [[*self.BY_NAME, *command]],
+                             (title, [[*self.BY_NAME, *command] for command in commands],
                               {"key": "platform", "verb": name, "changes": {"stop": self.ON}, "waits": [self.STOPS]}))
         self.patch(stack.layers, "write")
         self.patch(stack.playgrounds, "forget")

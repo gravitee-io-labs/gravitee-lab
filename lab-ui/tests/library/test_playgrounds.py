@@ -48,7 +48,7 @@ def ran(steps, fail=None):
     """Runs the steps of a job without its commands: (job, the commands). A command that holds `fail` fails."""
     job, commands = Job("Test", steps), []
 
-    def collect(cmd, quiet=False, shown=None):
+    def collect(cmd, quiet=False, env=None, shown=None):
         commands.append(cmd)
         if fail in cmd:
             raise JobFailed("Failed with exit code 1")
@@ -907,7 +907,7 @@ class Playgrounds(Case):
         def go(steps, more=None):
             job = Job("Test", steps, **(more or {}))
 
-            def command(cmd, quiet=False, shown=None):
+            def command(cmd, quiet=False, env=None, shown=None):
                 if word in cmd:
                     job.cancel()   # the person cancels while it runs: the command ends
                     raise JobFailed("Failed with exit code 143")
@@ -1072,7 +1072,7 @@ class Playgrounds(Case):
         playgrounds.stop(self.project, "welcome", True, ["addon:agent-lens"])
         job = Job("Test", self.started(self.jobs)[1])
 
-        def failing(cmd, quiet=False, shown=None):   # what exec does: the command's last line is the reason
+        def failing(cmd, quiet=False, env=None, shown=None):   # what exec does: the command's last line is the reason
             job.lines.append("[seed] ✗ Cannot reach the management API")
             raise JobFailed(job.lines[-1])
         job.exec = failing
@@ -2278,6 +2278,17 @@ class Deleting(Deploys):
         self.assertIn(str(compose.scratch()), " ".join(calls[0][0]))
         self.assertIn(f"$ {' '.join(COMPOSE)} run --rm --no-deps --pull=missing hotels-seed --remove", job.lines)
         self.assertNotIn(str(compose.scratch()), "\n".join(job.lines))
+
+    def test_the_delete_here_does_not_warn_of_what_else_is_on_as_orphans(self):
+        # It loads the core and the playground's own file alone: an add-on that is on would be orphan containers to
+        # Compose, which warns of them in a line of the job, with a flag the person must not use
+        self.record(None, "APIs")
+        self.on(*self.core)
+        playgrounds.stop(self.project, "hotels", True, [])
+        job, calls = self.execute()
+        self.assertTrue(job.ok, job.lines)
+        self.assertTrue(removes(calls[0][0], "hotels-seed"), calls[0][0])
+        self.assertEqual(calls[0][1]["env"]["COMPOSE_IGNORE_ORPHANS"], "true")
 
     def test_delete_place_is_refused_in_words(self):
         self.ready()

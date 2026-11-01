@@ -1002,7 +1002,8 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
 - The head shows Stop, Restart and Update while something of what is on runs, an add-on alone too (`platform.restart`,
   `platform.update`: `needed`, else "Nothing runs"). Its primary is Start while the platform is stopped, else Apply, the last
   button before the menu, as in every head.
-- **Remove containers** keeps the volumes. **Reset** deletes them too, turns off the playground that is on
+- **Remove containers** keeps the named volumes: it removes the containers with their anonymous volumes (`rm --stop
+  --force -v`), which nothing reaches once they are gone, then the networks (`down`). **Reset** deletes them too, turns off the playground that is on
   (`platform.reset_turns_off`, not in an on file with the user's own changes, which it does not write) and empties what
   every seed recorded: its next Start sets it up again. So does a Reset that failed or was canceled once Compose said
   it removed a volume; one cut before keeps the records, with the data they name.

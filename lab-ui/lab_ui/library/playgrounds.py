@@ -843,8 +843,10 @@ def _delete_created(project, playground, elsewhere):
         if local:
             seed = ["run", "--rm", "--no-deps", "--pull=missing", playground["seed"], "--remove"]
             try:   # its own file loaded, so that it deletes whatever else is on: a playground that is off has no seed service in
-                # the files that are. Its line is the command typed in the folder, where the on file names it while it is on
-                job.exec([*COMPOSE, *compose.all_files([playground["file"]]), *seed], shown=[*COMPOSE, *seed])
+                # the files that are. What else is on is not loaded, so Compose is told not to look for orphans, which it
+                # would warn of. Its line is the command typed in the folder, where the on file names it while it is on
+                job.exec([*COMPOSE, *compose.all_files([playground["file"]]), *seed], env={"COMPOSE_IGNORE_ORPHANS": "true"},
+                         shown=[*COMPOSE, *seed])
             except JobFailed as failed:   # "[seed] ✗ <why>": its reason, as a start says it
                 _stop_seed(job, playground)
                 raise JobFailed(_seed_reason(str(failed), failed.code)) from None

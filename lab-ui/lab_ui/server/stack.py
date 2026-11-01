@@ -258,7 +258,9 @@ def action(project, name, for_core=False, accept=()):
     actions = {
         "stop":  ("Stop the stack", [[*by_name, "stop"]], "stop", [stops]),
         "pull":  ("Pull images", [PULL], None, [awaited(project["services"], images=_pulled(project, units))]),
-        "down":  ("Remove containers", [[*by_name, "down"]], "stop", [stops]),
+        # The containers with their anonymous volumes, which nothing reaches once they are gone, not even a Reset, then
+        # the networks. Named volumes stay
+        "down":  ("Remove containers", [[*by_name, "rm", "--stop", "--force", "-v"], [*by_name, "down"]], "stop", [stops]),
         "reset": ("Reset the stack", [_reset(project, by_name)], "stop", [stops]),
     }
     if name not in actions:
