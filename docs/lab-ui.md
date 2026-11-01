@@ -380,7 +380,8 @@ To share a personal item:
 
 A playground's copy carries the versions it ran on as its `tested` set, unless its file declares some. An item of a catalog
 never includes a personal one, so it runs on any machine. An item that another item includes cannot be deleted: its menu says
-*Used by*.
+*Used by*. Nor can one while something of it runs (*Stop it first*), or a playground that deployed to a Gravitee Cloud
+environment while it holds what it created there (*Delete what it created in Development first*): its record goes with it.
 
 The star next to a name keeps an item at hand. *Starred* shows only those. Stars belong to this machine, in
 `.lab/starred.json`.

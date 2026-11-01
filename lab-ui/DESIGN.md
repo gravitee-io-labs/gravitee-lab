@@ -577,9 +577,11 @@ What the server decides and the page shows. A name in backticks is the code to r
   check` has nothing to say of it as a shared item (`personal.share`). Share, and the rename of a setup, list first the
   other files they write again ("Changes").
 - An item cannot be shared or deleted while it is on (`personal.held`).
-  - An add-on or a playground says "Stop it first" while something of it runs, "Turn it off first" otherwise.
+  - An add-on or a playground says "Stop it first" while something of it runs, "Turn it off first" otherwise. It is not
+    deleted while something of it runs, on or off either: its containers would run on with no file.
   - A setup is held only when the on file names it itself (a person may write it), and it is not renamed either.
-  - Nothing that another item includes is deleted ("Used by").
+  - Nothing that another item includes is deleted ("Used by"), nor a playground that holds a record of what it created in a
+    place ("Delete what it created in Development first"): the record is in its folder.
   - The item's menu says so (`held`). The Lab UI does not run git.
 
 ### Actions and their plans
