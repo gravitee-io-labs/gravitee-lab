@@ -5,6 +5,7 @@ import hashlib
 import http.client
 import re
 import shutil
+import socket
 import time
 import urllib.error
 import urllib.parse
@@ -23,8 +24,9 @@ DOWNLOADS = "https://download.gravitee.io"
 SITE = "download.gravitee.io"   # the download site, as its errors name it
 ZIP = re.compile(r"^(?P<name>.+?)-(?P<version>\d+\.\d+[^/]*)\.zip$")
 PLUGIN_PATH = re.compile(r"(graviteeio-[a-z]+/|graviteeio-ee/[a-z]+/|)plugins/[a-z-]+/[A-Za-z0-9._-]+/")
-CHUNK = 64 * 1024   # a download is read by pieces, so that the job says how far it is
+CHUNK = 64 * 1024   # a download is read by pieces, so that the job says how far it is, and a cancel ends it
 DOWNLOAD_TRIES = 3   # a plugin download cut short or refused by a server error is tried again, then fails
+READ_TIMEOUT = 30   # seconds a download waits for its next piece before it is tried again
 
 # The plugin zips of a folder with their modification times; nothing, and no error, when it has none
 STAT_SCRIPT = 'for f in "$0"/*.zip; do [ -e "$f" ] && stat -c "%Y %n" "$f"; done; true'
@@ -254,12 +256,16 @@ def installed(project, product, only=None):
 # ---------------------------------------------------------------------------------------------------------------------
 
 def _published_sha1(url):
-    """The SHA-1 published next to a file of the download site, None when there is none."""
+    """The SHA-1 published next to a file of the download site, None when there is none (404). Any other refusal fails
+    the try: a server error is tried again (_transient), and a download is never placed unchecked for want of an
+    answer."""
     try:
-        with urllib.request.urlopen(url + ".sha1", timeout=30) as response:
+        with urllib.request.urlopen(url + ".sha1", timeout=READ_TIMEOUT) as response:
             return response.read().decode().split()[0].strip().lower()
-    except urllib.error.HTTPError:
-        return None
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            return None
+        raise
 
 
 def _downloads(names):
@@ -267,16 +273,23 @@ def _downloads(names):
     return {("Download", name): "download" for name in names}
 
 
+def _canceled(job):
+    if job.canceled:
+        raise JobFailed("Canceled")
+
+
 def _download(job, folder, plugin, version):
-    """Downloads a plugin version into the shared folder as a hidden .part file, which no product loads, its SHA-1
-    checked: answers that file, for _place(). A download cut short, or that the site fails to serve (a 5xx, the network),
-    is tried again, up to DOWNLOAD_TRIES times: a nightly test must not fail on a transfer. Nothing is left of a download
-    that failed, and why is said in plain words."""
+    """Downloads a plugin version into the shared folder as a hidden .part file, which no product loads, its size and
+    its SHA-1 checked: answers that file, for _place(). A download cut short, or that the site fails to serve (a 5xx,
+    the network), is tried again, up to DOWNLOAD_TRIES times: a nightly test must not fail on a transfer. A cancel ends
+    it at the next piece read, or before the next try. Nothing is left of a download that failed, and why is said in
+    plain words."""
     folder.mkdir(parents=True, exist_ok=True)
     url, unit = f"{DOWNLOADS}/{plugin['path']}{version['file']}", ("Download", plugin["name"])
     job.lines.append(f"Downloading {version['file']} ({max(1, version['size'] // 1024)} KB)")
     part = folder / f".{version['file']}.part"
     for attempt in range(1, DOWNLOAD_TRIES + 1):
+        _canceled(job)
         try:
             expected = _fetch_part(job, url, part, unit, version["size"])
             break
@@ -284,7 +297,7 @@ def _download(job, folder, plugin, version):
             part.unlink(missing_ok=True)
             said = error if isinstance(error, JobFailed) or not isinstance(error, Exception) else \
                 JobFailed(f"{version['file']}: {web_error(error, SITE)}")
-            if attempt == DOWNLOAD_TRIES or not _transient(error):
+            if job.canceled or attempt == DOWNLOAD_TRIES or not _transient(error):
                 if said is error:
                     raise
                 raise said from error
@@ -295,30 +308,40 @@ def _download(job, folder, plugin, version):
 
 
 def _fetch_part(job, url, part, unit, size):
-    """One try of _download(): the file in `part`, checked against the SHA-1 the site publishes, which it answers."""
+    """One try of _download(): the file in `part`, of the size the listing gives (when it gives one), checked against
+    the SHA-1 the site publishes, which it answers."""
     digest = hashlib.sha1()
-    with urllib.request.urlopen(url, timeout=120) as response, open(part, "wb") as f:
+    with urllib.request.urlopen(url, timeout=READ_TIMEOUT) as response, open(part, "wb") as f:
         read = 0
-        for chunk in iter(lambda: response.read(CHUNK), b""):
+        while True:
+            _canceled(job)   # before the next piece, which may take READ_TIMEOUT to come
+            chunk = response.read(CHUNK)
+            if not chunk:
+                break
             f.write(chunk)
             digest.update(chunk)
             read += len(chunk)
             job.unit(unit, read / max(read, size))   # the listing may give no size
+    name = part.name[1:-len(".part")]
+    if size and read != size:   # a connection closed early ends the read as the end of the file does
+        raise Mismatch(f"{name}: download cut short, discarded")
     expected = _published_sha1(url)
     if expected and digest.hexdigest() != expected:
-        raise Mismatch(f"{part.name[1:-len('.part')]}: checksum mismatch, download discarded")
+        raise Mismatch(f"{name}: checksum mismatch, download discarded")
     return expected
 
 
 class Mismatch(JobFailed):
-    """A download whose SHA-1 is not the published one: cut short, most of the time."""
+    """A download that is not the file published: shorter than its size, or not of its SHA-1. Cut short, most of the
+    time."""
 
 
 def _transient(error):
     """Whether a failed download may work when tried again: cut short, a server error, the network. Not a 4xx."""
     if isinstance(error, urllib.error.HTTPError):
         return error.code >= 500
-    return isinstance(error, (Mismatch, urllib.error.URLError, http.client.HTTPException, ConnectionError, TimeoutError))
+    return isinstance(error, (Mismatch, urllib.error.URLError, http.client.HTTPException, ConnectionError, TimeoutError,
+                              socket.timeout))
 
 
 def _place(job, folder, plugin, version, part):

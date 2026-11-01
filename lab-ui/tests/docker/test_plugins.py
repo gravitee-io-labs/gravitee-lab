@@ -416,10 +416,90 @@ class Installed(Case):
             self.assertEqual((str(failed.exception), list(folder.iterdir())), (said, []))
         self.assertEqual([c.args for c in slept.call_args_list], [(2,), (4,)] * 2, "tried three times, each")
 
-    def test_a_download_cut_short_is_tried_again(self):
+    def served(self, *answers):
+        """urlopen() of the download site, answering each address with the next of its answers: bytes, or an HTTP code
+        it fails with. What it was asked, in order."""
+        queues, asked = {}, []
+        for url, answer in answers:
+            queues.setdefault(url, []).append(answer)
+
+        def urlopen(url, timeout):
+            asked.append(url)
+            answer = queues[url].pop(0) if len(queues[url]) > 1 else queues[url][0]
+            if isinstance(answer, int):
+                raise plugins.urllib.error.HTTPError(url, answer, "Error", {}, None)
+            return io.BytesIO(answer)
+        self.patch(plugins.urllib.request, "urlopen", urlopen)
+        self.patch(plugins.time, "sleep")
+        return asked
+
+    PLUGIN = {"name": "gravitee-policy-x", "path": "plugins/policies/gravitee-policy-x/"}
+    FILE = "gravitee-policy-x-1.2.0.zip"
+    URL = f"{plugins.DOWNLOADS}/plugins/policies/gravitee-policy-x/{FILE}"
+
+    def test_a_checksum_the_site_fails_to_serve_is_asked_again_and_never_skipped(self):
+        content = b"0123456789"
+        sha1 = f"{hashlib.sha1(content).hexdigest()}  {self.FILE}\n".encode()
+        job, folder = Job("Plugins", []), self.root / "plugins/apim"
+        job.unit = lambda name, fraction: None
+        # A server error on the .sha1 is tried again, with the file: then it is checked
+        asked = self.served((self.URL, content), (self.URL + ".sha1", 503), (self.URL + ".sha1", sha1))
+        part = plugins._download(job, folder, self.PLUGIN, {"file": self.FILE, "size": 10})
+        self.assertEqual((part.read_bytes(), job.lines[-1], asked.count(self.URL)), (content, "  SHA-1 verified", 2))
+        part.unlink()
+        # A refusal fails the download: nothing is placed unchecked
+        self.served((self.URL, content), (self.URL + ".sha1", 403))
+        with self.assertRaisesRegex(JobFailed, "download.gravitee.io refuses the request"):
+            plugins._download(job, folder, self.PLUGIN, {"file": self.FILE, "size": 10})
+        self.assertEqual(self.files(), [])
+        # Only a missing one (404) means none is published
+        self.served((self.URL, content), (self.URL + ".sha1", 404))
+        plugins._download(job, folder, self.PLUGIN, {"file": self.FILE, "size": 10})
+        self.assertEqual(job.lines[-1], "  No published checksum")
+
+    def test_a_download_shorter_than_its_size_is_tried_again_even_without_a_checksum(self):
+        # A connection closed early ends the read as the end of the file does: the size the listing gives tells
+        content = b"0123456789" * 4
+        job, folder = Job("Plugins", []), self.root / "plugins/apim"
+        job.unit = lambda name, fraction: None
+        self.served((self.URL, content[:12]), (self.URL, content), (self.URL + ".sha1", 404))
+        part = plugins._download(job, folder, self.PLUGIN, {"file": self.FILE, "size": 40})
+        self.assertEqual(part.read_bytes(), content)
+        self.assertEqual(job.lines[-2:], [f"  Downloading again: {self.FILE}: download cut short, discarded",
+                                          "  No published checksum"])
+
+    def test_a_cancel_ends_a_download_at_the_next_piece_and_before_another_try(self):
+        content = b"x" * 200
+        self.patch(plugins, "CHUNK", 10)
+        folder, read = self.root / "plugins/apim", []
+
+        class Stream(io.BytesIO):
+            def read(self, size=-1):
+                read.append(size)
+                return super().read(size)
+        self.patch(plugins.urllib.request, "urlopen", lambda url, timeout: Stream(content))
+        job = Job("Plugins", [])
+        job.unit = lambda name, fraction: job.cancel() if len(read) == 2 else None
+        with self.assertRaisesRegex(JobFailed, "^Canceled$"):
+            plugins._download(job, folder, self.PLUGIN, {"file": self.FILE, "size": 200})
+        self.assertEqual((len(read), self.files()), (2, []))   # 2 of its 20 pieces, and nothing left
+        # Canceled while it waits to try again: no other try
+        tries = []
+
+        def failing(url, timeout):
+            tries.append(url)
+            raise plugins.urllib.error.HTTPError(url, 503, "Unavailable", {}, None)
+        self.patch(plugins.urllib.request, "urlopen", failing)
+        job = Job("Plugins", [])
+        self.patch(plugins.time, "sleep", lambda seconds: job.cancel())
+        with self.assertRaisesRegex(JobFailed, "^Canceled$"):
+            plugins._download(job, folder, self.PLUGIN, {"file": self.FILE, "size": 200})
+        self.assertEqual(len(tries), 1)
+
+    def test_a_download_altered_is_tried_again(self):
         content, file = b"0123456789" * 4, "gravitee-policy-x-1.2.0.zip"
         sha1 = f"{hashlib.sha1(content).hexdigest()}  {file}\n".encode()
-        served = iter([content[:12], content])   # the first transfer ends early, as a dropped connection does
+        served = iter([content[:12] + b"x" * 28, content])   # the first transfer is not the file published
         self.patch(plugins.urllib.request, "urlopen",
                    lambda asked, timeout: io.BytesIO(sha1 if asked.endswith(".sha1") else next(served)))
         self.patch(plugins.time, "sleep")
