@@ -902,7 +902,8 @@ in `.env`, then run `make all`.
 - The Management API checks an endpoint's shared configuration against the schema of its plugin. API Management 4.12
   names "no store" `NONE` and refuses `{"type": ""}` for a TLS key store or trust store, which a 4.11 export holds:
   leave the store out.
-- LLM and A2A proxy APIs cannot be updated from a definition (`Unsupported API type`), so they are replaced.
+- LLM, A2A and MCP proxy APIs cannot be updated from a definition (`Unsupported API type`), so they are replaced. Any other
+  API is updated, and a refusal of its update stops the seed: it is never replaced for that.
 - A deployment answers 202.
 - An LLM proxy refuses an import over itself but takes the update of its entity: `PUT /apis/{id}` with the API as `GET`
   gives it, then a deployment. That is how a control's steps are switched without replacing the API. A step has
