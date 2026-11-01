@@ -201,6 +201,19 @@ class Record(Seed):
         self.assertIn("is damaged: fix it, or Reset", self.output().splitlines()[-1])
         self.assertEqual(self.state.read_text(encoding="utf-8"), damaged)
 
+    def test_the_damaged_record_of_a_place_is_named_and_never_said_to_go_with_a_reset(self):
+        # A deploy to a place records in STATE_DIR=/state/<platform id>/<environment id> (lab_ui.gravitee.places.seed_env),
+        # and a Reset of This machine empties .state/created.json alone (lab_ui.library.playgrounds.forget)
+        state = self.state.parent / "state"
+        place = state / "my-account" / "dev" / "created.json"
+        place.parent.mkdir(parents=True)
+        place.write_text('[{"product": "apim", "kind": "api"}]', encoding="utf-8")
+        with mock.patch.object(common, "STATE", state), mock.patch.object(common, "STATE_FILE", place):
+            with self.assertRaisesRegex(common.SeedError, r"^The seed's record of what it created \(created\.json in the "
+                                                          r"playground's \.state/my-account/dev folder\) is damaged: fix it, or "
+                                                          r"delete it and what the seed made in that environment$"):
+                common.record("apim", "api", "APIs", "Hotels", "a1")
+
     def test_a_read_that_fails_for_a_moment_is_asked_again(self):
         common.save_created([self.ITEM])
         read, failures = type(self.state).read_text, [OSError(5, "Input/output error")]

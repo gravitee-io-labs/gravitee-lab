@@ -619,7 +619,8 @@ seed's output, `[seed] ✗ <why>`, as the reason a start failed.
 
 A deploy to Gravitee Cloud records in a folder of its own, `.state/<platform id>/<environment id>/`, which the seed reaches
 as `STATE_DIR=/state/<platform id>/<environment id>`. Each place keeps its record, and a Re-seed, a Delete or a Reset of
-*This machine* never reads or empties another one. Removing an account in the Lab UI deletes its folders and leaves
+*This machine* never reads or empties another one. A record of a place that cannot be read stops its deploy: fix it, or
+delete it and what the seed made in that environment. Removing an account in the Lab UI deletes its folders and leaves
 what the seed created in Gravitee Cloud.
 
 ## Controls: the protections a lesson switches on

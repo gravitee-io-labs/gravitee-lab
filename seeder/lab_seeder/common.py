@@ -16,7 +16,8 @@ import yaml
 from urllib3.exceptions import NewConnectionError
 
 SEED_DIR = Path(os.getenv("SEED_DIR", "/seed"))
-STATE_FILE = Path(os.getenv("STATE_DIR", "/state")) / "created.json"
+STATE = Path("/state")   # the playground's .state folder: This machine's record, and a folder for the record of each place
+STATE_FILE = Path(os.getenv("STATE_DIR", STATE)) / "created.json"
 READY_TIMEOUT = int(os.getenv("READY_TIMEOUT", "300"))
 
 
@@ -621,9 +622,21 @@ def items(data):
 # by one step at a time in this process (`_state`) and by one process at a time (a lock beside it: a removal may run while a
 # seed still does), and a record that cannot be read or written stops the seed rather than lose what it holds.
 
-RECORD = "The seed's record of what it created (created.json in the playground's .state folder)"
 KEYS = ("product", "kind", "name", "id")   # what every record has: what it is, and how the seed finds it again
 _holding = [0]   # how deep the step that holds the record is in it
+
+
+def _record(problem, fix=False):
+    """Why the record stops the seed, with the file named: created.json in the playground's .state folder for This machine, in
+    .state/<platform id>/<environment id> for a place (a deploy to Gravitee Cloud, whose STATE_DIR is that folder). `fix` adds
+    what to do with a record that cannot be read: a Reset empties This machine's record, never a place's."""
+    folder = STATE_FILE.parent
+    place = folder.relative_to(STATE).as_posix() if STATE in folder.parents else None
+    where = f".state/{place}" if place else ".state"
+    message = f"The seed's record of what it created (created.json in the playground's {where} folder) {problem}"
+    if fix:
+        message += ": fix it, or " + ("delete it and what the seed made in that environment" if place else "Reset")
+    return message
 
 
 @contextmanager
@@ -641,7 +654,7 @@ def held():
             STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
             lock = open(STATE_FILE.with_name(STATE_FILE.name + ".lock"), "a")
         except OSError as e:
-            raise SeedError(f"{RECORD} cannot be written: {e.strerror or e}") from None
+            raise SeedError(_record(f"cannot be written: {e.strerror or e}")) from None
         with lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             _holding[0] = 1
@@ -665,14 +678,14 @@ def _read():
                 return []
             except OSError as e:
                 if attempt == 2:
-                    raise SeedError(f"{RECORD} cannot be read: {e.strerror or e}. Fix it, or Reset") from None
+                    raise SeedError(_record(f"cannot be read ({e.strerror or e})", fix=True)) from None
                 pause(0.5)
         try:
             records = json.loads(text)
         except ValueError:
             records = None
         if not isinstance(records, list) or not all(isinstance(x, dict) and all(key in x for key in KEYS) for x in records):
-            raise SeedError(f"{RECORD} is damaged: fix it, or Reset")
+            raise SeedError(_record("is damaged", fix=True))
         return records
 
 
@@ -780,7 +793,7 @@ def save_created(records):
         except OSError as e:
             with suppress(OSError):
                 partial.unlink()
-            raise SeedError(f"{RECORD} cannot be written: {e.strerror or e}") from None
+            raise SeedError(_record(f"cannot be written: {e.strerror or e}")) from None
 
 
 def owned(records, product, order):
