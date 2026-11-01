@@ -520,11 +520,25 @@ def run(text, tested=None, timeout=1800, keep=False, out=print, given=None):
     if busy:
         out(f"Not tried: {busy}")
         return CANNOT
+    lab = Lab()
+    running = paths.serve_here(lab.port)   # the run is the Lab UI of this folder while it lasts: its jobs are the only ones
+    if running is not None:
+        lab.close()
+        out(f"Not tried: a Lab UI runs on this folder (http://localhost:{running or 9000}): stop it first, with Ctrl+C in its "
+            "terminal")
+        return CANNOT
+    try:
+        return _tried(lab, built, kind, uid, used, timeout, keep, out)
+    finally:
+        paths.stop_serving()
+
+
+def _tried(lab, built, kind, uid, used, timeout, keep, out):
+    """The run itself, with the Lab UI `lab` serving it: the exit code."""
     os.environ.update(used)   # Compose reads the process before .env: no file of this machine changes
     compose.CACHE.drop()
     project.forget()
     restore = keep_on_file()
-    lab = Lab()
     attempt = Run(lab, kind, uid)
     outcome, message, logs = OK, "", None
     try:

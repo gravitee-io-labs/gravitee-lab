@@ -18,7 +18,7 @@ The module docstring (Python) or the header comment (JavaScript) of a file is th
 
 | `lab_ui/` | What it holds |
 |---|---|
-| `paths.py` | The project's layout: the folder decides what a file is and gives its id; the API definitions of a seed, in `seed/apim/` and in each `seed/environments/<id>/` (`seed_apis`, which the checks, the license and the plugins a Cloud environment needs all read); `write_atomic`, and `read_record`, the reader of a record of `.lab/` that keeps one it cannot read aside |
+| `paths.py` | The project's layout: the folder decides what a file is and gives its id; the API definitions of a seed, in `seed/apim/` and in each `seed/environments/<id>/` (`seed_apis`, which the checks, the license and the plugins a Cloud environment needs all read); `write_atomic`, and `read_record`, the reader of a record of `.lab/` that keeps one it cannot read aside; `serve_here`, the lock the one Lab UI that serves the folder holds |
 | `e2e.py` | `make e2e`: runs this server on a free port and starts one item from nothing through it, as the page does; says whether it works (the start and its seed, the containers up, the consoles answering) and removes what it made. Refuses a machine that holds a lab. Exit 0 it works, 1 it does not, 2 it cannot be tried here |
 
 `lab_ui/docker/`: What the Lab UI asks of Docker and of the files around it.

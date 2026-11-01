@@ -1079,6 +1079,25 @@ def open_browser(url):
 
 
 def serve(port, browser):
+    """Serves the page and the API of this folder on `port`, for as long as the process runs. One Lab UI serves a folder: a
+    second one, on any port, sends the person to it, and so does a port that the Lab UI of this folder holds. A Lab UI of
+    another folder (or one started before this version, which holds no lock) on the port is said and never opened: its page
+    would act on another lab."""
+    running = paths.serve_here(port)
+    if running is not None:
+        url = f"http://localhost:{running or port}"
+        address(url, "Already running. To load a new version, stop it with Ctrl+C in its terminal, then run gravitee-lab "
+                     "again.")
+        if browser:
+            open_browser(url)
+        return   # a Lab serves already: nothing on disk is touched, so nothing of its work is finished or swept from here
+    try:
+        _serve(port, browser)
+    finally:
+        paths.stop_serving()
+
+
+def _serve(port, browser):
     url = f"http://localhost:{port}"
     try:
         if answers_on_ipv6(port):   # the browser may go there for localhost, and find another program
@@ -1087,14 +1106,11 @@ def serve(port, browser):
     except OSError as error:
         if error.errno != errno.EADDRINUSE:
             raise
-        if not is_lab_ui(port):
-            sys.exit(f"Port {port} is used by another program. Free it, or use another port: UI_PORT={port + 1} "
-                     "gravitee-lab (the UIs of a playground do not show next to the guide on another port)")
-        address(url, "Already running. To load a new version, stop it with Ctrl+C in its terminal, then run gravitee-lab "
-                     "again.")
-        if browser:
-            open_browser(url)
-        return   # a Lab serves already: nothing on disk is touched, so nothing of its work is finished or swept from here
+        if is_lab_ui(port):
+            sys.exit(f"Port {port} is used by another Lab UI: stop it with Ctrl+C in its terminal, then run gravitee-lab "
+                     "again. One lab runs at a time")
+        sys.exit(f"Port {port} is used by another program. Free it, or use another port: UI_PORT={port + 1} "
+                 "gravitee-lab (the UIs of a playground do not show next to the guide on another port)")
     server.daemon_threads = True   # an open log stream does not keep the Lab UI from stopping
     address(url, "Keep this terminal open: Ctrl+C stops the Lab UI, and the containers keep running.")
     compose.stop_on_signals()   # once, from the main thread, before it serves: a closed terminal ends what runs

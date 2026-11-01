@@ -2,6 +2,7 @@
 it needs, what it checks once started, and how it says it. No Docker, no server: the Lab UI's answers, the time and the shell are
 given. Then the plan CI makes before it tries anything: which items of a catalog a change touches, and the jobs of each."""
 
+import fcntl
 import json
 import os
 import re
@@ -629,6 +630,7 @@ class Running(Case):
     """run(): the steps in order, the exit code, the machine left as it was found."""
 
     def setUp(self):
+        self.folder(paths)
         self.said = []
         self.built = {"playgrounds": {"shop": {"name": "Shop", "tested": [{"APIM_VERSION": "4.13.0"}]}}, "addons": {}, "setups": {}}
         self.patch(project, "load", lambda: self.built)
@@ -637,7 +639,7 @@ class Running(Case):
         self.removed = []
         self.stub_run = mock.Mock()
         self.stub_run.return_value.stop.side_effect = lambda: self.removed.append(True)
-        self.lab = mock.Mock()
+        self.lab = mock.Mock(port=50123)
         self.patch(e2e, "Lab", lambda: self.lab)
         self.patch(e2e, "Run", lambda *args, **more: self.stub_run.return_value)
         self.patch(e2e, "report")
@@ -717,6 +719,30 @@ class Running(Case):
         at = next(i for i, line in enumerate(said) if "::error::forged" in line)
         self.assertTrue(said[at - 1].startswith("::stop-commands::") and re.fullmatch(r"::[0-9a-f]{32}::", said[at + 1]), said)
         self.assertNotIn("\n", said[at])
+
+    def held(self):
+        """Whether a Lab UI holds the lock of this folder, as another process would find it."""
+        descriptor = os.open(self.root / paths.SERVING_FILE, os.O_RDONLY)
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            return False
+        except BlockingIOError:
+            return True
+        finally:
+            os.close(descriptor)
+
+    def test_while_it_runs_it_is_the_lab_ui_of_this_folder_and_one_that_runs_already_is_two(self):
+        self.stub_run.return_value.start.side_effect = lambda timeout: self.said.append(self.held())
+        self.assertEqual(self.go(), e2e.OK)
+        self.assertEqual(self.said[0], True, "the run held the folder: a Lab UI that starts meanwhile is sent to it")
+        self.assertFalse(self.held(), "and let it go")
+        self.said.clear()
+        found = mock.patch.object(paths, "serve_here", return_value=9000)
+        with found:
+            self.assertEqual(self.go(), e2e.CANNOT)
+        self.assertEqual(self.said, ["Not tried: a Lab UI runs on this folder (http://localhost:9000): stop it first, with Ctrl+C "
+                                     "in its terminal"])
+        self.lab.close.assert_called_with()
 
     def test_a_machine_that_holds_a_lab_is_two_and_nothing_is_started_or_removed(self):
         self.patch(e2e, "clean_machine", lambda *args: "This machine already has containers of the lab (gravitee)")

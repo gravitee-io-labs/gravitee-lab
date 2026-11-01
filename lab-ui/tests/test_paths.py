@@ -1,10 +1,13 @@
 """paths: what a file is from its folder, the ids on disk, what belongs to this machine, and a file written whole."""
 
+import fcntl
 import json
 import os
 import re
 import stat
+import subprocess
 import sys
+import threading
 import tempfile
 import time
 import unittest
@@ -154,6 +157,54 @@ class Records(Case):
         self.file.write_text("", encoding="utf-8")
         self.assertIsNone(paths.read_record(self.file))
         self.assertEqual(list(self.file.parent.glob("*.bad-*")), [])
+
+
+class Serving(Case):
+    """One Lab UI serves a folder: the lock it holds for its life, with its port, as this process and another one find it."""
+
+    def setUp(self):
+        self.folder(paths)
+        self.addCleanup(paths.stop_serving)
+
+    def holder(self, port):
+        """Another process that serves the folder on `port`, until the test ends."""
+        script = ("import fcntl, os, sys\n"
+                  "descriptor = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o600)\n"
+                  "fcntl.flock(descriptor, fcntl.LOCK_EX)\n"
+                  "os.write(descriptor, sys.argv[2].encode() + b'\\n')\n"
+                  "print('held', flush=True)\n"
+                  "sys.stdin.read()\n")
+        (self.root / paths.LAB_DIR).mkdir(exist_ok=True)
+        holder = subprocess.Popen([sys.executable, "-c", script, str(self.root / paths.SERVING_FILE), str(port)],
+                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        self.addCleanup(holder.wait, 10)
+        self.addCleanup(holder.stdin.close)
+        self.assertEqual(holder.stdout.readline(), "held\n")
+
+    def test_the_lab_ui_that_serves_the_folder_holds_it_with_its_port_and_lets_it_go(self):
+        self.assertIsNone(paths.served_elsewhere())
+        self.assertIsNone(paths.serve_here(9000))
+        self.assertEqual((self.root / paths.SERVING_FILE).read_text(), "9000\n")
+        self.assertIsNone(paths.serve_here(9001), "it holds it already")
+        self.assertIsNone(paths.served_elsewhere(), "this process is the one")
+        paths.stop_serving()
+        self.assertIsNone(paths.serve_here(9002), "let go, it is free for the next")
+
+    def test_another_process_that_serves_the_folder_is_found_with_its_port(self):
+        self.patch(paths, "SERVING_WAIT", 0.1)
+        self.holder(9000)
+        self.assertEqual(paths.served_elsewhere(), 9000)
+        self.assertEqual(paths.serve_here(9001), 9000)
+        self.assertEqual((self.root / paths.SERVING_FILE).read_text(), "9000\n", "nothing written over")
+
+    def test_a_command_that_only_looks_is_no_lab_ui_that_serves(self):
+        (self.root / paths.LAB_DIR).mkdir()
+        looking = os.open(self.root / paths.SERVING_FILE, os.O_RDWR | os.O_CREAT, 0o600)
+        os.write(looking, b"9000\n")   # what the last Lab UI wrote before it stopped
+        fcntl.flock(looking, fcntl.LOCK_SH)
+        threading.Timer(0.2, os.close, args=(looking,)).start()   # it looks, then goes
+        self.assertIsNone(paths.serve_here(9001))
+        self.assertEqual((self.root / paths.SERVING_FILE).read_text(), "9001\n")
 
 
 class OnDisk(Case):

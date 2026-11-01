@@ -11,6 +11,7 @@ import os
 import queue
 import re
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -60,6 +61,26 @@ PROJECT = {
         ("hello-app", "playground", "welcome", None, "gravitee-lab/hello-app", True),
         ("welcome-seed", "playground", "welcome", "seed", "gravitee-lab/welcome-seed", True)]},
 }
+
+
+# A Lab UI that serves a folder, as another process: it holds the lock of the folder with its port until its input ends
+HOLDER = ("import fcntl, os, sys\n"
+          "descriptor = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o600)\n"
+          "fcntl.flock(descriptor, fcntl.LOCK_EX)\n"
+          "os.write(descriptor, sys.argv[2].encode() + b'\\n')\n"
+          "print('held', flush=True)\n"
+          "sys.stdin.read()\n")
+
+
+def served_elsewhere(case, port):
+    """The folder of `case` (its `root`) served by a Lab UI of another process on `port`, until the case ends."""
+    (case.root / paths.LAB_DIR).mkdir(exist_ok=True)
+    case.patch(paths, "SERVING_WAIT", 0.1)   # what only looks holds it for an instant: this one holds it
+    holder = subprocess.Popen([sys.executable, "-c", HOLDER, str(case.root / paths.SERVING_FILE), str(port)],
+                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    case.addCleanup(holder.wait, 10)
+    case.addCleanup(holder.stdin.close)
+    case.assertEqual(holder.stdout.readline(), "held\n")
 
 
 class LabUI(Case):
@@ -1880,7 +1901,9 @@ class CommandLine(LabUI):
         self.assertEqual(run.call_count, 1)
 
     def test_busy_port_opens_the_lab_ui_that_runs(self):
+        self.folder(paths)
         port = self.server.server_port
+        served_elsewhere(self, port)
         opened, printed = self.patch(api, "open_browser"), io.StringIO()
         with contextlib.redirect_stdout(printed), mock.patch.dict("os.environ", {"LC_ALL": "C"}):
             api.serve(port, browser=False)
@@ -1889,7 +1912,31 @@ class CommandLine(LabUI):
         opened.assert_called_once_with(f"http://localhost:{port}")
         self.assertEqual(printed.getvalue(), (self.RUNNING.format(port) + "\n") * 2)
 
+    def test_a_second_lab_ui_of_the_folder_on_another_port_is_sent_to_the_first(self):
+        # UI_PORT=9001 in the folder whose Lab UI serves on 9000: two Lab UIs would run their jobs at the same time
+        self.folder(paths)
+        served_elsewhere(self, 9000)
+        bound = self.patch(api, "ThreadingHTTPServer", side_effect=AssertionError("a second Lab UI served the folder"))
+        opened, printed = self.patch(api, "open_browser"), io.StringIO()
+        with contextlib.redirect_stdout(printed), mock.patch.dict("os.environ", {"LC_ALL": "C"}):
+            api.serve(9001, browser=True)
+        bound.assert_not_called()
+        opened.assert_called_once_with("http://localhost:9000")
+        self.assertEqual(printed.getvalue(), self.RUNNING.format(9000) + "\n")
+
+    def test_the_lab_ui_of_another_folder_on_the_port_is_said_and_never_opened(self):
+        # A second clone: the page of the first would act on the first lab
+        self.folder(paths)
+        port, opened = self.server.server_port, self.patch(api, "open_browser")
+        with self.assertRaises(SystemExit) as stopped:
+            api.serve(port, browser=True)
+        self.assertEqual(stopped.exception.code, f"Port {port} is used by another Lab UI: stop it with Ctrl+C in its terminal, "
+                                                 "then run gravitee-lab again. One lab runs at a time")
+        opened.assert_not_called()
+        self.assertIsNone(paths.served_elsewhere(), "the lock this one took is let go")
+
     def test_busy_port_of_another_program_is_said_with_the_port_to_use_instead(self):
+        self.folder(paths)
         port, opened = self.another_program(), self.patch(api, "open_browser")
         with self.assertRaises(SystemExit) as stopped:
             api.serve(port, browser=True)
@@ -1901,6 +1948,7 @@ class CommandLine(LabUI):
 
     def test_a_program_on_the_ipv6_loopback_is_another_program_though_127_0_0_1_is_free(self):
         # A browser may take localhost for ::1 and show that program in place of the Lab
+        self.folder(paths)
         with socket.socket(socket.AF_INET6) as other:
             try:
                 other.bind(("::1", 0))
@@ -2421,6 +2469,7 @@ class Startup(Case):
              ("firstrun", "start_worker"))
 
     def setUp(self):
+        self.folder(paths)
         self.events = []
         events = self.events
 
@@ -2484,19 +2533,20 @@ class Startup(Case):
         for module, name in self.STEPS:
             self.patch(getattr(api, module), name, side_effect=AssertionError(f"{module}.{name} ran on the already running branch"))
         self.patch(api.compose, "stop_on_signals", side_effect=AssertionError("signals were taken over"))
-        self.patch(api, "ThreadingHTTPServer", side_effect=OSError(errno.EADDRINUSE, "Address already in use"))
-        self.patch(api, "is_lab_ui", return_value=True)
+        self.patch(api, "ThreadingHTTPServer", side_effect=AssertionError("the port was bound"))
+        served_elsewhere(self, 9000)
         said = self.serve(browser=True)
         self.assertIn("Already running", said)
         self.opened.assert_called_once_with("http://localhost:9000")
 
-    def test_another_program_on_the_port_is_an_exit_and_touches_nothing(self):
+    def test_another_program_or_lab_ui_on_the_port_is_an_exit_and_touches_nothing(self):
         for module, name in self.STEPS:
             self.patch(getattr(api, module), name, side_effect=AssertionError(f"{module}.{name} ran"))
         self.patch(api, "ThreadingHTTPServer", side_effect=OSError(errno.EADDRINUSE, "Address already in use"))
-        self.patch(api, "is_lab_ui", return_value=False)
-        with self.assertRaises(SystemExit):
-            self.serve()
+        for answers in (False, True):
+            self.patch(api, "is_lab_ui", return_value=answers)
+            with self.assertRaises(SystemExit):
+                self.serve()
 
     def test_an_error_other_than_a_busy_port_is_raised_before_anything_is_touched(self):
         for module, name in self.STEPS:

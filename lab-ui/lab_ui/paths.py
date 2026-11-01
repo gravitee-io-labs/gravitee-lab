@@ -9,6 +9,11 @@ import tempfile
 import time
 from pathlib import Path
 
+try:
+    import fcntl
+except ImportError:   # no advisory locks on this system: a second Lab UI of the folder is not seen
+    fcntl = None
+
 LAB_UI_DIR = Path(__file__).resolve().parent.parent
 ROOT = LAB_UI_DIR.parent
 WEB_DIR = LAB_UI_DIR / "web"
@@ -374,6 +379,82 @@ def slug(text):
     Streams Management with Kafka" is event-streams-management-with-kafka). The folder of an item is its name so written: the
     Lab UI names a new one so, and the check of a catalog asks it of every item (ST23)."""
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+
+
+# The Lab UI that serves this folder holds an advisory lock on this file for as long as it runs, its port written in it: the
+# jobs of a Lab UI, which run one at a time in its process, and the changes of catalogs that wait for them, are this
+# folder's alone. A second Lab UI of the folder sends the person to the first; the command line leaves to it what its jobs
+# would race with
+SERVING_FILE = f"{LAB_DIR}/lab-ui.flock"
+SERVING_WAIT = 1.0   # seconds a lock is waited for: a command that only looks holds it for an instant
+_serving = []        # the descriptor by which this process holds it
+
+
+def serve_here(port):
+    """Takes the lock that says a Lab UI serves this folder, with its port, until stop_serving() or the end of the process.
+    None once this process holds it, and where nothing locks (no fcntl, a folder that cannot be written): the Lab UI then
+    serves as it always did. Else the port of the Lab UI that holds it, 0 when it has not written it yet."""
+    if fcntl is None or _serving:
+        return None
+    file = ROOT / SERVING_FILE
+    try:
+        file.parent.mkdir(parents=True, exist_ok=True)
+        descriptor = os.open(file, os.O_RDWR | os.O_CREAT, 0o600)
+    except OSError:
+        return None
+    deadline = time.monotonic() + SERVING_WAIT
+    while True:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                port_held = _port_in(descriptor)
+                os.close(descriptor)
+                return port_held
+            time.sleep(0.05)
+        except OSError:   # a file system that cannot lock
+            os.close(descriptor)
+            return None
+    os.ftruncate(descriptor, 0)
+    os.write(descriptor, f"{port}\n".encode())
+    _serving.append(descriptor)
+    return None
+
+
+def stop_serving():
+    """Lets the lock of serve_here go: another Lab UI may serve the folder."""
+    while _serving:
+        os.close(_serving.pop())
+
+
+def served_elsewhere():
+    """The port of the Lab UI of another process that serves this folder (0 when it has not written it yet); None when none
+    does, or this process is the one."""
+    if fcntl is None or _serving:
+        return None
+    try:
+        descriptor = os.open(ROOT / SERVING_FILE, os.O_RDONLY)
+    except OSError:
+        return None
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return _port_in(descriptor)
+    except OSError:
+        return None
+    finally:
+        os.close(descriptor)   # and the lock it took, if it took one
+    return None
+
+
+def _port_in(descriptor):
+    try:
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        text = os.read(descriptor, 16).decode("ascii", "replace").strip()
+    except OSError:
+        return 0
+    return int(text) if text.isdigit() else 0
 
 
 def write_atomic(file, text, mode=0o644):
