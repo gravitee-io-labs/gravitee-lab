@@ -69,24 +69,26 @@ class Cache:
         # Of each key, the lock of whoever asks for its answer: those who want it meanwhile wait for that answer
         self._items, self._lock, self._asking = {}, threading.Lock(), {}
 
-    def _kept(self, key, ttl):
+    def kept(self, key, ttl):
+        """The answer kept under `key` while younger than `ttl` seconds, None otherwise. Nothing is asked, nor waited
+        for: a read under way for that key is not."""
         with self._lock:
             hit = self._items.get(key)
-        return hit if hit and time.monotonic() - hit[0] < ttl else None
+        return hit[1] if hit and time.monotonic() - hit[0] < ttl else None
 
     def get(self, key, ttl, fn):
         """The answer kept under `key` while younger than `ttl` seconds, else what fn() answers, kept unless None: a
         failure is asked again next time. Asked at the same time (two pages' refreshes), fn runs once and both get its
         answer."""
-        hit = self._kept(key, ttl)
-        if hit:
-            return hit[1]
+        found = self.kept(key, ttl)
+        if found is not None:
+            return found
         with self._lock:
             asking = self._asking.setdefault(key, threading.Lock())
         with asking:
-            hit = self._kept(key, ttl)   # asked by another meanwhile
-            if hit:
-                return hit[1]
+            found = self.kept(key, ttl)   # asked by another meanwhile
+            if found is not None:
+                return found
             value = fn()
             if value is not None:
                 with self._lock:

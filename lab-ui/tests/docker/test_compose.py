@@ -988,6 +988,23 @@ class Kept(unittest.TestCase):
         cache.drop("ver")
         self.assertEqual(cache.get("version", 10, lambda: "dropped"), "dropped")
 
+    def test_what_is_kept_is_looked_at_without_waiting_for_a_read_under_way(self):
+        # The Dashboard looks for the latest versions while a background read asks the registry: it does not wait
+        cache, asking, release = compose.Cache(), threading.Event(), threading.Event()
+        cache.get("tags", 60, lambda: ["4.12.21"])
+        reader = threading.Thread(target=lambda: cache.get("latest", 60, lambda: (asking.set(), release.wait(5))[1]))
+        reader.start()
+        self.addCleanup(reader.join, 5)
+        self.addCleanup(release.set)
+        asking.wait(5)
+        began = time.monotonic()
+        self.assertEqual([cache.kept("latest", 60), cache.kept("tags", 60), cache.kept("tags", 0)],
+                         [None, ["4.12.21"], None])
+        self.assertLess(time.monotonic() - began, 1)
+        release.set()
+        reader.join(5)
+        self.assertTrue(cache.kept("latest", 60))
+
 
 class Docker(Case):
 
