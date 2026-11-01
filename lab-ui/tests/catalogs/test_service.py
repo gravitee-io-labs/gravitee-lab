@@ -3222,12 +3222,18 @@ class Gate(Real):
         built = project.loaded()[0]
         service.preflight(built, [("addon", "local/scratch"), ("addon", "echo"), ("addon", "cluster")])
 
-    def test_the_project_is_judged_again_at_the_gate_since_the_environment_changes_without_a_file(self):
-        forgot = []
-        real = project.forget
-        self.patch(project, "forget", lambda: forgot.append(True) or real())
-        service.preflight(project.loaded()[0], [("addon", "echo")])
-        self.assertEqual(forgot, [True])
+    def test_the_gate_judges_the_project_as_it_is_now_and_reads_again_only_what_changed(self):
+        # Nothing changed since the state was read: the gate asks Compose nothing, and holds no one up behind the lock
+        built = project.loaded()[0]
+        asked = []
+        real = compose.run
+        self.patch(compose, "run", lambda *args, **how: asked.append(args[0]) or real(*args, **how))
+        service.preflight(built, [("addon", "echo")])
+        self.assertEqual(asked, [])
+        # A setting of the unit changed: what it says is read again, and judged
+        self.write(".lab/catalogs/fixture/addons/echo/.env", "FIXTURE_ECHO_VERSION=1.36\n")
+        service.preflight(built, [("addon", "echo")])
+        self.assertTrue(asked, "the unit is read again")
 
 
 class Reading2(Real):
