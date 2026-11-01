@@ -161,3 +161,26 @@ test("the tags listed are asked again once a job ended or the page opens again: 
   await flush();
   assert.equal(await asked(), 1, "the page opened again");
 });
+
+test("a tag typed that the registry does not list keeps its warning on the row once a job ended", async () => {
+  const { Combo } = await import("../../../web/js/components/combo.js");
+  const { Ev } = await import("./dom-stub.mjs");
+  Combo.init();
+  const state = () => text(section.querySelector('tr[data-component="REDIS_VERSION"] .list-state'));
+  section.querySelector('tr[data-component="REDIS_VERSION"] [data-version]').click();
+  await flush();
+  const input = page.doc.querySelector("#combo-input");
+  input.value = "9.9.9";
+  input.dispatchEvent(new Ev("input"));
+  page.doc.activeElement = section.querySelector("#images-search");   // the focus is not given back: the small DOM reads no :nth-child
+  page.doc.querySelector("#combo-foot button[data-use]").click();
+  await flush();
+  assert.match(state(), /Tag not listed/, "warned once the tag is chosen");
+  const before = listings.length;
+  store.state = { ...store.state, job: { id: "other-1", done: true } };   // any job ends: a pull, a Log in, a job of another page
+  imagesPage.render(store.state);
+  assert.match(state(), /Tag not listed/, "judged by the list it had until the new one comes");
+  await flush();
+  assert.match(state(), /Tag not listed/, "the draft still holds the tag the registry does not list");
+  assert.equal(listings.length - before, 1, "its list is asked again");
+});
