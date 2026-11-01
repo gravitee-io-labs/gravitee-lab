@@ -126,10 +126,15 @@ class Services(Case):
             "platform": True, "groups": set(), "addons": {"kafka"}, "playgrounds": {"welcome"},
             # What runs, what has a container, the one-shots that ended well
             "services": {"apim-gateway", "kafka-ui", "hello-app", "stray"}, "created": set(containers),
-            "done": {"openfga-migrate"}})
+            "ready": {"apim-gateway", "kafka-ui", "hello-app", "stray"}, "done": {"openfga-migrate"}})
         self.assertEqual(model.up(project, {}), {"platform": False, "groups": set(), "addons": set(),
                                                  "playgrounds": set(), "services": set(), "created": set(),
-                                                 "done": set()})
+                                                 "ready": set(), "done": set()})
+        # Ready as a job judges it: not while its health check has not passed, nor a one-shot that runs
+        project["services"]["openfga-migrate"]["oneshot"] = True
+        waiting = {**healthy("hello-app", "openfga-migrate"), "apim-gateway": container(health="starting")}
+        self.assertEqual((model.up(project, waiting)["services"], model.up(project, waiting)["ready"]),
+                         ({"hello-app", "apim-gateway", "openfga-migrate"}, {"hello-app"}))
         # A group runs when all its services do; a one-shot does not have to
         project["services"]["mongodb"]["oneshot"] = True
         self.assertEqual(model.up(project, healthy("apim-gateway", "apim-management-api"))["groups"],

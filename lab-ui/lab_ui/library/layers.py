@@ -883,6 +883,14 @@ def _idle(project, up, on, names):
     return depends(project, on, names, past=up["services"] | up["done"]) - set(names)
 
 
+def _unready(project, up, on, names, behind):
+    """What these services depend on, and what that depends on in turn, among what is on, that runs and is not ready
+    yet (its health check has not passed, or it keeps restarting): named in `up --no-deps` with them, Compose waits for
+    it as their `depends_on` asks, which it does not for a service it is not given. Nothing is made again on the way:
+    what runs behind what is saved (`behind`) is left as it is."""
+    return (depends(project, on, names, past=up["ready"] | up["done"]) & up["services"]) - set(names) - set(behind)
+
+
 def _once(project, on, names):
     """The one-shots these services depend on, themselves or through what they depend on, among what is on: Compose
     would run them first (a migration before what it migrates), which `up --no-deps` leaves out. Run again, one that
@@ -961,13 +969,14 @@ def _restarting(project, rows):
             for name in (project["addons"][row["id"]]["services"] if row["kind"] == "addon" else [row["id"]])}
 
 
-def _starts(project, up, kind, unit, playground, effective, restarts, fresh, gateway=None):
+def _starts(project, up, kind, unit, playground, effective, restarts, fresh, gateway=None, behind=()):
     """What a start runs, as rows and as the services `up --no-deps` names: those of the item and of the add-ons it
     brings that do not run, for a playground the platform too while none of it runs (once part of it runs, what its
     apps and its seed depend on); its seed when the start sets the playground up (`fresh`); what it restarts
     (`restarts`: the core services it changes, what of it runs behind what is saved, an add-on made again); the
     one-shots all that depends on, run again first (_once); and what these depend on among what is on and does not
-    run, which Compose starts first. A one-shot of the item that ended well is not run again for itself."""
+    run, which Compose starts first. A one-shot of the item that ended well is not run again for itself. What they
+    depend on that runs and is not ready yet is named too, not a row: Compose waits for it (_unready)."""
     services, on = project["services"], set(up_services(project, playground, effective))
     if kind == "playground":
         platform = [] if up["platform"] else [name for name, s in services.items() if s["owner"]["kind"] == "platform"]
@@ -983,7 +992,7 @@ def _starts(project, up, kind, unit, playground, effective, restarts, fresh, gat
     restart = _restarting(project, restarts)
     start |= _once(project, on, start | restart)
     start |= _idle(project, up, on, start | restart)
-    return start_rows(project, start), sorted(start | restart)
+    return start_rows(project, start), sorted(start | restart | _unready(project, up, on, start | restart, behind))
 
 
 def _label(project, state, up, kind, unit, do):
@@ -1185,7 +1194,7 @@ def plan(project, state, up, kind, uid, do, fresh=False, behind=frozenset(), pla
                                       if name in up["services"] and name not in named], key=lambda row: row["id"])
     fresh = fresh and (kind, do) == ("playground", "start")
     starts, start = _starts(project, up, kind, unit, playground, effective, restarts, fresh and not remote,
-                            place["gateway"] if remote and kind != "playground" else None) \
+                            place["gateway"] if remote and kind != "playground" else None, behind) \
         if do == "start" else ([], sorted(row["id"] for row in restarts))
     stops = (_apps_row(project, leaving) if leaves else []) + _addon_rows(project, set(going) & up["addons"])
     turns_off = (_apps_row(project, leaving) if not leaves else []) + _addon_rows(project, set(going) - up["addons"])

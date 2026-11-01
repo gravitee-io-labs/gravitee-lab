@@ -179,7 +179,7 @@ def up(*addons, platform=True, playgrounds=(), stopped=(), created=(), project=N
     made |= {name for uid in created for name in units[uid]["services"]}
     return {"platform": platform, "groups": set(groups) - set(stopped) if platform else set(),
             "addons": set(addons), "playgrounds": set(playgrounds), "services": running, "done": done,
-            "created": running | done | made}
+            "ready": running, "created": running | done | made}   # (one set: what a test makes run is ready)
 
 
 def row(kind, uid, name):
@@ -676,6 +676,24 @@ class Plans(Case):
         services["apim-gateway"]["depends_on"] = ["apim-management-api", "jade"]
         plan = self.plan(on(self.project), up(platform=False), "addon", "kafka-desk", "start")
         self.assertNotIn("jade", plan["services"]["start"])
+
+    def test_a_start_waits_for_what_it_depends_on_that_runs_and_is_not_ready(self):
+        # Kafka Desk depends on the management API, which runs and whose health check has not passed yet: `up
+        # --no-deps` names it, so that Compose waits for it before Kafka Desk, as its depends_on asks. It is no row: it
+        # runs. One that runs behind what is saved is not named (it would be made again), nor one that is ready
+        services = self.project["services"]
+        services["kafka-desk"]["depends_on"] = ["apim-management-api", "kafka"]
+        services["apim-management-api"]["depends_on"] = ["mongodb"]
+        self.project["addons"]["kafka-desk"]["restarts"] = []   # (it changes nothing of the management API here)
+        state, running = on(self.project, ["kafka"]), up("kafka")
+        running["ready"] = running["ready"] - {"apim-management-api"}
+        plan = self.plan(state, running, "addon", "kafka-desk", "start")
+        self.check(plan, starts=[CONSOLE], playground=None, explicit=["kafka", "kafka-desk"])
+        self.assertEqual(plan["services"]["start"], ["apim-management-api", "kafka-desk"])
+        plan = layers.plan(self.project, state, running, "addon", "kafka-desk", "start", behind={"apim-management-api"})
+        self.assertEqual(plan["services"]["start"], ["kafka-desk"])
+        plan = self.plan(state, up("kafka"), "addon", "kafka-desk", "start")
+        self.assertEqual(plan["services"]["start"], ["kafka-desk"])
 
     def test_the_one_shots_what_starts_depends_on_run_again_first(self):
         # OpenFGA's migration ran, then OpenFGA and its database stopped: its start runs the migration again before
@@ -2624,8 +2642,9 @@ class Binds(Case):
 def nothing_up(*services, addons=()):
     """What model.up() answers when nothing of the project runs but these services (started outside the Lab UI), those of
     these add-ons."""
-    return {"platform": False, "groups": set(), "addons": set(addons), "playgrounds": set(), "services": set(services),
-            "done": set(), "created": set(services)}
+    running = set(services)
+    return {"platform": False, "groups": set(), "addons": set(addons), "playgrounds": set(), "services": running,
+            "ready": running, "done": set(), "created": set(services)}
 
 
 @unittest.skipUnless(fixtures.have_compose(), "the Docker CLI with Compose 5 or later is not installed")

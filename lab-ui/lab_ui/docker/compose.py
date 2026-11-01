@@ -1,7 +1,8 @@
 """Docker Compose from the command line: a file's configuration as JSON, its includes and variables, the project's
-containers, what Compose would create each service as, the images Docker holds. Every command runs under the same
-limits: a time after which it and what it started are ended, and an environment that lets Compose read local files
-only. Also holds the environments of a command that reads or builds what someone else wrote (the catalog standard), and the cache of what is slow to ask again (registries, Docker)."""
+containers, what Compose would create each service as, the images Docker holds. Every command runs in a session of
+its own, which the Lab UI ends as it exits, with an environment that lets Compose read local files only; one whose
+answer is awaited (run) has a time after which it and what it started are ended, one whose output is read as it comes
+(spawn: a job's, a log followed) is ended when asked (end). Also holds the environments of a command that reads or builds what someone else wrote (the catalog standard), and the cache of what is slow to ask again (registries, Docker)."""
 
 import atexit
 import calendar
@@ -30,6 +31,11 @@ COMPOSE = ["docker", "compose", "--progress", "plain"]
 
 # How long after its last start a container that Docker restarted still counts as restarting, in seconds
 RESTART_WINDOW = 300
+# How long the images Docker holds, and the memory it has, are kept, in seconds: a job drops the images it may move
+IMAGES_TTL, MEMORY_TTL = 60, 600
+# How long Docker has to list the containers, in seconds: every state's refresh and every action asks it, and a Docker
+# that hangs (its machine asleep, an update) is said so then, not after the long limit of a command
+PS_TIMEOUT = 10
 
 NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 COMMENT = re.compile(r"(?:^|\s)#(.*)$")
@@ -60,18 +66,34 @@ class Cache:
     job ends."""
 
     def __init__(self):
-        self._items, self._lock = {}, threading.Lock()
+        # Of each key, the lock of whoever asks for its answer: those who want it meanwhile wait for that answer
+        self._items, self._lock, self._asking = {}, threading.Lock(), {}
 
-    def get(self, key, ttl, fn):
+    def kept(self, key, ttl):
+        """The answer kept under `key` while younger than `ttl` seconds, None otherwise. Nothing is asked, nor waited
+        for: a read under way for that key is not."""
         with self._lock:
             hit = self._items.get(key)
-        if hit and time.monotonic() - hit[0] < ttl:
-            return hit[1]
-        value = fn()
-        if value is not None:   # a failure is asked again next time
-            with self._lock:
-                self._items[key] = (time.monotonic(), value)
-        return value
+        return hit[1] if hit and time.monotonic() - hit[0] < ttl else None
+
+    def get(self, key, ttl, fn):
+        """The answer kept under `key` while younger than `ttl` seconds, else what fn() answers, kept unless None: a
+        failure is asked again next time. Asked at the same time (two pages' refreshes), fn runs once and both get its
+        answer."""
+        found = self.kept(key, ttl)
+        if found is not None:
+            return found
+        with self._lock:
+            asking = self._asking.setdefault(key, threading.Lock())
+        with asking:
+            found = self.kept(key, ttl)   # asked by another meanwhile
+            if found is not None:
+                return found
+            value = fn()
+            if value is not None:
+                with self._lock:
+                    self._items[key] = (time.monotonic(), value)
+            return value
 
     def drop(self, prefix=""):
         with self._lock:
@@ -299,8 +321,8 @@ def _stop(process):
 
 
 def stop_running():
-    """Ends every command that runs, with what it started. A command leads a session of its own (run), so the Ctrl+C
-    or the hang-up that ends the Lab UI no longer reaches it: the Lab UI ends it."""
+    """Ends every command that runs, with what it started. A command leads a session of its own (run, spawn), so the
+    Ctrl+C or the hang-up that ends the Lab UI no longer reaches it: the Lab UI ends it."""
     for process in list(_running):
         _stop(process)
 
@@ -325,7 +347,7 @@ if hasattr(threading, "_register_atexit"):   # CPython 3.9 and later
 
 def stop_on_signals():
     """Makes a hang-up (the terminal closed) and a termination of the Lab UI end what runs (_end) before the Lab UI ends
-    as it would have. A command leads a session of its own (run), so these signals, which the terminal sends to the
+    as it would have. A command leads a session of its own (run, spawn), so these signals, which the terminal sends to the
     Lab UI's process group, no longer reach it, and Python does not run its exit functions for them. A signal that the
     Lab UI ignores (`nohup`) or handles stays as it is. Called once by what starts the Lab UI, from the main thread."""
     def ending(number, frame):
@@ -372,6 +394,47 @@ def run(cmd, timeout=120, cwd=None, env=None, environ=None, given=None):
     finally:
         _running.discard(process)
     return process.returncode, out, err
+
+
+# How long a command asked to end (end) has to end by itself before it is killed with what it started
+GRACE = 10
+
+
+def spawn(cmd, errors, cwd=None, env=None):
+    """A command started as run() starts one, for a caller that reads its output as it comes (a job, a log followed):
+    from the project root, with no input, in a session of its own that the Lab UI ends as it exits (_end), its output
+    as text. `errors`: where its errors go, subprocess.STDOUT with its output or subprocess.DEVNULL. `env`: variables
+    set for it. None while the Lab UI exits: it is not started. The caller reads its lines, waits for it, then calls
+    release()."""
+    if _ending:
+        return None
+    process = subprocess.Popen(cmd, cwd=cwd or ROOT, env={**environment(), "PWD": str(cwd or ROOT), **(env or {})},
+                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=errors, encoding="utf-8",
+                               errors="replace", bufsize=1, start_new_session=True)
+    _running.add(process)
+    if _ending:   # the Lab UI began to exit while it started: _end did not see it
+        _stop(process)
+    return process
+
+
+def release(process):
+    """A command that spawn() started has ended: the Lab UI has nothing more to end of it."""
+    _running.discard(process)
+
+
+def end(process):
+    """Asks a command that spawn() started to end, with what it started: a termination of its process group, which
+    Compose answers by ending what it waits for, then a kill (_stop) if it still runs GRACE seconds later. Nothing for
+    one that ended."""
+    if process.poll() is not None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except OSError:   # the group is gone already
+        return
+    timer = threading.Timer(GRACE, lambda: process.poll() is None and _stop(process))
+    timer.daemon = True
+    timer.start()
 
 
 def _last_line(err):
@@ -1087,7 +1150,7 @@ def _inspect(names, variable=None):
     if not names:
         return {}
     fields = INSPECT + (VARIABLE % variable if variable else "")
-    _, out, _ = run(["docker", "container", "inspect", "--format", fields, *names], timeout=20)
+    _, out, _ = run(["docker", "container", "inspect", "--format", fields, *names], timeout=PS_TIMEOUT)
     found = {}
     for parts in (line.split("|", 6) for line in out.splitlines()):
         if len(parts) < (7 if variable else 6):
@@ -1106,11 +1169,13 @@ def ps(variable=None):
     """The project's containers, by service: {state, health, status, image, exit_code, name, ports, oom, restarts,
     config_hash, image_id, variable} (_inspect: `variable` names the variable of their environment to report a digest
     of). Asked by project name from a folder without compose files, so containers of what was turned off since are
-    listed too."""
+    listed too. Docker has PS_TIMEOUT seconds to answer: "Docker did not answer within 10 s" otherwise."""
     command = [*by_name(), "ps", "-a", "--format", "json"]
-    rc, out, err = run(command, timeout=30, cwd=scratch())
+    rc, out, err = run(command, timeout=PS_TIMEOUT, cwd=scratch())
     if rc != 0 and "No such container" in err:   # removed while Compose was listing them: a job recreates it
-        rc, out, err = run(command, timeout=30, cwd=scratch())
+        rc, out, err = run(command, timeout=PS_TIMEOUT, cwd=scratch())
+    if rc == 124:
+        raise ComposeError(f"Docker did not answer within {PS_TIMEOUT} s")
     if rc != 0:
         raise ComposeError(_last_line(err))
     containers = {}
@@ -1138,6 +1203,7 @@ def containers(variable=None):
     try:
         return ps(variable) if variable else ps(), None
     except ComposeError as error:
+        CACHE.drop("docker-memory")   # read again once it answers: it may have started again with other settings
         return {}, str(error)
 
 
@@ -1170,11 +1236,11 @@ def reference(image):
 
 def image_ids():
     """The images Docker holds: {repository:tag: image id}; None when Docker does not answer. A pull or a build may
-    move a tag to another image: asked again after every job."""
+    move a tag to another image: asked again after every job, and a minute later (a pull typed in a terminal)."""
     def ask():
         rc, out, _ = run(["docker", "images", "--no-trunc", "--format", "{{.Repository}}:{{.Tag}} {{.ID}}"], timeout=30)
         return dict(line.split(" ", 1) for line in out.splitlines() if " " in line) if rc == 0 else None
-    return CACHE.get("local:image-ids", 10, ask)
+    return CACHE.get("local:image-ids", IMAGES_TTL, ask)
 
 
 _same = {}
@@ -1184,20 +1250,25 @@ def same_image(container, image, running):
     """Whether a container that runs image id `running` runs what image id `image` holds for its platform. Docker's
     image store records each build in an image's id: built again from unchanged sources, a tag names another id for
     the same image, which Compose keeps running. What it runs is told by the manifest it was made from; an image
-    built here has no other id to compare it with. Kept for good: an id always names the same content."""
+    built here has no other id to compare it with, and neither has one that Docker's former image store holds. Kept for
+    good once Docker answered: an id always names the same content. Asked again when it did not (the container gone,
+    Docker not answering)."""
     key = (image, running)
     if key not in _same:
         rc, out, _ = run(["docker", "container", "inspect", "--format", "{{json .ImageManifestDescriptor}}", container],
                          timeout=20)
-        made = json.loads(out) if rc == 0 and out.strip() not in ("", "null") else None
+        if rc != 0:
+            return False   # not known now: another id is another image
+        made = json.loads(out) if out.strip() else None
         platform = (made or {}).get("platform") or {}
         if not made or not platform.get("os"):
-            return False   # no manifest to compare: another id is another image
+            _same[key] = False   # no manifest to compare: another id is another image
+            return False
         wanted = "/".join(filter(None, (platform["os"], platform.get("architecture"), platform.get("variant"))))
-        rc, out, _ = run(["docker", "image", "inspect", "--platform", wanted, "--format", "{{.Id}}", image], timeout=20)
-        if rc != 0:
-            return False   # not known now: asked again next time
-        _same[key] = out.strip() == made["digest"]
+        rc, out, err = run(["docker", "image", "inspect", "--platform", wanted, "--format", "{{.Id}}", image], timeout=20)
+        if rc != 0 and "No such image" not in err:
+            return False   # not known now
+        _same[key] = rc == 0 and out.strip() == made["digest"]
     return _same[key]
 
 
@@ -1288,9 +1359,10 @@ def loaded():
 
 
 def docker_memory():
-    """The memory Docker has, or None when Docker is not reachable."""
+    """The memory Docker has, or None when Docker is not reachable. It changes only as Docker starts again (its
+    settings changed): kept MEMORY_TTL seconds, and dropped when Docker did not answer (containers)."""
     def ask():
         rc, out, _ = run(["docker", "info", "--format", "{{json .}}"], timeout=20)
         info = json.loads(out) if rc == 0 else {}
         return info.get("MemTotal") if info.get("ServerVersion") else None
-    return CACHE.get("docker-memory", 30, ask)
+    return CACHE.get("docker-memory", MEMORY_TTL, ask)

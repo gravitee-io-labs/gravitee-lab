@@ -602,6 +602,9 @@ What the server decides and the page shows. A name in backticks is the code to r
     failed after the on file named the item left them as they were).
   - The one-shots all that depends on run again first, as Compose would run them (a migration before what it migrates,
     which has nothing more to do the second time).
+  - What it depends on that runs and is not ready yet (its health check has not passed) is named too, with no row of
+    its own: Compose waits for it as `depends_on` asks, which it does not for a service it is not given. Not one that
+    runs behind what is saved, which naming would make again.
   - A playground's Start also runs the platform while none of it runs, else what of it its apps and its seed need.
   - Its Stop removes its own containers by name (`rm --stop --force`) and recreates the core services it changed.
   - Nothing is removed as an orphan: what was stopped on purpose stays stopped, what was started outside the Lab UI
@@ -982,7 +985,8 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
   button before the menu, as in every head.
 - **Remove containers** keeps the volumes. **Reset** deletes them too, turns off the playground that is on
   (`platform.reset_turns_off`, not in an on file with the user's own changes, which it does not write) and empties what
-  every seed recorded: its next Start sets it up again.
+  every seed recorded: its next Start sets it up again. So does a Reset that failed or was canceled once Compose said
+  it removed a volume; one cut before keeps the records, with the data they name.
 - With an on file with the user's own changes, Start and Update name every service Compose reads in it, but a seed.
 - A group, a container, and the containers of an add-on or a playground start, stop and restart on their own line
   (`/api/(addon|playground)s/<id>/containers/<do>`, the catalog's Restart of an add-on too). The item stays on or off. A
@@ -1046,6 +1050,12 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
   - A service that runs the image another one builds reads "local build" too.
   - A pull a registry refuses says "Not logged in to <registry>" in the warn tone. Compose then runs the image it has,
     or builds it.
+  - Pull images and Update pull every image they can, past one a registry refuses, then fail on it: "Could not pull
+    <images>: <Docker's reason>", or "Not logged in to Azure". Update then makes nothing again: what it pulled shows as
+    Apply needed. The pull before an `up` (what is missing of its images,
+    none built here) fails its job at once on an image it could not pull: the `up` would try again and fail. Compose's
+    own reason for a pull that fails, which names no image, is its last line. An image interrupted is no longer
+    pulled; once a job ended, its drawer's rows show where they were, none at work.
 - What is read from an image (the plugins it bundles, the license model) is kept by the image the container runs, and
   read again once it runs another. An image not pulled is said so ("<image> is not pulled"), with Pull images.
 
@@ -1457,7 +1467,9 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
 
 ### Docker, jobs and progress
 
-- What runs is not known while Docker does not answer or `docker-compose.yml` does not load (`blind`).
+- What runs is not known while Docker does not answer or `docker-compose.yml` does not load (`blind`). Docker has 10
+  seconds to list the containers (`compose.PS_TIMEOUT`): one that hangs is said so then ("Docker did not answer within
+  10 s"), on the state's refresh as on an action.
   - No dot is colored, no state is said, and every action waits, saying which ("Docker is not reachable",
     "docker-compose.yml does not load").
   - While only Docker does not answer, what is on still says so, with its ring and "Starts with the platform": the files
@@ -1471,6 +1483,10 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
 - A failed job leaves the on file as written: the item is on, does not run, and can be started again or turned off. Its
   row says "Failed", the last line its command printed in its tooltip, with Show output in its menu. A canceled one says
   "Canceled", muted. The activity chip and the drawer say "<title> failed" or "<title> canceled".
+- A job's command runs in a session of its own (`compose.spawn`, as every command the Lab UI runs), which the Lab UI ends
+  as it exits, printing the job it stopped. It is ended, the job failing with the reason, when it prints nothing for 15
+  minutes (`jobs.SILENT`), and when a container that Compose waits for ("Waiting") has been in an issue for 2 minutes as
+  Docker says it (`jobs.STUCK`, read by `Job.observe`): "gio-mongodb keeps restarting".
 - One job runs at a time. Meanwhile every action that waits gives the one reason of the state (`wait`): "Wait for" and its
   title, or why what runs is not known; while the Lab UI does not answer, "Lab UI offline". When the Lab UI
   restarts while the page follows a job, that job is gone: a toast says "<title>: interrupted".

@@ -165,7 +165,10 @@ shows how far the job is.
 - **Jobs**: one job runs at a time. The other buttons wait and say *Wait for* the job. The Activity chip, in the menu
   while the job runs, opens its output and a *Cancel* button. An image that is not there yet is downloaded first, and each
   one shows a bar, a percentage and the bytes downloaded of its total; the title of the list adds what all of them come to
-  and how fast they go. Once downloaded, an image shows *Extracting* until it is *Pulled*.
+  and how fast they go. Once downloaded, an image shows *Extracting* until it is *Pulled*. An image that cannot be pulled
+  fails the job with Docker's reason (`Could not pull ...`), once the other images are pulled. A job does not wait for ever:
+  it fails when a container it waits for keeps restarting (`gio-mongodb keeps restarting`), or when nothing happens for
+  15 minutes. Ctrl+C in the Lab UI's terminal stops the job that runs, and the terminal says which.
 - **A failed or canceled job**: the item stays on. Its row says *Failed*, or *Canceled* after a *Cancel*. The last line
   of the command is the tooltip of a failure, and *Show output* in its ⋯ menu opens the whole output. Start it again,
   or turn it off.
@@ -631,7 +634,8 @@ anything stops, as its own Stop would, and refuses in the same cases. A row of a
 stop: the dialog does, once.
 
 **Reset**, on the Containers page, deletes every container and volume, so what the seed created goes with them. It
-turns the playground off and empties what the seed recorded, so the next Start sets it up again, seed included.
+turns the playground off and empties what the seed recorded, so the next Start sets it up again, seed included. A
+Reset that fails or is canceled once a volume is deleted does that too.
 
 ### Deploy to
 

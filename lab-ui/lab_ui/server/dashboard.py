@@ -304,7 +304,7 @@ def _listed(project, component):
     """((the latest stable, the latest pre-release) or None, whether a read is under way). The read happens in the
     background, so that the page never waits for a registry: it fills in once they are known."""
     key = f"dashboard:latest:{component['id']}"
-    known = compose.CACHE.get(key, LATEST_TTL, lambda: None)   # looks only: nothing is read here
+    known = compose.CACHE.kept(key, LATEST_TTL)   # looks only: nothing is read here, nor waited for
     if known is not None:
         return known, False
     with _lock:
@@ -394,9 +394,9 @@ def _percent(text):
 
 
 def _stats_process():
-    return subprocess.Popen(["docker", "stats", "--format", "{{json .}}"], stdin=subprocess.DEVNULL,
-                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, encoding="utf-8", errors="replace",
-                            bufsize=1)
+    """The `docker stats` that reads the load, started as a job's command is (compose.spawn): the Lab UI ends it as it
+    exits. None while it exits."""
+    return compose.spawn(["docker", "stats", "--format", "{{json .}}"], subprocess.DEVNULL)
 
 
 def lab_names():
@@ -463,6 +463,7 @@ class Stats:
                     break
                 self.feed(line)
             process.wait()   # reaped: it ended, or was killed
+            compose.release(process)
             if closed.wait(RESTART):
                 return
 

@@ -2,14 +2,22 @@
 on, and what an apply recreates; start, stop and restart of a platform group, of the containers of an add-on or a
 playground, or of a service."""
 
+import re
+
 from ..docker import compose
 from ..gravitee import core, places, platforms
 from ..library import layers, model, playgrounds, project as projects
 from .. import paths
 from ..docker.compose import COMPOSE
-from ..docker.jobs import JOBS, awaited
+from ..docker.jobs import JOBS, JobFailed, awaited
 
-PULL = [*COMPOSE, "pull", "--ignore-buildable"]   # the images of what is on, but those built here
+# The images of what is on, but those built here. One refused does not stop the others: the job fails on it once they
+# are pulled (jobs.Job._spawn)
+PULL = [*COMPOSE, "pull", "--ignore-buildable", "--ignore-pull-failures"]
+# What Compose prints of a volume that `down -v` removed: " Volume gravitee_mongo-data Removed "
+VOLUME_REMOVED = re.compile(r"\s*Volume\s+\S+\s+Removed\s*")
+# The one phase of a reset, which its progress counts
+RESET = "Reset"
 
 
 def _units(state):
@@ -176,6 +184,25 @@ def _forget(project):
     return forget
 
 
+def _reset(project, by_name):
+    """The step of a reset: `down -v`, then what the seeds recorded on this machine is forgotten (_forget). So it is
+    when the down failed or was canceled once it removed a volume: what the seeds created went with it. One that removed
+    none leaves the records as they are, with the data they name, which a seed refuses to touch unrecorded."""
+    forget = _forget(project)
+
+    def reset(job):
+        job.step(RESET)
+        start = len(job.lines)
+        try:
+            job.exec([*by_name, "down", "-v"])
+        except JobFailed:
+            if any(VOLUME_REMOVED.fullmatch(line) for line in job.lines[start:]):
+                forget(job)
+            raise
+        forget(job)
+    return reset
+
+
 def _core_start(project, accept):
     """Start all with API Management in the Cloud (core.plan, made again now, the platform read again): the hybrid gateway
     of the chosen environment, its token written first when the add-on holds another one, then the rest of the platform
@@ -238,13 +265,14 @@ def action(project, name, for_core=False, accept=()):
         "stop":  ("Stop the stack", [[*by_name, "stop"]], "stop", [stops]),
         "pull":  ("Pull images", [PULL], None, [awaited(project["services"], images=_pulled(project, units))]),
         "down":  ("Remove containers", [[*by_name, "down"]], "stop", [stops]),
-        "reset": ("Reset the stack", [[*by_name, "down", "-v"], _forget(project)], "stop", [stops]),
+        "reset": ("Reset the stack", [_reset(project, by_name)], "stop", [stops]),
     }
     if name not in actions:
         raise paths.NotFound(f"No such action: {name}")
     title, steps, change, waits = actions[name]
+    phases = {"phases": [RESET]} if name == "reset" else {}
     return JOBS.start(title, steps, key="platform", verb=name, changes={change: units} if change else None,
-                      waits=waits)
+                      waits=waits, **phases)
 
 
 def _idle_dependencies(project, names):

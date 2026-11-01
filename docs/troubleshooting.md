@@ -205,7 +205,9 @@ setting, open the key button of the add-on and fill in the field marked *Require
 
 ### A start fails right after a version change
 
-**Symptom:** a component fails to start after you chose another version on the Images page.
+**Symptom:** a component fails to start after you chose another version on the Images page. The start fails, and its
+row's tooltip says `container gio-mongodb is unhealthy` or `gio-mongodb keeps restarting`, with the container of that
+component.
 
 **Cause:** a version switch on existing data can fail on migrations.
 

@@ -3,6 +3,7 @@ how far a job is: from what each stage waits for, known before it begins, moved 
 what Docker says of the containers. Nothing is run: a command prints lines taken from real output, and Docker is a
 fixture that follows them. Then "Start the stack" replayed as Compose printed it."""
 
+import sys
 import threading
 import time
 import unittest
@@ -28,7 +29,7 @@ def ended(title, ok, key=None, **changes):
 
 def prepull(cmd):
     """Whether a command is the pull that comes before an `up`: it prints nothing here, the images are there."""
-    return "--ignore-pull-failures" in cmd
+    return "pull" in cmd and "--policy" in cmd
 
 
 def replay(job, *outputs, code=0, refresh=None):
@@ -201,6 +202,70 @@ class Running(Case):
         job, ran = Job("Plugins", []), []
         job.run_steps([lambda job: ran.append(1), lambda job: job.cancel(), lambda job: ran.append(3)])
         self.assertEqual(ran, [1])
+
+
+def waited(done, seconds=10):
+    """Whether `done()` comes true within a few seconds."""
+    deadline = time.monotonic() + seconds
+    while not done() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    return done()
+
+
+class Cut(Case):
+    """A job does not wait for ever: a command that prints nothing for long is ended, and so is one that waits for a
+    container Docker says keeps restarting. Real commands run, in a session of their own."""
+
+    def run_job(self, script):
+        job = Job("Start Acme Shop", [["sh", "-c", script]], key="addon:acme-shop", verb="start")
+        thread = threading.Thread(target=job.run)
+        thread.start()
+        self.addCleanup(lambda: (job.cancel(), thread.join(10), job._process and job._process.stdout.close()))
+        return job, thread
+
+    def test_a_command_runs_in_the_project_folder_in_a_session_of_its_own(self):
+        # Where the project is (a `git` or a `make` of an update acts there), out of reach of the Lab UI's own signals
+        self.folder(paths)
+        job = Job("Update", [[sys.executable, "-c", "import os; print(os.getcwd()); print(os.getsid(0) == os.getpid())"]],
+                  key="lab", verb="update")
+        job.run()
+        self.assertEqual((job.ok, job.lines[-2:]), (True, [str(self.root), "True"]))
+
+    def test_a_command_that_says_nothing_for_long_is_ended(self):
+        self.patch(jobs, "SILENT", 0.3)
+        self.patch(jobs, "WATCH", 0.05)
+        job, thread = self.run_job("echo pulling; exec sleep 600")
+        thread.join(10)
+        self.assertFalse(thread.is_alive(), "the job still waits")
+        self.assertEqual((job.ok, job.lines[-2]), (False, "pulling"))
+        self.assertTrue(job.error().startswith("Stopped: nothing happened for"), job.error())
+
+    def test_a_command_that_waits_for_a_container_that_keeps_restarting_is_ended(self):
+        # Compose waits for its health, which does not come: Docker restarts it again and again, its health check starts
+        # over. Once in an issue for STUCK seconds as Docker says it, the command is ended with that reason
+        job, thread = self.run_job('echo " Container gio-mongodb Waiting "; exec sleep 600')
+        self.assertTrue(waited(lambda: job.detail() == "Container gio-mongodb Waiting"))
+        began = time.monotonic()
+        job.observe({"gio-mongodb": "issue", "gio-redis": "issue"}, began)
+        job.observe({"gio-mongodb": "issue"}, began + jobs.STUCK - 1)
+        self.assertIsNone(job._why)   # not yet
+        job.observe({"gio-mongodb": "issue"}, began + jobs.STUCK)
+        thread.join(10)
+        self.assertFalse(thread.is_alive(), "the job still waits")
+        self.assertEqual((job.ok, job.error()), (False, "gio-mongodb keeps restarting"))
+
+    def test_only_an_issue_that_lasts_while_compose_waits_for_it_ends_the_command(self):
+        # One that got better meanwhile starts its time again; one Compose does not wait for is not the command's to end
+        job, thread = self.run_job('echo " Container gio-mongodb Waiting "; echo " Container gio-mongodb Healthy "; '
+                                   'echo " Container gio-redis Waiting "; exec sleep 600')
+        self.assertTrue(waited(lambda: job.detail() == "Container gio-redis Waiting"))
+        began = time.monotonic()
+        for at, step in ((0, "issue"), (jobs.STUCK / 2, "running"), (jobs.STUCK, "issue"), (jobs.STUCK * 1.4, "issue")):
+            job.observe({"gio-mongodb": "issue", "gio-redis": step}, began + at)
+        self.assertIsNone(job._why)   # nothing ended it
+        job.cancel()
+        thread.join(10)
+        self.assertEqual(job.error(), "Canceled")
 
 
 UP = ["docker", "compose", "up", "-d"]

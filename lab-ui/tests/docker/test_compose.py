@@ -767,6 +767,15 @@ class Containers(Case):
             self.ps((1, "", "warning\nCannot connect to the Docker daemon\n"))
         self.assertEqual(str(raised.exception), "Cannot connect to the Docker daemon")
 
+    def test_a_docker_that_hangs_is_said_so_within_seconds(self):
+        # Its machine asleep, an update: every state's refresh would wait for it, the page showing what ran before
+        self.assertEqual(self.ps((124, "", "docker did not answer within 10 s"), call=compose.containers),
+                         ({}, "Docker did not answer within 10 s"))
+        with mock.patch.object(compose, "project_name", return_value="lab"), \
+                mock.patch.object(compose, "run", return_value=(124, "", "")) as run:
+            compose.containers()
+        self.assertEqual(run.call_args.kwargs["timeout"], 10)
+
     def test_containers_says_why_docker_did_not_answer(self):
         self.assertEqual(self.ps((1, "", "Cannot connect to the Docker daemon\n"), call=compose.containers),
                          ({}, "Cannot connect to the Docker daemon"))
@@ -828,12 +837,26 @@ class Saved(Case):
         with mock.patch.object(compose, "run", return_value=(0, listed, "")) as run:
             self.assertEqual(compose.image_ids(), {"mongo:8.3.11": "sha256:d731", "<none>:<none>": "sha256:0ld",
                                                    "graviteeio/am-gateway:4": "sha256:e633"})
-            compose.image_ids()   # kept for a moment
+            compose.image_ids()
         self.assertEqual(run.call_count, 1)
         self.assertIn("--no-trunc", run.call_args.args[0])
         compose.CACHE.drop("local:")   # a job ended: a pull may have moved a tag
         with mock.patch.object(compose, "run", return_value=(1, "", "Cannot connect to the Docker daemon")):
             self.assertIsNone(compose.image_ids())
+
+    def test_the_images_docker_holds_are_kept_a_minute(self):
+        # A state's refresh every few seconds does not list them each time: they change as a job ends, which drops them
+        compose.CACHE.drop("local:")
+        self.addCleanup(compose.CACHE.drop, "local:")
+        clock = [1000.0]
+        with mock.patch.object(compose.time, "monotonic", lambda: clock[0]), \
+                mock.patch.object(compose, "run", return_value=(0, "mongo:8 sha256:d731\n", "")) as run:
+            for clock[0] in (1000.0, 1030.0, 1059.0):
+                compose.image_ids()
+            self.assertEqual(run.call_count, 1)
+            clock[0] = 1061.0
+            compose.image_ids()
+            self.assertEqual(run.call_count, 2)
 
     def test_an_image_built_again_from_unchanged_sources_is_the_same_image(self):
         # Docker's image store gives each build its own id: the manifest the container was made from says what it runs
@@ -847,10 +870,18 @@ class Saved(Case):
         # Built from changed sources: another manifest
         with mock.patch.object(compose, "run", side_effect=[(0, made, ""), (0, "sha256:other\n", "")]):
             self.assertFalse(compose.same_image("gio-bakery-api", "sha256:newer", "sha256:old"))
-        # No manifest to compare (Docker's former image store, or the container is gone), or the image is not
-        # there: another id is another image, asked again next time
-        for answers in (((0, "null\n", ""),), ((1, "", "No such container"),),
-                        ((0, made, ""), (1, "", "No such image"))):
+        # No manifest to compare (Docker's former image store), or the image has none for that platform: another id is
+        # another image, kept as the rest, so that a state's refresh does not ask again
+        for answers in (((0, "null\n", ""),), ((0, made, ""), (1, "", "Error: No such image: sha256:gone"))):
+            compose._same.clear()
+            with mock.patch.object(compose, "run", side_effect=answers) as run:
+                self.assertFalse(compose.same_image("gio-bakery-api", "sha256:gone", "sha256:old"))
+                self.assertFalse(compose.same_image("gio-bakery-api", "sha256:gone", "sha256:old"))
+            self.assertEqual(run.call_count, len(answers))
+        # Docker did not answer, or the container is gone: not known, asked again next time
+        compose._same.clear()
+        for answers in (((1, "", "No such container"),), ((0, made, ""), (1, "", "Cannot connect to the Docker daemon")),
+                        ((124, "", "docker did not answer within 20 s"),)):
             with mock.patch.object(compose, "run", side_effect=answers):
                 self.assertFalse(compose.same_image("gio-bakery-api", "sha256:gone", "sha256:old"))
         self.assertNotIn(("sha256:gone", "sha256:old"), compose._same)
@@ -923,6 +954,58 @@ class Shell(Case):
         self.assertEqual((answer, asked), ((1, "", "unzip: cannot find license-model.yml\n"), [self.EXEC]))
 
 
+class Kept(unittest.TestCase):
+    """The cache of what is slow to ask again."""
+
+    def test_asked_at_the_same_time_it_is_asked_once(self):
+        # Two pages' refreshes that both find nothing kept: one `config --hash`, not two
+        cache, calls, release = compose.Cache(), [], threading.Event()
+
+        def slow():
+            calls.append(1)
+            release.wait(5)
+            return {"mongodb": "h"}
+        answers = []
+        threads = [threading.Thread(target=lambda: answers.append(cache.get("config-hash:x", 300, slow)))
+                   for _ in range(3)]
+        for thread in threads:
+            thread.start()
+        deadline = time.monotonic() + 5
+        while not calls and time.monotonic() < deadline:
+            time.sleep(0.01)
+        time.sleep(0.05)   # the others ask meanwhile
+        release.set()
+        for thread in threads:
+            thread.join(5)
+        self.assertEqual((len(calls), answers), (1, [{"mongodb": "h"}] * 3))
+
+    def test_a_failure_is_asked_again_and_an_answer_is_kept_for_its_time(self):
+        cache, answers = compose.Cache(), iter([None, "29.7.2"])
+        self.assertIsNone(cache.get("version", 10, lambda: next(answers)))
+        self.assertEqual(cache.get("version", 10, lambda: next(answers)), "29.7.2")
+        self.assertEqual(cache.get("version", 10, lambda: "asked again"), "29.7.2")
+        self.assertEqual(cache.get("version", 0, lambda: "asked again"), "asked again")
+        cache.drop("ver")
+        self.assertEqual(cache.get("version", 10, lambda: "dropped"), "dropped")
+
+    def test_what_is_kept_is_looked_at_without_waiting_for_a_read_under_way(self):
+        # The Dashboard looks for the latest versions while a background read asks the registry: it does not wait
+        cache, asking, release = compose.Cache(), threading.Event(), threading.Event()
+        cache.get("tags", 60, lambda: ["4.12.21"])
+        reader = threading.Thread(target=lambda: cache.get("latest", 60, lambda: (asking.set(), release.wait(5))[1]))
+        reader.start()
+        self.addCleanup(reader.join, 5)
+        self.addCleanup(release.set)
+        asking.wait(5)
+        began = time.monotonic()
+        self.assertEqual([cache.kept("latest", 60), cache.kept("tags", 60), cache.kept("tags", 0)],
+                         [None, ["4.12.21"], None])
+        self.assertLess(time.monotonic() - began, 1)
+        release.set()
+        reader.join(5)
+        self.assertTrue(cache.kept("latest", 60))
+
+
 class Docker(Case):
 
     def setUp(self):
@@ -935,6 +1018,21 @@ class Docker(Case):
         info = json.dumps({"ServerVersion": "29.7.2", "MemTotal": 8_000_000_000, "NCPU": 8})
         with mock.patch.object(compose, "run", return_value=(0, info, "")):
             self.assertEqual(compose.docker_memory(), 8_000_000_000)
+
+    def test_its_memory_is_kept_until_it_does_not_answer(self):
+        # It changes only as Docker starts again: a state's refresh does not ask for the whole of `docker info`
+        info = json.dumps({"ServerVersion": "29.7.2", "MemTotal": 8_000_000_000})
+        with mock.patch.object(compose, "run", return_value=(0, info, "")) as run:
+            for _ in range(3):
+                self.assertEqual(compose.docker_memory(), 8_000_000_000)
+        self.assertEqual(run.call_count, 1)
+        self.assertGreaterEqual(compose.MEMORY_TTL, 600)
+        with mock.patch.object(compose, "project_name", return_value="lab"), \
+                mock.patch.object(compose, "run", return_value=(1, "", "Cannot connect to the Docker daemon")):
+            self.assertEqual(compose.containers(), ({}, "Cannot connect to the Docker daemon"))
+        more = json.dumps({"ServerVersion": "29.7.2", "MemTotal": 16_000_000_000})
+        with mock.patch.object(compose, "run", return_value=(0, more, "")):
+            self.assertEqual(compose.docker_memory(), 16_000_000_000)   # started again with more
 
     def test_its_scratch_folder_is_private_and_kept_for_the_run(self):
         folder = compose.scratch()
@@ -1023,21 +1121,13 @@ class Environment(Case):
         self.assertEqual(compose.run(["sh", "-c", "printf ok"], environ={"PATH": os.environ["PATH"]}), (0, "ok", ""))
 
 
-class Run(Case):
-    """A command that does not finish in time is ended with everything it started, and so is one that the Lab UI leaves
-    behind: Compose is a plugin that the Docker CLI starts, and ending the CLI alone leaves it running."""
+class Commands(Case):
+    """A command of a test records the id of a process it started (`self.record`), which the test then finds."""
 
     def setUp(self):
         self.folder()
         self.pidfile = self.root / "child.pid"
         self.record = f"echo $$ > {shlex.quote(str(self.pidfile))}"
-
-    def test_a_command_is_told_the_folder_it_runs_in_whatever_environment_it_gets(self):
-        """$PWD is what Compose spells its paths from: two environments (the Lab's, the scrubbed one) must not spell them two ways."""
-        for environ in (None, {"PATH": os.environ["PATH"], "PWD": "/somewhere/else"}):
-            with self.subTest(environ=environ):
-                code, out, _ = compose.run(["sh", "-c", 'printf %s "$PWD"'], cwd=str(self.root), environ=environ)
-                self.assertEqual((code, out), (0, str(self.root)))
 
     def started(self):
         """Waits for the command to record the id of a process it started."""
@@ -1051,6 +1141,18 @@ class Run(Case):
         pid = int(self.pidfile.read_text(encoding="utf-8"))
         self.addCleanup(lambda: alive(pid) and os.kill(pid, 9))
         return pid
+
+
+class Run(Commands):
+    """A command that does not finish in time is ended with everything it started, and so is one that the Lab UI leaves
+    behind: Compose is a plugin that the Docker CLI starts, and ending the CLI alone leaves it running."""
+
+    def test_a_command_is_told_the_folder_it_runs_in_whatever_environment_it_gets(self):
+        """$PWD is what Compose spells its paths from: two environments (the Lab's, the scrubbed one) must not spell them two ways."""
+        for environ in (None, {"PATH": os.environ["PATH"], "PWD": "/somewhere/else"}):
+            with self.subTest(environ=environ):
+                code, out, _ = compose.run(["sh", "-c", 'printf %s "$PWD"'], cwd=str(self.root), environ=environ)
+                self.assertEqual((code, out), (0, str(self.root)))
 
     def test_it_answers_its_code_and_what_it_printed(self):
         self.assertEqual(compose.run(["sh", "-c", "echo out; echo err >&2; exit 3"]), (3, "out\n", "err\n"))
@@ -1142,6 +1244,50 @@ class Run(Case):
         self.assertEqual(compose._running, set())
 
 
+class Spawn(Commands):
+    """A command whose output is read as it comes (a job's) runs as run() runs one: a session of its own, which the
+    Lab UI ends as it exits, and ends when asked, with what it started."""
+
+    def spawned(self, script):
+        process = compose.spawn(["sh", "-c", script], subprocess.STDOUT, cwd=self.root)
+        self.addCleanup(lambda: (process.poll() is None and os.killpg(process.pid, signal.SIGKILL), process.wait(),
+                                 process.stdout.close(), compose.release(process)))
+        return process
+
+    def test_it_leads_a_session_of_its_own_and_is_known_until_released(self):
+        process = self.spawned(f"echo out; echo err >&2; exec sleep {FOREVER}")
+        self.assertEqual([process.stdout.readline(), process.stdout.readline()], ["out\n", "err\n"])
+        self.assertEqual(os.getsid(process.pid), process.pid)   # what ends the Lab UI's own group does not reach it
+        self.assertIn(process, compose._running)
+        compose.end(process)
+        process.wait(10)
+        compose.release(process)
+        self.assertNotIn(process, compose._running)
+
+    def test_asked_to_end_it_ends_with_what_it_started(self):
+        process = self.spawned(f"sleep {FOREVER} & echo $! > {shlex.quote(str(self.pidfile))}; wait")
+        pid = self.child()
+        compose.end(process)
+        self.assertEqual(process.wait(10), -signal.SIGTERM)
+        self.assertTrue(settled(lambda: not alive(pid)), "what the command started is still running")
+
+    def test_one_that_does_not_end_when_asked_is_killed(self):
+        self.patch(compose, "GRACE", 0.2)
+        process = self.spawned(f"trap '' TERM; {self.record}; while :; do sleep 0.1; done")
+        self.child()
+        compose.end(process)
+        self.assertEqual(process.wait(10), -signal.SIGKILL)
+
+    def test_it_is_ended_when_the_lab_ui_exits_and_not_started_after(self):
+        process = self.spawned(f"{self.record}; exec sleep {FOREVER}")
+        pid = self.child()
+        compose.stop_running()
+        self.assertEqual(process.wait(10), -signal.SIGKILL)
+        self.assertTrue(settled(lambda: not alive(pid)))
+        self.patch(compose, "_ending", True)
+        self.assertIsNone(compose.spawn(["true"], subprocess.STDOUT))
+
+
 # A Lab UI, as a program: the commands of a project read, six of them asked of a pool of two threads, which is how the
 # project is read. It says when two of them run, then waits; Ctrl+C ends it
 # What a program started from a terminal has for the signals the cases below send: the defaults
@@ -1187,6 +1333,23 @@ while not compose._running:
 print("ready", flush=True)
 while True:   # (not one long sleep: a signal that the system hands to another thread does not wake the main thread)
     time.sleep(0.05)
+"""
+
+# A Lab UI that runs a job, whose command runs until it is ended, then waits; Ctrl+C ends it
+JOB = """
+import os, signal, sys, threading, time
+sys.path.insert(0, sys.argv[1])
+from lab_ui.docker import compose, jobs
+compose.stop_on_signals()
+job = jobs.JOBS.start("Start Acme Shop", [["sleep", os.environ["SLEEP"]]], key="addon:acme-shop", verb="start")
+while job._process is None:
+    time.sleep(0.05)
+try:
+    print("ready", flush=True)
+    while True:
+        time.sleep(0.05)
+except KeyboardInterrupt:
+    pass
 """
 
 
@@ -1246,6 +1409,21 @@ class Exiting(Case):
                 os.kill(process.pid, getattr(signal, signal_name))   # to the Lab UI alone, as `kill` does
                 self.assertEqual(self.exits(process), -getattr(signal, signal_name))   # it ends as it would have
                 self.assertTrue(settled(lambda: not holding(self.marker)), "the command is still running")
+
+    def test_the_command_of_a_job_is_ended_with_the_lab_ui_and_the_terminal_says_which_job(self):
+        # Ctrl+C does not reach it, in a session of its own: the Lab UI ends it as it exits, and says so
+        process = self.program(JOB)
+        os.killpg(process.pid, signal.SIGINT)
+        self.assertEqual(self.exits(process), 0)
+        self.assertIn("Stopped with the Lab UI: Start Acme Shop", process.stdout.read())
+        self.assertTrue(settled(lambda: not holding(self.marker)), "the job's command is still running")
+        # A termination of the Lab UI alone ends it too: it is not left running without the Lab UI
+        for signal_name in ("SIGHUP", "SIGTERM"):
+            with self.subTest(signal_name):
+                process = self.program(JOB)
+                os.kill(process.pid, getattr(signal, signal_name))
+                self.assertEqual(self.exits(process), -getattr(signal, signal_name))
+                self.assertTrue(settled(lambda: not holding(self.marker)), "the job's command is still running")
 
     def test_a_signal_the_lab_ui_ignores_or_handles_is_left_to_it(self):
         for how, expected in (("ignored", None), ("handled", "handled")):
