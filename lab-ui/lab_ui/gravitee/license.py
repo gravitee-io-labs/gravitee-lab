@@ -33,9 +33,9 @@ USABLE = ("valid", "expiring")
 # Words of a pack's id that are written in capitals, as the License dialog writes them; a product's id is too
 ACRONYMS = ("mfa", "oem")
 
-# What the license last read allows, and the packs of the license model by name ({name: features}), for the pages
-# that only need to know what it allows and how a person calls it
-_known = {"features": None, "packs": None}
+# What the license last read allows, the digest of the license it was read from, and the packs of the license model by
+# name ({name: features}), for the pages that only need to know what it allows and how a person calls it
+_known = {"features": None, "digest": None, "packs": None}
 
 
 def _der(data, i):
@@ -284,10 +284,11 @@ def info(project):
     to read the license model from, what is counted with it (MODEL_FACTS) is None, `model_error` says why ("Docker is
     not reachable", "Not known until <image> is pulled") and `pull` names the image to pull, when that is what it
     takes. The packs of the model are kept by name for named(), read without a license too."""
+    digest = _saved(project)
     result = _read(project)
     # A Gravitee employee gets no invitation to a license or a Cloud account: said by GRAVITEE_EMPLOYEE in the .env, which nothing else shows
     result["employee"] = envfiles.read(ENV_FILE).get("GRAVITEE_EMPLOYEE", "").strip().strip("\"'").lower() in ("true", "1", "yes")
-    _known["features"] = allowed(result)
+    _known.update(features=allowed(result), digest=digest)
     model = result.get("model")
     if not result["present"]:   # nothing to count with the model, but its packs still name what a row needs
         try:
@@ -325,8 +326,17 @@ def named(features):
     return sorted(names) + sorted(left)
 
 
-def features_cached():
-    """The features the license allows, as info() last read them: empty without a license that is genuine and current,
-    None before the first read and while they are not known. Never asks Docker: the state is built from it every few
-    seconds."""
+def _saved(project):
+    """The digest of the license saved in the core's .env (compose.digest), "" without a variable that holds it."""
+    return compose.digest(envfiles.read(ENV_FILE).get(project["license_var"], "").strip()) if project["license_var"] else ""
+
+
+def features(project):
+    """The features the license saved allows, for the state: what info() read of that very license, read here when it was
+    not (the Lab UI started since, or another license was saved), whoever asks first: empty without a license that is
+    genuine and current, None while they are not known (no product image to read the license model from: the page reads the
+    license again after a job). The state is built every few seconds: Docker is asked only once for each license saved,
+    and the license model is kept by the image it was read from (_model)."""
+    if _known["digest"] != _saved(project):
+        info(project)
     return _known["features"]

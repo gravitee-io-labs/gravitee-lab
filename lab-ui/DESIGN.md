@@ -1504,7 +1504,8 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
   runs still reads one), and whether what runs reads the one
   saved (`applied`).
 - What it lacks is said in the words of a row (`model.license_note`): by the items of the state, and by `GET
-  /api/plugins/installed` of each plugin it loads that needs a feature (`licensed`).
+  /api/plugins/installed` of each plugin it loads that needs a feature (`licensed`). The state reads what the license saved
+  allows itself, once for each license saved (`license.features`), whether a page asked `GET /api/license` or not.
 - Its tooltip names the packs that give what is missing ("Uses: Agent management, Authorization management",
   `license.named`), from the license model last read, with a license or without; the features' ids while the model is not
   known.

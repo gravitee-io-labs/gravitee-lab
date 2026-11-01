@@ -119,7 +119,7 @@ def snapshot():
     changed = drift.changes(p, read["raw"], containers, model.lateness(p, containers, saved), saved) if saved else None
     # What the catalogs say is read from this machine's files and memory: the state never runs git, asks a network or waits for
     # the worker
-    body = model.build(p, on, containers, job, JOBS.failed_job, license.features_cached(), docker,
+    body = model.build(p, on, containers, job, JOBS.failed_job, license.features(p), docker,
                        created, saved=saved, license_status=license.status(p), platforms=platforms.read(),
                        deployed=deployed, changed=changed, git=model.git_state(service.git_version()),
                        catalogs=service.describe(p, read), content=firstrun.content(p, read), layout=layout.status())

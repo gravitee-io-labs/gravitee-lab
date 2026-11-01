@@ -301,7 +301,7 @@ class State(LabUI):
         self.said = self.patch(api.firstrun, "content", return_value=self.content)
         self.layout = {"phase": "ready", "notice": None}
         self.placed = self.patch(api.layout, "status", return_value=self.layout)
-        self.patch(api.license, "features_cached", return_value=None)
+        self.patch(api.license, "features", return_value=None)
         self.patch(api.playgrounds, "created", return_value=[{"what": "APIs", "count": 3}])
         self.patch(api.personal, "skills", return_value={"addon": ".agents/skills/new-addon/SKILL.md"})
         self.agent = {"folder": str(paths.ROOT), "note": ""}   # the folder an agent opens (test_machine)

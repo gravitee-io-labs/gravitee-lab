@@ -154,15 +154,14 @@ class License(Case):
         # Without a license, the model is still asked for the names of its packs; an unreadable one asks nothing
         values = {}
         with mock.patch.object(envfiles, "read", side_effect=lambda path: values), \
-                mock.patch.object(compose, "run") as run, mock.patch.dict(license._known, features=None), \
+                mock.patch.object(compose, "run") as run, mock.patch.dict(license._known, features=None, digest=None), \
                 mock.patch.object(license, "_model", side_effect=license.Unknown("Docker is not reachable")) as model:
-            self.assertIsNone(license.features_cached())
             self.assertEqual(license.info(PROJECT), {"present": False, "employee": False})
-            self.assertEqual(license.features_cached(), set())
+            self.assertEqual(license.features(PROJECT), set())
             model.assert_called_once_with(PROJECT)
             values["GRAVITEE_LICENSE"] = "not base64 !!"
             self.assertEqual(license.info(PROJECT), {"present": True, "readable": False, "employee": False})
-            self.assertEqual(license.features_cached(), set())
+            self.assertEqual(license.features(PROJECT), set())
             model.assert_called_once()
         run.assert_not_called()
 
@@ -205,9 +204,9 @@ class License(Case):
         refused = (1, "", "Error response from daemon: No such container: gio-gateway\n")
         with mock.patch.object(envfiles, "read", side_effect=lambda path: values), \
                 mock.patch.object(compose, "run", return_value=refused), \
-                mock.patch.dict(license._known, features=None):
+                mock.patch.dict(license._known, features=None, digest=None):
             found = license.info(PROJECT)
-            self.assertEqual(license.features_cached(), set())   # expired: nothing allowed, model or not
+            self.assertEqual(license.features(PROJECT), set())   # expired: nothing allowed, model or not
         self.assertEqual({key: found[key] for key in ("present", "readable", "expired", "company", "tier")},
                          {"present": True, "readable": True, "expired": True, "company": "ACME", "tier": "universe"})
         self.assertEqual({key: found[key] for key in license.MODEL_FACTS}, dict.fromkeys(license.MODEL_FACTS))
@@ -287,6 +286,26 @@ class License(Case):
         self.assertEqual(license.unapplied(PROJECT, {"gateway": running, "management": {**running, "variable": other}},
                                            saved), ["management"])
         self.assertEqual(license.unapplied(PROJECT, {"gateway": running, "management": running}, saved), [])
+
+    def test_the_state_reads_what_the_license_saved_allows_once_for_each_license(self):
+        # The Lab UI just started, no page asked for the license: the state reads it itself. Then not again until another
+        # license is saved, whatever its status and its expiry, which may be those of the one before
+        self.start(mock.patch.dict(license._known, features=None, digest=None, packs=None))
+        values = {"GRAVITEE_LICENSE": "first"}
+        read = {"first": {"present": True, "readable": True, "valid": True, "expired": False, "features": ["f1"]},
+                "second": {"present": True, "readable": True, "valid": True, "expired": False, "features": ["f2"]}}
+        self.patch(envfiles, "read", side_effect=lambda path: values)
+        asked = self.patch(license, "_read", side_effect=lambda project: dict(read[values["GRAVITEE_LICENSE"]]))
+        self.patch(license, "_model", side_effect=license.Unknown("not asked"))
+        self.assertEqual((license.features(PROJECT), license.features(PROJECT)), ({"f1"}, {"f1"}))
+        self.assertEqual(asked.call_count, 1)
+        values["GRAVITEE_LICENSE"] = "second"
+        self.assertEqual(license.features(PROJECT), {"f2"})
+        self.assertEqual(asked.call_count, 2)
+        # What GET /api/license read is what the state says, without reading it again
+        values["GRAVITEE_LICENSE"] = "first"
+        license.info(PROJECT)
+        self.assertEqual((license.features(PROJECT), asked.call_count), ({"f1"}, 3))
 
     def test_what_a_license_allows(self):
         current = {"present": True, "readable": True, "valid": True, "expired": False, "features": ["f1"]}
