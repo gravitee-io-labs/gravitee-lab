@@ -48,8 +48,10 @@ KEPT = 20
 # A command that prints nothing for this long is ended, the job failing with it: a pull that stalls, a wait that has no
 # end. Longer than anything a step waits for in silence (a health check, the seed's wait for an API), checked every WATCH
 SILENT, WATCH = 15 * 60, 5
-# How long a container that Compose waits for (its "Waiting") may stay in an issue (it keeps restarting, Docker restarts
-# it) as Docker says it, before the command is ended: its health check may never pass, and Compose would wait on
+# How long after it went into an issue (it keeps restarting, Docker restarts it) a container that Compose waits for (its
+# "Waiting") may still be in one, as Docker says it, before the command is ended: its health check may never pass, and
+# Compose would wait on. Longer than compose.RESTART_WINDOW: one that restarted while what it needs warmed up, and runs
+# since, is out of its issue before
 STUCK = 120
 # What the catalog turns on and off, as a job's key names it ("addon:kafka"): a stop of one that failed is a failure of
 # what it stopped with it too (Jobs.failed_job). The Stack's stop leaves what is on as it is
@@ -311,15 +313,18 @@ class Job:
                                        for stage in self._stages for unit, done in stage.done.items())
 
     def _stuck(self, steps, asked):
-        """Ends the command that runs when a container that Compose waits for has been in an issue for STUCK seconds,
-        as Docker says it (`steps`, asked at `asked`): it keeps restarting, its health check does not pass, and Compose
-        would wait on. Called with the lock held."""
+        """Ends the command that runs when a container that Compose waits for is in an issue STUCK seconds after it went
+        into one, as Docker says it (`steps`, asked at `asked`): it keeps restarting, its health check does not pass, and
+        Compose would wait on. Its time goes on while it runs between two issues: Docker says it keeps restarting only for
+        compose.RESTART_WINDOW seconds after each start, and one that dies later in each start is running in between. It
+        starts again once the container is ready, stops, or Compose no longer waits for it. Called with the lock held."""
         process = self._process
         if self.done or process is None:
             return
-        self._issues = {name: self._issues.get(name, asked) for name in self._waiting if steps.get(name) == "issue"}
+        self._issues = {name: self._issues.get(name, asked) for name in self._waiting
+                        if steps.get(name) == "issue" or name in self._issues and steps.get(name) == "running"}
         for name, since in sorted(self._issues.items()):
-            if asked - since >= STUCK:
+            if steps.get(name) == "issue" and asked - since >= STUCK:
                 self._cut(process, f"{name} keeps restarting")
                 return
 

@@ -371,6 +371,11 @@ class Plans(Case):
         self.assertEqual(plan["services"], {"remove": [], "start": ["apim-gateway", "apim-management-api", "kafka",
                                                                     "kafka-desk", "kafka-ui"]})
 
+    def test_a_plan_takes_no_services_to_make_again_besides_what_it_finds(self):
+        # It once took them (`also`), then ignored them without a word: a caller that gives them is told
+        with self.assertRaises(TypeError):
+            layers.plan(self.project, on(self.project), up(), "addon", "kiosk", "start", also={"apim-management-api"})
+
     def test_start_stops_the_explicit_add_on_in_conflict(self):
         state = on(self.project, ["jade", "kiosk"])
         plan = self.plan(state, up("jade", "kiosk"), "addon", "agent-lens", "start")

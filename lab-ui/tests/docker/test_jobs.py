@@ -260,17 +260,49 @@ class Cut(Case):
         self.assertEqual((job.ok, job.error()), (False, "gio-mongodb keeps restarting"))
 
     def test_only_an_issue_that_lasts_while_compose_waits_for_it_ends_the_command(self):
-        # One that got better meanwhile starts its time again; one Compose does not wait for is not the command's to end
+        # One that got better meanwhile (ready) starts its time again; one Compose does not wait for is not the
+        # command's to end
         job, thread = self.run_job('echo " Container gio-mongodb Waiting "; echo " Container gio-mongodb Healthy "; '
                                    'echo " Container gio-redis Waiting "; exec sleep 600')
         self.assertTrue(waited(lambda: job.detail() == "Container gio-redis Waiting"))
         began = time.monotonic()
-        for at, step in ((0, "issue"), (jobs.STUCK / 2, "running"), (jobs.STUCK, "issue"), (jobs.STUCK * 1.4, "issue")):
+        for at, step in ((0, "issue"), (jobs.STUCK / 2, "ready"), (jobs.STUCK, "issue"), (jobs.STUCK * 1.4, "issue")):
             job.observe({"gio-mongodb": "issue", "gio-redis": step}, began + at)
         self.assertIsNone(job._why)   # nothing ended it
         job.cancel()
         thread.join(10)
         self.assertEqual(job.error(), "Canceled")
+
+    def test_one_that_restarted_while_it_warmed_up_and_runs_since_is_not_ended(self):
+        # Docker started it again twice, then it ran: its health check runs on, out of the issue for good
+        job, thread = self.run_job('echo " Container gio-mongodb Waiting "; exec sleep 600')
+        self.assertTrue(waited(lambda: job.detail() == "Container gio-mongodb Waiting"))
+        began = time.monotonic()
+        for at in range(0, jobs.STUCK * 3, 3):
+            job.observe({"gio-mongodb": "issue" if at < compose.RESTART_WINDOW else "running"}, began + at)
+        self.assertIsNone(job._why)
+
+    def test_a_container_that_dies_90_s_into_each_start_is_said_to_keep_restarting(self):
+        # A JVM Compose waits for dies about 90 s into each start; Docker starts it again at once (its back-off resets
+        # after 10 s of uptime) and its health is starting again. The page asks every 3 s, Docker as compose._inspect
+        # reads it. The command is ended for that container, before the 15 min of silence end it
+        job, thread = self.run_job('echo " Container gio-mongodb Waiting "; exec sleep 600')
+        self.assertTrue(waited(lambda: job.detail() == "Container gio-mongodb Waiting"))
+        project, began, cut = {"services": services(("mongodb", False))}, time.monotonic(), None
+
+        def started(seconds_ago):
+            return time.strftime("%Y-%m-%dT%H:%M:%S.123456789Z", time.gmtime(time.time() - seconds_ago))
+        for at in range(0, jobs.SILENT, 3):
+            inspected = f"/gio-mongodb|false|{at // 90}|{started(at % 90)}||\n"
+            with mock.patch.object(compose, "run", return_value=(0, inspected, "")):
+                found = {"mongodb": {**container(health="starting"), **compose._inspect(["gio-mongodb"])["gio-mongodb"]}}
+            job.observe(model.container_steps(project, found), began + at)
+            if job._why:
+                cut = at
+                break
+        self.assertIsNotNone(cut, "only the 15 min of silence end it")
+        thread.join(10)
+        self.assertEqual((job.ok, job.error()), (False, "gio-mongodb keeps restarting"))
 
     # A step may go on once a command of its own was ended (plugins.up starts the next services anyway): the next
     # command is ended as well when it says nothing for long, or waits for a container that keeps restarting

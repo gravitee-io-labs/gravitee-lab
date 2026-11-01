@@ -1504,13 +1504,17 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
   (`docker.warning`: in the banner, and in a playground's checks).
 - Docker Compose 5.0 or later is needed: an add-on or a playground changes core services from an included file, which
   older versions refuse ("conflicts with imported resource"). The Lab UI says so at start (`api.requirement`).
-- A failed job leaves the on file as written: the item is on, does not run, and can be started again or turned off. Its
-  row says "Failed", the last line its command printed in its tooltip, with Show output in its menu. A canceled one says
-  "Canceled", muted. The activity chip and the drawer say "<title> failed" or "<title> canceled".
+- A failed job leaves the on file as it wrote it: the item is on, does not run, and can be started again or turned off.
+  One that failed before it wrote it (a plugin download, the removal of what goes, "What is on changed meanwhile") wrote
+  nothing, and what was on stays on (`layers.apply`). Its row says "Failed", the last line its command printed in its
+  tooltip, with Show output in its menu. A canceled one says "Canceled", muted. The activity chip and the drawer say
+  "<title> failed" or "<title> canceled".
 - A job's command runs in a session of its own (`compose.spawn`, as every command the Lab UI runs), which the Lab UI ends
   as it exits, printing the job it stopped. It is ended, the job failing with the reason, when it prints nothing for 15
-  minutes (`jobs.SILENT`), and when a container that Compose waits for ("Waiting") has been in an issue for 2 minutes as
-  Docker says it (`jobs.STUCK`, read by `Job.observe`): "gio-mongodb keeps restarting".
+  minutes (`jobs.SILENT`), and when a container that Compose waits for ("Waiting") is in an issue 2 minutes after it went
+  into one, as Docker says it (`jobs.STUCK`, read by `Job.observe`): "gio-mongodb keeps restarting". Running in between
+  does not start the time again (Docker says it keeps restarting only for a minute after each start,
+  `compose.RESTART_WINDOW`); being ready, stopping, or no longer waited for does.
 - One Lab UI serves a folder (`paths.serve_here`, a lock held for its life): started again on any port, it sends the person
   to the one that runs, and `catalog.py`'s update, undo and remove leave the change to it. A Lab UI of another folder on the
   port is said, never opened.

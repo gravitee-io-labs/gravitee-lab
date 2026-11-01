@@ -11,6 +11,7 @@ import json
 import os
 import queue
 import re
+import signal
 import socket
 import subprocess
 import sys
@@ -20,6 +21,7 @@ import types
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
+from pathlib import Path
 from urllib.error import URLError
 
 import lab_ui
@@ -33,7 +35,7 @@ from lab_ui.catalogs import gitx, trust
 from lab_ui.catalogs.registry import CatalogError
 from lab_ui.docker.jobs import Job, JobFailed, Jobs, awaited
 
-from .. import Case, fake_cloud
+from .. import Case, fake_cloud, gitfixture
 
 from ..library import test_layers
 from ..gravitee.test_cloud import serving
@@ -1022,9 +1024,9 @@ class Personal(LabUI):
         self.patch(api, "destinations", return_value={})   # the catalogs a share can go to are the module's, tested below
         status, _, body = self.request("POST", "/api/addons/local/whoami/share", {"check": True})
         self.assertEqual((status, json.loads(body)), (200, share.return_value))
-        share.assert_called_once_with(PROJECT, "addon", "local/whoami", check_only=True)
+        share.assert_called_once_with("addon", "local/whoami", check_only=True)
         self.request("POST", "/api/setups/local/mine/share")
-        share.assert_called_with(PROJECT, "setup", "local/mine", check_only=False)
+        share.assert_called_with("setup", "local/mine", check_only=False)
         for kind in ("addon", "setup", "playground"):
             status, _, body = self.request("POST", f"/api/{kind}s/local/it/delete")
             self.assertEqual((status, json.loads(body)), (200, delete.return_value))
@@ -2402,7 +2404,7 @@ class UseCatalog(LabUI):
         status, _, body = self.request("POST", "/api/playgrounds/local/bank/share", {"check": True})
         self.assertEqual(json.loads(body), {"file": "f", "problems": [], "changes": ["compose.yml"], "destinations": [
             {"id": "gravitee", "name": "Gravitee public", "kind": "git", "writable": True, "reason": ""}]})
-        share.assert_called_once_with(PROJECT, "playground", "local/bank", check_only=True)
+        share.assert_called_once_with("playground", "local/bank", check_only=True)
         self.contribute.destinations.assert_called_once_with(PROJECT, "playground", "local/bank")
 
     def test_a_share_with_a_destination_is_the_modules_check_and_share_and_the_old_share_has_no_destinations(self):
@@ -2415,7 +2417,7 @@ class UseCatalog(LabUI):
         _, _, body = self.request("POST", "/api/playgrounds/local/bank/share", {})
         self.assertNotIn("destinations", json.loads(body), "only a check names them")
         self.request("POST", "/api/playgrounds/local/bank/share", {"to": ""})
-        share.assert_called_with(PROJECT, "playground", "local/bank", check_only=False)
+        share.assert_called_with("playground", "local/bank", check_only=False)
         status, _, body = self.request("POST", "/api/playgrounds/local/bank/share", {"to": ["x"]})
         self.assertEqual((status, json.loads(body)), (400, {"error": "The destination must be text"}))
 
@@ -2522,8 +2524,9 @@ class Startup(Case):
         return printed.getvalue()
 
     def test_the_port_is_bound_first_then_the_old_layout_moved_then_the_four_steps_in_order_and_then_the_page_is_served(self):
+        # The signals are taken over before the move: its download runs git, which a closed terminal ends too
         said = self.serve()
-        self.assertEqual(self.events, [("bind", ("127.0.0.1", 9000)), ("layout", "run"), ("signals",), ("service", "recover"),
+        self.assertEqual(self.events, [("bind", ("127.0.0.1", 9000)), ("signals",), ("layout", "run"), ("service", "recover"),
                                        ("contribute", "sweep"), ("firstrun", "reconcile"), ("firstrun", "start_worker"),
                                        ("warm up",), ("serve",)])
         self.assertEqual(said, "\n  >  Lab UI   http://localhost:9000\n     Keep this terminal open: Ctrl+C stops the Lab UI, "
@@ -2559,7 +2562,7 @@ class Startup(Case):
         with contextlib.redirect_stdout(printed), self.assertRaises(SystemExit) as caught:
             api.serve(9000, True)
         self.assertEqual(caught.exception.code, 1)
-        self.assertEqual(self.events, [("bind", ("127.0.0.1", 9000)), ("layout", "run"), ("close",)])
+        self.assertEqual(self.events, [("bind", ("127.0.0.1", 9000)), ("signals",), ("layout", "run"), ("close",)])
         self.assertEqual(printed.getvalue(), "", "no address: nothing is served")
         self.timer.assert_not_called()
 
@@ -2654,6 +2657,82 @@ class Startup(Case):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# A Lab UI of its own, for Signals: argv[1] is the file the fake git writes its process id to, argv[2] the port, argv[3] when
+# git runs: "move" (in layout.run, as the download of the default catalog does, in the main thread) or "serve" (once it serves)
+SIGNALED_LAB = """
+import os, sys, threading, time
+from lab_ui.catalogs import gitx
+from lab_ui.server import api
+
+def started():
+    end = time.monotonic() + 20
+    while not os.path.exists(sys.argv[1]) and time.monotonic() < end:
+        time.sleep(0.02)
+    time.sleep(0.2)
+    print("ready", flush=True)
+
+def moving():
+    threading.Thread(target=started, daemon=True).start()
+    gitx.run(["fetch"], timeout=120)
+    return True
+
+def starting():
+    threading.Thread(target=gitx.run, args=(["fetch"],), kwargs={"timeout": 120}, daemon=True).start()
+    threading.Thread(target=started, daemon=True).start()
+
+api.layout.run = moving if sys.argv[3] == "move" else (lambda: True)
+api.start_up = starting
+api.address = lambda url, then: None
+api._serve(int(sys.argv[2]), False)
+"""
+
+
+class Signals(Case):
+    """A Lab UI that is hung up (its terminal closed) or terminated ends the git it runs, also while it moves a folder of the
+    layout before catalogs, before it serves: that move downloads the default catalog."""
+
+    def setUp(self):
+        self.pids = self.folder() / "pids"
+        gitfixture.fake_git(self, f"echo $$ >> '{self.pids}'\nexec sleep 40")
+
+    def lab(self, when):
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            port = probe.getsockname()[1]
+        if self.pids.exists():
+            self.pids.unlink()
+        process = subprocess.Popen([sys.executable, "-c", SIGNALED_LAB, str(self.pids), str(port), when],
+                                   cwd=Path(__file__).resolve().parents[2], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE)
+        self.addCleanup(process.communicate)
+        self.addCleanup(process.kill)
+        self.assertEqual(process.stdout.readline().strip(), b"ready", "the Lab UI did not start git")
+        (pid,) = [int(line) for line in self.pids.read_text().split()]
+        self.addCleanup(self.signaled, pid, signal.SIGKILL)
+        return process, pid
+
+    @staticmethod
+    def signaled(pid, number):
+        """Whether the process was there to be signaled."""
+        try:
+            os.kill(pid, number)
+            return True
+        except ProcessLookupError:
+            return False
+
+    def test_a_hang_up_or_a_termination_while_the_old_layout_moves_ends_the_git_of_the_download(self):
+        for when in ("serve", "move"):
+            for number in (signal.SIGHUP, signal.SIGTERM):
+                with self.subTest(when=when, signal=number.name):
+                    process, pid = self.lab(when)
+                    process.send_signal(number)
+                    self.assertEqual(process.wait(30), -number)
+                    end = time.monotonic() + 5
+                    while self.signaled(pid, 0) and time.monotonic() < end:
+                        time.sleep(0.05)
+                    self.assertFalse(self.signaled(pid, 0), f"git was left running after {number.name} during {when}")
 
 
 class DockerDown(Case):

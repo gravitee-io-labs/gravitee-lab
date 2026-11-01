@@ -12,6 +12,7 @@ import types
 import unittest
 import warnings
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from unittest import mock
 
 from lab_ui.gravitee import cloud, license, places, platforms
@@ -715,6 +716,22 @@ class Playgrounds(Case):
         playgrounds.start(self.project, "welcome", [f"{row['kind']}:{row['id']}" for row in self.plan()["stops"]])
         job, commands = ran(self.started(self.jobs)[1])
         self.assertEqual((job.error(), commands), (layers.CHANGED, []))
+
+    def test_a_first_start_that_fails_on_its_plugins_leaves_the_item_off_as_the_pages_say(self):
+        # Nothing is on; the welcome's first Start fails on a plugin download: the on file is not written, so the welcome is
+        # still off. The pages say so, and no longer that every failed job leaves the item on
+        self.state = on(self.project)
+
+        def unpublished(job):
+            raise JobFailed("Plugin gravitee-policy-x is not on download.gravitee.io")
+        self.patch(plugins, "install_steps", lambda project, product, names: ([unpublished], [], {}))
+        playgrounds.start(self.project, "welcome", [])
+        job, commands = ran(self.started(self.jobs)[1])
+        self.assertEqual((job.ok, self.written, commands), (False, [], []))
+        repository = Path(__file__).resolve().parents[3]
+        for page, promise in (("docs/lab-ui.md", "- **A failed or canceled job**: the item stays on."),
+                              ("lab-ui/DESIGN.md", "A failed job leaves the on file as written: the item is on")):
+            self.assertFalse(promise in (repository / page).read_text(encoding="utf-8"), f"{page} says: {promise}")
 
     def test_a_stop_whose_removal_fails_leaves_the_on_file_as_it_was(self):
         self.on_and_running(*CORE)
