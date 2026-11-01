@@ -743,6 +743,7 @@
               <span>
                 "+1"
             <span class="s-uptime">
+              "5 min"
             <span class="row-icons">
               <span class="icon-gap">
               <button class="icon-btn" data-file="addons/kafka/compose.yml" data-tip="Edit addons/kafka/compose.yml" aria-label="Edit addons/kafka/compose.yml">

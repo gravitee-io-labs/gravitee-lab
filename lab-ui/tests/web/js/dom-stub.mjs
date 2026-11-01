@@ -30,7 +30,7 @@ function compound(source) {
     else if (id) parts.push((el) => el.id === id);
     else if (cls) parts.push((el) => el.classList.contains(cls));
     else if (attr) {
-      const want = dq ?? sq ?? bare;
+      const want = (dq ?? sq ?? bare)?.replace(/\\(.)/g, '$1');   // as CSS.escape wrote it
       parts.push((el) => {
         if (!el.hasAttribute(attr)) return false;
         if (!op) return true;

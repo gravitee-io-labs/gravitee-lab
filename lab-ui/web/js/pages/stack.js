@@ -158,10 +158,12 @@ function portsOf(services) {
     ports.length > 1 ? `<span>+${ports.length - 1}</span>` : ""}</span>`;
 }
 
-// How long a container has run, in seconds, from the words of its uptime ("5 min", "14 h"); null when they say none
-const UNITS = { s: 1, min: 60, h: 3600, d: 86400, mo: 2592000, y: 31536000 };
+// How long a container has run, in seconds, from the words of its uptime ("5 min", "14 h", "< 1 min" in its first
+// minute); null when they say none
+const UNITS = { min: 60, h: 3600, d: 86400, mo: 2592000, y: 31536000 };
 function seconds(uptime) {
-  const [, n, unit] = /^(\d+) (s|min|h|d|mo|y)$/.exec(uptime || "") || [];
+  if (uptime === "< 1 min") return 0;
+  const [, n, unit] = /^(\d+) (min|h|d|mo|y)$/.exec(uptime || "") || [];
   return n ? Number(n) * UNITS[unit] : null;
 }
 
