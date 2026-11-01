@@ -490,6 +490,22 @@ class Playgrounds(Case):
         playgrounds.start(self.project, "welcome", [])
         self.jobs.start.assert_called_once()
 
+    def test_a_port_is_no_line_and_refuses_no_start_while_docker_does_not_list_the_labs_own_containers(self):
+        # Docker answers `docker info`, then `docker ps` fails: the lab's own ports cannot be told from another program's
+        # (machine.held answers None). The click's check reads it as no port held: no line, and it starts
+        from lab_ui.library import machine
+        self.patch(machine, "_lab_ports", side_effect=compose.ComposeError("Docker did not list the lab's containers"))
+        self.patch(machine, "_taken", lambda port: port == 3000)
+        self.patch(plugins, "installed", lambda project, product: {"bundled": {"gravitee-policy-x": {}}, "bundled_error": None,
+                                                                    "ext": {}, "feature_by_id": {}})
+        self.patch(license, "info", lambda project: {"present": False})
+        self.patch(license, "status", lambda project: {"status": "none", "digest": "x"})
+        self.project["services"]["hello-app"]["ports"] = ["3000"]
+        self.assertEqual(layers.taken(self.project, ["hello-app"]), [])
+        self.assertNotIn("Ports", [line["name"] for line in playgrounds.check(self.project, "welcome")["checks"]])
+        playgrounds.start(self.project, "welcome", [])
+        self.jobs.start.assert_called_once()
+
     def test_docker_memory_when_it_is_short(self):
         self.patch(plugins, "installed", lambda project, product: {"bundled": {"gravitee-policy-x": {}},
                                                                     "bundled_error": None, "ext": {},
