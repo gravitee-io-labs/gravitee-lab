@@ -616,7 +616,8 @@ What the server decides and the page shows. A name in backticks is the code to r
     off and running. A playground's first Start installs its plugins before either.
   - A job acts only on the on file its plan read (`stamp`): one another job wrote meanwhile ends it with *What is on
     changed meanwhile: try again*, before it removes, installs or writes anything (`layers.unchanged`). A Start on This
-    machine writes what it brings for this machine, whatever platform it ran on before (the plan's `targets`).
+    machine writes what it brings for this machine, whatever platform it ran on before (the plan's `targets`), and makes
+    again what of that runs, with the gateways its two files configure (`restarts`).
   - Nothing is removed as an orphan: what was stopped on purpose stays stopped, what was started outside the Lab UI
     stays.
 - **Side effects are asked first.** The plan (`layers.plan`) lists what starts, stops (it runs), is turned off (it is on

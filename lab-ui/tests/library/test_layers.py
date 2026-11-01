@@ -1647,6 +1647,51 @@ class Files(Case):
         stop = layers.plan(self.project, layers.current(self.project), up(), "addon", "kafka", "stop")
         self.assertEqual(stop["targets"], {})
 
+    def test_a_start_back_on_this_machine_makes_again_what_its_plain_file_changes(self):
+        # Kafka was deployed (its copy sets gravitee_kafka_enabled on apim-hybrid-gateway), then its containers stopped
+        # while it stayed on. Its Start on This machine writes the plain file, which sets it on apim-gateway, which runs
+        self.write("addons/kafka/compose.yml", self.KAFKA)
+        layers.write(None, ["kafka"], {"addons/kafka/compose.yml": "cloud"}, self.NAMES)
+        plan = layers.plan(self.project, layers.current(self.project), up(), "addon", "kafka", "start")
+        self.assertEqual(plan["targets"], {"addons/kafka/compose.yml": None})
+        _, (_, write, command), _ = self.applied(plan)
+        write(mock.Mock(lines=[]))
+        self.assertIn("  - addons/kafka/compose.yml\n", (self.root / paths.ON_FILE).read_text(encoding="utf-8"))
+        # As the Start of Kafka while it is off does, the gateway it configures is made again, and the dialog says so
+        self.assertIn("apim-gateway", command)
+        self.assertEqual(plan["restarts"], [GATEWAY])
+
+    def test_a_playground_started_back_on_this_machine_makes_its_gateway_again(self):
+        cloud(self.project)
+        self.write("playgrounds/welcome/compose.yml", "services:\n  apim-gateway:\n    environment:\n      WELCOME: \"on\"\n"
+                   "  hello-app:\n    image: busybox\n")
+        layers.write("welcome", ["hybrid"], {"playgrounds/welcome/compose.yml": "cloud"}, self.NAMES)   # deployed to Cloud
+        state = layers.current(self.project)
+        self.assertEqual(state["targets"], {"playground:welcome": "cloud"})
+        # Its app was stopped from Containers; the core and the hybrid gateway run. Start on This machine
+        plan = layers.plan(self.project, state, up("hybrid", project=self.project), "playground", "welcome", "start")
+        _, (_, write, command), _ = self.applied(plan)
+        write(mock.Mock(lines=[]))
+        self.assertIn("  - playgrounds/welcome/compose.yml\n", (self.root / paths.ON_FILE).read_text(encoding="utf-8"))
+        self.assertIn("apim-gateway", command)   # its `apim-gateway:` override is this machine's gateway's now
+        self.assertIn("apim-hybrid-gateway", command, "and no longer the hybrid gateway's")
+
+    def test_what_a_start_brings_back_on_this_machine_is_made_again(self):
+        # Kafka runs on its Cloud copy (HOST http://apim-hybrid-gateway:8082); Kafka Desk, which needs it, starts here
+        self.write("addons/kafka/compose.yml", self.KAFKA)
+        layers.write(None, ["kafka"], {"addons/kafka/compose.yml": "cloud"}, self.NAMES)
+        plan = layers.plan(self.project, layers.current(self.project), up("kafka"), "addon", "kafka-desk", "start")
+        self.assertEqual(plan["targets"], {"addons/kafka-desk/compose.yml": None, "addons/kafka/compose.yml": None})
+        _, (_, write, command), _ = self.applied(plan)
+        write(mock.Mock(lines=[]))
+        self.assertIn("  - addons/kafka/compose.yml\n", (self.root / paths.ON_FILE).read_text(encoding="utf-8"))
+        self.assertIn("kafka", command)          # written for this machine now, still running as written for Cloud
+        self.assertIn("apim-gateway", command)   # which Kafka's plain file configures
+        # Kafka Desk started where Kafka already ran here only starts
+        layers.write(None, ["kafka"])
+        plan = layers.plan(self.project, layers.current(self.project), up("kafka"), "addon", "kafka-desk", "start")
+        self.assertEqual(plan["services"]["start"], ["apim-management-api", "kafka-desk"])
+
     def test_write_then_read(self):
         layers.write("welcome", ["kiosk", "kafka-desk"])
         self.assertEqual((self.root / paths.ON_FILE).read_text(encoding="utf-8"),
