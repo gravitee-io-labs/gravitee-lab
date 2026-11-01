@@ -38,8 +38,8 @@ reverse.
 | `am_link.py` | `seed/am/gamma-link.yaml` |
 | `aim_catalog.py` | `seed/aim/credentials/`, `providers/`, `models/`, `mcp-servers/`, `knowledge/`, `skills/`, `agents/`, `api-tools/` |
 | `aim_workspaces.py` | `seed/aim/workspaces/` |
-| `aim_proxies.py` | `seed/aim/mcp-proxies/`, `studios/` |
-| `aim_agents.py` | `seed/aim/agents/` (the keys `identity` and `access`: `aim_catalog.py` reads the card and the metadata) |
+| `aim_proxies.py` | `seed/aim/mcp-proxies/`, `studios/` (with the `subscriptions` of applications of `seed/apim/` to a studio's plan) |
+| `aim_agents.py` | `seed/aim/agents/` (the keys `identity` and `access`, which need the amp-demo build: API Management 4.13.1 serves no application for an agent, and the seed stops with a line that says so; `aim_catalog.py` reads the card and the metadata) |
 | `aim_governance.py` | `seed/aim/governance/` (`approvals.yaml`, `compliance.yaml`) |
 | `authz.py` | `seed/authz/entities.yaml`, `policies/`, `schema.yaml`, `schemas/` |
 | `aim_dashboards.py` | `seed/aim/dashboards/` |

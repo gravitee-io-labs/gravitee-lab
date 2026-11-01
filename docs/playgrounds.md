@@ -438,11 +438,31 @@ except API exports, which are `.json` (`seed/apim/apis/*.json`, and the `apis/*.
 | `seed/am/domain.yaml`, `applications/*.yaml`, `protected-resources/*.yaml` | Domain with its scopes, users, applications, MCP servers | AM Management API |
 | `seed/am/gamma-link.yaml` | The link from Gamma to the AM domain | Gamma and AM APIs |
 | `seed/openfga/*.yaml` | OpenFGA store file (`fga store import`) | OpenFGA API |
-| `seed/aim/<resource>/*.yaml` | Agent Management: credentials, providers, models, MCP servers, knowledge, skills, agents (an agent file may also carry its `identity` and its `access` to the plan of a studio), API tools (only the `operations` listed, tailored when asked), workspaces, MCP proxies, studios, dashboards, governance (approval rules and settings, compliance); a file with `needs: NAME` is skipped while the setting NAME is empty | Gamma and Automation APIs |
+| `seed/aim/<resource>/*.yaml` | Agent Management: credentials, providers, models, MCP servers, knowledge, skills, agents (an agent file may also carry its `identity` and its `access` to the plan of a studio, on the amp-demo build only), API tools (only the `operations` listed, tailored when asked), workspaces, MCP proxies, studios (with their `subscriptions`, and `authorization.agentIdentityResolution` for a policy that reads the agent), dashboards, governance (approval rules and settings, compliance); a file with `needs: NAME` is skipped while the setting NAME is empty | Gamma and Automation APIs |
 | `seed/authz/entities.yaml`, `policies/*.yaml`, `schema.yaml`, `schemas/*.yaml` | Authorization Management: what the policies are about, GAPL policies, the schema of the editor | Gamma API |
 | `seed/k8s/*.yaml` | Kubernetes manifests: a namespace, a Secret, a `ManagementContext` for the Gravitee Kubernetes Operator. One manifest to a file, in name order | Server-side apply on the cluster of `KUBECONFIG` |
 | `seed/controls.yaml` | The protections the lessons switch on | The APIs of the files above, aligned to the mode on every run |
 | `seed/refills.yaml` | What the lessons spend, given back on every run | The counters the gateway keeps in the core's Redis |
+
+A studio file (`seed/aim/studios/`) says its tools, its plan or its `access`, and its authorization check. Three keys
+serve the lessons:
+
+- `subscriptions` subscribes applications of `seed/apim/applications` to a published plan of the studio, with the
+  custom key a client of the playground holds. A key needs a plan of API keys and `customApiKey` allowed in
+  `seed/apim/settings.yaml`. Quote the variable, or a numeric value is read as a number. `plan` may be left out when the
+  studio publishes one plan.
+
+  ```yaml
+  subscriptions:
+    - {application: Acme Shop copilot, apiKey: '${ACME_SHOP_COPILOT_KEY}'}
+  ```
+
+- `authorization.agentIdentityResolution: true` makes the authorization check put the agent the token names in the
+  context (`context.agent`), which authz-pep 3.0.2 leaves out by default.
+- The tools come back to the file on every run. Tools a person adds or removes with *Edit tools* in Gamma are written
+  back in place, with the keys of the APIs, and the flow of the authorization check is written again after them.
+- A file with `access` gives `supportedProtocolVersions`, a list, on API Management 4.13.1, as a file with a `plan` does
+  (`["2025-11-25"]`). The amp-demo build took one `protocolVersion` instead.
 
 Seed files use `${VAR}` for everything that depends on the target: service URLs, the Redis password of a vector store
 resource, the gateway and AM addresses shown to clients. Acme Shop's seed files use, among others, `${AM_GATEWAY_URL}`,
@@ -645,8 +665,15 @@ cap:                                # lesson 5: an agent moves any amount while 
   policy: Agents move at most EUR 500
 ```
 
-A control targets an `api` (the steps of a flow), an `mcp-proxy` (the steps of a flow), a `workspace` (the steps of its
-router), or a `policy`.
+```yaml
+outage:                             # lesson 2: an outage of the cloud provider reaches the apps
+  api: Acme Shop LLM
+  failover: true
+```
+
+A control targets an `api` (the steps of a flow, or with `failover: true` the API's failover, switched on or off), an
+`mcp-proxy` (the steps of a flow), a `workspace` (the steps of its router), or a `policy`. A failover control needs a
+`failover` block in the API's file, which says how it fails over once it is on.
 
 - **Names are those of the seed files**, not always the console's. A step is named by its `name` in the file, a policy
   by its `name`, a target by the name of its API, proxy or workspace.
@@ -666,7 +693,7 @@ router), or a `policy`.
   generator) sees a new mode once *Save & apply* in the settings form recreates it. A change of mode is *Save &
   apply*, then *Re-seed*.
 - **Re-seed starts the lessons over.** Every run brings each control to the state of the mode, even one the person
-  switched or edited in the console, and only the controls. An LLM proxy is updated in place, its steps and then a
+  switched or edited in the console, and only the controls. An LLM proxy is updated in place, its steps and its failover and then a
   deployment, because an import would replace it, drop its keys and make the gateway reload. An MCP proxy and a
   workspace's router are written with the mode. A policy is deployed or taken out of service. The rest of an API stays
   imported once, with its digest recorded. The digest is the file's, never the mode's.
@@ -680,8 +707,8 @@ router), or a `policy`.
   console's "Undeploy") and shows `Disabled`: nothing makes it a draft again. A Re-seed takes a policy the person
   deployed out of service in just that way. *Deploy to PDP* deploys a draft and a disabled policy alike, so a guide names
   the action, not the badge.
-- **A control is what the platform can switch and the gateway honors.** A step has `enabled`, and a policy is deployed or
-  not. Test it on the platform before you declare one, and with the steps that stay on: name only those whose absence the
+- **A control is what the platform can switch and the gateway honors.** A step has `enabled`, an API's failover has
+  `enabled`, and a policy is deployed or not. Test it on the platform before you declare one, and with the steps that stay on: name only those whose absence the
   person meets.
 - **Checks that follow the mode say it in the file.** The number of tools a role is offered while its control is off is
   written `tools: {protected: 7, unprotected: 8}`.

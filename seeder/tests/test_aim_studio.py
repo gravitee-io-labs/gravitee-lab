@@ -16,6 +16,7 @@ from lab_seeder import common
 from lab_seeder.testkit import PERSONAL, Seed
 
 AIM = "/gamma/organizations/DEFAULT/environments/DEFAULT/modules/aim"
+V1 = "/management/organizations/DEFAULT/environments/DEFAULT"
 V2 = "/management/v2/organizations/DEFAULT/environments/DEFAULT"
 CONTRACT = PERSONAL / "agent-toolbox" / "seed" / "aim" / "studios" / "customer-care.yaml"
 SETTINGS = {"AM_GATEWAY_URL": "http://am-gateway:8092", "AGENT_TOOLBOX_KEY": "harbor-key-123"}
@@ -90,6 +91,10 @@ class World:
         self.studios, self.apis, self.plans = {}, {}, {}
         self.all_statuses = False   # a platform that lists the closed plans too
         self.gateway_calls, self.gateway_serves_after, self.gateway_status = [], 0, 401
+        self.applications = [{"id": "app-copilot", "name": "Copilot on 13 tools"}, {"id": "app-desk", "name": "Copilot on 6 tools"}]
+        self.subscriptions, self.subscription_ids = {}, itertools.count(1)
+        self.subscriptions_wait = False   # a plan that leaves a subscription pending for someone to accept
+        self.specification_status = 200  # what a write of the tools of a studio answers: 405 on a platform without it
 
     def routes(self):
         every = re.compile
@@ -112,6 +117,13 @@ class World:
             ("POST", every(V2 + "/apis/[^/]+/plans/[^/]+/_publish")): lambda call: self.plan_status(call, "PUBLISHED"),
             ("POST", every(V2 + "/apis/[^/]+/plans/[^/]+/_close")): lambda call: self.plan_status(call, "CLOSED"),
             ("POST", every(V2 + "/apis/[^/]+/deployments")): self.deployments,
+            ("PUT", every(AIM + "/mcp-studios/[^/]+/specification")): self.set_specification,
+            ("GET", V1 + "/applications"): lambda call: (200, [a for a in self.applications
+                                                               if "query" not in call.params or a["name"] == call.params["query"]]),
+            ("GET", every(V2 + "/apis/[^/]+/subscriptions")): self.list_subscriptions,
+            ("POST", every(V2 + "/apis/[^/]+/subscriptions")): self.subscribe,
+            ("POST", every(V2 + "/apis/[^/]+/subscriptions/[^/]+/_accept")): lambda call: self.settle(call, "ACCEPTED"),
+            ("POST", every(V2 + "/apis/[^/]+/subscriptions/[^/]+/_close")): lambda call: self.settle(call, "CLOSED"),
             ("POST", "http://gateway" + PATH): self.gateway,
         }
 
@@ -131,12 +143,59 @@ class World:
         return 200, {"content": rows, "totalElements": len(rows)}
 
     def detail(self, call):
+        """A studio as Gamma gives it: its switches, and the tools of each source on an endpoint of its API, each with its
+        catalog id, its entity id and its alias."""
         studio = self.studios[ids(call)[0]]
-        return 200, {"id": ids(call)[0], "fgaEnabled": studio["fga"], "humanApprovalEnabled": studio["approval"]}
+        groups = [{"name": "tools", "type": "tools-http", "endpoints": [{"name": "tools", "configuration": {
+            "groupName": "Harbor", "specification": {"tools": copy.deepcopy(studio.get("tools", []))}}}]}]
+        return 200, {"id": ids(call)[0], "fgaEnabled": studio["fga"], "humanApprovalEnabled": studio["approval"],
+                     "mode": "STUDIO", "endpointGroups": groups}
+
+    def served(self, specification):
+        entities = {i: e for e, i in self.tools.items()}
+        return [{"id": t["id"], "entityId": entities.get(t["id"]), "name": t["id"].removeprefix("tool-"), "alias": t.get("alias")}
+                for t in specification["tools"]]
+
+    def set_specification(self, call):
+        """Edit tools, as the platform does it: the tools are replaced, and with the check on, its flow is written again
+        as the switch writes it (what was written on it is lost)."""
+        if self.specification_status != 200:
+            return self.specification_status, {"message": "HTTP 405 Method Not Allowed"}
+        studio_id = ids(call)[0]
+        self.studios[studio_id]["tools"] = self.served(call.json["specification"])
+        self.studios[studio_id]["upstreamAuth"] = call.json.get("upstreamAuth")
+        if self.studios[studio_id]["fga"]:
+            self.set_fga(SimpleNamespace(path=call.path.replace("/specification", "/fga"), json={"enabled": True}))
+        self.apis[studio_id]["deploymentState"] = "NEED_REDEPLOY"
+        return 200, {"id": studio_id}
+
+    # --- Subscriptions through the management API ---------------------------------------------
+
+    def list_subscriptions(self, call):
+        statuses = call.params["statuses"].split(",")
+        rows = [s for s in self.subscriptions.values() if s["apiId"] == ids(call)[0] and s["applicationId"] == call.params["applicationIds"]
+                and s["planId"] == call.params["planIds"] and s["status"] in statuses]
+        return 200, {"data": copy.deepcopy(rows)}
+
+    def subscribe(self, call):
+        sub = {"id": f"sub-{next(self.subscription_ids)}", "apiId": ids(call)[0],
+               "status": "PENDING" if self.subscriptions_wait else "ACCEPTED", **call.json}
+        self.subscriptions[sub["id"]] = sub
+        return 201, copy.deepcopy(sub)
+
+    def settle(self, call, status):
+        sub = self.subscriptions[call.path.split("/")[-2]]
+        sub["status"] = status
+        if status == "ACCEPTED" and call.json.get("customApiKey"):
+            sub["customApiKey"] = call.json["customApiKey"]
+        return 200, copy.deepcopy(sub)
 
     def delete(self, call):
         studio_id = ids(call)[0]
         self.studios.pop(studio_id, None)
+        for sub in self.subscriptions.values():   # the API is deleted with its plans closed
+            if sub["apiId"] == studio_id:
+                sub["status"] = "CLOSED"
         self.apis.pop(studio_id, None)
         self.plans.pop(studio_id, None)
         return 204
@@ -144,7 +203,8 @@ class World:
     def create(self, call):
         studio_id = f"studio-{next(self.studio_ids)}"
         body = call.json
-        self.studios[studio_id] = {"request": body, "name": body["name"], "contextPath": body["contextPath"], "fga": False, "approval": False}
+        self.studios[studio_id] = {"request": body, "name": body["name"], "contextPath": body["contextPath"], "fga": False, "approval": False,
+                                   "tools": self.served(body["specification"])}
         self.apis[studio_id] = {"id": studio_id, "name": body["name"], "visibility": "PUBLIC", "lifecycleState": "STARTED",
                                 "deploymentState": "DEPLOYED", "definitionVersion": "V4", "type": "MCP_PROXY", "flows": [],
                                 "createdAt": "2026-10-13T08:00:00Z", "updatedAt": "2026-10-13T08:00:00Z", "state": "STARTED",
@@ -291,6 +351,15 @@ class Creation(Studios):
             "upstreamAuth": [
                 {"catalogSourceId": "source-apim-customers", "upstreamAuth": {"type": "api-key", "apiKeyHeader": "X-Gravitee-Api-Key", "apiKey": "harbor-key-123"}},
                 {"catalogSourceId": "source-apim-orders", "upstreamAuth": {"type": "api-key", "apiKeyHeader": "X-Gravitee-Api-Key", "apiKey": "harbor-key-123"}}]})
+
+    def test_a_file_with_the_list_of_versions_is_created_with_it_as_api_management_4_13_1_asks(self):
+        self.env(SEED_WAIT_GATEWAY="1")   # the wait for the gateway, which says the first of the versions
+        self.file(STUDIO.replace('protocolVersion: "2025-11-25"', 'supportedProtocolVersions: ["2025-11-25"]'))
+        self.seed()
+        [call] = self.platform.sent("POST", AIM + "/mcp-studios")
+        self.assertEqual(call.json["supportedProtocolVersions"], ["2025-11-25"])
+        self.assertNotIn("protocolVersion", call.json)
+        self.assertEqual(self.world.gateway_calls[0].json["params"]["protocolVersion"], "2025-11-25")
 
     def test_a_tool_without_an_alias_goes_by_its_own_name(self):
         self.file(STUDIO.replace(", alias: search_customers", ""))
@@ -565,6 +634,15 @@ class Replacement(Studios):
         self.seed()
         self.assertEqual([x["id"] for x in common.created() if x["kind"] == "studio"], list(self.world.studios))
 
+    def test_a_studio_deleted_to_be_made_again_loses_its_record_at_once(self):
+        self.seed()
+        self.file(STUDIO.replace("alias: get_customer", "alias: customer"))
+        self.platform.add({("POST", AIM + "/mcp-studios"): (400, {"message": "refused"})})
+        with self.assertRaises(common.SeedError):
+            self.seed()
+        self.assertEqual(self.world.studios, {})
+        self.assertEqual([x for x in common.created() if x["kind"] == "studio"], [], "no record names the studio that is gone")
+
     def test_a_studio_the_seed_did_not_create_is_never_adopted(self):
         self.world.studios["theirs"] = {"name": "Theirs", "contextPath": PATH, "fga": False, "approval": False}
         with self.assertRaisesRegex(common.SeedError, "/mcp/customer-care is the path of 'Theirs', which the seed did not create"):
@@ -758,6 +836,307 @@ class OldShape(Studios):
         self.platform.add({("POST", AIM + "/mcp-studios"): self.world.create})
         self.seed()
         self.assertEqual([x["id"] for x in common.created() if x["kind"] == "studio"], list(self.world.studios))
+
+
+class AgentIdentity(Studios):
+    """authz-pep 3.0.2 puts the agent the token names in the context only with `agentIdentityResolution` on (off by default):
+    a policy that reads `context.agent` needs it."""
+
+    def with_resolution(self, value="true"):
+        self.file(STUDIO.replace("authorization:\n  enabled: true\n",
+                                 f"authorization:\n  enabled: true\n  agentIdentityResolution: {value}\n"))
+
+    def check(self):
+        return self.the_flow("FGA Authorization")["request"][-1]["configuration"]
+
+    def test_the_check_resolves_the_agent_when_the_file_says_so(self):
+        self.with_resolution()
+        self.seed()
+        self.assertIs(self.check()["agentIdentityResolution"], True)
+        self.assertEqual(len(self.sent("PUT", V2 + "/apis/studio-1")), 1, "written with the other edits of the flow")
+
+    def test_a_file_that_says_nothing_leaves_the_switch_as_the_platform_wrote_it(self):
+        self.seed()
+        self.assertNotIn("agentIdentityResolution", self.check())
+
+    def test_a_second_run_writes_nothing_and_a_resolution_someone_turned_off_is_turned_on_again(self):
+        self.with_resolution()
+        self.run_twice()
+        self.assertEqual(self.changes(), [])
+        self.check()["agentIdentityResolution"] = False
+        self.platform.calls.clear()
+        self.seed()
+        self.assertEqual(self.changes(), [("PUT", "/apis/studio-1"), ("POST", "/apis/studio-1/deployments")])
+        self.assertIs(self.check()["agentIdentityResolution"], True)
+
+    def test_a_file_may_turn_it_off(self):
+        self.with_resolution("false")
+        self.seed()
+        self.assertIs(self.check()["agentIdentityResolution"], False)
+
+    def test_a_value_that_is_not_true_or_false_stops_the_seed_before_anything_is_made(self):
+        self.with_resolution("'yes'")
+        with self.assertRaisesRegex(common.SeedError, "^MCP studio Customer care: authorization.agentIdentityResolution is true or false$"):
+            self.seed()
+        self.assertEqual(self.world.studios, {})
+
+
+class EditedTools(Studios):
+    """A lesson adds tools with Edit tools in Gamma; Re-seed brings the studio back to its file, in place, then writes the flow
+    of the check again, which the platform rebuilt when it saved the tools."""
+
+    def edit_tools(self, tools):
+        """What Edit tools does: the tools of the studio replaced, and the flow of the check written again as the switch writes it."""
+        self.world.set_specification(SimpleNamespace(path=AIM + "/mcp-studios/studio-1/specification",
+                                                     json={"specification": {"tools": tools}, "upstreamAuth": []}))
+
+    def edited(self):
+        self.seed()
+        self.edit_tools([{"id": "tool-searchCustomers", "alias": "search_customers"}, {"id": "tool-getCustomer", "alias": "get_customer"},
+                         {"id": "tool-createRefund", "alias": "create_refund"}, {"id": "tool-cancelOrder"}])
+        self.platform.calls.clear()
+
+    def test_a_tool_someone_added_is_taken_out_in_place_and_the_flow_of_the_check_written_again(self):
+        self.edited()
+        self.assertEqual(self.the_flow("FGA Authorization")["request"][0]["policy"], "authz-pep", "the platform lost the edits")
+        self.seed()
+        self.assertEqual(self.changes(), [("PUT", "/mcp-studios/studio-1/specification"), ("PUT", "/apis/studio-1"),
+                                          ("POST", "/apis/studio-1/deployments")])
+        [call] = self.sent("PUT", AIM + "/mcp-studios/studio-1/specification")
+        created = self.world.studios["studio-1"]["request"]
+        self.assertEqual(call.json, {"specification": created["specification"], "upstreamAuth": created["upstreamAuth"]},
+                         "the tools and the keys the studio was made with")
+        self.assertEqual([t["id"] for t in self.world.studios["studio-1"]["tools"]],
+                         ["tool-searchCustomers", "tool-getCustomer", "tool-createRefund"])
+        steps = self.the_flow("FGA Authorization")["request"]
+        self.assertEqual([s["policy"] for s in steps], ["policy-assign-attributes", "authz-pep"])
+        self.assertEqual(steps[1]["configuration"]["subjectPropertiesExpr"], WANTED_SUBJECT)
+        self.assertEqual(list(self.world.studios), ["studio-1"], "edited in place, not made again")
+        self.assertIn("✓ Tools brought back to the file: 3 in Customer care", self.output())
+
+    def test_the_next_run_writes_nothing(self):
+        self.edited()
+        self.seed()
+        self.platform.calls.clear()
+        self.seed()
+        self.assertEqual(self.changes(), [])
+
+    def test_a_tool_someone_took_out_or_renamed_is_put_back(self):
+        for tools in ([{"id": "tool-searchCustomers", "alias": "search_customers"}, {"id": "tool-getCustomer", "alias": "get_customer"}],
+                      [{"id": "tool-searchCustomers", "alias": "find"}, {"id": "tool-getCustomer", "alias": "get_customer"},
+                       {"id": "tool-createRefund", "alias": "create_refund"}]):
+            with self.subTest(tools=tools):
+                self.seed()
+                self.edit_tools(tools)
+                self.platform.calls.clear()
+                self.seed()
+                self.assertEqual(self.changes()[0], ("PUT", "/mcp-studios/studio-1/specification"))
+                self.assertEqual([(t["id"], t["alias"]) for t in self.world.studios["studio-1"]["tools"]],
+                                 [("tool-searchCustomers", "search_customers"), ("tool-getCustomer", "get_customer"),
+                                  ("tool-createRefund", "create_refund")])
+
+    def test_a_tool_the_platform_names_by_its_entity_id_is_the_same_tool(self):
+        self.seed()
+        for tool in self.world.studios["studio-1"]["tools"]:
+            tool["id"] = tool.pop("entityId")
+            del tool["alias"]   # a platform that says no alias compares the ids only
+        self.platform.calls.clear()
+        self.seed()
+        self.assertEqual(self.changes(), [])
+
+    def test_an_alias_that_is_the_tool_s_own_name_is_no_alias(self):
+        self.file(STUDIO.replace(", alias: search_customers", ""))
+        self.seed()
+        tool = self.world.studios["studio-1"]["tools"][0]
+        tool["alias"] = tool["name"]   # a platform that writes the name where no alias was given
+        self.platform.calls.clear()
+        self.seed()
+        self.assertEqual(self.changes(), [])
+
+    def test_a_studio_whose_tools_the_platform_does_not_show_is_left_alone(self):
+        self.seed()
+        self.world.studios["studio-1"]["tools"] = []
+        self.platform.calls.clear()
+        self.seed()
+        self.assertEqual(self.changes(), [])
+
+    def test_a_platform_that_cannot_write_the_tools_has_the_studio_made_again(self):
+        self.edited()
+        self.world.specification_status = 405
+        self.seed()
+        self.assertEqual(self.changes()[:3], [("PUT", "/mcp-studios/studio-1/specification"), ("DELETE", "/mcp-proxies/studio-1"),
+                                              ("POST", "/mcp-studios")])
+        self.assertEqual(list(self.world.studios), ["studio-2"])
+        self.assertEqual([x["id"] for x in common.created() if x["kind"] == "studio"], ["studio-2"])
+
+    def test_any_other_refusal_stops_the_seed_in_one_line(self):
+        self.edited()
+        self.world.specification_status = 400
+        with self.assertRaises(common.SeedError) as raised:
+            self.seed()
+        self.assertRegex(str(raised.exception), r"^PUT /mcp-studios/studio-1/specification: HTTP 400 ")
+        self.assertEqual(list(self.world.studios), ["studio-1"], "never deleted for a refusal")
+
+    def test_a_studio_of_the_other_shape_is_brought_back_too(self):
+        self.file(OLD_STUDIO)
+        self.env(GATEWAY_INTERNAL_URL=None)
+        self.seed()
+        self.edit_tools([{"id": "tool-getCustomer"}, {"id": "tool-deleteCustomer"}])
+        self.platform.calls.clear()
+        self.seed()
+        self.assertEqual(self.changes(), [("PUT", "/mcp-studios/studio-1/specification"), ("POST", "/apis/studio-1/deployments")])
+        self.assertEqual([t["id"] for t in self.world.studios["studio-1"]["tools"]], ["tool-getCustomer"])
+        self.platform.calls.clear()
+        self.seed()
+        self.assertEqual(self.changes(), [])
+
+
+PLAIN = """\
+name: Havenbank operations
+description: Every operation of the APIs, one tool each
+contextPath: /mcp/customer-care
+supportedProtocolVersions: ["2025-11-25", "2026-07-28"]
+fga: false
+plan:
+  name: Copilots
+  security:
+    type: API_KEY
+    configuration: {source: BEARER, enableCustomApiKeyHeader: false, propagateApiKey: false}
+tools:
+  - {api: Harbor Customers API, tool: searchCustomers}
+  - {api: Harbor Customers API, tool: getCustomer}
+subscriptions:
+  - {application: Copilot on 13 tools, apiKey: '${OPERATIONS_KEY}'}
+"""
+
+
+class Subscriptions(Studios):
+    """`subscriptions` of a studio's file: an application of API Management subscribed to a plan of the studio, with the
+    custom key a client of the playground holds, through the management API (a studio is an API)."""
+
+    def setUp(self):
+        super().setUp()
+        self.env(OPERATIONS_KEY="operations-key-0013", GATEWAY_INTERNAL_URL=None)
+        self.file(PLAIN)
+
+    def subs(self, status=None):
+        return [s for s in self.world.subscriptions.values() if status in (None, s["status"])]
+
+    def test_the_application_is_subscribed_to_the_plan_with_its_key_once_the_studio_exists(self):
+        self.seed()
+        plan = self.plan_named("Copilots")
+        [call] = self.sent("POST", V2 + "/apis/studio-1/subscriptions")
+        self.assertEqual(call.json, {"applicationId": "app-copilot", "planId": plan["id"], "customApiKey": "operations-key-0013"})
+        self.assertEqual(self.changes()[0], ("POST", "/mcp-studios"))
+        [record] = [x for x in common.created() if x["kind"] == "subscription"]
+        self.assertEqual((record["product"], record["label"], record["name"], record["id"], record["api"]),
+                         ("aim-proxies", "subscriptions to MCP studios", "Copilot on 13 tools → Havenbank operations (Copilots)",
+                          "sub-1", "studio-1"))
+        self.assertIn("✓ Subscribed: Copilot on 13 tools → Havenbank operations (Copilots)", self.output())
+        self.assertNotIn("operations-key-0013", self.output())
+
+    def test_a_second_run_writes_nothing(self):
+        self.run_twice()
+        self.assertEqual(self.changes(), [])
+        self.assertIn("Subscription exists: Copilot on 13 tools", self.output())
+
+    def test_a_paused_subscription_holds_the_access_and_is_left_as_it_is(self):
+        self.seed()
+        self.subs()[0]["status"] = "PAUSED"
+        self.platform.calls.clear()
+        self.seed()
+        self.assertEqual(self.changes(), [])
+
+    def test_a_pending_subscription_is_accepted_with_its_key(self):
+        self.world.subscriptions_wait = True
+        self.seed()
+        [sub] = self.subs()
+        self.assertEqual((sub["status"], sub["customApiKey"]), ("ACCEPTED", "operations-key-0013"))
+
+    def test_a_studio_made_again_is_subscribed_again_and_its_record_follows(self):
+        self.seed()
+        self.file(PLAIN.replace("fga: false", "fga: false\ndescription: Another").replace(
+            "description: Every operation of the APIs, one tool each\n", ""))
+        self.seed()
+        self.assertEqual(list(self.world.studios), ["studio-2"])
+        self.assertEqual([(s["apiId"], s["status"]) for s in self.subs()], [("studio-1", "CLOSED"), ("studio-2", "ACCEPTED")])
+        self.assertEqual([x["api"] for x in common.created() if x["kind"] == "subscription"], ["studio-2"])
+        self.assertEqual([x["id"] for x in common.created() if x["kind"] == "studio"], ["studio-2"],
+                         "the record of the studio deleted to be made again goes with it")
+
+    def test_a_subscription_whose_answer_was_lost_is_the_seeds_at_the_next_run(self):
+        def made(call):   # the platform makes the subscription, and the seed never gets the answer
+            self.world.subscribe(call)
+            raise requests.ReadTimeout("slow")
+        self.platform.add({("POST", re.compile(V2 + "/apis/[^/]+/subscriptions")): made})
+        with self.assertRaises(common.SeedError):
+            self.seed()
+        self.assertEqual([x["name"] for x in common.notes("aim-proxies", "subscription")],
+                         ["Copilot on 13 tools → Havenbank operations (Copilots)"])
+        self.platform.add({("POST", re.compile(V2 + "/apis/[^/]+/subscriptions")): self.world.subscribe})
+        self.seed()
+        self.assertEqual(common.notes("aim-proxies", "subscription"), [])
+        self.assertEqual([x["id"] for x in common.created() if x["kind"] == "subscription"], [s["id"] for s in self.subs()])
+        self.assertEqual(len(self.sent("POST", V2 + "/apis/studio-1/subscriptions")), 1, "the subscription is asked for once")
+
+    def test_a_subscription_someone_made_is_left_as_it_is_and_never_recorded(self):
+        self.seed()
+        common.forget(*[x for x in common.created() if x["kind"] == "subscription"])
+        self.platform.calls.clear()
+        self.seed()
+        self.assertEqual(self.changes(), [])
+        self.assertEqual([x for x in common.created() if x["kind"] == "subscription"], [])
+
+    def test_the_plan_is_found_by_its_name(self):
+        self.file(PLAIN.replace("{application: Copilot on 13 tools,", "{application: Copilot on 13 tools, plan: Copilots,"))
+        self.seed()
+        self.assertEqual(len(self.subs("ACCEPTED")), 1)
+        self.file(PLAIN.replace("{application: Copilot on 13 tools,", "{application: Copilot on 13 tools, plan: Agents,"))
+        with self.assertRaisesRegex(common.SeedError, "^MCP studio Havenbank operations: no published plan is named 'Agents'$"):
+            self.seed()
+
+    def test_a_studio_built_in_steps_subscribes_to_the_plan_of_the_agents(self):
+        self.file(STUDIO + "subscriptions:\n  - {application: Copilot on 6 tools}\n")
+        self.seed()
+        [sub] = self.subs()
+        self.assertEqual((sub["applicationId"], sub["planId"]), ("app-desk", self.plan_named("Agents")["id"]))
+        self.assertNotIn("customApiKey", sub)
+
+    def test_what_the_platform_would_refuse_stops_the_seed_naming_it(self):
+        for text, message in (
+                (PLAIN.replace("application: Copilot on 13 tools", "application: Nobody"),
+                 "no application is named 'Nobody': seed/apim/applications makes it"),
+                (PLAIN.replace("type: API_KEY", "type: KEY_LESS"), "the plan Copilots is keyless, which takes no subscription"),
+                (PLAIN.replace("type: API_KEY", "type: JWT"), "has an apiKey, which needs a plan of API keys, and Copilots is JWT")):
+            with self.subTest(message=message), self.assertRaisesRegex(common.SeedError, message):
+                self.file(text)
+                self.seed()
+
+    def test_a_file_that_lists_them_wrongly_stops_the_seed_before_anything_is_made(self):
+        for text, message in (
+                ("subscriptions: {application: A}", "subscriptions is a list of"),
+                ("subscriptions: [{plan: Copilots}]", "each names its application"),
+                ("subscriptions: [{application: A, key: x}]", "key is not a key of a subscription"),
+                ("subscriptions: [{application: A, apiKey: 1234}]", "the apiKey of A is read as int, not as text: quote the variable"),
+                ("subscriptions: [{application: A, apiKey: ''}]", "the apiKey of A is empty"),
+                ("subscriptions: [{application: A, plan: 3}]", "the plan of A is the name of a plan")):
+            with self.subTest(text=text), self.assertRaisesRegex(common.SeedError, message):
+                self.file(PLAIN[:PLAIN.index("subscriptions:")] + text + "\n")
+                self.seed()
+            self.assertEqual(self.world.studios, {})
+
+    def test_the_removal_closes_the_subscription_before_it_deletes_the_studio(self):
+        self.seed()
+        self.platform.calls.clear()
+        aim_proxies.remove(common.created())
+        self.assertEqual(self.changes(), [("POST", "/apis/studio-1/subscriptions/sub-1/_close"), ("DELETE", "/mcp-proxies/studio-1")])
+        self.assertIn("✓ Closed subscription 'Copilot on 13 tools → Havenbank operations (Copilots)'", self.output())
+        self.assertEqual(common.created(), [], "a subscription closed is forgotten as soon as it is")
+
+    def test_a_subscription_whose_studio_is_gone_is_no_error_to_remove(self):
+        self.seed()
+        self.platform.add({("POST", re.compile(V2 + "/apis/[^/]+/subscriptions/[^/]+/_close")): (404, {"message": "gone"})})
+        aim_proxies.remove(common.created())
 
 
 class Removal(Studios):

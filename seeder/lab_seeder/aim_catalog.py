@@ -587,9 +587,21 @@ def tools_of(name, api_id, generated, operations):
     return tools
 
 
+def import_entry(tool):
+    """What the import takes for a tool: the words the file writes for a model are part of the definition it is imported
+    with. They are not saved after the import, because API Management 4.13.1 refuses every save of a tool made from an
+    API ("parentId is required for this kind": such a tool has no parent server)."""
+    entry = {k: v for k, v in tool.items() if k != "tailoring"}
+    words = {k: v for k, v in (tool.get("tailoring") or {}).items() if k in TAILORED}
+    if words:
+        entry["definition"] = {**entry["definition"], **words}
+    return entry
+
+
 def tailor(aim, name, imported, tools):
-    """Writes into the imported tools what their file says. A save replaces the tool, so it sends back the tool as it
-    was read: the source, the entity id, the definition, and the extensions, which hold the mapping to the API."""
+    """Writes into the imported tools the references their file gives, which go in the extensions of a tool and which
+    the import does not take. A save replaces the tool, so it sends back the tool as it was read: the source, the
+    entity id, the definition, and the extensions, which hold the mapping to the API."""
     stored = {t["definition"]["name"]: t for t in imported}
     count = 0
     for tool in tools:
@@ -598,6 +610,9 @@ def tailor(aim, name, imported, tools):
             continue
         if operation not in stored:
             raise SeedError(f"The platform did not give back the tool {operation} of '{name}'")
+        count += 1
+        if not any(k in overrides for k in REFERENCES):
+            continue
         try:
             current = aim.get(f"{TOOL_PATH}/{stored[operation]['id']}").json()
             definition = {k: v for k, v in current["definition"].items() if k != "outputSchema"}
@@ -609,7 +624,6 @@ def tailor(aim, name, imported, tools):
                           "extensions": extensions, "metadata": current.get("metadata") or {}})
         except SeedError as e:   # the platform's refusal does not say which tool it was
             raise SeedError(f"The tool {operation} of '{name}' could not be tailored: {e}") from e
-        count += 1
     return count
 
 
@@ -660,7 +674,7 @@ def seed_api_tools(aim):
             aim.delete(f"{PATHS['api-tools']}/{found['id']}")
             common.forget(ours)   # gone: its import is noted
         body = {"sources": [{"apiId": api["id"], "apiName": name}],
-                "tools": [{k: v for k, v in t.items() if k != "tailoring"} for t in tools]}
+                "tools": [import_entry(t) for t in tools]}
         with common.making(SECTION, "api-tools", LABELS["api-tools"], name, missing=True):
             imported = aim.post("/catalog/mcp-tools/_importFromApis", json=body).json()["data"]
             record(SECTION, "api-tools", LABELS["api-tools"], name, imported[0]["sourceId"])

@@ -4,21 +4,23 @@
 
 A control is one protection, named once and found in the seed files that carry it. Its target is one of
 
-    api: <name>           steps of a flow of an API of seed/apim/apis (`flow` and `steps` say which)
+    api: <name>           steps of a flow of an API of seed/apim/apis (`flow` and `steps` say which), or, with
+                          `failover: true` in place of `flow` and `steps`, the failover of that API
     mcp-proxy: <name>     steps of a flow of an MCP proxy of seed/aim/mcp-proxies
     workspace: <name>     steps of the router of an AI workspace of seed/aim/workspaces (no `flow`)
     policy: <name>        an authorization policy of seed/authz/policies (no `flow`, no `steps`)
 
-The seed files say the protected state: their steps are enabled and their policies deployed. SEED_PROTECTIONS sets the
+The seed files say the protected state: their steps are enabled, their failover on and their policies deployed. SEED_PROTECTIONS sets the
 state each run brings the controls to, whatever someone did in the console since:
 
     on      as the files say (the default: a seed that sets nothing protects everything)
-    off     their steps are disabled and their policy is not deployed: a lesson switches them on
+    off     their steps are disabled, their failover off and their policy is not deployed: a lesson switches them on
 
 Only what a control names is brought back; the rest of an API, a proxy or a workspace is left as it is. What a control
 names must exist: a step, a flow or a target that matches nothing is an error, in the seed files (a typo, a step
 renamed in the console and exported) as in what the platform holds when a run aligns it. A module asks `of()` for the
-controls of what it seeds, aligns the steps (`align`, `align_router`) or the policy (`status`), and calls `touched()`
+controls of what it seeds, aligns the steps (`align`, `align_router`), the failover (`align_failover`) or the policy
+(`status`), and calls `touched()`
 when it deploys; `finish()` ends the seed, and fails on a control no module found its target for.
 """
 
@@ -49,17 +51,27 @@ class Control:
         where = f"{FILE}: {name}"
         if not isinstance(spec, dict):
             raise SeedError(f"{where}: expected the target, and the steps it switches")
-        unknown = set(spec) - set(TARGETS) - {"flow", "steps"}
+        unknown = set(spec) - set(TARGETS) - {"flow", "steps", "failover"}
         if unknown:
             raise SeedError(f"{where}: {', '.join(sorted(unknown))} is not a key of a control "
-                            f"({', '.join(TARGETS)}, flow, steps)")
+                            f"({', '.join(TARGETS)}, flow, steps, failover)")
         targets = [kind for kind in TARGETS if kind in spec]
         if len(targets) != 1:
             raise SeedError(f"{where}: one target is needed, one of {', '.join(TARGETS)}")
         self.id, self.kind = name, targets[0]
         self.target = spec[self.kind]
+        self.failover = False
         if not isinstance(self.target, str) or not self.target:
             raise SeedError(f"{where}: {self.kind} is the name of the {self.kind}")
+        if "failover" in spec:
+            if spec["failover"] is not True:
+                raise SeedError(f"{where}: failover is true or absent")
+            if self.kind != "api":
+                raise SeedError(f"{where}: only an api has a failover")
+            if "flow" in spec or "steps" in spec:
+                raise SeedError(f"{where}: the failover of an API has no flow and no steps")
+            self.failover, self.flow, self.steps = True, None, {}
+            return
         if self.kind == "policy":
             if "flow" in spec or "steps" in spec:
                 raise SeedError(f"{where}: a policy has no flow and no steps")
@@ -83,6 +95,8 @@ class Control:
 
     def describe(self):
         """What it is applied to, for a message."""
+        if self.failover:
+            return f"the failover of {self.kind} '{self.target}'"
         inside = f"flow '{self.flow}' of " if self.flow else ""
         return f"{inside}{self.kind} '{self.target}'"
 
@@ -169,10 +183,29 @@ def align(flows, controls, enabled=None):
     enabled = protected() if enabled is None else enabled
     changed = False
     for control in controls:
+        if control.failover:
+            continue   # align_failover's
         flow = next((flow for flow in flows or [] if flow.get("name") == control.flow), None)
         if flow is None:
             raise Missing(f"control {control.id}: no flow named '{control.flow}' in {control.kind} '{control.target}'")
         changed = _steps(flow, control, enabled) or changed
+    return changed
+
+
+def align_failover(api, controls, enabled=None):
+    """Sets the failover of an API (its `failover` block, in the definition of a seed file or the entity the platform gives)
+    on or off, as the mode says, for the failover controls among `controls`. The API is changed in place; the answer is
+    whether it was not so already. An API without a failover block is an error: the file says how it fails over."""
+    enabled = protected() if enabled is None else enabled
+    changed = False
+    for control in controls:
+        if not control.failover:
+            continue
+        failover = (api or {}).get("failover")
+        if not isinstance(failover, dict):
+            raise Missing(f"control {control.id}: api '{control.target}' has no failover")
+        changed = changed or failover.get("enabled", False) != enabled
+        failover["enabled"] = enabled
     return changed
 
 

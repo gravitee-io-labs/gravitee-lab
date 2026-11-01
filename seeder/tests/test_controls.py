@@ -88,6 +88,57 @@ class Declaration(Seed):
         self.assertEqual(controls.of("api", "Other"), [])
 
 
+class Failover(Seed):
+    """A control may name the failover of an API (`failover: true`): an API-level switch, not a step."""
+
+    def declare(self, text):
+        self.seed_files({"controls.yaml": text})
+        return controls.declared()
+
+    def test_the_failover_of_an_api_is_a_control_without_flow_or_steps(self):
+        [control] = self.declare("outage: {api: Havenbank LLM, failover: true}\n")
+        self.assertEqual((control.id, control.kind, control.target, control.failover, control.flow, control.steps),
+                         ("outage", "api", "Havenbank LLM", True, None, {}))
+        self.assertEqual(control.describe(), "the failover of api 'Havenbank LLM'")
+        self.assertEqual([c.id for c in controls.of("api", "Havenbank LLM")], ["outage"])
+
+    def test_a_failover_declared_wrongly_is_an_error_that_names_the_control(self):
+        for text, message in (
+                ("x: {api: A, failover: false}", "x: failover is true or absent"),
+                ("x: {api: A, failover: yes please}", "x: failover is true or absent"),
+                ("x: {mcp-proxy: P, failover: true}", "x: only an api has a failover"),
+                ("x: {workspace: W, failover: true}", "x: only an api has a failover"),
+                ("x: {api: A, failover: true, flow: F}", "x: the failover of an API has no flow and no steps"),
+                ("x: {api: A, failover: true, steps: {request: [S]}}", "x: the failover of an API has no flow and no steps")):
+            with self.subTest(text=text), self.assertRaisesRegex(common.SeedError, message):
+                self.declare(text)
+
+    def test_the_failover_is_switched_as_the_mode_says_and_the_rest_of_it_is_kept(self):
+        [control] = self.declare("outage: {api: LLM, failover: true}\n")
+        api = {"name": "LLM", "failover": {"enabled": True, "maxRetries": 1, "slowCallDuration": 30000,
+                                           "forceNextEndpointOnFailure": True}}
+        self.assertTrue(controls.align_failover(api, [control], enabled=False))
+        self.assertEqual(api["failover"], {"enabled": False, "maxRetries": 1, "slowCallDuration": 30000,
+                                           "forceNextEndpointOnFailure": True})
+        self.assertFalse(controls.align_failover(api, [control], enabled=False))
+        self.env(SEED_PROTECTIONS="on")
+        self.assertTrue(controls.align_failover(api, [control]))
+        self.assertIs(api["failover"]["enabled"], True)
+
+    def test_an_api_without_a_failover_block_is_an_error(self):
+        [control] = self.declare("outage: {api: LLM, failover: true}\n")
+        for api in ({"name": "LLM"}, {"failover": None}, None):
+            with self.subTest(api=api), self.assertRaisesRegex(controls.Missing, "^control outage: api 'LLM' has no failover$"):
+                controls.align_failover(api, [control], enabled=False)
+
+    def test_the_steps_and_the_failover_are_aligned_each_by_its_own_function(self):
+        found = self.declare("outage: {api: LLM, failover: true}\nguard: {api: LLM, flow: Prompt, steps: {request: [Guard]}}\n")
+        flows = json.loads(json.dumps(FLOWS))
+        self.assertTrue(controls.align(flows, found, enabled=False), "the failover control is no flow to look for")
+        self.assertFalse(controls.align_failover({"failover": {"enabled": False}}, found, enabled=False),
+                         "a step control is no failover")
+
+
 class Mode(Seed):
 
     def test_the_default_is_on_so_that_a_seed_that_sets_nothing_protects_everything(self):

@@ -276,6 +276,57 @@ def written(value):
     return json.dumps(value).replace("://", ":\\u002f\\u002f")
 
 
+STUDIO = ("name: Desk\ncontextPath: /mcp/desk\nsupportedProtocolVersions: ['2025-11-25']\nfga: false\n"
+          "plan: {name: Copilots, security: {type: API_KEY}}\ntools: [{api: Clients API, tool: getClient}]\n")
+AGENTS_STUDIO = ("name: Desk\ncontextPath: /mcp/desk\nprotocolVersion: '2025-11-25'\ntools: [{api: Clients API, tool: getClient}]\n"
+                 "access: {registration: {name: Registration, type: OAUTH2_AM}, agents: {name: Agents, type: JWT, jwksUrl: x, "
+                 "clientIdClaim: client_id}}\n")
+
+
+class Studios(Made):
+    """The subscriptions of a studio: an application, a plan of the studio that takes them, and a key that is text."""
+
+    def studio(self, subscriptions, studio=STUDIO):
+        folder = self.playground({**GOOD, "seed/aim/studios/desk.yaml": studio + subscriptions})
+        return [(p.check, Path(p.path).name, p.message) for p in seedlint.problems(folder)]
+
+    def test_subscriptions_that_the_platform_takes_have_nothing_to_say(self):
+        for text in ("", "subscriptions: [{application: Copilot, apiKey: '${KEY}'}]\n",
+                     "subscriptions: [{application: Copilot, plan: Copilots}]\n"):
+            with self.subTest(text=text):
+                self.assertEqual(self.studio(text), [])
+        self.assertEqual(self.studio("subscriptions: [{application: Copilot}]\n", AGENTS_STUDIO), [])
+
+    def test_what_the_platform_or_the_seed_would_refuse_is_named(self):
+        for text, studio, message in (
+                ("subscriptions: [{application: Copilot, apiKey: ${NUMBER}}]\n", STUDIO,
+                 "the apiKey of Copilot is read as int, not as text: quote the variable in the file, '${NAME}'"),
+                ("subscriptions: [{application: Copilot, plan: Others}]\n", STUDIO, "'Others' is no plan of the studio"),
+                ("subscriptions: [{application: Copilot, apiKey: abc}]\n", STUDIO.replace("API_KEY", "JWT"),
+                 "an apiKey needs a plan with API keys"),
+                ("subscriptions: [{application: Copilot}]\n", STUDIO.replace("API_KEY", "KEY_LESS"),
+                 "a keyless plan takes no subscription"),
+                ("subscriptions: [{application: Copilot, apiKey: abc}]\n", AGENTS_STUDIO, "an apiKey needs a plan with API keys"),
+                ("subscriptions: [{application: Copilot, plan: Registration}]\n", AGENTS_STUDIO, "'Registration' is no plan"),
+                ("subscriptions: [{apiKey: abc}]\n", STUDIO, "each names its application"),
+                ("subscriptions: {application: Copilot}\n", STUDIO, "subscriptions is a list of")):
+            with self.subTest(text=text, message=message):
+                compose = SERVICE + "      NUMBER: '1234'\n"
+                folder = self.playground({**GOOD, "seed/aim/studios/desk.yaml": studio + text}, compose=compose)
+                found = [(p.check, Path(p.path).name, p.message) for p in seedlint.problems(folder)]
+                self.assertEqual(len(found), 1, found)
+                self.assertEqual(found[0][:2], ("studio", "desk.yaml"))
+                self.assertIn(message, found[0][2])
+
+    def test_the_lint_and_the_seed_take_the_same_keys(self):
+        from lab_seeder import aim_proxies
+        self.assertEqual(seedlint.STUDIO_SUBSCRIPTION, aim_proxies.SUBSCRIPTION_KEYS)
+
+    def test_a_file_of_another_folder_is_not_read_as_a_studio(self):
+        folder = self.playground({**GOOD, "seed/aim/mcp-proxies/desk.yaml": STUDIO + "subscriptions: [{plan: 3}]\n"})
+        self.assertEqual(seedlint.problems(folder), [])
+
+
 class Escapes(Made):
     """A YAML or JSON file can write `https://host` with escapes, and the text shows no `://` for the first rule to find. The
     strings of the parsed document are read too, and an address under a name that nothing resolves (RFC 2606 and 6761: .test,
@@ -944,7 +995,7 @@ class Annotations(unittest.TestCase):
         self.assertIn(",line=7,", seedlint.annotation(Problem("environment", "a.yaml", 7, "m")))
 
     def test_every_kind_of_problem_has_a_title(self):
-        self.assertEqual(sorted(seedlint.TITLES), ["address", "environment", "parse", "playground", "read", "variable"])
+        self.assertEqual(sorted(seedlint.TITLES), ["address", "environment", "parse", "playground", "read", "studio", "variable"])
 
     def test_a_name_that_is_not_text_cannot_stop_the_command(self):
         """A name with bytes that are no UTF-8 reaches Python as lone surrogates, which stdout cannot write."""

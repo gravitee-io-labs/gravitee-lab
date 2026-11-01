@@ -78,7 +78,10 @@ class Apim:
         api = self.apis.get(self.id_in(call))
         if not api:
             return 404, {"message": "not found"}
-        return 200, {**self.row(api), "flows": copy.deepcopy(api["flows"]), "deploymentState": api["deploymentState"]}
+        entity = {**self.row(api), "flows": copy.deepcopy(api["flows"]), "deploymentState": api["deploymentState"]}
+        if "failover" in api:
+            entity["failover"] = copy.deepcopy(api["failover"])
+        return 200, entity
 
     def import_api(self, call):
         api = call.json["api"]
@@ -91,6 +94,8 @@ class Apim:
         self.apis[api_id] = {"id": api_id, "name": api["name"], "type": api.get("type", "PROXY"), "listeners": api["listeners"],
                              "state": "STOPPED", "lifecycleState": "CREATED", "plans": plans, "definition": call.json,
                              "flows": copy.deepcopy(api.get("flows", [])), "deploymentState": "NEED_REDEPLOY"}
+        if "failover" in api:
+            self.apis[api_id]["failover"] = copy.deepcopy(api["failover"])
         return 201, {"id": api_id}
 
     def update_api(self, call):
@@ -107,6 +112,8 @@ class Apim:
         api["lifecycleState"] = call.json["lifecycleState"]
         if "flows" in call.json and call.json["flows"] != api["flows"]:
             api["flows"], api["deploymentState"] = copy.deepcopy(call.json["flows"]), "NEED_REDEPLOY"
+        if "failover" in call.json and call.json["failover"] != api.get("failover"):
+            api["failover"], api["deploymentState"] = copy.deepcopy(call.json["failover"]), "NEED_REDEPLOY"
         return 200, {}
 
     def deploy(self, call):
@@ -1025,6 +1032,78 @@ class StartingTheLessonsOver(ControlledConverged):
         self.run_seed()
         controls.settle()
         self.assertAlmostEqual(self.clock.elapsed - slept, 11, delta=1)
+
+
+FAILOVER = {"enabled": True, "maxRetries": 1, "slowCallDuration": 30000, "openStateDuration": 10000, "maxFailures": 5,
+            "perSubscription": True, "failureCondition": "{#response.status >= 500}", "forceNextEndpointOnFailure": True}
+FAILING_OVER = definition(
+    "LLM_PROXY", "llm-id", "ACME LLM", "/llm/", ("Ace", "Developers"), description="models",
+    endpointGroups=[{"endpoints": [{"name": "cloud", "configuration": {"target": "${TARGET}", "models": [{"name": "qwen3:1.7b", "aliases": ["chat"]}]}},
+                                   {"name": "on-prem", "configuration": {"target": "${TARGET}", "models": [{"name": "qwen3:0.6b", "aliases": ["chat"]}]}}]}],
+    failover=FAILOVER, flows=[{"name": "Prompt", "enabled": True, "request": [{"name": "Guard", "policy": "ai-prompt-guard-rails"}]}])
+
+
+class FailoverControlled(Playground):
+    """The LLM proxy fails over to its second provider, which a control switches: lesson 2 meets the outage first."""
+
+    def setUp(self):
+        super().setUp()
+        self.seed_files({"apim/apis/llm.json": FAILING_OVER, "apim/settings.yaml": SETTINGS,
+                         "controls.yaml": "outage: {api: ACME LLM, failover: true}\n"})
+        self.env(SEED_PROTECTIONS="off")
+
+    def failover(self):
+        return self.apim.apis["llm-id"]["failover"]
+
+    def test_the_api_is_imported_with_its_failover_off_and_the_rest_of_it_as_the_file_says(self):
+        self.run_seed()
+        self.assertEqual(self.failover(), {**FAILOVER, "enabled": False})
+        self.assertEqual(self.apim.deployed.count("llm-id"), 1)
+        self.assertEqual(self.run_seed(), [], "a second run asks for no change")
+
+    def test_in_the_mode_on_the_failover_is_on(self):
+        self.env(SEED_PROTECTIONS="on")
+        self.run_seed()
+        self.assertEqual(self.failover(), FAILOVER)
+
+    def test_a_failover_someone_switched_on_is_switched_off_again_in_place(self):
+        self.run_seed()
+        self.failover()["enabled"] = True
+        self.apim.apis["llm-id"]["deploymentState"] = "DEPLOYED"
+        keys, digest = dict(self.keys()), self.record("ACME LLM")["digest"]
+        self.assertEqual(self.run_seed(), IN_PLACE)
+        self.assertIs(self.failover()["enabled"], False)
+        self.assertEqual((self.keys(), self.record("ACME LLM")["digest"]), (keys, digest), "not replaced")
+        self.assertIn("Controls of ACME LLM put back, off: outage", self.output())
+
+    def test_the_other_mode_switches_it_in_place(self):
+        self.run_seed()
+        self.env(SEED_PROTECTIONS="on")
+        self.assertEqual(self.run_seed(), IN_PLACE)
+        self.assertIs(self.failover()["enabled"], True)
+        self.assertEqual(self.run_seed(), [])
+
+    def test_a_failover_and_steps_of_one_api_are_brought_back_in_one_update(self):
+        self.seed_files({"controls.yaml": "outage: {api: ACME LLM, failover: true}\nguard: {api: ACME LLM, flow: Prompt, steps: {request: [Guard]}}\n"})
+        self.run_seed()
+        self.failover()["enabled"] = True
+        self.apim.apis["llm-id"]["flows"][0]["request"][0]["enabled"] = True
+        self.assertEqual(self.run_seed(), IN_PLACE)
+        self.assertIs(self.failover()["enabled"], False)
+        self.assertIs(self.apim.apis["llm-id"]["flows"][0]["request"][0]["enabled"], False)
+
+    def test_a_file_without_a_failover_block_stops_the_seed_before_the_api_is_imported(self):
+        self.seed_files({"apim/apis/llm.json": GUARDED})
+        with self.assertRaisesRegex(common.SeedError, "^control outage: api 'ACME LLM' has no failover$"):
+            self.run_seed()
+        self.assertNotIn("llm-id", self.apim.apis)
+
+    def test_an_api_that_lost_its_failover_on_the_platform_is_imported_again_from_its_file(self):
+        self.run_seed()
+        del self.apim.apis["llm-id"]["failover"]
+        changes = self.run_seed()
+        self.assertIn(("DELETE", V2 + "/apis/llm-id"), changes)
+        self.assertEqual(self.failover(), {**FAILOVER, "enabled": False})
 
 
 class Replacement(Converged):

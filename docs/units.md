@@ -425,10 +425,11 @@ configuration declares none. Reference: [controls](playgrounds.md#controls-the-p
 - `seed/controls.yaml` names each protection once. The seed files describe the protected state; a mode setting of the
   playground (`ACME_SHOP_PROTECTIONS`: `off` or `on`) reaches the seed as `SEED_PROTECTIONS` and decides the state each
   run brings the controls to. Without it the seed protects; any other value is an error.
-- A control has one target: an `api` or an `mcp-proxy` with a `flow` and its `steps` (`request`, `response`), a
-  `workspace` with `steps`, or a `policy`. Names are those of the seed files, not the console's, and a name that matches
+- A control has one target: an `api` or an `mcp-proxy` with a `flow` and its `steps` (`request`, `response`), an `api`
+  with `failover: true` (the API's failover, switched on or off), a `workspace` with `steps`, or a `policy`. Names are those of the seed files, not the console's, and a name that matches
   nothing stops the seed.
-- A control is only what the platform can switch and the gateway honors (a step's `enabled`, a policy deployed or not).
+- A control is only what the platform can switch and the gateway honors (a step's `enabled`, an API's failover, a policy
+  deployed or not).
   Test it on the platform before you declare it.
 - Re-seed brings every control back to the mode's state, and only the controls.
 - A guide or an app names a protection by what the console shows (the policy's name, the phase, the Description), never
