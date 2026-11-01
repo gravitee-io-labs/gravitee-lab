@@ -1,15 +1,19 @@
 """Shared by every seeder: settings from the environment, logging, waiting, HTTP calls and seed files."""
 
+import fcntl
 import json
 import os
 import re
 import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager, suppress
 from pathlib import Path
 
 import requests
 import yaml
+from urllib3.exceptions import NewConnectionError
 
 SEED_DIR = Path(os.getenv("SEED_DIR", "/seed"))
 STATE_FILE = Path(os.getenv("STATE_DIR", "/state")) / "created.json"
@@ -65,7 +69,6 @@ def configure(workers=None):
     STOP.clear()
     _failures.clear()
     _later.clear()
-    _milestones.clear()
     _deferring[0] = False
 
 
@@ -85,12 +88,6 @@ def failure():
 def check():
     if STOP.is_set():
         raise Stopped("stopped: another step failed")
-
-
-def slot():
-    """What a request of one's own (another client than Api) holds while it is in flight: `with slot(): ...`"""
-    check()
-    return _gate
 
 
 def pause(seconds):
@@ -125,27 +122,6 @@ def parallel(function, items):
     if STOP.is_set():
         raise failure() or SeedError("the seed was stopped")
     return [future.result() for future in futures]
-
-
-_milestones = {}
-
-
-def milestone(name):
-    """Says that `name` is done: the steps that wait for it (`reached`) go on."""
-    with _state:
-        _milestones.setdefault(name, threading.Event()).set()
-
-
-def reached(name, also=None):
-    """Waits until `name` (or `also`, which says that everything of it is done) is, and not past the end of the seed. Returns at
-    once when the seed runs in order: what it waits for is done."""
-    if WORKERS <= 1:
-        return
-    with _state:
-        events = [_milestones.setdefault(each, threading.Event()) for each in (name, also) if each]
-    while not any(event.is_set() for event in events):
-        check()
-        events[0].wait(0.05)
 
 
 def waits_for_gateway():
@@ -355,10 +331,11 @@ def merged_pairs(text):
         return 0
 
 
-def parse_yaml(text, path="the text"):
+def parse_yaml(text, path="the text", fill=None):
     """`yaml.safe_load(text)`, but a text whose merge keys would make the loader copy more than COPIED pairs is a MergeError,
     and the loader never runs on it. The document is composed once and the count is of that: what a normal file loads is what
-    safe_load gives, and it is not read twice."""
+    safe_load gives, and it is not read twice. `fill(root, loader)` may change the values of the composed document before it
+    is built (`render_yaml`)."""
     loader = yaml.SafeLoader(text)
     try:
         root = loader.get_single_node()
@@ -366,12 +343,14 @@ def parse_yaml(text, path="the text"):
             return None
         if ("<<" in text or "!" in text) and _copied(root) > COPIED:
             raise MergeError(f"{path}: {MERGES}")
+        if fill:
+            fill(root, loader)
         return loader.construct_document(root)
     finally:
         loader.dispose()
 
 
-def parse_yaml_all(text, path="the text"):
+def parse_yaml_all(text, path="the text", fill=None):
     """`list(yaml.safe_load_all(text))`, with the guard of `parse_yaml` for a text of several documents: the pairs the loader
     would copy for all of them are counted together, and a text that asks for more than COPIED is a MergeError before any
     document is built. A document is composed once, and the count is of that."""
@@ -385,18 +364,76 @@ def parse_yaml_all(text, path="the text"):
                 if total > COPIED:
                     raise MergeError(f"{path}: {MERGES}")
             roots.append(root)
+        for root in roots if fill else ():
+            fill(root, loader)
         return [loader.construct_document(root) for root in roots]
     finally:
         loader.dispose()
 
 
+STR = "tag:yaml.org,2002:str"
+
+
+def _filler(missing, provided):
+    """What replaces the variables in each string of a composed YAML document, its keys too, once each however many aliases
+    name it. A string that is itself JSON text gets the values escaped for that text, as in a JSON file. A plain scalar (no
+    quotes) is then read as YAML reads its text, so that `port: ${PORT}` is the number it is in a file written out; its value
+    never becomes a mapping, a list or a merge key, whatever it holds."""
+    def fill(root, loader):
+        seen, pending = set(), [root]
+        while pending:
+            node = pending.pop()
+            if node is None or id(node) in seen:
+                continue
+            seen.add(id(node))
+            if isinstance(node, yaml.MappingNode):
+                for key, value in node.value:
+                    pending.extend((key, value))
+            elif isinstance(node, yaml.SequenceNode):
+                pending.extend(node.value)
+            elif "$" in node.value:
+                value = replace_variables(node.value, missing, is_json_text(node.value), provided)
+                if node.style is None and node.tag == STR and value != node.value:
+                    tag = loader.resolve(yaml.ScalarNode, value, (True, False))
+                    node.tag = STR if tag == MERGE else tag
+                node.value = value
+    return fill
+
+
+def unreadable(path, error):
+    """Why a YAML file cannot be read, with its line and never its text: what the parser quotes of it may hold a password."""
+    mark = getattr(error, "problem_mark", None)
+    return f"{path}: it is not valid YAML once its variables are replaced" + (f" (line {mark.line + 1})" if mark else "")
+
+
+def render_yaml(text, path, provided=None, every=False):
+    """A YAML file read as a document (or the list of the documents of it, `every`), with the variables replaced in each of
+    its strings, as `render_json` does for JSON: a value with a quote, a backslash or a line break arrives as it was set and
+    leaves the file around it as it is. A file that is no YAML until its variables are replaced is replaced as text. YAML that
+    would make the loader copy millions of pairs for its merge keys is a MergeError, and a file that is no YAML says at which
+    line, never what it holds."""
+    parse = parse_yaml_all if every else parse_yaml
+    missing = set()
+    try:
+        loaded = parse(text, path, _filler(missing, provided))
+    except yaml.YAMLError:
+        try:
+            return parse(render(text, path, provided=provided), path)
+        except (yaml.YAMLError, ValueError) as e:
+            raise SeedError(unreadable(path, e)) from e
+    except ValueError as e:   # a value that YAML reads as a date that is none
+        raise SeedError(unreadable(path, e)) from e
+    not_set(path, missing)
+    return loaded
+
+
 def load(path, provided=None):
-    """A seed file (YAML or JSON) with its variables replaced. YAML that would make the loader copy millions of pairs for its
-    merge keys is a MergeError."""
+    """A seed file (YAML or JSON) with its variables replaced, each into the strings of the document (`render_yaml`,
+    `render_json`). YAML that would make the loader copy millions of pairs for its merge keys is a MergeError."""
     text = Path(path).read_text(encoding="utf-8")
     if str(path).endswith(".json"):
         return render_json(text, path, provided)
-    return parse_yaml(render(text, path, provided=provided), path) or {}
+    return render_yaml(text, path, provided) or {}
 
 
 def text(path, provided=None):
@@ -432,27 +469,83 @@ def has_seed(*paths):
 
 
 # --- HTTP -------------------------------------------------------------------------------
+# One policy for every request of the seed. A request the platform could not answer now (no connection, no answer in time, a
+# 5xx, a 429) is sent again, RETRIES times RETRY_PAUSE seconds apart, when sending it again cannot make a second object: a GET,
+# a PUT or a DELETE, a POST its caller says is idempotent (a deployment, a start), and any request the platform did not take
+# (the connection could not be made, a 429 or a 503). A POST or a PATCH whose answer is lost is not sent again: the platform
+# may have made what it asked for (see `making`). Then the seed stops with what happened, in words. Inside a wait
+# (`wait_until`) a request is sent once: the wait asks again itself.
+
+TIMEOUT = 30   # seconds a request waits for its answer, unless it says otherwise
+RETRIES = 7   # times a request the platform could not answer now is sent again, before the seed stops
+RETRY_PAUSE = 8   # seconds before each: a management API that restarts is back within about a minute
+REPEATABLE = ("GET", "HEAD", "OPTIONS", "PUT", "DELETE")   # what may be sent again whatever became of the first
+NOT_TAKEN = (429, 503)   # what a platform answers for a request it did not take
+BUSY = (500, 502, 504) + NOT_TAKEN   # what it answers when it cannot answer now
+OK = range(200, 300)
+_local = threading.local()   # `waiting`: whether this thread is in a wait_until, which asks again itself
+
+
+def unsent(error):
+    """Whether a request that failed never reached the platform: its connection could not be made."""
+    if isinstance(error, requests.ConnectTimeout):
+        return True
+    reason = getattr(error.args[0], "reason", None) if error.args else None
+    return isinstance(reason, NewConnectionError)
+
+
+def trouble(error, timeout=None):
+    """What happened to a request that got no answer, in words: the library's own text names addresses and internals."""
+    if unsent(error):
+        return "cannot connect"
+    if isinstance(error, requests.Timeout):
+        return f"no answer in {timeout} s" if timeout else "no answer in time"
+    return "the connection was cut"
+
 
 class Api:
-    """A JSON HTTP client that reports the response body on errors."""
+    """A JSON HTTP client that reports the response body on errors. `section` prefixes what it says when it asks again."""
 
-    def __init__(self, base_url):
-        self.base_url = base_url.rstrip("/")
+    def __init__(self, base_url, section="seed"):
+        self.base_url, self.section = base_url.rstrip("/"), section
         self.session = requests.Session()
         self.session.headers["Content-Type"] = "application/json"
 
     def send(self, method, path, **kwargs):
-        """One request, whatever the answer. At most SEED_WORKERS are in flight at once, and none starts once the seed stops."""
+        """One request, whatever the answer, within TIMEOUT seconds unless it gives its own. At most SEED_WORKERS are in
+        flight at once, and none starts once the seed stops."""
         check()
+        kwargs.setdefault("timeout", TIMEOUT)
         with _gate:
             return self.session.request(method, self.base_url + path, **kwargs)
 
-    def call(self, method, path, expect=range(200, 300), timeout=30, **kwargs):
-        """A status out of `expect` (any 2xx by default) is an error. `timeout` is in seconds, for what takes long."""
-        r = self.send(method, path, timeout=timeout, **kwargs)
-        if r.status_code not in expect:
-            raise HttpError(f"{method} {path}: HTTP {r.status_code} {excerpt(r.text)}", r.status_code, r.text)
-        return r
+    def busy(self, response):
+        """Whether an answer says the platform cannot answer now, rather than anything about the request."""
+        return response.status_code in BUSY
+
+    def call(self, method, path, expect=OK, timeout=TIMEOUT, what=None, idempotent=None, **kwargs):
+        """The answer to a request, sent again as the policy above says. A status out of `expect` (any 2xx by default) is an
+        HttpError; no answer is a SeedError. `what` names the request in what is said (its method and path by default);
+        `idempotent` says that a POST or a PATCH may be sent again (a GET, a PUT or a DELETE may)."""
+        said = what or f"{method} {path}"
+        repeatable = method.upper() in REPEATABLE if idempotent is None else idempotent
+        tries = 1 if getattr(_local, "waiting", False) else RETRIES + 1
+        for attempt in range(1, tries + 1):
+            tried = f" ({attempt} tries)" if attempt > 1 else ""
+            try:
+                r = self.send(method, path, timeout=timeout, **kwargs)
+            except requests.RequestException as e:
+                problem = trouble(e, timeout)
+                if attempt == tries or not (repeatable or unsent(e)):
+                    raise SeedError(f"{said}: {problem}{tried}") from None
+            else:
+                if r.status_code in expect:
+                    return r
+                problem = f"HTTP {r.status_code}"
+                if attempt == tries or not (self.busy(r) and (repeatable or r.status_code in NOT_TAKEN)):
+                    raise HttpError(f"{said}: {problem} {excerpt(r.text)}".rstrip() + tried, r.status_code, r.text)
+            log(self.section, f"! {said}: {problem}, trying again in {RETRY_PAUSE} s ({attempt}/{RETRIES})")
+            pause(RETRY_PAUSE)
 
     def get(self, path, **kw):
         return self.call("GET", path, **kw)
@@ -472,23 +565,35 @@ class Api:
 
 
 POLLS = (0.5, 1, 2, 3)   # seconds before each look again at what is not ready: the first looks are close, then every 3 s
+REFUSED = (400, 401, 403)   # what a management API answers to credentials or ids it will never take: `final` of its first wait
 
 
-def wait_until(section, what, probe, timeout=READY_TIMEOUT):
-    """Retries probe() until it returns without an error: management APIs answer before they are fully started. A
-    probe that raises Gone ends the wait at once."""
+def wait_until(section, what, probe, timeout=READY_TIMEOUT, final=()):
+    """Retries probe() until it returns without an error: management APIs answer before they are fully started. A probe
+    that raises Gone, or an HttpError of a status in `final` (REFUSED for the first call to a platform: a wrong password,
+    token or environment id is not fixed by waiting), ends the wait at once. A request of the probe is sent once: the wait
+    is what asks again."""
     deadline = time.time() + timeout
     last, looks = None, 0
     log(section, f"Waiting for {what}")
     while time.time() < deadline:
+        waiting, _local.waiting = getattr(_local, "waiting", False), True
         try:
             probe()
             log(section, f"✓ {what} ready")
             return
         except Gone:
             raise
-        except (requests.RequestException, SeedError) as e:
+        except HttpError as e:
+            if e.status in final:
+                raise SeedError(f"{what}: {e}") from None
             last = e
+        except requests.RequestException as e:
+            last = trouble(e)
+        except SeedError as e:
+            last = e
+        finally:
+            _local.waiting = waiting
         pause(POLLS[min(looks, len(POLLS) - 1)])
         looks += 1
     raise SeedError(f"{what} not ready after {timeout} s" + (f": {last}" if last else ""))
@@ -502,14 +607,68 @@ def items(data):
 
 
 # --- What the seed created ---------------------------------------------------------------
-# Only what it created, never what already existed: removing a playground deletes exactly this list.
+# Only what it created, never what already existed: removing a playground deletes exactly this list. It is read and written
+# by one step at a time in this process (`_state`) and by one process at a time (a lock beside it: a removal may run while a
+# seed still does), and a record that cannot be read or written stops the seed rather than lose what it holds.
+
+RECORD = "The seed's record of what it created (created.json in the playground's .state folder)"
+KEYS = ("product", "kind", "name", "id")   # what every record has: what it is, and how the seed finds it again
+_holding = [0]   # how deep the step that holds the record is in it
+
+
+@contextmanager
+def held():
+    """The record for this step alone, in this process and across processes, for as long as the block lasts."""
+    with _state:
+        if _holding[0]:
+            _holding[0] += 1
+            try:
+                yield
+            finally:
+                _holding[0] -= 1
+            return
+        try:
+            STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            lock = open(STATE_FILE.with_name(STATE_FILE.name + ".lock"), "a")
+        except OSError as e:
+            raise SeedError(f"{RECORD} cannot be written: {e.strerror or e}") from None
+        with lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            _holding[0] = 1
+            try:
+                yield
+            finally:
+                _holding[0] = 0
+                fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+def _read():
+    """Every record as the file holds it, those of what the seed is making (`making`) too; [] when there is no record yet. One
+    that cannot be read, or is not a list of records, stops the seed: read as nothing, the next write would forget all it
+    holds, and a removal would delete nothing and say it did."""
+    with held():
+        for attempt in (1, 2):   # a mounted folder can fail a read for a moment
+            try:
+                text = STATE_FILE.read_text(encoding="utf-8")
+                break
+            except FileNotFoundError:
+                return []
+            except OSError as e:
+                if attempt == 2:
+                    raise SeedError(f"{RECORD} cannot be read: {e.strerror or e}. Fix it, or Reset") from None
+                pause(0.5)
+        try:
+            records = json.loads(text)
+        except ValueError:
+            records = None
+        if not isinstance(records, list) or not all(isinstance(x, dict) and all(key in x for key in KEYS) for x in records):
+            raise SeedError(f"{RECORD} is damaged: fix it, or Reset")
+        return records
+
 
 def created():
-    with _state:   # not while another step replaces the file: a mounted folder can fail a read for a moment, and nothing is the answer of a failed read
-        try:
-            return json.loads(STATE_FILE.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return []
+    """The records of what the seed created (see `_read`): what it is still making, with no id yet, is no object of it."""
+    return [x for x in _read() if x["id"] is not None]
 
 
 def recorded(product, kind, id):
@@ -521,22 +680,97 @@ def record(product, kind, label, name, id, **extra):
     """Adds a created item (or replaces the one with the same product, kind and name: an API replaced).
     `label` is what people call things of this kind, in the plural: the lab shows it when it asks whether
     to delete them ("3 MCP servers")."""
-    with _state:
-        records = [x for x in created() if (x["product"], x["kind"], x["name"]) != (product, kind, name)]
+    with held():
+        records = [x for x in _read() if (x["product"], x["kind"], x["name"]) != (product, kind, name)]
         records.append({"product": product, "kind": kind, "label": label, "name": name, "id": id, **extra})
         save_created(records)
 
 
+def forget(*gone):
+    """Drops the records of what a removal has just deleted, as soon as it is: a removal that fails later keeps the records of
+    what is still there, and those alone."""
+    if not gone:
+        return
+    with held():
+        drop = {tuple(x[key] for key in KEYS) for x in gone}
+        save_created([x for x in _read() if tuple(x[key] for key in KEYS) not in drop])
+
+
+def notes(product, kind):
+    """The notes of `making` of this kind: what the seed was making, with no id yet."""
+    return [x for x in _read() if (x["product"], x["kind"], x["id"]) == (product, kind, None)]
+
+
+def pending(product, kind, name):
+    """The note of `making` for this object, None when there is none."""
+    return next((x for x in notes(product, kind) if x["name"] == name), None)
+
+
+@contextmanager
+def making(product, kind, label, name, **extra):
+    """The create of one object, noted before it is asked for: a record under its name, with no id yet and a count of 0, which
+    the Lab counts as nothing. `record`, with the id the platform answers, takes its place. When the answer is lost (no answer
+    in time, a seed stopped in the middle of the request), it stays, and the next run takes the object it finds under that
+    name as its own (`adopted`), where it would stop on an object it did not create. A refusal of the request (a 4xx) takes
+    it back: nothing was made. A record the seed has under that name is left as it is: the record of the answer replaces it."""
+    with held():
+        if not any((x["product"], x["kind"], x["name"]) == (product, kind, name) and x["id"] is not None for x in _read()):
+            record(product, kind, label, name, None, count=0, **extra)
+    try:
+        yield
+    except HttpError as e:
+        if e.status < 500:
+            unmade(product, kind, name)
+        raise
+
+
+def unmade(product, kind, name):
+    """Takes back what `making` said the seed was making, when the platform answered that it made nothing."""
+    with held():
+        entry = pending(product, kind, name)
+        if entry:
+            forget(entry)
+
+
+def claimed(product, kind, name):
+    """The note of `making` when an earlier seed was making an object of this kind and name and lost the platform's answer: the
+    object found under that name is then the seed's, and the note goes. None when there is none. The caller records the object."""
+    with held():
+        entry = pending(product, kind, name)
+        if entry:
+            forget(entry)
+            log(product, f"! {name}: made by an earlier seed that lost the platform's answer, now known as the seed's")
+        return entry
+
+
+def adopted(product, kind, name, id, **extra):
+    """Whether the object the seed finds under this name, with no record of it, is the one an earlier seed was making when it
+    lost the platform's answer (`claimed`): then it is recorded with its id, as the seed's, and True."""
+    with held():
+        entry = claimed(product, kind, name)
+        if entry is None:
+            return False
+        kept = {key: value for key, value in entry.items() if key not in (*KEYS, "label", "count")}
+        record(product, kind, entry["label"], name, id, **{**kept, **extra})
+    return True
+
+
 def save_created(records):
-    with _state:
+    """Writes the records whole: a file of its own, written and synced, then put in place of the record, so that another
+    reader never sees half of it. A record that cannot be written stops the seed: what it made would be left with nothing to
+    say it is the seed's."""
+    with held():
+        partial = STATE_FILE.with_name(f"{STATE_FILE.name}.{uuid.uuid4().hex}.part")
         try:
-            STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-            partial = STATE_FILE.with_name(STATE_FILE.name + ".part")   # whole or not at all: another step may read it
-            partial.write_text(json.dumps(records, indent=2), encoding="utf-8")
+            with open(partial, "x", encoding="utf-8") as f:
+                f.write(json.dumps(records, indent=2))
+                f.flush()
+                os.fsync(f.fileno())
             os.replace(partial, STATE_FILE)
-            return
         except OSError as e:
-            log("seed", f"! Cannot record what was created ({e}): removing the playground will not delete it")
+            with suppress(OSError):
+                partial.unlink()
+            raise SeedError(f"{RECORD} cannot be written: {e.strerror or e}") from None
 
 
 def owned(records, product, order):

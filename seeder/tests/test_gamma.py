@@ -106,8 +106,8 @@ class SigningIn(Seed):
             gamma.Gamma()
 
 
-class Reloads(Seed):
-    """While it reloads, the management API answers errors that say nothing about the request."""
+class Patience(Seed):
+    """The Gamma clients ask again as every client of the seed does (test_common.Requests); what is Gamma's own is below."""
 
     def setUp(self):
         super().setUp()
@@ -117,51 +117,31 @@ class Reloads(Seed):
         self.answer({("GET", f"/management/v2{SCOPE}/x"): list(answers)})
         return self.api.get("/x", **kwargs)
 
-    def test_each_of_its_answers_while_it_reloads_is_asked_again(self):
-        for answer in ((400, {"message": "Invalid organization or environment"}), 502, 503, 504,
-                       (500, "Timeout while receiving message"), requests.ConnectionError("refused")):
-            with self.subTest(answer=str(answer)):
+    def test_a_reload_is_waited_for_and_said_under_the_section_of_gamma(self):
+        self.assertEqual(self.get(503, 503, (200, {"ok": True})).json(), {"ok": True})
+        self.assertEqual(self.clock.sleeps, [common.RETRY_PAUSE, common.RETRY_PAUSE])
+        self.assertIn(f"[gamma] ! GET /x: HTTP 503, trying again in {common.RETRY_PAUSE} s (1/{common.RETRIES})", self.output())
+
+    def test_a_module_that_is_not_set_up_says_so_for_good(self):
+        with self.assertRaisesRegex(common.HttpError, "not_configured"):
+            self.get((503, {"code": "not_configured"}))
+        self.assertEqual((len(self.platform.calls), self.clock.sleeps), (1, []))
+
+    def test_a_wrong_environment_is_a_refusal_and_not_a_reload(self):
+        with self.assertRaisesRegex(common.HttpError, "HTTP 400 .*Invalid organization or environment"):
+            self.get((400, {"message": "Invalid organization or environment"}))
+        self.assertEqual((len(self.platform.calls), self.clock.sleeps), (1, []))
+
+    def test_a_create_whose_answer_is_lost_is_not_sent_again(self):
+        """Gamma keeps no name unique: a POST sent again after the platform made the object would make a second one."""
+        providers = f"/gamma{SCOPE}/modules/aim/providers"
+        for lost in (requests.ConnectionError("reset"), requests.ReadTimeout("slow"), (500, "Timeout while receiving message"), 502, 504):
+            with self.subTest(lost=str(lost)):
                 self.platform.calls.clear()
-                self.assertEqual(self.get(answer, (200, {"ok": True})).json(), {"ok": True})
-                self.assertEqual(len(self.platform.calls), 2)
-
-    def test_it_waits_and_says_so(self):
-        self.get(503, 503, 200)
-        self.assertEqual(self.clock.sleeps, [gamma.PAUSE, gamma.PAUSE])
-        self.assertIn(f"[gamma] ! GET /x: HTTP 503, trying again in {gamma.PAUSE} s (1/{gamma.RETRIES})",
-                      self.output())
-        self.assertIn(f"(2/{gamma.RETRIES})", self.output())
-
-    def test_it_gives_up_after_its_retries_with_the_last_answer(self):
-        with self.assertRaisesRegex(common.SeedError, "GET /x: HTTP 502 bad gateway"):
-            self.get((502, "bad gateway"))
-        self.assertEqual(len(self.platform.calls), gamma.RETRIES + 1)
-        self.assertEqual(len(self.clock.sleeps), gamma.RETRIES)
-
-    def test_a_caller_that_expects_the_last_answer_gets_it(self):
-        self.assertEqual(self.get(503, expect=range(200, 600)).status_code, 503)
-
-    def test_a_service_that_cannot_be_reached_is_an_error_naming_the_request(self):
-        with self.assertRaisesRegex(common.SeedError, "GET /x: down"):
-            self.get(requests.ConnectionError("down"))
-        self.assertEqual(len(self.platform.calls), gamma.RETRIES + 1)
-
-    def test_what_is_an_answer_to_the_request_is_not_asked_again(self):
-        for answer in (404, (400, {"message": "Name is required"}), (500, "boom"), (503, {"code": "not_configured"})):
-            with self.subTest(answer=str(answer)):
-                self.platform.calls.clear()
+                self.answer({("POST", providers): [lost, (201, {"id": "p2"})]})
                 with self.assertRaises(common.SeedError):
-                    self.get(answer)
-                self.assertEqual(len(self.platform.calls), 1)
-        self.assertEqual(self.clock.sleeps, [])
-
-    def test_every_method_and_every_client_asks_again(self):
-        g = gamma.Gamma()
-        self.answer({("POST", f"/gamma{SCOPE}/modules/aim/providers"): [503, 201],
-                     ("PUT", f"/automation{SCOPE}/aim/mcp-proxies"): [502, 200]})
-        g.aim.post("/providers", json={})
-        g.automation.put("/aim/mcp-proxies", json={})
-        self.assertEqual(len(self.platform.calls), 4)
+                    gamma.Gamma().aim.post("/providers", json={"name": "Ollama"})
+                self.assertEqual(len(self.platform.sent("POST", providers)), 1)
 
 
 def content(rows, total):
@@ -302,17 +282,38 @@ class Connecting(Seed):
         with self.assertRaisesRegex(common.SeedError, "not ready after 300 s: GET /providers: HTTP 500 boom"):
             g.connect("aim-catalog", lambda: g.aim.get("/providers"))
 
-    def test_a_module_the_platform_does_not_serve_or_has_no_license_for_ends_the_wait_at_once(self):
-        for answer in (404, (503, {"code": "not_configured"})):
-            with self.subTest(answer=str(answer)):
+    def test_a_module_the_platform_has_no_license_for_ends_the_wait_at_once(self):
+        g = gamma.Gamma()
+        self.answer({("GET", f"/gamma{SCOPE}/modules/aim/providers"): (503, {"code": "not_configured"})})
+        with self.assertRaisesRegex(common.Gone, "AI Management is not available on this platform \\(GET /providers: "
+                                                 "HTTP .*Gamma modules of API Management 4.13 or later"):
+            g.connect("aim-catalog", lambda: g.aim.get("/providers"), "AI Management")
+        self.assertEqual(self.clock.sleeps, [])
+        self.assertEqual(len(self.platform.sent("GET", f"/gamma{SCOPE}/modules/aim/providers")), 1)
+
+    def test_a_module_the_platform_does_not_serve_ends_the_wait_once_its_404_lasts(self):
+        g = gamma.Gamma()
+        self.answer({("GET", f"/gamma{SCOPE}/modules/aim/providers"): 404})
+        with self.assertRaisesRegex(common.Gone, "AI Management is not available on this platform \\(GET /providers: HTTP 404"):
+            g.connect("aim-catalog", lambda: g.aim.get("/providers"), "AI Management")
+        self.assertGreaterEqual(self.clock.elapsed, gamma.UNSERVED)
+        self.assertLess(self.clock.elapsed, gamma.UNSERVED + 5, "and not the whole wait for a platform that starts")
+
+    def test_a_404_while_the_platform_starts_is_waited_out(self):
+        g = gamma.Gamma()
+        self.answer({("GET", f"/gamma{SCOPE}/modules/aim/providers"): [404, 404, (200, {"data": []})]})
+        g.connect("aim-catalog", lambda: g.aim.get("/providers"), "AI Management")
+        self.assertIn("✓ AI Management ready", self.output())
+
+    def test_credentials_or_ids_the_platform_refuses_end_the_wait_at_once(self):
+        for status in common.REFUSED:
+            with self.subTest(status=status):
                 self.platform.calls.clear()
                 g = gamma.Gamma()
-                self.answer({("GET", f"/gamma{SCOPE}/modules/aim/providers"): answer})
-                with self.assertRaisesRegex(common.Gone, "AI Management is not available on this platform \\(GET /providers: "
-                                                         "HTTP .*Gamma modules of API Management 4.13 or later"):
+                self.answer({("GET", f"/gamma{SCOPE}/modules/aim/providers"): (status, {"message": "no"})})
+                with self.assertRaisesRegex(common.SeedError, f"^AI Management: GET /providers: HTTP {status} "):
                     g.connect("aim-catalog", lambda: g.aim.get("/providers"), "AI Management")
-                self.assertEqual(self.clock.sleeps, [])
-                self.assertEqual(len(self.platform.sent("GET", f"/gamma{SCOPE}/modules/aim/providers")), 1)
+                self.assertEqual(len(self.platform.calls), 1)
 
 
 class Modules(Seed):
@@ -327,13 +328,21 @@ class Modules(Seed):
         self.serve((200, [{"id": "aim", "name": "Agent Management"}, {"id": "authz"}, {"id": "platform"}]))
         self.assertEqual(gamma.Gamma().modules(), {"aim", "authz", "platform"})
 
-    def test_a_platform_that_has_no_such_list_serves_none(self):
+    def test_a_platform_that_has_no_such_list_says_so(self):
         self.serve(404)
-        self.assertEqual(gamma.Gamma().modules(), set())
+        self.assertIsNone(gamma.Gamma().modules())
 
-    def test_a_list_that_is_not_one_serves_none(self):
-        self.serve((200, "<html>"))
-        self.assertEqual(gamma.Gamma().modules(), set())
+    def test_an_answer_that_is_no_list_is_an_error_and_not_a_platform_without_modules(self):
+        for body in ("<html>", {"data": []}):
+            with self.subTest(body=body):
+                self.serve((200, body))
+                with self.assertRaisesRegex(common.SeedError, "GET /modules: the answer is not a list of modules"):
+                    gamma.Gamma().modules()
+
+    def test_the_list_is_asked_within_a_time_limit(self):
+        self.serve((200, [{"id": "aim"}]))
+        gamma.Gamma().modules()
+        self.assertEqual(self.platform.calls[0].timeout, common.TIMEOUT)
 
     def test_any_other_answer_is_an_error_with_its_status(self):
         self.serve((401, {"message": "Full authentication is required"}))
@@ -360,6 +369,26 @@ class Modules(Seed):
         gamma.require_modules({"aim"})
         self.assertEqual(len(self.platform.calls), 2)
         self.assertEqual(self.clock.sleeps, [0.5])
+
+    def test_a_404_or_a_page_that_is_no_list_while_the_platform_starts_is_not_the_platform_without_gamma(self):
+        for first in (404, (200, "<html>starting</html>")):
+            with self.subTest(first=str(first)):
+                self.platform.calls.clear()
+                self.serve([first, first, (200, [{"id": "aim"}])])
+                gamma.require_modules({"aim"})
+                self.assertEqual(len(self.platform.calls), 3)
+
+    def test_a_404_that_lasts_is_the_platform_without_gamma_and_said_soon(self):
+        self.serve(404)
+        with self.assertRaisesRegex(common.SeedError, "does not serve the Gamma module aim"):
+            gamma.require_modules({"aim"})
+        self.assertLess(self.clock.elapsed, gamma.UNSERVED + 5)
+
+    def test_credentials_the_platform_refuses_stop_the_seed_at_once(self):
+        self.serve((401, {"message": "Full authentication is required"}))
+        with self.assertRaisesRegex(common.SeedError, "^the list of Gamma modules: GET /modules: HTTP 401"):
+            gamma.require_modules({"aim"})
+        self.assertEqual(len(self.platform.calls), 1)
 
     def test_a_playground_that_fills_no_module_asks_nothing(self):
         gamma.require_modules(set())

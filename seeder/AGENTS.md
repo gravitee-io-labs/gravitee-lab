@@ -15,7 +15,7 @@ A module is one file of `lab_seeder/`, registered in `lab_seeder/seed.py`.
 | `SECTION` | The prefix of its log lines (`[section]`) and the `product` of its records |
 | `ORDER` | The kinds it records, dependents first: the order of a removal |
 | `seed()` | Creates its objects. Returns before it reads a setting or connects when its folder of `seed/` is absent (`am.seed(stores)` takes the OpenFGA stores) |
-| `remove(records)` | Deletes what `owned(records, SECTION, ORDER)` returns. It may return the records of what the platform refused to delete (a user that owns an application): the seed keeps those in the record and removes the rest |
+| `remove(records)` | Deletes what `owned(records, SECTION, ORDER)` returns, and `forget`s each record as soon as its object is deleted. What the platform refuses to delete (a user that owns an application) is not forgotten: it stays in the record, and the rest is removed |
 | `FOLDERS`, `GAMMA` | For a module that fills Gamma: the folders or files of `seed/` it reads, and the Gamma modules it needs (`aim`, `authz`, `platform`). `seed.py` checks that the platform serves them before it changes anything |
 | `PATHS` | Optional and local to a module: the API path of each kind it records. The engine does not read it |
 
@@ -31,6 +31,10 @@ The seed runs when a Start sets the playground up, on Re-seed, and again with an
 - Record what you create with `record(SECTION, kind, label, name, id)`. `.state/created.json` is a list of
   `{product, kind, label, name, id}` objects, plus the keys a module adds (an API keeps a `digest`). `label` is the plural
   the Lab UI shows when it asks whether to delete ("3 APIs").
+- Make an object inside `with making(SECTION, kind, label, name):`, which notes it before the request goes (no id yet, a
+  `count` of 0 that the Lab UI counts as nothing), and record it inside the block. A create whose answer is lost (no answer in
+  time, a seed stopped in the middle of it) leaves the note, and where you would stop on an object of that name that you did
+  not create, `adopted(SECTION, kind, name, id)` takes it as the seed's when the note names it. A 4xx takes the note back.
 - Replace or delete only what the record says the seed created. Stop with a `SeedError` that names an object you find
   and did not create. What is updated and never deleted: [what it records](../docs/playgrounds.md#what-it-records).
 
@@ -88,9 +92,13 @@ one-shot service writes it. [The folder's layout](../docs/playgrounds.md#environ
 ## The Lab UI contract
 
 - A seed that stops on a `SeedError` prints `[seed] ✗ <why>` as its last line and exits with an error. The Lab UI shows
-  `<why>` as the reason the start failed, so keep it to one line (`excerpt()` in `common.py`).
-- `seed.py --remove` deletes the recorded items from the last module to the first, then empties the record. The Lab UI
-  reads the record to say what a delete removes.
+  `<why>` as the reason the start failed, so keep it to one line (`excerpt()` in `common.py`). Any other error prints its
+  traceback, then one plain `[seed] ✗` line, so that the reason is never a line of a traceback.
+- `seed.py --remove` deletes the recorded items from the last module to the first, each record dropped as its object goes, so
+  that a removal that fails keeps the records of what is still there, and a seed that records meanwhile keeps its own. The Lab
+  UI reads the record to say what a delete removes.
+- The record is read and written by one process at a time (a lock file beside it), each write whole and synced. A record that
+  cannot be read, or is no list of records, stops the seed and is never written over; one that cannot be written stops it too.
 - Log with `log(section, message)`, and never a secret, a token or a password.
 
 ## Endpoints, not containers
@@ -104,21 +112,32 @@ playground's seed service sets the variables. `make test` fails on a literal add
 - **An import that fails after the platform made the API** ("API imported with error", the API kept, stopped) is recorded
   with no digest before the error is raised, so that the next run finds it as its own and updates it. The same for the
   import that follows a replacement.
-- **A JSON seed file is read as a document** (`render_json` in `common.py`): a variable is replaced in each string of it, and a
-  string that is itself JSON text gets the value escaped for that text. Keep a variable of a file inside a string, so that a
-  value with a quote or a backslash cannot break the file; a file that is no document until its variables are replaced is
-  replaced as text.
+- **A seed file is read as a document** (`render_json` and `render_yaml` in `common.py`): a variable is replaced in each string
+  of it, its keys too, and a string that is itself JSON text gets the value escaped for that text. A plain YAML scalar that holds
+  a variable is then read as YAML reads its value (`port: ${PORT}` is a number), but a value never becomes a mapping, a list or
+  a merge key. Keep a variable of a file inside a string, so that a value with a quote or a backslash cannot break the file; a
+  file that is no document until its variables are replaced is replaced as text. A file that is no YAML says its line and
+  never its text, where a password may be.
 - **A renamed API is one record**: an update drops the record that held the id under its old name.
 - **LLM, MCP and A2A proxy APIs** cannot be updated from a definition, so they are replaced. A control's steps are
   switched in place, with an update of the API entity and a deployment. The API is imported again only when the platform
   answers 404, 405 or 501 to that update (`UNSUPPORTED` in `apim.py`).
-- **A platform that cannot answer now** (no connection, a timeout, a 5xx, a 429) is asked again `RETRIES` times,
-  `RETRY_PAUSE` seconds apart, and then the seed stops with what it said. Any other refusal (400, 401, 403, 409, 422...)
-  stops it at once: replacing an API because the platform is busy, or because the seed sent something wrong, costs it its
-  keys (`apim.py`). The Gamma client waits out a management API that reloads; a 404 or `not_configured` is final
-  (`gamma.py`).
-- **Waiting** is `wait_until`: it looks again after 0.5, 1, 2 and then every 3 seconds up to `READY_TIMEOUT`, and a probe that raises `Gone` ends it at once. Any other wait goes through `pause`, which stops when another step has failed.
-- **Parallel** is `schedule.py` for the modules (their `DEPENDS`), `common.parallel` and `common.together` for what a module knows to be independent, `SEED_WORKERS` for how many requests are in flight. A step shared by several threads keeps its state in `common.record`/`common._state`, never in a read-modify-write of its own; see the README (Order and parallelism).
+- **One policy for every request** (`Api.call` in `common.py`). A platform that cannot answer now (no connection, no answer
+  in time, a 5xx, a 429) is asked again `RETRIES` times, `RETRY_PAUSE` seconds apart, when a second request cannot make a
+  second object: a GET, a PUT or a DELETE, a POST its caller marks `idempotent=True` (a deployment, a start), and any request
+  the platform did not take (no connection made, a 429, a 503). A POST or a PATCH whose answer is lost is sent once: Gamma
+  keeps no name unique, and a second create would make a second object. Any other refusal (400, 401, 403, 409, 422...) stops
+  the seed at once: replacing an API because the platform is busy, or because the seed sent something wrong, costs it its
+  keys (`apim.py`). What the seed says of a request with no answer is in words (`trouble`), never the library's text. A
+  module names a request with `what=` and its client with its section; it adds no retry of its own.
+- **Waiting** is `wait_until`: it looks again after 0.5, 1, 2 and then every 3 seconds up to `READY_TIMEOUT`, and a probe that
+  raises `Gone` ends it at once. Inside a wait a request is sent once: the wait asks again. The first wait for a platform passes
+  `final=REFUSED`, so a wrong password, a revoked token or a wrong environment id ends it at once. Gamma's modules: a
+  `not_configured` is final, and a 404 once it lasts `UNSERVED` seconds (`gamma.py`). Any other wait goes through `pause`,
+  which stops when another step has failed.
+- **Parallel** is `common.parallel` and `common.together` for what a module knows to be independent, and `SEED_WORKERS` for how
+  many requests are in flight; the modules themselves run one after the other. A step shared by several threads keeps its state
+  in `common.record`, never in a read-modify-write of its own; see the README (Order and parallelism).
 - **A refill** deletes the Redis hashes `ratelimit:*:cost-rl` whose `subscription` field is the member's. Redis trouble is
   a `[refills] !` line and never stops the seed (`refills.py`).
 

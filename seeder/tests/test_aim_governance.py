@@ -13,6 +13,7 @@ import yaml
 
 from lab_seeder import aim_governance
 from lab_seeder import common
+from lab_seeder import gamma
 from lab_seeder import seed
 from lab_seeder.testkit import PERSONAL, Seed
 
@@ -680,12 +681,12 @@ class Files(Governance):
             aim_governance.remove([])
         self.assertEqual(self.platform.calls, [])
 
-    def test_a_platform_without_agent_management_ends_the_wait_at_once(self):
+    def test_a_platform_without_agent_management_ends_the_wait_once_its_404_lasts(self):
         self.platform.add({("GET", SETTINGS_PATH): (404, {"message": "not found"})})
         with self.assertRaises(common.SeedError) as stopped:
             aim_governance.seed()
         self.assertIn("is not available on this platform", str(stopped.exception))
-        self.assertEqual(self.clock.sleeps, [])
+        self.assertLess(self.clock.elapsed, gamma.UNSERVED + 5)
 
     def test_the_records_of_other_modules_are_left_alone(self):
         theirs = [{"product": "aim-catalog", "kind": "agent", "name": "a", "id": "a", "label": ""},

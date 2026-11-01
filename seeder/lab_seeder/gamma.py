@@ -19,14 +19,12 @@ Settings, from the environment of the seed:
 
 import os
 import re
+import time
 
-import requests
-
-from .common import Api, Gone, HttpError, SeedError, excerpt, log, pause, setting, wait_until
+from .common import REFUSED, Api, Gone, HttpError, SeedError, setting, wait_until
 
 SECTION = "gamma"
-RETRIES = 12   # with PAUSE seconds between: a restart of the management API lasts about a minute
-PAUSE = 5
+UNSERVED = 30   # seconds a 404 lasts before it says the platform does not serve a module: its routes answer a moment after it is healthy
 NEEDS = "this playground needs the Gamma modules of API Management 4.13 or later and a license that includes them"
 
 
@@ -49,18 +47,10 @@ CATALOG = Paging(first=1, size=200)      # the catalog, providers and credential
 
 # --- The client -------------------------------------------------------------------------
 
-def reloading(response):
-    """Whether this is what the management API answers for a few seconds while it reloads, and not about the request."""
-    text = response.text
-    return ((response.status_code in (502, 503, 504) and "not_configured" not in text)   # a module not set up says so for good
-            or (response.status_code == 400 and "Invalid organization or environment" in text)
-            or (response.status_code == 500 and "Timeout while receiving message" in text))
-
-
 def final(error):
-    """Whether a refusal is the platform's last word, whatever the wait: the path is not served (a platform without the
-    module), or the module says it is not set up (a license without it)."""
-    return isinstance(error, HttpError) and (error.status == 404 or "not_configured" in error.body)
+    """Whether a refusal is the platform's last word, whatever the wait: the module says it is not set up (a license
+    without it). A 404 is too once it lasts (`UNSERVED`)."""
+    return isinstance(error, HttpError) and "not_configured" in (error.body or "")
 
 
 def page_of(body, path):
@@ -72,25 +62,11 @@ def page_of(body, path):
 
 
 class ManagementApi(Api):
-    """An API served by the management API's host. A request that meets a reload is sent again, up to RETRIES times,
-    whatever its method: a module finds what it created before it creates it again."""
+    """An API served by the management API's host. It asks again as every client of the seed does (`common.Api.call`), and
+    a module that is not set up says so for good: its 503 `not_configured` is no wait."""
 
-    def send(self, method, path, **kwargs):
-        for attempt in range(1, RETRIES + 2):
-            try:
-                answer = super().send(method, path, **kwargs)
-                trouble = f"HTTP {answer.status_code}" if reloading(answer) else None
-            except requests.ConnectionError as e:
-                answer, trouble = None, str(e)[:200]
-            if trouble is None:
-                return answer
-            if attempt > RETRIES:
-                break
-            log(SECTION, f"! {method} {path}: {trouble}, trying again in {PAUSE} s ({attempt}/{RETRIES})")
-            pause(PAUSE)
-        if answer is None:
-            raise SeedError(f"{method} {path}: {trouble}")
-        return answer   # the last answer: the caller reports it
+    def busy(self, response):
+        return super().busy(response) and "not_configured" not in response.text
 
     def rows(self, path, paging, **params):
         """Every row of a paged list, whatever its shape: {"content": [...], "totalElements": n}, {"data": [...],
@@ -138,7 +114,7 @@ class Gamma:
         self.aim, self.authz, self.platform = self.module("aim"), self.module("authz"), self.module("platform")
 
     def _client(self, root, path):
-        api = ManagementApi(root.rstrip("/") + path)
+        api = ManagementApi(root.rstrip("/") + path, SECTION)
         if self.token:
             api.session.headers["Authorization"] = f"Bearer {self.token}"
         else:
@@ -151,40 +127,50 @@ class Gamma:
 
     def connect(self, section, probe, what="the management API"):
         """Waits until `probe`, a function that makes one cheap request, succeeds: the management API answers before it
-        is fully started. A module it does not serve, or has no license for, ends the wait at once."""
+        is fully started. A module it does not serve (a 404 that lasts UNSERVED seconds), or has no license for, ends the
+        wait, and so does a refusal of the seed's credentials or ids (REFUSED)."""
+        patience = time.time() + UNSERVED
+
         def check():
             try:
                 probe()
             except HttpError as e:
-                if final(e):
+                if final(e) or (e.status == 404 and time.time() >= patience):
                     raise Gone(f"{what} is not available on this platform ({e}): {NEEDS}") from e
                 raise
-        wait_until(section, what, check)
+        wait_until(section, what, check, final=REFUSED)
 
     def modules(self):
-        """The ids of the Gamma modules this platform serves, which is what its console loads them from."""
+        """The ids of the Gamma modules this platform serves, which is what its console loads them from; None when the
+        platform answers that it serves no such list (404)."""
         client = self._client(self.gamma_url, f"/gamma/organizations/{self.org}")
-        answer = client.send("GET", "/modules")
+        answer = client.get("/modules", expect=(200, 404))
         if answer.status_code == 404:
-            return set()
-        if answer.status_code != 200:
-            raise HttpError(f"GET /modules: HTTP {answer.status_code} {excerpt(answer.text)}", answer.status_code,
-                            answer.text)
+            return None
         try:
             found = answer.json()
         except ValueError:
-            found = []
+            found = None
+        if not isinstance(found, list):
+            raise SeedError("GET /modules: the answer is not a list of modules")
         return {module.get("id") for module in found if isinstance(module, dict)}
 
 
 def require_modules(names):
     """Stops the seed before it changes anything when the platform does not serve a Gamma module it will fill: otherwise
-    the first call that needs one fails with a bare HTTP error."""
+    the first call that needs one fails with a bare HTTP error. The management API is healthy a moment before every route
+    of it answers: a 404 is the platform's last word once it lasts UNSERVED seconds, and an answer that is no list is not
+    ready yet."""
     if not names:
         return
-    served = []
-    # The management API is healthy before every route of it answers: only a 404 is the platform's last word
-    wait_until(SECTION, "the list of Gamma modules", lambda: served.append(Gamma().modules()))
+    served, patience = [], time.time() + UNSERVED
+
+    def look():
+        found = Gamma().modules()
+        if found is None and time.time() < patience:
+            raise SeedError("GET /modules: HTTP 404")
+        served.append(found or set())
+    wait_until(SECTION, "the list of Gamma modules", look, final=REFUSED)
     missing = sorted(set(names) - served[-1])
     if missing:
         raise SeedError(f"This platform does not serve the Gamma module{'s' if len(missing) > 1 else ''} "

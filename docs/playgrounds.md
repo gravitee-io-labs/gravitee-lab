@@ -537,9 +537,10 @@ seed/environments/<id>/
 - **The pages are recorded with their listing** (`API pages`, one record that counts the pages of the menu and those of the
   APIs) and removed with it: the pages of the menu go with their API items, and the pages of an API are deleted by id. A page
   of an API that someone else made under the same type and name stops the seed: it never takes it.
-- **A JSON file is read as a document before its variables are replaced**, and a string of it that is itself JSON text (an
-  endpoint's `sharedConfiguration`) gets the value of a variable escaped for that text. A password with a quote or a
-  backslash therefore arrives in the API definition as it was set.
+- **A JSON or YAML file is read as a document before its variables are replaced**, and a string of it that is itself JSON text
+  (an endpoint's `sharedConfiguration`) gets the value of a variable escaped for that text. A password with a quote or a
+  backslash therefore arrives as it was set. An unquoted `${PORT}` is read as YAML reads its value, a number here, but a value
+  never adds keys or a list to the file.
 
 ### Settings
 
@@ -571,7 +572,7 @@ not set`, and a variable a seed file uses with no value stops it with the file's
 | `GATEWAY_SYNC_SECONDS` | How often the gateway synchronizes. With `SEED_WAIT_GATEWAY=1` the seed waits two of them after it deploys a control | `5` |
 | `REDIS_URL`, `REDIS_PASSWORD` | The core's Redis, for [refills](#refills-what-a-lesson-spends-put-back) | Required for `seed/refills.yaml` |
 | `KUBECONFIG` | Kubeconfig of the cluster for `seed/k8s/`; the Kubernetes add-on writes `secrets/kubeconfig-internal.yaml`, which a seed mounts read only | Required for `seed/k8s/` |
-| `READY_TIMEOUT` | Seconds the seed waits for a management API to answer | `300` |
+| `READY_TIMEOUT` | Seconds the seed waits for a management API to answer. A refusal of the seed's credentials or ids (a 400, 401 or 403: a password changed in the console, a revoked token, an environment's hrid where its id is expected) ends the wait at once | `300` |
 | `SEED_WORKERS` | How many requests the seed has in flight at once. Steps that do not depend on one another run together ([Order and parallelism](../seeder/README.md#order-and-parallelism)); `1` runs everything in order | `4` |
 | `SEED_DIR`, `STATE_DIR` | Where the seed reads its files and records what it creates | `/seed`, `/state` |
 
@@ -585,6 +586,9 @@ replaces or deletes only what that record says it created:
   which is a warning when the engine is marked `optional`.
 - An AM domain, an AM application or an OpenFGA store that it finds by name or client ID is updated, never deleted.
 - An AM scope the domain already has is left as it is, and the seed deletes only the scopes it made.
+- A Gamma credential's secret is sent again when the file gives another, a key fixed or rotated in the settings of the
+  playground and then Re-seed: the credential keeps its id, so the providers that name it get the new key. The record keeps a
+  fingerprint of the secret, never the secret.
 - The approval settings of the environment are the one thing it replaces that it did not create: it records the values they had, and a removal puts them back unless someone changed them since.
 - The entities of an `entities:` list are recorded once for each type, with their ids.
 - An [environment of its own](#environments-of-its-own) is never created, changed or deleted. A group, a portal, its theme,
@@ -598,7 +602,10 @@ replaces or deletes only what that record says it created:
   plain names.
 - An API that the platform made although its import failed (it answers `API imported with error` and keeps the API, stopped) is
   recorded with no digest, so that the next run updates it from its file. A renamed API is one record, under its new name.
-- With `.state/created.json` lost, the next seed stops on what it made. Delete those objects, or Reset.
+- A create is noted in the record before it is asked for. When its answer is lost (no answer in time, a seed stopped in the
+  middle of it), the next seed takes the object it finds under that name as its own and says so with a `!` line.
+- With `.state/created.json` lost, the next seed stops on what it made. Delete those objects, or Reset. A record that cannot be
+  read stops the seed and is never written over: fix it, or Reset.
 - `seed.py --remove` deletes the recorded items in dependency order: the portal's objects, then the subscriptions, applications
   and APIs, then groups and users. An AM domain or an API that existed before stays, and so does every environment. What the
   platform refuses to delete, a user that is the primary owner of an application of its own, stays in the record with a `!` line,
@@ -895,7 +902,8 @@ in `.env`, then run `make all`.
 - The Management API checks an endpoint's shared configuration against the schema of its plugin. API Management 4.12
   names "no store" `NONE` and refuses `{"type": ""}` for a TLS key store or trust store, which a 4.11 export holds:
   leave the store out.
-- LLM and A2A proxy APIs cannot be updated from a definition (`Unsupported API type`), so they are replaced.
+- LLM, A2A and MCP proxy APIs cannot be updated from a definition (`Unsupported API type`), so they are replaced. Any other
+  API is updated, and a refusal of its update stops the seed: it is never replaced for that.
 - A deployment answers 202.
 - An LLM proxy refuses an import over itself but takes the update of its entity: `PUT /apis/{id}` with the API as `GET`
   gives it, then a deployment. That is how a control's steps are switched without replacing the API. A step has

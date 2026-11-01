@@ -261,8 +261,9 @@ their meaning and defaults in [Settings](playgrounds.md#settings):
 | The run | `SEED_PROTECTIONS`, `READY_TIMEOUT`, `SEED_WORKERS`, `SEED_DIR`, `STATE_DIR` |
 
 The seeder records what it creates in `.state/created.json`, in the folder of the playground: a list of `{product, kind,
-label, name, id}` objects, plus the keys a module adds. The Lab UI reads it to offer *Delete what it created* and to list
-what that deletes.
+label, name, id}` objects, plus the keys a module adds. One with a `count` stands for that many objects, and one with a `count`
+of 0 (and no `id`) for a create the seeder has not had the answer of: none. The Lab UI reads it to offer *Delete what it
+created* and to list what that deletes.
 
 ### Frames
 

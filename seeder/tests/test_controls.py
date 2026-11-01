@@ -226,6 +226,10 @@ class Ending(Seed):
 
 class Waiting(Seed):
 
+    def setUp(self):
+        super().setUp()
+        self.env(SEED_WAIT_GATEWAY="1")   # what it tests is the wait for the gateway, which a seed does when asked
+
     def test_the_seed_waits_two_synchronizations_and_a_second_after_a_deployment_of_a_control(self):
         self.env(GATEWAY_SYNC_SECONDS="5")
         controls.touched()
@@ -425,6 +429,7 @@ class Main(Seed):
         self.assertNotIn("Playground ready", self.output())
 
     def test_a_seed_whose_controls_all_found_their_target_is_ready_once_the_gateway_has_taken_what_they_deployed(self):
+        self.env(SEED_WAIT_GATEWAY="1")
         self.seed_files({"controls.yaml": "pii: {api: LLM, flow: Prompt, steps: {request: [Guard]}}\n"})
         self.env(SEED_PROTECTIONS="off", GATEWAY_SYNC_SECONDS="5")
 

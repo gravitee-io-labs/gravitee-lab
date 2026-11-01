@@ -24,10 +24,10 @@ from urllib.parse import quote
 from . import controls
 from . import gamma
 from . import refills
-from .common import Api, SeedError, excerpt, files, has_seed, load, log, owned, pause, record, recorded, setting, wait_until, waits_for_gateway
+from .common import (Api, HttpError, SeedError, adopted, excerpt, files, forget, has_seed, load, log, making, owned, pause, record,
+                     recorded, setting, wait_until, waits_for_gateway)
 
 SECTION = "aim-workspaces"
-DEPENDS = ("aim_catalog",)   # the modules whose work this one reads on the platform (schedule.py)
 # The folder of the seed it owns
 FOLDERS = ("aim/workspaces",)
 # The Gamma modules it fills: seed.py checks that the platform serves them before it changes anything
@@ -102,14 +102,15 @@ class AiWorkspaces:
         when it is created and never changes."""
         name, version, description = spec["name"], str(spec.get("version", "1.0")), spec.get("description")
         found = next((w for w in self.aim.rows("/ai-workspaces", gamma.WORKSPACES, q=name) if w["name"] == name), None)
-        if found and not recorded(SECTION, "workspace", found["id"]):
+        if found and not recorded(SECTION, "workspace", found["id"]) and not adopted(SECTION, "workspace", name, found["id"]):
             raise SeedError(f"AI workspace {name} exists and the seed did not create it")
         if found is None:
             body = {"name": name, "version": version, "defaultBudget": budget_body(spec["budgets"][0])}
             if description:
                 body["description"] = description
-            found = self.aim.post("/ai-workspaces", json=body).json()
-            record(SECTION, "workspace", "AI workspaces", name, found["id"])
+            with making(SECTION, "workspace", "AI workspaces", name):
+                found = self.aim.post("/ai-workspaces", json=body).json()
+                record(SECTION, "workspace", "AI workspaces", name, found["id"])
             self.touched()
             log(SECTION, f"✓ AI workspace created: {name}")
         elif (found.get("version"), found.get("description")) != (version, description):
@@ -218,15 +219,17 @@ class AiWorkspaces:
         users = self.g.org_v1.get("/users", params={"q": source_id, "size": 100}).json().get("data", [])
         found = next((u for u in users if u.get("source") == source and u.get("sourceId") == source_id), None)
         if found:
+            adopted(SECTION, "workspace-user", source_id, found["id"])   # one an earlier seed made and lost the answer of, if any
             return found["id"]
         if source != "gravitee":
             if spec.get("optional"):
                 log(SECTION, f"! {source_id} is not a user of the platform yet: left out")
                 return None
             raise SeedError(f"User {source_id} ({source}) is not known to the platform: it signs in once first")
-        made = self.g.org_v1.post("/users", json={"source": source, "sourceId": source_id, "firstname": spec["firstname"],
-                                                  "lastname": spec["lastname"], "email": spec["email"], "service": False}).json()
-        record(SECTION, "workspace-user", "workspace users", source_id, made["id"])
+        with making(SECTION, "workspace-user", "workspace users", source_id):
+            made = self.g.org_v1.post("/users", json={"source": source, "sourceId": source_id, "firstname": spec["firstname"],
+                                                      "lastname": spec["lastname"], "email": spec["email"], "service": False}).json()
+            record(SECTION, "workspace-user", "workspace users", source_id, made["id"])
         log(SECTION, f"  ✓ User created: {source_id}")
         return made["id"]
 
@@ -317,7 +320,8 @@ def seed():
 
 def remove(records):
     """The workspace, then the applications of the users the seed created if nothing else uses them, then those users.
-    The platform keeps a deleted user archived: the same name can be created again."""
+    The platform keeps a deleted user archived: the same name can be created again. A user it refuses to delete (one that
+    owns an application someone else subscribed with) keeps its record, and the rest is removed."""
     mine = owned(records, SECTION, ORDER)
     if not mine:
         return
@@ -327,9 +331,15 @@ def remove(records):
     applications = []
     for x in (x for x in mine if x["kind"] == "workspace"):
         applications += workspaces.delete_workspace(x["id"], {u["id"] for u in users})
+        forget(x)
         log(SECTION, f"✓ Deleted AI workspace '{x['name']}'")
     for application in applications:
         workspaces.delete_application(application)
     for x in users:
-        workspaces.g.org_v1.delete(f"/users/{x['id']}")
+        try:
+            workspaces.g.org_v1.delete(f"/users/{x['id']}")
+        except HttpError as e:
+            log(SECTION, f"! Workspace user '{x['name']}' kept: HTTP {e.status} {excerpt(e.body, 200)}")
+            continue
+        forget(x)
         log(SECTION, f"✓ Deleted workspace user '{x['name']}'")

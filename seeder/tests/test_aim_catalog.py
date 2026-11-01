@@ -108,6 +108,16 @@ class World:
         self.secrets[credential["id"]] = call.json["credentials"]
         return 201, credential
 
+    def update_credential(self, call):
+        """PUT /auth-profiles/{id}: what it is given replaces what it holds, the secret too; the id stays."""
+        credential = self.credentials.get(last(call))
+        if credential is None:
+            return 404, {"message": "not found"}
+        credential.update({k: call.json[k] for k in ("name", "serviceId") if k in call.json})
+        if "credentials" in call.json:
+            self.secrets[credential["id"]] = call.json["credentials"]
+        return 200, credential
+
     def delete_credential(self, call):
         return 204 if self.credentials.pop(last(call), None) else 404
 
@@ -266,6 +276,7 @@ class World:
         routes = {
             ("GET", SCOPE + "/auth-profiles"): lambda call: listing(self.credentials.values()),
             ("POST", SCOPE + "/auth-profiles"): self.create_credential,
+            ("PUT", path("/auth-profiles/*")): self.update_credential,
             ("DELETE", path("/auth-profiles/*")): self.delete_credential,
             ("GET", SCOPE + "/providers"): lambda call: listing(self.providers.values()),
             ("POST", SCOPE + "/providers"): self.create_provider,
@@ -412,12 +423,34 @@ class Credentials(Catalog):
         self.assertNotIn("AIza-real-key", self.output())
         self.assertNotIn("AIza-real-key", self.state.read_text(encoding="utf-8"))
 
-    def test_a_second_run_writes_nothing_and_does_not_send_the_secret_again(self):
+    def test_a_second_run_with_the_same_secret_writes_nothing(self):
         self.run_seed()
-        self.env(KEY="a-new-value")
         self.assertEqual(self.run_seed(), [])
-        [credential] = self.world.credentials.values()
-        self.assertEqual(self.world.secrets[credential["id"]]["value"], "placeholder")
+
+    def test_a_secret_the_file_changes_is_sent_again_in_an_update_and_the_credential_keeps_its_id(self):
+        """A key mistyped in the settings, fixed, then Re-seed: the provider that names the credential gets the new key."""
+        self.run_seed()
+        [before] = self.world.credentials
+        self.env(KEY="AIza-fixed-key")
+        self.assertEqual(self.run_seed(), [("PUT", f"/auth-profiles/{before}")])
+        self.assertEqual(list(self.world.credentials), [before])
+        self.assertEqual(self.world.secrets[before]["value"], "AIza-fixed-key")
+        self.assertIn("✓ Credential updated: Gemini key", self.output())
+        self.assertEqual(self.run_seed(), [], "and only once")
+
+    def test_the_record_keeps_a_fingerprint_of_the_secret_and_never_the_secret(self):
+        self.env(KEY="AIza-real-key")
+        self.run_seed()
+        [x] = self.records("credential")
+        self.assertRegex(x["digest"], "^[0-9a-f]{64}$")
+        self.assertNotIn("AIza-real-key", self.state.read_text(encoding="utf-8"))
+
+    def test_a_credential_recorded_before_its_secret_had_a_fingerprint_is_updated_once(self):
+        self.run_seed()
+        common.save_created([{k: v for k, v in x.items() if k != "digest"} for x in common.created()])
+        [credential] = self.world.credentials
+        self.assertEqual(self.run_seed(), [("PUT", f"/auth-profiles/{credential}")])
+        self.assertEqual(self.run_seed(), [])
 
     def test_a_credential_of_that_name_that_the_seed_did_not_create_stops_the_seed_and_is_left_alone(self):
         theirs = {"id": "theirs", "name": "Gemini key", "strategy": "BEARER"}
@@ -427,6 +460,37 @@ class Credentials(Catalog):
             self.run_seed()
         self.assertEqual(self.platform.changes(), [])
         self.assertEqual(self.world.credentials, {"theirs": theirs})
+
+    def lose_the_answer(self, lost):
+        """Gamma makes the credential, and the seed gets `lost` in place of its answer."""
+        def made(call):
+            self.world.create_credential(call)
+            raise lost
+        self.platform.add({("POST", SCOPE + "/auth-profiles"): made})
+
+    def test_a_credential_whose_answer_was_lost_is_the_seeds_at_the_next_run(self):
+        """A timeout after Gamma made it, or a seed stopped in the middle of the request: the next run does not stop on it."""
+        for lost in (requests.ReadTimeout("slow"), KeyboardInterrupt()):
+            with self.subTest(lost=type(lost).__name__):
+                self.setUp()
+                self.lose_the_answer(lost)
+                with self.assertRaises((common.SeedError, KeyboardInterrupt)):
+                    self.run_seed()
+                self.assertEqual(self.records(), [], "nothing says yet that the seed made it")
+                self.platform.add({("POST", SCOPE + "/auth-profiles"): self.world.create_credential})
+                [made] = self.world.credentials
+                self.assertEqual(self.run_seed(), [("PUT", f"/auth-profiles/{made}")], "not made a second time: its secret is sent again")
+                self.assertEqual(list(self.world.credentials), [made])
+                self.assertEqual([(x["name"], x["id"]) for x in self.records()], [("Gemini key", made)])
+                self.assertIn("! Gemini key: made by an earlier seed that lost the platform's answer", self.output())
+
+    def test_a_create_the_platform_refused_leaves_no_note_so_a_credential_someone_makes_later_is_not_taken(self):
+        self.platform.add({("POST", SCOPE + "/auth-profiles"): (400, {"message": "no"})})
+        with self.assertRaises(common.HttpError):
+            self.run_seed()
+        self.world.credentials["theirs"] = {"id": "theirs", "name": "Gemini key", "strategy": "BEARER"}
+        with self.assertRaisesRegex(common.SeedError, "The credential 'Gemini key' exists and was not created by this playground"):
+            self.run_seed()
 
     def test_a_file_without_what_the_seed_needs_says_what_is_missing(self):
         self.seed_files({"aim/credentials/gemini.yaml": "name: Key\n"})
@@ -681,8 +745,8 @@ class Discovery(Catalog):
         self.assertEqual([c for c in self.platform.calls if c.path.startswith(SCOPE) and c.method != "GET"], [])
 
     def test_a_server_that_is_not_there_stops_the_seed(self):
-        self.platform.add({("POST", MCP): requests.ConnectionError("refused")})
-        with self.assertRaisesRegex(common.SeedError, "MCP initialize at http://bakery-mcp:8000: refused"):
+        self.platform.add({("POST", MCP): requests.ConnectionError("Max retries exceeded")})
+        with self.assertRaisesRegex(common.SeedError, "^MCP initialize at http://bakery-mcp:8000: the connection was cut$"):
             self.run_seed()
 
     def test_an_answer_without_a_result_stops_the_seed(self):
@@ -1018,6 +1082,16 @@ class Playground(Catalog):
         self.env(GEMINI_API_KEY="AIza-real-key")   # Gamma tests a Gemini provider with it: no key, no provider
         operations = ["listBranches", "getBranch", "listRates", "getRate"]
         self.world.apis["api-1"] = {"name": "Acme Bakery Open API", "operations": operations}
+
+    def test_the_catalog_seeded_with_the_requests_a_seed_has_in_flight_by_default_is_the_one_seeded_in_order(self):
+        """The cards and the servers are read at the same time: the catalog they make is the same, and so is its record."""
+        aim_catalog.seed()
+        alone = (sorted((i["kind"], i["entityId"]) for i in self.world.items.values()), sorted(x["name"] for x in self.records()))
+        self.setUp()
+        self.workers(4)
+        aim_catalog.seed()
+        self.assertEqual((sorted((i["kind"], i["entityId"]) for i in self.world.items.values()), sorted(x["name"] for x in self.records())),
+                         alone)
 
     def test_the_seed_makes_every_object_of_the_catalog_with_an_acme_bakery_name(self):
         self.run_seed()

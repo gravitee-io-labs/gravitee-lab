@@ -5,6 +5,8 @@ with nothing to seed leaves the platform alone. Also the fake platform the other
 import json
 import os
 import re
+import subprocess
+import sys
 import time
 import threading
 import unittest
@@ -39,17 +41,47 @@ class Apis(Seed):
         self.assertEqual(self.platform.changes(), [])
 
     def test_the_seeds_api_is_replaced_and_recorded_under_its_new_id(self):
+        llm = {"api": {**self.DEFINITION["api"], "type": "LLM_PROXY"}}
         self.answer({**self.holding("old", "Example LLM"),
                      ("GET", f"{V2}/apis/old/plans"): (200, {"data": []}),
-                     ("PUT", f"{V2}/apis/old/_import/definition"): (500, {"message": "Not supported"}),
                      ("POST", f"{V2}/apis/old/_stop"): 400,
                      ("DELETE", f"{V2}/apis/old"): 204,
                      ("POST", f"{V2}/apis/_import/definition"): (201, {"id": "new"}),
                      ("GET", f"{V2}/apis/new"): (200, {"lifecycleState": "PUBLISHED", "state": "STARTED"}),
                      ("POST", f"{V2}/apis/new/deployments"): 202},
                     [{"product": "apim", "kind": "api", "name": "Example LLM", "id": "old"}])
-        apim.ApiManagement().import_api(self.DEFINITION, "llms.json")
+        apim.ApiManagement().import_api(llm, "llms.json")
         self.assertEqual([(x["name"], x["id"]) for x in common.created()], [("Example LLM", "new")])
+
+
+    def test_an_import_that_gets_no_answer_in_time_ends_the_seed_with_its_reason_in_words(self):
+        """The Lab shows the last line as the reason: never a line of a traceback of requests."""
+        self.seed_files({"apim/apis/llms.json": json.dumps(self.DEFINITION)})
+        self.answer({("GET", f"{V2}/apis"): (200, {"data": [], "pagination": {"pageCount": 1}}),
+                     ("POST", f"{V2}/apis/_import/definition"): requests.ReadTimeout(
+                         "HTTPConnectionPool(host='apim', port=8083): Read timed out. (read timeout=30)")})
+        self.assertEqual(self.main(), 1)
+        self.assertEqual(self.output().splitlines()[-1],
+                         f"[seed] ✗ POST {V2}/apis/_import/definition: no answer in 30 s")
+        self.assertEqual(len(self.platform.sent("POST", f"{V2}/apis/_import/definition")), 1, "the platform may have made it")
+
+
+class Files(Seed):
+
+    def test_a_password_with_a_quote_or_a_backslash_seeds_as_it_was_set(self):
+        self.seed_files({"am/domain.yaml": 'name: bank\nusers: [{username: ann, password: "${PW}"}]\n'})
+        for password in ('S3cr3t"Pw', "back\\slash", "pa\\nss"):
+            with self.subTest(password=password):
+                self.env(PW=password)
+                self.assertEqual(common.load(common.SEED_DIR / "am/domain.yaml")["users"][0]["password"], password)
+
+    def test_a_file_that_is_not_yaml_stops_the_seed_with_its_line_and_never_its_text(self):
+        self.seed_files({"am/domain.yaml": 'name: bank\nusers: [{username: ann,\n  password: "${PW}" ]]\n'})
+        self.env(PW="S3cr3t-Pw")
+        self.assertEqual(self.main(), 1)
+        self.assertRegex(self.output().splitlines()[-1],
+                         r"^\[seed\] ✗ .*am/domain\.yaml: it is not valid YAML once its variables are replaced \(line \d+\)$")
+        self.assertNotIn("S3cr3t", self.output())
 
 
 class Engines(Seed):
@@ -110,13 +142,111 @@ class Removal(Seed):
         self.remove(204)
         self.assertIn("✓ 1 item removed", self.output())
 
-    def test_what_a_module_gives_back_is_kept_in_the_record_and_the_rest_is_removed(self):
+    def test_what_the_platform_refuses_to_delete_keeps_its_record_and_the_rest_is_removed(self):
         mine = {"product": "apim", "kind": "user", "label": "users", "name": "astrid", "id": "u1"}
-        self.answer({("DELETE", "/stores/s1"): 204}, [self.STORE, mine])
-        with mock.patch.object(apim, "remove", return_value=[mine]):
-            self.assertEqual(self.main("--remove"), 0)
+        self.answer({("DELETE", "/stores/s1"): 204, ("GET", V2 + "/apis"): (200, {"data": []}),
+                     ("DELETE", "/management/organizations/DEFAULT/users/u1"): (400, {"message": "owns an application"})},
+                    [self.STORE, mine])
+        self.assertEqual(self.main("--remove"), 0)
         self.assertEqual([x["id"] for x in common.created()], ["u1"])
         self.assertIn("✓ 1 item removed, 1 kept", self.output())
+
+    def test_a_removal_that_fails_midway_keeps_the_records_of_what_is_still_there_and_those_only(self):
+        second = {**self.STORE, "name": "Projects", "id": "s2"}
+        self.answer({("DELETE", "/stores/s1"): 204, ("DELETE", "/stores/s2"): (403, {"message": "no"})}, [self.STORE, second])
+        self.assertEqual(self.main("--remove"), 1)
+        self.assertEqual([x["id"] for x in common.created()], ["s2"])
+
+    def test_what_a_seed_records_while_a_removal_runs_is_kept(self):
+        """A removal beside a seed that still runs (in another container) writes back only what it deleted."""
+        late = {"product": "openfga", "kind": "store", "label": "OpenFGA stores", "name": "Late", "id": "s9"}
+
+        def deleted(call):
+            common.record(late["product"], late["kind"], late["label"], late["name"], late["id"])   # the other seed, meanwhile
+            return 204
+        self.answer({("DELETE", "/stores/s1"): deleted}, [self.STORE])
+        self.assertEqual(self.main("--remove"), 0)
+        self.assertEqual(common.created(), [late])
+
+    def test_a_record_of_no_module_is_forgotten_as_before(self):
+        self.answer({}, [{"product": "gone-module", "kind": "thing", "name": "t", "id": "t1"}])
+        self.assertEqual(self.main("--remove"), 0)
+        self.assertEqual(common.created(), [])
+
+
+class Record(Seed):
+    """`.state/created.json` is the one place that says what the seed made: what cannot be read of it is never written over."""
+
+    ITEM = {"product": "openfga", "kind": "store", "label": "OpenFGA stores", "name": "Documents", "id": "s1"}
+
+    def test_no_record_is_nothing_created(self):
+        self.assertFalse(self.state.exists())
+        self.assertEqual(common.created(), [])
+
+    def test_a_damaged_record_stops_the_seed_and_is_never_written_over(self):
+        for damaged in ('[{"product": "openfga", "kind": "store", "name": "Documents", "id": "s1"}] trailing', '[{"product": "x"}]',
+                        '{"product": "x"}', "[1, 2]", ""):
+            with self.subTest(damaged=damaged):
+                self.state.write_text(damaged, encoding="utf-8")
+                with self.assertRaisesRegex(common.SeedError, r"^The seed's record of what it created \(created\.json in the "
+                                                              r"playground's \.state folder\) is damaged: fix it, or Reset$"):
+                    common.record("openfga", "store", "OpenFGA stores", "Projects", "s2")
+                self.assertEqual(self.state.read_text(encoding="utf-8"), damaged)
+
+    def test_a_removal_of_a_damaged_record_deletes_nothing_and_says_why(self):
+        damaged = '[{"product": "openfga", "kind": "store", "name": "Documents", "id": "s1"}] trailing'
+        self.state.write_text(damaged, encoding="utf-8")
+        self.assertEqual(self.main("--remove"), 1)
+        self.assertNotIn("removed", self.output())
+        self.assertIn("is damaged: fix it, or Reset", self.output().splitlines()[-1])
+        self.assertEqual(self.state.read_text(encoding="utf-8"), damaged)
+
+    def test_a_read_that_fails_for_a_moment_is_asked_again(self):
+        common.save_created([self.ITEM])
+        read, failures = type(self.state).read_text, [OSError(5, "Input/output error")]
+
+        def flaky(path, *args, **kwargs):
+            if failures:
+                raise failures.pop()
+            return read(path, *args, **kwargs)
+        with mock.patch.object(type(self.state), "read_text", flaky):
+            self.assertEqual(common.created(), [self.ITEM])
+
+    def test_a_record_that_cannot_be_written_fails_the_seed(self):
+        """Left unrecorded, what the seed made would be refused by the next seed as not its own, and never deleted."""
+        with mock.patch.object(common.os, "replace", side_effect=OSError(28, "No space left on device")):
+            with self.assertRaisesRegex(common.SeedError, r"cannot be written: No space left on device$"):
+                common.record("openfga", "store", "OpenFGA stores", "Projects", "s2")
+        self.assertEqual(list(self.state.parent.glob("*.part")), [], "no half-written file is left")
+
+    def test_each_write_has_a_file_of_its_own_and_is_synced_before_it_takes_the_place_of_the_record(self):
+        moved, synced = [], []
+        replace, fsync = common.os.replace, common.os.fsync
+        with mock.patch.object(common.os, "replace", lambda a, b: moved.append(str(a)) or replace(a, b)), \
+                mock.patch.object(common.os, "fsync", lambda fd: synced.append(fd) or fsync(fd)):
+            common.save_created([self.ITEM])
+            common.save_created([self.ITEM])
+        self.assertEqual((len(set(moved)), len(synced)), (2, 2))
+        self.assertTrue(all(name.endswith(".part") for name in moved))
+
+    def test_another_process_that_holds_the_record_is_waited_for(self):
+        """A removal and a seed of one playground may run at once, in two containers that share the folder."""
+        common.save_created([self.ITEM])
+        holder = subprocess.Popen([sys.executable, "-c", HOLDER, str(self.state) + ".lock"], stdout=subprocess.PIPE, text=True)
+        self.addCleanup(holder.kill)
+        self.assertEqual(holder.stdout.readline().strip(), "held")
+        done = threading.Event()
+        writer = threading.Thread(target=lambda: (common.record("openfga", "store", "OpenFGA stores", "Projects", "s2"), done.set()))
+        writer.start()
+        self.assertFalse(done.wait(0.3), "it writes while the other holds the record")
+        holder.kill()
+        writer.join(10)
+        self.assertTrue(done.is_set())
+        self.assertEqual([x["id"] for x in common.created()], ["s1", "s2"])
+
+
+# Holds the lock of the record until it is killed
+HOLDER = "import fcntl, sys, time\nf = open(sys.argv[1], 'a')\nfcntl.flock(f, fcntl.LOCK_EX)\nprint('held', flush=True)\ntime.sleep(60)\n"
 
 
 class Modules(Seed):
@@ -134,45 +264,14 @@ class Modules(Seed):
                 patch.start()
                 self.addCleanup(patch.stop)
 
-    def test_the_modules_that_do_not_depend_on_one_another_seed_at_the_same_time_and_the_others_after_theirs(self):
+    def test_one_module_runs_at_a_time_and_a_failure_stops_the_seed_before_the_next(self):
+        """What the tests run is what a seed does: the modules in their order, whatever SEED_WORKERS says, which only bounds
+        what a module does at the same time."""
         self.workers(4)
-        meeting, events, lock = threading.Barrier(2, timeout=5), [], threading.Lock()   # the two that start first wait for each other
-        for module in seed.MODULES:
-            def note(*arguments, name=module.__name__.rsplit('.', 1)[-1]):
-                with lock:
-                    events.append(("start", name))
-                if name in ("openfga", "apim"):
-                    meeting.wait()
-                with lock:
-                    events.append(("end", name))
-            patch = mock.patch.object(module, "seed", side_effect=note)
-            patch.start()
-            self.addCleanup(patch.stop)
-        self.assertEqual(self.main(), 0, self.output())
-        self.assertEqual(sorted(name for kind, name in events if kind == "start"), sorted(module.__name__.rsplit('.', 1)[-1] for module in seed.MODULES))
-        for module in seed.MODULES:
-            for need in module.DEPENDS:
-                self.assertLess(events.index(("end", need)), events.index(("start", module.__name__.rsplit('.', 1)[-1])), f"{module.__name__.rsplit('.', 1)[-1]} after {need}")
-
-    def test_the_seed_says_what_running_steps_together_saved_and_says_nothing_when_it_saved_nothing(self):
-        seed.told({"apim": 40.2, "am": 25.0, "k8s": 0.2}, 41.0)
-        self.assertIn("[seed] Took 41 s; the steps add up to 65 s (apim 40 s, am 25 s)", self.output())
-        before = self.output()
-        seed.told({"apim": 40.0}, 40.5)
-        self.assertEqual(self.output(), before)
-
-    def test_the_first_failure_is_the_one_the_seed_reports(self):
-        self.workers(4)
-        for module in seed.MODULES:
-            def note(*arguments, name=module.__name__.rsplit('.', 1)[-1]):
-                if name == "apim":
-                    raise common.SeedError("apim failed")
-                for _ in range(100):
-                    common.pause(0.01)   # stops when the seed does
-            patch = mock.patch.object(module, "seed", side_effect=note)
-            patch.start()
-            self.addCleanup(patch.stop)
-        self.assertEqual(self.main(), 1)
+        self.run_modules()
+        with mock.patch.object(seed.apim, "seed", side_effect=common.SeedError("apim failed")):
+            self.assertEqual(self.main(), 1)
+        self.assertEqual([name for _, name in self.order], ["openfga", "am"])
         self.assertTrue(self.output().rstrip().endswith("[seed] ✗ apim failed"), self.output())
 
     def test_the_modules_seed_in_their_order(self):
@@ -237,6 +336,8 @@ class Modules(Seed):
             self.assertEqual(self.main(), 1)
         shown.assert_called_once()
         self.assertNotIn("Playground ready", self.output())
+        self.assertEqual(self.output().splitlines()[-1],
+                         "[seed] ✗ The seed stopped on an error it did not expect: the lines above say where")
 
     def test_a_playground_that_seeds_nothing_needs_no_setting_and_makes_no_call(self):
         with mock.patch.dict(os.environ, {}, clear=True):
@@ -324,7 +425,7 @@ class Fakes(Seed):
     def test_an_exception_is_raised(self):
         self.answer({("GET", "/down"): [requests.ConnectionError("down"), 200]})
         with self.assertRaises(requests.ConnectionError):
-            self.get("/down")
+            common.Api("http://apim").send("GET", "/down")
         self.assertEqual(self.get("/down").status_code, 200)
 
     def test_a_call_no_route_answers_fails_the_test(self):

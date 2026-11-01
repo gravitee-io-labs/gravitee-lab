@@ -666,7 +666,7 @@ class Policies(Case):
     def test_a_server_that_is_down_is_not_reported_as_a_policy_that_is_wrong_but_still_in_one_line(self):
         self.platform.add({("POST", AUTHZ + "/policies"): (503, {"message": "restarting"})})
         self.seed_files({"authz/policies/01-reads.yaml": POLICY})
-        with mock.patch("lab_seeder.gamma.PAUSE", 0), self.assertRaisesRegex(common.SeedError, r"\(HTTP 503\)"):
+        with self.assertRaisesRegex(common.SeedError, r"\(HTTP 503\)"):
             authz.seed()
 
     def test_the_text_of_the_policies_is_not_changed_but_by_its_placeholders(self):

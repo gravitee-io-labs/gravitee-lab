@@ -17,10 +17,9 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from .common import Api, SeedError, files, load, log, owned, record, setting, wait_until
+from .common import REFUSED, Api, SeedError, adopted, files, forget, load, log, making, owned, record, setting, wait_until
 
 SECTION = "openfga"
-DEPENDS = ()   # the modules whose work this one reads on the platform: none, so it runs at the start (schedule.py)
 # What it records
 ORDER = ["store"]
 
@@ -60,8 +59,8 @@ def seed():
     paths = files("openfga")
     if not paths:
         return {}
-    api = Api(setting("OPENFGA_API_URL"))
-    wait_until(SECTION, "OpenFGA", lambda: api.get("/stores"))
+    api = Api(setting("OPENFGA_API_URL"), SECTION)
+    wait_until(SECTION, "OpenFGA", lambda: api.get("/stores"), final=REFUSED)
     stores = {}
     for path in paths:
         spec = load(path)
@@ -71,10 +70,12 @@ def seed():
 
         store = next((s for s in api.get("/stores").json().get("stores", []) if s["name"] == name), None)
         if store:
+            adopted(SECTION, "store", name, store["id"])
             log(SECTION, f"Store '{name}' exists")
         else:
-            store = api.post("/stores", json={"name": name}).json()
-            record(SECTION, "store", "OpenFGA stores", name, store["id"])
+            with making(SECTION, "store", "OpenFGA stores", name):
+                store = api.post("/stores", json={"name": name}).json()
+                record(SECTION, "store", "OpenFGA stores", name, store["id"])
             log(SECTION, f"✓ Store '{name}' created")
 
         latest = api.get(f"/stores/{store['id']}/authorization-models", params={"page_size": 1}).json()
@@ -102,7 +103,8 @@ def remove(records):
     stores = owned(records, SECTION, ORDER)
     if not stores:
         return
-    api = Api(setting("OPENFGA_API_URL"))
+    api = Api(setting("OPENFGA_API_URL"), SECTION)
     for x in stores:
         api.delete(f"/stores/{x['id']}")
+        forget(x)
         log(SECTION, f"✓ Store '{x['name']}' deleted")

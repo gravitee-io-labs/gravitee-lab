@@ -22,10 +22,10 @@ file's: it is never generated, read back or logged.
 import json
 import os
 
-from .common import Api, SeedError, files, items, load, log, owned, record, recorded, seed_file, setting, wait_until
+from .common import (REFUSED, Api, SeedError, adopted, excerpt, files, forget, items, load, log, making, owned, pending, record, recorded,
+                     seed_file, setting, unmade, wait_until)
 
 SECTION = "am"
-DEPENDS = ("openfga",)   # the modules whose work this one reads on the platform (schedule.py)
 # What it records, dependents first
 ORDER = ["authorization-engine", "protected-resource", "agent", "application", "group", "user", "scope", "domain"]
 # Where each kind lives under its domain; the domain itself lives under the environment
@@ -68,12 +68,12 @@ class AmApi(Api):
     """The AM management API. A token from a login lasts about a minute, so a request it refuses is sent again after
     logging in once more."""
 
-    def __init__(self, base_url):
-        super().__init__(base_url)
+    def __init__(self, base_url, section):
+        super().__init__(base_url, section)
         self.credentials = None   # none with a token (AM_TOKEN): there is nothing to log in with
 
     def login(self):
-        r = self.post("/management/auth/token", auth=self.credentials, headers={"Content-Type": None})
+        r = self.post("/management/auth/token", auth=self.credentials, headers={"Content-Type": None}, idempotent=True)
         self.session.headers["Authorization"] = f"Bearer {r.json()['access_token']}"
 
     def send(self, method, path, **kwargs):
@@ -86,7 +86,7 @@ class AmApi(Api):
 
 class AccessManagement:
     def __init__(self):
-        self.api = AmApi(setting("AM_MANAGEMENT_URL"))
+        self.api = AmApi(setting("AM_MANAGEMENT_URL"), SECTION)
         self.org, self.env = setting("AM_ORG", "DEFAULT"), setting("AM_ENV", "DEFAULT")
         self.org_url = f"/management/organizations/{self.org}"
         self.env_url = f"{self.org_url}/environments/{self.env}"
@@ -98,10 +98,10 @@ class AccessManagement:
         token = os.getenv("AM_TOKEN")
         if token:
             self.api.session.headers["Authorization"] = f"Bearer {token}"
-            wait_until(SECTION, "Access Management", lambda: self.api.get(f"{self.env_url}/domains"))
+            wait_until(SECTION, "Access Management", lambda: self.api.get(f"{self.env_url}/domains"), final=REFUSED)
             return
         self.api.credentials = (setting("AM_USERNAME"), setting("AM_PASSWORD"))
-        wait_until(SECTION, "Access Management", self.api.login)
+        wait_until(SECTION, "Access Management", self.api.login, final=REFUSED)
 
     # --- Domain ---------------------------------------------------------------------------
 
@@ -120,12 +120,14 @@ class AccessManagement:
         found = next((d for d in self.domains() if d["name"] == name), None)
         if found:
             domain_id = found["id"]
+            adopted(SECTION, "domain", name, domain_id)
             log(SECTION, f"Domain '{name}' exists")
         else:
-            domain_id = self.api.post(f"{self.env_url}/domains", json={
-                "name": name, "description": spec.get("description", ""), "dataPlaneId": spec.get("dataPlaneId", "default"),
-            }).json()["id"]
-            record(SECTION, "domain", "domains", name, domain_id)
+            with making(SECTION, "domain", "domains", name):
+                domain_id = self.api.post(f"{self.env_url}/domains", json={
+                    "name": name, "description": spec.get("description", ""), "dataPlaneId": spec.get("dataPlaneId", "default"),
+                }).json()["id"]
+                record(SECTION, "domain", "domains", name, domain_id)
             log(SECTION, f"✓ Domain '{name}' created")
         self.domain_id = domain_id
         self.domain_url = f"{self.env_url}/domains/{domain_id}"
@@ -165,10 +167,12 @@ class AccessManagement:
             key, current = spec["key"], held.get(spec["key"])
             said = {"name": spec.get("name", key), "description": spec.get("description", spec.get("name", key))}
             if not current:
-                held[key] = self.api.post(url, json={"key": key, **said}).json()
-                record(SECTION, "scope", "scopes", key, held[key]["id"], domain=self.domain_id)
+                with making(SECTION, "scope", "scopes", key, domain=self.domain_id):
+                    held[key] = self.api.post(url, json={"key": key, **said}).json()
+                    record(SECTION, "scope", "scopes", key, held[key]["id"], domain=self.domain_id)
                 made += 1
-            elif recorded(SECTION, "scope", current["id"]) and not contains(current, said):
+            elif (recorded(SECTION, "scope", current["id"]) or adopted(SECTION, "scope", key, current["id"], domain=self.domain_id)) \
+                    and not contains(current, said):
                 self.api.patch(f"{url}/{current['id']}", json=said)
                 changed += 1
         done = ([f"{made} created"] if made else []) + ([f"{changed} put back"] if changed else [])
@@ -179,17 +183,17 @@ class AccessManagement:
     def application(self, spec):
         name, client_id = spec["name"], spec["clientId"]
         found = self._find_application(client_id)
+        kind, label = ("agent", "AM agents") if spec.get("type") == "AGENT" else ("application", "applications")
         if found:
             app_id = found["id"]
+            adopted(SECTION, kind, name, app_id, domain=self.domain_id)
             log(SECTION, f"Application '{name}' exists")
         else:
             payload = {k: spec[k] for k in ("name", "type", "kind", "clientId", "clientSecret", "redirectUris", "description", "agentCardUrl") if k in spec}
             payload.setdefault("type", "BROWSER")
-            app_id = self.api.post(f"{self.domain_url}/applications", json=payload).json()["id"]
-            if payload["type"] == "AGENT":
-                record(SECTION, "agent", "AM agents", name, app_id, domain=self.domain_id)
-            else:
-                record(SECTION, "application", "applications", name, app_id, domain=self.domain_id)
+            with making(SECTION, kind, label, name, domain=self.domain_id):
+                app_id = self.api.post(f"{self.domain_url}/applications", json=payload).json()["id"]
+                record(SECTION, kind, label, name, app_id, domain=self.domain_id)
             log(SECTION, f"✓ Application '{name}' created")
             # What AM made of it, which the file is compared with: a kind of agent brings settings of its own
             found = self.api.get(f"{self.domain_url}/applications/{app_id}").json()
@@ -275,13 +279,21 @@ class AccessManagement:
         if "additionalInformation" in spec:
             self._user_with_profile(spec)
             return
-        r = self.api.post(f"{self.domain_url}/users", expect=(200, 201, 202, 400), json={
-            "forceResetPassword": False, "preRegistration": False, **spec})
-        if r.status_code == 400 and "already exists" not in r.text.lower():
-            raise SeedError(f"User '{spec['username']}': {r.text[:300]}")
-        if r.status_code != 400:
-            record(SECTION, "user", "users", spec["username"], r.json()["id"], domain=self.domain_id)
-        log(SECTION, f"{'✓ User created' if r.status_code != 400 else 'User exists'}: {spec['username']}")
+        username = spec["username"]
+        found = self._find_user(username) if pending(SECTION, "user", username) else None   # the answer an earlier seed lost
+        if found and adopted(SECTION, "user", username, found["id"], domain=self.domain_id):
+            log(SECTION, f"User exists: {username}")
+            return
+        with making(SECTION, "user", "users", username, domain=self.domain_id):
+            r = self.api.post(f"{self.domain_url}/users", expect=(200, 201, 202, 400), json={
+                "forceResetPassword": False, "preRegistration": False, **spec})
+            if r.status_code == 400:
+                unmade(SECTION, "user", username)
+                if "already exists" not in r.text.lower():
+                    raise SeedError(f"User '{username}': {excerpt(r.text, 300)}")
+            else:
+                record(SECTION, "user", "users", username, r.json()["id"], domain=self.domain_id)
+        log(SECTION, f"{'✓ User created' if r.status_code != 400 else 'User exists'}: {username}")
 
     def _find_user(self, username):
         users = items(self.api.get(f"{self.domain_url}/users", params={"q": username, "size": 50}).json())
@@ -294,12 +306,14 @@ class AccessManagement:
         found = self._find_user(username)
         if found:
             user = self.api.get(f"{self.domain_url}/users/{found['id']}").json()
+            adopted(SECTION, "user", username, found["id"], domain=self.domain_id)
             log(SECTION, f"User exists: {username}")
         else:
             body = {k: v for k, v in spec.items() if k != "additionalInformation"}
-            user = self.api.post(f"{self.domain_url}/users", json={
-                "forceResetPassword": False, "preRegistration": False, **body}).json()
-            record(SECTION, "user", "users", username, user["id"], domain=self.domain_id)
+            with making(SECTION, "user", "users", username, domain=self.domain_id):
+                user = self.api.post(f"{self.domain_url}/users", json={
+                    "forceResetPassword": False, "preRegistration": False, **body}).json()
+                record(SECTION, "user", "users", username, user["id"], domain=self.domain_id)
             log(SECTION, f"✓ User created: {username}")
         current = user.get("additionalInformation") or {}
         if not contains(current, profile):
@@ -315,10 +329,12 @@ class AccessManagement:
         found = next((g for g in items(self.api.get(url, params={"size": 200}).json()) if g["name"] == name), None)
         if found:
             group = self.api.get(f"{url}/{found['id']}").json()
+            adopted(SECTION, "group", name, found["id"], domain=self.domain_id)
             log(SECTION, f"Group '{name}' exists")
         else:
-            group = self.api.post(url, json={"name": name, "description": spec.get("description", name)}).json()
-            record(SECTION, "group", "groups", name, group["id"], domain=self.domain_id)
+            with making(SECTION, "group", "groups", name, domain=self.domain_id):
+                group = self.api.post(url, json={"name": name, "description": spec.get("description", name)}).json()
+                record(SECTION, "group", "groups", name, group["id"], domain=self.domain_id)
             log(SECTION, f"✓ Group '{name}' created")
         for username in spec.get("members", []):
             user = self._find_user(username)
@@ -334,17 +350,20 @@ class AccessManagement:
     def protected_resource(self, spec):
         kind = spec.get("type", "MCP_SERVER")
         existing = items(self.api.get(f"{self.domain_url}/protected-resources", params={"type": kind, "size": 200}).json())
-        if any(r.get("clientId") == spec["clientId"] for r in existing):
+        held = next((r for r in existing if r.get("clientId") == spec["clientId"]), None)
+        if held:
+            adopted(SECTION, "protected-resource", spec["name"], held["id"], domain=self.domain_id)
             log(SECTION, f"Protected resource '{spec['name']}' exists")
             return
-        created_resource = self.api.post(f"{self.domain_url}/protected-resources", json={
-            "name": spec["name"], "description": spec.get("description", ""), "type": kind,
-            "resourceIdentifiers": spec.get("resourceIdentifiers", []),
-            "clientId": spec["clientId"], "clientSecret": spec.get("clientSecret"),
-            "features": [{"key": t["key"], "description": t.get("description", ""), "type": t.get("type", "MCP_TOOL"),
-                          "scopes": t.get("scopes", [])} for t in spec.get("tools", [])],
-        }).json()
-        record(SECTION, "protected-resource", "MCP servers", spec["name"], created_resource["id"], domain=self.domain_id)
+        with making(SECTION, "protected-resource", "MCP servers", spec["name"], domain=self.domain_id):
+            created_resource = self.api.post(f"{self.domain_url}/protected-resources", json={
+                "name": spec["name"], "description": spec.get("description", ""), "type": kind,
+                "resourceIdentifiers": spec.get("resourceIdentifiers", []),
+                "clientId": spec["clientId"], "clientSecret": spec.get("clientSecret"),
+                "features": [{"key": t["key"], "description": t.get("description", ""), "type": t.get("type", "MCP_TOOL"),
+                              "scopes": t.get("scopes", [])} for t in spec.get("tools", [])],
+            }).json()
+            record(SECTION, "protected-resource", "MCP servers", spec["name"], created_resource["id"], domain=self.domain_id)
         log(SECTION, f"✓ Protected resource '{spec['name']}' created ({len(spec.get('tools', []))} tools)")
 
     # --- Authorization engines ------------------------------------------------------------
@@ -364,16 +383,17 @@ class AccessManagement:
             current = json.loads(engine.get("configuration") or "{}")
             if {key: current.get(key) for key in configuration} == configuration:
                 log(SECTION, f"Authorization engine '{spec['name']}' exists")
-            elif not recorded(SECTION, "authorization-engine", engine["id"]):
+            elif not recorded(SECTION, "authorization-engine", engine["id"]) and \
+                    not adopted(SECTION, "authorization-engine", spec["name"], engine["id"], domain=self.domain_id):
                 raise SeedError(f"Authorization engine '{engine.get('name')}' has another configuration, "
                                 "and the seed did not create it")
             else:
                 self.api.put(f"{url}/{engine['id']}", json={"name": spec["name"], "configuration": json.dumps(configuration)})
                 log(SECTION, f"✓ Authorization engine '{spec['name']}' updated")
             return
-        engine = self.api.post(url, json={"type": spec["type"], "name": spec["name"], "configuration": json.dumps(configuration)}).json()
-        record(SECTION, "authorization-engine", "authorization engines", spec["name"], engine["id"],
-               domain=self.domain_id)
+        with making(SECTION, "authorization-engine", "authorization engines", spec["name"], domain=self.domain_id):
+            engine = self.api.post(url, json={"type": spec["type"], "name": spec["name"], "configuration": json.dumps(configuration)}).json()
+            record(SECTION, "authorization-engine", "authorization engines", spec["name"], engine["id"], domain=self.domain_id)
         log(SECTION, f"✓ Authorization engine '{spec['name']}' created")
 
 
@@ -420,4 +440,5 @@ def remove(records):
         path = f"{am.env_url}/domains/{x['id']}" if x["kind"] == "domain" else f"{am.env_url}/domains/{x['domain']}/{PATHS[x['kind']]}/{x['id']}"
         # AM 4.12 answers 500 to the deletion of a protected resource that does not say its type (the seed makes MCP servers)
         am.api.delete(path, **({"params": {"type": "MCP_SERVER"}} if x["kind"] == "protected-resource" else {}))
+        forget(x)
         log(SECTION, f"✓ Deleted {x['kind'].replace('-', ' ')} '{x['name']}'")
