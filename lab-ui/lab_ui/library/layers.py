@@ -3,9 +3,11 @@ or a stop and its job: the services it changes and what its commands wait for, f
 place, which leaves the platform alone; what an apply recreates.
 
 An item of a catalog is read here as any other (its id says where it is), and three gates stand between it and the
-platform. The plan refuses a start for what the policy blocks, a catalog it lacks, its twin that is on, a port that is
-taken, and a layout still being moved (`_blocked`). `check` asks the catalogs to verify what is installed before a start
-runs (the preflight). `write`, the only writer of the on file, adds no entry for a unit that is blocked."""
+platform. The plan refuses a start for what the policy blocks, a catalog it lacks, its twin that is on, a port that
+something of the lab publishes, and a layout still being moved (`_blocked`). `check` refuses a port another program
+holds, then asks the catalogs to verify what is installed before a start runs (the preflight). `write`, the only writer
+of the on file, adds no entry for a unit that is blocked, and writes nothing over a file another job wrote since the
+plan."""
 
 import functools
 import importlib
@@ -15,7 +17,7 @@ import stat
 
 from ..docker import compose, envfiles
 from .. import paths
-from ..docker.jobs import JOBS, awaited
+from ..docker.jobs import JOBS, JobFailed, awaited
 from ..gravitee import platforms
 from ..catalogs import registry, resolve
 from . import moves
@@ -188,19 +190,27 @@ def ready():
         raise RuntimeError(WAITING)
 
 
-def current(project):
-    """What the on file turns on: {playground, explicit, effective, setups, targets, missing, unset, problems, locked}.
-    `targets` says where each item runs that does not run on this machine. `unset`
-    names the required settings each add-on of `missing` lacks. A setup
-    listed there stands for the add-ons it includes; `setups` names it. An entry whose file is gone is ignored and
-    reported. `locked` is the reason the file must not be rewritten: it holds more than the Lab UI writes, or an entry
-    whose file does not load, which a rewrite would drop. An item of a catalog is an entry like any other, and one the
-    policy blocks is still one: it is loaded, so it locks nothing. While the old layout is being moved an entry
-    of that layout is neither a problem nor a lock: it is off until the move translates it."""
+def stamp():
+    """What tells the on file as it is now from what it was: a digest of its text, empty text for a file that is not
+    there."""
     file = paths.ROOT / paths.ON_FILE
+    return compose.digest(file.read_text(encoding="utf-8") if file.is_file() else "")
+
+
+def current(project):
+    """What the on file turns on: {playground, explicit, effective, setups, targets, missing, unset, problems, locked,
+    stamp}. `targets` says where each item runs that does not run on this machine; `stamp` is the file as it was read
+    (stamp()), which a plan made from this keeps, so that its job does not write it over what another job wrote since.
+    `unset` names the required settings each add-on of `missing` lacks. A setup listed there stands for the add-ons it
+    includes; `setups` names it. An entry whose file is gone is ignored and reported. `locked` is the reason the file
+    must not be rewritten: it holds more than the Lab UI writes, or an entry whose file does not load, which a rewrite
+    would drop. An item of a catalog is an entry like any other, and one the policy blocks is still one: it is loaded,
+    so it locks nothing. While the old layout is being moved an entry of that layout is neither a problem nor a lock: it
+    is off until the move translates it."""
+    file = paths.ROOT / paths.ON_FILE
+    text = file.read_text(encoding="utf-8") if file.is_file() else ""
     entries = compose.includes(paths.ON_FILE)
-    lines = [line for line in (file.read_text(encoding="utf-8").split("\n") if file.is_file() else [])
-             if line.strip() and not line.lstrip().startswith("#")]
+    lines = [line for line in text.split("\n") if line.strip() and not line.lstrip().startswith("#")]
     # The Lab UI writes `include:` and one line per entry: any other line is the user's
     own = bool(lines) and (lines[0].split("#")[0].strip() != "include:" or len(lines) != len(entries) + 1)
     playgrounds, setups, explicit, broken, problems = [], [], set(), [], []
@@ -238,7 +248,8 @@ def current(project):
              if (unit := paths.unit_of(path))}
     return {"playground": playground, "explicit": sorted(explicit), "setups": sorted(setups),
             "effective": sorted(_effective(project, playground, explicit)), "targets": where,
-            "missing": list(unset), "unset": unset, "problems": problems, "locked": locked}
+            "missing": list(unset), "unset": unset, "problems": problems, "locked": locked,
+            "stamp": compose.digest(text)}
 
 
 def _named(project, file):
@@ -478,8 +489,8 @@ def at_least(tag, wanted):
 
 @functools.lru_cache(maxsize=4096)
 def _sets(raw_image):
-    """The variables an image line sets itself, its registry's and its version's (images._parts): what a line says is the
-    same each time it is read, so it is read once."""
+    """The variables an image line sets itself, its registry's and its version's (images._parts): what a line says is
+    the same each time it is read, so it is read once."""
     from ..docker import images   # images imports this module
     return frozenset((key or (None,))[0] for key in images._parts(raw_image)[::2]) - {None}
 
@@ -797,10 +808,10 @@ def _published(project, names):
 
 def _port_clash(project, state, up, kind, unit, going=frozenset()):
     """"Port 8140 is used by Acme Bakery" when a host port the item's services publish is published by something else
-    that is on or runs, the platform whether it runs or not (it is always on: the next Start all would fail), the first by
-    port; None otherwise. Every item is asked, this machine's own too. What the item brings itself, its twin and what this
-    very plan turns off (`going`: [(kind, id)]) do not count: they do not run with it. What another program holds is
-    asked at the click (check(): taken())."""
+    that is on or runs, the platform whether it runs or not (it is always on: the next Start all would fail), the first
+    by port; None otherwise. Every item is asked, this machine's own too. What the item brings itself, its twin and what
+    this very plan turns off (`going`: [(kind, id)]) do not count: they do not run with it. What another program holds
+    is asked at the click (check(): taken())."""
     nodes = _reach(project, kind, unit["id"])
     members = [project[node[0] + "s"][node[1]] for node in nodes]
     mine = set(nodes) | going | {(node[0], member["twin"]["id"]) for node, member in zip(nodes, members)
@@ -1084,15 +1095,9 @@ def local_needs(project, unit):
     setup: those its apps, its seed and the services of what it brings depend on, and what they depend on in turn, but the
     gateway and the control plane of API Management, which the platform runs (Access Management with its database, for
     example). Sorted."""
-    services = project["services"]
-    core = {name for name, service in services.items() if service["owner"]["kind"] == "platform"}
+    core = {name for name, service in project["services"].items() if service["owner"]["kind"] == "platform"}
     core -= {platforms.local_gateway(project)} | _control_plane(project)
-    mine = [*unit.get("services", []), *_addon_services(project, brought(unit))]
-    found, frontier = set(), {need for name in mine if name in services for need in services[name]["depends_on"]} & core
-    while frontier:
-        found |= frontier
-        frontier = {need for name in frontier for need in services[name]["depends_on"]} & core - found
-    return sorted(found)
+    return sorted(depends(project, core, [*unit.get("services", []), *_addon_services(project, brought(unit))]))
 
 
 def _remote_view(project, kind, uid, gateway):
@@ -1158,13 +1163,14 @@ def _on_their_platforms(project, state):
 def plan(project, state, up, kind, uid, do, fresh=False, behind=frozenset(), place=None, also=frozenset(), switching=False):
     """What starting or stopping an add-on, a setup or a playground changes, said before it runs (ROWS): rows of {kind,
     id, name} that start, stop (they run), are turned off (they are on and do not run), are kept or restart; the
-    services its commands remove and start (`services`); the reason it cannot run (`blocked`); the on file it leads
-    to (`playground`, `explicit`); the keys of the rows that are the item itself (`itself`): a setup's add-ons are the
-    setup, but those that were turned on by themselves when it stops; and the word of its button (`label`). `state`
-    is current(), `up` what runs (model.up()). `fresh`: a playground's start that sets it up, its seed included.
-    `behind`: the services that run behind what is saved (model.behind). `also`: services a start makes again besides its own: the
-    platform that runs behind the versions a playground's start just switched to (playgrounds.start). `switching`: the person chose to
-    take a playground to the versions it was tested with (switch); it goes there anyway when the saved ones are older than it asks.
+    services its commands remove and start (`services`); the reason it cannot run (`blocked`); the on file it leads to
+    (`playground`, `explicit`), where what a start brings runs (`targets`, as write() takes them) and the on file it was
+    made from (`stamp`, state's); the keys of the rows that are the item itself (`itself`): a setup's add-ons are the
+    setup, but those that were turned on by themselves when it stops; and the word of its button (`label`). `state` is
+    current(), `up` what runs (model.up()). `fresh`: a playground's start that sets it up, its seed included. `behind`:
+    the services that run behind what is saved (model.behind). `switching`: the person chose to take a playground to the
+    versions it was tested with (switch); it goes there anyway when the saved ones are older than it asks, and what runs
+    on an image the switch changes restarts with it (images.changing).
 
     `place`: where a start deploys. None, or This machine (MACHINE, by its id or as a place), is the plan above, as it
     always was, and so is every stop. A remote place, {id, name, gateway, here, serving}, makes the plan of a lab
@@ -1200,7 +1206,7 @@ def plan(project, state, up, kind, uid, do, fresh=False, behind=frozenset(), pla
     swap = remote and gateway["id"] in up["addons"] and not place.get("here")
     if do == "start":
         named = {row["id"] for row in restarts} | set(gateway["services"] if swap else ())
-        later = dict.fromkeys([*_late(project, kind, unit, behind), *sorted(set(also) & set(project["services"]))])
+        later = _late(project, kind, unit, behind)
         restarts = sorted(restarts + [_service_row(project, name) for name in later if name not in named], key=lambda row: row["id"])
         if swap:   # made again with this place's token, as one row
             restarts.insert(0, _row("addon", gateway["id"], gateway["name"]))
@@ -1227,6 +1233,13 @@ def plan(project, state, up, kind, uid, do, fresh=False, behind=frozenset(), pla
         # On, its add-ons are the setup, but those turned on by themselves: they are said first
         alone = (set(state["explicit"]) & members) - set(unit["includes"])
         itself |= {key("addon", aid) for aid in members - alone}
+    # Where what a start brings runs from now on, {its file: the kind of platform, None for this machine}: here, or on
+    # the platform of the remote place; a stop leaves every item where it runs, and so does a place that does not say
+    # its kind
+    runs = place.get("kind") if remote else None
+    targets = {} if do != "start" or (remote and not runs) else {
+        project[node[0] + "s"][node[1]]["file"]: runs for node in _reach(project, kind, uid)
+        if project[node[0] + "s"][node[1]].get("file") and not (remote and node == ("addon", place["gateway"]))}
     departing = {("addon", aid) for aid in going} | ({("playground", leaving)} if leaving else set())
     blocked = _blocked(project, state, kind, unit, do, place["gateway"] if remote else None, up, departing)
     if not blocked and (kind, do) == ("setup", "stop") and not (stops or turns_off):
@@ -1237,7 +1250,7 @@ def plan(project, state, up, kind, uid, do, fresh=False, behind=frozenset(), pla
             "restarts": restarts,
             "services": {"remove": _removed(project, up, leaving, going), "start": start},
             "blocked": blocked, "itself": itself, "fresh": fresh,
-            "playground": playground, "explicit": sorted(explicit),
+            "playground": playground, "explicit": sorted(explicit), "targets": targets, "stamp": state.get("stamp"),
             **(_place_rows(place, (kind, uid) == ("addon", place["gateway"]), swap) if remote else {}),
             **(_from(unit) if do == "start" else {}),
             **(_switch_parts(project, to) if to else {})}
@@ -1335,12 +1348,12 @@ def _on_the_file(project, plan):
 
 def check(project, plan, accept):
     """Refuses a plan that cannot run as the page showed it: blocked, or stopping or turning off something that is
-    neither the item itself nor accepted, by its key; a start, also when a host port of what it starts is used by another
-    program (taken()). A start that puts a unit of a catalog in the on file (this machine's
-    own is no catalog's) is then handed to the catalogs' preflight: it judges the units again on the live model and
-    verifies that their installed files are the ones that were installed, and refuses with its own line. What it raises is
-    not changed here. Every caller passes the project, and what the page sent back (`accept`), even when it sent nothing:
-    a form that left either out would skip the preflight without a word."""
+    neither the item itself nor accepted, by its key; a start, also when a host port of what it starts is used by
+    another program (taken()). A start that puts a unit of a catalog in the on file (this machine's own is no catalog's)
+    is then handed to the catalogs' preflight: it judges the units again on the live model and verifies that their
+    installed files are the ones that were installed, and refuses with its own line. What it raises is not changed here.
+    Every caller passes the project, and what the page sent back (`accept`), even when it sent nothing: a form that left
+    either out would skip the preflight without a word."""
     if plan["blocked"]:
         raise RuntimeError(plan["blocked"])
     for part, verb in (("stops", "stop"), ("turns_off", "turn off"), ("versions", "change"), ("goes_back", "take back")):
@@ -1396,7 +1409,10 @@ def _legacy_lines():
     return found
 
 
-def write(playground, explicit, targets=None, names=None, blocked=None):
+CHANGED = "What is on changed meanwhile: try again"   # the on file was written since the plan of a job was made
+
+
+def write(playground, explicit, targets=None, names=None, blocked=None, since=None):
     """Writes the on file: the playground first (with include, the first file to set a key wins), then the
     add-ons turned on one by one. Nothing on: an empty file, the core runs alone; Compose needs the file all the
     same, COMPOSE_FILE names it. An item that runs on another platform is written as its copy for it
@@ -1407,7 +1423,12 @@ def write(playground, explicit, targets=None, names=None, blocked=None):
     `blocked`, {unit file: why it must not start} (blocked_files), is the gate: an entry that is not in the file yet is
     not added for a unit it names, and writing it raises. One already there stays, and removing entries never raises, so a
     stop works for whatever is on. While the old layout is being moved the lines that name its files stay after the others
-    (_legacy_lines): the move translates the file as it finds it."""
+    (_legacy_lines): the move translates the file as it finds it.
+
+    `since`, the stamp of the file a plan was made from (current()), is the other gate: the file is not written when it
+    changed since (RuntimeError CHANGED), for what the plan made of it would undo what another job did meanwhile."""
+    if since is not None and stamp() != since:
+        raise RuntimeError(CHANGED)
     files = [paths.unit_file("playground", playground)] if playground else []
     files += [paths.unit_file("addon", aid) for aid in sorted(set(explicit))]
     if blocked:
@@ -1546,9 +1567,47 @@ def commands(plan):
     all): what goes is removed by name, Compose asked by project name, whatever the files include; then what starts
     and what restarts, by name, without what they depend on (`--no-deps`), which the plan names when it does not
     run. What runs is left as it is, what was stopped stays stopped, what was started outside the Lab UI stays."""
-    remove, start = plan["services"]["remove"], plan["services"]["start"]
-    found = [[*compose.by_name(), "rm", "--stop", "--force", *remove]] if remove else []
-    return found + ([[*compose.COMPOSE, "up", "-d", "--no-deps", *start]] if start else [])
+    return _removal(plan["services"]["remove"]) + starting(plan["services"]["start"])
+
+
+def _removal(names):
+    return [[*compose.by_name(), "rm", "--stop", "--force", *names]] if names else []
+
+
+def starting(names):
+    """The run that starts these services by name, as every start of an item does (commands()): none for no service,
+    which Compose would read as every one."""
+    return [[*compose.COMPOSE, "up", "-d", "--no-deps", *names]] if names else []
+
+
+def steps(project, plan, start=None):
+    """The steps of the job of a plan, in the order that leaves the lab as it says wherever the job ends (it fails, it
+    is canceled, the Lab UI stops): what goes is removed first, while the on file still names it, so that it is on and
+    stopped rather than off and still running, which would read as started by hand; then the on file is written
+    (written()); then what starts and restarts, by name (commands()). `start`: the services the last one names, when
+    they are more than the plan's (a playground's product, stopped to load its plugins)."""
+    return [*_removal(plan["services"]["remove"]), lambda job: written(job, project, plan),
+            *starting(plan["services"]["start"] if start is None else start)]
+
+
+SAID = (("starts", "Starts"), ("stops", "Stops"), ("turns_off", "Turns off"), ("restarts", "Restarts"))
+
+
+def written(job, project, plan):
+    """The step that writes the on file of a plan: through both gates of write() (a unit that is blocked, a file another
+    job wrote since the plan was made), with where the plan says what it starts runs (`targets`), each platform's copy
+    made for the gateway that platform runs here; then the folders its binds name are made, and the job says what it
+    changes."""
+    names = {kind: platforms.retarget_names(project, kind) for kind in set(plan.get("targets", {}).values()) if kind}
+    try:
+        write(plan["playground"], plan["explicit"], plan.get("targets"), names, blocked=blocked_files(project),
+              since=plan.get("stamp"))
+    except RuntimeError as error:   # its reason, as a line of the job says it
+        raise JobFailed(str(error)) from None
+    make_binds(project, plan)
+    for part, verb in SAID:
+        if plan[part]:
+            job.lines.append(f"{verb}: {', '.join(row['name'] for row in plan[part])}")
 
 
 def _target_pairs(project, plan):
@@ -1611,16 +1670,8 @@ def waits(project, plan):
 
 
 def apply(project, plan, title):
-    """Runs the plan of an add-on, a setup or a playground already set up as a job, once check() let it through.
-    When it fails the on file stays as written: the item is on, does not run, and can be started again or stopped."""
-
-    def write_on_file(job):
-        write(plan["playground"], plan["explicit"], blocked=blocked_files(project))
-        make_binds(project, plan)
-        for part, verb in (("starts", "Starts"), ("stops", "Stops"), ("turns_off", "Turns off"),
-                           ("restarts", "Restarts")):
-            if plan[part]:
-                job.lines.append(f"{verb}: {', '.join(row['name'] for row in plan[part])}")
-
-    return JOBS.start(title, [write_on_file, *commands(plan)], key=f"{plan['kind']}:{plan['id']}",
+    """Runs the plan of an add-on, a setup or a playground already set up as a job (steps()), once check() let it
+    through. When it fails the on file stays as written: the item is on, does not run, and can be started again or
+    stopped; when it fails before (what goes could not be removed), nothing is written and what was on stays on."""
+    return JOBS.start(title, steps(project, plan), key=f"{plan['kind']}:{plan['id']}",
                       verb=plan["do"], changes=changes(project, plan), waits=waits(project, plan))

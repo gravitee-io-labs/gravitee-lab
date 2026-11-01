@@ -606,6 +606,12 @@ What the server decides and the page shows. A name in backticks is the code to r
     which has nothing more to do the second time).
   - A playground's Start also runs the platform while none of it runs, else what of it its apps and its seed need.
   - Its Stop removes its own containers by name (`rm --stop --force`) and recreates the core services it changed.
+  - A job removes what goes before the on file says it is off, and writes the on file before it starts what comes
+    (`layers.steps`): wherever it fails, is canceled or the Lab UI stops, what it was taking away is on and stopped, never
+    off and running. A playground's first Start installs its plugins before either.
+  - A job writes the on file only as its plan read it (`stamp`): one another job wrote meanwhile ends it with *What is on
+    changed meanwhile: try again*. A Start on This machine writes what it brings for this machine, whatever platform it ran
+    on before (the plan's `targets`).
   - Nothing is removed as an orphan: what was stopped on purpose stays stopped, what was started outside the Lab UI
     stays.
 - **Side effects are asked first.** The plan (`layers.plan`) lists what starts, stops (it runs), is turned off (it is on

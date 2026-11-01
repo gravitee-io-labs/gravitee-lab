@@ -302,9 +302,9 @@ def _windows_ports():
 
 
 def held(ports):
-    """The ports among these that another program uses on this machine, sorted: not those the lab's own containers publish
-    (_lab_ports), and in WSL those Windows listens on too, where Docker Desktop publishes the containers' ports. None is
-    said while the lab's own cannot be told, its core file not loading: they would read as another program's."""
+    """The ports among these that another program uses on this machine, sorted: not those the lab's own containers
+    publish (_lab_ports), and in WSL those Windows listens on too, where Docker Desktop publishes the containers' ports.
+    None is said while the lab's own cannot be told, its core file not loading: they would read as another program's."""
     if not ports:
         return []
     try:

@@ -373,8 +373,8 @@ def _image_checks(project, playground):
 
 
 def _port_checks(project, plan):
-    """The host ports of what the start runs that another program uses now (layers.taken), in one line: its Start is refused
-    for them."""
+    """The host ports of what the start runs that another program uses now (layers.taken), in one line: its Start is
+    refused for them."""
     held = [str(port) for port in layers.taken(project, plan["services"]["start"])]
     if not held:
         return []
@@ -479,35 +479,11 @@ def _serving(project):
 
 
 def _arrival(project, found, addon):
-    """A place as layers.plan takes it: where it is, the add-on that runs its gateway and whether the gateway the add-on
-    is set to run is this place's (`here`), and the place that one serves now."""
-    return {"id": found["id"], "name": found["name"], "gateway": addon["id"],
+    """A place as layers.plan takes it: where it is, the kind of its platform (what the items a start brings are written
+    for there), the add-on that runs its gateway and whether the gateway the add-on is set to run is this place's
+    (`here`), and the place that one serves now."""
+    return {"id": found["id"], "name": found["name"], "kind": found["platform"]["kind"], "gateway": addon["id"],
             "here": bool(found["gateway"] and found["gateway"]["here"]), "serving": _serving(project)}
-
-
-def _items(project, playground):
-    """The files of a playground and of the add-ons it brings: what runs where it runs."""
-    return [playground["file"], *(project["addons"][aid]["file"] for aid in playground["addons"] if aid in project["addons"])]
-
-
-def _on_this_machine(project, playground):
-    """What a start on this machine says of where the playground and its add-ons run: here."""
-    return {file: None for file in _items(project, playground)}
-
-
-def _on_platform(project, playground, kind, gateway):
-    """What a deploy to a platform says of where the playground and its add-ons run (layers.write): there, written for the
-    gateway that the platform runs here, which is not one of them."""
-    return ({file: kind for file in _items(project, playground) if file != gateway["file"]},
-            {kind: platforms.retarget_names(project, kind)})
-
-
-def _unit_items(project, kind, unit, gateway):
-    """The files of an add-on or a setup and of what it brings: what runs where it runs. A setup is its add-ons; the add-on
-    of the gateway is none of them."""
-    ids = list(unit["members"]) if kind == "setup" else [unit["id"]]
-    ids += [uid for uid in layers.closure(project, [*ids, *layers.brought(unit)]) if uid not in ids]
-    return [project["addons"][uid]["file"] for uid in ids if uid in project["addons"] and uid != gateway["id"]]
 
 
 def _unit_plan(project, kind, uid, found, addon, now, state):
@@ -551,45 +527,39 @@ def deploy_unit(project, kind, uid, accept, place):
     layers.check(project, plan, accept)
     gateway, pid = found["gateway"], found["platform"]["id"]
     title = f"{plan['label']} {unit['name']} in {found['name']}"
-    files = _unit_items(project, kind, unit, addon)
-    where = ({file: found["platform"]["kind"] for file in files},
-             {found["platform"]["kind"]: platforms.retarget_names(project, found["platform"]["kind"])})
+    steps, phases, waits = _on_place(project, plan, pid, gateway, f"Runs on: {found['name']}")
+    return JOBS.start(title, steps, key=f"{kind}:{uid}", verb="start", changes=layers.changes(project, plan),
+                      phases=phases, waits=waits)
+
+
+def _on_place(project, plan, uid, gateway, said):
+    """The steps, phases and waits of a start on a place: the gateway of its platform takes the place's token when it
+    serves another one (platforms.swap_gateway), then the plan's own steps (layers.steps: what goes removed, the on file
+    written for the platform, what starts by name, what of this machine's platform it needs with it, which Compose
+    starts in the order of what each depends on), then the wait for the platform to say that the gateway is connected.
+    `said`: where it runs, in a line."""
+    named = plan["services"]["start"]
 
     def addons(job):
         job.step("Add-ons")
-        if not gateway["here"]:
+        if not gateway["here"]:   # the add-on is set to run another gateway, or none that exists: it takes this one's
             try:
-                platforms.swap_gateway(project, pid, gateway["id"])
+                platforms.swap_gateway(project, uid, gateway["id"])
             except (ValueError, paths.NotFound) as error:
                 raise JobFailed(str(error)) from None
-        layers.write(plan["playground"], plan["explicit"], *where, blocked=layers.blocked_files(project))
-        layers.make_binds(project, plan)
-        for part, said in (("starts", "Starts"), ("stops", "Stops"), ("turns_off", "Turns off"), ("restarts", "Restarts")):
-            if plan[part]:
-                job.lines.append(f"{said}: " + ", ".join(row["name"] for row in plan[part]))
-        job.lines.append(f"Runs on: {found['name']}")
-
-    named = plan["services"]["start"]
+        job.run_steps(layers.steps(project, plan, ()))
+        job.lines.append(said)
 
     def apps(job):
         job.step(APPS)
-        here = [name for name in named if project["services"].get(name, {}).get("owner", {}).get("kind") == "platform"]
-        if here:
-            job.exec([*COMPOSE, "up", "-d", *here])
-        apart = [name for name in named if name not in here]
-        if apart:
-            job.exec([*COMPOSE, "up", "-d", "--no-deps", *apart])
+        job.run_steps(layers.starting(named))
 
     def connected(job):
         job.step(GATEWAY)
-        _wait_connected(job, pid, gateway["id"])
+        _wait_connected(job, uid, gateway["id"])
 
-    running = bool(named)
-    steps = [addons, *([apps] if running else []), connected]
-    phases = ([APPS] if running else []) + [GATEWAY]
-    waits = [awaited(project["services"], start=named)] if running else []
-    return JOBS.start(title, steps, key=f"{kind}:{uid}", verb="start", changes=layers.changes(project, plan),
-                      phases=phases, waits=waits)
+    return ([addons, *([apps] if named else []), connected], ([APPS] if named else []) + [GATEWAY],
+            [awaited(project["services"], start=named)] if named else [])
 
 
 def _place_plan(project, pid, found, addon, now, state, seeds):
@@ -649,11 +619,11 @@ def _place_checks(project, pid, place):
 # Jobs: start, re-seed, stop
 # ---------------------------------------------------------------------------------------------------------------------
 
-def _plan(project, state, now, pid, do, accept, fresh=False, also=(), switching=False):
+def _plan(project, state, now, pid, do, accept, fresh=False, switching=False):
     """The plan of a start or a stop (`now`: _now()), refused when it cannot run as the page showed it: blocked, or
-    stopping, turning off or changing something else that was not accepted. `also`: what a start makes again besides its own;
-    `switching`: the person chose the versions the playground was tested with (layers.switch)."""
-    plan = layers.plan(project, state, now[0], "playground", pid, do, fresh=fresh, behind=now[1], also=also, switching=switching)
+    stopping, turning off or changing something else that was not accepted. `switching`: the person chose the versions
+    the playground was tested with (layers.switch)."""
+    plan = layers.plan(project, state, now[0], "playground", pid, do, fresh=fresh, behind=now[1], switching=switching)
     layers.check(project, plan, accept)
     return plan
 
@@ -677,8 +647,9 @@ KILLED = (137, 143)   # the exit codes of a process ended from outside (SIGKILL,
 
 def _seed_reason(line, code=None, memory=False):
     """Why the seed failed, from the last line it printed: what follows "✗" in "[seed] ✗ <why>", or the end of a
-    traceback; "The seed failed" when it printed nothing. A seed ended from outside, which said nothing of it, is said so
-    (`code`, its exit code, `memory`, Docker killed it for the memory it took): its last line is only where it was."""
+    traceback; "The seed failed" when it printed nothing. A seed ended from outside, which said nothing of it, is said
+    so (`code`, its exit code, `memory`, Docker killed it for the memory it took): its last line is only where it
+    was."""
     if "✗" not in line and memory:
         return "The seed ran out of memory"
     if "✗" not in line and code in KILLED:
@@ -687,14 +658,15 @@ def _seed_reason(line, code=None, memory=False):
 
 
 def _stop_seed(job, playground):
-    """Stops the seed of a playground once its job is canceled: ending the job's command leaves it running, whether Compose
-    started it detached (`up -d`) or it runs apart (`run`, whose container outlives it), and whatever it still did would
-    race what comes next (a Re-seed, a delete of what it created). Its containers are found by the labels Compose gives
-    them, its own and those of a run. A job that is not canceled leaves it as it is."""
+    """Stops the seed of a playground once its job is canceled: ending the job's command leaves it running, whether
+    Compose started it detached (`up -d`) or it runs apart (`run`, whose container outlives it), and whatever it still
+    did would race what comes next (a Re-seed, a delete of what it created). Its containers are found by the labels
+    Compose gives them, its own and those of a run. A job that is not canceled leaves it as it is."""
     if not (job.canceled and playground["seed"]):
         return
-    rc, out, _ = compose.run(["docker", "ps", "-q", "--filter", f"label=com.docker.compose.project={compose.project_name()}",
-                              "--filter", f"label=com.docker.compose.service={playground['seed']}"])
+    project = f"label=com.docker.compose.project={compose.project_name()}"
+    rc, out, _ = compose.run(["docker", "ps", "-q", "--filter", project, "--filter",
+                              f"label=com.docker.compose.service={playground['seed']}"])
     if rc == 0 and out.split():
         job.lines.append("Stopping the seed")
         compose.run(["docker", "stop", *out.split()], timeout=60)
@@ -724,41 +696,63 @@ def _follow_seed(project, playground):
 
 
 def start(project, pid, accept, place=None, remove=False, switching=False):
-    """Starts a playground. While it is off, or on and never seeded, or its seed failed (layers.fresh), the start
-    sets it up: its add-ons, the plugins it needs, its apps and services with what of the platform they need, the
-    whole platform while none of it runs ("Platform, apps and services" when the platform starts too), then its
-    seed. On and seeded, it runs again like an add-on: what of it does not run, without a build, without its seed
-    (Re-seed seeds it again). Its job is named as its button: "Start Acme Bakery", "Turn on …". For a place besides
+    """Starts a playground. While it is off, or on and never seeded, or its seed failed (layers.fresh), the start sets
+    it up: its add-ons, the plugins it needs, its apps and services with what of the platform they need, the whole
+    platform while none of it runs ("Platform, apps and services" when the platform starts too), then its seed. On and
+    seeded, it runs again like an add-on: what of it does not run, without a build, without its seed (Re-seed seeds it
+    again). Either way it runs here: a playground that was written for a platform's gateway is written for this machine
+    again (the plan's targets). Its job is named as its button: "Start Acme Bakery", "Turn on …". For a place besides
     This machine it is _deploy's. `remove`: the playground that this one stops has what it created deleted first, as its
-    own stop would (it is kept otherwise). `switching`: the person chose the versions it was tested with; it goes to them anyway when the
-    ones saved are older than it asks. The versions are saved first, then what runs behind them is made again with the start."""
+    own stop would (it is kept otherwise). `switching`: the person chose the versions it was tested with; it goes to
+    them anyway when the ones saved are older than it asks. The versions are saved once nothing refuses the start (its
+    plan, what it deletes, a job that runs), and put back when its job cannot start after all: what runs on them is made
+    again with the start (the plan's restarts)."""
     if _remote(place):
         return _deploy(project, pid, accept, place, False, remove)
     playground = layers.lookup(project, "playground", pid)
     state, now = layers.current(project), _now(project)
     fresh = _fresh(project, state, playground, now)
     plan = _plan(project, state, now, pid, "start", accept, fresh, switching=switching)
-    if plan.get("switch"):   # the versions it was tested with first; then what runs behind them is made again with the start
-        images.save(project, plan["switch"])
-        project = projects.load()
-        state, now = layers.current(project), _now(project)
-        plan = _plan(project, state, now, pid, "start", accept, fresh, now[1])
     delete = _leaving(project, state, plan, remove)
+    if not plan.get("switch"):
+        return _started(project, plan, delete)
+    if JOBS.current and not JOBS.current.done:   # the versions are not changed under a job that runs
+        raise RuntimeError(f"'{JOBS.current.title}' is still running")
+    undo = _saved(project, plan["switch"])
+    try:   # read again: the plugins the new images bring, and the versions the start records once it worked
+        return _started(projects.load(), plan, delete)
+    except BaseException:
+        undo()
+        raise
+
+
+def _saved(project, values):
+    """Saves versions (images.save) and answers what puts back the .env files that hold versions as they were."""
+    files = {ENV_FILE, *(paths.unit_env(component["owner"]["kind"], component["owner"]["id"]) or ENV_FILE
+                         for component in images.components(project))}
+    before = {path: (ROOT / path).read_text(encoding="utf-8") if (ROOT / path).is_file() else None for path in files}
+    images.save(project, values)
+
+    def undo():
+        for path, text in before.items():
+            file = ROOT / path
+            if text is None and file.is_file():
+                file.unlink()
+            elif text is not None and (not file.is_file() or file.read_text(encoding="utf-8") != text):
+                paths.write_atomic(file, text, mode=0o600)   # it holds secrets
+    return undo
+
+
+def _started(project, plan, delete):
+    """The job of the start of a playground on This machine, its plan checked (start()): one that runs it again like an
+    add-on's (layers.apply), or one that sets it up. `delete`: the step that deletes what the playground it stops
+    created (_leaving), or None."""
+    pid = plan["id"]
+    playground = project["playgrounds"][pid]
     title = f"{plan['label']} {playground['name']}"
-    if not fresh:
+    if not plan["fresh"]:
         return layers.apply(project, plan, title)
     phase = WITH_PLATFORM if any(_of_platform(project, row) for row in plan["starts"]) else APPS
-
-    def addons(job):
-        job.step("Add-ons")
-        layers.write(plan["playground"], plan["explicit"], _on_this_machine(project, playground),
-                     blocked=layers.blocked_files(project))
-        for part, verb in (("stops", "Stops"), ("turns_off", "Turns off")):
-            if plan[part]:
-                job.lines.append(f"{verb}: " + ", ".join(row["name"] for row in plan[part]))
-        names = [project["addons"][aid]["name"] for aid in playground["addons"] if aid in project["addons"]]
-        job.lines.append("Add-ons: " + (", ".join(names) or "none"))
-
     installs, changes, loads, stopped = [], layers.changes(project, plan), {}, []
     for product, names in (playground["requires"].get("plugins") or {}).items():
         needed, halted, waits = plugins.install_steps(project, product, names)
@@ -770,22 +764,24 @@ def start(project, pid, accept, place=None, remove=False, switching=False):
     # What goes is removed by name; then, by name too, what the plan starts and restarts, the seed included, and what
     # was stopped to load its plugins. Nothing else: what was started outside the Lab UI stays
     remove, named = plan["services"]["remove"], sorted(set(plan["services"]["start"]) | set(stopped))
+    brings = ", ".join(project["addons"][aid]["name"] for aid in playground["addons"] if aid in project["addons"])
 
     def apps(job):
+        # Nothing it does before, its plugins included, changes what is on: what it replaces runs on until here
         job.step(phase)
+        job.lines.append(f"Add-ons: {brings or 'none'}")
         # The seed records what it creates in a folder it mounts: made here, Docker would create it as root, and so is
         # every other folder a bind of its units names (layers.make_binds)
         (_folder(pid) / CREATED_FILE).parent.mkdir(exist_ok=True)
-        layers.make_binds(project, plan)
-        if remove:
-            job.exec([*compose.by_name(), "rm", "--stop", "--force", *remove])
-        if named:   # Compose reads an empty list as every service
-            job.exec([*COMPOSE, "up", "-d", "--no-deps", *named])
+        try:
+            job.run_steps(layers.steps(project, plan, named))
+        finally:   # canceled while `up` started its seed
+            _stop_seed(job, playground)
 
     seed = [_follow_seed(project, playground)] if playground["seed"] else []
     # Once all of it ended well: the versions it started on are the ones that worked here
     kept = [lambda job: tested.record(project, pid)]
-    steps = [addons, lambda job: job.step("Plugins"), *installs, apps, *seed, *kept]
+    steps = [lambda job: job.step("Plugins"), *installs, apps, *seed, *kept]
     phases = (["Plugins"] if installs else []) + [phase] + (["Seed"] if seed else [])
     # The apps' phase waits for what it removes and what it starts, the seed ready once it ended well. Following the
     # seed has nothing to count
@@ -807,6 +803,7 @@ def reseed(project, pid, place=None, accept=None):
     if not playground["seed"]:
         raise RuntimeError(f"{playground['name']} has no seed")
     _seed_waits(project, state, model.up(project, compose.ps()), playground)
+
     def begin(job):
         job.step("Start the seed")
         try:
@@ -890,12 +887,13 @@ def _before(step, steps, phases, waits):
 
 
 def stop(project, pid, remove, accept, place=None):
-    """Stops a playground: its apps, and the add-ons only it uses, removed by name; the core services it changed
-    restart. Off after a stop that failed, it stops again what of it still runs. `remove` first deletes what its seed
-    created in Gravitee, on This machine and in every place that holds a record, refused while what the seed needs
-    does not run, or when a place cannot be reached, with the reason of the first one; when a delete fails the job ends
-    there and nothing else changes. Its job is named as its button: "Stop …", "Turn off …". A stop is the same for
-    every place: `place` is the one the page was on, and changes nothing of it."""
+    """Stops a playground: its apps, and the add-ons only it uses, removed by name, then the on file written without
+    them; the core services it changed restart (layers.steps). A stop that fails before the on file is written leaves it
+    on, to be stopped again; off after one that failed later, it stops again what of it still runs. `remove` first
+    deletes what its seed created in Gravitee, on This machine and in every place that holds a record, refused while
+    what the seed needs does not run, or when a place cannot be reached, with the reason of the first one; when a delete
+    fails the job ends there and nothing else changes. Its job is named as its button: "Stop …", "Turn off …". A stop is
+    the same for every place: `place` is the one the page was on, and changes nothing of it."""
     playground = layers.lookup(project, "playground", pid)
     state, now = layers.current(project), _now(project)
     plan = _plan(project, state, now, pid, "stop", accept)
@@ -907,9 +905,7 @@ def stop(project, pid, remove, accept, place=None):
 
     def stop_apps(job):
         job.step("Stop the apps")
-        layers.write(plan["playground"], plan["explicit"])
-        for command in layers.commands(plan):
-            job.exec(command)
+        job.run_steps(layers.steps(project, plan))
 
     deletes = bool(remove and playground["seed"])
     steps = ([delete] if deletes else []) + [stop_apps]
@@ -1010,50 +1006,14 @@ def _deploy(project, pid, accept, place, reseed, remove=False):
     else:
         verb, title = "deploy", f"Deploy {playground['name']} to {found['name']}"
 
-    def addons(job):
-        job.step("Add-ons")
-        if not gateway["here"]:   # the add-on is set to run another gateway, or none that exists: it takes this one's
-            try:
-                platforms.swap_gateway(project, uid, gateway["id"])
-            except (ValueError, paths.NotFound) as error:
-                raise JobFailed(str(error)) from None
-        layers.write(plan["playground"], plan["explicit"], *_on_platform(project, playground, found["platform"]["kind"], addon),
-                     blocked=layers.blocked_files(project))
-        layers.make_binds(project, plan)
-        for part, said in (("starts", "Starts"), ("stops", "Stops"), ("turns_off", "Turns off"),
-                           ("restarts", "Restarts")):
-            if plan[part]:
-                job.lines.append(f"{said}: " + ", ".join(row["name"] for row in plan[part]))
-        job.lines.append(f"Deploys to: {found['name']}")
-
-    remove, named = plan["services"]["remove"], plan["services"]["start"]
-
-    def apps(job):
-        job.step(APPS)
-        if remove:
-            job.exec([*compose.by_name(), "rm", "--stop", "--force", *remove])
-        # What of this machine's platform the playground needs (Access Management and its database) starts with what it
-        # depends on, as it does on this machine: Compose waits for each to be healthy before the next
-        here = [name for name in named if project["services"].get(name, {}).get("owner", {}).get("kind") == "platform"]
-        if here:
-            job.exec([*COMPOSE, "up", "-d", *here])
-        named_apart = [name for name in named if name not in here]
-        if named_apart:   # Compose reads an empty list as every service
-            job.exec([*COMPOSE, "up", "-d", "--no-deps", *named_apart])
-
-    def connected(job):
-        job.step(GATEWAY)
-        _wait_connected(job, uid, gateway["id"])
-
     def seed(job):
         job.step(SEED)
         _remember(pid, place, found["environment"]["name"])
         _seed_apart(job, project, playground, place)
 
-    running = bool(remove or named)
-    steps = [addons, *([apps] if running else []), connected, *([seed] if seeds else [])]
-    phases = ([APPS] if running else []) + [GATEWAY] + ([SEED] if seeds else [])
-    waits = [awaited(project["services"], start=named, stop=remove)] if running else []
+    steps, phases, waits = _on_place(project, plan, uid, gateway, f"Deploys to: {found['name']}")
+    if seeds:
+        steps, phases = [*steps, seed], [*phases, SEED]
     steps, phases, waits = _before(delete, steps, phases, waits)
     return _job(title, steps, pid, verb, phases, waits, None if reseed else layers.changes(project, plan))
 

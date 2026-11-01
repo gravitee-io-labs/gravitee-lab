@@ -15,7 +15,7 @@ from unittest import mock
 from lab_ui.docker import compose, envfiles
 from lab_ui.library import layers, layout, project as projects
 from lab_ui import paths
-from lab_ui.docker.jobs import Job, awaited
+from lab_ui.docker.jobs import Job, JobFailed, awaited
 
 from .. import Case, fixtures
 from ..docker.test_jobs import Docker, container, progress, replay
@@ -1097,9 +1097,10 @@ class Plans(Case):
         self.assertEqual((layers.commands(plan), layers.waits(self.project, plan)), ([], []))
 
 
-# The plans of this project on main, before a place existed, and whether each asks, in the situations of snapshot()
-MAIN_PLANS = {"off": "9939a5beb335", "platform": "39ab5b96b5d0", "busy": "c8faae29dbe6", "stopped": "623a2540c1f4",
-              "behind": "6f0363b10dde"}
+# The plans of this project on main, before a place existed, and whether each asks, in the situations of snapshot(); since
+# then each also says where what a start brings runs (`targets`) and the on file it was made from (`stamp`), and nothing else
+MAIN_PLANS = {"off": "be42335431bb", "platform": "4602edbf8477", "busy": "28d8a4a69ec3", "stopped": "a64013a1d0ba",
+              "behind": "5b52bd1b8319"}
 
 
 def snapshot(**extra):
@@ -1579,7 +1580,7 @@ class Files(Case):
     def test_nothing_on(self):
         self.assertEqual(layers.current(self.project), {"playground": None, "explicit": [], "setups": [],
                                                         "effective": [], "targets": {}, "missing": [], "unset": {},
-                                                        "problems": [], "locked": None})
+                                                        "problems": [], "locked": None, "stamp": compose.digest("")})
 
     KAFKA = ("services:\n  apim-gateway:\n    environment:\n      gravitee_kafka_enabled: \"true\"\n"
              "  kafka:\n    container_name: gio-apim-gateway-probe\n    depends_on:\n      apim-gateway:\n"
@@ -1621,6 +1622,23 @@ class Files(Case):
         layers.write(None, ["kafka"], {"addons/kafka/compose.yml": "cloud"}, self.NAMES)
         layers.write(None, ["kafka"], {"addons/kafka/compose.yml": None})   # brought back to this machine
         self.assertEqual(layers.current(self.project)["targets"], {})
+
+    def test_a_start_on_this_machine_brings_back_here_what_ran_on_a_platform(self):
+        # Kafka was deployed (its copy for the platform's gateway), then its containers stopped while it stayed on: its Start
+        # on This machine runs it here, written for this machine's gateway, whatever else runs where it runs
+        self.write("addons/kafka/compose.yml", self.KAFKA)
+        layers.write(None, ["kafka", "kiosk"], {"addons/kafka/compose.yml": "cloud", "addons/kiosk/compose.yml": "cloud"},
+                     self.NAMES)
+        state = layers.current(self.project)
+        plan = layers.plan(self.project, state, up(), "addon", "kafka", "start")
+        self.assertEqual(plan["targets"], {"addons/kafka/compose.yml": None})
+        _, (write, *_), _ = self.applied(plan)
+        write(mock.Mock(lines=[]))
+        self.assertEqual(layers.current(self.project)["targets"], {"addon:kiosk": "cloud"})
+        self.assertIn("  - addons/kafka/compose.yml\n", (self.root / paths.ON_FILE).read_text(encoding="utf-8"))
+        # A stop leaves every item where it runs
+        stop = layers.plan(self.project, layers.current(self.project), up(), "addon", "kafka", "stop")
+        self.assertEqual(stop["targets"], {})
 
     def test_write_then_read(self):
         layers.write("welcome", ["kiosk", "kafka-desk"])
@@ -1749,7 +1767,7 @@ class Files(Case):
         # changes; Kiosk, started outside the Lab UI, stays
         state = on(self.project, ["jade"])
         plan = layers.plan(self.project, state, up("jade", "kiosk"), "addon", "agent-lens", "start")
-        _, (write, remove, start), more = self.applied(plan)
+        _, (remove, write, start), more = self.applied(plan)
         self.assertEqual((remove, start), ([*compose.COMPOSE, "-p", "lab", "rm", "--stop", "--force", "jade"],
                                            [*compose.COMPOSE, "up", "-d", "--no-deps", "agent-lens",
                                             "apim-gateway"]))
@@ -1766,13 +1784,56 @@ class Files(Case):
         state = on(self.project, ["kafka-desk"])
         plan = layers.plan(self.project, state, up("kafka", platform=False, created=["kafka-desk"]), "addon",
                            "kafka", "stop")
-        _, (_, command), more = self.applied(plan)
+        _, (command, _), more = self.applied(plan)
         self.assertEqual(command, [*compose.COMPOSE, "-p", "lab", "rm", "--stop", "--force",
                                    "kafka", "kafka-desk", "kafka-ui"])
         self.assertEqual(more, {"key": "addon:kafka", "verb": "stop",
                                 "changes": {"start": [], "stop": [["addon", "kafka"], ["addon", "kafka-desk"]]},
                                 "waits": [{("Container", "lab-kafka"): "stop", ("Container", "lab-kafka-ui"): "stop",
                                            ("Container", "lab-kafka-desk"): "stop"}]})
+
+    def test_what_goes_is_removed_before_the_on_file_says_it_is_off(self):
+        # The removal fails, or is canceled, or the Lab UI ends there: Kafka is still on, stopped, never off and still running
+        self.write(paths.ON_FILE, "include:\n  - addons/kafka/compose.yml\n")
+        state = layers.current(self.project)
+        plan = layers.plan(self.project, state, up("kafka"), "addon", "kafka", "stop")
+        title, steps, more = self.applied(plan)
+        job, commands = Job(title, steps, **more), []
+
+        def removal_fails(cmd, quiet=False):
+            commands.append(cmd)
+            raise JobFailed("Error response from daemon: cannot stop container")
+        job.exec = removal_fails
+        job.run()
+        self.assertEqual((job.ok, len(commands)), (False, 1))
+        self.assertEqual(layers.current(self.project)["explicit"], ["kafka"])
+        # Once it is removed, the file says it is off
+        job, commands = Job(title, steps, **more), []
+        job.exec = commands.append
+        job.run()
+        self.assertTrue(job.ok, job.lines)
+        self.assertEqual(layers.current(self.project)["explicit"], [])
+
+    def test_a_job_does_not_write_the_on_file_over_what_another_job_wrote_since_its_plan(self):
+        # Kiosk and Redpanda are on; two plans are made from that, then the first job turns Kiosk off: the second, made
+        # before, would turn Kiosk on again by writing what it read
+        self.write(paths.ON_FILE, "include:\n  - addons/kiosk/compose.yml\n  - addons/redpanda/compose.yml\n")
+        state = layers.current(self.project)
+        first, second = (layers.plan(self.project, state, up(), "addon", uid, "stop") for uid in ("kiosk", "redpanda"))
+        for plan in (first, second):
+            title, steps, more = self.applied(plan)
+            job = Job(title, steps, **more)
+            job.exec = lambda cmd, quiet=False: None
+            job.run()
+        self.assertEqual(job.error(), layers.CHANGED)
+        self.assertEqual(layers.current(self.project)["explicit"], ["redpanda"], "what the first job wrote stays")
+        # Made again from what is on now, it runs
+        title, steps, more = self.applied(layers.plan(self.project, layers.current(self.project), up(), "addon", "redpanda",
+                                                      "stop"))
+        job = Job(title, steps, **more)
+        job.run()
+        self.assertTrue(job.ok, job.lines)
+        self.assertEqual(layers.current(self.project)["explicit"], [])
 
     def test_a_setup_s_job_is_the_setup_s(self):
         # Its button shows it, though what starts are its add-ons: it waits for them and what they restart
@@ -2475,7 +2536,7 @@ class Entries(Case):
         jobs = self.patch(layers, "JOBS")
         layers.apply(self.project, plan, "Title")
         _, (write, *_), _ = self.started(jobs)
-        with self.assertRaisesRegex(RuntimeError, "^kiosk is blocked: Mounts the Docker socket$"):
+        with self.assertRaisesRegex(JobFailed, "^kiosk is blocked: Mounts the Docker socket$"):   # the line of its job
             write(mock.Mock(lines=[]))
         self.assertFalse((self.root / paths.ON_FILE).exists())
 
