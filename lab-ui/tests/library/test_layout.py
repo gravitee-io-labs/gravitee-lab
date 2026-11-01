@@ -745,6 +745,11 @@ class Download(Machine):
         self.assertEqual(self.text(".lab/catalogs/local/setups/duo.yml"), edited)
 
 
+# What the start says in the terminal of a catalogs file that is no JSON
+NOT_JSON = (".lab/catalogs.json could not be read (it is not valid JSON): fix it, or move it aside to start again with the "
+            "default catalog. Then start the Lab again.")
+
+
 class OptedOut(Machine):
     """The person has no default catalog: their catalogs file reads whole and does not list it (`catalog.py reset --empty`).
     Nothing will install it, so the move does not wait for it."""
@@ -787,12 +792,31 @@ class OptedOut(Machine):
         self.build()
         asked = self.downloads()
         ok, said, complained = self.at_start()
-        self.assertEqual((ok, said, complained), (False, [layout.MOVING], [layout.FAILED, registry.config_problem()]))
-        self.assertIn("could not be read", complained[1])
+        self.assertEqual((ok, said, complained), (False, [layout.MOVING], [layout.FAILED, NOT_JSON]))
         self.assertEqual((asked, self.exists(".lab/layout.json")), ([], False))   # nothing was asked for
         self.assertEqual(self.text(".lab/catalogs.json"), "{not json")
         self.assertEqual([name for name in os.listdir(self.root / ".lab") if ".bad-" in name], [])
         self.assertEqual(self.text("addons/echo/.env"), "ECHO_TOKEN=secret-echo-env\n")   # and nothing moved
+
+    def test_the_line_of_a_catalog_of_the_file_that_does_not_read_names_the_file_and_no_action_of_a_page(self):
+        # Said in the terminal, where the Lab UI does not start until the file reads: what to do there (the file that is
+        # no JSON: test_a_catalogs_file_that_does_not_read_is_a_doubt_not_a_decision)
+        self.put(".lab/catalogs.json", '{"schema": 1, "catalogs": [{"id": "x y"}]}')
+        self.build()
+        ok, said, complained = self.at_start()
+        self.assertEqual((ok, said, complained[0]), (False, [layout.MOVING], layout.FAILED))
+        self.assertRegex(complained[1], r"^\.lab/catalogs\.json lists 1 catalog that could not be read \(.+\): fix it, or move it "
+                                        r"aside to start again with the default catalog\. Then start the Lab again\.$")
+
+    def test_an_opted_out_folder_with_a_damaged_record_of_catalogs_names_it(self):
+        # catalogs.lock does not read: the folder's choice is a doubt, and the line says the record, not the page's Check
+        self.put(".lab/catalogs.lock", "{not json")
+        self.build()
+        asked = self.downloads()
+        ok, said, complained = self.at_start()
+        self.assertEqual((ok, said, complained, asked), (False, [layout.MOVING], [
+            layout.FAILED, ".lab/catalogs.lock could not be read (it is not valid JSON): fix it, or delete it. Then start the "
+                           "Lab again."], []))
 
     def test_no_catalogs_file_at_all_is_a_first_run_not_a_decision(self):
         os.remove(self.root / ".lab/catalogs.json")
@@ -826,7 +850,7 @@ class DamagedFile(Served, Case):
         said, complained = [], []
         ok = layout.run(said.append, complained.append)
         install.recover()   # what the start does next (service.recover)
-        self.assertEqual((ok, said, complained), (False, [layout.MOVING], [layout.FAILED, registry.config_problem()]))
+        self.assertEqual((ok, said, complained), (False, [layout.MOVING], [layout.FAILED, NOT_JSON]))
         self.assertEqual(self.text(".lab/catalogs.json"), DAMAGED)
         self.assertEqual(sorted(os.listdir(self.root / ".lab/catalogs")), ["other"])
         self.assertEqual(self.text(".lab/catalogs/other/addons/x/.env"), "OTHER_TOKEN=secret\n")

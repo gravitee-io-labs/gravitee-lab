@@ -302,8 +302,9 @@ a Lab that was pulled some other way is moved all the same. Your own add-ons, se
 `local/`) become Personal. Both then say in the terminal what you may want to look at: what the catalog does not have is now
 Personal, anything you changed inside a shared item is kept aside in `.lab/migration/kept`, what needs a catalog you do not
 have is turned off, and files that could not be moved stay where they were. When the move cannot be made (the catalog does
-not download, `.lab/catalogs.json` does not read, a disk error), they say why, nothing is deleted, and the Lab UI does not
-start until it is fixed: start it again to finish the move. `.lab/migration/undo.sh` puts the previous layout back;
+not download, `.lab/catalogs.json` or `.lab/catalogs.lock` does not read, a disk error), they say why, and what to do with a
+file that does not read, nothing is deleted, and the Lab UI does not start until it is fixed: start it again to finish the
+move. `.lab/migration/undo.sh` puts the previous layout back;
 a file that changed since is kept beside the restored one with the suffix `.after-update`.
 
 Until the move is made, `make start`, `make ps`, `make urls`, `make check` and the other targets that read what is on say

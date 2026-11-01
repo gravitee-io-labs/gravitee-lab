@@ -321,6 +321,21 @@ def _printable(text):
     return "".join(char if char.isprintable() else " " for char in str(text))
 
 
+# What to do in the folder with a catalogs file that does not read, by the file (registry.damage)
+DAMAGE_FIXES = {registry.CONFIG_FILE: "fix it, or move it aside to start again with the default catalog",
+                registry.LOCK_FILE: "fix it, or delete it"}
+
+
+def _damaged():
+    """Why the move waits for the catalogs files, in a line for the terminal: the Lab UI does not start until they read,
+    so the line names each file and what to do with it there, where the Catalogs page's line (registry.config_problem)
+    gives actions of the page."""
+    found = registry.damage()
+    if not found:
+        return registry.config_problem() or "The files that list your catalogs could not be read."
+    return " ".join(f"{file} {what}: {DAMAGE_FIXES[file]}." for file, what in found) + " Then start the Lab again."
+
+
 def _reason(error):
     """Why a move stopped, in a line: an error of the disk by its words and the path it names from the project folder, a
     refusal by its message, a bug by its type alone (its words may hold anything), a stop by the person as such."""
@@ -1376,7 +1391,7 @@ def run(say=None, complain=None, download=True) -> bool:
             if registry.read_config() is not None and registry.entry(default) is None:
                 # The file is there and does not read: it is the person's to fix, and a download would replace it with
                 # one that lists the default catalog alone
-                raise ValueError(registry.config_problem())
+                raise ValueError(_damaged())
             if download:
                 say(DOWNLOADING)
                 firstrun.reconcile()
