@@ -44,13 +44,14 @@ def _parts(raw):
     return registry, (name[slashes[0] + 1:] if registry else name), version
 
 
-def _bare(default):
+def _bare(default, unset=()):
     """A default as a .env holds it, references without their own defaults: ${OTHER_VERSION:-1.2}-debian becomes
-    ${OTHER_VERSION}-debian."""
-    for key, inner, _ in compose.references(default or ""):
-        for form in ("${%s:-%s}", "${%s-%s}"):
-            default = default.replace(form % (key, inner), "${%s}" % key)
-    return default
+    ${OTHER_VERSION}-debian. A variable of `unset` does not reach the file the default is in: in its place is what
+    Compose makes of it there, its own default (nothing without one)."""
+    if not default:
+        return default
+    text = re.sub(r"\$\{(\w+)\}", lambda m: "" if m.group(1) in unset else m.group(0), default)
+    return compose.interpolated(text, lambda key: None if key in unset else "${%s}" % key)
 
 
 def _locate(name):
@@ -74,12 +75,33 @@ def _component(services, names):
     owner = first["owner"]
     return {"id": version[0], "label": ", ".join(dict.fromkeys(services[name]["label"] for name in names)),
             "detail": owner["name"], "kind": "gravitee" if registry else "third-party",
-            "version_key": version[0], "version_default": _bare(version[1]),
+            "version_key": version[0], "version_default": version[1],
             "registry_key": registry[0] if registry else None,
-            "registry_default": _bare(registry[1]) if registry else None,
+            "registry_default": registry[1] if registry else None,
             "host": host, "repository": listed,
             "source": None if registry else _locate(repository)[0] or "Docker Hub",
             "services": names, "owner": owner}
+
+
+def _env_files(services, component):
+    """The .env files a component's variables are written to: the core's when it runs one of the core's services, as it
+    reaches every file, and comes before what a unit's own says; else the .env of each unit it runs a service of, as a
+    unit's .env reaches only that unit's file."""
+    found = {paths.unit_env(services[name]["owner"]["kind"], services[name]["owner"]["id"]) or paths.ENV_FILE
+             for name in component["services"]}
+    return [paths.ENV_FILE] if paths.ENV_FILE in found else sorted(found)
+
+
+def _unset(services, component, found):
+    """The variables of the other components that do not reach this one's file: those written to a unit's .env that is
+    not the one of each of its services."""
+    mine = set(_env_files(services, component))
+    unset = set()
+    for other in found:
+        theirs = _env_files(services, other)
+        if other is not component and paths.ENV_FILE not in theirs and not mine <= set(theirs):
+            unset |= {other["version_key"], other["registry_key"]} - {None}
+    return unset
 
 
 def _follows(component, others):
@@ -99,7 +121,9 @@ def _follows(component, others):
 
 def components(project):
     """The images whose version is a variable: [{id (the version variable), label, detail, kind, version_key,
-    version_default, registry_key, registry_default, host, repository, source, services, owner, group, follows}].
+    version_default, registry_key, registry_default, host, repository, source, services, owner, group, follows}]. The
+    services that share a variable are one component, whose value is written to the .env of each (_env_files); a
+    default follows another component only where that one's variable reaches its file.
     `group` is the group of the platform a component belongs to: its owner's, or for the gateway of an add-on the
     group that runs its image (project._gateway_groups); None for the others. The platform's come first, in the order
     of its groups, each followed by the add-ons' gateways of it, then the others by the name of what owns them; under
@@ -110,6 +134,11 @@ def components(project):
         if version:
             sharing.setdefault(version[0], []).append(name)
     found = [_component(services, names) for names in sharing.values()]
+    # What a default refers to of another component is that component only where its variable reaches
+    unset = {component["id"]: _unset(services, component, found) for component in found}
+    for component in found:
+        for what in ("version", "registry"):
+            component[f"{what}_default"] = _bare(component[f"{what}_default"], unset[component["id"]])
     for component in found:
         component["follows"] = _follows(component, found)
     groups = [group["id"] for group in project["groups"]]
@@ -136,12 +165,6 @@ def components(project):
 # ---------------------------------------------------------------------------------------------------------------------
 # State and saving
 # ---------------------------------------------------------------------------------------------------------------------
-
-def _env_file(component):
-    """The .env that holds a component's variables: the add-on's own, else the core's."""
-    owner = component["owner"]
-    return paths.unit_env(owner["kind"], owner["id"]) or paths.ENV_FILE
-
 
 def _registries(project, found):
     """The registries Gravitee images come from, the defaults first: the ones the page offers."""
@@ -179,10 +202,13 @@ def state(project):
     services, found = project["services"], components(project)
     on, local = layers.current(project), local_images()
     containers, _ = compose.containers()   # none when Docker does not answer: the versions still show
-    envs = {path: envfiles.read(path) for path in {_env_file(c) for c in found}}
+    targets = {c["id"]: _env_files(services, c) for c in found}
+    envs = {path: envfiles.read(path) for written in targets.values() for path in written}
     listed = []
     for c in found:
-        env, first, owner = envs[_env_file(c)], services[c["services"][0]], c["owner"]
+        env, first, owner = envs[targets[c["id"]][0]], services[c["services"][0]], c["owner"]
+        # A value saved that refers to a variable that does not reach the file is what Compose makes of it there
+        unset = _unset(services, c, found)
         configured = sorted({services[name]["image"] for name in c["services"]})
         running = {containers[name]["image"] for name in c["services"]
                    if name in containers and containers[name]["state"] == "running"}
@@ -190,8 +216,8 @@ def state(project):
         pulled = None if local is None else all(re.sub(r"^docker\.io/(library/)?", "", image) in local
                                                 for image in configured)
         enabled = layers.is_on(owner["kind"], owner["id"], on["playground"], on["effective"])
-        listed.append({**c, "version": env.get(c["version_key"]) or c["version_default"] or "",
-                       "registry": env.get(c["registry_key"]) or c["registry_default"],
+        listed.append({**c, "version": _bare(env.get(c["version_key"]), unset) or c["version_default"] or "",
+                       "registry": _bare(env.get(c["registry_key"]), unset) or c["registry_default"],
                        "version_resolved": first["tag"], "registry_resolved": first["registry"],
                        "configured": configured, "running": sorted(running), "pulled": pulled, "enabled": enabled,
                        # what runs without its owner being on says so, in the words of its owner's row
@@ -215,10 +241,11 @@ def _setting(found, key):
 
 
 def _changes(project, values):
-    """Versions and registries as the .env that owns each holds them, ({.env: {variable: value, None for the
-    default}}, {variable: value}): the core's, or the add-on's. A value may be a tag, a registry, or the reference
-    that follows another component; anything else is refused."""
-    found, changes, given = components(project), {}, {}
+    """Versions and registries as the .env files that hold each write them, ({.env: {variable: value, None for the
+    default}}, {variable: value}): the core's, or each unit's whose services share it (_env_files). A value may be a
+    tag, a registry, or the reference that follows another component; anything else is refused."""
+    services, found, changes, given = project["services"], components(project), {}, {}
+    targets = {c["id"]: _env_files(services, c) for c in found}
     for key, value in values.items():
         component, what = _setting(found, key)
         default = component[f"{what}_default"]
@@ -226,24 +253,28 @@ def _changes(project, values):
         pattern = TAG if what == "version" else REGISTRY
         if not isinstance(value, str) or (value not in references and not pattern.fullmatch(value)):
             raise ValueError(f"Invalid {'tag' if what == 'version' else 'registry'} for {key}")
-        changes.setdefault(_env_file(component), {})[key] = None if value == default else value
+        for path in targets[component["id"]]:
+            changes.setdefault(path, {})[key] = None if value == default else value
         given[key] = value
     # A line that follows another component as its default does, ${APIM_REGISTRY}, goes too: the default needs no line,
     # and Compose would read it blank, with a warning, once the variable it follows has no line either
-    envs = {}
+    envs, cleared = {}, {}
     for component in found:
         for what in ("version", "registry"):
-            key, default, path = component[f"{what}_key"], component[f"{what}_default"], _env_file(component)
-            env = envs.setdefault(path, envfiles.read(path))
-            if key and key not in given and default and "${" in default and env.get(key) == default:
-                changes.setdefault(path, {})[key] = None
-                given[key] = default
-    return changes, given
+            key, default = component[f"{what}_key"], component[f"{what}_default"]
+            if not key or key in given or not default or "${" not in default:
+                continue
+            for path in targets[component["id"]]:
+                if envs.setdefault(path, envfiles.read(path)).get(key) == default:
+                    changes.setdefault(path, {})[key] = None
+                    cleared[key] = default
+    return changes, {**given, **cleared}
 
 
 def save(project, values):
-    """Writes versions and registries to the .env that owns each: the core's, or the add-on's. A value may be a tag,
-    a registry, or the reference that follows another component. The default needs no line."""
+    """Writes versions and registries to the .env files that hold each: the core's, or each unit's whose services share
+    it. A value may be a tag, a registry, or the reference that follows another component. The default needs no
+    line."""
     for path, change in _changes(project, values)[0].items():
         envfiles.write(path, change)
 

@@ -113,6 +113,9 @@ The core's variables:
 The default registry of the Gravitee images is `graviteeio`, on Docker Hub. Each Gravitee component has its own
 registry variable, so components can come from different registries. A component can follow another instead of having
 its own version: the gateway follows API Management, and a viewer of Elasticsearch follows it, until you set its own variable.
+The core's `.env` reaches every compose file, and an add-on's or a playground's only its own: a component follows a variable
+of the core, or of its own add-on or playground. Images of several add-ons or playgrounds that share a version variable are
+one component, and the Images page writes its version to the `.env` of each.
 
 ### The Images page
 

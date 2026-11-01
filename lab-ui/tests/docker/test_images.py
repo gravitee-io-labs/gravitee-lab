@@ -15,6 +15,7 @@ APIM = {"kind": "platform", "id": "api-management", "name": "API Management"}
 KAFKA = {"kind": "addon", "id": "kafka", "name": "Kafka"}
 KIOSK = {"kind": "addon", "id": "kiosk", "name": "Kiosk"}
 TOOLS = {"kind": "addon", "id": "tools", "name": "Tools"}
+SHOP = {"kind": "playground", "id": "shop", "name": "Acme Shop"}
 
 GATEWAY_IMAGE = ("${APIM_GATEWAY_REGISTRY:-${APIM_REGISTRY:-graviteeio}}/apim-gateway"
                  ":${APIM_GATEWAY_VERSION:-${APIM_VERSION:-4.12.20}-debian}")
@@ -334,6 +335,70 @@ class Images(Case):
         for key in ("platform", "registry:x.azurecr.io", "addon:Kafka", "group:databases", ""):
             with self.assertRaises(ValueError, msg=key):
                 images.login("graviteeio.azurecr.io", key)
+
+
+class Shared(Case):
+    """A version variable as the .env files that hold it: a unit's .env reaches only its own compose file, the core's
+    reaches every one, and comes first (measured with `docker compose config` on included files)."""
+
+    def setUp(self):
+        self.project = project()
+        services = self.project["services"]
+        # The Kafka add-on and a playground make certificates; the playground's follows the add-on's version in its
+        # default, which its file does not see. Both the add-on Tools and the playground run kubectl at one version
+        for name, owner, raw, image in (
+                ("kafka-certs", KAFKA, "alpine/openssl:${KAFKA_CERTS_VERSION:-3.5.9}", "alpine/openssl:3.6.0"),
+                ("shop-certs", SHOP, "alpine/openssl:${SHOP_OPENSSL_VERSION:-${KAFKA_CERTS_VERSION:-3.5.9}}",
+                 "alpine/openssl:3.5.9"),
+                ("kubectl", TOOLS, "alpine/k8s:${KUBECTL_VERSION:-1.36.5}", "alpine/k8s:1.36.5"),
+                ("shop-kubectl", SHOP, "alpine/k8s:${KUBECTL_VERSION:-1.36.5}", "alpine/k8s:1.36.5"),
+                ("shop-search", SHOP, "kiosk/search:${SHOP_SEARCH_VERSION:-${ELASTICSEARCH_VERSION:-9.5.2}}",
+                 "kiosk/search:9.5.2")):
+            services[name] = {"label": name, "owner": owner, "raw_image": raw, "image": image,
+                              "tag": image.split(":")[-1], "registry": None, "image_tags": None}
+        self.env = {paths.unit_env("addon", "kafka"): {"KAFKA_CERTS_VERSION": "3.6.0"}}
+        self.patch(envfiles, "read", side_effect=lambda path: dict(self.env.get(path, {})))
+
+    def component(self, cid):
+        return next(c for c in images.components(self.project) if c["id"] == cid)
+
+    def test_a_variable_another_unit_holds_is_not_followed(self):
+        # The playground's file reads ${KAFKA_CERTS_VERSION} from its own .env, which has none: its own default
+        certs = self.component("SHOP_OPENSSL_VERSION")
+        self.assertEqual((certs["version_default"], certs["follows"]), ("3.5.9", []))
+        # The core's variables reach every file: followed
+        search = self.component("SHOP_SEARCH_VERSION")
+        self.assertEqual((search["version_default"], [f["id"] for f in search["follows"]]),
+                         ("${ELASTICSEARCH_VERSION}", ["ELASTICSEARCH_VERSION"]))
+        # What changing the add-on's version makes again: not the playground's, which it does not reach
+        self.assertEqual(images.changing(self.project, {"KAFKA_CERTS_VERSION": "3.7.0"}), ["kafka-certs"])
+
+    def test_a_link_saved_to_a_variable_that_does_not_reach_reads_as_compose_reads_it(self):
+        # Saved by an earlier Lab: Compose reads it empty, so the image is the default's. The page says what runs
+        self.patch(layers, "current", return_value={"effective": ["kafka", "tools"], "playground": "shop"})
+        self.patch(images, "local_images", return_value=set())
+        self.patch(compose, "containers", return_value=({}, None))
+        self.env[paths.unit_env("playground", "shop")] = {"SHOP_OPENSSL_VERSION": "${KAFKA_CERTS_VERSION}"}
+        listed = {c["id"]: c for c in images.state(self.project)["components"]}
+        self.assertEqual((listed["SHOP_OPENSSL_VERSION"]["version"], listed["SHOP_OPENSSL_VERSION"]["version_resolved"]),
+                         ("3.5.9", "3.5.9"))
+
+    def test_a_variable_several_units_share_is_saved_to_each(self):
+        kubectl = self.component("KUBECTL_VERSION")
+        self.assertEqual(kubectl["services"], ["kubectl", "shop-kubectl"])
+        write = self.patch(envfiles, "write")
+        images.save(self.project, {"KUBECTL_VERSION": "1.37.0"})
+        self.assertEqual({call.args[0]: call.args[1] for call in write.call_args_list}, {
+            paths.unit_env("addon", "tools"): {"KUBECTL_VERSION": "1.37.0"},
+            paths.unit_env("playground", "shop"): {"KUBECTL_VERSION": "1.37.0"}})
+        self.assertEqual(images.changing(self.project, {"KUBECTL_VERSION": "1.37.0"}), ["kubectl", "shop-kubectl"])
+
+    def test_a_variable_of_the_core_is_saved_to_the_core_only(self):
+        # The core's .env reaches the unit's file too, before what the unit's own says
+        self.project["services"]["shop-mongo"] = {**self.project["services"]["mongodb"], "owner": SHOP}
+        write = self.patch(envfiles, "write")
+        images.save(self.project, {"MONGODB_VERSION": "8.0.30"})
+        self.assertEqual([call.args for call in write.call_args_list], [(".env", {"MONGODB_VERSION": "8.0.30"})])
 
 
 if __name__ == "__main__":

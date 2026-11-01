@@ -1069,6 +1069,9 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
   repositories, and when another component's default is made of it by adding text (the gateway's
   `${APIM_VERSION}-debian`). A component that another follows with nothing added (Kiosk follows Elasticsearch) keeps
   its variants.
+- A component is one variable, written to every `.env` that its images read it from (`_env_files`): the core's, which
+  reaches every file, or the `.env` of each unit whose services share it. A default follows another component only
+  where that one's variable reaches its file; elsewhere it is what Compose makes of it, its own default (`_unset`).
 
 ### Gravitee Cloud
 
