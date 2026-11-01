@@ -94,15 +94,44 @@ class Sessions(Case):
         session.resize(31, 117)
         session.process.send_signal.assert_called_once_with(signal.SIGWINCH)
 
-    def test_a_shell_that_ended_is_not_alive_and_cannot_be_typed_to(self):
-        session = self.session()
+    def ended(self, session):
         session.write(b"\x04")   # end of input: cat ends
         deadline = time.time() + 5
-        while session.alive and time.time() < deadline:
+        while (session.alive or session.master >= 0) and time.time() < deadline:
             time.sleep(0.05)
+
+    def test_a_shell_that_ended_is_not_alive_and_cannot_be_typed_to(self):
+        session = self.session()
+        self.ended(session)
         self.assertFalse(session.alive)
         self.assertFalse(session.write(b"late\n"))
         self.assertEqual(session.read(session.end, 5)[2], False)
+
+    def test_the_terminal_of_a_shell_that_ended_is_used_no_more_and_its_process_is_not_signaled(self):
+        # Its number may be another file's by then, and the number of its process another process's
+        session = self.session()
+        self.ended(session)
+        self.assertEqual(session.master, -1)
+        with mock.patch.object(terminal.os, "write", side_effect=AssertionError("written")), \
+                mock.patch.object(terminal.fcntl, "ioctl", side_effect=AssertionError("sized")), \
+                mock.patch.object(terminal.os, "killpg", side_effect=AssertionError("signaled")):
+            self.assertFalse(session.write(b"late\n"))
+            session.resize(30, 100)
+            session.close()
+
+    def test_a_page_that_followed_a_shell_before_this_one_gets_what_this_one_kept(self):
+        # The Lab UI started again: the page asks from the offset it held of the shell it had
+        before = self.session()
+        before.write(b"one\n")
+        self.printed(before, "one\r\none")
+        session = self.session()
+        session.write(b"two\n")
+        self.printed(session, "two\r\ntwo")
+        for offset in (before.end, before.end + 5000, before.start + 3):
+            started = time.time()
+            end, data, alive = session.read(offset, 5)
+            self.assertEqual((end, data.startswith(b"two"), alive), (session.end, True, True), offset)
+            self.assertLess(time.time() - started, 1, "nothing to wait for: what is kept is new to that page")
 
 
 class Attached(Case):
