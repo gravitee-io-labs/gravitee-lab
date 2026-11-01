@@ -563,6 +563,34 @@ class Installed(Case):
             plugins._download(Job("Plugins", []), self.root / "plugins/apim", plugin, {"file": file, "size": 3})
         self.assertEqual(len(asked), 1)
 
+    def test_a_folder_that_cannot_be_written_is_not_said_as_the_network(self):
+        # plugins/apim made by Docker as root, or a full disk: the site answered, writing the file failed
+        content = b"0123456789"
+        self.served((self.URL, content), (self.URL + ".sha1", 404))
+        folder = self.root / "plugins/apim"
+        folder.mkdir(parents=True)
+        for error in (PermissionError(13, "Permission denied"), OSError(28, "No space left on device")):
+            with self.subTest(error=error), mock.patch.object(plugins, "open", side_effect=error, create=True):
+                with self.assertRaises(Exception) as failed:
+                    plugins._download(Job("Plugins", []), folder, self.PLUGIN, {"file": self.FILE, "size": 10})
+                self.assertNotIn("Cannot reach", str(failed.exception))
+        if os.geteuid() == 0:
+            return
+        folder.chmod(0o555)   # a real folder that cannot be written
+        self.addCleanup(folder.chmod, 0o755)
+        with self.assertRaises(Exception) as failed:
+            plugins._download(Job("Plugins", []), folder, self.PLUGIN, {"file": self.FILE, "size": 10})
+        self.assertNotIn("Cannot reach", str(failed.exception))
+        self.assertEqual(str(failed.exception), f"{self.FILE}: Cannot be saved in plugins/apim: permission denied")
+        # plugins/ made by Docker as root, its product's folder not there yet
+        locked = self.root / "locked"
+        locked.mkdir()
+        locked.chmod(0o555)
+        self.addCleanup(locked.chmod, 0o755)
+        with self.assertRaises(JobFailed) as failed:
+            plugins._download(Job("Plugins", []), locked / "am", self.PLUGIN, {"file": self.FILE, "size": 10})
+        self.assertEqual(str(failed.exception), f"{self.FILE}: Cannot be saved in locked/am: permission denied")
+
     def test_the_download_site_out_of_reach_is_said_in_plain_words(self):
         def offline(request, timeout):
             raise plugins.urllib.error.URLError(OSError(8, "nodename nor servname provided, or not known"))
