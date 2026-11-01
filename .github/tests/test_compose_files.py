@@ -66,6 +66,19 @@ class HealthChecksTest(unittest.TestCase):
         self.assertIn("      interval: 30s", service_block(self.text, "mongodb"))
         self.assertRegex(self.text, r"x-healthcheck: &healthcheck\n(?:  .*\n)*?  start_interval: 2s")
 
+    def test_a_mongodb_that_does_not_answer_is_unhealthy_within_minutes(self):
+        # Docker gives up after its start period and `retries` failed checks in a row, one every `interval`
+        check = self.healthcheck("mongodb")
+        self.assertLessEqual(check["start_period"] + check["retries"] * check["interval"], 300, check)   # it never answers
+        self.assertLessEqual(check["retries"] * check["interval"], 180, check)   # it stops answering once it ran
+
+    def healthcheck(self, name):
+        """The timing of a service's health check, in seconds and counts: the shared anchor, with what the service sets."""
+        anchor = re.search(r"^x-healthcheck: &healthcheck\n((?:  .*\n)+)", self.text, re.M).group(1)
+        own = re.search(r"^    healthcheck:\n((?:      .*\n)+)", service_block(self.text, name), re.M).group(1)
+        timing = r"^\s+(interval|retries|start_period): (\d+)s?\b"
+        return {key: int(value) for key, value in re.findall(timing, anchor + own, re.M)}
+
 
 if __name__ == "__main__":
     unittest.main()

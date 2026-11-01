@@ -81,7 +81,9 @@ services:
       io.gravitee.group: Databases
     healthcheck:
       <<: *healthcheck
-      interval: 30s   # mongosh starts Node.js at each check: often while it starts, then twice a minute
+      interval: 30s        # mongosh starts Node.js at each check: often while it starts, then twice a minute
+      start_period: 120s   # checked every 2 s for up to 2 minutes while it starts
+      retries: 4           # unhealthy after 2 minutes without an answer
       test: ["CMD-SHELL", "mongosh --quiet --eval 'db.runCommand({ping:1}).ok' | grep -q 1"]
     networks:
       - internal
