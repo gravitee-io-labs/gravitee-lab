@@ -303,7 +303,7 @@ def run(name, check, *args):
 
 def checks(lab_ui):
     """What the state lists decides which add-on, product and playground the other pages are asked about."""
-    if not run("the Lab UI starts", lab_ui.wait):
+    if not run("the Lab UI answers" if lab_ui.process is None else "the Lab UI starts", lab_ui.wait):
         return
     run("static files", static, lab_ui)
     body = run("state", state, lab_ui)
