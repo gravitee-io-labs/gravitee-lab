@@ -239,7 +239,7 @@ class Cut(Case):
         began = time.monotonic()
         job.observe({"gio-mongodb": "issue", "gio-redis": "issue"}, began)
         job.observe({"gio-mongodb": "issue"}, began + jobs.STUCK - 1)
-        self.assertTrue(thread.is_alive())
+        self.assertIsNone(job._why)   # not yet
         job.observe({"gio-mongodb": "issue"}, began + jobs.STUCK)
         thread.join(10)
         self.assertFalse(thread.is_alive(), "the job still waits")
@@ -253,7 +253,7 @@ class Cut(Case):
         began = time.monotonic()
         for at, step in ((0, "issue"), (jobs.STUCK / 2, "running"), (jobs.STUCK, "issue"), (jobs.STUCK * 1.4, "issue")):
             job.observe({"gio-mongodb": "issue", "gio-redis": step}, began + at)
-        self.assertTrue(thread.is_alive())
+        self.assertIsNone(job._why)   # nothing ended it
         job.cancel()
         thread.join(10)
         self.assertEqual(job.error(), "Canceled")
