@@ -303,10 +303,26 @@ class Starting(Case):
         self.assertEqual([(step.name, step.ok, step.detail) for step in run.steps], [("Start Shop", False, "seed: HTTP 400")])
 
     def test_a_job_that_does_not_end_is_a_failure_after_the_time_it_was_given(self):
-        run = attempt(FakeLab(lab_state({"shop": UP}), lab_state({"shop": UP}, job={**JOB, "done": False})))
+        lab = FakeLab(lab_state({"shop": UP}), lab_state({"shop": UP}, job={**JOB, "done": False}))
+        run = attempt(lab)
         with self.assertRaisesRegex(e2e.Failed, "the start did not happen within 30 s"):
             run.start(30)
         self.assertGreaterEqual(run.clock(), 30)
+        self.assertIn(("POST", f"/api/jobs/{JOB['id']}/cancel", None), lab.calls, "the job is canceled before anything is removed")
+
+    def test_a_container_that_stays_in_an_issue_while_the_job_runs_fails_the_start_and_the_job_is_canceled(self):
+        # The core's database keeps restarting: Compose waits for it for ever, and the run says which, long before its time
+        issue = {"key": "issue", "label": "Keeps restarting", "running": False}
+        running = lab_state({"shop": {"key": "starting", "label": "Starting", "running": False}}, job={**JOB, "done": False})
+        running["services"]["mongodb"] = {"state": issue, "container": "gio-mongodb"}
+        canceled = {**running, "job": {**JOB, "ok": False, "error": "Canceled"}}
+        flap = {**running, "services": {**running["services"], "mongodb": {"state": UP, "container": "gio-mongodb"}}}
+        lab = FakeLab(lab_state({"shop": UP}), running, flap, *[running] * 30, canceled)   # a flap starts the count again
+        run = attempt(lab)
+        with self.assertRaisesRegex(e2e.Failed, r"mongodb in an issue for 60 s: Keeps restarting"):
+            run.start(1800)
+        self.assertLess(run.clock(), 120)
+        self.assertEqual([call for call in lab.calls if call[1].endswith("/cancel")], [("POST", f"/api/jobs/{JOB['id']}/cancel", None)])
 
 
 class Settling(Case):
@@ -352,6 +368,15 @@ class Settling(Case):
         run = attempt(FakeLab(lab_state({"shop": UP, "slow": starting})), shell=shell)
         self.assertEqual(run.logs(), {"slow": "line 1\nwarning"})
         self.assertEqual(calls, [["docker", "logs", "--tail", "80", "gio-slow"]])
+
+    def test_the_log_of_a_container_of_the_core_in_an_issue_is_read_too(self):
+        calls = []
+        state = lab_state({"shop": {"key": "starting", "label": "Starting", "running": False}})
+        state["services"].update(mongodb={"state": {"key": "issue", "label": "Keeps restarting"}, "container": "gio-mongodb"},
+                                 redis={"state": UP, "container": "gio-redis"})
+        run = attempt(FakeLab(state), shell=lambda command, timeout=0: (calls.append(command[-1]), (0, "said", ""))[1])
+        self.assertEqual(sorted(run.logs()), ["mongodb", "shop"])
+        self.assertEqual(calls, ["gio-shop", "gio-mongodb"])
 
 
 class Consoles(Case):
@@ -633,6 +658,17 @@ class Running(Case):
         self.assertEqual(self.removed, [True])
         self.assertEqual(self.restored, [True], "the on file is as it was")
         self.lab.close.assert_called_once_with()
+
+    def test_what_the_seeds_recorded_is_emptied_once_the_volumes_are_gone(self):
+        forget = self.patch(e2e.playgrounds, "forget", return_value=True)
+        self.assertEqual(self.go(), e2e.OK)
+        forget.assert_called_once_with("shop")
+        forget.reset_mock()
+        self.stub_run.return_value.stop.side_effect = lambda: "docker compose down failed"   # still there: still recorded
+        self.go()
+        forget.assert_not_called()
+        self.go(keep=True)
+        forget.assert_not_called()
 
     def test_what_is_left_to_look_at_is_not_removed(self):
         self.assertEqual(self.go(keep=True), e2e.OK)
