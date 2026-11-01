@@ -8,7 +8,7 @@ what the gateway reports.
 
 from . import gamma
 from .aim_workspaces import subset
-from .common import HttpError, SeedError, files, forget, has_seed, load, log, owned, record, recorded
+from .common import HttpError, SeedError, adopted, files, forget, has_seed, load, log, making, owned, record, recorded
 
 SECTION = "aim-dashboards"
 DEPENDS = ()   # the modules whose work this one reads on the platform: none, so it runs at the start (schedule.py)
@@ -34,10 +34,11 @@ class Dashboards:
         content = {key: spec[key] for key in CONTENT if key in spec}
         stored = self.api.get(f"/dashboards/{dashboard_id}", expect=(200, 404))
         if stored.status_code == 404:
-            self.create({"id": dashboard_id, **content}, spec)
-            record(SECTION, "dashboard", "dashboards", title, dashboard_id)
+            with making(SECTION, "dashboard", "dashboards", title):
+                self.create({"id": dashboard_id, **content}, spec)
+                record(SECTION, "dashboard", "dashboards", title, dashboard_id)
             log(SECTION, f"✓ Dashboard created: {title}")
-        elif not recorded(SECTION, "dashboard", dashboard_id):
+        elif not recorded(SECTION, "dashboard", dashboard_id) and not adopted(SECTION, "dashboard", title, dashboard_id):
             raise SeedError(f"Dashboard {title}: {dashboard_id} is the id of a dashboard the seed did not create")
         elif not subset(content, stored.json()):
             module = stored.json().get("module")   # one that has a module keeps it

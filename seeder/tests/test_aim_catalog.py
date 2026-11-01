@@ -428,6 +428,36 @@ class Credentials(Catalog):
         self.assertEqual(self.platform.changes(), [])
         self.assertEqual(self.world.credentials, {"theirs": theirs})
 
+    def lose_the_answer(self, lost):
+        """Gamma makes the credential, and the seed gets `lost` in place of its answer."""
+        def made(call):
+            self.world.create_credential(call)
+            raise lost
+        self.platform.add({("POST", SCOPE + "/auth-profiles"): made})
+
+    def test_a_credential_whose_answer_was_lost_is_the_seeds_at_the_next_run(self):
+        """A timeout after Gamma made it, or a seed stopped in the middle of the request: the next run does not stop on it."""
+        for lost in (requests.ReadTimeout("slow"), KeyboardInterrupt()):
+            with self.subTest(lost=type(lost).__name__):
+                self.setUp()
+                self.lose_the_answer(lost)
+                with self.assertRaises((common.SeedError, KeyboardInterrupt)):
+                    self.run_seed()
+                self.assertEqual(self.records(), [], "nothing says yet that the seed made it")
+                self.platform.add({("POST", SCOPE + "/auth-profiles"): self.world.create_credential})
+                self.assertEqual(self.run_seed(), [], "not made a second time")
+                [made] = self.world.credentials
+                self.assertEqual([(x["name"], x["id"]) for x in self.records()], [("Gemini key", made)])
+                self.assertIn("! Gemini key: made by an earlier seed that lost the platform's answer", self.output())
+
+    def test_a_create_the_platform_refused_leaves_no_note_so_a_credential_someone_makes_later_is_not_taken(self):
+        self.platform.add({("POST", SCOPE + "/auth-profiles"): (400, {"message": "no"})})
+        with self.assertRaises(common.HttpError):
+            self.run_seed()
+        self.world.credentials["theirs"] = {"id": "theirs", "name": "Gemini key", "strategy": "BEARER"}
+        with self.assertRaisesRegex(common.SeedError, "The credential 'Gemini key' exists and was not created by this playground"):
+            self.run_seed()
+
     def test_a_file_without_what_the_seed_needs_says_what_is_missing(self):
         self.seed_files({"aim/credentials/gemini.yaml": "name: Key\n"})
         with self.assertRaisesRegex(common.SeedError, "gemini.yaml: credentials missing"):

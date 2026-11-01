@@ -31,6 +31,10 @@ The seed runs when a Start sets the playground up, on Re-seed, and again with an
 - Record what you create with `record(SECTION, kind, label, name, id)`. `.state/created.json` is a list of
   `{product, kind, label, name, id}` objects, plus the keys a module adds (an API keeps a `digest`). `label` is the plural
   the Lab UI shows when it asks whether to delete ("3 APIs").
+- Make an object inside `with making(SECTION, kind, label, name):`, which notes it before the request goes (no id yet, a
+  `count` of 0 that the Lab UI counts as nothing), and record it inside the block. A create whose answer is lost (no answer in
+  time, a seed stopped in the middle of it) leaves the note, and where you would stop on an object of that name that you did
+  not create, `adopted(SECTION, kind, name, id)` takes it as the seed's when the note names it. A 4xx takes the note back.
 - Replace or delete only what the record says the seed created. Stop with a `SeedError` that names an object you find
   and did not create. What is updated and never deleted: [what it records](../docs/playgrounds.md#what-it-records).
 

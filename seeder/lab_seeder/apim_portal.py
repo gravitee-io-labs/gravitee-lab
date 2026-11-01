@@ -66,8 +66,8 @@ from pathlib import Path
 import yaml
 
 from . import common
-from .common import (OK, REFUSED, Api, SeedError, created, excerpt, files, items, load, log, owned, parallel, record, recorded, seed_file,
-                     setting, text, wait_until)
+from .common import (OK, REFUSED, Api, HttpError, SeedError, adopted, claimed, created, excerpt, files, items, load, log, making, owned,
+                     parallel, record, recorded, seed_file, setting, text, unmade, wait_until)
 
 SECTION = "apim-portal"
 DEPENDS = ("apim",)   # the modules whose work this one reads on the platform (schedule.py)
@@ -622,19 +622,21 @@ class Portals:
         what = f"{one.capitalize()} {hrid} in {env}"
         found = self.ask(what, self.automation, "GET", f"{self.auto(env)}{collection}/{hrid}", passed=(404,))
         verb = "created"
+        extra = {"portal": portal} if kind in ("portal-page", "portal-link") else {}
         if found.status_code == 200:
-            if not recorded(SECTION, kind, found.json().get("id")):
+            if not recorded(SECTION, kind, found.json().get("id")) and not adopted(SECTION, kind, f"{env}: {hrid}", found.json().get("id"),
+                                                                                  env=env, hrid=hrid, **extra):
                 raise SeedError(f"{what}: the hrid is taken by one the seed did not create")
             if covers(found.json(), body):
                 log(SECTION, f"{one.capitalize()} exists: {env}: {hrid}")
                 return
             verb = "updated"
-        state = self.ask(what, self.automation, "PUT", f"{self.auto(env)}{collection}", json=body).json()
-        problems = state.get("errors") or {}
-        if problems.get("severe"):
-            raise SeedError(f"{what}: {excerpt('; '.join(problems['severe']), 300)}")
-        extra = {"portal": portal} if kind in ("portal-page", "portal-link") else {}
-        record(SECTION, kind, many, f"{env}: {hrid}", state["id"], env=env, hrid=hrid, **extra)
+        with making(SECTION, kind, many, f"{env}: {hrid}", env=env, hrid=hrid, **extra):
+            state = self.ask(what, self.automation, "PUT", f"{self.auto(env)}{collection}", json=body).json()
+            problems = state.get("errors") or {}
+            if problems.get("severe"):
+                raise SeedError(f"{what}: {excerpt('; '.join(problems['severe']), 300)}")
+            record(SECTION, kind, many, f"{env}: {hrid}", state["id"], env=env, hrid=hrid, **extra)
         log(SECTION, f"✓ {one.capitalize()} {verb}: {env}: {hrid}")
 
     # --- Listings -------------------------------------------------------------------------
@@ -843,13 +845,15 @@ class Portals:
             for kind, title, content, homepage, label in asked:
                 page = next((p for p in live if p.get("type") == kind and p.get("name") == title), None)
                 body = {"type": kind, "name": title, "visibility": API_PAGE_VISIBILITY, "homepage": homepage, "content": content}
-                if page and page["id"] not in mine:
+                if page and page["id"] not in mine and not claimed(SECTION, "portal-api-page", label):
                     raise SeedError(f"{label}: the page is taken by one the seed did not create")
                 if not page:
-                    page = self.refusable(label, "POST", address, body)
-                    mine.add(page["id"])
-                    own.append({"api": api["id"], "page": page["id"]})
-                    note(own)
+                    with making(SECTION, "portal-api-page", KINDS["portal-api-page"][1], label):   # the listing's record holds it once it is made
+                        page = self.refusable(label, "POST", address, body)
+                        mine.add(page["id"])
+                        own.append({"api": api["id"], "page": page["id"]})
+                        note(own)
+                    unmade(SECTION, "portal-api-page", label)
                     changed = True
                 else:
                     own.append({"api": api["id"], "page": page["id"]})
@@ -866,7 +870,7 @@ class Portals:
         HTML first, and refuses one it cannot (a 400 that names the expression or the tag), which stops the seed with that."""
         answer = self.ask(what, self.console, method, address, json=body, passed=(400,))
         if answer.status_code == 400:
-            raise SeedError(f"{what}: the platform refuses it: {excerpt(reason(answer), 250)}")
+            raise HttpError(f"{what}: the platform refuses it: {excerpt(reason(answer), 250)}", 400, answer.text)
         return answer.json()
 
     def put(self, env, what, item, changes, params=None):

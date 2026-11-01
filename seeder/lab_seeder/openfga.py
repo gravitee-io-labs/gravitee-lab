@@ -17,7 +17,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from .common import REFUSED, Api, SeedError, files, forget, load, log, owned, record, setting, wait_until
+from .common import REFUSED, Api, SeedError, adopted, files, forget, load, log, making, owned, record, setting, wait_until
 
 SECTION = "openfga"
 DEPENDS = ()   # the modules whose work this one reads on the platform: none, so it runs at the start (schedule.py)
@@ -71,10 +71,12 @@ def seed():
 
         store = next((s for s in api.get("/stores").json().get("stores", []) if s["name"] == name), None)
         if store:
+            adopted(SECTION, "store", name, store["id"])
             log(SECTION, f"Store '{name}' exists")
         else:
-            store = api.post("/stores", json={"name": name}).json()
-            record(SECTION, "store", "OpenFGA stores", name, store["id"])
+            with making(SECTION, "store", "OpenFGA stores", name):
+                store = api.post("/stores", json={"name": name}).json()
+                record(SECTION, "store", "OpenFGA stores", name, store["id"])
             log(SECTION, f"✓ Store '{name}' created")
 
         latest = api.get(f"/stores/{store['id']}/authorization-models", params={"page_size": 1}).json()

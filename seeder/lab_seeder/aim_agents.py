@@ -28,7 +28,8 @@ paused. A subscription that exists, whatever its status, is otherwise left as it
 """
 
 from . import am
-from .common import SeedError, excerpt, files, forget, has_seed, items, load, log, owned, record, recorded, seed_file
+from .common import (SeedError, adopted, excerpt, files, forget, has_seed, items, load, log, making, owned, record, recorded, seed_file,
+                     unmade)
 from .gamma import CATALOG, WORKSPACES, Gamma
 
 SECTION = "aim-agents"
@@ -146,16 +147,19 @@ class Agents:
         the subscriptions it will hold and the identity it presents are not the seed's to take over."""
         found = self.read_application(agent["id"])
         if found is None:
-            answer = self.aim.post(f"/catalog/agents/{agent['id']}/application", json={}, expect=(200, 201, 409))
-            if answer.status_code != 409:
-                made = answer.json()
-                note(agent, name, made["applicationId"])
-                log(SECTION, f"✓ Agent application created: {name}")
-                return made
+            with making(SECTION, "agent-application", LABELS["agent-application"], name, agent=agent["id"]):
+                answer = self.aim.post(f"/catalog/agents/{agent['id']}/application", json={}, expect=(200, 201, 409))
+                if answer.status_code != 409:
+                    made = answer.json()
+                    note(agent, name, made["applicationId"])
+                    log(SECTION, f"✓ Agent application created: {name}")
+                    return made
+                unmade(SECTION, "agent-application", name)
             found = self.read_application(agent["id"])   # one appeared since the first look
             if found is None:
                 raise SeedError(f"The application of the agent '{name}': HTTP 409 {excerpt(answer.text)}")
-        if not recorded(SECTION, "agent-application", found["applicationId"]):
+        if not recorded(SECTION, "agent-application", found["applicationId"]) and \
+                not adopted(SECTION, "agent-application", name, found["applicationId"], agent=agent["id"]):
             raise SeedError(f"An application already acts for the agent '{name}' and was not created by this "
                             "playground: delete it, the seed leaves it alone")
         log(SECTION, f"Agent application exists: {name}")
@@ -228,14 +232,17 @@ class Agents:
         held = [s for s in self.aim.rows(path, WORKSPACES, applicationId=app)
                 if s["applicationId"] == app and s["planId"] in plan_ids and s["status"] in HELD]
         if held:
+            if not recorded(SECTION, "subscription", held[0]["id"]):   # one an earlier seed made and lost the answer of, if any
+                adopted(SECTION, "subscription", label, held[0]["id"], api=studio["id"], application=app)
             if held[0]["status"] == "PENDING" and recorded(SECTION, "subscription", held[0]["id"]):
                 self.aim.post(f"{path}/{held[0]['id']}/_accept", json={})
                 log(SECTION, f"  ✓ Subscription accepted: {label}")
             else:
                 log(SECTION, f"  Subscription exists: {label}")
             return
-        made = self.aim.post(path, json={"applicationId": app, "planId": plan["id"]}).json()
-        record(SECTION, "subscription", LABELS["subscription"], label, made["id"], api=studio["id"], application=app)
+        with making(SECTION, "subscription", LABELS["subscription"], label, api=studio["id"], application=app):
+            made = self.aim.post(path, json={"applicationId": app, "planId": plan["id"]}).json()
+            record(SECTION, "subscription", LABELS["subscription"], label, made["id"], api=studio["id"], application=app)
         if made.get("status") == "PENDING":
             self.aim.post(f"{path}/{made['id']}/_accept", json={})
         log(SECTION, f"  ✓ Subscribed: {label}")

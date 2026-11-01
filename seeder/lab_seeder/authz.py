@@ -32,12 +32,13 @@ import json
 import re
 import unicodedata
 import uuid
+from contextlib import nullcontext
 from urllib.parse import quote
 
 from . import controls
 from .am import contains
-from .common import (HttpError, SeedError, created, excerpt, files, forget, has_seed, items, load, log, owned, record, recorded,
-                    seed_file)
+from .common import (HttpError, SeedError, adopted, created, excerpt, files, forget, has_seed, items, load, log, making, notes, owned,
+                     record, recorded, seed_file, unmade)
 from .gamma import CATALOG, LISTS, Gamma
 
 SECTION = "authz"
@@ -172,14 +173,16 @@ def entity(api, wanted):
     entity_id = wanted["entityId"]
     found = api.get("/entities/" + quote(entity_id, safe=""), expect=(200, 404))
     current = found.json() if found.status_code == 200 else None
-    if current and not recorded(SECTION, "entity", entity_id):
+    if current and not recorded(SECTION, "entity", entity_id) and \
+            not adopted(SECTION, "entity", entity_id, entity_id, type=wanted["entityType"]):
         raise SeedError(f"{wanted['entityType']} '{entity_id}' exists in Authorization Management and the seed did not "
                         "create it: it is left alone")
     if current and as_wanted(current, wanted):
         return
-    api.post("/entities", json=wanted)
-    if not current:
-        record(SECTION, "entity", "access subjects", entity_id, entity_id, type=wanted["entityType"])
+    with (nullcontext() if current else making(SECTION, "entity", "access subjects", entity_id, type=wanted["entityType"])):
+        api.post("/entities", json=wanted)
+        if not current:
+            record(SECTION, "entity", "access subjects", entity_id, entity_id, type=wanted["entityType"])
     log(SECTION, f"✓ {wanted['entityType']} '{entity_id}' {'updated' if current else 'created'}")
 
 
@@ -333,25 +336,29 @@ def put_entities(api, spec):
     source, bodies, ranks = data_entities(spec)
     if not bodies:
         return
-    mine = made_entities()
+    mine, sending = made_entities(), f"{source} (being saved)"
+    noted = {entity_id for x in notes(SECTION, "entities") if x["name"] == sending for entity_id in x.get("ids", [])}
     present = {held["entityId"]: held for held in api.rows("/entities", LISTS, source=source)}
     present_elsewhere = elsewhere(api, [body["entityId"] for body in bodies if body["entityId"] not in present])
     changed, new = [], set()
     for body in bodies:
         entity_id = body["entityId"]
         current = present.get(entity_id) or present_elsewhere.get(entity_id)
-        if current and entity_id not in mine:
+        if current and entity_id not in mine and entity_id not in noted:
             raise SeedError(f"{body['entityType']} '{entity_id}' exists in Authorization Management and the seed did "
                             "not create it: it is left alone")
         if not current:
             new.add(entity_id)
-        if not current or not entity_is_as_wanted(current, body):
-            changed.append(body)
+        if not current or entity_id not in mine or not entity_is_as_wanted(current, body):   # one an earlier seed sent and lost
+            changed.append(body)                                                              # the answer of is saved again
     if not changed:
         log(SECTION, f"{len(bodies)} entities of '{source}' as the file says")
         return
-    for start in range(0, len(changed), BULK):
-        send_entities(api, source, changed[start:start + BULK], bodies, ranks)
+    # Noted before the first request (common.making): a bulk answer that is lost leaves entities that the next run saves again
+    with making(SECTION, "entities", "entities", sending, ids=[body["entityId"] for body in changed]):
+        for start in range(0, len(changed), BULK):
+            send_entities(api, source, changed[start:start + BULK], bodies, ranks)
+    unmade(SECTION, "entities", sending)
     for entity_type in dict.fromkeys(body["entityType"] for body in changed):
         of_type = [body["entityId"] for body in changed if body["entityType"] == entity_type]
         made = sum(entity_id in new for entity_id in of_type)
@@ -414,16 +421,19 @@ def policy(api, spec, slug, policies):
     found = controls.of("policy", name)
     status = controls.status(found, spec.get("status", "DEPLOYED"))
     current = policies.get("policy." + slugify(name))
-    if current and not recorded(SECTION, "policy", current["id"]):
+    if current and not recorded(SECTION, "policy", current["id"]) and not adopted(SECTION, "policy", name, current["id"]):
         raise SeedError(f"Policy '{name}' exists in Authorization Management and the seed did not create it: it is left alone")
     # The platform reads a policy when it is saved: one it cannot read comes back with the line and the reason
     if not current:
-        try:
-            current = api.post("/policies", json={"name": name, "kind": "RESOURCE", "policyType": "MCP",
-                                                  "policyText": text, "targets": []}).json()
-        except HttpError as e:
-            raise explain(f"Policy '{name}'", e) from e
-        record(SECTION, "policy", "access rules", name, current["id"])
+        with making(SECTION, "policy", "access rules", name):
+            try:
+                current = api.post("/policies", json={"name": name, "kind": "RESOURCE", "policyType": "MCP",
+                                                      "policyText": text, "targets": []}).json()
+            except HttpError as e:
+                if e.status < 500:
+                    unmade(SECTION, "policy", name)
+                raise explain(f"Policy '{name}'", e) from e
+            record(SECTION, "policy", "access rules", name, current["id"])
         log(SECTION, f"✓ Policy '{name}' created")
     elif current["name"] != name or current["policyText"].strip() != text.strip():
         try:
@@ -512,11 +522,12 @@ def schema(api, spec, slug):
     name, text = spec["name"], fill(spec["schema"], slug, f"Schema '{spec['name']}'")
     try:
         current = next((d for d in items(api.get("/schemas").json()) if d["name"] == name), None)
-        if current and not recorded(SECTION, "schema", current["id"]):
+        if current and not recorded(SECTION, "schema", current["id"]) and not adopted(SECTION, "schema", name, current["id"]):
             raise SeedError("one of that name exists and the seed did not create it")
         if not current:
-            made = api.post("/schemas", json={"name": name, "schema": text, "targets": []}).json()
-            record(SECTION, "schema", "access schemas", name, made["id"])
+            with making(SECTION, "schema", "access schemas", name):
+                made = api.post("/schemas", json={"name": name, "schema": text, "targets": []}).json()
+                record(SECTION, "schema", "access schemas", name, made["id"])
             log(SECTION, f"✓ Schema '{name}' created")
         elif current["schema"].strip() != text.strip():
             api.put(f"/schemas/{current['id']}", json={"name": name, "schema": text, "targets": []})

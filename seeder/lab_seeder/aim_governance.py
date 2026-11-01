@@ -32,7 +32,7 @@ aim_catalog deletes.
 """
 
 from .aim_catalog import fingerprint
-from .common import SeedError, created, forget, has_seed, items, load, log, owned, record, seed_file
+from .common import SeedError, adopted, created, forget, has_seed, items, load, log, making, owned, record, seed_file
 from .gamma import CATALOG, Gamma
 
 SECTION = "aim-governance"
@@ -198,12 +198,15 @@ class Governance:
             name = body["name"]
             named = [rule for rule in live if rule["name"] == name]
             found = next((rule for rule in named if rule["id"] in ours), None)
+            if named and found is None and len(named) == 1 and adopted(SECTION, "approval-rule", name, named[0]["id"]):
+                found = named[0]
             if named and found is None:
                 raise SeedError(f"The approval rule '{name}' exists and was not created by this playground: rename or "
                                 "delete it, the seed leaves it alone")
             if found is None:
-                made = self.aim.post("/approval-rules", json=body).json()
-                record(SECTION, "approval-rule", LABELS["approval-rule"], name, made["id"])
+                with making(SECTION, "approval-rule", LABELS["approval-rule"], name):
+                    made = self.aim.post("/approval-rules", json=body).json()
+                    record(SECTION, "approval-rule", LABELS["approval-rule"], name, made["id"])
                 log(SECTION, f"✓ Approval rule created: {name}")
             elif differs(found, body):
                 self.aim.put(f"/approval-rules/{found['id']}", json=body)
@@ -216,13 +219,15 @@ class Governance:
     def activate(self, frameworks):
         if not frameworks:
             return
-        active = {a["frameworkId"] for a in items(self.aim.get("/compliance/activations").json())}
+        active = {a["frameworkId"]: a for a in items(self.aim.get("/compliance/activations").json())}
         for framework in frameworks:
             if framework in active:
+                adopted(SECTION, "compliance-framework", framework, active[framework].get("id") or framework)
                 log(SECTION, f"Framework on: {framework}")
                 continue
-            made = self.aim.post("/compliance/activations", json={"frameworkId": framework}).json()
-            record(SECTION, "compliance-framework", LABELS["compliance-framework"], framework, made["id"])
+            with making(SECTION, "compliance-framework", LABELS["compliance-framework"], framework):
+                made = self.aim.post("/compliance/activations", json={"frameworkId": framework}).json()
+                record(SECTION, "compliance-framework", LABELS["compliance-framework"], framework, made["id"])
             log(SECTION, f"✓ Framework on: {framework}")
 
     def agent(self, slug):

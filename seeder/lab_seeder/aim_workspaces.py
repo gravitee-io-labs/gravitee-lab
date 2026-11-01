@@ -24,8 +24,8 @@ from urllib.parse import quote
 from . import controls
 from . import gamma
 from . import refills
-from .common import (Api, HttpError, SeedError, excerpt, files, forget, has_seed, load, log, owned, pause, record, recorded, setting,
-                     wait_until, waits_for_gateway)
+from .common import (Api, HttpError, SeedError, adopted, excerpt, files, forget, has_seed, load, log, making, owned, pause, record,
+                     recorded, setting, wait_until, waits_for_gateway)
 
 SECTION = "aim-workspaces"
 DEPENDS = ("aim_catalog",)   # the modules whose work this one reads on the platform (schedule.py)
@@ -103,14 +103,15 @@ class AiWorkspaces:
         when it is created and never changes."""
         name, version, description = spec["name"], str(spec.get("version", "1.0")), spec.get("description")
         found = next((w for w in self.aim.rows("/ai-workspaces", gamma.WORKSPACES, q=name) if w["name"] == name), None)
-        if found and not recorded(SECTION, "workspace", found["id"]):
+        if found and not recorded(SECTION, "workspace", found["id"]) and not adopted(SECTION, "workspace", name, found["id"]):
             raise SeedError(f"AI workspace {name} exists and the seed did not create it")
         if found is None:
             body = {"name": name, "version": version, "defaultBudget": budget_body(spec["budgets"][0])}
             if description:
                 body["description"] = description
-            found = self.aim.post("/ai-workspaces", json=body).json()
-            record(SECTION, "workspace", "AI workspaces", name, found["id"])
+            with making(SECTION, "workspace", "AI workspaces", name):
+                found = self.aim.post("/ai-workspaces", json=body).json()
+                record(SECTION, "workspace", "AI workspaces", name, found["id"])
             self.touched()
             log(SECTION, f"✓ AI workspace created: {name}")
         elif (found.get("version"), found.get("description")) != (version, description):
@@ -219,15 +220,17 @@ class AiWorkspaces:
         users = self.g.org_v1.get("/users", params={"q": source_id, "size": 100}).json().get("data", [])
         found = next((u for u in users if u.get("source") == source and u.get("sourceId") == source_id), None)
         if found:
+            adopted(SECTION, "workspace-user", source_id, found["id"])   # one an earlier seed made and lost the answer of, if any
             return found["id"]
         if source != "gravitee":
             if spec.get("optional"):
                 log(SECTION, f"! {source_id} is not a user of the platform yet: left out")
                 return None
             raise SeedError(f"User {source_id} ({source}) is not known to the platform: it signs in once first")
-        made = self.g.org_v1.post("/users", json={"source": source, "sourceId": source_id, "firstname": spec["firstname"],
-                                                  "lastname": spec["lastname"], "email": spec["email"], "service": False}).json()
-        record(SECTION, "workspace-user", "workspace users", source_id, made["id"])
+        with making(SECTION, "workspace-user", "workspace users", source_id):
+            made = self.g.org_v1.post("/users", json={"source": source, "sourceId": source_id, "firstname": spec["firstname"],
+                                                      "lastname": spec["lastname"], "email": spec["email"], "service": False}).json()
+            record(SECTION, "workspace-user", "workspace users", source_id, made["id"])
         log(SECTION, f"  ✓ User created: {source_id}")
         return made["id"]
 

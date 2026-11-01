@@ -122,13 +122,16 @@ def fingerprint(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
 
-def own(kind, rows, what):
+def own(kind, rows, what, name):
     """The row of the seed among those that have the key it wants, with its record: (None, None) when there is none. A row
-    it did not create stops the seed, which names it and leaves it alone."""
+    it did not create stops the seed, which names it and leaves it alone, unless it is the one row an earlier seed was making
+    under `name` when it lost the platform's answer (`common.making`)."""
     if not rows:
         return None, None
     ours = {x["id"]: x for x in common.created() if (x["product"], x["kind"]) == (SECTION, kind)}
     found = next((row for row in rows if row["id"] in ours), None)
+    if found is None and len(rows) == 1 and common.adopted(SECTION, kind, name, rows[0]["id"]):
+        return own(kind, rows, what, name)
     if found is None:
         raise SeedError(f"{what} exists and was not created by this playground: rename or delete it, the seed leaves it alone")
     return found, ours[found["id"]]
@@ -147,7 +150,7 @@ def find_credential(aim, name):
     """The credential of the seed with this name, None when there is none: Gamma allows several, so one the seed did not
     create is none of its business."""
     rows = [c for c in aim.rows(PATHS["credential"], CATALOG) if c["name"] == name]
-    return own("credential", rows, f"The credential '{name}'")[0]
+    return own("credential", rows, f"The credential '{name}'", name)[0]
 
 
 def seed_credentials(aim):
@@ -160,8 +163,9 @@ def seed_credentials(aim):
                 "allowedUsageSurfaces": USAGE_SURFACES}
         if "service" in spec:
             body["serviceId"] = spec["service"]
-        created = aim.post(PATHS["credential"], json=body).json()
-        record(SECTION, "credential", LABELS["credential"], name, created["id"])
+        with common.making(SECTION, "credential", LABELS["credential"], name):
+            created = aim.post(PATHS["credential"], json=body).json()
+            record(SECTION, "credential", LABELS["credential"], name, created["id"])
         say("credential", "created", name)
 
 
@@ -203,13 +207,14 @@ def seed_providers(aim):
     for spec in specs("providers", "name", "slug", "connection", "models"):
         name, slug, models = spec["name"], spec["slug"], spec["models"]
         rows = [p for p in aim.rows(PATHS["provider"], CATALOG) if p["slug"] == slug or p["name"] == name]
-        found, _ = own("provider", rows, f"The provider '{name}' ({slug})")
+        found, _ = own("provider", rows, f"The provider '{name}' ({slug})", name)
         body = {"name": name, "slug": slug, "visibility": spec.get("visibility", "RESTRICTED"), "connection": spec["connection"]}
         if "credential" in spec:
             body["authProfileId"] = credential_id(aim, spec["credential"])
         if found is None:
-            found = aim.post(PATHS["provider"], json={**body, "models": models}).json()
-            record(SECTION, "provider", LABELS["provider"], name, found["id"])
+            with common.making(SECTION, "provider", LABELS["provider"], name):
+                found = aim.post(PATHS["provider"], json={**body, "models": models}).json()
+                record(SECTION, "provider", LABELS["provider"], name, found["id"])
             say("provider", "created", name)
         elif provider_differs(found, body, models):
             found = aim.put(f"{PATHS['provider']}/{found['id']}", json={**body, "models": models}).json()
@@ -249,17 +254,18 @@ def seed_item(aim, kind, spec, name, body, source, keep=()):
     body = {"sourceId": source["id"], **body}
     wanted = f"{kind}.{slug}"
     rows = [i for i in aim.rows(PATHS[kind], CATALOG) if i["entityId"] == wanted]
-    found, ours = own(kind, rows, f"The {noun(kind)} '{wanted}'")
+    found, ours = own(kind, rows, f"The {noun(kind)} '{wanted}'", name)
     digest = fingerprint(body)
     if found is None:
-        found, did = aim.post(PATHS[kind], json={**body, "entityId": slug}).json(), "created"
+        with common.making(SECTION, kind, LABELS[kind], name, source=spec["source"]):
+            found, did = aim.post(PATHS[kind], json={**body, "entityId": slug}).json(), "created"
+            record(SECTION, kind, LABELS[kind], name, found["id"], source=spec["source"], digest=digest)
     elif ours.get("digest") != digest:
         aim.put(f"{PATHS[kind]}/{found['id']}", json=with_stored(body, found, keep))
+        record(SECTION, kind, LABELS[kind], name, found["id"], source=spec["source"], digest=digest)
         did = "updated"
     else:
         did = "up to date"
-    if did != "up to date":
-        record(SECTION, kind, LABELS[kind], name, found["id"], source=spec["source"], digest=digest)
     say(kind, did, name)
 
 
@@ -398,10 +404,11 @@ def mcp_source(aim, endpoint):
 def import_server(aim, spec, discovered, found, digest):
     """An import replaces the endpoint, tools, prompts and resources of the server and keeps its id and its source."""
     source_id = found["sourceId"] if found else mcp_source(aim, spec["endpoint"])["id"]
-    result = aim.post(f"/catalog/sources/{source_id}/imports/mcp-server",
-                      json={"endpoint": spec["endpoint"], "transport": "http", "authType": "none", "discoverResult": discovered}).json()
-    server = result["server"]
-    record(SECTION, "mcp-server", LABELS["mcp-server"], spec["name"], server["id"], source=source_id, digest=digest)
+    with common.making(SECTION, "mcp-server", LABELS["mcp-server"], spec["name"], source=source_id):
+        result = aim.post(f"/catalog/sources/{source_id}/imports/mcp-server",
+                          json={"endpoint": spec["endpoint"], "transport": "http", "authType": "none", "discoverResult": discovered}).json()
+        server = result["server"]
+        record(SECTION, "mcp-server", LABELS["mcp-server"], spec["name"], server["id"], source=source_id, digest=digest)
     say("mcp-server", "imported", f"{spec['name']} ({result['toolCount']} tools, {result['promptCount']} prompts, "
                                   f"{result['resourceCount']} resources)")
     return server
@@ -414,7 +421,7 @@ def seed_mcp_servers(aim):
     for spec, discovered in zip(asked, parallel(lambda spec: discover(spec["endpoint"]), asked)):   # what the servers say, asked together
         rows = [s for s in aim.rows(PATHS["mcp-server"], CATALOG)
                 if s["entityId"] == spec["entityId"] or s.get("extensions", {}).get("endpoint") == spec["endpoint"]]
-        found, ours = own("mcp-server", rows, f"The MCP server '{spec['name']}' ({spec['endpoint']})")
+        found, ours = own("mcp-server", rows, f"The MCP server '{spec['name']}' ({spec['endpoint']})", spec["name"])
         digest = fingerprint({"endpoint": spec["endpoint"], "discovered": discovered})   # the endpoint is stored with the import
         if found is None or ours.get("digest") != digest:
             found = import_server(aim, spec, discovered, found, digest)
@@ -460,16 +467,17 @@ def seed_skills(aim):
     for path in sorted(p for p in folder.iterdir() if p.is_dir()) if folder.is_dir() else []:
         texts, name = skill_files(path)
         rows = [s for s in aim.rows(PATHS["skill"], CATALOG) if s["entityId"] == f"skill.{name}"]
-        found, ours = own("skill", rows, f"The skill '{name}'")
+        found, ours = own("skill", rows, f"The skill '{name}'", name)
         digest = fingerprint(texts)
         if found and ours.get("digest") == digest:
             say("skill", "up to date", name)
             continue
         if found:
             aim.delete(f"{PATHS['skill']}/{found['id']}")
-        uploaded = aim.post(PATHS["skill"], files={"file": (f"{name}.zip", skill_package(name, texts), "application/zip")},
-                            headers={"Content-Type": None}).json()
-        record(SECTION, "skill", LABELS["skill"], name, uploaded["id"], digest=digest)
+        with common.making(SECTION, "skill", LABELS["skill"], name):
+            uploaded = aim.post(PATHS["skill"], files={"file": (f"{name}.zip", skill_package(name, texts), "application/zip")},
+                                headers={"Content-Type": None}).json()
+            record(SECTION, "skill", LABELS["skill"], name, uploaded["id"], digest=digest)
         say("skill", "replaced" if found else "uploaded", name)
 
 
@@ -620,7 +628,7 @@ def seed_api_tools(aim):
         digest = fingerprint(tools)
         sources = aim.rows("/catalog/sources", CATALOG, sourceKind="apim.api")
         source = next((s for s in sources if s["definition"].get("apiId") == api["id"]), None)
-        found, ours = own("api-tools", [source] if source else [], f"The tools of the API '{name}'")
+        found, ours = own("api-tools", [source] if source else [], f"The tools of the API '{name}'", name)
         if found and ours.get("digest") == digest:
             say("api-tools", "up to date", name)
             continue
@@ -629,8 +637,9 @@ def seed_api_tools(aim):
             aim.delete(f"{PATHS['api-tools']}/{found['id']}")
         body = {"sources": [{"apiId": api["id"], "apiName": name}],
                 "tools": [{k: v for k, v in t.items() if k != "tailoring"} for t in tools]}
-        imported = aim.post("/catalog/mcp-tools/_importFromApis", json=body).json()["data"]
-        record(SECTION, "api-tools", LABELS["api-tools"], name, imported[0]["sourceId"])
+        with common.making(SECTION, "api-tools", LABELS["api-tools"], name):
+            imported = aim.post("/catalog/mcp-tools/_importFromApis", json=body).json()["data"]
+            record(SECTION, "api-tools", LABELS["api-tools"], name, imported[0]["sourceId"])
         tailored = tailor(aim, name, imported, tools)
         record(SECTION, "api-tools", LABELS["api-tools"], name, imported[0]["sourceId"], digest=digest)
         say("api-tools", "replaced" if found else "imported",

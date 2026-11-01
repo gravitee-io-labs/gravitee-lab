@@ -664,9 +664,10 @@ def held():
                 fcntl.flock(lock, fcntl.LOCK_UN)
 
 
-def created():
-    """The records, [] when there is no record yet. One that cannot be read, or is not a list of records, stops the seed: read
-    as nothing, the next write would forget all it holds, and a removal would delete nothing and say it did."""
+def _read():
+    """Every record as the file holds it, those of what the seed is making (`making`) too; [] when there is no record yet. One
+    that cannot be read, or is not a list of records, stops the seed: read as nothing, the next write would forget all it
+    holds, and a removal would delete nothing and say it did."""
     with held():
         for attempt in (1, 2):   # a mounted folder can fail a read for a moment
             try:
@@ -687,6 +688,11 @@ def created():
         return records
 
 
+def created():
+    """The records of what the seed created (see `_read`): what it is still making, with no id yet, is no object of it."""
+    return [x for x in _read() if x["id"] is not None]
+
+
 def recorded(product, kind, id):
     """Whether the seed created this item."""
     return any((x["product"], x["kind"], x["id"]) == (product, kind, id) for x in created())
@@ -697,7 +703,7 @@ def record(product, kind, label, name, id, **extra):
     `label` is what people call things of this kind, in the plural: the lab shows it when it asks whether
     to delete them ("3 MCP servers")."""
     with held():
-        records = [x for x in created() if (x["product"], x["kind"], x["name"]) != (product, kind, name)]
+        records = [x for x in _read() if (x["product"], x["kind"], x["name"]) != (product, kind, name)]
         records.append({"product": product, "kind": kind, "label": label, "name": name, "id": id, **extra})
         save_created(records)
 
@@ -709,7 +715,66 @@ def forget(*gone):
         return
     with held():
         drop = {tuple(x[key] for key in KEYS) for x in gone}
-        save_created([x for x in created() if tuple(x[key] for key in KEYS) not in drop])
+        save_created([x for x in _read() if tuple(x[key] for key in KEYS) not in drop])
+
+
+def notes(product, kind):
+    """The notes of `making` of this kind: what the seed was making, with no id yet."""
+    return [x for x in _read() if (x["product"], x["kind"], x["id"]) == (product, kind, None)]
+
+
+def pending(product, kind, name):
+    """The note of `making` for this object, None when there is none."""
+    return next((x for x in notes(product, kind) if x["name"] == name), None)
+
+
+@contextmanager
+def making(product, kind, label, name, **extra):
+    """The create of one object, noted before it is asked for: a record under its name, with no id yet and a count of 0, which
+    the Lab counts as nothing. `record`, with the id the platform answers, takes its place. When the answer is lost (no answer
+    in time, a seed stopped in the middle of the request), it stays, and the next run takes the object it finds under that
+    name as its own (`adopted`), where it would stop on an object it did not create. A refusal of the request (a 4xx) takes
+    it back: nothing was made. A record the seed has under that name is left as it is: the record of the answer replaces it."""
+    with held():
+        if not any((x["product"], x["kind"], x["name"]) == (product, kind, name) and x["id"] is not None for x in _read()):
+            record(product, kind, label, name, None, count=0, **extra)
+    try:
+        yield
+    except HttpError as e:
+        if e.status < 500:
+            unmade(product, kind, name)
+        raise
+
+
+def unmade(product, kind, name):
+    """Takes back what `making` said the seed was making, when the platform answered that it made nothing."""
+    with held():
+        entry = pending(product, kind, name)
+        if entry:
+            forget(entry)
+
+
+def claimed(product, kind, name):
+    """The note of `making` when an earlier seed was making an object of this kind and name and lost the platform's answer: the
+    object found under that name is then the seed's, and the note goes. None when there is none. The caller records the object."""
+    with held():
+        entry = pending(product, kind, name)
+        if entry:
+            forget(entry)
+            log(product, f"! {name}: made by an earlier seed that lost the platform's answer, now known as the seed's")
+        return entry
+
+
+def adopted(product, kind, name, id, **extra):
+    """Whether the object the seed finds under this name, with no record of it, is the one an earlier seed was making when it
+    lost the platform's answer (`claimed`): then it is recorded with its id, as the seed's, and True."""
+    with held():
+        entry = claimed(product, kind, name)
+        if entry is None:
+            return False
+        kept = {key: value for key, value in entry.items() if key not in (*KEYS, "label", "count")}
+        record(product, kind, entry["label"], name, id, **{**kept, **extra})
+    return True
 
 
 def save_created(records):

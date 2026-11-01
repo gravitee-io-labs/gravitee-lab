@@ -24,7 +24,7 @@ stops the seed, which does not renew the tokens of an account it does not own.
 import os
 
 from . import am
-from .common import SeedError, forget, has_seed, items, load, log, owned, record, recorded, seed_file, setting, wait_until
+from .common import SeedError, adopted, forget, has_seed, items, load, log, making, owned, record, recorded, seed_file, setting, wait_until
 from .gamma import Gamma
 
 SECTION = "am-link"
@@ -101,15 +101,17 @@ def service_account_token(access, name):
     api, org = access.api, access.org_url
     users = items(api.get(f"{org}/users", params={"q": name, "size": 50}).json())
     user = next((u for u in users if u.get("username") == name and u.get("serviceAccount")), None)
-    if user and not recorded(SECTION, "am-service-account", user["id"]):
+    if user and not recorded(SECTION, "am-service-account", user["id"]) and \
+            not adopted(SECTION, "am-service-account", name, user["id"], role=ORG_OWNER):
         # Its tokens would be deleted below, and the role it has is not ours to change
         raise SeedError(f"AM already has a service account '{name}' that the seed did not create: delete it in Access "
                         "Management, or name another in seed/am/gamma-link.yaml, or give Gamma a token of its own "
                         "with AM_TOKEN")
     if not user:
-        user = api.post(f"{org}/users", json={"username": name, "serviceAccount": True, "firstName": "Gamma",
-                                              "lastName": "Service account"}).json()
-        record(SECTION, "am-service-account", "AM service accounts", name, user["id"], role=ORG_OWNER)
+        with making(SECTION, "am-service-account", "AM service accounts", name, role=ORG_OWNER):
+            user = api.post(f"{org}/users", json={"username": name, "serviceAccount": True, "firstName": "Gamma",
+                                                  "lastName": "Service account"}).json()
+            record(SECTION, "am-service-account", "AM service accounts", name, user["id"], role=ORG_OWNER)
         log(SECTION, f"✓ AM service account '{name}' created")
     role = next((r for r in items(api.get(f"{org}/roles").json())
                  if r["name"] == ORG_OWNER and r.get("assignableType") == "organization"), None)

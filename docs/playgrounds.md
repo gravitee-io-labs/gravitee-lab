@@ -599,6 +599,8 @@ replaces or deletes only what that record says it created:
   plain names.
 - An API that the platform made although its import failed (it answers `API imported with error` and keeps the API, stopped) is
   recorded with no digest, so that the next run updates it from its file. A renamed API is one record, under its new name.
+- A create is noted in the record before it is asked for. When its answer is lost (no answer in time, a seed stopped in the
+  middle of it), the next seed takes the object it finds under that name as its own and says so with a `!` line.
 - With `.state/created.json` lost, the next seed stops on what it made. Delete those objects, or Reset. A record that cannot be
   read stops the seed and is never written over: fix it, or Reset.
 - `seed.py --remove` deletes the recorded items in dependency order: the portal's objects, then the subscriptions, applications

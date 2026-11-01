@@ -403,6 +403,51 @@ class SecondRun(Converged):
         self.assertIn(("POST", V1 + "/settings"), self.run_seed())
 
 
+class LostAnswers(Playground):
+    """The platform made what the seed asked for, and the seed never got the answer: a timeout, or a seed stopped mid-request."""
+
+    def test_an_api_whose_import_answer_was_lost_is_the_seeds_at_the_next_run(self):
+        imports = V2 + "/apis/_import/definition"
+        for lost in (requests.ReadTimeout("slow"), KeyboardInterrupt()):
+            with self.subTest(lost=type(lost).__name__):
+                self.setUp()
+                def made(call, lost=lost):
+                    self.apim.import_api(call)
+                    raise lost
+                self.platform.add({("POST", imports): made})
+                with self.assertRaises((common.SeedError, KeyboardInterrupt)):
+                    self.run_seed()
+                [made] = self.apim.apis
+                self.assertNotIn(made, [x["id"] for x in common.created()])
+                self.platform.add({("POST", imports): self.apim.import_api})
+                self.run_seed()
+                self.assertEqual(sorted(x["name"] for x in common.created() if x["kind"] == "api"), ["ACME LLM", "Ace A2A", "Open API"])
+                self.assertEqual(len(self.apim.apis), 3)
+                self.assertIn("made by an earlier seed that lost the platform's answer", self.output())
+
+    def test_an_application_whose_answer_was_lost_is_the_seeds_at_the_next_run(self):
+        made = []
+        self.platform.add({("POST", V1 + "/applications"): lambda call: (made.append(self.apim.create_application(call)),
+                                                                         requests.ConnectionError("reset"))[1]})
+        with self.assertRaisesRegex(common.SeedError, "the connection was cut"):
+            self.run_seed()
+        self.platform.add({("POST", V1 + "/applications"): self.apim.create_application})
+        self.run_seed()
+        self.assertEqual(len(self.apim.applications), 2, "none made twice")
+        self.assertEqual(sorted(x["name"] for x in common.created() if x["kind"] == "application"), ["Dev", "Web"])
+
+    def test_what_the_seed_is_making_is_counted_as_nothing_and_kept_by_a_removal(self):
+        """The Lab counts a record whose count is 0 as nothing: a note is no object to delete."""
+        with self.assertRaises(KeyboardInterrupt), common.making("apim", "api", "APIs", "Orders"):
+            raise KeyboardInterrupt
+        [note] = json.loads(self.state.read_text(encoding="utf-8"))
+        self.assertEqual((note["name"], note["id"], note["count"]), ("Orders", None, 0))
+        self.assertEqual(common.created(), [])
+        self.assertEqual(self.main("--remove"), 0)
+        self.assertIn("✓ 0 items removed", self.output())
+        self.assertEqual(json.loads(self.state.read_text(encoding="utf-8")), [note])
+
+
 class Connecting(Seed):
 
     def test_credentials_or_an_environment_the_platform_refuses_end_the_wait_at_once(self):

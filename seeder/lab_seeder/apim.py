@@ -64,8 +64,8 @@ import requests
 
 from . import controls
 from . import common
-from .common import (OK, REFUSED, Api, HttpError, SeedError, created, excerpt, files, folders, forget, later, load, log, owned, parallel,
-                     pause, together, record, recorded, save_created, seed_file, setting, wait_until)
+from .common import (OK, REFUSED, Api, HttpError, SeedError, adopted, created, excerpt, files, folders, forget, later, load, log, making,
+                     owned, parallel, pause, together, record, recorded, seed_file, setting, unmade, wait_until)
 
 SECTION = "apim"
 DEPENDS = ()   # the modules whose work this one reads on the platform: none, so it runs at the start (schedule.py)
@@ -287,18 +287,23 @@ class ApiManagement:
 
     def register(self, spec):
         source, source_id = spec["source"], spec["sourceId"]
-        if self.find_user(source, source_id):
+        name = self.scoped(source_id)
+        found = self.find_user(source, source_id)
+        if found:
+            adopted(SECTION, "user", name, found["id"], sourceId=source_id, **self.scope())   # one an earlier seed made, if any
             log(SECTION, f"User exists: {source_id}")
             return
         body = {key: spec[key] for key in ("source", "sourceId", "email", "firstname", "lastname") if key in spec}
-        answer = self.api.post(f"{self.v1}/users", json=body, expect=(200, 201, 404))
-        if answer.status_code == 404:
-            if code_of(answer) != NO_PROVIDER:
-                raise HttpError(f"POST {self.v1}/users: HTTP 404 {excerpt(answer.text)}", 404, answer.text)
-            self.waiting[(source, source_id)] = spec
-            log(SECTION, f"User {source_id}: no row yet, its first login or its first group makes it")
-            return
-        record(SECTION, "user", "users", self.scoped(source_id), answer.json()["id"], sourceId=source_id, **self.scope())
+        with making(SECTION, "user", "users", name, sourceId=source_id, **self.scope()):
+            answer = self.api.post(f"{self.v1}/users", json=body, expect=(200, 201, 404))
+            if answer.status_code == 404:
+                unmade(SECTION, "user", name)
+                if code_of(answer) != NO_PROVIDER:
+                    raise HttpError(f"POST {self.v1}/users: HTTP 404 {excerpt(answer.text)}", 404, answer.text)
+                self.waiting[(source, source_id)] = spec
+                log(SECTION, f"User {source_id}: no row yet, its first login or its first group makes it")
+                return
+            record(SECTION, "user", "users", name, answer.json()["id"], sourceId=source_id, **self.scope())
         log(SECTION, f"✓ User registered: {source_id}")
 
     def groups(self, specs):
@@ -314,15 +319,16 @@ class ApiManagement:
         body = {**{key: value for key, value in spec.items() if key not in ("defaults", "members")}, "members": members}
         live, said = self.automation.get(f"/groups/{hrid}", expect=(200, 404)), []   # said: what the platform says about the write
         state = live.json() if live.status_code == 200 else None
-        if state and not recorded(SECTION, "group", state["id"]):
+        if state and not recorded(SECTION, "group", state["id"]) and not adopted(SECTION, "group", label, state["id"], hrid=hrid, **self.scope()):
             raise SeedError(f"Group {label}: the hrid is taken by a group the seed did not create")
         if not state or not covers(state, {key: body[key] for key in ("name", "notifyMembers") if key in body}) or lacking(state, members):
-            written = self.automation.put("/groups", json=body, what=f"Group {label}").json()
-            severe = (written.get("errors") or {}).get("severe")
-            if severe:
-                raise SeedError(f"Group {label}: {excerpt(severe, 300)}")
-            said = (written.get("errors") or {}).get("warning") or []
-            record(SECTION, "group", "groups", label, written["id"], hrid=hrid, **self.scope())
+            with making(SECTION, "group", "groups", label, hrid=hrid, **self.scope()):
+                written = self.automation.put("/groups", json=body, what=f"Group {label}").json()
+                severe = (written.get("errors") or {}).get("severe")
+                if severe:
+                    raise SeedError(f"Group {label}: {excerpt(severe, 300)}")
+                said = (written.get("errors") or {}).get("warning") or []
+                record(SECTION, "group", "groups", label, written["id"], hrid=hrid, **self.scope())
             state = self.automation.get(f"/groups/{hrid}").json()
             log(SECTION, f"✓ Group written: {label}")
         else:
@@ -350,22 +356,26 @@ class ApiManagement:
     def make_user(self, group_id, label, member):
         source_id = member["sourceId"]
         spec = self.waiting.get((member["source"], source_id)) or {}
-        if self.find_user(member["source"], source_id):
-            return   # made meanwhile, by a group of another environment
+        found = self.find_user(member["source"], source_id)
+        if found:   # made meanwhile, by a group of another environment, or by an earlier seed that lost the answer
+            adopted(SECTION, "user", self.scoped(source_id), found["id"], sourceId=source_id, **self.scope())
+            return
         found = self.api.get(f"{self.org_v1}/search/users", params={"q": source_id}).json()
         reference = choose(found, source_id, spec)
         if not reference:
             raise SeedError(f"Group {label}: {source_id} is not a user of the platform and no identity provider names exactly one "
                             "(a memory user is one of the configuration of the management API)")
         roles = [{"scope": scope, "name": name} for scope, name in (member.get("roles") or {}).items()]
-        added = self.api.post(f"{self.v1}/configuration/groups/{group_id}/members", json=[{"reference": reference, "roles": roles}],
-                              expect=range(200, 600))
-        if not added.ok:
-            raise SeedError(f"Group {label}: {source_id} could not be added to it: HTTP {added.status_code} {excerpt(added.text, 300)}")
-        user = self.appears(member["source"], source_id)
-        if not user:
-            raise SeedError(f"Group {label}: {source_id} was added to it but the platform made no user of it")
-        record(SECTION, "user", "users", self.scoped(source_id), user["id"], sourceId=source_id, **self.scope())
+        with making(SECTION, "user", "users", self.scoped(source_id), sourceId=source_id, **self.scope()):
+            added = self.api.post(f"{self.v1}/configuration/groups/{group_id}/members", json=[{"reference": reference, "roles": roles}],
+                                  expect=range(200, 600))
+            if not added.ok:
+                raise HttpError(f"Group {label}: {source_id} could not be added to it: HTTP {added.status_code} {excerpt(added.text, 300)}",
+                                added.status_code, added.text)
+            user = self.appears(member["source"], source_id)
+            if not user:
+                raise SeedError(f"Group {label}: {source_id} was added to it but the platform made no user of it")
+            record(SECTION, "user", "users", self.scoped(source_id), user["id"], sourceId=source_id, **self.scope())
         log(SECTION, f"✓ User {source_id}: made by its group")
 
     def defaults(self, group_id, label, wanted):
@@ -452,6 +462,8 @@ class ApiManagement:
         imported = self.named_groups(wanted, groups)
         live = self.live_api(api)
         mine = live and made_by_seed(live["id"])
+        if live and not mine and adopted(SECTION, "api", name, live["id"], **self.scope()):
+            mine = made_by_seed(live["id"])
         if live and not mine:
             held = f"{api['id']} is the id" if live["id"] == api.get("id") else f"{self.address(api)} is the path"
             raise SeedError(f"API {name}: {held} of '{live['name']}', which the seed did not create")
@@ -572,7 +584,8 @@ class ApiManagement:
         then keeps (STOPPED, with the error in its message): it is recorded, with no digest, so that the seed finds it as its own
         at the next run and updates it, where it would stop on an API it did not create."""
         try:
-            return self.api.post(f"{self.v2}/apis/_import/definition", json=definition).json()["id"]
+            with making(SECTION, "api", "APIs", name, **self.scope()):
+                return self.api.post(f"{self.v2}/apis/_import/definition", json=definition).json()["id"]
         except HttpError as e:
             left = made_by_error(e)
             if left:
@@ -596,6 +609,7 @@ class ApiManagement:
         if (live.get("type") or definition.get("api", {}).get("type")) in NOT_UPDATABLE:
             self.api.post(f"{self.v2}/apis/{api_id}/_stop", expect=ENDED, idempotent=True)
             self.api.delete(f"{self.v2}/apis/{api_id}", params={"closePlans": "true"})
+            forget(*[x for x in created() if (x["product"], x["kind"], x["id"]) == (SECTION, "api", api_id)])   # gone: its import is noted
             self.until_dropped(name, self.first_path(live))
             api_id = self.imported(definition, name)
             log(SECTION, f"✓ API replaced: {name}")
@@ -605,7 +619,7 @@ class ApiManagement:
         # Still the seed's, under its new id and digest. The record it had under the id this API had goes: it may hold another
         # name (the file renamed the API) or another id (the API was replaced), and the first record of an id is the one that is read
         with common.held():   # read, changed and written back by this step alone
-            save_created([x for x in created() if (x["product"], x["kind"], x["id"]) != (SECTION, "api", live["id"])])
+            forget(*[x for x in created() if (x["product"], x["kind"], x["id"]) == (SECTION, "api", live["id"])])
             record(SECTION, "api", "APIs", name, api_id, digest=digest, **self.scope())
         self.remember(api_id, definition, name, gone=live["id"])
         return api_id
@@ -666,10 +680,11 @@ class ApiManagement:
             payload["groups"] = groups
         found = self.find_application(name)
         if not found:
-            app = self.api.post(f"{self.v1}/applications", json=payload).json()
-            record(SECTION, "application", "applications", label, app["id"], **self.scope())
+            with making(SECTION, "application", "applications", label, **self.scope()):
+                app = self.api.post(f"{self.v1}/applications", json=payload).json()
+                record(SECTION, "application", "applications", label, app["id"], **self.scope())
             log(SECTION, f"✓ Application created: {label}")
-        elif not recorded(SECTION, "application", found["id"]):
+        elif not recorded(SECTION, "application", found["id"]) and not adopted(SECTION, "application", label, found["id"], **self.scope()):
             raise SeedError(f"Application {label}: the name is taken by an application the seed did not create")
         elif (covers({"description": found.get("description") or "", "settings": found.get("settings")},
                      {"description": payload["description"], "settings": payload["settings"]})
@@ -699,6 +714,8 @@ class ApiManagement:
         existing = self.api.get(f"{self.v2}/apis/{api['id']}/subscriptions", params={
             "applicationIds": app["id"], "planIds": plan["id"], "statuses": "ACCEPTED,PENDING,PAUSED"}).json()
         if existing.get("data"):
+            if not recorded(SECTION, "subscription", existing["data"][0]["id"]):
+                adopted(SECTION, "subscription", label, existing["data"][0]["id"], api=api["id"], **self.scope())
             if self.callback(existing["data"][0], api["id"], spec, label):
                 log(SECTION, f"✓ Subscription updated: {label}")
             else:
@@ -716,15 +733,17 @@ class ApiManagement:
                 body["request"] = comment
             if configuration:
                 body["configuration"] = configuration
-            sub = self.api.post(f"{self.portal}/subscriptions", json=body).json()
+            address = f"{self.portal}/subscriptions"
         else:
             body = {"applicationId": app["id"], "planId": plan["id"]}
             if key:
                 body["customApiKey"] = key
             if configuration:
                 body["consumerConfiguration"] = configuration
-            sub = self.api.post(f"{self.v2}/apis/{api['id']}/subscriptions", json=body).json()
-        record(SECTION, "subscription", "subscriptions", label, sub["id"], api=api["id"], **self.scope())
+            address = f"{self.v2}/apis/{api['id']}/subscriptions"
+        with making(SECTION, "subscription", "subscriptions", label, api=api["id"], **self.scope()):
+            sub = self.api.post(address, json=body).json()
+            record(SECTION, "subscription", "subscriptions", label, sub["id"], api=api["id"], **self.scope())
         if sub.get("status") == "PENDING" and not pending:
             self.api.post(f"{self.v2}/apis/{api['id']}/subscriptions/{sub['id']}/_accept", json={"customApiKey": key} if key else {})
         log(SECTION, f"✓ Subscription: {label}" + (" (pending)" if pending else ""))
