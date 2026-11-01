@@ -542,6 +542,8 @@ The lines cover:
 - **The license**: named for what needs it (the packs of the license, such as *Enterprise authorization engine,
   Observability*), with *Needs a license*, *License expired*, *Not in the license* or *Apply needed* under it, and a *Set
   license* button. Start still runs without it, and says so under its button: *Starts without what needs the license*.
+  A file of the seed's APIs that is not a JSON object has a line of its own, *Cannot be read as an API definition*: what
+  it uses is not counted.
 - **Docker's memory**, when it is short.
 - **Host prerequisites**, such as Ollama with a model: a missing one warns, with the fix. A check is an http or https
   address, called from your machine.

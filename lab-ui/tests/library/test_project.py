@@ -30,6 +30,9 @@ WHOAMI, SANDBOX = "addons/local/whoami/compose.yml", "playgrounds/local/sandbox/
 HYBRID, CLOUD = "addons/hybrid/compose.yml", "playgrounds/cloud/compose.yml"
 
 
+HOST_SHAPE = "a list of checks, each with a name and a check URL, its expect and help in text"
+
+
 class Legacy(Case):
     """A project as it was before catalogs: with no catalogs.default.json the units sit in addons/, setups/ and playgrounds/,
     each kind with its personal ones in a folder `local`, and the units are read and shown together as they always were.
@@ -654,10 +657,21 @@ class Degraded(Legacy):
         for file, key, shape in ((INSPECTOR, "license", "a list of license features, or a mapping of each feature to "
                                                         "what needs it"),
                                  (WELCOME, "plugins", "a mapping of each product to a list of plugins"),
-                                 (WELCOME, "host", "a list of checks, each with a name and a check URL")):
+                                 (WELCOME, "host", HOST_SHAPE)):
             self.assertIn({"file": file, "message": f"x-gravitee.requires.{key} must be {shape}"}, built["problems"])
         self.assertEqual(built["addons"]["agent-lens"]["requires"], {})
         self.assertEqual(built["playgrounds"]["welcome"]["requires"], {"license": ["feature-1"]})
+        # What a host check expects of the answer, and the help it gives, are texts: Before you start reads them as such
+        for spec in ({"name": "Ollama", "check": "http://localhost:11434", "expect": 3},
+                     {"name": "Ollama", "check": "http://localhost:11434", "help": ["Install it"]}):
+            with self.subTest(spec=spec):
+                given["raw"][WELCOME]["x-gravitee"]["requires"] = {"host": [spec]}
+                built = project.build(given)
+                self.assertIn({"file": WELCOME, "message": f"x-gravitee.requires.host must be {HOST_SHAPE}"}, built["problems"])
+                self.assertEqual(built["playgrounds"]["welcome"]["requires"], {})
+        given["raw"][WELCOME]["x-gravitee"]["requires"] = {"host": [{"name": "Ollama", "check": "http://localhost:11434",
+                                                                     "expect": "qwen3", "help": "Install it"}]}
+        self.assertEqual(len(project.build(given)["playgrounds"]["welcome"]["requires"]["host"]), 1)
         # The license also as a mapping of each feature to what needs it, but not to a list
         given["raw"][INSPECTOR]["x-gravitee"]["requires"] = {"license": {"feature-1": "Step 4", "feature-2": None}}
         given["raw"][WELCOME]["x-gravitee"]["requires"] = {"license": {"feature-1": ["Step 4"]}}
@@ -915,11 +929,21 @@ class Deployable(Legacy):
 
     def test_the_plugins_of_an_api_definition_are_its_entrypoints_endpoints_policies_and_resources(self):
         # What a configuration holds under "type" is no plugin: only what the definition names as one
-        found = project._uses(self.DEFINITION)
+        found = project.plugins_used(self.DEFINITION)
         self.assertEqual({kind: sorted(ids) for kind, ids in found.items()},
                          {"entrypoint": ["llm-proxy", "mcp"], "endpoint": ["http-proxy", "llm-proxy"],
                           "policy": ["policy-interrupt", "rate-limit", "transform-headers"], "resource": ["cache"]})
-        self.assertEqual(project._uses({}), {kind: set() for kind in project.PLUGIN_KINDS})
+        self.assertEqual(project.plugins_used({}), {kind: set() for kind in project.PLUGIN_KINDS})
+
+    def test_the_license_and_the_deploy_read_one_definition_the_same_way(self):
+        # A step that leaves `enabled` to its default, the security of a plan, a definition deeper than Python recurses
+        definition = {"api": {"flows": [{"request": [{"policy": "rate-limit"}]}]},
+                      "plans": [{"security": {"type": "API_KEY"}}, {"security": {"type": "key-less"}}]}
+        self.assertEqual(sorted(project.plugins_used(definition)["policy"]), ["api-key", "key-less", "rate-limit"])
+        deep = {"policy": "deep"}
+        for _ in range(5000):
+            deep = {"next": [deep]}
+        self.assertEqual(project.plugins_used(deep)["policy"], {"deep"})
 
     def asked(self, **needs):
         return {"deploys": True, "products": [], "versions": [], "fills": [], "plugins": False, "changes": False,
@@ -1300,7 +1324,7 @@ class Real(Fixture):
         self.assertEqual(self.inputs["seeds"]["local/sandbox"], ["apim"])
 
     def test_what_the_apis_of_a_seed_use_is_read_in_its_folder(self):
-        self.assertEqual(self.inputs["uses"]["shop"]["policy"], ["fixture-policy"])
+        self.assertEqual(self.inputs["uses"]["shop"]["policy"], ["fixture-policy", "key-less"])   # its plan's security too
         self.assertEqual(self.inputs["uses"]["tour"]["entrypoint"], ["http-proxy"])
 
 
@@ -1596,11 +1620,16 @@ class Gathered(Legacy):
             "playgrounds/welcome/seed/environments/beam/apis/feed.json": api("webhook", "solace"),
             "playgrounds/welcome/seed/environments/beam/apis/broken.json": "not json",
             "playgrounds/welcome/seed/environments/beam/apis/list.json": "[]",
+            "playgrounds/welcome/seed/environments/beam/apis/text.json": '{"api": "text", "plans": 3}',
             "playgrounds/local/sandbox/seed/environments/moderna/apis/feed.json": api("websocket"),
             "playgrounds/none/compose.yml": ""})
         self.assertEqual(project._seed_uses("welcome"), {
             "entrypoint": ["http-proxy", "sse", "webhook"], "endpoint": ["http-proxy", "solace"], "policy": [],
             "resource": []})
+        # What is no JSON object is said to be no definition: the license's checks name it
+        self.assertEqual([(file.name, definition is None) for file, definition in project.seed_definitions("welcome")],
+                         [("one.json", False), ("broken.json", True), ("feed.json", False), ("list.json", True),
+                          ("text.json", False), ("feed.json", False)])
         self.assertEqual(project._seed_uses("local/sandbox")["entrypoint"], ["websocket"])
         self.assertEqual(project._seed_uses("none"), {kind: [] for kind in project.PLUGIN_KINDS})
 

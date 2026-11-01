@@ -16,7 +16,7 @@ from unittest import mock
 
 from lab_ui.gravitee import cloud, license, places, platforms
 from lab_ui.docker import compose, envfiles, jobs, plugins
-from lab_ui.library import layers, layout, playgrounds
+from lab_ui.library import layers, layout, playgrounds, project as projects
 from lab_ui import paths
 from lab_ui.catalogs import trust
 from lab_ui.docker.jobs import Job, JobFailed, awaited
@@ -100,7 +100,7 @@ class Playgrounds(Case):
                               "resources": [{"type": "cache-redis"}],
                               "flows": [{"request": [{"policy": "rate-limit"}]}]},
                       "plans": [{"security": {"type": "API_KEY"}}]}
-        self.assertEqual(playgrounds._plugin_ids(definition),
+        self.assertEqual(set().union(*projects.plugins_used(definition).values()),
                          {"http-proxy", "llm-proxy", "cache-redis", "rate-limit", "api-key"})
 
     def test_a_playground_of_this_machine_has_its_guide_and_its_record(self):
@@ -260,15 +260,15 @@ class Playgrounds(Case):
         self.project["products"] = {"API Management": {}}
         self.patch(plugins, "installed", lambda project, product: installed)
         # The endpoint's plugin is not on the gateway yet: its feature is the one the playground declares
-        self.assertEqual(playgrounds._features(self.project, welcome), {
+        self.assertEqual(playgrounds._features(self.project, welcome), ({
             "apim-en-message-reactor": [],
-            "apim-en-entrypoint-sse": ["Own: sse", "Batch status: sse"]})
+            "apim-en-entrypoint-sse": ["Own: sse", "Batch status: sse"]}, []))
         # Once installed it is found in the APIs of the environments, each API named once
         installed["feature_by_id"]["solace"] = "apim-en-endpoint-solace"
-        self.assertEqual(playgrounds._features(self.project, welcome), {
+        self.assertEqual(playgrounds._features(self.project, welcome), ({
             "apim-en-message-reactor": [],
             "apim-en-entrypoint-sse": ["Own: sse", "Batch status: sse"],
-            "apim-en-endpoint-solace": ["Batch status: solace"]})
+            "apim-en-endpoint-solace": ["Batch status: solace"]}, []))
 
     def test_a_seed_file_that_is_a_link_or_a_pipe_or_huge_is_no_definition_of_an_api(self):
         welcome = self.project["playgrounds"]["welcome"]
@@ -283,7 +283,29 @@ class Playgrounds(Case):
         (apis / "huge.json").write_text(" " * (1 << 20) + sse, encoding="utf-8")
         self.patch(plugins, "installed", lambda project, product: {"feature_by_id": {"sse": "apim-en-entrypoint-sse"}})
         self.project["products"] = {"API Management": {}}
-        self.assertEqual(playgrounds._features(self.project, welcome), {"apim-en-entrypoint-sse": ["Own: sse"]})
+        self.assertEqual(playgrounds._features(self.project, welcome),
+                         ({"apim-en-entrypoint-sse": ["Own: sse"]},
+                          ["seed/apim/apis/huge.json", "seed/apim/apis/linked.json", "seed/apim/apis/piped.json"]))
+
+    def test_a_seed_file_that_is_no_definition_is_one_line_and_the_others_are_still_checked(self):
+        # A list, a trailing comma, an `api` that is a text: each is named, and what the other APIs use is still counted
+        welcome = self.project["playgrounds"]["welcome"]
+        welcome["requires"] = {}
+        self.write("playgrounds/welcome/seed/apim/apis/own.json",
+                   json.dumps({"api": {"name": "Own", "listeners": [{"entrypoints": [{"type": "sse"}]}]}}))
+        self.write("playgrounds/welcome/seed/apim/apis/list.json", json.dumps([{"api": {"name": "Listed"}}]))
+        self.write("playgrounds/welcome/seed/apim/apis/comma.json", '{"api": {"name": "Comma",}}')
+        self.write("playgrounds/welcome/seed/apim/apis/text.json", json.dumps({"api": "text", "plans": [{"security": {"type": "JWT"}}]}))
+        self.patch(plugins, "installed", lambda project, product: {"feature_by_id": {"sse": "apim-en-entrypoint-sse",
+                                                                                     "jwt": "apim-en-plan-jwt"}})
+        self.project["products"] = {"API Management": {}}
+        self.patch(license, "info", return_value={"present": False})
+        lines = playgrounds._license_checks(self.project, welcome)
+        self.assertEqual([(line["name"], line["detail"]) for line in lines[:2]],
+                         [("seed/apim/apis/comma.json", playgrounds.UNREAD), ("seed/apim/apis/list.json", playgrounds.UNREAD)])
+        self.assertEqual((lines[2]["detail"], len(lines)), ("Needs a license", 3))
+        self.assertEqual(playgrounds._features(self.project, welcome)[0],
+                         {"apim-en-entrypoint-sse": ["Own: sse"], "apim-en-plan-jwt": ["text: jwt"]})
 
     def test_the_platform_line_comes_first(self):
         # Nothing of it was ever created; then its containers stopped; then it runs

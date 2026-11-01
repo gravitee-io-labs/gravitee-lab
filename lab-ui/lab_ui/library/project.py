@@ -51,6 +51,8 @@ SEEDED = {"apim": "API Management", "am": "Access Management", "aim": platforms.
 SEEDED_HERE = ("am", "openfga")
 LOCAL_PRODUCTS = ("Access Management",)   # the products that a platform does not have to run: they run here
 PLUGIN_KINDS = ("entrypoint", "endpoint", "policy", "resource")   # what an API definition names that a plugin provides
+# The lists of an API definition whose items name a plugin by their `type`, and the kind of that plugin
+TYPED = {"entrypoints": "entrypoint", "endpointGroups": "endpoint", "endpoints": "endpoint", "resources": "resource"}
 URL_HOST = re.compile(r"://(?:[^/?#\s@]*@)?([\w.-]+)")   # the host a URL names, after the user and password it may hold
 LOCK_FILE = "contract.lock"   # what the engine promises units: its anchors say which plugin folders a unit may mount
 ANCHOR = re.compile(r"anchor[ \t]+plugins/([a-z0-9-]+)(?:[ \t]|$)")   # one line of it: `anchor plugins/apim since=1`
@@ -132,58 +134,60 @@ def _seed_names(uid, safe=False):
         return []
 
 
-def _steps(found, node):
-    """The plugins of the policies that the steps of a flow name, wherever a flow is."""
-    if isinstance(node, dict):
-        if isinstance(node.get("policy"), str) and "enabled" in node:
-            found["policy"].add(node["policy"])
-        for value in node.values():
-            _steps(found, value)
-    elif isinstance(node, list):
-        for value in node:
-            _steps(found, value)
-
-
-def _uses(definition):
-    """The plugins a v4 API definition needs, by kind: {entrypoint, endpoint, policy, resource: {ids}}. Its listeners'
-    entrypoints, its endpoint groups and their endpoints, the policies of its flows and plans, its resources."""
+def plugins_used(definition):
+    """The plugins an API definition needs, by kind: {entrypoint, endpoint, policy, resource: {ids}}, wherever it writes
+    them: the entrypoints of its listeners, its endpoint groups and their endpoints, its resources, the policy of each step
+    of its flows and the security of each plan (`API_KEY` is the policy `api-key`). The one reading of what a definition
+    uses: the places a playground can be deployed to and the license it needs are both judged on it."""
     found = {kind: set() for kind in PLUGIN_KINDS}
-    api = definition.get("api", definition) if isinstance(definition, dict) else {}
-    for listener in api.get("listeners") or []:
-        found["entrypoint"].update(item["type"] for item in listener.get("entrypoints") or [] if isinstance(item.get("type"), str))
-    for group in api.get("endpointGroups") or []:
-        if isinstance(group.get("type"), str):
-            found["endpoint"].add(group["type"])
-        found["endpoint"].update(item["type"] for item in group.get("endpoints") or [] if isinstance(item.get("type"), str))
-    found["resource"].update(item["type"] for item in api.get("resources") or [] if isinstance(item.get("type"), str))
-    _steps(found, definition)
+    todo = [definition]
+    while todo:   # a definition nested deeper than Python recurses is still read
+        node = todo.pop()
+        if isinstance(node, list):
+            todo += node
+        if not isinstance(node, dict):
+            continue
+        if isinstance(node.get("policy"), str):
+            found["policy"].add(node["policy"])
+        security = node.get("security")
+        if isinstance(security, dict) and isinstance(security.get("type"), str):
+            found["policy"].add(security["type"].lower().replace("_", "-"))
+        for key, kind in TYPED.items():
+            listed = node.get(key)
+            found[kind].update(item["type"] for item in (listed if isinstance(listed, list) else ())
+                               if isinstance(item, dict) and isinstance(item.get("type"), str))
+        todo += node.values()
     return found
 
 
-def _seed_uses(uid, safe=False):
-    """What the APIs of a playground's seed need, by kind of plugin: the answer of _uses over every API definition the
-    seed imports, those of the platform's environment and of each environment it adds (paths.seed_apis). Nothing for
-    a definition that cannot be read: it is the seed's own failure to say. `safe`: the playground is a catalog's, so a
-    definition that is a link, leads out of its folder or is over 1 MB is not read."""
-    found = {kind: set() for kind in PLUGIN_KINDS}
+def seed_definitions(uid, safe=False):
+    """The API definitions a playground's seed imports, those of the platform's environment and of each environment it adds
+    (paths.seed_apis): [(file, its definition)], the definition None when the file cannot be read as a JSON object: a plain
+    file of at most 1 MB (_read: a link or a pipe is none). `safe`: the playground is a catalog's, so a file that leads out of
+    its folder is not read either."""
     folder = paths.unit_folder("playground", uid)
     try:
         files = paths.seed_apis(ROOT / folder)
     except OSError:
         files = []
+    found = []
     for file in files:
+        text, why = _read(file.relative_to(ROOT).as_posix()) if not safe or paths.contained(file, folder) else (None, "link")
         try:
-            if safe:
-                text, why = _read(file.relative_to(ROOT).as_posix()) if paths.contained(file, folder) else (None, "link")
-                if why:
-                    continue
-            else:
-                text = file.read_text(encoding="utf-8")
-            more = _uses(json.loads(text))
-        except (OSError, ValueError, AttributeError, TypeError, RecursionError):
-            continue
-        for kind in found:
-            found[kind] |= more[kind]
+            definition = None if why else json.loads(text)
+        except (ValueError, RecursionError):
+            definition = None
+        found.append((file, definition if isinstance(definition, dict) else None))
+    return found
+
+
+def _seed_uses(uid, safe=False):
+    """What the APIs of a playground's seed need, by kind of plugin (`uses`), over every definition it imports
+    (seed_definitions). Nothing for a file that is no definition: it is the seed's own failure to say."""
+    found = {kind: set() for kind in PLUGIN_KINDS}
+    for _, definition in seed_definitions(uid, safe):
+        for kind, ids in (plugins_used(definition) if definition is not None else {}).items():
+            found[kind] |= ids
     return {kind: sorted(ids) for kind, ids in found.items()}
 
 
@@ -930,8 +934,8 @@ def _misshapen(key, value):
         return "a mapping of each version variable to the version it needs at least, in quotes"
     if key == "host" and not (isinstance(value, list) and all(
             isinstance(spec, dict) and isinstance(spec.get("name"), str) and isinstance(spec.get("check"), str)
-            for spec in value)):
-        return "a list of checks, each with a name and a check URL"
+            and all(isinstance(spec.get(part, ""), str) for part in ("expect", "help")) for spec in value)):
+        return "a list of checks, each with a name and a check URL, its expect and help in text"
     return None
 
 
