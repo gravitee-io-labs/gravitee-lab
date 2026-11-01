@@ -982,7 +982,8 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
   button before the menu, as in every head.
 - **Remove containers** keeps the volumes. **Reset** deletes them too, turns off the playground that is on
   (`platform.reset_turns_off`, not in an on file with the user's own changes, which it does not write) and empties what
-  every seed recorded: its next Start sets it up again.
+  every seed recorded: its next Start sets it up again. So does a Reset that failed or was canceled once Compose said
+  it removed a volume; one cut before keeps the records, with the data they name.
 - With an on file with the user's own changes, Start and Update name every service Compose reads in it, but a seed.
 - A group, a container, and the containers of an add-on or a playground start, stop and restart on their own line
   (`/api/(addon|playground)s/<id>/containers/<do>`, the catalog's Restart of an add-on too). The item stays on or off. A

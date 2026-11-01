@@ -9,7 +9,7 @@ from lab_ui.docker import compose
 from lab_ui.library import layout, playgrounds
 from lab_ui import paths
 from lab_ui.server import stack
-from lab_ui.docker.jobs import Job, awaited
+from lab_ui.docker.jobs import Job, JobFailed, awaited
 
 from .. import Case
 from .test_api import PROJECT
@@ -128,14 +128,33 @@ class StackActions(Case):
 
     def test_stop_down_and_reset_go_by_project_name(self):
         # A job is named as the action that started it, and does what it says
-        for name, title, command in (("stop", "Stop the stack", ["stop"]), ("down", "Remove containers", ["down"]),
-                                     ("reset", "Reset the stack", ["down", "-v"])):
+        for name, title, command in (("stop", "Stop the stack", ["stop"]), ("down", "Remove containers", ["down"])):
             stack.action(PROJECT, name)
-            started, steps, options = self.started(self.jobs)
-            self.assertEqual((started, steps[0], options),
-                             (title, [*self.BY_NAME, *command],
+            self.assertEqual(self.started(self.jobs),
+                             (title, [[*self.BY_NAME, *command]],
                               {"key": "platform", "verb": name, "changes": {"stop": self.ON}, "waits": [self.STOPS]}))
-            self.assertEqual(len(steps), 2 if name == "reset" else 1)
+        self.patch(stack.layers, "write")
+        self.patch(stack.playgrounds, "forget")
+        job, ran = self.reset()
+        self.assertEqual(ran, [[*self.BY_NAME, "down", "-v"]])
+        self.assertEqual((job.title, job.key, job.verb, job.changes["stop"]), ("Reset the stack", "platform", "reset", self.ON))
+        self.assertEqual((job.ok, job.lines[0], job.summary()["phases"][0]["name"]), (True, "▸ Reset", "Reset"))
+
+    def reset(self, printed=(), fails=None):
+        """The reset the last action started, run, its `down -v` printing these lines, then failing with `fails`
+        when given: the job, and the commands it ran."""
+        stack.action(PROJECT, "reset")
+        title, steps, options = self.started(self.jobs)
+        job, ran = Job(title, steps, **options), []
+
+        def run(cmd):
+            ran.append(cmd)
+            job.lines.extend(printed)
+            if fails:
+                raise JobFailed(fails)
+        job.exec = run
+        job.run()
+        return job, ran
 
     def test_the_dashboards_start_all_and_stop_all_with_this_machine_are_the_platforms(self):
         self.patch(stack.core, "current", return_value={"place": "machine", "chosen": True, "environment": ""})
@@ -221,29 +240,40 @@ class StackActions(Case):
     def test_reset_turns_the_playground_off_and_empties_what_seeds_recorded(self):
         # Its volumes gone, nothing any seed created is left: the playground is off, its next start seeds it
         written, forgotten = self.patch(stack.layers, "write"), self.patch(stack.playgrounds, "forget")
-        stack.action(PROJECT, "reset")
-        job = Job("Reset the stack", [self.started(self.jobs)[1][1]])
-        job.run()
+        job, _ = self.reset()
         written.assert_called_once_with(None, ["kafka"])
         self.assertEqual([call.args for call in forgotten.call_args_list], [("welcome",), ("local/sandbox",)])
-        self.assertEqual(job.lines, ["Turned off Welcome"])
+        self.assertEqual(job.lines, ["▸ Reset", "Turned off Welcome"])
         # An on file with the user's own changes is not written: what the seeds recorded is emptied all the same
         self.state["locked"] = ".lab/on.yml has your own changes"
         written.reset_mock()
-        stack.action(PROJECT, "reset")
-        Job("Reset the stack", [self.started(self.jobs)[1][1]]).run()
+        self.reset()
         written.assert_not_called()
         self.assertEqual(forgotten.call_count, 4)
+
+    def test_a_reset_cut_once_a_volume_went_forgets_what_seeds_recorded_all_the_same(self):
+        # Canceled or failed after Docker removed the volumes: what the seeds created went with them. Before, the
+        # records stay with the data they name
+        written, forgotten = self.patch(stack.layers, "write"), self.patch(stack.playgrounds, "forget")
+        removed = [" Container gio-mongodb Removed ", " Volume gravitee_mongo-data Removing ",
+                   " Volume gravitee_mongo-data Removed ", " Network gravitee_default Removing "]
+        job, _ = self.reset(removed, fails="Error response from daemon: network has active endpoints")
+        self.assertEqual((job.ok, job.error()), (False, "Error response from daemon: network has active endpoints"))
+        written.assert_called_once_with(None, ["kafka"])
+        self.assertEqual(forgotten.call_count, 2)
+        written.reset_mock()
+        job, _ = self.reset(removed[:2], fails="Canceled")
+        self.assertFalse(job.ok)
+        written.assert_not_called()
+        self.assertEqual(forgotten.call_count, 2)
 
     def test_reset_says_which_record_it_could_not_empty(self):
         self.patch(stack.layers, "write")
         refused = {"welcome": False, "local/sandbox": True}
         self.patch(stack.playgrounds, "forget", side_effect=lambda pid: refused[pid])
-        stack.action(PROJECT, "reset")
-        job = Job("Reset the stack", [self.started(self.jobs)[1][1]])
-        job.run()
-        self.assertEqual(job.lines, ["Turned off Welcome", "Could not empty what Welcome recorded: its state folder leads out "
-                                                         "of its folder"])
+        job, _ = self.reset()
+        self.assertEqual(job.lines, ["▸ Reset", "Turned off Welcome", "Could not empty what Welcome recorded: its state "
+                                                                     "folder leads out of its folder"])
 
     def test_apply_is_refused_while_the_old_layout_is_moving_and_the_rest_of_the_stack_is_not(self):
         self.patch(layout, "waiting", return_value=True)
@@ -265,10 +295,8 @@ class StackActions(Case):
                             {"place": "gone/prod", "environment": "Production", "created": []}],
                 "local/sandbox": [{"place": "my-account/test", "environment": "Test", "created": []}]}
         deployed = self.patch(stack.places, "deployed", side_effect=lambda pid, created: held.get(pid, []))
-        stack.action(PROJECT, "reset")
-        job = Job("Reset the stack", [self.started(self.jobs)[1][1]])
-        job.run()
-        self.assertEqual(job.lines, ["Turned off Welcome", "Stays: Welcome in Development (My Account)",
+        job, _ = self.reset()
+        self.assertEqual(job.lines, ["▸ Reset", "Turned off Welcome", "Stays: Welcome in Development (My Account)",
                                      "Stays: Welcome in Production (gone)", "Stays: Sandbox in Test (My Account)"])
         self.assertEqual(forgotten.call_count, 2, "their record is not among what is emptied")
         self.assertEqual({call.args[1] for call in deployed.call_args_list}, {stack.playgrounds.created})
@@ -278,10 +306,8 @@ class StackActions(Case):
         self.patch(stack.playgrounds, "forget")
         self.patch(stack.places, "deployed", return_value=[])
         reads = self.patch(stack.platforms, "read", return_value=[])
-        stack.action(PROJECT, "reset")
-        job = Job("Reset the stack", [self.started(self.jobs)[1][1]])
-        job.run()
-        self.assertEqual(job.lines, ["Turned off Welcome"])
+        job, _ = self.reset()
+        self.assertEqual(job.lines, ["▸ Reset", "Turned off Welcome"])
         reads.assert_not_called()   # nothing recorded, no platform to name
 
     def test_restart_restarts_what_runs_as_it_is(self):

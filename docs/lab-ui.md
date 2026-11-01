@@ -634,7 +634,8 @@ anything stops, as its own Stop would, and refuses in the same cases. A row of a
 stop: the dialog does, once.
 
 **Reset**, on the Containers page, deletes every container and volume, so what the seed created goes with them. It
-turns the playground off and empties what the seed recorded, so the next Start sets it up again, seed included.
+turns the playground off and empties what the seed recorded, so the next Start sets it up again, seed included. A
+Reset that fails or is canceled once a volume is deleted does that too.
 
 ### Deploy to
 
