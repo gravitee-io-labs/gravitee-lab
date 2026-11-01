@@ -30,7 +30,7 @@ from lab_ui.library import files, layers, playgrounds
 from lab_ui import paths
 from lab_ui.catalogs import gitx, trust
 from lab_ui.catalogs.registry import CatalogError
-from lab_ui.docker.jobs import Job, Jobs, awaited
+from lab_ui.docker.jobs import Job, JobFailed, Jobs, awaited
 
 from .. import Case, fake_cloud
 
@@ -1519,8 +1519,9 @@ class GatewayRoutes(GatewayCase):
         self.assertEqual((title, more["key"], more["verb"]), ("Start Hybrid gateway", "addon:hybrid", "start"))
         self.assertEqual(more["changes"], layers.changes(self.project, plan))
         self.assertEqual(more["waits"], layers.waits(self.project, plan))
-        self.assertEqual(steps[1:-1], layers.commands(plan), "the commands of the plan, by name, without the core")
-        self.write.assert_called_once_with(None, ["hybrid"], blocked={})   # the gateway is turned on, on the on file
+        self.assertEqual([step for step in steps if isinstance(step, list)], layers.commands(plan),
+                         "the commands of the plan, by name, without the core")
+        self.write.assert_called_once_with(None, ["hybrid"], {}, {}, blocked={}, since=None)   # the gateway is turned on
         self.binds.assert_called_once_with(self.project, self.binds.call_args.args[1])
         self.assertEqual(job.lines, ["Starts: Hybrid gateway"])
         self.swap.assert_not_called()
@@ -1538,7 +1539,8 @@ class GatewayRoutes(GatewayCase):
         self.run_steps()
         plan = layers.plan(self.project, self.state, self.running, "addon", "hybrid", "start", place=self.where)
         self.assertEqual(calls.mock_calls, [
-            mock.call.write(None, ["hybrid"], blocked={"addons/kafka/compose.yml": "Publishes a port to the network"}),
+            mock.call.write(None, ["hybrid"], {}, {}, blocked={"addons/kafka/compose.yml": "Publishes a port to the network"},
+                            since=None),
             mock.call.binds(self.project, plan)], "the file first, then the folders, as a start writes them")
 
     def test_a_gateway_whose_add_on_a_catalog_blocks_does_not_start_and_changes_nothing(self):
@@ -1559,9 +1561,8 @@ class GatewayRoutes(GatewayCase):
         title, steps, more, job = self.run_steps()
         self.assertEqual(more["key"], "addon:hybrid")
         self.swap.assert_called_once_with(self.project, "my-account", "gw-1")
-        self.assertEqual([call[0] for call in calls.mock_calls], ["write", "swap"], "the token, then the commands")
+        self.assertEqual([call[0] for call in calls.mock_calls], ["swap", "write"], "the token first, then the plan's job")
         self.assertEqual(job.lines, ["Restarts: Hybrid gateway"])
-        self.assertTrue(callable(steps[0]) and all(isinstance(step, list) for step in steps[1:-1]))
 
     def test_a_token_that_no_gateway_matches_is_replaced_whatever_the_add_on_does(self):
         # The add-on holds a token that no platform lists any more (here is false), and it does not run: it starts, with
@@ -1588,6 +1589,60 @@ class GatewayRoutes(GatewayCase):
     def test_only_the_page_starts_a_gateway(self):
         self.assertEqual(self.request("POST", f"{self.GATEWAY}/start", {}, headers={"X-Gravitee-Lab-UI": None})[0], 403)
         self.jobs.start.assert_not_called()
+
+
+
+class GatewayOnFile(GatewayCase):
+    """The start of a gateway on a real on file: its job writes it as every plan's job does (layers.steps)."""
+
+    WRITE = staticmethod(layers.write)   # the real writer, before the case replaces it
+
+    def setUp(self):
+        super().setUp()
+        self.folder(paths, compose, envfiles)
+        self.patch(compose, "project_name", return_value="gravitee")
+        self.write.side_effect = self.WRITE
+
+    def on_file(self, text):
+        (self.root / paths.LAB_DIR).mkdir(exist_ok=True)
+        (self.root / paths.ON_FILE).write_text(text, encoding="utf-8")
+
+    def job(self, fails=None):
+        """The job the start made, run, its commands failing with `fails` when given: the job and its commands."""
+        title, steps, more = self.started(self.jobs)
+        job, ran = Job(title, steps, **more), []
+
+        def run(cmd, quiet=False):
+            ran.append(cmd)
+            if fails and fails in cmd:
+                raise JobFailed("Error response from daemon: cannot stop container")
+        job.exec = run
+        job.run()
+        return job, ran
+
+    def test_a_gateway_s_job_does_not_write_the_on_file_over_what_another_job_wrote_since_its_plan(self):
+        # Kiosk is on; the start is planned from that, then another tab turns Kiosk off (a job with no command)
+        self.on_file("include:\n  - addons/kiosk/compose.yml\n")
+        self.state = {**test_layers.on(self.project, ["kiosk"]), "stamp": layers.stamp()}
+        self.assertEqual(self.request("POST", f"{self.GATEWAY}/start", {})[0], 200)
+        self.WRITE(None, [])
+        job, _ = self.job()
+        self.assertNotIn("kiosk", (self.root / paths.ON_FILE).read_text(), "what the other job wrote stays")
+        self.assertEqual(job.error(), layers.CHANGED)
+
+    def test_a_gateway_s_job_removes_what_goes_before_the_on_file_says_it_is_off(self):
+        # Redpanda, on and running, says it cannot run with the gateway: the start stops it. The removal fails
+        self.project["addons"]["redpanda"]["conflicts"]["hybrid"] = "same ports"
+        self.on_file("include:\n  - addons/redpanda/compose.yml\n")
+        self.state = {**test_layers.on(self.project, ["redpanda"]), "stamp": layers.stamp()}
+        self.running = test_layers.up("redpanda", project=self.project)
+        accept = [layers.key("addon", "redpanda")]
+        status, _, body = self.request("POST", f"{self.GATEWAY}/start", {"accept": accept})
+        self.assertEqual(status, 200, body)
+        job, ran = self.job(fails="rm")
+        self.assertEqual((job.ok, ran[0][-4:]), (False, ["rm", "--stop", "--force", "redpanda"]))
+        self.assertIn("addons/redpanda/compose.yml", (self.root / paths.ON_FILE).read_text(),
+                      "Redpanda still runs: it is still on, never off and running")
 
 
 class GatewayDeletes(GatewayCase):

@@ -386,26 +386,21 @@ def gateway_dialog(req, pid, gid):
 
 def start_gateway(req, pid, gid):
     """Starts a gateway: the add-on that runs it, with the token kept for this one. It is a job of the add-on, whose
-    own buttons show it. The token is written by the job, before the add-on is made, whenever the gateway is not the
-    one that runs here: the add-on may hold another, or one no platform lists any more. The add-on may come from a catalog: the
-    start is verified by the catalogs (layers.check), the on file is written through the gate of a unit that is blocked, and
-    the folders its binds name are made first, as every other start does."""
+    own buttons show it, and runs as every plan's (layers.steps). The token is written by the job first, before the
+    add-on is made, whenever the gateway is not the one that runs here: the add-on may hold another, or one no platform
+    lists any more. The add-on may come from a catalog: the start is verified by the catalogs (layers.check), as every
+    other start is."""
     p = project.load()
     plan, place = gateway_plan(p, pid, gid)
     layers.check(p, plan, accepted(req))
 
-    def prepare(job):
-        layers.write(plan["playground"], plan["explicit"], blocked=layers.blocked_files(p))
-        layers.make_binds(p, plan)
-        for part, verb in (("starts", "Starts"), ("restarts", "Restarts")):
-            if plan[part]:
-                job.lines.append(f"{verb}: {', '.join(row['name'] for row in plan[part])}")
-        if not place["here"]:
-            platforms.swap_gateway(p, pid, gid)
+    def swap(job):   # once the on file is as the plan read it: the job changes nothing otherwise
+        layers.unchanged(plan)
+        platforms.swap_gateway(p, pid, gid)
     name = p["addons"][place["gateway"]]["name"]
-    return JOBS.start(f"{plan['label']} {name}", [prepare, *layers.commands(plan), lambda job: places.invalidate(pid)],
-                      key=f"addon:{place['gateway']}", verb="start", changes=layers.changes(p, plan),
-                      waits=layers.waits(p, plan))
+    steps = [*([] if place["here"] else [swap]), *layers.steps(p, plan), lambda job: places.invalidate(pid)]
+    return JOBS.start(f"{plan['label']} {name}", steps, key=f"addon:{place['gateway']}", verb="start",
+                      changes=layers.changes(p, plan), waits=layers.waits(p, plan))
 
 
 def turning_off(p, pid, gid=None):
