@@ -1646,18 +1646,19 @@ class License(Legacy):
         (self.root / ".env").unlink()
         self.assertIs(self.usable(), False)
 
-    def test_a_license_that_runs_out_stops_counting_the_next_day(self):
-        # No file changes when it expires: the project is read again each day
+    def test_a_license_that_runs_out_stops_counting_the_next_day_and_nothing_else_is_read_again(self):
+        # No file changes when it expires: each day the license is judged again, and the project is not read again for it
         self.write(".env", "GRAVITEE_LICENSE=genuine\n")
         gathered = self.patch(project, "gather", wraps=project.gather)
         today = mock.Mock(date=mock.Mock(today=mock.Mock(return_value="2026-10-11")))
         with mock.patch.object(project, "datetime", today):
             self.assertIs(self.usable(), True)
+            expired = license.datetime.datetime.now(license.datetime.timezone.utc) - license.datetime.timedelta(days=1)
+            self.patch(license, "decode", lambda text: ({"expiryDate": expired}, True))   # the time it ran out passed
             self.assertIs(self.usable(), True)
-            self.assertEqual(gathered.call_count, 1)
             today.date.today.return_value = "2026-10-12"
-            self.assertIs(self.usable(), True)
-            self.assertEqual(gathered.call_count, 2)
+            self.assertIs(self.usable(), False)
+            self.assertEqual(gathered.call_count, 1)
 
 
 class Order(Legacy):
