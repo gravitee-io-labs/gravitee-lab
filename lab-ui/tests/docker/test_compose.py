@@ -954,6 +954,41 @@ class Shell(Case):
         self.assertEqual((answer, asked), ((1, "", "unzip: cannot find license-model.yml\n"), [self.EXEC]))
 
 
+class Kept(unittest.TestCase):
+    """The cache of what is slow to ask again."""
+
+    def test_asked_at_the_same_time_it_is_asked_once(self):
+        # Two pages' refreshes that both find nothing kept: one `config --hash`, not two
+        cache, calls, release = compose.Cache(), [], threading.Event()
+
+        def slow():
+            calls.append(1)
+            release.wait(5)
+            return {"mongodb": "h"}
+        answers = []
+        threads = [threading.Thread(target=lambda: answers.append(cache.get("config-hash:x", 300, slow)))
+                   for _ in range(3)]
+        for thread in threads:
+            thread.start()
+        deadline = time.monotonic() + 5
+        while not calls and time.monotonic() < deadline:
+            time.sleep(0.01)
+        time.sleep(0.05)   # the others ask meanwhile
+        release.set()
+        for thread in threads:
+            thread.join(5)
+        self.assertEqual((len(calls), answers), (1, [{"mongodb": "h"}] * 3))
+
+    def test_a_failure_is_asked_again_and_an_answer_is_kept_for_its_time(self):
+        cache, answers = compose.Cache(), iter([None, "29.7.2"])
+        self.assertIsNone(cache.get("version", 10, lambda: next(answers)))
+        self.assertEqual(cache.get("version", 10, lambda: next(answers)), "29.7.2")
+        self.assertEqual(cache.get("version", 10, lambda: "asked again"), "29.7.2")
+        self.assertEqual(cache.get("version", 0, lambda: "asked again"), "asked again")
+        cache.drop("ver")
+        self.assertEqual(cache.get("version", 10, lambda: "dropped"), "dropped")
+
+
 class Docker(Case):
 
     def setUp(self):
