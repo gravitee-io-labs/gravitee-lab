@@ -841,9 +841,10 @@ def _delete_created(project, playground, elsewhere):
             job.lines.append("Nothing recorded as created by this playground")
             return
         if local:
-            try:   # its own file loaded, so that it deletes whatever else is on: a playground that is off has no seed service in the files that are
-                job.exec([*COMPOSE, *compose.all_files([playground["file"]]), "run", "--rm", "--no-deps", "--pull=missing",
-                          playground["seed"], "--remove"])
+            seed = ["run", "--rm", "--no-deps", "--pull=missing", playground["seed"], "--remove"]
+            try:   # its own file loaded, so that it deletes whatever else is on: a playground that is off has no seed service in
+                # the files that are. Its line is the command typed in the folder, where the on file names it while it is on
+                job.exec([*COMPOSE, *compose.all_files([playground["file"]]), *seed], shown=[*COMPOSE, *seed])
             except JobFailed as failed:   # "[seed] ✗ <why>": its reason, as a start says it
                 _stop_seed(job, playground)
                 raise JobFailed(_seed_reason(str(failed), failed.code)) from None

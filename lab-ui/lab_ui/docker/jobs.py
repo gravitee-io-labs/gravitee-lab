@@ -448,14 +448,16 @@ class Job:
                 self._cut(process, f"Stopped: nothing happened for {SILENT // 60} min")
                 return
 
-    def exec(self, cmd, quiet=False, env=None):
+    def exec(self, cmd, quiet=False, env=None, shown=None):
         """Runs a command in the project root, streaming its output. When it fails, the job fails with the last line
         it printed: Compose's reason ("dependency failed to start: ..."). It gets no input: a question Compose asks
         would wait on the terminal the Lab UI was started from. `env`: variables set for this command alone, which a
         secret goes by, named in the command (`-e NAME`) and never written in it, since the command is a line of the
-        job. What an `up` starts is pulled first, if missing, where its progress is told layer by layer (pull_view)."""
+        job. `shown`: the line of the job in place of the command, as a person types it in the project's folder, for a
+        command that names a file the Lab writes for itself (compose.all_files). What an `up` starts is pulled first, if
+        missing, where its progress is told layer by layer (pull_view)."""
         if not quiet:
-            self.lines.append(f"$ {' '.join(cmd)}")
+            self.lines.append(f"$ {' '.join(shown or cmd)}")
         before = _pull_before(cmd)
         if before:
             self._spawn(before, env, lenient=True)
