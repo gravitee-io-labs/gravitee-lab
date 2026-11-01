@@ -2,6 +2,7 @@
 the files shown with one, the state when Docker is down, the accept check, what is created, shared and deleted. No
 Docker."""
 
+import base64
 import contextlib
 import errno
 import http.client
@@ -484,6 +485,43 @@ class State(LabUI):
         api.compose.CACHE.drop("local:")   # what a job that ends does: what runs changed
         self.request("GET", "/api/state")
         self.assertEqual(ps.call_count, 2)
+
+    FEATURES = staticmethod(api.license.features)   # the real one: setUp replaces it
+
+    def test_the_first_state_does_not_wait_on_docker_for_the_license_model(self):
+        # The first state after the Lab UI starts, while Docker hangs (its machine asleep, Docker Desktop restarting): ps
+        # gives up after PS_TIMEOUT and the state says so then. Nothing else in it waits on Docker
+        self.patch(api.license, "features", self.FEATURES)
+        self.start(mock.patch.dict(api.license._known, features=None, digest=None, packs=None))
+        self.addCleanup(compose.CACHE.drop, "license-model:")
+        products = {"apim": {"name": "API Management", "lib": {"gateway": "/opt/gateway/lib"}},
+                    "am": {"name": "Access Management", "lib": {"am-gateway": "/opt/am/lib"}}}
+        services = {**PROJECT["services"],
+                    "gateway": {"container": "gio-gateway", "image": "graviteeio/apim-gateway:4", "label": "Gateway"},
+                    "am-gateway": {"container": "gio-am-gateway", "image": "graviteeio/am-gateway:4", "label": "AM"}}
+        hung_project = {**PROJECT, "license_var": "GRAVITEE_LICENSE", "products": products, "services": services,
+                        "groups": [{**PROJECT["groups"][0], "product": None}, {"id": "api-management", "product": "apim"},
+                                   {"id": "access-management", "product": "am"}]}
+        self.patch(api.project, "loaded", return_value=(hung_project, self.read))
+        # A license is saved (its signature does not matter here): what it allows is counted with the license model
+        raw = api.license.MAGIC + b"".join(
+            len(blob).to_bytes(4, "big") + blob for blob in (
+                (2).to_bytes(4, "big") + len(name).to_bytes(4, "big") + len(value).to_bytes(4, "big") + name + value
+                for name, value in ((b"tier", b"universe"), (b"company", b"ACME"))))
+        self.patch(envfiles, "read", return_value={"GRAVITEE_LICENSE": base64.b64encode(raw).decode()})
+        self.patch(api.compose, "ps", side_effect=compose.ComposeError(
+            f"Docker did not answer within {compose.PS_TIMEOUT} s"))
+        waited = []
+
+        def hung(cmd, timeout=120, **more):   # what run() answers once each limit is over
+            waited.append((" ".join(cmd[:3]), timeout))
+            return 124, "", f"{cmd[0]} did not answer within {timeout} s"
+        self.patch(compose, "run", side_effect=hung)
+        status, _, body = self.request("GET", "/api/state")
+        self.assertEqual((status, json.loads(body)["docker"]["error"]), (200, "Docker did not answer within 10 s"))
+        # Docker said nothing within 10 s: the state asks it nothing more, else it waits each command's own limit
+        self.assertEqual((waited, sum(seconds for _, seconds in waited)), ([], 0))
+        self.assertIsNone(self.build.call_args.args[5], "what the license allows is not known yet")
 
 
 class Frame(LabUI):

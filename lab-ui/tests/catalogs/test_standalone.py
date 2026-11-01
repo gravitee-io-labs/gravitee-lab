@@ -139,6 +139,27 @@ class Folder(Case):
             archive.extractall(folder)
         return made, names, folder / "shop"
 
+    def test_an_account_that_is_no_mapping_is_left_out_of_the_readme_as_the_page_leaves_it_out(self):
+        shop = paths.ROOT / Path(fixtures.unit_file("fixture", "playground", "shop")).parent
+        for each in [shop, *shop.rglob("*")]:
+            each.chmod(each.stat().st_mode | 0o200)
+        compose_file = shop / "compose.yml"
+        written = compose_file.read_text(encoding="utf-8")
+        self.assertIn("  accounts:\n", written)
+        compose_file.write_text(written.replace("  accounts:\n", "  accounts:\n    - alice\n"), encoding="utf-8")
+        project.forget()
+        found, _ = project.loaded()
+        self.assertIn("shop", found["playgrounds"], "the playground is still read")
+        self.assertTrue(all(isinstance(one, dict) for one in found["playgrounds"]["shop"]["accounts"]))
+        said = [p.get("message") for p in found["problems"]]
+        said += [p.get("message") for ps in (found.get("catalog_problems") or {}).values() for p in ps]
+        self.assertIn("x-gravitee.accounts must be a list of accounts, each a mapping", said, "the page reports it")
+        self.assertEqual(standalone.plan("shop")["runs"][-1], "Shop")
+        _, _, folder = self.unpacked()
+        readme = (folder / "README.md").read_text(encoding="utf-8")
+        self.assertIn("| For | User | Password or key |", readme, "the accounts that are mappings are still listed")
+        self.assertNotIn("alice", readme)
+
     def test_the_plan_says_what_runs_what_is_left_out_and_what_it_needs(self):
         plan = standalone.plan("shop")
         self.assertEqual(plan["file"], "shop-docker-compose.zip")

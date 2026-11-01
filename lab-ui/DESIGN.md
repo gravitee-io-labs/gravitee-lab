@@ -389,7 +389,7 @@ Every page and dialog does the same thing the same way. Before adding a piece, f
 - **What cannot be used says why**, on hover, on keyboard focus and on a tap: the control is `aria-disabled` with its reason as
   its tooltip ("<name> is not running"; `setOff`), so that the keyboard reaches it and a screen reader hears why. What
   waits for Docker, for the running job or for the Lab UI is marked `data-busy`: `paintBusy` makes it wait with the
-  reason the state gives (`wait`), or "Lab UI offline".
+  reason the state gives (`wait`, then `unread` but for `data-busy="name"`), or "Lab UI offline".
 - **Empty and loading**: `.empty`, in the place of the rows, with the texts of `emptyHtml` and its action as a plain button.
 
 ### Actions
@@ -1482,9 +1482,11 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
   (`layers.current`, `locked`). The catalog's Start and Stop are disabled, and its problem line says why ("has your own
   changes: the catalog's Start and Stop are off", "<path> does not load: the catalog's Start and Stop are off"). So they
   are while `docker-compose.yml` does not load.
-- An entry whose file is gone or does not load makes every command that reads the on file fail: every action waits,
-  saying which ("<path> does not exist", "<path> does not load", `layers.current`, `unread`), as for a core that does not
-  load. Its problem line opens the on file, whose Save does not wait.
+- An entry whose file is gone or does not load makes every command that reads the on file fail: what reads the files
+  waits, saying which ("<path> does not exist", "<path> does not load", `layers.current`, `unread`), as for a core that
+  does not load. What Compose runs by the project's name reads no file and does not wait for it: Stop, Stop all, an
+  item's Stop or Turn off, Remove containers, Reset, the Stop and Restart of a group or a container (`data-busy="name"`,
+  `store.wait(true)`). Its problem line opens the on file, whose Save does not wait.
 
 ### Docker, jobs and progress
 
@@ -1551,7 +1553,9 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
   saved (`applied`).
 - What it lacks is said in the words of a row (`model.license_note`): by the items of the state, and by `GET
   /api/plugins/installed` of each plugin it loads that needs a feature (`licensed`). The state reads what the license saved
-  allows itself, once for each license saved (`license.features`), whether a page asked `GET /api/license` or not.
+  allows itself, once for each license saved (`license.features`), whether a page asked `GET /api/license` or not; not
+  while Docker does not answer it, which would make the state wait on each command's own limit: what the license allows
+  is then not known, and no row gives it as a reason.
 - Its tooltip names the packs that give what is missing ("Uses: Agent management, Authorization management",
   `license.named`), from the license model last read, with a license or without; the features' ids while the model is not
   known.

@@ -164,7 +164,7 @@ function gatewayAction(p, g) {
   if (g.orphan) return `<button class="btn plat-primary" ${data("replace", "Replace gateway")}>Replace gateway</button>`;
   if (g.here && runs(addon)) {
     const stop = stopOf(addon), off = !stop?.enabled ? `aria-disabled="true" data-why="${esc(stop?.reason || "")}"` : "";
-    return actionButton({ key: `addon:${addon.id}`, verb: ["stop", "start"], label: "Stop gateway", cls: "plat-primary", attrs: `data-busy ${data("stop", "Stop gateway")} ${off}` });
+    return actionButton({ key: `addon:${addon.id}`, verb: ["stop", "start"], label: "Stop gateway", cls: "plat-primary", attrs: `data-busy="name" ${data("stop", "Stop gateway")} ${off}` });
   }
   if (!(g.here || g.kept)) return "";
   const unlicensed = !!addon.note_file && ["warn", "err"].includes(addon.note_tone);

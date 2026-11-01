@@ -318,7 +318,7 @@ const startButton = (item, apart, cls = "primary") => {
 const stopButton = (item, apart) => {
   const stop = stopOf(item);
   return actionButton({ key: keyOf(item), verb: startStop(apart, "stop"), label: stop?.label || "Stop", icon: "stop",
-    attrs: `data-act="stop" data-busy ${stop ? lock(stop, TURNS[stop.label]) : ""}` });
+    attrs: `data-act="stop" data-busy="name" ${stop ? lock(stop, TURNS[stop.label]) : ""}` });
 };
 
 // Re-seed waits for what the seed needs to run, the server says which

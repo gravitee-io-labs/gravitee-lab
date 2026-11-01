@@ -330,12 +330,15 @@ def _saved(project):
     return compose.digest(envfiles.read(ENV_FILE).get(project["license_var"], "").strip()) if project["license_var"] else ""
 
 
-def features(project):
+def features(project, ask=True):
     """The features the license saved allows, for the state: what info() read of that very license, read here when it was
     not (the Lab UI started since, or another license was saved), whoever asks first: empty without a license that is
     genuine and current, None while they are not known (no product image to read the license model from: the page reads the
     license again after a job). The state is built every few seconds: Docker is asked only once for each license saved,
-    and the license model is kept by the image it was read from (_model)."""
+    and the license model is kept by the image it was read from (_model). Not `ask`: Docker did not answer the state, so
+    it is not asked for the license model either, and a license not read yet is not known."""
     if _known["digest"] != _saved(project):
+        if not ask:
+            return None
         info(project)
     return _known["features"]

@@ -129,7 +129,7 @@ def snapshot():
     changed = drift.changes(p, read["raw"], containers, model.lateness(p, containers, saved), saved) if saved else None
     # What the catalogs say is read from this machine's files and memory: the state never runs git, asks a network or waits for
     # the worker
-    body = model.build(p, on, containers, job, JOBS.failed_job, license.features(p), docker,
+    body = model.build(p, on, containers, job, JOBS.failed_job, license.features(p, ask=known), docker,
                        created, saved=saved, license_status=license.status(p), platforms=platforms.read(),
                        deployed=deployed, changed=changed, git=model.git_state(service.git_version()),
                        catalogs=service.describe(p, read), content=firstrun.content(p, read))
@@ -138,7 +138,7 @@ def snapshot():
     # in the last 30 s (updates.FRESH). Where API Management runs, from this machine's choice and what its platform last said
     body.update(root=str(paths.ROOT), agent=machine.agent(), skills=personal.skills(), lab=updates.describe(),
                 kept_settings=kept.listed(),
-                core=core.describe(p, on, containers if known else {}, saved, body.get("wait")))
+                core=core.describe(p, on, containers if known else {}, saved, body.get("wait") or on.get("unread")))
     _docker_down(body)
     unread = service.problems()   # the files that record the catalogs cannot be read: nothing would be shown, and no word said
     if unread:
