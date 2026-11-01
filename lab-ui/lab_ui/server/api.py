@@ -1107,12 +1107,13 @@ def _serve(port, browser):
                      "again. One lab runs at a time")
         sys.exit(f"Port {port} is used by another program. Free it, or use another port: UI_PORT={port + 1} "
                  "gravitee-lab (the UIs of a playground do not show next to the guide on another port)")
+    # Once, from the main thread, before the move's download and before it serves: a closed terminal ends what runs
+    compose.stop_on_signals(gitx.stop_running)
     if not layout.run():   # a folder of the layout before catalogs is moved before anything is served, or said why not
         server.server_close()
         sys.exit(1)
     server.daemon_threads = True   # an open log stream does not keep the Lab UI from stopping
     address(url, "Keep this terminal open: Ctrl+C stops the Lab UI, and the containers keep running.")
-    compose.stop_on_signals(gitx.stop_running)   # once, from the main thread, before it serves: a closed terminal ends what runs
     start_up()
     if browser:
         threading.Timer(0.5, open_browser, args=(url,)).start()
