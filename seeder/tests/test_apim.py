@@ -9,6 +9,7 @@ import re
 import shutil
 import threading
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import requests
@@ -424,6 +425,14 @@ class LostAnswers(Playground):
                 self.assertEqual(sorted(x["name"] for x in common.created() if x["kind"] == "api"), ["ACME LLM", "Ace A2A", "Open API"])
                 self.assertEqual(len(self.apim.apis), 3)
                 self.assertIn("made by an earlier seed that lost the platform's answer", self.output())
+
+    def test_the_troubleshooting_page_does_not_give_a_lost_answer_as_why_a_seed_stops_on_an_api(self):
+        """Its entry "A seed stops on an API it did not create": an import whose answer was lost is the seed's, as above."""
+        page = (Path(__file__).resolve().parents[2] / "docs" / "troubleshooting.md").read_text(encoding="utf-8")
+        entry = page.split("### A seed stops on an API it did not create", 1)[1].split("\n### ", 1)[0]
+        cause = " ".join(entry.split("**Cause:**", 1)[1].split("**Fix:**", 1)[0].split())
+        self.assertNotIn("got no answer", cause)
+        self.assertIn("`.state/created.json`", cause)
 
     def test_an_application_whose_answer_was_lost_is_the_seeds_at_the_next_run(self):
         made = []

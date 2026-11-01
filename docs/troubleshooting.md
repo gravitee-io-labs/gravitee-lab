@@ -226,9 +226,9 @@ component.
 **Symptom:** a playground's seed ends with `API <name>: /<path>/ is the path of '<name>', which the seed did not create`, though
 you never made that API.
 
-**Cause:** the platform made the API and the seed lost the record of it, so it takes the API for someone else's. The seed
-records an API whose import fails with an error of the platform, but not one whose request got no answer (a timeout): the
-platform may finish the import after the seed has stopped waiting. A lost `.state/created.json` does the same.
+**Cause:** the seed has no record of the API: `.state/created.json` was lost or emptied while the platform kept its data
+(no Reset), or someone made an API at that path. An import whose answer was lost is not a cause: the next seed takes that
+API as its own and says so with a `!` line.
 
 **Fix:** delete the API named in the message in the Console (stop it, then delete it), then choose *Re-seed*. For an
 environment of its own, open that environment first.
