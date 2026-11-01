@@ -158,7 +158,9 @@ class Moved(Case):
         self.write(tested.FILE, "not json")
         tested.moved("playground", "local/bank", "bank")
         tested.moved("playground", "local/bank")
-        self.assertEqual((self.root / tested.FILE).read_text(), "not json")
+        # What it held is kept aside, as it was (paths.read_record), and nothing is written in its place
+        self.assertFalse((self.root / tested.FILE).exists())
+        self.assertEqual([one.read_text() for one in (self.root / tested.FILE).parent.glob("tested.json.bad-*")], ["not json"])
 
 
 if __name__ == "__main__":

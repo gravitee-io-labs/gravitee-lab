@@ -1,10 +1,13 @@
 """probe: how the headers of a UI are judged against the page that frames it, and what a UI answers (a real server on
 a free port, no Docker)."""
 
+import http.client
+import ssl
 import threading
 import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from unittest import mock
 
 from lab_ui.docker import probe
 
@@ -189,11 +192,24 @@ class Probe(Case):
         port = server.server_port
         server.server_close()
         found = probe.look(f"http://127.0.0.1:{port}/", PAGE)
-        self.assertEqual((found["answers"], found["frameable"]), (False, False))
-        self.assertTrue(found["reason"])
+        self.assertEqual(found, {"answers": False, "frameable": False, "reason": "Not listening yet"})
 
     def test_a_ui_that_is_too_slow_does_not_answer(self):
-        self.assertEqual(self.look("/slow")["answers"], False)
+        self.assertEqual(self.look("/slow"), {"answers": False, "frameable": False, "reason": "No answer within 0.3 s"})
+
+    def test_what_does_not_answer_says_why_in_words_and_never_in_python_s(self):
+        self.assertEqual(self.look("/down")["reason"], "Not ready yet")
+        for error in (ConnectionResetError(54, "Connection reset by peer"), OSError("[Errno 8] nodename nor servname provided"),
+                      http.client.RemoteDisconnected("Remote end closed connection without response")):
+            with mock.patch.object(probe, "_get", side_effect=error):
+                self.assertEqual(self.look("/open")["reason"], "", error)
+
+    def test_a_ui_whose_certificate_is_not_trusted_answers_and_is_opened_in_a_new_tab(self):
+        refused = ssl.SSLCertVerificationError(1, "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-signed certificate")
+        with mock.patch.object(probe.http.client, "HTTPSConnection") as connect:
+            connect.return_value.request.side_effect = refused
+            found = probe.look("https://localhost:8443/", PAGE)
+        self.assertEqual(found, {"answers": True, "frameable": False, "reason": "Its certificate is not trusted"})
 
     def test_a_couple_of_redirects_are_followed_and_the_last_answer_judges(self):
         self.assertEqual(self.look("/one")["reason"], "X-Frame-Options: DENY")
@@ -221,10 +237,9 @@ class Probe(Case):
     def test_a_redirect_to_an_address_that_is_not_one_does_not_answer(self):
         self.patch(Ui, "ANSWERS", {**Ui.ANSWERS, "/port": (302, {"Location": "http://127.0.0.1:99999/"}),
                                    "/bracket": (302, {"Location": "http://[::1/"})})
-        for path in ("/port", "/bracket"):
-            found = self.look(path)
-            self.assertEqual((found["answers"], found["frameable"]), (False, False), path)
-            self.assertTrue(found["reason"])
+        for path in ("/port", "/bracket", "/away"):
+            self.assertEqual(self.look(path), {"answers": False, "frameable": False,
+                                               "reason": "Sends the page to what is no web address"}, path)
 
     def test_what_is_not_a_web_address_is_not_asked(self):
         self.assertEqual(probe.look("file:///etc/passwd", PAGE)["answers"], False)

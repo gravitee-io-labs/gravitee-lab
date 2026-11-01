@@ -701,7 +701,10 @@ place gone with its platform, or a place not read yet.
   - Nothing else is a UI: there is no other key, no address of its own, no flag on a link.
   - Whether a UI answers and the page may frame it is a look of the Lab UI's server
     (`GET /api/playgrounds/<id>/frame?url=`, `probe.py`, kept 4 s), asked only for these addresses, judged against the
-    origin the page was opened with: `frame-ancestors` first, then X-Frame-Options, as a browser does.
+    origin the page was opened with: `frame-ancestors` first, then X-Frame-Options, as a browser does. One whose certificate
+    this machine does not trust answers and is not framed. Why one does not answer is said in words in the tooltip of
+    *Does not answer* (Not listening yet, No answer within 3 s, Not ready yet for a proxy's 502 to 504), and not at all
+    when there is nothing more to say.
   - `make check` reads what files can say: each console is a service the playground runs, listed once, and a console of
     the platform lets the Lab UI's pages frame it (its command, `x-ui-frames`). The headers of an app are its own, which
     only that look sees.
@@ -1502,6 +1505,9 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
   as it exits, printing the job it stopped. It is ended, the job failing with the reason, when it prints nothing for 15
   minutes (`jobs.SILENT`), and when a container that Compose waits for ("Waiting") has been in an issue for 2 minutes as
   Docker says it (`jobs.STUCK`, read by `Job.observe`): "gio-mongodb keeps restarting".
+- One Lab UI serves a folder (`paths.serve_here`, a lock held for its life): started again on any port, it sends the person
+  to the one that runs, and `catalog.py`'s update, undo and remove leave the change to it. A Lab UI of another folder on the
+  port is said, never opened.
 - One job runs at a time. Meanwhile every action that waits gives the one reason of the state (`wait`): "Wait for" and its
   title, or why what runs is not known; while the Lab UI does not answer, "Lab UI offline". When the Lab UI
   restarts while the page follows a job, that job is gone: a toast says "<title>: interrupted".

@@ -6,7 +6,13 @@ import os
 import re
 import stat
 import tempfile
+import time
 from pathlib import Path
+
+try:
+    import fcntl
+except ImportError:   # no advisory locks on this system: a second Lab UI of the folder is not seen
+    fcntl = None
 
 LAB_UI_DIR = Path(__file__).resolve().parent.parent
 ROOT = LAB_UI_DIR.parent
@@ -375,11 +381,88 @@ def slug(text):
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
 
 
+# The Lab UI that serves this folder holds an advisory lock on this file for as long as it runs, its port written in it: the
+# jobs of a Lab UI, which run one at a time in its process, and the changes of catalogs that wait for them, are this
+# folder's alone. A second Lab UI of the folder sends the person to the first; the command line leaves to it what its jobs
+# would race with
+SERVING_FILE = f"{LAB_DIR}/lab-ui.flock"
+SERVING_WAIT = 1.0   # seconds a lock is waited for: a command that only looks holds it for an instant
+_serving = []        # the descriptor by which this process holds it
+
+
+def serve_here(port):
+    """Takes the lock that says a Lab UI serves this folder, with its port, until stop_serving() or the end of the process.
+    None once this process holds it, and where nothing locks (no fcntl, a folder that cannot be written): the Lab UI then
+    serves as it always did. Else the port of the Lab UI that holds it, 0 when it has not written it yet."""
+    if fcntl is None or _serving:
+        return None
+    file = ROOT / SERVING_FILE
+    try:
+        file.parent.mkdir(parents=True, exist_ok=True)
+        descriptor = os.open(file, os.O_RDWR | os.O_CREAT, 0o600)
+    except OSError:
+        return None
+    deadline = time.monotonic() + SERVING_WAIT
+    while True:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                port_held = _port_in(descriptor)
+                os.close(descriptor)
+                return port_held
+            time.sleep(0.05)
+        except OSError:   # a file system that cannot lock
+            os.close(descriptor)
+            return None
+    os.ftruncate(descriptor, 0)
+    os.write(descriptor, f"{port}\n".encode())
+    _serving.append(descriptor)
+    return None
+
+
+def stop_serving():
+    """Lets the lock of serve_here go: another Lab UI may serve the folder."""
+    while _serving:
+        os.close(_serving.pop())
+
+
+def served_elsewhere():
+    """The port of the Lab UI of another process that serves this folder (0 when it has not written it yet); None when none
+    does, or this process is the one."""
+    if fcntl is None or _serving:
+        return None
+    try:
+        descriptor = os.open(ROOT / SERVING_FILE, os.O_RDONLY)
+    except OSError:
+        return None
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return _port_in(descriptor)
+    except OSError:
+        return None
+    finally:
+        os.close(descriptor)   # and the lock it took, if it took one
+    return None
+
+
+def _port_in(descriptor):
+    try:
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        text = os.read(descriptor, 16).decode("ascii", "replace").strip()
+    except OSError:
+        return 0
+    return int(text) if text.isdigit() else 0
+
+
 def write_atomic(file, text, mode=0o644):
     """Writes a file whole as UTF-8 with Unix line ends, through a copy next to it under a name of its own, so that a
     command running at the same time never reads it half-written and two saves never share the copy. The copy has its
     mode before it holds anything: a .env is 0600 from the start. A copy that fails is removed, and the file stays as
-    it was."""
+    it was. The copy is on the disk before it takes the file's place, and the place after: a power cut leaves the file as it
+    was or as it is now, never empty."""
     handle, tmp = tempfile.mkstemp(dir=file.parent, prefix=f".{file.name}.", suffix=".tmp")
     try:
         with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as f:
@@ -388,7 +471,50 @@ def write_atomic(file, text, mode=0o644):
             else:
                 os.chmod(tmp, mode)
             f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp, file)
     except BaseException:
         os.unlink(tmp)
         raise
+    _synced(file.parent)
+
+
+def _synced(folder):
+    """The names of a folder on the disk, as far as its file system lets a folder be synced."""
+    try:
+        descriptor = os.open(folder, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(descriptor)
+    except OSError:   # a file system that cannot sync a folder
+        pass
+    finally:
+        os.close(descriptor)
+
+
+def read_record(file):
+    """What a record of this machine holds (a JSON file of `.lab/`), None when it is not there or cannot be read. One that is
+    there and is no JSON (cut short, an edit gone wrong) is moved aside first, as `<name>.bad-<utc>`: the next write of the
+    record replaces it, and what it still held is kept for the person."""
+    try:
+        with open(file, "rb") as handle:
+            data, read = handle.read(), os.fstat(handle.fileno())
+    except OSError:
+        return None
+    try:
+        return json.loads(data.decode("utf-8"))
+    except (ValueError, RecursionError):   # RecursionError: a nest of brackets too deep to read
+        pass
+    if data.strip():
+        stamp, number = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()), 0
+        while os.path.lexists(aside := file.with_name(f"{file.name}.bad-{stamp}" + (f"-{number}" if number else ""))):
+            number += 1
+        try:
+            now = os.lstat(file)
+            if (now.st_dev, now.st_ino) == (read.st_dev, read.st_ino):   # not a file a write put in its place since
+                os.rename(file, aside)
+        except OSError:
+            pass
+    return None

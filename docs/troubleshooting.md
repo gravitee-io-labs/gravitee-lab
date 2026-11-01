@@ -127,16 +127,22 @@ each other at these addresses. [Ports](configuration.md#ports) lists every port.
   do not show next to the guide on another port)`
 - `Already running. To load a new version, stop it with Ctrl+C in its terminal, then run gravitee-lab again.`, under the
   address of the Lab UI
+- `Port 9000 is used by another Lab UI: stop it with Ctrl+C in its terminal, then run gravitee-lab again. One lab runs at a
+  time`
 - `UI_PORT must be a port number, for example 9001`
 
-**Cause:** another program listens on 9000, you started the Lab UI twice, or `UI_PORT` holds something else than a port
-number.
+**Cause:** another program listens on 9000, you started the Lab UI of this clone twice, a Lab UI of another clone (or
+one started before you updated the Lab) holds the port, or `UI_PORT` holds something else than a port number.
 
-**Fix:** for the second message, use the Lab UI that runs. It acts on the clone that started it: if you meant another
-clone, see [A second clone collides with the first](#a-second-clone-collides-with-the-first). For the first, free port
-9000 if you can. With `UI_PORT=9001 make ui` the Lab UI works, but the UIs of a playground show as refused beside the
-guide, because the platform's UIs and the apps let only port 9000 frame them. For the third, set `UI_PORT` to a number
-from 1 to 65535, or leave it empty.
+**Fix:** for the second message, use the Lab UI that runs: one Lab UI serves a clone, whatever port you start it on, and
+the message gives its address. For the third, stop the other Lab UI, then start this one: see
+[A second clone collides with the first](#a-second-clone-collides-with-the-first). For the first, free port 9000 if you
+can. With `UI_PORT=9001 make ui` the Lab UI works, but the UIs of a playground show as refused beside the guide, because
+the platform's UIs and the apps let only port 9000 frame them. For the last, set `UI_PORT` to a number from 1 to 65535,
+or leave it empty.
+
+While the Lab UI runs, `python3 lab-ui/catalog.py update`, `undo` and `remove` refuse with `The Lab UI runs on this
+folder`: make the change on its Catalogs page, or stop it first. Its jobs would write the same files.
 
 ### The Lab UI says to open it at localhost
 
@@ -152,7 +158,8 @@ Lab UI at http://localhost:9000`.
 
 **Symptom:** a tab of a playground says `cannot be shown here`.
 
-**Cause:** the Lab UI is not on port 9000, or the app's own headers refuse frames.
+**Cause:** the Lab UI is not on port 9000, the app's own headers refuse frames, or this machine does not trust the
+certificate of a UI on `https` (the line under the notice says `Its certificate is not trusted`).
 
 **Fix:** open http://localhost:9000, or use *Open in a new tab*.
 
@@ -332,8 +339,8 @@ If Ollama runs elsewhere, set `OLLAMA_URL` in the settings of the playground. On
 **Cause:** one lab runs per machine. Every clone uses the Compose project `gravitee`, the container names `gio-*`, the
 volumes `gravitee_*` and the same host ports.
 
-**Fix:** use one clone at a time. Run `make stop` in the first before you start the second. They share the data
-volumes, but each clone keeps its own record of what its seeds created (`.lab/catalogs/<catalog>/playgrounds/<id>/.state/`). To start the second
+**Fix:** use one clone at a time. Run `make stop` in the first, and stop its Lab UI with Ctrl+C in its terminal, before you
+start the second. They share the data volumes, but each clone keeps its own record of what its seeds created (`.lab/catalogs/<catalog>/playgrounds/<id>/.state/`). To start the second
 clean, run `make reset` in it: it deletes the shared volumes and empties that clone's records. The first clone's records
 then no longer match the volumes, so run `make reset` there too before you use it again.
 

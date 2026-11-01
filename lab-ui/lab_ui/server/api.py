@@ -45,6 +45,7 @@ TYPES = {".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".p
 STAMP = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d")   # a log line's timestamp, as `logs --timestamps` writes it
 FOLLOW_AGAIN = 2   # seconds between two looks at a container whose logs ended, until it runs again
 STATS_EVERY = 1    # seconds between two events of the containers' load
+KEEP_ALIVE = 15    # seconds a stream says nothing before it writes a comment: that is how a closed page is noticed
 # The page is HTML in the origin that holds the keys to Docker, and a guide is third-party HTML in it: it runs only the scripts it
 # loads itself (its own files and the pinned directories of the CDN libraries it loads with their hash, never inline), and nothing
 # is framed but the consoles of a playground on this machine. This is what the page needs (tests/web/test_static.py reads it from
@@ -95,14 +96,23 @@ def _docker_down(body):
     body["wait"] = body["docker"]["title"]
 
 
+def _containers():
+    """What Docker says of the project's containers (compose.containers) and when it was asked: (containers, error, asked).
+    Kept a second, which the pages that ask in that second share: while a job runs every page asks each second, and Docker is
+    asked once. The end of a job forgets it (`local:`)."""
+    def read():
+        asked = time.monotonic()   # Docker's answer is newer than every line the job read before
+        return (*compose.containers(project.LICENSE_KEY), asked)
+    return compose.CACHE.get(f"local:containers:{paths.ROOT}", 1, read)
+
+
 def snapshot():
     """The state the page draws, before it is sent. Docker not answering is part of the state, not a failure of the Lab
     UI, and so is docker-compose.yml not loading: then what runs is not known either. What Docker says of the
     containers moves the last job too: their health, which Compose does not wait for, and after it returned. Each
     container says which license it runs, as a digest: one saved and not applied is said."""
     p, read = project.loaded()
-    asked = time.monotonic()   # Docker's answer is newer than every line the job read before
-    containers, error = compose.containers(project.LICENSE_KEY) if p["core_loaded"] else ({}, None)
+    containers, error, asked = _containers() if p["core_loaded"] else ({}, None, time.monotonic())
     last = JOBS.current
     if last and not error and p["core_loaded"]:
         last.observe(model.container_steps(p, containers), asked)
@@ -124,8 +134,8 @@ def snapshot():
                        deployed=deployed, changed=changed, git=model.git_state(service.git_version()),
                        catalogs=service.describe(p, read), content=firstrun.content(p, read), layout=layout.status())
     # What the page gives an AI agent to create an item: where the project is, the folder and the word on its commands
-    # for the agent (machine.agent), and the skills to follow. Where API Management runs, from this machine's choice and
-    # what its platform last said
+    # for the agent (machine.agent), and the skills to follow. The Lab's own version, from what was read of its repository
+    # in the last 30 s (updates.FRESH). Where API Management runs, from this machine's choice and what its platform last said
     body.update(root=str(paths.ROOT), agent=machine.agent(), skills=personal.skills(), lab=updates.describe(),
                 kept_settings=kept.listed(),
                 core=core.describe(p, on, containers if known else {}, saved, body.get("wait")))
@@ -571,21 +581,26 @@ def static(req, folder="", name="index.html"):
 
 def stream_job(req, jid):
     """A job's output as it comes, then its summary. Between them, how far the images it pulls are, when it pulls
-    any ("pulls" events, each the whole of it)."""
+    any ("pulls" events, each the whole of it), and a comment while it is silent: a page that closed ends the stream."""
     job = JOBS.get(jid)
     req.sse_start()
-    sent, pulls = 0, None
+    sent, pulls, beat = 0, None, time.monotonic()
     while True:
         lines = job.lines[sent:]
         if lines:
             req.sse_send(lines)
             sent += len(lines)
+            beat = time.monotonic()
         found = job.pull_view()
         if found and found != pulls:
             req.sse_send(found, event="pulls")
-            pulls = found
+            pulls, beat = found, time.monotonic()
         if job.done and sent >= len(job.lines):
             return req.sse_send(job.summary(), event="done")
+        if time.monotonic() - beat >= KEEP_ALIVE:
+            req.wfile.write(b": keep-alive\n\n")
+            req.wfile.flush()
+            beat = time.monotonic()
         time.sleep(0.2)
 
 
@@ -711,7 +726,7 @@ def send_batches(req, lines):
                 batch.append(item)
         if batch:
             req.sse_send(batch)
-        elif time.time() - beat > 15:   # a silent stream is written to as well: that is how a closed page is noticed
+        elif time.time() - beat > KEEP_ALIVE:   # a silent stream is written to as well: that is how a closed page is noticed
             req.wfile.write(b": keep-alive\n\n")
             req.wfile.flush()
             beat = time.time()
@@ -973,8 +988,8 @@ def find_docker():
 
 
 def requirement():
-    """What this machine lacks to run the lab, in one line, in the words of the Makefile's; None when it lacks
-    nothing."""
+    """What this machine lacks to run the lab, in one line, in the words of the Makefile's; "" when it lacks nothing,
+    which the cache of the state keeps as it keeps a line (it keeps no None)."""
     rc, out, _ = compose.run(["docker", "compose", "version", "--short"], timeout=20)
     if rc == 127:   # docker itself is not there
         return f"docker not found: install Docker with Compose 5.0 or later {README}"
@@ -984,7 +999,7 @@ def requirement():
     if rc != 0 or len(version) < 2 or version < (5, 0):
         found = out.strip().lstrip("v") if rc == 0 else ""
         return f"Docker Compose 5.0 or later is needed, found: {found or 'none'} {README}"
-    return None
+    return ""
 
 
 def listing():
@@ -1034,18 +1049,31 @@ def is_lab_ui(port):
         return False
 
 
+def warm_up():
+    """The lab read in the background, as the first state reads it: the page that opens a moment later finds it read. What
+    fails is said by the state the page asks for. Answers the thread."""
+    def read():
+        try:
+            snapshot()
+        except Exception:  # noqa: BLE001 - the state the page asks for says what failed
+            pass
+    thread = threading.Thread(target=read, name="lab-warm-up", daemon=True)
+    thread.start()
+    return thread
+
+
 def start_up():
     """What the Lab does once its port is bound in this order: the layout of an existing machine is looked
     at and its own items moved (it never touches the network), what a stop left of a change of Personal is put right, the sweeper finishes what a stop left in the installs of the Lab
     and then in the folders of the catalogs that are linked (the half copies a Share left), the intent of the first run is
-    written and what has no copy is marked as downloading, and the one background thread of the Lab starts. Each step is local
-    and fast but the last, which returns at once; a failure of one is said in a line and never keeps the Lab from serving,
-    because its row says what is wrong."""
+    written and what has no copy is marked as downloading, the background threads of the Lab start, and the lab is read once
+    in the background (warm_up). Each step is local and fast but the last ones, which return at once; a failure of one is said
+    in a line and never keeps the Lab from serving, because its row says what is wrong."""
     for what, step in (("looking at the layout", layout.ensure), ("finishing what a stop left", service.recover),
                        ("finishing a change of Personal that a stop left", moving.recover_at_start),
                        ("sweeping what a share left", contribute.sweep), ("preparing the first run", firstrun.reconcile),
                        ("starting the download of catalogs", firstrun.start_worker),
-                       ("starting the check for new versions", updates.start_checking)):
+                       ("starting the check for new versions", updates.start_checking), ("reading the lab", warm_up)):
         try:
             step()
         except Exception as error:  # noqa: BLE001 - the Lab serves whatever these find
@@ -1063,6 +1091,24 @@ def open_browser(url):
 
 
 def serve(port, browser):
+    """Serves the page and the API of this folder on `port`, for as long as the process runs. One Lab UI serves a folder
+    (paths.serve_here): a second one, on any port, sends the person to it. A Lab UI of another folder on the port (or one
+    started before this version, which holds no lock) is said and never opened: its page would act on another lab."""
+    running = paths.serve_here(port)
+    if running is not None:
+        url = f"http://localhost:{running or port}"
+        address(url, "Already running. To load a new version, stop it with Ctrl+C in its terminal, then run gravitee-lab "
+                     "again.")
+        if browser:
+            open_browser(url)
+        return   # a Lab serves already: nothing on disk is touched, so nothing of its work is finished or swept from here
+    try:
+        _serve(port, browser)
+    finally:
+        paths.stop_serving()
+
+
+def _serve(port, browser):
     url = f"http://localhost:{port}"
     try:
         if answers_on_ipv6(port):   # the browser may go there for localhost, and find another program
@@ -1071,14 +1117,11 @@ def serve(port, browser):
     except OSError as error:
         if error.errno != errno.EADDRINUSE:
             raise
-        if not is_lab_ui(port):
-            sys.exit(f"Port {port} is used by another program. Free it, or use another port: UI_PORT={port + 1} "
-                     "gravitee-lab (the UIs of a playground do not show next to the guide on another port)")
-        address(url, "Already running. To load a new version, stop it with Ctrl+C in its terminal, then run gravitee-lab "
-                     "again.")
-        if browser:
-            open_browser(url)
-        return   # a Lab serves already: nothing on disk is touched, so nothing of its work is finished or swept from here
+        if is_lab_ui(port):
+            sys.exit(f"Port {port} is used by another Lab UI: stop it with Ctrl+C in its terminal, then run gravitee-lab "
+                     "again. One lab runs at a time")
+        sys.exit(f"Port {port} is used by another program. Free it, or use another port: UI_PORT={port + 1} "
+                 "gravitee-lab (the UIs of a playground do not show next to the guide on another port)")
     server.daemon_threads = True   # an open log stream does not keep the Lab UI from stopping
     address(url, "Keep this terminal open: Ctrl+C stops the Lab UI, and the containers keep running.")
     compose.stop_on_signals()   # once, from the main thread, before it serves: a closed terminal ends what runs

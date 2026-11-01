@@ -11,6 +11,7 @@ import os
 import queue
 import re
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -60,6 +61,26 @@ PROJECT = {
         ("hello-app", "playground", "welcome", None, "gravitee-lab/hello-app", True),
         ("welcome-seed", "playground", "welcome", "seed", "gravitee-lab/welcome-seed", True)]},
 }
+
+
+# A Lab UI that serves a folder, as another process: it holds the lock of the folder with its port until its input ends
+HOLDER = ("import fcntl, os, sys\n"
+          "descriptor = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o600)\n"
+          "fcntl.flock(descriptor, fcntl.LOCK_EX)\n"
+          "os.write(descriptor, sys.argv[2].encode() + b'\\n')\n"
+          "print('held', flush=True)\n"
+          "sys.stdin.read()\n")
+
+
+def served_elsewhere(case, port):
+    """The folder of `case` (its `root`) served by a Lab UI of another process on `port`, until the case ends."""
+    (case.root / paths.LAB_DIR).mkdir(exist_ok=True)
+    case.patch(paths, "SERVING_WAIT", 0.1)   # what only looks holds it for an instant: this one holds it
+    holder = subprocess.Popen([sys.executable, "-c", HOLDER, str(case.root / paths.SERVING_FILE), str(port)],
+                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    case.addCleanup(holder.wait, 10)
+    case.addCleanup(holder.stdin.close)
+    case.assertEqual(holder.stdout.readline(), "held\n")
 
 
 class LabUI(Case):
@@ -317,6 +338,7 @@ class State(LabUI):
         self.catalogued = {"git": {"available": True, "version": "2.43.2"}, "catalogs": self.rows,
                            "content": self.content, "layout": self.layout}
         self.patch(api, "JOBS", Jobs())
+        self.patch(api.compose, "CACHE", compose.Cache())
         self.name = self.patch(api.compose, "project_name", return_value="gravitee")
         self.build = self.patch(api.model, "build", side_effect=lambda *args, **more: {
             "containers": sorted(args[2]), "docker": args[6]})
@@ -431,6 +453,7 @@ class State(LabUI):
         self.request("GET", "/api/state")
         self.assertEqual(self.build.call_args[0][3]["progress"], 0.5)   # Docker did not answer: nothing more known
         ps.side_effect, ps.return_value = None, {"mongodb": {"state": "running", "health": "healthy"}}
+        api.compose.CACHE.drop()   # a second later
         self.request("GET", "/api/state")
         self.assertEqual((job.progress, self.build.call_args[0][3]["progress"]), (1, 1))
 
@@ -442,9 +465,20 @@ class State(LabUI):
         status, headers, body = self.request("GET", "/api/state", headers={"If-None-Match": tag})
         self.assertEqual((status, body, headers["ETag"]), (304, b"", tag))
         ps.return_value = {"mongodb": {}, "redis": {}}
+        api.compose.CACHE.drop()   # a second later
         status, headers, _ = self.request("GET", "/api/state", headers={"If-None-Match": tag})
         self.assertEqual(status, 200)
         self.assertNotEqual(headers["ETag"], tag)
+
+    def test_the_pages_that_ask_in_the_same_second_share_one_reading_of_docker(self):
+        # While a job runs every open page asks each second: Docker is asked once a second, whatever their number
+        ps = self.patch(api.compose, "ps", return_value={"mongodb": {}})
+        for _ in range(3):
+            self.assertEqual(self.request("GET", "/api/state")[0], 200)
+        self.assertEqual(ps.call_count, 1)
+        api.compose.CACHE.drop("local:")   # what a job that ends does: what runs changed
+        self.request("GET", "/api/state")
+        self.assertEqual(ps.call_count, 2)
 
 
 class Frame(LabUI):
@@ -1172,6 +1206,7 @@ class PlatformFlow(LabUI):
                                                         "problems": [], "locked": None})
         self.patch(places, "_cache", {})
         self.patch(places, "_reading", {})
+        self.patch(places, "_newest", {})
         self.fake = fake_cloud.serve(connect_after=0)
         serving(self.fake)
         self.addCleanup(self.fake.server_close)
@@ -1820,6 +1855,15 @@ class JobRoutes(LabUI):
         self.assertEqual(json.loads(lines[len("data: "):]), self.job.lines)
         self.assertEqual(done, f"event: done\ndata: {json.dumps(self.job.summary())}")
 
+    def test_a_silent_job_is_followed_with_a_comment_now_and_then_so_that_a_closed_page_ends_the_stream(self):
+        self.patch(api, "KEEP_ALIVE", 0)
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=5)
+        self.addCleanup(connection.close)
+        connection.request("GET", f"/api/jobs/{self.job.id}")
+        response = connection.getresponse()
+        self.assertEqual(response.fp.readline(), b": keep-alive\n")
+        self.job.done, self.job.ok = True, True
+
     def test_cancel(self):
         status, _, body = self.request("POST", f"/api/jobs/{self.job.id}/cancel")
         self.assertEqual((status, json.loads(body)["id"]), (200, self.job.id))
@@ -1864,8 +1908,8 @@ class CommandLine(LabUI):
         for answer, expected in [((0, "2.40.3\n", ""), old.format("2.40.3")),
                                  ((0, "v4.9.1\n", ""), old.format("4.9.1")),
                                  ((0, "dev\n", ""), old.format("dev")),
-                                 ((0, "5.0.0-desktop.1\n", ""), None), ((0, "v5.4.0\n", ""), None),
-                                 ((0, "5.6.0\n", ""), None),
+                                 ((0, "5.0.0-desktop.1\n", ""), ""), ((0, "v5.4.0\n", ""), ""),
+                                 ((0, "5.6.0\n", ""), ""),
                                  ((1, "", "docker: 'compose' is not a docker command"), old.format("none")),
                                  ((127, "", "docker: not found"),
                                   "docker not found: install Docker with Compose 5.0 or later "
@@ -1873,8 +1917,18 @@ class CommandLine(LabUI):
             run.return_value = answer
             self.assertEqual(api.requirement(), expected)
 
+    def test_a_compose_that_lacks_nothing_is_asked_once_for_the_time_the_state_keeps_it(self):
+        # Every state asks it: the answer that nothing lacks is kept as long as a line that something does
+        run = self.patch(api.compose, "run", return_value=(0, "5.6.1\n", ""))
+        self.patch(api.compose, "CACHE", api.compose.Cache())
+        for _ in range(3):
+            api._docker_down({"docker": {"error": None}, "problems": []})
+        self.assertEqual(run.call_count, 1)
+
     def test_busy_port_opens_the_lab_ui_that_runs(self):
+        self.folder(paths)
         port = self.server.server_port
+        served_elsewhere(self, port)
         opened, printed = self.patch(api, "open_browser"), io.StringIO()
         with contextlib.redirect_stdout(printed), mock.patch.dict("os.environ", {"LC_ALL": "C"}):
             api.serve(port, browser=False)
@@ -1883,7 +1937,31 @@ class CommandLine(LabUI):
         opened.assert_called_once_with(f"http://localhost:{port}")
         self.assertEqual(printed.getvalue(), (self.RUNNING.format(port) + "\n") * 2)
 
+    def test_a_second_lab_ui_of_the_folder_on_another_port_is_sent_to_the_first(self):
+        # UI_PORT=9001 in the folder whose Lab UI serves on 9000: two Lab UIs would run their jobs at the same time
+        self.folder(paths)
+        served_elsewhere(self, 9000)
+        bound = self.patch(api, "ThreadingHTTPServer", side_effect=AssertionError("a second Lab UI served the folder"))
+        opened, printed = self.patch(api, "open_browser"), io.StringIO()
+        with contextlib.redirect_stdout(printed), mock.patch.dict("os.environ", {"LC_ALL": "C"}):
+            api.serve(9001, browser=True)
+        bound.assert_not_called()
+        opened.assert_called_once_with("http://localhost:9000")
+        self.assertEqual(printed.getvalue(), self.RUNNING.format(9000) + "\n")
+
+    def test_the_lab_ui_of_another_folder_on_the_port_is_said_and_never_opened(self):
+        # A second clone: the page of the first would act on the first lab
+        self.folder(paths)
+        port, opened = self.server.server_port, self.patch(api, "open_browser")
+        with self.assertRaises(SystemExit) as stopped:
+            api.serve(port, browser=True)
+        self.assertEqual(stopped.exception.code, f"Port {port} is used by another Lab UI: stop it with Ctrl+C in its terminal, "
+                                                 "then run gravitee-lab again. One lab runs at a time")
+        opened.assert_not_called()
+        self.assertIsNone(paths.served_elsewhere(), "the lock this one took is let go")
+
     def test_busy_port_of_another_program_is_said_with_the_port_to_use_instead(self):
+        self.folder(paths)
         port, opened = self.another_program(), self.patch(api, "open_browser")
         with self.assertRaises(SystemExit) as stopped:
             api.serve(port, browser=True)
@@ -1895,6 +1973,7 @@ class CommandLine(LabUI):
 
     def test_a_program_on_the_ipv6_loopback_is_another_program_though_127_0_0_1_is_free(self):
         # A browser may take localhost for ::1 and show that program in place of the Lab
+        self.folder(paths)
         with socket.socket(socket.AF_INET6) as other:
             try:
                 other.bind(("::1", 0))
@@ -2402,6 +2481,9 @@ class StateOfCatalogs(LabUI):
 
 
 
+WARM_UP = api.warm_up   # the real one: the cases of Startup replace it
+
+
 class Startup(Case):
     """Bind the port first; only once it is bound, look at the layout, finish what a stop left (in the installs of the Lab
     and in the folders of the catalogs that are linked), write the intent of the first run and start the one background thread.
@@ -2412,6 +2494,7 @@ class Startup(Case):
              ("firstrun", "start_worker"))
 
     def setUp(self):
+        self.folder(paths)
         self.events = []
         events = self.events
 
@@ -2430,6 +2513,7 @@ class Startup(Case):
         for module, name in self.STEPS:
             self.patch(getattr(api, module), name, side_effect=lambda module=module, name=name: events.append((module, name)))
         self.patch(api.compose, "stop_on_signals", side_effect=lambda: events.append(("signals",)))
+        self.patch(api, "warm_up", side_effect=lambda: events.append(("warm up",)))
         self.timer = self.patch(api.threading, "Timer")
         self.opened = self.patch(api, "open_browser")
 
@@ -2443,7 +2527,7 @@ class Startup(Case):
         said = self.serve()
         self.assertEqual(self.events, [("bind", ("127.0.0.1", 9000)), ("signals",), ("layout", "ensure"), ("service", "recover"),
                                        ("contribute", "sweep"), ("firstrun", "reconcile"), ("firstrun", "start_worker"),
-                                       ("serve",)])
+                                       ("warm up",), ("serve",)])
         self.assertEqual(said, "\n  >  Lab UI   http://localhost:9000\n     Keep this terminal open: Ctrl+C stops the Lab UI, "
                                "and the containers keep running.\n\n")
 
@@ -2464,23 +2548,30 @@ class Startup(Case):
         self.serve(browser=False)
         self.timer.assert_not_called()
 
+    def test_the_lab_is_read_once_in_the_background_and_a_read_that_fails_is_the_state_s_to_say(self):
+        self.patch(api, "warm_up", WARM_UP)
+        read = self.patch(api, "snapshot", side_effect=RuntimeError("Docker hangs"))
+        api.warm_up().join(5)
+        read.assert_called_once_with()
+
     def test_a_lab_that_serves_already_is_left_alone_not_one_of_the_five_steps_runs(self):
         for module, name in self.STEPS:
             self.patch(getattr(api, module), name, side_effect=AssertionError(f"{module}.{name} ran on the already running branch"))
         self.patch(api.compose, "stop_on_signals", side_effect=AssertionError("signals were taken over"))
-        self.patch(api, "ThreadingHTTPServer", side_effect=OSError(errno.EADDRINUSE, "Address already in use"))
-        self.patch(api, "is_lab_ui", return_value=True)
+        self.patch(api, "ThreadingHTTPServer", side_effect=AssertionError("the port was bound"))
+        served_elsewhere(self, 9000)
         said = self.serve(browser=True)
         self.assertIn("Already running", said)
         self.opened.assert_called_once_with("http://localhost:9000")
 
-    def test_another_program_on_the_port_is_an_exit_and_touches_nothing(self):
+    def test_another_program_or_lab_ui_on_the_port_is_an_exit_and_touches_nothing(self):
         for module, name in self.STEPS:
             self.patch(getattr(api, module), name, side_effect=AssertionError(f"{module}.{name} ran"))
         self.patch(api, "ThreadingHTTPServer", side_effect=OSError(errno.EADDRINUSE, "Address already in use"))
-        self.patch(api, "is_lab_ui", return_value=False)
-        with self.assertRaises(SystemExit):
-            self.serve()
+        for answers in (False, True):
+            self.patch(api, "is_lab_ui", return_value=answers)
+            with self.assertRaises(SystemExit):
+                self.serve()
 
     def test_an_error_other_than_a_busy_port_is_raised_before_anything_is_touched(self):
         for module, name in self.STEPS:
@@ -2498,7 +2589,7 @@ class Startup(Case):
         self.assertEqual(said.getvalue().splitlines(), [
             "Gravitee Lab UI: looking at the layout failed (OSError: disk full)",
             "Gravitee Lab UI: finishing what a stop left failed (CatalogError: A catalog changed on disk.)"])
-        self.assertEqual(self.events[-3:], [("firstrun", "reconcile"), ("firstrun", "start_worker"), ("serve",)])
+        self.assertEqual(self.events[-4:], [("firstrun", "reconcile"), ("firstrun", "start_worker"), ("warm up",), ("serve",)])
 
     def test_what_a_share_left_is_swept_after_what_a_stop_left_and_a_sweep_that_fails_keeps_nothing_from_starting(self):
         # The half copies Share leaves in the folder of a linked catalog go at start, as the installs' sweep does
@@ -2510,7 +2601,7 @@ class Startup(Case):
                          ["Gravitee Lab UI: sweeping what a share left failed (OSError: read-only file system)"])
         self.assertEqual([event for event in self.events if event[0] != "bind" and event != ("signals",)],
                          [("layout", "ensure"), ("service", "recover"), ("firstrun", "reconcile"), ("firstrun", "start_worker"),
-                          ("serve",)])
+                          ("warm up",), ("serve",)])
 
     def test_the_command_line_runs_requirement_and_prepare_for_every_command_and_the_five_steps_for_serve_only(self):
         order = []

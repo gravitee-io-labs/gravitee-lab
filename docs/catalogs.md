@@ -87,7 +87,8 @@ off or remove its containers, then **Repair** finishes the update.
 **Remove.** Takes the copy away. Choose **Keep my settings** (what you set and what its playgrounds created, if you add it
 again) or **Delete them too**. An item that is on blocks the removal until you turn it off.
 
-From a terminal: `python3 lab-ui/catalog.py add|update|undo|remove|list`.
+From a terminal: `python3 lab-ui/catalog.py add|update|undo|remove|list`. While the Lab UI runs on the folder, update, undo
+and remove are made on its Catalogs page: the command says so.
 
 ## Versions
 

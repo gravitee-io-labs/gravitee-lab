@@ -50,11 +50,8 @@ def _valid(item):
 
 
 def read():
-    """The records kept, none when the file is missing or does not read as such."""
-    try:
-        found = json.loads((paths.ROOT / FILE).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        found = []
+    """The records kept, none when the file is missing or does not read as such (paths.read_record keeps it aside)."""
+    found = paths.read_record(paths.ROOT / FILE)
     return [{**{key: item[key] for key in ("id", "name", "kind", "url")},
              "account": {key: str(item["account"].get(key) or "") for key in ("id", "hrid", "name")}}
             for item in (found if isinstance(found, list) else []) if _valid(item)]

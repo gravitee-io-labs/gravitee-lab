@@ -37,8 +37,9 @@ CLEARED = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy"
            "CURL_CA_BUNDLE", "SSL_CERT_FILE", "SSL_CERT_DIR")
 STATE_LIMIT = 1 << 20   # the most a file of a state folder is read for: a container wrote it
 _lock = threading.Lock()
-_cache = {}     # platform id -> (when it was read, what platforms.fetch answered)
+_cache = {}     # platform id -> (when the read began, what platforms.fetch answered)
 _reading = {}   # platform id -> the thread that reads it
+_newest = {}    # platform id -> when the read that answered last began: one that began before it and ends after is not kept
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -46,15 +47,20 @@ _reading = {}   # platform id -> the thread that reads it
 # ---------------------------------------------------------------------------------------------------------------------
 
 def _load(uid):
-    """Reads a platform now and keeps what it said."""
+    """Reads a platform now and keeps what it said, unless a read that began after this one answered first: a read of the
+    background that was on its way when an action asked for a fresh one says what was before the action."""
+    began = time.monotonic()
     record = next((record for record in platforms.read() if record["id"] == uid), None)
     try:
         found = platforms.fetch(record) if record else None
     except Exception as error:  # noqa: BLE001 - the read must end with the platform's word, whatever went wrong
         found = {"state": "unreachable", "message": type(error).__name__, "environments": [], "gateways": []}
     with _lock:
+        if _newest.get(uid, began) > began:
+            return
+        _newest[uid] = began
         if found:
-            _cache[uid] = (time.monotonic(), found)
+            _cache[uid] = (began, found)
         else:
             _cache.pop(uid, None)
 

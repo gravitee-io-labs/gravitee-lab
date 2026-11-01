@@ -410,16 +410,29 @@ def _progress_of(ns, state_key):
 
 def _no_job():
     """`job_running` while a job runs: a change of catalogs is a plain request and never starts a job, and a job reads the
-    install while it runs."""
+    install while it runs. `busy` while a Lab UI of this folder runs in another process (the command line asks): its jobs,
+    which this process cannot see, write the files the change moves, so the change is made in it (_elsewhere)."""
     last = jobs.JOBS.current
     if last and not last.done:
         raise CatalogError("job_running", f"Wait for {last.title}.", 409)
+    elsewhere = _elsewhere()
+    if elsewhere:
+        raise CatalogError("busy", f"{elsewhere}.", 409)
+
+
+def _elsewhere():
+    """The line of a change that waits for the Lab UI of this folder, which runs in another process; None when none does."""
+    port = paths.served_elsewhere()
+    if port is None:
+        return None
+    return f"The Lab UI runs on this folder: make this change in it, at http://localhost:{port or 9000}, or stop it first"
 
 
 def _waiting():
-    """"Wait for {job title}" while a job runs, else None: the same reason, as the line of a plan that is held."""
+    """"Wait for {job title}" while a job runs, the line of _elsewhere while a Lab UI of this folder runs in another process,
+    else None: the same reasons, as the line of a plan that is held."""
     last = jobs.JOBS.current
-    return f"Wait for {last.title}" if last and not last.done else None
+    return f"Wait for {last.title}" if last and not last.done else _elsewhere()
 
 
 def _unit_id(ns, kind, name):

@@ -8,6 +8,7 @@ import fnmatch
 import os
 import posixpath
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -319,6 +320,38 @@ class Checked(Case):
         # (the warning of a variable that another file needs is not said here: this text does not use it)
         self.assertEqual((saved["content"], saved["version"], [p["severity"] for p in saved["problems"]]),
                          ("services: {kafka: {}}\n", files._version(KAFKA), []))
+
+    def test_what_is_saved_while_compose_checks_the_text_is_not_written_over(self):
+        version = files._version(KAFKA)
+
+        def run(cmd, timeout):   # another tab, or an editor, saves the file while Compose checks this text
+            (self.root / KAFKA).write_text("services: {theirs: {}}\n", encoding="utf-8")
+            return 0, "", ""
+        with mock.patch.object(compose, "run", side_effect=run), self.assertRaisesRegex(RuntimeError, "changed on disk"):
+            files.save(PROJECT, KAFKA, EDITED, version)
+        self.assertEqual((self.root / KAFKA).read_text(encoding="utf-8"), "services: {theirs: {}}\n")
+
+    def test_a_settings_form_compares_its_version_with_no_other_write_of_a_env_between(self):
+        project = {"core_variables": [{"key": "KIOSK_GREETING", "default": "hello", "required": False, "comment": "", "secret": False}],
+                   "addons": {}}
+        version = files.settings(project, ".env")["version"]
+        saved = []
+        with envfiles.LOCK:   # another write of a .env is under way: the form waits for it, then sees what it wrote
+            thread = threading.Thread(target=lambda: saved.append(self.attempt(project, version)), daemon=True)
+            thread.start()
+            thread.join(0.2)
+            self.assertTrue(thread.is_alive())
+            envfiles.write(".env", {"KIOSK_GREETING": "theirs"})
+        thread.join(10)
+        self.assertEqual(saved, ["changed on disk"])
+        self.assertEqual(envfiles.read(".env"), {"KIOSK_GREETING": "theirs"})
+
+    def attempt(self, project, version):
+        try:
+            files.save_settings(project, ".env", {"KIOSK_GREETING": "mine"}, version)
+        except RuntimeError as error:
+            return "changed on disk" if "changed on disk" in str(error) else str(error)
+        return "saved"
 
     def test_version_follows_the_content(self):
         (self.root / ".env").write_text("APIM_VERSION=4.12.20\n", encoding="utf-8")

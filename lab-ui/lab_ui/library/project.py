@@ -524,7 +524,7 @@ def _stamp(files, skip, core=False):
 def _remembered(key, stamp, make, keep=None):
     """What `make` gives for `key`, kept while `stamp` is the same, as a copy that nobody else holds. `keep`: whether an
     answer is worth keeping: a read that failed for a reason that is not in the files (a time limit, a Compose that did not
-    answer) is made again at the next gather, not held until a file changes or the day ends."""
+    answer) is made again at the next gather, not held until a file changes."""
     key = (os.fspath(ROOT), key)
     with _memo_lock:
         hit = _memo.get(key)
@@ -825,10 +825,8 @@ def gather():
              and not reach.get(file, {}).get("missing")}
     core, core_error = _core_config() if judged else (None, None)
     by_kind = {kind: [found[1] for found in map(paths.unit_of, unit_files) if found and found[0] == kind] for kind in KINDS}
-    # Whether the license of the core's .env lets the services that need one start: read here with the other inputs
-    usable = license.usable(license.status_of(_license_var(raw.get(CORE_FILE) or {})))
     catalogs = registry.inputs()
-    return {"raw": raw, "license_usable": usable,
+    return {"raw": raw, "license_usable": _usable(raw),
             "includes": {path: _direct(path, screen) for path in raw},
             "variables": {path: _variables(path) for path in raw},
             "resolved": _resolved(raw, problems, plain if default is not None else None),
@@ -2227,7 +2225,7 @@ def brought(unit):
     return unit[BROUGHT[unit["kind"]]]
 
 
-_cache = {"key": None, "project": None, "inputs": None}
+_cache = {"key": None, "project": None, "inputs": None, "day": None}
 _lock = threading.RLock()   # reentrant: whoever holds it exclusively (exclusive) loads the project too
 
 
@@ -2249,14 +2247,23 @@ def read_own(file):
     return config, (None if config is not None else compose.cause((problem or {}).get("message") or "", reach["targets"]))
 
 
+def _usable(raw):
+    """Whether the license of the core's .env lets the services that need one start, today."""
+    return license.usable(license.status_of(_license_var(raw.get(CORE_FILE) or {})))
+
+
 def loaded():
-    """(the project, what gather() read to build it), read again only when one of its files changed, and each day: a
-    license runs out with time, not with a file. Shared by every caller: never change them."""
+    """(the project, what gather() read to build it), read again only when one of its files changed. A license runs out
+    with time, not with a file: each day, whether it lets the services that need one start is read again, and nothing
+    else. Shared by every caller: never change them."""
     with _lock:
-        key = f"{fingerprint()}:{datetime.date.today()}"
+        key, day = fingerprint(), datetime.date.today()
         if _cache["key"] != key:
             inputs = gather()
-            _cache.update(project=build(inputs), inputs=inputs, key=key)
+            _cache.update(project=build(inputs), inputs=inputs, key=key, day=day)
+        elif _cache.get("day") != day:
+            inputs = {**_cache["inputs"], "license_usable": _usable(_cache["inputs"]["raw"])}
+            _cache.update(project=build(inputs), inputs=inputs, day=day)
         return _cache["project"], _cache["inputs"]
 
 

@@ -63,6 +63,7 @@ class Places(test_platforms.Platforms):
         super().setUp()
         self.patch(places, "_cache", {})
         self.patch(places, "_reading", {})
+        self.patch(places, "_newest", {})
         self.addCleanup(self.settle)   # a read that goes on would write what it finds in the next test's cache
         self.add(NAME)
 
@@ -174,6 +175,26 @@ class Reading(Places):
         self.assertEqual(places.place(PROJECT, f"my-account/{DEV}")["missing"], "No hybrid gateway", "served as read")
         places.invalidate("my-account")
         self.assertEqual(places.place(PROJECT, f"my-account/{DEV}")["missing"], "No Cloud Token")
+
+    def test_a_read_of_the_background_that_ends_after_the_one_an_action_asked_for_is_not_kept(self):
+        release, calls = threading.Event(), []
+
+        def fetch(record):   # the background read is on its way to a slow Cloud when the action reads the platform again
+            calls.append(record["id"])
+            if len(calls) == 1:
+                release.wait(10)
+                return {"state": "unreachable", "message": "before the action", "environments": [], "gateways": []}
+            return {"state": "unreachable", "message": "after the action", "environments": [], "gateways": []}
+        self.patch(platforms, "fetch", fetch)
+        self.addCleanup(release.set)
+        places.places(PROJECT)
+        deadline = time.monotonic() + 5
+        while not calls and time.monotonic() < deadline:
+            time.sleep(0.01)
+        places.invalidate("my-account")
+        release.set()
+        self.settle()
+        self.assertEqual(places._cache["my-account"][1]["message"], "after the action")
 
     def test_the_local_things_are_not_served_from_a_minute_ago(self):
         """A Cloud Token kept, or a gateway swapped, shows at once: only what the platform said is kept."""

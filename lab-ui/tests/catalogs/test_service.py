@@ -13,6 +13,7 @@ import json
 import os
 import shutil
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -2777,6 +2778,15 @@ class Growth(unittest.TestCase):
         self.assertEqual(service._growth(old, new), [("reads", "gateway token")])
 
 
+# A Lab UI that serves a folder, as another process: it holds the lock of the folder with its port, until its input ends
+HOLDER = ("import fcntl, os, sys\n"
+          "descriptor = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o600)\n"
+          "fcntl.flock(descriptor, fcntl.LOCK_EX)\n"
+          "os.write(descriptor, b'9001\\n')\n"
+          "print('held', flush=True)\n"
+          "sys.stdin.read()\n")
+
+
 class Removing(Seam):
     """What Remove says first, what holds it, and what it leaves."""
 
@@ -2835,6 +2845,20 @@ class Removing(Seam):
         with self.assertRaises(CatalogError) as raised:
             service.remove("partner", keep_settings=True)
         self.assertEqual(lines_of(raised.exception), ("job_running", 409, "Wait for Start Ledger."))
+
+    def test_a_lab_ui_of_this_folder_in_another_process_holds_it_and_the_request_is_busy(self):
+        # The command line asks while a Lab UI serves the folder: its jobs, which this process cannot see, write what moves
+        holder = subprocess.Popen([sys.executable, "-c", HOLDER, str(self.root / paths.SERVING_FILE)], stdin=subprocess.PIPE,
+                                  stdout=subprocess.PIPE, text=True)
+        self.addCleanup(holder.wait, 10)
+        self.addCleanup(holder.stdin.close)
+        self.assertEqual(holder.stdout.readline(), "held\n")
+        line = "The Lab UI runs on this folder: make this change in it, at http://localhost:9001, or stop it first"
+        self.assertEqual(service.remove("partner", check=True)["held"], line)
+        with self.assertRaises(CatalogError) as raised:
+            service.remove("partner", keep_settings=True)
+        self.assertEqual(lines_of(raised.exception), ("busy", 409, f"{line}."))
+        self.assertIsNotNone(registry.entry("partner"), "nothing was removed")
 
     def test_remove_keeps_the_settings_by_default_and_leaves_a_marker_and_forgets_the_catalog(self):
         env = self.base / "addons" / "ledger" / ".env"
