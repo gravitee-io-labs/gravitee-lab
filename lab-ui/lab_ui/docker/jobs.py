@@ -428,9 +428,10 @@ class Job:
 
     def _cut(self, process, why):
         """Ends the command that runs for a reason of the job's own (_spawn says it): it said nothing for too long, or
-        what Compose waits for will not get there. The first reason stays."""
+        what Compose waits for will not get there. The first reason of each command stays: a step may go on after one
+        (plugins.up), and the next is ended by the same rules."""
         with self._lock:
-            if process.poll() is not None or self._why:
+            if process.poll() is not None or (self._why and self._why[0] is process):
                 return
             self._why = (process, why)
         compose.end(process)

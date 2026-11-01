@@ -1006,6 +1006,31 @@ class Kept(unittest.TestCase):
             thread.join(5)
         self.assertEqual((len(calls), answers), (1, [{"mongodb": "h"}] * 3))
 
+    def test_callers_that_wait_on_a_read_that_fails_each_get_its_failure_after_one_read(self):
+        # Docker hangs: the Welcome check, the state and a second tab ask docker:info at once, and `docker info` fails
+        # after its limit. Each caller has the failure after one read's time, not one read more than the caller before
+        cache, calls, waited, READ = compose.Cache(), [], [], 0.5
+
+        def failing():
+            calls.append(1)
+            time.sleep(READ)
+            raise compose.ComposeError("Docker does not answer")
+
+        def ask():
+            began = time.monotonic()
+            with self.assertRaises(compose.ComposeError):
+                cache.get("docker:info", 600, failing)
+            waited.append(time.monotonic() - began)
+        threads = [threading.Thread(target=ask) for _ in range(3)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(10)
+        self.assertLess(max(waited), READ * 1.6, f"fn ran {len(calls)} times, callers waited {sorted(waited)}")
+        self.assertEqual((len(waited), len(calls)), (3, 1))
+        # Not kept: the next caller asks again
+        self.assertEqual(cache.get("docker:info", 600, lambda: "29.7.2"), "29.7.2")
+
     def test_a_failure_is_asked_again_and_an_answer_is_kept_for_its_time(self):
         # What the read raises is not kept; any answer is, None and "" too (an answer that nothing lacks is one)
         cache = compose.Cache()
