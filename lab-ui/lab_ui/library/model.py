@@ -278,8 +278,8 @@ def _progress(c, key, names, state):
         return None
     if state["key"] not in ("starting", "stopping"):
         return None
-    if job["for"] == key:
-        return job["progress"]
+    if job["for"] == key:   # while it runs, how far is the job's own, beside the state (_job)
+        return job["progress"] if job["done"] else "job"
     found = job["containers"]
     shares = [found[container] for container in (c["services"][name]["container"] for name in names)
               if container in found]
@@ -474,9 +474,8 @@ def _note(c, unit, state, on, is_up, plan, failure, services, offer=None):
                 "note_causes": _switch_causes(*layers.switch_rows(c["project"], plan["switch"]))}
     if offer:
         return {**_said(UNTESTED, "warn", target={"kind": "image", "id": None}), "note_causes": _switch_causes(offer.get("versions", []), offer.get("goes_back", []))}
-    # A locked on file is said once, in the banner, and a move of the old layout that is not over once, by the button of each
-    # row (its reason): neither is the note of every row that could start
-    if plan and plan["do"] == "start" and plan["blocked"] and plan["blocked"] not in (c["state"]["locked"], layers.WAITING):
+    # A locked on file is said once, in the banner: it is not the note of every row that could start
+    if plan and plan["do"] == "start" and plan["blocked"] and plan["blocked"] != c["state"]["locked"]:
         # A playground on images older than it needs: a short label, the versions it needs in its explanation
         # leads to the Images page, where they are chosen
         if unit["kind"] == "playground" and plan["blocked"] == layers.too_old(c["project"], unit):
@@ -1022,6 +1021,22 @@ def _license(c, containers):
             "reason": unapplied_line(c["project"], unapplied, status != "none")}
 
 
+def _job(job):
+    """The job as the state says it, None without one: all but what the state says otherwise (`changes`, `containers`,
+    `settled`). While it runs, not how far it is (its progress, that of its phases, its latest line), which changes at every
+    byte a pull brings and would change the state with it: that comes beside the state (Job.live, api.state), and the item
+    the job is for says `"job"` as its progress. Once it ended, all of it, as it ended."""
+    if not job:
+        return None
+    shown = {key: value for key, value in job.items() if key not in ("changes", "containers", "settled")}
+    if job["done"]:
+        return shown
+    shown = {key: value for key, value in shown.items() if key not in ("progress", "detail")}
+    if "phases" in shown:
+        shown["phases"] = [{key: value for key, value in phase.items() if key != "progress"} for phase in shown["phases"]]
+    return shown
+
+
 def git_state(version):
     """state.git, from the version of git that gitx.version() found (a tuple of numbers) or None for none:
     {available, version}."""
@@ -1029,8 +1044,7 @@ def git_state(version):
 
 
 def build(project, state, containers, job, failures, license_features, docker, created, saved=None,
-          license_status=None, platforms=(), deployed=None, changed=None, git=None, catalogs=None, content=None,
-          layout=None):
+          license_status=None, platforms=(), deployed=None, changed=None, git=None, catalogs=None, content=None):
     """The body of /api/state. `state` is layers.current(), `containers` compose.ps() ({} when Docker does not
     answer), `job` the summary of the last job or None, `failures(kind, id)` the failed or canceled last job on an
     item ({id, verb, error, login}, jobs.Jobs.failed_job) or None, `license_features` the features the license allows
@@ -1041,18 +1055,18 @@ def build(project, state, containers, job, failures, license_features, docker, c
     page gets {id, name, kind, url}; `deployed` what each playground holds in the places besides This machine:
     {id: [{place, environment, created: [{what, count}]}]} (places.deployed); `changed` the settings that differ in
     what runs behind by configuration ({service: {settings: [name], labels}}, drift.changes). Of the job, the page gets all but
-    `changes`, `containers` and `settled`: they are in the state and the progress of every item. Of Docker, it gets why
+    `changes`, `containers` and `settled` (_job): they are in the state and the progress of every item. Of Docker, it gets why
     it does not answer and what to know of its memory; `wait` says why nothing can be started now. `blind`: what runs
     is not known, Docker not answering or docker-compose.yml not loading: no state is said, but, while only Docker
     does not answer, what is on, which the files say. The consoles come in their order, which puts the legacy ones
     last. The state of the catalogs is read by the caller, who has the disk: `git` (git_state), `catalogs` (the rows of the
-    Catalogs page), `content` (what the first start says of the content) and `layout` (where the migration of an
-    existing machine is) are put in the body as they are given, and left out when they are not."""
+    Catalogs page) and `content` (what the first start says of the content) are put in the body as they are given, and left
+    out when they are not."""
     platforms = list(platforms)
     loaded = project["core_loaded"]
     readonly = {ns for ns, found in (project.get("catalogs") or {}).items() if found.get("kind") == "git"}
-    forwarded = {key: value for key, value in (("git", git), ("catalogs", catalogs), ("content", content),
-                                               ("layout", layout)) if value is not None}
+    forwarded = {key: value for key, value in (("git", git), ("catalogs", catalogs), ("content", content))
+                 if value is not None}
     containers = containers if loaded else {}   # without the core, Compose reads nothing: what runs is not known
     running_job = job if job and not job["done"] else None
     # The last job, while what it starts or stops is on its way: as it runs, then, once it ended well, until every
@@ -1096,8 +1110,7 @@ def build(project, state, containers, job, failures, license_features, docker, c
     conflicts = _conflicts(project)
     addons = {aid: _addon(c, addon, conflicts) for aid, addon in project["addons"].items()}
     return {"docker": _docker(docker), "wait": c["wait"], "blind": c["blind"], "license": _license(c, containers),
-            "job": {key: value for key, value in job.items() if key not in ("changes", "containers", "settled")}
-            if job else None,
+            "job": _job(job),
             "platform": _platform(c),
             "platforms": [{key: record[key] for key in ("id", "name", "kind", "url")} for record in platforms],
             "products": [{"id": group["product"], "name": project["products"][group["product"]]["name"]}

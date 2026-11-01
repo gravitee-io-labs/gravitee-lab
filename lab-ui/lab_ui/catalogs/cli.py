@@ -396,9 +396,9 @@ def _progress(firstrun, ns, stop):
 
 
 def provision(args):
-    """The first start from a terminal, in the foreground. The intent is written when catalogs.json does not exist,
-    every git entry that has no copy is downloaded, and the migration of an old layout runs when it waits. Exit 1, with the
-    line of the error, when something fails."""
+    """The first start from a terminal, in the foreground (`make catalogs`, and `make update` after its pull). The intent is
+    written when catalogs.json does not exist, every git entry that has no copy is downloaded, and a folder of the layout
+    before catalogs is moved to theirs (layout.run). Exit 1, with the line of the error, when something fails."""
     firstrun = _lab("firstrun")
     layout = importlib.import_module("lab_ui.library.layout")
     firstrun.reconcile()
@@ -423,13 +423,8 @@ def provision(args):
         finally:
             stop.set()
             watcher.join()
-    if layout.waiting():
-        report = layout.migrate()
-        moved = len(report.get("moved") or [])
-        say(f"Moved {moved} item{'' if moved == 1 else 's'} of the old layout")
-        for line in report.get("problems") or []:
-            complain(str(line))
-            failed += 1
+    if not layout.run(say, complain):
+        failed += 1
     return 1 if failed else 0
 
 
@@ -1161,7 +1156,7 @@ def parser():
     sub.add_argument("address")
     sub.add_argument("--branch")
     sub.add_argument("--yes", action="store_true", help="add it, after the preview")
-    one("provision", provision, "download what has no copy yet and migrate an old layout")
+    one("provision", provision, "download what has no copy yet and move a folder of the layout before catalogs")
     one("list", list_catalogs, "the catalogs and their state")
     for name, function, text in (("update", update, "update a catalog"), ("undo", undo, "go back to the previous version")):
         sub = one(name, function, text)

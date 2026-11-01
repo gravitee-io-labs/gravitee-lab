@@ -649,7 +649,11 @@ class Replay(Case):
         self.docker.observe(self.job)
         body = self.body()
         ready = sum(container["health"] == "healthy" for container in self.docker.containers.values())
-        self.curve.append({"job": self.job.progress, "platform": body["platform"]["progress"],
+        # While the job runs, the platform it is for is as far as the job, which comes beside the state (Job.live): the page
+        # reads it there
+        progress = body["platform"]["progress"]
+        self.curve.append({"job": self.job.progress, "beside": progress == "job",
+                           "platform": self.job.live()["progress"] if progress == "job" else progress,
                            "state": body["platform"]["state"]["key"], "ready": ready, "named": len(self.named),
                            "groups": [(group["progress"], group["state"]["key"])
                                       for group in body["platform"]["groups"]]})
@@ -669,9 +673,11 @@ class Replay(Case):
         self.assertEqual((self.job.ok, self.curve[returned - 1]["job"]), (True, 0.75))
         # All of it once every service is ready, and only then
         self.assertEqual([point["job"] == 1 for point in self.curve], [point["ready"] == 12 for point in self.curve])
-        # The platform's progress is the job's, while it runs and after, until the state says it runs
+        # The platform's progress is the job's, while it runs and after, until the state says it runs: beside the state while
+        # the job runs, in it once the job ended
         for point in self.curve[:-2]:
             self.assertEqual((point["platform"], point["state"]), (point["job"], "starting"))
+        self.assertEqual([point["beside"] for point in self.curve], [index < returned for index in range(len(self.curve))])
         self.assertEqual([(point["platform"], point["state"]) for point in self.curve[-2:]],
                          [(None, "running")] * 2)
         # A group is the mean of its containers while it starts: Databases runs long before the gateways, once Redis

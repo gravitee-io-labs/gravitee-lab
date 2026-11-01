@@ -644,11 +644,13 @@ test("Deploy and Re-seed on a remote place ask too, and run the seed there; This
 
 test("a Deploy at work says so on its button, with the verb of its job", async () => {
   await visit({}, { kept: DEV.id });
-  store.state = { ...store.state, job: { ...JOB, verb: "deploy", title: "Deploy Acme Hostels", progress: 0.4 } };
+  store.state = { ...store.state, job: { ...JOB, verb: "deploy", title: "Deploy Acme Hostels" } };
+  store.live = { id: JOB.id, progress: 0.4, phase: null, detail: "" };   // how far it is comes beside the state
   playgroundPage.render(store.state);
   const seed = section.querySelector('[data-act="deploy"]');
   assert.ok(seed.classList.contains("busy"), "it works");
   assert.match(text(seed.querySelector(".pbtn-side")), /Deploying 40%/);
+  store.live = null;
   await leave();
 });
 

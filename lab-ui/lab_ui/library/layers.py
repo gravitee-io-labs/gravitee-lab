@@ -3,11 +3,10 @@ or a stop and its job: the services it changes and what its commands wait for, f
 place, which leaves the platform alone; what an apply recreates.
 
 An item of a catalog is read here as any other (its id says where it is), and three gates stand between it and the
-platform. The plan refuses a start for what the policy blocks, a catalog it lacks, its twin that is on, a port that
-something of the lab publishes, and a layout still being moved (`_blocked`). `check` refuses a port another program
-holds, then asks the catalogs to verify what is installed before a start runs (the preflight). `write`, the only writer
-of the on file, adds no entry for a unit that is blocked, and writes nothing over a file another job wrote since the
-plan."""
+platform. The plan refuses a start for what the policy blocks, a catalog it lacks, its twin that is on, and a port that
+something of the lab publishes (`_blocked`). `check` refuses a port another program holds, then asks the catalogs to
+verify what is installed before a start runs (the preflight). `write`, the only writer of the on file, adds no entry for
+a unit that is blocked, and writes nothing over a file another job wrote since the plan."""
 
 import functools
 import os
@@ -23,11 +22,6 @@ from . import machine, moves, versions
 from .project import _control_plane, _dotenv, brought
 
 LOCKED = f"{paths.ON_FILE} has your own changes"
-# Why nothing starts while an old layout is being moved: the line of `layout_waiting`
-WAITING = "Your settings are being moved. Try again in a moment."
-# A line of the on file in the layout before catalogs, which the move translates: addons/<id>/compose.yml, the personal
-# ones under local/
-LEGACY = re.compile(r"(?:addons|playgrounds)/(?:local/)?[a-z0-9-]+/compose\.yml|setups/(?:local/)?[a-z0-9-]+\.yml")
 # What a plan says besides ROWS and PLACE_ROWS when its item comes from a catalog: the row From, and the words under it
 FROM = "from"
 # Said once more in .env when the first catalog is added (prepare_catalogs)
@@ -175,20 +169,6 @@ def service_name(project, name):
     return label
 
 
-def _waiting():
-    """Whether the layout of an old machine is still being moved to the catalogs (layout.waiting()). The module is looked
-    up when asked, because the move reads the on file with this one."""
-    from . import layout
-    return bool(layout.waiting())
-
-
-def ready():
-    """Raises RuntimeError(WAITING) while the old layout is being moved: what the Lab starts or applies would be read from
-    files that are not where the on file says."""
-    if _waiting():
-        raise RuntimeError(WAITING)
-
-
 def stamp():
     """What tells the on file as it is now from what it was: a digest of its text, empty text for a file that is not
     there."""
@@ -205,8 +185,7 @@ def current(project):
     the file must not be rewritten: it holds more than the Lab UI writes, or an entry whose file does not load, which a
     rewrite would drop. `unread` is the first entry that Compose cannot read, as a line: its file is gone or does not
     load, and every command that reads the on file fails on it; None without one. An item of a catalog is an entry like
-    any other, and one the policy blocks is still one: it is loaded, so it locks nothing. While the old layout is being
-    moved an entry of that layout is neither a problem nor a lock: it is off until the move translates it."""
+    any other, and one the policy blocks is still one: it is loaded, so it locks nothing."""
     file = paths.ROOT / paths.ON_FILE
     text = file.read_text(encoding="utf-8") if file.is_file() else ""
     entries = compose.includes(paths.ON_FILE)
@@ -214,13 +193,8 @@ def current(project):
     # The Lab UI writes `include:` and one line per entry: any other line is the user's
     own = bool(lines) and (lines[0].split("#")[0].strip() != "include:" or len(lines) != len(entries) + 1)
     playgrounds, setups, explicit, broken, problems, unread = [], [], set(), [], [], []
-    moving = None   # whether the layout is being moved: asked once, and only for a line that looks like the old layout's
     for path in entries:
         kind, uid = paths.unit_of(path) or (None, None)
-        if not kind and LEGACY.fullmatch(path):
-            moving = _waiting() if moving is None else moving
-            if moving:
-                continue
         if not (paths.ROOT / path).is_file():
             problems.append({"file": paths.ON_FILE, "message": f"{path} does not exist"})
             unread.append(f"{path} does not exist")
@@ -787,7 +761,7 @@ def taken(project, names):
 
 
 def _blocked(project, state, kind, unit, do, gateway=None, up=None, going=frozenset()):
-    """Why the action cannot run, or None: the on file is locked; the old layout is still being moved; the policy blocks
+    """Why the action cannot run, or None: the on file is locked; the policy blocks
     the item or something it brings, or it lacks a catalog; the twin of the item or of something it brings is on
     (_twins_on); an add-on it brings lacks a setting; a playground is on images older than it needs, which would end on its
     seed, after the whole setup, so its Start waits for them; a host port it publishes is taken. A stop is refused
@@ -798,8 +772,6 @@ def _blocked(project, state, kind, unit, do, gateway=None, up=None, going=frozen
         return state["locked"]
     if do != "start":
         return None
-    if _waiting():
-        return WAITING
     why = _unusable(project, kind, unit["id"]) or (_unusable(project, "addon", gateway) if gateway else None)
     if why:
         return why
@@ -1339,32 +1311,6 @@ def _called(file):
     return found[1].rsplit("/", 1)[-1] if found else file
 
 
-def _legacy_lines():
-    """The lines of the on file that name a file of the old layout (LEGACY), plain or as the copy of an item that runs on
-    another platform, as the file has them; none unless that layout is being moved. current() leaves them out, so a file
-    written from it alone would drop what the move is about to translate (it reads the live file, not the backup)."""
-    file = paths.ROOT / paths.ON_FILE
-    if not file.is_file() or not _waiting():   # the cheap look first: nothing on, nothing to keep
-        return []
-    try:
-        text = file.read_text(encoding="utf-8")
-    except (OSError, ValueError):
-        return []
-    found = []
-    for line in text.split("\n"):
-        target = compose.TARGET_ITEM.fullmatch(line)
-        item = None if target else compose.INCLUDE_ITEM.fullmatch(line)
-        if target:
-            named = compose._original(target.group(1))
-        elif item:
-            named = os.path.normpath(next(filter(None, item.groups())))
-        else:
-            continue
-        if LEGACY.fullmatch(named):
-            found.append(line.rstrip())
-    return found
-
-
 CHANGED = "What is on changed meanwhile: try again"   # the on file was written since the plan of a job was made
 
 
@@ -1378,8 +1324,7 @@ def write(playground, explicit, targets=None, names=None, blocked=None, since=No
 
     `blocked`, {unit file: why it must not start} (blocked_files), is the gate: an entry that is not in the file yet is
     not added for a unit it names, and writing it raises. One already there stays, and removing entries never raises, so a
-    stop works for whatever is on. While the old layout is being moved the lines that name its files stay after the others
-    (_legacy_lines): the move translates the file as it finds it.
+    stop works for whatever is on.
 
     `since`, the stamp of the file a plan was made from (current()), is the other gate: the file is not written when it
     changed since (RuntimeError CHANGED), for what the plan made of it would undo what another job did meanwhile."""
@@ -1405,7 +1350,6 @@ def write(playground, explicit, targets=None, names=None, blocked=None, since=No
         old = compose.target_names(compose.target_copy(file, kind))
         copy = compose.write_target(file, kind, (names or {}).get(kind) or old)
         lines.append(f'  - {{path: "{copy}", project_directory: "{os.path.dirname(file)}"}}\n')
-    lines += [f"{line}\n" for line in _legacy_lines()]
     paths.write_atomic(target, "include:\n" + "".join(lines) if lines else "")
 
 

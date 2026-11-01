@@ -24,9 +24,6 @@ LATE = {
                                                           "reads layers",
     ("lab_ui.server.api", "lab_ui.e2e"): "the command line's --e2e, which runs this server",
 }
-# The migration of the old layout (layout.py), which goes with it
-MIGRATION = {("lab_ui.library.layers", "lab_ui.library.layout"), ("lab_ui.library.layout", "lab_ui.library.project"),
-             ("lab_ui.docker.compose", "lab_ui.library.layout")}
 
 
 def edges():
@@ -100,7 +97,7 @@ class OneWay(unittest.TestCase):
         # paths and products import nothing of the Lab; docker/ is what the Lab asks of Docker, and imports only those
         rank = {"lab_ui.paths": 0, "lab_ui.products": 0, "lab_ui.docker": 1}
         found = [f"{module} imports {target}" for module, target, _ in edges()
-                 if (module, target) not in LATE and (module, target) not in MIGRATION
+                 if (module, target) not in LATE
                  for top in [next((one for one in rank if module.startswith(one)), None)] if top is not None
                  and not any(target.startswith(one) and rank[one] <= rank[top] for one in rank)]
         self.assertEqual(found, [])
@@ -112,13 +109,13 @@ class OneWay(unittest.TestCase):
 
     def test_a_function_imports_a_module_of_the_lab_only_for_a_reason_said_here(self):
         found = sorted({f"{module} imports {target} in a function" for module, target, late in edges()
-                        if late and (module, target) not in LATE and (module, target) not in MIGRATION})
+                        if late and (module, target) not in LATE})
         self.assertEqual(found, [])
 
     def test_no_module_imports_one_that_imports_it(self):
         graph = {}
         for module, target, _ in edges():
-            if target.startswith(ENGINE) and module != target and (module, target) not in MIGRATION:
+            if target.startswith(ENGINE) and module != target:
                 graph.setdefault(module, set()).add(target)
         cycles, state = [], {}
 

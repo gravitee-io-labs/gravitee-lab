@@ -718,7 +718,6 @@ class Scrubbed(Layout):
 
     def test_the_environment_of_the_lab_is_what_it_was(self):
         # The Lab runs its own commands with environment(): nothing here changes that
-        self.patch(compose, "_waiting", return_value=False)
         self.shell({"COMPOSE_FILE": "other.yml", "SOME_API_TOKEN": "api-token-value"})
         found = compose.environment()
         self.assertEqual(found["SOME_API_TOKEN"], "api-token-value")
@@ -944,7 +943,6 @@ class WithCompose(Case):
 
     def test_the_same_file_read_with_the_environment_of_the_lab_shows_the_difference(self):
         # The control: it is the environment that holds the values back
-        self.patch(compose, "_waiting", return_value=False)
         found = compose.config_json(["-f", "docker-compose.yml"])
         probe = found["services"]["probe"]
         self.assertEqual((probe["environment"]["TOKEN"], probe["environment"]["GITHUB"]),

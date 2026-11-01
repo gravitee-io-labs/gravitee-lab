@@ -120,8 +120,9 @@ def state(lab_ui):
         has(body["license"], {"status", "expires", "days_left", "problem", "tone", "applied"}, "the license")
     for problem in body["problems"]:
         has(problem, {"file", "message", "editable"}, "a problem")
-    if body["job"]:
-        has(body["job"], {"id", "title", "for", "verb", "done", "phases", "progress"}, "the job")
+    if body["job"]:   # how far a running job is comes beside the state, in a header (api.LIVE): in it once it ended
+        has(body["job"], {"id", "title", "for", "verb", "done", "phases"} | ({"progress"} if body["job"]["done"] else set()),
+            "the job")
     assert body["root"] == str(paths.ROOT), f"the project is not in {body['root']}"
     for what, skill in body["skills"].items():
         assert (paths.ROOT / skill).is_file(), f"the skill for {what} is not in {skill}"

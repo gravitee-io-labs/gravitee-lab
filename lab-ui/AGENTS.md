@@ -62,7 +62,7 @@ The module docstring (Python) or the header comment (JavaScript) of a file is th
 | `starred.py` | What is starred on this machine (`.lab/starred.json`) |
 | `tested.py` | What a playground started on here: the image versions that worked, kept in `.lab/tested.json`, so that starting it again on them is no warning |
 | `playgrounds.py` | A playground's checks, guide, start, re-seed and stop, on This machine or on a place: its deploy, its delete from one place and its records |
-| `layout.py` | The migration of a machine that ran the Lab before the catalogs to their layout (`make update`), and the guard that stops a command that would fail on the old one |
+| `layout.py` | The move of a folder that ran the Lab before the catalogs to their layout, once, by itself: before the Lab UI serves and from `make update`. No other module reads it, and the guard of `--list` and `--check` on a folder that still needs it |
 | `moves.py` | What moves things on this machine, shared by the migration, the working copy of a catalog, Share and the adoption of held settings: it never overwrites |
 
 `lab_ui/server/`: The pages of the Lab UI.
@@ -81,7 +81,7 @@ The module docstring (Python) or the header comment (JavaScript) of a file is th
 | `index.html`, `css/` | The shell (sidebar, one section per page, dialogs, icon sprite); colors and layout, components, one page's needs |
 | `js/main.js`, `boot.js`, `core.js` | Boot and refresh; DOM helpers, `api()`, `store` (with `store.cloud`, the checks of the Gravitee Cloud accounts that the Dashboard and the Gravitee Cloud page share), drafts, the hash router, the systems of a tag (`VARIANTS`, `bareTag`) |
 | `js/pages/` | One file per page: `dashboard.js`, `list.js` (the three lists), `catalogs.js`, `playground.js`, `stack.js` (Containers), `logs.js`, `images.js`, `plugins.js`, `platforms.js` (a card for each Gravitee Cloud account) |
-| `js/dialogs/` | `editor.js`, `create.js`, `platform.js`, `license.js`, `welcome.js`, `catalog.js`, `layout.js`, `form.js` |
+| `js/dialogs/` | `editor.js`, `create.js`, `platform.js`, `license.js`, `welcome.js`, `catalog.js`, `lab.js`, `machine.js`, `form.js` |
 | `js/components/` | The pieces the pages share: `ui.js` (dialogs, each with its cross at the top right, made when it opens, rows, state, `actionButton`, `setOff` for a control that waits and says why, pager, the tooltip `tipHtml` and the `applyBadge`, the menu), `combo.js` (the picker, and a form's select chosen with it, `selectField`), `agent.js` (the buttons that hand a prompt to an AI agent: Claude, Claude Code, Codex, Cursor, and a copy), `popup.js` (where every dropdown opens and how big it is), `sidebar.js` (chips, banner, theme), `markdown.js` (Markdown rendered and sanitized: Mermaid diagrams, action links, account links), `divider.js` |
 | `js/platform/` | `environments.js` and `environment-actions.js` (what the Lab says of an environment of a platform, `environmentStatus`: its gateway on this machine, whether it can be deployed to, what was deployed there, the one action, the environments in use, every hybrid gateway of an account, and what a person does to one), `core-choice.js` (where API Management runs: its control `runsControl`, the environment picker, Start all and Stop all with it in the Cloud), `places.js` (where a playground deploys: the place chosen for every playground, `chosenPlace`, and the Start of a playground on a place) |
 | `js/activity/` | `jobs.js` (running jobs and the activity drawer) and `pulls.js` (the progress of the images a job pulls) |

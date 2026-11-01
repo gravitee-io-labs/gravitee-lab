@@ -88,24 +88,9 @@ export const NEEDS = {
 };
 export const BLOCKED = { kind: "blocked", reasons: ["Mounts the Docker socket", "Runs with full privileges", "Publishes a port to the network"], owner: "Acme Hub", folder: false };
 
-// The notice of the move to catalogs, as `layout.status()` says it: a row has names or is not there, and the words are the
-// design's. Its row `restart` is computed where the state is (it needs what runs, and is late), the others come from the report of the move.
-export const NOTICE_ROWS = {
-  settings: ["Settings", ""], personal: ["Now personal", "Not in a catalog"], kept: ["Kept aside", "Your changes, in .lab/migration/kept"],
-  turned_off: ["Turned off", "Needs a catalog"], restart: ["Restart needed", "Their folders moved"], not_moved: ["Not moved", "Files stay where they were"],
-};
-export const noticeRow = (key, items) => ({ key, label: NOTICE_ROWS[key][0], items, hint: NOTICE_ROWS[key][1] });
-export const notice = (rows = [], more = {}) => ({ id: "2026-10-17T10:00:00Z", title: "Lab updated", text: "", rows, moved: [], button: "Close", ...more });
-export const LAYOUT = {
-  ready: (rows, more) => ({ phase: "ready", notice: notice(rows, more) }),
-  waiting: () => ({ phase: "waiting", notice: notice([noticeRow("settings", ["Not changed"])], { id: null }) }),
-  failed: () => ({ phase: "failed", notice: notice([], { id: null, text: "Could not move your settings. Nothing was deleted.", button: "Try again" }) }),
-};
-
 // The state around them: only what the pages that draw catalogs read. `more` replaces any of it.
 export const lab = (more = {}) => ({
   blind: false, wait: "", docker: { error: null }, license: null, products: [], categories: [], links: [], problems: [], services: {}, job: null,
   playgrounds: [], setups: [], addons: [], git: { available: true, version: "2.43.2" }, catalogs: [], content: content("ready"),
-  layout: { phase: "ready", notice: null },
   platform: { name: "Gravitee platform", state: { key: "stopped", label: "Stopped", running: false }, progress: null, groups: [], gateways: { cloud: null } }, ...more,
 });

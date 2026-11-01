@@ -297,13 +297,17 @@ make update
 ```
 
 `make update` is `git pull --ff-only` then `make catalogs`: it downloads the default catalog and moves your settings,
-your stars and what you had in the old folders to the new layout. What moves, where, and why is told in one notice on the next
-page load, **Lab updated**. Your own add-ons, setups and playgrounds (the ones under `local/`) become Personal. Anything you
-changed inside a shared item is kept aside in `.lab/migration/kept`. `.lab/migration/undo.sh` puts the previous layout
-back; a file that changed since is kept beside the restored one with the suffix `.after-update`.
+your stars and what you had in the old folders to the new layout. Starting the Lab UI does the same, once, before it opens:
+a Lab that was pulled some other way is moved all the same. Both say in the terminal what you may want to look at: your own
+add-ons, setups and playgrounds (the ones under `local/`) and what the catalog does not have become Personal, anything you
+changed inside a shared item is kept aside in `.lab/migration/kept`, and what needs a catalog you do not have is turned off.
+When the move cannot be made (the catalog does not download, a disk error), they say why, nothing is deleted, and the Lab UI
+does not start until it is fixed: start it again to finish the move. `.lab/migration/undo.sh` puts the previous layout back;
+a file that changed since is kept beside the restored one with the suffix `.after-update`.
 
-Until you run it, `make start`, `make ps` and the other targets that read what is on say `This Lab was updated: run make
-update to move your settings.` and stop. `make stop`, `make down` and `make reset` keep working.
+Until the move is made, `make start`, `make ps`, `make urls`, `make check` and the other targets that read what is on say
+`This Lab was updated: run make update to move your settings.` and stop. `make stop`, `make down` and `make reset` keep
+working.
 
 ## Errors and what to do
 

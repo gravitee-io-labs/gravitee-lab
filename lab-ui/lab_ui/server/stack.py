@@ -99,9 +99,7 @@ def _apply(project):
     """Applies what was saved to what runs (layers.applies): `up --no-deps` makes again what runs behind what is saved
     and starts again what failed, after the one-shots they depend on. What was stopped (from the Stack, a group or the
     whole) stays stopped, what has no container is not created, what was started outside the Lab UI stays: nothing is
-    removed as an orphan. While nothing of what is on runs, nothing does: what was saved applies at the next start. Not
-    while the old layout is being moved (layers.ready): the Stack's Start, Stop and Remove need no file and stay."""
-    layers.ready()
+    removed as an orphan. While nothing of what is on runs, nothing does: what was saved applies at the next start."""
     found = _applies(project)
     names, services = found["names"], project["services"]
 

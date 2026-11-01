@@ -6,7 +6,7 @@ import os
 import unittest
 
 from lab_ui.docker import compose
-from lab_ui.library import layout, playgrounds
+from lab_ui.library import playgrounds
 from lab_ui import paths
 from lab_ui.server import stack
 from lab_ui.docker.jobs import Job, JobFailed, awaited
@@ -53,7 +53,6 @@ class StackActions(Case):
     def setUp(self):
         self.state = {"playground": "welcome", "explicit": ["kafka"], "effective": ["kafka"], "locked": None}
         self.patch(stack.layers, "current", return_value=self.state)
-        self.patch(layout, "waiting", return_value=False)   # whatever tree this runs in: no old layout is being moved
         self.patch(stack.compose, "project_name", return_value="gravitee")
         self.patch(stack.compose, "ps", return_value={name: {"state": "running"}
                                                       for name in ("mongodb", "redis", "kafka", "kafka-ui")})
@@ -274,16 +273,6 @@ class StackActions(Case):
         job, _ = self.reset()
         self.assertEqual(job.lines, ["▸ Reset", "Turned off Welcome", "Could not empty what Welcome recorded: its state "
                                                                      "folder leads out of its folder"])
-
-    def test_apply_is_refused_while_the_old_layout_is_moving_and_the_rest_of_the_stack_is_not(self):
-        self.patch(layout, "waiting", return_value=True)
-        with self.assertRaisesRegex(RuntimeError, "^Your settings are being moved. Try again in a moment.$"):
-            stack.action(PROJECT, "apply")
-        self.jobs.start.assert_not_called()
-        for name in ("start", "stop", "down", "reset", "restart", "pull"):
-            stack.action(PROJECT, name)
-            self.assertEqual(self.jobs.start.call_count, 1, name)
-            self.jobs.start.reset_mock()
 
     def test_reset_says_what_it_leaves_in_the_platforms(self):
         # What a seed created in a platform is still there, and still recorded: only This machine's record is emptied

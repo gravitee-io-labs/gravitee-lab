@@ -1,24 +1,28 @@
-"""The migration of an existing machine to the layout of the catalogs. A clone that ran the Lab before the content
+"""The move of a folder that ran the Lab before the catalogs to their layout. A clone that ran the Lab before the content
 left the repository holds its settings where the units were: `.env`, `secrets/`, certificates and `.state/` beside the
 `compose.yml` that git has removed, the person's own items in `addons/local`, `setups/local` and `playgrounds/local`, and
 an on file and platform copies that name those folders. This module moves all of it to `.lab/catalogs/` and loses none.
 
+It runs by itself, once (`run`): when the Lab UI starts, before it serves, and from `make update` (`catalog.py
+provision`). It says in plain words what it moved, and when it cannot move, the Lab UI says why and does not start.
+Nothing else in the Lab reads this module: the engine only ever sees the layout of the catalogs. The two commands that
+read the lab and move nothing (`--list`, `--check`) refuse a folder that still needs the move, with the Makefile's words
+(`pending`, GUARD).
+
 State based: every step looks at the disk, never at what an earlier run did, so a run that crashed is run again and a
-second run changes nothing. It needs no Docker and no network, deletes only what is byte identical to the installed
-catalog's copy (or junk: caches, `.DS_Store`, folders Docker made empty), and puts everything else aside, in the place
-for its class. The moving primitives are `moves.py`'s (every move is journaled before it is made, which is what
-`undo.sh` is generated from); `moves.STEP` crashes a run between any two steps, and this module adds its own steps to it.
+second run changes nothing. The move needs no Docker and no network (the download of the default catalog before it may),
+deletes only what is byte identical to the installed catalog's copy (or junk: caches, `.DS_Store`, folders Docker made
+empty), and puts everything else aside, in the place for its class. The moving primitives are `moves.py`'s (every move is
+journaled before it is made, which is what `undo.sh` is generated from); `moves.STEP` crashes a run between any two steps,
+and this module adds its own steps to it.
 
-Two parts. Part A (`migrate_personal`) is offline and needs no catalog: the person's own items move at once, so they are
-listed while the default catalog downloads, and keep being listed if it never does. Part B (`migrate`) needs the default
-catalog: it classifies what the old layout left, freezes the plan, moves the machine files into the install, translates
-the on file and the platform copies (the switch) and writes the commit point, `.lab/layout.json`. Until that file exists
-the layout is waiting and Compose reads the core alone. It waits for the default catalog, unless the person has none:
-their catalogs file reads whole and does not list it, and Part B then runs against a catalog with no items. Nothing
-happens while git tracks `addons/`, `setups/` or `playgrounds/` (the engine before the catalogs, a fork that keeps its
-content), or while there is no default file: the legacy paths are then the current layout.
-
-`status()` and `waiting()` are read by every state poll and every Compose command: they read the disk and take no lock."""
+A run makes both parts, once the default catalog is installed: `run` downloads it first, as the first start does, unless the
+person has none (their catalogs file reads whole and does not list it: the move then runs against a catalog with no items).
+Part A moves the person's own items to `.lab/catalogs/local`. Part B classifies what the old layout left, freezes the plan,
+moves the machine files into the install, translates the on file and the platform copies (the switch) and writes the commit
+point, `.lab/layout.json`. Nothing happens while git tracks `addons/`, `setups/` or `playgrounds/` (the engine before the
+catalogs, a fork that keeps its content), or while there is no default file: the legacy paths are then the current
+layout."""
 
 import contextlib
 import hashlib
@@ -31,12 +35,11 @@ import stat
 import sys
 import time
 from pathlib import Path
-from typing import Optional
 
 from ..docker import compose
-from . import moves
+from . import moves, project
 from .. import paths
-from ..catalogs import registry, store
+from ..catalogs import firstrun, registry, store
 
 LAYOUT = 2   # the layout this Lab keeps: .lab/catalogs/<namespace>/ for every catalog, this machine's own in `local`
 FOLDER = {"addon": "addons", "setup": "setups", "playground": "playgrounds"}
@@ -45,13 +48,11 @@ MARKER = f"{paths.LAB_DIR}/layout.json"   # the commit point
 MIGRATION = moves.MIGRATION
 STARTED = f"{MIGRATION}/started.json"   # a migration was started: written before the first change, read as S0 with the plan
 PLAN = f"{MIGRATION}/plan.json"   # the classification, the table of what moved and the id map, frozen when Part B starts
-REPORT = f"{MIGRATION}/report.json"   # what the notice says
+REPORT = f"{MIGRATION}/report.json"   # what the move did, kept after it
 BACKUP = f"{MIGRATION}/backup"
 KEPT = f"{MIGRATION}/kept"   # modified copies, strays and conflicts, mirrored by their old path
 ON_FILE = paths.ON_FILE
 TARGETS = compose.TARGETS
-TITLE = "Lab updated"
-FAILED_LINE = "Could not move your settings. Nothing was deleted."
 READ_LIMIT = 16 << 20   # the largest file of its own this module reads back
 SCAN_LIMIT = 100_000   # entries read in one legacy unit folder; more is not a unit the Lab dares to sort
 
@@ -71,18 +72,24 @@ _NAME = re.compile(paths.NAME)
 _PLAIN = re.compile(r"(\s*-\s*)([\"']?)([^\s\"'#]+)\2(\s*(?:#.*)?)")
 _ENV_FILE = re.compile(r"\s*(?:export\s+)?COMPOSE_FILE\s*=(.*)")
 
-_failed = None   # why the last run of this process failed, for status(); a run that ends clears it
 _backed = None   # the compose texts of the backup while a run keeps count of them (_backed_up); None: not known yet
-_said = set()   # the reasons already printed once in this process
 
-# The copy of the notice. One place for each string; `restart` is built by whoever knows what runs (restart_row)
+# What a run says. One place for each string
+MOVING = "Moving your settings to the new layout"
+DOWNLOADING = "Downloading playgrounds, setups and add-ons"
+FAILED = "Could not move your settings to the new layout. Nothing was deleted."   # then why, in a line of its own
+TRACKED = ("The Lab did not move any settings: git tracks addons, setups or playgrounds here, so they are the current "
+           "layout.")
+# The rows of what moved that a person may want to look at, by the key of the report: what it is, and why
 ROWS = {
-    "personal": ("Now personal", "Not in a catalog"),
-    "kept": ("Kept aside", "Your changes, in .lab/migration/kept"),   # the path is shown: it is where the fix is
-    "turned_off": ("Turned off", "Needs a catalog"),
-    "restart": ("Restart needed", "Their folders moved"),
-    "not_moved": ("Not moved", "Files stay where they were"),
+    "promoted": ("Now personal", "not in a catalog"),
+    "kept": ("Kept aside", "your changes, in .lab/migration/kept"),   # the path is said: it is where the fix is
+    "turned_off": ("Turned off", "needs a catalog"),
+    "left": ("Not moved", "files stay where they were"),
 }
+# The errors a run stops on: a disk that failed, a refusal of a primitive or of the registry, a catalog that did not
+# download. Nothing was deleted, and the next run finishes the move
+TROUBLE = (OSError, ValueError, moves.Refused, registry.CatalogError)
 
 
 def _now():
@@ -91,13 +98,6 @@ def _now():
 
 def _report():
     return {key: [] for key in ("moved", "personal", "promoted", "kept", "left", "held", "turned_off", "problems")}
-
-
-def _say(reason, text):
-    """One line on standard error for a reason, the first time in this process: what the Lab did not do and why."""
-    if reason not in _said:
-        _said.add(reason)
-        print(text, file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -156,15 +156,6 @@ def _inactive():
     if paths.default_ns() is None:
         return "untouched"
     return "tracked" if _tracked() else None
-
-
-def _inactive_said():
-    """_inactive, and the one line that says why when the content is tracked."""
-    why = _inactive()
-    if why == "tracked":
-        _say("tracked", "The Lab did not move any settings: git tracks addons, setups or playgrounds here, so they are the "
-                        "current layout.")
-    return why
 
 
 def _scratch_name(name, isdir):
@@ -276,37 +267,14 @@ def _signals(first=True):
     return found
 
 
-def _phase():
-    """ready (nothing to move, or moved), waiting (an old layout is still being moved) or failed (the move could not be
-    made in this process; the layout is still the old one)."""
-    if _marker() is not None or _inactive():
-        return "ready"
-    if _signals(first=True):
-        return "failed" if _failed else "waiting"
-    return "ready"
-
-
-def waiting() -> bool:
-    """Whether the old layout is still being moved, so that only the core and the person's own items are usable. Also while a move has failed: the on file is still the old one. Never raises: a doubt is not waiting."""
-    try:
-        return _phase() != "ready"
-    except (OSError, ValueError):
-        return False
-
-
 # ---------------------------------------------------------------------------------------------------------------------
-# The notice
+# What a run says
 # ---------------------------------------------------------------------------------------------------------------------
 
 def _shown(item):
     """What a person reads of a key `kind:id` of the report: the name of the item, never its place."""
     name = item.split(":", 1)[1] if item.split(":", 1)[0] in (*FOLDER, "path") and ":" in item else item
     return name[len("local/"):] if name.startswith("local/") else name
-
-
-def _row(key, items):
-    names = sorted({_shown(item) for item in items})
-    return {"key": key, "label": ROWS[key][0], "items": names, "hint": ROWS[key][1]} if names else None
 
 
 def _kept_names():
@@ -335,50 +303,33 @@ def _kept_names():
     return found
 
 
-def _notice(marker):
-    """The notice of a finished move, from the report that was written with the marker: the rows with something in them, and
-    the items whose folders moved (the page adds the row `Restart needed` from the ones that run: restart_row). None when
-    there is nothing to say or the person closed it."""
-    if marker.get("closed"):
-        return None
-    found = (_object(REPORT) or {}).get("report")
-    if not isinstance(found, dict):
-        return None
-    lists = {key: [item for item in found.get(key, []) if isinstance(item, str)] for key in _report()}
-    rows = [row for row in (_row("personal", lists["promoted"]), _row("kept", lists["kept"]),
-                            _row("turned_off", lists["turned_off"]), _row("not_moved", lists["left"])) if row]
-    moved = [{"kind": kind, "id": name} for kind, _, name in (item.partition(":") for item in lists["moved"])
-             if kind in FOLDER and name]
-    if not rows and not moved:
-        return None
-    return {"id": marker.get("migrated"), "title": TITLE, "text": "", "rows": rows, "moved": moved, "button": "Close"}
+def _told(report):
+    """The lines a run says of what it did: what moved that a person may want to look at, by row, then each problem."""
+    lines = []
+    for key, (label, hint) in ROWS.items():
+        names = sorted({_shown(item) for item in report.get(key, [])})
+        if names:
+            lines.append(f"  {label}: {', '.join(names)} ({hint})")
+    return lines + [f"  {line}" for line in report.get("problems", [])]
 
 
-def restart_row(notice, late) -> Optional[dict]:
-    """The row `Restart needed` for a notice: the names of the items whose folders moved that are running and
-    behind their configuration. `late` holds their keys `kind:id` (what model.lateness reports). None when none is."""
-    late = set(late)
-    return _row("restart", [item["id"] for item in (notice or {}).get("moved", []) if f"{item['kind']}:{item['id']}" in late])
+def _printable(text):
+    """A line for a terminal: a name of the disk that holds a control character does not write to the screen."""
+    return "".join(char if char.isprintable() else " " for char in str(text))
 
 
-def status() -> dict:
-    """{"phase": "ready" | "waiting" | "failed", "notice": the 'Lab updated' notice or None}, from the disk only.
-    Waiting says the settings are not changed yet; failed says the move could not be made and offers to try again."""
-    try:
-        marker = _marker()
-        if marker is not None:
-            return {"phase": "ready", "notice": _notice(marker)}
-        phase = _phase()
-    except (OSError, ValueError):
-        return {"phase": "ready", "notice": None}   # a doubt is not a move under way, as for waiting()
-    if phase == "waiting":
-        row = {"key": "settings", "label": "Settings", "items": ["Not changed"], "hint": ""}
-        return {"phase": phase, "notice": {"id": None, "title": TITLE, "text": "", "rows": [row], "moved": [],
-                                           "button": "Close"}}
-    if phase == "failed":
-        return {"phase": phase, "notice": {"id": None, "title": TITLE, "text": FAILED_LINE, "rows": [], "moved": [],
-                                           "button": "Try again"}}
-    return {"phase": "ready", "notice": None}
+def _reason(error):
+    """Why a move stopped, in a line: an error of the disk by its words and the path it names from the project folder, a
+    refusal by its message, a bug by its type alone (its words may hold anything), a stop by the person as such."""
+    if isinstance(error, KeyboardInterrupt):
+        return "Stopped"
+    if isinstance(error, OSError) and error.strerror:
+        named = error.filename if isinstance(error.filename, str) else ""
+        inside = named.startswith(str(paths.ROOT) + os.sep)
+        return f"{error.strerror}: {os.path.relpath(named, paths.ROOT) if inside else named}" if named else error.strerror
+    if isinstance(error, TROUBLE):
+        return getattr(error, "message", None) or str(error) or type(error).__name__
+    return type(error).__name__
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -413,8 +364,7 @@ def _overwrite(file, text):
 @contextlib.contextmanager
 def _locked():
     """The locks of every change to the catalogs: the catalogs' (in this process and in the others), then the
-    project's. Taken here, never by status() or waiting(), which the project holds its own lock to call."""
-    from . import project   # here: project imports this module
+    project's."""
     with registry.flock(), project.exclusive():
         yield
 
@@ -1059,7 +1009,7 @@ def _named(legacy):
 
 def _turned_off(legacy):
     """The item has no file after the move (it is in no installed catalog): its line goes, said once in the journal and in
-    the notice. The backup of the on file has it. An item whose file is still where it was (a link, a name the grammar
+    the report. The backup of the on file has it. An item whose file is still where it was (a link, a name the grammar
     refuses, a folder that could not be moved) needs no catalog: it is told as not moved, and not here."""
     if not os.path.lexists(_path(legacy)):
         moves.journal("turned_off", path=legacy, item=_named(legacy))
@@ -1326,28 +1276,6 @@ def _again(default, found):
 # The entry points
 # ---------------------------------------------------------------------------------------------------------------------
 
-def _guarded(work):
-    """Runs `work` and records in this process whether the move failed (status() says so). A failure of the disk, a
-    refusal of a primitive or of the registry is a failed move that can be tried again: the report says so and nothing was
-    deleted. Anything else is a bug or a test stopping the run: it is recorded, then raised."""
-    global _failed, _backed
-    _backed = None   # the backup is looked at again for each run: it may be another folder, or one a person undid
-    try:
-        found = work()
-    except (OSError, ValueError, moves.Refused, registry.CatalogError) as error:
-        _failed = getattr(error, "message", None) or str(error) or type(error).__name__
-        _say("failed", f"The Lab could not move your settings: {_failed}. Nothing was deleted.")
-        found = _report()
-        found["problems"].append(FAILED_LINE)
-        _keep_undo()
-        return found
-    except BaseException:
-        _failed = "stopped"
-        raise
-    _failed = None
-    return found
-
-
 def _keep_undo():
     """After a failure, the script for a person who goes back before the next try, as far as the journal goes. Best effort:
     a disk that failed once may fail again, and a tree where no migration started has none to keep."""
@@ -1357,10 +1285,10 @@ def _keep_undo():
 
 
 def _run():
-    """What ensure() and migrate() do, under the locks of every change to the catalogs: nothing on a
-    tree where git tracks the content; the marker alone for a clone with nothing to move; the marker re-checked for a stale
-    line; else Part A, and Part B when the default catalog is installed and valid."""
-    if _inactive_said() or (_marker() is not None and not _signals(first=False)):
+    """What migrate() does, under the locks of every change to the catalogs: nothing on a tree where git tracks the
+    content; the marker alone for a clone with nothing to move; else, once the default catalog is settled, the lines a stale
+    Lab brought back translated again when the marker is there, Part A and Part B when it is not."""
+    if _inactive() or (_marker() is not None and not _signals(first=False)):
         return _report()   # nothing to do, and no lock taken, no file made, to do it
     with _locked():
         found = _report()
@@ -1368,68 +1296,74 @@ def _run():
             return found
         default = paths.default_ns()
         marker = _marker()
-        signals = _signals(first=marker is None)
-        if marker is not None:
-            if signals and _settled(default):
-                return _again(default, found)
+        if not _signals(first=marker is None):
+            if marker is None:
+                _write_marker(0)
             return found
-        if not signals:
-            _write_marker(0)
-            return found
-        _part_a(found)
         if not _settled(default):
-            return _final_report(None, found)
+            raise ValueError("The default catalog is not installed")
+        if marker is not None:
+            return _again(default, found)
+        _part_a(found)
         return _part_b(default, _plan(default), found)
 
 
-def migrate_personal() -> dict:
-    """Part A, offline: the person's own items move at once. Answers the report of `migrate`, with what it did
-    only: nothing is moved when the content is tracked, the marker is there, or there is nothing to move."""
-    def part():
-        if _inactive_said() or _marker() is not None or not _signals(first=True):
-            return _report()
-        with _locked():
-            found = _report()
-            if _inactive() or _marker() is not None or not _signals(first=True):
-                return found
-            _part_a(found)
-            return _final_report(None, found)
-    return _guarded(part)
-
-
 def migrate() -> dict:
-    """Part B, once the default catalog is installed (it runs Part A first), idempotently: the rest moves. Answers
-    {moved, personal, promoted, kept, left, held, turned_off, problems}: items by `kind:id`, paths of the old layout for
-    `left`. Empty when there is nothing to do; a catalog that is not installed leaves Part A done and the layout waiting.
-    A failure of the disk is recorded (status() says failed) and answered as a problem; the next call tries again."""
-    return _guarded(_run)
-
-
-def ensure() -> None:
-    """Detects an old layout and moves what can be moved at once; it never touches the network. Called once by
-    the server after it binds its port, before it serves. Starting the server comes first: a failure is recorded for
-    status() and printed once, never raised. So is each problem the move reports (a `COMPOSE_FILE` to edit by hand, a
-    place that was taken): the report is on disk, and this is where a person who starts the Lab from a terminal sees it."""
+    """The move, idempotently: answers {moved, personal, promoted, kept, left, held, turned_off, problems}, items by
+    `kind:id` and paths of the old layout for `left`, empty when there is nothing to do. It needs the default catalog
+    installed (run() downloads it first). Raises TROUBLE when it stops on one: nothing was deleted, the undo script goes as
+    far as the journal, and the next call finishes the move."""
+    global _backed
+    _backed = None   # the backup is looked at again for each run: it may be another folder, or one a person undid
     try:
-        for line in _guarded(_run)["problems"]:
-            if line != FAILED_LINE:   # `_guarded` has said that one, with its reason
-                _say(line, line)
-    except Exception as error:  # noqa: BLE001 - a bug here must not keep the Lab from starting; status() says failed
-        _say("ensure", f"The Lab could not look at the layout of this folder ({type(error).__name__}).")
+        return _run()
+    except TROUBLE:
+        _keep_undo()
+        raise
 
 
-def dismiss() -> None:
-    """The person closed the notice: it is not shown again. The marker is written again with the time, which also changes
-    what the project reads (it stats the marker), so the next state does not carry the notice."""
-    if not _marker():
-        return
-    with _locked():
-        marker = _marker()
-        if marker and not marker.get("closed"):
-            _put(MARKER, _json({**marker, "closed": _now()}), mode=0o644)
+def pending() -> bool:
+    """Whether this folder still needs the move: a layout before catalogs that was never moved, or a line of it that a stale
+    Lab wrote since. Reads the disk, takes no lock and never raises: a doubt is not a move to make."""
+    try:
+        return not _inactive() and bool(_signals(first=_marker() is None))
+    except (OSError, ValueError):
+        return False
 
 
-# What the Makefile prints and looks for (agreed with the Makefile's own tests): the guard that keeps a hand typed
-# `docker compose` from failing on an on file that names folders that moved. The pattern is an ERE for `grep -E`; it is
-# what _signal_s1 means for the lines the Lab writes, and a test holds the two together
+def run(say=None, complain=None) -> bool:
+    """The move of this folder when it needs one, said as it goes: before the Lab UI serves, and from `make update`. The
+    default catalog is downloaded first when it is not there, since the items move into it. What moved that a person may
+    want to look at, and each problem, is a line of `say`; why it could not move is two lines of `complain` (standard
+    error). Answers whether the Lab can work on the folder: False when the move could not be made, and the next run tries
+    again. A folder with nothing to move says nothing, and one whose content git tracks says why it is not moved."""
+    say = say or (lambda text: print(text, flush=True))   # in the order they come, whatever buffers a pipe keeps
+    complain = complain or (lambda text: print(text, file=sys.stderr, flush=True))
+    try:
+        why = _inactive()
+        if why == "tracked":
+            say(TRACKED)
+        if why or not pending():
+            migrate()   # a clone with nothing to move gets its marker
+            return True
+        say(MOVING)
+        default = paths.default_ns()
+        if not _settled(default):
+            say(DOWNLOADING)
+            firstrun.reconcile()
+            firstrun.provision(default)
+        report = migrate()
+    except (Exception, KeyboardInterrupt) as error:  # noqa: BLE001 - whatever stops it is said: the Lab does not start half moved
+        complain(FAILED)
+        complain(_printable(_reason(error)))
+        return False
+    for line in _told(report):
+        say(_printable(line))
+    return True
+
+
+# What the Makefile prints and looks for (agreed with the Makefile's own tests), and what `--list` and `--check` say on a
+# folder that still needs the move (pending): the guard that keeps a hand typed `docker compose` from failing on an on file
+# that names folders that moved. The Makefile's pattern is what _signal_s1 means for the lines the Lab writes, and a test
+# holds the two together
 GUARD = "This Lab was updated: run make update to move your settings."

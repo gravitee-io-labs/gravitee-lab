@@ -26,7 +26,6 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path, PurePosixPath
 
 from ..docker import compose, envfiles
-from . import layout
 from ..gravitee import license, platforms
 from .. import paths
 from ..catalogs import registry, renames, resolve, trust, understood
@@ -71,10 +70,10 @@ JUDGED = ("default", "other")
 
 def _catalog_files():
     """The files that say which catalogs there are and what they say of themselves: the default file, the intent,
-    the lock, the migration's marker, and for each catalog folder the folder itself (a link may be repointed), its
+    the lock, and for each catalog folder the folder itself (a link may be repointed), its
     manifest and its catalog.yml. A staging folder starts with a dot and is no catalog."""
     base = paths.CATALOGS_DIR
-    files = [paths.DEFAULT_FILE, f"{LAB_DIR}/catalogs.json", f"{LAB_DIR}/catalogs.lock", f"{LAB_DIR}/layout.json"]
+    files = [paths.DEFAULT_FILE, f"{LAB_DIR}/catalogs.json", f"{LAB_DIR}/catalogs.lock"]
     try:
         names = sorted(name for name in os.listdir(os.path.join(ROOT, base)) if not name.startswith("."))
     except OSError:
@@ -839,7 +838,7 @@ def gather():
                            if path],
             "problems": problems,
             # What the catalogs add: where each unit comes from, what the screen and Compose said of it, the
-            # catalogs as the disk says them, the level of the core, and the state of the migration
+            # catalogs as the disk says them, the level of the core
             "default": default, "catalogs": catalogs, "reach": reach, "bad": sorted(bad), "clean": sorted(clean),
             "screened": {**{file: screened[file] for file in bad if screened[file]}, **held}, "unreadable": unreadable,
             "configs": {path: found["config"] for path, found in loaded.items() if found.get("config") is not None},
@@ -851,7 +850,7 @@ def gather():
                                 **{file: names for file, names in own_seeds.items() if file in raw}},
             "shared_settings": {ns: _shared_settings(ns) for ns, row in catalogs.items() if row.get("kind") != "machine"},
             "catalog_problems": catalog_problems, "contract": _contract(raw.get(CORE_FILE) or {}),
-            "layout": layout.status(), "realpath": os.path.realpath, "home": os.path.expanduser("~"),
+            "realpath": os.path.realpath, "home": os.path.expanduser("~"),
             "products": _plugin_folders()}
 
 

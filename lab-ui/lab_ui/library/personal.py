@@ -216,8 +216,7 @@ def _write(project, kind, uid, texts):
 def create_addon(project, name, description, category, image, port=None, catalog=None):
     """Writes an add-on that runs one image, to be completed in the editor: in the folder `addons/<name>/` of the personal
     catalog, or of the folder catalog `catalog`, with its README. `image` is repository[:tag], `port` host[:container] or
-    nothing. Answers {file, id}. Refused (RuntimeError, `layers.WAITING`) while the old layout is being moved."""
-    layers.ready()
+    nothing. Answers {file, id}."""
     ns = _where(catalog)
     name, uid = _named("addon", name, ns)
     slug = uid.split("/")[-1]
@@ -245,10 +244,7 @@ def save_setup(project, name, description, addons, sid=None, category=None, cata
     """Saves add-ons as a setup, a compose file that includes them: `setups/<name>.yml` of the personal catalog, or of the
     folder catalog `catalog`. With `sid`, that setup of this machine is replaced; renamed, its file moves, and what includes it
     follows. Answers {file, changes, id}: where it is, the other files a rename writes again, and its id. With `check_only`,
-    nothing is written: what it would do is said first. It is shared from its menu, not here. Nothing starts or stops. Refused
-    (RuntimeError, `layers.WAITING`) while the old layout is being moved, a check too: what it would say is read from files that
-    are not where the on file says."""
-    layers.ready()
+    nothing is written: what it would do is said first. It is shared from its menu, not here. Nothing starts or stops."""
     ns = _where(catalog)
     if sid is not None and ns:
         raise ValueError("Share it from its menu")
@@ -285,9 +281,7 @@ def save_setup(project, name, description, addons, sid=None, category=None, cata
 def create_playground(project, name, description, category=None, setups=None, addons=None, catalog=None):
     """Writes a playground to be completed in the editor: the folder `playgrounds/<name>/` of the personal catalog, or of the
     folder catalog `catalog`, with its compose file, which includes these setups and add-ons and runs nothing yet, the first
-    lines of its guide and its README. Answers {file, id}. Refused (RuntimeError, `layers.WAITING`) while the old layout is
-    being moved."""
-    layers.ready()
+    lines of its guide and its README. Answers {file, id}."""
     ns = _where(catalog)
     name, uid = _named("playground", name, ns)
     _free("playground", uid)
@@ -386,10 +380,8 @@ def _not_held(project, kind, uid, deleting=False, deployed=()):
 
 def delete(project, kind, uid, deployed=()):
     """Deletes an item of this machine: the file of a setup, the folder of an add-on or a playground with what it holds. What
-    a catalog keeps is changed in the catalog, like any file. Its star and its tested sets go with it. Refused (RuntimeError,
-    `layers.WAITING`) while the old layout is being moved: an item the old on file turns on would not be seen as on; and
+    a catalog keeps is changed in the catalog, like any file. Its star and its tested sets go with it. Refused (RuntimeError)
     while a place holds a record of what a playground created there (`deployed`: places.deployed, the caller's)."""
-    layers.ready()
     path = _own(kind, uid, "deleted")
     _not_held(project, kind, uid, deleting=True, deployed=deployed)
     target = paths.ROOT / path

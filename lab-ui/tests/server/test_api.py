@@ -321,8 +321,6 @@ class State(LabUI):
         self.catalogs = self.patch(api.service, "describe", return_value=self.rows)
         self.content = {"key": "ready", "line": "", "code": None, "progress": None, "address": "", "offer": None}
         self.said = self.patch(api.firstrun, "content", return_value=self.content)
-        self.layout = {"phase": "ready", "notice": None}
-        self.placed = self.patch(api.layout, "status", return_value=self.layout)
         self.patch(api.license, "features", return_value=None)
         self.patch(api.playgrounds, "created", return_value=[{"what": "APIs", "count": 3}])
         self.patch(api.personal, "skills", return_value={"addon": ".agents/skills/new-addon/SKILL.md"})
@@ -335,9 +333,9 @@ class State(LabUI):
         self.patch(api.updates, "describe", return_value=self.lab)
         self.more = {"root": str(paths.ROOT), "agent": self.agent, "skills": {"addon": ".agents/skills/new-addon/SKILL.md"},
                      "core": {"place": "machine", "chosen": False}, "lab": self.lab, "kept_settings": []}
-        # ... and what the state says of the catalogs: git, the rows, the content and the layout
+        # ... and what the state says of the catalogs: git, the rows and the content
         self.catalogued = {"git": {"available": True, "version": "2.43.2"}, "catalogs": self.rows,
-                           "content": self.content, "layout": self.layout}
+                           "content": self.content}
         self.patch(api, "JOBS", Jobs())
         self.patch(api.compose, "CACHE", compose.Cache())
         self.name = self.patch(api.compose, "project_name", return_value="gravitee")
@@ -411,22 +409,6 @@ class State(LabUI):
         self.assertEqual(self.build.call_args.kwargs["deployed"], {"welcome": held, "local/sandbox": []})
         self.assertEqual({call.args[1] for call in self.held.call_args_list}, {api.playgrounds.created})
 
-    def test_the_status_of_the_layout_is_forwarded_as_it_is_whatever_phase_the_move_is_in(self):
-        # the page draws the notice from it (a closed dialog, a waiting one, a Try again); the server adds nothing to it and
-        # takes nothing out, and reads it from the disk at every state, not from the project: a move that failed is in memory
-        self.patch(api.compose, "ps", return_value={})
-        notice = {"id": "2026-10-17T09:00:00Z", "title": "Lab updated", "text": "", "button": "Close", "moved": [],
-                  "rows": [{"key": "personal", "label": "Now personal", "items": ["scratch"], "hint": "Not in a catalog"}]}
-        for status in ({"phase": "ready", "notice": notice}, {"phase": "ready", "notice": None},
-                       {"phase": "waiting", "notice": {**notice, "rows": [{"key": "settings", "label": "Settings",
-                                                                          "items": ["Not changed"], "hint": ""}]}},
-                       {"phase": "failed", "notice": {**notice, "text": "Could not move your settings. Nothing was deleted.",
-                                                       "rows": [], "button": "Try again"}}):
-            with self.subTest(phase=status["phase"]):
-                self.placed.return_value = status
-                self.assertEqual(self.request("GET", "/api/state")[0], 200)
-                self.assertIs(self.build.call_args.kwargs["layout"], status, "the very object layout.status() answered")
-
     def test_a_core_file_never_loaded_is_not_docker_down(self):
         # Without its name there is no project to ask Docker about: the file is among the project's problems
         self.name.side_effect = compose.ComposeError("yaml: line 12: did not find expected key")
@@ -470,6 +452,28 @@ class State(LabUI):
         status, headers, _ = self.request("GET", "/api/state", headers={"If-None-Match": tag})
         self.assertEqual(status, 200)
         self.assertNotEqual(headers["ETag"], tag)
+
+    def test_how_far_the_running_job_is_comes_beside_the_state_and_its_tag_holds_while_it_moves(self):
+        # A pull brings bytes every second: in the body the tag would change at every poll, and the page would read and
+        # draw the whole lab again. It comes in a header of every answer, a 304 too, and only while the job runs
+        self.patch(api.compose, "ps", return_value={"mongodb": {}})
+        pull = Job("Start Databases", [["docker", "compose", "up"]], key="group:databases", verb="start",
+                   waits=[awaited(PROJECT["services"], images=["mongo:8"])])
+        pull._enter(pull._stages[0])
+        api.JOBS.jobs.append(pull)
+        api.JOBS.current = pull
+        status, headers, _ = self.request("GET", "/api/state")
+        tag = headers["ETag"]
+        self.assertEqual((status, json.loads(headers[api.LIVE])), (200, pull.live()))
+        self.assertEqual(json.loads(headers[api.LIVE])["progress"], 0)
+        pull.unit(("Image", "mongo:8"), 0.5)
+        status, headers, body = self.request("GET", "/api/state", headers={"If-None-Match": tag})
+        self.assertEqual((status, body, headers["ETag"]), (304, b"", tag))
+        self.assertEqual(json.loads(headers[api.LIVE]), {**pull.live(), "progress": 0.5, "phase": None})
+        pull.done = True
+        self.assertNotIn(api.LIVE, self.request("GET", "/api/state")[1], "once it ended, the state says it all")
+        api.JOBS.current = None
+        self.assertNotIn(api.LIVE, self.request("GET", "/api/state")[1])
 
     def test_the_pages_that_ask_in_the_same_second_share_one_reading_of_docker(self):
         # While a job runs every open page asks each second: Docker is asked once a second, whatever their number
@@ -924,7 +928,6 @@ class Personal(LabUI):
     def setUp(self):
         super().setUp()
         self.patch(api.project, "load", return_value=PROJECT)
-        self.patch(api.layout, "waiting", return_value=False)   # a create is refused while the old layout moves (a test says so)
 
     def test_created_from_the_fields_of_the_form(self):
         created = {"file": ".lab/catalogs/local/addons/whoami/compose.yml"}
@@ -973,31 +976,6 @@ class Personal(LabUI):
                 self.assertEqual((status, json.loads(body)), (400, {
                     "error": "Acme Hub cannot take new items from the Lab. Choose Personal or a folder catalog.",
                     "code": "not_editable"}))
-
-    def test_create_is_refused_while_the_layout_is_being_moved_with_the_line_and_the_code_of_section_11(self):
-        # what a create writes is read from files that are not where the on file says
-        waiting = self.patch(api.layout, "waiting", return_value=True)
-        fields = {"name": "Whoami", "description": "Says who answers", "category": "Other"}
-        for path, function in (("/api/addons", "create_addon"), ("/api/setups", "save_setup"),
-                               ("/api/playgrounds", "create_playground")):
-            with self.subTest(path=path):
-                create = self.patch(api.personal, function, return_value={})
-                status, _, body = self.request("POST", path, {**fields, "addons": ["kafka"], "image": "x", "port": "1"})
-                self.assertEqual((status, json.loads(body)), (409, {"error": "Your settings are being moved. Try again in a moment.",
-                                                                    "code": "layout_waiting"}))
-                create.assert_not_called()
-        waiting.return_value = False
-        create = self.patch(api.personal, "create_playground", return_value={})
-        self.assertEqual(self.request("POST", "/api/playgrounds", {**fields, "addons": ["kafka"]})[0], 200)
-
-    def test_a_start_or_an_apply_that_waits_for_the_layout_says_the_code_too(self):
-        refusal = self.patch(api.stack, "action", side_effect=RuntimeError(api.layers.WAITING))
-        status, _, body = self.request("POST", "/api/stack/start")
-        self.assertEqual((status, json.loads(body)), (409, {"error": "Your settings are being moved. Try again in a moment.",
-                                                            "code": "layout_waiting"}))
-        refusal.side_effect = RuntimeError("Wait for Start Ledger")
-        status, _, body = self.request("POST", "/api/stack/start")
-        self.assertEqual((status, json.loads(body)), (409, {"error": "Wait for Start Ledger"}), "any other refusal is as it was")
 
     def test_shared_and_deleted_by_kind_and_id(self):
         share = self.patch(api.personal, "share", return_value={"file": "f", "problems": ["p"]})
@@ -1466,7 +1444,6 @@ class GatewayCase(LabUI):
         self.patch(api.project, "load", return_value=self.project)
         self.patch(api.project, "saved", return_value={"hashes": {}, "images": {}})
         self.patch(api.compose, "ps", return_value={})
-        self.patch(api.layout, "waiting", return_value=False)   # whatever tree this runs in: no old layout is being moved
         self.patch(api.layers, "current", side_effect=lambda project: self.state)
         self.patch(api.model, "up", side_effect=lambda project, containers: self.running)
         self.patch(api.model, "behind", return_value=set())
@@ -2051,14 +2028,14 @@ class CommandLine(LabUI):
 
 
 class Listing(Case):
-    """`server.py --list`: what is on and its consoles, in text; it moves nothing, and says so while a move waits."""
+    """`server.py --list`: what is on and its consoles, in text. Like `--check`, it moves nothing, and refuses a folder that
+    still needs the move."""
 
     def setUp(self):
         self.project = test_layers.lab()
         self.state = test_layers.on(self.project, ["kiosk"], "welcome")
         self.patch(api.project, "load", return_value=self.project)
         self.patch(api.layers, "current", side_effect=lambda project: self.state)
-        self.waiting = self.patch(api.layout, "waiting", return_value=False)
 
     def printed(self):
         out = io.StringIO()
@@ -2070,17 +2047,23 @@ class Listing(Case):
         lines = self.printed().splitlines()
         self.assertEqual(lines[0], "On top of the platform: Welcome, AI Agent Lens, Kiosk")
         self.assertIn("Hello", self.printed())
-        self.assertNotIn(api.layout.GUARD, self.printed())
         self.state = test_layers.on(self.project)
         self.assertEqual(self.printed().splitlines()[0], "On top of the platform: nothing")
 
-    def test_a_layout_that_waits_to_be_moved_is_said_before_anything_else_and_nothing_is_moved(self):
-        self.waiting.return_value = True
-        migrate = self.patch(api.layout, "migrate", side_effect=AssertionError("--list moves nothing"))
-        lines = self.printed().splitlines()
-        self.assertEqual(lines[:2], ["This Lab was updated: run make update to move your settings.",
-                                     "On top of the platform: Welcome, AI Agent Lens, Kiosk"])
-        migrate.assert_not_called()
+    def test_a_folder_that_still_needs_the_move_is_refused_with_the_words_of_the_makefile_and_nothing_moves(self):
+        self.patch(api, "requirement", return_value="")
+        self.patch(api.layers, "prepare")
+        pending = self.patch(api.layout, "pending", return_value=True)
+        moved = self.patch(api.layout, "run", side_effect=AssertionError("--list and --check move nothing"))
+        listed, checked = self.patch(api, "listing"), self.patch(api.check, "run", return_value=0)
+        for flag in ("--list", "--check"):
+            with self.subTest(flag=flag), self.assertRaises(SystemExit) as caught:
+                api.main([flag])
+            self.assertEqual(caught.exception.code, "This Lab was updated: run make update to move your settings.")
+        (listed.assert_not_called(), checked.assert_not_called(), moved.assert_not_called())
+        pending.return_value = False
+        api.main(["--list"])
+        listed.assert_called_once_with()
 
 
 class Port(Case):
@@ -2150,7 +2133,6 @@ class CatalogRoutes(LabUI):
         for name in ("check_address", "add", "add_listed", "create_folder", "check_now", "set_auto", "allow_host", "update",
                      "undo", "changes", "repair", "remove"):
             self.calls[name] = self.patch(api.service, name, return_value={"catalog": self.ROW})
-        self.removed = self.patch(api.firstrun, "removed")   # the first-run thread looks at the layout again after a Remove
 
     def post(self, path, body=None, **how):
         status, _, answer = self.request("POST", path, body, **how)
@@ -2215,21 +2197,6 @@ class CatalogRoutes(LabUI):
         calls = self.calls["remove"].call_count
         self.assertEqual(self.post("/api/catalogs/acme-hub/delete", {}), (400, {"error": "Say whether to keep the settings of the catalog"}))
         self.assertEqual(self.calls["remove"].call_count, calls)
-
-    def test_once_a_catalog_is_removed_the_first_run_thread_looks_at_the_layout_again_and_not_before(self):
-        # a move that waits for the default catalog is settled by the person's decision to have none
-        self.post("/api/catalogs/acme-hub/delete", {"check": True})
-        self.assertEqual(self.post("/api/catalogs/acme-hub/delete", {})[0], 400)
-        self.removed.assert_not_called()
-        self.calls["remove"].side_effect = CatalogError("held", "Turn off Bank first.", 409)
-        self.assertEqual(self.post("/api/catalogs/acme-hub/delete", {"keep_settings": True})[0], 409)
-        self.removed.assert_not_called()   # nothing was removed
-        self.calls["remove"].side_effect = None
-        order = mock.Mock()
-        order.attach_mock(self.calls["remove"], "remove")
-        order.attach_mock(self.removed, "removed")
-        self.assertEqual(self.post("/api/catalogs/acme-hub/delete", {"keep_settings": False}), (200, {"catalog": self.ROW}))
-        self.assertEqual(order.mock_calls, [mock.call.remove("acme-hub", keep_settings=False), mock.call.removed()])
 
     def test_what_is_not_a_namespace_is_not_a_route(self):
         for path in ("/api/catalogs/Acme/check", "/api/catalogs/a/check", "/api/catalogs/-x-/check", "/api/catalogs/x_y/check",
@@ -2301,87 +2268,6 @@ class CatalogBodies(LabUI):
 
 
 
-class LayoutRoutes(LabUI):
-    """The notice of a move is closed, a move that failed is tried again, and the answer is the status of the
-    layout, which is what the state says. The move itself is the layout's (test_layout)."""
-
-    def setUp(self):
-        super().setUp()
-        self.calls = mock.Mock()
-        self.status = {"phase": "ready", "notice": None}
-        for module, name in ((api.layout, "dismiss"), (api.layout, "migrate"), (api.firstrun, "wake"), (api.project, "forget")):
-            self.calls.attach_mock(self.patch(module, name), f"{module.__name__.rsplit('.', 1)[-1]}_{name}")
-        self.patch(api.layout, "status", side_effect=lambda: self.status)
-
-    def test_closing_the_notice_writes_it_down_and_has_the_project_read_again_before_the_status_is_answered(self):
-        self.status = {"phase": "ready", "notice": None}
-        status, _, body = self.request("POST", "/api/layout/close", {})
-        self.assertEqual((status, json.loads(body)), (200, {"phase": "ready", "notice": None}))
-        self.assertEqual(self.calls.mock_calls, [mock.call.layout_dismiss(), mock.call.project_forget()],
-                         "the marker is written, then what the project was read from is forgotten")
-
-    def test_trying_again_asks_what_has_no_copy_again_and_makes_the_move_again_in_that_order_and_answers_how_it_went(self):
-        failed = {"phase": "failed", "notice": {"text": "Could not move your settings. Nothing was deleted.", "button": "Try again"}}
-        self.status = failed
-        self.calls.layout_migrate.side_effect = lambda: setattr(self, "status", {"phase": "ready", "notice": None}) or {}
-        status, _, body = self.request("POST", "/api/layout/retry", {})
-        self.assertEqual((status, json.loads(body)), (200, {"phase": "ready", "notice": None}),
-                         "the status after the move, not the one before")
-        self.assertEqual(self.calls.mock_calls, [mock.call.firstrun_wake(), mock.call.layout_migrate(), mock.call.project_forget()])
-        # A move that fails again is not a failure of the request: the status says it, with the Try again to press once more
-        self.calls.reset_mock()
-        self.calls.layout_migrate.side_effect = lambda: setattr(self, "status", failed) or {
-            "problems": ["Could not move your settings. Nothing was deleted."]}
-        status, _, body = self.request("POST", "/api/layout/retry", {})
-        self.assertEqual((status, json.loads(body)), (200, failed))
-        self.assertEqual(self.calls.project_forget.call_count, 1)
-
-    def test_a_fault_of_the_move_is_the_answer_of_any_other_and_the_project_is_not_told_it_changed(self):
-        self.calls.layout_migrate.side_effect = KeyError("plan")
-        status, _, body = self.request("POST", "/api/layout/retry", {})
-        self.assertEqual((status, json.loads(body)), (500, {"error": "KeyError: 'plan'"}))
-        self.calls.project_forget.assert_not_called()
-
-    def test_only_the_page_asks_and_never_by_a_get(self):
-        for path in ("/api/layout/close", "/api/layout/retry"):
-            with self.subTest(path=path):
-                self.assertEqual(self.request("POST", path, {}, headers={"X-Gravitee-Lab-UI": None})[0], 403)
-                self.assertEqual(self.request("POST", path, {}, headers={"Sec-Fetch-Site": "cross-site"})[0], 403)
-                self.assertEqual(self.request("POST", path, {}, headers={"Host": "evil.example"})[0], 403)
-                self.assertEqual(self.request("GET", path)[0], 404)
-        self.assertEqual(self.calls.mock_calls, [], "none of them reached the layout")
-
-
-class ClosingTheNotice(LabUI):
-    """The route over a real marker: closing the notice changes what the project is read from, so the next state is read again
-    and does not carry it."""
-
-    REPORT = {"report": {"moved": ["addon:scratch"], "personal": [], "promoted": ["addon:scratch"], "kept": [], "left": [],
-                         "held": [], "turned_off": [], "problems": []}}
-
-    def setUp(self):
-        super().setUp()
-        self.folder(paths, api.project)
-        self.write(".lab/layout.json", json.dumps({"layout": 2, "from": 1, "migrated": "2026-10-17T09:00:00Z"}))
-        self.write(".lab/migration/report.json", json.dumps(self.REPORT))
-
-    def test_the_notice_is_gone_from_the_status_and_the_project_fingerprint_moved(self):
-        before = api.layout.status()
-        self.assertEqual(before["phase"], "ready")
-        self.assertEqual([row["items"] for row in before["notice"]["rows"]], [["scratch"]])
-        fingerprint = api.project.fingerprint()
-        status, _, body = self.request("POST", "/api/layout/close", {})
-        self.assertEqual((status, json.loads(body)), (200, {"phase": "ready", "notice": None}))
-        self.assertEqual(api.layout.status(), {"phase": "ready", "notice": None})
-        self.assertNotEqual(api.project.fingerprint(), fingerprint, "what the project reads changed: it is read again")
-        self.assertIsNone(api.project._cache["key"], "and it is told to forget, whatever the fingerprint of the next second")
-        self.assertIn("closed", json.loads((self.root / ".lab/layout.json").read_text(encoding="utf-8")))
-        # Closed twice, or with nothing to close: the same answer, the marker is not written again
-        marker = (self.root / ".lab/layout.json").read_text(encoding="utf-8")
-        self.assertEqual(self.request("POST", "/api/layout/close", {})[0], 200)
-        self.assertEqual((self.root / ".lab/layout.json").read_text(encoding="utf-8"), marker)
-
-
 class JunkBodies(LabUI):
     """A body that is not what a route reads is a 400 with a reason, never a 500."""
 
@@ -2448,9 +2334,9 @@ class UseCatalog(LabUI):
 
 
 class StateOfCatalogs(LabUI):
-    """/api/state for a project with no catalog carries git, catalogs, content and layout, and nothing is run to say them."""
+    """/api/state for a project with no catalog carries git, catalogs and content, and nothing is run to say them."""
 
-    def test_a_project_with_no_catalog_has_the_four_keys_and_today_s_fields_and_asks_no_git_no_network(self):
+    def test_a_project_with_no_catalog_has_the_three_keys_and_today_s_fields_and_asks_no_git_no_network(self):
         from .. import fixtures
         fixtures.need_compose()
         self.folder(paths, api.project, compose, envfiles)
@@ -2468,7 +2354,7 @@ class StateOfCatalogs(LabUI):
         self.assertEqual(status, 200, state)
         self.assertEqual(state["git"], {"available": True, "version": "2.43.2"})
         self.assertEqual(state["catalogs"], [])
-        self.assertEqual(state["layout"], {"phase": "ready", "notice": None})
+        self.assertNotIn("layout", state, "the move of an old layout is made before the Lab serves: the state never says it")
         self.assertIn(state["content"]["key"], ("ready", "downloading", "failed", "none"), "what the first start says")
         self.assertIsNone(state["content"]["offer"], "nothing is listed to offer")
         for key in ("docker", "wait", "license", "platform", "playgrounds", "setups", "addons", "services", "links", "problems"):
@@ -2501,13 +2387,12 @@ WARM_UP = api.warm_up   # the real one: the cases of Startup replace it
 
 
 class Startup(Case):
-    """Bind the port first; only once it is bound, look at the layout, finish what a stop left (in the installs of the Lab
-    and in the folders of the catalogs that are linked), write the intent of the first run and start the one background thread.
-    A second `make ui` touches nothing; `--check`, `--list` and `--e2e` run none
-    of it."""
+    """Bind the port first; only once it is bound, move a folder of the layout before catalogs (or say why it cannot be, and
+    serve nothing), then finish what a stop left (in the installs of the Lab and in the folders of the catalogs that are
+    linked), write the intent of the first run and start the one background thread. A second `make ui` touches nothing;
+    `--check`, `--list` and `--e2e` run none of it."""
 
-    STEPS = (("layout", "ensure"), ("service", "recover"), ("contribute", "sweep"), ("firstrun", "reconcile"),
-             ("firstrun", "start_worker"))
+    STEPS = (("service", "recover"), ("contribute", "sweep"), ("firstrun", "reconcile"), ("firstrun", "start_worker"))
 
     def setUp(self):
         self.folder(paths)
@@ -2525,7 +2410,11 @@ class Startup(Case):
                 events.append(("serve",))
                 raise KeyboardInterrupt
 
+            def server_close(self):
+                events.append(("close",))
+
         self.patch(api, "ThreadingHTTPServer", Server)
+        self.moved = self.patch(api.layout, "run", side_effect=lambda: events.append(("layout", "run")) or True)
         for module, name in self.STEPS:
             self.patch(getattr(api, module), name, side_effect=lambda module=module, name=name: events.append((module, name)))
         self.patch(api.compose, "stop_on_signals", side_effect=lambda *others: events.append(("signals",)))
@@ -2539,9 +2428,9 @@ class Startup(Case):
             api.serve(9000, browser)
         return printed.getvalue()
 
-    def test_the_port_is_bound_first_then_the_five_steps_in_order_and_then_the_page_is_served(self):
+    def test_the_port_is_bound_first_then_the_old_layout_moved_then_the_four_steps_in_order_and_then_the_page_is_served(self):
         said = self.serve()
-        self.assertEqual(self.events, [("bind", ("127.0.0.1", 9000)), ("signals",), ("layout", "ensure"), ("service", "recover"),
+        self.assertEqual(self.events, [("bind", ("127.0.0.1", 9000)), ("layout", "run"), ("signals",), ("service", "recover"),
                                        ("contribute", "sweep"), ("firstrun", "reconcile"), ("firstrun", "start_worker"),
                                        ("warm up",), ("serve",)])
         self.assertEqual(said, "\n  >  Lab UI   http://localhost:9000\n     Keep this terminal open: Ctrl+C stops the Lab UI, "
@@ -2570,7 +2459,19 @@ class Startup(Case):
         api.warm_up().join(5)
         read.assert_called_once_with()
 
-    def test_a_lab_that_serves_already_is_left_alone_not_one_of_the_five_steps_runs(self):
+    def test_a_folder_whose_move_could_not_be_made_is_not_served_and_nothing_else_runs(self):
+        # layout.run said why; the Lab does not work half moved, and the next start tries again
+        self.moved.side_effect = lambda: self.events.append(("layout", "run")) or False
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed), self.assertRaises(SystemExit) as caught:
+            api.serve(9000, True)
+        self.assertEqual(caught.exception.code, 1)
+        self.assertEqual(self.events, [("bind", ("127.0.0.1", 9000)), ("layout", "run"), ("close",)])
+        self.assertEqual(printed.getvalue(), "", "no address: nothing is served")
+        self.timer.assert_not_called()
+
+    def test_a_lab_that_serves_already_is_left_alone_not_one_of_the_steps_runs(self):
+        self.moved.side_effect = AssertionError("the layout was moved on the already running branch")
         for module, name in self.STEPS:
             self.patch(getattr(api, module), name, side_effect=AssertionError(f"{module}.{name} ran on the already running branch"))
         self.patch(api.compose, "stop_on_signals", side_effect=AssertionError("signals were taken over"))
@@ -2581,6 +2482,7 @@ class Startup(Case):
         self.opened.assert_called_once_with("http://localhost:9000")
 
     def test_another_program_or_lab_ui_on_the_port_is_an_exit_and_touches_nothing(self):
+        self.moved.side_effect = AssertionError("the layout was moved")
         for module, name in self.STEPS:
             self.patch(getattr(api, module), name, side_effect=AssertionError(f"{module}.{name} ran"))
         self.patch(api, "ThreadingHTTPServer", side_effect=OSError(errno.EADDRINUSE, "Address already in use"))
@@ -2598,12 +2500,10 @@ class Startup(Case):
 
     def test_a_step_that_fails_is_a_line_on_standard_error_and_the_rest_of_the_start_goes_on(self):
         self.patch(api.service, "recover", side_effect=CatalogError("damaged", "A catalog changed on disk.", 409))
-        self.patch(api.layout, "ensure", side_effect=OSError("disk full"))
         said = io.StringIO()
         with contextlib.redirect_stderr(said):
             self.serve()
         self.assertEqual(said.getvalue().splitlines(), [
-            "Gravitee Lab UI: looking at the layout failed (OSError: disk full)",
             "Gravitee Lab UI: finishing what a stop left failed (CatalogError: A catalog changed on disk.)"])
         self.assertEqual(self.events[-4:], [("firstrun", "reconcile"), ("firstrun", "start_worker"), ("warm up",), ("serve",)])
 
@@ -2616,10 +2516,10 @@ class Startup(Case):
         self.assertEqual(said.getvalue().splitlines(),
                          ["Gravitee Lab UI: sweeping what a share left failed (OSError: read-only file system)"])
         self.assertEqual([event for event in self.events if event[0] != "bind" and event != ("signals",)],
-                         [("layout", "ensure"), ("service", "recover"), ("firstrun", "reconcile"), ("firstrun", "start_worker"),
+                         [("layout", "run"), ("service", "recover"), ("firstrun", "reconcile"), ("firstrun", "start_worker"),
                           ("warm up",), ("serve",)])
 
-    def test_the_command_line_runs_requirement_and_prepare_for_every_command_and_the_five_steps_for_serve_only(self):
+    def test_the_command_line_runs_requirement_and_prepare_for_every_command_and_the_steps_for_serve_only(self):
         order = []
         self.patch(api, "requirement", side_effect=lambda: order.append("requirement"))
         self.patch(api.layers, "prepare", side_effect=lambda: order.append("prepare"))

@@ -713,7 +713,7 @@ function progress(item, job) {
     return `<li class="pg-phase ${cls}">
       <span class="pg-phase-icon">${cls === "done" ? icon("check") : ended ? icon("close") : '<span class="spinner"></span>'}</span>
       <div><strong>${esc(p.name)}</strong>
-        ${cls === "done" ? "" : `<div class="pg-phase-detail ${failed ? "err-text" : ""}"></div>`}</div>
+        ${cls === "done" ? "" : `<div class="pg-phase-detail ${failed ? "err-text" : ""}"${ended ? "" : " data-job-line"}></div>`}</div>
       ${seconds(p.started, job.phases[i + 1]?.started || job.ended)}
       ${cls === "current" ? progressBar("phase") : ""}</li>`;
   }).join("");
@@ -734,7 +734,7 @@ function session(item, job, state) {
   renderGuide(item, $("#pg-guide", root));
   setHTML($("#pg-progress", root), job ? progress(item, job) : "");
   const said = $(".pg-phase-detail", root);
-  if (said) said.textContent = (job.done ? job.error : job.detail) || "";
+  if (said && job.done) said.textContent = job.error || "";   // while it runs, its latest line is the job's measure (paintProgress)
   tick();
 
   // Everything it runs: its apps and its seed, then what its add-ons bring. What to open is the server's list: its

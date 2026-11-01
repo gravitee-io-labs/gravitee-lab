@@ -1530,6 +1530,11 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
   - What the job starts or stops says so (Starting, Stopping) until the job measured its containers there. What the job
     is for has the job's `progress`; anything else it starts or stops, the mean of its containers the job waits for,
     while it is starting or stopping.
+  - While the job runs, how far it is (its `progress`, its phase's, its latest line) moves at every byte a pull brings: it
+    is not in the body of the state, which would change at every poll, but beside it, in the header `X-Gravitee-Lab-Job`
+    of every answer of `/api/state`, a 304 too (`Job.live`). What the job is for says `"progress": "job"` meanwhile.
+    The page draws only the bars, the buttons at work and the job's line as those measures move (`store.onMeasure`),
+    and every page once a measure comes or goes. Once the job ended, the state says all of it.
   - A stage with nothing to count (a login, following the seed) is not measured. Progress shows only while there is
     something to measure: the button or the pill of what changes fills, a head or a phase gets a bar.
 - Logs follows each service chosen through its restarts: once its container runs again after a new start, the stream
