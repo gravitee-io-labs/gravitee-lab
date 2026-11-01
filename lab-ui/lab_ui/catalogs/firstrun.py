@@ -501,9 +501,9 @@ def _arrived() -> None:
 # ---------------------------------------------------------------- the thread
 
 class Worker:
-    """The one background thread of the Lab: downloads what has no copy, and makes the background check. Sequential, so an attempt is never started while another runs. `tick` does what is due
-    now and answers the seconds until something is due again; `run` is the loop. The clock is a parameter so that a test
-    drives the schedule without waiting."""
+    """The one background thread of the Lab: downloads what has no copy, and makes the background check. Sequential, so
+    an attempt is never started while another runs. `tick` does what is due now and answers the seconds until something
+    is due again; `run` is the loop. The clock is a parameter so that a test drives the schedule without waiting."""
 
     def __init__(self, clock: Callable[[], float] = time.monotonic):
         self.clock = clock

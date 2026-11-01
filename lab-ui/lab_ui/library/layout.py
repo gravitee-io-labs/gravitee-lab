@@ -3,16 +3,18 @@ left the repository holds its settings where the units were: `.env`, `secrets/`,
 `compose.yml` that git has removed, the person's own items in `addons/local`, `setups/local` and `playgrounds/local`, and
 an on file and platform copies that name those folders. This module moves all of it to `.lab/catalogs/` and loses none.
 
-It runs by itself, once (`run`): when the Lab UI starts, before it serves, and from `make update` (`catalog.py provision`). It
-says in plain words what it moved, and when it cannot move, the Lab UI says why and does not start. Nothing else in the Lab
-reads this module: the engine only ever sees the layout of the catalogs. The two commands that read the lab and move nothing
-(`--list`, `--check`) refuse a folder that still needs the move, with the Makefile's words (`pending`, GUARD).
+It runs by itself, once (`run`): when the Lab UI starts, before it serves, and from `make update` (`catalog.py
+provision`). It says in plain words what it moved, and when it cannot move, the Lab UI says why and does not start.
+Nothing else in the Lab reads this module: the engine only ever sees the layout of the catalogs. The two commands that
+read the lab and move nothing (`--list`, `--check`) refuse a folder that still needs the move, with the Makefile's words
+(`pending`, GUARD).
 
 State based: every step looks at the disk, never at what an earlier run did, so a run that crashed is run again and a
 second run changes nothing. The move needs no Docker and no network (the download of the default catalog before it may),
 deletes only what is byte identical to the installed catalog's copy (or junk: caches, `.DS_Store`, folders Docker made
-empty), and puts everything else aside, in the place for its class. The moving primitives are `moves.py`'s (every move is journaled before it is made, which is what
-`undo.sh` is generated from); `moves.STEP` crashes a run between any two steps, and this module adds its own steps to it.
+empty), and puts everything else aside, in the place for its class. The moving primitives are `moves.py`'s (every move is
+journaled before it is made, which is what `undo.sh` is generated from); `moves.STEP` crashes a run between any two steps,
+and this module adds its own steps to it.
 
 A run makes both parts, once the default catalog is installed: `run` downloads it first, as the first start does, unless the
 person has none (their catalogs file reads whole and does not list it: the move then runs against a catalog with no items).
@@ -85,8 +87,8 @@ ROWS = {
     "turned_off": ("Turned off", "needs a catalog"),
     "left": ("Not moved", "files stay where they were"),
 }
-# The errors a run stops on: a disk that failed, a refusal of a primitive or of the registry, a catalog that did not download.
-# Nothing was deleted, and the next run finishes the move
+# The errors a run stops on: a disk that failed, a refusal of a primitive or of the registry, a catalog that did not
+# download. Nothing was deleted, and the next run finishes the move
 TROUBLE = (OSError, ValueError, moves.Refused, registry.CatalogError)
 
 
@@ -1351,7 +1353,7 @@ def run(say=None, complain=None) -> bool:
             firstrun.reconcile()
             firstrun.provision(default)
         report = migrate()
-    except (Exception, KeyboardInterrupt) as error:  # noqa: BLE001 - whatever stops the move is said: the Lab does not start half moved
+    except (Exception, KeyboardInterrupt) as error:  # noqa: BLE001 - whatever stops it is said: the Lab does not start half moved
         complain(FAILED)
         complain(_printable(_reason(error)))
         return False

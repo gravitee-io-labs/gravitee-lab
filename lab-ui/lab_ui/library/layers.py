@@ -4,9 +4,9 @@ place, which leaves the platform alone; what an apply recreates.
 
 An item of a catalog is read here as any other (its id says where it is), and three gates stand between it and the
 platform. The plan refuses a start for what the policy blocks, a catalog it lacks, its twin that is on, and a port that
-something of the lab publishes (`_blocked`). `check` refuses a port another program holds, then asks the catalogs to verify what is installed before a start runs (the preflight). `write`, the only writer
-of the on file, adds no entry for a unit that is blocked, and writes nothing over a file another job wrote since the
-plan."""
+something of the lab publishes (`_blocked`). `check` refuses a port another program holds, then asks the catalogs to
+verify what is installed before a start runs (the preflight). `write`, the only writer of the on file, adds no entry for
+a unit that is blocked, and writes nothing over a file another job wrote since the plan."""
 
 import functools
 import importlib

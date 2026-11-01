@@ -1066,7 +1066,8 @@ def build(project, state, containers, job, failures, license_features, docker, c
     platforms = list(platforms)
     loaded = project["core_loaded"]
     readonly = {ns for ns, found in (project.get("catalogs") or {}).items() if found.get("kind") == "git"}
-    forwarded = {key: value for key, value in (("git", git), ("catalogs", catalogs), ("content", content)) if value is not None}
+    forwarded = {key: value for key, value in (("git", git), ("catalogs", catalogs), ("content", content))
+                 if value is not None}
     containers = containers if loaded else {}   # without the core, Compose reads nothing: what runs is not known
     running_job = job if job and not job["done"] else None
     # The last job, while what it starts or stops is on its way: as it runs, then, once it ended well, until every

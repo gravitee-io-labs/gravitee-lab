@@ -1098,7 +1098,7 @@ def _serve(port, browser):
                      "again. One lab runs at a time")
         sys.exit(f"Port {port} is used by another program. Free it, or use another port: UI_PORT={port + 1} "
                  "gravitee-lab (the UIs of a playground do not show next to the guide on another port)")
-    if not layout.run():   # a folder of the layout before catalogs is moved before anything is served; one that could not be is said
+    if not layout.run():   # a folder of the layout before catalogs is moved before anything is served, or said why not
         server.server_close()
         sys.exit(1)
     server.daemon_threads = True   # an open log stream does not keep the Lab UI from stopping
