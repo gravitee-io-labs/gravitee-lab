@@ -413,6 +413,23 @@ def _subscription(name):
     return ["--subscription", SUBSCRIPTIONS[name]] if SUBSCRIPTIONS.get(name) else []
 
 
+AZ_OFFLINE = ("Failed to establish a new connection", "Max retries exceeded", "Cannot connect to proxy",
+              "Failed to resolve", "NameResolutionError", "Connection refused")   # what the Azure CLI says offline
+
+
+def _azure_error(host, rc, err):
+    """Why the Azure CLI could not list the tags of `host`, in the words web_error() has for the network: its own text
+    never shows. An expired session is said once the network is not the cause: a token renewed offline fails at
+    login.microsoftonline.com."""
+    if any(marker in err for marker in AZ_OFFLINE):
+        return f"Cannot reach {host}"
+    if rc == 124 or "timed out" in err.lower():
+        return f"{host} does not answer in time"
+    if "az login" in err or "AADSTS" in err:
+        return "Azure session expired: run az login in a terminal"
+    return f"The Azure CLI could not list the tags of {host}"
+
+
 def _azure_tags(host, repository):
     """An Azure registry lists its tags to the Azure CLI's session, newest first. That session is the Azure CLI's own:
     when it expired, `az login` renews it, which the page's Log in (Docker's login to the registry) cannot."""
@@ -421,9 +438,7 @@ def _azure_tags(host, repository):
                                 "--repository", repository, "--orderby", "time_desc", "--top", "300", "--detail",
                                 "-o", "json"], timeout=90)
     if rc != 0:
-        if "login" in err.lower() or "credential" in err.lower():
-            raise RuntimeError("Azure session expired: run az login in a terminal")
-        raise RuntimeError(err.strip().splitlines()[-1][:200] if err.strip() else "Azure registry not reachable")
+        raise RuntimeError(_azure_error(host, rc, err))
     # Builds of dependency updates are not versions anyone picks
     return [{"name": tag["name"], "updated": tag.get("lastUpdateTime")} for tag in json.loads(out)
             if not tag["name"].startswith("renovate")]
