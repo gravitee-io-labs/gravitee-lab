@@ -356,7 +356,7 @@ def put_entities(api, spec):
     # Noted before the first request (common.making): a bulk answer that is lost leaves entities that the next run saves again
     with making(SECTION, "entities", "entities", sending, ids=[body["entityId"] for body in changed]):
         for start in range(0, len(changed), BULK):
-            send_entities(api, source, changed[start:start + BULK], bodies, ranks)
+            send_entities(api, source, sending, changed[start:start + BULK], bodies, ranks)
     unmade(SECTION, "entities", sending)
     for entity_type in dict.fromkeys(body["entityType"] for body in changed):
         of_type = [body["entityId"] for body in changed if body["entityType"] == entity_type]
@@ -366,12 +366,15 @@ def put_entities(api, spec):
         log(SECTION, f"✓ {entity_type} entities of '{source}': {said}")
 
 
-def send_entities(api, source, chunk, bodies, ranks):
+def send_entities(api, source, sending, chunk, bodies, ranks):
     """One bulk request. What the platform saved is recorded before the refusal of the rest is reported, so that a
-    removal deletes it and the next run finds it as the seed's."""
+    removal deletes it and the next run finds it as the seed's. A refusal, of the request or of some of it, takes back the
+    note of what is being saved (`sending`): what the platform saved is recorded, and the rest was not saved."""
     try:
         answer = api.post("/entities/_bulk", json={"entities": chunk})
     except HttpError as e:
+        if e.status < 500:   # refused: nothing of this request was saved
+            unmade(SECTION, "entities", sending)
         raise explain("The entities", e) from e
     try:
         said = answer.json()
@@ -382,6 +385,7 @@ def send_entities(api, source, chunk, bodies, ranks):
     if refused or (isinstance(said, dict) and said.get("failed")):
         count = len(refused) or said["failed"]
         why = excerpt(next(iter(refused.values()), "no reason given"))
+        unmade(SECTION, "entities", sending)
         raise SeedError(f"Authorization Management refused {count} of {len(chunk)} entities: {why}")
 
 
