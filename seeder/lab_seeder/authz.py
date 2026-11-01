@@ -231,10 +231,11 @@ def pointed_at(value):
             yield from pointed_at(v)
 
 
-def data_entities(spec):
+def data_entities(spec, recorded=None):
     """The entities of `entities:` as the bulk API takes them, in dependency order: an entity comes after its parents and
     after what its attributes point at. With the source they have, and the rank of each type: the more types a type
-    points at, the higher, and a higher type is deleted first."""
+    points at, the higher, and a higher type is deleted first. A type they point at that the file no longer lists has the
+    rank its records give it (`recorded`, {type: rank})."""
     source = spec.get("source") or SOURCE
     if not isinstance(source, str) or len(source) > 64:
         raise SeedError(f"{ENTITIES}: source is a name of at most 64 characters")
@@ -265,7 +266,9 @@ def data_entities(spec):
                              "parents": [{"entityType": t, "entityId": i} for t, i in parents],
                              "source": source, "targets": []}
         points[entity_id] = [*parents, *pointed_at(attributes)]
-    return source, in_dependency_order(bodies, points), type_ranks(bodies, points)
+    listed = {body["entityType"] for body in bodies.values()}
+    unlisted = {entity_type: rank for entity_type, rank in (recorded or {}).items() if entity_type not in listed}
+    return source, in_dependency_order(bodies, points), type_ranks(bodies, points, unlisted)
 
 
 def in_dependency_order(bodies, points):
@@ -356,7 +359,7 @@ def elsewhere(api, ids):
 def put_entities(api, spec):
     """Saves the entities of the file that are missing or differ, in requests of at most BULK. What an earlier run saved
     and lost the answer of is the seed's first, whatever source the file named then and whether it still lists it."""
-    source, bodies, ranks = data_entities(spec)
+    source, bodies, ranks = data_entities(spec, made_ranks())
     mine, sending = made_entities(), source + SAVING
     noted = {}   # id: the source of the note that names it, this file's or one it named before
     for x in notes(SECTION, "entities"):

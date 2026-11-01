@@ -618,6 +618,34 @@ class Refusals(Case):
         authz.remove(common.created())
         self.assertEqual(self.deleted(), ["I-1", "O-6001", "O-5001", "C-2001", "C-1001"])
 
+    def test_the_same_when_the_file_keeps_the_orders_and_no_longer_the_customers_they_point_at(self):
+        chain = """\
+source: harbor
+entities:
+  - {type: Region, id: EU}
+  - {type: Customer, id: C-1, attributes: {region: {ref: [Region, EU]}}}
+  - {type: Order, id: O-1, attributes: {customer: {ref: [Customer, C-1]}}}
+"""
+        self.seed_files({"authz/entities.yaml": chain})
+        authz.seed()
+        self.seed_files({"authz/entities.yaml": chain + "  - {type: Invoice, id: I-1, attributes: {order: {ref: [Order, O-1]}}}\n"})
+
+        def made(call):
+            self.world.bulk(call)
+            raise requests.ReadTimeout("slow")
+        self.platform.add({("POST", BULK): made})
+        with self.assertRaises(common.SeedError):
+            authz.seed()
+        self.platform.add({("POST", BULK): self.world.bulk})
+        self.seed_files({"authz/entities.yaml": "".join(line for line in chain.splitlines(keepends=True)
+                                                        if "type: Region" not in line and "type: Customer" not in line)})
+        authz.seed()
+        [invoices] = [x for x in common.created() if x["name"] == "harbor/Invoice"]
+        self.assertEqual(invoices["rank"], 3, "one above the orders, which the file ranks above the record of the customers")
+        self.platform.calls.clear()
+        authz.remove(common.created())
+        self.assertEqual(self.deleted(), ["I-1", "O-1", "C-1", "EU"])
+
     def test_a_child_only_the_lost_answer_saved_is_still_deleted_before_its_parent(self):
         self.lose_the_answer("""\
 source: harbor
@@ -757,6 +785,55 @@ entities:
         self.platform.calls.clear()
         authz.remove(common.created())
         self.assertEqual([entity for kind, entity in self.deleted() if kind == "entities"], ["leaf", "middle", "root"])
+
+    def test_a_type_the_file_keeps_is_still_deleted_before_one_it_points_at_that_the_file_no_longer_lists(self):
+        self.seed_files({"authz/entities.yaml": """
+source: harbor
+entities:
+  - {type: Region, id: EU}
+  - {type: Customer, id: C-1, attributes: {region: {ref: [Region, EU]}}}
+  - {type: Order, id: O-1, attributes: {customer: {ref: [Customer, C-1]}}}
+"""})
+        authz.seed()
+        self.seed_files({"authz/entities.yaml": """
+source: harbor
+entities:
+  - {type: Region, id: EU}
+  - {type: Order, id: O-1, attributes: {customer: {ref: [Customer, C-1]}, total: 3}}
+"""})
+        authz.seed()   # the order is saved again, and ranked above the record of the customers
+        self.assertEqual(self.world.bulks[-1], ["O-1"])
+        self.platform.calls.clear()
+        authz.remove(common.created())
+        self.assertEqual([entity for kind, entity in self.deleted() if kind == "entities"], ["O-1", "C-1", "EU"])
+
+    def test_the_same_for_a_new_type_and_for_a_parent_of_another_type(self):
+        authz.seed()
+        self.seed_files({"authz/entities.yaml": "".join(line for line in ENTITIES.splitlines(keepends=True) if "type: Order" not in line)
+                         + "  - {type: Invoice, id: I-1, attributes: {order: {ref: [Order, O-5001]}}}\n"})
+        authz.seed()   # the orders are in their record only, and the invoice is new
+        self.platform.calls.clear()
+        authz.remove(common.created())
+        self.assertEqual([entity for kind, entity in self.deleted() if kind == "entities"],
+                         ["I-1", "O-6001", "O-5001", "C-2001", "C-1001"])
+        self.seed_files({"authz/entities.yaml": """
+source: harbor
+entities:
+  - {type: Customer, id: C-1}
+  - {type: Order, id: O-1, parents: [[Customer, C-1]]}
+  - {type: Invoice, id: I-1, parents: [[Order, O-1]]}
+"""})
+        authz.seed()
+        self.seed_files({"authz/entities.yaml": """
+source: harbor
+entities:
+  - {type: Customer, id: C-1}
+  - {type: Invoice, id: I-1, parents: [[Order, O-1]], attributes: {n: 2}}
+"""})
+        authz.seed()
+        self.platform.calls.clear()
+        authz.remove(common.created())
+        self.assertEqual([entity for kind, entity in self.deleted() if kind == "entities"], ["I-1", "O-1", "C-1"])
 
     def test_an_entity_that_is_already_gone_is_no_error(self):
         authz.seed()
