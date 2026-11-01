@@ -1487,7 +1487,10 @@ def commands(plan):
 
 
 def _removal(names):
-    return [[*compose.by_name(), "rm", "--stop", "--force", *names]] if names else []
+    """The run that removes these services by name, with the anonymous volumes of their containers (`-v`): an image that
+    declares a VOLUME gets one at each start, which nothing reaches once its container is gone, not even a Reset. Named
+    volumes stay."""
+    return [[*compose.by_name(), "rm", "--stop", "--force", "-v", *names]] if names else []
 
 
 def starting(names):

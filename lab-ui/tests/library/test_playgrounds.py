@@ -559,7 +559,7 @@ class Playgrounds(Case):
         self.assertEqual(self.written, [("welcome", [])])
         # What goes is removed by name; what starts is named, with the product stopped to load its plugins: nothing
         # else is started or removed
-        self.assertEqual(commands, [[*COMPOSE, "-p", "gravitee", "rm", "--stop", "--force", "jade"],
+        self.assertEqual(commands, [[*COMPOSE, "-p", "gravitee", "rm", "--stop", "--force", "-v", "jade"],
                                     [*COMPOSE, "up", "-d", "--no-deps", "agent-lens", "apim-gateway",
                                      "apim-management-api", "hello-app", "seed"],
                                     SEED_LOGS])
@@ -1034,7 +1034,7 @@ class Playgrounds(Case):
         job, commands = ran(steps)
         self.assertEqual(self.phases(job), ["Stop the apps"])
         self.assertEqual(self.written, [(None, ["kiosk"])])
-        self.assertEqual(commands, [[*COMPOSE, "-p", "gravitee", "rm", "--stop", "--force", "agent-lens",
+        self.assertEqual(commands, [[*COMPOSE, "-p", "gravitee", "rm", "--stop", "--force", "-v", "agent-lens",
                                      "hello-app"],
                                     [*COMPOSE, "up", "-d", "--no-deps", "apim-gateway"]])
         self.containers["seed"] = {"state": "exited", "exit_code": 0}
@@ -1046,7 +1046,7 @@ class Playgrounds(Case):
         playgrounds.stop(self.project, "welcome", False, ["addon:agent-lens"])
         job, commands = ran(self.started(self.jobs)[1])
         self.assertEqual(self.phases(job), ["Stop the apps"])
-        self.assertEqual(commands, [[*COMPOSE, "-p", "gravitee", "rm", "--stop", "--force", "agent-lens",
+        self.assertEqual(commands, [[*COMPOSE, "-p", "gravitee", "rm", "--stop", "--force", "-v", "agent-lens",
                                      "hello-app"]])
         self.assertEqual(self.written, [(None, ["kiosk"])])
 
@@ -1884,7 +1884,7 @@ class Deploying(Deploys):
         job, calls = self.execute()
         self.assertTrue(job.ok, job.lines)
         self.assertIn("Stops: Demo apps, Kiosk", job.lines)
-        self.assertEqual(calls[0][0], [*compose.by_name(), "rm", "--stop", "--force", "demo-app", "kiosk"])
+        self.assertEqual(calls[0][0], [*compose.by_name(), "rm", "--stop", "--force", "-v", "demo-app", "kiosk"])
 
     # --- Nothing of the core -----------------------------------------------------------------------------------------
 
@@ -2153,7 +2153,7 @@ class Deleting(Deploys):
         self.assertEqual([call[1]["env"]["APIM_ENV"] for call in calls[1:3]], [DEV, TEST])
         self.assertIn(f"Deletes from {DEVELOPMENT}", job.lines)
         self.assertIn(f"Deletes from {TEST_ENVIRONMENT}", job.lines)
-        self.assertEqual(commands[3], [*compose.by_name(), "rm", "--stop", "--force", "hotels-api"])
+        self.assertEqual(commands[3], [*compose.by_name(), "rm", "--stop", "--force", "-v", "hotels-api"])
         self.assertNoSecret(job.lines, commands, job.summary())
 
     def test_a_stop_is_refused_with_the_reason_of_the_first_place_that_cannot_be_reached(self):

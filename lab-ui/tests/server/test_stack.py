@@ -259,7 +259,7 @@ class StackActions(Case):
                        services={"remove": ["kafka", "kafka-ui"], "start": ["hybrid"]}, stamp=layers.stamp())
         stack.action(PROJECT, "start", for_core=True, accept=["addon:kafka"])
         job, ran = self.core_job(fails="rm")
-        self.assertEqual((job.ok, ran[0][-5:]), (False, ["rm", "--stop", "--force", "kafka", "kafka-ui"]))
+        self.assertEqual((job.ok, ran[0][-6:]), (False, ["rm", "--stop", "--force", "-v", "kafka", "kafka-ui"]))
         self.assertIn("addons/kafka/compose.yml", (self.root / paths.ON_FILE).read_text(),
                       "Kafka still runs: it is still on, never off and running")
 

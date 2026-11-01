@@ -610,7 +610,9 @@ What the server decides and the page shows. A name in backticks is the code to r
     its own: Compose waits for it as `depends_on` asks, which it does not for a service it is not given. Not one that
     runs behind what is saved, which naming would make again.
   - A playground's Start also runs the platform while none of it runs, else what of it its apps and its seed need.
-  - Its Stop removes its own containers by name (`rm --stop --force`) and recreates the core services it changed.
+  - Its Stop removes its own containers by name, with their anonymous volumes (`rm --stop --force -v`: once a container
+    is gone, nothing reaches the volume an image's VOLUME gave it, not even a Reset; named volumes stay), and recreates
+    the core services it changed.
   - A job removes what goes before the on file says it is off, and writes the on file before it starts what comes
     (`layers.steps`): wherever it fails, is canceled or the Lab UI stops, what it was taking away is on and stopped, never
     off and running. A playground's first Start installs its plugins before either.

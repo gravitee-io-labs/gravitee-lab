@@ -1828,7 +1828,7 @@ class Files(Case):
         state = on(self.project, ["jade"])
         plan = layers.plan(self.project, state, up("jade", "kiosk"), "addon", "agent-lens", "start")
         _, (_, remove, write, start), more = self.applied(plan)
-        self.assertEqual((remove, start), ([*compose.COMPOSE, "-p", "lab", "rm", "--stop", "--force", "jade"],
+        self.assertEqual((remove, start), ([*compose.COMPOSE, "-p", "lab", "rm", "--stop", "--force", "-v", "jade"],
                                            [*compose.COMPOSE, "up", "-d", "--no-deps", "agent-lens",
                                             "apim-gateway"]))
         self.assertNotIn("--remove-orphans", [word for command in (remove, start) for word in command])
@@ -1845,12 +1845,22 @@ class Files(Case):
         plan = layers.plan(self.project, state, up("kafka", platform=False, created=["kafka-desk"]), "addon",
                            "kafka", "stop")
         _, (_, command, _), more = self.applied(plan)
-        self.assertEqual(command, [*compose.COMPOSE, "-p", "lab", "rm", "--stop", "--force",
+        self.assertEqual(command, [*compose.COMPOSE, "-p", "lab", "rm", "--stop", "--force", "-v",
                                    "kafka", "kafka-desk", "kafka-ui"])
         self.assertEqual(more, {"key": "addon:kafka", "verb": "stop",
                                 "changes": {"start": [], "stop": [["addon", "kafka"], ["addon", "kafka-desk"]]},
                                 "waits": [{("Container", "lab-kafka"): "stop", ("Container", "lab-kafka-ui"): "stop",
                                            ("Container", "lab-kafka-desk"): "stop"}]})
+
+    def test_what_goes_is_removed_with_the_anonymous_volumes_of_its_containers(self):
+        # An image that declares a VOLUME gets an anonymous one at each start: left behind by the removal, nothing reaches it
+        # once its container is gone, a Reset neither. Named volumes are not anonymous: Compose's -v keeps them
+        plan = layers.plan(self.project, on(self.project, ["kafka-desk"]), up("kafka", "kafka-desk"), "addon", "kafka",
+                           "stop")
+        remove = self.applied(plan)[1][1]
+        self.assertEqual(remove[len(compose.COMPOSE):], ["-p", "lab", "rm", "--stop", "--force", "-v",
+                                                         "kafka", "kafka-desk", "kafka-ui"])
+        self.assertEqual(layers.commands(plan)[0], remove)
 
     def test_what_goes_is_removed_before_the_on_file_says_it_is_off(self):
         # The removal fails, or is canceled, or the Lab UI ends there: Kafka is still on, stopped, never off and still running

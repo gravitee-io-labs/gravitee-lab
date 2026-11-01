@@ -1680,7 +1680,7 @@ class GatewayOnFile(GatewayCase):
         status, _, body = self.request("POST", f"{self.GATEWAY}/start", {"accept": accept})
         self.assertEqual(status, 200, body)
         job, ran = self.job(fails="rm")
-        self.assertEqual((job.ok, ran[0][-4:]), (False, ["rm", "--stop", "--force", "redpanda"]))
+        self.assertEqual((job.ok, ran[0][-5:]), (False, ["rm", "--stop", "--force", "-v", "redpanda"]))
         self.assertIn("addons/redpanda/compose.yml", (self.root / paths.ON_FILE).read_text(),
                       "Redpanda still runs: it is still on, never off and running")
 
