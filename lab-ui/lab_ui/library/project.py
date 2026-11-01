@@ -87,17 +87,30 @@ def _catalog_files():
     return files
 
 
+def _read_from(files):
+    """What Compose reads to read these files: each, and the .env next to each compose file. The one notion of what a unit
+    was read from: what was learned of it is kept by it (_stamp), and the project is read again when it changes
+    (fingerprint)."""
+    return [*files, *(f"{file.rsplit('/', 1)[0]}/.env" for file in files if file.endswith("/compose.yml"))]
+
+
 def fingerprint():
-    """Changes when a file the project is read from changes, appears or goes: compose files, .env files, guides, and
-    what says which catalogs there are. It runs at every state poll, so it is a stat of a few files for each unit
+    """Changes when a file the project is read from changes, appears or goes: the core, the root .env, what says which
+    catalogs there are, and for each unit what it was read from, as the last gather found it: its include closure (what it
+    includes, and what that includes) with the .env next to each file (_read_from), its guide, and the folders and files of a
+    playground's seed (`seed_files`: what its deploy, its license and its notes read; a folder changes when an entry comes or
+    goes). The next gather follows them again once one of them changed. It runs at every state poll, so it is a stat of each
     and nothing else."""
-    files = [CORE_FILE, ENV_FILE, LOCK_FILE, *_catalog_files()]
+    inputs = _cache.get("inputs") or {}
+    reach = inputs.get("reach") or {}
+    files = [CORE_FILE, ENV_FILE, LOCK_FILE, *_catalog_files(), *(inputs.get("seed_files") or ())]
     for file in paths.files():
         found = paths.unit_of(file)
-        files += [path for path in (file, *((paths.unit_env(*found), paths.unit_guide(*found), _seed_folder(*found))
-                                            if found else ())) if path]
+        files += _read_from((reach.get(file) or {}).get("files") or [file])
+        if found:
+            files += [path for path in (paths.unit_env(*found), paths.unit_guide(*found), _seed_folder(*found)) if path]
     root, entries = os.fspath(ROOT), []
-    for path in files:
+    for path in dict.fromkeys(files):
         try:
             info = os.stat(f"{root}/{path}")
         except OSError:   # not there, or gone since the folders were read: not read either way
@@ -314,14 +327,15 @@ def _screen(file):
     return text, trust.prescreen(text, file), None
 
 
-def _seed_scan(folder):
-    """The text of the files under a playground's seed folder, for the settings its seed reads (N02), and the lines of T19
-    that hold: ([text], [reason]). A file over 1 MB, or more files than SEED_FILES or bytes than SEED_BYTES, is a reason: the
-    screen cannot read all of it. A link is not followed and a name that starts with a dot is not read: a seed folder that is
-    itself a link is a reason, for the screen would read what is outside the unit's folder."""
+def _seed_entries(folder):
+    """The folders and plain files under a playground's seed folder, as the screen walks it: (path, whether it is a file),
+    depth first and by name. A link is not followed and a name that starts with a dot is not read, nor is a seed folder that is
+    itself a link. Ends with (None, None) when there is more than the screen reads: deeper than SEED_DEPTH, more files than
+    SEED_FILES."""
     if os.path.islink(os.path.join(ROOT, folder)):
-        return [], [trust.line("T19", 1)]
-    texts, size, count, todo = [], 0, 0, [(folder, 0)]
+        yield None, None
+        return
+    count, todo = 0, [(folder, 0)]
     while todo:
         base, depth = todo.pop()
         try:
@@ -334,15 +348,35 @@ def _seed_scan(folder):
                 continue
             if entry.is_dir(follow_symlinks=False):
                 if depth >= SEED_DEPTH:
-                    return texts, [trust.line("T19", 1)]
+                    yield None, None
+                    return
                 todo.append((path, depth + 1))
+                yield path, False
             elif entry.is_file(follow_symlinks=False):
-                text, why = _read(path, strict=False)
-                count, size = count + 1, size + len(text or "")
-                if why == "large" or count > SEED_FILES or size > SEED_BYTES:
-                    return texts, [trust.line("T19", 1)]
-                if text is not None:
-                    texts.append(text)
+                count += 1
+                if count > SEED_FILES:
+                    yield None, None
+                    return
+                yield path, True
+
+
+def _seed_scan(folder):
+    """The text of the files under a playground's seed folder, for the settings its seed reads (N02), and the lines of T19
+    that hold: ([text], [reason]). More than the screen walks (_seed_entries: a seed folder that is a link, too deep, too many
+    files), a file over 1 MB or more bytes than SEED_BYTES is a reason: the screen cannot read all of it, or would read what is
+    outside the unit's folder."""
+    texts, size = [], 0
+    for path, plain in _seed_entries(folder):
+        if path is None:
+            return texts, [trust.line("T19", 1)]
+        if not plain:
+            continue
+        text, why = _read(path, strict=False)
+        size += len(text or "")
+        if why == "large" or size > SEED_BYTES:
+            return texts, [trust.line("T19", 1)]
+        if text is not None:
+            texts.append(text)
     return texts, []
 
 
@@ -470,12 +504,14 @@ _memo, _memo_lock = {}, threading.Lock()   # what was read of each unit of a cat
 _no_env = True   # Compose is asked `config --no-env-resolution` () until one that does not know it answers
 
 
-def _stamp(files, skip):
-    """What a unit was read from: the size and time of the files of its closure, their .env files, the root
-    .env, the core and the day. Not the environment of the process: `forget()` is for that."""
+def _stamp(files, skip, core=False):
+    """What a reading was made from: the size and time of these files, those of the .env next to each (_read_from), the
+    includes left out (`skip`), and with `core`, the core and the root .env, which a reading with the core interpolates. A
+    reading as written (`--no-interpolate`, one file and what it includes) reads neither. Not the environment of the
+    process: `forget()` is for that."""
     root = os.fspath(ROOT)
-    names = [CORE_FILE, ENV_FILE, *files, *(f"{file.rsplit('/', 1)[0]}/.env" for file in files if file.endswith("/compose.yml"))]
-    parts = [str(datetime.date.today()), *sorted(skip)]
+    names = [*([CORE_FILE, ENV_FILE] if core else []), *_read_from(files)]
+    parts = sorted(skip)
     for name in names:
         try:
             info = os.stat(f"{root}/{name}")
@@ -563,24 +599,51 @@ def _merged(file, reach):
     return [text for text, why in others if why is None]
 
 
-def _read_unit(file, text, reach):
-    """What the pool reads of one unit of a catalog: {raw, problem, config, error, references}. Its file as written
-    (compose.raw, the includes that are not there left out, a time limit), then, when it loads and misses no catalog, as
-    Compose runs it with the core. A unit that misses a catalog is judged when the catalog arrives. What is
-    kept of it is Compose's answer on its files (_answered)."""
+def _with_core(file, reach, timeout=UNIT_TIMEOUT):
+    """A unit read with the core as Compose runs it (_alone): {config, error}, kept while its files, the core and the root .env
+    stay as they are, and not when Compose did not answer (_answered)."""
     def read():
         try:
-            started = time.monotonic()
+            config, error = _alone(file, timeout)
+            return {"config": config, "error": error}
+        except Exception:   # noqa: BLE001 - what a file does to the reading stops at its own unit
+            return {"config": None, "error": "unexpected failure", "transient": True}
+    return _remembered(f"core:{file}", _stamp(reach["files"], reach["missing"], core=True), read, _answered)
+
+
+def _read_unit(file, text, reach):
+    """What the pool reads of one unit of a catalog: {raw, problem, config, error, references}. Its file as written
+    (compose.raw, the includes that are not there left out, a time limit), kept while the files of its closure stay as they
+    are, then, when it loads and misses no catalog, as Compose runs it with the core (_with_core), kept while those and the core
+    and the root .env do. A unit that misses a catalog is judged when the catalog arrives. What is kept of it is Compose's
+    answer on its files (_answered)."""
+    started = time.monotonic()
+
+    def read():
+        try:
             raw, problem = _raw(file, skip=reach["missing"], timeout=UNIT_TIMEOUT)
-            config = error = None
-            if raw is not None and not reach["missing"]:   # one budget for both: a hostile unit costs one timeout
-                config, error = _alone(file, max(1, UNIT_TIMEOUT - int(time.monotonic() - started)))
-            return {"raw": raw, "problem": problem, "config": config, "error": error,
+            return {"raw": raw, "problem": problem,
                     "references": trust.reads([text], raw, _merged(file, reach)) if raw is not None else []}
         except Exception as failure:   # noqa: BLE001 - what a hostile file does to the reading stops at its own unit
             return {"raw": None, "problem": {"file": file, "message": f"unexpected {type(failure).__name__}"},
-                    "config": None, "error": None, "references": [], "transient": True}
-    return _remembered(file, _stamp(reach["files"], reach["missing"]), read, _answered)
+                    "references": [], "transient": True}
+    found = _remembered(f"raw:{file}", _stamp(reach["files"], reach["missing"]), read, _answered)
+    alone = {"config": None, "error": None}
+    if found["raw"] is not None and not reach["missing"]:   # one budget for both: a hostile unit costs one timeout
+        alone = _with_core(file, reach, max(1, UNIT_TIMEOUT - int(time.monotonic() - started)))
+    return {**found, "config": alone["config"], "error": alone["error"]}
+
+
+def _read_raw(file, reach):
+    """compose.raw of a unit of this machine, or of the layout before catalogs: {raw, problem}, the includes that are not there
+    left out. Kept while the files of its closure (`reach`) stay as they are, as a catalog's unit is; read again at every gather
+    without one."""
+    skip = reach["missing"] if reach else ()
+
+    def read():
+        raw, problem = _raw(file, skip=skip) if skip else _raw(file)
+        return {"raw": raw, "problem": problem}
+    return _remembered(f"raw:{file}", _stamp(reach["files"], skip), read, _answered) if reach else read()
 
 
 OWN_KINDS = re.compile(r"/(?:addons|playgrounds)/")   # the units of this machine that are judged for their notes: not a setup
@@ -592,14 +655,7 @@ def _read_own(file, reach):
     blocks. It is not the unit's `config`, which is what a catalog's unit is run as: the person's own are run as the aggregate
     (`resolved`) says. Kept as long as the files it was read from stay as they are, and not when Compose did not answer
     (`_answered`)."""
-    def read():
-        try:
-            config, error = _alone(file)
-            return {"own_config": config, "error": error}
-        except Exception:   # noqa: BLE001 - what a file does to the reading stops at its own unit
-            return {"own_config": None, "error": "unexpected failure", "transient": True}
-    found = _remembered(f"own:{file}", _stamp(reach["files"], reach.get("missing") or ()), read, _answered)
-    return {"own_config": found["own_config"]}
+    return {"own_config": _with_core(file, {"files": reach["files"], "missing": reach.get("missing") or ()})["config"]}
 
 
 def _own_seeds(files):
@@ -624,7 +680,7 @@ def _core_config():
             return _config(compose.all_files([])), None
         except (compose.ComposeError, ValueError) as error:
             return None, str(error)
-    return _remembered("", _stamp([], ()), read, lambda found: found[0] is not None)
+    return _remembered("", _stamp([], (), core=True), read, lambda found: found[0] is not None)
 
 
 def _shared_settings(ns):
@@ -746,10 +802,9 @@ def gather():
     def read(file):
         if tiers.get(file) in JUDGED:
             return file, _read_unit(file, screen[file][0], reach[file])
-        skip = reach[file]["missing"] if file in reach else ()
-        raw, problem = _raw(file, skip=skip) if skip else _raw(file)
-        found = {"raw": raw, "problem": problem}
-        if raw is not None and not skip and tiers.get(file) == "local" and OWN_KINDS.search(file):
+        found = _read_raw(file, reach.get(file))
+        if found["raw"] is not None and not (reach.get(file) or {}).get("missing") and tiers.get(file) == "local" \
+                and OWN_KINDS.search(file):
             found.update(_read_own(file, reach.get(file) or {"files": [file], "missing": []}))
         return file, found
 
@@ -782,6 +837,9 @@ def gather():
                       for pid in by_kind["playground"]},
             "uses": {pid: _seed_uses(pid, tiers.get(paths.unit_file("playground", pid)) in JUDGED)
                      for pid in by_kind["playground"] if paths.unit_file("playground", pid) not in stubs},
+            # What the seeds were read from, for the fingerprint to tell a file edited in place
+            "seed_files": [path for pid in by_kind["playground"] for path, _ in _seed_entries(_seed_folder("playground", pid))
+                           if path],
             "problems": problems,
             # What the catalogs add: where each unit comes from, what the screen and Compose said of it, the
             # catalogs as the disk says them, the level of the core, and the state of the migration
@@ -2208,7 +2266,7 @@ def load():
 
 def forget():
     """The project is read again at the next load: what Compose reads changed where no file did (a variable of the process).
-    What was learned of each unit of a catalog is forgotten too, as it was read with that variable."""
+    What was learned of each unit is forgotten too, as it was read with that variable."""
     with _lock:
         _cache["key"] = None
         _option["known"] = None

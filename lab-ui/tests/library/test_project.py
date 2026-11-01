@@ -2821,6 +2821,27 @@ class Remembered(Case):
         self.write(".env", "FIXTURE_X=1\n")
         self.assertGreater(len(self.reads()), 5, "the root .env is every unit's")
 
+    def raws(self):
+        """The files one gather read as written (compose.raw)."""
+        done = []
+        raw = project._raw
+        with mock.patch.object(project, "_raw", lambda path, *more, **how: done.append(path) or raw(path, *more, **how)):
+            project.gather()
+        return sorted(done)
+
+    def test_a_file_read_as_written_is_read_again_only_when_its_own_files_change(self):
+        # The root .env and the core change what a unit is with the core, not what it says as written: those readings stay
+        self.write(".env", "FIXTURE_X=1\n")
+        self.assertEqual(self.raws(), [project.CORE_FILE])
+        self.write("docker-compose.yml", (self.root / "docker-compose.yml").read_text(encoding="utf-8") + "# edited\n")
+        self.assertEqual(self.raws(), [project.CORE_FILE])
+        # A unit of this machine is kept as a catalog's is: the edit of a guide reads none again, its own file only it
+        self.write(".lab/catalogs/local/addons/scratch/README.md", "# Scratch, edited\n")
+        self.assertEqual(self.raws(), [project.CORE_FILE])
+        scratch = ".lab/catalogs/local/addons/scratch/compose.yml"
+        self.write(scratch, (self.root / scratch).read_text(encoding="utf-8") + "# edited\n")
+        self.assertEqual(self.raws(), sorted([project.CORE_FILE, scratch]))
+
     def test_forgetting_reads_everything_again(self):
         project.forget()
         self.assertGreater(len(self.reads()), 8)
@@ -2918,6 +2939,47 @@ class Fingerprints(Case):
         project.fingerprint()
         best = min(timed(project.fingerprint) for _ in range(30))
         self.assertLess(best, 0.015, f"{best * 1000:.1f} ms")
+
+
+class ReadAgain(Case):
+    """What the project is read from is what tells that it must be read again: every file of an include closure, and every
+    file of a seed, edited in place."""
+
+    def setUp(self):
+        read(self, local=("scratch", "sandbox"))
+        self.patch(project, "_cache", {"key": None, "project": None, "inputs": None})
+        project.loaded()
+
+    def edited(self, path, text, at):
+        self.write(path, text)
+        os.utime(self.root / path, ns=(at * 10**9, at * 10**9))   # a filesystem may not tell two changes a moment apart
+
+    def test_a_file_that_a_personal_unit_includes_is_part_of_it(self):
+        scratch = ".lab/catalogs/local/addons/scratch"
+        self.edited(f"{scratch}/extra.yml", "services:\n  scratch-extra:\n    image: busybox\n", 1)
+        self.write(f"{scratch}/compose.yml", (self.root / scratch / "compose.yml").read_text(encoding="utf-8")
+                   .replace("include:\n", "include:\n  - extra.yml\n"))
+        self.assertIn("scratch-extra", project.loaded()[0]["addons"]["local/scratch"]["services"])
+        self.edited(f"{scratch}/extra.yml", "services:\n  scratch-extra:\n    image: busybox\n  scratch-more:\n    image: busybox\n", 2)
+        self.assertIn("scratch-more", project.loaded()[0]["addons"]["local/scratch"]["services"])
+
+    def test_a_definition_of_a_seed_edited_in_place_is_read_again(self):
+        file = ".lab/catalogs/local/playgrounds/sandbox/seed/apim/apis/sandbox.json"
+        definition = json.loads((self.root / file).read_text(encoding="utf-8"))
+        self.assertNotIn("rate-limit", project.loaded()[1]["uses"]["local/sandbox"]["policy"])
+        definition["api"]["flows"] = [{"request": [{"policy": "rate-limit", "enabled": True}]}]
+        self.edited(file, json.dumps(definition), 3)
+        self.assertIn("rate-limit", project.loaded()[1]["uses"]["local/sandbox"]["policy"])
+        # A file the seed adds deeper down is seen too: an environment of its own
+        self.edited(".lab/catalogs/local/playgrounds/sandbox/seed/environments/beam/apis/beam.json",
+                    json.dumps({"api": {"listeners": [{"entrypoints": [{"type": "sse"}]}]}}), 4)
+        self.assertIn("sse", project.loaded()[1]["uses"]["local/sandbox"]["entrypoint"])
+        # And what the seed reads of this machine's settings, whose token a place does not hand it (N02)
+        sandbox = ".lab/catalogs/local/playgrounds/sandbox/compose.yml"
+        self.assertNotIn("AUDIT_FIXTURE_TOKEN", project.loaded()[1]["seed_references"][sandbox])
+        definition["api"]["description"] = "${AUDIT_FIXTURE_TOKEN}"
+        self.edited(file, json.dumps(definition), 5)
+        self.assertIn("AUDIT_FIXTURE_TOKEN", project.loaded()[1]["seed_references"][sandbox])
 
 
 def timed(function):
