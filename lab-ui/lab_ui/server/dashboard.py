@@ -20,7 +20,7 @@ from pathlib import Path
 
 from ..docker import compose, images
 from ..library import project as projects
-from ..library.layers import bare   # a tag without the system it is built on, as the version gate reads it
+from ..library.versions import judge, channel, latest, order, parse
 
 DOCKER_TTL = 60       # seconds what Docker holds is kept: a quick back and forth does not read it again
 DF_WAIT = 0.4         # seconds a read lasts at the most for what Docker holds, the slow one, before the page is drawn without it
@@ -31,8 +31,6 @@ RESTART = 2           # seconds before `docker stats` is started again when it e
 NAMES_TTL = 10        # seconds the names of the lab's containers are kept
 MEMINFO = Path("/proc/meminfo")
 TYPES = ("images", "containers", "volumes", "cache")   # what `docker system df` counts, in the order it lists them
-# A tag that names a build: three numbers, then a pre-release that ends with one (alpha.4); not 4.12, latest or alpha
-VERSION = re.compile(r"v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]*\d))?")
 # Docker writes sizes in powers of 1000 (`system df`: 58.89GB) or of 1024 (`stats`: 731.8MiB)
 UNITS = {"B": 1,
          **{unit: 1000 ** power for power, unit in enumerate(["kB", "MB", "GB", "TB", "PB"], 1)},
@@ -191,71 +189,6 @@ def machine():
 
 
 # ---------------------------------------------------------------------------------------------------------------------
-# Versions
-# ---------------------------------------------------------------------------------------------------------------------
-
-def parse(tag):
-    """(numbers, pre-release or None) of a tag that names a build, its system ignored ("4.13.0-alpha.8-debian" gives
-    ((4, 13, 0), "alpha.8")); None for a tag that moves (latest, 4.12, 4.13.0-alpha)."""
-    found = VERSION.fullmatch(bare(tag)[0])
-    return (tuple(int(number) for number in found.groups()[:3]), found.group(4)) if found else None
-
-
-def _order(version):
-    """What orders versions, as semver does: a release above its pre-releases, the identifiers of a pre-release one by
-    one, numbers before words."""
-    numbers, pre = version
-    if pre is None:
-        return numbers, 1, ()
-    return numbers, 0, tuple((0, int(part), "") if part.isdigit() else (1, 0, part) for part in pre.split("."))
-
-
-def _text(version):
-    numbers, pre = version
-    return ".".join(map(str, numbers)) + (f"-{pre}" if pre else "")
-
-
-def older(saved, running):
-    """Whether the tag saved names an older version than the one that runs, their systems ignored: making it again goes
-    back. False when either names no version (a tag that moves, a local build)."""
-    one, other = parse(saved or ""), parse(running or "")
-    return bool(one and other) and _order(one) < _order(other)
-
-
-def latest(tags):
-    """(the latest stable, the latest pre-release) among tag names, each as a version without its system; None for
-    none. A pre-release is listed only above the stable one: once 4.13.0 is out, 4.13.0-alpha.8 is not news."""
-    found = [version for version in map(parse, tags) if version]
-    stable = max((version for version in found if version[1] is None), key=_order, default=None)
-    pre = max((version for version in found if version[1] is not None), key=_order, default=None)
-    if pre and stable and _order(pre) < _order(stable):
-        pre = None
-    return _text(stable) if stable else None, _text(pre) if pre else None
-
-
-def channel(deployed):
-    """The channel a version is of: 'pre-release' for a build with a pre-release part (4.13.0-alpha.8), else 'stable',
-    also for a tag that names no version."""
-    found = parse(deployed or "")
-    return "pre-release" if found and found[1] is not None else "stable"
-
-
-def judge(deployed, stable, prerelease):
-    """(status, latest): the newest version of the channel of the deployed one, and whether it is that one. 'latest'
-    when nothing above the deployed version is known (the latest then is the highest version known, the deployed one
-    when the registry lists none that high), 'newer' when the channel has a version above it, 'unknown' (and none)
-    when a version is missing or moves. A stable version is compared with the latest stable, a pre-release with the
-    latest pre-release, else with the stable one: a release is above its pre-releases."""
-    here, other = parse(deployed or ""), parse(stable or "")
-    ahead = parse(prerelease or "") if here and here[1] is not None and prerelease else other
-    if not here or not ahead:
-        return "unknown", None
-    if _order(here) < _order(ahead):
-        return "newer", _text(ahead)
-    return "latest", _text(max(here, ahead, key=_order))
-
-
-# ---------------------------------------------------------------------------------------------------------------------
 # Products
 # ---------------------------------------------------------------------------------------------------------------------
 
@@ -294,7 +227,7 @@ def _listed(project, component):
 def _oldest(tags):
     """The tag with the lowest version: what a product runs when its services are not on the same one. A tag that
     names no version comes after."""
-    return min(tags, key=lambda tag: (parse(tag) is None, _order(parse(tag)) if parse(tag) else (), tag))
+    return min(tags, key=lambda tag: (parse(tag) is None, order(parse(tag)) if parse(tag) else (), tag))
 
 
 def deployed(project, component, containers):

@@ -12,6 +12,7 @@ import uuid
 
 from . import compose
 from .. import paths
+from ..products import AZURE
 from .pulls import Pulls
 
 # Per-layer pull progress ("3f1c0a7d9e2b Pull complete 0B"): one line per layer, too noisy to stream
@@ -55,7 +56,7 @@ STUCK = 120
 ITEMS = ("addon", "setup", "playground")
 # An Azure registry refusing a pull for want of a login, as Docker says it in the last lines of a job: the registry
 # and the refusal on one line, in either order ("pull access denied for x.azurecr.io/…", "…azurecr.io…: unauthorized")
-AZURE_REGISTRY = re.compile(r"\b([a-z0-9]+\.azurecr\.io)\b", re.I)
+AZURE_REGISTRY = re.compile(rf"\b({AZURE.pattern})\b", re.I)
 REFUSED = re.compile(r"unauthorized|authentication required|access denied", re.I)
 NOT_LOGGED_IN = "Not logged in to Azure"
 # The image a build starts from, which BuildKit could not fetch: "failed to resolve source metadata for

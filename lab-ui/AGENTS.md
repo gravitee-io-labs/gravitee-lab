@@ -19,6 +19,7 @@ The module docstring (Python) or the header comment (JavaScript) of a file is th
 | `lab_ui/` | What it holds |
 |---|---|
 | `paths.py` | The project's layout: the folder decides what a file is and gives its id; the API definitions of a seed, in `seed/apim/` and in each `seed/environments/<id>/` (`seed_apis`, which the checks, the license and the plugins a Cloud environment needs all read); `write_atomic`, and `read_record`, the reader of a record of `.lab/` that keeps one it cannot read aside; `serve_here`, the lock the one Lab UI that serves the folder holds |
+| `products.py` | The names of Gravitee's products and of their images that the engine knows itself, its one place for them: the folders of a seed and the product each fills (the seeder's layout), the scopes of a Cloud gateway, the gateway's image, the systems of a tag (`VARIANTS`), the Azure registries |
 | `e2e.py` | `make e2e`: runs this server on a free port and starts one item from nothing through it, as the page does; says whether it works (the start and its seed, the containers up, the consoles answering) and removes what it made. Refuses a machine that holds a lab. Exit 0 it works, 1 it does not, 2 it cannot be tried here |
 
 `lab_ui/docker/`: What the Lab UI asks of Docker and of the files around it.
@@ -54,6 +55,7 @@ The module docstring (Python) or the header comment (JavaScript) of a file is th
 | `layers.py` | The on file, needs and conflicts, the plan and the job of a start or a stop, and the plan of a deploy to a place, which has no service of the core |
 | `model.py` | What `/api/state` answers: state, note and action of every item. Pure |
 | `reasons.py` | Why a service runs behind what is saved, as one plain line, and the line of several services or of an owner's grouped by cause. Pure |
+| `versions.py` | An image tag read as a version, its system left out: the gate of a playground's requirements (`at_least`) and the order of builds that the Dashboard and the reasons compare. Pure |
 | `drift.py` | Which settings and labels of a container differ from what Compose would set it now, the settings by name, from digests; never a value |
 | `check.py` | `make check` |
 | `personal.py` | Creating, sharing and deleting items of this machine; finding the skills |
@@ -110,10 +112,11 @@ cd lab-ui/tests/web/js && WRITE_MAIN=1 node --test lists.test.mjs
 - **One responsibility per module**, said in its docstring. Small functions. `model.py` and `project.build()` are pure,
   so they are tested without Docker.
 - **The Compose files hold the product knowledge**: `x-gravitee` blocks, labels, `include`, `image:` lines, mounts. No
-  list of products, add-ons or images in `lab_ui/` or `web/`. The two explicit exceptions are the tag suffixes of
-  registries (`VARIANTS` in `js/core.js`, which every page reads, and its copy in `library/layers.py`, which the version
-  gate and the Dashboard read and a test keeps equal) and the acronyms of license packs (`ACRONYMS` in
-  `js/dialogs/license.js`).
+  list of products, add-ons or images in `lab_ui/` or `web/`. The explicit exceptions each have one place: what the engine
+  knows itself is in `lab_ui/products.py` (the folders of a seed and the product each fills, which is the seeder's layout;
+  the scopes of a Cloud gateway; the gateway's image; the Azure registries; the tag suffixes of registries, `VARIANTS`,
+  which `js/core.js` copies for every page and a test keeps equal; a test also holds that no other module names them),
+  and the acronyms of license packs are in `js/dialogs/license.js` (`ACRONYMS`).
 - **The server computes, the page draws.** `/api/state` carries the state, note and action of every item, in the order
   they are shown.
 - **Errors are never swallowed.** A file that does not load is reported in `problems` and the others still load. A failed

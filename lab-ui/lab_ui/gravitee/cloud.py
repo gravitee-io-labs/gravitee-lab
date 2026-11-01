@@ -16,6 +16,8 @@ import urllib.error
 import urllib.request
 from urllib.parse import quote, urlsplit
 
+from ..products import APIM
+
 AUTH = "Bearer"       # the Cloud's documentation says Bearer, its OpenAPI specification says HTTP basic
 PATH = "/management"
 GATE = "/apim/rest"   # the management API of API Management, as Cloud Gate serves it (no /management prefix)
@@ -272,7 +274,7 @@ class Gate(_Client):
     """Cloud Gate, the API Management of a Cloud, and a Cloud Token to call it with. Its address is the one the record
     of the platform keeps."""
 
-    forbidden = "This Cloud Token cannot read API Management"
+    forbidden = f"This Cloud Token cannot read {APIM}"
 
     def read(self, organization, environment):
         """The one cheap question that tells whether the token opens an environment: the first API of it, if any.

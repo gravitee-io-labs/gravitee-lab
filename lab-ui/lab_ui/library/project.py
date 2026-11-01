@@ -1,7 +1,7 @@
 """The project as its Compose files describe it: the platform's groups, the add-ons, setups and playgrounds of its
 catalogs and of this machine, every service and console, and where each playground can be deployed. Nothing here knows a
-product but the one each folder of a seed fills (SEEDED): it all comes from x-gravitee blocks, labels, includes and
-mounts.
+product but through products.py (what each folder of a seed fills): it all comes from x-gravitee blocks, labels, includes
+and mounts.
 
 A unit of a catalog is read as hostile input (the resolver). `gather` screens its text before Compose is ever
 asked, reads it with a time limit, resolves it alone with the core (so one broken unit never blanks the project) and
@@ -30,6 +30,7 @@ from . import layout
 from ..gravitee import frames, license, platforms
 from .. import paths
 from ..catalogs import registry, renames, resolve, trust, understood
+from ..products import AM, APIM, APIM_FEATURES, DEPLOYED, LOCAL_PRODUCTS, SEEDED, SEEDED_HERE
 from ..paths import CORE_FILE, ENV_FILE, KINDS, LAB_DIR, ROOT
 
 SECRET = re.compile(r"TOKEN|SECRET|PASSWORD|LICENSE|_KEY")
@@ -43,13 +44,6 @@ GATEWAY_KEYS = ("platform", "service", "token")   # what an add-on says of the g
 # The lists of an x-gravitee block that the pages read, each as how it must be written and what each entry is
 LISTED = {"consoles": ("a list of services", str), "tags": ("a list of short labels", str),
           "accounts": ("a list of accounts, each a mapping", dict)}
-# The product that each entry of a playground's seed/ fills, in the seeder's layout (seeder/README.md): what a reason
-# names when a platform does not run it, in the order it lists them
-SEEDED = {"apim": "API Management", "am": "Access Management", "aim": platforms.GAMMA, "authz": platforms.GAMMA}
-# What a deploy to a platform seeds on this machine, whichever platform runs API Management: Access Management and
-# OpenFGA run here, and the seeder reaches them as it does for a start on this machine
-SEEDED_HERE = ("am", "openfga")
-LOCAL_PRODUCTS = ("Access Management",)   # the products that a platform does not have to run: they run here
 PLUGIN_KINDS = ("entrypoint", "endpoint", "policy", "resource")   # what an API definition names that a plugin provides
 # The lists of an API definition whose items name a plugin by their `type`, and the kind of that plugin
 TYPED = {"entrypoints": "entrypoint", "endpointGroups": "endpoint", "endpoints": "endpoint", "resources": "resource"}
@@ -1007,7 +1001,7 @@ def license_features(requires):
 def _apim_features(requires):
     """The license features of API Management that a unit requires: those a platform running it must have. The others
     (Access Management's, Gamma's) are for the machines they run on."""
-    return sorted(feature for feature in license_features(requires or {}) if feature.startswith("apim-"))
+    return sorted(feature for feature in license_features(requires or {}) if feature.startswith(APIM_FEATURES))
 
 
 def _lists(meta, path, problems):
@@ -1491,7 +1485,7 @@ def asks(playground, project, raw, seed, uses=None):
             "plugins": any((playground["requires"].get("plugins") or {}).values()),
             "changes": bool(set(playground["restarts"]) & _control_plane(project) or any(changes for _, changes, _ in brought)),
             "uses": any(waits for _, _, waits in brought) or _uses_the_core(playground, project, raw),
-            "more": any(name not in ("apim", *SEEDED_HERE) for name in seed),
+            "more": any(name not in (DEPLOYED, *SEEDED_HERE) for name in seed),
             "features": _apim_features(playground["requires"]),
             "needs": {kind: list((uses or {}).get(kind, [])) for kind in PLUGIN_KINDS}}
 
@@ -1562,7 +1556,7 @@ def judge(asked, offers):
         found.append("Its apps use this machine's Management API")
     # What only this machine's API Management serves: Gamma, controls, refills, a folder that is no product
     if asked["more"]:
-        found.append("Seeds more than API Management and Access Management")
+        found.append(f"Seeds more than {APIM} and {AM}")
     return found
 
 

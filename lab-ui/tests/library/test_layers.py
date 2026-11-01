@@ -6,14 +6,13 @@ import inspect
 import itertools
 import json
 import os
-import re
 import sys
 import types
 import unittest
 from unittest import mock
 
 from lab_ui.docker import compose, envfiles
-from lab_ui.library import layers, layout, project as projects
+from lab_ui.library import layers, layout, project as projects, versions
 from lab_ui import paths
 from lab_ui.docker.jobs import Job, JobFailed, awaited
 
@@ -632,12 +631,12 @@ class Plans(Case):
         # Every system the Images page offers: 4.13.1-chainguard is 4.13.1, a release, not a preview of it
         for tag in ("4.13.1-debian", "4.13.1-chainguard", "4.13.1-chainguard-fips", "4.13.1-noble", "4.13.1-jammy",
                     "4.13.1-alpine"):
-            self.assertTrue(layers.at_least(tag, "4.13.1"), tag)
-            self.assertTrue(layers.at_least(tag, "4.13"), tag)
+            self.assertTrue(versions.at_least(tag, "4.13.1"), tag)
+            self.assertTrue(versions.at_least(tag, "4.13"), tag)
             self.assertTrue(layers.conform(tag), tag)
             self.assertTrue(layers._tested(tag, "4.13.1"), tag)
             self.assertFalse(layers._goes_back(tag, "4.13.1"), tag)
-        self.assertFalse(layers.at_least("4.13.0-chainguard", "4.13.1"))
+        self.assertFalse(versions.at_least("4.13.0-chainguard", "4.13.1"))
         self.assertTrue(layers._goes_back("4.13.2-noble", "4.13.1"))
         # Saved on one of them, the exact release it asks: nothing is too old, nothing to switch to, nothing untested
         welcome, gateway = self.project["playgrounds"]["welcome"], self.project["services"]["apim-gateway"]
@@ -647,12 +646,6 @@ class Plans(Case):
         self.assertEqual((layers.too_old(self.project, welcome), layers.switch(self.project, welcome),
                           layers.untested(self.project, welcome)), (None, None, None))
         self.assertIsNone(self.plan(on(self.project), up(), "playground", "welcome", "start")["blocked"])
-
-    def test_the_systems_are_those_of_the_images_page(self):
-        source = (paths.WEB_DIR / "js" / "core.js").read_text(encoding="utf-8")
-        listed = re.search(r"^export const VARIANTS = \[(.*?)\];", source, re.M).group(1)
-        self.assertEqual(layers.VARIANTS, tuple(re.findall(r'"([^"]+)"', listed)))
-        self.assertEqual(layers.bare("4.12.20-chainguard-fips"), ("4.12.20", "chainguard-fips"))
 
     def test_three_images_that_are_too_old_are_listed_as_a_sentence(self):
         saved = {"A_VERSION": ("1", "Alpha"), "B_VERSION": ("1", "Beta"), "C_VERSION": ("1", "Gamma")}

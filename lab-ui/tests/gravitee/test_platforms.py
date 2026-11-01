@@ -1602,6 +1602,18 @@ class Chosen(Case):
         self.assertFalse((self.root / "first.env").exists())
 
 
+class LocalGateway(unittest.TestCase):
+    def test_the_core_service_that_runs_the_gateway_image_with_a_registry_or_without(self):
+        def project(raw_image, kind="platform"):
+            return {"services": {"gw": {"owner": {"kind": kind}, "raw_image": raw_image},
+                                 "ui": {"owner": {"kind": "platform"}, "raw_image": "graviteeio/apim-gateway-ui:4.13.1"}}}
+        for raw_image in ("${APIM_REGISTRY:-graviteeio}/apim-gateway:${APIM_VERSION:-4.13.1}", "apim-gateway:4.13",
+                          "apim-gateway", "graviteeio.azurecr.io/apim-gateway:4.13.0-debian"):
+            self.assertEqual(platforms.local_gateway(project(raw_image)), "gw", raw_image)
+        self.assertIsNone(platforms.local_gateway(project("graviteeio/apim-gateway:4.13.1", kind="addon")))
+        self.assertIsNone(platforms.local_gateway(project("graviteeio/my-apim-gateway:1")))
+
+
 GATEWAY_FILE = (fixtures.CATALOGS / "fixture/addons/gateway/compose.yml").read_text(encoding="utf-8")
 
 

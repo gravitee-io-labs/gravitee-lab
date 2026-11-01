@@ -15,11 +15,11 @@ import urllib.request
 from . import compose, envfiles, files
 from ..library import layers
 from .. import paths
+from ..products import AZURE
 from .jobs import JOBS
 
 TAG = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,127}")
 REGISTRY = re.compile(r"[a-z0-9]+(?:[._-][a-z0-9]+)*(?::\d+)?(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*")
-AZURE = re.compile(r"[a-z0-9]+\.azurecr\.io")
 DOCKER_HUB = ("docker.io", "index.docker.io")
 ITEM = re.compile(rf"(?:{'|'.join(paths.KINDS)}):{paths.ID}")   # the key of an item's row: "playground:<id>"
 AZ = shutil.which("az") or "az"   # the Azure CLI, found once

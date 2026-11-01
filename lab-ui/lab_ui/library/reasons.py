@@ -8,7 +8,7 @@ value: a tag and a setting's name are all a line holds. The same causes are give
 them: the kind, the tags saved and running (and whether the one saved is `older`, which Apply goes back to), the names of
 the settings, the services a cause is about."""
 
-from ..server import dashboard
+from . import versions
 
 SHOWN = 3   # names a line spells out before it counts the rest
 
@@ -40,7 +40,7 @@ def spelled(items, limit=SHOWN):
 def _versions(saved, running):
     """The two tags as a line says them: without the system they share ("4.12.20-debian" and "4.13.0-alpha.4-debian"
     are 4.12.20 and 4.13.0-alpha.4), whole when the system is what differs."""
-    (one, system), (other, then) = dashboard.bare(saved), dashboard.bare(running)
+    (one, system), (other, then) = versions.bare(saved), versions.bare(running)
     return (one, other) if system == then and one != other else (saved, running)
 
 
@@ -65,7 +65,7 @@ def _clauses(whys):
                         "the saved images differ from the ones that run", {"kind": "tag", "saved": None, "running": None, "older": False}))
     else:
         clauses.extend((names, f"{saved} is saved, {running} still runs", None,
-                        {"kind": "tag", "saved": saved, "running": running, "older": dashboard.older(saved, running)})
+                        {"kind": "tag", "saved": saved, "running": running, "older": versions.older(saved, running)})
                        for (saved, running), names in tags.items())
     images = [name for name, found in whys.items() if found["kind"] == "image"]
     if images:
