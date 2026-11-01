@@ -314,6 +314,12 @@ def parents_of(entity):
     return {(p["entityType"], p["entityId"]) for p in entity.get("parents") or []}
 
 
+def points_of(entity):
+    """The (type, id) of what an entity, as the API has it, points at: its parents, then what its attributes name."""
+    parents = [(p["entityType"], p["entityId"]) for p in entity.get("parents") or []]
+    return [*parents, *pointed_at(entity.get("attributes") or {})]
+
+
 def entity_is_as_wanted(current, wanted):
     """Whether the platform's entity says what the file says. The platform may add attributes of its own: they stay."""
     return (current.get("entityType") == wanted["entityType"] and current.get("kind", wanted["kind"]) == wanted["kind"]
@@ -353,9 +359,11 @@ def put_entities(api, spec):
             lost.append(body)
         if not current or entity_id not in mine or not entity_is_as_wanted(current, body):   # one an earlier seed sent and lost
             changed.append(body)                                                              # the answer of is saved again
-    # And those it saved that the file no longer has: the source still lists them, and only the old note names them
-    gone = noted - mine - {body["entityId"] for body in bodies}
-    lost += [present[entity_id] for entity_id in sorted(gone) if entity_id in present]
+    # And those it saved that the file no longer has: the source still lists them, and only the old note names them. Each
+    # comes after what it points at, as the file's do, so that a removal deletes a child before its parent
+    gone = {entity_id: present[entity_id] for entity_id in sorted(noted - mine - {body["entityId"] for body in bodies})
+            if entity_id in present}
+    lost += in_dependency_order(gone, {entity_id: points_of(held) for entity_id, held in gone.items()})
     if lost:   # recorded before this run's note replaces the old one, which a refusal below takes back
         remember(source, lost, bodies, ranks)
         log(SECTION, f"! {len(lost)} entities of '{source}': saved by an earlier seed that lost the platform's answer, now "
@@ -410,16 +418,22 @@ def refusals(said):
 
 def remember(source, saved, bodies, ranks):
     """Adds the entities just saved to the record of their type: one record for each type, with its ids in dependency
-    order (the ids of earlier runs that the file no longer has come first), and the rank that orders a removal (a type
-    the file no longer has keeps the one of its record)."""
+    order (the ids the file no longer has come first: those of the record as it has them, then those just saved as
+    `saved` has them), and the rank that orders a removal: the file's, else the record's for a type the file no longer
+    has, else one more than the highest of the types its entities point at."""
     position = {body["entityId"]: index for index, body in enumerate(bodies)}
     for entity_type in dict.fromkeys(body["entityType"] for body in saved):
         name = f"{source}/{entity_type}"
         earlier = next((x for x in created() if (x["product"], x["kind"], x["name"]) == (SECTION, "entities", name)), {})
-        ids = sorted({*earlier.get("ids", []), *(body["entityId"] for body in saved if body["entityType"] == entity_type)},
-                     key=lambda entity_id: position.get(entity_id, -1))
-        record(SECTION, "entities", f"{entity_type} entities", name, name, ids=ids, count=len(ids),
-               rank=ranks.get(entity_type, earlier.get("rank", 0)), source=source)
+        ids = list(dict.fromkeys([*earlier.get("ids", []),
+                                  *(body["entityId"] for body in saved if body["entityType"] == entity_type)]))
+        ids.sort(key=lambda entity_id: position.get(entity_id, -1))   # stable: those the file no longer has keep their order
+        rank = ranks.get(entity_type, earlier.get("rank"))
+        if rank is None:   # saved by a lost answer, and in neither the file nor a record: what it points at says
+            known = {body["entityId"]: body for body in [*bodies, *saved]}
+            rank = type_ranks(known, {entity_id: points_of(body) for entity_id, body in known.items()})[entity_type]
+        record(SECTION, "entities", f"{entity_type} entities", name, name, ids=ids, count=len(ids), rank=rank,
+               source=source)
 
 
 # --- Policies -------------------------------------------------------------------------------
