@@ -160,6 +160,27 @@ class Folder(Case):
         self.assertIn("| For | User | Password or key |", readme, "the accounts that are mappings are still listed")
         self.assertNotIn("alice", readme)
 
+    def test_an_account_whose_user_name_is_a_number_is_exported_as_the_page_shows_it(self):
+        # YAML reads an unquoted 1234 as a number; a user name that is a list is no text, which the readme leaves out
+        shop = paths.ROOT / Path(fixtures.unit_file("fixture", "playground", "shop")).parent
+        for each in [shop, *shop.rglob("*")]:
+            each.chmod(each.stat().st_mode | 0o200)
+        compose_file = shop / "compose.yml"
+        written = compose_file.read_text(encoding="utf-8")
+        compose_file.write_text(written.replace("  accounts:\n", "  accounts:\n    - for: Kiosk\n      username: 1234\n"
+                                                                  "      password: ${SHOP_PIN:-0000}\n"
+                                                                  "    - for: Till\n      username: [a, b]\n"
+                                                                  "      password: ${SHOP_TILL:-9999}\n"), encoding="utf-8")
+        project.forget()
+        found, _ = project.loaded()
+        self.assertIn({"for": "Kiosk", "username": 1234, "password": "0000"}, found["playgrounds"]["shop"]["accounts"],
+                      "the page shows it")
+        self.assertEqual(standalone.plan("shop")["runs"][-1], "Shop")
+        _, _, folder = self.unpacked()
+        readme = (folder / "README.md").read_text(encoding="utf-8")
+        self.assertIn("| Kiosk | `1234` | `0000` |", readme)
+        self.assertIn("| Till |  | `9999` |", readme)
+
     def test_the_plan_says_what_runs_what_is_left_out_and_what_it_needs(self):
         plan = standalone.plan("shop")
         self.assertEqual(plan["file"], "shop-docker-compose.zip")

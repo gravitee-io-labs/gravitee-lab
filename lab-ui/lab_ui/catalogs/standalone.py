@@ -492,6 +492,12 @@ def _comment(row, gone=()):
     return " ".join(kept).rstrip(",; ")
 
 
+def _shown(value):
+    """A value of a file as the page shows it: text, a number as its digits (YAML reads `1234` as one); any other shape is
+    none."""
+    return str(value) if isinstance(value, (str, int, float)) and not isinstance(value, bool) else ""
+
+
 def _default(text):
     """The default of a `${NAME:-default}` text, else the text."""
     found = re.fullmatch(r"\$\{[A-Za-z_][A-Za-z0-9_]*:-([^}]*)\}", str(text or ""))
@@ -554,8 +560,10 @@ def _readme(gathered, raw, services, consoles, seed, missing):
     unit, folder = gathered["unit"], gathered["folder"]
     meta, requires = raw.get("x-gravitee") or {}, unit.get("requires") or {}
     # The accounts as the file writes them, a password as its ${VAR:-default}: those of the page (project._lists), each a mapping
+    # whose user name is text as the page shows it
     listed = meta.get("accounts") if isinstance(meta, dict) else None
-    accounts = [one for one in listed if isinstance(one, dict)] if isinstance(listed, list) else []
+    accounts = [{**one, "username": _shown(one.get("username"))} for one in listed if isinstance(one, dict)] \
+        if isinstance(listed, list) else []
     guide_file = folder / "guide.md"
     first = {}
     for one in accounts:
