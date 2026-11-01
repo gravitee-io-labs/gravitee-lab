@@ -38,7 +38,10 @@ from .paths import ON_FILE, ROOT
 OK, FAILED, CANNOT = 0, 1, 2
 POLL = 3            # seconds between two readings of the state while waiting
 SETTLE = 300        # seconds a started item has to be up: its containers healthy, nothing in an issue
-STUCK = 60          # seconds a container may stay in an issue while the start runs: it keeps restarting, and the start waits for it
+# Seconds a container may stay in an issue, while the start runs and once it ended: it keeps restarting, and the start
+# waits for it. Longer than the Lab UI says Keeps restarting of one that Docker started again and that runs since
+# (compose.RESTART_WINDOW)
+STUCK = compose.RESTART_WINDOW + 30
 CANCEL_WAIT = 60    # seconds a canceled job has to end, before what the run made is removed
 CONSOLES = 90       # seconds a console has to answer, once everything is up
 LOG_LINES = 80      # lines of the log of a container that is not up, which the report prints
@@ -318,17 +321,18 @@ class Run:
             pass
 
     def settle(self):
-        """Every container of the item is up, none is in an issue, and nor is the platform: what a person sees as running."""
+        """Every container of the item is up, none is in an issue, and nor is the platform: what a person sees as running.
+        A container in an issue fails it once it has been so for STUCK seconds: one that Docker started again while what it
+        needs warmed up, and that runs since, says Keeps restarting for a while after the start."""
         names = self.unit()["services"]
+        since = {}   # the containers in an issue, and since when
 
         def settled(state):
             platform = (state.get("platform") or {}).get("state") or {}
             if platform.get("key") == "issue":   # what the item needs of the core
                 raise Failed(f"the platform is in an issue: {platform.get('label') or 'no reason'}")
+            self.stuck(state, since)
             found = {name: state["services"][name]["state"] for name in names if name in state["services"]}
-            bad = [name for name, one in found.items() if one["key"] == "issue"]
-            if bad:
-                raise Failed(f"{', '.join(bad)} in an issue: {', '.join(found[name]['label'] or 'no reason' for name in bad)}")
             return all(one["key"] in UP for one in found.values()) and len(found) == len(names)
 
         with self.step("Containers are up"):

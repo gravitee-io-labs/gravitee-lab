@@ -15,7 +15,7 @@ from unittest import mock
 
 from lab_ui.docker import compose, envfiles
 from lab_ui import e2e, paths
-from lab_ui.library import project
+from lab_ui.library import model, project
 from lab_ui.catalogs import gitx, manifest, registry
 
 from . import Case, fixtures, gitfixture
@@ -318,11 +318,12 @@ class Starting(Case):
         running["services"]["mongodb"] = {"state": issue, "container": "gio-mongodb"}
         canceled = {**running, "job": {**JOB, "ok": False, "error": "Canceled"}}
         flap = {**running, "services": {**running["services"], "mongodb": {"state": UP, "container": "gio-mongodb"}}}
-        lab = FakeLab(lab_state({"shop": UP}), running, flap, *[running] * 30, canceled)   # a flap starts the count again
+        readings = e2e.STUCK // e2e.POLL + 1
+        lab = FakeLab(lab_state({"shop": UP}), running, flap, *[running] * readings, canceled)   # a flap starts the count again
         run = attempt(lab)
-        with self.assertRaisesRegex(e2e.Failed, r"mongodb in an issue for 60 s: Keeps restarting"):
+        with self.assertRaisesRegex(e2e.Failed, rf"mongodb in an issue for {e2e.STUCK} s: Keeps restarting"):
             run.start(1800)
-        self.assertLess(run.clock(), 120)
+        self.assertLess(run.clock(), 2 * e2e.STUCK)
         self.assertEqual([call for call in lab.calls if call[1].endswith("/cancel")], [("POST", f"/api/jobs/{JOB['id']}/cancel", None)])
 
 
@@ -341,9 +342,23 @@ class Settling(Case):
     def test_a_container_in_an_issue_ends_the_wait_and_says_which(self):
         issue = {"key": "issue", "label": "Restarting (1)", "running": True}
         run = attempt(FakeLab(lab_state({"shop": UP, "api": issue})))
-        with self.assertRaisesRegex(e2e.Failed, r"api in an issue: Restarting \(1\)"):
+        with self.assertRaisesRegex(e2e.Failed, rf"api in an issue for {e2e.STUCK} s: Restarting \(1\)"):
             run.settle()
         self.assertFalse(run.steps[-1].ok)
+        self.assertEqual(run.clock(), -(-e2e.STUCK // e2e.POLL) * e2e.POLL, "once in an issue for STUCK seconds")
+
+    def test_an_app_that_restarted_while_kafka_warmed_up_and_runs_since_settles(self):
+        # No health check: it exited twice while Kafka warmed up, during the start, and has run fine since. For
+        # RESTART_WINDOW seconds after its last start the Lab UI says Keeps restarting, then Running
+        done = {"key": "done", "label": "Done", "running": False}
+        recent = model.service_state({"state": "running", "health": "", "restarts": 2, "status": "Up 5 seconds"}, False, False)
+        later = model.service_state({"state": "running", "health": "", "restarts": 0, "status": "Up About a minute"}, False, False)
+        self.assertEqual(recent["label"], "Keeps restarting")
+        readings = (compose.RESTART_WINDOW - 5) // e2e.POLL + 1   # the readings until its last start is RESTART_WINDOW old
+        lab = FakeLab(*[lab_state({"shop": recent, "seed": done})] * readings, lab_state({"shop": later, "seed": done}))
+        run = attempt(lab)
+        run.settle()
+        self.assertEqual([(step.name, step.ok) for step in run.steps], [("Containers are up", True)])
 
     def test_a_platform_in_an_issue_ends_the_wait_too(self):
         state = lab_state({"shop": UP})
