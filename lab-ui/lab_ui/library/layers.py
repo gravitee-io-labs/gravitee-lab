@@ -1499,11 +1499,14 @@ def starting(names):
     return [[*compose.COMPOSE, "up", "-d", "--no-deps", *names]] if names else []
 
 
-def unchanged(plan):
+def unchanged(plan, undo=None):
     """Ends the job of a plan before it changes anything when the on file was written since the plan read it (its
     `stamp`): what the plan would do undoes what another job did meanwhile (CHANGED). Every plan's job asks it first
-    (steps()); write() asks again, for an edit by hand while the job runs."""
+    (steps()); write() asks again, for an edit by hand while the job runs. `undo`: what puts back what the action wrote
+    before its job (the versions a playground's start saved), called when the job ends here, having done nothing."""
     if plan.get("stamp") is not None and stamp() != plan["stamp"]:
+        if undo:
+            undo()
         raise JobFailed(CHANGED)
 
 
@@ -1522,15 +1525,15 @@ def swapping(project, plan, uid, gateway):
     return swap
 
 
-def steps(project, plan, start=None, swap=None):
+def steps(project, plan, start=None, swap=None, undo=None):
     """The steps of the job of a plan, in the order that leaves the lab as it says wherever the job ends (it fails, it
     is canceled, the Lab UI stops): nothing for a plan the on file changed since (unchanged()); then what goes is
     removed, while the on file still names it, so that it is on and stopped rather than off and still running, which
     would read as started by hand; then a gateway's token is swapped (`swap`, the step swapping() makes, when the plan
     starts one that does not run here); then the on file is written (written()); then what starts and restarts, by name
     (commands()). `start`: the services the last one names, when they are more than the plan's (a playground's product,
-    stopped to load its plugins)."""
-    return [lambda job: unchanged(plan), *_removal(plan["services"]["remove"]), *([swap] if swap else []),
+    stopped to load its plugins). `undo`: the first gate's (unchanged())."""
+    return [lambda job: unchanged(plan, undo), *_removal(plan["services"]["remove"]), *([swap] if swap else []),
             lambda job: written(job, project, plan), *starting(plan["services"]["start"] if start is None else start)]
 
 
@@ -1613,9 +1616,10 @@ def waits(project, plan):
     return ([awaited(services, stop=remove)] if remove else []) + ([awaited(services, start=start)] if start else [])
 
 
-def apply(project, plan, title):
+def apply(project, plan, title, undo=None):
     """Runs the plan of an add-on, a setup or a playground already set up as a job (steps()), once check() let it
     through. When it fails the on file stays as written: the item is on, does not run, and can be started again or
-    stopped; when it fails before (what goes could not be removed), nothing is written and what was on stays on."""
-    return JOBS.start(title, steps(project, plan), key=f"{plan['kind']}:{plan['id']}",
+    stopped; when it fails before (what goes could not be removed), nothing is written and what was on stays on.
+    `undo`: what its first gate puts back when it ends the job (unchanged())."""
+    return JOBS.start(title, steps(project, plan, undo=undo), key=f"{plan['kind']}:{plan['id']}",
                       verb=plan["do"], changes=changes(project, plan), waits=waits(project, plan))

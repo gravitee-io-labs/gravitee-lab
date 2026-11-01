@@ -791,6 +791,49 @@ class Playgrounds(Case):
         self.assertEqual({path: (self.root / path).read_text(encoding="utf-8") for path in (kiosk, mine)},
                          {kiosk: "# Kiosk\n", mine: "# Welcome\n"})
 
+    def kiosk_switch(self):
+        """The welcome's app and the add-on Kiosk run the same image, on one version variable, which its start switches:
+        saved to both units' .env. Answers the two files, as they are before the start."""
+        self.patch(envfiles, "ROOT", self.root)
+        self.jobs.current = None
+        for name in ("hello-app", "kiosk"):
+            self.project["services"][name].update(raw_image="example/kiosk:${KIOSK_VERSION:-1.0.0}", tag="1.0.0",
+                                                   image="example/kiosk:1.0.0")
+        welcome = self.project["playgrounds"]["welcome"]
+        welcome["requires"] = {"images": {"KIOSK_VERSION": "2.0.0"}}
+        welcome["tested"] = [{"KIOSK_VERSION": "2.0.0"}]
+        self.patch(plugins, "install_steps", lambda project, product, names: ([], [], {}))
+        kiosk, mine = paths.unit_env("addon", "kiosk"), paths.unit_env("playground", "welcome")
+        self.write(kiosk, "# Kiosk\n")
+        self.write(mine, "# Welcome\n")
+        return {kiosk: "# Kiosk\n", mine: "# Welcome\n"}
+
+    def test_a_start_whose_plan_read_an_on_file_written_since_saves_no_version(self):
+        # Another tab's job wrote the on file after this start's plan read it: refused at once, nothing written
+        before = self.kiosk_switch()
+        self.patch(playgrounds.projects, "load", return_value=self.project)
+        self.state = {**self.state, "stamp": "read by the plan"}
+        with self.assertRaisesRegex(RuntimeError, f"^{re.escape(layers.CHANGED)}$"):
+            playgrounds.start(self.project, "welcome", ["version:KIOSK"])
+        self.assertEqual({path: (self.root / path).read_text(encoding="utf-8") for path in before}, before)
+        self.jobs.start.assert_not_called()
+
+    def test_a_start_whose_job_ends_on_a_stale_plan_puts_back_the_versions_it_saved(self):
+        # Another tab's job writes the on file once this start saved its versions, before its job begins: the job ends
+        # on its first gate, having done nothing, and both files are what they were
+        before = self.kiosk_switch()
+        self.state = {**self.state, "stamp": layers.stamp()}
+
+        def meanwhile():
+            (self.root / paths.ON_FILE).parent.mkdir(exist_ok=True)
+            (self.root / paths.ON_FILE).write_text("include:\n  - addons/kiosk/compose.yml\n", encoding="utf-8")
+            return self.project
+        self.patch(playgrounds.projects, "load", side_effect=meanwhile)
+        playgrounds.start(self.project, "welcome", ["version:KIOSK"])
+        job, commands = ran(self.started(self.jobs)[1])
+        self.assertEqual((job.ok, job.error(), commands), (False, layers.CHANGED, []))
+        self.assertEqual({path: (self.root / path).read_text(encoding="utf-8") for path in before}, before)
+
     def test_no_version_changes_while_a_job_runs_or_for_a_start_that_is_refused(self):
         self.switching()
         saved = self.patch(playgrounds.images, "save")

@@ -687,8 +687,9 @@ def start(project, pid, accept, place=None, remove=False, switching=False):
     This machine it is _deploy's. `remove`: the playground that this one stops has what it created deleted first, as its
     own stop would (it is kept otherwise). `switching`: the person chose the versions it was tested with; it goes to
     them anyway when the ones saved are older than it asks. The versions are saved once nothing refuses the start (its
-    plan, what it deletes, a job that runs), and put back when its job cannot start after all: what runs on them is made
-    again with the start (the plan's restarts)."""
+    plan, what it deletes, a job that runs, an on file written since the plan read it), and put back when its job cannot
+    start after all, or ends at its first gate, having done nothing (layers.unchanged): what runs on them is made again
+    with the start (the plan's restarts)."""
     if _remote(place):
         return _deploy(project, pid, accept, place, False, remove)
     playground = layers.lookup(project, "playground", pid)
@@ -700,9 +701,11 @@ def start(project, pid, accept, place=None, remove=False, switching=False):
         return _started(project, plan, delete)
     if JOBS.current and not JOBS.current.done:   # the versions are not changed under a job that runs
         raise RuntimeError(f"'{JOBS.current.title}' is still running")
+    if plan.get("stamp") is not None and layers.stamp() != plan["stamp"]:   # nor for a job that would end at once
+        raise RuntimeError(layers.CHANGED)
     undo = _saved(project, plan["switch"])
     try:   # read again: the plugins the new images bring, and the versions the start records once it worked
-        return _started(projects.load(), plan, delete)
+        return _started(projects.load(), plan, delete, undo)
     except BaseException:
         undo()
         raise
@@ -725,15 +728,15 @@ def _saved(project, values):
     return undo
 
 
-def _started(project, plan, delete):
+def _started(project, plan, delete, undo=None):
     """The job of the start of a playground on This machine, its plan checked (start()): one that runs it again like an
     add-on's (layers.apply), or one that sets it up. `delete`: the step that deletes what the playground it stops
-    created (_leaving), or None."""
+    created (_leaving), or None. `undo`: what puts back the versions start() saved when the job ends at its first gate."""
     pid = plan["id"]
     playground = project["playgrounds"][pid]
     title = f"{plan['label']} {playground['name']}"
     if not plan["fresh"]:
-        return layers.apply(project, plan, title)
+        return layers.apply(project, plan, title, undo)
     phase = WITH_PLATFORM if any(_of_platform(project, row) for row in plan["starts"]) else APPS
     installs, changes, loads, stopped = [], layers.changes(project, plan), {}, []
     for product, names in (playground["requires"].get("plugins") or {}).items():
@@ -771,7 +774,7 @@ def _started(project, plan, delete):
     # seed has nothing to count
     waits = ([loads] if installs else []) + [awaited(project["services"], start=named, stop=remove)] \
         + ([None] if seed else [])
-    steps, phases, waits = _before(plan, delete, steps, phases, waits)
+    steps, phases, waits = _before(plan, delete, steps, phases, waits, undo)
     return _job(title, steps, pid, "start", phases, waits, changes)
 
 
@@ -866,11 +869,11 @@ def _leaving(project, state, plan, remove):
     return _delete_created(project, leaving, _reachable(project, leaving, state))
 
 
-def _before(plan, step, steps, phases, waits):
+def _before(plan, step, steps, phases, waits, undo=None):
     """The steps, phases and waits of the job of a plan, with what comes before them: the end of the job when the on
-    file changed since the plan (layers.unchanged), before anything changes; then the step that deletes what a playground
-    created, when there is one (`step`): it says nothing of how far it is."""
-    first = [lambda job: layers.unchanged(plan), *([step] if step else [])]
+    file changed since the plan (layers.unchanged, which calls `undo` then), before anything changes; then the step that
+    deletes what a playground created, when there is one (`step`): it says nothing of how far it is."""
+    first = [lambda job: layers.unchanged(plan, undo), *([step] if step else [])]
     return [*first, *steps], (["Delete what it created"] + phases if step else phases), \
         ([None] + waits if step else waits)
 
