@@ -38,7 +38,6 @@ from .paths import ON_FILE, ROOT
 OK, FAILED, CANNOT = 0, 1, 2
 POLL = 3            # seconds between two readings of the state while waiting
 SETTLE = 300        # seconds a started item has to be up: its containers healthy, nothing in an issue
-STUCK = 60          # seconds a container may stay in an issue while the start runs: it keeps restarting, and the start waits for it
 CANCEL_WAIT = 60    # seconds a canceled job has to end, before what the run made is removed
 CONSOLES = 90       # seconds a console has to answer, once everything is up
 LOG_LINES = 80      # lines of the log of a container that is not up, which the report prints
@@ -261,9 +260,9 @@ class Run:
 
     def start(self, timeout):
         """Asks for the start as the item's button does, then waits for its job. A start the Lab UI itself says cannot happen
-        here (no license, a setting to give) is Unable: nothing was tried. A container that stays in an issue while the job
-        runs (it keeps restarting: Compose waits for it for ever) fails the start, as the time it was given does, and the job
-        is canceled and has ended before anything is removed."""
+        here (no license, a setting to give) is Unable: nothing was tried. A container that Compose waits for and that stays
+        in an issue ends the job, which says which (jobs.STUCK). A job that outlasts the time it was given is canceled, and
+        has ended before anything is removed."""
         item = self.unit()
         action = item.get("action") or {}
         if not action.get("enabled", True):
@@ -279,34 +278,14 @@ class Run:
                 job = self.lab.call("POST", route, {"accept": accept})
             except RuntimeError as error:
                 raise Failed(str(error)) from None
-            since = {}   # the containers in an issue, and since when
-
-            def ended(state):
-                found = state.get("job")
-                if found and found["id"] == job["id"] and found["done"]:
-                    return found
-                self.stuck(state, since)
-                return None
             try:
-                done = self.wait(ended, timeout, "the start")
+                done = self.wait(lambda state: state["job"] if state.get("job") and state["job"]["id"] == job["id"]
+                                 and state["job"]["done"] else None, timeout, "the start")
             except Failed:
                 self.cancel(job["id"])
                 raise
             if not done["ok"]:
                 raise Failed(done.get("error") or "the start failed")
-
-    def stuck(self, state, since):
-        """Failed when a container has been in an issue for STUCK seconds; `since` keeps when each one went into it."""
-        now = self.clock()
-        issues = {name: one["state"] for name, one in state["services"].items() if (one.get("state") or {}).get("key") == "issue"}
-        for name in set(since) - set(issues):
-            del since[name]
-        for name in issues:
-            since.setdefault(name, now)
-        late = sorted(name for name in issues if now - since[name] >= STUCK)
-        if late:
-            raise Failed(f"{', '.join(late)} in an issue for {int(STUCK)} s: "
-                         + ", ".join(issues[name].get("label") or "no reason" for name in late))
 
     def cancel(self, jid):
         """Cancels the job as its button does, and waits for it to end: its command ends with it."""
