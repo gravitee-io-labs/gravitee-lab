@@ -79,7 +79,7 @@ What a seed makes, it makes in this order only where one thing depends on anothe
   its failure is the last line of the output.
 
 A step that is new says what it depends on (`DEPENDS`) and goes through `common.parallel` or `common.together` for what is
-independent in it; a request goes through `Api` (or `with common.slot():`), a wait through `pause`, and a record through
+independent in it; a request goes through `Api`, a wait through `pause`, and a record through
 `common.record`, which is safe to call from several steps.
 
 ## Settings

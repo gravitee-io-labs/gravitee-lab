@@ -52,6 +52,18 @@ class Apis(Seed):
         self.assertEqual([(x["name"], x["id"]) for x in common.created()], [("Example LLM", "new")])
 
 
+    def test_an_import_that_gets_no_answer_in_time_ends_the_seed_with_its_reason_in_words(self):
+        """The Lab shows the last line as the reason: never a line of a traceback of requests."""
+        self.seed_files({"apim/apis/llms.json": json.dumps(self.DEFINITION)})
+        self.answer({("GET", f"{V2}/apis"): (200, {"data": [], "pagination": {"pageCount": 1}}),
+                     ("POST", f"{V2}/apis/_import/definition"): requests.ReadTimeout(
+                         "HTTPConnectionPool(host='apim', port=8083): Read timed out. (read timeout=30)")})
+        self.assertEqual(self.main(), 1)
+        self.assertEqual(self.output().splitlines()[-1],
+                         f"[seed] ✗ POST {V2}/apis/_import/definition: no answer in 30 s")
+        self.assertEqual(len(self.platform.sent("POST", f"{V2}/apis/_import/definition")), 1, "the platform may have made it")
+
+
 class Engines(Seed):
 
     SPEC = {"type": "openfga", "name": "OpenFGA", "store": "Documents", "connectionUri": "http://openfga:8180"}
@@ -237,6 +249,8 @@ class Modules(Seed):
             self.assertEqual(self.main(), 1)
         shown.assert_called_once()
         self.assertNotIn("Playground ready", self.output())
+        self.assertEqual(self.output().splitlines()[-1],
+                         "[seed] ✗ The seed stopped on an error it did not expect: the lines above say where")
 
     def test_a_playground_that_seeds_nothing_needs_no_setting_and_makes_no_call(self):
         with mock.patch.dict(os.environ, {}, clear=True):
@@ -324,7 +338,7 @@ class Fakes(Seed):
     def test_an_exception_is_raised(self):
         self.answer({("GET", "/down"): [requests.ConnectionError("down"), 200]})
         with self.assertRaises(requests.ConnectionError):
-            self.get("/down")
+            common.Api("http://apim").send("GET", "/down")
         self.assertEqual(self.get("/down").status_code, 200)
 
     def test_a_call_no_route_answers_fails_the_test(self):

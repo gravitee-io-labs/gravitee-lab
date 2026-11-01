@@ -10,6 +10,7 @@ from pathlib import Path
 
 import requests
 import yaml
+from urllib3.exceptions import NewConnectionError
 
 SEED_DIR = Path(os.getenv("SEED_DIR", "/seed"))
 STATE_FILE = Path(os.getenv("STATE_DIR", "/state")) / "created.json"
@@ -85,12 +86,6 @@ def failure():
 def check():
     if STOP.is_set():
         raise Stopped("stopped: another step failed")
-
-
-def slot():
-    """What a request of one's own (another client than Api) holds while it is in flight: `with slot(): ...`"""
-    check()
-    return _gate
 
 
 def pause(seconds):
@@ -432,27 +427,83 @@ def has_seed(*paths):
 
 
 # --- HTTP -------------------------------------------------------------------------------
+# One policy for every request of the seed. A request the platform could not answer now (no connection, no answer in time, a
+# 5xx, a 429) is sent again, RETRIES times RETRY_PAUSE seconds apart, when sending it again cannot make a second object: a GET,
+# a PUT or a DELETE, a POST its caller says is idempotent (a deployment, a start), and any request the platform did not take
+# (the connection could not be made, a 429 or a 503). A POST or a PATCH whose answer is lost is not sent again: the platform
+# may have made what it asked for (see `making`). Then the seed stops with what happened, in words. Inside a wait
+# (`wait_until`) a request is sent once: the wait asks again itself.
+
+TIMEOUT = 30   # seconds a request waits for its answer, unless it says otherwise
+RETRIES = 7   # times a request the platform could not answer now is sent again, before the seed stops
+RETRY_PAUSE = 8   # seconds before each: a management API that restarts is back within about a minute
+REPEATABLE = ("GET", "HEAD", "OPTIONS", "PUT", "DELETE")   # what may be sent again whatever became of the first
+NOT_TAKEN = (429, 503)   # what a platform answers for a request it did not take
+BUSY = (500, 502, 504) + NOT_TAKEN   # what it answers when it cannot answer now
+OK = range(200, 300)
+_local = threading.local()   # `waiting`: whether this thread is in a wait_until, which asks again itself
+
+
+def unsent(error):
+    """Whether a request that failed never reached the platform: its connection could not be made."""
+    if isinstance(error, requests.ConnectTimeout):
+        return True
+    reason = getattr(error.args[0], "reason", None) if error.args else None
+    return isinstance(reason, NewConnectionError)
+
+
+def trouble(error, timeout=None):
+    """What happened to a request that got no answer, in words: the library's own text names addresses and internals."""
+    if unsent(error):
+        return "cannot connect"
+    if isinstance(error, requests.Timeout):
+        return f"no answer in {timeout} s" if timeout else "no answer in time"
+    return "the connection was cut"
+
 
 class Api:
-    """A JSON HTTP client that reports the response body on errors."""
+    """A JSON HTTP client that reports the response body on errors. `section` prefixes what it says when it asks again."""
 
-    def __init__(self, base_url):
-        self.base_url = base_url.rstrip("/")
+    def __init__(self, base_url, section="seed"):
+        self.base_url, self.section = base_url.rstrip("/"), section
         self.session = requests.Session()
         self.session.headers["Content-Type"] = "application/json"
 
     def send(self, method, path, **kwargs):
-        """One request, whatever the answer. At most SEED_WORKERS are in flight at once, and none starts once the seed stops."""
+        """One request, whatever the answer, within TIMEOUT seconds unless it gives its own. At most SEED_WORKERS are in
+        flight at once, and none starts once the seed stops."""
         check()
+        kwargs.setdefault("timeout", TIMEOUT)
         with _gate:
             return self.session.request(method, self.base_url + path, **kwargs)
 
-    def call(self, method, path, expect=range(200, 300), timeout=30, **kwargs):
-        """A status out of `expect` (any 2xx by default) is an error. `timeout` is in seconds, for what takes long."""
-        r = self.send(method, path, timeout=timeout, **kwargs)
-        if r.status_code not in expect:
-            raise HttpError(f"{method} {path}: HTTP {r.status_code} {excerpt(r.text)}", r.status_code, r.text)
-        return r
+    def busy(self, response):
+        """Whether an answer says the platform cannot answer now, rather than anything about the request."""
+        return response.status_code in BUSY
+
+    def call(self, method, path, expect=OK, timeout=TIMEOUT, what=None, idempotent=None, **kwargs):
+        """The answer to a request, sent again as the policy above says. A status out of `expect` (any 2xx by default) is an
+        HttpError; no answer is a SeedError. `what` names the request in what is said (its method and path by default);
+        `idempotent` says that a POST or a PATCH may be sent again (a GET, a PUT or a DELETE may)."""
+        said = what or f"{method} {path}"
+        repeatable = method.upper() in REPEATABLE if idempotent is None else idempotent
+        tries = 1 if getattr(_local, "waiting", False) else RETRIES + 1
+        for attempt in range(1, tries + 1):
+            tried = f" ({attempt} tries)" if attempt > 1 else ""
+            try:
+                r = self.send(method, path, timeout=timeout, **kwargs)
+            except requests.RequestException as e:
+                problem = trouble(e, timeout)
+                if attempt == tries or not (repeatable or unsent(e)):
+                    raise SeedError(f"{said}: {problem}{tried}") from None
+            else:
+                if r.status_code in expect:
+                    return r
+                problem = f"HTTP {r.status_code}"
+                if attempt == tries or not (self.busy(r) and (repeatable or r.status_code in NOT_TAKEN)):
+                    raise HttpError(f"{said}: {problem} {excerpt(r.text)}".rstrip() + tried, r.status_code, r.text)
+            log(self.section, f"! {said}: {problem}, trying again in {RETRY_PAUSE} s ({attempt}/{RETRIES})")
+            pause(RETRY_PAUSE)
 
     def get(self, path, **kw):
         return self.call("GET", path, **kw)
@@ -472,23 +523,35 @@ class Api:
 
 
 POLLS = (0.5, 1, 2, 3)   # seconds before each look again at what is not ready: the first looks are close, then every 3 s
+REFUSED = (400, 401, 403)   # what a management API answers to credentials or ids it will never take: `final` of its first wait
 
 
-def wait_until(section, what, probe, timeout=READY_TIMEOUT):
-    """Retries probe() until it returns without an error: management APIs answer before they are fully started. A
-    probe that raises Gone ends the wait at once."""
+def wait_until(section, what, probe, timeout=READY_TIMEOUT, final=()):
+    """Retries probe() until it returns without an error: management APIs answer before they are fully started. A probe
+    that raises Gone, or an HttpError of a status in `final` (REFUSED for the first call to a platform: a wrong password,
+    token or environment id is not fixed by waiting), ends the wait at once. A request of the probe is sent once: the wait
+    is what asks again."""
     deadline = time.time() + timeout
     last, looks = None, 0
     log(section, f"Waiting for {what}")
     while time.time() < deadline:
+        waiting, _local.waiting = getattr(_local, "waiting", False), True
         try:
             probe()
             log(section, f"✓ {what} ready")
             return
         except Gone:
             raise
-        except (requests.RequestException, SeedError) as e:
+        except HttpError as e:
+            if e.status in final:
+                raise SeedError(f"{what}: {e}") from None
             last = e
+        except requests.RequestException as e:
+            last = trouble(e)
+        except SeedError as e:
+            last = e
+        finally:
+            _local.waiting = waiting
         pause(POLLS[min(looks, len(POLLS) - 1)])
         looks += 1
     raise SeedError(f"{what} not ready after {timeout} s" + (f": {last}" if last else ""))

@@ -39,7 +39,7 @@ from . import controls
 from . import gamma
 from .aim_workspaces import subset
 from .apim import merge
-from .common import (Api, SeedError, created, files, has_seed, load, log, owned, record, recorded, setting, wait_until,
+from .common import (Api, SeedError, trouble, created, files, has_seed, load, log, owned, record, recorded, setting, wait_until,
                     waits_for_gateway)
 
 SECTION = "aim-proxies"
@@ -533,7 +533,7 @@ class McpProxies:
                 answer = Api(gateway).send("POST", path, json=hello, timeout=15,
                                            headers={"Accept": "application/json, text/event-stream"})
             except requests.RequestException as e:
-                raise SeedError(one_line(e)) from None
+                raise SeedError(trouble(e, 15)) from None
             if answer.status_code != 401:
                 raise SeedError(f"HTTP {answer.status_code} without a token, 401 expected")
 

@@ -51,7 +51,7 @@ import yaml
 
 from . import aim_proxies
 from . import common
-from .common import Api, SeedError, excerpt, files, has_seed, load, log, owned, parallel, record, wait_until
+from .common import Api, SeedError, excerpt, files, has_seed, load, log, owned, parallel, record, trouble, wait_until
 from .gamma import CATALOG, Gamma
 
 SECTION = "aim-catalog"
@@ -342,7 +342,7 @@ class McpServer:
         try:
             answer = self.api.send("POST", "", json=body, headers=self.headers, timeout=30)
         except requests.RequestException as e:
-            raise SeedError(f"MCP {method} at {self.url}: {e}")
+            raise SeedError(f"MCP {method} at {self.url}: {trouble(e, 30)}") from None
         if answer.status_code >= 400:
             raise SeedError(f"MCP {method} at {self.url}: HTTP {answer.status_code} {excerpt(answer.text, 200)}")
         if "Mcp-Session-Id" in answer.headers:

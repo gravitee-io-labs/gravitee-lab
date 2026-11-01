@@ -64,8 +64,8 @@ import requests
 
 from . import controls
 from . import common
-from .common import (Api, HttpError, SeedError, created, excerpt, files, folders, later, load, log, owned, parallel, pause, together,
-                    record, recorded, save_created, seed_file, setting, wait_until)
+from .common import (OK, REFUSED, Api, HttpError, SeedError, created, excerpt, files, folders, later, load, log, owned, parallel, pause,
+                     together, record, recorded, save_created, seed_file, setting, wait_until)
 
 SECTION = "apim"
 DEPENDS = ()   # the modules whose work this one reads on the platform: none, so it runs at the start (schedule.py)
@@ -87,8 +87,6 @@ IN_ENVIRONMENT = ("subscription", "application", "api", "group", "membership")  
 NO_API = "No context-path matches"   # what the gateway answers for a path no API serves
 LOOK_AGAIN = 1   # seconds between two looks at the gateway
 APPEARS = 20   # looks at the list of users, half a second apart, for one that a group has just made
-RETRIES = 4   # times an update that got no answer (a connection that fails, a timeout) or a 5xx or a 429 is tried again, before the seed fails
-RETRY_PAUSE = 8   # seconds before each: a management API that reloads is back within about half a minute
 UNSUPPORTED = (404, 405, 501)   # what a platform answers for an update it does not offer on this API: the only refusal that has it imported again
 SYNC_PAUSE = 10   # seconds: two sync periods of the gateway, for a replaced API when there is no gateway to look at
 QUESTION = "In one short sentence, what is an API?"   # no digit: a cache condition may leave out a question that has one
@@ -166,7 +164,7 @@ class ApiManagement:
     """API Management as one environment sees it: the platform's own (APIM_ENV) unless `env` names another."""
 
     def __init__(self, env=None):
-        self.api = Api(setting("APIM_MANAGEMENT_URL"))
+        self.api = Api(setting("APIM_MANAGEMENT_URL"), SECTION)
         self.org = setting("APIM_ORG", "DEFAULT")
         self.path = setting("APIM_MANAGEMENT_PATH", "/management")   # /apim/rest on the Cloud Gate of Gravitee Cloud
         self.own, self.env = env is None, env or setting("APIM_ENV", "DEFAULT")
@@ -185,7 +183,7 @@ class ApiManagement:
         self.portal = f"{setting('APIM_PORTAL_PATH', '/portal')}/environments/{self.env}"
         # The Automation API is the one of Gamma (`AIM_AUTOMATION_URL`): where a platform serves it from another host
         root = setting("AIM_AUTOMATION_URL", setting("APIM_MANAGEMENT_URL"))
-        self.automation = Api(f"{root}/automation/organizations/{self.org}/environments/{self.env}")
+        self.automation = Api(f"{root}/automation/organizations/{self.org}/environments/{self.env}", SECTION)
         self.automation.session = self.api.session   # one login for every address
         self.known = None   # the APIs of the environment, listed once and kept up to date as this seed makes them (apis())
         self.groups_by_hrid = {}   # hrid -> {"id", "name"} of the groups of this environment, as groups() finds or makes them
@@ -214,7 +212,7 @@ class ApiManagement:
             self.api.session.headers["Authorization"] = f"Bearer {token}"
         else:
             self.api.session.auth = (setting("APIM_USERNAME"), setting("APIM_PASSWORD"))
-        wait_until(SECTION, "API Management", lambda: self.api.get(f"{self.v2}/apis", params={"perPage": 1}))
+        wait_until(SECTION, "API Management", lambda: self.api.get(f"{self.v2}/apis", params={"perPage": 1}), final=REFUSED)
 
     def watch(self):
         """Looks at the gateway of GATEWAY_INTERNAL_URL from now on, every wait for it ending at the same deadline. A
@@ -317,7 +315,7 @@ class ApiManagement:
         if state and not recorded(SECTION, "group", state["id"]):
             raise SeedError(f"Group {label}: the hrid is taken by a group the seed did not create")
         if not state or not covers(state, {key: body[key] for key in ("name", "notifyMembers") if key in body}) or lacking(state, members):
-            written = self.asked(label, lambda: self.automation.put("/groups", json=body, expect=range(200, 600)), kind="Group").json()
+            written = self.automation.put("/groups", json=body, what=f"Group {label}").json()
             severe = (written.get("errors") or {}).get("severe")
             if severe:
                 raise SeedError(f"Group {label}: {excerpt(severe, 300)}")
@@ -387,7 +385,7 @@ class ApiManagement:
         current = self.api.get(f"{self.v1}/settings").json()
         wanted = merge(copy.deepcopy(current), extra)
         if wanted != current:
-            self.api.post(f"{self.v1}/settings", json=wanted)
+            self.api.post(f"{self.v1}/settings", json=wanted, idempotent=True)   # the whole settings, as they are to be
         log(SECTION, f"✓ Environment settings: {', '.join(extra)}")
 
     # --- APIs -----------------------------------------------------------------------------
@@ -545,44 +543,23 @@ class ApiManagement:
         else:
             log(SECTION, f"Controls of {name} are {state}: {controls.named(found)}")
         if deploy and (changed or live.get("deploymentState") != "DEPLOYED"):
-            self.asked(name, lambda: self.api.post(f"{self.v2}/apis/{api_id}/deployments", json={"deploymentLabel": "Playground seed"},
-                                                   expect=range(200, 600)))
+            self.api.post(f"{self.v2}/apis/{api_id}/deployments", json={"deploymentLabel": "Playground seed"}, what=f"API {name}",
+                          idempotent=True)
             controls.touched()
             log(SECTION, "  ✓ Deployed")
         return True
 
-    def asked(self, name, ask, passed=(), kind="API"):
-        """The response of `ask()`, a call of the management API, asked again after a pause when the platform cannot answer now: a
-        connection that fails or times out as much as a 5xx or a 429, RETRIES times, and then the seed stops with what it said. Any other
-        refusal (a 400, 401, 403, 409, 422...) stops the seed at once with the platform's message: a request the platform finds wrong
-        would be found wrong again. A status in `passed` is handed back to the caller, which says what it means."""
-        for attempt in range(RETRIES + 1):
-            try:
-                response = ask()
-            except requests.RequestException as e:
-                short = said = f"no answer from the management API: {type(e).__name__}"   # its address is no help to a reader
-            else:
-                if response.ok or response.status_code in passed:
-                    return response
-                short, said = f"HTTP {response.status_code}", f"HTTP {response.status_code} {excerpt(response.text, 300)}"
-                if response.status_code < 500 and response.status_code != 429:
-                    raise SeedError(f"{kind} {name}: {said}")
-            if attempt == RETRIES:
-                raise SeedError(f"{kind} {name}: {said} ({RETRIES + 1} tries)")
-            log(SECTION, f"! {name}: {short}, trying again")
-            pause(RETRY_PAUSE)
-
     def entity(self, api_id, name):
         """The entity of an API as APIM holds it now. Read with the same patience as its update: a management API that reloads between two
         APIs of a seed would otherwise end it with a connection error, or with the replacement of an API that was only busy."""
-        return self.asked(name, lambda: self.api.get(f"{self.v2}/apis/{api_id}", expect=range(200, 600))).json()
+        return self.api.get(f"{self.v2}/apis/{api_id}", what=f"API {name}").json()
 
     def update_entity(self, api_id, live, name):
         """The update of an API from the entity APIM gave. True when it is done. False only when the platform does not offer
         it (UNSUPPORTED: 404, 405 or 501): the caller imports the API again. A platform that cannot answer now is asked again
-        (see `asked`): replacing an API because its platform was busy, or because the seed sent something wrong, would cost it a
+        (`common.Api.call`): replacing an API because its platform was busy, or because the seed sent something wrong, would cost it a
         deletion and the gateway a reload."""
-        update = self.asked(name, lambda: self.api.put(f"{self.v2}/apis/{api_id}", json=live, expect=range(200, 600)), UNSUPPORTED)
+        update = self.api.put(f"{self.v2}/apis/{api_id}", json=live, expect=(*OK, *UNSUPPORTED), what=f"API {name}")
         if update.ok:
             return True
         log(SECTION, f"! {name}: HTTP {update.status_code} {excerpt(update.text, 300)}: the platform does not update it in place")
@@ -616,7 +593,7 @@ class ApiManagement:
             log(SECTION, f"✓ API updated: {name}")
         elif r.status_code in (404, 405, 500) and "conflict" not in r.text.lower():
             # Some API types cannot be updated from a definition (LLM and A2A proxies): replace them
-            self.api.post(f"{self.v2}/apis/{api_id}/_stop", expect=ENDED)
+            self.api.post(f"{self.v2}/apis/{api_id}/_stop", expect=ENDED, idempotent=True)
             self.api.delete(f"{self.v2}/apis/{api_id}", params={"closePlans": "true"})
             self.until_dropped(name, self.first_path(live))
             api_id = self.imported(definition, name)
@@ -648,9 +625,9 @@ class ApiManagement:
         current = self.api.get(f"{self.v2}/apis/{api_id}").json()
         if current.get("lifecycleState") != "PUBLISHED":
             self.api.put(f"{self.v2}/apis/{api_id}", json={**current, "lifecycleState": "PUBLISHED"})
-        self.api.post(f"{self.v2}/apis/{api_id}/deployments", json={"deploymentLabel": "Playground seed"})
+        self.api.post(f"{self.v2}/apis/{api_id}/deployments", json={"deploymentLabel": "Playground seed"}, idempotent=True)
         if current.get("state") != "STARTED":
-            self.api.post(f"{self.v2}/apis/{api_id}/_start", expect=(200, 202, 204, 400))
+            self.api.post(f"{self.v2}/apis/{api_id}/_start", expect=(200, 202, 204, 400), idempotent=True)
         log(SECTION, "  ✓ Published, deployed, started")
 
     def keep_plans(self, api_id, definition):
@@ -1010,7 +987,7 @@ def remove(records):
                 log(SECTION, f"✓ Deleted {x['kind']} '{x['name']}': its environment is gone")
                 return False
         if x["kind"] == "subscription":
-            apim.api.post(f"{apim.v2}/apis/{x['api']}/subscriptions/{x['id']}/_close", expect=ENDED)
+            apim.api.post(f"{apim.v2}/apis/{x['api']}/subscriptions/{x['id']}/_close", expect=ENDED, idempotent=True)
         elif x["kind"] == "application":
             apim.api.delete(f"{apim.v1}/applications/{x['id']}")
         elif x["kind"] == "group":
@@ -1025,7 +1002,7 @@ def remove(records):
             apim.api.put(f"{apim.org_v1}/users/{x['id']}/roles",
                          json={"user": x["id"], "referenceType": "ENVIRONMENT", "referenceId": apim.env, "roles": []})
         else:
-            apim.api.post(f"{apim.v2}/apis/{x['id']}/_stop", expect=ENDED)
+            apim.api.post(f"{apim.v2}/apis/{x['id']}/_stop", expect=ENDED, idempotent=True)
             apim.api.delete(f"{apim.v2}/apis/{x['id']}", params={"closePlans": "true"})
         log(SECTION, f"✓ Deleted {x['kind']} '{x['name']}'")
         return False

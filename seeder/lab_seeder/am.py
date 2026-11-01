@@ -22,7 +22,7 @@ file's: it is never generated, read back or logged.
 import json
 import os
 
-from .common import Api, SeedError, files, items, load, log, owned, record, recorded, seed_file, setting, wait_until
+from .common import REFUSED, Api, SeedError, files, items, load, log, owned, record, recorded, seed_file, setting, wait_until
 
 SECTION = "am"
 DEPENDS = ("openfga",)   # the modules whose work this one reads on the platform (schedule.py)
@@ -68,12 +68,12 @@ class AmApi(Api):
     """The AM management API. A token from a login lasts about a minute, so a request it refuses is sent again after
     logging in once more."""
 
-    def __init__(self, base_url):
-        super().__init__(base_url)
+    def __init__(self, base_url, section):
+        super().__init__(base_url, section)
         self.credentials = None   # none with a token (AM_TOKEN): there is nothing to log in with
 
     def login(self):
-        r = self.post("/management/auth/token", auth=self.credentials, headers={"Content-Type": None})
+        r = self.post("/management/auth/token", auth=self.credentials, headers={"Content-Type": None}, idempotent=True)
         self.session.headers["Authorization"] = f"Bearer {r.json()['access_token']}"
 
     def send(self, method, path, **kwargs):
@@ -86,7 +86,7 @@ class AmApi(Api):
 
 class AccessManagement:
     def __init__(self):
-        self.api = AmApi(setting("AM_MANAGEMENT_URL"))
+        self.api = AmApi(setting("AM_MANAGEMENT_URL"), SECTION)
         self.org, self.env = setting("AM_ORG", "DEFAULT"), setting("AM_ENV", "DEFAULT")
         self.org_url = f"/management/organizations/{self.org}"
         self.env_url = f"{self.org_url}/environments/{self.env}"
@@ -98,10 +98,10 @@ class AccessManagement:
         token = os.getenv("AM_TOKEN")
         if token:
             self.api.session.headers["Authorization"] = f"Bearer {token}"
-            wait_until(SECTION, "Access Management", lambda: self.api.get(f"{self.env_url}/domains"))
+            wait_until(SECTION, "Access Management", lambda: self.api.get(f"{self.env_url}/domains"), final=REFUSED)
             return
         self.api.credentials = (setting("AM_USERNAME"), setting("AM_PASSWORD"))
-        wait_until(SECTION, "Access Management", self.api.login)
+        wait_until(SECTION, "Access Management", self.api.login, final=REFUSED)
 
     # --- Domain ---------------------------------------------------------------------------
 

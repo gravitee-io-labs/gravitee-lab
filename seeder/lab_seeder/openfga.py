@@ -17,7 +17,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from .common import Api, SeedError, files, load, log, owned, record, setting, wait_until
+from .common import REFUSED, Api, SeedError, files, load, log, owned, record, setting, wait_until
 
 SECTION = "openfga"
 DEPENDS = ()   # the modules whose work this one reads on the platform: none, so it runs at the start (schedule.py)
@@ -60,8 +60,8 @@ def seed():
     paths = files("openfga")
     if not paths:
         return {}
-    api = Api(setting("OPENFGA_API_URL"))
-    wait_until(SECTION, "OpenFGA", lambda: api.get("/stores"))
+    api = Api(setting("OPENFGA_API_URL"), SECTION)
+    wait_until(SECTION, "OpenFGA", lambda: api.get("/stores"), final=REFUSED)
     stores = {}
     for path in paths:
         spec = load(path)
@@ -102,7 +102,7 @@ def remove(records):
     stores = owned(records, SECTION, ORDER)
     if not stores:
         return
-    api = Api(setting("OPENFGA_API_URL"))
+    api = Api(setting("OPENFGA_API_URL"), SECTION)
     for x in stores:
         api.delete(f"/stores/{x['id']}")
         log(SECTION, f"✓ Store '{x['name']}' deleted")

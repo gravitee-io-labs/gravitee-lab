@@ -88,7 +88,8 @@ one-shot service writes it. [The folder's layout](../docs/playgrounds.md#environ
 ## The Lab UI contract
 
 - A seed that stops on a `SeedError` prints `[seed] ✗ <why>` as its last line and exits with an error. The Lab UI shows
-  `<why>` as the reason the start failed, so keep it to one line (`excerpt()` in `common.py`).
+  `<why>` as the reason the start failed, so keep it to one line (`excerpt()` in `common.py`). Any other error prints its
+  traceback, then one plain `[seed] ✗` line, so that the reason is never a line of a traceback.
 - `seed.py --remove` deletes the recorded items from the last module to the first, then empties the record. The Lab UI
   reads the record to say what a delete removes.
 - Log with `log(section, message)`, and never a secret, a token or a password.
@@ -112,12 +113,19 @@ playground's seed service sets the variables. `make test` fails on a literal add
 - **LLM, MCP and A2A proxy APIs** cannot be updated from a definition, so they are replaced. A control's steps are
   switched in place, with an update of the API entity and a deployment. The API is imported again only when the platform
   answers 404, 405 or 501 to that update (`UNSUPPORTED` in `apim.py`).
-- **A platform that cannot answer now** (no connection, a timeout, a 5xx, a 429) is asked again `RETRIES` times,
-  `RETRY_PAUSE` seconds apart, and then the seed stops with what it said. Any other refusal (400, 401, 403, 409, 422...)
-  stops it at once: replacing an API because the platform is busy, or because the seed sent something wrong, costs it its
-  keys (`apim.py`). The Gamma client waits out a management API that reloads; a 404 or `not_configured` is final
-  (`gamma.py`).
-- **Waiting** is `wait_until`: it looks again after 0.5, 1, 2 and then every 3 seconds up to `READY_TIMEOUT`, and a probe that raises `Gone` ends it at once. Any other wait goes through `pause`, which stops when another step has failed.
+- **One policy for every request** (`Api.call` in `common.py`). A platform that cannot answer now (no connection, no answer
+  in time, a 5xx, a 429) is asked again `RETRIES` times, `RETRY_PAUSE` seconds apart, when a second request cannot make a
+  second object: a GET, a PUT or a DELETE, a POST its caller marks `idempotent=True` (a deployment, a start), and any request
+  the platform did not take (no connection made, a 429, a 503). A POST or a PATCH whose answer is lost is sent once: Gamma
+  keeps no name unique, and a second create would make a second object. Any other refusal (400, 401, 403, 409, 422...) stops
+  the seed at once: replacing an API because the platform is busy, or because the seed sent something wrong, costs it its
+  keys (`apim.py`). What the seed says of a request with no answer is in words (`trouble`), never the library's text. A
+  module names a request with `what=` and its client with its section; it adds no retry of its own.
+- **Waiting** is `wait_until`: it looks again after 0.5, 1, 2 and then every 3 seconds up to `READY_TIMEOUT`, and a probe that
+  raises `Gone` ends it at once. Inside a wait a request is sent once: the wait asks again. The first wait for a platform passes
+  `final=REFUSED`, so a wrong password, a revoked token or a wrong environment id ends it at once. Gamma's modules: a
+  `not_configured` is final, and a 404 once it lasts `UNSERVED` seconds (`gamma.py`). Any other wait goes through `pause`,
+  which stops when another step has failed.
 - **Parallel** is `schedule.py` for the modules (their `DEPENDS`), `common.parallel` and `common.together` for what a module knows to be independent, `SEED_WORKERS` for how many requests are in flight. A step shared by several threads keeps its state in `common.record`/`common._state`, never in a read-modify-write of its own; see the README (Order and parallelism).
 - **A refill** deletes the Redis hashes `ratelimit:*:cost-rl` whose `subscription` field is the member's. Redis trouble is
   a `[refills] !` line and never stops the seed (`refills.py`).

@@ -8,7 +8,9 @@ import time
 import unittest
 from unittest import mock
 
+import requests
 import yaml
+from urllib3.exceptions import MaxRetryError, NewConnectionError
 from yaml.constructor import SafeConstructor
 
 from lab_seeder import common
@@ -59,6 +61,107 @@ class Client(Seed):
     def test_a_delete_of_what_is_gone_is_done(self):
         self.answer({("DELETE", "/x"): 404})
         self.assertEqual(common.Api("http://apim").delete("/x").status_code, 404)
+
+
+def refused_connection():
+    """What requests raises for a connection that could not be made: the request never reached the platform."""
+    return requests.ConnectionError(MaxRetryError(None, "/x", NewConnectionError(None, "Connection refused")))
+
+
+class Requests(Seed):
+    """The one policy of every request of the seed: what is sent again, how often, and what is said when it is not."""
+
+    def ask(self, method, *answers, **kwargs):
+        self.answer({(method, "/x"): list(answers)})
+        return common.Api("http://apim").call(method, "/x", **kwargs)
+
+    def sent(self, method):
+        return len(self.platform.sent(method, "/x"))
+
+    def test_a_get_put_or_delete_the_platform_could_not_answer_now_is_sent_again(self):
+        for method in ("GET", "PUT", "DELETE"):
+            for trouble in (500, 502, 503, 504, 429, requests.ConnectionError("reset"), requests.ReadTimeout("slow"), refused_connection()):
+                with self.subTest(method=method, trouble=str(trouble)):
+                    self.platform.calls.clear()
+                    self.assertEqual(self.ask(method, trouble, (200, {"ok": True})).status_code, 200)
+                    self.assertEqual(self.sent(method), 2)
+
+    def test_a_post_or_a_patch_whose_answer_is_lost_is_sent_once(self):
+        """The platform may have made what it asked for: sent again, it would make a second one."""
+        for method in ("POST", "PATCH"):
+            for lost in (500, 502, 504, requests.ConnectionError("reset"), requests.ReadTimeout("slow"),
+                         requests.exceptions.ChunkedEncodingError("cut")):
+                with self.subTest(method=method, lost=str(lost)):
+                    self.platform.calls.clear()
+                    with self.assertRaises(common.SeedError):
+                        self.ask(method, lost, 201)
+                    self.assertEqual(self.sent(method), 1)
+        self.assertEqual(self.clock.sleeps, [])
+
+    def test_a_post_the_platform_did_not_take_is_sent_again(self):
+        for trouble in (refused_connection(), requests.ConnectTimeout("no route"), 429, 503):
+            with self.subTest(trouble=str(trouble)):
+                self.platform.calls.clear()
+                self.assertEqual(self.ask("POST", trouble, 201).status_code, 201)
+                self.assertEqual(self.sent("POST"), 2)
+
+    def test_a_post_its_caller_says_is_idempotent_is_sent_again_as_a_put_is(self):
+        self.assertEqual(self.ask("POST", requests.ReadTimeout("slow"), 502, 202, idempotent=True).status_code, 202)
+        self.assertEqual(self.sent("POST"), 3)
+
+    def test_it_waits_between_two_tries_and_says_so_in_words(self):
+        self.ask("GET", requests.ConnectionError("http://secret-host:8083 Max retries"), 503, 200)
+        self.assertEqual(self.clock.sleeps, [common.RETRY_PAUSE, common.RETRY_PAUSE])
+        self.assertIn(f"[seed] ! GET /x: the connection was cut, trying again in {common.RETRY_PAUSE} s (1/{common.RETRIES})", self.output())
+        self.assertIn(f"[seed] ! GET /x: HTTP 503, trying again in {common.RETRY_PAUSE} s (2/{common.RETRIES})", self.output())
+        self.assertNotIn("secret-host", self.output())
+
+    def test_a_platform_that_stays_busy_stops_the_seed_with_its_last_answer(self):
+        with self.assertRaisesRegex(common.HttpError, rf"^GET /x: HTTP 502 bad gateway \({common.RETRIES + 1} tries\)$"):
+            self.ask("GET", (502, "bad gateway"))
+        self.assertEqual((self.sent("GET"), len(self.clock.sleeps)), (common.RETRIES + 1, common.RETRIES))
+
+    def test_no_answer_stops_the_seed_with_one_line_in_words_and_never_the_library_text(self):
+        """A traceback line of requests (HTTPConnectionPool(host=...): Read timed out) is what the Lab would show as the reason."""
+        for error, words in ((requests.ReadTimeout("HTTPConnectionPool(host='apim'): Read timed out"), "no answer in 30 s"),
+                             (refused_connection(), f"cannot connect ({common.RETRIES + 1} tries)"),
+                             (requests.ConnectionError("('Connection aborted.', RemoteDisconnected())"), "the connection was cut")):
+            with self.subTest(words=words):
+                with self.assertRaises(common.SeedError) as raised:
+                    self.ask("POST", error, what="API Orders")
+                self.assertEqual(str(raised.exception), f"API Orders: {words}")
+                self.assertNotIsInstance(raised.exception, common.HttpError)
+
+    def test_a_refusal_is_not_sent_again(self):
+        for status in (400, 401, 403, 404, 409, 422):
+            with self.subTest(status=status):
+                self.platform.calls.clear()
+                with self.assertRaises(common.HttpError) as raised:
+                    self.ask("GET", (status, {"message": "no"}))
+                self.assertEqual((raised.exception.status, self.sent("GET")), (status, 1))
+        self.assertEqual(self.clock.sleeps, [])
+
+    def test_a_status_the_caller_expects_is_handed_back_and_not_asked_again(self):
+        self.assertEqual(self.ask("GET", 503, 200, expect=(200, 503)).status_code, 503)
+        self.assertEqual(self.sent("GET"), 1)
+
+    def test_no_request_waits_for_ever(self):
+        self.answer({("GET", "/x"): 200})
+        common.Api("http://apim").send("GET", "/x")
+        common.Api("http://apim").send("GET", "/x", timeout=5)
+        self.assertEqual([call.timeout for call in self.platform.calls], [common.TIMEOUT, 5])
+
+    def test_inside_a_wait_a_request_is_sent_once_and_the_wait_asks_again(self):
+        api = common.Api("http://apim")
+        self.answer({("GET", "/x"): [503, requests.ConnectionError("reset"), 200]})
+        common.wait_until("test", "API", lambda: api.get("/x"))
+        self.assertEqual(self.sent("GET"), 3)
+        self.assertNotIn("trying again", self.output())
+        self.assertEqual(self.clock.sleeps, [0.5, 1])
+
+    def test_a_busy_platform_is_waited_for_about_a_minute(self):
+        self.assertLessEqual(common.RETRIES * common.RETRY_PAUSE, 60)
+        self.assertGreaterEqual(common.RETRIES * common.RETRY_PAUSE, 45)
 
 
 class Provided(Seed):
@@ -416,6 +519,31 @@ class Waiting(Seed):
         with self.assertRaisesRegex(common.SeedError, "API not ready after 300 s: down"):
             common.wait_until("test", "API", lambda: (_ for _ in ()).throw(common.SeedError("down")))
         self.assertGreaterEqual(self.clock.elapsed, 300)
+
+    def test_a_refusal_the_wait_is_told_is_final_ends_it_at_once(self):
+        """A wrong password, a revoked token or a wrong environment id is not fixed by waiting five minutes."""
+        api = common.Api("http://apim")
+        for status in common.REFUSED:
+            with self.subTest(status=status):
+                self.platform.calls.clear()
+                self.answer({("GET", "/x"): (status, {"message": "no"})})
+                with self.assertRaisesRegex(common.SeedError, rf'^API: GET /x: HTTP {status} {{"message": "no"}}$'):
+                    common.wait_until("test", "API", lambda: api.get("/x"), final=common.REFUSED)
+                self.assertEqual(len(self.platform.calls), 1)
+        self.assertEqual(self.clock.sleeps, [])
+
+    def test_a_refusal_is_waited_out_when_the_wait_does_not_say_it_is_final(self):
+        """A role just given takes a few seconds to count: some waits are for a refusal to end."""
+        api = common.Api("http://apim")
+        self.answer({("GET", "/x"): [(403, {"message": "no"}), 200]})
+        common.wait_until("test", "access", lambda: api.get("/x"))
+        self.assertEqual(len(self.platform.calls), 2)
+
+    def test_a_probe_that_gets_no_answer_is_said_in_words(self):
+        with self.assertRaises(common.SeedError) as raised:
+            common.wait_until("test", "API", lambda: (_ for _ in ()).throw(requests.ConnectionError("HTTPConnectionPool(host='x')")),
+                              timeout=5)
+        self.assertEqual(str(raised.exception), "API not ready after 5 s: the connection was cut")
 
 
 if __name__ == "__main__":

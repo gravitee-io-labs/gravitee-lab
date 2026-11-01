@@ -88,15 +88,17 @@ class Parallel(unittest.TestCase):
         inside, most, lock = [0], [0], threading.Lock()
         hold = threading.Event()
 
-        def work(_):
-            with common.slot():
+        class Session:
+            def request(self, *args, **kwargs):
                 with lock:
                     inside[0] += 1
                     most[0] = max(most[0], inside[0])
                 hold.wait(0.1)
                 with lock:
                     inside[0] -= 1
-        common.parallel(work, range(6))
+        api = common.Api("http://apim")
+        api.session = Session()
+        common.parallel(lambda _: api.send("GET", "/x"), range(6))
         self.assertEqual(most[0], 2)
 
     def test_a_request_does_not_start_once_the_seed_stops(self):

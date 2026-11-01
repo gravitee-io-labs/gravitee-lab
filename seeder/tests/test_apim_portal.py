@@ -1183,7 +1183,7 @@ class Documents(Portals):
     def test_a_page_that_is_made_is_recorded_before_it_is_published_so_a_failure_leaves_none_the_seed_does_not_know(self):
         self.document()
         self.world.publishing = False
-        with self.assertRaisesRegex(SeedError, r"^Documentation tab of Batch status in moderna \(.*\): HTTP 500 .* \(5 tries\)$"):
+        with self.assertRaisesRegex(SeedError, rf"^Documentation tab of Batch status in moderna \(.*\): HTTP 500 .* \({common.RETRIES + 1} tries\)$"):
             self.run_seed()
         [made] = self.own(0).values()
         self.assertEqual((made["published"], self.record()["legacy"]), (False, [{"api": "api-1", "page": made["id"]}]))
@@ -1822,14 +1822,14 @@ class Trouble(Portals):
         self.platform.add({("PUT", f"{AUTO}/moderna/portal-themes"): [503, 429, (200, {"id": "t1"})]})
         self.run_seed()
         self.assertEqual(len(self.sent("PUT", "/moderna/portal-themes")), 3)
-        self.assertEqual(self.clock.sleeps, [apim_portal.RETRY_PAUSE] * 2)
+        self.assertEqual(self.clock.sleeps, [common.RETRY_PAUSE] * 2)
         self.assertIn("! Portal theme moderna-theme in moderna: HTTP 503, trying again", self.output())
 
     def test_a_platform_that_never_answers_ends_the_seed_with_what_it_said(self):
         self.platform.add({("PUT", f"{AUTO}/moderna/portal-themes"): 503})
-        with self.assertRaisesRegex(SeedError, r"^Portal theme moderna-theme in moderna: HTTP 503 \(5 tries\)$"):
+        with self.assertRaisesRegex(SeedError, rf"^Portal theme moderna-theme in moderna: HTTP 503 \({common.RETRIES + 1} tries\)$"):
             self.run_seed()
-        self.assertEqual(len(self.clock.sleeps), apim_portal.RETRIES)
+        self.assertEqual(len(self.clock.sleeps), common.RETRIES)
 
     def test_a_refusal_stops_the_seed_at_once_with_the_platforms_message_on_one_line(self):
         self.platform.add({("PUT", f"{AUTO}/moderna/portals"): (400, {"message": "structure.topNavbar[0].path\nmust start with '/'"})})
@@ -1843,7 +1843,7 @@ class Trouble(Portals):
         self.platform.add({("PUT", f"{AUTO}/moderna/portal-themes"):
                            [requests.ConnectionError("http://secret-host"), (200, {"id": "t1"})]})
         self.run_seed()
-        self.assertIn("no answer from the management API: ConnectionError", self.output())
+        self.assertIn("[apim-portal] ! Portal theme moderna-theme in moderna: the connection was cut, trying again", self.output())
         self.assertNotIn("secret-host", self.output())
 
     def test_a_platform_that_says_what_it_could_not_put_in_a_200_stops_the_seed(self):

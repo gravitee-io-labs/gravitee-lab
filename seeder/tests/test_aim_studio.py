@@ -634,7 +634,8 @@ class Gateway(Studios):
         with self.assertRaises(common.SeedError) as raised:
             self.seed()
         self.assertNotIn("\n", str(raised.exception))
-        self.assertIn("Max retries exceeded with url", str(raised.exception))
+        self.assertTrue(str(raised.exception).endswith("not ready after 30 s: the connection was cut"), str(raised.exception))
+        self.assertNotIn("Max retries", self.output() + str(raised.exception), "what the library says is not for a reader")
 
     def test_a_seed_that_does_not_know_the_gateway_does_not_wait(self):
         self.env(GATEWAY_INTERNAL_URL=None)

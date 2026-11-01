@@ -130,8 +130,10 @@ def main():
     except SeedError as e:
         log("seed", f"✗ {e}")
         return 1
-    except Exception:  # noqa: BLE001 - shown in the container logs
+    except Exception:  # noqa: BLE001 - its traceback is for the container logs, its last line for the person
         traceback.print_exc()
+        sys.stderr.flush()
+        log("seed", "✗ The seed stopped on an error it did not expect: the lines above say where")
         return 1
     log("seed", "✓ Playground ready")
     return 0

@@ -63,12 +63,11 @@ import re
 import uuid
 from pathlib import Path
 
-import requests
 import yaml
 
 from . import common
-from .common import (Api, SeedError, created, excerpt, files, items, load, log, owned, parallel, pause, record, recorded, save_created, seed_file,
-                    setting, text, wait_until)
+from .common import (OK, REFUSED, Api, SeedError, created, excerpt, files, items, load, log, owned, parallel, record, recorded, save_created,
+                     seed_file, setting, text, wait_until)
 
 SECTION = "apim-portal"
 DEPENDS = ("apim",)   # the modules whose work this one reads on the platform (schedule.py)
@@ -90,8 +89,6 @@ DOC_KINDS = {"asyncapi": (ASYNCAPI_TITLE, "ASYNCAPI", "ASYNCAPI"), "openapi": (O
 ASYNCAPI_VERSIONS = ("2.0.0", "2.1.0", "2.2.0", "2.3.0", "2.4.0", "2.5.0", "2.6.0", "3.0.0", "3.1.0")
 API_PAGE_VISIBILITY = "PUBLIC"   # of a page of the API itself: the visibility of the API says who may open the API and so its pages
 
-RETRIES = 4   # times a request that got no answer (a connection that fails, a timeout), a 5xx or a 429 is tried again
-RETRY_PAUSE = 8   # seconds before each: a management API that reloads is back within about half a minute
 MAX_IMAGE = 256 * 1024   # bytes of an image file: a theme is one document of the platform's database, and its images are in it
 IMAGE_TYPES = {".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
                ".gif": "image/gif", ".webp": "image/webp", ".ico": "image/x-icon"}
@@ -513,7 +510,7 @@ class Portals:
         management = setting("APIM_MANAGEMENT_URL")
         self.org = setting("APIM_ORG", "DEFAULT")
         self.path = setting("APIM_MANAGEMENT_PATH", "/management")   # /apim/rest on the Cloud Gate of Gravitee Cloud
-        self.console, self.automation = Api(management), Api(setting("AIM_AUTOMATION_URL", management))
+        self.console, self.automation = Api(management, SECTION), Api(setting("AIM_AUTOMATION_URL", management), SECTION)
         self.found = {}   # environment -> whether the platform has it, asked once
 
     def v1(self, env):
@@ -532,27 +529,13 @@ class Portals:
                 api.session.headers["Authorization"] = f"Bearer {token}"
             else:
                 api.session.auth = (setting("APIM_USERNAME"), setting("APIM_PASSWORD"))
-        wait_until(SECTION, "API Management", lambda: self.console.get(f"{self.path}/organizations/{self.org}/environments"))
+        wait_until(SECTION, "API Management", lambda: self.console.get(f"{self.path}/organizations/{self.org}/environments"),
+                   final=REFUSED)
 
     def ask(self, what, api, method, path, passed=(), **kwargs):
-        """The response of a call of the management API, asked again after a pause when the platform cannot answer now: a connection
-        that fails or times out as much as a 5xx or a 429, RETRIES times, and then the seed stops with what it said. Any other refusal
-        stops it at once with the platform's message, and a status in `passed` is handed back to the caller, which says what it means."""
-        for attempt in range(RETRIES + 1):
-            try:
-                response = api.send(method, path, timeout=30, **kwargs)
-            except requests.RequestException as e:
-                short = said = f"no answer from the management API: {type(e).__name__}"   # its address is no help to a reader
-            else:
-                if response.ok or response.status_code in passed:
-                    return response
-                short, said = f"HTTP {response.status_code}", f"HTTP {response.status_code} {excerpt(response.text, 300)}".rstrip()
-                if response.status_code < 500 and response.status_code != 429:
-                    raise SeedError(f"{what}: {said}")
-            if attempt == RETRIES:
-                raise SeedError(f"{what}: {said} ({RETRIES + 1} tries)")
-            log(SECTION, f"! {what}: {short}, trying again")
-            pause(RETRY_PAUSE)
+        """The answer to a call of the management API, named `what` in what is said: asked again as every call of the seed is
+        (`common.Api.call`), and a status in `passed` is handed back to the caller, which says what it means."""
+        return api.call(method, path, expect=(*OK, *passed), what=what, **kwargs)
 
     def environment(self, env, name):
         """The name of an environment, which the files of its portal are rendered with; the environment must be there."""
@@ -878,7 +861,7 @@ class Portals:
                         page = self.refusable(label, "PUT", f"{address}/{page['id']}", {**body, "order": page.get("order", 0)})
                         changed = True
                 if not page.get("published"):
-                    self.ask(label, self.console, "POST", f"{address}/{page['id']}/_publish")
+                    self.ask(label, self.console, "POST", f"{address}/{page['id']}/_publish", idempotent=True)
                     changed = True
         return own, changed
 

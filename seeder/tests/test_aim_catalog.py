@@ -681,8 +681,8 @@ class Discovery(Catalog):
         self.assertEqual([c for c in self.platform.calls if c.path.startswith(SCOPE) and c.method != "GET"], [])
 
     def test_a_server_that_is_not_there_stops_the_seed(self):
-        self.platform.add({("POST", MCP): requests.ConnectionError("refused")})
-        with self.assertRaisesRegex(common.SeedError, "MCP initialize at http://bakery-mcp:8000: refused"):
+        self.platform.add({("POST", MCP): requests.ConnectionError("Max retries exceeded")})
+        with self.assertRaisesRegex(common.SeedError, "^MCP initialize at http://bakery-mcp:8000: the connection was cut$"):
             self.run_seed()
 
     def test_an_answer_without_a_result_stops_the_seed(self):

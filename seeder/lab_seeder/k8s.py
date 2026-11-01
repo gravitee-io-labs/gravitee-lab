@@ -27,11 +27,10 @@ import tempfile
 import time
 from pathlib import Path
 
-import requests
 import yaml
 
-from .common import READY_TIMEOUT, Gone, HttpError, SeedError, excerpt, files, has_seed, log, owned, parse_yaml_all, pause, record, render, slot, \
-    setting, wait_until
+from .common import READY_TIMEOUT, REFUSED, Api, Gone, HttpError, SeedError, excerpt, files, has_seed, log, owned, parse_yaml_all, pause, \
+    record, render, setting, wait_until
 
 SECTION = "k8s"
 DEPENDS = ("apim",)   # the modules whose work this one reads on the platform (schedule.py)
@@ -46,8 +45,9 @@ DELETE_FIRST = ["Subscription", "Application", "ApiV4Definition", "ApiDefinition
 DELETE_LAST = ["ManagementContext"]
 
 
-class Cluster:
-    """The Kubernetes API of a kubeconfig, over HTTP: the client certificate or the token of its first user."""
+class Cluster(Api):
+    """The Kubernetes API of a kubeconfig, over HTTP: the client certificate or the token of its first user. Its requests
+    follow the policy of every request of the seed (`common.Api.call`)."""
 
     def __init__(self, kubeconfig):
         data = yaml.safe_load(Path(kubeconfig).read_text(encoding="utf-8")) or {}
@@ -56,8 +56,8 @@ class Cluster:
             user = data["users"][0]["user"]
         except (KeyError, IndexError, TypeError) as e:
             raise SeedError(f"{kubeconfig} is not a kubeconfig with a cluster and a user") from e
-        self.server = cluster["server"].rstrip("/")
-        self.session = requests.Session()
+        super().__init__(cluster["server"], SECTION)
+        self.server = self.base_url
         self.dir = tempfile.mkdtemp(prefix="kube-")
         ca = self.file("ca.crt", cluster.get("certificate-authority-data"))
         self.session.verify = ca if ca else not cluster.get("insecure-skip-tls-verify", False)
@@ -75,13 +75,6 @@ class Cluster:
         with open(os.open(path, os.O_WRONLY | os.O_CREAT, 0o600), "wb") as f:
             f.write(base64.b64decode(encoded))
         return path
-
-    def call(self, method, path, expect=range(200, 300), **kwargs):
-        with slot():
-            r = self.session.request(method, self.server + path, timeout=kwargs.pop("timeout", 30), **kwargs)
-        if r.status_code not in expect:
-            raise HttpError(f"{method} {path}: HTTP {r.status_code} {excerpt(r.text)}", r.status_code, r.text)
-        return r
 
     def resource(self, api_version, kind):
         """(plural, namespaced) of a kind, found in the discovery document of its group: a kind the cluster does not know
@@ -199,7 +192,7 @@ def seed():
         return
     docs = manifests()
     cluster = Cluster(setting("KUBECONFIG"))
-    wait_until(SECTION, "the Kubernetes API", lambda: cluster.call("GET", "/readyz", timeout=10))
+    wait_until(SECTION, "the Kubernetes API", lambda: cluster.call("GET", "/readyz", timeout=10), final=REFUSED)
     for doc in docs:
         api_version, kind, namespace, name = identity(doc)
         wait_until(SECTION, f"the cluster to know {kind}", lambda: cluster.resource(api_version, kind))
@@ -265,7 +258,7 @@ def remove(records):
     cluster = Cluster(setting("KUBECONFIG"))
     try:
         cluster.call("GET", "/readyz", timeout=10)
-    except (requests.RequestException, SeedError) as e:
+    except SeedError as e:
         log(SECTION, f"! The cluster does not answer ({excerpt(e, 200)}): what it holds is left as it is")
         return
     deleted = set()
