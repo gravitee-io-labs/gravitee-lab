@@ -115,8 +115,7 @@ const KINDS = { platform: "Platform", group: "Platform", service: "Container", a
   playground: "Playground", data: "Data", environment: "Environment", version: "Version", catalog: "Catalog" };
 
 // The rows of an effects dialog as markup, the way the dialog draws them: the rows that have items, the ones that are not notes as numbered
-// steps, the notes as lines of pills (a few) or one line that counts them (many). A dialog that is drawn again as its state changes (the notice
-// of the move to catalogs, whose phase changes under it) draws its rows through it, so that they look as every other dialog's.
+// steps, the notes as lines of pills (a few) or one line that counts them (many).
 const named = (i) => (typeof i === "string" ? { name: i } : i);
 const line = (i) => `<li><span class="step-name">${esc(named(i).name)}</span>${KINDS[named(i).kind]
   ? `<span class="step-kind">${KINDS[named(i).kind]}</span>` : ""}</li>`;
@@ -136,7 +135,7 @@ const more = (r) => {
 const row = (r) => (r.items.length > 4 ? more(r) : `<div class="choice-row ${esc(r.tone || "")}"><span class="choice-row-label">${esc(r.label)}</span>
   <span class="choice-items">${r.items.map((i) => `<span class="pill ${r.tone === "danger" ? "err" : ""}"><span class="pill-text" data-tip="${esc(named(i).name)}" data-tip-cut>${esc(named(i).name)}</span></span>`).join("")}${
     r.hint ? `<span class="muted">${esc(r.hint)}</span>` : ""}</span></div>`);
-export const effectRows = (rows = []) => {
+const effectRows = (rows = []) => {
   const shown = rows.filter((r) => r.items.length), steps = shown.filter((r) => !r.note);
   return (steps.length ? `<ol class="steps">${steps.map(step).join("")}</ol>` : "")
     + shown.filter((r) => r.note).map(row).join("");
