@@ -542,8 +542,8 @@ seed/environments/<id>/
   of an API that someone else made under the same type and name stops the seed: it never takes it.
 - **A JSON or YAML file is read as a document before its variables are replaced**, and a string of it that is itself JSON text
   (an endpoint's `sharedConfiguration`) gets the value of a variable escaped for that text. A password with a quote or a
-  backslash therefore arrives as it was set. An unquoted `${PORT}` is read as YAML reads its value, a number here, but a value
-  never adds keys or a list to the file.
+  backslash therefore arrives as it was set. An unquoted `${PORT}` is read as YAML reads its value, a number here (`!!str ${PORT}`
+  keeps it a string), but a value never adds keys or a list to the file.
 
 ### Settings
 

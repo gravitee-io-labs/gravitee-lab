@@ -388,6 +388,11 @@ class YamlValues(Seed):
                                    PORT="8080", FLAG="true"),
                          {"port": 8080, "enabled": True, "empty": None, "key": "8080", "url": "http://h:8080/x"})
 
+    def test_an_explicit_str_tag_keeps_a_plain_variable_a_string(self):
+        text = "version: !!str ${VERSION}\nport: !!str ${PORT}\nflag: !!str ${FLAG}\nanchored: &a !!str ${PORT}\ncopy: *a\nbare: ! ${PORT}\n"
+        self.assertEqual(self.load(text, VERSION="1.10", PORT="8080", FLAG="true"),
+                         {"version": "1.10", "port": "8080", "flag": "true", "anchored": "8080", "copy": "8080", "bare": 8080})
+
     def test_keys_aliases_and_lists_get_their_values_too(self):
         text = "${NAME}: &u {user: '${USER}'}\ncopy: *u\nlist: ['${USER}', x]\nmerged: {<<: *u, own: 1}\n"
         self.assertEqual(self.load(text, NAME="alice", USER='o"brien'),

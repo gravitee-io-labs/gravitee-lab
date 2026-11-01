@@ -331,12 +331,22 @@ def merged_pairs(text):
         return 0
 
 
+class _Loader(yaml.SafeLoader):
+    """The safe loader, which marks each scalar whose type YAML reads from its text: no tag in the file, or the bare `!`."""
+
+    def compose_scalar_node(self, anchor):
+        implicit = self.peek_event().tag in (None, "!")
+        node = super().compose_scalar_node(anchor)
+        node.implicit = implicit
+        return node
+
+
 def parse_yaml(text, path="the text", fill=None):
     """`yaml.safe_load(text)`, but a text whose merge keys would make the loader copy more than COPIED pairs is a MergeError,
     and the loader never runs on it. The document is composed once and the count is of that: what a normal file loads is what
     safe_load gives, and it is not read twice. `fill(root, loader)` may change the values of the composed document before it
     is built (`render_yaml`)."""
-    loader = yaml.SafeLoader(text)
+    loader = _Loader(text)
     try:
         root = loader.get_single_node()
         if root is None:
@@ -354,7 +364,7 @@ def parse_yaml_all(text, path="the text", fill=None):
     """`list(yaml.safe_load_all(text))`, with the guard of `parse_yaml` for a text of several documents: the pairs the loader
     would copy for all of them are counted together, and a text that asks for more than COPIED is a MergeError before any
     document is built. A document is composed once, and the count is of that."""
-    loader = yaml.SafeLoader(text)
+    loader = _Loader(text)
     try:
         roots, total = [], 0
         while loader.check_node():
@@ -377,8 +387,8 @@ STR = "tag:yaml.org,2002:str"
 def _filler(missing, provided):
     """What replaces the variables in each string of a composed YAML document, its keys too, once each however many aliases
     name it. A string that is itself JSON text gets the values escaped for that text, as in a JSON file. A plain scalar (no
-    quotes) is then read as YAML reads its text, so that `port: ${PORT}` is the number it is in a file written out; its value
-    never becomes a mapping, a list or a merge key, whatever it holds."""
+    quotes, no tag) is then read as YAML reads its text, so that `port: ${PORT}` is the number it is in a file written out, and
+    `!!str ${PORT}` the string; its value never becomes a mapping, a list or a merge key, whatever it holds."""
     def fill(root, loader):
         seen, pending = set(), [root]
         while pending:
@@ -393,7 +403,7 @@ def _filler(missing, provided):
                 pending.extend(node.value)
             elif "$" in node.value:
                 value = replace_variables(node.value, missing, is_json_text(node.value), provided)
-                if node.style is None and node.tag == STR and value != node.value:
+                if node.style is None and node.implicit and node.tag == STR and value != node.value:
                     tag = loader.resolve(yaml.ScalarNode, value, (True, False))
                     node.tag = STR if tag == MERGE else tag
                 node.value = value
