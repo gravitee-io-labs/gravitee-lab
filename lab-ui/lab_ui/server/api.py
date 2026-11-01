@@ -627,6 +627,7 @@ class Follower:
                     since = timestamp
                     self.lines.put([self.name, timestamp, text])
             logs.wait()
+            compose.release(logs)
             while True:   # until it runs again
                 if self.closed.wait(FOLLOW_AGAIN):
                     return
@@ -647,13 +648,14 @@ def stream_logs(req):
     lines, closed, lock, followed = queue.Queue(), threading.Event(), threading.Lock(), []
 
     def spawn(command):
-        """A `docker logs` started, unless the stream was closed: none outlives it."""
+        """A `docker logs` started as a job's command is (compose.spawn), unless the stream was closed: none outlives
+        it, nor the Lab UI."""
         with lock:
             if closed.is_set():
                 return None
-            logs = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                    stderr=subprocess.STDOUT, encoding="utf-8", errors="replace", bufsize=1)
-            followed.append(logs)
+            logs = compose.spawn(command, subprocess.STDOUT)
+            if logs is not None:
+                followed.append(logs)
             return logs
 
     for name in names:

@@ -203,6 +203,62 @@ class Running(Case):
         self.assertEqual(ran, [1])
 
 
+def waited(done, seconds=10):
+    """Whether `done()` comes true within a few seconds."""
+    deadline = time.monotonic() + seconds
+    while not done() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    return done()
+
+
+class Cut(Case):
+    """A job does not wait for ever: a command that prints nothing for long is ended, and so is one that waits for a
+    container Docker says keeps restarting. Real commands run, in a session of their own."""
+
+    def run_job(self, script):
+        job = Job("Start Acme Shop", [["sh", "-c", script]], key="addon:acme-shop", verb="start")
+        thread = threading.Thread(target=job.run)
+        thread.start()
+        self.addCleanup(lambda: (job.cancel(), thread.join(10), job._process and job._process.stdout.close()))
+        return job, thread
+
+    def test_a_command_that_says_nothing_for_long_is_ended(self):
+        self.patch(jobs, "SILENT", 0.3)
+        self.patch(jobs, "WATCH", 0.05)
+        job, thread = self.run_job("echo pulling; exec sleep 600")
+        thread.join(10)
+        self.assertFalse(thread.is_alive(), "the job still waits")
+        self.assertEqual((job.ok, job.lines[-2]), (False, "pulling"))
+        self.assertTrue(job.error().startswith("Stopped: nothing happened for"), job.error())
+
+    def test_a_command_that_waits_for_a_container_that_keeps_restarting_is_ended(self):
+        # Compose waits for its health, which does not come: Docker restarts it again and again, its health check starts
+        # over. Once in an issue for STUCK seconds as Docker says it, the command is ended with that reason
+        job, thread = self.run_job('echo " Container gio-mongodb Waiting "; exec sleep 600')
+        self.assertTrue(waited(lambda: job.detail() == "Container gio-mongodb Waiting"))
+        began = time.monotonic()
+        job.observe({"gio-mongodb": "issue", "gio-redis": "issue"}, began)
+        job.observe({"gio-mongodb": "issue"}, began + jobs.STUCK - 1)
+        self.assertTrue(thread.is_alive())
+        job.observe({"gio-mongodb": "issue"}, began + jobs.STUCK)
+        thread.join(10)
+        self.assertFalse(thread.is_alive(), "the job still waits")
+        self.assertEqual((job.ok, job.error()), (False, "gio-mongodb keeps restarting"))
+
+    def test_only_an_issue_that_lasts_while_compose_waits_for_it_ends_the_command(self):
+        # One that got better meanwhile starts its time again; one Compose does not wait for is not the command's to end
+        job, thread = self.run_job('echo " Container gio-mongodb Waiting "; echo " Container gio-mongodb Healthy "; '
+                                   'echo " Container gio-redis Waiting "; exec sleep 600')
+        self.assertTrue(waited(lambda: job.detail() == "Container gio-redis Waiting"))
+        began = time.monotonic()
+        for at, step in ((0, "issue"), (jobs.STUCK / 2, "running"), (jobs.STUCK, "issue"), (jobs.STUCK * 1.4, "issue")):
+            job.observe({"gio-mongodb": "issue", "gio-redis": step}, began + at)
+        self.assertTrue(thread.is_alive())
+        job.cancel()
+        thread.join(10)
+        self.assertEqual(job.error(), "Canceled")
+
+
 UP = ["docker", "compose", "up", "-d"]
 STOP = ["docker", "compose", "stop"]
 # Start Reader UI, Stop Reader UI and Restart Alert Engine, as Compose printed them

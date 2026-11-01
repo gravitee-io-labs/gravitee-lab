@@ -1023,21 +1023,13 @@ class Environment(Case):
         self.assertEqual(compose.run(["sh", "-c", "printf ok"], environ={"PATH": os.environ["PATH"]}), (0, "ok", ""))
 
 
-class Run(Case):
-    """A command that does not finish in time is ended with everything it started, and so is one that the Lab UI leaves
-    behind: Compose is a plugin that the Docker CLI starts, and ending the CLI alone leaves it running."""
+class Commands(Case):
+    """A command of a test records the id of a process it started (`self.record`), which the test then finds."""
 
     def setUp(self):
         self.folder()
         self.pidfile = self.root / "child.pid"
         self.record = f"echo $$ > {shlex.quote(str(self.pidfile))}"
-
-    def test_a_command_is_told_the_folder_it_runs_in_whatever_environment_it_gets(self):
-        """$PWD is what Compose spells its paths from: two environments (the Lab's, the scrubbed one) must not spell them two ways."""
-        for environ in (None, {"PATH": os.environ["PATH"], "PWD": "/somewhere/else"}):
-            with self.subTest(environ=environ):
-                code, out, _ = compose.run(["sh", "-c", 'printf %s "$PWD"'], cwd=str(self.root), environ=environ)
-                self.assertEqual((code, out), (0, str(self.root)))
 
     def started(self):
         """Waits for the command to record the id of a process it started."""
@@ -1051,6 +1043,18 @@ class Run(Case):
         pid = int(self.pidfile.read_text(encoding="utf-8"))
         self.addCleanup(lambda: alive(pid) and os.kill(pid, 9))
         return pid
+
+
+class Run(Commands):
+    """A command that does not finish in time is ended with everything it started, and so is one that the Lab UI leaves
+    behind: Compose is a plugin that the Docker CLI starts, and ending the CLI alone leaves it running."""
+
+    def test_a_command_is_told_the_folder_it_runs_in_whatever_environment_it_gets(self):
+        """$PWD is what Compose spells its paths from: two environments (the Lab's, the scrubbed one) must not spell them two ways."""
+        for environ in (None, {"PATH": os.environ["PATH"], "PWD": "/somewhere/else"}):
+            with self.subTest(environ=environ):
+                code, out, _ = compose.run(["sh", "-c", 'printf %s "$PWD"'], cwd=str(self.root), environ=environ)
+                self.assertEqual((code, out), (0, str(self.root)))
 
     def test_it_answers_its_code_and_what_it_printed(self):
         self.assertEqual(compose.run(["sh", "-c", "echo out; echo err >&2; exit 3"]), (3, "out\n", "err\n"))
@@ -1142,6 +1146,50 @@ class Run(Case):
         self.assertEqual(compose._running, set())
 
 
+class Spawn(Commands):
+    """A command whose output is read as it comes (a job's) runs as run() runs one: a session of its own, which the
+    Lab UI ends as it exits, and ends when asked, with what it started."""
+
+    def spawned(self, script):
+        process = compose.spawn(["sh", "-c", script], subprocess.STDOUT, cwd=self.root)
+        self.addCleanup(lambda: (process.poll() is None and os.killpg(process.pid, signal.SIGKILL), process.wait(),
+                                 process.stdout.close(), compose.release(process)))
+        return process
+
+    def test_it_leads_a_session_of_its_own_and_is_known_until_released(self):
+        process = self.spawned(f"echo out; echo err >&2; exec sleep {FOREVER}")
+        self.assertEqual([process.stdout.readline(), process.stdout.readline()], ["out\n", "err\n"])
+        self.assertEqual(os.getsid(process.pid), process.pid)   # what ends the Lab UI's own group does not reach it
+        self.assertIn(process, compose._running)
+        compose.end(process)
+        process.wait(10)
+        compose.release(process)
+        self.assertNotIn(process, compose._running)
+
+    def test_asked_to_end_it_ends_with_what_it_started(self):
+        process = self.spawned(f"sleep {FOREVER} & echo $! > {shlex.quote(str(self.pidfile))}; wait")
+        pid = self.child()
+        compose.end(process)
+        self.assertEqual(process.wait(10), -signal.SIGTERM)
+        self.assertTrue(settled(lambda: not alive(pid)), "what the command started is still running")
+
+    def test_one_that_does_not_end_when_asked_is_killed(self):
+        self.patch(compose, "GRACE", 0.2)
+        process = self.spawned(f"trap '' TERM; {self.record}; while :; do sleep 0.1; done")
+        self.child()
+        compose.end(process)
+        self.assertEqual(process.wait(10), -signal.SIGKILL)
+
+    def test_it_is_ended_when_the_lab_ui_exits_and_not_started_after(self):
+        process = self.spawned(f"{self.record}; exec sleep {FOREVER}")
+        pid = self.child()
+        compose.stop_running()
+        self.assertEqual(process.wait(10), -signal.SIGKILL)
+        self.assertTrue(settled(lambda: not alive(pid)))
+        self.patch(compose, "_ending", True)
+        self.assertIsNone(compose.spawn(["true"], subprocess.STDOUT))
+
+
 # A Lab UI, as a program: the commands of a project read, six of them asked of a pool of two threads, which is how the
 # project is read. It says when two of them run, then waits; Ctrl+C ends it
 # What a program started from a terminal has for the signals the cases below send: the defaults
@@ -1187,6 +1235,23 @@ while not compose._running:
 print("ready", flush=True)
 while True:   # (not one long sleep: a signal that the system hands to another thread does not wake the main thread)
     time.sleep(0.05)
+"""
+
+# A Lab UI that runs a job, whose command runs until it is ended, then waits; Ctrl+C ends it
+JOB = """
+import os, signal, sys, threading, time
+sys.path.insert(0, sys.argv[1])
+from lab_ui.docker import compose, jobs
+compose.stop_on_signals()
+job = jobs.JOBS.start("Start Acme Shop", [["sleep", os.environ["SLEEP"]]], key="addon:acme-shop", verb="start")
+while job._process is None:
+    time.sleep(0.05)
+try:
+    print("ready", flush=True)
+    while True:
+        time.sleep(0.05)
+except KeyboardInterrupt:
+    pass
 """
 
 
@@ -1246,6 +1311,21 @@ class Exiting(Case):
                 os.kill(process.pid, getattr(signal, signal_name))   # to the Lab UI alone, as `kill` does
                 self.assertEqual(self.exits(process), -getattr(signal, signal_name))   # it ends as it would have
                 self.assertTrue(settled(lambda: not holding(self.marker)), "the command is still running")
+
+    def test_the_command_of_a_job_is_ended_with_the_lab_ui_and_the_terminal_says_which_job(self):
+        # Ctrl+C does not reach it, in a session of its own: the Lab UI ends it as it exits, and says so
+        process = self.program(JOB)
+        os.killpg(process.pid, signal.SIGINT)
+        self.assertEqual(self.exits(process), 0)
+        self.assertIn("Stopped with the Lab UI: Start Acme Shop", process.stdout.read())
+        self.assertTrue(settled(lambda: not holding(self.marker)), "the job's command is still running")
+        # A termination of the Lab UI alone ends it too: it is not left running without the Lab UI
+        for signal_name in ("SIGHUP", "SIGTERM"):
+            with self.subTest(signal_name):
+                process = self.program(JOB)
+                os.kill(process.pid, getattr(signal, signal_name))
+                self.assertEqual(self.exits(process), -getattr(signal, signal_name))
+                self.assertTrue(settled(lambda: not holding(self.marker)), "the job's command is still running")
 
     def test_a_signal_the_lab_ui_ignores_or_handles_is_left_to_it(self):
         for how, expected in (("ignored", None), ("handled", "handled")):

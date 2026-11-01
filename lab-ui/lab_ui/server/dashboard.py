@@ -394,9 +394,9 @@ def _percent(text):
 
 
 def _stats_process():
-    return subprocess.Popen(["docker", "stats", "--format", "{{json .}}"], stdin=subprocess.DEVNULL,
-                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, encoding="utf-8", errors="replace",
-                            bufsize=1)
+    """The `docker stats` that reads the load, started as a job's command is (compose.spawn): the Lab UI ends it as it
+    exits. None while it exits."""
+    return compose.spawn(["docker", "stats", "--format", "{{json .}}"], subprocess.DEVNULL)
 
 
 def lab_names():
@@ -463,6 +463,7 @@ class Stats:
                     break
                 self.feed(line)
             process.wait()   # reaped: it ended, or was killed
+            compose.release(process)
             if closed.wait(RESTART):
                 return
 

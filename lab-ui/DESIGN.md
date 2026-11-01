@@ -1467,6 +1467,10 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
 - A failed job leaves the on file as written: the item is on, does not run, and can be started again or turned off. Its
   row says "Failed", the last line its command printed in its tooltip, with Show output in its menu. A canceled one says
   "Canceled", muted. The activity chip and the drawer say "<title> failed" or "<title> canceled".
+- A job's command runs in a session of its own (`compose.spawn`, as every command the Lab UI runs), which the Lab UI ends
+  as it exits, printing the job it stopped. It is ended, the job failing with the reason, when it prints nothing for 15
+  minutes (`jobs.SILENT`), and when a container that Compose waits for ("Waiting") has been in an issue for 2 minutes as
+  Docker says it (`jobs.STUCK`, read by `Job.observe`): "gio-mongodb keeps restarting".
 - One job runs at a time. Meanwhile every action that waits gives the one reason of the state (`wait`): "Wait for" and its
   title, or why what runs is not known; while the Lab UI does not answer, "Lab UI offline". When the Lab UI
   restarts while the page follows a job, that job is gone: a toast says "<title>: interrupted".

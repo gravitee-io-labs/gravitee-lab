@@ -2,6 +2,7 @@
 from it and from what Docker says of their containers. The last failure on an item is remembered until the next job
 that starts or stops it."""
 
+import atexit
 import json
 import re
 import subprocess
@@ -43,6 +44,12 @@ GONE = ("stopped", "absent", "created")
 ON_ITS_WAY = ("created", "running")
 NEVER = float("inf")   # when what has not happened yet happened: no answer of Docker comes after it
 KEPT = 20
+# A command that prints nothing for this long is ended, the job failing with it: a pull that stalls, a wait that has no
+# end. Longer than anything a step waits for in silence (a health check, the seed's wait for an API), checked every WATCH
+SILENT, WATCH = 15 * 60, 5
+# How long a container that Compose waits for (its "Waiting") may stay in an issue (it keeps restarting, Docker restarts
+# it) as Docker says it, before the command is ended: its health check may never pass, and Compose would wait on
+STUCK = 120
 # What the catalog turns on and off, as a job's key names it ("addon:kafka"): a stop of one that failed is a failure of
 # what it stopped with it too (Jobs.failed_job). The Stack's stop leaves what is on as it is
 ITEMS = ("addon", "setup", "playground")
@@ -191,6 +198,9 @@ class Job:
         # The lines of the commands and what the state's refresh reads of Docker move the same stages
         self._lock = threading.RLock()
         self._process, self._canceled = None, False
+        # Of the command that runs: why the job ended it ((process, reason), _cut), the containers Compose waits for
+        # (its "Waiting" lines), since when Docker says each is in an issue (observe), when it last printed a line
+        self._why, self._waiting, self._issues, self._heard = None, set(), {}, 0
         # The images it pulls, layer by layer (pulls.Pulls)
         self.pulls = Pulls()
 
@@ -245,6 +255,8 @@ class Job:
         kind, name, status = found.groups()
         unit = (kind, _image(name) if kind == "Image" else name)
         with self._lock:
+            if kind == "Container":   # waited for until Compose says something else of it ("Healthy", "Error")
+                (self._waiting.add if status == "Waiting" else self._waiting.discard)(name)
             stage = self._stage
             if stage is None:
                 return
@@ -266,8 +278,10 @@ class Job:
         which comes after it returns. It counts for a container that starts once the lines said that it runs, or
         once its stage is over, and only when asked after that: until then Docker may still show the container it
         replaces, healthy. For one that stops, once its stage began. A job that failed stays where it was; one that
-        ended well settles once nothing it waits for is still on its way."""
+        ended well settles once nothing it waits for is still on its way. A command that waits for what will not get
+        there is ended (_stuck)."""
         with self._lock:
+            self._stuck(steps, asked)
             if self.ok is False:
                 return
             for stage in self._stages:
@@ -288,6 +302,19 @@ class Job:
             if self.ok and not self.settled and asked >= self._finished:
                 self.settled = not any(unit[0] == "Container" and done < 1 and steps.get(unit[1]) in ON_ITS_WAY
                                        for stage in self._stages for unit, done in stage.done.items())
+
+    def _stuck(self, steps, asked):
+        """Ends the command that runs when a container that Compose waits for has been in an issue for STUCK seconds,
+        as Docker says it (`steps`, asked at `asked`): it keeps restarting, its health check does not pass, and Compose
+        would wait on. Called with the lock held."""
+        process = self._process
+        if self.done or process is None:
+            return
+        self._issues = {name: self._issues.get(name, asked) for name in self._waiting if steps.get(name) == "issue"}
+        for name, since in sorted(self._issues.items()):
+            if asked - since >= STUCK:
+                self._cut(process, f"{name} keeps restarting")
+                return
 
     def _measure(self):
         """How far the job is: its stages alike, each by its share, one not begun counting 0. Nothing is measured
@@ -376,13 +403,29 @@ class Job:
         return self._canceled
 
     def cancel(self):
-        """Ends the job: the command that runs is terminated and the steps left are skipped."""
+        """Ends the job: the command that runs is ended (compose.end) and the steps left are skipped."""
         if self.done:
             return
         self._canceled = True
         process = self._process
-        if process and process.poll() is None:
-            process.terminate()
+        if process:
+            compose.end(process)
+
+    def _cut(self, process, why):
+        """Ends the command that runs for a reason of the job's own (_spawn says it): it said nothing for too long, or
+        what Compose waits for will not get there. The first reason stays."""
+        with self._lock:
+            if process.poll() is not None or self._why:
+                return
+            self._why = (process, why)
+        compose.end(process)
+
+    def _watch(self, process, over):
+        """Ends a command that printed nothing for SILENT seconds: a pull that stalls, a wait that has no end."""
+        while not over.wait(min(WATCH, SILENT)):
+            if time.monotonic() - self._heard >= SILENT:
+                self._cut(process, f"Stopped: nothing happened for {SILENT // 60} min")
+                return
 
     def exec(self, cmd, quiet=False, env=None):
         """Runs a command in the project root, streaming its output. When it fails, the job fails with the last line
@@ -400,25 +443,42 @@ class Job:
         self._spawn(cmd, env)
 
     def _spawn(self, cmd, env, lenient=False):
-        """One command. A pull is read as JSON, its progress told as a plain one would; `lenient`: it does not fail
-        the job, nor does it say what it could not pull."""
+        """One command, run as compose.spawn() runs one: the Lab UI ends it as it exits. A pull is read as JSON, its
+        progress told as a plain one would; `lenient`: it does not fail the job, nor does it say what it could not pull.
+        One that prints nothing for SILENT seconds is ended (_watch), and so is one that waits for what will not get
+        there (observe): the job fails with the reason."""
         pull = (_command(cmd) or (0, ""))[1] == "pull"
         start = len(self.lines)
-        process = subprocess.Popen(_json(cmd) if pull else cmd, cwd=paths.ROOT,
-                                   env={**compose.environment(), **(env or {})}, stdin=subprocess.DEVNULL,
-                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8", errors="replace",
-                                   bufsize=1)
-        self._process = process
+        try:
+            # Its errors with its output: what it printed last is why it failed
+            process = compose.spawn(_json(cmd) if pull else cmd, subprocess.STDOUT, env=env)
+        except OSError:
+            raise JobFailed(f"{cmd[0]} could not be run") from None
+        if process is None:
+            raise JobFailed("Not run: the Lab UI is ending")
+        with self._lock:
+            self._process, self._waiting, self._issues, self._heard = process, set(), {}, time.monotonic()
         if self._canceled:   # canceled while the command was starting
-            process.terminate()
-        for line in process.stdout:
-            event = _event(line) if pull else None
-            if event is not None:
-                self._pulled(event, lenient)
-            elif not (lenient or LAYER_PROGRESS.match(line)):
-                self.lines.append(line.rstrip("\n"))
-                self._printed(line)
-        if process.wait() != 0 and not lenient:
+            compose.end(process)
+        over = threading.Event()
+        threading.Thread(target=self._watch, args=(process, over), daemon=True).start()
+        try:
+            for line in process.stdout:
+                self._heard = time.monotonic()
+                event = _event(line) if pull else None
+                if event is not None:
+                    self._pulled(event, lenient)
+                elif not (lenient or LAYER_PROGRESS.match(line)):
+                    self._printed(line)   # first: a line in the output is one the job took in
+                    self.lines.append(line.rstrip("\n"))
+            code = process.wait()
+        finally:
+            over.set()
+            compose.release(process)
+        why = self._why
+        if why and why[0] is process and not self._canceled:
+            raise JobFailed(why[1])
+        if code != 0 and not lenient:
             raise JobFailed(self.last_line(start) or f"Failed with exit code {process.returncode}")
 
     def _pulled(self, event, lenient):
@@ -537,3 +597,17 @@ class Jobs:
 
 
 JOBS = Jobs()
+
+
+def _cut_short():
+    """As the Lab UI exits by itself (Ctrl+C): the job that runs ends with it, its command ended with every other one
+    (compose._end, which runs after this), and the terminal says which."""
+    job = JOBS.current
+    if job and not job.done:
+        print(f"Stopped with the Lab UI: {job.title}", flush=True)
+
+
+if hasattr(threading, "_register_atexit"):   # CPython 3.9 and later: before compose._end, registered first
+    threading._register_atexit(_cut_short)
+else:
+    atexit.register(_cut_short)

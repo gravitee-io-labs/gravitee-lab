@@ -1,7 +1,8 @@
 """Docker Compose from the command line: a file's configuration as JSON, its includes and variables, the project's
-containers, what Compose would create each service as, the images Docker holds. Every command runs under the same
-limits: a time after which it and what it started are ended, and an environment that lets Compose read local files
-only. Also holds the environments of a command that reads or builds what someone else wrote (the catalog standard), and the cache of what is slow to ask again (registries, Docker)."""
+containers, what Compose would create each service as, the images Docker holds. Every command runs in a session of
+its own, which the Lab UI ends as it exits, with an environment that lets Compose read local files only; one whose
+answer is awaited (run) has a time after which it and what it started are ended, one whose output is read as it comes
+(spawn: a job's, a log followed) is ended when asked (end). Also holds the environments of a command that reads or builds what someone else wrote (the catalog standard), and the cache of what is slow to ask again (registries, Docker)."""
 
 import atexit
 import calendar
@@ -299,8 +300,8 @@ def _stop(process):
 
 
 def stop_running():
-    """Ends every command that runs, with what it started. A command leads a session of its own (run), so the Ctrl+C
-    or the hang-up that ends the Lab UI no longer reaches it: the Lab UI ends it."""
+    """Ends every command that runs, with what it started. A command leads a session of its own (run, spawn), so the
+    Ctrl+C or the hang-up that ends the Lab UI no longer reaches it: the Lab UI ends it."""
     for process in list(_running):
         _stop(process)
 
@@ -325,7 +326,7 @@ if hasattr(threading, "_register_atexit"):   # CPython 3.9 and later
 
 def stop_on_signals():
     """Makes a hang-up (the terminal closed) and a termination of the Lab UI end what runs (_end) before the Lab UI ends
-    as it would have. A command leads a session of its own (run), so these signals, which the terminal sends to the
+    as it would have. A command leads a session of its own (run, spawn), so these signals, which the terminal sends to the
     Lab UI's process group, no longer reach it, and Python does not run its exit functions for them. A signal that the
     Lab UI ignores (`nohup`) or handles stays as it is. Called once by what starts the Lab UI, from the main thread."""
     def ending(number, frame):
@@ -372,6 +373,47 @@ def run(cmd, timeout=120, cwd=None, env=None, environ=None, given=None):
     finally:
         _running.discard(process)
     return process.returncode, out, err
+
+
+# How long a command asked to end (end) has to end by itself before it is killed with what it started
+GRACE = 10
+
+
+def spawn(cmd, errors, cwd=None, env=None):
+    """A command started as run() starts one, for a caller that reads its output as it comes (a job, a log followed):
+    from the project root, with no input, in a session of its own that the Lab UI ends as it exits (_end), its output
+    as text. `errors`: where its errors go, subprocess.STDOUT with its output or subprocess.DEVNULL. `env`: variables
+    set for it. None while the Lab UI exits: it is not started. The caller reads its lines, waits for it, then calls
+    release()."""
+    if _ending:
+        return None
+    process = subprocess.Popen(cmd, cwd=cwd or ROOT, env={**environment(), "PWD": str(cwd or ROOT), **(env or {})},
+                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=errors, encoding="utf-8",
+                               errors="replace", bufsize=1, start_new_session=True)
+    _running.add(process)
+    if _ending:   # the Lab UI began to exit while it started: _end did not see it
+        _stop(process)
+    return process
+
+
+def release(process):
+    """A command that spawn() started has ended: the Lab UI has nothing more to end of it."""
+    _running.discard(process)
+
+
+def end(process):
+    """Asks a command that spawn() started to end, with what it started: a termination of its process group, which
+    Compose answers by ending what it waits for, then a kill (_stop) if it still runs GRACE seconds later. Nothing for
+    one that ended."""
+    if process.poll() is not None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except OSError:   # the group is gone already
+        return
+    timer = threading.Timer(GRACE, lambda: process.poll() is None and _stop(process))
+    timer.daemon = True
+    timer.start()
 
 
 def _last_line(err):
