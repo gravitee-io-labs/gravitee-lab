@@ -553,7 +553,9 @@ def _first_step(text):
 def _readme(gathered, raw, services, consoles, seed, missing):
     unit, folder = gathered["unit"], gathered["folder"]
     meta, requires = raw.get("x-gravitee") or {}, unit.get("requires") or {}
-    accounts = meta.get("accounts") or []
+    # The accounts as the file writes them, a password as its ${VAR:-default}: those of the page (project._lists), each a mapping
+    listed = meta.get("accounts") if isinstance(meta, dict) else None
+    accounts = [one for one in listed if isinstance(one, dict)] if isinstance(listed, list) else []
     guide_file = folder / "guide.md"
     first = {}
     for one in accounts:
