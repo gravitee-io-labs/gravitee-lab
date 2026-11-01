@@ -104,6 +104,16 @@ test("with a license it is a service as any other: no note, its state a dot and 
   assert.equal(container.querySelectorAll(".pill.note").length, 0);
 });
 
+test("a group has run whole as long as its youngest container, one in its first minute too", () => {
+  const state = lab({ licensed: true });
+  state.services.api = service("api", RUNNING, { uptime: "< 1 min" });
+  state.platform.groups[0].services = ["gateway", "api"];
+  draw(state);
+  const row = section.querySelector('.group[data-key="group:api-management"] > .group-row');
+  assert.equal(text(row.querySelector(".s-uptime")), "< 1 min");
+  assert.equal(text(section.querySelector('.container[data-service="api"] .s-uptime')), "< 1 min");
+});
+
 test("a service of no license that is not on and has no container is still left out", () => {
   const state = lab({ licensed: true });
   state.services["alert-engine"].needs_license = false;

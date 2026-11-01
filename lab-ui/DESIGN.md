@@ -1539,6 +1539,8 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
     of every answer of `/api/state`, a 304 too (`Job.live`). What the job is for says `"progress": "job"` meanwhile.
     The page draws only the bars, the buttons at work and the job's line as those measures move (`store.onMeasure`),
     and every page once a measure comes or goes. Once the job ended, the state says all of it.
+  - A container's uptime is said to the minute, *< 1 min* in its first one (`model.uptime`): Docker counts that minute
+    in seconds, which would change the state at every poll while a job starts containers.
   - A stage with nothing to count (a login, following the seed) is not measured. Progress shows only while there is
     something to measure: the button or the pill of what changes fills, a head or a phase gets a bar.
 - Logs follows each service chosen through its restarts: once its container runs again after a new start, the stream

@@ -17,7 +17,7 @@ HEALTH = {"healthy": ("healthy", "Healthy"), "starting": ("starting", "Starting"
 # of memory. A one-shot runs to its end: any of them but 0 is one it did not reach
 STOP_CODES = (0, 130, 137, 143)
 # Docker's words for a duration, and the unit the page writes
-DURATIONS = (("second", "s"), ("minute", "min"), ("hour", "h"), ("day", "d"), ("month", "mo"), ("year", "y"))
+DURATIONS = (("minute", "min"), ("hour", "h"), ("day", "d"), ("month", "mo"), ("year", "y"))
 LABELS = {"running": "Running", "partly": "Partly running", "starting": "Starting", "stopping": "Stopping",
           "stopped": "Stopped", "issue": "Issue", "off": ""}
 # Where a service is as it should be: it runs, healthy or without a health check, or it is a one-shot that ended well
@@ -94,9 +94,10 @@ def container_steps(project, containers):
 
 def uptime(status):
     """Docker's status text, in the short units of the page: "Up 5 minutes (healthy)" -> "5 min", "Up 2 weeks" ->
-    "14 d", "Exited (0) About an hour ago" -> "1 h ago"."""
+    "14 d", "Exited (0) About an hour ago" -> "1 h ago". Its first minute is one text, "< 1 min": Docker counts it in
+    seconds, which would change the state at every poll while a job starts containers."""
     text = re.sub(r"^Up |^(Exited|Restarting) \(\d+\) | \((healthy|unhealthy|health: starting)\)$", "", status or "")
-    text = re.sub(r"Less than a second", "1 s", text, flags=re.I)
+    text = re.sub(r"Less than a second|\d+ seconds?", "< 1 min", text, flags=re.I)
     text = re.sub(r"About an? ", "1 ", text, flags=re.I)
     text = re.sub(r"(\d+) weeks?", lambda weeks: f"{int(weeks.group(1)) * 7} d", text)
     for word, unit in DURATIONS:

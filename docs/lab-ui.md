@@ -293,8 +293,8 @@ platform (the ones in the *Gravitee Platform* category) that are on or still run
 of it as a badge after its name (*Apply needed*, *Needs a license*, *Started by hand*), its state (a dot and a
 word: *Running*, *Partly running*, *Stopped*), its version, the ports it publishes (the first, and how many more, all of
 them in its tooltip) and how long it has run whole (the uptime of its youngest container), with buttons to open it, read its
-logs, restart it, and stop or start it. Opened, it lists its containers, each with its own state, version, ports and uptime; a
-version is said without the system its image is built on (`-debian`), the whole tag in its tooltip, and the one saved there too
+logs, restart it, and stop or start it. Opened, it lists its containers, each with its own state, version, ports and uptime
+(to the minute, *< 1 min* in its first one); a version is said without the system its image is built on (`-debian`), the whole tag in its tooltip, and the one saved there too
 when it differs, its group's badge saying why. A product's row has a plug button that opens its plugins, and the name
 of a playground or an add-on opens its page or its row. The *Consoles* card lists every console, each with its port and the path of its address. The primary
 button of the head, *Start* or *Apply*, is its last, before its menu.

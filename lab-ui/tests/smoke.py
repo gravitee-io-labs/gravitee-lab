@@ -145,7 +145,7 @@ def state(lab_ui):
 
 
 def unchanged(lab_ui):
-    # An uptime in seconds, or a job that runs, changes the state between two requests: then it is sent again
+    # An uptime that turns a minute, or a job that runs, changes the state between two requests: then it is sent again
     status, headers, first = lab_ui.ask("/api/state")
     again, _, body = lab_ui.ask("/api/state", headers={"If-None-Match": headers["ETag"]})
     assert status == 200 and ((again, body) == (304, b"") or (again == 200 and body != first)), \

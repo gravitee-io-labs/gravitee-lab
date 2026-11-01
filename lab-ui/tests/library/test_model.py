@@ -101,11 +101,12 @@ class Services(Case):
 
     def test_uptime(self):
         for status, text in (("Up 5 minutes (healthy)", "5 min"), ("Up About an hour (healthy)", "1 h"),
-                             ("Up About a minute (health: starting)", "1 min"), ("Up Less than a second", "1 s"),
-                             ("Up 30 seconds (unhealthy)", "30 s"), ("Up 7 hours", "7 h"), ("Up 3 days", "3 d"),
+                             ("Up About a minute (health: starting)", "1 min"), ("Up Less than a second", "< 1 min"),
+                             ("Up 1 second", "< 1 min"), ("Up 30 seconds (unhealthy)", "< 1 min"),
+                             ("Up 7 hours", "7 h"), ("Up 3 days", "3 d"),
                              ("Up 2 weeks (healthy)", "14 d"), ("Up 5 months", "5 mo"), ("Up 2 years", "2 y"),
                              ("Exited (0) 2 minutes ago", "2 min ago"),
-                             ("Restarting (1) 2 seconds ago", "2 s ago"),
+                             ("Restarting (1) 2 seconds ago", "< 1 min ago"),
                              ("Exited (137) About an hour ago", "1 h ago"), (None, "")):
             self.assertEqual(model.uptime(status), text)
 
@@ -895,6 +896,20 @@ class State(Built):
         self.assertEqual(json.dumps(first, sort_keys=True), json.dumps(second, sort_keys=True))
         self.assertEqual(first["job"]["phases"], [{"name": "Pull", "started": 1.0}])
         self.assertEqual(next(a for a in first["addons"] if a["id"] == "kafka")["progress"], "job")
+
+    def test_a_container_that_just_started_does_not_change_the_state_at_each_second_of_a_running_job(self):
+        # A Start waits for its containers' health checks; Docker words their age to the second for their first minute
+        running = {**job("Start Kafka", start=[["addon", "kafka"]], key="addon:kafka", progress=0.6),
+                   "phases": [{"name": "Start", "started": 1.0, "progress": 0.6}], "detail": "Container kafka Started"}
+
+        def at(age):
+            return {**CORE, "kafka": container(health="starting", status=f"Up {age} (health: starting)"),
+                    "seed": container("exited", "", 0, f"Exited (0) {age} ago")}
+
+        bodies = {json.dumps(self.build(explicit=["kafka"], job=running, containers=at(age)), sort_keys=True)
+                  for age in ("Less than a second", "1 second", "3 seconds", "4 seconds", "59 seconds")}
+        self.assertEqual(len(bodies), 1, "the state changed at each second while the job runs")
+        self.assertEqual(json.loads(bodies.pop())["services"]["kafka"]["uptime"], "< 1 min")
 
     def test_what_a_job_stops_keeps_stop_and_says_nothing_else(self):
         # The on file no longer lists it and its containers still run: neither "started outside" nor a Start
