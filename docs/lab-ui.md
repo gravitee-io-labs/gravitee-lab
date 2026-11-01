@@ -565,13 +565,12 @@ then, its line saying which. The guide is readable before the first start.
 
 Start sets the playground up in one job, shown in phases:
 
-1. **Add-ons**: the playground goes first in the [on file](#the-on-file), and it includes its add-ons and setups. What
-   conflicts with them is turned off.
-2. **Plugins**: the missing ones are downloaded.
-3. **Apps and services**, or **Platform, apps and services** when the platform starts too: its apps are built and
-   started, with what they and the seed need. The core services it changes restart.
-4. **Seed**: its output is followed until it ends. A seed that fails fails the start, and the reason is the last line it
-   printed. Start again to retry.
+1. **Plugins**: the missing ones are downloaded. Nothing else has changed yet: a failure here leaves what was on as it was.
+2. **Apps and services**, or **Platform, apps and services** when the platform starts too: what it replaces or conflicts
+   with is removed, then the playground goes first in the [on file](#the-on-file), with its add-ons and setups; its apps
+   are built and started, with what they and the seed need. The core services it changes restart.
+3. **Seed**: its output is followed until it ends. A seed that fails fails the start, and the reason is the last line it
+   printed (or that it ran out of memory, or was stopped). Start again to retry. Cancel stops the seed too.
 
 Once the seed has recorded what it created, Start only runs again what does not run, for example after a Stop on the
 Containers page. It builds nothing and seeds nothing. If the seed recorded nothing, or failed, Start sets the playground

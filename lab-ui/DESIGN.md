@@ -675,15 +675,17 @@ place gone with its platform, or a place not read yet.
 
 ### Playgrounds
 
-- A playground's first Start sets it up, in phases: Add-ons, Plugins, Apps and services ("Platform, apps and services"
-  when the platform starts too: its apps are built), Seed. A deploy to a place besides This machine has Add-ons, Apps and
-  services, Gateway and Seed, never Plugins or Platform.
+- A playground's first Start sets it up, in phases: Plugins, Apps and services ("Platform, apps and services" when the
+  platform starts too: what goes is removed, the on file written, its apps built), Seed. A deploy to a place besides This
+  machine has Add-ons (the gateway's token, what goes removed, the on file written), Apps and services, Gateway and Seed,
+  never Plugins or Platform.
 - Once it is on and its seed recorded what it created (`layers.fresh`), its Start runs it again as an add-on's does, in
   one job: no build, no seed. After its seed failed, its Start sets it up again, its seed with it, and follows only that
   run of the seed.
 - Re-seed runs the seed again. It, and the stop that deletes what the seed created, wait for what the seed needs, and
-  what that needs in turn ("Management API is not running"). Re-seed also waits for the playground to be on ("Acme Bakery
-  is off").
+  what that needs in turn ("Management API is not running"), and for the seed itself to end ("Seed is still running":
+  two runs would race on its record). Re-seed also waits for the playground to be on ("Acme Bakery is off"). A job
+  canceled while its seed runs stops the seed, which Compose would leave running.
 - Containers does not start a seed ("Re-seed runs it again"); a service's `role` says which one is.
 - A playground has its own `.env` and settings, as an add-on has (`paths.unit_env`): its form shows what its compose file
   describes, the image variables staying on the Images page.
