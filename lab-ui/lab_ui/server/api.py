@@ -96,14 +96,23 @@ def _docker_down(body):
     body["wait"] = body["docker"]["title"]
 
 
+def _containers():
+    """What Docker says of the project's containers (compose.containers) and when it was asked: (containers, error, asked).
+    Kept a second, which the pages that ask in that second share: while a job runs every page asks each second, and Docker is
+    asked once. The end of a job forgets it (`local:`)."""
+    def read():
+        asked = time.monotonic()   # Docker's answer is newer than every line the job read before
+        return (*compose.containers(project.LICENSE_KEY), asked)
+    return compose.CACHE.get(f"local:containers:{paths.ROOT}", 1, read)
+
+
 def snapshot():
     """The state the page draws, before it is sent. Docker not answering is part of the state, not a failure of the Lab
     UI, and so is docker-compose.yml not loading: then what runs is not known either. What Docker says of the
     containers moves the last job too: their health, which Compose does not wait for, and after it returned. Each
     container says which license it runs, as a digest: one saved and not applied is said."""
     p, read = project.loaded()
-    asked = time.monotonic()   # Docker's answer is newer than every line the job read before
-    containers, error = compose.containers(project.LICENSE_KEY) if p["core_loaded"] else ({}, None)
+    containers, error, asked = _containers() if p["core_loaded"] else ({}, None, time.monotonic())
     last = JOBS.current
     if last and not error and p["core_loaded"]:
         last.observe(model.container_steps(p, containers), asked)

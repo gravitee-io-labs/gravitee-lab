@@ -338,6 +338,7 @@ class State(LabUI):
         self.catalogued = {"git": {"available": True, "version": "2.43.2"}, "catalogs": self.rows,
                            "content": self.content, "layout": self.layout}
         self.patch(api, "JOBS", Jobs())
+        self.patch(api.compose, "CACHE", compose.Cache())
         self.name = self.patch(api.compose, "project_name", return_value="gravitee")
         self.build = self.patch(api.model, "build", side_effect=lambda *args, **more: {
             "containers": sorted(args[2]), "docker": args[6]})
@@ -440,6 +441,7 @@ class State(LabUI):
         self.request("GET", "/api/state")
         self.assertEqual(self.build.call_args[0][3]["progress"], 0.5)   # Docker did not answer: nothing more known
         ps.side_effect, ps.return_value = None, {"mongodb": {"state": "running", "health": "healthy"}}
+        api.compose.CACHE.drop()   # a second later
         self.request("GET", "/api/state")
         self.assertEqual((job.progress, self.build.call_args[0][3]["progress"]), (1, 1))
 
@@ -451,9 +453,20 @@ class State(LabUI):
         status, headers, body = self.request("GET", "/api/state", headers={"If-None-Match": tag})
         self.assertEqual((status, body, headers["ETag"]), (304, b"", tag))
         ps.return_value = {"mongodb": {}, "redis": {}}
+        api.compose.CACHE.drop()   # a second later
         status, headers, _ = self.request("GET", "/api/state", headers={"If-None-Match": tag})
         self.assertEqual(status, 200)
         self.assertNotEqual(headers["ETag"], tag)
+
+    def test_the_pages_that_ask_in_the_same_second_share_one_reading_of_docker(self):
+        # While a job runs every open page asks each second: Docker is asked once a second, whatever their number
+        ps = self.patch(api.compose, "ps", return_value={"mongodb": {}})
+        for _ in range(3):
+            self.assertEqual(self.request("GET", "/api/state")[0], 200)
+        self.assertEqual(ps.call_count, 1)
+        api.compose.CACHE.drop("local:")   # what a job that ends does: what runs changed
+        self.request("GET", "/api/state")
+        self.assertEqual(ps.call_count, 2)
 
 
 class Frame(LabUI):
