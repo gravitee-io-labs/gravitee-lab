@@ -1070,6 +1070,15 @@ def open_browser(url):
         webbrowser.open(url)
 
 
+def command():
+    """The command that starts the Lab UI of this folder, as the person types it: gravitee-lab when that is the command of
+    this folder (on the PATH, or in ~/.local/bin, where install.sh links it before a new terminal finds it there), else
+    make ui, in a clone made by hand."""
+    found = shutil.which("gravitee-lab", path=os.pathsep.join([os.environ.get("PATH", ""), os.path.expanduser("~/.local/bin")]))
+    mine = found and os.path.realpath(found) == os.path.realpath(paths.ROOT / "bin" / "gravitee-lab")
+    return "gravitee-lab" if mine else "make ui"
+
+
 def serve(port, browser):
     """Serves the page and the API of this folder on `port`, for as long as the process runs. One Lab UI serves a folder
     (paths.serve_here): a second one, on any port, sends the person to it. A Lab UI of another folder on the port (or one
@@ -1077,7 +1086,7 @@ def serve(port, browser):
     running = paths.serve_here(port)
     if running is not None:
         url = f"http://localhost:{running or port}"
-        address(url, "Already running. To load a new version, stop it with Ctrl+C in its terminal, then run gravitee-lab "
+        address(url, f"Already running. To load a new version, stop it with Ctrl+C in its terminal, then run {command()} "
                      "again.")
         if browser:
             open_browser(url)
@@ -1098,10 +1107,10 @@ def _serve(port, browser):
         if error.errno != errno.EADDRINUSE:
             raise
         if is_lab_ui(port):
-            sys.exit(f"Port {port} is used by another Lab UI: stop it with Ctrl+C in its terminal, then run gravitee-lab "
+            sys.exit(f"Port {port} is used by another Lab UI: stop it with Ctrl+C in its terminal, then run {command()} "
                      "again. One lab runs at a time")
         sys.exit(f"Port {port} is used by another program. Free it, or use another port: UI_PORT={port + 1} "
-                 "gravitee-lab (the UIs of a playground do not show next to the guide on another port)")
+                 f"{command()} (the UIs of a playground do not show next to the guide on another port)")
     # Once, from the main thread, before the move's download and before it serves: a closed terminal ends what runs
     compose.stop_on_signals(gitx.stop_running)
     if not layout.run():   # a folder of the layout before catalogs is moved before anything is served, or said why not

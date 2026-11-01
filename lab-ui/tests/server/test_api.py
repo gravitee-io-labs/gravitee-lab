@@ -1964,8 +1964,9 @@ class JobRoutes(LabUI):
 
 class CommandLine(LabUI):
 
+    # The folder of a test is a clone made by hand: the command that starts its Lab UI is make ui (command())
     RUNNING = "\n  >  Lab UI   http://localhost:{}\n     Already running. To load a new version, stop it with Ctrl+C in its " \
-              "terminal, then run gravitee-lab again.\n"
+              "terminal, then run make ui again.\n"
 
     def another_program(self, handler=None):
         """A web server that is not the Lab UI, on a free port of its own: answers its port."""
@@ -2044,7 +2045,7 @@ class CommandLine(LabUI):
         with self.assertRaises(SystemExit) as stopped:
             api.serve(port, browser=True)
         self.assertEqual(stopped.exception.code, f"Port {port} is used by another Lab UI: stop it with Ctrl+C in its terminal, "
-                                                 "then run gravitee-lab again. One lab runs at a time")
+                                                 "then run make ui again. One lab runs at a time")
         opened.assert_not_called()
         self.assertIsNone(paths.served_elsewhere(), "the lock this one took is let go")
 
@@ -2055,9 +2056,34 @@ class CommandLine(LabUI):
             api.serve(port, browser=True)
         self.assertEqual(stopped.exception.code,
                          f"Port {port} is used by another program. Free it, or use another port: "
-                         f"UI_PORT={port + 1} gravitee-lab (the UIs of a playground do not show next to the guide on "
+                         f"UI_PORT={port + 1} make ui (the UIs of a playground do not show next to the guide on "
                          "another port)")
         opened.assert_not_called()
+
+    def test_the_command_said_is_the_one_the_person_has(self):
+        # A clone made by hand has no gravitee-lab: make ui, in the clone. install.sh links the command of its clone in
+        # ~/.local/bin, which a new terminal finds on the PATH, and the installer's own terminal not yet
+        self.folder(paths)
+        command = self.root / "clone/bin/gravitee-lab"
+        self.write("clone/bin/gravitee-lab", "#!/bin/sh\n")
+        command.chmod(0o755)
+        (self.root / "home/.local/bin").mkdir(parents=True)
+        (self.root / "home/.local/bin/gravitee-lab").symlink_to(command)
+        for root, path, said in ((self.root, "/usr/bin:/bin", "make ui"),                          # another clone's
+                                 (self.root / "clone", "/usr/bin:/bin", "gravitee-lab"),          # before a new terminal
+                                 (self.root / "clone", str(self.root / "home/.local/bin"), "gravitee-lab")):
+            with mock.patch.object(paths, "ROOT", root), \
+                    mock.patch.dict(os.environ, {"HOME": str(self.root / "home"), "PATH": path}):
+                self.assertEqual(api.command(), said, (root, path))
+        with mock.patch.dict(os.environ, {"HOME": str(self.root / "nobody"), "PATH": "/usr/bin:/bin"}):
+            self.assertEqual(api.command(), "make ui")
+        # And the lines that send the person to start it again say it
+        port = self.another_program()
+        with mock.patch.object(paths, "ROOT", self.root / "clone"), \
+                mock.patch.dict(os.environ, {"HOME": str(self.root / "home"), "PATH": "/usr/bin:/bin"}), \
+                self.assertRaises(SystemExit) as stopped:
+            api.serve(port, browser=False)
+        self.assertIn(f"UI_PORT={port + 1} gravitee-lab (", stopped.exception.code)
 
     def test_a_program_on_the_ipv6_loopback_is_another_program_though_127_0_0_1_is_free(self):
         # A browser may take localhost for ::1 and show that program in place of the Lab

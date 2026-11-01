@@ -131,6 +131,8 @@ each other at these addresses. [Ports](configuration.md#ports) lists every port.
   time`
 - `UI_PORT must be a port number, for example 9001`
 
+In a clone you made yourself, without the `gravitee-lab` command, they say `make ui` where these say `gravitee-lab`.
+
 **Cause:** another program listens on 9000, you started the Lab UI of this clone twice, a Lab UI of another clone (or
 one started before you updated the Lab) holds the port, or `UI_PORT` holds something else than a port number.
 
