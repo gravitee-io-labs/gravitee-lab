@@ -295,6 +295,69 @@ def outcome(load, text):
         return "refused", type(e).__name__, str(e)
 
 
+class YamlValues(Seed):
+    """A YAML file is read as a document before its variables are replaced, as a JSON file is: a value is put in a string of
+    it, and never changes the file around it."""
+
+    def load(self, text, **values):
+        self.env(**values)
+        self.seed_files({"a.yaml": text})
+        return common.load(common.SEED_DIR / "a.yaml")
+
+    def test_a_password_with_a_quote_a_backslash_or_an_escape_arrives_as_it_was_set(self):
+        for password in ('S3cr3t"Pw', "back\\slash", "pa\\nss", "tab\\tbed", "it's", "a: b # c", "- [x]", "{x}", "%x", "&a *b"):
+            with self.subTest(password=password):
+                self.assertEqual(self.load('password: "${PW}"\nother: \'${PW}\'\nplain: ${PW}\n', PW=password),
+                                 {"password": password, "other": password, "plain": password})
+
+    def test_a_plain_variable_is_read_as_yaml_reads_its_value_as_in_a_file_written_out(self):
+        self.assertEqual(self.load("port: ${PORT}\nenabled: ${FLAG}\nempty: ${NONE:-}\nkey: '${PORT}'\nurl: http://h:${PORT}/x\n",
+                                   PORT="8080", FLAG="true"),
+                         {"port": 8080, "enabled": True, "empty": None, "key": "8080", "url": "http://h:8080/x"})
+
+    def test_keys_aliases_and_lists_get_their_values_too(self):
+        text = "${NAME}: &u {user: '${USER}'}\ncopy: *u\nlist: ['${USER}', x]\nmerged: {<<: *u, own: 1}\n"
+        self.assertEqual(self.load(text, NAME="alice", USER='o"brien'),
+                         {"alice": {"user": 'o"brien'}, "copy": {"user": 'o"brien'}, "list": ['o"brien', "x"],
+                          "merged": {"user": 'o"brien', "own": 1}})
+
+    def test_a_string_that_is_json_text_gets_the_value_escaped_for_that_text(self):
+        loaded = self.load("configuration: '{\"password\": \"${PW}\"}'\n", PW='q"uo\\te')
+        self.assertEqual(json.loads(loaded["configuration"]), {"password": 'q"uo\\te'})
+
+    def test_every_name_that_is_not_set_is_said_at_once(self):
+        with self.assertRaisesRegex(common.SeedError, "a.yaml: ONE, TWO not set"):
+            self.load("a: ${ONE}\nb: '${TWO}'\n")
+
+    def test_a_name_in_a_comment_is_no_value_to_give(self):
+        self.assertEqual(self.load("a: 1   # set ${NOBODY} to change it\n"), {"a": 1})
+
+    def test_a_file_that_is_not_yaml_says_its_line_and_never_what_it_holds(self):
+        """What the parser quotes of a file is where a password would be: the reason the Lab shows says the line alone."""
+        with self.assertRaises(common.SeedError) as raised:
+            self.load('a: 1\nb: [1, 2\npassword: "${PW}"\n', PW="S3cr3t-Pw")
+        self.assertRegex(str(raised.exception), r"a\.yaml: it is not valid YAML once its variables are replaced \(line \d+\)$")
+        self.assertNotIn("S3cr3t", str(raised.exception))
+        self.assertNotIn("\n", str(raised.exception))
+
+    def test_a_kubernetes_file_of_several_documents_gets_its_values_the_same_way(self):
+        self.env(PW='p"w')
+        docs = common.render_yaml("a: '${PW}'\n---\nb: ${PW}\n", "k8s.yaml", every=True)
+        self.assertEqual(docs, [{"a": 'p"w'}, {"b": 'p"w'}])
+
+    def test_the_playgrounds_yaml_files_read_as_they_did_as_text(self):
+        """With values YAML reads alike whichever way they are put in, a document reads as the text it used to be replaced in."""
+        found = list(seeded_playgrounds())
+        self.assertTrue(found)
+        for folder, _ in found:
+            for path in sorted((folder / "seed").rglob("*.y*ml")):
+                text = path.read_text(encoding="utf-8")
+                values = {m.group(2): "value-" + m.group(2).lower() for m in common.VARIABLE.finditer(text) if not m.group(1)}
+                with self.subTest(file=str(path.relative_to(folder))), mock.patch.dict(os.environ, values):
+                    as_text = common.parse_yaml_all(common.render(text, path), path)
+                    self.assertEqual(common.render_yaml(text, path, every=True), as_text)
+
+
 class MergeKeys(unittest.TestCase):
     """A `<<` key makes the loader of YAML copy the pairs of the mappings it merges into its own, and each of those may have
     merged others: a file of a kilobyte can ask for a million pairs, or for more than the machine holds. What the loader would
@@ -406,21 +469,27 @@ class Bombs(Seed):
             common.merged_pairs(text)
         self.assertLess(time.process_time() - started, 5.0)
 
-    def test_the_variables_are_replaced_before_the_merge_keys_are_counted(self):
-        """A variable may bring the keys that the file itself does not show: the loader gets the replaced text."""
+    def test_a_variable_brings_a_value_never_keys_so_never_merge_keys(self):
+        """The file's structure is its own: a value that is YAML text, a bomb even, stays the text it is."""
         self.seed_files({"a.yaml": "a: ${KEY}\n"})
         path = common.SEED_DIR / "a.yaml"
-        self.assertEqual(common.merged_pairs("a: ${KEY}\n"), 0)
+        self.env(KEY=flowing(22))
+        started = time.process_time()
+        self.assertEqual(common.load(path), {"a": flowing(22)})
+        self.assertEqual(common.load(path, provided={"KEY": flowing(22)}), {"a": flowing(22)})
+        self.assertLess(time.process_time() - started, 1.0, "the loader copied no pair")
+
+    def test_a_file_that_is_no_yaml_until_its_variables_are_replaced_is_guarded_once_they_are(self):
+        """Replaced as text, the variables may bring the keys: the loader gets the replaced text and counts its pairs."""
+        self.seed_files({"a.yaml": "a: [${KEY}]\n"})
+        path = common.SEED_DIR / "a.yaml"
         self.env(KEY=flowing(5))
-        self.assertEqual(common.load(path)["a"]["a5"], {"k": 1})
+        self.assertEqual(common.load(path)["a"][0]["a5"], {"k": 1})
         self.env(KEY=flowing(22))
         with self.refuses_to_build(), self.assertRaises(common.MergeError):
             common.load(path)
-
-    def test_the_variables_the_engine_gives_are_replaced_too(self):
-        self.seed_files({"a.yaml": "a: ${ENV_NAME}\n"})
         with self.refuses_to_build(), self.assertRaises(common.MergeError):
-            common.load(common.SEED_DIR / "a.yaml", provided={"ENV_NAME": flowing(22)})
+            common.load(path, provided={"KEY": flowing(22)})
 
     def test_a_json_file_has_no_merge_keys(self):
         self.seed_files({"a.json": json.dumps({"<<": [1, 2], "!!merge": 3})})

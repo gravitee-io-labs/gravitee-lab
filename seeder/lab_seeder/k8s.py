@@ -29,8 +29,8 @@ from pathlib import Path
 
 import yaml
 
-from .common import READY_TIMEOUT, REFUSED, Api, Gone, HttpError, SeedError, excerpt, files, has_seed, log, owned, parse_yaml_all, pause, \
-    record, render, setting, wait_until
+from .common import READY_TIMEOUT, REFUSED, Api, Gone, HttpError, SeedError, excerpt, files, has_seed, log, owned, pause, record, \
+    render_yaml, setting, wait_until
 
 SECTION = "k8s"
 DEPENDS = ("apim",)   # the modules whose work this one reads on the platform (schedule.py)
@@ -102,7 +102,7 @@ def manifests():
     """The manifests of seed/k8s, in order, with their variables replaced."""
     out = []
     for path in files("k8s", suffixes=(".yaml", ".yml")):
-        for doc in parse_yaml_all(render(path.read_text(encoding="utf-8"), path), str(path)):
+        for doc in render_yaml(path.read_text(encoding="utf-8"), path, every=True):
             if doc:
                 if not all(doc.get(k) for k in ("apiVersion", "kind")) or not doc.get("metadata", {}).get("name"):
                     raise SeedError(f"{path.name}: a manifest needs apiVersion, kind and metadata.name")

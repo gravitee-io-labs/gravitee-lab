@@ -164,8 +164,6 @@ class Scope:
             spec = load(path, provided=self.provided)
         except SeedError as e:
             raise SeedError(str(e).replace(str(path), shown(path))) from None
-        except yaml.YAMLError as e:
-            raise SeedError(f"{shown(path)}: it is not YAML ({excerpt(e, 200)})") from None
         if not isinstance(spec, dict):
             raise SeedError(f"{shown(path)}: it is not a mapping")
         unknown = sorted(set(spec) - set(keys))
@@ -352,7 +350,7 @@ def api_document(scope, path):
     try:
         spec = yaml.safe_load(document)
     except yaml.YAMLError as e:
-        raise SeedError(f"{shown(path)}: it is not YAML ({excerpt(e, 200)})") from None
+        raise SeedError(common.unreadable(shown(path), e)) from None
     if isinstance(spec, dict) and spec.get("openapi") is not None and spec.get("asyncapi") is None:
         info = spec.get("info")
         if not isinstance(info, dict) or any(info.get(key) in (None, "") for key in ("title", "version")):

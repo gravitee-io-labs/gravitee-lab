@@ -64,6 +64,24 @@ class Apis(Seed):
         self.assertEqual(len(self.platform.sent("POST", f"{V2}/apis/_import/definition")), 1, "the platform may have made it")
 
 
+class Files(Seed):
+
+    def test_a_password_with_a_quote_or_a_backslash_seeds_as_it_was_set(self):
+        self.seed_files({"am/domain.yaml": 'name: bank\nusers: [{username: ann, password: "${PW}"}]\n'})
+        for password in ('S3cr3t"Pw', "back\\slash", "pa\\nss"):
+            with self.subTest(password=password):
+                self.env(PW=password)
+                self.assertEqual(common.load(common.SEED_DIR / "am/domain.yaml")["users"][0]["password"], password)
+
+    def test_a_file_that_is_not_yaml_stops_the_seed_with_its_line_and_never_its_text(self):
+        self.seed_files({"am/domain.yaml": 'name: bank\nusers: [{username: ann,\n  password: "${PW}" ]]\n'})
+        self.env(PW="S3cr3t-Pw")
+        self.assertEqual(self.main(), 1)
+        self.assertRegex(self.output().splitlines()[-1],
+                         r"^\[seed\] ✗ .*am/domain\.yaml: it is not valid YAML once its variables are replaced \(line \d+\)$")
+        self.assertNotIn("S3cr3t", self.output())
+
+
 class Engines(Seed):
 
     SPEC = {"type": "openfga", "name": "OpenFGA", "store": "Documents", "connectionUri": "http://openfga:8180"}

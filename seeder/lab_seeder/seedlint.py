@@ -561,8 +561,8 @@ def _flat(error):
 
 
 def _line_of(error):
-    """The line of a parse error, when it says one."""
-    mark = getattr(error, "problem_mark", None)
+    """The line of a parse error, when it says one, or the error of the parser behind it says one."""
+    mark = getattr(error, "problem_mark", None) or getattr(error.__cause__, "problem_mark", None)
     return mark.line + 1 if mark is not None else int(getattr(error, "lineno", 0) or 0)
 
 
@@ -597,7 +597,8 @@ def _referred(folder, base, name):
 def _loaded(path, provided=None):
     """common.load(path, provided) for a file that `_read` accepted and whose defaults are closed, once its variables are
     replaced (the environment is the caller's): it raises Unreadable when it is YAML that would make the loader copy minutes of
-    pairs for its merge keys. The variables may be what brings the keys, and the loader counts the pairs of the replaced text."""
+    pairs for its merge keys. In a file that is no YAML until its variables are replaced, they may be what brings the keys, and
+    the loader counts the pairs of the replaced text."""
     try:
         return common.load(path, provided=provided)
     except common.MergeError:

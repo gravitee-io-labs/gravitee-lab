@@ -350,10 +350,11 @@ def merged_pairs(text):
         return 0
 
 
-def parse_yaml(text, path="the text"):
+def parse_yaml(text, path="the text", fill=None):
     """`yaml.safe_load(text)`, but a text whose merge keys would make the loader copy more than COPIED pairs is a MergeError,
     and the loader never runs on it. The document is composed once and the count is of that: what a normal file loads is what
-    safe_load gives, and it is not read twice."""
+    safe_load gives, and it is not read twice. `fill(root, loader)` may change the values of the composed document before it
+    is built (`render_yaml`)."""
     loader = yaml.SafeLoader(text)
     try:
         root = loader.get_single_node()
@@ -361,12 +362,14 @@ def parse_yaml(text, path="the text"):
             return None
         if ("<<" in text or "!" in text) and _copied(root) > COPIED:
             raise MergeError(f"{path}: {MERGES}")
+        if fill:
+            fill(root, loader)
         return loader.construct_document(root)
     finally:
         loader.dispose()
 
 
-def parse_yaml_all(text, path="the text"):
+def parse_yaml_all(text, path="the text", fill=None):
     """`list(yaml.safe_load_all(text))`, with the guard of `parse_yaml` for a text of several documents: the pairs the loader
     would copy for all of them are counted together, and a text that asks for more than COPIED is a MergeError before any
     document is built. A document is composed once, and the count is of that."""
@@ -380,18 +383,76 @@ def parse_yaml_all(text, path="the text"):
                 if total > COPIED:
                     raise MergeError(f"{path}: {MERGES}")
             roots.append(root)
+        for root in roots if fill else ():
+            fill(root, loader)
         return [loader.construct_document(root) for root in roots]
     finally:
         loader.dispose()
 
 
+STR = "tag:yaml.org,2002:str"
+
+
+def _filler(missing, provided):
+    """What replaces the variables in each string of a composed YAML document, its keys too, once each however many aliases
+    name it. A string that is itself JSON text gets the values escaped for that text, as in a JSON file. A plain scalar (no
+    quotes) is then read as YAML reads its text, so that `port: ${PORT}` is the number it is in a file written out; its value
+    never becomes a mapping, a list or a merge key, whatever it holds."""
+    def fill(root, loader):
+        seen, pending = set(), [root]
+        while pending:
+            node = pending.pop()
+            if node is None or id(node) in seen:
+                continue
+            seen.add(id(node))
+            if isinstance(node, yaml.MappingNode):
+                for key, value in node.value:
+                    pending.extend((key, value))
+            elif isinstance(node, yaml.SequenceNode):
+                pending.extend(node.value)
+            elif "$" in node.value:
+                value = replace_variables(node.value, missing, is_json_text(node.value), provided)
+                if node.style is None and node.tag == STR and value != node.value:
+                    tag = loader.resolve(yaml.ScalarNode, value, (True, False))
+                    node.tag = STR if tag == MERGE else tag
+                node.value = value
+    return fill
+
+
+def unreadable(path, error):
+    """Why a YAML file cannot be read, with its line and never its text: what the parser quotes of it may hold a password."""
+    mark = getattr(error, "problem_mark", None)
+    return f"{path}: it is not valid YAML once its variables are replaced" + (f" (line {mark.line + 1})" if mark else "")
+
+
+def render_yaml(text, path, provided=None, every=False):
+    """A YAML file read as a document (or the list of the documents of it, `every`), with the variables replaced in each of
+    its strings, as `render_json` does for JSON: a value with a quote, a backslash or a line break arrives as it was set and
+    leaves the file around it as it is. A file that is no YAML until its variables are replaced is replaced as text. YAML that
+    would make the loader copy millions of pairs for its merge keys is a MergeError, and a file that is no YAML says at which
+    line, never what it holds."""
+    parse = parse_yaml_all if every else parse_yaml
+    missing = set()
+    try:
+        loaded = parse(text, path, _filler(missing, provided))
+    except yaml.YAMLError:
+        try:
+            return parse(render(text, path, provided=provided), path)
+        except (yaml.YAMLError, ValueError) as e:
+            raise SeedError(unreadable(path, e)) from e
+    except ValueError as e:   # a value that YAML reads as a date that is none
+        raise SeedError(unreadable(path, e)) from e
+    not_set(path, missing)
+    return loaded
+
+
 def load(path, provided=None):
-    """A seed file (YAML or JSON) with its variables replaced. YAML that would make the loader copy millions of pairs for its
-    merge keys is a MergeError."""
+    """A seed file (YAML or JSON) with its variables replaced, each into the strings of the document (`render_yaml`,
+    `render_json`). YAML that would make the loader copy millions of pairs for its merge keys is a MergeError."""
     text = Path(path).read_text(encoding="utf-8")
     if str(path).endswith(".json"):
         return render_json(text, path, provided)
-    return parse_yaml(render(text, path, provided=provided), path) or {}
+    return render_yaml(text, path, provided) or {}
 
 
 def text(path, provided=None):

@@ -105,10 +105,12 @@ playground's seed service sets the variables. `make test` fails on a literal add
 - **An import that fails after the platform made the API** ("API imported with error", the API kept, stopped) is recorded
   with no digest before the error is raised, so that the next run finds it as its own and updates it. The same for the
   import that follows a replacement.
-- **A JSON seed file is read as a document** (`render_json` in `common.py`): a variable is replaced in each string of it, and a
-  string that is itself JSON text gets the value escaped for that text. Keep a variable of a file inside a string, so that a
-  value with a quote or a backslash cannot break the file; a file that is no document until its variables are replaced is
-  replaced as text.
+- **A seed file is read as a document** (`render_json` and `render_yaml` in `common.py`): a variable is replaced in each string
+  of it, its keys too, and a string that is itself JSON text gets the value escaped for that text. A plain YAML scalar that holds
+  a variable is then read as YAML reads its value (`port: ${PORT}` is a number), but a value never becomes a mapping, a list or
+  a merge key. Keep a variable of a file inside a string, so that a value with a quote or a backslash cannot break the file; a
+  file that is no document until its variables are replaced is replaced as text. A file that is no YAML says its line and
+  never its text, where a password may be.
 - **A renamed API is one record**: an update drops the record that held the id under its old name.
 - **LLM, MCP and A2A proxy APIs** cannot be updated from a definition, so they are replaced. A control's steps are
   switched in place, with an update of the API entity and a deployment. The API is imported again only when the platform

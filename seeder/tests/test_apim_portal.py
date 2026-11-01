@@ -1619,7 +1619,7 @@ class Refused(Portals):
                      {"portal/portal.yaml": PORTAL + "    - {path: Event feeds/--}\n"})
 
     def test_a_file_that_is_not_yaml_is_said_on_one_line(self):
-        self.refused(r"^environments/moderna/portal/links/broker\.yaml: it is not YAML \([^\n]*\)$",
+        self.refused(r"^environments/moderna/portal/links/broker\.yaml: it is not valid YAML once its variables are replaced \(line \d+\)$",
                      {"portal/links/broker.yaml": "name: [unclosed\nhref: {\n"})
 
     def test_a_file_that_is_not_a_mapping(self):
@@ -1686,7 +1686,7 @@ class Documented(Portals):
         self.refused(r"portal/api-details\.md: UNSET_URL not set", {"portal/api-details.md": "${UNSET_URL}\n"})
 
     def test_a_document_that_is_not_yaml_is_said_on_one_line(self):
-        self.refused(r"^environments/moderna/portal/api-docs/batch-status\.yaml: it is not YAML \([^\n]*\)$",
+        self.refused(r"^environments/moderna/portal/api-docs/batch-status\.yaml: it is not valid YAML once its variables are replaced \(line \d+\)$",
                      {"portal/api-docs/batch-status.yaml": "asyncapi: [unclosed\nx: {\n"})
 
     def test_a_file_that_is_no_asyncapi_document(self):
