@@ -2295,7 +2295,7 @@ class Module(Case):
         for forbidden in ("subprocess", "socket", "urllib", "http", "docker", "git"):
             self.assertNotIn(forbidden, imported)
         relative = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.level}
-        self.assertEqual(relative - {None, "catalogs", "docker", "project"}, set())   # project is imported where it is used: it imports this
+        self.assertEqual(relative - {None, "catalogs", "docker"}, set())
 
     def test_it_reads_as_python_3_9(self):
         ast.parse(self.SOURCE, feature_version=(3, 9))

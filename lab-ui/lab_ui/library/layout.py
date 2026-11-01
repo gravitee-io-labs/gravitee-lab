@@ -35,7 +35,7 @@ import time
 from pathlib import Path
 
 from ..docker import compose
-from . import moves
+from . import moves, project
 from .. import paths
 from ..catalogs import firstrun, registry, store
 
@@ -363,7 +363,6 @@ def _overwrite(file, text):
 def _locked():
     """The locks of every change to the catalogs: the catalogs' (in this process and in the others), then the
     project's."""
-    from . import project   # here: project imports this module
     with registry.flock(), project.exclusive():
         yield
 
