@@ -70,7 +70,7 @@ export const splitKey = (key) => {
   return at < 0 ? [text] : [text.slice(0, at), text.slice(at + 1)];
 };
 
-// What a tag ends with to name the system its image is built on (its copy in dashboard.py, which a test keeps equal)
+// What a tag ends with to name the system its image is built on (its copy in library/layers.py, which a test keeps equal)
 export const VARIANTS = ["chainguard-fips", "chainguard", "debian", "noble", "jammy", "alpine"];
 // A tag without the system it is built on, as a version is said: "4.13.0-alpha.4-debian" is 4.13.0-alpha.4
 export const bareTag = (tag = "") => {

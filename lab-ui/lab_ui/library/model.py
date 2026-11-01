@@ -666,7 +666,8 @@ def _item(c, unit, state, on, is_up, services):
     members_on = kind == "setup" and any(aid in c["state"]["effective"] for aid in unit["members"])
     offers = do == "start" and (on or is_up or members_on)
     # Why what is of this machine cannot be shared or deleted now: its menu says it before the click
-    held = {what: personal.held(c["project"], c["state"], kind, uid, deleting=what == "delete", running=is_up)
+    held = {what: personal.held(c["project"], c["state"], kind, uid, deleting=what == "delete", running=is_up,
+                                deployed=c["deployed"].get(uid, []) if kind == "playground" else ())
             for what in ("share", "delete")} if unit["personal"] else None
     return {"kind": kind, "id": uid, "name": unit["name"], "personal": unit["personal"], "held": held,
             "category": unit["category"], "description": unit["description"],
@@ -736,13 +737,15 @@ def _setup(c, setup, addons):
 
 
 def seed_reason(project, state, up, playground):
-    """Why a playground's seed cannot reach what it needs now: the first service it depends on, among what is on with
-    the playground, that neither runs nor ended well ("Management API (Access Management) is not running"), what it
-    depends on itself first, then what those depend on in turn. None when all of it runs, or it has no seed. `up` is
-    up()."""
+    """Why a playground's seed cannot run now: it still runs (a job canceled meanwhile), and another run would race it
+    on the same record; else the first service it depends on, among what is on with the playground, that neither runs
+    nor ended well ("Management API (Access Management) is not running"), what it depends on itself first, then what
+    those depend on in turn. None when all of it runs, or it has no seed. `up` is up()."""
     seed = playground["seed"]
     if not seed:
         return None
+    if seed in up["services"]:
+        return f"{layers.service_name(project, seed)} is still running"
     on = set(layers.up_services(project, playground["id"],
                                 layers.closure(project, [*state["explicit"], *playground["addons"]])))
     direct = project["services"][seed]["depends_on"]

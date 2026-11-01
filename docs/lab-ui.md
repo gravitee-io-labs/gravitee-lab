@@ -383,7 +383,8 @@ To share a personal item:
 
 A playground's copy carries the versions it ran on as its `tested` set, unless its file declares some. An item of a catalog
 never includes a personal one, so it runs on any machine. An item that another item includes cannot be deleted: its menu says
-*Used by*.
+*Used by*. Nor can one while something of it runs (*Stop it first*), or a playground that deployed to a Gravitee Cloud
+environment while it holds what it created there (*Delete what it created in Development first*): its record goes with it.
 
 The star next to a name keeps an item at hand. *Starred* shows only those. Stars belong to this machine, in
 `.lab/starred.json`.
@@ -548,6 +549,8 @@ The lines cover:
   A file of the seed's APIs that is not a JSON object has a line of its own, *Cannot be read as an API definition*: what
   it uses is not counted.
 - **Docker's memory**, when it is short.
+- **Ports**: a port that what starts publishes and another program of your machine uses (a database or a dev server of
+  yours). Start is refused for it, before it changes anything: [A port is already allocated](troubleshooting.md#a-port-is-already-allocated).
 - **Host prerequisites**, such as Ollama with a model: a missing one warns, with the fix. A check is an http or https
   address, called from your machine.
 - **A place besides This machine**: with a [Gravitee Cloud account](#gravitee-cloud) connected, the lines follow the place that *Deploy
@@ -558,22 +561,21 @@ The checks are read again when the window comes back, so what you fixed meanwhil
 A warning does not block Start: the part of the guide that needs the missing piece will not work. A required setting
 missing on one of its add-ons does block it, so does an image version older than the playground needs, and so does a
 license that everything of it needs (*Needs a license*, *License expired*, *Not in the license*); a license needed for
-one step only blocks nothing. The button
-says why. For the images, it names every one that is too old in one sentence, such as *Needs Access Management 4.13 or
-later and API Management 4.13.0-alpha.5 or later: choose them on the Images page*, so one visit to Images is
-enough. The guide is readable before the first start.
+one step only blocks nothing. The button says why. For the images, it names every one that is too old in one sentence,
+such as *Needs Access Management 4.13 or later and API Management 4.13.0-alpha.5 or later: choose them on the Images
+page*, so one visit to Images is enough. A port another program uses is asked when you click Start, which is refused
+then, its line saying which. The guide is readable before the first start.
 
 ### What Start does
 
 Start sets the playground up in one job, shown in phases:
 
-1. **Add-ons**: the playground goes first in the [on file](#the-on-file), and it includes its add-ons and setups. What
-   conflicts with them is turned off.
-2. **Plugins**: the missing ones are downloaded.
-3. **Apps and services**, or **Platform, apps and services** when the platform starts too: its apps are built and
-   started, with what they and the seed need. The core services it changes restart.
-4. **Seed**: its output is followed until it ends. A seed that fails fails the start, and the reason is the last line it
-   printed. Start again to retry.
+1. **Plugins**: the missing ones are downloaded. Nothing else has changed yet: a failure here leaves what was on as it was.
+2. **Apps and services**, or **Platform, apps and services** when the platform starts too: what it replaces or conflicts
+   with is removed, then the playground goes first in the [on file](#the-on-file), with its add-ons and setups; its apps
+   are built and started, with what they and the seed need. The core services it changes restart.
+3. **Seed**: its output is followed until it ends. A seed that fails fails the start, and the reason is the last line it
+   printed (or that it ran out of memory, or was stopped). Start again to retry. Cancel stops the seed too.
 
 Once the seed has recorded what it created, Start only runs again what does not run, for example after a Stop on the
 Containers page. It builds nothing and seeds nothing. If the seed recorded nothing, or failed, Start sets the playground

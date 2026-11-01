@@ -579,9 +579,11 @@ What the server decides and the page shows. A name in backticks is the code to r
   check` has nothing to say of it as a shared item (`personal.share`). Share, and the rename of a setup, list first the
   other files they write again ("Changes").
 - An item cannot be shared or deleted while it is on (`personal.held`).
-  - An add-on or a playground says "Stop it first" while something of it runs, "Turn it off first" otherwise.
+  - An add-on or a playground says "Stop it first" while something of it runs, "Turn it off first" otherwise. It is not
+    deleted while something of it runs, on or off either: its containers would run on with no file.
   - A setup is held only when the on file names it itself (a person may write it), and it is not renamed either.
-  - Nothing that another item includes is deleted ("Used by").
+  - Nothing that another item includes is deleted ("Used by"), nor a playground that holds a record of what it created in a
+    place ("Delete what it created in Development first"): the record is in its folder.
   - The item's menu says so (`held`). The Lab UI does not run git.
 
 ### Actions and their plans
@@ -609,6 +611,12 @@ What the server decides and the page shows. A name in backticks is the code to r
     runs behind what is saved, which naming would make again.
   - A playground's Start also runs the platform while none of it runs, else what of it its apps and its seed need.
   - Its Stop removes its own containers by name (`rm --stop --force`) and recreates the core services it changed.
+  - A job removes what goes before the on file says it is off, and writes the on file before it starts what comes
+    (`layers.steps`): wherever it fails, is canceled or the Lab UI stops, what it was taking away is on and stopped, never
+    off and running. A playground's first Start installs its plugins before either.
+  - A job writes the on file only as its plan read it (`stamp`): one another job wrote meanwhile ends it with *What is on
+    changed meanwhile: try again*. A Start on This machine writes what it brings for this machine, whatever platform it ran
+    on before (the plan's `targets`).
   - Nothing is removed as an orphan: what was stopped on purpose stays stopped, what was started outside the Lab UI
     stays.
 - **Side effects are asked first.** The plan (`layers.plan`) lists what starts, stops (it runs), is turned off (it is on
@@ -672,15 +680,17 @@ place gone with its platform, or a place not read yet.
 
 ### Playgrounds
 
-- A playground's first Start sets it up, in phases: Add-ons, Plugins, Apps and services ("Platform, apps and services"
-  when the platform starts too: its apps are built), Seed. A deploy to a place besides This machine has Add-ons, Apps and
-  services, Gateway and Seed, never Plugins or Platform.
+- A playground's first Start sets it up, in phases: Plugins, Apps and services ("Platform, apps and services" when the
+  platform starts too: what goes is removed, the on file written, its apps built), Seed. A deploy to a place besides This
+  machine has Add-ons (the gateway's token, what goes removed, the on file written), Apps and services, Gateway and Seed,
+  never Plugins or Platform.
 - Once it is on and its seed recorded what it created (`layers.fresh`), its Start runs it again as an add-on's does, in
   one job: no build, no seed. After its seed failed, its Start sets it up again, its seed with it, and follows only that
   run of the seed.
 - Re-seed runs the seed again. It, and the stop that deletes what the seed created, wait for what the seed needs, and
-  what that needs in turn ("Management API is not running"). Re-seed also waits for the playground to be on ("Acme Bakery
-  is off").
+  what that needs in turn ("Management API is not running"), and for the seed itself to end ("Seed is still running":
+  two runs would race on its record). Re-seed also waits for the playground to be on ("Acme Bakery is off"). A job
+  canceled while its seed runs stops the seed, which Compose would leave running.
 - Containers does not start a seed ("Re-seed runs it again"); a service's `role` says which one is.
 - A playground has its own `.env` and settings, as an add-on has (`paths.unit_env`): its form shows what its compose file
   describes, the image variables staying on the Images page.

@@ -337,15 +337,22 @@ def _on(on, kind, uid, running):
     return ""
 
 
-def held(project, on, kind, uid, deleting=False, running=False):
-    """Why an item of this machine cannot be deleted now; "" when it can. `on` is layers.current(). It goes only while it is
-    off: the on file would name a file that is not there; and what another item includes is not deleted: that one would not
-    load. Sharing it is never held: a share is a copy, the item stays, runs and keeps its settings. Pure: the state gives it
-    to the item's menu, delete() refuses with it."""
+def held(project, on, kind, uid, deleting=False, running=False, deployed=()):
+    """Why an item of this machine cannot be deleted now; "" when it can. `on` is layers.current(). It goes only while
+    it is off: the on file would name a file that is not there; and, an add-on or a playground, while nothing of it
+    runs, on or off (`running`): its containers would run on with no file, which no page shows. What another item
+    includes is not deleted: that one would not load. Nor is a playground that holds a record of what it created in a
+    place besides This machine (`deployed`, as places.deployed says it): the record goes with its folder, and what it
+    created there could not be deleted any more. Sharing it is never held: a share is a copy, the item stays, runs and
+    keeps its settings. Pure: the state gives it to the item's menu, delete() refuses with it."""
     if not deleting:
         return ""
+    if running and kind != "setup":   # a setup owns no container: its add-ons do
+        return "Stop it first"
     users = [] if _turned_on(on, kind, uid) else _users(project, kind, uid)
-    return _on(on, kind, uid, running) or (f"Used by {', '.join(users)}" if users else "")
+    place = next((one for one in deployed if one.get("created")), None)
+    return _on(on, kind, uid, running) or (f"Used by {', '.join(users)}" if users else "") \
+        or (f"Delete what it created in {place['environment']} first" if place else "")
 
 
 def _turned_on(on, kind, uid):
@@ -353,20 +360,29 @@ def _turned_on(on, kind, uid):
     return (kind == "setup" and uid in on["setups"]) or layers.is_on(kind, uid, on["playground"], on["effective"])
 
 
-def _running(project, kind, uid):
-    """Whether something of an item runs now, as held() says it: nothing does while Docker does not answer."""
+def _running(project, kind, uid, on=True):
+    """Whether something of an item runs now, as held() says it, `on` whether it is: nothing does while Docker does not
+    answer. Off, only its own services count: what it brings may run for something else."""
     containers, _ = compose.containers()
     unit = project[kind + "s"].get(uid)
-    names = layers.unit_services(project, unit, True) if unit else []
+    names = layers.unit_services(project, unit, on) if unit else []
     return any(containers.get(name, {}).get("state") == "running" for name in names)
 
 
 def _not_held(project, kind, uid, deleting=False):
-    """Refuses while the item is on (Docker is asked what runs only for an item that is on) and, to delete it, while another
-    item includes it."""
+    """Refuses while the item is on and, to delete it, while something of it runs, another item includes it, or a place
+    holds a record of what it created (held()). Docker is asked what runs of an item that is off only for a delete: a
+    move keeps its services, whose containers it still runs."""
     on = layers.current(project)
-    running = _turned_on(on, kind, uid) and _running(project, kind, uid)
-    reason = held(project, on, kind, uid, deleting, running=running) if deleting else _on(on, kind, uid, running)
+    turned_on = _turned_on(on, kind, uid)
+    running = (deleting or turned_on) and _running(project, kind, uid, turned_on)
+    if not deleting:
+        reason = _on(on, kind, uid, running)
+    else:
+        from . import playgrounds   # it reads the model, which reads this module
+        from ..gravitee import places
+        deployed = places.deployed(uid, playgrounds.created) if kind == "playground" else ()
+        reason = held(project, on, kind, uid, deleting, running=running, deployed=deployed)
     if reason:
         raise RuntimeError(reason)
 

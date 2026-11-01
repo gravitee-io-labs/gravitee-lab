@@ -255,6 +255,16 @@ class Machine(Case):
         self.assertEqual((ports["state"], ports["detail"]),
                          ("warn", "27017 (MongoDB) is used by another program: stop it before the platform starts"))
 
+    def test_the_ports_another_program_holds_are_any_ports_but_the_labs_own(self):
+        # What a start of an item asks of its own ports, as the check asks of the platform's
+        self.answers[("docker", "ps")] = (0, "127.0.0.1:8082->8082/tcp\n", "")
+        self.patch(machine, "_taken", side_effect=lambda port: port in (5432, 8082))
+        self.assertEqual(machine.held({5432: "Kiosk", 8082: "Gateway", 3000: "Shop"}), [5432])
+        self.assertEqual(machine.held({}), [])
+        # The lab's own cannot be told while its core file does not load: nothing is said
+        self.patch(machine.compose, "project_name", side_effect=machine.compose.ComposeError("no such file"))
+        self.assertEqual(machine.held({5432: "Kiosk"}), [])
+
     def test_git_missing_on_a_mac_opens_apples_installer(self):
         self.answers[("git", "--version")] = (127, "", "not found")
         git = self.check("git")

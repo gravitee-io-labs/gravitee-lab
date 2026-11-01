@@ -491,10 +491,44 @@ class Deleted(Folder):
                 personal.delete(self.project, kind, uid)
         self.assertEqual(self.tree(), sorted([*before, paths.ON_FILE]))
 
-    def test_docker_is_asked_only_for_what_is_on(self):
-        with self.assertRaisesRegex(RuntimeError, "Used by Sandbox"):
+    def test_what_is_off_and_still_runs_is_stopped_first(self):
+        # Its stop failed, or it was started from Containers: deleted, its containers would run on with no file
+        before = self.tree()
+        self.containers.return_value = ({"whoami": {"state": "running"}}, None)
+        with self.assertRaisesRegex(RuntimeError, "^Stop it first$"):
             personal.delete(self.project, "addon", "local/whoami")
-        self.containers.assert_not_called()
+        self.assertEqual(self.tree(), before)
+        on = {"playground": None, "effective": [], "setups": []}
+        self.assertEqual(personal.held(self.project, on, "addon", "local/whoami", deleting=True, running=True), "Stop it first")
+        # A setup owns no container: what of its add-ons runs is theirs
+        self.assertEqual(personal.held(self.project, on, "setup", "local/mine", deleting=True, running=True), "")
+        # What it brings runs for something else: an item that is off is only its own services
+        self.containers.return_value = ({"kiosk": {"state": "running"}}, None)
+        with self.assertRaisesRegex(RuntimeError, "^Used by Sandbox$"):
+            personal.delete(self.project, "addon", "local/whoami")
+
+    def test_a_playground_that_holds_a_record_in_a_place_is_not_deleted_before_what_it_created_there(self):
+        # It deployed to a Development environment: deleting it would take the record, and what it created there could not
+        # be deleted any more
+        before = self.tree()
+        state = self.root / paths.unit_folder("playground", "local/sandbox") / ".state/my-account/dev-env"
+        state.mkdir(parents=True)
+        (state / "created.json").write_text(json.dumps([{"kind": "api", "label": "APIs"}]), encoding="utf-8")
+        (state / "meta.json").write_text(json.dumps({"environment": "Development"}), encoding="utf-8")
+        with self.assertRaisesRegex(RuntimeError, "^Delete what it created in Development first$"):
+            personal.delete(self.project, "playground", "local/sandbox")
+        self.assertTrue(state.is_dir())
+        on = {"playground": None, "effective": [], "setups": []}
+        deployed = [{"place": "my-account/dev-env", "environment": "Development", "created": [{"what": "APIs", "count": 1}]}]
+        self.assertEqual(personal.held(self.project, on, "playground", "local/sandbox", deleting=True, deployed=deployed),
+                         "Delete what it created in Development first")
+        # Deleted there, its record is empty: it goes
+        (state / "created.json").write_text("[]", encoding="utf-8")
+        self.assertEqual(personal.held(self.project, on, "playground", "local/sandbox", deleting=True,
+                                       deployed=[{**deployed[0], "created": []}]), "")
+        personal.delete(self.project, "playground", "local/sandbox")
+        self.assertFalse((self.root / SANDBOX).exists())
+        self.assertNotEqual(self.tree(), before)
 
     def test_what_the_menu_says_of_a_share_and_of_a_delete(self):
         on = {"playground": None, "effective": [], "setups": []}

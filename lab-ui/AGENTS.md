@@ -111,8 +111,9 @@ cd lab-ui/tests/web/js && WRITE_MAIN=1 node --test lists.test.mjs
   so they are tested without Docker.
 - **The Compose files hold the product knowledge**: `x-gravitee` blocks, labels, `include`, `image:` lines, mounts. No
   list of products, add-ons or images in `lab_ui/` or `web/`. The two explicit exceptions are the tag suffixes of
-  registries (`VARIANTS` in `js/core.js`, which every page reads, and its copy in `dashboard.py`, which a test keeps equal) and the
-  acronyms of license packs (`ACRONYMS` in `js/dialogs/license.js`).
+  registries (`VARIANTS` in `js/core.js`, which every page reads, and its copy in `library/layers.py`, which the version
+  gate and the Dashboard read and a test keeps equal) and the acronyms of license packs (`ACRONYMS` in
+  `js/dialogs/license.js`).
 - **The server computes, the page draws.** `/api/state` carries the state, note and action of every item, in the order
   they are shown.
 - **Errors are never swallowed.** A file that does not load is reported in `problems` and the others still load. A failed
