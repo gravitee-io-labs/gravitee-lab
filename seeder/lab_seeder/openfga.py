@@ -73,7 +73,7 @@ def seed():
             adopted(SECTION, "store", name, store["id"])
             log(SECTION, f"Store '{name}' exists")
         else:
-            with making(SECTION, "store", "OpenFGA stores", name):
+            with making(SECTION, "store", "OpenFGA stores", name, missing=True):
                 store = api.post("/stores", json={"name": name}).json()
                 record(SECTION, "store", "OpenFGA stores", name, store["id"])
             log(SECTION, f"✓ Store '{name}' created")

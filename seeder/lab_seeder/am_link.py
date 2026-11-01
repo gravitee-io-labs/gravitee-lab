@@ -107,7 +107,7 @@ def service_account_token(access, name):
                         "Management, or name another in seed/am/gamma-link.yaml, or give Gamma a token of its own "
                         "with AM_TOKEN")
     if not user:
-        with making(SECTION, "am-service-account", "AM service accounts", name, role=ORG_OWNER):
+        with making(SECTION, "am-service-account", "AM service accounts", name, missing=True, role=ORG_OWNER):
             user = api.post(f"{org}/users", json={"username": name, "serviceAccount": True, "firstName": "Gamma",
                                                   "lastName": "Service account"}).json()
             record(SECTION, "am-service-account", "AM service accounts", name, user["id"], role=ORG_OWNER)

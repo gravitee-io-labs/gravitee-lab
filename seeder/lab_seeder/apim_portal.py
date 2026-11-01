@@ -628,7 +628,7 @@ class Portals:
                 log(SECTION, f"{one.capitalize()} exists: {env}: {hrid}")
                 return
             verb = "updated"
-        with making(SECTION, kind, many, f"{env}: {hrid}", env=env, hrid=hrid, **extra):
+        with making(SECTION, kind, many, f"{env}: {hrid}", missing=verb == "created", env=env, hrid=hrid, **extra):
             state = self.ask(what, self.automation, "PUT", f"{self.auto(env)}{collection}", json=body).json()
             problems = state.get("errors") or {}
             if problems.get("severe"):

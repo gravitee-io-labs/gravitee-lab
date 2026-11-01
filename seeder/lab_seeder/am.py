@@ -123,7 +123,7 @@ class AccessManagement:
             adopted(SECTION, "domain", name, domain_id)
             log(SECTION, f"Domain '{name}' exists")
         else:
-            with making(SECTION, "domain", "domains", name):
+            with making(SECTION, "domain", "domains", name, missing=True):
                 domain_id = self.api.post(f"{self.env_url}/domains", json={
                     "name": name, "description": spec.get("description", ""), "dataPlaneId": spec.get("dataPlaneId", "default"),
                 }).json()["id"]
@@ -167,7 +167,7 @@ class AccessManagement:
             key, current = spec["key"], held.get(spec["key"])
             said = {"name": spec.get("name", key), "description": spec.get("description", spec.get("name", key))}
             if not current:
-                with making(SECTION, "scope", "scopes", key, domain=self.domain_id):
+                with making(SECTION, "scope", "scopes", key, missing=True, domain=self.domain_id):
                     held[key] = self.api.post(url, json={"key": key, **said}).json()
                     record(SECTION, "scope", "scopes", key, held[key]["id"], domain=self.domain_id)
                 made += 1
@@ -191,7 +191,7 @@ class AccessManagement:
         else:
             payload = {k: spec[k] for k in ("name", "type", "kind", "clientId", "clientSecret", "redirectUris", "description", "agentCardUrl") if k in spec}
             payload.setdefault("type", "BROWSER")
-            with making(SECTION, kind, label, name, domain=self.domain_id):
+            with making(SECTION, kind, label, name, missing=True, domain=self.domain_id):
                 app_id = self.api.post(f"{self.domain_url}/applications", json=payload).json()["id"]
                 record(SECTION, kind, label, name, app_id, domain=self.domain_id)
             log(SECTION, f"✓ Application '{name}' created")
@@ -310,7 +310,7 @@ class AccessManagement:
             log(SECTION, f"User exists: {username}")
         else:
             body = {k: v for k, v in spec.items() if k != "additionalInformation"}
-            with making(SECTION, "user", "users", username, domain=self.domain_id):
+            with making(SECTION, "user", "users", username, missing=True, domain=self.domain_id):
                 user = self.api.post(f"{self.domain_url}/users", json={
                     "forceResetPassword": False, "preRegistration": False, **body}).json()
                 record(SECTION, "user", "users", username, user["id"], domain=self.domain_id)
@@ -332,7 +332,7 @@ class AccessManagement:
             adopted(SECTION, "group", name, found["id"], domain=self.domain_id)
             log(SECTION, f"Group '{name}' exists")
         else:
-            with making(SECTION, "group", "groups", name, domain=self.domain_id):
+            with making(SECTION, "group", "groups", name, missing=True, domain=self.domain_id):
                 group = self.api.post(url, json={"name": name, "description": spec.get("description", name)}).json()
                 record(SECTION, "group", "groups", name, group["id"], domain=self.domain_id)
             log(SECTION, f"✓ Group '{name}' created")
@@ -355,7 +355,7 @@ class AccessManagement:
             adopted(SECTION, "protected-resource", spec["name"], held["id"], domain=self.domain_id)
             log(SECTION, f"Protected resource '{spec['name']}' exists")
             return
-        with making(SECTION, "protected-resource", "MCP servers", spec["name"], domain=self.domain_id):
+        with making(SECTION, "protected-resource", "MCP servers", spec["name"], missing=True, domain=self.domain_id):
             created_resource = self.api.post(f"{self.domain_url}/protected-resources", json={
                 "name": spec["name"], "description": spec.get("description", ""), "type": kind,
                 "resourceIdentifiers": spec.get("resourceIdentifiers", []),
@@ -391,7 +391,8 @@ class AccessManagement:
                 self.api.put(f"{url}/{engine['id']}", json={"name": spec["name"], "configuration": json.dumps(configuration)})
                 log(SECTION, f"✓ Authorization engine '{spec['name']}' updated")
             return
-        with making(SECTION, "authorization-engine", "authorization engines", spec["name"], domain=self.domain_id):
+        with making(SECTION, "authorization-engine", "authorization engines", spec["name"], missing=True,
+                    domain=self.domain_id):
             engine = self.api.post(url, json={"type": spec["type"], "name": spec["name"], "configuration": json.dumps(configuration)}).json()
             record(SECTION, "authorization-engine", "authorization engines", spec["name"], engine["id"], domain=self.domain_id)
         log(SECTION, f"✓ Authorization engine '{spec['name']}' created")

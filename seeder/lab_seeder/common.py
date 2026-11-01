@@ -730,15 +730,20 @@ def pending(product, kind, name):
 
 
 @contextmanager
-def making(product, kind, label, name, **extra):
+def making(product, kind, label, name, missing=False, **extra):
     """The create of one object, noted before it is asked for: a record under its name, with no id yet and a count of 0, which
     the Lab counts as nothing. `record`, with the id the platform answers, takes its place. When the answer is lost (no answer
     in time, a seed stopped in the middle of the request), it stays, and the next run takes the object it finds under that
     name as its own (`adopted`), where it would stop on an object it did not create. A refusal of the request (a 4xx) takes
-    it back: nothing was made. A record the seed has under that name is left as it is: the record of the answer replaces it."""
+    it back: nothing was made. A record the seed has under that name is left as it is: the record of the answer replaces it.
+    With `missing`, the caller looked the object up and found none, so that record may name one that is gone (deleted in a
+    console): the note is written beside it, so that the next run adopts what a lost answer made, and a refusal, which
+    takes back the note alone, leaves the record as it was."""
     with held():
-        if not any((x["product"], x["kind"], x["name"]) == (product, kind, name) and x["id"] is not None for x in _read()):
-            record(product, kind, label, name, None, count=0, **extra)
+        records = [x for x in _read() if (x["product"], x["kind"], x["name"], x["id"]) != (product, kind, name, None)]
+        if missing or not any((x["product"], x["kind"], x["name"]) == (product, kind, name) for x in records):
+            save_created([*records, {"product": product, "kind": kind, "label": label, "name": name, "id": None, "count": 0,
+                                     **extra}])
     try:
         yield
     except HttpError as e:

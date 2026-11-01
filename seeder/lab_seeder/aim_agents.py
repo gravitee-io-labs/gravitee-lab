@@ -146,7 +146,7 @@ class Agents:
         the subscriptions it will hold and the identity it presents are not the seed's to take over."""
         found = self.read_application(agent["id"])
         if found is None:
-            with making(SECTION, "agent-application", LABELS["agent-application"], name, agent=agent["id"]):
+            with making(SECTION, "agent-application", LABELS["agent-application"], name, missing=True, agent=agent["id"]):
                 answer = self.aim.post(f"/catalog/agents/{agent['id']}/application", json={}, expect=(200, 201, 409))
                 if answer.status_code != 409:
                     made = answer.json()

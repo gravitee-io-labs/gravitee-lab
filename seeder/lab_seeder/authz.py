@@ -178,7 +178,8 @@ def entity(api, wanted):
                         "create it: it is left alone")
     if current and as_wanted(current, wanted):
         return
-    with (nullcontext() if current else making(SECTION, "entity", "access subjects", entity_id, type=wanted["entityType"])):
+    with (nullcontext() if current else making(SECTION, "entity", "access subjects", entity_id, missing=True,
+                                               type=wanted["entityType"])):
         api.post("/entities", json=wanted)
         if not current:
             record(SECTION, "entity", "access subjects", entity_id, entity_id, type=wanted["entityType"])
@@ -435,7 +436,7 @@ def policy(api, spec, slug, policies):
         raise SeedError(f"Policy '{name}' exists in Authorization Management and the seed did not create it: it is left alone")
     # The platform reads a policy when it is saved: one it cannot read comes back with the line and the reason
     if not current:
-        with making(SECTION, "policy", "access rules", name):
+        with making(SECTION, "policy", "access rules", name, missing=True):
             try:
                 current = api.post("/policies", json={"name": name, "kind": "RESOURCE", "policyType": "MCP",
                                                       "policyText": text, "targets": []}).json()
@@ -535,7 +536,7 @@ def schema(api, spec, slug):
         if current and not recorded(SECTION, "schema", current["id"]) and not adopted(SECTION, "schema", name, current["id"]):
             raise SeedError("one of that name exists and the seed did not create it")
         if not current:
-            with making(SECTION, "schema", "access schemas", name):
+            with making(SECTION, "schema", "access schemas", name, missing=True):
                 made = api.post("/schemas", json={"name": name, "schema": text, "targets": []}).json()
                 record(SECTION, "schema", "access schemas", name, made["id"])
             log(SECTION, f"✓ Schema '{name}' created")

@@ -33,7 +33,7 @@ class Dashboards:
         content = {key: spec[key] for key in CONTENT if key in spec}
         stored = self.api.get(f"/dashboards/{dashboard_id}", expect=(200, 404))
         if stored.status_code == 404:
-            with making(SECTION, "dashboard", "dashboards", title):
+            with making(SECTION, "dashboard", "dashboards", title, missing=True):
                 self.create({"id": dashboard_id, **content}, spec)
                 record(SECTION, "dashboard", "dashboards", title, dashboard_id)
             log(SECTION, f"✓ Dashboard created: {title}")

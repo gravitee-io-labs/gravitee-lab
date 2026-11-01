@@ -294,7 +294,7 @@ class ApiManagement:
             log(SECTION, f"User exists: {source_id}")
             return
         body = {key: spec[key] for key in ("source", "sourceId", "email", "firstname", "lastname") if key in spec}
-        with making(SECTION, "user", "users", name, sourceId=source_id, **self.scope()):
+        with making(SECTION, "user", "users", name, missing=True, sourceId=source_id, **self.scope()):
             answer = self.api.post(f"{self.v1}/users", json=body, expect=(200, 201, 404))
             if answer.status_code == 404:
                 unmade(SECTION, "user", name)
@@ -322,7 +322,7 @@ class ApiManagement:
         if state and not recorded(SECTION, "group", state["id"]) and not adopted(SECTION, "group", label, state["id"], hrid=hrid, **self.scope()):
             raise SeedError(f"Group {label}: the hrid is taken by a group the seed did not create")
         if not state or not covers(state, {key: body[key] for key in ("name", "notifyMembers") if key in body}) or lacking(state, members):
-            with making(SECTION, "group", "groups", label, hrid=hrid, **self.scope()):
+            with making(SECTION, "group", "groups", label, missing=not state, hrid=hrid, **self.scope()):
                 written = self.automation.put("/groups", json=body, what=f"Group {label}").json()
                 severe = (written.get("errors") or {}).get("severe")
                 if severe:
@@ -366,7 +366,7 @@ class ApiManagement:
             raise SeedError(f"Group {label}: {source_id} is not a user of the platform and no identity provider names exactly one "
                             "(a memory user is one of the configuration of the management API)")
         roles = [{"scope": scope, "name": name} for scope, name in (member.get("roles") or {}).items()]
-        with making(SECTION, "user", "users", self.scoped(source_id), sourceId=source_id, **self.scope()):
+        with making(SECTION, "user", "users", self.scoped(source_id), missing=True, sourceId=source_id, **self.scope()):
             added = self.api.post(f"{self.v1}/configuration/groups/{group_id}/members", json=[{"reference": reference, "roles": roles}],
                                   expect=range(200, 600))
             if not added.ok:
@@ -585,7 +585,7 @@ class ApiManagement:
         then keeps (STOPPED, with the error in its message): it is recorded, with no digest, so that the seed finds it as its own
         at the next run and updates it, where it would stop on an API it did not create."""
         try:
-            with making(SECTION, "api", "APIs", name, **self.scope()):
+            with making(SECTION, "api", "APIs", name, missing=True, **self.scope()):
                 return self.api.post(f"{self.v2}/apis/_import/definition", json=definition).json()["id"]
         except HttpError as e:
             left = made_by_error(e)
@@ -681,7 +681,7 @@ class ApiManagement:
             payload["groups"] = groups
         found = self.find_application(name)
         if not found:
-            with making(SECTION, "application", "applications", label, **self.scope()):
+            with making(SECTION, "application", "applications", label, missing=True, **self.scope()):
                 app = self.api.post(f"{self.v1}/applications", json=payload).json()
                 record(SECTION, "application", "applications", label, app["id"], **self.scope())
             log(SECTION, f"✓ Application created: {label}")

@@ -108,7 +108,7 @@ class AiWorkspaces:
             body = {"name": name, "version": version, "defaultBudget": budget_body(spec["budgets"][0])}
             if description:
                 body["description"] = description
-            with making(SECTION, "workspace", "AI workspaces", name):
+            with making(SECTION, "workspace", "AI workspaces", name, missing=True):
                 found = self.aim.post("/ai-workspaces", json=body).json()
                 record(SECTION, "workspace", "AI workspaces", name, found["id"])
             self.touched()
@@ -226,7 +226,7 @@ class AiWorkspaces:
                 log(SECTION, f"! {source_id} is not a user of the platform yet: left out")
                 return None
             raise SeedError(f"User {source_id} ({source}) is not known to the platform: it signs in once first")
-        with making(SECTION, "workspace-user", "workspace users", source_id):
+        with making(SECTION, "workspace-user", "workspace users", source_id, missing=True):
             made = self.g.org_v1.post("/users", json={"source": source, "sourceId": source_id, "firstname": spec["firstname"],
                                                       "lastname": spec["lastname"], "email": spec["email"], "service": False}).json()
             record(SECTION, "workspace-user", "workspace users", source_id, made["id"])

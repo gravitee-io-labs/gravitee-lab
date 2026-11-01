@@ -484,6 +484,27 @@ class Credentials(Catalog):
                 self.assertEqual([(x["name"], x["id"]) for x in self.records()], [("Gemini key", made)])
                 self.assertIn("! Gemini key: made by an earlier seed that lost the platform's answer", self.output())
 
+    def test_a_credential_deleted_by_hand_and_made_again_with_a_lost_answer_is_the_seeds_at_the_next_run(self):
+        """The record names a credential that is gone: the create is noted all the same."""
+        self.run_seed()
+        self.world.credentials.clear()   # the person deletes it in the Gamma console
+        self.lose_the_answer(requests.ReadTimeout("slow"))
+        with self.assertRaises(common.SeedError):
+            self.run_seed()
+        self.platform.add({("POST", SCOPE + "/auth-profiles"): self.world.create_credential})
+        [made] = self.world.credentials
+        self.run_seed()
+        self.assertEqual([(x["name"], x["id"]) for x in self.records()], [("Gemini key", made)])
+
+    def test_a_refused_create_of_a_credential_deleted_by_hand_takes_back_the_note_and_leaves_the_record(self):
+        self.run_seed()
+        before = self.records()
+        self.world.credentials.clear()
+        self.platform.add({("POST", SCOPE + "/auth-profiles"): (400, {"message": "no"})})
+        with self.assertRaises(common.HttpError):
+            self.run_seed()
+        self.assertEqual((self.records(), common.notes(aim_catalog.SECTION, "credential")), (before, []))
+
     def test_a_create_the_platform_refused_leaves_no_note_so_a_credential_someone_makes_later_is_not_taken(self):
         self.platform.add({("POST", SCOPE + "/auth-profiles"): (400, {"message": "no"})})
         with self.assertRaises(common.HttpError):
@@ -884,6 +905,21 @@ class Skills(Catalog):
         self.seed_files({"aim/skills/complaints/references/escalation.md": "Hand over money and cards.\n"})
 
         def made(call):   # the platform makes the new skill, and the seed never gets the answer
+            self.world.upload_skill(call)
+            raise requests.ReadTimeout("slow")
+        self.platform.add({("POST", SCOPE + "/catalog/skills"): made})
+        with self.assertRaises(common.SeedError):
+            self.run_seed()
+        self.platform.add({("POST", SCOPE + "/catalog/skills"): self.world.upload_skill})
+        self.run_seed()
+        [skill] = self.world.of_kind("skill")
+        self.assertEqual([x["id"] for x in self.records("skill")], [skill["id"]])
+
+    def test_a_skill_deleted_by_hand_and_uploaded_again_with_a_lost_answer_is_the_seeds_at_the_next_run(self):
+        self.run_seed()
+        del self.world.items[self.world.named("skill", "complaints")["id"]]   # the person deletes it in the Gamma console
+
+        def made(call):   # the platform makes the skill, and the seed never gets the answer
             self.world.upload_skill(call)
             raise requests.ReadTimeout("slow")
         self.platform.add({("POST", SCOPE + "/catalog/skills"): made})

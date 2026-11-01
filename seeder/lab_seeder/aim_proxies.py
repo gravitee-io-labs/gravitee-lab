@@ -259,7 +259,7 @@ class McpProxies:
         if found and not recorded(SECTION, "mcp-proxy", found["id"]) and not adopted(SECTION, "mcp-proxy", name, found["id"], hrid=hrid):
             raise SeedError(f"MCP proxy {name}: {hrid} is the hrid of an API the seed did not create")
         if found is None:
-            with making(SECTION, "mcp-proxy", "MCP proxy APIs", name, hrid=hrid):
+            with making(SECTION, "mcp-proxy", "MCP proxy APIs", name, missing=True, hrid=hrid):
                 found = self.g.automation.put("/aim/mcp-proxies", json=automation).json()
                 record(SECTION, "mcp-proxy", "MCP proxy APIs", name, found["id"], hrid=hrid)
             log(SECTION, f"✓ MCP proxy created: {name}")
@@ -411,7 +411,7 @@ class McpProxies:
             forget(*[x for x in created() if (x["product"], x["kind"], x["id"]) == (SECTION, "studio", found["id"])])
             found = None
         if found is None:
-            with making(SECTION, "studio", "MCP studios", name):
+            with making(SECTION, "studio", "MCP studios", name, missing=True):
                 found = self.g.aim.post("/mcp-studios", json=body).json()
                 record(SECTION, "studio", "MCP studios", name, found["id"], digest=wanted)
             log(SECTION, f"✓ MCP studio created: {name}")
@@ -451,7 +451,7 @@ class McpProxies:
             found = None
         changed = found is None
         if changed:
-            with making(SECTION, "studio", "MCP studios", name):
+            with making(SECTION, "studio", "MCP studios", name, missing=True):
                 found = self.g.aim.post("/mcp-studios", json=body).json()
                 record(SECTION, "studio", "MCP studios", name, found["id"], digest=wanted)
             log(SECTION, f"✓ MCP studio created: {name}")
