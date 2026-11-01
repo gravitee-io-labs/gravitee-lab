@@ -1480,13 +1480,22 @@ def starting(names):
     return [[*compose.COMPOSE, "up", "-d", "--no-deps", *names]] if names else []
 
 
+def unchanged(plan):
+    """Ends the job of a plan before it changes anything when the on file was written since the plan read it (its
+    `stamp`): what the plan would do undoes what another job did meanwhile (CHANGED). Every plan's job asks it first
+    (steps()); write() asks again, for an edit by hand while the job runs."""
+    if plan.get("stamp") is not None and stamp() != plan["stamp"]:
+        raise JobFailed(CHANGED)
+
+
 def steps(project, plan, start=None):
     """The steps of the job of a plan, in the order that leaves the lab as it says wherever the job ends (it fails, it
-    is canceled, the Lab UI stops): what goes is removed first, while the on file still names it, so that it is on and
-    stopped rather than off and still running, which would read as started by hand; then the on file is written
-    (written()); then what starts and restarts, by name (commands()). `start`: the services the last one names, when
-    they are more than the plan's (a playground's product, stopped to load its plugins)."""
-    return [*_removal(plan["services"]["remove"]), lambda job: written(job, project, plan),
+    is canceled, the Lab UI stops): nothing for a plan the on file changed since (unchanged()); then what goes is
+    removed, while the on file still names it, so that it is on and stopped rather than off and still running, which
+    would read as started by hand; then the on file is written (written()); then what starts and restarts, by name
+    (commands()). `start`: the services the last one names, when they are more than the plan's (a playground's product,
+    stopped to load its plugins)."""
+    return [lambda job: unchanged(plan), *_removal(plan["services"]["remove"]), lambda job: written(job, project, plan),
             *starting(plan["services"]["start"] if start is None else start)]
 
 

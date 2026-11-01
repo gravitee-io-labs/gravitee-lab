@@ -704,6 +704,18 @@ class Playgrounds(Case):
         job, commands = ran(self.started(self.jobs)[1], fail="rm")
         self.assertEqual((job.ok, self.written, len(commands)), (False, [], 1))
 
+    def test_a_first_start_refused_for_a_stale_plan_leaves_the_product_running(self):
+        # Demo runs; the welcome's start is planned, then another tab's job writes the on file before this job begins.
+        # The job is refused for it before its plugins phase stops the gateway, which nothing would start again
+        second(self.project)
+        self.state = {**on(self.project, playground="demo"), "stamp": "read by the plan"}
+        self.containers = running(*CORE, "demo-app", "kiosk")
+        self.patch(plugins, "install_steps", lambda project, product, names: (
+            [lambda job: job.exec([*COMPOSE, "stop", "apim-gateway"])], ["apim-gateway"], {}))
+        playgrounds.start(self.project, "welcome", [f"{row['kind']}:{row['id']}" for row in self.plan()["stops"]])
+        job, commands = ran(self.started(self.jobs)[1])
+        self.assertEqual((job.error(), commands), (layers.CHANGED, []))
+
     def test_a_stop_whose_removal_fails_leaves_the_on_file_as_it_was(self):
         self.on_and_running(*CORE)
         playgrounds.stop(self.project, "welcome", False, ["addon:agent-lens"])
