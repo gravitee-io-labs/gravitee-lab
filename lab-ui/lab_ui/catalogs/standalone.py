@@ -67,14 +67,16 @@ def _fail(code, message, status=400):
 # ---------------------------------------------------------------------------------------------------------------------
 
 def _gather(pid):
-    """{found, unit, folder, nodes, units}: the playground, its folder and every item it brings. Raises NotFound."""
-    found = project.load()
+    """{found, unit, folder, nodes, units, reach}: the playground, its folder, every item it brings, and what the closure of each
+    file reaches (project.loaded: the walk gather made). Raises NotFound."""
+    found, inputs = project.loaded()
     unit = found["playgrounds"].get(pid)
     if unit is None:
         raise paths.NotFound(f"No playground {pid}")
     units = {"addon": found["addons"], "setup": found["setups"], "playground": found["playgrounds"]}
     nodes = [node for node in resolve.closure(units, "playground", pid) if node[1] in (units.get(node[0]) or {})]
-    return {"found": found, "unit": unit, "folder": paths.ROOT / Path(unit["file"]).parent, "nodes": nodes, "units": units}
+    return {"found": found, "unit": unit, "folder": paths.ROOT / Path(unit["file"]).parent, "nodes": nodes, "units": units,
+            "reach": inputs.get("reach") or {}}
 
 
 def _kept(gathered):
@@ -102,7 +104,7 @@ def _defaults(gathered):
     files = [compose.CORE_FILE, *[paths.unit_file(kind, uid) for kind, uid in gathered["nodes"]]]
     found = {}
     for file in files:
-        for each in compose._closure(file):
+        for each in (gathered["reach"].get(file) or {}).get("files") or [file]:
             try:
                 rows = compose.variables(each)
             except (OSError, ValueError):

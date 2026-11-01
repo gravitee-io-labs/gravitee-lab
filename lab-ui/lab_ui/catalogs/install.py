@@ -1053,25 +1053,31 @@ def _adopted(ns, moved_from) -> List[dict]:
 
 # ---------------------------------------------------------------- what is on, and what holds an update back
 
-def on_units(ns: str) -> Set[str]:
-    """`kind:name` of the units of catalog `ns` that the on file turns on, directly or through what it includes (a
-    playground and the add-ons and setups it includes, an item of another catalog and the unit of this one it includes).
-    Read from the on file and the include lists of the files it names: the defence of the hold rule where a caller has
-    not asked the running state, never a substitute for it."""
-    found, seen, todo = set(), set(), [paths.ON_FILE]
+def on_by_catalog() -> Dict[str, Set[str]]:
+    """{catalog: {`kind:name`}} of the units that the on file turns on, directly or through what they include (a playground
+    and the add-ons and setups it includes, an item of another catalog and the unit of this one it includes), every catalog
+    in one walk of the include closure: a state asks it of every row, and each walk reads the files again. Read from the on
+    file and the include lists of the files it names: the defence of the hold rule where a caller has not asked the running
+    state, never a substitute for it. Nothing is on when the files cannot be read."""
+    found, seen, todo = {}, set(), [paths.ON_FILE]
     while todo and len(seen) < 2000:
         file = todo.pop()
         if file in seen:
             continue
         seen.add(file)
         target = resolve.target_of(file)
-        if target and target[0] == ns:
-            found.add(f"{target[1]}:{target[2]}")
+        if target:
+            found.setdefault(target[0], set()).add(f"{target[1]}:{target[2]}")
         try:
             todo += compose.includes(file, flow=True)
         except (OSError, ValueError):
             continue
     return found
+
+
+def on_units(ns: str) -> Set[str]:
+    """`kind:name` of the units of catalog `ns` that the on file turns on (on_by_catalog)."""
+    return on_by_catalog().get(ns, set())
 
 
 def _held(ns, keys, context) -> List[str]:
