@@ -29,6 +29,7 @@ from lab_ui.gravitee import license
 from lab_ui import paths
 from lab_ui.catalogs import defaults, gitx, manifest, registry
 from lab_ui.catalogs import store as bare
+from lab_ui.catalogs import firstrun as phases   # the real one: a test replaces it while the command runs
 
 from .. import Case, fixtures, gitfixture
 
@@ -1420,11 +1421,12 @@ class Provision(Tool):
         layout.run = failed
         self.assertEqual(self.run_tool("provision")[0::2], (1, "Could not move your settings to the new layout. Nothing was deleted.\n"))
 
-    def test_the_progress_of_a_download_is_said_as_its_phase_changes(self):
+    def test_the_progress_of_a_download_is_said_in_words_as_its_phase_changes(self):
+        # The phases of firstrun, which are its own ids: each is said in words, and the last, which has none, not at all
         self.declare("partner")
 
         def provision(ns):
-            for phase in ("fetching", "installing"):
+            for phase in ("probe", "fetch", "stage", "commit"):
                 firstrun.PROGRESS[ns] = {"phase": phase, "fraction": 0.5}
                 time.sleep(0.3)   # long enough for the watcher, which looks every hundredth of a second
             return {"id": ns, "name": "Partner"}
@@ -1432,7 +1434,9 @@ class Provision(Tool):
         self.patch(catalog, "POLL", 0.01)
         code, out, err = self.run_tool("provision")
         self.assertEqual((code, err), (0, ""))
-        self.assertEqual(out.splitlines(), ["Downloading example.invalid/partner", "  fetching", "  installing", "Installed Partner"])
+        self.assertEqual(out.splitlines(), ["Downloading example.invalid/partner", "  Checking the address",
+                                            "  Downloading the files", "  Installing", "Installed Partner"])
+        self.assertLessEqual(set(catalog.PHASE_WORDS), set(phases.PHASES), "the words are of phases there are")
 
 def scratch_lab(case):
     """A Lab checkout of its own for a test: a clone of a repository whose `main` holds one commit. Answers (the folder, the commit

@@ -65,6 +65,8 @@ ENVIRONMENT = ("bad_address", "bad_address_secret", "folder_missing", "folder_no
 FORMATS = ("text", "github", "json")
 SUGGEST_LIMIT = 50   # as many entries as the Lab reads of the suggestions file
 POLL = 0.2   # seconds between two looks at where a download is
+# The phases of a download (firstrun.PHASES) as the terminal says them; one that is not here is not said
+PHASE_WORDS = {"probe": "Checking the address", "fetch": "Downloading the files", "stage": "Installing"}
 LAB = paths.ROOT   # the Lab checkout this command runs from: the folder that holds lab-ui
 FULL_COMMIT = re.compile(r"[0-9a-f]{40}")
 RULE_CODE = re.compile(r"[A-Z][A-Z0-9]*[0-9]{2}")
@@ -385,14 +387,14 @@ def list_catalogs(args):
 
 
 def _progress(firstrun, ns, stop):
-    """Says where a download is while `firstrun.provision` runs: a line when its phase changes."""
+    """Says where a download is while `firstrun.provision` runs: a line, in words, when its phase changes."""
     last = None
     while not stop.wait(POLL):
         found = (getattr(firstrun, "PROGRESS", None) or {}).get(ns)
-        phase = found.get("phase") if isinstance(found, dict) else None
-        if phase and phase != last:
-            say(f"  {phase}")
-            last = phase
+        words = PHASE_WORDS.get(found.get("phase")) if isinstance(found, dict) else None
+        if words and words != last:
+            say(f"  {words}")
+            last = words
 
 
 def provision(args):
