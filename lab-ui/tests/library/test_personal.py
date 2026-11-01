@@ -500,6 +500,8 @@ class Deleted(Folder):
         self.assertEqual(self.tree(), before)
         on = {"playground": None, "effective": [], "setups": []}
         self.assertEqual(personal.held(self.project, on, "addon", "local/whoami", deleting=True, running=True), "Stop it first")
+        # A setup owns no container: what of its add-ons runs is theirs
+        self.assertEqual(personal.held(self.project, on, "setup", "local/mine", deleting=True, running=True), "")
         # What it brings runs for something else: an item that is off is only its own services
         self.containers.return_value = ({"kiosk": {"state": "running"}}, None)
         with self.assertRaisesRegex(RuntimeError, "^Used by Sandbox$"):
