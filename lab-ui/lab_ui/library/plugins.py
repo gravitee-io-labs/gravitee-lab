@@ -408,8 +408,9 @@ def up(job, project, names):
     folder as they start (.work), and two at once break each other's: a plugin of one does not load. Compose starts them
     one after the other when one depends on the other, as the core's do. Any other one starts first and alone, with what
     it depends on among these, in the order Compose would start them, and the next one once it is ready (healthy, or
-    running without a health check). A wait that ends otherwise, unhealthy or after WAIT seconds, keeps nothing else
-    from starting: its container says it."""
+    running without a health check). It is started, then waited for: a start that fails (an image it could not pull,
+    a container not made) fails the job; a wait that ends otherwise, unhealthy or after WAIT seconds, keeps nothing
+    else from starting: its container says it."""
     names = list(names)
     depends = {name: layers.depends(project, names, [name]) for name in names}
     order = {name: (len(depends[name]), name) for name in names}
@@ -422,8 +423,9 @@ def up(job, project, names):
     for name in sorted(alone, key=order.get):
         group = sorted(({name} | depends[name]) - started)
         started.update(group)
-        try:
-            job.exec([*COMPOSE, "up", "-d", "--no-deps", "--wait", f"--wait-timeout={WAIT}", *group])
+        job.exec([*COMPOSE, "up", "-d", "--no-deps", *group])
+        try:   # the containers are made: this `up` only waits
+            job.exec([*COMPOSE, "up", "-d", "--no-deps", "--wait", f"--wait-timeout={WAIT}", *group], quiet=True)
         except JobFailed:
             if job.canceled:
                 raise
