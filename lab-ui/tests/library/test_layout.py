@@ -692,6 +692,23 @@ class Download(Machine):
             self.migrate()   # the move itself refuses to run without its catalog
         self.assertEqual(digest(self.root, skip=SKIP), before)
 
+    def test_make_update_tries_a_download_that_fails_once_and_says_it_once(self):
+        # catalog.py provision downloads every catalog with no copy, the default one too, then moves: the move does not
+        # download it a second time (a stalled network would be waited for twice, and a second try that worked would
+        # still end in exit 1)
+        from lab_ui.catalogs import cli
+        self.build()
+        line = "Cannot reach example.invalid. Check your connection, then try again."
+        asked = self.downloads(registry.CatalogError("unreachable", line, 502))
+        out, err = io.StringIO(), io.StringIO()
+        with outside(), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = cli.provision(None)
+        err = err.getvalue().splitlines()
+        self.assertEqual((code, asked, sum(line in one for one in err)), (1, ["fixture"], 1), err)
+        self.assertEqual(err[1:], [layout.FAILED, "The default catalog is not installed"])
+        self.assertNotIn(layout.DOWNLOADING, out.getvalue())
+        self.assertIs(layout.pending(), True)
+
     def test_the_catalog_has_to_be_valid_not_only_added(self):
         self.build()
         fixtures.install(self, "fixture", kind="folder")
@@ -2340,7 +2357,7 @@ class Module(Case):
     def test_the_signatures_of_what_the_two_commands_call(self):
         import inspect
         self.assertEqual({name: str(inspect.signature(getattr(layout, name))) for name in ("pending", "run", "migrate")},
-                         {"pending": "() -> bool", "run": "(say=None, complain=None) -> bool",
+                         {"pending": "() -> bool", "run": "(say=None, complain=None, download=True) -> bool",
                           "migrate": "() -> dict"})
         for gone in ("status", "waiting", "ensure", "migrate_personal", "dismiss", "restart_row"):
             self.assertFalse(hasattr(layout, gone), gone)

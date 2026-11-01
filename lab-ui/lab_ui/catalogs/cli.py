@@ -398,7 +398,8 @@ def _progress(firstrun, ns, stop):
 def provision(args):
     """The first start from a terminal, in the foreground (`make catalogs`, and `make update` after its pull). The intent is
     written when catalogs.json does not exist, every git entry that has no copy is downloaded, and a folder of the layout
-    before catalogs is moved to theirs (layout.run). Exit 1, with the line of the error, when something fails."""
+    before catalogs is moved to theirs (layout.run, which downloads nothing more). Exit 1, with the line of the error, when
+    something fails."""
     firstrun = _lab("firstrun")
     layout = importlib.import_module("lab_ui.library.layout")
     firstrun.reconcile()
@@ -423,7 +424,7 @@ def provision(args):
         finally:
             stop.set()
             watcher.join()
-    if not layout.run(say, complain):
+    if not layout.run(say, complain, download=False):   # the default catalog was tried above: once is enough
         failed += 1
     return 1 if failed else 0
 
