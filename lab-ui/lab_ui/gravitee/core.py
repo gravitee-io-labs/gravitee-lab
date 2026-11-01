@@ -23,11 +23,9 @@ NOT_LINKED = "Set up {} first"   # an environment without a Cloud Token or a hyb
 # ---------------------------------------------------------------------------------------------------------------------
 
 def _stored():
-    """{place, chosen, environment} as the file says it; This machine, never chosen, when it is missing or reads as nothing."""
-    try:
-        found = json.loads((paths.ROOT / FILE).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        found = {}
+    """{place, chosen, environment} as the file says it; This machine, never chosen, when it is missing or reads as nothing
+    (paths.read_record keeps it aside)."""
+    found = paths.read_record(paths.ROOT / FILE)
     found = found if isinstance(found, dict) else {}
     place, name = found.get("place"), found.get("environment")
     return {"place": place if isinstance(place, str) and place else MACHINE, "chosen": found.get("chosen") is True,

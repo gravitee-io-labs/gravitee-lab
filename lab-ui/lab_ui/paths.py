@@ -6,6 +6,7 @@ import os
 import re
 import stat
 import tempfile
+import time
 from pathlib import Path
 
 LAB_UI_DIR = Path(__file__).resolve().parent.parent
@@ -379,7 +380,8 @@ def write_atomic(file, text, mode=0o644):
     """Writes a file whole as UTF-8 with Unix line ends, through a copy next to it under a name of its own, so that a
     command running at the same time never reads it half-written and two saves never share the copy. The copy has its
     mode before it holds anything: a .env is 0600 from the start. A copy that fails is removed, and the file stays as
-    it was."""
+    it was. The copy is on the disk before it takes the file's place, and the place after: a power cut leaves the file as it
+    was or as it is now, never empty."""
     handle, tmp = tempfile.mkstemp(dir=file.parent, prefix=f".{file.name}.", suffix=".tmp")
     try:
         with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as f:
@@ -388,7 +390,50 @@ def write_atomic(file, text, mode=0o644):
             else:
                 os.chmod(tmp, mode)
             f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp, file)
     except BaseException:
         os.unlink(tmp)
         raise
+    _synced(file.parent)
+
+
+def _synced(folder):
+    """The names of a folder on the disk, as far as its file system lets a folder be synced."""
+    try:
+        descriptor = os.open(folder, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(descriptor)
+    except OSError:   # a file system that cannot sync a folder
+        pass
+    finally:
+        os.close(descriptor)
+
+
+def read_record(file):
+    """What a record of this machine holds (a JSON file of `.lab/`), None when it is not there or cannot be read. One that is
+    there and is no JSON (cut short, an edit gone wrong) is moved aside first, as `<name>.bad-<utc>`: the next write of the
+    record replaces it, and what it still held is kept for the person."""
+    try:
+        with open(file, "rb") as handle:
+            data, read = handle.read(), os.fstat(handle.fileno())
+    except OSError:
+        return None
+    try:
+        return json.loads(data.decode("utf-8"))
+    except (ValueError, RecursionError):   # RecursionError: a nest of brackets too deep to read
+        pass
+    if data.strip():
+        stamp, number = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()), 0
+        while os.path.lexists(aside := file.with_name(f"{file.name}.bad-{stamp}" + (f"-{number}" if number else ""))):
+            number += 1
+        try:
+            now = os.lstat(file)
+            if (now.st_dev, now.st_ino) == (read.st_dev, read.st_ino):   # not a file a write put in its place since
+                os.rename(file, aside)
+        except OSError:
+            pass
+    return None

@@ -3,10 +3,12 @@
 import json
 import os
 import re
+import stat
 import sys
 import tempfile
 import time
 import unittest
+import unittest.mock
 from pathlib import Path
 
 from lab_ui import paths
@@ -111,6 +113,47 @@ class Isolation(Case):
         self.assertGreater(result.testsRun, 60)
         self.assertEqual(result.testsRun, suite.countTestCases())
         self.assertEqual([str(case) for case, _ in result.failures + result.errors], [])
+
+
+class Records(Case):
+    """A file written whole reaches the disk before it takes its name; a record of this machine that does not read is kept aside."""
+
+    def setUp(self):
+        self.folder(paths)
+        (self.root / ".lab").mkdir()
+        self.file = self.root / ".lab" / "kiosk.json"
+
+    def test_a_file_written_whole_is_on_the_disk_then_its_name_too(self):
+        synced, real = [], os.fsync
+
+        def fsync(descriptor):
+            synced.append("folder" if stat.S_ISDIR(os.fstat(descriptor).st_mode) else "file")
+            real(descriptor)
+        with unittest.mock.patch.object(paths.os, "fsync", side_effect=fsync):
+            paths.write_atomic(self.file, "{}\n")
+        self.assertEqual(synced, ["file", "folder"])   # the copy, then the folder that names it
+        self.assertEqual(self.file.read_text(encoding="utf-8"), "{}\n")
+
+    def test_a_record_reads_as_its_json_and_one_that_is_not_there_as_none(self):
+        self.assertIsNone(paths.read_record(self.file))
+        self.file.write_text('{"kiosk": [1]}', encoding="utf-8")
+        self.assertEqual(paths.read_record(self.file), {"kiosk": [1]})
+
+    def test_a_record_cut_short_is_kept_aside_and_reads_as_none(self):
+        self.file.write_text('{"kiosk": [1, 2', encoding="utf-8")
+        self.assertIsNone(paths.read_record(self.file))
+        kept = sorted(self.file.parent.glob("kiosk.json.bad-*"))
+        self.assertEqual([one.read_text(encoding="utf-8") for one in kept], ['{"kiosk": [1, 2'])
+        self.assertFalse(self.file.exists())
+        self.assertIsNone(paths.read_record(self.file))
+        self.file.write_text("[" * 100000, encoding="utf-8")   # too deep for json: no RecursionError leaves the reader
+        self.assertIsNone(paths.read_record(self.file))
+        self.assertEqual(len(list(self.file.parent.glob("kiosk.json.bad-*"))), 2)
+
+    def test_an_empty_record_holds_nothing_to_keep(self):
+        self.file.write_text("", encoding="utf-8")
+        self.assertIsNone(paths.read_record(self.file))
+        self.assertEqual(list(self.file.parent.glob("*.bad-*")), [])
 
 
 class OnDisk(Case):
