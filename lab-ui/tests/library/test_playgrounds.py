@@ -863,6 +863,26 @@ class Playgrounds(Case):
         self.assertEqual((job.ok, job.error(), commands), (False, layers.CHANGED, []))
         self.assertEqual({path: (self.root / path).read_text(encoding="utf-8") for path in before}, before)
 
+    def test_a_start_again_whose_job_ends_on_a_stale_plan_puts_back_the_versions_it_saved(self):
+        # The welcome is on and seeded: its start runs it again as an add-on's does (layers.apply), with the version
+        # switch all the same. Another tab's job writes the on file once this start saved its versions: the job ends on
+        # its first gate, and both files are what they were
+        before = self.kiosk_switch()
+        self.record("APIs")
+        self.state = {**on(self.project, playground="welcome"), "stamp": layers.stamp()}
+        jobs = self.patch(layers, "JOBS")
+
+        def meanwhile():
+            (self.root / paths.ON_FILE).parent.mkdir(exist_ok=True)
+            (self.root / paths.ON_FILE).write_text("include:\n  - addons/kiosk/compose.yml\n", encoding="utf-8")
+            return self.project
+        self.patch(playgrounds.projects, "load", side_effect=meanwhile)
+        playgrounds.start(self.project, "welcome", ["version:KIOSK"])
+        self.jobs.start.assert_not_called()
+        job, commands = ran(self.started(jobs)[1])
+        self.assertEqual((job.ok, job.error(), commands), (False, layers.CHANGED, []))
+        self.assertEqual({path: (self.root / path).read_text(encoding="utf-8") for path in before}, before)
+
     def test_no_version_changes_while_a_job_runs_or_for_a_start_that_is_refused(self):
         self.switching()
         saved = self.patch(playgrounds.images, "save")
