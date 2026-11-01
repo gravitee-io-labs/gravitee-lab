@@ -110,7 +110,8 @@ sudo usermod -aG docker $USER
 ### A port is already allocated
 
 **Symptom:** a start fails with `port is already allocated`, `Bind for 127.0.0.1:8083 failed`, or `address already in
-use`.
+use`, or the Start of an add-on, a setup or a playground is refused with *Port 5432 is used by another program* (a
+playground's *Before you start* says it on its *Ports* line).
 
 **Cause:** another program, or another copy of the lab, holds the port.
 

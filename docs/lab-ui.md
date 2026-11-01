@@ -544,6 +544,8 @@ The lines cover:
   Observability*), with *Needs a license*, *License expired*, *Not in the license* or *Apply needed* under it, and a *Set
   license* button. Start still runs without it, and says so under its button: *Starts without what needs the license*.
 - **Docker's memory**, when it is short.
+- **Ports**: a port that what starts publishes and another program of your machine uses (a database or a dev server of
+  yours). Start is refused for it, before it changes anything: [A port is already allocated](troubleshooting.md#a-port-is-already-allocated).
 - **Host prerequisites**, such as Ollama with a model: a missing one warns, with the fix. A check is an http or https
   address, called from your machine.
 - **A place besides This machine**: with a [Gravitee Cloud account](#gravitee-cloud) connected, the lines follow the place that *Deploy
@@ -554,10 +556,10 @@ The checks are read again when the window comes back, so what you fixed meanwhil
 A warning does not block Start: the part of the guide that needs the missing piece will not work. A required setting
 missing on one of its add-ons does block it, so does an image version older than the playground needs, and so does a
 license that everything of it needs (*Needs a license*, *License expired*, *Not in the license*); a license needed for
-one step only blocks nothing. The button
-says why. For the images, it names every one that is too old in one sentence, such as *Needs Access Management 4.13 or
-later and API Management 4.13.0-alpha.5 or later: choose them on the Images page*, so one visit to Images is
-enough. The guide is readable before the first start.
+one step only blocks nothing. The button says why. For the images, it names every one that is too old in one sentence,
+such as *Needs Access Management 4.13 or later and API Management 4.13.0-alpha.5 or later: choose them on the Images
+page*, so one visit to Images is enough. A port another program uses is asked when you click Start, which is refused
+then, its line saying which. The guide is readable before the first start.
 
 ### What Start does
 

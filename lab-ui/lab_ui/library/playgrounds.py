@@ -372,6 +372,15 @@ def _image_checks(project, playground):
                        help=_tested_help(one), variable=key)
 
 
+def _port_checks(project, plan):
+    """The host ports of what the start runs that another program uses now (layers.taken), in one line: its Start is refused
+    for them."""
+    held = [str(port) for port in layers.taken(project, plan["services"]["start"])]
+    if not held:
+        return []
+    return [_line("Ports", "warn", f"{', '.join(held)} {'is' if len(held) == 1 else 'are'} used by another program")]
+
+
 def _memory_checks():
     """Docker's memory, when it is short: "6.0 GB, 8 GB+ recommended"."""
     short = model.memory_warning(compose.docker_memory())
@@ -428,7 +437,8 @@ def _host_checks(playground):
 def check(project, pid, place=None):
     """What starting the playground does, and what will not work: {checks: [{name, state, detail, target?, file?}],
     dialog}: what the start does to the platform, the add-ons and the rest, then the plugins, the license, Docker's
-    memory when it is short, and each host requirement, one that is not met with the `help` that says what to do.
+    memory when it is short, the ports another program uses, and each host requirement, one that is not met with the
+    `help` that says what to do.
     `dialog` is what its Start says before it runs: what the state's says (its `action`), and what installing its
     plugins restarts, which only these checks read. For a place besides This machine, it is that place's
     (_place_checks)."""
@@ -440,7 +450,8 @@ def check(project, pid, place=None):
     needs, restarts = _plugin_checks(project, playground["requires"], now[0], plan["fresh"])
     checks = [*_addon_checks(project, playground, now, restarts, plan), *_image_checks(project, playground),
               *needs,
-              *_license_checks(project, playground, now[2]), *_memory_checks(), *_host_checks(playground)]
+              *_license_checks(project, playground, now[2]), *_memory_checks(), *_port_checks(project, plan),
+              *_host_checks(playground)]
     return {"checks": checks, "dialog": _dialog(project, plan, restarts)}
 
 
@@ -630,7 +641,7 @@ def _place_checks(project, pid, place):
     restarting = [row["name"] for row in plan["restarts"] if row["id"] != addon["id"]]
     checks = [_line(found["platform"]["name"], "ok", "Connected", target), _token_line(found),
               _gateway_line(found, addon, plan, state), *_addon_lines(project, playground, state, now[0]),
-              *_effect_lines(plan, restarting), *_host_checks(playground)]
+              *_effect_lines(plan, restarting), *_port_checks(project, plan), *_host_checks(playground)]
     return {"checks": checks, "dialog": layers.dialog(plan)}
 
 

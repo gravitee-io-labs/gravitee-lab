@@ -447,6 +447,26 @@ class Playgrounds(Case):
             self.assertEqual(layers.at_least(tag, wanted), enough, (tag, wanted))
         self.assertEqual((layers.or_later("4.13"), layers.or_later("amp-demo-latest")), (" or later", ""))
 
+    def test_a_port_another_program_uses_is_a_line_and_refuses_the_start(self):
+        # A dev server on 3000, the port of the welcome's app: said before the start, which is refused before anything changes
+        from lab_ui.library import machine
+        self.patch(machine, "_taken", lambda port: port == 3000)
+        self.patch(plugins, "installed", lambda project, product: {"bundled": {"gravitee-policy-x": {}}, "bundled_error": None,
+                                                                    "ext": {}, "feature_by_id": {}})
+        self.patch(license, "info", lambda project: {"present": False})
+        self.patch(license, "status", lambda project: {"status": "none", "digest": "x"})
+        self.project["services"]["hello-app"]["ports"] = ["3000"]
+        self.assertIn({"name": "Ports", "state": "warn", "detail": "3000 is used by another program"},
+                      playgrounds.check(self.project, "welcome")["checks"])
+        with self.assertRaisesRegex(RuntimeError, "^Port 3000 is used by another program$"):
+            playgrounds.start(self.project, "welcome", [])
+        self.jobs.start.assert_not_called()
+        # Free again: no line, and it starts
+        self.patch(machine, "_taken", return_value=False)
+        self.assertNotIn("Ports", [line["name"] for line in playgrounds.check(self.project, "welcome")["checks"]])
+        playgrounds.start(self.project, "welcome", [])
+        self.jobs.start.assert_called_once()
+
     def test_docker_memory_when_it_is_short(self):
         self.patch(plugins, "installed", lambda project, product: {"bundled": {"gravitee-policy-x": {}},
                                                                     "bundled_error": None, "ext": {},

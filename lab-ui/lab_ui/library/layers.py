@@ -797,13 +797,12 @@ def _published(project, names):
 
 def _port_clash(project, state, up, kind, unit, going=frozenset()):
     """"Port 8140 is used by Acme Bakery" when a host port the item's services publish is published by something else
-    that is on or runs, the first by port; None otherwise. Only an item that brings a unit of a catalog (that is every item
-    but the core) is asked. What the item brings itself, its twin and what this very plan turns off (`going`: [(kind, id)])
-    do not count: they do not run with it."""
+    that is on or runs, the platform whether it runs or not (it is always on: the next Start all would fail), the first by
+    port; None otherwise. Every item is asked, this machine's own too. What the item brings itself, its twin and what this
+    very plan turns off (`going`: [(kind, id)]) do not count: they do not run with it. What another program holds is
+    asked at the click (check(): taken())."""
     nodes = _reach(project, kind, unit["id"])
     members = [project[node[0] + "s"][node[1]] for node in nodes]
-    if not any(member.get("catalog") for member in members):
-        return None
     mine = set(nodes) | going | {(node[0], member["twin"]["id"]) for node, member in zip(nodes, members)
                                  if isinstance(member.get("twin"), dict)}
     wanted = _published(project, [name for member in members for name in member.get("services") or ()])
@@ -811,12 +810,21 @@ def _port_clash(project, state, up, kind, unit, going=frozenset()):
         return None
     on = [project["playgrounds"].get(state["playground"]) or {}] + [project["addons"].get(aid) or {}
                                                                      for aid in state["effective"]]
-    names = {name for one in on for name in one.get("services") or ()} | set((up or {}).get("services") or ())
+    names = {name for one in on for name in one.get("services") or ()} | set((up or {}).get("services") or ()) \
+        | {name for name, service in project["services"].items() if service["owner"]["kind"] == "platform"}
     others = [name for name in sorted(names) if name in project["services"]
               and (project["services"][name]["owner"]["kind"], project["services"][name]["owner"]["id"]) not in mine]
     taken = _published(project, others)
     clash = sorted(set(wanted) & set(taken))
     return f"Port {clash[0]} is used by {taken[clash[0]]}" if clash else None
+
+
+def taken(project, names):
+    """The host ports these services publish that another program uses now (machine.held), sorted: Compose would fail to
+    publish them once the on file names what publishes them, and every later Start all with it. Asked when a start is
+    clicked, never for the state: it binds each port for an instant."""
+    from . import machine   # the machine's checks read the model, which reads this module
+    return machine.held(_published(project, names))
 
 
 def _blocked(project, state, kind, unit, do, gateway=None, up=None, going=frozenset()):
@@ -1327,7 +1335,8 @@ def _on_the_file(project, plan):
 
 def check(project, plan, accept):
     """Refuses a plan that cannot run as the page showed it: blocked, or stopping or turning off something that is
-    neither the item itself nor accepted, by its key. A start that puts a unit of a catalog in the on file (this machine's
+    neither the item itself nor accepted, by its key; a start, also when a host port of what it starts is used by another
+    program (taken()). A start that puts a unit of a catalog in the on file (this machine's
     own is no catalog's) is then handed to the catalogs' preflight: it judges the units again on the live model and
     verifies that their installed files are the ones that were installed, and refuses with its own line. What it raises is
     not changed here. Every caller passes the project, and what the page sent back (`accept`), even when it sent nothing:
@@ -1341,6 +1350,9 @@ def check(project, plan, accept):
                 raise RuntimeError(f"Would also {verb} {row['name']}")
     if plan.get("do") != "start":
         return
+    held = taken(project, plan["services"]["start"])
+    if held:
+        raise RuntimeError(f"Port {held[0]} is used by another program")
     of_catalogs = [node for node in _on_the_file(project, plan)
                    if project[node[0] + "s"][node[1]].get("catalog") not in (None, paths.LOCAL)]
     if of_catalogs:

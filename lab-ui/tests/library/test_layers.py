@@ -2063,11 +2063,35 @@ class Gates(Case):
         unit = self.project["addons"]["local/kiosk"]
         self.assertIsNone(layers._port_clash(self.project, state, up("kiosk", project=self.project), "addon", unit))
 
-    def test_a_unit_that_says_no_catalog_is_not_asked_for_its_ports(self):
+    def test_a_unit_that_says_no_catalog_is_asked_for_its_ports_too(self):
         self.publish(kiosk=["5601"], **{"kafka-ui": ["5601"]})
         for uid in self.project["addons"]:
             del self.project["addons"][uid]["catalog"]
-        self.assertIsNone(self.why("addon", "kiosk", on(self.project, ["kafka"])))
+        self.assertEqual(self.why("addon", "kiosk", on(self.project, ["kafka"])), "Port 5601 is used by Kafka")
+
+    def test_a_port_the_platform_publishes_is_taken_while_it_does_not_run(self):
+        self.project["services"]["apim-gateway"]["ports"] = ["8082"]
+        self.publish(kiosk=["8082"])
+        self.assertEqual(self.why("addon", "kiosk", running=up(platform=False, project=self.project)),
+                         "Port 8082 is used by API Management")
+
+    def test_a_start_is_refused_when_another_program_uses_a_port_it_publishes(self):
+        # A Postgres of the person's own on 5432: the start is refused at the click, before the on file names Kiosk
+        from lab_ui.library import machine
+        self.project["services"]["kiosk"]["ports"], self.project["services"]["apim-gateway"]["ports"] = ["5432"], ["8082"]
+        listening = {5432, 8082}
+        self.patch(machine, "_taken", lambda port: port in listening)
+        self.patch(machine, "_lab_ports", return_value={8082})   # the lab's own gateway holds 8082
+        plan = layers.plan(self.project, on(self.project, ["kafka"]), up(project=self.project), "addon", "kiosk", "start")
+        self.assertIsNone(plan["blocked"], "the state never probes the ports")
+        with self.assertRaisesRegex(RuntimeError, "^Port 5432 is used by another program$"):
+            layers.check(self.project, plan, [])
+        listening.discard(5432)
+        layers.check(self.project, plan, [])
+        # A stop is never refused for it
+        listening.add(5432)
+        layers.check(self.project, layers.plan(self.project, on(self.project, ["kiosk"]), up("kiosk", project=self.project),
+                                               "addon", "kiosk", "stop"), [])
 
     def test_a_port_that_is_no_number_is_not_one(self):
         self.publish(kiosk=["8000-8010", "x"], **{"kafka-ui": ["8000-8010", "x"]})
@@ -2726,10 +2750,10 @@ class Real(Case):
         plan = self.begin("setup", "pair")
         self.assertEqual(plan["blocked"], "Depends on private content")
 
-    def test_a_port_the_core_publishes_is_taken_while_it_runs(self):
-        self.assertIsNone(self.begin("addon", "port-core")["blocked"], "nothing runs")
-        plan = self.begin("addon", "port-core", running=nothing_up("apim-gateway"))
-        self.assertEqual(plan["blocked"], "Port 8082 is used by API Management")
+    def test_a_port_the_core_publishes_is_taken_whether_it_runs_or_not(self):
+        # The platform is always on: started with the port taken, the add-on would make the next Start all fail
+        for running in (nothing_up(), nothing_up("apim-gateway")):
+            self.assertEqual(self.begin("addon", "port-core", running=running)["blocked"], "Port 8082 is used by API Management")
 
     def test_a_port_two_units_publish_is_taken_while_the_first_runs_or_is_on_and_not_when_it_is_turned_off_for_it(self):
         running = nothing_up("fixture-echo", addons=["echo"])
