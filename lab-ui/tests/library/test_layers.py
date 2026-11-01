@@ -1539,7 +1539,7 @@ class Files(Case):
     def test_nothing_on(self):
         self.assertEqual(layers.current(self.project), {"playground": None, "explicit": [], "setups": [],
                                                         "effective": [], "targets": {}, "missing": [], "unset": {},
-                                                        "problems": [], "locked": None})
+                                                        "problems": [], "locked": None, "unread": None})
 
     KAFKA = ("services:\n  apim-gateway:\n    environment:\n      gravitee_kafka_enabled: \"true\"\n"
              "  kafka:\n    container_name: gio-apim-gateway-probe\n    depends_on:\n      apim-gateway:\n"
@@ -1636,6 +1636,8 @@ class Files(Case):
         self.assertEqual(state["problems"], [{"file": ".lab/on.yml",
                                               "message": "addons/jade/compose.yml does not exist"}])
         self.assertIsNone(state["locked"])
+        # Compose fails on it whatever it is asked: the state waits on it (model._wait)
+        self.assertEqual(state["unread"], "addons/jade/compose.yml does not exist")
 
     def test_entry_whose_file_does_not_load_locks_the_file(self):
         # Written by the Lab UI, it is not the user's change: a rewrite would drop it, the file says why
@@ -1644,6 +1646,7 @@ class Files(Case):
         self.assertEqual((state["explicit"], state["locked"]), (["kiosk"], "addons/jade/compose.yml does not load"))
         message = "addons/jade/compose.yml does not load: the catalog's Start and Stop are off"
         self.assertEqual(state["problems"], [{"file": ".lab/on.yml", "message": message}])
+        self.assertEqual(state["unread"], "addons/jade/compose.yml does not load")
 
     def test_own_changes_lock_the_file(self):
         self.write("mine.yml")

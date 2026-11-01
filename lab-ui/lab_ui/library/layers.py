@@ -188,21 +188,23 @@ def ready():
 
 
 def current(project):
-    """What the on file turns on: {playground, explicit, effective, setups, targets, missing, unset, problems, locked}.
+    """What the on file turns on: {playground, explicit, effective, setups, targets, missing, unset, problems, locked, unread}.
     `targets` says where each item runs that does not run on this machine. `unset`
     names the required settings each add-on of `missing` lacks. A setup
     listed there stands for the add-ons it includes; `setups` names it. An entry whose file is gone is ignored and
     reported. `locked` is the reason the file must not be rewritten: it holds more than the Lab UI writes, or an entry
-    whose file does not load, which a rewrite would drop. An item of a catalog is an entry like any other, and one the
-    policy blocks is still one: it is loaded, so it locks nothing. While the old layout is being moved an entry
-    of that layout is neither a problem nor a lock: it is off until the move translates it."""
+    whose file does not load, which a rewrite would drop. `unread` is the first entry that Compose cannot read, as a line: its
+    file is gone or does not load, and every command that reads the on file fails on it; None without one. An item of a
+    catalog is an entry like any other, and one the policy blocks is still one: it is loaded, so it locks nothing. While the
+    old layout is being moved an entry of that layout is neither a problem nor a lock: it is off until the move translates
+    it."""
     file = paths.ROOT / paths.ON_FILE
     entries = compose.includes(paths.ON_FILE)
     lines = [line for line in (file.read_text(encoding="utf-8").split("\n") if file.is_file() else [])
              if line.strip() and not line.lstrip().startswith("#")]
     # The Lab UI writes `include:` and one line per entry: any other line is the user's
     own = bool(lines) and (lines[0].split("#")[0].strip() != "include:" or len(lines) != len(entries) + 1)
-    playgrounds, setups, explicit, broken, problems = [], [], set(), [], []
+    playgrounds, setups, explicit, broken, problems, unread = [], [], set(), [], [], []
     moving = None   # whether the layout is being moved: asked once, and only for a line that looks like the old layout's
     for path in entries:
         kind, uid = paths.unit_of(path) or (None, None)
@@ -212,6 +214,7 @@ def current(project):
                 continue
         if not (paths.ROOT / path).is_file():
             problems.append({"file": paths.ON_FILE, "message": f"{path} does not exist"})
+            unread.append(f"{path} does not exist")
         elif kind == "addon" and uid in project["addons"]:
             explicit.add(uid)
         elif kind == "setup" and uid in project["setups"]:
@@ -221,6 +224,7 @@ def current(project):
             playgrounds.append(uid)
         elif kind:   # an add-on, a setup or a playground that does not load: the project's problems say why
             broken.append(path)
+            unread.append(f"{path} does not load")
         else:
             own = True
     playground, locked = (playgrounds[0] if playgrounds else None), None
@@ -237,7 +241,7 @@ def current(project):
              if (unit := paths.unit_of(path))}
     return {"playground": playground, "explicit": sorted(explicit), "setups": sorted(setups),
             "effective": sorted(_effective(project, playground, explicit)), "targets": where,
-            "missing": list(unset), "unset": unset, "problems": problems, "locked": locked}
+            "missing": list(unset), "unset": unset, "problems": problems, "locked": locked, "unread": next(iter(unread), None)}
 
 
 def _named(project, file):

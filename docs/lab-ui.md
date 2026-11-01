@@ -695,6 +695,8 @@ A playground comes first in the list. With an empty file, Compose runs the core 
 
 - If you add anything else to the file, the Lab UI leaves it as you wrote it and turns off the Start and Stop of the
   catalog. The banner says so and opens the file in the editor.
+- If it lists a file that is gone or does not load, every command Compose runs fails on it: every action waits, and says
+  which file. Fix that file, or remove its line in the editor, which the banner opens.
 - Stop on the Containers page, or Docker restarting, leaves the file as it is. The platform's next Start runs
   everything that is on again.
 - An included add-on reads its own `.env` and the core's, and its paths start from its folder. An add-on includes the

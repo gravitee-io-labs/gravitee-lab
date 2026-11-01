@@ -964,13 +964,14 @@ def _by_name(items):
     return sorted(items, key=key)
 
 
-def _wait(docker, job, loaded):
-    """Why nothing can be started now, as what waits says it; None when it can."""
+def _wait(docker, job, loaded, unread=None):
+    """Why nothing can be started now, as what waits says it; None when it can. `unread`: the entry of the on file that
+    Compose cannot read (layers.current), which every command fails on, as on a core that does not load."""
     if docker["error"]:
         return "Docker is not reachable"
     if not loaded:
         return f"{paths.CORE_FILE} does not load"
-    return f"Wait for {job['title']}" if job else None
+    return unread or (f"Wait for {job['title']}" if job else None)
 
 
 def memory_warning(memory):
@@ -1071,7 +1072,7 @@ def build(project, state, containers, job, failures, license_features, docker, c
     # what is saved; `held`: what the Lab UI does not start for want of a usable license, and `unlicensed` its note;
     # `unlicensing`: with no license saved, what still runs one, which loses it once it is made again
     c = {"project": project, "state": state, "up": running, "job": running_job,
-         "wait": _wait(docker, running_job, loaded), "failures": failures, "features": license_features,
+         "wait": _wait(docker, running_job, loaded, state.get("unread")), "failures": failures, "features": license_features,
          "services": services, "created": created, "blind": bool(docker["error"]) or not loaded,
          "docker_down": bool(docker["error"]) and loaded,
          "changing": changing, "behind": set(late), "why": late, "license": license_status, "held": set(waiting),

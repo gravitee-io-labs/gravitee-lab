@@ -1736,6 +1736,21 @@ class Catalogs(Built):
 class Trouble(Built):
     """What keeps restarting, the license, docker-compose.yml that does not load, a registry refusing a pull."""
 
+    def test_an_entry_of_the_on_file_that_compose_cannot_read_makes_everything_wait_on_it(self):
+        # Its file broke outside the Lab, or is gone: every command that reads the on file would fail on it, so every
+        # action that runs one says why before the click, as for a core that does not load
+        line = "addons/local/mine/compose.yml does not load"
+        state = on(self.project, ["kafka"])
+        body = model.build(self.project, {**state, "unread": line}, {**CORE, "kafka": container(), "kafka-ui": container()},
+                           None, lambda kind, uid: None, None, {"error": None, "memory": None}, {})
+        platform = body["platform"]
+        self.assertEqual(body["wait"], line)
+        self.assertEqual([(platform[key]["enabled"], platform[key]["reason"]) for key in ("start", "apply", "restart", "update")],
+                         [(False, line)] * 4)
+        kafka = next(item for item in body["addons"] if item["id"] == "kafka")
+        self.assertEqual((kafka["action"]["enabled"], kafka["action"]["reason"]), (False, line))
+        self.assertIsNone(self.build(explicit=["kafka"])["wait"])
+
     def test_what_keeps_restarting_gets_stop(self):
         # Its start would change nothing: up leaves running containers as they are
         restarting = container(health="", restarts=4)

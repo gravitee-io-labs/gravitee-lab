@@ -1450,6 +1450,9 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
   (`layers.current`, `locked`). The catalog's Start and Stop are disabled, and its problem line says why ("has your own
   changes: the catalog's Start and Stop are off", "<path> does not load: the catalog's Start and Stop are off"). So they
   are while `docker-compose.yml` does not load.
+- An entry whose file is gone or does not load makes every command that reads the on file fail: every action waits,
+  saying which ("<path> does not exist", "<path> does not load", `layers.current`, `unread`), as for a core that does not
+  load. Its problem line opens the on file, whose Save does not wait.
 
 ### Docker, jobs and progress
 
