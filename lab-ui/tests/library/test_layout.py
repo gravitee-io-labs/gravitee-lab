@@ -29,9 +29,10 @@ from lab_ui.docker import compose, envfiles
 from lab_ui.library import layers, layout, moves, project
 from lab_ui.gravitee import license
 from lab_ui import paths
-from lab_ui.catalogs import firstrun, registry, store
+from lab_ui.catalogs import firstrun, install, registry, store
 
 from .. import Case, fixtures, gitfixture
+from ..catalogs.test_provision import Served   # a real download of a listed catalog, from a bare repository here
 
 # The pattern of the Makefile (an ERE for `grep -E`): the lines of an on file that name folders of the old layout
 GUARD_PATTERN = r'^[[:space:]]*-[[:space:]]*"?(addons|setups|playgrounds)/'
@@ -692,6 +693,36 @@ class Download(Machine):
             self.migrate()   # the move itself refuses to run without its catalog
         self.assertEqual(digest(self.root, skip=SKIP), before)
 
+    def test_make_update_tries_a_download_that_fails_once_and_says_it_once(self):
+        # catalog.py provision downloads every catalog with no copy, the default one too, then moves: the move does not
+        # download it a second time (a stalled network would be waited for twice, and a second try that worked would
+        # still end in exit 1)
+        from lab_ui.catalogs import cli
+        self.build()
+        line = "Cannot reach example.invalid. Check your connection, then try again."
+        asked = self.downloads(registry.CatalogError("unreachable", line, 502))
+        out, err = io.StringIO(), io.StringIO()
+        with outside(), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = cli.provision(None)
+        err = err.getvalue().splitlines()
+        self.assertEqual((code, asked, sum(line in one for one in err)), (1, ["fixture"], 1), err)
+        self.assertEqual(err[1:], [layout.FAILED, "The default catalog is not installed"])
+        self.assertNotIn(layout.DOWNLOADING, out.getvalue())
+        self.assertIs(layout.pending(), True)
+
+    def test_no_compose_says_what_to_do_and_promises_no_download_that_will_not_happen(self):
+        # The stage check of the download stops on docker_missing (install.readable): the Lab UI exits, so its last line
+        # says what to do, not that the catalog downloads by itself later as the line of the background worker does
+        from lab_ui.library import check
+        self.build()
+        self.patch(firstrun, "reconcile", lambda: None)
+        self.patch(install, "unknown_at", lambda *args: None)   # Compose could not read the staged version
+        self.patch(check, "compose_missing", lambda: check.NO_COMPOSE)   # no docker CLI, or Compose older than 5
+        self.patch(firstrun, "_download", lambda ns, entry, row: install.readable("store")("0" * 40))
+        ok, said, complained = self.at_start()
+        self.assertEqual((ok, said, complained), (False, [layout.MOVING, layout.DOWNLOADING], [layout.FAILED, layout.NO_DOCKER]))
+        self.assertIs(layout.pending(), True)   # the next start tries again, and only a start does
+
     def test_the_catalog_has_to_be_valid_not_only_added(self):
         self.build()
         fixtures.install(self, "fixture", kind="folder")
@@ -751,11 +782,16 @@ class OptedOut(Machine):
         self.assertEqual(layout._signals(first=False), [])
 
     def test_a_catalogs_file_that_does_not_read_is_a_doubt_not_a_decision(self):
+        # Nor is it replaced by a download: the person fixes it, and the next start moves the folder
         self.put(".lab/catalogs.json", "{not json")
         self.build()
-        asked = self.downloads(registry.CatalogError("unreadable", "The catalogs file cannot be read.", 409))
-        self.assertEqual(self.at_start()[0], False)
-        self.assertEqual((asked, self.exists(".lab/layout.json")), (["fixture"], False))   # the catalog was asked for
+        asked = self.downloads()
+        ok, said, complained = self.at_start()
+        self.assertEqual((ok, said, complained), (False, [layout.MOVING], [layout.FAILED, registry.config_problem()]))
+        self.assertIn("could not be read", complained[1])
+        self.assertEqual((asked, self.exists(".lab/layout.json")), ([], False))   # nothing was asked for
+        self.assertEqual(self.text(".lab/catalogs.json"), "{not json")
+        self.assertEqual([name for name in os.listdir(self.root / ".lab") if ".bad-" in name], [])
         self.assertEqual(self.text("addons/echo/.env"), "ECHO_TOKEN=secret-echo-env\n")   # and nothing moved
 
     def test_no_catalogs_file_at_all_is_a_first_run_not_a_decision(self):
@@ -763,6 +799,41 @@ class OptedOut(Machine):
         self.build()
         asked = self.downloads()
         self.assertEqual((self.at_start()[0], asked), (True, ["fixture"]))
+
+
+DAMAGED = ('{"schema": 1, "catalogs": [{"id": "other", "kind": "git", "url": "https://example.invalid/team/other.git"},'
+           ']}\n')   # a hand edit that left a trailing comma
+
+
+class DamagedFile(Served, Case):
+    """A folder that still needs the move, whose catalogs file does not read and lists another catalog installed here: the
+    real download, not a played one. A file that does not read is a doubt, not a decision: a start never replaces it, so
+    the sweep of the start never takes the other catalog for one the person removed."""
+
+    def setUp(self):
+        self.world()   # the default file lists `demos`, served by a bare repository on this machine
+        self.patch(layout, "_backed", None)
+        self.patch(moves, "STEP", None)
+        moves._INDEXES.clear()
+        self.addCleanup(moves._INDEXES.clear)
+        self.write(".lab/catalogs.json", DAMAGED)
+        self.write(".lab/catalogs/other/addons/x/.env", "OTHER_TOKEN=secret\n")
+        self.write("addons/echo/.env", "ECHO_TOKEN=secret-echo-env\n")   # what the old layout left: the move waits
+
+    def test_a_start_does_not_download_into_a_catalogs_file_that_does_not_read(self):
+        self.assertTrue(registry.config_problem())
+        self.assertIs(layout.pending(), True)
+        said, complained = [], []
+        ok = layout.run(said.append, complained.append)
+        install.recover()   # what the start does next (service.recover)
+        self.assertEqual((ok, said, complained), (False, [layout.MOVING], [layout.FAILED, registry.config_problem()]))
+        self.assertEqual(self.text(".lab/catalogs.json"), DAMAGED)
+        self.assertEqual(sorted(os.listdir(self.root / ".lab/catalogs")), ["other"])
+        self.assertEqual(self.text(".lab/catalogs/other/addons/x/.env"), "OTHER_TOKEN=secret\n")
+        self.assertIs(layout.pending(), True)   # once the file is fixed, the next start moves the folder
+
+    def text(self, path):
+        return (self.root / path).read_text(encoding="utf-8")
 
 
 class Ways(Machine):
@@ -1645,7 +1716,7 @@ class Said(Machine):
                          ["  COMPOSE_FILE in .env names a file that moved: edit it by hand"])
 
     def test_the_words_follow_the_rules_of_the_interface(self):
-        strings = [layout.MOVING, layout.DOWNLOADING, layout.FAILED, layout.TRACKED, layout.GUARD,
+        strings = [layout.MOVING, layout.DOWNLOADING, layout.FAILED, layout.NO_DOCKER, layout.TRACKED, layout.GUARD,
                    *(label for label, _ in layout.ROWS.values())]
         for text in strings + [hint for _, hint in layout.ROWS.values()]:
             self.assertEqual(text, text.strip())
@@ -1762,6 +1833,42 @@ class Failing(Machine):
             self.assertEqual(self.at_start(), (False, [layout.MOVING], [layout.FAILED, "RuntimeError"]))   # the type, not the content
         with mock.patch.object(layout, "_run", side_effect=KeyboardInterrupt):
             self.assertEqual(self.at_start(), (False, [layout.MOVING], [layout.FAILED, "Stopped"]))
+
+    def test_a_platform_copy_that_cannot_be_read_is_said_in_plain_words(self):
+        # The platform copies are a folder copied to the backup: its first failure is said as the disk says it, from the
+        # project folder, never as a list of what failed in words for a programmer
+        self.build()
+        self.put(".lab/targets/cloud/notes.txt", "mine\n", 0o000)
+        self.addCleanup(os.chmod, self.root / ".lab/targets/cloud/notes.txt", 0o644)
+        ok, said, complained = self.at_start()
+        self.assertEqual((ok, said), (False, [layout.MOVING]))
+        self.assertEqual(complained, [layout.FAILED, "Permission denied: .lab/targets/cloud/notes.txt"])
+
+    def test_a_full_disk_while_the_platform_copies_are_backed_up_is_said_in_plain_words(self):
+        self.build()
+        real = shutil.copyfile
+
+        def copyfile(src, dst, *more, **how):
+            if "/.lab/targets/" in os.fspath(src):
+                raise OSError(errno.ENOSPC, "No space left on device", str(dst))
+            return real(src, dst, *more, **how)
+        with mock.patch.object(shutil, "copyfile", copyfile):
+            ok, said, complained = self.at_start()
+        self.assertEqual((ok, said), (False, [layout.MOVING]))
+        self.assertEqual(complained, [layout.FAILED, "No space left on device: .lab/migration/backup/targets.partial/cloud/"
+                                                     "addons__gateway__compose.yml"])
+
+    def test_the_backup_of_the_platform_copies_keeps_their_links_and_modes(self):
+        self.build()
+        os.symlink("addons__gateway__compose.yml", self.root / ".lab/targets/cloud/latest")
+        os.symlink("cloud", self.root / ".lab/targets/cloud-link")   # a link to a folder, not followed either
+        os.chmod(self.root / ".lab/targets/cloud/addons__gateway__compose.yml", 0o640)
+        self.migrate()
+        backup = f"{layout.BACKUP}/targets"
+        self.assertEqual(os.readlink(self.root / backup / "cloud/latest"), "addons__gateway__compose.yml")
+        self.assertEqual(os.readlink(self.root / backup / "cloud-link"), "cloud")
+        self.assertEqual((self.text(f"{backup}/cloud/addons__gateway__compose.yml"),
+                          self.mode(f"{backup}/cloud/addons__gateway__compose.yml")), (GATEWAY_COPY, 0o640))
 
     def test_pending_never_raises(self):
         with mock.patch.object(layout, "_signals", side_effect=OSError("denied")):
@@ -2304,7 +2411,7 @@ class Module(Case):
     def test_the_signatures_of_what_the_two_commands_call(self):
         import inspect
         self.assertEqual({name: str(inspect.signature(getattr(layout, name))) for name in ("pending", "run", "migrate")},
-                         {"pending": "() -> bool", "run": "(say=None, complain=None) -> bool",
+                         {"pending": "() -> bool", "run": "(say=None, complain=None, download=True) -> bool",
                           "migrate": "() -> dict"})
         for gone in ("status", "waiting", "ensure", "migrate_personal", "dismiss", "restart_row"):
             self.assertFalse(hasattr(layout, gone), gone)

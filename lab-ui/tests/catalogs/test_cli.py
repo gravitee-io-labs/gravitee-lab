@@ -1356,7 +1356,7 @@ class Provision(Tool):
         firstrun = module(reconcile=lambda: calls.append("reconcile"), PROGRESS={},
                           provision=provision or (lambda ns: calls.append(f"provision {ns}") or {"id": ns, "name": ns.title()}),
                           **more)
-        layout = module(run=lambda say, complain: True)
+        layout = module(run=lambda say, complain, download=True: True)
         patcher = mock.patch.dict(sys.modules, {"lab_ui.catalogs.firstrun": firstrun, "lab_ui.library.layout": layout})
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -1405,16 +1405,16 @@ class Provision(Tool):
         self.declare("partner")
         calls, _, layout = self.fake()
 
-        def run(say, complain):
-            calls.append("move")
+        def run(say, complain, download=True):
+            calls.append(f"move, download {download}")
             say("Moving your settings to the new layout")
             return True
         layout.run = run
         code, out, err = self.run_tool("provision")
-        self.assertEqual((code, err, calls), (0, "", ["reconcile", "provision partner", "move"]))
+        self.assertEqual((code, err, calls), (0, "", ["reconcile", "provision partner", "move, download False"]))
         self.assertEqual(out.splitlines()[-1], "Moving your settings to the new layout")
 
-        def failed(say, complain):
+        def failed(say, complain, download=True):
             complain("Could not move your settings to the new layout. Nothing was deleted.")
             return False
         layout.run = failed

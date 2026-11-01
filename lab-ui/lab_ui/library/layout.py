@@ -78,6 +78,8 @@ _backed = None   # the compose texts of the backup while a run keeps count of th
 MOVING = "Moving your settings to the new layout"
 DOWNLOADING = "Downloading playgrounds, setups and add-ons"
 FAILED = "Could not move your settings to the new layout. Nothing was deleted."   # then why, in a line of its own
+# Why, when the download needs Docker: the Makefile's words, since the Lab UI does not start
+NO_DOCKER = "Install Docker with Compose 5.0 or later (see Prerequisites in README.md), then start the Lab again."
 TRACKED = ("The Lab did not move any settings: git tracks addons, setups or playgrounds here, so they are the current "
            "layout.")
 # The rows of what moved that a person may want to look at, by the key of the report: what it is, and why
@@ -323,6 +325,8 @@ def _reason(error):
     refusal by its message, a bug by its type alone (its words may hold anything), a stop by the person as such."""
     if isinstance(error, KeyboardInterrupt):
         return "Stopped"
+    if isinstance(error, registry.CatalogError) and error.code == "docker_missing":
+        return NO_DOCKER   # the line of the background worker says the catalog downloads later: nothing runs to do it
     if isinstance(error, OSError) and error.strerror:
         named = error.filename if isinstance(error.filename, str) else ""
         inside = named.startswith(str(paths.ROOT) + os.sep)
@@ -473,6 +477,23 @@ def _sha(path):
         os.close(descriptor)
 
 
+def _copy_tree(source, target):
+    """A folder copied with its links as links, that stops at the first entry that fails with the error of the disk, which
+    `_reason` says in its words: copytree goes on, and raises the list of every failure in words for a programmer. The
+    folders are walked from the bottom up, so that each one gets its mode once what is in it is copied."""
+    def stop(error):
+        raise error
+    for here, folders, files in os.walk(source, topdown=False, onerror=stop):
+        place = os.path.join(target, os.path.relpath(here, source))
+        os.makedirs(place, exist_ok=True)
+        for name in folders:
+            if os.path.islink(os.path.join(here, name)):   # a link to a folder, not walked into
+                os.symlink(os.readlink(os.path.join(here, name)), os.path.join(place, name))
+        for name in files:
+            shutil.copy2(os.path.join(here, name), os.path.join(place, name), follow_symlinks=False)
+        shutil.copystat(here, place)
+
+
 def _copy_once(source, target):
     """Copies a file or a folder to the backup unless the backup has it already: the first copy is the one that counts.
     Through a partial that is renamed when whole, so that a crash never leaves half a copy that reads as whole."""
@@ -482,7 +503,7 @@ def _copy_once(source, target):
     moves._discard(partial)
     moves._parents(target)
     if os.path.isdir(source) and not os.path.islink(source):
-        shutil.copytree(source, partial, symlinks=True)
+        _copy_tree(source, partial)
     else:
         shutil.copy2(source, partial)
     os.replace(partial, target)
@@ -1331,12 +1352,14 @@ def pending() -> bool:
         return False
 
 
-def run(say=None, complain=None) -> bool:
+def run(say=None, complain=None, download=True) -> bool:
     """The move of this folder when it needs one, said as it goes: before the Lab UI serves, and from `make update`. The
-    default catalog is downloaded first when it is not there, since the items move into it. What moved that a person may
-    want to look at, and each problem, is a line of `say`; why it could not move is two lines of `complain` (standard
-    error). Answers whether the Lab can work on the folder: False when the move could not be made, and the next run tries
-    again. A folder with nothing to move says nothing, and one whose content git tracks says why it is not moved."""
+    default catalog is downloaded first when it is not there, since the items move into it (`download`; `make update` has
+    tried it already); never into a catalogs file that does not read, which the download would replace. What moved that a
+    person may want to look at, and each problem, is a line of `say`; why it could not move is two lines of `complain`
+    (standard error). Answers whether the Lab can work on the folder: False when the move could not be made, and the next
+    run tries again. A folder with nothing to move says nothing, and one whose content git tracks says why it is not
+    moved."""
     say = say or (lambda text: print(text, flush=True))   # in the order they come, whatever buffers a pipe keeps
     complain = complain or (lambda text: print(text, file=sys.stderr, flush=True))
     try:
@@ -1349,9 +1372,14 @@ def run(say=None, complain=None) -> bool:
         say(MOVING)
         default = paths.default_ns()
         if not _settled(default):
-            say(DOWNLOADING)
-            firstrun.reconcile()
-            firstrun.provision(default)
+            if registry.read_config() is not None and registry.entry(default) is None:
+                # The file is there and does not read: it is the person's to fix, and a download would replace it with
+                # one that lists the default catalog alone
+                raise ValueError(registry.config_problem())
+            if download:
+                say(DOWNLOADING)
+                firstrun.reconcile()
+                firstrun.provision(default)
         report = migrate()
     except (Exception, KeyboardInterrupt) as error:  # noqa: BLE001 - whatever stops it is said: the Lab does not start half moved
         complain(FAILED)
