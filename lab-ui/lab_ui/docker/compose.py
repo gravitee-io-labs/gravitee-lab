@@ -28,8 +28,10 @@ from ..paths import CATALOGS_DIR, COMPOSE_FILE, CORE_FILE, ON_FILE, ROOT, write_
 
 COMPOSE = ["docker", "compose", "--progress", "plain"]
 
-# How long after its last start a container that Docker restarted still counts as restarting, in seconds
-RESTART_WINDOW = 300
+# How long after its last start a container that Docker restarted still counts as restarting, in seconds: one that has run
+# longer since is stable (Docker's own back-off starts again after 10 s of uptime), however often it restarted while what it
+# needs warmed up
+RESTART_WINDOW = 60
 
 NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 COMMENT = re.compile(r"(?:^|\s)#(.*)$")

@@ -66,8 +66,10 @@ class Services(Case):
             (container(health=""), False, False, ("running", "Running", True)),
             (container(health="starting"), False, False, ("starting", "Starting", True)),
             (container(health="unhealthy"), False, False, ("issue", "Unhealthy", True)),
-            (container(health="", restarts=3), False, False, ("issue", "Keeps restarting", True)),
-            (container(health="starting", restarts=2), False, False, ("issue", "Keeps restarting", True)),
+            # Restarted more than once, its last start within the minute (compose.RESTART_WINDOW)
+            (container(health="", restarts=3, status="Up 20 seconds"), False, False, ("issue", "Keeps restarting", True)),
+            (container(health="starting", restarts=2, status="Up 20 seconds (health: starting)"), False, False,
+             ("issue", "Keeps restarting", True)),
             (container(health="", restarts=1), False, False, ("running", "Running", True)),
             (container(restarts=3), False, False, ("healthy", "Healthy", True)),
             (container("restarting"), False, False, ("issue", "Restarting", True)),

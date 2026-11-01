@@ -739,6 +739,15 @@ class Containers(Case):
                          {"kiosk": ("h1", "sha256:k"), "kafka": (None, None), "mail": (None, None)})
         self.assertNotIn("variable", found["kiosk"])   # not asked: not read
 
+    def test_a_container_that_restarted_while_what_it_needs_warmed_up_and_runs_since_is_stable(self):
+        # Two restarts while Kafka started, then up for two minutes: not one that keeps restarting
+        def started(seconds_ago):
+            return time.strftime("%Y-%m-%dT%H:%M:%S.123456789Z", time.gmtime(time.time() - seconds_ago))
+        lines = [{"Service": name, "State": "running", "Name": f"gio-{name}"} for name in ("kafka-ui", "kiosk")]
+        inspected = "\n".join([f"/gio-kafka-ui|false|2|{started(120)}||", f"/gio-kiosk|false|2|{started(15)}||"])
+        found = self.ps((0, "\n".join(map(json.dumps, lines)), ""), inspected=inspected)
+        self.assertEqual({name: c["restarts"] for name, c in found.items()}, {"kafka-ui": 0, "kiosk": 2})
+
     def test_a_container_that_never_started_has_no_restarts(self):
         line = {"Service": "kiosk", "State": "created", "Name": "gio-kiosk"}
         found = self.ps((0, json.dumps(line), ""), inspected="/gio-kiosk|false|0|0001-01-01T00:00:00Z||\n")
