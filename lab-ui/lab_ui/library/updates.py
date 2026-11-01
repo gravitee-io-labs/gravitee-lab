@@ -129,12 +129,17 @@ def _head():
 
 
 def _read():
-    """{local, versions}, read again when it is older than FRESH seconds or the repository moved."""
+    """{local, versions, held}, read again when it is older than FRESH seconds or the repository moved. `held`: why the
+    repository keeps this Lab from the newest version (_held), None when nothing does or no version is newer: the state asks
+    at every refresh, and runs no git for it in between."""
     now, head = time.monotonic(), _head()
     with _lock:
         if _cache["value"] is not None and _cache["head"] == head and now - _cache["at"] < FRESH:
             return _cache["value"]
-    value = {"local": _local(), "versions": _versions() if _cloned() else []}
+    local = _local()
+    versions = _versions() if _cloned() else []
+    newest = versions[0] if versions else None
+    value = {"local": local, "versions": versions, "held": _held(local, newest[1]) if _newer(local, newest) else None}
     with _lock:
         _cache.update(at=now, head=head, value=value)
     return value
@@ -153,10 +158,21 @@ def _newest(found):
     return found["versions"][0] if found["versions"] else None
 
 
+def _newer(here, newest):
+    """Whether `newest` ((numbers, tag, ...) or None) is a version past the one this Lab holds, which a clone can move to."""
+    base = here.get("base")
+    return bool(here.get("cloned")) and newest is not None and (base is None or newest[0] > base)
+
+
 def blocked(found=None, target=None):
-    """Why this Lab cannot update itself to `target` (a tag) here, in the words the page shows; None when it can."""
-    found = found or _read()
-    here = found["local"]
+    """Why this Lab cannot update itself to `target` (a tag) here, in the words the page shows; None when it can. Read now:
+    the update is refused or made on what the repository says at the click."""
+    return _held((found or _read())["local"], target) or _busy()
+
+
+def _held(here, target):
+    """What of the repository keeps this Lab from moving to `target` (a tag) here, in the words the page shows; None when
+    nothing does."""
     if not here.get("cloned"):
         return "This Lab is not a Git clone. Download the new version from GitHub"
     if _git("remote", "get-url", "origin")[0] != 0:
@@ -178,6 +194,11 @@ def blocked(found=None, target=None):
             if clash:
                 shown = ", ".join(clash[:3]) + (f" and {len(clash) - 3} more" if len(clash) > 3 else "")
                 return f"Files of this Lab that Git does not track are where the new version adds its own: {shown}. Move them to update"
+    return None
+
+
+def _busy():
+    """"Wait for <the job> to end" while a job runs, else None."""
     from ..docker.jobs import JOBS   # here and not above: the jobs read the project, which reads this module's package
     if JOBS.current and not JOBS.current.done:
         return f"Wait for {JOBS.current.title} to end"
@@ -190,12 +211,11 @@ def describe():
     run of the Lab UI, which an update ends (the files on disk say the new version before the Lab UI runs it)."""
     found = _read()
     here, newest = found["local"], _newest(found)
-    base = here.get("base")
-    newer = newest is not None and (base is None or newest[0] > base)
-    return {"version": said(base), "ahead": here.get("ahead", 0), "commit": (here.get("commit") or "")[:7] or None, "run": RUN,
-            "latest": said(newest[0]) if newest else None, "update": bool(here.get("cloned")) and newer,
+    newer = _newer(here, newest)
+    return {"version": said(here.get("base")), "ahead": here.get("ahead", 0), "commit": (here.get("commit") or "")[:7] or None,
+            "run": RUN, "latest": said(newest[0]) if newest else None, "update": newer,
             "checked": _checked["at"], "checking": _checked["checking"], "error": _checked["error"],
-            "blocked": blocked(found, newest[1]) if here.get("cloned") and newer else None}
+            "blocked": (found["held"] or _busy()) if newer else None}
 
 
 def _changes(start, end, repository):
