@@ -34,10 +34,12 @@ const LISTED = ["4.13.0-alpha-debian", "4.13.0-alpha.4-debian", "4.13.0-alpha.4-
   "8.10.2-alpine", "8.10.2", "ltsc2022-windowsservercore", "9.5.3"];
 const PLAIN = ["4.12.21", "4.13.0-alpha.4", "8.10.2", "9.5.3", "latest"];
 
+const listings = [];   // the lists of tags the page asked for
 const page = installDom({
   ids,
   stored: { thirdPartyOpen: "1" },   // the third-party section is unfolded
   fetch: async (path) => {
+    if (path.startsWith("/api/tags")) listings.push(path);
     const body = path.startsWith("/api/images") ? { components: COMPONENTS, registries: [], azure_in_use: false }
       : path.startsWith("/api/tags") ? { tags: LISTED.map((name) => ({ name, updated: null })), local: [] } : { host: null };
     return { ok: true, status: 200, json: async () => body };
@@ -140,4 +142,22 @@ test("the platform's components come first under its band, its own add-ons' unde
   assert.equal(lines()[1], "APIM_VERSION", "unfolded again");
   COMPONENTS.length -= 5;
   store.state = was;
+});
+
+test("the tags listed are asked again once a job ended or the page opens again: a pull or a release changes them", async () => {
+  const asked = async () => {
+    const before = listings.length;
+    await offered("REDIS_VERSION");
+    return listings.length - before;
+  };
+  await asked();
+  assert.equal(await asked(), 0, "kept while nothing changed");
+  store.state = { ...store.state, job: { id: "pull-1", done: true } };
+  imagesPage.render(store.state);
+  await flush();
+  assert.equal(await asked(), 1, "a job ended");
+  imagesPage.show([]);
+  imagesPage.render(store.state);
+  await flush();
+  assert.equal(await asked(), 1, "the page opened again");
 });

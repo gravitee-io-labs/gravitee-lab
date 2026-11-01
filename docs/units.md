@@ -80,7 +80,8 @@ services:
   component from the `image:` line and writes another version to the add-on's `.env`. Services that share a version
   variable are one component. A Gravitee image whose registry can change is
   `${NAME_REGISTRY:-graviteeio}/repository:${NAME_VERSION:-tag}`. A version follows another component when its default
-  is that component's variable: `${KIOSK_VERSION:-${ELASTICSEARCH_VERSION:-9.5.2}}`.
+  is that component's variable: `${KIOSK_VERSION:-${ELASTICSEARCH_VERSION:-9.5.2}}`. That variable is the core's or
+  the unit's own: another unit's `.env` does not reach this file.
 - **An image built here** (its vendor publishes none) is
   `<images>/<unit>-<service>:latest`, where `<images>` is the `images` prefix of the catalog's `catalog.yml`
   (`ghcr.io/<owner>/<repository>`), with `pull_policy: ${<ID>_PULL_POLICY:-build}` and the comment

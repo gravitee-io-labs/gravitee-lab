@@ -743,7 +743,7 @@ def start(project, pid, accept, place=None, remove=False, switching=False):
         if remove:
             job.exec([*compose.by_name(), "rm", "--stop", "--force", *remove])
         if named:   # Compose reads an empty list as every service
-            job.exec([*COMPOSE, "up", "-d", "--no-deps", *named])
+            plugins.up(job, project, named)   # what shares a plugin folder starts one at a time
 
     seed = [_follow_seed(project, playground)] if playground["seed"] else []
     # Once all of it ended well: the versions it started on are the ones that worked here

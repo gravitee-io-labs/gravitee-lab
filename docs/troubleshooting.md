@@ -256,26 +256,21 @@ the license is missing or has insufficient permission`, and Docker starts it aga
 [What needs a license](installation.md#what-needs-a-license). Without a license, API Management, Access Management and
 Gamma's community features run.
 
-### A plugin does not load, or `.work` fails
+### A plugin does not load
 
-**Symptom:** a product logs `DirectoryNotEmptyException ... .work`, or a job of the Plugins page fails with
-`apim/.work could not be cleared`, often with `Permission denied` on Linux.
+**Symptom:** a product logs `DirectoryNotEmptyException` or `NoSuchFileException` on a path in `.work`, and a plugin
+it should load is missing.
 
-**Cause:** `.work` is the cache a product unpacks plugins into, in `plugins/apim/` or `plugins/am/`. A stale one breaks
-loading. On Linux, the containers write it as user 1001, so your user cannot delete it.
+**Cause:** `.work`, in `plugins/apim/` or `plugins/am/`, is where a product unpacks the plugins of that folder as it
+starts. Two services that load the same folder and start at the same time, such as the Management API and the gateway
+of an add-on, unpack into it together and break each other's files. After a plugin change the Lab UI starts them one
+after another, and the core's gateway always waits for its Management API.
 
-**Fix:** remove it, then restart:
-
-```bash
-rm -rf plugins/apim/.work
-```
+**Fix:** restart the service that logs it, alone. It unpacks every plugin again:
 
 ```bash
-make restart
+make restart SVC=apim-gateway
 ```
-
-Use `plugins/am/.work` for Access Management. On Linux the files may belong to another user: add `sudo` to the first
-command.
 
 If an added plugin does not load, check the Plugins page. A plugin found twice, bundled in the image and added in the
 folder, loads from the most recent file, not the highest version. The page says `Added, ignored` when the bundled one is

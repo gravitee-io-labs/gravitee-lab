@@ -2,6 +2,8 @@
 that owns each value, where tags are listed, and the Azure login. No disk, no Docker, no registry: what they would
 answer is given."""
 
+import io
+import json
 import unittest
 
 from lab_ui.docker import compose, envfiles, images
@@ -15,6 +17,7 @@ APIM = {"kind": "platform", "id": "api-management", "name": "API Management"}
 KAFKA = {"kind": "addon", "id": "kafka", "name": "Kafka"}
 KIOSK = {"kind": "addon", "id": "kiosk", "name": "Kiosk"}
 TOOLS = {"kind": "addon", "id": "tools", "name": "Tools"}
+SHOP = {"kind": "playground", "id": "shop", "name": "Acme Shop"}
 
 GATEWAY_IMAGE = ("${APIM_GATEWAY_REGISTRY:-${APIM_REGISTRY:-graviteeio}}/apim-gateway"
                  ":${APIM_GATEWAY_VERSION:-${APIM_VERSION:-4.12.20}-debian}")
@@ -282,6 +285,7 @@ class Images(Case):
 
     def test_the_azure_cli_is_found_once_and_every_command_runs_it(self):
         self.patch(images, "AZ", "/opt/az/bin/az")
+        self.patch(images.shutil, "which", lambda name: name)
         self.patch(images, "SUBSCRIPTIONS", {})
         jobs, run = self.patch(images, "JOBS"), self.patch(compose, "run", return_value=(0, "[]", ""))
         images.login("graviteeio.azurecr.io")
@@ -295,6 +299,7 @@ class Images(Case):
         self.assertEqual(len(run.call_args_list), 3)   # where the registry is, once; its tags; the session
 
     def test_a_registry_in_another_subscription_than_the_sessions_is_found_there_once(self):
+        self.patch(images.shutil, "which", lambda name: name)
         self.patch(images, "SUBSCRIPTIONS", {})
         jobs = self.patch(images, "JOBS")
 
@@ -320,6 +325,7 @@ class Images(Case):
         self.assertEqual(self.started(jobs)[1][0], [images.AZ, "acr", "login", "--name", "graviteeio"])
 
     def test_login_only_to_an_azure_registry(self):
+        self.patch(images.shutil, "which", lambda name: name)
         self.patch(images, "SUBSCRIPTIONS", {"graviteeio": None})
         jobs = self.patch(images, "JOBS")
         images.login("graviteeio.azurecr.io")
@@ -334,6 +340,163 @@ class Images(Case):
         for key in ("platform", "registry:x.azurecr.io", "addon:Kafka", "group:databases", ""):
             with self.assertRaises(ValueError, msg=key):
                 images.login("graviteeio.azurecr.io", key)
+
+    def test_without_the_azure_cli_its_registries_say_to_install_it(self):
+        # Not the error of running a program that is not there: what to do
+        self.patch(images.shutil, "which", return_value=None)
+        jobs, run = self.patch(images, "JOBS"), self.patch(compose, "run")
+        for call in (lambda: images.login("graviteeio.azurecr.io"),
+                     lambda: images._azure_tags("graviteeio.azurecr.io", "apim-management-api")):
+            with self.assertRaisesRegex(RuntimeError, r"^Install the Azure CLI \(az\)$"):
+                call()
+        jobs.start.assert_not_called()
+        run.assert_not_called()
+
+    def test_an_expired_azure_session_says_to_log_in_with_the_azure_cli(self):
+        # Tags are listed with the Azure CLI's own session, which the page's Log in (Docker's) cannot renew; and a
+        # registry not found with it is looked for again once logged in
+        self.patch(images.shutil, "which", lambda name: name)
+        self.patch(images, "SUBSCRIPTIONS", {})
+        expired = (1, "", "ERROR: AADSTS700082: The refresh token has expired. Please run 'az login' to setup account.")
+        run = self.patch(compose, "run", side_effect=lambda command, timeout=None: (
+            (0, "sub-a\n", "") if command[1:3] == ["account", "list"] else expired))
+        with self.assertRaisesRegex(RuntimeError, "^Azure session expired: run az login in a terminal$"):
+            images._azure_tags("graviteeio.azurecr.io", "apim-management-api")
+        self.assertEqual(images.SUBSCRIPTIONS, {})
+        run.side_effect = lambda command, timeout=None: (0, "[]", "")
+        self.assertEqual(images._azure_tags("graviteeio.azurecr.io", "apim-management-api"), [])
+        self.assertEqual(images.SUBSCRIPTIONS, {"graviteeio": None})
+
+    def test_a_registry_that_does_not_answer_says_why_in_plain_words(self):
+        compose.CACHE.drop("tags:")
+        self.addCleanup(compose.CACHE.drop, "tags:")
+        reasons = {"offline": images.urllib.error.URLError(OSError(8, "nodename nor servname provided, or not known")),
+                   "limited": images.urllib.error.HTTPError("https://hub.docker.com", 429, "Too Many Requests", {}, None),
+                   "refused": images.urllib.error.HTTPError("https://ghcr.io", 403, "Forbidden", {}, None),
+                   "slow": images.urllib.error.URLError(TimeoutError("timed out"))}
+        said = {}
+        for name, error in reasons.items():
+            compose.CACHE.drop("tags:")
+            self.patch(images.urllib.request, "urlopen", side_effect=error)
+            for cid in ("ELASTICSEARCH_VERSION", "MCP_LENS_VERSION"):
+                with self.assertRaises(RuntimeError) as failed:
+                    images.tags(self.project, cid)
+                said[name, cid] = str(failed.exception)
+        self.assertEqual(said, {
+            ("offline", "ELASTICSEARCH_VERSION"): "Cannot reach Docker Hub",
+            ("offline", "MCP_LENS_VERSION"): "Cannot reach ghcr.io",
+            ("limited", "ELASTICSEARCH_VERSION"): "Too many requests to Docker Hub: try again later",
+            ("limited", "MCP_LENS_VERSION"): "Too many requests to ghcr.io: try again later",
+            ("refused", "ELASTICSEARCH_VERSION"): "Docker Hub refuses the request",
+            ("refused", "MCP_LENS_VERSION"): "ghcr.io refuses the request",
+            ("slow", "ELASTICSEARCH_VERSION"): "Docker Hub does not answer in time",
+            ("slow", "MCP_LENS_VERSION"): "ghcr.io does not answer in time"})
+
+    def test_a_long_list_of_tags_is_read_page_by_page(self):
+        # The registry API lists a thousand at most, by name, and says where the next ones are (Link): the newest
+        # releases, last by name, are not cut off. As many pages as OCI_PAGES at most
+        pages = {"https://ghcr.io/v2/team/app/tags/list?n=1000": (["1.0.0", "1.1.0"], "</v2/team/app/tags/list?n=1000&last=1.1.0>; rel=\"next\""),
+                 "https://ghcr.io/v2/team/app/tags/list?n=1000&last=1.1.0": (["sha256-ab", "v2.0.0"], None)}
+        asked = []
+
+        class Answer(io.BytesIO):
+            def __init__(self, tags, link):
+                super().__init__(json.dumps({"tags": tags}).encode())
+                self.headers = {"Link": link} if link else {}
+
+        def urlopen(request, timeout):
+            asked.append(request.full_url)
+            return Answer(*pages[request.full_url])
+        self.patch(images.urllib.request, "urlopen", urlopen)
+        self.assertEqual([tag["name"] for tag in images._oci_tags("ghcr.io", "team/app")], ["1.0.0", "1.1.0", "v2.0.0"])
+        self.assertEqual(len(asked), 2)
+        pages["https://ghcr.io/v2/team/app/tags/list?n=1000&last=1.1.0"] = (["1.2.0"], "</v2/team/app/tags/list?n=1000&last=1.1.0>; rel=next")
+        asked.clear()
+        images._oci_tags("ghcr.io", "team/app")
+        self.assertEqual(len(asked), images.OCI_PAGES)
+
+    def test_a_registry_that_asks_for_a_token_gives_one_to_anyone_for_every_page(self):
+        realm = 'Bearer realm="https://ghcr.io/token",service="ghcr.io",scope="repository:team/app:pull"'
+        sent = []
+
+        class Answer(io.BytesIO):
+            headers = {}
+
+        def urlopen(request, timeout):
+            token = request.get_header("Authorization")
+            sent.append(token)
+            if request.full_url.startswith("https://ghcr.io/token"):
+                return Answer(json.dumps({"token": "t"}).encode())
+            if not token:
+                raise images.urllib.error.HTTPError(request.full_url, 401, "Unauthorized", {"WWW-Authenticate": realm}, None)
+            return Answer(json.dumps({"tags": ["1.0.0"]}).encode())
+        self.patch(images.urllib.request, "urlopen", urlopen)
+        self.assertEqual(images._oci_tags("ghcr.io", "team/app"), [{"name": "1.0.0", "updated": None}])
+        self.assertEqual(sent, [None, None, "Bearer t"])
+
+
+class Shared(Case):
+    """A version variable as the .env files that hold it: a unit's .env reaches only its own compose file, the core's
+    reaches every one, and comes first (measured with `docker compose config` on included files)."""
+
+    def setUp(self):
+        self.project = project()
+        services = self.project["services"]
+        # The Kafka add-on and a playground make certificates; the playground's follows the add-on's version in its
+        # default, which its file does not see. Both the add-on Tools and the playground run kubectl at one version
+        for name, owner, raw, image in (
+                ("kafka-certs", KAFKA, "alpine/openssl:${KAFKA_CERTS_VERSION:-3.5.9}", "alpine/openssl:3.6.0"),
+                ("shop-certs", SHOP, "alpine/openssl:${SHOP_OPENSSL_VERSION:-${KAFKA_CERTS_VERSION:-3.5.9}}",
+                 "alpine/openssl:3.5.9"),
+                ("kubectl", TOOLS, "alpine/k8s:${KUBECTL_VERSION:-1.36.5}", "alpine/k8s:1.36.5"),
+                ("shop-kubectl", SHOP, "alpine/k8s:${KUBECTL_VERSION:-1.36.5}", "alpine/k8s:1.36.5"),
+                ("shop-search", SHOP, "kiosk/search:${SHOP_SEARCH_VERSION:-${ELASTICSEARCH_VERSION:-9.5.2}}",
+                 "kiosk/search:9.5.2")):
+            services[name] = {"label": name, "owner": owner, "raw_image": raw, "image": image,
+                              "tag": image.split(":")[-1], "registry": None, "image_tags": None}
+        self.env = {paths.unit_env("addon", "kafka"): {"KAFKA_CERTS_VERSION": "3.6.0"}}
+        self.patch(envfiles, "read", side_effect=lambda path: dict(self.env.get(path, {})))
+
+    def component(self, cid):
+        return next(c for c in images.components(self.project) if c["id"] == cid)
+
+    def test_a_variable_another_unit_holds_is_not_followed(self):
+        # The playground's file reads ${KAFKA_CERTS_VERSION} from its own .env, which has none: its own default
+        certs = self.component("SHOP_OPENSSL_VERSION")
+        self.assertEqual((certs["version_default"], certs["follows"]), ("3.5.9", []))
+        # The core's variables reach every file: followed
+        search = self.component("SHOP_SEARCH_VERSION")
+        self.assertEqual((search["version_default"], [f["id"] for f in search["follows"]]),
+                         ("${ELASTICSEARCH_VERSION}", ["ELASTICSEARCH_VERSION"]))
+        # What changing the add-on's version makes again: not the playground's, which it does not reach
+        self.assertEqual(images.changing(self.project, {"KAFKA_CERTS_VERSION": "3.7.0"}), ["kafka-certs"])
+
+    def test_a_link_saved_to_a_variable_that_does_not_reach_reads_as_compose_reads_it(self):
+        # Saved by an earlier Lab: Compose reads it empty, so the image is the default's. The page says what runs
+        self.patch(layers, "current", return_value={"effective": ["kafka", "tools"], "playground": "shop"})
+        self.patch(images, "local_images", return_value=set())
+        self.patch(compose, "containers", return_value=({}, None))
+        self.env[paths.unit_env("playground", "shop")] = {"SHOP_OPENSSL_VERSION": "${KAFKA_CERTS_VERSION}"}
+        listed = {c["id"]: c for c in images.state(self.project)["components"]}
+        self.assertEqual((listed["SHOP_OPENSSL_VERSION"]["version"], listed["SHOP_OPENSSL_VERSION"]["version_resolved"]),
+                         ("3.5.9", "3.5.9"))
+
+    def test_a_variable_several_units_share_is_saved_to_each(self):
+        kubectl = self.component("KUBECTL_VERSION")
+        self.assertEqual(kubectl["services"], ["kubectl", "shop-kubectl"])
+        write = self.patch(envfiles, "write")
+        images.save(self.project, {"KUBECTL_VERSION": "1.37.0"})
+        self.assertEqual({call.args[0]: call.args[1] for call in write.call_args_list}, {
+            paths.unit_env("addon", "tools"): {"KUBECTL_VERSION": "1.37.0"},
+            paths.unit_env("playground", "shop"): {"KUBECTL_VERSION": "1.37.0"}})
+        self.assertEqual(images.changing(self.project, {"KUBECTL_VERSION": "1.37.0"}), ["kubectl", "shop-kubectl"])
+
+    def test_a_variable_of_the_core_is_saved_to_the_core_only(self):
+        # The core's .env reaches the unit's file too, before what the unit's own says
+        self.project["services"]["shop-mongo"] = {**self.project["services"]["mongodb"], "owner": SHOP}
+        write = self.patch(envfiles, "write")
+        images.save(self.project, {"MONGODB_VERSION": "8.0.30"})
+        self.assertEqual([call.args for call in write.call_args_list], [(".env", {"MONGODB_VERSION": "8.0.30"})])
 
 
 if __name__ == "__main__":

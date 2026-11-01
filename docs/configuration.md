@@ -113,6 +113,9 @@ The core's variables:
 The default registry of the Gravitee images is `graviteeio`, on Docker Hub. Each Gravitee component has its own
 registry variable, so components can come from different registries. A component can follow another instead of having
 its own version: the gateway follows API Management, and a viewer of Elasticsearch follows it, until you set its own variable.
+The core's `.env` reaches every compose file, and an add-on's or a playground's only its own: a component follows a variable
+of the core, or of its own add-on or playground. Images of several add-ons or playgrounds that share a version variable are
+one component, and the Images page writes its version to the `.env` of each.
 
 ### The Images page
 
@@ -171,7 +174,7 @@ from it says so in its README, and does not start without access.
 2. Start the item. When Docker is refused, its row says *Not logged in to Azure*, and its ⋯ menu has *Log in*.
 3. On the Images page, a component that is on and pulls from an Azure registry shows the registry and *Log in*. *Log
    in* runs `az acr login`, so that Docker can pull. The page lists the tags of an Azure registry with your `az login`
-   session.
+   session: when it expires, the list of versions says *Azure session expired*, and `az login` in a terminal renews it.
 
 To pull other Gravitee components from that registry, pick or type it in the registry field of the component on the
 Images page.
@@ -246,14 +249,16 @@ The Plugins page shows, for APIM and for AM, the catalog of download.gravitee.io
 bundle and what you added.
 
 - Tick a plugin and choose its version, then choose *Apply*. Apply says first what it installs, removes and restarts.
-- The page downloads everything first and checks the SHA-1 when one is published. Only then does it stop the product,
-  replace the files and clear the unpack cache. The product loads the plugins when it starts again.
+- The page downloads everything first, and checks the size and the SHA-1 when one is published. Only then does it
+  replace the files and restart the product, which loads the plugins as it starts.
 - *Refresh* reads the catalog from the download site again.
 - A plugin that needs a license feature shows *Needs a license*, *License expired* or *Not in the license*.
 - A plugin is of the Enterprise Edition, the *EE* tag after its name and under the *Enterprise* filter, when download.gravitee.io
   publishes it in its Enterprise folder or when it needs a license feature, which it declares itself and is read once it is installed: every tier of the license
   is an Enterprise one. Any other plugin is under *Community*.
-- A playground that requires plugins installs the missing ones when you start it.
+- A playground that requires plugins installs the latest release of each missing one when you start it, as the
+  download site does not say which product versions a release works with. To use another release, install it here
+  before you start the playground.
 
 Added plugins are zip files in `plugins/apim/` and `plugins/am/` (git-ignored). Both folders are mounted into the
 product's containers. Without the Lab UI, drop a zip in the folder and run `make restart`.
@@ -261,7 +266,10 @@ product's containers. Without the Lab UI, drop a zip in the folder and run `make
 A plugin found twice, bundled in the image and added in the folder, loads from the most recent file, not from the
 highest version. The page marks an added plugin *Added, ignored* when the bundled one is newer.
 
-`make init` creates the plugin folders writable by everyone, because the containers unpack plugins there as user 1001.
+`make init` creates the plugin folders writable by everyone, because the containers unpack plugins there as user 1001,
+in `.work`. Each product unpacks every plugin again as it starts. Services that load the same folder, such as the
+Management API and the gateway of an add-on, must not start at the same time: after a plugin change, the Lab UI starts
+them one after another.
 
 ## Data and volumes
 

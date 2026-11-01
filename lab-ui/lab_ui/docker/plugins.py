@@ -1,10 +1,10 @@
-"""Plugins of the Gravitee products: the catalog of download.gravitee.io, what each product's containers load, and
-adding or removing plugins in the folder the host shares with them."""
+"""Plugins of the Gravitee products: the catalog of download.gravitee.io, what each product's containers load,
+adding or removing plugins in the folder the host shares with them, and starting the services that share one."""
 
 import hashlib
 import http.client
 import re
-import shutil
+import socket
 import time
 import urllib.error
 import urllib.parse
@@ -15,26 +15,34 @@ from pathlib import Path
 
 from . import compose
 from .compose import CACHE, COMPOSE
+from .images import web_error
 from .jobs import JOBS, JobFailed, awaited
+from ..library import layers
 from ..paths import NotFound, ROOT
 
 DOWNLOADS = "https://download.gravitee.io"
+SITE = "download.gravitee.io"   # the download site, as its errors name it
 ZIP = re.compile(r"^(?P<name>.+?)-(?P<version>\d+\.\d+[^/]*)\.zip$")
 PLUGIN_PATH = re.compile(r"(graviteeio-[a-z]+/|graviteeio-ee/[a-z]+/|)plugins/[a-z-]+/[A-Za-z0-9._-]+/")
-CHUNK = 64 * 1024   # a download is read by pieces, so that the job says how far it is
+CHUNK = 64 * 1024   # a download is read by pieces, so that the job says how far it is, and a cancel ends it
 DOWNLOAD_TRIES = 3   # a plugin download cut short or refused by a server error is tried again, then fails
+READ_TIMEOUT = 30   # seconds a download waits for its next piece before it is tried again
+WAIT = 120   # seconds a service that unpacks plugins is waited for before the next one that shares its folder starts
 
-# The plugin zips of a folder with their modification times; nothing, and no error, when it has none
-STAT_SCRIPT = 'for f in "$0"/*.zip; do [ -e "$f" ] && stat -c "%Y %n" "$f"; done; true'
-# Each plugin declares the license feature it needs with "feature=" in the plugin.properties of its main jar,
-# <name>-<version>.jar at the root of the zip (BusyBox unzip in some images: -p only)
-FEATURES_SCRIPT = r"""t=$(mktemp -d)
+# Each plugin zip of a folder, a line each: its modification time, its file name, and the id and the license feature it
+# declares with "id=" and "feature=" in the plugin.properties of its main jar, <name>-<version>.jar at the root of the
+# zip (BusyBox unzip in some images: -p only). Nothing, and no error, when the folder has none
+BUNDLED_SCRIPT = r"""t=$(mktemp -d)
 for f in "$0"/*.zip; do
-  unzip -p "$f" "$(basename "$f" .zip).jar" > "$t/p.jar" 2>/dev/null || continue
-  unzip -p "$t/p.jar" plugin.properties > "$t/p" 2>/dev/null
-  echo "$(basename "$f") $(sed -n 's/^id=//p' "$t/p" | tr -d '\r') $(sed -n 's/^feature=//p' "$t/p" | tr -d '\r')"
+  [ -e "$f" ] || continue
+  : > "$t/p"
+  unzip -p "$f" "$(basename "$f" .zip).jar" > "$t/p.jar" 2>/dev/null &&
+    unzip -p "$t/p.jar" plugin.properties > "$t/p" 2>/dev/null
+  echo "$(stat -c %Y "$f") $(basename "$f") $(sed -n 's/^id=//p' "$t/p" | tr -d '\r')" \
+    "$(sed -n 's/^feature=//p' "$t/p" | tr -d '\r')"
 done
 rm -rf "$t"
+true
 """
 
 
@@ -55,7 +63,8 @@ def _sources(product):
 # ---------------------------------------------------------------------------------------------------------------------
 
 def _fetch(url):
-    """One page of a listing. The bucket answers 502 when hit too fast: asked again, slower."""
+    """One page of a listing. The bucket answers 502 when hit too fast: asked again, slower. What fails says why in
+    plain words (web_error)."""
     request = urllib.request.Request(url, headers={"Accept": "text/xml"})
     for attempt in range(4):
         try:
@@ -63,8 +72,10 @@ def _fetch(url):
                 return response.read().decode()
         except urllib.error.HTTPError as error:
             if error.code < 500 or attempt == 3:
-                raise
+                raise RuntimeError(web_error(error, SITE)) from error
             time.sleep(0.5 * 2 ** attempt)
+        except (urllib.error.URLError, OSError, http.client.HTTPException) as error:
+            raise RuntimeError(web_error(error, SITE)) from error
 
 
 def _bucket_list(prefix):
@@ -145,15 +156,6 @@ def _zips(files):
     return found
 
 
-def _stat_lines(out):
-    files = []
-    for line in out.splitlines():
-        mtime, _, path = line.partition(" ")
-        if mtime.isdigit():
-            files.append((path.split("/")[-1], int(mtime)))
-    return files
-
-
 def _zip_manifest(path):
     """(id, license feature) of a plugin zip on disk, or (None, None)."""
     try:
@@ -166,41 +168,51 @@ def _zip_manifest(path):
     return found.get("id", "").strip() or None, found.get("feature", "").strip() or None
 
 
-def _bundled_manifests(service, folder):
-    """{plugin name: (id, license feature)} for the plugins bundled in a service's image, kept by the image they were
-    read from (compose.image_key): read again once its container runs another one."""
+def _image_plugins(service, folder):
+    """The plugins a service's image comes with in `folder`: ({plugin name: {version, file, mtime, id, feature}},
+    None), kept by the image they were read from (compose.image_key): read again once its container runs another one,
+    or its tag names another image. (None, (exit code, what Docker said)) when they cannot be read: such an answer is
+    not kept."""
+    failed = []
+
     def read():
-        rc, out, _ = compose.shell(service, ["-c", FEATURES_SCRIPT, folder])
+        rc, out, err = compose.shell(service, ["-c", BUNDLED_SCRIPT, folder], 60)
         if rc != 0:
+            failed.append((rc, err))
             return None
-        manifests = {}
+        found = {}
         for line in out.splitlines():
-            file, plugin_id, feature = (line.split(" ") + ["", ""])[:3]
+            mtime, file, plugin_id, feature = (line.split(" ") + ["", "", ""])[:4]
             m = ZIP.match(file)
-            if m:
-                manifests[m.group("name")] = (plugin_id or None, feature.strip() or None)
-        return manifests
-    return CACHE.get(f"plugin-manifests:{compose.image_key(service)}:{folder}", 24 * 3600, read) or {}
+            if m and mtime.isdigit():
+                found[m.group("name")] = {"version": m.group("version"), "file": file, "mtime": int(mtime),
+                                          "id": plugin_id or None, "feature": feature.strip() or None}
+        return found
+    found = CACHE.get(f"plugin-bundled:{compose.image_key(service)}:{folder}", 24 * 3600, read)
+    return found, failed[0] if found is None else None
 
 
 def _bundled(project, target):
-    """The plugins each service's image comes with, {plugin name: {service: {version, file, mtime}}}, why some could
-    not be read, None when all were, and the image to pull when one is not here. Why is said in plain words when
-    Docker does not answer ("Docker is not reachable") or an image is not here ("<image> is not pulled"): the first
-    service's that could not be read, so that the reason and the image to pull name the same one."""
+    """The plugins each service's image comes with, {plugin name: {service: {version, file, mtime, id, feature}}},
+    why some could not be read, None when all were, and the image to pull when one is not here. The services are read
+    at once. Why is said in plain words when Docker does not answer ("Docker is not reachable") or an image is not here
+    ("<image> is not pulled"): the first service's that could not be read, so that the reason and the image to pull
+    name the same one."""
+    services = project["services"]
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        answers = list(pool.map(lambda item: _image_plugins(services[item[0]], item[1]), target["services"].items()))
     bundled, error, pull = {}, None, None
-    for service, folder in target["services"].items():
-        image = project["services"][service]["image"]
-        rc, out, err = compose.shell(project["services"][service], ["-c", STAT_SCRIPT, folder], 60)
-        if rc != 0:
+    for service, (found, failed) in zip(target["services"], answers):
+        if found is None:
             if error is None:
+                (rc, err), image = failed, services[service]["image"]
                 lines = [line.removeprefix("docker: ").strip() for line in err.splitlines()
                          if line.strip() and not line.lstrip().startswith(("Run 'docker", "See 'docker"))]   # not hints
                 plain = compose.unread(image, err)
                 error = plain or "Bundled plugins unknown: " + (lines[-1] if lines else f"exit code {rc}")
                 pull = image if plain == f"{image} is not pulled" else None
             continue
-        for name, info in _zips(_stat_lines(out)).items():
+        for name, info in found.items():
             bundled.setdefault(name, {})[service] = info
     return bundled, error, pull
 
@@ -209,9 +221,7 @@ def _installed(project, target):
     folder = ROOT / target["folder"]
     bundled, bundled_error, pull = _bundled(project, target)
     ext = _zips((f.name, int(f.stat().st_mtime)) for f in sorted(folder.glob("*.zip")))
-    manifests = {}
-    for service, plugins_dir in target["services"].items():
-        manifests.update(_bundled_manifests(project["services"][service], plugins_dir))
+    manifests = {name: (info["id"], info["feature"]) for name, by in bundled.items() for info in by.values()}
     for name, info in ext.items():
         manifests[name] = _zip_manifest(folder / info["file"])
         # Gravitee keeps the most recent file when a plugin is found twice: is the added one used?
@@ -234,10 +244,11 @@ def installed(project, product, only=None):
     """What a product loads: {bundled: {plugin: {service: version}}, bundled_error, pull, ext: {plugin: {version,
     file, mtime, active}}, services, features: {plugin: license feature}, feature_by_id: {plugin id: license
     feature}}. `bundled_error` says why what its images come with is not known, `pull` the image to pull when that is
-    what it takes; such an answer is not kept, but asked again. `only`: the services Compose reads now, when what
-    runs is what matters (an install)."""
-    target = _here(_target(project, product), only)
-    key = f"local:plugins-installed:{product}" + (":" + ",".join(target["services"]) if only is not None else "")
+    what it takes; such an answer is not kept, but asked again. `only`: the services Compose reads now
+    (compose.loaded(), asked when it is not given): what an add-on that is off brings does not count, as nothing starts
+    it."""
+    target = _here(_target(project, product), compose.loaded() if only is None else only)
+    key = f"local:plugins-installed:{product}:" + ",".join(target["services"])
     found = CACHE.get(key, 30, lambda: _installed(project, target))
     if found["bundled_error"]:
         CACHE.drop(key)
@@ -249,12 +260,16 @@ def installed(project, product, only=None):
 # ---------------------------------------------------------------------------------------------------------------------
 
 def _published_sha1(url):
-    """The SHA-1 published next to a file of the download site, None when there is none."""
+    """The SHA-1 published next to a file of the download site, None when there is none (404). Any other refusal fails
+    the try: a server error is tried again (_transient), and a download is never placed unchecked for want of an
+    answer."""
     try:
-        with urllib.request.urlopen(url + ".sha1", timeout=30) as response:
+        with urllib.request.urlopen(url + ".sha1", timeout=READ_TIMEOUT) as response:
             return response.read().decode().split()[0].strip().lower()
-    except urllib.error.HTTPError:
-        return None
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            return None
+        raise
 
 
 def _downloads(names):
@@ -262,54 +277,75 @@ def _downloads(names):
     return {("Download", name): "download" for name in names}
 
 
+def _canceled(job):
+    if job.canceled:
+        raise JobFailed("Canceled")
+
+
 def _download(job, folder, plugin, version):
-    """Downloads a plugin version into the shared folder as a hidden .part file, which no product loads, its SHA-1
-    checked: answers that file, for _place(). A download cut short, or that the site fails to serve (a 5xx, the network),
-    is tried again, up to DOWNLOAD_TRIES times: a nightly test must not fail on a transfer. Nothing is left of a download
-    that failed."""
+    """Downloads a plugin version into the shared folder as a hidden .part file, which no product loads, its size and
+    its SHA-1 checked: answers that file, for _place(). A download cut short, or that the site fails to serve (a 5xx,
+    the network), is tried again, up to DOWNLOAD_TRIES times: a nightly test must not fail on a transfer. A cancel ends
+    it at the next piece read, or before the next try. Nothing is left of a download that failed, and why is said in
+    plain words."""
     folder.mkdir(parents=True, exist_ok=True)
     url, unit = f"{DOWNLOADS}/{plugin['path']}{version['file']}", ("Download", plugin["name"])
     job.lines.append(f"Downloading {version['file']} ({max(1, version['size'] // 1024)} KB)")
     part = folder / f".{version['file']}.part"
     for attempt in range(1, DOWNLOAD_TRIES + 1):
+        _canceled(job)
         try:
             expected = _fetch_part(job, url, part, unit, version["size"])
             break
         except BaseException as error:
             part.unlink(missing_ok=True)
-            if attempt == DOWNLOAD_TRIES or not _transient(error):
-                raise
-            job.lines.append(f"  Downloading again: {error}")
+            said = error if isinstance(error, JobFailed) or not isinstance(error, Exception) else \
+                JobFailed(f"{version['file']}: {web_error(error, SITE)}")
+            if job.canceled or attempt == DOWNLOAD_TRIES or not _transient(error):
+                if said is error:
+                    raise
+                raise said from error
+            job.lines.append(f"  Downloading again: {said}")
             time.sleep(2 ** attempt)
     job.lines.append("  SHA-1 verified" if expected else "  No published checksum")
     return part
 
 
 def _fetch_part(job, url, part, unit, size):
-    """One try of _download(): the file in `part`, checked against the SHA-1 the site publishes, which it answers."""
+    """One try of _download(): the file in `part`, of the size the listing gives (when it gives one), checked against
+    the SHA-1 the site publishes, which it answers."""
     digest = hashlib.sha1()
-    with urllib.request.urlopen(url, timeout=120) as response, open(part, "wb") as f:
+    with urllib.request.urlopen(url, timeout=READ_TIMEOUT) as response, open(part, "wb") as f:
         read = 0
-        for chunk in iter(lambda: response.read(CHUNK), b""):
+        while True:
+            _canceled(job)   # before the next piece, which may take READ_TIMEOUT to come
+            chunk = response.read(CHUNK)
+            if not chunk:
+                break
             f.write(chunk)
             digest.update(chunk)
             read += len(chunk)
             job.unit(unit, read / max(read, size))   # the listing may give no size
+    name = part.name[1:-len(".part")]
+    if size and read != size:   # a connection closed early ends the read as the end of the file does
+        raise Mismatch(f"{name}: download cut short, discarded")
     expected = _published_sha1(url)
     if expected and digest.hexdigest() != expected:
-        raise Mismatch(f"{part.name[1:-len('.part')]}: checksum mismatch, download discarded")
+        raise Mismatch(f"{name}: checksum mismatch, download discarded")
     return expected
 
 
 class Mismatch(JobFailed):
-    """A download whose SHA-1 is not the published one: cut short, most of the time."""
+    """A download that is not the file published: shorter than its size, or not of its SHA-1. Cut short, most of the
+    time."""
 
 
 def _transient(error):
     """Whether a failed download may work when tried again: cut short, a server error, the network. Not a 4xx."""
     if isinstance(error, urllib.error.HTTPError):
         return error.code >= 500
-    return isinstance(error, (Mismatch, urllib.error.URLError, http.client.HTTPException, ConnectionError, TimeoutError))
+    return isinstance(error, (Mismatch, urllib.error.URLError, http.client.HTTPException, ConnectionError, TimeoutError,
+                              socket.timeout))
 
 
 def _place(job, folder, plugin, version, part):
@@ -353,30 +389,48 @@ def _change(job, folder, picked, remove=(), then=()):
             part.unlink(missing_ok=True)
 
 
-def _reset_work(job, folder):
-    """The unpack cache is rebuilt on start; a stale one breaks plugin loading: the job fails when it stays."""
-    work = folder / ".work"
-    if work.exists():
-        try:
-            shutil.rmtree(work)
-        except OSError as error:
-            raise JobFailed(f"{folder.name}/.work could not be cleared: {error}") from error
-        job.lines.append(f"Cleared {folder.name}/.work")
-
-
 def _running(target):
     """The services of a product that run now: none when Docker does not answer, and the files still change."""
     containers, _ = compose.containers()
     return [s for s in target["services"] if containers.get(s, {}).get("state") == "running"]
 
 
-def _unload_steps(target, running):
-    """Plugins are loaded on start: the product's running services stop, and the unpack cache is cleared only once
-    nothing uses it. Whatever starts them next loads the plugins."""
-    folder = ROOT / target["folder"]
+def _unload_steps(running):
+    """Plugins are loaded on start: the product's running services stop, and whatever starts them next loads the
+    plugins. Each service unpacks every plugin again as it starts (.work, in the shared folder): nothing of the last
+    start is kept, and nothing is cleared here, which on Linux the files of the containers' user would refuse."""
     if not running:
-        return [lambda job: _reset_work(job, folder), lambda job: job.lines.append("Not running: loaded on next start")]
-    return [[*COMPOSE, "stop", *running], lambda job: _reset_work(job, folder)]
+        return [lambda job: job.lines.append("Not running: loaded on next start")]
+    return [[*COMPOSE, "stop", *running]]
+
+
+def up(job, project, names):
+    """Starts these services, `up -d --no-deps`. The services that load a product's plugins unpack them in the same
+    folder as they start (.work), and two at once break each other's: a plugin of one does not load. Compose starts them
+    one after the other when one depends on the other, as the core's do. Any other one starts first and alone, with what
+    it depends on among these, in the order Compose would start them, and the next one once it is ready (healthy, or
+    running without a health check). A wait that ends otherwise, unhealthy or after WAIT seconds, keeps nothing else
+    from starting: its container says it."""
+    names = list(names)
+    depends = {name: layers.depends(project, names, [name]) for name in names}
+    order = {name: (len(depends[name]), name) for name in names}
+    alone = []
+    for product in project["products"].values():
+        together = []   # what one `up` may start: each depends on the ones before it
+        for name in sorted((name for name in names if name in product["services"]), key=order.get, reverse=True):
+            (together if all(name in depends[other] for other in together) else alone).append(name)
+    started = set()
+    for name in sorted(alone, key=order.get):
+        group = sorted(({name} | depends[name]) - started)
+        started.update(group)
+        try:
+            job.exec([*COMPOSE, "up", "-d", "--no-deps", "--wait", f"--wait-timeout={WAIT}", *group])
+        except JobFailed:
+            if job.canceled:
+                raise
+    rest = [name for name in names if name not in started]
+    if rest:
+        job.exec([*COMPOSE, "up", "-d", "--no-deps", *rest])
 
 
 def _pick(project, product, item):
@@ -407,7 +461,7 @@ def apply(project, product, install, remove):
     def unload(job):
         if running:
             job.step("Stop")
-        job.run_steps(_unload_steps(target, running))
+        job.run_steps(_unload_steps(running))
 
     def change(job):
         _change(job, folder, downloads, remove, then=[unload])
@@ -415,7 +469,7 @@ def apply(project, product, install, remove):
     def start(job):
         job.step("Start")
         # Only what was running starts again: a service it depends on that was stopped stays stopped
-        job.exec([*COMPOSE, "up", "-d", "--no-deps", *running])
+        up(job, project, running)
 
     steps = [change] + ([start] if running else [])
     phases = [phase for phase, _, _ in downloads] + (["Stop", "Start"] if running else [])
@@ -442,9 +496,9 @@ def install_steps(project, product, names):
     """The steps of a job that needs these plugins, the services they may stop, and what they wait for (the units of
     jobs.awaited): none when the plugins are all there. The latest release of the ones that are missing is
     downloaded, put in the folder once all of them are there (_change), and the product stops so that the `up` that
-    follows loads them. When what its images come with cannot be read yet (not pulled), the step pulls them first
-    and decides then. What it waits for is known before it begins all the same: any plugin not added may be missing
-    then, and what the images turn out to bring counts as done, as does the stop when nothing is missing."""
+    follows loads them (up()). When what its images come with cannot be read yet, the step pulls the images that are not
+    here first and decides then. What it waits for is known before it begins all the same: any plugin not added may be
+    missing then, and what the images turn out to bring counts as done, as does the stop when nothing is missing."""
     here = compose.loaded()
     target = _here(_target(project, product), here)
     present = installed(project, product, here)
@@ -452,15 +506,18 @@ def install_steps(project, product, names):
         return [], [], {}
     services, stopped = project["services"], _running(target)
     unknown = present["bundled_error"]
+    held = compose.image_ids() if unknown else {}   # None when Docker does not answer: every image is pulled
+    pulls = [name for name in target["services"]
+             if held is None or compose.reference(services[name]["image"]) not in held] if unknown else []
     maybe = [name for name in names if name not in present["ext"]] if unknown else _missing(present, names)
     waits = {**_downloads(maybe), **awaited(services, stop=stopped)}
-    if unknown:
-        waits.update(awaited(services, images=[services[name]["image"] for name in target["services"]]))
+    waits.update(awaited(services, images=[services[name]["image"] for name in pulls]))
 
     def install(job):
         found = present
         if found["bundled_error"]:   # an answer without them was not kept: read again once pulled
-            job.exec([*COMPOSE, "pull", *target["services"]])
+            if pulls:
+                job.exec([*COMPOSE, "pull", *pulls])
             found = installed(project, product, here)
             if found["bundled_error"]:
                 raise JobFailed(found["bundled_error"])
@@ -471,17 +528,20 @@ def install_steps(project, product, names):
             for name in stopped:
                 job.unit(("Container", services[name]["container"]), 1)
             return
-        published = {p["name"]: p for p in catalog(project, product)}
-        for name in missing:
-            if name not in published:
-                raise JobFailed(f"Plugin {name} is not on download.gravitee.io")
-        picked = [(None, published[name], _latest(name, versions(published[name]["path"]))) for name in missing]
+        try:
+            published = {p["name"]: p for p in catalog(project, product)}
+            for name in missing:
+                if name not in published:
+                    raise JobFailed(f"Plugin {name} is not on {SITE}")
+            picked = [(None, published[name], _latest(name, versions(published[name]["path"]))) for name in missing]
+        except RuntimeError as error:   # the site said why in plain words: the reason of the job
+            raise JobFailed(str(error)) from error
 
         def unload(job):
             # What runs now stops, also a service that started since the job began
             running = _running(target)
             job.expect(awaited(services, stop=running))
-            job.run_steps(_unload_steps(target, running))
+            job.run_steps(_unload_steps(running))
         _change(job, ROOT / target["folder"], picked, then=[unload])
 
     return [install], stopped, waits
