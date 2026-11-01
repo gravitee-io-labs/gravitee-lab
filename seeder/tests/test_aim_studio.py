@@ -549,6 +549,20 @@ class Replacement(Studios):
         self.assertEqual(self.changes(), [("PUT", "/apis/studio-1"), ("POST", "/apis/studio-1/deployments")])
         self.assertEqual(self.the_flow("Human approval")["request"][0]["configuration"]["holdWindowMs"], 90000)
 
+    def test_a_studio_replaced_whose_answer_was_lost_is_the_seeds_at_the_next_run(self):
+        self.seed()
+        self.file(STUDIO.replace("alias: get_customer", "alias: customer"))
+
+        def made(call):   # the platform makes the new studio, and the seed never gets the answer
+            self.world.create(call)
+            raise requests.ReadTimeout("slow")
+        self.platform.add({("POST", AIM + "/mcp-studios"): made})
+        with self.assertRaises(common.SeedError):
+            self.seed()
+        self.platform.add({("POST", AIM + "/mcp-studios"): self.world.create})
+        self.seed()
+        self.assertEqual([x["id"] for x in common.created() if x["kind"] == "studio"], list(self.world.studios))
+
     def test_a_studio_the_seed_did_not_create_is_never_adopted(self):
         self.world.studios["theirs"] = {"name": "Theirs", "contextPath": PATH, "fga": False, "approval": False}
         with self.assertRaisesRegex(common.SeedError, "/mcp/customer-care is the path of 'Theirs', which the seed did not create"):
@@ -727,6 +741,20 @@ class OldShape(Studios):
         self.assertEqual(call.json["specification"]["promptIds"], [])
         self.assertEqual(self.changes(), [("POST", "/mcp-studios"), ("PUT", "/mcp-studios/studio-1/fga"), ("POST", "/apis/studio-1/deployments")])
         self.assertEqual(self.world.gateway_calls, [])
+
+    def test_one_replaced_whose_answer_was_lost_is_the_seeds_at_the_next_run(self):
+        self.seed()
+        self.file(OLD_STUDIO.replace("tool: getCustomer", "tool: searchCustomers"))
+
+        def made(call):   # the platform makes the new studio, and the seed never gets the answer
+            self.world.create(call)
+            raise requests.ReadTimeout("slow")
+        self.platform.add({("POST", AIM + "/mcp-studios"): made})
+        with self.assertRaises(common.SeedError):
+            self.seed()
+        self.platform.add({("POST", AIM + "/mcp-studios"): self.world.create})
+        self.seed()
+        self.assertEqual([x["id"] for x in common.created() if x["kind"] == "studio"], list(self.world.studios))
 
 
 class Removal(Studios):
