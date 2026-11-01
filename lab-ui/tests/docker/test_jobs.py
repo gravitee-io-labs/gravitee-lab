@@ -3,6 +3,7 @@ how far a job is: from what each stage waits for, known before it begins, moved 
 what Docker says of the containers. Nothing is run: a command prints lines taken from real output, and Docker is a
 fixture that follows them. Then "Start the stack" replayed as Compose printed it."""
 
+import sys
 import threading
 import time
 import unittest
@@ -221,6 +222,14 @@ class Cut(Case):
         thread.start()
         self.addCleanup(lambda: (job.cancel(), thread.join(10), job._process and job._process.stdout.close()))
         return job, thread
+
+    def test_a_command_runs_in_the_project_folder_in_a_session_of_its_own(self):
+        # Where the project is (a `git` or a `make` of an update acts there), out of reach of the Lab UI's own signals
+        self.folder(paths)
+        job = Job("Update", [[sys.executable, "-c", "import os; print(os.getcwd()); print(os.getsid(0) == os.getpid())"]],
+                  key="lab", verb="update")
+        job.run()
+        self.assertEqual((job.ok, job.lines[-2:]), (True, [str(self.root), "True"]))
 
     def test_a_command_that_says_nothing_for_long_is_ended(self):
         self.patch(jobs, "SILENT", 0.3)
