@@ -15,10 +15,12 @@ from pathlib import Path
 
 from . import compose
 from .compose import CACHE, COMPOSE
+from .images import web_error
 from .jobs import JOBS, JobFailed, awaited
 from ..paths import NotFound, ROOT
 
 DOWNLOADS = "https://download.gravitee.io"
+SITE = "download.gravitee.io"   # the download site, as its errors name it
 ZIP = re.compile(r"^(?P<name>.+?)-(?P<version>\d+\.\d+[^/]*)\.zip$")
 PLUGIN_PATH = re.compile(r"(graviteeio-[a-z]+/|graviteeio-ee/[a-z]+/|)plugins/[a-z-]+/[A-Za-z0-9._-]+/")
 CHUNK = 64 * 1024   # a download is read by pieces, so that the job says how far it is
@@ -55,7 +57,8 @@ def _sources(product):
 # ---------------------------------------------------------------------------------------------------------------------
 
 def _fetch(url):
-    """One page of a listing. The bucket answers 502 when hit too fast: asked again, slower."""
+    """One page of a listing. The bucket answers 502 when hit too fast: asked again, slower. What fails says why in
+    plain words (web_error)."""
     request = urllib.request.Request(url, headers={"Accept": "text/xml"})
     for attempt in range(4):
         try:
@@ -63,8 +66,10 @@ def _fetch(url):
                 return response.read().decode()
         except urllib.error.HTTPError as error:
             if error.code < 500 or attempt == 3:
-                raise
+                raise RuntimeError(web_error(error, SITE)) from error
             time.sleep(0.5 * 2 ** attempt)
+        except (urllib.error.URLError, OSError, http.client.HTTPException) as error:
+            raise RuntimeError(web_error(error, SITE)) from error
 
 
 def _bucket_list(prefix):
@@ -266,7 +271,7 @@ def _download(job, folder, plugin, version):
     """Downloads a plugin version into the shared folder as a hidden .part file, which no product loads, its SHA-1
     checked: answers that file, for _place(). A download cut short, or that the site fails to serve (a 5xx, the network),
     is tried again, up to DOWNLOAD_TRIES times: a nightly test must not fail on a transfer. Nothing is left of a download
-    that failed."""
+    that failed, and why is said in plain words."""
     folder.mkdir(parents=True, exist_ok=True)
     url, unit = f"{DOWNLOADS}/{plugin['path']}{version['file']}", ("Download", plugin["name"])
     job.lines.append(f"Downloading {version['file']} ({max(1, version['size'] // 1024)} KB)")
@@ -277,9 +282,13 @@ def _download(job, folder, plugin, version):
             break
         except BaseException as error:
             part.unlink(missing_ok=True)
+            said = error if isinstance(error, JobFailed) or not isinstance(error, Exception) else \
+                JobFailed(f"{version['file']}: {web_error(error, SITE)}")
             if attempt == DOWNLOAD_TRIES or not _transient(error):
-                raise
-            job.lines.append(f"  Downloading again: {error}")
+                if said is error:
+                    raise
+                raise said from error
+            job.lines.append(f"  Downloading again: {said}")
             time.sleep(2 ** attempt)
     job.lines.append("  SHA-1 verified" if expected else "  No published checksum")
     return part
@@ -471,11 +480,14 @@ def install_steps(project, product, names):
             for name in stopped:
                 job.unit(("Container", services[name]["container"]), 1)
             return
-        published = {p["name"]: p for p in catalog(project, product)}
-        for name in missing:
-            if name not in published:
-                raise JobFailed(f"Plugin {name} is not on download.gravitee.io")
-        picked = [(None, published[name], _latest(name, versions(published[name]["path"]))) for name in missing]
+        try:
+            published = {p["name"]: p for p in catalog(project, product)}
+            for name in missing:
+                if name not in published:
+                    raise JobFailed(f"Plugin {name} is not on {SITE}")
+            picked = [(None, published[name], _latest(name, versions(published[name]["path"]))) for name in missing]
+        except RuntimeError as error:   # the site said why in plain words: the reason of the job
+            raise JobFailed(str(error)) from error
 
         def unload(job):
             # What runs now stops, also a service that started since the job began

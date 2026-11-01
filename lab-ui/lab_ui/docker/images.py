@@ -2,9 +2,12 @@
 version (and registry, when a variable chooses it) the page sets, and what saving them would have Compose make again.
 Also the tags a registry lists, and its login."""
 
+import http.client
 import json
 import re
 import shutil
+import socket
+import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -301,6 +304,26 @@ def changing(project, values):
 # Tags
 # ---------------------------------------------------------------------------------------------------------------------
 
+def web_error(error, host):
+    """Why a request to `host` got no answer it could use, in plain words: the network, a rate limit, a refusal, an
+    error of the site. Where registries and the download site are asked, so that what fails never shows urllib's
+    words."""
+    if isinstance(error, urllib.error.HTTPError):
+        if error.code == 429:
+            return f"Too many requests to {host}: try again later"
+        if error.code in (401, 403):
+            return f"{host} refuses the request"
+        if error.code == 404:
+            return f"Not found on {host}"
+        return f"{host} answered an error (HTTP {error.code})"
+    reason = getattr(error, "reason", error)
+    if isinstance(reason, (TimeoutError, socket.timeout)):
+        return f"{host} does not answer in time"
+    if isinstance(reason, ssl.SSLError):
+        return f"The certificate of {host} is not trusted"
+    return f"Cannot reach {host}"
+
+
 def _json(url, token=None):
     request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"} if token else {})
     with urllib.request.urlopen(request, timeout=15) as response:
@@ -366,32 +389,41 @@ def _oci_tags(host, repository):
 SUBSCRIPTIONS = {}   # the Azure subscription that holds each registry, by name, as found once per run of the Lab UI
 
 
+def _az():
+    """The Azure CLI; an error that says to install it when this machine has none."""
+    if not shutil.which(AZ):
+        raise RuntimeError("Install the Azure CLI (az)")
+    return AZ
+
+
 def _subscription(name):
     """The flags that name the Azure subscription holding registry `name`: none when the session's own subscription has
-    it, else the first of the account's subscriptions that does (a registry is often in another one than the default)."""
+    it, else the first of the account's subscriptions that does (a registry is often in another one than the default).
+    Kept once found: not found, it is looked for again, as an expired session finds none."""
     if name not in SUBSCRIPTIONS:
-        found = None
-        rc, _, _ = compose.run([AZ, "acr", "show", "--name", name, "--query", "id", "-o", "tsv"], timeout=60)
-        if rc != 0:
+        rc, _, _ = compose.run([_az(), "acr", "show", "--name", name, "--query", "id", "-o", "tsv"], timeout=60)
+        if rc == 0:
+            SUBSCRIPTIONS[name] = None
+        else:
             rc, out, _ = compose.run([AZ, "account", "list", "--query", "[].id", "-o", "tsv"], timeout=60)
             for subscription in out.split() if rc == 0 else []:
                 if compose.run([AZ, "acr", "show", "--name", name, "--subscription", subscription, "--query", "id",
                                 "-o", "tsv"], timeout=60)[0] == 0:
-                    found = subscription
+                    SUBSCRIPTIONS[name] = subscription
                     break
-        SUBSCRIPTIONS[name] = found
-    return ["--subscription", SUBSCRIPTIONS[name]] if SUBSCRIPTIONS[name] else []
+    return ["--subscription", SUBSCRIPTIONS[name]] if SUBSCRIPTIONS.get(name) else []
 
 
 def _azure_tags(host, repository):
-    """An Azure registry lists its tags to the Azure CLI's session, newest first."""
+    """An Azure registry lists its tags to the Azure CLI's session, newest first. That session is the Azure CLI's own:
+    when it expired, `az login` renews it, which the page's Log in (Docker's login to the registry) cannot."""
     name = host.split(".")[0]
-    rc, out, err = compose.run([AZ, "acr", "repository", "show-tags", "--name", name, *_subscription(name),
+    rc, out, err = compose.run([_az(), "acr", "repository", "show-tags", "--name", name, *_subscription(name),
                                 "--repository", repository, "--orderby", "time_desc", "--top", "300", "--detail",
                                 "-o", "json"], timeout=90)
     if rc != 0:
         if "login" in err.lower() or "credential" in err.lower():
-            raise RuntimeError("Azure session expired: use Log in")
+            raise RuntimeError("Azure session expired: run az login in a terminal")
         raise RuntimeError(err.strip().splitlines()[-1][:200] if err.strip() else "Azure registry not reachable")
     # Builds of dependency updates are not versions anyone picks
     return [{"name": tag["name"], "updated": tag.get("lastUpdateTime")} for tag in json.loads(out)
@@ -400,7 +432,8 @@ def _azure_tags(host, repository):
 
 def tags(project, component, registry=None):
     """The tags a component can run: [{name, updated}], newest first when the registry tells. A Gravitee component
-    is listed on `registry`, the one it runs from when none is given."""
+    is listed on `registry`, the one it runs from when none is given. A registry that does not answer says why in
+    plain words (web_error)."""
     c = next((found for found in components(project) if found["id"] == component), None)
     if c is None:
         raise paths.NotFound(f"No such component: {component}")
@@ -412,9 +445,12 @@ def tags(project, component, registry=None):
         host, repository = _locate(f"{registry}/{repository}")
 
     def ask():
-        if host is None:
-            return _hub_tags(repository)
-        return _azure_tags(host, repository) if AZURE.fullmatch(host) else _oci_tags(host, repository)
+        try:
+            if host is None:
+                return _hub_tags(repository)
+            return _azure_tags(host, repository) if AZURE.fullmatch(host) else _oci_tags(host, repository)
+        except (urllib.error.URLError, OSError, http.client.HTTPException) as error:
+            raise RuntimeError(web_error(error, host or "Docker Hub")) from error
     return compose.CACHE.get(f"tags:{host}:{repository}", 600, ask)
 
 
@@ -545,5 +581,5 @@ def login(host, key=None):
     if key is not None and not ITEM.fullmatch(str(key)):
         raise ValueError("Not an add-on, a setup or a playground")
     name = host.split(".")[0]
-    return JOBS.start("Log in to Azure registry", [[AZ, "acr", "login", "--name", name, *_subscription(name)]],
+    return JOBS.start("Log in to Azure registry", [[_az(), "acr", "login", "--name", name, *_subscription(name)]],
                       key=key or f"registry:{host}", verb="login")

@@ -285,6 +285,7 @@ class Images(Case):
 
     def test_the_azure_cli_is_found_once_and_every_command_runs_it(self):
         self.patch(images, "AZ", "/opt/az/bin/az")
+        self.patch(images.shutil, "which", lambda name: name)
         self.patch(images, "SUBSCRIPTIONS", {})
         jobs, run = self.patch(images, "JOBS"), self.patch(compose, "run", return_value=(0, "[]", ""))
         images.login("graviteeio.azurecr.io")
@@ -298,6 +299,7 @@ class Images(Case):
         self.assertEqual(len(run.call_args_list), 3)   # where the registry is, once; its tags; the session
 
     def test_a_registry_in_another_subscription_than_the_sessions_is_found_there_once(self):
+        self.patch(images.shutil, "which", lambda name: name)
         self.patch(images, "SUBSCRIPTIONS", {})
         jobs = self.patch(images, "JOBS")
 
@@ -323,6 +325,7 @@ class Images(Case):
         self.assertEqual(self.started(jobs)[1][0], [images.AZ, "acr", "login", "--name", "graviteeio"])
 
     def test_login_only_to_an_azure_registry(self):
+        self.patch(images.shutil, "which", lambda name: name)
         self.patch(images, "SUBSCRIPTIONS", {"graviteeio": None})
         jobs = self.patch(images, "JOBS")
         images.login("graviteeio.azurecr.io")
@@ -337,6 +340,57 @@ class Images(Case):
         for key in ("platform", "registry:x.azurecr.io", "addon:Kafka", "group:databases", ""):
             with self.assertRaises(ValueError, msg=key):
                 images.login("graviteeio.azurecr.io", key)
+
+    def test_without_the_azure_cli_its_registries_say_to_install_it(self):
+        # Not the error of running a program that is not there: what to do
+        self.patch(images.shutil, "which", return_value=None)
+        jobs, run = self.patch(images, "JOBS"), self.patch(compose, "run")
+        for call in (lambda: images.login("graviteeio.azurecr.io"),
+                     lambda: images._azure_tags("graviteeio.azurecr.io", "apim-management-api")):
+            with self.assertRaisesRegex(RuntimeError, r"^Install the Azure CLI \(az\)$"):
+                call()
+        jobs.start.assert_not_called()
+        run.assert_not_called()
+
+    def test_an_expired_azure_session_says_to_log_in_with_the_azure_cli(self):
+        # Tags are listed with the Azure CLI's own session, which the page's Log in (Docker's) cannot renew; and a
+        # registry not found with it is looked for again once logged in
+        self.patch(images.shutil, "which", lambda name: name)
+        self.patch(images, "SUBSCRIPTIONS", {})
+        expired = (1, "", "ERROR: AADSTS700082: The refresh token has expired. Please run 'az login' to setup account.")
+        run = self.patch(compose, "run", side_effect=lambda command, timeout=None: (
+            (0, "sub-a\n", "") if command[1:3] == ["account", "list"] else expired))
+        with self.assertRaisesRegex(RuntimeError, "^Azure session expired: run az login in a terminal$"):
+            images._azure_tags("graviteeio.azurecr.io", "apim-management-api")
+        self.assertEqual(images.SUBSCRIPTIONS, {})
+        run.side_effect = lambda command, timeout=None: (0, "[]", "")
+        self.assertEqual(images._azure_tags("graviteeio.azurecr.io", "apim-management-api"), [])
+        self.assertEqual(images.SUBSCRIPTIONS, {"graviteeio": None})
+
+    def test_a_registry_that_does_not_answer_says_why_in_plain_words(self):
+        compose.CACHE.drop("tags:")
+        self.addCleanup(compose.CACHE.drop, "tags:")
+        reasons = {"offline": images.urllib.error.URLError(OSError(8, "nodename nor servname provided, or not known")),
+                   "limited": images.urllib.error.HTTPError("https://hub.docker.com", 429, "Too Many Requests", {}, None),
+                   "refused": images.urllib.error.HTTPError("https://ghcr.io", 403, "Forbidden", {}, None),
+                   "slow": images.urllib.error.URLError(TimeoutError("timed out"))}
+        said = {}
+        for name, error in reasons.items():
+            compose.CACHE.drop("tags:")
+            self.patch(images.urllib.request, "urlopen", side_effect=error)
+            for cid in ("ELASTICSEARCH_VERSION", "MCP_LENS_VERSION"):
+                with self.assertRaises(RuntimeError) as failed:
+                    images.tags(self.project, cid)
+                said[name, cid] = str(failed.exception)
+        self.assertEqual(said, {
+            ("offline", "ELASTICSEARCH_VERSION"): "Cannot reach Docker Hub",
+            ("offline", "MCP_LENS_VERSION"): "Cannot reach ghcr.io",
+            ("limited", "ELASTICSEARCH_VERSION"): "Too many requests to Docker Hub: try again later",
+            ("limited", "MCP_LENS_VERSION"): "Too many requests to ghcr.io: try again later",
+            ("refused", "ELASTICSEARCH_VERSION"): "Docker Hub refuses the request",
+            ("refused", "MCP_LENS_VERSION"): "ghcr.io refuses the request",
+            ("slow", "ELASTICSEARCH_VERSION"): "Docker Hub does not answer in time",
+            ("slow", "MCP_LENS_VERSION"): "ghcr.io does not answer in time"})
 
     def test_a_long_list_of_tags_is_read_page_by_page(self):
         # The registry API lists a thousand at most, by name, and says where the next ones are (Link): the newest

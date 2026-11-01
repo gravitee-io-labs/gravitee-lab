@@ -174,7 +174,7 @@ from it says so in its README, and does not start without access.
 2. Start the item. When Docker is refused, its row says *Not logged in to Azure*, and its ⋯ menu has *Log in*.
 3. On the Images page, a component that is on and pulls from an Azure registry shows the registry and *Log in*. *Log
    in* runs `az acr login`, so that Docker can pull. The page lists the tags of an Azure registry with your `az login`
-   session.
+   session: when it expires, the list of versions says *Azure session expired*, and `az login` in a terminal renews it.
 
 To pull other Gravitee components from that registry, pick or type it in the registry field of the component on the
 Images page.

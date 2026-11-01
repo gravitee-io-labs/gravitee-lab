@@ -406,13 +406,14 @@ class Installed(Case):
             def read(self, size=-1):
                 raise TimeoutError("timed out")
         slept = self.patch(plugins.time, "sleep")
-        for answers, error in (({url: b"zip", url + ".sha1": b"0000  x\n"}, JobFailed),
-                               ({url: Broken}, TimeoutError)):
+        # Why, in plain words: not urllib's
+        for answers, said in (({url: b"zip", url + ".sha1": b"0000  x\n"}, f"{file}: checksum mismatch, download discarded"),
+                              ({url: Broken}, f"{file}: download.gravitee.io does not answer in time")):
             self.patch(plugins.urllib.request, "urlopen", lambda asked, timeout, answers=answers:
                        answers[asked]() if callable(answers[asked]) else io.BytesIO(answers[asked]))
-            with self.assertRaises(error):
+            with self.assertRaises(JobFailed) as failed:
                 plugins._download(Job("Plugins", []), folder, plugin, {"file": file, "size": 3})
-            self.assertEqual(list(folder.iterdir()), [], error)
+            self.assertEqual((str(failed.exception), list(folder.iterdir())), (said, []))
         self.assertEqual([c.args for c in slept.call_args_list], [(2,), (4,)] * 2, "tried three times, each")
 
     def test_a_download_cut_short_is_tried_again(self):
@@ -439,9 +440,29 @@ class Installed(Case):
             raise plugins.urllib.error.HTTPError(url, 404, "Not Found", {}, None)
         self.patch(plugins.urllib.request, "urlopen", missing)
         plugin = {"name": "gravitee-policy-x", "path": "plugins/policies/gravitee-policy-x/"}
-        with self.assertRaises(plugins.urllib.error.HTTPError):
+        with self.assertRaisesRegex(JobFailed, f"^{file}: Not found on download.gravitee.io$"):
             plugins._download(Job("Plugins", []), self.root / "plugins/apim", plugin, {"file": file, "size": 3})
         self.assertEqual(len(asked), 1)
+
+    def test_the_download_site_out_of_reach_is_said_in_plain_words(self):
+        def offline(request, timeout):
+            raise plugins.urllib.error.URLError(OSError(8, "nodename nor servname provided, or not known"))
+        self.patch(plugins.urllib.request, "urlopen", offline)
+        self.patch(plugins.time, "sleep")
+        # The Plugins page's catalog
+        with self.assertRaisesRegex(RuntimeError, "^Cannot reach download.gravitee.io$"):
+            plugins._fetch(f"{plugins.DOWNLOADS}?list-type=2")
+        # A playground's start that installs one: the reason of its job, without "Error:"
+        self.patch(plugins, "installed", lambda project, product, only=None: {"bundled": {}, "bundled_error": None,
+                                                                                "ext": {}})
+        self.patch(compose, "containers", lambda: ({}, None))
+        for prefix in ("plugin-catalog:", "plugin-versions:"):
+            compose.CACHE.drop(prefix)
+            self.addCleanup(compose.CACHE.drop, prefix)
+        steps, _, _ = plugins.install_steps(PROJECT, "apim", ["gravitee-policy-x"])
+        job = Job("Start Welcome", steps)
+        job.run()
+        self.assertEqual((job.ok, job.error()), (False, "Cannot reach download.gravitee.io"))
 
     def test_a_missing_plugin_is_downloaded_then_the_product_stops(self):
         present = {"bundled": {"gravitee-policy-a": {}}, "bundled_error": None, "ext": {}}
