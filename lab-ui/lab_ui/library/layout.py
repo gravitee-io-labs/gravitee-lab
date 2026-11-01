@@ -473,6 +473,23 @@ def _sha(path):
         os.close(descriptor)
 
 
+def _copy_tree(source, target):
+    """A folder copied with its links as links, that stops at the first entry that fails with the error of the disk, which
+    `_reason` says in its words: copytree goes on, and raises the list of every failure in words for a programmer. The
+    folders are walked from the bottom up, so that each one gets its mode once what is in it is copied."""
+    def stop(error):
+        raise error
+    for here, folders, files in os.walk(source, topdown=False, onerror=stop):
+        place = os.path.join(target, os.path.relpath(here, source))
+        os.makedirs(place, exist_ok=True)
+        for name in folders:
+            if os.path.islink(os.path.join(here, name)):   # a link to a folder, not walked into
+                os.symlink(os.readlink(os.path.join(here, name)), os.path.join(place, name))
+        for name in files:
+            shutil.copy2(os.path.join(here, name), os.path.join(place, name), follow_symlinks=False)
+        shutil.copystat(here, place)
+
+
 def _copy_once(source, target):
     """Copies a file or a folder to the backup unless the backup has it already: the first copy is the one that counts.
     Through a partial that is renamed when whole, so that a crash never leaves half a copy that reads as whole."""
@@ -482,7 +499,7 @@ def _copy_once(source, target):
     moves._discard(partial)
     moves._parents(target)
     if os.path.isdir(source) and not os.path.islink(source):
-        shutil.copytree(source, partial, symlinks=True)
+        _copy_tree(source, partial)
     else:
         shutil.copy2(source, partial)
     os.replace(partial, target)

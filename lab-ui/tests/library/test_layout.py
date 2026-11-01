@@ -1763,6 +1763,42 @@ class Failing(Machine):
         with mock.patch.object(layout, "_run", side_effect=KeyboardInterrupt):
             self.assertEqual(self.at_start(), (False, [layout.MOVING], [layout.FAILED, "Stopped"]))
 
+    def test_a_platform_copy_that_cannot_be_read_is_said_in_plain_words(self):
+        # The platform copies are a folder copied to the backup: its first failure is said as the disk says it, from the
+        # project folder, never as a list of what failed in words for a programmer
+        self.build()
+        self.put(".lab/targets/cloud/notes.txt", "mine\n", 0o000)
+        self.addCleanup(os.chmod, self.root / ".lab/targets/cloud/notes.txt", 0o644)
+        ok, said, complained = self.at_start()
+        self.assertEqual((ok, said), (False, [layout.MOVING]))
+        self.assertEqual(complained, [layout.FAILED, "Permission denied: .lab/targets/cloud/notes.txt"])
+
+    def test_a_full_disk_while_the_platform_copies_are_backed_up_is_said_in_plain_words(self):
+        self.build()
+        real = shutil.copyfile
+
+        def copyfile(src, dst, *more, **how):
+            if "/.lab/targets/" in os.fspath(src):
+                raise OSError(errno.ENOSPC, "No space left on device", str(dst))
+            return real(src, dst, *more, **how)
+        with mock.patch.object(shutil, "copyfile", copyfile):
+            ok, said, complained = self.at_start()
+        self.assertEqual((ok, said), (False, [layout.MOVING]))
+        self.assertEqual(complained, [layout.FAILED, "No space left on device: .lab/migration/backup/targets.partial/cloud/"
+                                                     "addons__gateway__compose.yml"])
+
+    def test_the_backup_of_the_platform_copies_keeps_their_links_and_modes(self):
+        self.build()
+        os.symlink("addons__gateway__compose.yml", self.root / ".lab/targets/cloud/latest")
+        os.symlink("cloud", self.root / ".lab/targets/cloud-link")   # a link to a folder, not followed either
+        os.chmod(self.root / ".lab/targets/cloud/addons__gateway__compose.yml", 0o640)
+        self.migrate()
+        backup = f"{layout.BACKUP}/targets"
+        self.assertEqual(os.readlink(self.root / backup / "cloud/latest"), "addons__gateway__compose.yml")
+        self.assertEqual(os.readlink(self.root / backup / "cloud-link"), "cloud")
+        self.assertEqual((self.text(f"{backup}/cloud/addons__gateway__compose.yml"),
+                          self.mode(f"{backup}/cloud/addons__gateway__compose.yml")), (GATEWAY_COPY, 0o640))
+
     def test_pending_never_raises(self):
         with mock.patch.object(layout, "_signals", side_effect=OSError("denied")):
             self.assertIs(layout.pending(), False)
