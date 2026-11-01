@@ -1510,7 +1510,8 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
   (`docker.warning`: in the banner, and in a playground's checks).
 - Docker Compose 5.0 or later is needed: an add-on or a playground changes core services from an included file, which
   older versions refuse ("conflicts with imported resource"). The Lab UI says so at start (`api.requirement`).
-- A failed job leaves the on file as it wrote it: the item is on, does not run, and can be started again or turned off.
+- A failed job leaves the on file as it wrote it. A Start's item is on, and what the job started before it failed runs
+  on (a playground's apps, when its seed failed): it can be started again or turned off. A Stop's item is off.
   One that failed before it wrote it (a plugin download, the removal of what goes, "What is on changed meanwhile") wrote
   nothing, and what was on stays on (`layers.apply`). Its row says "Failed", the last line its command printed in its
   tooltip, with Show output in its menu. A canceled one says "Canceled", muted. The activity chip and the drawer say

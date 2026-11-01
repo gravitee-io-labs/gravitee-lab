@@ -1619,8 +1619,8 @@ def waits(project, plan):
 
 def apply(project, plan, title, undo=None):
     """Runs the plan of an add-on, a setup or a playground already set up as a job (steps()), once check() let it
-    through. When it fails the on file stays as written: the item is on, does not run, and can be started again or
-    stopped; when it fails before (what goes could not be removed), nothing is written and what was on stays on.
+    through. When it fails the on file stays as written: a start's item is on and can be started again or stopped, a
+    stop's is off; when it fails before (what goes could not be removed), nothing is written and what was on stays on.
     `undo`: what its first gate puts back when it ends the job (unchanged())."""
     return JOBS.start(title, steps(project, plan, undo=undo), key=f"{plan['kind']}:{plan['id']}",
                       verb=plan["do"], changes=changes(project, plan), waits=waits(project, plan))

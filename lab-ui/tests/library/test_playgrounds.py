@@ -733,6 +733,35 @@ class Playgrounds(Case):
                               ("lab-ui/DESIGN.md", "A failed job leaves the on file as written: the item is on")):
             self.assertFalse(promise in (repository / page).read_text(encoding="utf-8"), f"{page} says: {promise}")
 
+    def pages_say(self, *promises):
+        """That the guide and DESIGN.md say each of these (page, text) as it is, or (page, text, False) no longer."""
+        repository = Path(__file__).resolve().parents[3]
+        for page, promise, *said in promises:
+            text = " ".join((repository / page).read_text(encoding="utf-8").split())
+            self.assertEqual(promise in text, said != [False], f"{page}: {promise}")
+
+    def test_a_stop_that_fails_after_its_on_file_write_leaves_the_item_off_as_the_pages_say(self):
+        # The gateway, made again without the playground's settings, fails: the playground is already off
+        self.on_and_running(*CORE)
+        playgrounds.stop(self.project, "welcome", False, ["addon:agent-lens"])
+        job, commands = ran(self.started(self.jobs)[1], fail="up")
+        self.assertEqual((job.ok, commands[-1][-2:], self.written), (False, ["--no-deps", "apim-gateway"], [(None, ["kiosk"])]))
+        self.pages_say(("docs/lab-ui.md", "a Stop's item is off"), ("lab-ui/DESIGN.md", "A Stop's item is off"),
+                       ("docs/lab-ui.md", "One that ended later leaves the item on, not running", False),
+                       ("lab-ui/DESIGN.md", "the item is on, does not run, and can be started again or turned off", False))
+
+    def test_a_first_start_whose_seed_fails_leaves_the_item_on_and_its_apps_running_as_the_pages_say(self):
+        self.state = on(self.project)
+        self.patch(compose, "run", lambda cmd, **how: (0, f"{STARTED}\n" if "{{.State.StartedAt}}" in cmd else "1 false\n", ""))
+        playgrounds.start(self.project, "welcome", [])
+        job, commands = ran(self.started(self.jobs)[1])
+        self.assertEqual((job.ok, self.written), (False, [("welcome", [])]))
+        self.assertEqual([command[len(COMPOSE):len(COMPOSE) + 1] for command in commands if command[:len(COMPOSE)] == COMPOSE],
+                         [["up"]], "nothing stops the apps it started")
+        self.pages_say(("docs/lab-ui.md", "what it started still runs (the apps, when only the seed failed)"),
+                       ("lab-ui/DESIGN.md", "what the job started before it failed runs on (a playground's apps, when its seed "
+                                            "failed)"))
+
     def test_a_stop_whose_removal_fails_leaves_the_on_file_as_it_was(self):
         self.on_and_running(*CORE)
         playgrounds.stop(self.project, "welcome", False, ["addon:agent-lens"])

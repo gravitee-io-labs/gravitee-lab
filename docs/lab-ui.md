@@ -170,7 +170,8 @@ shows how far the job is.
   it fails when a container it waits for keeps restarting (`gio-mongodb keeps restarting`), or when nothing happens for
   15 minutes. Ctrl+C in the Lab UI's terminal stops the job that runs, and the terminal says which.
 - **A failed or canceled job**: one that ended before it changed what is on (a plugin download, removing what it
-  replaces) leaves everything as it was. One that ended later leaves the item on, not running. Its row says *Failed*, or
+  replaces) leaves everything as it was. One that ended later leaves what is on as it wrote it: a Start's item is on, and
+  what it started still runs (the apps, when only the seed failed); a Stop's item is off. Its row says *Failed*, or
   *Canceled* after a *Cancel*. The last line of the command is the tooltip of a failure, and *Show output* in its ⋯ menu
   opens the whole output. Start it again, or turn it off when it is on.
 
