@@ -180,7 +180,8 @@ loads it.
 ```bash
 make ui         # http://localhost:9000; UI_PORT=9001 make ui for another port (the UIs of a playground show only on 9000)
 make test       # the Lab UI's tests (stdlib, Python 3.9+), the tooling's, then the seeder's when its packages import. No Docker
-make smoke      # the Lab UI against the running stack: the state's shape, every page's data, the static files. Read only
+make smoke      # the Lab UI against the running stack: the state's shape, every page's data, the static files. Read only.
+                # The Lab UI that serves the folder is the one checked (restart it to check a change), else one it starts
 make check      # the project's Compose files and agent wiring: must print "All good"
 make e2e ID=playground:acme-shop   # starts an item from nothing on a machine with no lab, checks it, removes it (CI runs it)
 ```

@@ -1,5 +1,6 @@
-"""`make smoke`: the Lab UI against the running stack. Starts it on a free port, reads every page's data and checks
-its shape, then stops it. Nothing is started, stopped or saved."""
+"""`make smoke`: the Lab UI against the running stack. Reads every page's data and checks its shape, on the Lab UI that
+serves this folder when one runs (one Lab UI serves a folder: a second would only send to it), else on one it starts on a
+free port and stops after. Nothing is started, stopped or saved."""
 
 import json
 import socket
@@ -42,9 +43,13 @@ def head(body):
 
 
 class LabUI:
-    """The Lab UI on a free port, asked like the page asks it."""
+    """The Lab UI of this folder, asked like the page asks it: the one that runs, else one started on a free port."""
 
     def __init__(self):
+        self.port, self.process = paths.served_elsewhere(), None
+        if self.port:
+            print(f"Checking the Lab UI that runs on http://localhost:{self.port}\n")
+            return
         with socket.socket() as probe:
             probe.bind(("127.0.0.1", 0))
             self.port = probe.getsockname()[1]
@@ -70,13 +75,15 @@ class LabUI:
             try:
                 return self.ask("/favicon.ico")
             except OSError:
-                assert self.process.poll() is None, "it stopped at once"
+                assert self.process is None or self.process.poll() is None, "it stopped at once"
                 time.sleep(0.1)
         raise AssertionError("no answer within 10 s")
 
     def stop(self):
-        self.process.terminate()
-        self.process.wait(10)
+        """Stops the Lab UI it started: the one that ran before keeps running."""
+        if self.process:
+            self.process.terminate()
+            self.process.wait(10)
 
 
 def has(data, keys, what):
