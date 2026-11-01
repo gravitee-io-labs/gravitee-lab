@@ -1129,11 +1129,19 @@ def _reader(inputs, env_file=None):
     return read
 
 
+def user_name(value):
+    """A user name of an account as the page shows it and a guide's account link names it: text, a number as its digits
+    (YAML reads `1234` as one); any other shape is none."""
+    return str(value) if isinstance(value, (str, int, float)) and not isinstance(value, bool) else None
+
+
 def _accounts(uid, accounts, inputs):
     """The accounts of a playground, with the settings in their values replaced by what they are now, as Compose would
-    read them (_reader, with the playground's own .env). Only text is read; what else a file writes stays as it is."""
+    read them (_reader, with the playground's own .env). Only text is read; what else a file writes stays as it is, but
+    for the user name, which is text (user_name)."""
     read = _reader(inputs, paths.unit_env("playground", uid))
-    return [{key: read(value) for key, value in account.items()} for account in accounts]
+    return [{key: user_name(read(value)) if key == "username" else read(value) for key, value in account.items()}
+            for account in accounts]
 
 
 def _playground(uid, inputs, core_names, problems):

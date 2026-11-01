@@ -173,7 +173,7 @@ class Folder(Case):
                                                                   "      password: ${SHOP_TILL:-9999}\n"), encoding="utf-8")
         project.forget()
         found, _ = project.loaded()
-        self.assertIn({"for": "Kiosk", "username": 1234, "password": "0000"}, found["playgrounds"]["shop"]["accounts"],
+        self.assertIn({"for": "Kiosk", "username": "1234", "password": "0000"}, found["playgrounds"]["shop"]["accounts"],
                       "the page shows it")
         self.assertEqual(standalone.plan("shop")["runs"][-1], "Shop")
         _, _, folder = self.unpacked()

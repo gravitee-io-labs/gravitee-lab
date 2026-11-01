@@ -535,6 +535,13 @@ class Items(Machine):
         self.assertEqual(list(check._guide(self.folder(files={"guide.md": "[Maya](account:maya.chen)\n"}))),
                          ["guide.md: account:maya.chen is no user of x-gravitee.accounts, so the page cannot show its sign-in"])
 
+    def test_an_account_link_finds_a_user_name_yaml_read_as_a_number_as_the_page_does(self):
+        # `username: 1234` unquoted: the check reads the playground's accounts as the page gets them
+        self.machine([member("fixture", "playground", "welcome", ["acme-website"], says={"accounts": [
+            {"for": "Kiosk", "username": 1234, "password": "${SHOP_PIN:-0000}"}]})])
+        accounts = self.built["playgrounds"]["welcome"]["accounts"]
+        self.assertEqual(list(check._guide(self.folder(files={"guide.md": "[Sign in](account:1234)\n"}), accounts)), [])
+
     def test_the_steps_of_a_guide_are_numbered_in_order(self):
         # A page per step, at the address of its number: the details link to the third step as /3
         good = "# Lab\n\n## 1. One\n\n## 2. Two\n\n## What to look at\n"

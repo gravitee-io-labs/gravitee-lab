@@ -1593,6 +1593,17 @@ class Accounts(Legacy):
         self.assertIn({"file": WELCOME, "message": "x-gravitee.accounts must be a list of accounts, each a mapping"},
                       built["problems"])
 
+    def test_a_user_name_is_text_as_the_page_shows_it_and_a_guide_s_account_link_names_it(self):
+        # YAML reads an unquoted 1234 as a number: the page finds the account a link names by its text
+        given = inputs()
+        given["raw"][WELCOME]["x-gravitee"]["accounts"] = [
+            {"for": "Kiosk", "username": 1234, "password": 0}, {"for": "Till", "username": 1.5},
+            {"for": "Door", "username": True}, {"for": "Desk", "username": ["a", "b"]}, {"for": "LLM", "key": "k"}]
+        built = project.build(given)
+        self.assertEqual(built["playgrounds"]["welcome"]["accounts"], [
+            {"for": "Kiosk", "username": "1234", "password": 0}, {"for": "Till", "username": "1.5"},
+            {"for": "Door", "username": None}, {"for": "Desk", "username": None}, {"for": "LLM", "key": "k"}])
+
     def test_accounts_that_are_not_a_list_are_said_and_none(self):
         given = inputs()
         given["raw"][WELCOME]["x-gravitee"]["accounts"] = "${WELCOME_PASSWORD:-doe}"
