@@ -15,7 +15,7 @@ from unittest import mock
 
 from lab_ui.docker import compose, envfiles
 from lab_ui import e2e, paths
-from lab_ui.library import project
+from lab_ui.library import model, project
 from lab_ui.catalogs import gitx, manifest, registry
 
 from . import Case, fixtures, gitfixture
@@ -311,20 +311,53 @@ class Starting(Case):
         self.assertGreaterEqual(run.clock(), 30)
         self.assertIn(("POST", f"/api/jobs/{JOB['id']}/cancel", None), lab.calls, "the job is canceled before anything is removed")
 
-    def test_a_container_that_stays_in_an_issue_while_the_job_runs_fails_the_start_and_the_job_is_canceled(self):
-        # The core's database keeps restarting: Compose waits for it for ever, and the run says which, long before its time
+    def test_a_container_that_stays_in_an_issue_while_the_job_runs_is_the_job_s_to_end(self):
+        # The core's database keeps restarting and Compose waits for it: the job ends itself (jobs.STUCK) and says which
         issue = {"key": "issue", "label": "Keeps restarting", "running": False}
         running = lab_state({"shop": {"key": "starting", "label": "Starting", "running": False}}, job={**JOB, "done": False})
         running["services"]["mongodb"] = {"state": issue, "container": "gio-mongodb"}
-        canceled = {**running, "job": {**JOB, "ok": False, "error": "Canceled"}}
-        flap = {**running, "services": {**running["services"], "mongodb": {"state": UP, "container": "gio-mongodb"}}}
-        lab = FakeLab(lab_state({"shop": UP}), running, flap, *[running] * 30, canceled)   # a flap starts the count again
-        run = attempt(lab)
-        with self.assertRaisesRegex(e2e.Failed, r"mongodb in an issue for 60 s: Keeps restarting"):
-            run.start(1800)
-        self.assertLess(run.clock(), 120)
-        self.assertEqual([call for call in lab.calls if call[1].endswith("/cancel")], [("POST", f"/api/jobs/{JOB['id']}/cancel", None)])
+        ended = {**running, "job": {**JOB, "ok": False, "error": "gio-mongodb keeps restarting"}}
+        lab = FakeLab(lab_state({"shop": UP}), *[running] * 40, ended)
+        with self.assertRaisesRegex(e2e.Failed, "^gio-mongodb keeps restarting$"):
+            attempt(lab).start(1800)
+        self.assertNotIn(("POST", f"/api/jobs/{JOB['id']}/cancel", None), lab.calls)
 
+    def test_an_app_that_restarted_while_it_warmed_up_and_runs_since_does_not_fail_the_start(self):
+        # Docker started it again at 2, 4.5 and 8 s, and it runs since: "Keeps restarting" for 60 s after its last start, while
+        # the seed runs for 5 minutes and the job ends well
+        clock, t0, starts, seed = Clock(), 1_800_000_000, (0, 2, 4.5, 8), 300
+        self.patch(compose.time, "time", lambda: t0 + clock.now)
+
+        def inspect(command, timeout=0, **_):
+            done = [at for at in starts if at <= clock.now]
+            started = time.strftime("%Y-%m-%dT%H:%M:%S.000000000Z", time.gmtime(t0 + done[-1]))
+            return 0, f"/gio-shop-app|false|{len(done) - 1}|{started}||", ""
+        self.patch(compose, "run", side_effect=inspect)
+
+        def app():
+            """shop-app as /api/state says it: compose._inspect, then model.service_state."""
+            restarting = any(at - 0.2 <= clock.now < at for at in starts[1:])
+            container = {"state": "restarting" if restarting else "running", "health": "", "exit_code": 0,
+                         "name": "gio-shop-app", **compose._inspect(["gio-shop-app"])["gio-shop-app"]}
+            return model.service_state(container, False, True)
+
+        seen = {}
+
+        class Lab(FakeLab):
+            def call(self, method, path, body=None):
+                if method != "GET":
+                    return super().call(method, path, body)
+                self.calls.append((method, path, body))
+                seen[clock.now] = (shop := app())["label"]
+                return lab_state({"shop-app": shop, "shop-seed": UP}, job=JOB if clock.now >= seed else {**JOB, "done": False})
+
+        lab = Lab()
+        run = e2e.Run(lab, "playground", "shop", clock=clock, sleep=clock.sleep, get=lambda url: 200,
+                      shell=lambda command, timeout=0: (0, "", ""))
+        run.start(1800)
+        self.assertEqual([(step.name, step.ok) for step in run.steps], [("Start Shop", True)])
+        self.assertEqual((seen[9], seen[69]), ("Keeps restarting", "Running"))
+        self.assertNotIn(("POST", f"/api/jobs/{JOB['id']}/cancel", None), lab.calls)
 
 class Settling(Case):
 

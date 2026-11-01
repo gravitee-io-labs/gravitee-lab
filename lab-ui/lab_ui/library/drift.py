@@ -55,7 +55,7 @@ def _named(raw, service, variable):
 
 
 def changes(p, raw, containers, causes, saved):
-    """{service: {"settings": [the settings that differ, by name], "labels": whether a label differs}} for the services
+    """{service: {"settings": [the settings whose value differs, by name], "labels": whether a label differs}} for the services
     of `causes` (model.lateness) that run behind by their configuration, whose container differs from what Compose would
     give it in its environment or its labels. A service whose difference is in neither, or cannot be read, is left out:
     its line then says the configuration changed. Only the labels Compose sets are compared: a container also carries
@@ -69,7 +69,9 @@ def changes(p, raw, containers, causes, saved):
             if wanted is None or running is None:
                 continue   # not known now: asked again next time
             now = wanted.get(name) or {"env": {}, "labels": {}}
-            variables = [variable for variable, digest in now["env"].items() if running["env"].get(variable) != digest]
+            # A variable the container lacks came with a changed file (a Lab update), not with a setting: the configuration
+            variables = [variable for variable, digest in now["env"].items()
+                         if variable in running["env"] and running["env"][variable] != digest]
             _found[key] = {"settings": sorted({setting for variable in variables for setting in _named(raw, name, variable)}),
                            "labels": any(running["labels"].get(label) != digest for label, digest in now["labels"].items())}
         if _found[key]["settings"] or _found[key]["labels"]:

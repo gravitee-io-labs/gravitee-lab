@@ -54,7 +54,8 @@ class HealthChecksTest(unittest.TestCase):
     def test_a_jvm_has_five_minutes_for_its_first_start(self):
         anchor = re.search(r"^x-jvm-healthcheck: &jvm-healthcheck\n((?:  .*\n)+)", self.text, re.M).group(1)
         self.assertIn("  start_period: 300s\n", anchor)
-        for name in ("alert-engine", "apim-management-api", "apim-gateway", "am-management-api", "am-gateway"):
+        for name in ("elasticsearch", "alert-engine", "apim-management-api", "apim-gateway", "am-management-api",
+                     "am-gateway"):
             self.assertIn("      <<: *jvm-healthcheck\n", service_block(self.text, name), name)
 
     def test_a_check_asks_for_no_more_than_its_own_time(self):
@@ -65,6 +66,19 @@ class HealthChecksTest(unittest.TestCase):
     def test_mongodb_starts_node_js_twice_a_minute_once_it_runs(self):
         self.assertIn("      interval: 30s", service_block(self.text, "mongodb"))
         self.assertRegex(self.text, r"x-healthcheck: &healthcheck\n(?:  .*\n)*?  start_interval: 2s")
+
+    def test_a_mongodb_that_does_not_answer_is_unhealthy_within_minutes(self):
+        # Docker gives up after its start period and `retries` failed checks in a row, one every `interval`
+        check = self.healthcheck("mongodb")
+        self.assertLessEqual(check["start_period"] + check["retries"] * check["interval"], 300, check)   # it never answers
+        self.assertLessEqual(check["retries"] * check["interval"], 180, check)   # it stops answering once it ran
+
+    def healthcheck(self, name):
+        """The timing of a service's health check, in seconds and counts: the shared anchor, with what the service sets."""
+        anchor = re.search(r"^x-healthcheck: &healthcheck\n((?:  .*\n)+)", self.text, re.M).group(1)
+        own = re.search(r"^    healthcheck:\n((?:      .*\n)+)", service_block(self.text, name), re.M).group(1)
+        timing = r"^\s+(interval|retries|start_period): (\d+)s?\b"
+        return {key: int(value) for key, value in re.findall(timing, anchor + own, re.M)}
 
 
 if __name__ == "__main__":

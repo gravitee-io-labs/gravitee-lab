@@ -37,7 +37,9 @@ An add-on is one capability on top of the core platform: a folder with its `comp
    of its `catalog.yml`, never one of this machine. A personal item includes what it wants.
 4. Write every password, secret, token and key as a setting, never a literal: `${NAME:-default}` with a public demo
    value as the default, or `${NAME}` when the person must provide it. The check refuses a literal in the item of a
-   catalog. Put the real values in `.env`, in its folder, never in `compose.yml`.
+   catalog. Put the real values in `.env`, in its folder, never in `compose.yml`. A setting is never written into a
+   `CMD-SHELL` health check or a `command` written as one line: the check reads the container's own variable as
+   `"$${VAR}"`, in double quotes, and the command is a list.
 5. Check it. For an item of a folder catalog, run `python3 -I lab-ui/catalog.py check <catalog id>` from the project's
    folder and fix what it says until it prints "All good". A personal item is read by Compose when the Lab UI shows
    it: the page says why one does not load.
