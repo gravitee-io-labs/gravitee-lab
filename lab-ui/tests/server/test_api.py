@@ -329,6 +329,18 @@ class State(LabUI):
         self.registered = self.patch(api.platforms, "read", return_value=[])
         self.held = self.patch(api.places, "deployed", return_value=[])
 
+    def test_an_entry_of_the_on_file_that_compose_cannot_read_is_not_asked_of_compose_at_every_poll(self):
+        # Every command that reads the on file fails on it, and a failure is asked again at the next poll: the hashes of
+        # what is saved are not asked while it is there
+        self.patch(api.compose, "ps", return_value={})
+        self.layers["unread"] = "addons/local/mine/compose.yml does not load"
+        self.request("GET", "/api/state")
+        self.saved.assert_not_called()
+        self.assertIsNone(self.build.call_args.kwargs["saved"])
+        self.layers["unread"] = None
+        self.request("GET", "/api/state")
+        self.saved.assert_called_once_with(PROJECT)
+
     def test_docker_down_is_a_state_not_a_failure(self):
         self.patch(api.compose, "ps", side_effect=compose.ComposeError("Cannot connect to the Docker daemon"))
         status, _, body = self.request("GET", "/api/state")
