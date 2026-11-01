@@ -1915,6 +1915,7 @@ class CommandLine(LabUI):
                                   "docker not found: install Docker with Compose 5.0 or later "
                                   "(see Prerequisites in README.md)")]:
             run.return_value = answer
+            api.compose.CACHE.drop("docker:")   # each is another machine
             self.assertEqual(api.requirement(), expected)
 
     def test_a_compose_that_lacks_nothing_is_asked_once_for_the_time_the_state_keeps_it(self):
@@ -1924,6 +1925,8 @@ class CommandLine(LabUI):
         for _ in range(3):
             api._docker_down({"docker": {"error": None}, "problems": []})
         self.assertEqual(run.call_count, 1)
+        # The one reading of it, which the Dashboard and the check of the machine share
+        self.assertEqual((api.compose.compose_version(), run.call_count), ("5.6.1", 1))
 
     def test_busy_port_opens_the_lab_ui_that_runs(self):
         self.folder(paths)

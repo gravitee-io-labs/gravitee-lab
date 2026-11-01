@@ -85,7 +85,7 @@ def _docker_down(body):
         return
     down = [one for one in body.get("problems", []) if one.get("file") == paths.CORE_FILE
             and (compose.unreachable(one.get("message")) or "No such file or directory: 'docker'" in (one.get("message") or ""))]
-    lacking = compose.CACHE.get("requirement", 10, requirement)
+    lacking = requirement()
     if not down and not lacking:
         return
     row = machine.report()["checks"][0]
@@ -988,16 +988,18 @@ def find_docker():
 
 
 def requirement():
-    """What this machine lacks to run the lab, in one line, in the words of the Makefile's; "" when it lacks nothing,
-    which the cache of the state keeps as it keeps a line (it keeps no None)."""
-    rc, out, _ = compose.run(["docker", "compose", "version", "--short"], timeout=20)
-    if rc == 127:   # docker itself is not there
-        return f"docker not found: install Docker with Compose 5.0 or later {README}"
-    version = tuple(int(number) for number in re.findall(r"\d+", out)[:2])
+    """What this machine lacks to run the lab, in one line, in the words of the Makefile's; "" when it lacks nothing. From
+    the version of Compose (compose.compose_version, which keeps it)."""
+    try:
+        found = compose.compose_version()
+    except compose.ComposeError as error:
+        if str(error) == compose.NO_DOCKER:
+            return f"docker not found: install Docker with Compose 5.0 or later {README}"
+        found = ""
+    version = tuple(int(number) for number in re.findall(r"\d+", found)[:2])
     # An add-on or a playground changes core services from an included file: Compose merges them from 5.0 on, earlier
     # versions refuse them ("conflicts with imported resource")
-    if rc != 0 or len(version) < 2 or version < (5, 0):
-        found = out.strip().lstrip("v") if rc == 0 else ""
+    if len(version) < 2 or version < (5, 0):
         return f"Docker Compose 5.0 or later is needed, found: {found or 'none'} {README}"
     return ""
 

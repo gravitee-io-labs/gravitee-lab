@@ -16,13 +16,12 @@ def _wanted(key):
     """What Compose makes each service with now: {service: {"env": {variable: digest}, "labels": {label: digest}}};
     None when Compose cannot say."""
     def ask():
-        try:
-            services = compose.resolved([])
-        except compose.ComposeError:
-            return None
         return {name: {"env": _digests(service.get("environment"), True), "labels": _digests(service.get("labels"), True)}
-                for name, service in services.items()}
-    return compose.CACHE.get(f"environment:{key}", 300, ask)
+                for name, service in compose.resolved([]).items()}
+    try:
+        return compose.CACHE.get(f"environment:{key}", 300, ask)
+    except compose.ComposeError:
+        return None
 
 
 def _digests(pairs, escaped=False):

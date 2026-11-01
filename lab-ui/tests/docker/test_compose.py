@@ -989,9 +989,16 @@ class Kept(unittest.TestCase):
         self.assertEqual((len(calls), answers), (1, [{"mongodb": "h"}] * 3))
 
     def test_a_failure_is_asked_again_and_an_answer_is_kept_for_its_time(self):
-        cache, answers = compose.Cache(), iter([None, "29.7.2"])
-        self.assertIsNone(cache.get("version", 10, lambda: next(answers)))
-        self.assertEqual(cache.get("version", 10, lambda: next(answers)), "29.7.2")
+        # What the read raises is not kept; any answer is, None and "" too (an answer that nothing lacks is one)
+        cache = compose.Cache()
+
+        def failing():
+            raise compose.ComposeError("Cannot connect to the Docker daemon")
+        with self.assertRaises(compose.ComposeError):
+            cache.get("version", 10, failing)
+        self.assertEqual(cache.get("version", 10, lambda: "29.7.2"), "29.7.2")
+        self.assertIsNone(cache.get("none", 10, lambda: None))
+        self.assertIsNone(cache.get("none", 10, lambda: "asked again"))
         self.assertEqual(cache.get("version", 10, lambda: "asked again"), "29.7.2")
         self.assertEqual(cache.get("version", 0, lambda: "asked again"), "asked again")
         cache.drop("ver")
@@ -1018,8 +1025,8 @@ class Kept(unittest.TestCase):
 class Docker(Case):
 
     def setUp(self):
-        compose.CACHE.drop("docker-memory")
-        self.addCleanup(compose.CACHE.drop, "docker-memory")
+        compose.CACHE.drop("docker:")
+        self.addCleanup(compose.CACHE.drop, "docker:")
 
     def test_its_memory_or_none_when_it_does_not_answer(self):
         with mock.patch.object(compose, "run", return_value=(1, "", "Cannot connect to the Docker daemon")):
@@ -1035,13 +1042,64 @@ class Docker(Case):
             for _ in range(3):
                 self.assertEqual(compose.docker_memory(), 8_000_000_000)
         self.assertEqual(run.call_count, 1)
-        self.assertGreaterEqual(compose.MEMORY_TTL, 600)
+        self.assertGreaterEqual(compose.INFO_TTL, 600)
         with mock.patch.object(compose, "project_name", return_value="lab"), \
                 mock.patch.object(compose, "run", return_value=(1, "", "Cannot connect to the Docker daemon")):
             self.assertEqual(compose.containers(), ({}, "Cannot connect to the Docker daemon"))
         more = json.dumps({"ServerVersion": "29.7.2", "MemTotal": 16_000_000_000})
         with mock.patch.object(compose, "run", return_value=(0, more, "")):
             self.assertEqual(compose.docker_memory(), 16_000_000_000)   # started again with more
+
+    def test_what_it_says_of_itself_and_its_words_when_it_does_not_answer_which_are_not_kept(self):
+        down = json.dumps({"ServerVersion": "", "ServerErrors": ["Cannot connect to the Docker daemon at unix:///x"]})
+        info = json.dumps({"ServerVersion": "29.7.2", "OperatingSystem": "Docker Desktop", "NCPU": 6, "MemTotal": 8,
+                           "DockerRootDir": "/var/lib/docker"})
+        with mock.patch.object(compose, "run", return_value=(1, down, "")) as run:
+            with self.assertRaisesRegex(compose.ComposeError, "Cannot connect to the Docker daemon"):
+                compose.docker_info()
+            run.return_value = (1, "", "Client: x\nerror during connect: Get docker.sock: EOF\n")
+            with self.assertRaisesRegex(compose.ComposeError, "error during connect"):   # the last line it printed
+                compose.docker_info()
+            run.return_value = (127, "", "")
+            with self.assertRaisesRegex(compose.ComposeError, "Docker is not reachable"):
+                compose.docker_info()
+            run.return_value = (0, info, "")
+            self.assertEqual(compose.docker_info(), {"engine": "29.7.2", "os": "Docker Desktop", "cpus": 6, "memory": 8,
+                                                     "root": "/var/lib/docker"})
+            self.assertEqual(run.call_args.args[0], ["docker", "info", "--format", "{{json .}}"])
+        self.assertEqual(run.call_count, 4)
+
+    def test_the_version_of_its_compose_is_kept_a_minute_and_none_is_asked_again(self):
+        answers = {"version": (0, "v5.4.0\n", "")}
+        with mock.patch.object(compose, "run", side_effect=lambda command, **_: answers["version"]) as run:
+            self.assertEqual([compose.compose_version() for _ in range(3)], ["5.4.0"] * 3)
+            self.assertEqual((run.call_count, compose.DOCKER_TTL), (1, 60))
+            compose.CACHE.drop("docker:")
+            answers["version"] = (127, "", "[Errno 2] No such file or directory: 'docker'")
+            with self.assertRaisesRegex(compose.ComposeError, compose.NO_DOCKER):
+                compose.compose_version()
+            answers["version"] = (1, "", "docker: 'compose' is not a docker command")
+            with self.assertRaisesRegex(compose.ComposeError, "is not a docker command"):
+                compose.compose_version()
+            self.assertEqual(run.call_count, 3)   # a Compose that is not there is looked for again
+        with mock.patch.object(compose, "run", return_value=(0, "5.6.1\n", "")):
+            self.assertEqual(compose.compose_version(), "5.6.1")
+        with mock.patch.object(compose, "project_name", return_value="lab"), \
+                mock.patch.object(compose, "run", return_value=(1, "", "Cannot connect to the Docker daemon")):
+            compose.containers()   # Docker does not answer: an update may start it again with another Compose
+        with mock.patch.object(compose, "run", return_value=(0, "5.7.0\n", "")):
+            self.assertEqual(compose.compose_version(), "5.7.0")
+
+    def test_each_fact_docker_says_is_read_in_one_place(self):
+        # One reading of `docker info`, `docker compose version` and `docker images` that the state, the Dashboard, the check
+        # of the machine and the Images page share: a second one would see a change of Docker at another time. The CI's
+        # commands (catalogs/ci) run once and keep nothing
+        package = Path(compose.__file__).parents[1]
+        found = [f"{path.relative_to(package)}: {spelled}" for path in sorted(package.rglob("*.py"))
+                 if path != Path(compose.__file__) and path.relative_to(package).parts[:2] != ("catalogs", "ci")
+                 for spelled in ('"docker", "info"', '"compose", "version"', '"docker", "images"')
+                 if spelled in path.read_text(encoding="utf-8")]
+        self.assertEqual(found, [])
 
     def test_its_scratch_folder_is_private_and_kept_for_the_run(self):
         folder = compose.scratch()

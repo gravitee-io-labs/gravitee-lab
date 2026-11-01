@@ -173,13 +173,10 @@ def _image_plugins(service, folder):
     None), kept by the image they were read from (compose.image_key): read again once its container runs another one,
     or its tag names another image. (None, (exit code, what Docker said)) when they cannot be read: such an answer is
     not kept."""
-    failed = []
-
     def read():
         rc, out, err = compose.shell(service, ["-c", BUNDLED_SCRIPT, folder], 60)
         if rc != 0:
-            failed.append((rc, err))
-            return None
+            raise compose.ComposeError(rc, err)
         found = {}
         for line in out.splitlines():
             mtime, file, plugin_id, feature = (line.split(" ") + ["", "", ""])[:4]
@@ -188,8 +185,10 @@ def _image_plugins(service, folder):
                 found[m.group("name")] = {"version": m.group("version"), "file": file, "mtime": int(mtime),
                                           "id": plugin_id or None, "feature": feature.strip() or None}
         return found
-    found = CACHE.get(f"plugin-bundled:{compose.image_key(service)}:{folder}", 24 * 3600, read)
-    return found, failed[0] if found is None else None
+    try:
+        return CACHE.get(f"plugin-bundled:{compose.image_key(service)}:{folder}", 24 * 3600, read), None
+    except compose.ComposeError as failed:
+        return None, failed.args
 
 
 def _bundled(project, target):

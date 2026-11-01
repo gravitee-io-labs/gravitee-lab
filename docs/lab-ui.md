@@ -268,8 +268,10 @@ resources run across the page under them, one line that you unfold.
 | The load and memory of the containers | One `docker stats` process | While the page is in view, folded or not |
 | The memory and cores of the machine, the disk | The system itself, with no Docker | The page opens |
 
-- **Docker's answers are kept for a minute.** Going to another page and back reads nothing again. *Count storage again* reads
-  `docker system df` again at once and keeps that answer for a minute. A read that failed is tried again after 10 seconds.
+- **Docker's answers are kept.** What Docker stores is kept for a minute, its Compose's version too; what Docker says of itself
+  until it restarts (at most 10 minutes), the same answer every page and the first step of *Welcome to Gravitee Lab* read. Going to
+  another page and back reads nothing again. *Count storage again* reads them again at once. A read that failed is tried again after
+  10 seconds.
 - **The load is live.** The Lab UI starts one `docker stats` process when the page connects and stops it when the last
   page that listens leaves. A tab you hide, or a page you leave, closes its connection, so the Lab UI in the background
   costs Docker nothing. A connection that the browser gave up on is opened again after 3 seconds, then 6, 12 and so on up to a minute. The CPU is the sum of the lab's

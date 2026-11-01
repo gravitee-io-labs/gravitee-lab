@@ -191,11 +191,9 @@ def registry_label(registry):
 
 
 def local_images():
-    """The images Docker holds, as repository:tag; None when Docker does not answer."""
-    def ask():
-        rc, out, _ = compose.run(["docker", "images", "--format", "{{.Repository}}:{{.Tag}}"], timeout=30)
-        return set(out.split()) if rc == 0 else None
-    return compose.CACHE.get("local:images", 10, ask)
+    """The images Docker holds, as repository:tag (compose.image_ids); None when Docker does not answer."""
+    held = compose.image_ids()
+    return None if held is None else set(held)
 
 
 def state(project):
@@ -530,8 +528,16 @@ def private_images(images):
 
     def ask(where):
         host, repository, reference = where
-        key = f"anonymous:{host}:{repository}" + (f":{reference}" if host else "")
-        return compose.CACHE.get(key, 3600, lambda: _anonymous(*where))
+
+        def public():
+            found = _anonymous(*where)
+            if found is None:   # the registry cannot tell: asked again the next time
+                raise LookupError(host)
+            return found
+        try:
+            return compose.CACHE.get(f"anonymous:{host}:{repository}" + (f":{reference}" if host else ""), 3600, public)
+        except LookupError:
+            return None
     places = list(dict.fromkeys(asked.values()))
     with ThreadPoolExecutor(max_workers=8) as pool:
         public = dict(zip(places, pool.map(ask, places)))

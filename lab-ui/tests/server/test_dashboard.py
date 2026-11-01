@@ -102,11 +102,13 @@ class Sizes(Case):
 
 
 class Docker(Case):
-    """What Docker says of itself, kept a minute, and read again when asked."""
+    """What Docker holds, kept a minute and read again when asked; what it says of itself is the state's reading
+    (compose.docker_info)."""
 
     def setUp(self):
-        self.addCleanup(compose.CACHE.drop, "local:dashboard:")
-        compose.CACHE.drop("local:dashboard:")
+        for prefix in ("local:dashboard:", "docker:"):
+            compose.CACHE.drop(prefix)
+            self.addCleanup(compose.CACHE.drop, prefix)
         self.answers = {"info": (0, json.dumps(INFO), ""), "version": (0, "v5.4.0\n", ""), "df": (0, DF, "")}
         self.run = self.patch(dashboard.compose, "run", side_effect=self.answer)
 
@@ -117,17 +119,6 @@ class Docker(Case):
     def asked(self, word):
         return sum(word in call.args[0] for call in self.run.call_args_list)
 
-    def test_the_engine_as_docker_info_says_it(self):
-        self.assertEqual(dashboard._info(), {"engine": "29.7.2", "os": "Docker Desktop", "cpus": 6,
-                                            "memory": 8320028672})
-        self.assertEqual(self.run.call_args.args[0], ["docker", "info", "--format", "{{json .}}"])
-
-    def test_the_compose_version_has_no_v(self):
-        self.assertEqual(dashboard._compose_version(), "5.4.0")
-        self.answers["version"] = (1, "", "unknown command")
-        compose.CACHE.drop("local:dashboard:")
-        self.assertIsNone(dashboard._compose_version())
-
     def test_what_docker_holds_comes_with_when_it_was_read(self):
         before = int(time.time())
         found = dashboard._usage()
@@ -135,34 +126,26 @@ class Docker(Case):
         self.assertGreaterEqual(found["read_at"], before)
         self.assertEqual(self.run.call_args.args[0], ["docker", "system", "df", "--format", "{{json .}}"])
 
-    def test_docker_that_does_not_answer_is_said_in_its_words_and_asked_again(self):
-        self.answers["info"] = (1, json.dumps({**INFO, "ServerVersion": "", "ServerErrors": [DOWN]}), "")
+    def test_docker_that_does_not_say_what_it_holds_is_asked_again(self):
         self.answers["df"] = (1, "", DOWN)
-        with self.assertRaisesRegex(RuntimeError, "Cannot connect to the Docker daemon"):
-            dashboard._info()
         self.assertIsNone(dashboard._usage())
-        self.answers["info"] = (1, "", "Client: x\nerror during connect: Get docker.sock: EOF\n")
-        with self.assertRaisesRegex(RuntimeError, "error during connect"):   # the last line it printed
-            dashboard._info()
-        self.answers["info"] = (127, "", "")
-        with self.assertRaisesRegex(RuntimeError, "Docker is not reachable"):
-            dashboard._info()
-        self.assertEqual(self.asked("info"), 3)   # a failure is not kept
-        self.answers["info"] = (0, json.dumps(INFO), "")
-        self.assertEqual(dashboard._info()["engine"], "29.7.2")
+        self.assertIsNone(dashboard._usage())
+        self.assertEqual(self.asked("system"), 2)   # a failure is not kept
+        self.answers["df"] = (0, DF, "")
+        self.assertEqual(dashboard._usage()["images"]["count"], 122)
 
     def test_a_minute(self):
         self.assertEqual((dashboard.DOCKER_TTL, dashboard.LATEST_TTL), (60, 3600))
         for _ in range(3):
-            dashboard._info(), dashboard._compose_version(), dashboard._usage()
-        self.assertEqual((self.asked("info"), self.asked("version"), self.asked("system")), (1, 1, 1))
+            dashboard.cores(), dashboard._usage()
+        self.assertEqual((self.asked("info"), self.asked("system")), (1, 1))
         self.patch(dashboard, "DOCKER_TTL", 0)
-        dashboard._info(), dashboard._usage()
-        self.assertEqual((self.asked("info"), self.asked("system")), (2, 2))
+        dashboard._usage()
+        self.assertEqual(self.asked("system"), 2)
 
     def test_the_cores_docker_has(self):
         self.assertEqual(dashboard.cores(), 6)
-        compose.CACHE.drop("local:dashboard:")
+        compose.CACHE.drop("docker:")
         self.answers["info"] = (1, "", DOWN)
         self.patch(dashboard.os, "cpu_count", return_value=11)
         self.assertEqual(dashboard.cores(), 11)   # the machine's when Docker does not say
@@ -462,7 +445,7 @@ class Read(Case):
         for cleanup in (dashboard._failed.clear, dashboard._reading.clear):
             cleanup()
             self.addCleanup(cleanup)
-        for prefix in ("local:dashboard:", "dashboard:"):
+        for prefix in ("local:dashboard:", "dashboard:", "docker:"):
             compose.CACHE.drop(prefix)
             self.addCleanup(compose.CACHE.drop, prefix)
         self.patch(dashboard, "_flight", None)

@@ -33,8 +33,9 @@ COMPOSE = ["docker", "compose", "--progress", "plain"]
 # longer since is stable (Docker's own back-off starts again after 10 s of uptime), however often it restarted while what it
 # needs warmed up
 RESTART_WINDOW = 60
-# How long the images Docker holds, and the memory it has, are kept, in seconds: a job drops the images it may move
-IMAGES_TTL, MEMORY_TTL = 60, 600
+# How long Docker's answers are kept, in seconds: the images it holds (a job drops them) and its Compose's version a minute,
+# what it says of itself ten minutes at most, as it changes only when Docker starts again (containers drops it then)
+DOCKER_TTL, INFO_TTL = 60, 600
 # How long Docker has to list the containers, in seconds: every state's refresh and every action asks it, and a Docker
 # that hangs (its machine asleep, an update) is said so then, not after the long limit of a command
 PS_TIMEOUT = 10
@@ -71,30 +72,33 @@ class Cache:
         # Of each key, the lock of whoever asks for its answer: those who want it meanwhile wait for that answer
         self._items, self._lock, self._asking = {}, threading.Lock(), {}
 
+    def _hit(self, key, ttl):
+        with self._lock:
+            hit = self._items.get(key)
+        return hit if hit and time.monotonic() - hit[0] < ttl else None
+
     def kept(self, key, ttl):
         """The answer kept under `key` while younger than `ttl` seconds, None otherwise. Nothing is asked, nor waited
         for: a read under way for that key is not."""
-        with self._lock:
-            hit = self._items.get(key)
-        return hit[1] if hit and time.monotonic() - hit[0] < ttl else None
+        hit = self._hit(key, ttl)
+        return hit[1] if hit else None
 
     def get(self, key, ttl, fn):
-        """The answer kept under `key` while younger than `ttl` seconds, else what fn() answers, kept unless None: a
-        failure is asked again next time. Asked at the same time (two pages' refreshes), fn runs once and both get its
-        answer."""
-        found = self.kept(key, ttl)
-        if found is not None:
-            return found
+        """The answer kept under `key` while younger than `ttl` seconds, else what fn() answers, kept whatever it is. What
+        fn raises is not kept: it reaches the caller, and the next one asks again. Asked at the same time (two pages'
+        refreshes), fn runs once and both get its answer."""
+        hit = self._hit(key, ttl)
+        if hit:
+            return hit[1]
         with self._lock:
             asking = self._asking.setdefault(key, threading.Lock())
         with asking:
-            found = self.kept(key, ttl)   # asked by another meanwhile
-            if found is not None:
-                return found
+            hit = self._hit(key, ttl)   # asked by another meanwhile
+            if hit:
+                return hit[1]
             value = fn()
-            if value is not None:
-                with self._lock:
-                    self._items[key] = (time.monotonic(), value)
+            with self._lock:
+                self._items[key] = (time.monotonic(), value)
             return value
 
     def drop(self, prefix=""):
@@ -1205,7 +1209,7 @@ def containers(variable=None):
     try:
         return ps(variable) if variable else ps(), None
     except ComposeError as error:
-        CACHE.drop("docker-memory")   # read again once it answers: it may have started again with other settings
+        CACHE.drop("docker:")   # what Docker says of itself, read again once it answers: it may start again otherwise
         return {}, str(error)
 
 
@@ -1240,9 +1244,14 @@ def image_ids():
     """The images Docker holds: {repository:tag: image id}; None when Docker does not answer. A pull or a build may
     move a tag to another image: asked again after every job, and a minute later (a pull typed in a terminal)."""
     def ask():
-        rc, out, _ = run(["docker", "images", "--no-trunc", "--format", "{{.Repository}}:{{.Tag}} {{.ID}}"], timeout=30)
-        return dict(line.split(" ", 1) for line in out.splitlines() if " " in line) if rc == 0 else None
-    return CACHE.get("local:image-ids", IMAGES_TTL, ask)
+        rc, out, err = run(["docker", "images", "--no-trunc", "--format", "{{.Repository}}:{{.Tag}} {{.ID}}"], timeout=30)
+        if rc != 0:
+            raise ComposeError(_last_line(err))
+        return dict(line.split(" ", 1) for line in out.splitlines() if " " in line)
+    try:
+        return CACHE.get("local:image-ids", DOCKER_TTL, ask)
+    except ComposeError:
+        return None
 
 
 _same = {}
@@ -1355,16 +1364,54 @@ def loaded():
     """The services of the files Compose reads now, the core's with what is on: an add-on that is off has none here, and
     `pull` or `up` of its service says "no such service". None when Compose cannot say."""
     def ask():
-        code, out, _ = run(["docker", "compose", "config", "--services"], 60)
-        return set(out.split()) if code == 0 else None
-    return CACHE.get("local:loaded-services", 5, ask)
+        code, out, err = run(["docker", "compose", "config", "--services"], 60)
+        if code != 0:
+            raise ComposeError(_last_line(err))
+        return set(out.split())
+    try:
+        return CACHE.get("local:loaded-services", 5, ask)
+    except ComposeError:
+        return None
+
+
+def docker_info():
+    """What Docker says of itself, the one reading of `docker info` that every page shares: {engine, os, cpus, memory, root}
+    (the cpus and memory Docker has, not the machine; root, where it keeps its images). ComposeError in Docker's words when
+    it does not answer."""
+    def ask():
+        rc, out, err = run(["docker", "info", "--format", "{{json .}}"], timeout=20)
+        try:
+            info = json.loads(out)
+        except ValueError:
+            info = None
+        info = info if isinstance(info, dict) else {}
+        if rc != 0 or not info.get("ServerVersion"):
+            raise ComposeError(next(iter(info.get("ServerErrors") or []), None)
+                               or (err.strip().splitlines() or ["Docker is not reachable"])[-1])
+        return {"engine": info["ServerVersion"], "os": info.get("OperatingSystem"), "cpus": info.get("NCPU"),
+                "memory": info.get("MemTotal"), "root": info.get("DockerRootDir")}
+    return CACHE.get("docker:info", INFO_TTL, ask)
 
 
 def docker_memory():
-    """The memory Docker has, or None when Docker is not reachable. It changes only as Docker starts again (its
-    settings changed): kept MEMORY_TTL seconds, and dropped when Docker did not answer (containers)."""
+    """The memory Docker has (docker_info), or None when Docker is not reachable."""
+    try:
+        return docker_info()["memory"]
+    except ComposeError:
+        return None
+
+
+NO_DOCKER = "docker not found"   # what compose_version() raises when there is no `docker` to run
+
+
+def compose_version():
+    """The version of Docker Compose without its v ("5.6.1"), the one reading of `docker compose version` that every page
+    shares. ComposeError when there is none: NO_DOCKER without a `docker` to run."""
     def ask():
-        rc, out, _ = run(["docker", "info", "--format", "{{json .}}"], timeout=20)
-        info = json.loads(out) if rc == 0 else {}
-        return info.get("MemTotal") if info.get("ServerVersion") else None
-    return CACHE.get("docker-memory", MEMORY_TTL, ask)
+        rc, out, err = run(["docker", "compose", "version", "--short"], timeout=20)
+        if rc == 127:
+            raise ComposeError(NO_DOCKER)
+        if rc != 0 or not out.strip():
+            raise ComposeError(_last_line(err))
+        return out.strip().lstrip("v")
+    return CACHE.get("docker:compose", DOCKER_TTL, ask)

@@ -2312,7 +2312,15 @@ def saved(project):
     does not answer: nothing is known to run behind."""
     if not project["core_loaded"]:
         return {"hashes": {}, "images": {}}
-    hashes = compose.CACHE.get(f"config-hash:{config_key()}", 300, compose.config_hashes) or {}   # a failure is not kept
+    def ask():
+        found = compose.config_hashes()
+        if found is None:   # not kept: asked again at the next state
+            raise compose.ComposeError("the files do not load")
+        return found
+    try:
+        hashes = compose.CACHE.get(f"config-hash:{config_key()}", 300, ask)
+    except compose.ComposeError:
+        hashes = {}
     held = compose.image_ids() or {}
     images = {name: held.get(compose.reference(service["image"])) for name, service in project["services"].items()
               if service["image"]}

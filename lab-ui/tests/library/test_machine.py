@@ -3,6 +3,7 @@ answer (stood in for here): Docker not there, there and stopped, with a Compose 
 the platform held by another program; Git missing; in WSL, Docker Desktop for Windows stopped, lost or never told to serve the
 distribution, and a lab on a disk of Windows. A fix runs here on a Mac and in WSL; a link or a command to copy otherwise."""
 
+import json
 from pathlib import Path
 from unittest import mock
 
@@ -13,7 +14,8 @@ from .. import Case
 
 HEALTHY = {
     ("docker", "--version"): (0, "Docker version 29.8.2", ""),
-    ("docker", "info"): (0, "29.8.2|Docker Desktop|8320028672|/var/lib/docker\n", ""),
+    ("docker", "info"): (0, json.dumps({"ServerVersion": "29.8.2", "OperatingSystem": "Docker Desktop", "MemTotal": 8320028672,
+                                        "DockerRootDir": "/var/lib/docker"}), ""),
     ("docker", "compose"): (0, "5.6.0\n", ""),
     ("docker", "ps"): (0, "127.0.0.1:9200->9200/tcp\n", ""),
     ("git", "--version"): (0, "git version 2.43.2", ""),
@@ -42,6 +44,8 @@ class Machine(Case):
         self.patch(machine.shutil, "which", side_effect=lambda name: f"/opt/homebrew/bin/{name}")
         machine._asked.clear()
         machine._last.update(at=0.0, report=None)
+        machine.compose.CACHE.drop("docker:")
+        self.addCleanup(machine.compose.CACHE.drop, "docker:")
 
     def check(self, check_id):
         return next(c for c in machine.report(fresh=True)["checks"] if c["id"] == check_id)
@@ -244,7 +248,8 @@ class Machine(Case):
         self.assertNotIn("folder", [c["id"] for c in machine.report(fresh=True)["checks"]])
 
     def test_short_memory_is_a_warning_that_lets_the_platform_start(self):
-        self.answers[("docker", "info")] = (0, f"29.8.2|Docker Desktop|{6 * 2 ** 30}|/var/lib/docker", "")
+        self.answers[("docker", "info")] = (0, json.dumps({"ServerVersion": "29.8.2", "OperatingSystem": "Docker Desktop",
+                                                           "MemTotal": 6 * 2 ** 30}), "")
         memory = self.check("memory")
         self.assertEqual((memory["state"], memory["detail"]), ("warn", "6 GB: give it 8 GB in the settings of Docker Desktop"))
         self.assertTrue(machine.report(fresh=True)["ready"])

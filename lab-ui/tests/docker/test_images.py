@@ -208,8 +208,8 @@ class Images(Case):
         self.assertTrue(images.state(self.project)["azure_in_use"])
 
     def test_with_docker_not_answering_what_is_pulled_is_not_known(self):
-        compose.CACHE.drop("local:images")
-        self.addCleanup(compose.CACHE.drop, "local:images")
+        compose.CACHE.drop("local:image-ids")
+        self.addCleanup(compose.CACHE.drop, "local:image-ids")
         self.patch(compose, "run", return_value=(1, "", "Cannot connect to the Docker daemon"))
         self.assertIsNone(images.local_images())
         self.patch(layers, "current", return_value={"effective": [], "playground": None})
