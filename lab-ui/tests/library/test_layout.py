@@ -1707,9 +1707,7 @@ class Failing(Machine):
         with self.eio("playgrounds/local/trip-demo"):
             ok, said, complained = self.at_start()
         self.assertEqual((ok, said), (False, [layout.MOVING]))
-        self.assertEqual(complained[0], layout.FAILED)
-        self.assertIn("Input/output error", complained[1])
-        self.assertEqual(len(complained), 2)
+        self.assertEqual(complained, [layout.FAILED, "Input/output error"])   # a disk's own words
         self.assertEqual(self.text("playgrounds/local/trip-demo/.env"), "TRIP=secret-trip\n")
         self.assertEqual(digest(self.root / "playgrounds/local/trip-demo"), trip)   # nothing of it was touched
         self.assertFalse(self.exists(".lab/layout.json"))
@@ -2189,7 +2187,7 @@ class Odd(Machine):
         os.chmod(self.root / "addons", 0o000)
         try:
             self.assertIn("S2", layout._signals())
-            self.assertEqual(self.at_start()[0], False)
+            self.assertEqual(self.at_start(), (False, [layout.MOVING], [layout.FAILED, "Permission denied: addons"]))   # from the project
             self.assertFalse(self.exists(".lab/layout.json"))
             self.assertIs(layout.pending(), True)
         finally:
@@ -2306,7 +2304,7 @@ class Module(Case):
     def test_the_signatures_of_what_the_two_commands_call(self):
         import inspect
         self.assertEqual({name: str(inspect.signature(getattr(layout, name))) for name in ("pending", "run", "migrate")},
-                         {"pending": "() -> bool", "run": "(say=<built-in function print>, complain=None) -> bool",
+                         {"pending": "() -> bool", "run": "(say=None, complain=None) -> bool",
                           "migrate": "() -> dict"})
         for gone in ("status", "waiting", "ensure", "migrate_personal", "dismiss", "restart_row"):
             self.assertFalse(hasattr(layout, gone), gone)

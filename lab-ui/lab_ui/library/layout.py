@@ -316,6 +316,20 @@ def _printable(text):
     return "".join(char if char.isprintable() else " " for char in str(text))
 
 
+def _reason(error):
+    """Why a move stopped, in a line: an error of the disk by its words and the path it names from the project folder, a
+    refusal by its message, a bug by its type alone (its words may hold anything), a stop by the person as such."""
+    if isinstance(error, KeyboardInterrupt):
+        return "Stopped"
+    if isinstance(error, OSError) and error.strerror:
+        named = error.filename if isinstance(error.filename, str) else ""
+        inside = named.startswith(str(paths.ROOT) + os.sep)
+        return f"{error.strerror}: {os.path.relpath(named, paths.ROOT) if inside else named}" if named else error.strerror
+    if isinstance(error, TROUBLE):
+        return getattr(error, "message", None) or str(error) or type(error).__name__
+    return type(error).__name__
+
+
 # ---------------------------------------------------------------------------------------------------------------------
 # Writing: private folders, atomic files, the locks
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1316,16 +1330,14 @@ def pending() -> bool:
         return False
 
 
-def run(say=print, complain=None) -> bool:
+def run(say=None, complain=None) -> bool:
     """The move of this folder when it needs one, said as it goes: before the Lab UI serves, and from `make update`. The
     default catalog is downloaded first when it is not there, since the items move into it. What moved that a person may
     want to look at, and each problem, is a line of `say`; why it could not move is two lines of `complain` (standard
     error). Answers whether the Lab can work on the folder: False when the move could not be made, and the next run tries
     again. A folder with nothing to move says nothing, and one whose content git tracks says why it is not moved."""
-    def complained(text):
-        print(text, file=sys.stderr, flush=True)
-
-    complain = complain or complained
+    say = say or (lambda text: print(text, flush=True))   # in the order they come, whatever buffers a pipe keeps
+    complain = complain or (lambda text: print(text, file=sys.stderr, flush=True))
     try:
         why = _inactive()
         if why == "tracked":
@@ -1342,8 +1354,7 @@ def run(say=print, complain=None) -> bool:
         report = migrate()
     except (Exception, KeyboardInterrupt) as error:  # noqa: BLE001 - whatever stops the move is said: the Lab does not start half moved
         complain(FAILED)
-        complain(_printable(getattr(error, "message", None) or str(error) or type(error).__name__) if isinstance(error, TROUBLE)
-                 else "Stopped" if isinstance(error, KeyboardInterrupt) else type(error).__name__)   # a bug: its type, not its words
+        complain(_printable(_reason(error)))
         return False
     for line in _told(report):
         say(_printable(line))
