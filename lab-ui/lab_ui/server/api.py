@@ -388,8 +388,8 @@ def start_gateway(req, pid, gid):
     """Starts a gateway: the add-on that runs it, with the token kept for this one. It is a job of the add-on, whose
     own buttons show it, and runs as every plan's (layers.steps). The token is written by the job once what goes is
     removed, before the on file is written and the add-on made, whenever the gateway is not the one that runs here: the
-    add-on may hold another, or one no platform lists any more. The add-on may come from a catalog: the start is verified by the catalogs (layers.check), as every
-    other start is."""
+    add-on may hold another, or one no platform lists any more. The add-on may come from a catalog: the start is
+    verified by the catalogs (layers.check), as every other start is."""
     p = project.load()
     plan, place = gateway_plan(p, pid, gid)
     layers.check(p, plan, accepted(req))

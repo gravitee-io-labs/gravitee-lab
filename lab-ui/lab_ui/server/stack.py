@@ -204,8 +204,9 @@ def _reset(project, by_name):
 def _core_start(project, accept):
     """Start all with API Management in the Cloud (core.plan, made again now, the platform read again): the hybrid gateway
     of the chosen environment, its plan run as every plan's (layers.steps, its token written once what goes is removed
-    when the add-on holds another one), then the rest of the platform and what is on, with what they depend on. Nothing of API Management
-    starts, nor what exists only for it. What it stops or turns off besides must be what the page showed (`accept`)."""
+    when the add-on holds another one), then the rest of the platform and what is on, with what they depend on. Nothing
+    of API Management starts, nor what exists only for it. What it stops or turns off besides must be what the page
+    showed (`accept`)."""
     state, containers = layers.current(project), compose.ps()
     found = core.plan(project, state, containers, projects.saved(project), live=True)
     gateway, place, others = found["gateway"], found["place"], found["others"]
