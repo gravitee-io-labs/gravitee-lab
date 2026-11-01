@@ -1191,6 +1191,26 @@ class Documents(Portals):
         self.run_seed()
         self.assertEqual(([p["published"] for p in self.own(0).values()], len(self.own(0))), ([True], 1))
 
+    def test_a_page_whose_answer_was_lost_stays_the_seeds_when_the_run_that_claims_it_fails_after(self):
+        self.document()
+        pages = re.compile(V2 + "/[^/]+/apis/[^/]+/pages")
+
+        def made(call):   # the platform makes the page, and the seed never gets the answer
+            self.world.create_own(call)
+            raise requests.ReadTimeout("slow")
+        self.platform.add({("POST", pages): made})
+        with self.assertRaisesRegex(SeedError, "no answer in 30 s"):
+            self.run_seed()
+        self.platform.add({("POST", pages): self.world.known(self.world.create_own)})
+        self.world.publishing = False   # the run that finds the page and claims it cannot publish it
+        with self.assertRaisesRegex(SeedError, "HTTP 500"):
+            self.run_seed()
+        self.world.publishing = True   # the platform is back: the page is the seed's, published, not refused as someone else's
+        self.run_seed()
+        [page] = self.own(0).values()
+        self.assertTrue(page["published"])
+        self.assertEqual(self.record()["legacy"], [{"api": "api-1", "page": page["id"]}])
+
     def test_a_second_run_changes_nothing_in_the_pages_of_the_apis_either(self):
         self.document()
         self.file("portal/api-details.md", DETAILS)

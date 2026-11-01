@@ -854,6 +854,9 @@ class Portals:
                     changed = True
                 else:
                     own.append({"api": api["id"], "page": page["id"]})
+                    if page["id"] not in mine:   # claimed: in the listing's record at once, as a page just made
+                        mine.add(page["id"])
+                        note(own)
                     if (page.get("content"), page.get("visibility"), bool(page.get("homepage"))) != (content, API_PAGE_VISIBILITY, homepage):
                         page = self.refusable(label, "PUT", f"{address}/{page['id']}", {**body, "order": page.get("order", 0)})
                         changed = True
