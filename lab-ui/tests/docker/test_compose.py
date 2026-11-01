@@ -847,10 +847,18 @@ class Saved(Case):
         # Built from changed sources: another manifest
         with mock.patch.object(compose, "run", side_effect=[(0, made, ""), (0, "sha256:other\n", "")]):
             self.assertFalse(compose.same_image("gio-bakery-api", "sha256:newer", "sha256:old"))
-        # No manifest to compare (Docker's former image store, or the container is gone), or the image is not
-        # there: another id is another image, asked again next time
-        for answers in (((0, "null\n", ""),), ((1, "", "No such container"),),
-                        ((0, made, ""), (1, "", "No such image"))):
+        # No manifest to compare (Docker's former image store), or the image has none for that platform: another id is
+        # another image, kept as the rest, so that a state's refresh does not ask again
+        for answers in (((0, "null\n", ""),), ((0, made, ""), (1, "", "Error: No such image: sha256:gone"))):
+            compose._same.clear()
+            with mock.patch.object(compose, "run", side_effect=answers) as run:
+                self.assertFalse(compose.same_image("gio-bakery-api", "sha256:gone", "sha256:old"))
+                self.assertFalse(compose.same_image("gio-bakery-api", "sha256:gone", "sha256:old"))
+            self.assertEqual(run.call_count, len(answers))
+        # Docker did not answer, or the container is gone: not known, asked again next time
+        compose._same.clear()
+        for answers in (((1, "", "No such container"),), ((0, made, ""), (1, "", "Cannot connect to the Docker daemon")),
+                        ((124, "", "docker did not answer within 20 s"),)):
             with mock.patch.object(compose, "run", side_effect=answers):
                 self.assertFalse(compose.same_image("gio-bakery-api", "sha256:gone", "sha256:old"))
         self.assertNotIn(("sha256:gone", "sha256:old"), compose._same)

@@ -1226,20 +1226,25 @@ def same_image(container, image, running):
     """Whether a container that runs image id `running` runs what image id `image` holds for its platform. Docker's
     image store records each build in an image's id: built again from unchanged sources, a tag names another id for
     the same image, which Compose keeps running. What it runs is told by the manifest it was made from; an image
-    built here has no other id to compare it with. Kept for good: an id always names the same content."""
+    built here has no other id to compare it with, and neither has one that Docker's former image store holds. Kept for
+    good once Docker answered: an id always names the same content. Asked again when it did not (the container gone,
+    Docker not answering)."""
     key = (image, running)
     if key not in _same:
         rc, out, _ = run(["docker", "container", "inspect", "--format", "{{json .ImageManifestDescriptor}}", container],
                          timeout=20)
-        made = json.loads(out) if rc == 0 and out.strip() not in ("", "null") else None
+        if rc != 0:
+            return False   # not known now: another id is another image
+        made = json.loads(out) if out.strip() else None
         platform = (made or {}).get("platform") or {}
         if not made or not platform.get("os"):
-            return False   # no manifest to compare: another id is another image
+            _same[key] = False   # no manifest to compare: another id is another image
+            return False
         wanted = "/".join(filter(None, (platform["os"], platform.get("architecture"), platform.get("variant"))))
-        rc, out, _ = run(["docker", "image", "inspect", "--platform", wanted, "--format", "{{.Id}}", image], timeout=20)
-        if rc != 0:
-            return False   # not known now: asked again next time
-        _same[key] = out.strip() == made["digest"]
+        rc, out, err = run(["docker", "image", "inspect", "--platform", wanted, "--format", "{{.Id}}", image], timeout=20)
+        if rc != 0 and "No such image" not in err:
+            return False   # not known now
+        _same[key] = rc == 0 and out.strip() == made["digest"]
     return _same[key]
 
 
