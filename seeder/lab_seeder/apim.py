@@ -933,19 +933,17 @@ def check_environment(where, wanted):
             raise SeedError(f"{where}/subscriptions: the consumerConfiguration of {spec['application']} → {spec['api']} needs an entrypointId")
 
 
-def seed_own(apim, settings, apis, applications, subscriptions, definitions):
-    """The platform's own environment, from seed/apim/. The APIs and the applications do not depend on one another, so they are
-    made at the same time (SEED_WORKERS), and the subscriptions, which name both, after them."""
+def seed_own(apim, settings, loaded, applications, subscriptions):
+    """The platform's own environment, from seed/apim/ (`loaded`: its API files, read). The APIs and the applications do not
+    depend on one another, so they are made at the same time (SEED_WORKERS), and the subscriptions, which name both, after them."""
     if settings:
         apim.settings(load(settings))
-    loaded = [(load(path), path.name) for path in apis]
-    definitions.extend(definition for definition, _ in loaded)
     together([lambda each=each: apim.import_api(*each) for each in loaded]
              + [lambda path=path: apim.application(load(path)) for path in applications])
     parallel(apim.subscription, [spec for path in subscriptions for spec in load(path).get("subscriptions", [])])
 
 
-def seed_environment(apim, wanted, definitions):
+def seed_environment(apim, wanted):
     """One extra environment, from seed/environments/<id>/, which exists: the seed's login must act in it, then its users,
     settings and groups, which the APIs and the applications name, then the APIs and the applications, then the subscriptions."""
     log(SECTION, f"Environment {wanted['name']} ({apim.env})")
@@ -955,12 +953,7 @@ def seed_environment(apim, wanted, definitions):
     if wanted["settings"]:
         apim.settings(wanted["settings"])
     apim.groups(wanted["groups"])
-    imports = []
-    for definition, file_name in wanted["apis"]:
-        # What is said while the gateway is waited for names the environment of the API
-        api = definition.get("api", {})
-        definitions.append({**definition, "api": {**api, "name": apim.scoped(api.get("name", file_name))}})
-        imports.append(lambda each=(definition, file_name): apim.import_api(*each))
+    imports = [lambda each=each: apim.import_api(*each) for each in wanted["apis"]]
     together(imports + [lambda spec=spec: apim.application(spec) for spec in wanted["applications"]])
     parallel(apim.subscription, wanted["subscriptions"])
 
@@ -978,10 +971,14 @@ def seed():
     scopes = [apim.at(wanted["id"]) for wanted in environments]
     for scope in scopes:
         scope.require_environment()   # all of them, before anything is changed in any
-    definitions = []
+    loaded = [(load(path), path.name) for path in apis]
+    # What the gateway is waited for, in this order: the platform's own APIs, then those of each environment, whose names say it
+    definitions = [definition for definition, _ in loaded] + [
+        {**definition, "api": {**definition.get("api", {}), "name": scope.scoped(definition.get("api", {}).get("name", file_name))}}
+        for scope, wanted in zip(scopes, environments) for definition, file_name in wanted["apis"]]
     # The environments do not depend on one another either: each is one step, and the platform's own is another
-    together([lambda: seed_own(apim, settings, apis, applications, subscriptions, definitions)]
-             + [lambda each=each: seed_environment(*each, definitions) for each in zip(scopes, environments)])
+    together([lambda: seed_own(apim, settings, loaded, applications, subscriptions)]
+             + [lambda each=each: seed_environment(*each) for each in zip(scopes, environments)])
     if common.waits_for_gateway():
         later("the gateway", lambda: wait_for_gateway(apim, definitions))
 
