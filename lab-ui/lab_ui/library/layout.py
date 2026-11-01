@@ -78,6 +78,8 @@ _backed = None   # the compose texts of the backup while a run keeps count of th
 MOVING = "Moving your settings to the new layout"
 DOWNLOADING = "Downloading playgrounds, setups and add-ons"
 FAILED = "Could not move your settings to the new layout. Nothing was deleted."   # then why, in a line of its own
+# Why, when the download needs Docker: the Makefile's words, since the Lab UI does not start
+NO_DOCKER = "Install Docker with Compose 5.0 or later (see Prerequisites in README.md), then start the Lab again."
 TRACKED = ("The Lab did not move any settings: git tracks addons, setups or playgrounds here, so they are the current "
            "layout.")
 # The rows of what moved that a person may want to look at, by the key of the report: what it is, and why
@@ -323,6 +325,8 @@ def _reason(error):
     refusal by its message, a bug by its type alone (its words may hold anything), a stop by the person as such."""
     if isinstance(error, KeyboardInterrupt):
         return "Stopped"
+    if isinstance(error, registry.CatalogError) and error.code == "docker_missing":
+        return NO_DOCKER   # the line of the background worker says the catalog downloads later: nothing runs to do it
     if isinstance(error, OSError) and error.strerror:
         named = error.filename if isinstance(error.filename, str) else ""
         inside = named.startswith(str(paths.ROOT) + os.sep)

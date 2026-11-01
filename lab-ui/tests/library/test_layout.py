@@ -710,6 +710,19 @@ class Download(Machine):
         self.assertNotIn(layout.DOWNLOADING, out.getvalue())
         self.assertIs(layout.pending(), True)
 
+    def test_no_compose_says_what_to_do_and_promises_no_download_that_will_not_happen(self):
+        # The stage check of the download stops on docker_missing (install.readable): the Lab UI exits, so its last line
+        # says what to do, not that the catalog downloads by itself later as the line of the background worker does
+        from lab_ui.library import check
+        self.build()
+        self.patch(firstrun, "reconcile", lambda: None)
+        self.patch(install, "unknown_at", lambda *args: None)   # Compose could not read the staged version
+        self.patch(check, "compose_missing", lambda: check.NO_COMPOSE)   # no docker CLI, or Compose older than 5
+        self.patch(firstrun, "_download", lambda ns, entry, row: install.readable("store")("0" * 40))
+        ok, said, complained = self.at_start()
+        self.assertEqual((ok, said, complained), (False, [layout.MOVING, layout.DOWNLOADING], [layout.FAILED, layout.NO_DOCKER]))
+        self.assertIs(layout.pending(), True)   # the next start tries again, and only a start does
+
     def test_the_catalog_has_to_be_valid_not_only_added(self):
         self.build()
         fixtures.install(self, "fixture", kind="folder")
@@ -1703,7 +1716,7 @@ class Said(Machine):
                          ["  COMPOSE_FILE in .env names a file that moved: edit it by hand"])
 
     def test_the_words_follow_the_rules_of_the_interface(self):
-        strings = [layout.MOVING, layout.DOWNLOADING, layout.FAILED, layout.TRACKED, layout.GUARD,
+        strings = [layout.MOVING, layout.DOWNLOADING, layout.FAILED, layout.NO_DOCKER, layout.TRACKED, layout.GUARD,
                    *(label for label, _ in layout.ROWS.values())]
         for text in strings + [hint for _, hint in layout.ROWS.values()]:
             self.assertEqual(text, text.strip())
