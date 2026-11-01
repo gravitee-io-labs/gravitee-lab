@@ -249,8 +249,8 @@ The Plugins page shows, for APIM and for AM, the catalog of download.gravitee.io
 bundle and what you added.
 
 - Tick a plugin and choose its version, then choose *Apply*. Apply says first what it installs, removes and restarts.
-- The page downloads everything first, and checks the size and the SHA-1 when one is published. Only then does it stop
-  the product, replace the files and clear the unpack cache. The product loads the plugins when it starts again.
+- The page downloads everything first, and checks the size and the SHA-1 when one is published. Only then does it
+  replace the files and restart the product, which loads the plugins as it starts.
 - *Refresh* reads the catalog from the download site again.
 - A plugin that needs a license feature shows *Needs a license*, *License expired* or *Not in the license*.
 - A plugin is of the Enterprise Edition, the *EE* tag after its name and under the *Enterprise* filter, when download.gravitee.io
@@ -264,7 +264,10 @@ product's containers. Without the Lab UI, drop a zip in the folder and run `make
 A plugin found twice, bundled in the image and added in the folder, loads from the most recent file, not from the
 highest version. The page marks an added plugin *Added, ignored* when the bundled one is newer.
 
-`make init` creates the plugin folders writable by everyone, because the containers unpack plugins there as user 1001.
+`make init` creates the plugin folders writable by everyone, because the containers unpack plugins there as user 1001,
+in `.work`. Each product unpacks every plugin again as it starts. Services that load the same folder, such as the
+Management API and the gateway of an add-on, must not start at the same time: after a plugin change, the Lab UI starts
+them one after another.
 
 ## Data and volumes
 

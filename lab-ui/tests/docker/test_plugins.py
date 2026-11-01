@@ -3,6 +3,7 @@ again. No Docker, no download: what they would answer is given."""
 
 import hashlib
 import io
+import os
 import unittest
 import zipfile
 from unittest import mock
@@ -234,17 +235,31 @@ class Installed(Case):
 
     def test_unload_stops_what_runs(self):
         self.assertEqual(self.running(({"gateway": {"state": "running"}}, None)), ["gateway"])
-        stop, clear = plugins._unload_steps(APIM, ["gateway"])
-        self.assertEqual((stop, callable(clear)), ([*compose.COMPOSE, "stop", "gateway"], True))
+        self.assertEqual(plugins._unload_steps(["gateway"]), [[*compose.COMPOSE, "stop", "gateway"]])
 
     def test_unload_when_nothing_runs_or_docker_does_not_answer(self):
-        (self.root / "plugins/apim/.work").mkdir(parents=True)
         for containers in (({"gateway": {"state": "exited"}}, None), ({}, "Cannot connect to the Docker daemon")):
             self.assertEqual(self.running(containers), [], containers)
-        job = Job("Plugins", plugins._unload_steps(APIM, []))
+        job = Job("Plugins", plugins._unload_steps([]))
         job.run()
-        self.assertEqual((job.ok, job.lines), (True, ["Cleared apim/.work", "Not running: loaded on next start"]))
-        self.assertFalse((self.root / "plugins/apim/.work").exists())
+        self.assertEqual((job.ok, job.lines), (True, ["Not running: loaded on next start"]))
+
+    def test_a_plugin_change_leaves_the_unpack_folder_to_the_product(self):
+        # On Linux the containers write .work as their own user, which this one cannot remove: the change does not
+        # touch it (each product unpacks every plugin again as it starts), ends well, and starts the product again
+        added = self.root / "plugins/apim/gravitee-policy-old-1.0.0.zip"
+        added.parent.mkdir(parents=True)
+        added.write_text("zip", encoding="utf-8")
+        theirs = self.root / "plugins/apim/.work/gravitee-policy-old-1.0.0"
+        theirs.mkdir(parents=True)
+        (theirs / "a.jar").write_text("jar", encoding="utf-8")
+        os.chmod(theirs, 0o555)
+        self.addCleanup(os.chmod, theirs, 0o755)
+        self.running(({"gateway": {"state": "running"}}, None))
+        job, more, commands = self.applied([], [added.name])
+        self.assertEqual(commands, [[*compose.COMPOSE, "stop", "gateway"],
+                                    [*compose.COMPOSE, "up", "-d", "--no-deps", "gateway"]])
+        self.assertTrue((theirs / "a.jar").exists())
 
     def test_apply_stops_and_starts_a_product_that_runs(self):
         added = self.root / "plugins/apim/gravitee-policy-old-1.0.0.zip"
@@ -614,12 +629,69 @@ class Installed(Case):
         self.assertEqual(len(waits), 4)   # both plugins, the stop and the image
         self.assertEqual((job.ok, seen), (True, [0, 0.25, 0.5, 0.625, 0.75, 0.875, 1]))
 
-    def test_a_plugin_cache_that_cannot_be_cleared_fails_the_job(self):
-        (self.root / "plugins/apim/.work").mkdir(parents=True)
-        self.patch(plugins.shutil, "rmtree", side_effect=PermissionError("Permission denied"))
-        job = Job("Plugins", plugins._unload_steps(APIM, []))
+    def project_sharing_a_folder(self):
+        """A product whose plugins three services load: the Management API, the gateway that depends on it, and an
+        add-on's gateway that depends only on its own Redis; an app that depends on the gateway."""
+        def service(container, depends=()):
+            return {"container": container, "image": f"graviteeio/{container}:4", "label": container, "oneshot": False,
+                    "depends_on": list(depends), "owner": {"kind": "platform", "id": "api-management", "name": "API"}}
+        services = {"api": service("gio-api", ["mongodb"]), "gateway": service("gio-gateway", ["api", "mongodb"]),
+                    "hybrid": service("gio-hybrid", ["hybrid-redis"]), "hybrid-redis": service("gio-hybrid-redis"),
+                    "mongodb": service("gio-mongodb"), "web": service("gio-web", ["gateway"])}
+        product = {"name": "API Management", "folder": "plugins/apim", "lib": {},
+                   "services": {"api": "/opt/api/plugins", "gateway": "/opt/gateway/plugins", "hybrid": "/opt/h/plugins"}}
+        return {"products": {"apim": product}, "services": services}
+
+    def test_services_that_share_a_plugin_folder_start_one_at_a_time(self):
+        # They unpack the plugins in the same folder as they start: two at once break each other's. The gateway waits
+        # for the Management API already (Compose starts what it depends on first); the add-on's gateway starts alone
+        # first, with what it depends on, and the others once it is ready
+        project, commands = self.project_sharing_a_folder(), []
+        job = Job("Start", [])
+        job.exec = commands.append
+        plugins.up(job, project, ["web", "gateway", "hybrid", "hybrid-redis", "api", "mongodb"])
+        wait = [*compose.COMPOSE, "up", "-d", "--no-deps", "--wait", f"--wait-timeout={plugins.WAIT}"]
+        self.assertEqual(commands, [[*wait, "hybrid", "hybrid-redis"],
+                                    [*compose.COMPOSE, "up", "-d", "--no-deps", "web", "gateway", "api", "mongodb"]])
+        # Without the add-on's, nothing changes: one `up`, as Compose orders it
+        commands.clear()
+        plugins.up(job, project, ["gateway", "api", "web"])
+        self.assertEqual(commands, [[*compose.COMPOSE, "up", "-d", "--no-deps", "gateway", "api", "web"]])
+
+    def test_a_wait_that_ends_unready_starts_the_others_and_a_cancel_does_not(self):
+        project, commands = self.project_sharing_a_folder(), []
+        job = Job("Start", [])
+
+        def run(command):
+            commands.append(command)
+            if "--wait" in command:
+                raise JobFailed("container gio-hybrid is unhealthy")
+        job.exec = run
+        plugins.up(job, project, ["hybrid", "api"])
+        self.assertEqual([command[-1] for command in commands], ["api", "hybrid"])   # neither depends on the other
+        commands.clear()
+        job.cancel()
+        with self.assertRaisesRegex(JobFailed, "unhealthy"):
+            plugins.up(job, project, ["hybrid", "api"])
+        self.assertEqual(len(commands), 1)
+
+    def test_apply_starts_again_one_at_a_time_what_shares_the_folder(self):
+        project = self.project_sharing_a_folder()
+        self.patch(compose, "containers", lambda: ({name: {"state": "running"} for name in ("api", "gateway", "hybrid")},
+                                                   None))
+        added = self.root / "plugins/apim/gravitee-policy-old-1.0.0.zip"
+        added.parent.mkdir(parents=True)
+        added.write_text("zip", encoding="utf-8")
+        jobs = self.patch(plugins, "JOBS")
+        plugins.apply(project, "apim", [], [added.name])
+        title, steps, more = self.started(jobs)
+        job, commands = Job(title, steps, phases=more["phases"], waits=more["waits"]), []
+        job.exec = commands.append
         job.run()
-        self.assertEqual((job.ok, job.error()), (False, "apim/.work could not be cleared: Permission denied"))
+        self.assertEqual(commands, [[*compose.COMPOSE, "stop", "api", "gateway", "hybrid"],
+                                    [*compose.COMPOSE, "up", "-d", "--no-deps", "--wait",
+                                     f"--wait-timeout={plugins.WAIT}", "hybrid"],
+                                    [*compose.COMPOSE, "up", "-d", "--no-deps", "api", "gateway"]])
 
 
 if __name__ == "__main__":

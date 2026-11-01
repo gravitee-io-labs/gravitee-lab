@@ -1,10 +1,9 @@
-"""Plugins of the Gravitee products: the catalog of download.gravitee.io, what each product's containers load, and
-adding or removing plugins in the folder the host shares with them."""
+"""Plugins of the Gravitee products: the catalog of download.gravitee.io, what each product's containers load,
+adding or removing plugins in the folder the host shares with them, and starting the services that share one."""
 
 import hashlib
 import http.client
 import re
-import shutil
 import socket
 import time
 import urllib.error
@@ -18,6 +17,7 @@ from . import compose
 from .compose import CACHE, COMPOSE
 from .images import web_error
 from .jobs import JOBS, JobFailed, awaited
+from ..library import layers
 from ..paths import NotFound, ROOT
 
 DOWNLOADS = "https://download.gravitee.io"
@@ -27,6 +27,7 @@ PLUGIN_PATH = re.compile(r"(graviteeio-[a-z]+/|graviteeio-ee/[a-z]+/|)plugins/[a
 CHUNK = 64 * 1024   # a download is read by pieces, so that the job says how far it is, and a cancel ends it
 DOWNLOAD_TRIES = 3   # a plugin download cut short or refused by a server error is tried again, then fails
 READ_TIMEOUT = 30   # seconds a download waits for its next piece before it is tried again
+WAIT = 120   # seconds a service that unpacks plugins is waited for before the next one that shares its folder starts
 
 # The plugin zips of a folder with their modification times; nothing, and no error, when it has none
 STAT_SCRIPT = 'for f in "$0"/*.zip; do [ -e "$f" ] && stat -c "%Y %n" "$f"; done; true'
@@ -385,30 +386,48 @@ def _change(job, folder, picked, remove=(), then=()):
             part.unlink(missing_ok=True)
 
 
-def _reset_work(job, folder):
-    """The unpack cache is rebuilt on start; a stale one breaks plugin loading: the job fails when it stays."""
-    work = folder / ".work"
-    if work.exists():
-        try:
-            shutil.rmtree(work)
-        except OSError as error:
-            raise JobFailed(f"{folder.name}/.work could not be cleared: {error}") from error
-        job.lines.append(f"Cleared {folder.name}/.work")
-
-
 def _running(target):
     """The services of a product that run now: none when Docker does not answer, and the files still change."""
     containers, _ = compose.containers()
     return [s for s in target["services"] if containers.get(s, {}).get("state") == "running"]
 
 
-def _unload_steps(target, running):
-    """Plugins are loaded on start: the product's running services stop, and the unpack cache is cleared only once
-    nothing uses it. Whatever starts them next loads the plugins."""
-    folder = ROOT / target["folder"]
+def _unload_steps(running):
+    """Plugins are loaded on start: the product's running services stop, and whatever starts them next loads the
+    plugins. Each service unpacks every plugin again as it starts (.work, in the shared folder): nothing of the last
+    start is kept, and nothing is cleared here, which on Linux the files of the containers' user would refuse."""
     if not running:
-        return [lambda job: _reset_work(job, folder), lambda job: job.lines.append("Not running: loaded on next start")]
-    return [[*COMPOSE, "stop", *running], lambda job: _reset_work(job, folder)]
+        return [lambda job: job.lines.append("Not running: loaded on next start")]
+    return [[*COMPOSE, "stop", *running]]
+
+
+def up(job, project, names):
+    """Starts these services, `up -d --no-deps`. The services that load a product's plugins unpack them in the same
+    folder as they start (.work), and two at once break each other's: a plugin of one does not load. Compose starts them
+    one after the other when one depends on the other, as the core's do. Any other one starts first and alone, with what
+    it depends on among these, in the order Compose would start them, and the next one once it is ready (healthy, or
+    running without a health check). A wait that ends otherwise, unhealthy or after WAIT seconds, keeps nothing else
+    from starting: its container says it."""
+    names = list(names)
+    depends = {name: layers.depends(project, names, [name]) for name in names}
+    order = {name: (len(depends[name]), name) for name in names}
+    alone = []
+    for product in project["products"].values():
+        together = []   # what one `up` may start: each depends on the ones before it
+        for name in sorted((name for name in names if name in product["services"]), key=order.get, reverse=True):
+            (together if all(name in depends[other] for other in together) else alone).append(name)
+    started = set()
+    for name in sorted(alone, key=order.get):
+        group = sorted(({name} | depends[name]) - started)
+        started.update(group)
+        try:
+            job.exec([*COMPOSE, "up", "-d", "--no-deps", "--wait", f"--wait-timeout={WAIT}", *group])
+        except JobFailed:
+            if job.canceled:
+                raise
+    rest = [name for name in names if name not in started]
+    if rest:
+        job.exec([*COMPOSE, "up", "-d", "--no-deps", *rest])
 
 
 def _pick(project, product, item):
@@ -439,7 +458,7 @@ def apply(project, product, install, remove):
     def unload(job):
         if running:
             job.step("Stop")
-        job.run_steps(_unload_steps(target, running))
+        job.run_steps(_unload_steps(running))
 
     def change(job):
         _change(job, folder, downloads, remove, then=[unload])
@@ -447,7 +466,7 @@ def apply(project, product, install, remove):
     def start(job):
         job.step("Start")
         # Only what was running starts again: a service it depends on that was stopped stays stopped
-        job.exec([*COMPOSE, "up", "-d", "--no-deps", *running])
+        up(job, project, running)
 
     steps = [change] + ([start] if running else [])
     phases = [phase for phase, _, _ in downloads] + (["Stop", "Start"] if running else [])
@@ -474,7 +493,7 @@ def install_steps(project, product, names):
     """The steps of a job that needs these plugins, the services they may stop, and what they wait for (the units of
     jobs.awaited): none when the plugins are all there. The latest release of the ones that are missing is
     downloaded, put in the folder once all of them are there (_change), and the product stops so that the `up` that
-    follows loads them. When what its images come with cannot be read yet (not pulled), the step pulls them first
+    follows loads them (up()). When what its images come with cannot be read yet (not pulled), the step pulls them first
     and decides then. What it waits for is known before it begins all the same: any plugin not added may be missing
     then, and what the images turn out to bring counts as done, as does the stop when nothing is missing."""
     here = compose.loaded()
@@ -516,7 +535,7 @@ def install_steps(project, product, names):
             # What runs now stops, also a service that started since the job began
             running = _running(target)
             job.expect(awaited(services, stop=running))
-            job.run_steps(_unload_steps(target, running))
+            job.run_steps(_unload_steps(running))
         _change(job, ROOT / target["folder"], picked, then=[unload])
 
     return [install], stopped, waits
