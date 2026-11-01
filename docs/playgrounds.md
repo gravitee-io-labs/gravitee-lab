@@ -572,7 +572,7 @@ not set`, and a variable a seed file uses with no value stops it with the file's
 | `GATEWAY_SYNC_SECONDS` | How often the gateway synchronizes. With `SEED_WAIT_GATEWAY=1` the seed waits two of them after it deploys a control | `5` |
 | `REDIS_URL`, `REDIS_PASSWORD` | The core's Redis, for [refills](#refills-what-a-lesson-spends-put-back) | Required for `seed/refills.yaml` |
 | `KUBECONFIG` | Kubeconfig of the cluster for `seed/k8s/`; the Kubernetes add-on writes `secrets/kubeconfig-internal.yaml`, which a seed mounts read only | Required for `seed/k8s/` |
-| `READY_TIMEOUT` | Seconds the seed waits for a management API to answer | `300` |
+| `READY_TIMEOUT` | Seconds the seed waits for a management API to answer. A refusal of the seed's credentials or ids (a 400, 401 or 403: a password changed in the console, a revoked token, an environment's hrid where its id is expected) ends the wait at once | `300` |
 | `SEED_WORKERS` | How many requests the seed has in flight at once. Steps that do not depend on one another run together ([Order and parallelism](../seeder/README.md#order-and-parallelism)); `1` runs everything in order | `4` |
 | `SEED_DIR`, `STATE_DIR` | Where the seed reads its files and records what it creates | `/seed`, `/state` |
 
