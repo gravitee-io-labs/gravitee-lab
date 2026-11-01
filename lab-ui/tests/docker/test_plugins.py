@@ -4,6 +4,7 @@ again. No Docker, no download: what they would answer is given."""
 import hashlib
 import io
 import os
+import threading
 import unittest
 import zipfile
 from unittest import mock
@@ -83,7 +84,7 @@ class Installed(Case):
 
     def setUp(self):
         self.folder(plugins)
-        for prefix in ("local:plugins-installed:", "plugin-manifests:"):
+        for prefix in ("local:plugins-installed:", "plugin-bundled:"):
             compose.CACHE.drop(prefix)
             self.addCleanup(compose.CACHE.drop, prefix)
         # The image each service's files are read from, by its id (compose.image_key)
@@ -91,11 +92,10 @@ class Installed(Case):
         self.patch(compose, "loaded", return_value=None)   # Compose cannot say which services it reads: all of them count
 
     def test_zips_by_plugin_name(self):
-        lines = "1700 /opt/p/gravitee-policy-x-2.1.0.zip\nstat: nope\n1800 /opt/p/a-b-1.0.0-alpha.1.zip"
-        found = plugins._zips(plugins._stat_lines(lines))
+        found = plugins._zips([("gravitee-policy-x-2.1.0.zip", 1700), ("notes.txt", 1), ("a-b-1.0.0-alpha.1.zip", 1800)])
         self.assertEqual(found["gravitee-policy-x"],
                          {"version": "2.1.0", "file": "gravitee-policy-x-2.1.0.zip", "mtime": 1700})
-        self.assertEqual(found["a-b"]["version"], "1.0.0-alpha.1")
+        self.assertEqual((found["a-b"]["version"], len(found)), ("1.0.0-alpha.1", 2))
 
     def test_manifest_of_a_zip(self):
         inner = io.BytesIO()
@@ -109,30 +109,28 @@ class Installed(Case):
         self.assertEqual(plugins._zip_manifest(self.root / "bad-1.0.0.zip"), (None, None))
 
     def test_bundled_plugins_are_read_in_the_container(self):
+        # Their files, dates and what each declares, in one read
         asked = []
 
         def run(cmd, timeout=120, cwd=None):
             asked.append(cmd[:2])
-            if cmd[-2] == plugins.STAT_SCRIPT:
-                return 0, "1700 /opt/gateway/plugins/gravitee-policy-x-2.1.0.zip\n", ""
-            return 0, "gravitee-policy-x-2.1.0.zip policy-x apim-policy-x\n", ""
+            self.assertEqual(cmd[-3:], ["-c", plugins.BUNDLED_SCRIPT, "/opt/gateway/plugins"])
+            return 0, "1700 gravitee-policy-x-2.1.0.zip policy-x apim-policy-x\n1800 notes.txt  \n", ""
         self.patch(compose, "run", run)
         self.assertEqual(plugins.installed(PROJECT, "apim"), {
             "bundled": {"gravitee-policy-x": {"gateway": "2.1.0"}}, "bundled_error": None, "pull": None, "ext": {},
             "services": ["gateway"], "features": {"gravitee-policy-x": "apim-policy-x"},
             "feature_by_id": {"policy-x": "apim-policy-x"}})
-        self.assertEqual(asked, [["docker", "exec"], ["docker", "exec"]])
+        self.assertEqual(asked, [["docker", "exec"]])
 
     def test_what_an_image_brings_is_kept_by_the_image_the_container_runs(self):
         # The tag saved changed, the container still runs the old image: what it brings is read again once it runs
-        # the new one, not kept from the old one under the new name
+        # the new one, not kept from the old one under the new name. A job that ends does not make it read again
         reads = []
 
         def run(cmd, timeout=120, cwd=None):
-            if cmd[-2] == plugins.STAT_SCRIPT:
-                return 0, "1700 /opt/gateway/plugins/gravitee-policy-x-2.1.0.zip\n", ""
             reads.append(self.image.return_value)
-            return 0, f"gravitee-policy-x-2.1.0.zip policy-x {self.image.return_value}\n", ""
+            return 0, f"1700 gravitee-policy-x-2.1.0.zip policy-x {self.image.return_value}\n", ""
         self.patch(compose, "run", run)
         self.assertEqual(plugins.installed(PROJECT, "apim")["features"], {"gravitee-policy-x": "sha256:running"})
         compose.CACHE.drop("local:")   # a job ended: the container was made again from the new image
@@ -142,19 +140,44 @@ class Installed(Case):
         plugins.installed(PROJECT, "apim")
         self.assertEqual(reads, ["sha256:running", "sha256:new"])   # each image read once
 
+    def test_the_services_of_a_product_are_read_at_once(self):
+        # Two services whose images are read in their stopped containers: each read waits for the other, which only
+        # reads made at the same time pass
+        project = {**PROJECT, "services": {**PROJECT["services"], "api": {
+            **PROJECT["services"]["gateway"], "container": "gio-api", "image": "graviteeio/apim-management-api:4"}}}
+        target = {**APIM, "services": {"gateway": "/opt/gateway/plugins", "api": "/opt/api/plugins"}}
+        both = threading.Barrier(2, timeout=5)
+
+        def shell(service, args, timeout=120):
+            both.wait()
+            return 0, f"1700 gravitee-policy-{service['container']}-1.0.0.zip  \n", ""
+        self.patch(compose, "shell", shell)
+        bundled = plugins._bundled(project, target)[0]
+        self.assertEqual(sorted(bundled), ["gravitee-policy-gio-api", "gravitee-policy-gio-gateway"])
+
+    def test_by_default_what_an_add_on_that_is_off_brings_is_not_read(self):
+        # The checks of a playground ask without saying which services count: those Compose reads now
+        project = {**PROJECT, "services": {**PROJECT["services"], "hybrid": {
+            **PROJECT["services"]["gateway"], "container": "gio-hybrid", "image": "graviteeio/apim-gateway:4.12.21"}},
+            "products": {"apim": {**APIM, "services": {"gateway": "/opt/gateway/plugins", "hybrid": "/opt/hybrid/plugins"}}}}
+        read = []
+        self.patch(compose, "shell", lambda service, args, timeout=120: (read.append(service["container"]), (0, "", ""))[1])
+        self.patch(compose, "loaded", return_value={"gateway", "mongodb"})
+        self.assertEqual(plugins.installed(project, "apim")["services"], ["gateway"])
+        self.assertEqual(read, ["gio-gateway"])
+
     def test_bundled_plugins_that_cannot_be_read_are_unknown_not_none(self):
-        # No container, and the image is not here (or Docker took too long): nothing is said to be bundled
+        # No container, and Docker took too long to run the image: nothing is said to be bundled
         self.patch(compose, "run", side_effect=[
             (1, "", "Error response from daemon: No such container: gio-gateway\n"),
-            (124, "", "docker did not answer within 60 s"), (1, "", "Error: No such container: gio-gateway\n"),
-            (125, "", "docker: Error response from daemon: No such image: graviteeio/apim-gateway:4.\n")] * 2)
+            (124, "", "docker did not answer within 60 s")] * 2)
         found = plugins.installed(PROJECT, "apim")
         self.assertEqual((found["bundled"], found["bundled_error"], found["pull"]),
                          ({}, "Bundled plugins unknown: docker did not answer within 60 s", None))
         # Not kept: asked again
         self.assertEqual(plugins.installed(PROJECT, "apim")["bundled_error"],
                          "Bundled plugins unknown: docker did not answer within 60 s")
-        self.assertEqual(compose.run.call_count, 8)
+        self.assertEqual(compose.run.call_count, 4)
 
     def test_an_image_that_is_not_here_or_docker_down_says_so_in_plain_words(self):
         # Not Docker's own words, nor its help hint: the image to pull, which the page offers
@@ -190,7 +213,7 @@ class Installed(Case):
         def shell(service, args, timeout=120):
             if service["container"] == "gio-hybrid":
                 return 125, "", missing
-            return 0, "1700 /opt/gateway/plugins/gravitee-policy-x-2.1.0.zip\n", ""
+            return 0, "1700 gravitee-policy-x-2.1.0.zip\n", ""
         self.patch(compose, "shell", shell)
         self.assertEqual(plugins.installed(project, "apim")["bundled_error"], "graviteeio/apim-gateway:4.12.21 is not pulled")
         found = plugins.installed(project, "apim", {"gateway", "mongodb"})
@@ -628,6 +651,23 @@ class Installed(Case):
         job, _, waits, seen = self.plugins_phase(["gravitee-policy-a", "gravitee-policy-x"], self.PULLED, stops)
         self.assertEqual(len(waits), 4)   # both plugins, the stop and the image
         self.assertEqual((job.ok, seen), (True, [0, 0.25, 0.5, 0.625, 0.75, 0.875, 1]))
+
+    def test_images_not_here_are_the_only_ones_pulled(self):
+        # What the images bring cannot be read: the one Docker does not hold is pulled, not the others of the product
+        project = {**PROJECT, "services": {**PROJECT["services"], "api": {
+            **PROJECT["services"]["gateway"], "container": "gio-api", "image": "graviteeio/apim-management-api:4"}},
+            "products": {"apim": {**APIM, "services": {"gateway": "/opt/gateway/plugins", "api": "/opt/api/plugins"}}}}
+        answers = [self.UNKNOWN, {**self.UNKNOWN, "bundled": {"gravitee-policy-a": {}}, "bundled_error": None}]
+        self.patch(plugins, "installed", lambda project, product, only=None: answers.pop(0))
+        self.patch(compose, "containers", lambda: ({}, None))
+        self.patch(compose, "image_ids", return_value={"graviteeio/apim-gateway:4": "sha256:a"})
+        steps, _, waits = plugins.install_steps(project, "apim", ["gravitee-policy-a"])
+        commands = []
+        job = Job("Start Welcome", steps)
+        job.exec = commands.append
+        job.run()
+        self.assertEqual((job.ok, commands), (True, [[*compose.COMPOSE, "pull", "api"]]))
+        self.assertEqual([unit for unit in waits if unit[0] == "Image"], [("Image", "graviteeio/apim-management-api:4")])
 
     def project_sharing_a_folder(self):
         """A product whose plugins three services load: the Management API, the gateway that depends on it, and an

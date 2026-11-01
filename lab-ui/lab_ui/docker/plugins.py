@@ -29,17 +29,20 @@ DOWNLOAD_TRIES = 3   # a plugin download cut short or refused by a server error 
 READ_TIMEOUT = 30   # seconds a download waits for its next piece before it is tried again
 WAIT = 120   # seconds a service that unpacks plugins is waited for before the next one that shares its folder starts
 
-# The plugin zips of a folder with their modification times; nothing, and no error, when it has none
-STAT_SCRIPT = 'for f in "$0"/*.zip; do [ -e "$f" ] && stat -c "%Y %n" "$f"; done; true'
-# Each plugin declares the license feature it needs with "feature=" in the plugin.properties of its main jar,
-# <name>-<version>.jar at the root of the zip (BusyBox unzip in some images: -p only)
-FEATURES_SCRIPT = r"""t=$(mktemp -d)
+# Each plugin zip of a folder, a line each: its modification time, its file name, and the id and the license feature it
+# declares with "id=" and "feature=" in the plugin.properties of its main jar, <name>-<version>.jar at the root of the
+# zip (BusyBox unzip in some images: -p only). Nothing, and no error, when the folder has none
+BUNDLED_SCRIPT = r"""t=$(mktemp -d)
 for f in "$0"/*.zip; do
-  unzip -p "$f" "$(basename "$f" .zip).jar" > "$t/p.jar" 2>/dev/null || continue
-  unzip -p "$t/p.jar" plugin.properties > "$t/p" 2>/dev/null
-  echo "$(basename "$f") $(sed -n 's/^id=//p' "$t/p" | tr -d '\r') $(sed -n 's/^feature=//p' "$t/p" | tr -d '\r')"
+  [ -e "$f" ] || continue
+  : > "$t/p"
+  unzip -p "$f" "$(basename "$f" .zip).jar" > "$t/p.jar" 2>/dev/null &&
+    unzip -p "$t/p.jar" plugin.properties > "$t/p" 2>/dev/null
+  echo "$(stat -c %Y "$f") $(basename "$f") $(sed -n 's/^id=//p' "$t/p" | tr -d '\r')" \
+    "$(sed -n 's/^feature=//p' "$t/p" | tr -d '\r')"
 done
 rm -rf "$t"
+true
 """
 
 
@@ -153,15 +156,6 @@ def _zips(files):
     return found
 
 
-def _stat_lines(out):
-    files = []
-    for line in out.splitlines():
-        mtime, _, path = line.partition(" ")
-        if mtime.isdigit():
-            files.append((path.split("/")[-1], int(mtime)))
-    return files
-
-
 def _zip_manifest(path):
     """(id, license feature) of a plugin zip on disk, or (None, None)."""
     try:
@@ -174,41 +168,51 @@ def _zip_manifest(path):
     return found.get("id", "").strip() or None, found.get("feature", "").strip() or None
 
 
-def _bundled_manifests(service, folder):
-    """{plugin name: (id, license feature)} for the plugins bundled in a service's image, kept by the image they were
-    read from (compose.image_key): read again once its container runs another one."""
+def _image_plugins(service, folder):
+    """The plugins a service's image comes with in `folder`: ({plugin name: {version, file, mtime, id, feature}},
+    None), kept by the image they were read from (compose.image_key): read again once its container runs another one,
+    or its tag names another image. (None, (exit code, what Docker said)) when they cannot be read: such an answer is
+    not kept."""
+    failed = []
+
     def read():
-        rc, out, _ = compose.shell(service, ["-c", FEATURES_SCRIPT, folder])
+        rc, out, err = compose.shell(service, ["-c", BUNDLED_SCRIPT, folder], 60)
         if rc != 0:
+            failed.append((rc, err))
             return None
-        manifests = {}
+        found = {}
         for line in out.splitlines():
-            file, plugin_id, feature = (line.split(" ") + ["", ""])[:3]
+            mtime, file, plugin_id, feature = (line.split(" ") + ["", "", ""])[:4]
             m = ZIP.match(file)
-            if m:
-                manifests[m.group("name")] = (plugin_id or None, feature.strip() or None)
-        return manifests
-    return CACHE.get(f"plugin-manifests:{compose.image_key(service)}:{folder}", 24 * 3600, read) or {}
+            if m and mtime.isdigit():
+                found[m.group("name")] = {"version": m.group("version"), "file": file, "mtime": int(mtime),
+                                          "id": plugin_id or None, "feature": feature.strip() or None}
+        return found
+    found = CACHE.get(f"plugin-bundled:{compose.image_key(service)}:{folder}", 24 * 3600, read)
+    return found, failed[0] if found is None else None
 
 
 def _bundled(project, target):
-    """The plugins each service's image comes with, {plugin name: {service: {version, file, mtime}}}, why some could
-    not be read, None when all were, and the image to pull when one is not here. Why is said in plain words when
-    Docker does not answer ("Docker is not reachable") or an image is not here ("<image> is not pulled"): the first
-    service's that could not be read, so that the reason and the image to pull name the same one."""
+    """The plugins each service's image comes with, {plugin name: {service: {version, file, mtime, id, feature}}},
+    why some could not be read, None when all were, and the image to pull when one is not here. The services are read
+    at once. Why is said in plain words when Docker does not answer ("Docker is not reachable") or an image is not here
+    ("<image> is not pulled"): the first service's that could not be read, so that the reason and the image to pull
+    name the same one."""
+    services = project["services"]
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        answers = list(pool.map(lambda item: _image_plugins(services[item[0]], item[1]), target["services"].items()))
     bundled, error, pull = {}, None, None
-    for service, folder in target["services"].items():
-        image = project["services"][service]["image"]
-        rc, out, err = compose.shell(project["services"][service], ["-c", STAT_SCRIPT, folder], 60)
-        if rc != 0:
+    for service, (found, failed) in zip(target["services"], answers):
+        if found is None:
             if error is None:
+                (rc, err), image = failed, services[service]["image"]
                 lines = [line.removeprefix("docker: ").strip() for line in err.splitlines()
                          if line.strip() and not line.lstrip().startswith(("Run 'docker", "See 'docker"))]   # not hints
                 plain = compose.unread(image, err)
                 error = plain or "Bundled plugins unknown: " + (lines[-1] if lines else f"exit code {rc}")
                 pull = image if plain == f"{image} is not pulled" else None
             continue
-        for name, info in _zips(_stat_lines(out)).items():
+        for name, info in found.items():
             bundled.setdefault(name, {})[service] = info
     return bundled, error, pull
 
@@ -217,9 +221,7 @@ def _installed(project, target):
     folder = ROOT / target["folder"]
     bundled, bundled_error, pull = _bundled(project, target)
     ext = _zips((f.name, int(f.stat().st_mtime)) for f in sorted(folder.glob("*.zip")))
-    manifests = {}
-    for service, plugins_dir in target["services"].items():
-        manifests.update(_bundled_manifests(project["services"][service], plugins_dir))
+    manifests = {name: (info["id"], info["feature"]) for name, by in bundled.items() for info in by.values()}
     for name, info in ext.items():
         manifests[name] = _zip_manifest(folder / info["file"])
         # Gravitee keeps the most recent file when a plugin is found twice: is the added one used?
@@ -242,10 +244,11 @@ def installed(project, product, only=None):
     """What a product loads: {bundled: {plugin: {service: version}}, bundled_error, pull, ext: {plugin: {version,
     file, mtime, active}}, services, features: {plugin: license feature}, feature_by_id: {plugin id: license
     feature}}. `bundled_error` says why what its images come with is not known, `pull` the image to pull when that is
-    what it takes; such an answer is not kept, but asked again. `only`: the services Compose reads now, when what
-    runs is what matters (an install)."""
-    target = _here(_target(project, product), only)
-    key = f"local:plugins-installed:{product}" + (":" + ",".join(target["services"]) if only is not None else "")
+    what it takes; such an answer is not kept, but asked again. `only`: the services Compose reads now
+    (compose.loaded(), asked when it is not given): what an add-on that is off brings does not count, as nothing starts
+    it."""
+    target = _here(_target(project, product), compose.loaded() if only is None else only)
+    key = f"local:plugins-installed:{product}:" + ",".join(target["services"])
     found = CACHE.get(key, 30, lambda: _installed(project, target))
     if found["bundled_error"]:
         CACHE.drop(key)
@@ -493,9 +496,9 @@ def install_steps(project, product, names):
     """The steps of a job that needs these plugins, the services they may stop, and what they wait for (the units of
     jobs.awaited): none when the plugins are all there. The latest release of the ones that are missing is
     downloaded, put in the folder once all of them are there (_change), and the product stops so that the `up` that
-    follows loads them (up()). When what its images come with cannot be read yet (not pulled), the step pulls them first
-    and decides then. What it waits for is known before it begins all the same: any plugin not added may be missing
-    then, and what the images turn out to bring counts as done, as does the stop when nothing is missing."""
+    follows loads them (up()). When what its images come with cannot be read yet, the step pulls the images that are not
+    here first and decides then. What it waits for is known before it begins all the same: any plugin not added may be
+    missing then, and what the images turn out to bring counts as done, as does the stop when nothing is missing."""
     here = compose.loaded()
     target = _here(_target(project, product), here)
     present = installed(project, product, here)
@@ -503,15 +506,18 @@ def install_steps(project, product, names):
         return [], [], {}
     services, stopped = project["services"], _running(target)
     unknown = present["bundled_error"]
+    held = compose.image_ids() if unknown else {}   # None when Docker does not answer: every image is pulled
+    pulls = [name for name in target["services"]
+             if held is None or compose.reference(services[name]["image"]) not in held] if unknown else []
     maybe = [name for name in names if name not in present["ext"]] if unknown else _missing(present, names)
     waits = {**_downloads(maybe), **awaited(services, stop=stopped)}
-    if unknown:
-        waits.update(awaited(services, images=[services[name]["image"] for name in target["services"]]))
+    waits.update(awaited(services, images=[services[name]["image"] for name in pulls]))
 
     def install(job):
         found = present
         if found["bundled_error"]:   # an answer without them was not kept: read again once pulled
-            job.exec([*COMPOSE, "pull", *target["services"]])
+            if pulls:
+                job.exec([*COMPOSE, "pull", *pulls])
             found = installed(project, product, here)
             if found["bundled_error"]:
                 raise JobFailed(found["bundled_error"])
