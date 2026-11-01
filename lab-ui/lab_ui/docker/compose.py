@@ -21,6 +21,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from concurrent.futures import Future
 from pathlib import Path
 
 from ..paths import CATALOGS_DIR, COMPOSE_FILE, CORE_FILE, ON_FILE, ROOT, write_atomic
@@ -67,7 +68,8 @@ class Cache:
     job ends."""
 
     def __init__(self):
-        # Of each key, the lock of whoever asks for its answer: those who want it meanwhile wait for that answer
+        # Of each key whose answer is being asked, that read: those who want it meanwhile wait for what it answers or
+        # raises
         self._items, self._lock, self._asking = {}, threading.Lock(), {}
 
     def _hit(self, key, ttl):
@@ -84,20 +86,29 @@ class Cache:
     def get(self, key, ttl, fn):
         """The answer kept under `key` while younger than `ttl` seconds, else what fn() answers, kept whatever it is. What
         fn raises is not kept: it reaches the caller, and the next one asks again. Asked at the same time (two pages'
-        refreshes), fn runs once and both get its answer."""
-        hit = self._hit(key, ttl)
-        if hit:
-            return hit[1]
+        refreshes), fn runs once and all get what it answers or raises."""
         with self._lock:
-            asking = self._asking.setdefault(key, threading.Lock())
-        with asking:
-            hit = self._hit(key, ttl)   # asked by another meanwhile
-            if hit:
+            hit = self._items.get(key)
+            if hit and time.monotonic() - hit[0] < ttl:
                 return hit[1]
+            read = self._asking.get(key)
+            mine = read is None
+            if mine:
+                read = self._asking[key] = Future()
+        if not mine:   # asked by another meanwhile
+            return read.result()
+        try:
             value = fn()
+        except BaseException as error:
             with self._lock:
-                self._items[key] = (time.monotonic(), value)
-            return value
+                del self._asking[key]
+            read.set_exception(error)
+            raise
+        with self._lock:
+            self._items[key] = (time.monotonic(), value)
+            del self._asking[key]
+        read.set_result(value)
+        return value
 
     def drop(self, prefix=""):
         with self._lock:
