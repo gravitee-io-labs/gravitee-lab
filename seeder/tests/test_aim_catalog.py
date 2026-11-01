@@ -992,6 +992,30 @@ class ApiTools(Catalog):
                                            ("POST", "/catalog/mcp-tools/_importFromApis")])
         self.assertIn("Studio 'Acme Bakery Toolkit' deleted: it is made again from the new tools", self.output())
 
+    def test_a_studio_that_is_only_a_note_is_released_before_tools_that_changed(self):
+        """A studio whose create's answer was lost is only a note; it holds the tools all the same."""
+        self.run_seed()
+        studios = {"studio-9": {"id": "studio-9", "name": "Acme Bakery Toolkit", "mode": "STUDIO"},
+                   "other": {"id": "other", "name": "Someone's", "mode": "STUDIO"}}
+        # what aim_proxies' making() left: the platform made the studio, the seed lost the answer
+        common.record("aim-proxies", "studio", "MCP studios", "Acme Bakery Toolkit", None, count=0)
+
+        def delete_source(call):   # the platform refuses to delete a tool a studio of the seed holds
+            if "studio-9" in studios:
+                return 409, {"message": "The tool is used by an MCP studio"}
+            return self.world.delete_source(call)
+
+        def delete_studio(call):
+            return 204 if studios.pop(last(call), None) else 404
+        self.platform.add({("DELETE", path("/catalog/sources/*")): delete_source,
+                           ("DELETE", path("/mcp-proxies/*")): delete_studio,
+                           ("GET", SCOPE + "/mcp-proxies"): lambda call: listing(studios.values())})
+        self.world.apis["api-1"]["operations"].append("listRates")
+        self.run_seed()
+        self.assertEqual(list(studios), ["other"], "the seed's studio is gone, and the one it did not make stays")
+        self.assertEqual(len(self.world.of_kind("mcp-tool")), 3)
+        self.assertEqual([x for x in common.created() + common.notes("aim-proxies", "studio") if x["kind"] == "studio"], [])
+
     def test_a_studio_is_left_alone_while_the_tools_are_up_to_date(self):
         self.run_seed()
         common.record("aim-proxies", "studio", "MCP studios", "Acme Bakery Toolkit", "studio-1", digest="x")

@@ -53,7 +53,7 @@ import yaml
 from . import aim_proxies
 from . import common
 from .common import Api, SeedError, excerpt, files, has_seed, load, log, owned, parallel, record, trouble, wait_until
-from .gamma import CATALOG, Gamma
+from .gamma import CATALOG, WORKSPACES, Gamma
 
 SECTION = "aim-catalog"
 LISTED = 60   # seconds the catalog has to list an API that API Management has just made
@@ -496,7 +496,14 @@ def seed_skills(aim):
 def release_studios(aim):
     """A tool cannot be deleted while a studio holds it: the studios the seed made go first, with their records, and
     aim_proxies makes them again from the new tools, which is what a studio needs anyway, its tools being fixed when it
-    is made."""
+    is made. A studio whose create's answer aim_proxies lost is only a note, and holds the tools all the same: the one
+    studio of its name is the seed's (`common.adopted`) and goes too."""
+    noted = [x["name"] for x in common.notes(aim_proxies.SECTION, "studio")]
+    studios = [p for p in aim.rows("/mcp-proxies", WORKSPACES) if p.get("mode") == "STUDIO"] if noted else []
+    for name in noted:
+        named = [p for p in studios if p.get("name") == name]
+        if len(named) == 1 and not common.recorded(aim_proxies.SECTION, "studio", named[0]["id"]):
+            common.adopted(aim_proxies.SECTION, "studio", name, named[0]["id"])
     for x in common.created():
         if (x["product"], x["kind"]) == (aim_proxies.SECTION, "studio"):
             aim.delete(f"/mcp-proxies/{x['id']}")
