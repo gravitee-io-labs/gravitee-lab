@@ -146,8 +146,9 @@ def _seed_names(uid, safe=False):
 def plugins_used(definition):
     """The plugins an API definition needs, by kind: {entrypoint, endpoint, policy, resource: {ids}}, wherever it writes
     them: the entrypoints of its listeners, its endpoint groups and their endpoints, its resources, the policy of each step
-    of its flows and the security of each plan (`API_KEY` is the policy `api-key`). The one reading of what a definition
-    uses: the places a playground can be deployed to and the license it needs are both judged on it."""
+    of its flows and the security of each plan (`API_KEY` is the policy `api-key`). Not what the settings of a plugin hold
+    (its `configuration`): a setting called `policy`, or a list called `resources`, names no plugin. The one reading of what
+    a definition uses: the places a playground can be deployed to and the license it needs are both judged on it."""
     found = {kind: set() for kind in PLUGIN_KINDS}
     todo = [definition]
     while todo:   # a definition nested deeper than Python recurses is still read
@@ -165,7 +166,7 @@ def plugins_used(definition):
             listed = node.get(key)
             found[kind].update(item["type"] for item in (listed if isinstance(listed, list) else ())
                                if isinstance(item, dict) and isinstance(item.get("type"), str))
-        todo += node.values()
+        todo += [value for key, value in node.items() if key != "configuration"]
     return found
 
 

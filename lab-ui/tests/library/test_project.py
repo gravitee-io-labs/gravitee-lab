@@ -945,6 +945,37 @@ class Deployable(Legacy):
             deep = {"next": [deep]}
         self.assertEqual(project.plugins_used(deep)["policy"], {"deep"})
 
+    # The shapes of an LLM proxy and of a native Kafka API with a kafka-acl policy, as the catalogs ship them
+    LLM = {"api": {
+        "listeners": [{"type": "HTTP", "entrypoints": [{"type": "llm-proxy"}]}],
+        "endpointGroups": [{"type": "llm-proxy", "endpoints": [{"type": "llm-proxy", "configuration": {
+            "modelGovernance": {"prefixPolicy": {"policy": "NO_PREFIX"}}}}]}],
+        "flows": [{"request": [{"policy": "rate-limit", "enabled": True}]}]},
+        "plans": [{"security": {"type": "KEY_LESS"}}]}
+    KAFKA = {"api": {
+        "listeners": [{"type": "KAFKA", "entrypoints": [{"type": "native-kafka"}]}],
+        "endpointGroups": [{"type": "native-kafka", "endpoints": [{"type": "native-kafka"}]}],
+        "flows": [{"interact": [{"policy": "kafka-acl", "enabled": True, "configuration": {"authorizations": [{
+            "resources": [{"type": "TOPIC", "resourcePattern": "orders"}, {"type": "GROUP", "resourcePattern": "*"},
+                          {"type": "CLUSTER", "resourcePattern": "kafka-cluster"}]}]}}]}]},
+        "plans": [{"security": {"type": "KEY_LESS"}}]}
+
+    def test_a_setting_of_a_plugin_called_policy_is_no_policy(self):
+        self.assertEqual(sorted(project.plugins_used(self.LLM)["policy"]), ["key-less", "rate-limit"])
+
+    def test_the_resources_of_a_kafka_acl_are_no_resource_plugins(self):
+        self.assertEqual(project.plugins_used(self.KAFKA)["resource"], set())
+
+    def test_an_environment_with_every_plugin_of_the_definition_can_take_it(self):
+        # Every plugin these definitions name is installed and deployed: no reason
+        installed = {"entrypoint": {"llm-proxy": True, "native-kafka": True},
+                     "endpoint": {"llm-proxy": True, "native-kafka": True},
+                     "policy": {"rate-limit": True, "kafka-acl": True, "key-less": True}, "resource": {}}
+        offers = {"products": None, "plugins": True, "installed": installed}
+        for definition in (self.LLM, self.KAFKA):
+            needs = {kind: sorted(ids) for kind, ids in project.plugins_used(definition).items()}
+            self.assertEqual(project.judge(self.asked(**needs), offers), [])
+
     def asked(self, **needs):
         return {"deploys": True, "products": [], "versions": [], "fills": [], "plugins": False, "changes": False,
                 "uses": False, "more": False, "needs": {kind: needs.get(kind, []) for kind in project.PLUGIN_KINDS}}
