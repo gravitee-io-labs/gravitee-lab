@@ -204,6 +204,36 @@ class Folder(Case):
         self.assertIn("| Kiosk | `1234` | `0000` |", readme)
         self.assertIn("Sign in: **Kiosk** (user `1234`, password `0000`).", readme)
 
+    def test_a_setting_inside_a_longer_text_a_nested_default_and_a_dollar_are_exported_as_the_page_shows_them(self):
+        # Compose reads each of these forms, and so does the page: what a clean Lab shows, the guide's links name
+        shop = paths.ROOT / Path(fixtures.unit_file("fixture", "playground", "shop")).parent
+        for each in [shop, *shop.rglob("*")]:
+            each.chmod(each.stat().st_mode | 0o200)
+        compose_file = shop / "compose.yml"
+        written = compose_file.read_text(encoding="utf-8")
+        compose_file.write_text(written.replace("  accounts:\n", "  accounts:\n    - for: Kiosk\n"
+                                                                  "      username: ${SHOP_KIOSK_USER:-kiosk}@shop.example.test\n"
+                                                                  "      password: ${SHOP_PIN:-Pa$$w0rd}\n"
+                                                                  "    - for: Till\n"
+                                                                  "      username: ${SHOP_TILL_USER:-${SHOP_USER:-till}}\n"
+                                                                  "      password: ${SHOP_TILL_PIN:-9999}\n"), encoding="utf-8")
+        guide = shop / "guide.md"
+        guide.write_text(guide.read_text(encoding="utf-8").replace(
+            "Open the Shop tab.", "Sign in: [Kiosk](account:kiosk@shop.example.test). Then [Till](account:till). Open the Shop tab."),
+            encoding="utf-8")
+        project.forget()
+        found, _ = project.loaded()
+        accounts = found["playgrounds"]["shop"]["accounts"]
+        self.assertIn({"for": "Kiosk", "username": "kiosk@shop.example.test", "password": "Pa$w0rd"}, accounts, "the page shows it")
+        self.assertIn({"for": "Till", "username": "till", "password": "9999"}, accounts, "the page shows it")
+        self.assertEqual([m for m in check._guide(shop, accounts) if "account:" in m], [], "make check finds the links")
+        _, _, folder = self.unpacked()
+        readme = (folder / "README.md").read_text(encoding="utf-8")
+        self.assertIn("| Kiosk | `kiosk@shop.example.test` | `Pa$w0rd` |", readme)
+        self.assertIn("| Till | `till` | `9999` |", readme)
+        self.assertIn("Sign in: **Kiosk** (user `kiosk@shop.example.test`, password `Pa$w0rd`). "
+                      "Then **Till** (user `till`, password `9999`).", readme)
+
     def test_the_plan_says_what_runs_what_is_left_out_and_what_it_needs(self):
         plan = standalone.plan("shop")
         self.assertEqual(plan["file"], "shop-docker-compose.zip")

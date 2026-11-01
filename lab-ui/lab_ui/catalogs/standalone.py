@@ -493,9 +493,9 @@ def _comment(row, gone=()):
 
 
 def _default(text):
-    """The default of a `${NAME:-default}` text, else the text."""
-    found = re.fullmatch(r"\$\{[A-Za-z_][A-Za-z0-9_]*:-([^}]*)\}", str(text or ""))
-    return found.group(1) if found else str(text or "")
+    """A text as the page shows it in a Lab where nothing is set: each setting in it by its default, `$$` a dollar sign,
+    a `${NAME}` without a default as written (compose.interpolated)."""
+    return compose.interpolated(str(text or ""), lambda name: None)
 
 
 FENCE = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})")
