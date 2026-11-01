@@ -13,7 +13,8 @@ from .project import license_features, shown, tag
 
 # A running container, by its health check: (state, label)
 HEALTH = {"healthy": ("healthy", "Healthy"), "starting": ("starting", "Starting"), "unhealthy": ("issue", "Unhealthy")}
-# 0, and 130 / 143 (SIGINT / SIGTERM): what a stop leaves. 137: killed, a failure only when out of memory
+# 0, and 130 / 143 (SIGINT / SIGTERM): what a stop leaves of what runs until stopped. 137: killed, a failure only when out
+# of memory. A one-shot runs to its end: any of them but 0 is one it did not reach
 STOP_CODES = (0, 130, 137, 143)
 # Docker's words for a duration, and the unit the page writes
 DURATIONS = (("second", "s"), ("minute", "min"), ("hour", "h"), ("day", "d"), ("month", "mo"), ("year", "y"))
@@ -45,7 +46,8 @@ def _state(key, label, running=False):
 
 def service_state(container, oneshot, job_running):
     """The state of a service from its container: {key, label, running}. `running` says the container runs now:
-    a one-shot that ended well is "done", without running."""
+    a one-shot that ended well is "done", without running; one that was stopped or killed before its end did not do its
+    part, an issue as any other exit (a seed that Docker stopped is run again at the next start: seed_failed)."""
     if not container:
         return _state("absent", "Not created")
     status, code = container.get("state") or "unknown", container.get("exit_code")
@@ -64,7 +66,7 @@ def service_state(container, oneshot, job_running):
         return _state("issue", status.capitalize())
     if code == 0 and oneshot:
         return _state("done", "Done")
-    return _state("stopped", "Stopped") if code in STOP_CODES else _state("issue", f"Exited ({code})")
+    return _state("stopped", "Stopped") if code in STOP_CODES and not oneshot else _state("issue", f"Exited ({code})")
 
 
 def container_steps(project, containers):
@@ -552,8 +554,8 @@ def _action(c, plan, blocked=None, offer=None):
 
 
 def seed_failed(states, playground):
-    """Whether a playground's seed ended in an issue (it exited with an error): its start runs it again. `states`: the
-    state of its services, {name: service_state()}."""
+    """Whether a playground's seed ended in an issue (it exited with an error, or was stopped or killed before its end):
+    its start runs it again. `states`: the state of its services, {name: service_state()}."""
     seed = playground["seed"]
     return bool(seed) and states[seed]["key"] == "issue" and not states[seed]["running"]
 
@@ -967,13 +969,14 @@ def _by_name(items):
     return sorted(items, key=key)
 
 
-def _wait(docker, job, loaded):
-    """Why nothing can be started now, as what waits says it; None when it can."""
+def _wait(docker, job, loaded, unread=None):
+    """Why nothing can be started now, as what waits says it; None when it can. `unread`: the entry of the on file that
+    Compose cannot read (layers.current), which every command fails on, as on a core that does not load."""
     if docker["error"]:
         return "Docker is not reachable"
     if not loaded:
         return f"{paths.CORE_FILE} does not load"
-    return f"Wait for {job['title']}" if job else None
+    return unread or (f"Wait for {job['title']}" if job else None)
 
 
 def memory_warning(memory):
@@ -1074,7 +1077,7 @@ def build(project, state, containers, job, failures, license_features, docker, c
     # what is saved; `held`: what the Lab UI does not start for want of a usable license, and `unlicensed` its note;
     # `unlicensing`: with no license saved, what still runs one, which loses it once it is made again
     c = {"project": project, "state": state, "up": running, "job": running_job,
-         "wait": _wait(docker, running_job, loaded), "failures": failures, "features": license_features,
+         "wait": _wait(docker, running_job, loaded, state.get("unread")), "failures": failures, "features": license_features,
          "services": services, "created": created, "blind": bool(docker["error"]) or not loaded,
          "docker_down": bool(docker["error"]) and loaded,
          "changing": changing, "behind": set(late), "why": late, "license": license_status, "held": set(waiting),

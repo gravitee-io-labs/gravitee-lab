@@ -30,6 +30,7 @@ GATEWAY_WAIT, GATEWAY_POLL = 120, 3   # seconds a deploy waits for its gateway t
 NOT_CONNECTED = "Hybrid gateway did not connect to Gravitee Cloud"
 NOT_WEB = "The address to check must be an http or https URL"
 NOT_CHECKED = "Not checked"   # a host requirement whose address a catalog chose and is not on this machine (N03)
+UNREAD = "Cannot be read as an API definition"   # a file of a seed's APIs that is no JSON object: what it uses is not known
 
 
 def _folder(pid):
@@ -258,59 +259,43 @@ def _plugin_checks(project, requires, up=None, fresh=True):
     return checks, restarts
 
 
-def _plugin_ids(definition):
-    """Plugin ids an API definition uses: entrypoints, endpoints, policies, resources, plan security."""
-    ids = set()
-
-    def walk(node):
-        if isinstance(node, dict):
-            if isinstance(node.get("policy"), str):
-                ids.add(node["policy"])
-            for key in ("entrypoints", "endpointGroups", "endpoints", "resources"):
-                items = [x for x in node.get(key) or [] if isinstance(x, dict)]
-                ids.update(x["type"] for x in items if isinstance(x.get("type"), str))
-            security = node.get("security")
-            if isinstance(security, dict) and isinstance(security.get("type"), str):
-                ids.add(security["type"].lower().replace("_", "-"))
-            for value in node.values():
-                walk(value)
-        elif isinstance(node, list):
-            for value in node:
-                walk(value)
-    walk(definition)
-    return ids
-
-
 def _features(project, playground):
     """The license features the playground needs, {feature: [what uses it]}: the ones it declares, and the ones of
-    the plugins its APIs use."""
+    the plugins its APIs use (project.plugins_used); and the files of its seed that are no API definition, which say
+    nothing of what they use."""
     by_id = {}
     for product in project["products"]:
         by_id.update(plugins.installed(project, product)["feature_by_id"])
     needed = {feature: [part] if part else []
               for feature, part in projects.license_features(playground["requires"]).items()}
-    for path in paths.seed_apis(_folder(playground["id"])):
-        text = projects._read(path.relative_to(ROOT).as_posix())[0]   # a link, a pipe or a huge file is no definition
-        if text is None:
+    unread = []
+    for path, definition in projects.seed_definitions(playground["id"], playground.get("catalog") not in (None, paths.LOCAL)):
+        if definition is None:
+            unread.append(path.relative_to(_folder(playground["id"])).as_posix())
             continue
-        definition = json.loads(text)
-        name = definition.get("api", {}).get("name", path.stem)
-        for plugin_id in sorted(_plugin_ids(definition)):
+        api = definition.get("api")
+        name = api["name"] if isinstance(api, dict) and isinstance(api.get("name"), str) else path.stem
+        for plugin_id in sorted(set().union(*projects.plugins_used(definition).values())):
             if by_id.get(plugin_id):
                 users = needed.setdefault(by_id[plugin_id], [])
                 # An API published in several environments is one user: its name is said once
                 if f"{name}: {plugin_id}" not in users:
                     users.append(f"{name}: {plugin_id}")
-    return needed
+    return needed, unread
 
 
 def _license_checks(project, playground, containers=None):
     """What the license gives of the features the playground uses, in the words of its row: "Needs a license" (none,
     or one that cannot be used), "License expired", "Not in the license" (each feature it lacks), "Apply needed"
     (another license is saved than the one that runs: `containers`, as compose.ps(project.LICENSE_KEY) reads them);
-    each opens the core's settings, where the license is."""
-    result = license.info(project)
-    needed = _features(project, playground)
+    each opens the core's settings, where the license is. A file of its seed's APIs that is no definition comes first, a line
+    of its own: what it uses is not counted."""
+    needed, unread = _features(project, playground)
+    return [*(_line(file, "warn", UNREAD) for file in unread), *_license_lines(project, containers, license.info(project), needed)]
+
+
+def _license_lines(project, containers, result, needed):
+    """The lines of _license_checks, from what info() read (`result`) and what the playground needs (_features)."""
     usable = result.get("present") and result.get("readable") and result.get("valid")
     # The parts of its guide that need it, when it is not the whole playground: "Needs a license for Step 4"
     parts = sorted({user for users in needed.values() for user in users if ":" not in user})

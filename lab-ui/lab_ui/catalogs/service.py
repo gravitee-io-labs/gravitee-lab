@@ -1734,12 +1734,11 @@ def unshadow(ns):
 
 def preflight(found, closure):
     """The gate at Start, asked by `layers.check` for a start that puts a unit of a catalog in the on file: (a) each
-    unit of `closure` ([(kind, id)]) is judged again on the project as it is now, since `.env` and the shell change what
-    Compose says without a file changing; (b) the installed files of the units of a git catalog are the ones that were
-    installed (the sha256 of the manifest). Raises RuntimeError with the line to show; `damaged` (a CatalogError too) for a
-    file that changed after the install, which the lock then records, so that the row of the catalog says Damaged and offers
+    unit of `closure` ([(kind, id)]) is judged again on the project as it is now (project.load reads again what changed of
+    what it was read from, the .env files included); (b) the installed files of the units of a git catalog are the ones that
+    were installed (the sha256 of the manifest). Raises RuntimeError with the line to show; `damaged` (a CatalogError too) for
+    a file that changed after the install, which the lock then records, so that the row of the catalog says Damaged and offers
     Repair (a refusal is gone with its request; the state stays until Repair)."""
-    project.forget()
     fresh = project.load()
     blocked = layers.blocked_files(fresh)
     wanted = {}

@@ -446,7 +446,9 @@ except API exports, which are `.json` (`seed/apim/apis/*.json`, and the `apis/*.
 Seed files use `${VAR}` for everything that depends on the target: service URLs, the Redis password of a vector store
 resource, the gateway and AM addresses shown to clients. Acme Shop's seed files use, among others, `${AM_GATEWAY_URL}`,
 `${SHOP_MCP_URL}`, `${OLLAMA_URL}` and `${REDIS_URL}`. The API definitions are JSON objects: the checks read the plugins
-they use, to tell which license features the playground needs, in `seed/apim/` and in each environment of its own.
+they use, to tell which license features the playground needs and where it can be deployed, in `seed/apim/` and in each
+environment of its own: the entrypoints, endpoints and resources, the policy of every flow step and the security of every
+plan.
 
 ### Environments of its own
 

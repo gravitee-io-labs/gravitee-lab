@@ -175,7 +175,11 @@ def items(config: dict, folder=None, kind: str = "", root: Optional[Path] = None
     declared = set(_names(config.get("networks")))
     project_root = os.path.realpath(str(root or paths.ROOT))
     lab = os.path.join(project_root, paths.LAB_DIR)
-    named = [name for name in [*_names(meta.get("consoles")), meta.get("terminal")] if isinstance(name, str)]
+    consoles = meta.get("consoles")
+    listed = consoles if isinstance(consoles, list) else _names(consoles)
+    # A console written as a mapping is a form of the key that this Lab does not read: its keys say which
+    found |= {("unit.key", f"x-gravitee.consoles.{key}") for one in listed if isinstance(one, dict) for key in one}
+    named = [name for name in [*listed, meta.get("terminal")] if isinstance(name, str)]
     for name, service in services.items():
         service = _mapping(service)
         if not service.get("image") and not service.get("build") and not partial:   # it adds to a service it does not define

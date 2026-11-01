@@ -15,7 +15,7 @@ from pathlib import Path
 from unittest import mock
 
 from lab_ui.docker import compose, envfiles
-from lab_ui.library import layers, project
+from lab_ui.library import layers, model, project
 from lab_ui.gravitee import license, places, platforms
 from lab_ui import paths
 from lab_ui.catalogs import trust
@@ -28,6 +28,9 @@ INSPECTOR = "addons/agent-lens/compose.yml"
 EVENTS, MINE, WELCOME = "setups/event-streams.yml", "setups/local/mine.yml", "playgrounds/welcome/compose.yml"
 WHOAMI, SANDBOX = "addons/local/whoami/compose.yml", "playgrounds/local/sandbox/compose.yml"
 HYBRID, CLOUD = "addons/hybrid/compose.yml", "playgrounds/cloud/compose.yml"
+
+
+HOST_SHAPE = "a list of checks, each with a name and a check URL, its expect and help in text"
 
 
 class Legacy(Case):
@@ -608,6 +611,30 @@ class Degraded(Legacy):
         self.assertEqual(built["playgrounds"]["welcome"]["requires"], {})
         self.assertEqual(built["addons"]["agent-lens"]["name"], "AI Agent Lens")
 
+    def test_the_lists_a_page_reads_keep_what_they_are_written_for_and_say_the_rest(self):
+        # A console written as a mapping (a form of a newer Lab), a terminal that is a list, tags as one text, an account that
+        # is no mapping: each is said under its file and left out, and the state of the whole lab is still drawn
+        given = inputs()
+        given["raw"][WELCOME]["x-gravitee"].update(
+            consoles=["acme-website", {"console": "apim-portal-ui", "as": "someone"}, ["x"]], terminal=["acme-website"],
+            tags="MCP", accounts=[{"for": "Website", "username": "john"}, "john", None])
+        built = project.build(given)
+        welcome = built["playgrounds"]["welcome"]
+        self.assertEqual((welcome["consoles"], welcome["terminal"], welcome["tags"], [one["for"] for one in welcome["accounts"]]),
+                         (["acme-website"], None, [], ["Website"]))
+        said = [problem["message"] for problem in built["problems"] if problem["file"] == WELCOME]
+        self.assertEqual(said, ["x-gravitee.consoles must be a list of services", "x-gravitee.tags must be a list of short labels",
+                                "x-gravitee.accounts must be a list of accounts, each a mapping",
+                                "x-gravitee.terminal must be the name of a service"])
+        state = {"playground": None, "explicit": [], "setups": [], "effective": [], "missing": [], "problems": [], "locked": None}
+        body = model.build(built, state, {}, None, lambda kind, uid: None, None, {"error": None, "memory": None}, {})
+        shown = next(one for one in body["playgrounds"] if one["id"] == "welcome")
+        self.assertEqual((shown["terminal"], [link["service"] for link in shown["links"]][-1:]), (None, ["acme-website"]))
+        # A mapping is a mapping of names to Compose: its keys are not taken for services
+        given["raw"][WELCOME]["x-gravitee"].update(consoles={"acme-website": 1}, tags=None, accounts=None, terminal=None)
+        welcome = project.build(given)["playgrounds"]["welcome"]
+        self.assertEqual((welcome["consoles"], welcome["tags"], welcome["accounts"]), ([], [], []))
+
     def test_the_tested_versions_are_a_list_of_sets_or_are_reported_and_left_out(self):
         given = inputs()
         given["raw"][WELCOME]["x-gravitee"]["tested"] = [{"APIM_VERSION": "4.13.0-alpha.3"}]
@@ -630,10 +657,21 @@ class Degraded(Legacy):
         for file, key, shape in ((INSPECTOR, "license", "a list of license features, or a mapping of each feature to "
                                                         "what needs it"),
                                  (WELCOME, "plugins", "a mapping of each product to a list of plugins"),
-                                 (WELCOME, "host", "a list of checks, each with a name and a check URL")):
+                                 (WELCOME, "host", HOST_SHAPE)):
             self.assertIn({"file": file, "message": f"x-gravitee.requires.{key} must be {shape}"}, built["problems"])
         self.assertEqual(built["addons"]["agent-lens"]["requires"], {})
         self.assertEqual(built["playgrounds"]["welcome"]["requires"], {"license": ["feature-1"]})
+        # What a host check expects of the answer, and the help it gives, are texts: Before you start reads them as such
+        for spec in ({"name": "Ollama", "check": "http://localhost:11434", "expect": 3},
+                     {"name": "Ollama", "check": "http://localhost:11434", "help": ["Install it"]}):
+            with self.subTest(spec=spec):
+                given["raw"][WELCOME]["x-gravitee"]["requires"] = {"host": [spec]}
+                built = project.build(given)
+                self.assertIn({"file": WELCOME, "message": f"x-gravitee.requires.host must be {HOST_SHAPE}"}, built["problems"])
+                self.assertEqual(built["playgrounds"]["welcome"]["requires"], {})
+        given["raw"][WELCOME]["x-gravitee"]["requires"] = {"host": [{"name": "Ollama", "check": "http://localhost:11434",
+                                                                     "expect": "qwen3", "help": "Install it"}]}
+        self.assertEqual(len(project.build(given)["playgrounds"]["welcome"]["requires"]["host"]), 1)
         # The license also as a mapping of each feature to what needs it, but not to a list
         given["raw"][INSPECTOR]["x-gravitee"]["requires"] = {"license": {"feature-1": "Step 4", "feature-2": None}}
         given["raw"][WELCOME]["x-gravitee"]["requires"] = {"license": {"feature-1": ["Step 4"]}}
@@ -891,11 +929,21 @@ class Deployable(Legacy):
 
     def test_the_plugins_of_an_api_definition_are_its_entrypoints_endpoints_policies_and_resources(self):
         # What a configuration holds under "type" is no plugin: only what the definition names as one
-        found = project._uses(self.DEFINITION)
+        found = project.plugins_used(self.DEFINITION)
         self.assertEqual({kind: sorted(ids) for kind, ids in found.items()},
                          {"entrypoint": ["llm-proxy", "mcp"], "endpoint": ["http-proxy", "llm-proxy"],
                           "policy": ["policy-interrupt", "rate-limit", "transform-headers"], "resource": ["cache"]})
-        self.assertEqual(project._uses({}), {kind: set() for kind in project.PLUGIN_KINDS})
+        self.assertEqual(project.plugins_used({}), {kind: set() for kind in project.PLUGIN_KINDS})
+
+    def test_the_license_and_the_deploy_read_one_definition_the_same_way(self):
+        # A step that leaves `enabled` to its default, the security of a plan, a definition deeper than Python recurses
+        definition = {"api": {"flows": [{"request": [{"policy": "rate-limit"}]}]},
+                      "plans": [{"security": {"type": "API_KEY"}}, {"security": {"type": "key-less"}}]}
+        self.assertEqual(sorted(project.plugins_used(definition)["policy"]), ["api-key", "key-less", "rate-limit"])
+        deep = {"policy": "deep"}
+        for _ in range(5000):
+            deep = {"next": [deep]}
+        self.assertEqual(project.plugins_used(deep)["policy"], {"deep"})
 
     def asked(self, **needs):
         return {"deploys": True, "products": [], "versions": [], "fills": [], "plugins": False, "changes": False,
@@ -1276,7 +1324,7 @@ class Real(Fixture):
         self.assertEqual(self.inputs["seeds"]["local/sandbox"], ["apim"])
 
     def test_what_the_apis_of_a_seed_use_is_read_in_its_folder(self):
-        self.assertEqual(self.inputs["uses"]["shop"]["policy"], ["fixture-policy"])
+        self.assertEqual(self.inputs["uses"]["shop"]["policy"], ["fixture-policy", "key-less"])   # its plan's security too
         self.assertEqual(self.inputs["uses"]["tour"]["entrypoint"], ["http-proxy"])
 
 
@@ -1507,14 +1555,20 @@ class Accounts(Legacy):
              "admin": True, "tags": ["${WELCOME_USER:-john}"]},
             {"for": "LLM", "key": "${WELCOME_KEY:-key-1}"}, "text", None]
         given["env"] = {self.OWN: {"WELCOME_USER": "jane", "WELCOME_KEY": "key-2"}}
-        self.assertEqual(project.build(given)["playgrounds"]["welcome"]["accounts"], [
+        built = project.build(given)
+        self.assertEqual(built["playgrounds"]["welcome"]["accounts"], [
             {"for": "Website of ACME", "username": "jane", "port": 8002, "admin": True, "tags": ["${WELCOME_USER:-john}"]},
-            {"for": "LLM", "key": "key-2"}, "text", None])
+            {"for": "LLM", "key": "key-2"}])   # what is no account is said, and left out: the page reads each as one
+        self.assertIn({"file": WELCOME, "message": "x-gravitee.accounts must be a list of accounts, each a mapping"},
+                      built["problems"])
 
-    def test_accounts_that_are_not_a_list_are_left_as_they_are(self):
+    def test_accounts_that_are_not_a_list_are_said_and_none(self):
         given = inputs()
         given["raw"][WELCOME]["x-gravitee"]["accounts"] = "${WELCOME_PASSWORD:-doe}"
-        self.assertEqual(project.build(given)["playgrounds"]["welcome"]["accounts"], "${WELCOME_PASSWORD:-doe}")
+        built = project.build(given)
+        self.assertEqual(built["playgrounds"]["welcome"]["accounts"], [])
+        self.assertIn({"file": WELCOME, "message": "x-gravitee.accounts must be a list of accounts, each a mapping"},
+                      built["problems"])
         del given["raw"][WELCOME]["x-gravitee"]["accounts"]
         self.assertEqual(project.build(given)["playgrounds"]["welcome"]["accounts"], [])
 
@@ -1566,11 +1620,16 @@ class Gathered(Legacy):
             "playgrounds/welcome/seed/environments/beam/apis/feed.json": api("webhook", "solace"),
             "playgrounds/welcome/seed/environments/beam/apis/broken.json": "not json",
             "playgrounds/welcome/seed/environments/beam/apis/list.json": "[]",
+            "playgrounds/welcome/seed/environments/beam/apis/text.json": '{"api": "text", "plans": 3}',
             "playgrounds/local/sandbox/seed/environments/moderna/apis/feed.json": api("websocket"),
             "playgrounds/none/compose.yml": ""})
         self.assertEqual(project._seed_uses("welcome"), {
             "entrypoint": ["http-proxy", "sse", "webhook"], "endpoint": ["http-proxy", "solace"], "policy": [],
             "resource": []})
+        # What is no JSON object is said to be no definition: the license's checks name it
+        self.assertEqual([(file.name, definition is None) for file, definition in project.seed_definitions("welcome")],
+                         [("one.json", False), ("broken.json", True), ("feed.json", False), ("list.json", True),
+                          ("text.json", False), ("feed.json", False)])
         self.assertEqual(project._seed_uses("local/sandbox")["entrypoint"], ["websocket"])
         self.assertEqual(project._seed_uses("none"), {kind: [] for kind in project.PLUGIN_KINDS})
 
@@ -2762,6 +2821,27 @@ class Remembered(Case):
         self.write(".env", "FIXTURE_X=1\n")
         self.assertGreater(len(self.reads()), 5, "the root .env is every unit's")
 
+    def raws(self):
+        """The files one gather read as written (compose.raw)."""
+        done = []
+        raw = project._raw
+        with mock.patch.object(project, "_raw", lambda path, *more, **how: done.append(path) or raw(path, *more, **how)):
+            project.gather()
+        return sorted(done)
+
+    def test_a_file_read_as_written_is_read_again_only_when_its_own_files_change(self):
+        # The root .env and the core change what a unit is with the core, not what it says as written: those readings stay
+        self.write(".env", "FIXTURE_X=1\n")
+        self.assertEqual(self.raws(), [project.CORE_FILE])
+        self.write("docker-compose.yml", (self.root / "docker-compose.yml").read_text(encoding="utf-8") + "# edited\n")
+        self.assertEqual(self.raws(), [project.CORE_FILE])
+        # A unit of this machine is kept as a catalog's is: the edit of a guide reads none again, its own file only it
+        self.write(".lab/catalogs/local/addons/scratch/README.md", "# Scratch, edited\n")
+        self.assertEqual(self.raws(), [project.CORE_FILE])
+        scratch = ".lab/catalogs/local/addons/scratch/compose.yml"
+        self.write(scratch, (self.root / scratch).read_text(encoding="utf-8") + "# edited\n")
+        self.assertEqual(self.raws(), sorted([project.CORE_FILE, scratch]))
+
     def test_forgetting_reads_everything_again(self):
         project.forget()
         self.assertGreater(len(self.reads()), 8)
@@ -2859,6 +2939,47 @@ class Fingerprints(Case):
         project.fingerprint()
         best = min(timed(project.fingerprint) for _ in range(30))
         self.assertLess(best, 0.015, f"{best * 1000:.1f} ms")
+
+
+class ReadAgain(Case):
+    """What the project is read from is what tells that it must be read again: every file of an include closure, and every
+    file of a seed, edited in place."""
+
+    def setUp(self):
+        read(self, local=("scratch", "sandbox"))
+        self.patch(project, "_cache", {"key": None, "project": None, "inputs": None})
+        project.loaded()
+
+    def edited(self, path, text, at):
+        self.write(path, text)
+        os.utime(self.root / path, ns=(at * 10**9, at * 10**9))   # a filesystem may not tell two changes a moment apart
+
+    def test_a_file_that_a_personal_unit_includes_is_part_of_it(self):
+        scratch = ".lab/catalogs/local/addons/scratch"
+        self.edited(f"{scratch}/extra.yml", "services:\n  scratch-extra:\n    image: busybox\n", 1)
+        self.write(f"{scratch}/compose.yml", (self.root / scratch / "compose.yml").read_text(encoding="utf-8")
+                   .replace("include:\n", "include:\n  - extra.yml\n"))
+        self.assertIn("scratch-extra", project.loaded()[0]["addons"]["local/scratch"]["services"])
+        self.edited(f"{scratch}/extra.yml", "services:\n  scratch-extra:\n    image: busybox\n  scratch-more:\n    image: busybox\n", 2)
+        self.assertIn("scratch-more", project.loaded()[0]["addons"]["local/scratch"]["services"])
+
+    def test_a_definition_of_a_seed_edited_in_place_is_read_again(self):
+        file = ".lab/catalogs/local/playgrounds/sandbox/seed/apim/apis/sandbox.json"
+        definition = json.loads((self.root / file).read_text(encoding="utf-8"))
+        self.assertNotIn("rate-limit", project.loaded()[1]["uses"]["local/sandbox"]["policy"])
+        definition["api"]["flows"] = [{"request": [{"policy": "rate-limit", "enabled": True}]}]
+        self.edited(file, json.dumps(definition), 3)
+        self.assertIn("rate-limit", project.loaded()[1]["uses"]["local/sandbox"]["policy"])
+        # A file the seed adds deeper down is seen too: an environment of its own
+        self.edited(".lab/catalogs/local/playgrounds/sandbox/seed/environments/beam/apis/beam.json",
+                    json.dumps({"api": {"listeners": [{"entrypoints": [{"type": "sse"}]}]}}), 4)
+        self.assertIn("sse", project.loaded()[1]["uses"]["local/sandbox"]["entrypoint"])
+        # And what the seed reads of this machine's settings, whose token a place does not hand it (N02)
+        sandbox = ".lab/catalogs/local/playgrounds/sandbox/compose.yml"
+        self.assertNotIn("AUDIT_FIXTURE_TOKEN", project.loaded()[1]["seed_references"][sandbox])
+        definition["api"]["description"] = "${AUDIT_FIXTURE_TOKEN}"
+        self.edited(file, json.dumps(definition), 5)
+        self.assertIn("AUDIT_FIXTURE_TOKEN", project.loaded()[1]["seed_references"][sandbox])
 
 
 def timed(function):

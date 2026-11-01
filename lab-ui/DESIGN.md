@@ -550,7 +550,9 @@ What the server decides and the page shows. A name in backticks is the code to r
   - What its containers do (`state`): running; partly running (`partly`: some run, the others stopped cleanly or were
     never created); starting; stopping; stopped (it is on, nothing of it runs); issue (a bad exit, out of memory,
     unhealthy, restarting); off.
-  - A container also says "Not created", "Not started" (made, never started), and a one-shot that ended well "Done".
+  - A container also says "Not created", "Not started" (made, never started), and a one-shot that ended well "Done". A
+    one-shot stopped or killed before its end did not do its part: an issue ("Exited (137)"), and a seed so ended runs
+    again at its playground's Start.
   - An item without a service of its own (a playground without apps) is what it brings while it is on, a playground's
     seed with it. What only ended well, or nothing, is never running.
 - An add-on is on when the on file brings it, itself or through what needs it. A playground brings the add-ons it
@@ -1464,6 +1466,9 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
   (`layers.current`, `locked`). The catalog's Start and Stop are disabled, and its problem line says why ("has your own
   changes: the catalog's Start and Stop are off", "<path> does not load: the catalog's Start and Stop are off"). So they
   are while `docker-compose.yml` does not load.
+- An entry whose file is gone or does not load makes every command that reads the on file fail: every action waits,
+  saying which ("<path> does not exist", "<path> does not load", `layers.current`, `unread`), as for a core that does not
+  load. Its problem line opens the on file, whose Save does not wait.
 
 ### Docker, jobs and progress
 
@@ -1521,7 +1526,8 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
   runs still reads one), and whether what runs reads the one
   saved (`applied`).
 - What it lacks is said in the words of a row (`model.license_note`): by the items of the state, and by `GET
-  /api/plugins/installed` of each plugin it loads that needs a feature (`licensed`).
+  /api/plugins/installed` of each plugin it loads that needs a feature (`licensed`). The state reads what the license saved
+  allows itself, once for each license saved (`license.features`), whether a page asked `GET /api/license` or not.
 - Its tooltip names the packs that give what is missing ("Uses: Agent management, Authorization management",
   `license.named`), from the license model last read, with a license or without; the features' ids while the model is not
   known.

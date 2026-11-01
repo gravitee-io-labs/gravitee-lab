@@ -545,6 +545,8 @@ The lines cover:
 - **The license**: named for what needs it (the packs of the license, such as *Enterprise authorization engine,
   Observability*), with *Needs a license*, *License expired*, *Not in the license* or *Apply needed* under it, and a *Set
   license* button. Start still runs without it, and says so under its button: *Starts without what needs the license*.
+  A file of the seed's APIs that is not a JSON object has a line of its own, *Cannot be read as an API definition*: what
+  it uses is not counted.
 - **Docker's memory**, when it is short.
 - **Host prerequisites**, such as Ollama with a model: a missing one warns, with the fix. A check is an http or https
   address, called from your machine.
@@ -697,6 +699,8 @@ A playground comes first in the list. With an empty file, Compose runs the core 
 
 - If you add anything else to the file, the Lab UI leaves it as you wrote it and turns off the Start and Stop of the
   catalog. The banner says so and opens the file in the editor.
+- If it lists a file that is gone or does not load, every command Compose runs fails on it: every action waits, and says
+  which file. Fix that file, or remove its line in the editor, which the banner opens.
 - Stop on the Containers page, or Docker restarting, leaves the file as it is. The platform's next Start runs
   everything that is on again.
 - An included add-on reads its own `.env` and the core's, and its paths start from its folder. An add-on includes the

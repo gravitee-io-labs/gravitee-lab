@@ -29,8 +29,10 @@ from ..paths import CATALOGS_DIR, COMPOSE_FILE, CORE_FILE, ON_FILE, ROOT, write_
 
 COMPOSE = ["docker", "compose", "--progress", "plain"]
 
-# How long after its last start a container that Docker restarted still counts as restarting, in seconds
-RESTART_WINDOW = 300
+# How long after its last start a container that Docker restarted still counts as restarting, in seconds: one that has run
+# longer since is stable (Docker's own back-off starts again after 10 s of uptime), however often it restarted while what it
+# needs warmed up
+RESTART_WINDOW = 60
 # How long the images Docker holds, and the memory it has, are kept, in seconds: a job drops the images it may move
 IMAGES_TTL, MEMORY_TTL = 60, 600
 # How long Docker has to list the containers, in seconds: every state's refresh and every action asks it, and a Docker

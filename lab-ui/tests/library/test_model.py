@@ -66,8 +66,10 @@ class Services(Case):
             (container(health=""), False, False, ("running", "Running", True)),
             (container(health="starting"), False, False, ("starting", "Starting", True)),
             (container(health="unhealthy"), False, False, ("issue", "Unhealthy", True)),
-            (container(health="", restarts=3), False, False, ("issue", "Keeps restarting", True)),
-            (container(health="starting", restarts=2), False, False, ("issue", "Keeps restarting", True)),
+            # Restarted more than once, its last start within the minute (compose.RESTART_WINDOW)
+            (container(health="", restarts=3, status="Up 20 seconds"), False, False, ("issue", "Keeps restarting", True)),
+            (container(health="starting", restarts=2, status="Up 20 seconds (health: starting)"), False, False,
+             ("issue", "Keeps restarting", True)),
             (container(health="", restarts=1), False, False, ("running", "Running", True)),
             (container(restarts=3), False, False, ("healthy", "Healthy", True)),
             (container("restarting"), False, False, ("issue", "Restarting", True)),
@@ -83,8 +85,11 @@ class Services(Case):
             (exited(1), False, False, ("issue", "Exited (1)", False)),
             (exited(1), True, False, ("issue", "Exited (1)", False)),
             (exited(130), False, False, ("stopped", "Stopped", False)),
-            (exited(143), True, False, ("stopped", "Stopped", False)),
+            (exited(143), False, False, ("stopped", "Stopped", False)),
             (exited(137), False, False, ("stopped", "Stopped", False)),
+            # A one-shot stopped or killed before its end did not do its part: Docker stopped it while it ran
+            (exited(143), True, False, ("issue", "Exited (143)", False)),
+            (exited(137), True, False, ("issue", "Exited (137)", False)),
             (exited(137, oom=True), False, False, ("issue", "Out of memory", False)),
         ]
         for found, oneshot, job, (key, label, running) in cases:
@@ -298,6 +303,19 @@ class State(Built):
         self.assertTrue(model.seed_failed(states, self.project["playgrounds"]["welcome"]))
         states["seed"] = model.service_state(exited(0), True, False)
         self.assertFalse(model.seed_failed(states, self.project["playgrounds"]["welcome"]))
+
+    def test_a_seed_that_docker_stopped_before_its_end_runs_again_at_its_start(self):
+        # Docker Desktop restarted in the middle of a first seed that had recorded a few objects: its apps came back, the
+        # seed did not, and its Start sets the playground up again, seed included
+        created = {"welcome": [{"what": "APIs", "count": 1}]}
+        for code in (137, 143):
+            with self.subTest(code=code):
+                containers = {**CORE, **WELCOME, "seed": exited(code)}
+                item = self.item("playground", "welcome", playground="welcome", containers=containers, created=created)
+                self.assertEqual((item["state"]["key"], item["note"], item["action"]["label"]),
+                                 ("issue", f"Seed exited ({code})", "Start"))
+                states = {name: model.service_state(found, name == "seed", False) for name, found in containers.items()}
+                self.assertTrue(model.seed_failed(states, self.project["playgrounds"]["welcome"]))
 
     def test_a_container_stopped_on_purpose_is_partly_running(self):
         # Kafka UI stopped from the Stack: Kafka runs partly, said muted, never red; its button stays Stop
@@ -1740,6 +1758,21 @@ class Catalogs(Built):
 
 class Trouble(Built):
     """What keeps restarting, the license, docker-compose.yml that does not load, a registry refusing a pull."""
+
+    def test_an_entry_of_the_on_file_that_compose_cannot_read_makes_everything_wait_on_it(self):
+        # Its file broke outside the Lab, or is gone: every command that reads the on file would fail on it, so every
+        # action that runs one says why before the click, as for a core that does not load
+        line = "addons/local/mine/compose.yml does not load"
+        state = on(self.project, ["kafka"])
+        body = model.build(self.project, {**state, "unread": line}, {**CORE, "kafka": container(), "kafka-ui": container()},
+                           None, lambda kind, uid: None, None, {"error": None, "memory": None}, {})
+        platform = body["platform"]
+        self.assertEqual(body["wait"], line)
+        self.assertEqual([(platform[key]["enabled"], platform[key]["reason"]) for key in ("start", "apply", "restart", "update")],
+                         [(False, line)] * 4)
+        kafka = next(item for item in body["addons"] if item["id"] == "kafka")
+        self.assertEqual((kafka["action"]["enabled"], kafka["action"]["reason"]), (False, line))
+        self.assertIsNone(self.build(explicit=["kafka"])["wait"])
 
     def test_what_keeps_restarting_gets_stop(self):
         # Its start would change nothing: up leaves running containers as they are
