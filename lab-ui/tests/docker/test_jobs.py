@@ -10,7 +10,7 @@ import unittest
 from unittest import mock
 
 from lab_ui.docker import compose, jobs
-from lab_ui.library import model
+from lab_ui.library import model, plugins
 from lab_ui import paths
 from lab_ui.server import stack
 from lab_ui.docker.jobs import KEPT, Job, JobFailed, Jobs, awaited
@@ -216,11 +216,16 @@ class Cut(Case):
     """A job does not wait for ever: a command that prints nothing for long is ended, and so is one that waits for a
     container Docker says keeps restarting. Real commands run, in a session of their own."""
 
-    def run_job(self, script):
-        job = Job("Start Acme Shop", [["sh", "-c", script]], key="addon:acme-shop", verb="start")
+    def run_job(self, step):
+        """A job of one step, a shell script or a function, run in a thread. The output of each command it ran is closed
+        once the test ends."""
+        job = Job("Start Acme Shop", [["sh", "-c", step] if isinstance(step, str) else step], key="addon:acme-shop",
+                  verb="start")
+        spawned, spawn = [], compose.spawn
+        self.patch(compose, "spawn", lambda *args, **how: spawned.append(spawn(*args, **how)) or spawned[-1])
         thread = threading.Thread(target=job.run)
         thread.start()
-        self.addCleanup(lambda: (job.cancel(), thread.join(10), job._process and job._process.stdout.close()))
+        self.addCleanup(lambda: (job.cancel(), thread.join(10), [process.stdout.close() for process in spawned]))
         return job, thread
 
     def test_a_command_runs_in_the_project_folder_in_a_session_of_its_own(self):
@@ -266,6 +271,63 @@ class Cut(Case):
         job.cancel()
         thread.join(10)
         self.assertEqual(job.error(), "Canceled")
+
+    # A step may go on once a command of its own was ended (plugins.up starts the next services anyway): the next
+    # command is ended as well when it says nothing for long, or waits for a container that keeps restarting
+
+    def test_a_command_after_one_that_was_ended_for_its_silence_is_ended_too(self):
+        self.patch(jobs, "SILENT", 0.3)
+        self.patch(jobs, "WATCH", 0.05)
+        caught = []
+
+        def step(job):
+            try:
+                job.exec(["sh", "-c", "exec sleep 600"])
+            except JobFailed as failed:
+                caught.append(str(failed))
+            job.exec(["sh", "-c", "exec sleep 600"])
+        job, thread = self.run_job(step)
+        thread.join(10)
+        self.assertEqual(len(caught), 1, caught)
+        self.assertFalse(thread.is_alive(), "the second command still runs")
+        self.assertIs(job.ok, False)
+
+    def test_a_command_after_one_that_was_ended_on_a_container_in_an_issue_is_ended_too(self):
+        caught = []
+
+        def step(job):
+            try:
+                job.exec(["sh", "-c", 'echo " Container gio-hybrid Waiting "; exec sleep 600'])
+            except JobFailed as failed:
+                caught.append(str(failed))
+            job.exec(["sh", "-c", 'echo " Container gio-api Waiting "; exec sleep 600'])
+        job, thread = self.run_job(step)
+        for name in ("gio-hybrid", "gio-api"):
+            self.assertTrue(waited(lambda: job.detail() == f"Container {name} Waiting"))
+            began = time.monotonic()
+            job.observe({name: "issue"}, began)
+            job.observe({name: "issue"}, began + jobs.STUCK)
+        thread.join(10)
+        self.assertFalse(thread.is_alive(), "the second command still waits for gio-api")
+        self.assertEqual((caught, job.ok, job.error()), (["gio-hybrid keeps restarting"], False, "gio-api keeps restarting"))
+
+    def test_plugins_up_is_not_left_to_wait_for_ever_once_its_first_wait_was_ended(self):
+        # The real step: the add-on's gateway starts alone with --wait, the rest after it, each saying nothing
+        self.patch(jobs, "SILENT", 0.3)
+        self.patch(jobs, "WATCH", 0.05)
+        self.patch(plugins, "COMPOSE", ["sh", "-c", "exec sleep 600", "compose"])
+
+        def service(container):
+            return {"container": container, "image": f"graviteeio/{container}:4", "label": container, "oneshot": False,
+                    "depends_on": [], "owner": {"kind": "platform", "id": "api-management", "name": "API"}}
+        product = {"name": "API Management", "folder": "plugins/apim", "lib": {},
+                   "services": {"api": "/opt/api/plugins", "hybrid": "/opt/h/plugins"}}
+        project = {"products": {"apim": product}, "services": {"api": service("gio-api"), "hybrid": service("gio-hybrid")}}
+        job, thread = self.run_job(lambda job: plugins.up(job, project, ["hybrid", "api"]))
+        thread.join(10)
+        self.assertFalse(thread.is_alive(), "plugins.up still waits on its second `up`")
+        self.assertEqual(len([line for line in job.lines if line.startswith("$")]), 2)   # each `up` ended
+        self.assertIs(job.ok, False)
 
 
 UP = ["docker", "compose", "up", "-d"]
