@@ -1160,6 +1160,7 @@ class PlatformFlow(LabUI):
                                                         "problems": [], "locked": None})
         self.patch(places, "_cache", {})
         self.patch(places, "_reading", {})
+        self.patch(places, "_newest", {})
         self.fake = fake_cloud.serve(connect_after=0)
         serving(self.fake)
         self.addCleanup(self.fake.server_close)
