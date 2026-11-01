@@ -917,6 +917,26 @@ class Saved(Case):
 
 class Retargeted(ProjectFolder):
 
+    def test_a_service_is_named_again_as_a_service_and_as_a_host_never_in_a_path_or_an_image(self):
+        text = ("services:\n  apim-gateway:\n    image: graviteeio/apim-gateway:4.13.1\n    container_name: gio-apim-gateway\n"
+                "    volumes:\n      - ./apim-gateway/gravitee.yml:/opt/gravitee.yml\n      - apim-gateway/x.yml:/x\n"
+                "      - ./config/apim-gateway.yml:/y\n"
+                "  app:\n    image: apim-gateway:4.13\n    depends_on: [apim-gateway, mongodb]\n"
+                "    command: [\"TCP-LISTEN:9092\", \"TCP:apim-gateway:9092\"]\n"
+                "    environment:\n      GATEWAY_URL: http://apim-gateway:8082/mcp\n      AUTH_URL: http://me@apim-gateway/x\n"
+                "  seed:\n    depends_on:\n      apim-gateway:\n        condition: service_healthy\n")
+        found = compose.retarget(text, {"apim-gateway": "apim-hybrid-gateway"}).split("\n")
+        self.assertEqual([line.strip() for line in found if "hybrid" in line],
+                         ["apim-hybrid-gateway:", "depends_on: [apim-hybrid-gateway, mongodb]",
+                          'command: ["TCP-LISTEN:9092", "TCP:apim-hybrid-gateway:9092"]',
+                          "GATEWAY_URL: http://apim-hybrid-gateway:8082/mcp", "AUTH_URL: http://me@apim-hybrid-gateway/x",
+                          "apim-hybrid-gateway:"])
+        # The image and the binds are what the files say: a Cloud deploy changes the service, not what it runs or mounts
+        for kept in ("image: graviteeio/apim-gateway:4.13.1", "container_name: gio-apim-gateway",
+                     "- ./apim-gateway/gravitee.yml:/opt/gravitee.yml", "- apim-gateway/x.yml:/x", "- ./config/apim-gateway.yml:/y",
+                     "image: apim-gateway:4.13"):
+            self.assertIn(kept, [line.strip() for line in found])
+
     def test_a_copy_includes_copies_in_place_of_the_files(self):
         text = ("include:\n  - ../kafka/compose.yml   # what it needs\n  - path: ../mail/compose.yml\n"
                 "\nservices:\n  console:\n    volumes:\n      - ../kafka/compose.yml:/x\n")

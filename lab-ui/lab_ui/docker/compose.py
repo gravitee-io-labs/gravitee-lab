@@ -870,13 +870,28 @@ def targets(path):
     return found
 
 
+IMAGE_KEY = re.compile(r"\s*(?:-\s*)?[\"']?image[\"']?\s*:")
+
+
+def _in_path(found):
+    """Whether a name found in a line stands in a path or in the repository of an image, which a slash stands next to, and
+    not as the host of an address (after its `//` or its `@`)."""
+    before, after = found.string[:found.start()], found.string[found.end():]
+    return not before.endswith(("//", "@")) and (before.endswith("/") or after.startswith("/"))
+
+
 def retarget(text, names):
-    """The text of a compose file with a service named again wherever it is named: its own entry, what depends on it and
-    a host that its address names. `names`: {the service as the file says it: the service of the platform}. A name is
-    replaced whole: gio-apim-gateway, a container name, stays."""
+    """The text of a compose file with a service named again where the file names that service: its own key, what depends
+    on it, and a host its addresses name (`http://apim-gateway:8082`, `TCP:apim-gateway:9092`). Never a path or an image,
+    which a slash stands next to (`./apim-gateway/gravitee.yml`, `graviteeio/apim-gateway:4.13.1`), a file
+    (`apim-gateway.yml`), the value of an `image:`, or a longer name (gio-apim-gateway, a container name). `names`:
+    {the service as the file says it: the service of the platform}."""
+    lines = text.split("\n")
     for old, new in names.items():
-        text = re.sub(rf"(?<![\w.-]){re.escape(old)}(?![\w-])", new, text)
-    return text
+        name = re.compile(rf"(?<![\w.-]){re.escape(old)}(?![\w.-])")
+        lines = [line if IMAGE_KEY.match(line) else name.sub(lambda found: found.group() if _in_path(found) else new, line)
+                 for line in lines]
+    return "\n".join(lines)
 
 
 HEADER = "# Written for another platform by the Lab UI, from the file it names: "

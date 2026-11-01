@@ -246,7 +246,8 @@ gateway mounts what the Hybrid gateway add-on mounts. The Lab gives the first re
   gateway of the platform it is deployed to: the Lab writes a copy of its file for that platform, with the gateway and
   the hosts that name it written as the platform's, and includes the copy in place of the file. Nothing changes on the
   gateway of this machine. A host such as `http://apim-gateway:8082` in an app therefore reaches the gateway of the
-  platform the app runs on.
+  platform the app runs on. An image and a path that hold the name stay as they are written
+  (`graviteeio/apim-gateway:4.13.1`, `./apim-gateway/gravitee.yml`).
 - An entry of `seed/` whose name starts with a dot is ignored.
 - The seed service may depend on the core: it runs apart from it for Gravitee Cloud, and its `depends_on` are for *This
   machine*.
