@@ -2862,9 +2862,10 @@ class Remembered(Case):
         return sorted(done)
 
     def test_a_file_read_as_written_is_read_again_only_when_its_own_files_change(self):
-        # The root .env and the core change what a unit is with the core, not what it says as written: those readings stay
+        # The root .env and the core change what a unit is with the core, not what it says as written: those readings stay.
+        # Compose reads the root .env to read the core, even as written: the core alone is read again
         self.write(".env", "FIXTURE_X=1\n")
-        self.assertEqual(self.raws(), [], "the core as written does not read the .env either")
+        self.assertEqual(self.raws(), [project.CORE_FILE], "the core as written reads the root .env")
         self.write("docker-compose.yml", (self.root / "docker-compose.yml").read_text(encoding="utf-8") + "# edited\n")
         self.assertEqual(self.raws(), [project.CORE_FILE])
         # A unit of this machine is kept as a catalog's is, and so is the core: the edit of a guide reads none again, its own
@@ -2878,6 +2879,31 @@ class Remembered(Case):
     def test_forgetting_reads_everything_again(self):
         project.forget()
         self.assertGreater(len(self.reads()), 8)
+
+
+@unittest.skipUnless(fixtures.have_compose(), "the Docker CLI with Compose 5 or later is not installed")
+class CoreAndRootEnv(Case):
+    """Compose reads the root .env to read the core, even as written (`--no-interpolate`): a reading of the core is kept
+    only while that .env stays as it is."""
+
+    def setUp(self):
+        read(self, catalogs={"partner": {}}, local=("scratch",))
+
+    def core_loaded(self):
+        built, _ = project.loaded()
+        return built["core_loaded"]
+
+    def test_a_broken_root_env_then_fixed_loads_the_core_again(self):
+        self.write(".env", "FIXTURE_X=1\nMY VAR=1\n")
+        project.forget()
+        self.assertFalse(self.core_loaded(), "Compose refuses the .env, so the core does not load")
+        self.write(".env", "FIXTURE_X=1\n")
+        self.assertTrue(self.core_loaded(), "the .env is fixed: the core loads again")
+
+    def test_a_good_reading_is_not_kept_once_the_root_env_breaks(self):
+        self.assertTrue(self.core_loaded())
+        self.write(".env", "FIXTURE_X=1\nMY VAR=1\n")
+        self.assertFalse(self.core_loaded(), "Compose refuses the .env now")
 
 
 class Fresh(Case):

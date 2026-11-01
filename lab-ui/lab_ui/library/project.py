@@ -84,10 +84,11 @@ def _catalog_files():
 
 
 def _read_from(files):
-    """What Compose reads to read these files: each, and the .env next to each compose file. The one notion of what a unit
-    was read from: what was learned of it is kept by it (_stamp), and the project is read again when it changes
-    (fingerprint)."""
-    return [*files, *(f"{file.rsplit('/', 1)[0]}/.env" for file in files if file.endswith("/compose.yml"))]
+    """What Compose reads to read these files: each, and the .env next to each compose file, the root .env for the core.
+    The one notion of what a unit was read from: what was learned of it is kept by it (_stamp), and the project is read
+    again when it changes (fingerprint)."""
+    return [*files, *(f"{file.rsplit('/', 1)[0]}/.env" for file in files if file.endswith("/compose.yml")),
+            *([ENV_FILE] if CORE_FILE in files else [])]
 
 
 def fingerprint():
@@ -504,8 +505,8 @@ _no_env = True   # Compose is asked `config --no-env-resolution` () until one th
 def _stamp(files, skip, core=False):
     """What a reading was made from: the size and time of these files, those of the .env next to each (_read_from), the
     includes left out (`skip`), and with `core`, the core and the root .env, which a reading with the core interpolates. A
-    reading as written (`--no-interpolate`, one file and what it includes) reads neither. Not the environment of the
-    process: `forget()` is for that."""
+    unit read as written (`--no-interpolate`, one file and what it includes) reads neither; the core as written still
+    reads the root .env (_read_from). Not the environment of the process: `forget()` is for that."""
     root = os.fspath(ROOT)
     names = [*([CORE_FILE, ENV_FILE] if core else []), *_read_from(files)]
     parts = sorted(skip)
