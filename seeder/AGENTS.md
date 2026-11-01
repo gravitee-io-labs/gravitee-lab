@@ -35,6 +35,8 @@ The seed runs when a Start sets the playground up, on Re-seed, and again with an
   `count` of 0 that the Lab UI counts as nothing), and record it inside the block. A create whose answer is lost (no answer in
   time, a seed stopped in the middle of it) leaves the note, and where you would stop on an object of that name that you did
   not create, `adopted(SECTION, kind, name, id)` takes it as the seed's when the note names it. A 4xx takes the note back.
+  An object you delete to make it again loses its record right after the delete (`forget`): `making` notes nothing under a
+  name the record still holds.
 - Replace or delete only what the record says the seed created. Stop with a `SeedError` that names an object you find
   and did not create. What is updated and never deleted: [what it records](../docs/playgrounds.md#what-it-records).
 
