@@ -297,8 +297,10 @@ class License(Case):
         self.patch(envfiles, "read", side_effect=lambda path: values)
         asked = self.patch(license, "_read", side_effect=lambda project: dict(read[values["GRAVITEE_LICENSE"]]))
         self.patch(license, "_model", side_effect=license.Unknown("not asked"))
+        # Docker did not answer the state: the license is not read for it, and what it allows is not known yet
+        self.assertEqual((license.features(PROJECT, ask=False), asked.call_count), (None, 0))
         self.assertEqual((license.features(PROJECT), license.features(PROJECT)), ({"f1"}, {"f1"}))
-        self.assertEqual(asked.call_count, 1)
+        self.assertEqual((license.features(PROJECT, ask=False), asked.call_count), ({"f1"}, 1))
         values["GRAVITEE_LICENSE"] = "second"
         self.assertEqual(license.features(PROJECT), {"f2"})
         self.assertEqual(asked.call_count, 2)
