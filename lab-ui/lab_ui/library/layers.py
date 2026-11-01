@@ -7,6 +7,7 @@ platform. The plan refuses a start for what the policy blocks, a catalog it lack
 taken, and a layout still being moved (`_blocked`). `check` asks the catalogs to verify what is installed before a start
 runs (the preflight). `write`, the only writer of the on file, adds no entry for a unit that is blocked."""
 
+import functools
 import importlib
 import os
 import re
@@ -475,17 +476,24 @@ def at_least(tag, wanted):
     return [key(part) for part in have[1]] >= [key(part) for part in want[1]]
 
 
+@functools.lru_cache(maxsize=4096)
+def _sets(raw_image):
+    """The variables an image line sets itself, its registry's and its version's (images._parts): what a line says is the
+    same each time it is read, so it is read once."""
+    from ..docker import images   # images imports this module
+    return frozenset((key or (None,))[0] for key in images._parts(raw_image)[::2]) - {None}
+
+
 def service_of(project, variable):
     """The first service whose image a version variable sets, as (its name, it); None when none does. A service whose image
     only follows it (`${OWN_VERSION:-${VARIABLE:-1.2}}`, as the portals of a playground follow API Management's) does not set
     it: the first of those is the answer only when no service sets it, so that what a variable belongs to is its component's
     owner, as the Images page says, whatever the names sort like."""
-    from ..docker import images   # images imports this module
-    found = sorted(project["services"].items())
-    sets = ((name, service) for name, service in found
-            if variable in {(key or (None,))[0] for key in images._parts(service.get("raw_image") or "")[::2]})
-    return next(sets, None) or next(((name, service) for name, service in found
-                                     if "${" + variable in (service.get("raw_image") or "")), None)
+    services = project["services"]
+    name = min((name for name, service in services.items() if variable in _sets(service.get("raw_image") or "")),
+               default=None) or min((name for name, service in services.items()
+                                     if "${" + variable in (service.get("raw_image") or "")), default=None)
+    return (name, services[name]) if name else None
 
 
 def saved_setting(project, variable):

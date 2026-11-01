@@ -242,6 +242,19 @@ class ServiceOf(Case):
         self.assertEqual(layers.service_of({"services": services}, "ELASTICSEARCH_VERSION")[0], "kiosk")
         self.assertIsNone(layers.service_of({"services": services}, "NO_SUCH_VERSION"))
 
+    def test_an_image_line_is_read_once_whatever_is_asked_of_it(self):
+        # The state asks of every playground's versions on each poll: each line of the project is read once, not once a question
+        from lab_ui.docker import images
+        layers._sets.cache_clear()
+        read = mock.Mock(side_effect=images._parts)
+        self.patch(images, "_parts", read)
+        project = {"services": self.SERVICES}
+        for _ in range(20):
+            for variable in ("APIM_VERSION", "PORTAL_VERSION", "APIM_GATEWAY_VERSION", "PORTAL_REGISTRY", "NO_SUCH_VERSION"):
+                layers.service_of(project, variable)
+        self.assertEqual(read.call_count, len(self.SERVICES))
+        self.assertEqual(layers.service_of(project, "APIM_VERSION")[0], "apim-management-api")
+
 
 class License(Case):
     """What needs a license that is not usable (`needs_license`) is not started: not named, not waited for, not an
