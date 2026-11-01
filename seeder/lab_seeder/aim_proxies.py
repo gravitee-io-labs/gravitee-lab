@@ -39,8 +39,8 @@ from . import controls
 from . import gamma
 from .aim_workspaces import subset
 from .apim import merge
-from .common import (Api, SeedError, adopted, making, trouble, created, files, forget, has_seed, load, log, owned, record, recorded, setting, wait_until,
-                    waits_for_gateway)
+from .common import (Api, SeedError, adopted, created, files, forget, has_seed, load, log, making, owned, record, recorded, setting,
+                     trouble, wait_until, waits_for_gateway)
 
 SECTION = "aim-proxies"
 # The folders of the seed it owns
