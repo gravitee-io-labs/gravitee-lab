@@ -220,6 +220,7 @@ class StackActions(Case):
         stack.action(PROJECT, "start", for_core=True, accept=[])
         job, ran = self.core_job()
         self.assertEqual((job.ok, job.error(), ran), (False, "Its token is not kept here", []))
+        self.assertEqual(job.lines, ["Its token is not kept here"], "no line says the gateway serves the place")
         written.assert_not_called()
 
     def test_a_cloud_cores_start_all_is_checked_as_the_project_it_reads_and_makes_its_folders(self):
@@ -290,6 +291,7 @@ class StackActions(Case):
         self.assertEqual((job.ok, ran[0][-6:]), (False, ["rm", "--stop", "--force", "-v", "kafka", "kafka-ui"]))
         self.assertIn("addons/kafka/compose.yml", (self.root / paths.ON_FILE).read_text())
         swap.assert_not_called()   # the job changed nothing: the add-on still holds the token it held
+        self.assertEqual([line for line in job.lines if line.startswith("Serves:")], [], job.lines)
 
     def test_a_cloud_cores_start_all_with_nothing_to_start_or_unaccepted_stops_is_refused(self):
         self.cloud_core(needed=False)
