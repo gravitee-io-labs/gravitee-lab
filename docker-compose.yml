@@ -113,7 +113,7 @@ services:
       io.gravitee.group: Databases
       io.gravitee.image.tags: library/elasticsearch
     healthcheck:
-      <<: *healthcheck
+      <<: *jvm-healthcheck
       test: ["CMD-SHELL", "curl -sf 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=2s'"]
     networks:
       - internal

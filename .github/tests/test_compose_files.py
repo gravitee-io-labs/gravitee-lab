@@ -54,7 +54,8 @@ class HealthChecksTest(unittest.TestCase):
     def test_a_jvm_has_five_minutes_for_its_first_start(self):
         anchor = re.search(r"^x-jvm-healthcheck: &jvm-healthcheck\n((?:  .*\n)+)", self.text, re.M).group(1)
         self.assertIn("  start_period: 300s\n", anchor)
-        for name in ("alert-engine", "apim-management-api", "apim-gateway", "am-management-api", "am-gateway"):
+        for name in ("elasticsearch", "alert-engine", "apim-management-api", "apim-gateway", "am-management-api",
+                     "am-gateway"):
             self.assertIn("      <<: *jvm-healthcheck\n", service_block(self.text, name), name)
 
     def test_a_check_asks_for_no_more_than_its_own_time(self):
