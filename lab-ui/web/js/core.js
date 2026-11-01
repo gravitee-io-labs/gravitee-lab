@@ -218,8 +218,12 @@ export const store = {
   },
 
   // Why nothing can be started now, as the server says it and the tooltip of what waits; "" when it can. While the
-  // Lab UI does not answer, what the page last heard is no longer true: everything waits for it.
-  wait() { return store.offline ? "Lab UI offline" : store.error ? "Lab UI error" : store.state?.wait || ""; },
+  // Lab UI does not answer, what the page last heard is no longer true: everything waits for it. An entry of the on file
+  // that Compose cannot read (`unread`) holds what reads the files, not what Compose runs by the project's name (`byName`:
+  // a stop, a restart of containers, Remove containers, Reset).
+  wait(byName = false) {
+    return store.offline ? "Lab UI offline" : store.error ? "Lab UI error" : store.state?.wait || (!byName && store.state?.unread) || "";
+  },
 
   // The lab as the health chip and the Stack say it: {tone, text, title, why}, the Lab UI, Docker and the core file first,
   // then the platform, named. "busy" pulses while the platform is on its way. `why`: the lines that say what the issue is

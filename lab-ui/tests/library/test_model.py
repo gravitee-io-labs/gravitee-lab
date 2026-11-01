@@ -1281,7 +1281,7 @@ class State(Built):
         json.dumps(body)   # nothing in it that the page cannot be sent
         self.assertEqual(sorted(body), ["addons", "blind", "categories", "docker", "job", "license", "links",
                                         "platform", "platforms", "playgrounds", "problems", "products", "running",
-                                        "services", "setups", "wait"])
+                                        "services", "setups", "unread", "wait"])
         # A file the editor opens can be repaired from where the problem shows; the on file opens too
         self.assertEqual(body["problems"], [dict(problem, editable=True)
                                             for problem in self.project["problems"] + state["problems"]])
@@ -1756,20 +1756,33 @@ class Catalogs(Built):
 class Trouble(Built):
     """What keeps restarting, the license, docker-compose.yml that does not load, a registry refusing a pull."""
 
-    def test_an_entry_of_the_on_file_that_compose_cannot_read_makes_everything_wait_on_it(self):
+    def test_an_entry_of_the_on_file_that_compose_cannot_read_makes_what_reads_the_files_wait_on_it(self):
         # Its file broke outside the Lab, or is gone: every command that reads the on file would fail on it, so every
         # action that runs one says why before the click, as for a core that does not load
         line = "addons/local/mine/compose.yml does not load"
         state = on(self.project, ["kafka"])
-        body = model.build(self.project, {**state, "unread": line}, {**CORE, "kafka": container(), "kafka-ui": container()},
-                           None, lambda kind, uid: None, None, {"error": None, "memory": None}, {})
+        body = model.build(self.project, {**state, "unread": line}, {**CORE}, None, lambda kind, uid: None, None,
+                           {"error": None, "memory": None}, {})
         platform = body["platform"]
-        self.assertEqual(body["wait"], line)
+        self.assertEqual((body["wait"], body["unread"]), (None, line), "the page holds what reads the files on it")
         self.assertEqual([(platform[key]["enabled"], platform[key]["reason"]) for key in ("start", "apply", "restart", "update")],
                          [(False, line)] * 4)
         kafka = next(item for item in body["addons"] if item["id"] == "kafka")
-        self.assertEqual((kafka["action"]["enabled"], kafka["action"]["reason"]), (False, line))
-        self.assertIsNone(self.build(explicit=["kafka"])["wait"])
+        self.assertEqual((kafka["action"]["do"], kafka["action"]["enabled"], kafka["action"]["reason"]), ("start", False, line))
+        self.assertIsNone(self.build(explicit=["kafka"])["unread"])
+
+    def test_an_entry_of_the_on_file_that_is_gone_leaves_what_goes_by_project_name_usable(self):
+        # Stop all, an item's Stop, Remove containers and Reset run `docker compose -p <name> ...`, which reads no
+        # file: a gone entry does not make them fail, so the lab that runs can still be stopped from the page
+        line = "addons/local/mine/compose.yml does not exist"
+        state = on(self.project, ["kafka"])
+        body = model.build(self.project, {**state, "unread": line}, {**CORE, "kafka": container(), "kafka-ui": container()},
+                           None, lambda kind, uid: None, None, {"error": None, "memory": None}, {})
+        kafka = next(item for item in body["addons"] if item["id"] == "kafka")
+        self.assertEqual(kafka["action"]["do"], "stop")
+        self.assertEqual((kafka["action"]["enabled"], kafka["action"]["reason"]), (True, None))
+        # The page's Stop all, Remove containers and Reset wait on state.wait (paintBusy, platformMenu)
+        self.assertIsNone(body["wait"])
 
     def test_what_keeps_restarting_gets_stop(self):
         # Its start would change nothing: up leaves running containers as they are
@@ -2021,13 +2034,13 @@ class Platforms(Built):
         running = up("hybrid", playgrounds=["hotels"], project=self.project)
         plan = layers.plan(self.project, on(self.project, ["hybrid"], "hotels"), running, "addon", "hybrid", "start",
                            place=where)
-        action = model._action({"project": self.project, "wait": None}, plan)
+        action = model._action({"project": self.project, "wait": None, "unread": None}, plan)
         self.assertEqual(action["dialog"], layers.dialog(plan))
         self.assertEqual([found["name"] for found in action["dialog"]["serves"]], ["Development (My Account)"])
         self.assertEqual([found["name"] for found in action["dialog"]["stops_serving"]], ["Test (Client lab)"])
         # The plan of a start on This machine says what it always did
         local = layers.plan(self.project, on(self.project), up(project=self.project), "addon", "kafka", "start")
-        self.assertEqual(sorted(model._action({"project": self.project, "wait": None}, local)["dialog"]),
+        self.assertEqual(sorted(model._action({"project": self.project, "wait": None, "unread": None}, local)["dialog"]),
                          sorted(layers.ROWS))
 
 

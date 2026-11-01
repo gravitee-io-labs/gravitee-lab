@@ -544,7 +544,7 @@ def _action(c, plan, blocked=None, offer=None):
     that (layers.asks). `blocked`: why it cannot run, in the words of the row's own note (the settings an add-on lacks). `warns`: it
     can run, and does or offers what the row's note warns of; `offer`: what it offers (_offer)."""
     reason = blocked or plan["blocked"] or (None if c["project"]["core_loaded"] else f"{paths.CORE_FILE} does not load") \
-        or c["wait"]
+        or c["wait"] or (c["unread"] if plan["do"] == "start" else None)
     return {"do": plan["do"], "label": plan["label"], "enabled": not reason, "reason": reason,
             "dialog": layers.dialog(plan) if layers.asks(plan) else None,
             # Its start does or offers what the row's note warns of (it switches versions): the note stays beside the button
@@ -764,7 +764,7 @@ def _playground(c, playground, addons, created):
     item = _item(c, playground, _folded(c, names, on), on, is_up, names)
     brought = [name for aid in playground["addons"] if aid in addons for name in addons[aid]["services"]]
     stop, needs = _plan(c, "playground", uid, "stop"), seed_reason(project, c["state"], c["up"], playground)
-    reseed = c["wait"] or (None if on else f"{playground['name']} is off") or needs
+    reseed = c["wait"] or c["unread"] or (None if on else f"{playground['name']} is off") or needs
     return {**item, **{key: playground[key] for key in PLAYGROUND_KEYS},
             # Its apps, then the consoles of its add-ons, then those it lists
             "links": _links(c, playground["services"], brought, playground.get("consoles") or []),
@@ -816,9 +816,9 @@ def _group_note(c, group, state):
 
 
 def _reason(c):
-    """Why the platform's actions cannot run now: docker-compose.yml does not load, Docker does not answer, a job
-    runs; None when they can."""
-    return (None if c["project"]["core_loaded"] else f"{paths.CORE_FILE} does not load") or c["wait"]
+    """Why the platform's actions that read the files cannot run now: docker-compose.yml does not load, Docker does not
+    answer, a job runs, an entry of the on file that Compose cannot read; None when they can."""
+    return (None if c["project"]["core_loaded"] else f"{paths.CORE_FILE} does not load") or c["wait"] or c["unread"]
 
 
 def _dialog(starts=(), restarts=(), consequences=None):
@@ -970,14 +970,15 @@ def _by_name(items):
     return sorted(items, key=key)
 
 
-def _wait(docker, job, loaded, unread=None):
-    """Why nothing can be started now, as what waits says it; None when it can. `unread`: the entry of the on file that
-    Compose cannot read (layers.current), which every command fails on, as on a core that does not load."""
+def _wait(docker, job, loaded):
+    """Why nothing can be started now, as what waits says it; None when it can. An entry of the on file that Compose
+    cannot read is not among it (`unread`): only what reads the files waits for it, not what Compose runs by the
+    project's name (a stop, Remove containers, Reset)."""
     if docker["error"]:
         return "Docker is not reachable"
     if not loaded:
         return f"{paths.CORE_FILE} does not load"
-    return unread or (f"Wait for {job['title']}" if job else None)
+    return f"Wait for {job['title']}" if job else None
 
 
 def memory_warning(memory):
@@ -1056,7 +1057,8 @@ def build(project, state, containers, job, failures, license_features, docker, c
     {id: [{place, environment, created: [{what, count}]}]} (places.deployed); `changed` the settings that differ in
     what runs behind by configuration ({service: {settings: [name], labels}}, drift.changes). Of the job, the page gets all but
     `changes`, `containers` and `settled` (_job): they are in the state and the progress of every item. Of Docker, it gets why
-    it does not answer and what to know of its memory; `wait` says why nothing can be started now. `blind`: what runs
+    it does not answer and what to know of its memory; `wait` says why nothing can be started now, and `unread` the entry of
+    the on file that Compose cannot read (layers.current), which holds what reads the files besides. `blind`: what runs
     is not known, Docker not answering or docker-compose.yml not loading: no state is said, but, while only Docker
     does not answer, what is on, which the files say. The consoles come in their order, which puts the legacy ones
     last. The state of the catalogs is read by the caller, who has the disk: `git` (git_state), `catalogs` (the rows of the
@@ -1093,7 +1095,7 @@ def build(project, state, containers, job, failures, license_features, docker, c
     # what is saved; `held`: what the Lab UI does not start for want of a usable license, and `unlicensed` its note;
     # `unlicensing`: with no license saved, what still runs one, which loses it once it is made again
     c = {"project": project, "state": state, "up": running, "job": running_job,
-         "wait": _wait(docker, running_job, loaded, state.get("unread")), "failures": failures, "features": license_features,
+         "wait": _wait(docker, running_job, loaded), "unread": state.get("unread"), "failures": failures, "features": license_features,
          "services": services, "created": created, "blind": bool(docker["error"]) or not loaded,
          "docker_down": bool(docker["error"]) and loaded,
          "changing": changing, "behind": set(late), "why": late, "license": license_status, "held": set(waiting),
@@ -1109,7 +1111,7 @@ def build(project, state, containers, job, failures, license_features, docker, c
         service["recreates"] = _recreates(c, [name])
     conflicts = _conflicts(project)
     addons = {aid: _addon(c, addon, conflicts) for aid, addon in project["addons"].items()}
-    return {"docker": _docker(docker), "wait": c["wait"], "blind": c["blind"], "license": _license(c, containers),
+    return {"docker": _docker(docker), "wait": c["wait"], "unread": c["unread"], "blind": c["blind"], "license": _license(c, containers),
             "job": _job(job),
             "platform": _platform(c),
             "platforms": [{key: record[key] for key in ("id", "name", "kind", "url")} for record in platforms],

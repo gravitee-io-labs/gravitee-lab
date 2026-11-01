@@ -138,7 +138,7 @@ def snapshot():
     # in the last 30 s (updates.FRESH). Where API Management runs, from this machine's choice and what its platform last said
     body.update(root=str(paths.ROOT), agent=machine.agent(), skills=personal.skills(), lab=updates.describe(),
                 kept_settings=kept.listed(),
-                core=core.describe(p, on, containers if known else {}, saved, body.get("wait")))
+                core=core.describe(p, on, containers if known else {}, saved, body.get("wait") or on.get("unread")))
     _docker_down(body)
     unread = service.problems()   # the files that record the catalogs cannot be read: nothing would be shown, and no word said
     if unread:

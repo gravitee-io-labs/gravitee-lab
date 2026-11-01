@@ -1081,12 +1081,14 @@ function waitOn(b, wait) {
   setOff(b, !!wait || b._idle.off, (own ? "" : wait) || b._idle.why);
 }
 
+// What a button marked data-busy waits for: `data-busy="name"` is one that Compose runs by the project's name (store.wait)
+const busyWait = (b) => store.wait(b.dataset.busy === "name");
+
 // Makes unusable, under `root`, what waits for Docker, for the running job and for the Lab UI (data-busy), saying
 // why. It runs once the state is drawn (main.js); whoever draws such a button at another time calls it
 // on what it drew. The button of the action at work is left to paintActions: it is busy, not unusable.
 export function paintBusy(root = document) {
-  const wait = store.wait();
-  for (const b of $$("[data-busy]", root)) if (!b.matches(".busy, .said")) waitOn(b, wait);
+  for (const b of $$("[data-busy]", root)) if (!b.matches(".busy, .said")) waitOn(b, busyWait(b));
 }
 
 // --- Actions at work --------------------------------------------------------------
@@ -1314,7 +1316,7 @@ function paint(b, { act, flash: ended }) {
   b.classList.toggle("said", !act && !!ended);
   if (!up && was) {
     showOff(b);
-    if (b.hasAttribute("data-busy")) waitOn(b, store.wait());
+    if (b.hasAttribute("data-busy")) waitOn(b, busyWait(b));
   }
   const aria = [[b, "aria-busy", act], [face, "aria-hidden", up], [side, "aria-hidden", !up]];
   for (const [el, name, on] of aria) {
