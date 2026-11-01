@@ -774,7 +774,7 @@ def gather():
     pool, and what the pool learned of a unit is kept while its files stay as they are, unless Compose did not answer
     (that is read again at the next gather). A problem of such a file is the catalog's (`catalog_problems`), not the
     banner's. The units of this machine, and every unit while no default file exists, are read together as they always
-    were (each file as written is kept as a catalog's unit is, but before catalogs); an add-on or a playground of this
+    were (each file as written is kept as a catalog's unit is, the core's too, but before catalogs); an add-on or a playground of this
     machine is also resolved alone with the core (`own_configs`) and its seed read (`seed_references`), for the notes of the
     policy, which judges them and blocks none."""
     _REAL.clear()
@@ -794,6 +794,7 @@ def gather():
     clean = set(judged) - bad   # the files of a catalog that the closure of a unit may follow: units the screen read, and found clean
     own_seeds = _own_seeds([file for file in unit_files if tiers[file] == "local"])
     reach = {file: _reach(file, bad, clean) for file in unit_files if tiers[file] != "legacy" and file not in bad}
+    reach[CORE_FILE] = _reach(CORE_FILE, bad, clean)   # the core is kept as a unit is, while the files it was read from stay
     held = {file: lines for file, found in reach.items() for lines in [held_reasons(found, bad)] if lines}
     stubs = bad | set(held)
 
