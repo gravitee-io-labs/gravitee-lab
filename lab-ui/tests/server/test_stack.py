@@ -23,7 +23,7 @@ HEALTH_CHECKED = {"mongodb", "redis", "kafka", "jade"}
 def migrate(**more):
     """A migration of the databases: a one-shot of the platform."""
     return {"role": None, "oneshot": True, "owner": {"kind": "platform", "id": "databases"}, "container": "gio-migrate",
-            "image": "mongo:8.0.29", "built": False, "depends_on": [], "needs_license": False, **more}
+            "label": "Migration", "image": "mongo:8.0.29", "built": False, "depends_on": [], "needs_license": False, **more}
 
 
 def unlicensed(usable=False):
@@ -517,11 +517,29 @@ class StackActions(Case):
             {"key": "addon:kafka", "verb": "restart", "changes": {"start": [["addon", "kafka"]]},
              "waits": [awaited(DEFINED, start=["kafka", "kafka-ui"])]}))
 
+    def test_a_service_s_job_is_named_as_the_state_names_it(self):
+        # Its label, with what it belongs to when another service has the same: the chip, the drawer and the toast say
+        # that, never the name of the service in the file
+        gateway = migrate(oneshot=False, label="Gateway", container="gio-apim-gateway", image="graviteeio/apim-gateway:4.9.0",
+                          owner={"kind": "platform", "id": "apim", "name": "API Management"})
+        project = {**PROJECT, "services": {**DEFINED, "apim-gateway": gateway,
+                                           "am-gateway": {**gateway, "container": "gio-am-gateway",
+                                                          "owner": {"kind": "platform", "id": "am",
+                                                                    "name": "Access Management"}}}}
+        stack.compose.ps.return_value = {"apim-gateway": {"state": "running"}}
+        stack.service_action(project, "apim-gateway", "restart")
+        title, steps, options = self.started(self.jobs)
+        self.assertEqual((title, steps, options["key"]), ("Restart Gateway (API Management)",
+                                                          [[*self.BY_NAME, "restart", "apim-gateway"]], "service:apim-gateway"))
+        stack.compose.ps.return_value = {}
+        with self.assertRaisesRegex(RuntimeError, r"^Gateway \(API Management\) has no container$"):
+            stack.service_action(project, "apim-gateway", "stop")
+
     def test_a_start_of_what_needs_a_license_is_refused_without_one(self):
         # Its row says so: a click that reaches the server anyway is told why, and starts nothing
         project = unlicensed()
         for call, name in ((lambda: stack.group_action(project, "alert-engine", "start"), "Alert Engine"),
-                           (lambda: stack.service_action(project, "alert-engine", "start"), "alert-engine")):
+                           (lambda: stack.service_action(project, "alert-engine", "start"), "Alert Engine")):
             with self.assertRaisesRegex(RuntimeError, f"^{name} needs a license$"):
                 call()
         self.jobs.start.assert_not_called()

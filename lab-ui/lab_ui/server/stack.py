@@ -317,13 +317,14 @@ def group_action(project, gid, do):
 
 
 def service_action(project, name, do):
-    """Starts, stops or restarts one service. A playground's seed is run again by its Re-seed, which records what it
-    creates and follows it: it is only stopped here."""
+    """Starts, stops or restarts one service, which its job names as the state does ("Restart Gateway (API Management)").
+    A playground's seed is run again by its Re-seed, which records what it creates and follows it: it is only stopped
+    here."""
     if name not in project["services"]:
         raise paths.NotFound(f"No such service: {name}")
     if project["services"][name]["role"] == "seed" and do != "stop":
         raise RuntimeError("Re-seed runs it again")
-    return _containers(project, name, [name], do, "service", name)
+    return _containers(project, layers.service_name(project, name), [name], do, "service", name)
 
 
 def unit_action(project, kind, uid, do):
