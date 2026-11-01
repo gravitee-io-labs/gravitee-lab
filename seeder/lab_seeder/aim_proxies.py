@@ -411,7 +411,7 @@ class McpProxies:
             forget(*[x for x in created() if (x["product"], x["kind"], x["id"]) == (SECTION, "studio", found["id"])])
             found = None
         if found is None:
-            with making(SECTION, "studio", "MCP studios", name, missing=True):
+            with making(SECTION, "studio", "MCP studios", name, missing=True, contextPath=path):
                 found = self.g.aim.post("/mcp-studios", json=body).json()
                 record(SECTION, "studio", "MCP studios", name, found["id"], digest=wanted)
             log(SECTION, f"✓ MCP studio created: {name}")
@@ -451,7 +451,7 @@ class McpProxies:
             found = None
         changed = found is None
         if changed:
-            with making(SECTION, "studio", "MCP studios", name, missing=True):
+            with making(SECTION, "studio", "MCP studios", name, missing=True, contextPath=path):
                 found = self.g.aim.post("/mcp-studios", json=body).json()
                 record(SECTION, "studio", "MCP studios", name, found["id"], digest=wanted)
             log(SECTION, f"✓ MCP studio created: {name}")

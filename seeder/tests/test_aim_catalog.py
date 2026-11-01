@@ -995,10 +995,10 @@ class ApiTools(Catalog):
     def test_a_studio_that_is_only_a_note_is_released_before_tools_that_changed(self):
         """A studio whose create's answer was lost is only a note; it holds the tools all the same."""
         self.run_seed()
-        studios = {"studio-9": {"id": "studio-9", "name": "Acme Bakery Toolkit", "mode": "STUDIO"},
-                   "other": {"id": "other", "name": "Someone's", "mode": "STUDIO"}}
+        studios = {"studio-9": {"id": "studio-9", "name": "Acme Bakery Toolkit", "mode": "STUDIO", "contextPath": "/acme/"},
+                   "other": {"id": "other", "name": "Someone's", "mode": "STUDIO", "contextPath": "/theirs"}}
         # what aim_proxies' making() left: the platform made the studio, the seed lost the answer
-        common.record("aim-proxies", "studio", "MCP studios", "Acme Bakery Toolkit", None, count=0)
+        common.record("aim-proxies", "studio", "MCP studios", "Acme Bakery Toolkit", None, count=0, contextPath="/acme")
 
         def delete_source(call):   # the platform refuses to delete a tool a studio of the seed holds
             if "studio-9" in studios:
@@ -1015,6 +1015,45 @@ class ApiTools(Catalog):
         self.assertEqual(list(studios), ["other"], "the seed's studio is gone, and the one it did not make stays")
         self.assertEqual(len(self.world.of_kind("mcp-tool")), 3)
         self.assertEqual([x for x in common.created() + common.notes("aim-proxies", "studio") if x["kind"] == "studio"], [])
+
+    def test_a_studio_of_the_noted_name_at_another_path_is_not_the_seeds_and_stays(self):
+        """aim_proxies finds a studio by its path: one of that name at another path is the person's, whatever the note."""
+        self.run_seed()
+        studios = {"theirs": {"id": "theirs", "name": "Acme Bakery Toolkit", "mode": "STUDIO", "contextPath": "/my-own"}}
+        # what aim_proxies' making() left: the create of the studio at its own path got no answer, and made nothing
+        common.record("aim-proxies", "studio", "MCP studios", "Acme Bakery Toolkit", None, count=0, contextPath="/acme")
+
+        def delete_studio(call):
+            return 204 if studios.pop(last(call), None) else 404
+        self.platform.add({("DELETE", path("/mcp-proxies/*")): delete_studio,
+                           ("GET", SCOPE + "/mcp-proxies"): lambda call: listing(studios.values())})
+        self.world.apis["api-1"]["operations"].append("listRates")
+        self.run_seed()
+        self.assertEqual(list(studios), ["theirs"])
+        self.assertEqual([x["contextPath"] for x in common.notes("aim-proxies", "studio")], ["/acme"], "the note waits for aim_proxies")
+
+    def test_the_noted_studio_goes_beside_a_recorded_one_of_the_same_name(self):
+        self.run_seed()
+        studios = {"studio-9": {"id": "studio-9", "name": "Acme Bakery Toolkit", "mode": "STUDIO", "contextPath": "/acme"},
+                   "studio-1": {"id": "studio-1", "name": "Acme Bakery Toolkit", "mode": "STUDIO", "contextPath": "/old"},
+                   "theirs": {"id": "theirs", "name": "Acme Bakery Toolkit", "mode": "STUDIO", "contextPath": "/my-own"}}
+        common.record("aim-proxies", "studio", "MCP studios", "Acme Bakery Toolkit", "studio-1", digest="x")
+        with common.making("aim-proxies", "studio", "MCP studios", "Acme Bakery Toolkit", missing=True, contextPath="/acme"):
+            pass   # the platform made the studio at /acme, the seed lost the answer: the note stays beside the record
+
+        def delete_source(call):   # the platform refuses to delete a tool a studio holds
+            if "studio-9" in studios:
+                return 409, {"message": "The tool is used by an MCP studio"}
+            return self.world.delete_source(call)
+
+        def delete_studio(call):
+            return 204 if studios.pop(last(call), None) else 404
+        self.platform.add({("DELETE", path("/catalog/sources/*")): delete_source,
+                           ("DELETE", path("/mcp-proxies/*")): delete_studio,
+                           ("GET", SCOPE + "/mcp-proxies"): lambda call: listing(studios.values())})
+        self.world.apis["api-1"]["operations"].append("listRates")
+        self.run_seed()
+        self.assertEqual(list(studios), ["theirs"])
 
     def test_a_studio_is_left_alone_while_the_tools_are_up_to_date(self):
         self.run_seed()

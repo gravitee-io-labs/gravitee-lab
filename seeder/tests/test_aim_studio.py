@@ -559,6 +559,8 @@ class Replacement(Studios):
         self.platform.add({("POST", AIM + "/mcp-studios"): made})
         with self.assertRaises(common.SeedError):
             self.seed()
+        self.assertEqual([x["contextPath"] for x in common.notes("aim-proxies", "studio")], [PATH],
+                         "the note names the path the studio is found by (aim_catalog.release_studios)")
         self.platform.add({("POST", AIM + "/mcp-studios"): self.world.create})
         self.seed()
         self.assertEqual([x["id"] for x in common.created() if x["kind"] == "studio"], list(self.world.studios))
@@ -752,6 +754,7 @@ class OldShape(Studios):
         self.platform.add({("POST", AIM + "/mcp-studios"): made})
         with self.assertRaises(common.SeedError):
             self.seed()
+        self.assertEqual([x["contextPath"] for x in common.notes("aim-proxies", "studio")], ["/old"])
         self.platform.add({("POST", AIM + "/mcp-studios"): self.world.create})
         self.seed()
         self.assertEqual([x["id"] for x in common.created() if x["kind"] == "studio"], list(self.world.studios))
