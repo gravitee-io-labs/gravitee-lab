@@ -879,6 +879,21 @@ class Skills(Catalog):
         self.assertEqual(len(self.world.of_kind("skill")), 1)
         self.assertEqual(self.run_seed(), [])
 
+    def test_a_skill_replaced_whose_answer_was_lost_is_the_seeds_at_the_next_run(self):
+        self.run_seed()
+        self.seed_files({"aim/skills/complaints/references/escalation.md": "Hand over money and cards.\n"})
+
+        def made(call):   # the platform makes the new skill, and the seed never gets the answer
+            self.world.upload_skill(call)
+            raise requests.ReadTimeout("slow")
+        self.platform.add({("POST", SCOPE + "/catalog/skills"): made})
+        with self.assertRaises(common.SeedError):
+            self.run_seed()
+        self.platform.add({("POST", SCOPE + "/catalog/skills"): self.world.upload_skill})
+        self.run_seed()
+        [skill] = self.world.of_kind("skill")
+        self.assertEqual([x["id"] for x in self.records("skill")], [skill["id"]])
+
     def test_a_skill_without_a_front_matter_with_a_name_and_a_description_is_refused_before_any_call(self):
         for text in ("# No front matter\n", "---\nname: x\n---\n", "---\ndescription: y\n---\n"):
             with self.subTest(text=text):
@@ -954,6 +969,29 @@ class ApiTools(Catalog):
                                            ("POST", "/catalog/mcp-tools/_importFromApis")])
         self.assertEqual(len(self.world.of_kind("mcp-tool")), 3)
         self.assertEqual([x["id"] for x in self.records("api-tools")], list(self.world.sources))
+
+    def test_tools_replaced_whose_answer_was_lost_are_the_seeds_at_the_next_run(self):
+        self.run_seed()
+        self.world.apis["api-1"]["operations"].append("listRates")
+
+        def made(call):   # the platform imports the new tools, and the seed never gets the answer
+            self.world.import_tools(call)
+            raise requests.ReadTimeout("slow")
+        self.platform.add({("POST", SCOPE + "/catalog/mcp-tools/_importFromApis"): made})
+        with self.assertRaises(common.SeedError):
+            self.run_seed()
+        self.platform.add({("POST", SCOPE + "/catalog/mcp-tools/_importFromApis"): self.world.import_tools})
+        self.run_seed()
+        self.assertEqual([x["id"] for x in self.records("api-tools")], list(self.world.sources))
+
+    def test_the_studios_deleted_for_new_tools_lose_their_record_at_once(self):
+        self.run_seed()
+        common.record("aim-proxies", "studio", "MCP studios", "Acme Bakery Toolkit", "studio-1", digest="x")
+        self.world.apis["api-1"]["operations"].append("listRates")
+        self.platform.add({("POST", SCOPE + "/catalog/mcp-tools/_importFromApis"): (400, {"message": "refused"})})
+        with self.assertRaises(common.SeedError):
+            self.run_seed()
+        self.assertEqual([x for x in common.created() if x["kind"] == "studio"], [], "the studio is gone, and so is its record")
 
     def test_an_api_that_cannot_give_tools_stops_the_seed_saying_what_it_needs(self):
         self.world.apis.clear()

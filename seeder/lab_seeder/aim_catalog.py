@@ -483,6 +483,7 @@ def seed_skills(aim):
             continue
         if found:
             aim.delete(f"{PATHS['skill']}/{found['id']}")
+            common.forget(ours)   # gone: its upload is noted
         with common.making(SECTION, "skill", LABELS["skill"], name):
             uploaded = aim.post(PATHS["skill"], files={"file": (f"{name}.zip", skill_package(name, texts), "application/zip")},
                                 headers={"Content-Type": None}).json()
@@ -492,14 +493,14 @@ def seed_skills(aim):
 
 # --- Tools made of an API of API Management --------------------------------------------------
 
-def release_studios(aim, released):
-    """A tool cannot be deleted while a studio holds it: the studios the seed made go first, and aim_proxies makes them
-    again from the new tools, which is what a studio needs anyway, its tools being fixed when it is made. `released`
-    holds those already deleted in this run: a second API whose tools changed does not delete them again."""
+def release_studios(aim):
+    """A tool cannot be deleted while a studio holds it: the studios the seed made go first, with their records, and
+    aim_proxies makes them again from the new tools, which is what a studio needs anyway, its tools being fixed when it
+    is made."""
     for x in common.created():
-        if (x["product"], x["kind"]) == (aim_proxies.SECTION, "studio") and x["id"] not in released:
+        if (x["product"], x["kind"]) == (aim_proxies.SECTION, "studio"):
             aim.delete(f"/mcp-proxies/{x['id']}")
-            released.add(x["id"])
+            common.forget(x)   # gone: its create is noted
             log(SECTION, f"  ✓ Studio '{x['name']}' deleted: it is made again from the new tools")
 
 
@@ -629,7 +630,6 @@ def seed_api_tools(aim):
     tools on its next run."""
     # Every file is read first: one that asks what cannot be done stops the seed before anything changes
     asked = [(spec["api"], operations_of(spec)) for spec in specs("api-tools", "api")]
-    released = set()
     for name, operations in asked:
         api = api_source(aim, name)
         generated = aim.post("/catalog/api-tools/_generateCapabilities", json={"apiIds": [api["id"]]}).json()["data"][0]
@@ -642,8 +642,9 @@ def seed_api_tools(aim):
             say("api-tools", "up to date", name)
             continue
         if found:
-            release_studios(aim, released)
+            release_studios(aim)
             aim.delete(f"{PATHS['api-tools']}/{found['id']}")
+            common.forget(ours)   # gone: its import is noted
         body = {"sources": [{"apiId": api["id"], "apiName": name}],
                 "tools": [{k: v for k, v in t.items() if k != "tailoring"} for t in tools]}
         with common.making(SECTION, "api-tools", LABELS["api-tools"], name):

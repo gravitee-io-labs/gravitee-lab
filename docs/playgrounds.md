@@ -542,8 +542,8 @@ seed/environments/<id>/
   of an API that someone else made under the same type and name stops the seed: it never takes it.
 - **A JSON or YAML file is read as a document before its variables are replaced**, and a string of it that is itself JSON text
   (an endpoint's `sharedConfiguration`) gets the value of a variable escaped for that text. A password with a quote or a
-  backslash therefore arrives as it was set. An unquoted `${PORT}` is read as YAML reads its value, a number here, but a value
-  never adds keys or a list to the file.
+  backslash therefore arrives as it was set. An unquoted `${PORT}` is read as YAML reads its value, a number here (`!!str ${PORT}`
+  keeps it a string), but a value never adds keys or a list to the file.
 
 ### Settings
 
@@ -619,7 +619,8 @@ seed's output, `[seed] ✗ <why>`, as the reason a start failed.
 
 A deploy to Gravitee Cloud records in a folder of its own, `.state/<platform id>/<environment id>/`, which the seed reaches
 as `STATE_DIR=/state/<platform id>/<environment id>`. Each place keeps its record, and a Re-seed, a Delete or a Reset of
-*This machine* never reads or empties another one. Removing an account in the Lab UI deletes its folders and leaves
+*This machine* never reads or empties another one. A record of a place that cannot be read stops its deploy: fix it, or
+delete it and what the seed made in that environment. Removing an account in the Lab UI deletes its folders and leaves
 what the seed created in Gravitee Cloud.
 
 ## Controls: the protections a lesson switches on

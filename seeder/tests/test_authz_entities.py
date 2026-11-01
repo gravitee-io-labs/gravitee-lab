@@ -476,6 +476,26 @@ class Refusals(Case):
                                                      r"entity C-1001: the type 'Customer' is not allowed$"):
             authz.seed()
         self.assertEqual(self.records(), [])
+        self.assertEqual(common.notes(authz.SECTION, "entities"), [], "a 4xx takes the note back: nothing was saved")
+
+    def test_an_entity_someone_made_after_a_refused_request_is_never_taken_over(self):
+        self.platform.add({("POST", BULK): (400, {"message": "the type 'Customer' is not allowed"})})
+        with self.assertRaises(common.SeedError):
+            authz.seed()
+        self.platform.add({("POST", BULK): self.world.bulk})
+        self.world.entities["C-2001"] = {"id": "x", "entityId": "C-2001", "entityType": "Customer", "kind": "RESOURCE",
+                                         "attributes": {"mine": True}, "parents": [], "source": "someone"}
+        with self.assertRaisesRegex(common.SeedError, "Customer 'C-2001' exists in Authorization Management and the seed did "
+                                                      "not create it: it is left alone"):
+            authz.seed()
+        self.assertEqual(self.world.entities["C-2001"]["source"], "someone")
+        self.assertNotIn("C-2001", authz.made_entities())
+
+    def test_an_answer_that_refuses_some_takes_the_note_back_too(self):
+        self.world.refused["O-6001"] = "no"
+        with self.assertRaises(common.SeedError):
+            authz.seed()
+        self.assertEqual(common.notes(authz.SECTION, "entities"), [], "the answer said what was saved, and that is recorded")
 
     def test_a_failed_count_without_the_errors_is_still_a_refusal_and_the_request_is_taken_as_saved(self):
         self.platform.add({("POST", BULK): (200, {"status": "PARTIAL", "created": 3, "failed": 1, "results": [], "errors": []})})

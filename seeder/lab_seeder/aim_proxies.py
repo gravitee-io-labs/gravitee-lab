@@ -408,6 +408,7 @@ class McpProxies:
         found = self.existing(name, path)
         if found and recorded_digest(found["id"]) != wanted:
             self.g.aim.delete(f"/mcp-proxies/{found['id']}")
+            forget(*[x for x in created() if (x["product"], x["kind"], x["id"]) == (SECTION, "studio", found["id"])])
             found = None
         if found is None:
             with making(SECTION, "studio", "MCP studios", name):
@@ -445,6 +446,7 @@ class McpProxies:
         found = self.existing(name, path)
         if found and recorded_digest(found["id"]) != wanted:
             self.g.aim.delete(f"/mcp-proxies/{found['id']}")
+            forget(*[x for x in created() if (x["product"], x["kind"], x["id"]) == (SECTION, "studio", found["id"])])
             log(SECTION, f"  ✓ MCP studio deleted: {name} is made again from its file")
             found = None
         changed = found is None
