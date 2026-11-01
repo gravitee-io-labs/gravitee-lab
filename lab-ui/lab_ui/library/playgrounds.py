@@ -846,7 +846,7 @@ def _delete_created(project, playground, elsewhere):
                           playground["seed"], "--remove"])
             except JobFailed as failed:   # "[seed] ✗ <why>": its reason, as a start says it
                 _stop_seed(job, playground)
-                raise JobFailed(_seed_reason(str(failed))) from None
+                raise JobFailed(_seed_reason(str(failed), failed.code)) from None
         for where, name in recorded:
             job.lines.append(f"Deletes from {name}")
             _seed_apart(job, project, playground, where, remove=True)
@@ -913,7 +913,7 @@ def _seed_apart(job, project, playground, place, remove=False):
     the job or a record. A name passed so replaces the author's own value of it, and a seed that must not hold the token
     (places.seed_refused) is refused before any is read. The names a proxy and a trust store are taken from are passed empty
     (`-e NAME=`, places.CLEARED): they hold no secret, and an empty value is the one that is certain to replace the
-    author's. Its record is in the folder of the place (_remember). Fails with the seed's last line."""
+    author's. Its record is in the folder of the place (_remember). Fails with the seed's reason (_seed_reason)."""
     try:
         values = places.seed_env(project, place, playground)
     except (ValueError, paths.NotFound) as error:   # a seed that must not hold the token, a Cloud Token that expired since the request, a platform gone
@@ -926,7 +926,7 @@ def _seed_apart(job, project, playground, place, remove=False):
                  env=values)
     except JobFailed as failed:   # "[seed] ✗ <why>": its reason, as a start says it
         _stop_seed(job, playground)
-        raise JobFailed(_seed_reason(str(failed))) from None
+        raise JobFailed(_seed_reason(str(failed), failed.code)) from None
 
 
 def _connected(uid, gateway):

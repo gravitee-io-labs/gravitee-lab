@@ -2039,6 +2039,14 @@ class Deploying(Deploys):
         job, _ = self.execute({"run": ([], 3)})
         self.assertEqual((job.ok, job.error()), (False, "Failed with exit code 3"))
 
+    def test_a_seed_apart_ended_from_outside_says_so_rather_than_where_it_was(self):
+        # `compose run` exits with its container's code: killed (137) or stopped (143), the seed printed no ✗
+        self.ready()
+        for code in (137, 143):
+            self.deploy()
+            job, _ = self.execute({"run": (["[seed] Seeding", "[apim] Creating API Orders"], code)})
+            self.assertEqual((job.ok, job.error()), (False, "The seed was stopped before it ended"), code)
+
     def test_a_cloud_token_that_expired_since_the_request_fails_the_job_in_plain_words(self):
         self.ready()
         self.deploy()
@@ -2224,6 +2232,22 @@ class Deleting(Deploys):
         job, _ = self.execute({"--remove": (["[seed] ✗ Cloud does not answer"], 1)})
         self.assertEqual((job.ok, job.error()), (False, "Cloud does not answer"))
         self.assertEqual(playgrounds.created("hotels", PLACE), [{"what": "APIs", "count": 1}])
+
+    def test_a_delete_ended_from_outside_says_so_rather_than_where_it_was(self):
+        self.ready()
+        self.record(PLACE, "APIs")
+        self.on()
+        playgrounds.delete_place(self.project, "hotels", PLACE)
+        job, _ = self.execute({"--remove": (["[seed] Deleting", "[apim] Deleting API Orders"], 137)})
+        self.assertEqual((job.ok, job.error()), (False, "The seed was stopped before it ended"))
+
+    def test_a_delete_here_ended_from_outside_says_so_rather_than_where_it_was(self):
+        self.record(None, "APIs")
+        self.on(*self.core)
+        playgrounds.stop(self.project, "hotels", True, [])
+        job, calls = self.execute({"--remove": (["[seed] Deleting", "[apim] Deleting API Orders"], 137)})
+        self.assertIn("--rm", calls[0][0])
+        self.assertEqual((job.ok, job.error()), (False, "The seed was stopped before it ended"))
 
     def test_delete_place_is_refused_in_words(self):
         self.ready()

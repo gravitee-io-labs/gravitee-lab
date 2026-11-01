@@ -142,7 +142,12 @@ def _share(how, status):
 
 
 class JobFailed(Exception):
-    """Stops a job, with the reason shown as its last line."""
+    """Stops a job, with the reason shown as its last line. `code`: the exit code of the command that failed, when one
+    did."""
+
+    def __init__(self, reason, code=None):
+        super().__init__(reason)
+        self.code = code
 
 
 class Stage:
@@ -494,7 +499,7 @@ class Job:
             first = reasons.get(refused[0])
             raise JobFailed(f"Could not pull {', '.join(refused)}" + (f": {first}" if first else ""))
         if code != 0 and not lenient:
-            raise JobFailed(self.last_line(start) or f"Failed with exit code {process.returncode}")
+            raise JobFailed(self.last_line(start) or f"Failed with exit code {process.returncode}", code)
 
     def _pulled(self, event, lenient, refused):
         """A line of a pull's progress: what a plain one would print, and how far the image is; an image it could not
