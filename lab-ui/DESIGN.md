@@ -1491,7 +1491,9 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
   waits, saying which ("<path> does not exist", "<path> does not load", `layers.current`, `unread`), as for a core that
   does not load. What Compose runs by the project's name reads no file and does not wait for it: Stop, Stop all, an
   item's Stop or Turn off, Remove containers, Reset, the Stop and Restart of a group or a container (`data-busy="name"`,
-  `store.wait(true)`). Its problem line opens the on file, whose Save does not wait.
+  `store.wait(true)`). A playground's Stop that deletes what its seed created in a place runs that seed apart, which
+  reads the files: its *Delete what it created* waits, with the entry's reason. Its problem line opens the on file, whose
+  Save does not wait.
 
 ### Docker, jobs and progress
 

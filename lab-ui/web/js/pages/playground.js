@@ -283,11 +283,12 @@ function records(item) {
 }
 const at = (record) => `${record.what.join(", ")} in ${record.name}`;
 
-// Why what a remote place holds cannot be deleted now: the playground is off (the seed runs only then), or the place cannot
-// be reached; "" when it can
+// Why what a remote place holds cannot be deleted now: the playground is off (the seed runs only then), an entry of the on
+// file cannot be read (Compose finds the seed in the files it names), or the place cannot be reached; "" when it can
 const TOKENS = { unset: "No Cloud Token", expired: "Cloud Token expired", refused: "Cloud Token refused" };
 function unreachable(item, record) {
   if (!item.on) return `${item.name} is off`;
+  if (store.state?.unread) return store.state.unread;
   const place = entry(store.places, record.id);
   if (!place) return store.placesRead ? "Account not connected" : "Loading";
   return place.state === "unusable" ? place.reason : TOKENS[place.token?.state] || "";

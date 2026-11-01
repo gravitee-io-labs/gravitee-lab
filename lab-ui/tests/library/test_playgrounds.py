@@ -2286,6 +2286,26 @@ class Deleting(Deploys):
                          (False, "Gravitee Cloud refuses this token", 1, []))
         self.assertEqual(playgrounds.created("hotels", PLACE), [{"what": "APIs", "count": 1}])
 
+    def test_a_stop_that_deletes_from_a_place_is_refused_while_an_entry_of_the_on_file_is_gone(self):
+        # A personal add-on that is on had its folder deleted outside the Lab (unread). The seed run apart on a place names
+        # no file: Compose reads the core and the on file, and would fail on the gone entry
+        gone = "addons/local/x/compose.yml does not exist"
+        self.ready()
+        self.record(None, "APIs")
+        self.record(PLACE, "APIs")
+        self.on(*self.core)
+        self.state = {**self.state, "unread": gone}
+        with self.assertRaisesRegex(RuntimeError, f"^{re.escape(gone)}$"):
+            playgrounds.stop(self.project, "hotels", True, [])
+        self.jobs.start.assert_not_called()
+        self.assertEqual(self.written, [])
+        # Without deleting, or with a record on This machine alone, whose delete names its files, the stop goes
+        playgrounds.stop(self.project, "hotels", False, [])
+        self.assertEqual(self.jobs.start.call_count, 1)
+        self.record(PLACE).unlink()
+        playgrounds.stop(self.project, "hotels", True, [])
+        self.assertEqual(self.jobs.start.call_count, 2)
+
     # --- One place --------------------------------------------------------------------------------------------------
 
     def test_delete_place_deletes_what_the_seed_created_in_that_place_only(self):

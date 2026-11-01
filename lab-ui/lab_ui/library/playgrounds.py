@@ -815,10 +815,13 @@ def _gone(place):
 def _reachable(project, playground, state):
     """The places besides This machine that hold a record of what the seed created, each as (place, its name), once the
     platform says now that it can be reached (places.verify). The first that cannot be gives its reason. Deleting
-    from a place runs the seed, which is a service of the project only while the playground is on."""
+    from a place runs the seed, which is a service of the project only while the playground is on, and which Compose
+    finds in the files the on file names (_seed_apart): an entry that cannot be read refuses it, with its reason."""
     recorded = [place for place in places.recorded(playground["id"]) if created(playground["id"], place)]
     if recorded and state["playground"] != playground["id"]:
         raise RuntimeError(f"{playground['name']} is off")
+    if recorded and state.get("unread"):
+        raise RuntimeError(state["unread"])
     found = []
     for place in recorded:
         try:
