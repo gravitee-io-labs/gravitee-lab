@@ -1351,10 +1351,11 @@ def pending() -> bool:
 def run(say=None, complain=None, download=True) -> bool:
     """The move of this folder when it needs one, said as it goes: before the Lab UI serves, and from `make update`. The
     default catalog is downloaded first when it is not there, since the items move into it (`download`; `make update` has
-    tried it already). What moved that a person may want to look at, and each problem, is a line of `say`; why it could not
-    move is two lines of `complain` (standard error). Answers whether the Lab can work on the folder: False when the move
-    could not be made, and the next run tries again. A folder with nothing to move says nothing, and one whose content git
-    tracks says why it is not moved."""
+    tried it already); never into a catalogs file that does not read, which the download would replace. What moved that a
+    person may want to look at, and each problem, is a line of `say`; why it could not move is two lines of `complain`
+    (standard error). Answers whether the Lab can work on the folder: False when the move could not be made, and the next
+    run tries again. A folder with nothing to move says nothing, and one whose content git tracks says why it is not
+    moved."""
     say = say or (lambda text: print(text, flush=True))   # in the order they come, whatever buffers a pipe keeps
     complain = complain or (lambda text: print(text, file=sys.stderr, flush=True))
     try:
@@ -1366,10 +1367,15 @@ def run(say=None, complain=None, download=True) -> bool:
             return True
         say(MOVING)
         default = paths.default_ns()
-        if download and not _settled(default):
-            say(DOWNLOADING)
-            firstrun.reconcile()
-            firstrun.provision(default)
+        if not _settled(default):
+            if registry.read_config() is not None and registry.entry(default) is None:
+                # The file is there and does not read: it is the person's to fix, and a download would replace it with
+                # one that lists the default catalog alone
+                raise ValueError(registry.config_problem())
+            if download:
+                say(DOWNLOADING)
+                firstrun.reconcile()
+                firstrun.provision(default)
         report = migrate()
     except (Exception, KeyboardInterrupt) as error:  # noqa: BLE001 - whatever stops it is said: the Lab does not start half moved
         complain(FAILED)

@@ -29,9 +29,10 @@ from lab_ui.docker import compose, envfiles
 from lab_ui.library import layers, layout, moves, project
 from lab_ui.gravitee import license
 from lab_ui import paths
-from lab_ui.catalogs import firstrun, registry, store
+from lab_ui.catalogs import firstrun, install, registry, store
 
 from .. import Case, fixtures, gitfixture
+from ..catalogs.test_provision import Served   # a real download of a listed catalog, from a bare repository here
 
 # The pattern of the Makefile (an ERE for `grep -E`): the lines of an on file that name folders of the old layout
 GUARD_PATTERN = r'^[[:space:]]*-[[:space:]]*"?(addons|setups|playgrounds)/'
@@ -768,11 +769,16 @@ class OptedOut(Machine):
         self.assertEqual(layout._signals(first=False), [])
 
     def test_a_catalogs_file_that_does_not_read_is_a_doubt_not_a_decision(self):
+        # Nor is it replaced by a download: the person fixes it, and the next start moves the folder
         self.put(".lab/catalogs.json", "{not json")
         self.build()
-        asked = self.downloads(registry.CatalogError("unreadable", "The catalogs file cannot be read.", 409))
-        self.assertEqual(self.at_start()[0], False)
-        self.assertEqual((asked, self.exists(".lab/layout.json")), (["fixture"], False))   # the catalog was asked for
+        asked = self.downloads()
+        ok, said, complained = self.at_start()
+        self.assertEqual((ok, said, complained), (False, [layout.MOVING], [layout.FAILED, registry.config_problem()]))
+        self.assertIn("could not be read", complained[1])
+        self.assertEqual((asked, self.exists(".lab/layout.json")), ([], False))   # nothing was asked for
+        self.assertEqual(self.text(".lab/catalogs.json"), "{not json")
+        self.assertEqual([name for name in os.listdir(self.root / ".lab") if ".bad-" in name], [])
         self.assertEqual(self.text("addons/echo/.env"), "ECHO_TOKEN=secret-echo-env\n")   # and nothing moved
 
     def test_no_catalogs_file_at_all_is_a_first_run_not_a_decision(self):
@@ -780,6 +786,41 @@ class OptedOut(Machine):
         self.build()
         asked = self.downloads()
         self.assertEqual((self.at_start()[0], asked), (True, ["fixture"]))
+
+
+DAMAGED = ('{"schema": 1, "catalogs": [{"id": "other", "kind": "git", "url": "https://example.invalid/team/other.git"},'
+           ']}\n')   # a hand edit that left a trailing comma
+
+
+class DamagedFile(Served, Case):
+    """A folder that still needs the move, whose catalogs file does not read and lists another catalog installed here: the
+    real download, not a played one. A file that does not read is a doubt, not a decision: a start never replaces it, so
+    the sweep of the start never takes the other catalog for one the person removed."""
+
+    def setUp(self):
+        self.world()   # the default file lists `demos`, served by a bare repository on this machine
+        self.patch(layout, "_backed", None)
+        self.patch(moves, "STEP", None)
+        moves._INDEXES.clear()
+        self.addCleanup(moves._INDEXES.clear)
+        self.write(".lab/catalogs.json", DAMAGED)
+        self.write(".lab/catalogs/other/addons/x/.env", "OTHER_TOKEN=secret\n")
+        self.write("addons/echo/.env", "ECHO_TOKEN=secret-echo-env\n")   # what the old layout left: the move waits
+
+    def test_a_start_does_not_download_into_a_catalogs_file_that_does_not_read(self):
+        self.assertTrue(registry.config_problem())
+        self.assertIs(layout.pending(), True)
+        said, complained = [], []
+        ok = layout.run(said.append, complained.append)
+        install.recover()   # what the start does next (service.recover)
+        self.assertEqual((ok, said, complained), (False, [layout.MOVING], [layout.FAILED, registry.config_problem()]))
+        self.assertEqual(self.text(".lab/catalogs.json"), DAMAGED)
+        self.assertEqual(sorted(os.listdir(self.root / ".lab/catalogs")), ["other"])
+        self.assertEqual(self.text(".lab/catalogs/other/addons/x/.env"), "OTHER_TOKEN=secret\n")
+        self.assertIs(layout.pending(), True)   # once the file is fixed, the next start moves the folder
+
+    def text(self, path):
+        return (self.root / path).read_text(encoding="utf-8")
 
 
 class Ways(Machine):
