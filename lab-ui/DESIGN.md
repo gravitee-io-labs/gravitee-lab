@@ -614,9 +614,10 @@ What the server decides and the page shows. A name in backticks is the code to r
   - A job removes what goes before the on file says it is off, and writes the on file before it starts what comes
     (`layers.steps`): wherever it fails, is canceled or the Lab UI stops, what it was taking away is on and stopped, never
     off and running. A playground's first Start installs its plugins before either.
-  - A job writes the on file only as its plan read it (`stamp`): one another job wrote meanwhile ends it with *What is on
-    changed meanwhile: try again*. A Start on This machine writes what it brings for this machine, whatever platform it ran
-    on before (the plan's `targets`).
+  - A job acts only on the on file its plan read (`stamp`): one another job wrote meanwhile ends it with *What is on
+    changed meanwhile: try again*, before it removes, installs or writes anything (`layers.unchanged`). A Start on This
+    machine writes what it brings for this machine, whatever platform it ran on before (the plan's `targets`), and makes
+    again what of that runs, with the gateways its two files configure (`restarts`).
   - Nothing is removed as an orphan: what was stopped on purpose stays stopped, what was started outside the Lab UI
     stays.
 - **Side effects are asked first.** The plan (`layers.plan`) lists what starts, stops (it runs), is turned off (it is on

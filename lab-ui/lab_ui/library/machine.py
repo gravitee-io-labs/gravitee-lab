@@ -273,10 +273,13 @@ def core_ports():
 
 
 def _lab_ports():
-    """The ports the lab's own containers hold now"""
+    """The ports the lab's own containers hold now. Raises ComposeError while Docker does not list them (it fails, or
+    does not answer in time): none would read as all of them another program's."""
     rc, out, _ = compose.run(["docker", "ps", "--filter", f"label=com.docker.compose.project={compose.project_name()}",
                               "--format", "{{.Ports}}"], timeout=10)
-    return {int(p) for p in re.findall(r":(\d+)->", out)} if rc == 0 else set()
+    if rc != 0:
+        raise compose.ComposeError("Docker did not list the lab's containers")
+    return {int(p) for p in re.findall(r":(\d+)->", out)}
 
 
 def _taken(port):
@@ -303,7 +306,8 @@ def _windows_ports():
 def held(ports):
     """The ports among these that another program uses on this machine, sorted: not those the lab's own containers
     publish (_lab_ports), and in WSL those Windows listens on too, where Docker Desktop publishes the containers' ports.
-    None is said while the lab's own cannot be told, its core file not loading: they would read as another program's."""
+    None is said while the lab's own cannot be told, its core file not loading or Docker not listing its containers: they
+    would read as another program's."""
     if not ports:
         return []
     try:

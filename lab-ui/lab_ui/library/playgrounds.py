@@ -512,7 +512,7 @@ def deploy_unit(project, kind, uid, accept, place):
     layers.check(project, plan, accept)
     gateway, pid = found["gateway"], found["platform"]["id"]
     title = f"{plan['label']} {unit['name']} in {found['name']}"
-    steps, phases, waits = _on_place(project, plan, pid, gateway, f"Runs on: {found['name']}")
+    steps, phases, waits = _before(plan, None, *_on_place(project, plan, pid, gateway, f"Runs on: {found['name']}"))
     return JOBS.start(title, steps, key=f"{kind}:{uid}", verb="start", changes=layers.changes(project, plan),
                       phases=phases, waits=waits)
 
@@ -712,9 +712,9 @@ def start(project, pid, accept, place=None, remove=False, switching=False):
 
 
 def _saved(project, values):
-    """Saves versions (images.save) and answers what puts back the .env files that hold versions as they were."""
-    files = {ENV_FILE, *(paths.unit_env(component["owner"]["kind"], component["owner"]["id"]) or ENV_FILE
-                         for component in images.components(project))}
+    """Saves versions (images.save) and answers what puts back the .env files it wrote as they were: the core's, and
+    each unit's whose services share a version (images.as_saved)."""
+    files = {ENV_FILE, *images.as_saved(project, values)[1]}
     before = {path: (ROOT / path).read_text(encoding="utf-8") if (ROOT / path).is_file() else None for path in files}
     images.save(project, values)
 
@@ -774,7 +774,7 @@ def _started(project, plan, delete):
     # seed has nothing to count
     waits = ([loads] if installs else []) + [awaited(project["services"], start=named, stop=remove)] \
         + ([None] if seed else [])
-    steps, phases, waits = _before(delete, steps, phases, waits)
+    steps, phases, waits = _before(plan, delete, steps, phases, waits)
     return _job(title, steps, pid, "start", phases, waits, changes)
 
 
@@ -846,7 +846,7 @@ def _delete_created(project, playground, elsewhere):
                           playground["seed"], "--remove"])
             except JobFailed as failed:   # "[seed] ✗ <why>": its reason, as a start says it
                 _stop_seed(job, playground)
-                raise JobFailed(_seed_reason(str(failed))) from None
+                raise JobFailed(_seed_reason(str(failed), failed.code)) from None
         for where, name in recorded:
             job.lines.append(f"Deletes from {name}")
             _seed_apart(job, project, playground, where, remove=True)
@@ -866,10 +866,12 @@ def _leaving(project, state, plan, remove):
     return _delete_created(project, leaving, _reachable(project, leaving, state))
 
 
-def _before(step, steps, phases, waits):
-    """The job's steps, its phases and its waits with a step that deletes what a playground created before them: it says
-    nothing of how far it is."""
-    return ([step] + steps if step else steps), (["Delete what it created"] + phases if step else phases), \
+def _before(plan, step, steps, phases, waits):
+    """The steps, phases and waits of the job of a plan, with what comes before them: the end of the job when the on
+    file changed since the plan (layers.unchanged), before anything changes; then the step that deletes what a playground
+    created, when there is one (`step`): it says nothing of how far it is."""
+    first = [lambda job: layers.unchanged(plan), *([step] if step else [])]
+    return [*first, *steps], (["Delete what it created"] + phases if step else phases), \
         ([None] + waits if step else waits)
 
 
@@ -888,18 +890,14 @@ def stop(project, pid, remove, accept, place=None):
         _seed_waits(project, state, now[0], playground)
     elsewhere = _reachable(project, playground, state) if remove and playground["seed"] else []
 
-    delete = _delete_created(project, playground, elsewhere)
+    delete = _delete_created(project, playground, elsewhere) if remove and playground["seed"] else None
 
     def stop_apps(job):
         job.step("Stop the apps")
         job.run_steps(layers.steps(project, plan))
 
-    deletes = bool(remove and playground["seed"])
-    steps = ([delete] if deletes else []) + [stop_apps]
-    phases = (["Delete what it created"] if deletes else []) + ["Stop the apps"]
-    # The delete is one run of the seed, which says nothing of how far it is
     stops = {unit: how for found in layers.waits(project, plan) for unit, how in found.items()}
-    waits = ([None] if deletes else []) + [stops]
+    steps, phases, waits = _before(plan, delete, [stop_apps], ["Stop the apps"], [stops])
     return _job(f"{plan['label']} {playground['name']}", steps, pid, "stop", phases, waits,
                 layers.changes(project, plan))
 
@@ -915,7 +913,7 @@ def _seed_apart(job, project, playground, place, remove=False):
     the job or a record. A name passed so replaces the author's own value of it, and a seed that must not hold the token
     (places.seed_refused) is refused before any is read. The names a proxy and a trust store are taken from are passed empty
     (`-e NAME=`, places.CLEARED): they hold no secret, and an empty value is the one that is certain to replace the
-    author's. Its record is in the folder of the place (_remember). Fails with the seed's last line."""
+    author's. Its record is in the folder of the place (_remember). Fails with the seed's reason (_seed_reason)."""
     try:
         values = places.seed_env(project, place, playground)
     except (ValueError, paths.NotFound) as error:   # a seed that must not hold the token, a Cloud Token that expired since the request, a platform gone
@@ -928,7 +926,7 @@ def _seed_apart(job, project, playground, place, remove=False):
                  env=values)
     except JobFailed as failed:   # "[seed] ✗ <why>": its reason, as a start says it
         _stop_seed(job, playground)
-        raise JobFailed(_seed_reason(str(failed))) from None
+        raise JobFailed(_seed_reason(str(failed), failed.code)) from None
 
 
 def _connected(uid, gateway):
@@ -1001,7 +999,7 @@ def _deploy(project, pid, accept, place, reseed, remove=False):
     steps, phases, waits = _on_place(project, plan, uid, gateway, f"Deploys to: {found['name']}")
     if seeds:
         steps, phases = [*steps, seed], [*phases, SEED]
-    steps, phases, waits = _before(delete, steps, phases, waits)
+    steps, phases, waits = _before(plan, delete, steps, phases, waits)
     return _job(title, steps, pid, verb, phases, waits, None if reseed else layers.changes(project, plan))
 
 

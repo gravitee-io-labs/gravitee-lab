@@ -5,8 +5,8 @@ import json
 import os
 import unittest
 
-from lab_ui.docker import compose
-from lab_ui.library import playgrounds
+from lab_ui.docker import compose, envfiles
+from lab_ui.library import layers, playgrounds
 from lab_ui import paths
 from lab_ui.server import stack
 from lab_ui.docker.jobs import Job, JobFailed, awaited
@@ -177,47 +177,91 @@ class StackActions(Case):
         self.patch(stack.layers, "waits", return_value=[awaited(DEFINED, start=["kafka"])])
         return self.patch(stack.core, "plan", return_value=found)
 
+    def core_job(self, fails=None):
+        """The job Start all started, run, its commands failing with `fails` when given: the job, and its commands."""
+        title, steps, options = self.started(self.jobs)
+        job, ran = Job(title, steps, **options), []
+
+        def run(cmd, quiet=False):
+            ran.append(cmd)
+            if fails and fails in cmd:
+                raise JobFailed("Error response from daemon: cannot stop container")
+        job.exec = run
+        job.run()
+        return job, ran
+
     def test_a_cloud_cores_start_all_starts_its_gateway_and_what_is_on_and_nothing_of_the_core(self):
         plan = self.cloud_core()
         written = self.patch(stack.layers, "write")
         swap = self.patch(stack.platforms, "swap_gateway")
+        invalidate = self.patch(stack.places, "invalidate")
         stack.action(PROJECT, "start", for_core=True, accept=[])
         self.assertTrue(plan.call_args.kwargs["live"], "the platform is read again at the click")
         title, steps, options = self.started(self.jobs)
         self.assertEqual(title, "Start all for Development (My Account)")
-        self.assertEqual(steps[1:3], [[*self.COMPOSE, "up", "-d", "--no-deps", "hybrid"], [*self.COMPOSE, "up", "-d", "--no-deps", "kafka-ui"]])
         self.assertEqual(options["key"], "platform")
         self.assertEqual(options["changes"]["start"], [["addon", "hybrid"], ["service", "kafka-ui"]])
         self.assertEqual(len(options["waits"]), 2, "one wait for each Compose command")
-        job = Job(title, [])
-        steps[0](job)
-        written.assert_called_once_with("welcome", ["hybrid", "kafka"], blocked={})   # no unit of this project is blocked
+        job, ran = self.core_job()
+        self.assertEqual(ran, [[*self.COMPOSE, "up", "-d", "--no-deps", "hybrid"], [*self.COMPOSE, "up", "-d", "--no-deps", "kafka-ui"]])
+        written.assert_called_once_with("welcome", ["hybrid", "kafka"], None, {}, blocked={}, since=None)   # none is blocked
         swap.assert_called_once_with(PROJECT, "my-account", "g1")
-        self.assertEqual(job.lines, ["Starts: Hybrid, Kafka", "Serves: Development (My Account)"])
-        self.assertFalse(any(name in str(steps[1:3]) for name in ("mongodb", "redis")), "no service of the core")
+        self.assertEqual(job.lines, ["Serves: Development (My Account)", "Starts: Hybrid, Kafka"])
+        self.assertFalse(any(name in str(ran) for name in ("mongodb", "redis")), "no service of the core")
+        invalidate.assert_called_once_with("my-account")
 
     def test_a_cloud_cores_start_all_is_checked_as_the_project_it_reads_and_makes_its_folders(self):
-        self.cloud_core()
+        found = self.cloud_core().return_value
         self.patch(stack.layers, "write")
         self.patch(stack.platforms, "swap_gateway")
+        self.patch(stack.places, "invalidate")
         check, binds = self.patch(stack.layers, "check"), self.patch(stack.layers, "make_binds", return_value=[])
         stack.action(PROJECT, "start", for_core=True, accept=["addon:jade"])
-        gateway = stack.core.plan.return_value["gateway"]
-        check.assert_called_once_with(PROJECT, gateway, ["addon:jade"])
-        steps = self.started(self.jobs)[1]
-        steps[0](Job("Start all", []))
-        binds.assert_called_once_with(PROJECT, gateway)
+        check.assert_called_once_with(PROJECT, found["gateway"], ["addon:jade"])
+        self.core_job()
+        # The gateway's plan, which says what the dialog showed it starts
+        binds.assert_called_once_with(PROJECT, {**found["gateway"], "starts": found["dialog"]["starts"]})
 
     def test_a_cloud_cores_start_all_adds_no_entry_for_a_unit_that_is_blocked(self):
         self.cloud_core()
         self.patch(stack.platforms, "swap_gateway")
+        self.patch(stack.places, "invalidate")
         kafka = {**PROJECT["addons"]["kafka"], "file": "addons/kafka/compose.yml",
                  "blocked": {"reasons": ["Mounts the Docker socket"]}}
         project = {**PROJECT, "addons": {**PROJECT["addons"], "kafka": kafka}}
         written = self.patch(stack.layers, "write")
         stack.action(project, "start", for_core=True, accept=[])
-        self.started(self.jobs)[1][0](Job("Start all", []))
-        self.assertEqual(written.call_args.kwargs, {"blocked": {"addons/kafka/compose.yml": "Mounts the Docker socket"}})
+        self.core_job()
+        self.assertEqual(written.call_args.kwargs, {"blocked": {"addons/kafka/compose.yml": "Mounts the Docker socket"},
+                                                    "since": None})
+
+    def test_a_cloud_cores_start_all_does_not_write_the_on_file_over_what_another_job_wrote_since_its_plan(self):
+        self.folder(paths, compose, envfiles)
+        swap = self.patch(stack.platforms, "swap_gateway")
+        self.patch(stack.places, "invalidate")
+        self.write(paths.ON_FILE, "include:\n  - playgrounds/welcome/compose.yml\n  - addons/kafka/compose.yml\n")
+        self.cloud_core().return_value["gateway"]["stamp"] = layers.stamp()   # the on file its plan read
+        stack.action(PROJECT, "start", for_core=True, accept=[])
+        layers.write("welcome", [])   # meanwhile another tab turns Kafka off: a job with no command
+        job, ran = self.core_job()
+        self.assertNotIn("kafka", (self.root / paths.ON_FILE).read_text(), "what the other job wrote stays")
+        self.assertEqual((job.error(), ran), (layers.CHANGED, []))
+        swap.assert_not_called()   # nor is the gateway's token changed
+
+    def test_a_cloud_cores_start_all_removes_what_goes_before_the_on_file_says_it_is_off(self):
+        # Kafka is on and runs, and cannot run with the gateway: Start all stops it, and the removal fails
+        self.folder(paths, compose, envfiles)
+        self.patch(stack.platforms, "swap_gateway")
+        self.patch(stack.places, "invalidate")
+        self.write(paths.ON_FILE, "include:\n  - playgrounds/welcome/compose.yml\n  - addons/kafka/compose.yml\n")
+        gateway = self.cloud_core().return_value["gateway"]
+        gateway.update(explicit=["hybrid"], stops=[{"kind": "addon", "id": "kafka", "name": "Kafka"}],
+                       services={"remove": ["kafka", "kafka-ui"], "start": ["hybrid"]}, stamp=layers.stamp())
+        stack.action(PROJECT, "start", for_core=True, accept=["addon:kafka"])
+        job, ran = self.core_job(fails="rm")
+        self.assertEqual((job.ok, ran[0][-5:]), (False, ["rm", "--stop", "--force", "kafka", "kafka-ui"]))
+        self.assertIn("addons/kafka/compose.yml", (self.root / paths.ON_FILE).read_text(),
+                      "Kafka still runs: it is still on, never off and running")
 
     def test_a_cloud_cores_start_all_with_nothing_to_start_or_unaccepted_stops_is_refused(self):
         self.cloud_core(needed=False)

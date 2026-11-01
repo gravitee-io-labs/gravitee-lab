@@ -1007,6 +1007,19 @@ def _late(project, kind, unit, behind):
     return sorted(set(mine) & set(behind))
 
 
+def _brought_back(given, project, state, up, kind, uid):
+    """What a start on this machine makes again of what it brings back from a platform it ran on (state's `targets`),
+    whose job writes its plain file again: what of it runs, made as its copy for that platform, and what runs of the
+    services its plain file configures here and its copy configured there. `given`: the project as its files say it,
+    `project` as the plan sees it, where such an item restarts its platform's gateway (_on_their_platforms)."""
+    away, names = state.get("targets") or {}, set()
+    for node in _reach(given, kind, uid):
+        if key(*node) in away:
+            unit, there = given[node[0] + "s"][node[1]], project[node[0] + "s"][node[1]]
+            names |= {*unit.get("services", ()), *unit.get("restarts", ()), *there.get("restarts", ())}
+    return names & up["services"]
+
+
 def _switch_parts(project, to):
     """What a plan says of a switch of versions: its rows, in `versions` and `goes_back` (only the parts that have some), and `switch`,
     the values the start saves."""
@@ -1113,9 +1126,10 @@ def plan(project, state, up, kind, uid, do, fresh=False, behind=frozenset(), pla
     addon, `uid` the gateway), whose start is then the swap alone.
 
     It does only what it says: a start runs the item, what it brings and needs, restarts the core services it changes
-    and makes again what of it runs behind what is saved; a stop removes what goes by name and restarts the core
-    services it changed. What was stopped on purpose, or started outside the Lab UI, is left as it is."""
-    remote = do == "start" and _remote(place)
+    and makes again what of it runs behind what is saved, and what it brings back here from a platform (_brought_back);
+    a stop removes what goes by name and restarts the core services it changed. What was stopped on purpose, or started
+    outside the Lab UI, is left as it is."""
+    remote, given = do == "start" and _remote(place), project
     if remote:
         project = _remote_view(project, kind, uid, place["gateway"])
     else:
@@ -1135,8 +1149,10 @@ def plan(project, state, up, kind, uid, do, fresh=False, behind=frozenset(), pla
     swap = remote and gateway["id"] in up["addons"] and not place.get("here")
     if do == "start":
         named = {row["id"] for row in restarts} | set(gateway["services"] if swap else ())
-        later = _late(project, kind, unit, behind)
-        restarts = sorted(restarts + [_service_row(project, name) for name in later if name not in named], key=lambda row: row["id"])
+        later = set(_late(project, kind, unit, behind))
+        later |= set() if remote else _brought_back(given, project, state, up, kind, uid)
+        restarts = sorted(restarts + [_service_row(project, name) for name in sorted(later) if name not in named],
+                          key=lambda row: row["id"])
         if swap:   # made again with this place's token, as one row
             restarts.insert(0, _row("addon", gateway["id"], gateway["name"]))
     # A playground on images older than it asks: its start goes to the versions it was tested with first (`switch`), and what runs on
@@ -1480,13 +1496,22 @@ def starting(names):
     return [[*compose.COMPOSE, "up", "-d", "--no-deps", *names]] if names else []
 
 
+def unchanged(plan):
+    """Ends the job of a plan before it changes anything when the on file was written since the plan read it (its
+    `stamp`): what the plan would do undoes what another job did meanwhile (CHANGED). Every plan's job asks it first
+    (steps()); write() asks again, for an edit by hand while the job runs."""
+    if plan.get("stamp") is not None and stamp() != plan["stamp"]:
+        raise JobFailed(CHANGED)
+
+
 def steps(project, plan, start=None):
     """The steps of the job of a plan, in the order that leaves the lab as it says wherever the job ends (it fails, it
-    is canceled, the Lab UI stops): what goes is removed first, while the on file still names it, so that it is on and
-    stopped rather than off and still running, which would read as started by hand; then the on file is written
-    (written()); then what starts and restarts, by name (commands()). `start`: the services the last one names, when
-    they are more than the plan's (a playground's product, stopped to load its plugins)."""
-    return [*_removal(plan["services"]["remove"]), lambda job: written(job, project, plan),
+    is canceled, the Lab UI stops): nothing for a plan the on file changed since (unchanged()); then what goes is
+    removed, while the on file still names it, so that it is on and stopped rather than off and still running, which
+    would read as started by hand; then the on file is written (written()); then what starts and restarts, by name
+    (commands()). `start`: the services the last one names, when they are more than the plan's (a playground's product,
+    stopped to load its plugins)."""
+    return [lambda job: unchanged(plan), *_removal(plan["services"]["remove"]), lambda job: written(job, project, plan),
             *starting(plan["services"]["start"] if start is None else start)]
 
 

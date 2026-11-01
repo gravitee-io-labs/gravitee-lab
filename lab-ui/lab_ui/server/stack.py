@@ -203,9 +203,9 @@ def _reset(project, by_name):
 
 def _core_start(project, accept):
     """Start all with API Management in the Cloud (core.plan, made again now, the platform read again): the hybrid gateway
-    of the chosen environment, its token written first when the add-on holds another one, then the rest of the platform
-    and what is on, with what they depend on. Nothing of API Management starts, nor what exists only for it. What it
-    stops or turns off besides must be what the page showed (`accept`)."""
+    of the chosen environment, its token written first when the add-on holds another one, its plan run as every plan's
+    (layers.steps), then the rest of the platform and what is on, with what they depend on. Nothing of API Management
+    starts, nor what exists only for it. What it stops or turns off besides must be what the page showed (`accept`)."""
     state, containers = layers.current(project), compose.ps()
     found = core.plan(project, state, containers, projects.saved(project), live=True)
     gateway, place, others = found["gateway"], found["place"], found["others"]
@@ -214,20 +214,16 @@ def _core_start(project, accept):
         raise RuntimeError("Everything runs")
     uid = place["id"].partition("/")[0]
 
-    def prepare(job):
-        layers.write(gateway["playground"], gateway["explicit"], blocked=layers.blocked_files(project))
-        layers.make_binds(project, gateway)
+    def serve(job):   # once the on file is as the plan read it: the job changes nothing otherwise
+        layers.unchanged(gateway)
         if not place["here"]:
             platforms.swap_gateway(project, uid, found["gateway_id"])
-        starts = [row["name"] for row in found["dialog"]["starts"]]
-        for verb, names in (("Starts", starts), ("Restarts", [row["name"] for row in gateway["restarts"]]),
-                            ("Serves", [place["name"]])):
-            if names:
-                job.lines.append(f"{verb}: {', '.join(names)}")
+        job.lines.append(f"Serves: {place['name']}")
     changes = layers.changes(project, gateway)
     changes["start"] += [["service", name] for name in others]
-    steps = [prepare, *layers.commands(gateway), *([[*COMPOSE, "up", "-d", "--no-deps", *others]] if others else []),
-             lambda job: places.invalidate(uid)]
+    # The job says what its dialog showed it starts: the gateway and the rest
+    steps = [serve, *layers.steps(project, {**gateway, "starts": found["dialog"]["starts"]}),
+             *([[*COMPOSE, "up", "-d", "--no-deps", *others]] if others else []), lambda job: places.invalidate(uid)]
     waits = layers.waits(project, gateway) + ([awaited(project["services"], start=others)] if others else [])
     return JOBS.start(f"Start all for {place['name']}", steps, key="platform", verb="start", changes=changes, waits=waits)
 

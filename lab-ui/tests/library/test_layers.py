@@ -1639,13 +1639,58 @@ class Files(Case):
         state = layers.current(self.project)
         plan = layers.plan(self.project, state, up(), "addon", "kafka", "start")
         self.assertEqual(plan["targets"], {"addons/kafka/compose.yml": None})
-        _, (write, *_), _ = self.applied(plan)
+        _, (_, write, *_), _ = self.applied(plan)
         write(mock.Mock(lines=[]))
         self.assertEqual(layers.current(self.project)["targets"], {"addon:kiosk": "cloud"})
         self.assertIn("  - addons/kafka/compose.yml\n", (self.root / paths.ON_FILE).read_text(encoding="utf-8"))
         # A stop leaves every item where it runs
         stop = layers.plan(self.project, layers.current(self.project), up(), "addon", "kafka", "stop")
         self.assertEqual(stop["targets"], {})
+
+    def test_a_start_back_on_this_machine_makes_again_what_its_plain_file_changes(self):
+        # Kafka was deployed (its copy sets gravitee_kafka_enabled on apim-hybrid-gateway), then its containers stopped
+        # while it stayed on. Its Start on This machine writes the plain file, which sets it on apim-gateway, which runs
+        self.write("addons/kafka/compose.yml", self.KAFKA)
+        layers.write(None, ["kafka"], {"addons/kafka/compose.yml": "cloud"}, self.NAMES)
+        plan = layers.plan(self.project, layers.current(self.project), up(), "addon", "kafka", "start")
+        self.assertEqual(plan["targets"], {"addons/kafka/compose.yml": None})
+        _, (_, write, command), _ = self.applied(plan)
+        write(mock.Mock(lines=[]))
+        self.assertIn("  - addons/kafka/compose.yml\n", (self.root / paths.ON_FILE).read_text(encoding="utf-8"))
+        # As the Start of Kafka while it is off does, the gateway it configures is made again, and the dialog says so
+        self.assertIn("apim-gateway", command)
+        self.assertEqual(plan["restarts"], [GATEWAY])
+
+    def test_a_playground_started_back_on_this_machine_makes_its_gateway_again(self):
+        cloud(self.project)
+        self.write("playgrounds/welcome/compose.yml", "services:\n  apim-gateway:\n    environment:\n      WELCOME: \"on\"\n"
+                   "  hello-app:\n    image: busybox\n")
+        layers.write("welcome", ["hybrid"], {"playgrounds/welcome/compose.yml": "cloud"}, self.NAMES)   # deployed to Cloud
+        state = layers.current(self.project)
+        self.assertEqual(state["targets"], {"playground:welcome": "cloud"})
+        # Its app was stopped from Containers; the core and the hybrid gateway run. Start on This machine
+        plan = layers.plan(self.project, state, up("hybrid", project=self.project), "playground", "welcome", "start")
+        _, (_, write, command), _ = self.applied(plan)
+        write(mock.Mock(lines=[]))
+        self.assertIn("  - playgrounds/welcome/compose.yml\n", (self.root / paths.ON_FILE).read_text(encoding="utf-8"))
+        self.assertIn("apim-gateway", command)   # its `apim-gateway:` override is this machine's gateway's now
+        self.assertIn("apim-hybrid-gateway", command, "and no longer the hybrid gateway's")
+
+    def test_what_a_start_brings_back_on_this_machine_is_made_again(self):
+        # Kafka runs on its Cloud copy (HOST http://apim-hybrid-gateway:8082); Kafka Desk, which needs it, starts here
+        self.write("addons/kafka/compose.yml", self.KAFKA)
+        layers.write(None, ["kafka"], {"addons/kafka/compose.yml": "cloud"}, self.NAMES)
+        plan = layers.plan(self.project, layers.current(self.project), up("kafka"), "addon", "kafka-desk", "start")
+        self.assertEqual(plan["targets"], {"addons/kafka-desk/compose.yml": None, "addons/kafka/compose.yml": None})
+        _, (_, write, command), _ = self.applied(plan)
+        write(mock.Mock(lines=[]))
+        self.assertIn("  - addons/kafka/compose.yml\n", (self.root / paths.ON_FILE).read_text(encoding="utf-8"))
+        self.assertIn("kafka", command)          # written for this machine now, still running as written for Cloud
+        self.assertIn("apim-gateway", command)   # which Kafka's plain file configures
+        # Kafka Desk started where Kafka already ran here only starts
+        layers.write(None, ["kafka"])
+        plan = layers.plan(self.project, layers.current(self.project), up("kafka"), "addon", "kafka-desk", "start")
+        self.assertEqual(plan["services"]["start"], ["apim-management-api", "kafka-desk"])
 
     def test_write_then_read(self):
         layers.write("welcome", ["kiosk", "kafka-desk"])
@@ -1753,7 +1798,7 @@ class Files(Case):
     def test_apply_writes_the_on_file_then_runs_up(self):
         plan = layers.plan(self.project, on(self.project, ["kiosk"], "welcome"), up("kiosk"),
                            "addon", "kafka-desk", "start")
-        title, (write, command), more = self.applied(plan)
+        title, (_, write, command), more = self.applied(plan)
         self.assertEqual(title, "Title")
         # It waits for what starts and restarts; the welcome, on and not running, is left as it is
         waits = {("Container", f"lab-{name}"): "start" for name in (
@@ -1777,7 +1822,7 @@ class Files(Case):
         # changes; Kiosk, started outside the Lab UI, stays
         state = on(self.project, ["jade"])
         plan = layers.plan(self.project, state, up("jade", "kiosk"), "addon", "agent-lens", "start")
-        _, (remove, write, start), more = self.applied(plan)
+        _, (_, remove, write, start), more = self.applied(plan)
         self.assertEqual((remove, start), ([*compose.COMPOSE, "-p", "lab", "rm", "--stop", "--force", "jade"],
                                            [*compose.COMPOSE, "up", "-d", "--no-deps", "agent-lens",
                                             "apim-gateway"]))
@@ -1794,7 +1839,7 @@ class Files(Case):
         state = on(self.project, ["kafka-desk"])
         plan = layers.plan(self.project, state, up("kafka", platform=False, created=["kafka-desk"]), "addon",
                            "kafka", "stop")
-        _, (command, _), more = self.applied(plan)
+        _, (_, command, _), more = self.applied(plan)
         self.assertEqual(command, [*compose.COMPOSE, "-p", "lab", "rm", "--stop", "--force",
                                    "kafka", "kafka-desk", "kafka-ui"])
         self.assertEqual(more, {"key": "addon:kafka", "verb": "stop",
@@ -1844,6 +1889,30 @@ class Files(Case):
         job.run()
         self.assertTrue(job.ok, job.lines)
         self.assertEqual(layers.current(self.project)["explicit"], [])
+
+    def test_a_job_refused_for_a_stale_plan_changes_nothing(self):
+        # Welcome runs with Kiosk on and stopped. Start Demo (which replaces Welcome) and Turn off Kiosk are planned from
+        # the same on file; the Kiosk job, with no command, runs first. Demo's job is refused before it removes anything
+        # of Welcome
+        second(self.project)
+        self.write("playgrounds/demo/compose.yml")
+        self.write(paths.ON_FILE, "include:\n  - playgrounds/welcome/compose.yml\n  - addons/kiosk/compose.yml\n")
+        state = layers.current(self.project)
+        running = up("agent-lens", playgrounds=["welcome"])
+        demo = layers.plan(self.project, state, running, "playground", "demo", "start")
+        kiosk = layers.plan(self.project, state, running, "addon", "kiosk", "stop")
+        title, steps, more = self.applied(kiosk)
+        job = Job(title, steps, **more)
+        job.exec = lambda cmd, quiet=False: None
+        job.run()
+        self.assertTrue(job.ok, job.lines)
+        title, steps, more = self.applied(demo)
+        job, commands = Job(title, steps, **more), []
+        job.exec = lambda cmd, quiet=False: commands.append(cmd[-5:])
+        job.run()
+        self.assertEqual(job.error(), layers.CHANGED)
+        self.assertEqual(layers.current(self.project)["playground"], "welcome")
+        self.assertEqual(commands, [], "a refused job removes nothing")
 
     def test_a_setup_s_job_is_the_setup_s(self):
         # Its button shows it, though what starts are its add-ons: it waits for them and what they restart
@@ -2456,7 +2525,7 @@ class Entries(Case):
         plan = {**plan, "blocked": None}   # a plan that was made before the unit was blocked
         jobs = self.patch(layers, "JOBS")
         layers.apply(self.project, plan, "Title")
-        _, (write, *_), _ = self.started(jobs)
+        _, (_, write, *_), _ = self.started(jobs)
         with self.assertRaisesRegex(JobFailed, "^kiosk is blocked: Mounts the Docker socket$"):   # the line of its job
             write(mock.Mock(lines=[]))
         self.assertFalse((self.root / paths.ON_FILE).exists())
@@ -2470,7 +2539,7 @@ class Entries(Case):
         jobs = self.patch(layers, "JOBS")
         plan = layers.plan(self.project, on(self.project), up(project=self.project), "playground", "welcome", "start")
         layers.apply(self.project, plan, "Title")
-        _, (write, *_), _ = self.started(jobs)
+        _, (_, write, *_), _ = self.started(jobs)
         write(mock.Mock(lines=[]))
         self.assertTrue((folder / ".state").is_dir())
         self.assertEqual(layers.current(self.project)["playground"], "welcome")

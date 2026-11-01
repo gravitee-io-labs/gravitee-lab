@@ -704,6 +704,18 @@ class Playgrounds(Case):
         job, commands = ran(self.started(self.jobs)[1], fail="rm")
         self.assertEqual((job.ok, self.written, len(commands)), (False, [], 1))
 
+    def test_a_first_start_refused_for_a_stale_plan_leaves_the_product_running(self):
+        # Demo runs; the welcome's start is planned, then another tab's job writes the on file before this job begins.
+        # The job is refused for it before its plugins phase stops the gateway, which nothing would start again
+        second(self.project)
+        self.state = {**on(self.project, playground="demo"), "stamp": "read by the plan"}
+        self.containers = running(*CORE, "demo-app", "kiosk")
+        self.patch(plugins, "install_steps", lambda project, product, names: (
+            [lambda job: job.exec([*COMPOSE, "stop", "apim-gateway"])], ["apim-gateway"], {}))
+        playgrounds.start(self.project, "welcome", [f"{row['kind']}:{row['id']}" for row in self.plan()["stops"]])
+        job, commands = ran(self.started(self.jobs)[1])
+        self.assertEqual((job.error(), commands), (layers.CHANGED, []))
+
     def test_a_stop_whose_removal_fails_leaves_the_on_file_as_it_was(self):
         self.on_and_running(*CORE)
         playgrounds.stop(self.project, "welcome", False, ["addon:agent-lens"])
@@ -739,6 +751,28 @@ class Playgrounds(Case):
         self.jobs.start.side_effect = None
         playgrounds.start(self.project, "welcome", ["version:APIM"])
         self.assertIn("APIM_VERSION=4.13.0-alpha.5\n", (self.root / ".env").read_text(encoding="utf-8"))
+
+    def test_a_refused_start_puts_back_every_env_its_versions_were_saved_to(self):
+        # The welcome's app and the add-on Kiosk run the same image, on one version variable: saved to both units' .env.
+        # A job began meanwhile, from another tab: the start is refused, and both files are what they were
+        self.patch(envfiles, "ROOT", self.root)
+        self.jobs.current = None
+        for name in ("hello-app", "kiosk"):
+            self.project["services"][name].update(raw_image="example/kiosk:${KIOSK_VERSION:-1.0.0}", tag="1.0.0",
+                                                   image="example/kiosk:1.0.0")
+        welcome = self.project["playgrounds"]["welcome"]
+        welcome["requires"] = {"images": {"KIOSK_VERSION": "2.0.0"}}
+        welcome["tested"] = [{"KIOSK_VERSION": "2.0.0"}]
+        self.patch(plugins, "install_steps", lambda project, product, names: ([], [], {}))
+        self.patch(playgrounds.projects, "load", return_value=self.project)
+        kiosk, mine = paths.unit_env("addon", "kiosk"), paths.unit_env("playground", "welcome")
+        self.write(kiosk, "# Kiosk\n")
+        self.write(mine, "# Welcome\n")
+        self.jobs.start.side_effect = RuntimeError("'Stop Kiosk' is still running")
+        with self.assertRaisesRegex(RuntimeError, "^'Stop Kiosk' is still running$"):
+            playgrounds.start(self.project, "welcome", ["version:KIOSK"])
+        self.assertEqual({path: (self.root / path).read_text(encoding="utf-8") for path in (kiosk, mine)},
+                         {kiosk: "# Kiosk\n", mine: "# Welcome\n"})
 
     def test_no_version_changes_while_a_job_runs_or_for_a_start_that_is_refused(self):
         self.switching()
@@ -2005,6 +2039,14 @@ class Deploying(Deploys):
         job, _ = self.execute({"run": ([], 3)})
         self.assertEqual((job.ok, job.error()), (False, "Failed with exit code 3"))
 
+    def test_a_seed_apart_ended_from_outside_says_so_rather_than_where_it_was(self):
+        # `compose run` exits with its container's code: killed (137) or stopped (143), the seed printed no ✗
+        self.ready()
+        for code in (137, 143):
+            self.deploy()
+            job, _ = self.execute({"run": (["[seed] Seeding", "[apim] Creating API Orders"], code)})
+            self.assertEqual((job.ok, job.error()), (False, "The seed was stopped before it ended"), code)
+
     def test_a_cloud_token_that_expired_since_the_request_fails_the_job_in_plain_words(self):
         self.ready()
         self.deploy()
@@ -2190,6 +2232,22 @@ class Deleting(Deploys):
         job, _ = self.execute({"--remove": (["[seed] ✗ Cloud does not answer"], 1)})
         self.assertEqual((job.ok, job.error()), (False, "Cloud does not answer"))
         self.assertEqual(playgrounds.created("hotels", PLACE), [{"what": "APIs", "count": 1}])
+
+    def test_a_delete_ended_from_outside_says_so_rather_than_where_it_was(self):
+        self.ready()
+        self.record(PLACE, "APIs")
+        self.on()
+        playgrounds.delete_place(self.project, "hotels", PLACE)
+        job, _ = self.execute({"--remove": (["[seed] Deleting", "[apim] Deleting API Orders"], 137)})
+        self.assertEqual((job.ok, job.error()), (False, "The seed was stopped before it ended"))
+
+    def test_a_delete_here_ended_from_outside_says_so_rather_than_where_it_was(self):
+        self.record(None, "APIs")
+        self.on(*self.core)
+        playgrounds.stop(self.project, "hotels", True, [])
+        job, calls = self.execute({"--remove": (["[seed] Deleting", "[apim] Deleting API Orders"], 137)})
+        self.assertIn("--rm", calls[0][0])
+        self.assertEqual((job.ok, job.error()), (False, "The seed was stopped before it ended"))
 
     def test_delete_place_is_refused_in_words(self):
         self.ready()
