@@ -36,7 +36,8 @@ gives it. What the seed finds and did not create is never adopted, changed or de
 The platform keeps the fields it knows, adds its own and never gives a secret back, so what it stores cannot be compared
 with what the seed sends. The record of an object keeps a fingerprint of what the seed sent last (`digest`): the same
 fingerprint writes nothing. A provider is the exception: the platform keeps what it is sent, so it is compared with what
-it holds. A secret is sent once, when its credential is created.
+it holds. A credential's secret is sent when it is created and again when the file gives another (a key fixed or rotated in
+the playground's settings): its record keeps the fingerprint of the secret, never the secret.
 """
 
 import hashlib
@@ -146,26 +147,35 @@ def contains(actual, wanted):
 
 # --- Credentials ----------------------------------------------------------------------------
 
-def find_credential(aim, name):
+def find_credential(aim, name, with_record=False):
     """The credential of the seed with this name, None when there is none: Gamma allows several, so one the seed did not
-    create is none of its business."""
+    create is none of its business. With its record, `with_record`."""
     rows = [c for c in aim.rows(PATHS["credential"], CATALOG) if c["name"] == name]
-    return own("credential", rows, f"The credential '{name}'", name)[0]
+    found = own("credential", rows, f"The credential '{name}'", name)
+    return found if with_record else found[0]
 
 
 def seed_credentials(aim):
+    """A secret is never readable: the fingerprint of the one the seed sent last says whether the file gives another, which
+    is then sent in an update of the credential. The providers that name it keep it, by its id."""
     for spec in specs("credentials", "name", "credentials"):
         name, secret = spec["name"], spec["credentials"]
-        if find_credential(aim, name):
-            say("credential", "up to date", name)   # a secret is never readable: it stays what it was when created
+        digest = fingerprint({"credentials": secret, "service": spec.get("service")})
+        found, ours = find_credential(aim, name, with_record=True)
+        if found and ours.get("digest") == digest:
+            say("credential", "up to date", name)
+            continue
+        service = {"serviceId": spec["service"]} if "service" in spec else {}
+        if found:
+            aim.put(f"{PATHS['credential']}/{found['id']}", json={"name": name, "credentials": secret, **service})
+            record(SECTION, "credential", LABELS["credential"], name, found["id"], digest=digest)
+            say("credential", "updated", name)
             continue
         body = {"name": name, "strategy": STRATEGIES[secret["type"]], "credentials": secret,
-                "allowedUsageSurfaces": USAGE_SURFACES}
-        if "service" in spec:
-            body["serviceId"] = spec["service"]
+                "allowedUsageSurfaces": USAGE_SURFACES, **service}
         with common.making(SECTION, "credential", LABELS["credential"], name):
             created = aim.post(PATHS["credential"], json=body).json()
-            record(SECTION, "credential", LABELS["credential"], name, created["id"])
+            record(SECTION, "credential", LABELS["credential"], name, created["id"], digest=digest)
         say("credential", "created", name)
 
 

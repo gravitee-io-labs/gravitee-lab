@@ -586,6 +586,9 @@ replaces or deletes only what that record says it created:
   which is a warning when the engine is marked `optional`.
 - An AM domain, an AM application or an OpenFGA store that it finds by name or client ID is updated, never deleted.
 - An AM scope the domain already has is left as it is, and the seed deletes only the scopes it made.
+- A Gamma credential's secret is sent again when the file gives another, a key fixed or rotated in the settings of the
+  playground and then Re-seed: the credential keeps its id, so the providers that name it get the new key. The record keeps a
+  fingerprint of the secret, never the secret.
 - The approval settings of the environment are the one thing it replaces that it did not create: it records the values they had, and a removal puts them back unless someone changed them since.
 - The entities of an `entities:` list are recorded once for each type, with their ids.
 - An [environment of its own](#environments-of-its-own) is never created, changed or deleted. A group, a portal, its theme,
