@@ -256,7 +256,9 @@ bundle and what you added.
 - A plugin is of the Enterprise Edition, the *EE* tag after its name and under the *Enterprise* filter, when download.gravitee.io
   publishes it in its Enterprise folder or when it needs a license feature, which it declares itself and is read once it is installed: every tier of the license
   is an Enterprise one. Any other plugin is under *Community*.
-- A playground that requires plugins installs the missing ones when you start it.
+- A playground that requires plugins installs the latest release of each missing one when you start it, as the
+  download site does not say which product versions a release works with. To use another release, install it here
+  before you start the playground.
 
 Added plugins are zip files in `plugins/apim/` and `plugins/am/` (git-ignored). Both folders are mounted into the
 product's containers. Without the Lab UI, drop a zip in the folder and run `make restart`.
