@@ -292,14 +292,18 @@ def in_dependency_order(bodies, points):
     return order
 
 
-def type_ranks(bodies, points):
-    """{type: rank}: 0 for a type that points at no other, else one more than the highest of the types it points at."""
+def type_ranks(bodies, points, fixed=None):
+    """{type: rank}: 0 for a type that points at no other, else one more than the highest of the types it points at. A
+    type of `fixed` ({type: rank}) has the rank it gives there, whatever its entities here point at."""
+    fixed = fixed or {}
     below = {}
     for entity_id, body in bodies.items():
         below.setdefault(body["entityType"], set()).update(t for t, _ in points[entity_id] if t != body["entityType"])
 
     def rank(entity_type, path=()):
-        others = [other for other in below[entity_type] if other in below and other not in path]
+        if entity_type in fixed:
+            return fixed[entity_type]
+        others = [other for other in below[entity_type] if (other in below or other in fixed) and other not in path]
         return max((rank(other, (*path, entity_type)) for other in others), default=-1) + 1
 
     return {entity_type: rank(entity_type) for entity_type in below}
@@ -309,6 +313,17 @@ def made_entities():
     """The ids of the entities the seed saved: the ones its records of kind `entities` list."""
     return {entity_id for x in created() if x["product"] == SECTION and x["kind"] == "entities"
             for entity_id in x.get("ids", [])}
+
+
+def made_ranks():
+    """{type: rank} of the entities the seed saved, from its records of kind `entities`: the highest a record of the type
+    has, whatever its source."""
+    ranks = {}
+    for x in created():
+        if x["product"] == SECTION and x["kind"] == "entities":
+            entity_type = x["name"].rsplit("/", 1)[1]   # the name is source/type, and a type has no slash
+            ranks[entity_type] = max(ranks.get(entity_type, 0), x.get("rank", 0))
+    return ranks
 
 
 def parents_of(entity):
@@ -431,7 +446,8 @@ def remember(source, saved, bodies, ranks):
     """Adds the entities just saved to the record of their type: one record for each type, with its ids in dependency
     order (each after what it points at, as the file or `saved` says; an id only the record has keeps its place in it,
     the record being in that order when it was written), and the rank that orders a removal: the file's, else the
-    record's for a type the file no longer has, else one more than the highest of the types its entities point at."""
+    record's for a type the file no longer has, else one more than the highest of the types its entities point at, each
+    ranked as the file ranks it, else as its records do."""
     known = {body["entityId"]: body for body in [*bodies, *saved]}
     points = {entity_id: points_of(body) for entity_id, body in known.items()}
     for entity_type in dict.fromkeys(body["entityType"] for body in saved):
@@ -444,7 +460,9 @@ def remember(source, saved, bodies, ranks):
         ids = [body["entityId"] for body in order]
         rank = ranks.get(entity_type, earlier.get("rank"))
         if rank is None:   # saved by a lost answer, and in neither the file nor a record: what it points at says
-            rank = type_ranks(known, points)[entity_type]
+            fixed = {**made_ranks(), **ranks}
+            fixed.pop(entity_type, None)   # a record of another source: these entities may point at more
+            rank = type_ranks(known, points, fixed)[entity_type]
         record(SECTION, "entities", f"{entity_type} entities", name, name, ids=ids, count=len(ids), rank=rank,
                source=source)
 

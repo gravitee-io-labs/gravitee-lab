@@ -583,6 +583,41 @@ class Refusals(Case):
         self.assertEqual(self.deleted(), ["O-6001", "O-5001", "C-2001", "C-1001"])
         self.assertEqual(self.world.entities, {})
 
+    def lose_an_invoice_then_seed(self, text):
+        """A first seed of the customers and orders, a run that adds an invoice of an order and loses the answer, then a
+        seed of `text`."""
+        authz.seed()
+        self.seed_files({"authz/entities.yaml": ENTITIES + "  - {type: Invoice, id: I-1, attributes: {order: {ref: [Order, O-5001]}}}\n"})
+
+        def made(call):
+            self.world.bulk(call)
+            raise requests.ReadTimeout("slow")
+        self.platform.add({("POST", BULK): made})
+        with self.assertRaises(common.SeedError):
+            authz.seed()
+        self.platform.add({("POST", BULK): self.world.bulk})
+        self.assertEqual(("I-1" in self.world.entities, "I-1" in authz.made_entities()), (True, False))
+        self.seed_files({"authz/entities.yaml": text})
+        authz.seed()
+
+    def test_a_type_only_the_lost_answer_saved_ranks_above_one_only_a_record_has(self):
+        # The orders the invoice points at are in a record only, and the invoice in no record and no longer in the file
+        self.lose_an_invoice_then_seed("source: harbor\nentities: []\n")
+        [invoices] = [x for x in common.created() if x["name"] == "harbor/Invoice"]
+        self.assertEqual((invoices["ids"], invoices["rank"]), (["I-1"], 2), "one above the record of the orders")
+        self.platform.calls.clear()
+        authz.remove(common.created())
+        self.assertEqual(self.deleted(), ["I-1", "O-6001", "O-5001", "C-2001", "C-1001"])
+        self.assertEqual(self.world.entities, {})
+
+    def test_the_same_when_the_file_keeps_the_customers(self):
+        self.lose_an_invoice_then_seed("".join(line for line in ENTITIES.splitlines(keepends=True) if "type: Order" not in line))
+        [invoices] = [x for x in common.created() if x["name"] == "harbor/Invoice"]
+        self.assertEqual(invoices["rank"], 2)
+        self.platform.calls.clear()
+        authz.remove(common.created())
+        self.assertEqual(self.deleted(), ["I-1", "O-6001", "O-5001", "C-2001", "C-1001"])
+
     def test_a_child_only_the_lost_answer_saved_is_still_deleted_before_its_parent(self):
         self.lose_the_answer("""\
 source: harbor
