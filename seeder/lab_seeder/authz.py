@@ -353,13 +353,17 @@ def put_entities(api, spec):
             lost.append(body)
         if not current or entity_id not in mine or not entity_is_as_wanted(current, body):   # one an earlier seed sent and lost
             changed.append(body)                                                              # the answer of is saved again
-    if not changed:
-        log(SECTION, f"{len(bodies)} entities of '{source}' as the file says")
-        return
+    # And those it saved that the file no longer has: the source still lists them, and only the old note names them
+    gone = noted - mine - {body["entityId"] for body in bodies}
+    lost += [present[entity_id] for entity_id in sorted(gone) if entity_id in present]
     if lost:   # recorded before this run's note replaces the old one, which a refusal below takes back
         remember(source, lost, bodies, ranks)
         log(SECTION, f"! {len(lost)} entities of '{source}': saved by an earlier seed that lost the platform's answer, now "
                      "known as the seed's")
+    if not changed:
+        unmade(SECTION, "entities", sending)   # what the old note names is recorded now, or was never saved
+        log(SECTION, f"{len(bodies)} entities of '{source}' as the file says")
+        return
     # Noted before the first request (common.making): a bulk answer that is lost leaves entities that the next run saves again
     with making(SECTION, "entities", "entities", sending, ids=[body["entityId"] for body in changed]):
         for start in range(0, len(changed), BULK):
@@ -406,16 +410,16 @@ def refusals(said):
 
 def remember(source, saved, bodies, ranks):
     """Adds the entities just saved to the record of their type: one record for each type, with its ids in dependency
-    order (the ids of earlier runs that the file no longer has come first), and the rank that orders a removal."""
+    order (the ids of earlier runs that the file no longer has come first), and the rank that orders a removal (a type
+    the file no longer has keeps the one of its record)."""
     position = {body["entityId"]: index for index, body in enumerate(bodies)}
     for entity_type in dict.fromkeys(body["entityType"] for body in saved):
         name = f"{source}/{entity_type}"
-        earlier = next((x.get("ids", []) for x in created()
-                        if (x["product"], x["kind"], x["name"]) == (SECTION, "entities", name)), [])
-        ids = sorted({*earlier, *(body["entityId"] for body in saved if body["entityType"] == entity_type)},
+        earlier = next((x for x in created() if (x["product"], x["kind"], x["name"]) == (SECTION, "entities", name)), {})
+        ids = sorted({*earlier.get("ids", []), *(body["entityId"] for body in saved if body["entityType"] == entity_type)},
                      key=lambda entity_id: position.get(entity_id, -1))
         record(SECTION, "entities", f"{entity_type} entities", name, name, ids=ids, count=len(ids),
-               rank=ranks[entity_type], source=source)
+               rank=ranks.get(entity_type, earlier.get("rank", 0)), source=source)
 
 
 # --- Policies -------------------------------------------------------------------------------

@@ -530,6 +530,41 @@ class Refusals(Case):
         self.assertEqual(authz.made_entities(), {"C-1001", "O-5001", "C-2001", "O-6001"})
         self.assertEqual(common.notes(authz.SECTION, "entities"), [])
 
+    def test_one_the_lost_answer_saved_and_the_file_no_longer_has_stays_the_seeds_and_a_removal_deletes_it(self):
+        self.lose_the_answer()
+        self.seed_files({"authz/entities.yaml": ENTITIES.replace("  - {type: Order, id: O-6001", "  # {type: Order, id: O-6001")})
+        authz.seed()
+        self.assertEqual(authz.made_entities(), {"C-1001", "O-5001", "C-2001", "O-6001"})
+        self.assertEqual(common.notes(authz.SECTION, "entities"), [])
+        authz.remove(common.created())
+        self.assertEqual(self.world.entities, {})
+
+    def test_one_the_lost_answer_saved_can_come_back_in_the_file(self):
+        self.lose_the_answer()
+        self.seed_files({"authz/entities.yaml": ENTITIES.replace("  - {type: Order, id: O-6001", "  # {type: Order, id: O-6001")})
+        authz.seed()
+        self.seed_files({"authz/entities.yaml": ENTITIES})
+        authz.seed()
+        self.assertEqual(authz.made_entities(), {"C-1001", "O-5001", "C-2001", "O-6001"})
+
+    def test_a_type_the_file_no_longer_has_keeps_the_rank_of_its_record_with_what_the_lost_answer_saved(self):
+        authz.seed()
+        self.seed_files({"authz/entities.yaml": ENTITIES + "  - {type: Order, id: O-7001, attributes: {customer: {ref: [Customer, C-1001]}}}\n"})
+
+        def made(call):
+            self.world.bulk(call)
+            raise requests.ReadTimeout("slow")
+        self.platform.add({("POST", BULK): made})
+        with self.assertRaises(common.SeedError):
+            authz.seed()
+        self.platform.add({("POST", BULK): self.world.bulk})
+        # The customers are the seed's and as the file says: nothing is sent, and the old note goes all the same
+        self.seed_files({"authz/entities.yaml": "".join(line for line in ENTITIES.splitlines(keepends=True) if "type: Order" not in line)})
+        authz.seed()
+        [orders] = [x for x in common.created() if x["name"] == "harbor/Order"]
+        self.assertEqual((set(orders["ids"]), orders["rank"]), ({"O-5001", "O-6001", "O-7001"}, 1))
+        self.assertEqual(common.notes(authz.SECTION, "entities"), [])
+
     def test_a_failed_count_without_the_errors_is_still_a_refusal_and_the_request_is_taken_as_saved(self):
         self.platform.add({("POST", BULK): (200, {"status": "PARTIAL", "created": 3, "failed": 1, "results": [], "errors": []})})
         with self.assertRaisesRegex(common.SeedError, "^Authorization Management refused 1 of 4 entities: no reason given$"):
