@@ -32,7 +32,7 @@ aim_catalog deletes.
 """
 
 from .aim_catalog import fingerprint
-from .common import SeedError, created, has_seed, items, load, log, owned, record, seed_file
+from .common import SeedError, created, forget, has_seed, items, load, log, owned, record, seed_file
 from .gamma import CATALOG, Gamma
 
 SECTION = "aim-governance"
@@ -320,7 +320,9 @@ def seed():
 def remove(records):
     """Deletes the rules, puts the settings back and switches off the frameworks the seed switched on. The answers are
     the agent's: it is deleted with the catalog."""
-    mine = [x for x in owned(records, SECTION, ORDER) if x["kind"] != "compliance-answers"]
+    mine = owned(records, SECTION, ORDER)
+    forget(*[x for x in mine if x["kind"] == "compliance-answers"])   # the agent's, deleted with the catalog
+    mine = [x for x in mine if x["kind"] != "compliance-answers"]
     if not mine:
         return
     governance = Governance()
@@ -334,3 +336,4 @@ def remove(records):
         else:
             governance.aim.delete(f"/compliance/activations/{x['name']}")
             log(SECTION, f"✓ Framework off: {x['name']}")
+        forget(x)

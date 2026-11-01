@@ -39,7 +39,7 @@ from . import controls
 from . import gamma
 from .aim_workspaces import subset
 from .apim import merge
-from .common import (Api, SeedError, trouble, created, files, has_seed, load, log, owned, record, recorded, setting, wait_until,
+from .common import (Api, SeedError, trouble, created, files, forget, has_seed, load, log, owned, record, recorded, setting, wait_until,
                     waits_for_gateway)
 
 SECTION = "aim-proxies"
@@ -564,4 +564,5 @@ def remove(records):
             proxies.g.automation.delete(f"/aim/mcp-proxies/{x['hrid']}")
         else:
             proxies.g.aim.delete(f"/mcp-proxies/{x['id']}")
+        forget(x)
         log(SECTION, f"✓ Deleted {KINDS[x['kind']]} '{x['name']}'")

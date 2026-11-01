@@ -17,7 +17,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from .common import REFUSED, Api, SeedError, files, load, log, owned, record, setting, wait_until
+from .common import REFUSED, Api, SeedError, files, forget, load, log, owned, record, setting, wait_until
 
 SECTION = "openfga"
 DEPENDS = ()   # the modules whose work this one reads on the platform: none, so it runs at the start (schedule.py)
@@ -105,4 +105,5 @@ def remove(records):
     api = Api(setting("OPENFGA_API_URL"), SECTION)
     for x in stores:
         api.delete(f"/stores/{x['id']}")
+        forget(x)
         log(SECTION, f"✓ Store '{x['name']}' deleted")

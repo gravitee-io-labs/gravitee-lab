@@ -8,7 +8,7 @@ what the gateway reports.
 
 from . import gamma
 from .aim_workspaces import subset
-from .common import HttpError, SeedError, files, has_seed, load, log, owned, record, recorded
+from .common import HttpError, SeedError, files, forget, has_seed, load, log, owned, record, recorded
 
 SECTION = "aim-dashboards"
 DEPENDS = ()   # the modules whose work this one reads on the platform: none, so it runs at the start (schedule.py)
@@ -74,4 +74,5 @@ def remove(records):
     dashboards.connect()
     for x in mine:
         dashboards.api.delete(f"/dashboards/{x['id']}")
+        forget(x)
         log(SECTION, f"✓ Deleted dashboard '{x['name']}'")

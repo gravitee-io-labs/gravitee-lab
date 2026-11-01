@@ -1,11 +1,14 @@
 """Shared by every seeder: settings from the environment, logging, waiting, HTTP calls and seed files."""
 
+import fcntl
 import json
 import os
 import re
 import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager, suppress
 from pathlib import Path
 
 import requests
@@ -626,14 +629,62 @@ def items(data):
 
 
 # --- What the seed created ---------------------------------------------------------------
-# Only what it created, never what already existed: removing a playground deletes exactly this list.
+# Only what it created, never what already existed: removing a playground deletes exactly this list. It is read and written
+# by one step at a time in this process (`_state`) and by one process at a time (a lock beside it: a removal may run while a
+# seed still does), and a record that cannot be read or written stops the seed rather than lose what it holds.
+
+RECORD = "The seed's record of what it created (created.json in the playground's .state folder)"
+KEYS = ("product", "kind", "name", "id")   # what every record has: what it is, and how the seed finds it again
+_holding = [0]   # how deep the step that holds the record is in it
+
+
+@contextmanager
+def held():
+    """The record for this step alone, in this process and across processes, for as long as the block lasts."""
+    with _state:
+        if _holding[0]:
+            _holding[0] += 1
+            try:
+                yield
+            finally:
+                _holding[0] -= 1
+            return
+        try:
+            STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            lock = open(STATE_FILE.with_name(STATE_FILE.name + ".lock"), "a")
+        except OSError as e:
+            raise SeedError(f"{RECORD} cannot be written: {e.strerror or e}") from None
+        with lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            _holding[0] = 1
+            try:
+                yield
+            finally:
+                _holding[0] = 0
+                fcntl.flock(lock, fcntl.LOCK_UN)
+
 
 def created():
-    with _state:   # not while another step replaces the file: a mounted folder can fail a read for a moment, and nothing is the answer of a failed read
+    """The records, [] when there is no record yet. One that cannot be read, or is not a list of records, stops the seed: read
+    as nothing, the next write would forget all it holds, and a removal would delete nothing and say it did."""
+    with held():
+        for attempt in (1, 2):   # a mounted folder can fail a read for a moment
+            try:
+                text = STATE_FILE.read_text(encoding="utf-8")
+                break
+            except FileNotFoundError:
+                return []
+            except OSError as e:
+                if attempt == 2:
+                    raise SeedError(f"{RECORD} cannot be read: {e.strerror or e}. Fix it, or Reset") from None
+                pause(0.5)
         try:
-            return json.loads(STATE_FILE.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return []
+            records = json.loads(text)
+        except ValueError:
+            records = None
+        if not isinstance(records, list) or not all(isinstance(x, dict) and all(key in x for key in KEYS) for x in records):
+            raise SeedError(f"{RECORD} is damaged: fix it, or Reset")
+        return records
 
 
 def recorded(product, kind, id):
@@ -645,22 +696,38 @@ def record(product, kind, label, name, id, **extra):
     """Adds a created item (or replaces the one with the same product, kind and name: an API replaced).
     `label` is what people call things of this kind, in the plural: the lab shows it when it asks whether
     to delete them ("3 MCP servers")."""
-    with _state:
+    with held():
         records = [x for x in created() if (x["product"], x["kind"], x["name"]) != (product, kind, name)]
         records.append({"product": product, "kind": kind, "label": label, "name": name, "id": id, **extra})
         save_created(records)
 
 
+def forget(*gone):
+    """Drops the records of what a removal has just deleted, as soon as it is: a removal that fails later keeps the records of
+    what is still there, and those alone."""
+    if not gone:
+        return
+    with held():
+        drop = {tuple(x[key] for key in KEYS) for x in gone}
+        save_created([x for x in created() if tuple(x[key] for key in KEYS) not in drop])
+
+
 def save_created(records):
-    with _state:
+    """Writes the records whole: a file of its own, written and synced, then put in place of the record, so that another
+    reader never sees half of it. A record that cannot be written stops the seed: what it made would be left with nothing to
+    say it is the seed's."""
+    with held():
+        partial = STATE_FILE.with_name(f"{STATE_FILE.name}.{uuid.uuid4().hex}.part")
         try:
-            STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-            partial = STATE_FILE.with_name(STATE_FILE.name + ".part")   # whole or not at all: another step may read it
-            partial.write_text(json.dumps(records, indent=2), encoding="utf-8")
+            with open(partial, "x", encoding="utf-8") as f:
+                f.write(json.dumps(records, indent=2))
+                f.flush()
+                os.fsync(f.fileno())
             os.replace(partial, STATE_FILE)
-            return
         except OSError as e:
-            log("seed", f"! Cannot record what was created ({e}): removing the playground will not delete it")
+            with suppress(OSError):
+                partial.unlink()
+            raise SeedError(f"{RECORD} cannot be written: {e.strerror or e}") from None
 
 
 def owned(records, product, order):

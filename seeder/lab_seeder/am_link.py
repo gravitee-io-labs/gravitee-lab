@@ -24,7 +24,7 @@ stops the seed, which does not renew the tokens of an account it does not own.
 import os
 
 from . import am
-from .common import SeedError, has_seed, items, load, log, owned, record, recorded, seed_file, setting, wait_until
+from .common import SeedError, forget, has_seed, items, load, log, owned, record, recorded, seed_file, setting, wait_until
 from .gamma import Gamma
 
 SECTION = "am-link"
@@ -137,4 +137,5 @@ def remove(records):
     if accounts:
         message += (f". So does the service account '{accounts[0]}' with the {ORG_OWNER} role and its token, which does "
                     "not expire: delete the account in Access Management when you are done with the lab")
+    forget(*mine)   # notes: nothing the API can undo
     log(SECTION, message)

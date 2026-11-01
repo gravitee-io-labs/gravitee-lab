@@ -29,8 +29,8 @@ from pathlib import Path
 
 import yaml
 
-from .common import READY_TIMEOUT, REFUSED, Api, Gone, HttpError, SeedError, excerpt, files, has_seed, log, owned, pause, record, \
-    render_yaml, setting, wait_until
+from .common import READY_TIMEOUT, REFUSED, Api, Gone, HttpError, SeedError, excerpt, files, forget, has_seed, log, owned, pause, \
+    record, render_yaml, setting, wait_until
 
 SECTION = "k8s"
 DEPENDS = ("apim",)   # the modules whose work this one reads on the platform (schedule.py)
@@ -260,6 +260,7 @@ def remove(records):
         cluster.call("GET", "/readyz", timeout=10)
     except SeedError as e:
         log(SECTION, f"! The cluster does not answer ({excerpt(e, 200)}): what it holds is left as it is")
+        forget(*mine)
         return
     deleted = set()
     for namespace in namespaces_of(mine):
@@ -274,12 +275,14 @@ def remove(records):
     resources = [x for x in mine if x["kind"] == "resource"]
     for item in reversed(resources):
         path = cluster.path(item["apiVersion"], item["kind_name"], item["namespace"], item["id"])
-        if path in deleted:
-            continue
-        try:
-            delete_retrying(cluster, path, item["name"])
-        except SeedError as e:
-            log(SECTION, f"! {item['name']}: {e}")
-    for namespace in namespaces_of(mine):
-        cluster.call("DELETE", f"/api/v1/namespaces/{namespace}", expect=(200, 202, 404))
-        log(SECTION, f"✓ namespace {namespace} deleted")
+        if path not in deleted:
+            try:
+                delete_retrying(cluster, path, item["name"])
+            except SeedError as e:
+                log(SECTION, f"! {item['name']}: {e}")
+                continue
+        forget(item)
+    for x in (x for x in mine if x["kind"] == "namespace"):
+        cluster.call("DELETE", f"/api/v1/namespaces/{x['name']}", expect=(200, 202, 404))
+        forget(x)
+        log(SECTION, f"✓ namespace {x['name']} deleted")

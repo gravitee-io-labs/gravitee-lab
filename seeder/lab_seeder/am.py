@@ -22,7 +22,7 @@ file's: it is never generated, read back or logged.
 import json
 import os
 
-from .common import REFUSED, Api, SeedError, files, items, load, log, owned, record, recorded, seed_file, setting, wait_until
+from .common import REFUSED, Api, SeedError, files, forget, items, load, log, owned, record, recorded, seed_file, setting, wait_until
 
 SECTION = "am"
 DEPENDS = ("openfga",)   # the modules whose work this one reads on the platform (schedule.py)
@@ -420,4 +420,5 @@ def remove(records):
         path = f"{am.env_url}/domains/{x['id']}" if x["kind"] == "domain" else f"{am.env_url}/domains/{x['domain']}/{PATHS[x['kind']]}/{x['id']}"
         # AM 4.12 answers 500 to the deletion of a protected resource that does not say its type (the seed makes MCP servers)
         am.api.delete(path, **({"params": {"type": "MCP_SERVER"}} if x["kind"] == "protected-resource" else {}))
+        forget(x)
         log(SECTION, f"✓ Deleted {x['kind'].replace('-', ' ')} '{x['name']}'")

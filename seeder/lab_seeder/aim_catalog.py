@@ -679,5 +679,6 @@ def remove(records):
     aim = connect()
     for x in mine:
         delete(aim, x)
+        common.forget(x)
         log(SECTION, f"✓ Deleted {x['kind']} '{x['name']}'")
     release_sources(aim, {x["source"] for x in mine if x["kind"] in MANUAL})

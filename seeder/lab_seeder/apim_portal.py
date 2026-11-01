@@ -66,8 +66,8 @@ from pathlib import Path
 import yaml
 
 from . import common
-from .common import (OK, REFUSED, Api, SeedError, created, excerpt, files, items, load, log, owned, parallel, record, recorded, save_created,
-                     seed_file, setting, text, wait_until)
+from .common import (OK, REFUSED, Api, SeedError, created, excerpt, files, items, load, log, owned, parallel, record, recorded, seed_file,
+                     setting, text, wait_until)
 
 SECTION = "apim-portal"
 DEPENDS = ("apim",)   # the modules whose work this one reads on the platform (schedule.py)
@@ -610,10 +610,8 @@ class Portals:
                  and x.get("hrid") not in wanted[x["kind"]]]
         for x in stale:
             self.delete(x)
+            common.forget(x)
             log(SECTION, f"✓ Deleted {x['kind']} '{x['name']}': its file is gone")
-        if stale:
-            with common._state:
-                save_created([x for x in created() if x not in stale])
 
     def upsert(self, folder, kind, body):
         """The object, created when the platform has none, updated when it holds the seed's and is not as the file says."""
@@ -922,4 +920,5 @@ def remove(records):
     portals.connect()
     for x in mine:
         gone = "" if portals.delete(x) else ": its environment is gone"   # an environment that is gone has nothing left in it
+        common.forget(x)
         log(SECTION, f"✓ Deleted {x['kind']} '{x['name']}'{gone}")

@@ -28,7 +28,7 @@ paused. A subscription that exists, whatever its status, is otherwise left as it
 """
 
 from . import am
-from .common import SeedError, excerpt, files, has_seed, items, load, log, owned, record, recorded, seed_file
+from .common import SeedError, excerpt, files, forget, has_seed, items, load, log, owned, record, recorded, seed_file
 from .gamma import CATALOG, WORKSPACES, Gamma
 
 SECTION = "aim-agents"
@@ -282,9 +282,11 @@ def remove(records):
     agents.connect()
     for x in mine:
         if x["kind"] == "subscription":
-            agents.aim.post(f"/mcp-proxies/{x['api']}/subscriptions/{x['id']}/_close", expect=CLOSED)
+            agents.aim.post(f"/mcp-proxies/{x['api']}/subscriptions/{x['id']}/_close", expect=CLOSED, idempotent=True)
+            forget(x)
             log(SECTION, f"✓ Closed subscription '{x['name']}'")
         else:
             agents.detach(x, records)
             agents.g.v1.delete(f"/applications/{x['id']}")
+            forget(x)
             log(SECTION, f"✓ Deleted agent application '{x['name']}'")

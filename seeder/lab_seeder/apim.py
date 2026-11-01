@@ -64,8 +64,8 @@ import requests
 
 from . import controls
 from . import common
-from .common import (OK, REFUSED, Api, HttpError, SeedError, created, excerpt, files, folders, later, load, log, owned, parallel, pause,
-                     together, record, recorded, save_created, seed_file, setting, wait_until)
+from .common import (OK, REFUSED, Api, HttpError, SeedError, created, excerpt, files, folders, forget, later, load, log, owned, parallel,
+                     pause, together, record, recorded, save_created, seed_file, setting, wait_until)
 
 SECTION = "apim"
 DEPENDS = ()   # the modules whose work this one reads on the platform: none, so it runs at the start (schedule.py)
@@ -604,7 +604,7 @@ class ApiManagement:
             log(SECTION, f"✓ API updated: {name}")
         # Still the seed's, under its new id and digest. The record it had under the id this API had goes: it may hold another
         # name (the file renamed the API) or another id (the API was replaced), and the first record of an id is the one that is read
-        with common._state:   # read, changed and written back by this step alone
+        with common.held():   # read, changed and written back by this step alone
             save_created([x for x in created() if (x["product"], x["kind"], x["id"]) != (SECTION, "api", live["id"])])
             record(SECTION, "api", "APIs", name, api_id, digest=digest, **self.scope())
         self.remember(api_id, definition, name, gone=live["id"])
@@ -969,25 +969,26 @@ def seed():
 
 
 def remove(records):
-    """Deletes what the seed made. Returns the records of what the platform refused to delete: a user that owns an API or an
-    application of its own cannot be deleted, and that stops neither the removal of the rest nor the record of that one."""
+    """Deletes what the seed made, and forgets each record as its object goes. What the platform refuses to delete keeps its
+    record: a user that owns an API or an application of its own cannot be deleted, and that stops neither the removal of the
+    rest nor the record of that one."""
     mine = owned(records, SECTION, ORDER)
     if not mine:
-        return []
+        return
     platform = ApiManagement()
     platform.connect()
     present = {}   # environment -> whether the platform still has it
-    kept = []
 
     def delete(x):
-        """Deletes one record; True when the platform kept it."""
+        """Deletes the object of one record and forgets the record, unless the platform keeps the object."""
         apim = platform.at(x["env"]) if x.get("env") else platform   # where the record says it was made
         if x.get("env") and x["kind"] in IN_ENVIRONMENT:
             if x["env"] not in present:
                 present[x["env"]] = apim.has_environment()
             if not present[x["env"]]:   # an environment that is gone has nothing left in it to delete
+                forget(x)
                 log(SECTION, f"✓ Deleted {x['kind']} '{x['name']}': its environment is gone")
-                return False
+                return
         if x["kind"] == "subscription":
             apim.api.post(f"{apim.v2}/apis/{x['api']}/subscriptions/{x['id']}/_close", expect=ENDED, idempotent=True)
         elif x["kind"] == "application":
@@ -999,19 +1000,21 @@ def remove(records):
                 apim.api.delete(f"{apim.org_v1}/users/{x['id']}")
             except HttpError as e:
                 log(SECTION, f"! User '{x['name']}' kept: HTTP {e.status} {excerpt(e.body, 200)}")
-                return True
+                return
         elif x["kind"] == "membership":
             apim.api.put(f"{apim.org_v1}/users/{x['id']}/roles",
                          json={"user": x["id"], "referenceType": "ENVIRONMENT", "referenceId": apim.env, "roles": []})
         else:
             apim.api.post(f"{apim.v2}/apis/{x['id']}/_stop", expect=ENDED, idempotent=True)
             apim.api.delete(f"{apim.v2}/apis/{x['id']}", params={"closePlans": "true"})
+        forget(x)
         log(SECTION, f"✓ Deleted {x['kind']} '{x['name']}'")
-        return False
 
     for kind in ORDER:   # what depends on what is removed first, kind by kind; the records of one kind do not depend on one another
         batch = [x for x in mine if x["kind"] == kind]
         # The users and the seed's roles are the organization's: one at a time, as they were made
-        refused = parallel(delete, batch) if kind not in ("user", "membership") else [delete(x) for x in batch]
-        kept += [x for x, was_kept in zip(batch, refused) if was_kept]
-    return kept
+        if kind in ("user", "membership"):
+            for x in batch:
+                delete(x)
+        else:
+            parallel(delete, batch)

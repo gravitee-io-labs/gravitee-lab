@@ -15,7 +15,7 @@ A module is one file of `lab_seeder/`, registered in `lab_seeder/seed.py`.
 | `SECTION` | The prefix of its log lines (`[section]`) and the `product` of its records |
 | `ORDER` | The kinds it records, dependents first: the order of a removal |
 | `seed()` | Creates its objects. Returns before it reads a setting or connects when its folder of `seed/` is absent (`am.seed(stores)` takes the OpenFGA stores) |
-| `remove(records)` | Deletes what `owned(records, SECTION, ORDER)` returns. It may return the records of what the platform refused to delete (a user that owns an application): the seed keeps those in the record and removes the rest |
+| `remove(records)` | Deletes what `owned(records, SECTION, ORDER)` returns, and `forget`s each record as soon as its object is deleted. What the platform refuses to delete (a user that owns an application) is not forgotten: it stays in the record, and the rest is removed |
 | `FOLDERS`, `GAMMA` | For a module that fills Gamma: the folders or files of `seed/` it reads, and the Gamma modules it needs (`aim`, `authz`, `platform`). `seed.py` checks that the platform serves them before it changes anything |
 | `PATHS` | Optional and local to a module: the API path of each kind it records. The engine does not read it |
 
@@ -90,8 +90,11 @@ one-shot service writes it. [The folder's layout](../docs/playgrounds.md#environ
 - A seed that stops on a `SeedError` prints `[seed] ✗ <why>` as its last line and exits with an error. The Lab UI shows
   `<why>` as the reason the start failed, so keep it to one line (`excerpt()` in `common.py`). Any other error prints its
   traceback, then one plain `[seed] ✗` line, so that the reason is never a line of a traceback.
-- `seed.py --remove` deletes the recorded items from the last module to the first, then empties the record. The Lab UI
-  reads the record to say what a delete removes.
+- `seed.py --remove` deletes the recorded items from the last module to the first, each record dropped as its object goes, so
+  that a removal that fails keeps the records of what is still there, and a seed that records meanwhile keeps its own. The Lab
+  UI reads the record to say what a delete removes.
+- The record is read and written by one process at a time (a lock file beside it), each write whole and synced. A record that
+  cannot be read, or is no list of records, stops the seed and is never written over; one that cannot be written stops it too.
 - Log with `log(section, message)`, and never a secret, a token or a password.
 
 ## Endpoints, not containers

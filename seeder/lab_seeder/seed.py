@@ -1,7 +1,7 @@
 """Seeds a playground into Gravitee: OpenFGA stores, Access Management, API Management, the link from Gamma to Access
 Management, then Gamma (the AI catalog, workspaces, MCP proxies, agents and their governance, authorization, dashboards).
-`--remove` deletes what the seed created, and only that, from the last module to the first. What the platform refuses to delete
-(a module gives its record back) is kept in the record: the rest is removed all the same.
+`--remove` deletes what the seed created, and only that, from the last module to the first, each record dropped as its object
+goes. What the platform refuses to delete stays in the record: the rest is removed all the same.
 
 Reads /seed (SEED_DIR) and talks to the platform only through its management APIs, so the same seed works
 against the lab or any other platform it can reach: endpoints, credentials and ids come from the environment. The one
@@ -41,7 +41,7 @@ from . import openfga
 from . import refills
 from . import schedule
 from . import common
-from .common import SeedError, created, has_seed, log, save_created
+from .common import KEYS, SeedError, created, forget, has_seed, log, owned
 from .gamma import require_modules
 
 # Each module finds what it needs, by name or id, in what the modules before it made; OpenFGA's stores for AM's
@@ -81,6 +81,10 @@ def gamma_modules():
             for name in getattr(module, "GAMMA", ())}
 
 
+def key(record):
+    return tuple(record[name] for name in KEYS)
+
+
 def told(spent, took):
     """How long the seed took and what running steps together saved, when it saved something worth saying."""
     busy = [f"{name} {seconds:.0f} s" for name, seconds in sorted(spent.items(), key=lambda each: -each[1]) if seconds >= 1]
@@ -96,13 +100,16 @@ def main():
         common.configure()
         common.defer_waits()
         if removing:
-            records, kept = created(), []
+            records = created()
             named, needs = graph()
-            schedule.run(list(named), needs, lambda name: kept.extend(named[name].remove(records) or []), back=True)
-            # a module may give back the records of what the platform refused to delete
-            save_created(kept)
-            gone = len(records) - len(kept)
-            log("seed", f"✓ {gone} item{'s' if gone != 1 else ''} removed" + (f", {len(kept)} kept" if kept else ""))
+            # each module forgets a record as its object goes; what the platform refused to delete stays recorded
+            schedule.run(list(named), needs, lambda name: named[name].remove(records), back=True)
+            known = {key(x) for module in named.values() for x in owned(records, module.SECTION, module.ORDER)}
+            forget(*[x for x in records if key(x) not in known])   # of no module of this seeder: nothing can delete it
+            left = {key(x) for x in created()}
+            kept = sum(key(x) in left for x in records)
+            gone = len(records) - kept
+            log("seed", f"✓ {gone} item{'s' if gone != 1 else ''} removed" + (f", {kept} kept" if kept else ""))
             return 0
         found = controls.begin()
         refills.begin()

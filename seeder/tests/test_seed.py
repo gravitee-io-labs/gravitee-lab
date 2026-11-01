@@ -5,6 +5,8 @@ with nothing to seed leaves the platform alone. Also the fake platform the other
 import json
 import os
 import re
+import subprocess
+import sys
 import time
 import threading
 import unittest
@@ -140,13 +142,111 @@ class Removal(Seed):
         self.remove(204)
         self.assertIn("✓ 1 item removed", self.output())
 
-    def test_what_a_module_gives_back_is_kept_in_the_record_and_the_rest_is_removed(self):
+    def test_what_the_platform_refuses_to_delete_keeps_its_record_and_the_rest_is_removed(self):
         mine = {"product": "apim", "kind": "user", "label": "users", "name": "astrid", "id": "u1"}
-        self.answer({("DELETE", "/stores/s1"): 204}, [self.STORE, mine])
-        with mock.patch.object(apim, "remove", return_value=[mine]):
-            self.assertEqual(self.main("--remove"), 0)
+        self.answer({("DELETE", "/stores/s1"): 204, ("GET", V2 + "/apis"): (200, {"data": []}),
+                     ("DELETE", "/management/organizations/DEFAULT/users/u1"): (400, {"message": "owns an application"})},
+                    [self.STORE, mine])
+        self.assertEqual(self.main("--remove"), 0)
         self.assertEqual([x["id"] for x in common.created()], ["u1"])
         self.assertIn("✓ 1 item removed, 1 kept", self.output())
+
+    def test_a_removal_that_fails_midway_keeps_the_records_of_what_is_still_there_and_those_only(self):
+        second = {**self.STORE, "name": "Projects", "id": "s2"}
+        self.answer({("DELETE", "/stores/s1"): 204, ("DELETE", "/stores/s2"): (403, {"message": "no"})}, [self.STORE, second])
+        self.assertEqual(self.main("--remove"), 1)
+        self.assertEqual([x["id"] for x in common.created()], ["s2"])
+
+    def test_what_a_seed_records_while_a_removal_runs_is_kept(self):
+        """A removal beside a seed that still runs (in another container) writes back only what it deleted."""
+        late = {"product": "openfga", "kind": "store", "label": "OpenFGA stores", "name": "Late", "id": "s9"}
+
+        def deleted(call):
+            common.record(late["product"], late["kind"], late["label"], late["name"], late["id"])   # the other seed, meanwhile
+            return 204
+        self.answer({("DELETE", "/stores/s1"): deleted}, [self.STORE])
+        self.assertEqual(self.main("--remove"), 0)
+        self.assertEqual(common.created(), [late])
+
+    def test_a_record_of_no_module_is_forgotten_as_before(self):
+        self.answer({}, [{"product": "gone-module", "kind": "thing", "name": "t", "id": "t1"}])
+        self.assertEqual(self.main("--remove"), 0)
+        self.assertEqual(common.created(), [])
+
+
+class Record(Seed):
+    """`.state/created.json` is the one place that says what the seed made: what cannot be read of it is never written over."""
+
+    ITEM = {"product": "openfga", "kind": "store", "label": "OpenFGA stores", "name": "Documents", "id": "s1"}
+
+    def test_no_record_is_nothing_created(self):
+        self.assertFalse(self.state.exists())
+        self.assertEqual(common.created(), [])
+
+    def test_a_damaged_record_stops_the_seed_and_is_never_written_over(self):
+        for damaged in ('[{"product": "openfga", "kind": "store", "name": "Documents", "id": "s1"}] trailing', '[{"product": "x"}]',
+                        '{"product": "x"}', "[1, 2]", ""):
+            with self.subTest(damaged=damaged):
+                self.state.write_text(damaged, encoding="utf-8")
+                with self.assertRaisesRegex(common.SeedError, r"^The seed's record of what it created \(created\.json in the "
+                                                              r"playground's \.state folder\) is damaged: fix it, or Reset$"):
+                    common.record("openfga", "store", "OpenFGA stores", "Projects", "s2")
+                self.assertEqual(self.state.read_text(encoding="utf-8"), damaged)
+
+    def test_a_removal_of_a_damaged_record_deletes_nothing_and_says_why(self):
+        damaged = '[{"product": "openfga", "kind": "store", "name": "Documents", "id": "s1"}] trailing'
+        self.state.write_text(damaged, encoding="utf-8")
+        self.assertEqual(self.main("--remove"), 1)
+        self.assertNotIn("removed", self.output())
+        self.assertIn("is damaged: fix it, or Reset", self.output().splitlines()[-1])
+        self.assertEqual(self.state.read_text(encoding="utf-8"), damaged)
+
+    def test_a_read_that_fails_for_a_moment_is_asked_again(self):
+        common.save_created([self.ITEM])
+        read, failures = type(self.state).read_text, [OSError(5, "Input/output error")]
+
+        def flaky(path, *args, **kwargs):
+            if failures:
+                raise failures.pop()
+            return read(path, *args, **kwargs)
+        with mock.patch.object(type(self.state), "read_text", flaky):
+            self.assertEqual(common.created(), [self.ITEM])
+
+    def test_a_record_that_cannot_be_written_fails_the_seed(self):
+        """Left unrecorded, what the seed made would be refused by the next seed as not its own, and never deleted."""
+        with mock.patch.object(common.os, "replace", side_effect=OSError(28, "No space left on device")):
+            with self.assertRaisesRegex(common.SeedError, r"cannot be written: No space left on device$"):
+                common.record("openfga", "store", "OpenFGA stores", "Projects", "s2")
+        self.assertEqual(list(self.state.parent.glob("*.part")), [], "no half-written file is left")
+
+    def test_each_write_has_a_file_of_its_own_and_is_synced_before_it_takes_the_place_of_the_record(self):
+        moved, synced = [], []
+        replace, fsync = common.os.replace, common.os.fsync
+        with mock.patch.object(common.os, "replace", lambda a, b: moved.append(str(a)) or replace(a, b)), \
+                mock.patch.object(common.os, "fsync", lambda fd: synced.append(fd) or fsync(fd)):
+            common.save_created([self.ITEM])
+            common.save_created([self.ITEM])
+        self.assertEqual((len(set(moved)), len(synced)), (2, 2))
+        self.assertTrue(all(name.endswith(".part") for name in moved))
+
+    def test_another_process_that_holds_the_record_is_waited_for(self):
+        """A removal and a seed of one playground may run at once, in two containers that share the folder."""
+        common.save_created([self.ITEM])
+        holder = subprocess.Popen([sys.executable, "-c", HOLDER, str(self.state) + ".lock"], stdout=subprocess.PIPE, text=True)
+        self.addCleanup(holder.kill)
+        self.assertEqual(holder.stdout.readline().strip(), "held")
+        done = threading.Event()
+        writer = threading.Thread(target=lambda: (common.record("openfga", "store", "OpenFGA stores", "Projects", "s2"), done.set()))
+        writer.start()
+        self.assertFalse(done.wait(0.3), "it writes while the other holds the record")
+        holder.kill()
+        writer.join(10)
+        self.assertTrue(done.is_set())
+        self.assertEqual([x["id"] for x in common.created()], ["s1", "s2"])
+
+
+# Holds the lock of the record until it is killed
+HOLDER = "import fcntl, sys, time\nf = open(sys.argv[1], 'a')\nfcntl.flock(f, fcntl.LOCK_EX)\nprint('held', flush=True)\ntime.sleep(60)\n"
 
 
 class Modules(Seed):

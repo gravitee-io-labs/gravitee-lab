@@ -36,7 +36,7 @@ from urllib.parse import quote
 
 from . import controls
 from .am import contains
-from .common import (HttpError, SeedError, created, excerpt, files, has_seed, items, load, log, owned, record, recorded,
+from .common import (HttpError, SeedError, created, excerpt, files, forget, has_seed, items, load, log, owned, record, recorded,
                     seed_file)
 from .gamma import CATALOG, LISTS, Gamma
 
@@ -538,7 +538,9 @@ def remove(records):
         if x["kind"] == "entities":
             for entity_id in reversed(x.get("ids", [])):   # a child before its parent
                 api.delete(PATHS["entity"].format(quote(entity_id, safe="")))
+            forget(x)
             log(SECTION, f"✓ Deleted {len(x.get('ids', []))} {x['label']} of '{x.get('source', x['name'])}'")
             continue
         api.delete(PATHS[x["kind"]].format(quote(x["id"], safe="")))
+        forget(x)
         log(SECTION, f"✓ Deleted {x['kind'].replace('-', ' ')} '{x['name']}'")

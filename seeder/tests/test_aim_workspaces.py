@@ -693,6 +693,14 @@ class Removal(Workspaces):
         aim_workspaces.remove(theirs)
         self.assertEqual(self.platform.calls, [])
 
+    def test_a_user_the_platform_refuses_to_delete_keeps_its_record_and_the_rest_goes(self):
+        """A member that someone added to a workspace of their own owns an application that a subscription still uses."""
+        care = next(u for u in common.created() if u["kind"] == "workspace-user" and u["name"] == "team-care")
+        self.platform.add({("DELETE", USERS + "/" + care["id"]): (400, {"message": "The user is the primary owner of an application"})})
+        self.remove()
+        self.assertEqual([x["name"] for x in common.created()], ["team-care"])
+        self.assertIn("! Workspace user 'team-care' kept: HTTP 400", self.output())
+
     def test_it_says_what_it_deleted(self):
         self.remove()
         self.assertIn("✓ Deleted AI workspace 'Acme Bakery Teams'", self.output())

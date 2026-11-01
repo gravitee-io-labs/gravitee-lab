@@ -24,7 +24,8 @@ from urllib.parse import quote
 from . import controls
 from . import gamma
 from . import refills
-from .common import Api, SeedError, excerpt, files, has_seed, load, log, owned, pause, record, recorded, setting, wait_until, waits_for_gateway
+from .common import (Api, HttpError, SeedError, excerpt, files, forget, has_seed, load, log, owned, pause, record, recorded, setting,
+                     wait_until, waits_for_gateway)
 
 SECTION = "aim-workspaces"
 DEPENDS = ("aim_catalog",)   # the modules whose work this one reads on the platform (schedule.py)
@@ -317,7 +318,8 @@ def seed():
 
 def remove(records):
     """The workspace, then the applications of the users the seed created if nothing else uses them, then those users.
-    The platform keeps a deleted user archived: the same name can be created again."""
+    The platform keeps a deleted user archived: the same name can be created again. A user it refuses to delete (one that
+    owns an application someone else subscribed with) keeps its record, and the rest is removed."""
     mine = owned(records, SECTION, ORDER)
     if not mine:
         return
@@ -327,9 +329,15 @@ def remove(records):
     applications = []
     for x in (x for x in mine if x["kind"] == "workspace"):
         applications += workspaces.delete_workspace(x["id"], {u["id"] for u in users})
+        forget(x)
         log(SECTION, f"✓ Deleted AI workspace '{x['name']}'")
     for application in applications:
         workspaces.delete_application(application)
     for x in users:
-        workspaces.g.org_v1.delete(f"/users/{x['id']}")
+        try:
+            workspaces.g.org_v1.delete(f"/users/{x['id']}")
+        except HttpError as e:
+            log(SECTION, f"! Workspace user '{x['name']}' kept: HTTP {e.status} {excerpt(e.body, 200)}")
+            continue
+        forget(x)
         log(SECTION, f"✓ Deleted workspace user '{x['name']}'")
