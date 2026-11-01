@@ -712,9 +712,9 @@ def start(project, pid, accept, place=None, remove=False, switching=False):
 
 
 def _saved(project, values):
-    """Saves versions (images.save) and answers what puts back the .env files that hold versions as they were."""
-    files = {ENV_FILE, *(paths.unit_env(component["owner"]["kind"], component["owner"]["id"]) or ENV_FILE
-                         for component in images.components(project))}
+    """Saves versions (images.save) and answers what puts back the .env files it wrote as they were: the core's, and
+    each unit's whose services share a version (images.as_saved)."""
+    files = {ENV_FILE, *images.as_saved(project, values)[1]}
     before = {path: (ROOT / path).read_text(encoding="utf-8") if (ROOT / path).is_file() else None for path in files}
     images.save(project, values)
 

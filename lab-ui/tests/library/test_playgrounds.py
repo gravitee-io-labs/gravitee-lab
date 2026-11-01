@@ -752,6 +752,28 @@ class Playgrounds(Case):
         playgrounds.start(self.project, "welcome", ["version:APIM"])
         self.assertIn("APIM_VERSION=4.13.0-alpha.5\n", (self.root / ".env").read_text(encoding="utf-8"))
 
+    def test_a_refused_start_puts_back_every_env_its_versions_were_saved_to(self):
+        # The welcome's app and the add-on Kiosk run the same image, on one version variable: saved to both units' .env.
+        # A job began meanwhile, from another tab: the start is refused, and both files are what they were
+        self.patch(envfiles, "ROOT", self.root)
+        self.jobs.current = None
+        for name in ("hello-app", "kiosk"):
+            self.project["services"][name].update(raw_image="example/kiosk:${KIOSK_VERSION:-1.0.0}", tag="1.0.0",
+                                                   image="example/kiosk:1.0.0")
+        welcome = self.project["playgrounds"]["welcome"]
+        welcome["requires"] = {"images": {"KIOSK_VERSION": "2.0.0"}}
+        welcome["tested"] = [{"KIOSK_VERSION": "2.0.0"}]
+        self.patch(plugins, "install_steps", lambda project, product, names: ([], [], {}))
+        self.patch(playgrounds.projects, "load", return_value=self.project)
+        kiosk, mine = paths.unit_env("addon", "kiosk"), paths.unit_env("playground", "welcome")
+        self.write(kiosk, "# Kiosk\n")
+        self.write(mine, "# Welcome\n")
+        self.jobs.start.side_effect = RuntimeError("'Stop Kiosk' is still running")
+        with self.assertRaisesRegex(RuntimeError, "^'Stop Kiosk' is still running$"):
+            playgrounds.start(self.project, "welcome", ["version:KIOSK"])
+        self.assertEqual({path: (self.root / path).read_text(encoding="utf-8") for path in (kiosk, mine)},
+                         {kiosk: "# Kiosk\n", mine: "# Welcome\n"})
+
     def test_no_version_changes_while_a_job_runs_or_for_a_start_that_is_refused(self):
         self.switching()
         saved = self.patch(playgrounds.images, "save")
