@@ -777,8 +777,9 @@ def gather():
     pool, and what the pool learned of a unit is kept while its files stay as they are, unless Compose did not answer
     (that is read again at the next gather). A problem of such a file is the catalog's (`catalog_problems`), not the
     banner's. The units of this machine, and every unit while no default file exists, are read together as they always
-    were; an add-on or a playground of this machine is also resolved alone with the core (`own_configs`) and its seed read
-    (`seed_references`), for the notes of the policy, which judges them and blocks none."""
+    were (each file as written is kept as a catalog's unit is, but before catalogs); an add-on or a playground of this
+    machine is also resolved alone with the core (`own_configs`) and its seed read (`seed_references`), for the notes of the
+    policy, which judges them and blocks none."""
     _REAL.clear()
     default = paths.default_ns()
     unit_files = paths.files()
