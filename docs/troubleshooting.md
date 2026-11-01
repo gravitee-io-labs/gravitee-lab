@@ -342,8 +342,7 @@ If Ollama runs elsewhere, set `OLLAMA_URL` in the settings of the playground. On
 volumes `gravitee_*` and the same host ports.
 
 **Fix:** use one clone at a time. Run `make stop` in the first, and stop its Lab UI with Ctrl+C in its terminal, before you
-start the second. They share the data
-volumes, but each clone keeps its own record of what its seeds created (`.lab/catalogs/<catalog>/playgrounds/<id>/.state/`). To start the second
+start the second. They share the data volumes, but each clone keeps its own record of what its seeds created (`.lab/catalogs/<catalog>/playgrounds/<id>/.state/`). To start the second
 clean, run `make reset` in it: it deletes the shared volumes and empties that clone's records. The first clone's records
 then no longer match the volumes, so run `make reset` there too before you use it again.
 

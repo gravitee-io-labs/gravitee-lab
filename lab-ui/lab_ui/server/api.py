@@ -1088,10 +1088,9 @@ def open_browser(url):
 
 
 def serve(port, browser):
-    """Serves the page and the API of this folder on `port`, for as long as the process runs. One Lab UI serves a folder: a
-    second one, on any port, sends the person to it, and so does a port that the Lab UI of this folder holds. A Lab UI of
-    another folder (or one started before this version, which holds no lock) on the port is said and never opened: its page
-    would act on another lab."""
+    """Serves the page and the API of this folder on `port`, for as long as the process runs. One Lab UI serves a folder
+    (paths.serve_here): a second one, on any port, sends the person to it. A Lab UI of another folder on the port (or one
+    started before this version, which holds no lock) is said and never opened: its page would act on another lab."""
     running = paths.serve_here(port)
     if running is not None:
         url = f"http://localhost:{running or port}"
