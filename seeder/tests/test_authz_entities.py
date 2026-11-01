@@ -786,6 +786,48 @@ entities:
         authz.remove(common.created())
         self.assertEqual([entity for kind, entity in self.deleted() if kind == "entities"], ["leaf", "middle", "root"])
 
+    def test_a_child_the_file_no_longer_has_is_still_deleted_before_its_parent_it_no_longer_has_either(self):
+        self.seed_files({"authz/entities.yaml": "source: harbor\nentities:\n  - {type: Doc, id: index}\n"})
+        authz.seed()
+        self.seed_files({"authz/entities.yaml": """
+source: harbor
+entities:
+  - {type: Doc, id: index}
+  - {type: Doc, id: chapter}
+  - {type: Doc, id: section, parents: [[Doc, chapter]]}
+"""})
+        authz.seed()
+        # Both go from the file, and the entity it keeps now points at the child: the platform's row says its parent
+        self.seed_files({"authz/entities.yaml": """
+source: harbor
+entities:
+  - {type: Doc, id: index, attributes: {first: {ref: [Doc, section]}}}
+"""})
+        authz.seed()
+        self.assertEqual(self.world.bulks[-1], ["index"])
+        self.platform.calls.clear()
+        authz.remove(common.created())
+        self.assertEqual([entity for kind, entity in self.deleted() if kind == "entities"], ["index", "section", "chapter"])
+
+    def test_the_same_when_its_parent_is_one_the_file_keeps_and_now_points_at_another_it_no_longer_has(self):
+        self.seed_files({"authz/entities.yaml": """
+source: harbor
+entities:
+  - {type: Doc, id: book}
+  - {type: Doc, id: chapter, parents: [[Doc, book]]}
+  - {type: Doc, id: appendix}
+"""})
+        authz.seed()
+        self.seed_files({"authz/entities.yaml": """
+source: harbor
+entities:
+  - {type: Doc, id: book, attributes: {last: {ref: [Doc, appendix]}}}
+"""})
+        authz.seed()
+        self.platform.calls.clear()
+        authz.remove(common.created())
+        self.assertEqual([entity for kind, entity in self.deleted() if kind == "entities"], ["chapter", "book", "appendix"])
+
     def test_a_type_the_file_keeps_is_still_deleted_before_one_it_points_at_that_the_file_no_longer_lists(self):
         self.seed_files({"authz/entities.yaml": """
 source: harbor

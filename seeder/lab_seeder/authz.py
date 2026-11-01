@@ -392,7 +392,7 @@ def put_entities(api, spec):
     for entity in in_dependency_order(found, {entity_id: points_of(entity) for entity_id, entity in found.items()}):
         taken.setdefault(noted[entity["entityId"]], []).append(entity)
     for named, entities in taken.items():   # recorded before the old notes go: this run notes what it sends anew
-        remember(named, entities, bodies, ranks)
+        remember(named, entities, bodies, ranks, listed)
         log(SECTION, f"! {len(entities)} entities of '{named}': saved by an earlier seed that lost the platform's answer, "
                      "now known as the seed's")
     for x in notes(SECTION, "entities"):   # what it names is recorded now, or was never saved
@@ -404,7 +404,7 @@ def put_entities(api, spec):
     # Noted before the first request (common.making): a bulk answer that is lost leaves entities that the next run saves again
     with making(SECTION, "entities", "entities", sending, ids=[body["entityId"] for body in changed]):
         for start in range(0, len(changed), BULK):
-            send_entities(api, source, sending, changed[start:start + BULK], bodies, ranks)
+            send_entities(api, source, sending, changed[start:start + BULK], bodies, ranks, listed)
     unmade(SECTION, "entities", sending)
     for entity_type in dict.fromkeys(body["entityType"] for body in changed):
         of_type = [body["entityId"] for body in changed if body["entityType"] == entity_type]
@@ -414,7 +414,7 @@ def put_entities(api, spec):
         log(SECTION, f"✓ {entity_type} entities of '{source}': {said}")
 
 
-def send_entities(api, source, sending, chunk, bodies, ranks):
+def send_entities(api, source, sending, chunk, bodies, ranks, held):
     """One bulk request. What the platform saved is recorded before the refusal of the rest is reported, so that a
     removal deletes it and the next run finds it as the seed's. A refusal, of the request or of some of it, takes back the
     note of what is being saved (`sending`): what the platform saved is recorded, what an earlier run saved and lost the
@@ -430,7 +430,7 @@ def send_entities(api, source, sending, chunk, bodies, ranks):
     except ValueError:
         said = {}
     refused = refusals(said)
-    remember(source, [body for index, body in enumerate(chunk) if index not in refused], bodies, ranks)
+    remember(source, [body for index, body in enumerate(chunk) if index not in refused], bodies, ranks, held)
     if refused or (isinstance(said, dict) and said.get("failed")):
         count = len(refused) or said["failed"]
         why = excerpt(next(iter(refused.values()), "no reason given"))
@@ -445,21 +445,23 @@ def refusals(said):
     return {e.get("index"): e.get("message") or str(e) for e in said.get("errors") or [] if isinstance(e, dict)}
 
 
-def remember(source, saved, bodies, ranks):
+def remember(source, saved, bodies, ranks, held):
     """Adds the entities just saved to the record of their type: one record for each type, with its ids in dependency
-    order (each after what it points at, as the file or `saved` says; an id only the record has keeps its place in it,
-    the record being in that order when it was written), and the rank that orders a removal: the file's, else the
-    record's for a type the file no longer has, else one more than the highest of the types its entities point at, each
-    ranked as the file ranks it, else as its records do."""
+    order (each after what it points at, as the file or `saved` says, else as the platform's row of it in `held` does;
+    an id with no row keeps its place in the record, the record being in that order when it was written), and the rank
+    that orders a removal: the file's, else the record's for a type the file no longer has, else one more than the
+    highest of the types its entities point at, each ranked as the file ranks it, else as its records do."""
     known = {body["entityId"]: body for body in [*bodies, *saved]}
     points = {entity_id: points_of(body) for entity_id, body in known.items()}
+    rows = {**held, **known}   # the platform's row of an id, unless the file or `saved` has it
     for entity_type in dict.fromkeys(body["entityType"] for body in saved):
         name = f"{source}/{entity_type}"
         earlier = next((x for x in created() if (x["product"], x["kind"], x["name"]) == (SECTION, "entities", name)), {})
         ids = [*earlier.get("ids", []), *(body["entityId"] for body in saved if body["entityType"] == entity_type)]
-        # An id only the record has: what it points at is not known here, so it stays where the record has it
-        of_type = {entity_id: known.get(entity_id, {"entityId": entity_id, "entityType": entity_type}) for entity_id in ids}
-        order = in_dependency_order(of_type, {entity_id: points.get(entity_id, []) for entity_id in of_type})
+        # An id only the record has: its row says what it points at, and with no row it stays where the record has it
+        of_type = {entity_id: rows.get(entity_id, {"entityId": entity_id, "entityType": entity_type})
+                   for entity_id in ids}
+        order = in_dependency_order(of_type, {entity_id: points_of(body) for entity_id, body in of_type.items()})
         ids = [body["entityId"] for body in order]
         rank = ranks.get(entity_type, earlier.get("rank"))
         if rank is None:   # saved by a lost answer, and in neither the file nor a record: what it points at says
