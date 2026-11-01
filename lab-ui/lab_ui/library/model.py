@@ -279,8 +279,8 @@ def _progress(c, key, names, state):
         return None
     if state["key"] not in ("starting", "stopping"):
         return None
-    if job["for"] == key:
-        return job["progress"]
+    if job["for"] == key:   # while it runs, how far is the job's own, beside the state (_job)
+        return job["progress"] if job["done"] else "job"
     found = job["containers"]
     shares = [found[container] for container in (c["services"][name]["container"] for name in names)
               if container in found]
@@ -1022,6 +1022,22 @@ def _license(c, containers):
             "reason": unapplied_line(c["project"], unapplied, status != "none")}
 
 
+def _job(job):
+    """The job as the state says it, None without one: all but what the state says otherwise (`changes`, `containers`,
+    `settled`). While it runs, not how far it is (its progress, that of its phases, its latest line), which changes at every
+    byte a pull brings and would change the state with it: that comes beside the state (Job.live, api.state), and the item
+    the job is for says `"job"` as its progress. Once it ended, all of it, as it ended."""
+    if not job:
+        return None
+    shown = {key: value for key, value in job.items() if key not in ("changes", "containers", "settled")}
+    if job["done"]:
+        return shown
+    shown = {key: value for key, value in shown.items() if key not in ("progress", "detail")}
+    if "phases" in shown:
+        shown["phases"] = [{key: value for key, value in phase.items() if key != "progress"} for phase in shown["phases"]]
+    return shown
+
+
 def git_state(version):
     """state.git, from the version of git that gitx.version() found (a tuple of numbers) or None for none:
     {available, version}."""
@@ -1040,7 +1056,7 @@ def build(project, state, containers, job, failures, license_features, docker, c
     page gets {id, name, kind, url}; `deployed` what each playground holds in the places besides This machine:
     {id: [{place, environment, created: [{what, count}]}]} (places.deployed); `changed` the settings that differ in
     what runs behind by configuration ({service: {settings: [name], labels}}, drift.changes). Of the job, the page gets all but
-    `changes`, `containers` and `settled`: they are in the state and the progress of every item. Of Docker, it gets why
+    `changes`, `containers` and `settled` (_job): they are in the state and the progress of every item. Of Docker, it gets why
     it does not answer and what to know of its memory; `wait` says why nothing can be started now. `blind`: what runs
     is not known, Docker not answering or docker-compose.yml not loading: no state is said, but, while only Docker
     does not answer, what is on, which the files say. The consoles come in their order, which puts the legacy ones
@@ -1094,8 +1110,7 @@ def build(project, state, containers, job, failures, license_features, docker, c
     conflicts = _conflicts(project)
     addons = {aid: _addon(c, addon, conflicts) for aid, addon in project["addons"].items()}
     return {"docker": _docker(docker), "wait": c["wait"], "blind": c["blind"], "license": _license(c, containers),
-            "job": {key: value for key, value in job.items() if key not in ("changes", "containers", "settled")}
-            if job else None,
+            "job": _job(job),
             "platform": _platform(c),
             "platforms": [{key: record[key] for key in ("id", "name", "kind", "url")} for record in platforms],
             "products": [{"id": group["product"], "name": project["products"][group["product"]]["name"]}

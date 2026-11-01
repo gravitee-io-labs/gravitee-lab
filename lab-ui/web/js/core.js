@@ -154,8 +154,13 @@ export async function api(path, body) {
 
 // --- State ----------------------------------------------------------------------
 
-const subscribers = [];
+const subscribers = [], measures = [];
 let etag = "", asked = 0, answered = 0, placesAsked = 0, placesTimer = null, placesSought = false;
+// How far the running job is comes beside the state, in a header of each answer, not in its body: it changes at every byte a
+// pull brings, and the body, read and drawn whole, would change with it each second of a start (api.state, model._job)
+const LIVE = "X-Gravitee-Lab-Job";
+const liveOf = (res) => { try { return JSON.parse(res.headers.get(LIVE) || "null"); } catch { return null; } };
+const measured = (live) => [live?.progress, live?.phase].map((value) => value === null || value === undefined).join();
 const PLACES_AGAIN = 2000;   // how soon the places are asked again while a platform is still being read
 
 export const store = {
@@ -165,13 +170,18 @@ export const store = {
   // What was clicked and is not answered yet, key → verb ("addon:<id>" → "stop"): a job asked for, until it is in
   // the state; a request without a job (a save, a delete), until it answers. Its button says so meanwhile.
   pending: new Map(),
+  // How far the running job is, as the last answer of the state said it beside its body: {id, progress, phase, detail}
+  live: null,
 
-  // Subscribers hear about it only when the state, or how the Lab UI answered, changed
+  // Subscribers hear about it only when the state, or how the Lab UI answered, changed. How far the running job is, when
+  // only that changed, is drawn alone (onMeasure): the bars and the buttons at work, not the pages. A measure that comes or
+  // goes is drawn by all: a page may draw a bar only once there is something to measure.
   async refresh() {
     const turn = ++asked;
-    let state = null, tag = "", offline = false, error = "";
+    let state = null, tag = "", offline = false, error = "", live = null;
     try {
       const res = await fetch("/api/state", { headers: etag ? { "If-None-Match": etag } : {} });
+      live = liveOf(res);
       if (res.status === 304) await res.text();   // empty, but left unread the browser lists the request as canceled
       else if (!res.ok) error = (await res.json().catch(() => ({}))).error || `${res.status} ${res.statusText}`;
       else {
@@ -184,7 +194,13 @@ export const store = {
     // Two refreshes can overlap (the timer and the end of an action): the one asked last has the last word
     if (turn < answered) return;
     answered = turn;
-    if (!state && offline === store.offline && error === store.error) return;
+    const before = store.live;
+    store.live = live;
+    if (!state && offline === store.offline && error === store.error) {
+      if (measured(before) !== measured(live)) store.notify();
+      else if (JSON.stringify(before) !== JSON.stringify(live)) for (const fn of measures) fn();
+      return;
+    }
     if (state) { store.state = state; etag = tag; }
     // A page shown before the first state asked for the places with no platform: they are read once the state lists one
     if (state && store.platforms.length && !placesSought) store.refreshPlaces();
@@ -226,9 +242,18 @@ export const store = {
   // the job took it
   progress(key) {
     if (store.offline) return null;
-    const job = store.state?.job, running = job && !job.done ? job : null;
-    const measured = key === "job" ? running : key === "phase" ? running?.phases.at(-1) : store.unit(key);
-    return measured?.progress ?? null;
+    const live = store.running();
+    if (key === "job") return live?.progress ?? null;
+    if (key === "phase") return live?.phase ?? null;
+    const progress = store.unit(key)?.progress;   // "job": as far as the job it is for, which comes beside the state
+    return progress === "job" ? live?.progress ?? null : progress ?? null;
+  },
+
+  // How far the running job is ({progress, phase, detail}), as the state's answer says it beside the state; null while no
+  // job runs, or before it is measured
+  running() {
+    const job = store.state?.job;
+    return job && !job.done && store.live?.id === job.id ? store.live : null;
   },
 
   // What starts and stops, by its key, with its state and how far it is: the platform ("platform"), one of its groups
@@ -292,6 +317,7 @@ export const store = {
   },
 
   subscribe(fn) { subscribers.push(fn); },
+  onMeasure(fn) { measures.push(fn); },
   item(kind, id) { return store.state?.[`${kind}s`]?.find((x) => x.id === id); },
   service(name) { return store.state?.services[name]; },
 };

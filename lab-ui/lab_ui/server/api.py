@@ -147,14 +147,23 @@ def snapshot():
     return body
 
 
+# How far the running job is, beside the state in every answer of it (a 304 too): Job.live, as JSON
+LIVE = "X-Gravitee-Lab-Job"
+
+
 def state(req):
-    """What the page draws, with a tag of it: nothing is sent when the page already has it."""
+    """What the page draws, with a tag of it: nothing is sent when the page already has it. How far the running job is
+    comes in a header of its own (LIVE): it changes at every byte a pull brings, and in the body it would change the tag at
+    every poll, the page reading and drawing the whole lab again each second of a start (model._job)."""
     data = json.dumps(snapshot()).encode()
     tag = '"' + hashlib.sha256(data).hexdigest()[:16] + '"'
-    # The page asks every 3 s with the tag of what it has: nothing is sent, and nothing drawn, when nothing changed
+    running = JOBS.current
+    headers = {"ETag": tag, **({LIVE: json.dumps(running.live())} if running and not running.done else {})}
+    # The page asks every 3 s with the tag of what it has (each second while a job runs): nothing is sent, and nothing
+    # drawn, when nothing changed
     if req.headers.get("If-None-Match") == tag:
-        return req.answer(304, headers={"ETag": tag})
-    return req.answer(200, data, "application/json", {"ETag": tag})
+        return req.answer(304, headers=headers)
+    return req.answer(200, data, "application/json", headers)
 
 
 def frame(req, pid):

@@ -452,6 +452,28 @@ class State(LabUI):
         self.assertEqual(status, 200)
         self.assertNotEqual(headers["ETag"], tag)
 
+    def test_how_far_the_running_job_is_comes_beside_the_state_and_its_tag_holds_while_it_moves(self):
+        # A pull brings bytes every second: in the body the tag would change at every poll, and the page would read and
+        # draw the whole lab again. It comes in a header of every answer, a 304 too, and only while the job runs
+        self.patch(api.compose, "ps", return_value={"mongodb": {}})
+        pull = Job("Start Databases", [["docker", "compose", "up"]], key="group:databases", verb="start",
+                   waits=[awaited(PROJECT["services"], images=["mongo:8"])])
+        pull._enter(pull._stages[0])
+        api.JOBS.jobs.append(pull)
+        api.JOBS.current = pull
+        status, headers, _ = self.request("GET", "/api/state")
+        tag = headers["ETag"]
+        self.assertEqual((status, json.loads(headers[api.LIVE])), (200, pull.live()))
+        self.assertEqual(json.loads(headers[api.LIVE])["progress"], 0)
+        pull.unit(("Image", "mongo:8"), 0.5)
+        status, headers, body = self.request("GET", "/api/state", headers={"If-None-Match": tag})
+        self.assertEqual((status, body, headers["ETag"]), (304, b"", tag))
+        self.assertEqual(json.loads(headers[api.LIVE]), {**pull.live(), "progress": 0.5, "phase": None})
+        pull.done = True
+        self.assertNotIn(api.LIVE, self.request("GET", "/api/state")[1], "once it ended, the state says it all")
+        api.JOBS.current = None
+        self.assertNotIn(api.LIVE, self.request("GET", "/api/state")[1])
+
     def test_the_pages_that_ask_in_the_same_second_share_one_reading_of_docker(self):
         # While a job runs every open page asks each second: Docker is asked once a second, whatever their number
         ps = self.patch(api.compose, "ps", return_value={"mongodb": {}})

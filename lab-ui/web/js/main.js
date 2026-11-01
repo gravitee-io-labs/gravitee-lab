@@ -49,6 +49,7 @@ Combo.init();
 // The page shows at once: until the first state comes, it says that the lab is read, or why it cannot be (core.js)
 router.start();
 store.subscribe(afterDraw);
+store.onMeasure(() => { paintProgress(); paintActions(); });   // how far the running job is, alone: the pages are not drawn again
 addEventListener("hashchange", afterDraw);
 afterDraw();
 await store.refresh();

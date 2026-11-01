@@ -932,8 +932,9 @@ export function progressBar(key) {
   return `<span class="progress" data-progress="${esc(key)}" role="progressbar" aria-valuemin="0" aria-valuemax="100" hidden><span></span></span>`;
 }
 
-// Sets every bar under `root`: hidden while nothing is measured. It runs once the state is drawn (main.js); whoever
-// draws bars at another time (a filter, a toggle) calls it on what it drew.
+// Sets every bar under `root`: hidden while nothing is measured; and the latest line of the running job where a page
+// shows it (`data-job-line`). It runs once the state is drawn, and as the job's measures come (main.js); whoever draws bars
+// at another time (a filter, a toggle) calls it on what it drew.
 export function paintProgress(root = document) {
   for (const bar of $$("[data-progress]", root)) {
     const value = store.progress(bar.dataset.progress), percent = (value || 0) * 100;
@@ -941,6 +942,7 @@ export function paintProgress(root = document) {
     bar.setAttribute("aria-valuenow", Math.round(percent));
     bar.firstElementChild.style.width = `${percent}%`;
   }
+  for (const line of $$("[data-job-line]", root)) line.textContent = store.running()?.detail || "";
 }
 
 // --- Content ----------------------------------------------------------------------
@@ -1165,7 +1167,7 @@ function acting(key, verbs) {
   const allowed = (verb) => !verbs || verbs.split(" ").includes(verb);
   const job = store.state?.job, running = job && !job.done ? job : null;
   if (running?.for === key && allowed(running.verb)) {
-    return { verb: running.verb, progress: store.offline ? null : running.progress, title: running.title };
+    return { verb: running.verb, progress: store.progress("job"), title: running.title };
   }
   const verb = store.pending.get(key);
   if (verb && allowed(verb)) return { verb, progress: null, title: ing(verb) };

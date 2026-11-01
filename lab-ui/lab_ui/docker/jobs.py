@@ -386,6 +386,14 @@ class Job:
         base = self.base_image()
         return f"Base image {base} could not be fetched" if base else self.last_line(0)[:300]
 
+    def live(self):
+        """How far the job is now: {id, progress, phase (how far its running phase is), detail (its latest line)}. It changes
+        at every byte a pull brings, so the state carries it beside its body while the job runs (api.state), not in it."""
+        with self._lock:
+            phases = self._phases()
+            return {"id": self.id, "progress": self.progress, "phase": phases[-1]["progress"] if phases else None,
+                    "detail": self.detail()}
+
     def summary(self):
         """What the state and the job's stream say of it. `containers` is how far each container it waits for is
         (_containers), for the progress of what they belong to; `settled`, whether it ended well with nothing it
