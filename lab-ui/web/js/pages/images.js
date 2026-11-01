@@ -15,7 +15,7 @@ const PER_GROUP = 80;   // the tags of a group listed until a search finds the o
 let images = null;      // the components, and the registries in use
 let registry = null;    // the registry that asks for a login, as /api/registry says it
 let draft = {};         // the variables changed and not saved yet
-const tags = {};        // the tags of a component on a registry, once listed
+const tags = {};        // the tags of a component on a registry, once listed since the page opened or a job ended
 // The sections that fold: the platform and its add-ons open, the third-party components folded. The browser keeps the choice.
 const KEPT = { platform: "platformOpen", addons: "addonsOpen", third: "thirdPartyOpen" };
 const open = { platform: recall(KEPT.platform) !== "0", addons: recall(KEPT.addons) !== "0", third: recall(KEPT.third) === "1" };
@@ -415,6 +415,8 @@ const login = (host) => runJob(() => api("/api/registry/login", { host }), { key
 
 async function load() {
   loadRegistry();
+  // The tags listed and those Docker holds are asked again too: a job may have pulled one, and a registry gets new ones
+  for (const key of Object.keys(tags)) delete tags[key];
   reading = true;
   try {
     images = await api("/api/images");

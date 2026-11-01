@@ -1072,6 +1072,7 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
 - A component is one variable, written to every `.env` that its images read it from (`_env_files`): the core's, which
   reaches every file, or the `.env` of each unit whose services share it. A default follows another component only
   where that one's variable reaches its file; elsewhere it is what Compose makes of it, its own default (`_unset`).
+- The tags of a picker, and which of them Docker holds, are read again when the page opens and after every job.
 
 ### Gravitee Cloud
 
