@@ -90,6 +90,15 @@ class Versions(Case):
         self.assertEqual(updates.describe()["blocked"], "Wait for Start Kiosk to end")
         self.assertEqual(ran, [])
 
+    def test_reading_the_repository_never_writes_its_index_which_the_person_s_own_git_locks(self):
+        index = self.lab / ".git" / "index"
+        before = index.read_bytes()
+        stamp = (self.lab / "file.txt").stat().st_mtime + 60
+        os.utime(self.lab / "file.txt", (stamp, stamp))   # the same text, touched: a status that may lock writes the index again
+        updates.forget()
+        self.assertEqual(updates.describe()["version"], "1.1.0")
+        self.assertEqual(index.read_bytes(), before)
+
     def test_a_clone_of_main_past_the_newest_version_says_how_many_changes(self):
         self.commit(self.lab, "Something on main (#17)")
         updates.forget()

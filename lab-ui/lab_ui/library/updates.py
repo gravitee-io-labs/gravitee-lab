@@ -50,8 +50,10 @@ _thread = None
 # ---------------------------------------------------------------------------------------------------------------------
 
 def _git(*args, timeout=LOCAL_WAIT):
-    """(exit code, output) of a git command in the Lab's folder: no prompt, no input, no pager; (None, "") when git cannot run."""
-    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_PAGER": "cat", "LC_ALL": "C", "GIT_SSH_COMMAND": "ssh -o BatchMode=yes"}
+    """(exit code, output) of a git command in the Lab's folder: no prompt, no input, no pager; (None, "") when git cannot run.
+    No optional lock either: a `status` that reads would write the index again, and take its lock from the person's own git."""
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_PAGER": "cat", "LC_ALL": "C", "GIT_SSH_COMMAND": "ssh -o BatchMode=yes",
+           "GIT_OPTIONAL_LOCKS": "0"}
     try:
         done = subprocess.run(["git", "-C", str(paths.ROOT), *args], capture_output=True, text=True, timeout=timeout,
                               stdin=subprocess.DEVNULL, env=env, encoding="utf-8", errors="replace")
