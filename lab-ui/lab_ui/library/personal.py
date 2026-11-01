@@ -360,7 +360,7 @@ def _turned_on(on, kind, uid):
     return (kind == "setup" and uid in on["setups"]) or layers.is_on(kind, uid, on["playground"], on["effective"])
 
 
-def _running(project, kind, uid, on):
+def _running(project, kind, uid, on=True):
     """Whether something of an item runs now, as held() says it, `on` whether it is: nothing does while Docker does not
     answer. Off, only its own services count: what it brings may run for something else."""
     containers, _ = compose.containers()
