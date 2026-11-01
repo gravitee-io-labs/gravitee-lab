@@ -547,7 +547,7 @@ def share_item(req, kind, uid):
         raise ValueError("The destination must be text")
     if to:
         return contribute.share(p, kind, uid, to, check)
-    found = personal.share(p, kind, uid, check_only=check)
+    found = personal.share(kind, uid, check_only=check)
     return {**found, **destinations(p, kind, uid)} if check else found
 
 

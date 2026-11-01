@@ -429,7 +429,7 @@ def _move(path, target):
     follow(path, target)
 
 
-def share(project, kind, uid, check_only=False):
+def share(kind, uid, check_only=False):
     """An item of this machine shared without a destination (one to a catalog is catalogs/contribute.py's share: a copy, the
     item stays). There is no share to make, since nothing is shared into the Lab: a check answers the item's file in its own
     catalog, the problems that keep it from being shared anywhere (none) and the other files that would change (none), for

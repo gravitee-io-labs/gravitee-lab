@@ -986,9 +986,9 @@ class Personal(LabUI):
         self.patch(api, "destinations", return_value={})   # the catalogs a share can go to are the module's, tested below
         status, _, body = self.request("POST", "/api/addons/local/whoami/share", {"check": True})
         self.assertEqual((status, json.loads(body)), (200, share.return_value))
-        share.assert_called_once_with(PROJECT, "addon", "local/whoami", check_only=True)
+        share.assert_called_once_with("addon", "local/whoami", check_only=True)
         self.request("POST", "/api/setups/local/mine/share")
-        share.assert_called_with(PROJECT, "setup", "local/mine", check_only=False)
+        share.assert_called_with("setup", "local/mine", check_only=False)
         for kind in ("addon", "setup", "playground"):
             status, _, body = self.request("POST", f"/api/{kind}s/local/it/delete")
             self.assertEqual((status, json.loads(body)), (200, delete.return_value))
@@ -2311,7 +2311,7 @@ class UseCatalog(LabUI):
         status, _, body = self.request("POST", "/api/playgrounds/local/bank/share", {"check": True})
         self.assertEqual(json.loads(body), {"file": "f", "problems": [], "changes": ["compose.yml"], "destinations": [
             {"id": "gravitee", "name": "Gravitee public", "kind": "git", "writable": True, "reason": ""}]})
-        share.assert_called_once_with(PROJECT, "playground", "local/bank", check_only=True)
+        share.assert_called_once_with("playground", "local/bank", check_only=True)
         self.contribute.destinations.assert_called_once_with(PROJECT, "playground", "local/bank")
 
     def test_a_share_with_a_destination_is_the_modules_check_and_share_and_the_old_share_has_no_destinations(self):
@@ -2324,7 +2324,7 @@ class UseCatalog(LabUI):
         _, _, body = self.request("POST", "/api/playgrounds/local/bank/share", {})
         self.assertNotIn("destinations", json.loads(body), "only a check names them")
         self.request("POST", "/api/playgrounds/local/bank/share", {"to": ""})
-        share.assert_called_with(PROJECT, "playground", "local/bank", check_only=False)
+        share.assert_called_with("playground", "local/bank", check_only=False)
         status, _, body = self.request("POST", "/api/playgrounds/local/bank/share", {"to": ["x"]})
         self.assertEqual((status, json.loads(body)), (400, {"error": "The destination must be text"}))
 

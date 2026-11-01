@@ -1089,7 +1089,7 @@ def _on_their_platforms(project, state):
     return {**project, **{key: {**project[key], **units} for key, units in found.items()}} if found else project
 
 
-def plan(project, state, up, kind, uid, do, fresh=False, behind=frozenset(), place=None, also=frozenset(), switching=False):
+def plan(project, state, up, kind, uid, do, fresh=False, behind=frozenset(), place=None, switching=False):
     """What starting or stopping an add-on, a setup or a playground changes, said before it runs (ROWS): rows of {kind,
     id, name} that start, stop (they run), are turned off (they are on and do not run), are kept or restart; the
     services its commands remove and start (`services`); the reason it cannot run (`blocked`); the on file it leads to
