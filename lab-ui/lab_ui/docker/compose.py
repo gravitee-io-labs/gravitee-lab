@@ -542,9 +542,8 @@ def _there(file):
 
 
 def _items(file, text):
-    """The items of the `include` list in the text of a project file (_include_items), those that a copy can be
-    written for: not the files that an item lists under its `path:`, which are read where they are."""
-    return _include_items(text, ROOT / file, ROOT if file == ON_FILE else None, nested=False)
+    """The items of the `include` list in the text of a project file that a copy writes again (_include_items, `copied`)."""
+    return _include_items(text, ROOT / file, ROOT if file == ON_FILE else None, copied=True)
 
 
 def _extent(lines, number):
@@ -945,16 +944,16 @@ def top_keys(text, block):
 FLOW_INCLUDE = re.compile(r"include:\s*\[([^\]]*)\]\s*(?:#.*)?$")
 
 
-def _include_items(text, file, base=None, nested=True, flow=False):
+def _include_items(text, file, base=None, copied=False):
     """The items of a compose file's `include` list: (line number, the path as written, the project file it names, or
-    None outside the project). With `flow`, a list on one line gives its plain items, for a caller that only reads them (the
-    rewrites handle the lines of a list). The next top-level key ends the list. An item in long form holds keys below its dash,
-    and a list under one of them (`env_file`) is not a list of items; but the files of its `path:`, when it lists
-    them, are, unless `nested` is False."""
+    None outside the project). A list on one line gives its plain items. The next top-level key ends the list. An item in
+    long form holds keys below its dash, and a list under one of them (`env_file`) is not a list of items; but the files of
+    its `path:`, when it lists them, are. With `copied`, only the items a copy writes again in its place, each a line of
+    the list: not those of a list on one line nor the files an item lists under its `path:`, which are read where they are."""
     inside, column, key = False, None, None   # the column of the dashes of the items, the last key opened without a value
     for number, line in enumerate(text.split("\n")):
         indent = len(line) - len(line.lstrip())
-        one_line = FLOW_INCLUDE.match(line) if flow else None
+        one_line = None if copied else FLOW_INCLUDE.match(line)
         if one_line:   # the list on one line: its plain items
             for written in (item.strip().strip("\"'") for item in one_line.group(1).split(",")):
                 if written and not re.search(r"[{}:#\s]", written):
@@ -982,7 +981,7 @@ def _include_items(text, file, base=None, nested=True, flow=False):
         column = indent if column is None else column
         if indent <= column:   # an item of the list; deeper, a line of the list of a key of the item above
             key = None
-        elif not (nested and key == "path"):
+        elif copied or key != "path":
             continue
         if target:
             yield number, target.group(1), _original(target.group(1))
@@ -992,14 +991,13 @@ def _include_items(text, file, base=None, nested=True, flow=False):
             yield number, written, path.relative_to(ROOT).as_posix() if path.is_relative_to(ROOT) else None
 
 
-def includes(path, flow=False):
-    """The project files a compose file includes itself, each written relative to the file that includes it; those
-    of the on file relative to the project, as Compose reads a file it is given. `flow`: those of a list on one line too, for
-    a caller that only reads what is on (`_include_items`)."""
+def includes(path):
+    """The project files a compose file includes itself (_include_items), each written relative to the file that includes
+    it; those of the on file relative to the project, as Compose reads a file it is given."""
     file = ROOT / path
     text = file.read_text(encoding="utf-8") if file.is_file() else ""
     base = ROOT if path == ON_FILE else None
-    return [target for _, _, target in _include_items(text, file, base, flow=flow) if target]
+    return [target for _, _, target in _include_items(text, file, base) if target]
 
 
 def retargeted(path, text, targets):

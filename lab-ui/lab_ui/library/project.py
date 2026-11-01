@@ -378,9 +378,9 @@ def _seed_scan(folder):
 
 
 def _includes(path):
-    """compose.includes of a file that may be anything, a list on one line too: nothing when it cannot be read."""
+    """compose.includes of a file that may be anything: nothing when it cannot be read."""
     try:
-        return compose.includes(path, flow=True)
+        return compose.includes(path)
     except (OSError, ValueError):
         return []
 

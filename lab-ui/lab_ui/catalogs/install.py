@@ -51,7 +51,7 @@ from typing import Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
 from ..docker import compose
 from ..library import moves, starred
 from .. import paths
-from . import defaults, gitx, manifest, registry, renames, resolve, understood
+from . import defaults, gitx, manifest, registry, renames, resolve, trust, understood
 from . import store as bare
 from .registry import CatalogError
 
@@ -1069,7 +1069,7 @@ def on_by_catalog() -> Dict[str, Set[str]]:
         if target:
             found.setdefault(target[0], set()).add(f"{target[1]}:{target[2]}")
         try:
-            todo += compose.includes(file, flow=True)
+            todo += compose.includes(file)
         except (OSError, ValueError):
             continue
     return found
@@ -1122,8 +1122,7 @@ def _unit_at(ns, key, commit) -> dict:
         except (CatalogError, OSError, ValueError):
             return ""
     own = text(file) if commit else ""
-    theirs = {service for _, _, target in compose._include_items(own, paths.ROOT / file, flow=True) if target
-              for service in compose.top_keys(text(target), "services")}
+    theirs = {service for target in trust.include_targets(own, file) or () for service in compose.top_keys(text(target), "services")}
     try:
         said = (compose.x_gravitee(own, (paths.ROOT / file).parent) or {}).get("name") if own else None
     except compose.ComposeError:
