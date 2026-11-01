@@ -59,6 +59,7 @@ PRINCIPALS = ("User", "Group", "AgentIdentity")   # the entities that act; every
 KINDS = ("PRINCIPAL", "RESOURCE")
 BULK = 1000             # entities in one request: the platform takes 10,000
 LOOKUP = 50             # ids in one question about entities that another source may hold
+SAVING = " (being saved)"   # the note of a bulk request is named after the source of its entities and this
 # What the platform accepts (AuthzEntityIdFormat)
 ENTITY_ID = re.compile(r"[A-Za-z0-9_:-]+(?:\.[A-Za-z0-9_:-]+)*")
 ENTITY_TYPE = re.compile(r"[A-Za-z0-9_-]+(?:::[A-Za-z0-9_-]+)*")
@@ -338,14 +339,20 @@ def elsewhere(api, ids):
 
 
 def put_entities(api, spec):
-    """Saves the entities of the file that are missing or differ, in requests of at most BULK."""
+    """Saves the entities of the file that are missing or differ, in requests of at most BULK. What an earlier run saved
+    and lost the answer of is the seed's first, whatever source the file named then and whether it still lists it."""
     source, bodies, ranks = data_entities(spec)
-    if not bodies:
+    mine, sending = made_entities(), source + SAVING
+    noted = {}   # id: the source of the note that names it, this file's or one it named before
+    for x in notes(SECTION, "entities"):
+        for entity_id in x.get("ids", []):
+            noted.setdefault(entity_id, x["name"].removesuffix(SAVING))
+    if not bodies and not noted:
         return
-    mine, sending = made_entities(), f"{source} (being saved)"
-    noted = {entity_id for x in notes(SECTION, "entities") if x["name"] == sending for entity_id in x.get("ids", [])}
-    present = {held["entityId"]: held for held in api.rows("/entities", LISTS, source=source)}
-    present_elsewhere = elsewhere(api, [body["entityId"] for body in bodies if body["entityId"] not in present])
+    wanted = [body["entityId"] for body in bodies]
+    gone = sorted(set(noted) - mine - set(wanted))   # saved by a lost answer, and the file no longer has them
+    present = {held["entityId"]: held for held in api.rows("/entities", LISTS, source=source)} if bodies else {}
+    present_elsewhere = elsewhere(api, [entity_id for entity_id in [*wanted, *gone] if entity_id not in present])
     changed, new, lost = [], set(), []
     for body in bodies:
         entity_id = body["entityId"]
@@ -359,18 +366,22 @@ def put_entities(api, spec):
             lost.append(body)
         if not current or entity_id not in mine or not entity_is_as_wanted(current, body):   # one an earlier seed sent and lost
             changed.append(body)                                                              # the answer of is saved again
-    # And those it saved that the file no longer has: the source still lists them, and only the old note names them. Each
-    # comes after what it points at, as the file's do, so that a removal deletes a child before its parent
-    gone = {entity_id: present[entity_id] for entity_id in sorted(noted - mine - {body["entityId"] for body in bodies})
-            if entity_id in present}
-    lost += in_dependency_order(gone, {entity_id: points_of(held) for entity_id, held in gone.items()})
-    if lost:   # recorded before this run's note replaces the old one, which a refusal below takes back
-        remember(source, lost, bodies, ranks)
-        log(SECTION, f"! {len(lost)} entities of '{source}': saved by an earlier seed that lost the platform's answer, now "
-                     "known as the seed's")
+    taken = {source: lost} if lost else {}
+    # And those the file no longer has, under the source of their note: only that note names them. Each comes after what
+    # it points at, as the file's do, so that a removal deletes a child before its parent
+    listed = {**present, **present_elsewhere}
+    found = {entity_id: listed[entity_id] for entity_id in gone if entity_id in listed}
+    for entity in in_dependency_order(found, {entity_id: points_of(entity) for entity_id, entity in found.items()}):
+        taken.setdefault(noted[entity["entityId"]], []).append(entity)
+    for named, entities in taken.items():   # recorded before the old notes go: this run notes what it sends anew
+        remember(named, entities, bodies, ranks)
+        log(SECTION, f"! {len(entities)} entities of '{named}': saved by an earlier seed that lost the platform's answer, "
+                     "now known as the seed's")
+    for x in notes(SECTION, "entities"):   # what it names is recorded now, or was never saved
+        unmade(SECTION, "entities", x["name"])
     if not changed:
-        unmade(SECTION, "entities", sending)   # what the old note names is recorded now, or was never saved
-        log(SECTION, f"{len(bodies)} entities of '{source}' as the file says")
+        if bodies:
+            log(SECTION, f"{len(bodies)} entities of '{source}' as the file says")
         return
     # Noted before the first request (common.making): a bulk answer that is lost leaves entities that the next run saves again
     with making(SECTION, "entities", "entities", sending, ids=[body["entityId"] for body in changed]):

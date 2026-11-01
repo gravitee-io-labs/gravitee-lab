@@ -600,6 +600,36 @@ entities:
         authz.remove(common.created())
         self.assertEqual([entity_id for entity_id in self.deleted() if entity_id != "C-1"], ["leaf", "middle", "root"])
 
+    def test_what_the_lost_answer_saved_stays_the_seeds_when_the_file_lists_no_entity_any_more(self):
+        self.lose_the_answer()
+        self.seed_files({"authz/entities.yaml": "source: harbor\nentities: []\n"})
+        authz.seed()
+        self.assertEqual(authz.made_entities(), {"C-1001", "O-5001", "C-2001", "O-6001"})
+        self.assertEqual(common.notes(authz.SECTION, "entities"), [])
+        self.assertIn("! 4 entities of 'harbor': saved by an earlier seed that lost the platform's answer", self.output())
+        self.platform.calls.clear()
+        authz.remove(common.created())
+        self.assertEqual(self.deleted(), ["O-6001", "O-5001", "C-2001", "C-1001"])
+
+    def test_the_same_when_the_entities_file_is_gone_and_the_folder_seeds_the_rest(self):
+        self.lose_the_answer()
+        (common.SEED_DIR / "authz" / "entities.yaml").unlink()
+        self.seed_files({"authz/schema.yaml": f"schema: '{SCHEMA_TEXT.splitlines()[1]}'\n"})
+        authz.seed()
+        self.assertEqual(authz.made_entities(), {"C-1001", "O-5001", "C-2001", "O-6001"})
+        authz.remove(common.created())
+        self.assertEqual(self.world.entities, {})
+
+    def test_a_source_the_file_renamed_after_a_lost_answer_takes_what_it_saved_as_the_seeds(self):
+        self.lose_the_answer()
+        self.seed_files({"authz/entities.yaml": ENTITIES.replace("source: harbor", "source: harbor2")})
+        authz.seed()
+        self.assertEqual(sorted(x["name"] for x in self.records()), ["harbor2/Customer", "harbor2/Order"])
+        self.assertEqual({entity["source"] for entity in self.world.entities.values()}, {"harbor2"})
+        self.assertEqual(common.notes(authz.SECTION, "entities"), [])
+        authz.remove(common.created())
+        self.assertEqual(self.world.entities, {})
+
     def test_a_failed_count_without_the_errors_is_still_a_refusal_and_the_request_is_taken_as_saved(self):
         self.platform.add({("POST", BULK): (200, {"status": "PARTIAL", "created": 3, "failed": 1, "results": [], "errors": []})})
         with self.assertRaisesRegex(common.SeedError, "^Authorization Management refused 1 of 4 entities: no reason given$"):
