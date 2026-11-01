@@ -83,8 +83,11 @@ class Services(Case):
             (exited(1), False, False, ("issue", "Exited (1)", False)),
             (exited(1), True, False, ("issue", "Exited (1)", False)),
             (exited(130), False, False, ("stopped", "Stopped", False)),
-            (exited(143), True, False, ("stopped", "Stopped", False)),
+            (exited(143), False, False, ("stopped", "Stopped", False)),
             (exited(137), False, False, ("stopped", "Stopped", False)),
+            # A one-shot stopped or killed before its end did not do its part: Docker stopped it while it ran
+            (exited(143), True, False, ("issue", "Exited (143)", False)),
+            (exited(137), True, False, ("issue", "Exited (137)", False)),
             (exited(137, oom=True), False, False, ("issue", "Out of memory", False)),
         ]
         for found, oneshot, job, (key, label, running) in cases:
@@ -293,6 +296,19 @@ class State(Built):
         self.assertTrue(model.seed_failed(states, self.project["playgrounds"]["welcome"]))
         states["seed"] = model.service_state(exited(0), True, False)
         self.assertFalse(model.seed_failed(states, self.project["playgrounds"]["welcome"]))
+
+    def test_a_seed_that_docker_stopped_before_its_end_runs_again_at_its_start(self):
+        # Docker Desktop restarted in the middle of a first seed that had recorded a few objects: its apps came back, the
+        # seed did not, and its Start sets the playground up again, seed included
+        created = {"welcome": [{"what": "APIs", "count": 1}]}
+        for code in (137, 143):
+            with self.subTest(code=code):
+                containers = {**CORE, **WELCOME, "seed": exited(code)}
+                item = self.item("playground", "welcome", playground="welcome", containers=containers, created=created)
+                self.assertEqual((item["state"]["key"], item["note"], item["action"]["label"]),
+                                 ("issue", f"Seed exited ({code})", "Start"))
+                states = {name: model.service_state(found, name == "seed", False) for name, found in containers.items()}
+                self.assertTrue(model.seed_failed(states, self.project["playgrounds"]["welcome"]))
 
     def test_a_container_stopped_on_purpose_is_partly_running(self):
         # Kafka UI stopped from the Stack: Kafka runs partly, said muted, never red; its button stays Stop

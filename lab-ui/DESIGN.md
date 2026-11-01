@@ -550,7 +550,9 @@ What the server decides and the page shows. A name in backticks is the code to r
   - What its containers do (`state`): running; partly running (`partly`: some run, the others stopped cleanly or were
     never created); starting; stopping; stopped (it is on, nothing of it runs); issue (a bad exit, out of memory,
     unhealthy, restarting); off.
-  - A container also says "Not created", "Not started" (made, never started), and a one-shot that ended well "Done".
+  - A container also says "Not created", "Not started" (made, never started), and a one-shot that ended well "Done". A
+    one-shot stopped or killed before its end did not do its part: an issue ("Exited (137)"), and a seed so ended runs
+    again at its playground's Start.
   - An item without a service of its own (a playground without apps) is what it brings while it is on, a playground's
     seed with it. What only ended well, or nothing, is never running.
 - An add-on is on when the on file brings it, itself or through what needs it. A playground brings the add-ons it
