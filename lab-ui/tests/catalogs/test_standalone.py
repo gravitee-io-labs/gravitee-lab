@@ -181,6 +181,29 @@ class Folder(Case):
         self.assertIn("| Kiosk | `1234` | `0000` |", readme)
         self.assertIn("| Till |  | `9999` |", readme)
 
+    def test_an_account_whose_user_name_is_a_setting_is_exported_as_the_page_shows_it(self):
+        # `username: ${SHOP_KIOSK_USER:-1234}`: the page shows its default, the guide's link names that, make check finds it
+        shop = paths.ROOT / Path(fixtures.unit_file("fixture", "playground", "shop")).parent
+        for each in [shop, *shop.rglob("*")]:
+            each.chmod(each.stat().st_mode | 0o200)
+        compose_file = shop / "compose.yml"
+        written = compose_file.read_text(encoding="utf-8")
+        compose_file.write_text(written.replace("  accounts:\n", "  accounts:\n    - for: Kiosk\n"
+                                                                  "      username: ${SHOP_KIOSK_USER:-1234}\n"
+                                                                  "      password: ${SHOP_PIN:-0000}\n"), encoding="utf-8")
+        guide = shop / "guide.md"
+        guide.write_text(guide.read_text(encoding="utf-8").replace("Open the Shop tab.", "Sign in: [Kiosk](account:1234). Open the Shop tab."),
+                         encoding="utf-8")
+        project.forget()
+        found, _ = project.loaded()
+        accounts = found["playgrounds"]["shop"]["accounts"]
+        self.assertIn({"for": "Kiosk", "username": "1234", "password": "0000"}, accounts, "the page shows it")
+        self.assertEqual([m for m in check._guide(shop, accounts) if "account:" in m], [], "make check finds the link")
+        _, _, folder = self.unpacked()
+        readme = (folder / "README.md").read_text(encoding="utf-8")
+        self.assertIn("| Kiosk | `1234` | `0000` |", readme)
+        self.assertIn("Sign in: **Kiosk** (user `1234`, password `0000`).", readme)
+
     def test_the_plan_says_what_runs_what_is_left_out_and_what_it_needs(self):
         plan = standalone.plan("shop")
         self.assertEqual(plan["file"], "shop-docker-compose.zip")

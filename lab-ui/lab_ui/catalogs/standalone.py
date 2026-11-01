@@ -554,10 +554,13 @@ def _readme(gathered, raw, services, consoles, seed, missing):
     unit, folder = gathered["unit"], gathered["folder"]
     meta, requires = raw.get("x-gravitee") or {}, unit.get("requires") or {}
     # The accounts as the file writes them, a password as its ${VAR:-default}: those of the page (project._lists), each a mapping
-    # whose user name is text as the page shows it
+    # whose user name is text as the page shows it, a setting's its default as the password's is
     listed = meta.get("accounts") if isinstance(meta, dict) else None
-    accounts = [{**one, "username": project.user_name(one.get("username"))} for one in listed
-                if isinstance(one, dict)] if isinstance(listed, list) else []
+    accounts = []
+    for one in listed if isinstance(listed, list) else []:
+        if isinstance(one, dict):
+            name = one.get("username")
+            accounts.append({**one, "username": project.user_name(_default(name) if isinstance(name, str) else name)})
     guide_file = folder / "guide.md"
     first = {}
     for one in accounts:
