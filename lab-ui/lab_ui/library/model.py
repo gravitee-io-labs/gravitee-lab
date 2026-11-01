@@ -106,17 +106,20 @@ def uptime(status):
 def up(project, containers):
     """What runs, from the containers: {platform: whether a service of it runs, groups: the platform groups whose
     services all run (a one-shot aside), addons: the ids of those with a running container, playgrounds: those with
-    a running app, services: the services whose container runs, created: those that have a container, done: the
+    a running app, services: the services whose container runs, ready: those of them that are ready as a job judges
+    it (healthy, running without a health check: container_steps), created: those that have a container, done: the
     one-shots that ended well}. A seed runs only while it seeds."""
     alive = {name for name, container in containers.items() if service_state(container, False, False)["running"]}
     services = project["services"]
+    ready = {name for name in alive if not (services.get(name) or {}).get("oneshot")
+             and service_state(containers[name], False, False)["key"] in ("healthy", "running")}
     return {"platform": any(services[name]["owner"]["kind"] == "platform" for name in alive & set(services)),
             "groups": {group["id"] for group in project["groups"]
                        if all(name in alive or services[name]["oneshot"] for name in group["services"])},
             "addons": {aid for aid, addon in project["addons"].items() if alive & set(addon["services"])},
             "playgrounds": {pid for pid, playground in project["playgrounds"].items()
                             if alive & set(playground["apps"])},
-            "services": alive, "created": set(containers),
+            "services": alive, "ready": ready, "created": set(containers),
             "done": {name for name, container in containers.items() if name in services
                      and service_state(container, services[name]["oneshot"], False)["key"] == "done"}}
 

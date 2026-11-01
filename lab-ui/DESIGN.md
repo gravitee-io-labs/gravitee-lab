@@ -602,6 +602,9 @@ What the server decides and the page shows. A name in backticks is the code to r
     failed after the on file named the item left them as they were).
   - The one-shots all that depends on run again first, as Compose would run them (a migration before what it migrates,
     which has nothing more to do the second time).
+  - What it depends on that runs and is not ready yet (its health check has not passed) is named too, with no row of
+    its own: Compose waits for it as `depends_on` asks, which it does not for a service it is not given. Not one that
+    runs behind what is saved, which naming would make again.
   - A playground's Start also runs the platform while none of it runs, else what of it its apps and its seed need.
   - Its Stop removes its own containers by name (`rm --stop --force`) and recreates the core services it changed.
   - Nothing is removed as an orphan: what was stopped on purpose stays stopped, what was started outside the Lab UI
