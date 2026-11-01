@@ -39,16 +39,16 @@ class Apis(Seed):
         self.assertEqual(self.platform.changes(), [])
 
     def test_the_seeds_api_is_replaced_and_recorded_under_its_new_id(self):
+        llm = {"api": {**self.DEFINITION["api"], "type": "LLM_PROXY"}}
         self.answer({**self.holding("old", "Example LLM"),
                      ("GET", f"{V2}/apis/old/plans"): (200, {"data": []}),
-                     ("PUT", f"{V2}/apis/old/_import/definition"): (500, {"message": "Not supported"}),
                      ("POST", f"{V2}/apis/old/_stop"): 400,
                      ("DELETE", f"{V2}/apis/old"): 204,
                      ("POST", f"{V2}/apis/_import/definition"): (201, {"id": "new"}),
                      ("GET", f"{V2}/apis/new"): (200, {"lifecycleState": "PUBLISHED", "state": "STARTED"}),
                      ("POST", f"{V2}/apis/new/deployments"): 202},
                     [{"product": "apim", "kind": "api", "name": "Example LLM", "id": "old"}])
-        apim.ApiManagement().import_api(self.DEFINITION, "llms.json")
+        apim.ApiManagement().import_api(llm, "llms.json")
         self.assertEqual([(x["name"], x["id"]) for x in common.created()], [("Example LLM", "new")])
 
 

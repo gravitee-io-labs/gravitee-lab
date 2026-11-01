@@ -87,6 +87,8 @@ IN_ENVIRONMENT = ("subscription", "application", "api", "group", "membership")  
 NO_API = "No context-path matches"   # what the gateway answers for a path no API serves
 LOOK_AGAIN = 1   # seconds between two looks at the gateway
 APPEARS = 20   # looks at the list of users, half a second apart, for one that a group has just made
+# The types of API that an import cannot update (the platform answers 500 `Unsupported API type`): they are replaced
+NOT_UPDATABLE = ("LLM_PROXY", "A2A_PROXY", "MCP_PROXY")
 UNSUPPORTED = (404, 405, 501)   # what a platform answers for an update it does not offer on this API: the only refusal that has it imported again
 SYNC_PAUSE = 10   # seconds: two sync periods of the gateway, for a replaced API when there is no gateway to look at
 QUESTION = "In one short sentence, what is an API?"   # no digit: a cache condition may leave out a question that has one
@@ -586,20 +588,20 @@ class ApiManagement:
         return api_id
 
     def update(self, live, definition, name, digest):
+        """The API brought to its file. One of a type an import cannot update (NOT_UPDATABLE) is replaced, which closes its
+        subscriptions and drops its keys; any other is updated, and a refusal of the update, or a platform that stays busy,
+        stops the seed with the API as it was: it is never replaced for that."""
         api_id = live["id"]
         self.keep_plans(api_id, definition)
-        r = self.api.put(f"{self.v2}/apis/{api_id}/_import/definition", json=definition, expect=range(200, 600))
-        if r.ok:
-            log(SECTION, f"✓ API updated: {name}")
-        elif r.status_code in (404, 405, 500) and "conflict" not in r.text.lower():
-            # Some API types cannot be updated from a definition (LLM and A2A proxies): replace them
+        if (live.get("type") or definition.get("api", {}).get("type")) in NOT_UPDATABLE:
             self.api.post(f"{self.v2}/apis/{api_id}/_stop", expect=ENDED, idempotent=True)
             self.api.delete(f"{self.v2}/apis/{api_id}", params={"closePlans": "true"})
             self.until_dropped(name, self.first_path(live))
             api_id = self.imported(definition, name)
             log(SECTION, f"✓ API replaced: {name}")
         else:
-            raise SeedError(f"API {name}: HTTP {r.status_code} {excerpt(r.text, 300)}")
+            self.api.put(f"{self.v2}/apis/{api_id}/_import/definition", json=definition, what=f"API {name}")
+            log(SECTION, f"✓ API updated: {name}")
         # Still the seed's, under its new id and digest. The record it had under the id this API had goes: it may hold another
         # name (the file renamed the API) or another id (the API was replaced), and the first record of an id is the one that is read
         with common._state:   # read, changed and written back by this step alone

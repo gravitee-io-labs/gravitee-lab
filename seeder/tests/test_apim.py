@@ -428,7 +428,7 @@ class ChangedDefinition(Converged):
         before = self.record("ACME LLM")["digest"]
         self.env(TARGET="http://another:11434")
         self.assertEqual(self.run_seed(), [
-            ("PUT", V2 + "/apis/llm-id/_import/definition"), ("POST", V2 + "/apis/llm-id/_stop"), ("DELETE", V2 + "/apis/llm-id"),
+            ("POST", V2 + "/apis/llm-id/_stop"), ("DELETE", V2 + "/apis/llm-id"),
             ("POST", V2 + "/apis/_import/definition"), ("PUT", V2 + "/apis/llm-id"), ("POST", V2 + "/apis/llm-id/deployments"),
             ("POST", V2 + "/apis/llm-id/_start"), ("POST", V2 + "/apis/llm-id/subscriptions")])
         self.assertIn("API replaced: ACME LLM", self.output())
@@ -455,6 +455,19 @@ class ChangedDefinition(Converged):
         self.assertIn("API updated: Open API", self.output())
         self.assertNotEqual(self.record("Open API")["digest"], before)
         self.assertEqual(self.run_seed(), [])
+
+    def test_an_api_whose_update_fails_on_the_platform_is_never_deleted(self):
+        """A 500 of a type that can be updated is the platform's trouble: the API keeps its keys, its subscriptions, its record."""
+        before, keys = self.record("Open API")["digest"], self.keys()
+        self.platform.add({("PUT", V2 + "/apis/rest-id/_import/definition"): (500, {"message": "A technical error occurred"})})
+        self.edit("apim/apis/rest.json", lambda text: text.replace('"name": "Open API"', '"name": "Open API", "description": "new"'))
+        since = len(self.platform.calls)
+        with self.assertRaisesRegex(common.SeedError, rf"^API Open API: HTTP 500 .*technical error.* \({common.RETRIES + 1} tries\)$"):
+            self.run_seed()
+        changes = [(c.method, c.path) for c in self.platform.calls[since:] if c.method != "GET"]
+        self.assertEqual(set(changes), {("PUT", V2 + "/apis/rest-id/_import/definition")}, "asked again, never stopped nor deleted")
+        self.assertIn("rest-id", self.apim.apis)
+        self.assertEqual((self.record("Open API")["digest"], self.keys()), (before, keys))
 
     def test_an_update_that_fails_for_another_reason_stops_the_seed_and_keeps_the_digest(self):
         before = self.record("Open API")["digest"]
