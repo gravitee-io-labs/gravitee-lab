@@ -24,8 +24,9 @@ from urllib.error import URLError
 import lab_ui
 from lab_ui.server import api, stack
 from lab_ui.gravitee import cloud, core, places, platforms
-from lab_ui.docker import compose, envfiles, files, probe
-from lab_ui.library import layers, playgrounds
+from lab_ui.docker import compose, envfiles
+from lab_ui.gravitee import probe
+from lab_ui.library import files, layers, playgrounds
 from lab_ui import paths
 from lab_ui.catalogs import gitx, trust
 from lab_ui.catalogs.registry import CatalogError
@@ -115,7 +116,7 @@ class Access(LabUI):
         action.assert_not_called()
 
     def test_foreign_host_is_refused(self):
-        state = self.patch(api.images, "state")
+        state = self.patch(api, "images_state")
         action = self.patch(api.stack, "action")
         for method, path in (("GET", "/api/images"), ("POST", "/api/stack/start")):
             status, _, _ = self.request(method, path, headers={"Host": "evil.example:9000"})
@@ -141,7 +142,7 @@ class Access(LabUI):
 
     def test_a_request_from_a_page_of_another_site_is_refused(self):
         # A browser says where a request comes from; a GET needs no header, so this is all that stops it
-        state = self.patch(api.images, "state", return_value={"components": []})
+        state = self.patch(api, "images_state", return_value={"components": []})
         for site in ("cross-site", "same-site"):
             status, _, _ = self.request("GET", "/api/images", headers={"Sec-Fetch-Site": site})
             self.assertEqual(status, 403, site)
@@ -156,7 +157,7 @@ class Access(LabUI):
 
     def test_local_names_are_served(self):
         self.patch(api.project, "load", return_value=PROJECT)
-        self.patch(api.images, "state", return_value={"components": []})
+        self.patch(api, "images_state", return_value={"components": []})
         for host in ("localhost:9000", "127.0.0.1:9000", "localhost"):
             status, headers, body = self.request("GET", "/api/images", headers={"Host": host})
             self.assertEqual((status, json.loads(body)), (200, {"components": []}))
@@ -167,7 +168,7 @@ class Access(LabUI):
         # It frames the consoles of a playground and holds the keys to the lab: the page, its API, a refusal and the
         # streams all say that no page may frame it; the page, which a browser runs, says the whole policy of 14.3
         self.patch(api.project, "load", return_value=PROJECT)
-        self.patch(api.images, "state", return_value={"components": []})
+        self.patch(api, "images_state", return_value={"components": []})
         for path in ("/", "/js/main.js", "/api/images", "/nothing-here"):
             _, headers, _ = self.request("GET", path)
             policy = api.POLICY if path == "/" else "frame-ancestors 'none'"
@@ -208,7 +209,7 @@ class Failures(LabUI):
             (ConnectionResetError("reset by the registry"), 502)]]
         # What nothing expects is headed by its type: a bare key would not say what failed
         cases += [(KeyError("name"), 500, "KeyError: 'name'"), (OSError("disk full"), 500, "OSError: disk full")]
-        state, action = self.patch(api.images, "state"), self.patch(api.stack, "action")
+        state, action = self.patch(api, "images_state"), self.patch(api.stack, "action")
         for error, code, message in cases:
             state.side_effect = action.side_effect = error
             for method, path in (("GET", "/api/images"), ("POST", "/api/stack/start")):
@@ -674,10 +675,12 @@ class Effects(LabUI):
         self.affected.assert_called_with(PROJECT, "addons/kafka/compose.yml")
         self.effects.assert_called_with(PROJECT, None, ["kafka"])
         # Versions and registries of Images
-        drafted = self.patch(api.images, "drafted", return_value=({"kafka": "h3"}, True))
+        saved = self.patch(api.images, "as_saved", return_value=(None, {"kafka.env": {"KAFKA_VERSION": "3.8"}}))
+        drafted = self.patch(api.files, "drafted", return_value=({"kafka": "h3"}, True))
         self.patch(api.images, "changing", return_value=["kafka"])
         self.request("POST", "/api/effects", {"images": {"KAFKA_VERSION": "3.8"}})
-        drafted.assert_called_once_with(PROJECT, {"KAFKA_VERSION": "3.8"})
+        saved.assert_called_once_with(PROJECT, {"KAFKA_VERSION": "3.8"})
+        drafted.assert_called_once_with(PROJECT, None, {"kafka.env": {"KAFKA_VERSION": "3.8"}})
         self.effects.assert_called_with(PROJECT, {"kafka": "h3"}, ())
         self.assertEqual(self.request("POST", "/api/effects", {"images": ["KAFKA_VERSION"]})[0], 400)
         # Only a file of the project: refused as the editor refuses it
@@ -999,6 +1002,7 @@ class Personal(LabUI):
     def test_shared_and_deleted_by_kind_and_id(self):
         share = self.patch(api.personal, "share", return_value={"file": "f", "problems": ["p"]})
         delete = self.patch(api.personal, "delete", return_value={})
+        deployed = self.patch(api.places, "deployed", return_value=[])
         self.patch(api, "destinations", return_value={})   # the catalogs a share can go to are the module's, tested below
         status, _, body = self.request("POST", "/api/addons/local/whoami/share", {"check": True})
         self.assertEqual((status, json.loads(body)), (200, share.return_value))
@@ -1008,13 +1012,22 @@ class Personal(LabUI):
         for kind in ("addon", "setup", "playground"):
             status, _, body = self.request("POST", f"/api/{kind}s/local/it/delete")
             self.assertEqual((status, json.loads(body)), (200, delete.return_value))
-            delete.assert_called_with(PROJECT, kind, "local/it")
+            # What a playground deployed to a place keeps it: the records are read for it
+            delete.assert_called_with(PROJECT, kind, "local/it", [] if kind == "playground" else ())
+        deployed.assert_called_once_with("local/it", api.playgrounds.created)
         # An item that is on, then one of the project: the refusal is the answer
         delete.side_effect = RuntimeError("Stop it first")
         status, _, body = self.request("POST", "/api/playgrounds/local/sandbox/delete")
         self.assertEqual((status, json.loads(body)), (409, {"error": "Stop it first"}))
         share.side_effect = ValueError("Only your own add-ons can be shared here")
         self.assertEqual(self.request("POST", "/api/addons/kafka/share")[0], 400)
+        # To a catalog, it is the business of contribute
+        shared = self.patch(api.contribute, "share", return_value={"branch": "lab/whoami-20261016"})
+        status, _, body = self.request("POST", "/api/addons/local/whoami/share", {"to": "acme-hub"})
+        self.assertEqual((status, json.loads(body)), (200, {"branch": "lab/whoami-20261016"}))
+        self.request("POST", "/api/setups/local/mine/share", {"to": "acme-hub", "check": True})
+        self.assertEqual(shared.call_args_list, [mock.call(PROJECT, "addon", "local/whoami", "acme-hub", False),
+                                                 mock.call(PROJECT, "setup", "local/mine", "acme-hub", True)])
         self.assertEqual(self.request("POST", "/api/groups/local/it/delete")[0], 404)
 
     def test_starred_by_kind_and_id(self):
@@ -1408,11 +1421,11 @@ class PlaceRoutes(LabUI):
         self.calls["delete_place"].assert_called_once_with(PROJECT, "local/sandbox", self.PLACE)
         self.delete.assert_not_called()
         self.assertEqual(self.request("POST", "/api/playgrounds/local/sandbox/delete", {})[0], 200)
-        self.delete.assert_called_once_with(PROJECT, "playground", "local/sandbox")
+        self.delete.assert_called_once_with(PROJECT, "playground", "local/sandbox", mock.ANY)   # with what it deployed
         self.calls["delete_place"].assert_called_once()
         # An add-on and a setup have no place
         self.request("POST", "/api/addons/local/whoami/delete", {"place": self.PLACE})
-        self.delete.assert_called_with(PROJECT, "addon", "local/whoami")
+        self.delete.assert_called_with(PROJECT, "addon", "local/whoami", ())
 
     def test_the_delete_of_this_machine_is_never_a_delete_of_the_folder(self):
         # Asking for it by name, or with no value, is a refusal: the folder of a playground is not what was meant
@@ -1915,6 +1928,7 @@ class CommandLine(LabUI):
                                   "docker not found: install Docker with Compose 5.0 or later "
                                   "(see Prerequisites in README.md)")]:
             run.return_value = answer
+            api.compose.CACHE.drop("docker:")   # each is another machine
             self.assertEqual(api.requirement(), expected)
 
     def test_a_compose_that_lacks_nothing_is_asked_once_for_the_time_the_state_keeps_it(self):
@@ -1924,6 +1938,8 @@ class CommandLine(LabUI):
         for _ in range(3):
             api._docker_down({"docker": {"error": None}, "problems": []})
         self.assertEqual(run.call_count, 1)
+        # The one reading of it, which the Dashboard and the check of the machine share
+        self.assertEqual((api.compose.compose_version(), run.call_count), ("5.6.1", 1))
 
     def test_busy_port_opens_the_lab_ui_that_runs(self):
         self.folder(paths)
@@ -2411,12 +2427,12 @@ class UseCatalog(LabUI):
         self.contribute.destinations.assert_called_once_with(PROJECT, "playground", "local/bank")
 
     def test_a_share_with_a_destination_is_the_modules_check_and_share_and_the_old_share_has_no_destinations(self):
-        share = self.patch(api.personal, "share", return_value={"branch": "lab/bank-20261016"})
+        share = self.patch(api.personal, "share", return_value={"file": "f", "problems": [], "changes": []})
         self.request("POST", "/api/playgrounds/local/bank/share", {"check": True, "to": "gravitee"})
-        share.assert_called_with(PROJECT, "playground", "local/bank", check_only=True, to="gravitee")
+        self.contribute.share.assert_called_with(PROJECT, "playground", "local/bank", "gravitee", True)
         self.request("POST", "/api/playgrounds/local/bank/share", {"to": "gravitee"})
-        share.assert_called_with(PROJECT, "playground", "local/bank", check_only=False, to="gravitee")
-        share.return_value = {"file": "f", "problems": [], "changes": []}
+        self.contribute.share.assert_called_with(PROJECT, "playground", "local/bank", "gravitee", False)
+        share.assert_not_called()
         _, _, body = self.request("POST", "/api/playgrounds/local/bank/share", {})
         self.assertNotIn("destinations", json.loads(body), "only a check names them")
         self.request("POST", "/api/playgrounds/local/bank/share", {"to": ""})
@@ -2512,7 +2528,7 @@ class Startup(Case):
         self.patch(api, "ThreadingHTTPServer", Server)
         for module, name in self.STEPS:
             self.patch(getattr(api, module), name, side_effect=lambda module=module, name=name: events.append((module, name)))
-        self.patch(api.compose, "stop_on_signals", side_effect=lambda: events.append(("signals",)))
+        self.patch(api.compose, "stop_on_signals", side_effect=lambda *others: events.append(("signals",)))
         self.patch(api, "warm_up", side_effect=lambda: events.append(("warm up",)))
         self.timer = self.patch(api.threading, "Timer")
         self.opened = self.patch(api, "open_browser")

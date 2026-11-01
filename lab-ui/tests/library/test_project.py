@@ -2833,15 +2833,16 @@ class Remembered(Case):
     def test_a_file_read_as_written_is_read_again_only_when_its_own_files_change(self):
         # The root .env and the core change what a unit is with the core, not what it says as written: those readings stay
         self.write(".env", "FIXTURE_X=1\n")
-        self.assertEqual(self.raws(), [project.CORE_FILE])
+        self.assertEqual(self.raws(), [], "the core as written does not read the .env either")
         self.write("docker-compose.yml", (self.root / "docker-compose.yml").read_text(encoding="utf-8") + "# edited\n")
         self.assertEqual(self.raws(), [project.CORE_FILE])
-        # A unit of this machine is kept as a catalog's is: the edit of a guide reads none again, its own file only it
+        # A unit of this machine is kept as a catalog's is, and so is the core: the edit of a guide reads none again, its own
+        # file only it
         self.write(".lab/catalogs/local/addons/scratch/README.md", "# Scratch, edited\n")
-        self.assertEqual(self.raws(), [project.CORE_FILE])
+        self.assertEqual(self.raws(), [])
         scratch = ".lab/catalogs/local/addons/scratch/compose.yml"
         self.write(scratch, (self.root / scratch).read_text(encoding="utf-8") + "# edited\n")
-        self.assertEqual(self.raws(), sorted([project.CORE_FILE, scratch]))
+        self.assertEqual(self.raws(), [scratch])
 
     def test_forgetting_reads_everything_again(self):
         project.forget()

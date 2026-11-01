@@ -128,13 +128,12 @@ def parse_model(text):
     return model
 
 
-def _read_model(service, lib, why):
-    """The license model in a service's image: read in its container when it runs, else from the image. None when it
-    cannot be read, and `why` gets what Docker said."""
+def _read_model(service, lib):
+    """The license model in a service's image: read in its container when it runs, else from the image. ComposeError with
+    what Docker said when it cannot be read."""
     rc, out, err = compose.shell(service, ["-c", MODEL_SCRIPT.format(lib=lib)])
     if rc != 0 or not out:
-        why.append(err)
-        return None
+        raise compose.ComposeError(err)
     jar, _, text = out.partition("\n")
     return {"source": jar.split("/")[-1].removesuffix(".jar"), "service": service["label"], **parse_model(text)}
 
@@ -155,12 +154,12 @@ def _model(project):
     for group in project["groups"]:
         product = project["products"].get(group["product"]) or {}
         for name, lib in product.get("lib", {}).items():
-            service, why = project["services"][name], []
-            key = f"license-model:{compose.image_key(service)}"
-            model = compose.CACHE.get(key, 24 * 3600, lambda: _read_model(service, lib, why))
-            if model:
-                return model
-            unread += [(service["image"], compose.unread(service["image"], said)) for said in why]
+            service = project["services"][name]
+            try:
+                return compose.CACHE.get(f"license-model:{compose.image_key(service)}", 24 * 3600,
+                                         lambda: _read_model(service, lib))
+            except compose.ComposeError as error:
+                unread.append((service["image"], compose.unread(service["image"], str(error))))
     image, reason = next(((image, reason) for image, reason in unread if reason), (None, None))
     if reason == "Docker is not reachable":
         raise Unknown(reason)

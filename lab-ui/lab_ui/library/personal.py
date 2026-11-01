@@ -10,8 +10,8 @@ import re
 import shutil
 import stat
 
-from . import check, layers, moves, starred, tested
-from ..docker import compose, files, images
+from . import check, files, layers, moves, starred, tested
+from ..docker import compose, images
 from .. import paths
 from ..catalogs import registry, resolve
 from ..catalogs.registry import CatalogError
@@ -369,31 +369,29 @@ def _running(project, kind, uid, on=True):
     return any(containers.get(name, {}).get("state") == "running" for name in names)
 
 
-def _not_held(project, kind, uid, deleting=False):
+def _not_held(project, kind, uid, deleting=False, deployed=()):
     """Refuses while the item is on and, to delete it, while something of it runs, another item includes it, or a place
-    holds a record of what it created (held()). Docker is asked what runs of an item that is off only for a delete: a
-    move keeps its services, whose containers it still runs."""
+    holds a record of what it created (`deployed`, held()). Docker is asked what runs of an item that is off only for a
+    delete: a move keeps its services, whose containers it still runs."""
     on = layers.current(project)
     turned_on = _turned_on(on, kind, uid)
     running = (deleting or turned_on) and _running(project, kind, uid, turned_on)
     if not deleting:
         reason = _on(on, kind, uid, running)
     else:
-        from . import playgrounds   # it reads the model, which reads this module
-        from ..gravitee import places
-        deployed = places.deployed(uid, playgrounds.created) if kind == "playground" else ()
         reason = held(project, on, kind, uid, deleting, running=running, deployed=deployed)
     if reason:
         raise RuntimeError(reason)
 
 
-def delete(project, kind, uid):
+def delete(project, kind, uid, deployed=()):
     """Deletes an item of this machine: the file of a setup, the folder of an add-on or a playground with what it holds. What
     a catalog keeps is changed in the catalog, like any file. Its star and its tested sets go with it. Refused (RuntimeError,
-    `layers.WAITING`) while the old layout is being moved: an item the old on file turns on would not be seen as on."""
+    `layers.WAITING`) while the old layout is being moved: an item the old on file turns on would not be seen as on; and
+    while a place holds a record of what a playground created there (`deployed`: places.deployed, the caller's)."""
     layers.ready()
     path = _own(kind, uid, "deleted")
-    _not_held(project, kind, uid, deleting=True)
+    _not_held(project, kind, uid, deleting=True, deployed=deployed)
     target = paths.ROOT / path
     if kind == "setup":
         target.unlink()
@@ -439,14 +437,11 @@ def _move(path, target):
     follow(path, target)
 
 
-def share(project, kind, uid, check_only=False, to=""):
-    """Shares an item of this machine to the catalog `to` (catalogs/contribute.py: a copy, the item stays); the answer is its
-    ShareCheck or ShareDone. Without `to` there is no share to make, since nothing is shared into the Lab: a check answers the
-    item's file in its own catalog, the problems that keep it from being shared anywhere (none) and the other files that would
-    change (none), for the page to ask for the destinations; asked to share, it is refused."""
-    if to:
-        from ..catalogs import contribute   # here: it reads this module
-        return contribute.share(project, kind, uid, to, check_only)
+def share(project, kind, uid, check_only=False):
+    """An item of this machine shared without a destination (one to a catalog is catalogs/contribute.py's share: a copy, the
+    item stays). There is no share to make, since nothing is shared into the Lab: a check answers the item's file in its own
+    catalog, the problems that keep it from being shared anywhere (none) and the other files that would change (none), for
+    the page to ask for the destinations; asked to share, it is refused."""
     path = _own(kind, uid, "shared")
     if not check_only:
         raise ValueError("Choose where to share")

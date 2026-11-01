@@ -499,26 +499,6 @@ def _unit_text(entry):
     return {key: entry.get(key) for key in ("id", "name", "what", "why", "service") if key in entry}
 
 
-def _on_by_catalog():
-    """{catalog: {kind:name}} of the units that the on file turns on, directly or through what they include: what
-    `install.on_units(ns)` says, for every catalog in one walk of the include closure (a state asks it of every row, every few
-    seconds, and each walk reads the files again). Nothing is on when the files cannot be read."""
-    found, seen, todo = {}, set(), [paths.ON_FILE]
-    while todo and len(seen) < 2000:
-        file = todo.pop()
-        if file in seen:
-            continue
-        seen.add(file)
-        target = resolve.target_of(file)
-        if target:
-            found.setdefault(target[0], set()).add(f"{target[1]}:{target[2]}")
-        try:
-            todo += compose.includes(file, flow=True)
-        except (OSError, ValueError):
-            continue
-    return found
-
-
 def _held_of(ns, project_, held, on):
     """The reasons the row's menu is held, {update, remove, undo}: a job; an item of the catalog that is on (`on`, the
     `kind:name` of its units the on file turns on). The exact units an update changes are the plan's to say."""
@@ -620,7 +600,7 @@ def describe(project, inputs):
     entries = {one["id"]: one for one in registry.entries()}
     suggestions = registry.suggestions()
     asked = {registry.display_address(one["url"]) for one in suggestions if one.get("host_access")}
-    on = _on_by_catalog()
+    on = install.on_by_catalog()
     rows = []
     for ns, one in found.items():
         if one.get("kind") == "machine":
@@ -1442,7 +1422,7 @@ def _on_includers(found, ns, renamed, after, moved):
     waits until it is off, as it does for an item removed."""
     if not renamed:
         return {}
-    on = _on_by_catalog()
+    on = install.on_by_catalog()
 
     def is_on(item):
         file = ((found.get(f"{item['kind']}s") or {}).get(item["id"]) or {}).get("file")

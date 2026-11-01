@@ -9,12 +9,13 @@ import unittest
 import zipfile
 from unittest import mock
 
-from lab_ui.docker import compose, plugins
+from lab_ui.docker import compose
+from lab_ui.library import plugins
 from lab_ui import paths
 from lab_ui.docker.jobs import Job, JobFailed
 
 from .. import Case
-from .test_jobs import Docker, container, progress, replay
+from ..docker.test_jobs import Docker, container, progress, replay
 
 PROJECT = {
     "products": {"apim": {"name": "API Management", "folder": "plugins/apim",

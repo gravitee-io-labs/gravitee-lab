@@ -21,12 +21,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import URLError
 from urllib.parse import parse_qs, urlparse
 
-from ..library import check, drift, layers, layout, machine, model, personal, playgrounds, project, starred, updates
-from ..docker import compose, files, images, plugins, probe, terminal
-from ..gravitee import core, license, places, platforms
+from ..library import check, drift, files, layers, layout, machine, model, personal, playgrounds, plugins, project, starred, updates
+from ..docker import compose, images, terminal
+from ..gravitee import core, license, places, platforms, probe
 from . import dashboard, stack
 from .. import paths
-from ..catalogs import contribute, exports, firstrun, kept, moving, service, standalone, trust
+from ..catalogs import contribute, exports, firstrun, gitx, kept, moving, service, standalone, trust
 from ..catalogs.registry import CatalogError
 from ..docker.jobs import JOBS, Job
 
@@ -85,7 +85,7 @@ def _docker_down(body):
         return
     down = [one for one in body.get("problems", []) if one.get("file") == paths.CORE_FILE
             and (compose.unreachable(one.get("message")) or "No such file or directory: 'docker'" in (one.get("message") or ""))]
-    lacking = compose.CACHE.get("requirement", 10, requirement)
+    lacking = requirement()
     if not down and not lacking:
         return
     row = machine.report()["checks"][0]
@@ -263,7 +263,7 @@ def effects(req):
     if body.get("images") is not None:
         if not isinstance(body["images"], dict):
             raise ValueError("The images must be a mapping")
-        hashes, exact = images.drafted(p, body["images"])
+        hashes, exact = files.drafted(p, *images.as_saved(p, body["images"]))
         maybe = images.changing(p, body["images"])
     elif body.get("values") is not None:
         hashes, exact = files.env_hashes(p, body.get("file"), body["values"])
@@ -338,7 +338,7 @@ def delete(req, kind, uid):
         if not place:
             raise ValueError("Choose a place besides This machine")
         return playgrounds.delete_place(p, uid, place)
-    return personal.delete(p, kind, uid)
+    return personal.delete(p, kind, uid, places.deployed(uid, playgrounds.created) if kind == "playground" else ())
 
 
 def changed(uid, result):
@@ -453,12 +453,19 @@ def fields(req, *names):
     return {name: req.body.get(name) for name in names}
 
 
+def images_state(p):
+    """What the Images page shows (images.state), with what is on now (layers.current)."""
+    on = layers.current(p)
+    return images.state(p, lambda owner: layers.is_on(owner["kind"], owner["id"], on["playground"], on["effective"]),
+                        layers.outside())
+
+
 def save_images(req):
     values = req.body.get("values") or {}
     if not isinstance(values, dict):
         raise ValueError("The versions must be a mapping")
     images.save(project.load(), values)
-    return images.state(project.load())   # read again: the .env files changed
+    return images_state(project.load())   # read again: the .env files changed
 
 
 def core_plan(req):
@@ -552,7 +559,7 @@ def share_item(req, kind, uid):
     if not isinstance(to, str):
         raise ValueError("The destination must be text")
     if to:
-        return personal.share(p, kind, uid, check_only=check, to=to)
+        return contribute.share(p, kind, uid, to, check)
     found = personal.share(p, kind, uid, check_only=check)
     return {**found, **destinations(p, kind, uid)} if check else found
 
@@ -758,7 +765,7 @@ ROUTES = [(method, re.compile(pattern), handler) for method, pattern, handler in
     ("GET", "/api/logs", stream_logs),
     ("GET", "/api/dashboard", lambda r: dashboard.read(project.load(), refresh=r.query.get("refresh") == "1")),
     ("GET", "/api/dashboard/stats", stream_stats),
-    ("GET", "/api/images", lambda r: images.state(project.load())),
+    ("GET", "/api/images", lambda r: images_state(project.load())),
     ("GET", "/api/tags", lambda r: {"tags": images.tags(project.load(), r.query.get("component"),
                                                         r.query.get("registry")),
                                     "local": sorted(images.local_images() or [])}),
@@ -988,16 +995,18 @@ def find_docker():
 
 
 def requirement():
-    """What this machine lacks to run the lab, in one line, in the words of the Makefile's; "" when it lacks nothing,
-    which the cache of the state keeps as it keeps a line (it keeps no None)."""
-    rc, out, _ = compose.run(["docker", "compose", "version", "--short"], timeout=20)
-    if rc == 127:   # docker itself is not there
-        return f"docker not found: install Docker with Compose 5.0 or later {README}"
-    version = tuple(int(number) for number in re.findall(r"\d+", out)[:2])
+    """What this machine lacks to run the lab, in one line, in the words of the Makefile's; "" when it lacks nothing. From
+    the version of Compose (compose.compose_version, which keeps it)."""
+    try:
+        found = compose.compose_version()
+    except compose.ComposeError as error:
+        if str(error) == compose.NO_DOCKER:
+            return f"docker not found: install Docker with Compose 5.0 or later {README}"
+        found = ""
+    version = tuple(int(number) for number in re.findall(r"\d+", found)[:2])
     # An add-on or a playground changes core services from an included file: Compose merges them from 5.0 on, earlier
     # versions refuse them ("conflicts with imported resource")
-    if rc != 0 or len(version) < 2 or version < (5, 0):
-        found = out.strip().lstrip("v") if rc == 0 else ""
+    if len(version) < 2 or version < (5, 0):
         return f"Docker Compose 5.0 or later is needed, found: {found or 'none'} {README}"
     return ""
 
@@ -1124,7 +1133,7 @@ def _serve(port, browser):
                  "gravitee-lab (the UIs of a playground do not show next to the guide on another port)")
     server.daemon_threads = True   # an open log stream does not keep the Lab UI from stopping
     address(url, "Keep this terminal open: Ctrl+C stops the Lab UI, and the containers keep running.")
-    compose.stop_on_signals()   # once, from the main thread, before it serves: a closed terminal ends what runs
+    compose.stop_on_signals(gitx.stop_running)   # once, from the main thread, before it serves: a closed terminal ends what runs
     start_up()
     if browser:
         threading.Timer(0.5, open_browser, args=(url,)).start()

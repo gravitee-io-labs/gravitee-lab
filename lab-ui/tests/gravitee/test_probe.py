@@ -9,7 +9,7 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
-from lab_ui.docker import probe
+from lab_ui.gravitee import probe
 
 from .. import Case
 

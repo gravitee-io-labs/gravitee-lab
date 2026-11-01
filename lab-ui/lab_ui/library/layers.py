@@ -10,17 +10,16 @@ of the on file, adds no entry for a unit that is blocked, and writes nothing ove
 plan."""
 
 import functools
-import importlib
 import os
 import re
 import stat
 
-from ..docker import compose, envfiles
+from ..docker import compose, envfiles, images
 from .. import paths
 from ..docker.jobs import JOBS, JobFailed, awaited
 from ..gravitee import platforms
 from ..catalogs import registry, resolve
-from . import moves
+from . import machine, moves, versions
 from .project import _control_plane, _dotenv, brought
 
 LOCKED = f"{paths.ON_FILE} has your own changes"
@@ -439,62 +438,10 @@ def _after(project, state, kind, unit, do, kept=frozenset()):
     return (unit["id"], explicit) if kind == "playground" else (playground, explicit | targets)
 
 
-# The system an image is built on, at the end of its tag: not part of its version (VARIANTS in js/core.js, which a test
-# keeps equal)
-VARIANTS = ("chainguard-fips", "chainguard", "debian", "noble", "jammy", "alpine")
-
-
-def bare(tag):
-    """(the tag without its system, the system or ""): "4.13.0-alpha.8-debian" gives ("4.13.0-alpha.8", "debian"). Every
-    version of an image is compared so, here and on the Dashboard."""
-    tag = str(tag or "")
-    for variant in VARIANTS:
-        if tag.endswith(f"-{variant}"):
-            return tag[:-len(variant) - 1], variant
-    return tag, ""
-
-
-def _version(text):
-    """A version as it orders, its system left out (bare): (its numbers, its pre-release identifiers or None).
-    "4.13.0-alpha.3-debian" is ((4, 13, 0), ["alpha", "3"]), "4.13.1-chainguard" ((4, 13, 1), None); None for a tag
-    without numbers."""
-    found = re.match(r"(\d+(?:\.\d+)*)(?:-([0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*))?", bare(text)[0])
-    if not found:
-        return None
-    return tuple(map(int, found.group(1).split("."))), found.group(2) and found.group(2).split(".")
-
-
-def at_least(tag, wanted):
-    """Whether an image tag is that version or a later one, as semantic versioning orders them: a pre-release comes before
-    its release, so 4.13.0-alpha.5 is not a 4.13 (nor a 4.13.0), and a version asked in release form is met by a release.
-    A wanted pre-release orders the previews of its version too: 4.13.0-alpha.2 is before 4.13.0-alpha.3, itself before
-    4.13.0-beta.1 and 4.13.0; a later version, a preview included, is after them all (4.14.0-alpha.1 is a 4.13). A tag
-    without numbers (latest) says nothing of its version: it is taken as fine. A version asked that has no numbers
-    (amp-demo-latest, a build and not a release) is not ordered: it is that build or it is not."""
-    have, want = _version(tag), _version(wanted)
-    if not want:
-        return bare(tag)[0] == bare(wanted)[0]
-    if not have:
-        return True
-    size = max(len(have[0]), len(want[0]))
-    numbers = [version[0] + (0,) * (size - len(version[0])) for version in (have, want)]
-    if numbers[0] != numbers[1]:
-        return numbers[0] > numbers[1]
-    if not want[1]:
-        return not have[1]   # a preview comes before its release
-    if not have[1]:
-        return True   # the release comes after its previews
-    # Identifier by identifier, as semantic versioning orders them: numbers by value, before words
-    def key(part):
-        return (0, int(part), "") if part.isdigit() else (1, 0, part)
-    return [key(part) for part in have[1]] >= [key(part) for part in want[1]]
-
-
 @functools.lru_cache(maxsize=4096)
 def _sets(raw_image):
     """The variables an image line sets itself, its registry's and its version's (images._parts): what a line says is
     the same each time it is read, so it is read once."""
-    from ..docker import images   # images imports this module
     return frozenset((key or (None,))[0] for key in images._parts(raw_image)[::2]) - {None}
 
 
@@ -530,7 +477,7 @@ def enough(unit, variable, tag, wanted):
     """Whether an image tag meets the minimum a playground asks of it (`requires.images`): it is that version or a later one
     (at_least), or the playground lists it among the versions it was tested with, which is the playground saying it works on it
     (a preview such as 4.13.0-alpha.5 is before 4.13, and is fine only so)."""
-    return at_least(tag, wanted) or any(bare(tag)[0] == bare(version[variable])[0]
+    return versions.at_least(tag, wanted) or any(versions.bare(tag)[0] == versions.bare(version[variable])[0]
                                         for version in unit.get("tested") or [] if version.get(variable))
 
 
@@ -573,7 +520,6 @@ def switch_rows(project, to):
     """The rows of what a switch changes, one for each image ("API Management 4.12.20 → 4.13.0-alpha.3", with the registry it comes from
     when that changes too), as (what goes forward or sideways, what goes back: _goes_back). `component` and `to` are for whoever says it
     in other words (the checks of a playground's page)."""
-    from ..docker import images   # images imports this module
     rows, back = {}, set()
     for variable in sorted(to):
         image = re.sub(r"_(VERSION|REGISTRY)$", "", variable)
@@ -600,30 +546,30 @@ def _tested(have, tested):
     build and a tag without numbers (latest) are tested only as they are: they say nothing of what comes after them, and a
     moving one nothing of what it holds today. Another minor or major version is not taken for it: Gravitee changes
     things between them."""
-    have, tested = bare(have)[0], bare(tested)[0]
+    have, tested = versions.bare(have)[0], versions.bare(tested)[0]
     if have == tested:
         return True
-    wanted, found = _version(tested), _version(have)
+    wanted, found = versions.split(tested), versions.split(have)
     if not wanted or not found or wanted[1] or found[1]:
         return False
-    return found[0][:2] == wanted[0][:2] and at_least(have, tested)
+    return found[0][:2] == wanted[0][:2] and versions.at_least(have, tested)
 
 
 def _goes_back(have, version):
     """Whether going from the version that is saved (`have`) to another is going back, so that what the newer one wrote may not open: a
     release before it, or a release after a build that says nothing of its numbers (latest, master-latest, amp-demo-latest), which is
     taken as the newest. Going to such a build is going forward."""
-    found, wanted = _version(have), _version(version)
+    found, wanted = versions.split(have), versions.split(version)
     if found and wanted:
-        return bare(have)[0] != bare(version)[0] and at_least(have, version)
+        return versions.bare(have)[0] != versions.bare(version)[0] and versions.at_least(have, version)
     return not found and bool(wanted)
 
 
-def _recorded(project, versions, images, image_id):
-    """Whether what a machine started a playground on well is what is saved: each image it kept has the tag it had, and a tag
-    that is not a release, which is rebuilt under the same name, is the same image (`image_id` says which one a service
-    has). A registry is the same host."""
-    for variable, wanted in versions.items():
+def _recorded(project, kept, images, image_id):
+    """Whether what a machine started a playground on well is what is saved: each image it kept (`kept`, {variable: version})
+    has the tag it had, and a tag that is not a release, which is rebuilt under the same name, is the same image (`image_id`
+    says which one a service has). A registry is the same host."""
+    for variable, wanted in kept.items():
         found = saved_setting(project, variable)
         if not found:
             continue
@@ -632,12 +578,12 @@ def _recorded(project, versions, images, image_id):
                 return False
             continue
         have = found[0]
-        if bare(have)[0] != bare(wanted)[0]:
+        if versions.bare(have)[0] != versions.bare(wanted)[0]:
             return False
-        version = _version(have)
+        version = versions.split(have)
         if not (version and not version[1]) and (not image_id or image_id(service_of(project, variable)[1]) != images.get(variable)):
             return False
-    return any(saved_setting(project, variable) for variable in versions)
+    return any(saved_setting(project, variable) for variable in kept)
 
 
 CONFORM = re.compile(r"\d+\.\d+\.\d+")   # major.minor.patch: a release, the only version taken as it is
@@ -646,7 +592,7 @@ CONFORM = re.compile(r"\d+\.\d+\.\d+")   # major.minor.patch: a release, the onl
 def conform(tag):
     """Whether an image tag is a release (4.13.7, 4.13.7-debian). Anything else is not safe to assume of: a pre-release
     (4.13.0-alpha.5), a demo build (amp-demo-latest), a moving tag (latest, 4.13), whatever its numbers say."""
-    return bool(CONFORM.fullmatch(bare(tag)[0]))
+    return bool(CONFORM.fullmatch(versions.bare(tag)[0]))
 
 
 def _listed(unit, variable, tag):
@@ -654,7 +600,7 @@ def _listed(unit, variable, tag):
     requires. A variant (-debian) is not part of a version."""
     named = [version[variable] for version in unit.get("tested") or [] if version.get(variable)]
     named.append(((unit.get("requires") or {}).get("images") or {}).get(variable))
-    return any(bare(tag)[0] == bare(one)[0] for one in named if one)
+    return any(versions.bare(tag)[0] == versions.bare(one)[0] for one in named if one)
 
 
 def untested(project, unit, recorded=(), image_id=None):
@@ -693,7 +639,7 @@ def untested(project, unit, recorded=(), image_id=None):
 
 def or_later(wanted):
     """The words after a minimum: a release is asked "or later", a build that is no release (amp-demo-latest) is asked as it is."""
-    return " or later" if _version(wanted) else ""
+    return " or later" if versions.split(wanted) else ""
 
 
 def too_old(project, unit):
@@ -837,7 +783,6 @@ def taken(project, names):
     """The host ports these services publish that another program uses now (machine.held), sorted: Compose would fail to
     publish them once the on file names what publishes them, and every later Start all with it. Asked when a start is
     clicked, never for the state: it binds each port for an instant."""
-    from . import machine   # the machine's checks read the model, which reads this module
     return machine.held(_published(project, names))
 
 
@@ -1226,7 +1171,6 @@ def plan(project, state, up, kind, uid, do, fresh=False, behind=frozenset(), pla
     # those images is made again with it
     to = switch(project, unit, switching) if (kind, do) == ("playground", "start") and not remote else None
     if to:
-        from ..docker import images   # images imports this module
         named = {row["id"] for row in restarts}
         restarts = sorted(restarts + [_service_row(project, name) for name in images.changing(project, to)
                                       if name in up["services"] and name not in named], key=lambda row: row["id"])
@@ -1381,8 +1325,8 @@ def check(project, plan, accept):
     of_catalogs = [node for node in _on_the_file(project, plan)
                    if project[node[0] + "s"][node[1]].get("catalog") not in (None, paths.LOCAL)]
     if of_catalogs:
-        # Looked up when asked: the service reads the project, which reads this module
-        importlib.import_module("lab_ui.catalogs.service").preflight(project, of_catalogs)
+        from ..catalogs import service   # the catalogs' preflight reads this module: imported when a start needs it
+        service.preflight(project, of_catalogs)
 
 
 # ---------------------------------------------------------------------------------------------------------------------

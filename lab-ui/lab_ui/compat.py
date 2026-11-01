@@ -18,8 +18,7 @@ pre-releases, then the releases oldest first: the last set is the one a Start of
 import re
 
 from . import paths
-from .library import layers
-from .server.dashboard import parse, _order, _text
+from .library.versions import at_least, order, parse, written
 
 MINORS = 5   # the minor versions of Gravitee a playground keeps up with: the newest five
 VERSION_KEY = re.compile(r"[A-Z][A-Z0-9_]*_VERSION")
@@ -67,13 +66,13 @@ def newest(tags):
     for version in filter(None, map(parse, tags)):
         if version[1] is None:
             line = version[0][:2]
-            if line not in releases or _order(version) > _order(releases[line]):
+            if line not in releases or order(version) > order(releases[line]):
                 releases[line] = version
         else:
             pres.append(version)
-    top = max(releases.values(), key=_order, default=None)
-    pre = max(pres, key=_order, default=None)
-    fresh = pre and (top is None or _order(pre) > _order(top)) and pre[0][:2] not in releases
+    top = max(releases.values(), key=order, default=None)
+    pre = max(pres, key=order, default=None)
+    fresh = pre and (top is None or order(pre) > order(top)) and pre[0][:2] not in releases
     return releases, (pre if fresh else None)
 
 
@@ -120,7 +119,7 @@ def _line_of(versions, keys):
 
 def _newer(versions, than, keys):
     """Whether a set is newer than another of its line, variable by variable."""
-    return [_order(versions[key]) for key in keys] > [_order(than[key]) for key in keys]
+    return [order(versions[key]) for key in keys] > [order(than[key]) for key in keys]
 
 
 def candidates(unit, tags, follow=None):
@@ -151,12 +150,12 @@ def candidates(unit, tags, follow=None):
     extra = registries(unit, keys)
     sets = []
     for versions in chosen:
-        if any(key in asked and not layers.at_least(_text(version), str(asked[key])) for key, version in versions.items()):
+        if any(key in asked and not at_least(written(version), str(asked[key])) for key, version in versions.items()):
             continue
         line = _line_of(versions, keys)
         if line in have and not _newer(versions, have[line], keys):
             continue
-        sets.append({**{key: _text(version) for key, version in versions.items()}, **extra, **carried})
+        sets.append({**{key: written(version) for key, version in versions.items()}, **extra, **carried})
     return sets
 
 

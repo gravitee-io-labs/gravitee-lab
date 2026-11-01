@@ -19,19 +19,17 @@ The module docstring (Python) or the header comment (JavaScript) of a file is th
 | `lab_ui/` | What it holds |
 |---|---|
 | `paths.py` | The project's layout: the folder decides what a file is and gives its id; the API definitions of a seed, in `seed/apim/` and in each `seed/environments/<id>/` (`seed_apis`, which the checks, the license and the plugins a Cloud environment needs all read); `write_atomic`, and `read_record`, the reader of a record of `.lab/` that keeps one it cannot read aside; `serve_here`, the lock the one Lab UI that serves the folder holds |
+| `products.py` | The names of Gravitee's products and of their images that the engine knows itself, its one place for them: the folders of a seed and the product each fills (the seeder's layout), the scopes of a Cloud gateway, the gateway's image, the systems of a tag (`VARIANTS`), the Azure registries |
 | `e2e.py` | `make e2e`: runs this server on a free port and starts one item from nothing through it, as the page does; says whether it works (the start and its seed, the containers up, the consoles answering) and removes what it made. Refuses a machine that holds a lab. Exit 0 it works, 1 it does not, 2 it cannot be tried here |
 
-`lab_ui/docker/`: What the Lab UI asks of Docker and of the files around it.
+`lab_ui/docker/`: What the Lab UI asks of Docker and of the files around it. It imports nothing of the library.
 
 | Module | What it holds |
 |---|---|
-| `compose.py` | Runs `docker compose` and reads its answers: files as JSON (a `pull_policy` variable is read as its default, which Compose 5.5.1 and later refuse), containers, `config --hash`, images; a cache |
+| `compose.py` | Runs `docker compose` and reads its answers: files as JSON (a `pull_policy` variable is read as its default, which Compose 5.5.1 and later refuse), containers, `config --hash`, images; the one reading of `docker info`, `docker compose version` and `docker images`, which every page shares; a cache, which keeps any answer and never what a read raises |
 | `envfiles.py` | `.env` files, read and changed the way Compose reads them |
-| `files.py` | The editor's files (read, check, save) and a `.env` as a form |
 | `images.py` | Components read from `image:` lines, their versions, registry tags and login |
 | `jobs.py` | Long-running actions: one at a time, cancelable, with their output and progress |
-| `plugins.py` | The plugin catalog, what each product loads, install and remove |
-| `probe.py` | What a UI answers, and whether the page may frame it |
 | `pulls.py` | The progress of the images a job pulls, layer by layer, read from Compose's JSON progress |
 | `terminal.py` | The shell of a playground's terminal: `docker exec -it` on a pseudo-terminal that the Lab UI keeps, one for each playground, read from an offset as an event stream and written to by POST |
 
@@ -42,6 +40,7 @@ The module docstring (Python) or the header comment (JavaScript) of a file is th
 | `cloud.py` | Gravitee Cloud: the account API called with an Account Token, Cloud Gate called with a Cloud Token, and what a token says of itself |
 | `core.py` | Where API Management runs (`.lab/core.json`): This machine or a linked environment of a Gravitee Cloud account, chosen and checked; its group of the platform (`group`, the product of the Cloud's gateway scope); with it in the Cloud, what the Dashboard's Start all starts (its hybrid gateway, the rest of the platform with what it depends on, what is on; not API Management's services nor what only they use, read from `depends_on`) and Stop all stops, and what the state says of it |
 | `frames.py` | The UIs a playground shows next to its guide |
+| `probe.py` | What a UI answers, and whether the page may frame it |
 | `license.py` | The license decoded, read only, and its status without Docker |
 | `places.py` | Where a playground deploys besides This machine: the places of the platforms (read in the background, kept a minute), what each lacks, what its environment runs and which playgrounds cannot go there, the record of each, the settings of a seed |
 | `platforms.py` | The remote platforms of this machine (`.lab/platforms.json`), their tokens (`PLATFORM_<ID>_*` in `.env`), the hybrid gateways created there and the swap of the one that runs here, the gateway that runs here and the platform no longer lists (`orphan`), and what an environment runs, read from its gateways (`capabilities`) |
@@ -54,8 +53,11 @@ The module docstring (Python) or the header comment (JavaScript) of a file is th
 | `layers.py` | The on file, needs and conflicts, the plan and the job of a start or a stop, and the plan of a deploy to a place, which has no service of the core |
 | `model.py` | What `/api/state` answers: state, note and action of every item. Pure |
 | `reasons.py` | Why a service runs behind what is saved, as one plain line, and the line of several services or of an owner's grouped by cause. Pure |
+| `versions.py` | An image tag read as a version, its system left out: the gate of a playground's requirements (`at_least`) and the order of builds that the Dashboard and the reasons compare. Pure |
 | `drift.py` | Which settings and labels of a container differ from what Compose would set it now, the settings by name, from digests; never a value |
 | `check.py` | `make check` |
+| `files.py` | The editor's files (read, check, save) and a `.env` as a form |
+| `plugins.py` | The plugin catalog, what each product loads, install and remove |
 | `personal.py` | Creating, sharing and deleting items of this machine; finding the skills |
 | `starred.py` | What is starred on this machine (`.lab/starred.json`) |
 | `tested.py` | What a playground started on here: the image versions that worked, kept in `.lab/tested.json`, so that starting it again on them is no warning |
@@ -109,11 +111,17 @@ cd lab-ui/tests/web/js && WRITE_MAIN=1 node --test lists.test.mjs
   whole with `paths.write_atomic`.
 - **One responsibility per module**, said in its docstring. Small functions. `model.py` and `project.build()` are pure,
   so they are tested without Docker.
+- **Imports go one way**: `paths.py` and `products.py`, then `docker/`, then `library/` and `gravitee/` with the
+  catalogs they read, then `server/`. A module imports from its own stage or one before it, at the top of its file: a
+  function that imports what imports its module hides a cycle. The few imports a function makes say why in
+  `tests/test_imports.py`, which holds the order. What a lower module needs of a higher one is passed to it (what is on,
+  to `images.state`).
 - **The Compose files hold the product knowledge**: `x-gravitee` blocks, labels, `include`, `image:` lines, mounts. No
-  list of products, add-ons or images in `lab_ui/` or `web/`. The two explicit exceptions are the tag suffixes of
-  registries (`VARIANTS` in `js/core.js`, which every page reads, and its copy in `library/layers.py`, which the version
-  gate and the Dashboard read and a test keeps equal) and the acronyms of license packs (`ACRONYMS` in
-  `js/dialogs/license.js`).
+  list of products, add-ons or images in `lab_ui/` or `web/`. The explicit exceptions each have one place: what the engine
+  knows itself is in `lab_ui/products.py` (the folders of a seed and the product each fills, which is the seeder's layout;
+  the scopes of a Cloud gateway; the gateway's image; the Azure registries; the tag suffixes of registries, `VARIANTS`,
+  which `js/core.js` copies for every page and a test keeps equal; a test also holds that no other module names them),
+  and the acronyms of license packs are in `js/dialogs/license.js` (`ACRONYMS`).
 - **The server computes, the page draws.** `/api/state` carries the state, note and action of every item, in the order
   they are shown.
 - **Errors are never swallowed.** A file that does not load is reported in `problems` and the others still load. A failed

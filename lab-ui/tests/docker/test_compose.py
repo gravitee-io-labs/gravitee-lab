@@ -95,13 +95,12 @@ class Includes(ProjectFolder):
                                 "  - ../../../setups/local/mine.yml\n  - ../../../addons/local/whoami/compose.yml\n")
         self.assertEqual(compose.includes(playground), ["setups/local/mine.yml", "addons/local/whoami/compose.yml"])
 
-    def test_a_list_on_one_line_is_read_only_by_a_caller_that_asks_and_a_copy_keeps_it_as_written(self):
+    def test_a_list_on_one_line_is_read_and_a_copy_keeps_it_as_written(self):
         self.write("b-x/compose.yml", "services:\n  bee:\n    image: alpine\n    pull_policy: ${B_PULL_POLICY:-missing}\n")
         self.write("c/compose.yml", "services:\n  cee:\n    image: alpine\n")
         line = "include: [../b-x/compose.yml, ../c/compose.yml]"
         path = self.write("a/compose.yml", f"{line}\nservices:\n  app:\n    image: alpine\n")
-        self.assertEqual(compose.includes(path), [], "what is written again is written from the lines of a list")
-        self.assertEqual(compose.includes(path, flow=True), ["b-x/compose.yml", "c/compose.yml"], "what is on reads them")
+        self.assertEqual(compose.includes(path), ["b-x/compose.yml", "c/compose.yml"])
         for skip in ((), ["c/compose.yml"]):
             with self.subTest(skip=skip), compose._readable(path, skip=skip) as (_, copies):
                 for copy, original in copies.items():
@@ -917,6 +916,26 @@ class Saved(Case):
 
 class Retargeted(ProjectFolder):
 
+    def test_a_service_is_named_again_as_a_service_and_as_a_host_never_in_a_path_or_an_image(self):
+        text = ("services:\n  apim-gateway:\n    image: graviteeio/apim-gateway:4.13.1\n    container_name: gio-apim-gateway\n"
+                "    volumes:\n      - ./apim-gateway/gravitee.yml:/opt/gravitee.yml\n      - apim-gateway/x.yml:/x\n"
+                "      - ./config/apim-gateway.yml:/y\n"
+                "  app:\n    image: apim-gateway:4.13\n    depends_on: [apim-gateway, mongodb]\n"
+                "    command: [\"TCP-LISTEN:9092\", \"TCP:apim-gateway:9092\"]\n"
+                "    environment:\n      GATEWAY_URL: http://apim-gateway:8082/mcp\n      AUTH_URL: http://me@apim-gateway/x\n"
+                "  seed:\n    depends_on:\n      apim-gateway:\n        condition: service_healthy\n")
+        found = compose.retarget(text, {"apim-gateway": "apim-hybrid-gateway"}).split("\n")
+        self.assertEqual([line.strip() for line in found if "hybrid" in line],
+                         ["apim-hybrid-gateway:", "depends_on: [apim-hybrid-gateway, mongodb]",
+                          'command: ["TCP-LISTEN:9092", "TCP:apim-hybrid-gateway:9092"]',
+                          "GATEWAY_URL: http://apim-hybrid-gateway:8082/mcp", "AUTH_URL: http://me@apim-hybrid-gateway/x",
+                          "apim-hybrid-gateway:"])
+        # The image and the binds are what the files say: a Cloud deploy changes the service, not what it runs or mounts
+        for kept in ("image: graviteeio/apim-gateway:4.13.1", "container_name: gio-apim-gateway",
+                     "- ./apim-gateway/gravitee.yml:/opt/gravitee.yml", "- apim-gateway/x.yml:/x", "- ./config/apim-gateway.yml:/y",
+                     "image: apim-gateway:4.13"):
+            self.assertIn(kept, [line.strip() for line in found])
+
     def test_a_copy_includes_copies_in_place_of_the_files(self):
         text = ("include:\n  - ../kafka/compose.yml   # what it needs\n  - path: ../mail/compose.yml\n"
                 "\nservices:\n  console:\n    volumes:\n      - ../kafka/compose.yml:/x\n")
@@ -989,9 +1008,16 @@ class Kept(unittest.TestCase):
         self.assertEqual((len(calls), answers), (1, [{"mongodb": "h"}] * 3))
 
     def test_a_failure_is_asked_again_and_an_answer_is_kept_for_its_time(self):
-        cache, answers = compose.Cache(), iter([None, "29.7.2"])
-        self.assertIsNone(cache.get("version", 10, lambda: next(answers)))
-        self.assertEqual(cache.get("version", 10, lambda: next(answers)), "29.7.2")
+        # What the read raises is not kept; any answer is, None and "" too (an answer that nothing lacks is one)
+        cache = compose.Cache()
+
+        def failing():
+            raise compose.ComposeError("Cannot connect to the Docker daemon")
+        with self.assertRaises(compose.ComposeError):
+            cache.get("version", 10, failing)
+        self.assertEqual(cache.get("version", 10, lambda: "29.7.2"), "29.7.2")
+        self.assertIsNone(cache.get("none", 10, lambda: None))
+        self.assertIsNone(cache.get("none", 10, lambda: "asked again"))
         self.assertEqual(cache.get("version", 10, lambda: "asked again"), "29.7.2")
         self.assertEqual(cache.get("version", 0, lambda: "asked again"), "asked again")
         cache.drop("ver")
@@ -1018,8 +1044,8 @@ class Kept(unittest.TestCase):
 class Docker(Case):
 
     def setUp(self):
-        compose.CACHE.drop("docker-memory")
-        self.addCleanup(compose.CACHE.drop, "docker-memory")
+        compose.CACHE.drop("docker:")
+        self.addCleanup(compose.CACHE.drop, "docker:")
 
     def test_its_memory_or_none_when_it_does_not_answer(self):
         with mock.patch.object(compose, "run", return_value=(1, "", "Cannot connect to the Docker daemon")):
@@ -1035,13 +1061,64 @@ class Docker(Case):
             for _ in range(3):
                 self.assertEqual(compose.docker_memory(), 8_000_000_000)
         self.assertEqual(run.call_count, 1)
-        self.assertGreaterEqual(compose.MEMORY_TTL, 600)
+        self.assertGreaterEqual(compose.INFO_TTL, 600)
         with mock.patch.object(compose, "project_name", return_value="lab"), \
                 mock.patch.object(compose, "run", return_value=(1, "", "Cannot connect to the Docker daemon")):
             self.assertEqual(compose.containers(), ({}, "Cannot connect to the Docker daemon"))
         more = json.dumps({"ServerVersion": "29.7.2", "MemTotal": 16_000_000_000})
         with mock.patch.object(compose, "run", return_value=(0, more, "")):
             self.assertEqual(compose.docker_memory(), 16_000_000_000)   # started again with more
+
+    def test_what_it_says_of_itself_and_its_words_when_it_does_not_answer_which_are_not_kept(self):
+        down = json.dumps({"ServerVersion": "", "ServerErrors": ["Cannot connect to the Docker daemon at unix:///x"]})
+        info = json.dumps({"ServerVersion": "29.7.2", "OperatingSystem": "Docker Desktop", "NCPU": 6, "MemTotal": 8,
+                           "DockerRootDir": "/var/lib/docker"})
+        with mock.patch.object(compose, "run", return_value=(1, down, "")) as run:
+            with self.assertRaisesRegex(compose.ComposeError, "Cannot connect to the Docker daemon"):
+                compose.docker_info()
+            run.return_value = (1, "", "Client: x\nerror during connect: Get docker.sock: EOF\n")
+            with self.assertRaisesRegex(compose.ComposeError, "error during connect"):   # the last line it printed
+                compose.docker_info()
+            run.return_value = (127, "", "")
+            with self.assertRaisesRegex(compose.ComposeError, "Docker is not reachable"):
+                compose.docker_info()
+            run.return_value = (0, info, "")
+            self.assertEqual(compose.docker_info(), {"engine": "29.7.2", "os": "Docker Desktop", "cpus": 6, "memory": 8,
+                                                     "root": "/var/lib/docker"})
+            self.assertEqual(run.call_args.args[0], ["docker", "info", "--format", "{{json .}}"])
+        self.assertEqual(run.call_count, 4)
+
+    def test_the_version_of_its_compose_is_kept_a_minute_and_none_is_asked_again(self):
+        answers = {"version": (0, "v5.4.0\n", "")}
+        with mock.patch.object(compose, "run", side_effect=lambda command, **_: answers["version"]) as run:
+            self.assertEqual([compose.compose_version() for _ in range(3)], ["5.4.0"] * 3)
+            self.assertEqual((run.call_count, compose.DOCKER_TTL), (1, 60))
+            compose.CACHE.drop("docker:")
+            answers["version"] = (127, "", "[Errno 2] No such file or directory: 'docker'")
+            with self.assertRaisesRegex(compose.ComposeError, compose.NO_DOCKER):
+                compose.compose_version()
+            answers["version"] = (1, "", "docker: 'compose' is not a docker command")
+            with self.assertRaisesRegex(compose.ComposeError, "is not a docker command"):
+                compose.compose_version()
+            self.assertEqual(run.call_count, 3)   # a Compose that is not there is looked for again
+        with mock.patch.object(compose, "run", return_value=(0, "5.6.1\n", "")):
+            self.assertEqual(compose.compose_version(), "5.6.1")
+        with mock.patch.object(compose, "project_name", return_value="lab"), \
+                mock.patch.object(compose, "run", return_value=(1, "", "Cannot connect to the Docker daemon")):
+            compose.containers()   # Docker does not answer: an update may start it again with another Compose
+        with mock.patch.object(compose, "run", return_value=(0, "5.7.0\n", "")):
+            self.assertEqual(compose.compose_version(), "5.7.0")
+
+    def test_each_fact_docker_says_is_read_in_one_place(self):
+        # One reading of `docker info`, `docker compose version` and `docker images` that the state, the Dashboard, the check
+        # of the machine and the Images page share: a second one would see a change of Docker at another time. The CI's
+        # commands (catalogs/ci) run once and keep nothing
+        package = Path(compose.__file__).parents[1]
+        found = [f"{path.relative_to(package)}: {spelled}" for path in sorted(package.rglob("*.py"))
+                 if path != Path(compose.__file__) and path.relative_to(package).parts[:2] != ("catalogs", "ci")
+                 for spelled in ('"docker", "info"', '"compose", "version"', '"docker", "images"')
+                 if spelled in path.read_text(encoding="utf-8")]
+        self.assertEqual(found, [])
 
     def test_its_scratch_folder_is_private_and_kept_for_the_run(self):
         folder = compose.scratch()
@@ -1215,11 +1292,18 @@ class Run(Commands):
         self.assertNotEqual(answered[0][0], 0)
         self.assertTrue(settled(lambda: not alive(pid)))
 
+    def test_a_signal_ends_what_another_module_runs_too(self):
+        # Git's commands (gitx.stop_running), which this module does not know: what starts the Lab UI hands their end over
+        handlers, ended = {}, []
+        with mock.patch.object(compose.signal, "getsignal", return_value=signal.SIG_DFL), \
+                mock.patch.object(compose.signal, "signal", side_effect=lambda number, handler: handlers.setdefault(number, handler)), \
+                mock.patch.object(compose.signal, "raise_signal"), mock.patch.object(compose, "_end", lambda: ended.append("compose")):
+            compose.stop_on_signals(lambda: ended.append("git"))
+            handlers[signal.SIGTERM](signal.SIGTERM, None)
+        self.assertEqual(ended, ["compose", "git"])
+
     def test_the_exit_function_ends_what_runs_and_nothing_is_started_after_it(self):
         self.patch(compose, "_ending", False)
-        git = sys.modules.get("lab_ui.catalogs.gitx")   # _end ends its commands too, and leaves it ending for the rest of the run
-        if git is not None:
-            self.patch(git, "_ending", False)
         answered = []
         thread = threading.Thread(target=lambda: answered.append(
             compose.run(["sh", "-c", f"{self.record}; exec sleep {FOREVER}"], timeout=FOREVER)))

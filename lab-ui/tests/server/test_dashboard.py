@@ -102,11 +102,13 @@ class Sizes(Case):
 
 
 class Docker(Case):
-    """What Docker says of itself, kept a minute, and read again when asked."""
+    """What Docker holds, kept a minute and read again when asked; what it says of itself is the state's reading
+    (compose.docker_info)."""
 
     def setUp(self):
-        self.addCleanup(compose.CACHE.drop, "local:dashboard:")
-        compose.CACHE.drop("local:dashboard:")
+        for prefix in ("local:dashboard:", "docker:"):
+            compose.CACHE.drop(prefix)
+            self.addCleanup(compose.CACHE.drop, prefix)
         self.answers = {"info": (0, json.dumps(INFO), ""), "version": (0, "v5.4.0\n", ""), "df": (0, DF, "")}
         self.run = self.patch(dashboard.compose, "run", side_effect=self.answer)
 
@@ -117,17 +119,6 @@ class Docker(Case):
     def asked(self, word):
         return sum(word in call.args[0] for call in self.run.call_args_list)
 
-    def test_the_engine_as_docker_info_says_it(self):
-        self.assertEqual(dashboard._info(), {"engine": "29.7.2", "os": "Docker Desktop", "cpus": 6,
-                                            "memory": 8320028672})
-        self.assertEqual(self.run.call_args.args[0], ["docker", "info", "--format", "{{json .}}"])
-
-    def test_the_compose_version_has_no_v(self):
-        self.assertEqual(dashboard._compose_version(), "5.4.0")
-        self.answers["version"] = (1, "", "unknown command")
-        compose.CACHE.drop("local:dashboard:")
-        self.assertIsNone(dashboard._compose_version())
-
     def test_what_docker_holds_comes_with_when_it_was_read(self):
         before = int(time.time())
         found = dashboard._usage()
@@ -135,34 +126,26 @@ class Docker(Case):
         self.assertGreaterEqual(found["read_at"], before)
         self.assertEqual(self.run.call_args.args[0], ["docker", "system", "df", "--format", "{{json .}}"])
 
-    def test_docker_that_does_not_answer_is_said_in_its_words_and_asked_again(self):
-        self.answers["info"] = (1, json.dumps({**INFO, "ServerVersion": "", "ServerErrors": [DOWN]}), "")
+    def test_docker_that_does_not_say_what_it_holds_is_asked_again(self):
         self.answers["df"] = (1, "", DOWN)
-        with self.assertRaisesRegex(RuntimeError, "Cannot connect to the Docker daemon"):
-            dashboard._info()
         self.assertIsNone(dashboard._usage())
-        self.answers["info"] = (1, "", "Client: x\nerror during connect: Get docker.sock: EOF\n")
-        with self.assertRaisesRegex(RuntimeError, "error during connect"):   # the last line it printed
-            dashboard._info()
-        self.answers["info"] = (127, "", "")
-        with self.assertRaisesRegex(RuntimeError, "Docker is not reachable"):
-            dashboard._info()
-        self.assertEqual(self.asked("info"), 3)   # a failure is not kept
-        self.answers["info"] = (0, json.dumps(INFO), "")
-        self.assertEqual(dashboard._info()["engine"], "29.7.2")
+        self.assertIsNone(dashboard._usage())
+        self.assertEqual(self.asked("system"), 2)   # a failure is not kept
+        self.answers["df"] = (0, DF, "")
+        self.assertEqual(dashboard._usage()["images"]["count"], 122)
 
     def test_a_minute(self):
         self.assertEqual((dashboard.DOCKER_TTL, dashboard.LATEST_TTL), (60, 3600))
         for _ in range(3):
-            dashboard._info(), dashboard._compose_version(), dashboard._usage()
-        self.assertEqual((self.asked("info"), self.asked("version"), self.asked("system")), (1, 1, 1))
+            dashboard.cores(), dashboard._usage()
+        self.assertEqual((self.asked("info"), self.asked("system")), (1, 1))
         self.patch(dashboard, "DOCKER_TTL", 0)
-        dashboard._info(), dashboard._usage()
-        self.assertEqual((self.asked("info"), self.asked("system")), (2, 2))
+        dashboard._usage()
+        self.assertEqual(self.asked("system"), 2)
 
     def test_the_cores_docker_has(self):
         self.assertEqual(dashboard.cores(), 6)
-        compose.CACHE.drop("local:dashboard:")
+        compose.CACHE.drop("docker:")
         self.answers["info"] = (1, "", DOWN)
         self.patch(dashboard.os, "cpu_count", return_value=11)
         self.assertEqual(dashboard.cores(), 11)   # the machine's when Docker does not say
@@ -210,80 +193,6 @@ class Machine(Case):
         self.assertEqual(dashboard.machine(), {"cpus": 11, "memory_total": 100, "memory_available": 40,
                                               "disk_total": 1000, "disk_free": 300})
         self.assertEqual(disk.call_args.args[0], dashboard.Path.home())   # the disk that holds the home folder
-
-
-class Versions(Case):
-    def test_a_tag_that_names_a_build(self):
-        for tag, found in (("4.12.21", ((4, 12, 21), None)), ("3.0.2", ((3, 0, 2), None)),
-                           ("4.13.0-alpha.8", ((4, 13, 0), "alpha.8")), ("4.13.0-rc1", ((4, 13, 0), "rc1")),
-                           ("v1.21.0", ((1, 21, 0), None)), ("4.8.37-hotfix.1", ((4, 8, 37), "hotfix.1"))):
-            self.assertEqual(dashboard.parse(tag), found, tag)
-
-    def test_the_system_an_image_is_built_on_is_not_part_of_it(self):
-        for tag, found in (("4.12.21-debian", ((4, 12, 21), None)), ("4.12.8-noble", ((4, 12, 8), None)),
-                           ("4.12.20-chainguard", ((4, 12, 20), None)),
-                           ("4.12.20-chainguard-fips", ((4, 12, 20), None)),
-                           ("4.13.0-alpha.8-debian", ((4, 13, 0), "alpha.8")),
-                           ("4.8.37-hotfix.1-noble", ((4, 8, 37), "hotfix.1"))):
-            self.assertEqual(dashboard.parse(tag), found, tag)
-
-    def test_a_tag_is_told_from_its_system(self):
-        for tag, found in (("4.12.21-debian", ("4.12.21", "debian")), ("4.12.20-chainguard-fips", ("4.12.20", "chainguard-fips")),
-                           ("4.13.0-alpha.8", ("4.13.0-alpha.8", "")), ("latest", ("latest", "")), ("debian", ("debian", ""))):
-            self.assertEqual(dashboard.bare(tag), found, tag)
-
-    def test_a_tag_that_moves_names_no_version(self):
-        for tag in ("latest", "latest-debian", "4", "4.12", "4.12-debian", "4.13.0-alpha", "4.13.0-alpha-debian",
-                    "nightly", "4.9.0-kafka-desk", "sha256-abc", "", "master-latest"):
-            self.assertIsNone(dashboard.parse(tag), tag)
-
-    def test_versions_are_ordered_as_semver_orders_them(self):
-        ordered = ["3.0.2", "4.12.20", "4.12.21", "4.13.0-alpha.2", "4.13.0-alpha.10", "4.13.0-beta.1", "4.13.0-rc.1",
-                   "4.13.0", "4.13.1-alpha.1", "4.13.1"]
-        self.assertEqual(sorted(reversed(ordered), key=lambda tag: dashboard._order(dashboard.parse(tag))), ordered)
-
-    def test_the_latest_of_each_channel_among_the_tags_of_a_registry(self):
-        tags = ["4.13.0-alpha-debian", "4.13.0-alpha.4-debian", "4.13.0-alpha", "4.13.0-alpha.4", "4.13.0-alpha.3",
-                "4.10-debian", "4.10.32", "latest", "4", "4.12", "4.12.21-debian", "4.12.21", "4.12.20", "4.11.29",
-                "4.13.0-alpha.10-chainguard", "4.9.36"]
-        self.assertEqual(dashboard.latest(tags), ("4.12.21", "4.13.0-alpha.10"))
-        self.assertEqual(dashboard.latest(["3.0", "3", "latest", "3.0.2", "3.0.1", "nightly", "2.3.3"]), ("3.0.2", None))
-
-    def test_a_pre_release_below_the_stable_one_is_no_news(self):
-        self.assertEqual(dashboard.latest(["4.13.0", "4.13.0-rc.2", "4.13.0-alpha.8", "4.12.21"]), ("4.13.0", None))
-        self.assertEqual(dashboard.latest(["4.13.0-alpha.8"]), (None, "4.13.0-alpha.8"))
-        self.assertEqual(dashboard.latest(["latest", "4.12", "nightly"]), (None, None))
-        self.assertEqual(dashboard.latest([]), (None, None))
-
-    def test_the_channel_a_version_is_of(self):
-        for tag, found in (("4.12.21", "stable"), ("4.12.21-debian", "stable"), ("4.13.0-alpha.8", "pre-release"),
-                           ("4.13.0-alpha.8-debian", "pre-release"), ("4.8.37-hotfix.1", "pre-release"),
-                           ("latest", "stable"), ("4.12", "stable"), ("", "stable"), (None, "stable")):
-            self.assertEqual(dashboard.channel(tag), found, tag)
-
-    def test_a_version_against_the_latest_of_its_own_channel(self):
-        stable, pre = "4.12.21", "4.13.0-alpha.4"
-        for deployed, found in (
-                ("4.12.20", ("newer", "4.12.21")), ("4.12.21", ("latest", "4.12.21")),
-                ("4.12.21-debian", ("latest", "4.12.21")), ("4.12.22", ("latest", "4.12.22")),
-                ("4.11.29", ("newer", "4.12.21")),
-                # A stable version is never compared with a pre-release
-                ("4.13.0-alpha.3", ("newer", "4.13.0-alpha.4")), ("4.13.0-alpha.3-debian", ("newer", "4.13.0-alpha.4")),
-                ("4.13.0-alpha.4", ("latest", "4.13.0-alpha.4")), ("4.13.0-alpha.9", ("latest", "4.13.0-alpha.9")),
-                ("latest", ("unknown", None)), ("4.12", ("unknown", None)), ("", ("unknown", None)),
-                (None, ("unknown", None))):
-            self.assertEqual(dashboard.judge(deployed, stable, pre), found, deployed)
-
-    def test_a_pre_release_with_none_above_the_stable_one_follows_the_stable_one(self):
-        self.assertEqual(dashboard.judge("4.13.0-alpha.2", "4.13.0", None), ("newer", "4.13.0"))
-        # The registry lists nothing above the stable one: what runs is the highest version known
-        self.assertEqual(dashboard.judge("4.13.0-alpha.2", "4.12.21", None), ("latest", "4.13.0-alpha.2"))
-
-    def test_what_a_registry_did_not_say_is_unknown(self):
-        self.assertEqual(dashboard.judge("4.12.20", None, "4.13.0-alpha.1"), ("unknown", None))
-        self.assertEqual(dashboard.judge("4.12.20", None, None), ("unknown", None))
-        self.assertEqual(dashboard.judge("4.13.0-alpha.1", None, None), ("unknown", None))
-        self.assertEqual(dashboard.judge("4.13.0-alpha.1", None, "4.13.0-alpha.2"), ("newer", "4.13.0-alpha.2"))
 
 
 APIM = {"kind": "platform", "id": "api-management", "name": "API Management"}
@@ -462,7 +371,7 @@ class Read(Case):
         for cleanup in (dashboard._failed.clear, dashboard._reading.clear):
             cleanup()
             self.addCleanup(cleanup)
-        for prefix in ("local:dashboard:", "dashboard:"):
+        for prefix in ("local:dashboard:", "dashboard:", "docker:"):
             compose.CACHE.drop(prefix)
             self.addCleanup(compose.CACHE.drop, prefix)
         self.patch(dashboard, "_flight", None)

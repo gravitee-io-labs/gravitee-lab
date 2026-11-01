@@ -14,13 +14,13 @@ import posixpath
 import re
 import threading
 
-from . import compose, envfiles
-from ..library import layers
+from ..docker import compose, envfiles
+from . import layers
 from .. import paths
 from ..catalogs import registry
 from ..catalogs.resolve import shown
 from ..paths import CORE_FILE, ENV_FILE, ON_FILE, ROOT, write_atomic
-from ..library.project import brought
+from .project import brought
 
 SECTIONS = (("Secrets", "secret"), ("Settings", "setting"))
 POSITION = re.compile(r"L(\d+)\.C(\d+)")

@@ -1,7 +1,7 @@
 """The project as its Compose files describe it: the platform's groups, the add-ons, setups and playgrounds of its
 catalogs and of this machine, every service and console, and where each playground can be deployed. Nothing here knows a
-product but the one each folder of a seed fills (SEEDED): it all comes from x-gravitee blocks, labels, includes and
-mounts.
+product but through products.py (what each folder of a seed fills): it all comes from x-gravitee blocks, labels, includes
+and mounts.
 
 A unit of a catalog is read as hostile input (the resolver). `gather` screens its text before Compose is ever
 asked, reads it with a time limit, resolves it alone with the core (so one broken unit never blanks the project) and
@@ -27,9 +27,10 @@ from pathlib import Path, PurePosixPath
 
 from ..docker import compose, envfiles
 from . import layout
-from ..gravitee import frames, license, platforms
+from ..gravitee import license, platforms
 from .. import paths
 from ..catalogs import registry, renames, resolve, trust, understood
+from ..products import AM, APIM, APIM_FEATURES, DEPLOYED, LOCAL_PRODUCTS, SEEDED, SEEDED_HERE
 from ..paths import CORE_FILE, ENV_FILE, KINDS, LAB_DIR, ROOT
 
 SECRET = re.compile(r"TOKEN|SECRET|PASSWORD|LICENSE|_KEY")
@@ -43,17 +44,13 @@ GATEWAY_KEYS = ("platform", "service", "token")   # what an add-on says of the g
 # The lists of an x-gravitee block that the pages read, each as how it must be written and what each entry is
 LISTED = {"consoles": ("a list of services", str), "tags": ("a list of short labels", str),
           "accounts": ("a list of accounts, each a mapping", dict)}
-# The product that each entry of a playground's seed/ fills, in the seeder's layout (seeder/README.md): what a reason
-# names when a platform does not run it, in the order it lists them
-SEEDED = {"apim": "API Management", "am": "Access Management", "aim": platforms.GAMMA, "authz": platforms.GAMMA}
-# What a deploy to a platform seeds on this machine, whichever platform runs API Management: Access Management and
-# OpenFGA run here, and the seeder reaches them as it does for a start on this machine
-SEEDED_HERE = ("am", "openfga")
-LOCAL_PRODUCTS = ("Access Management",)   # the products that a platform does not have to run: they run here
 PLUGIN_KINDS = ("entrypoint", "endpoint", "policy", "resource")   # what an API definition names that a plugin provides
 # The lists of an API definition whose items name a plugin by their `type`, and the kind of that plugin
 TYPED = {"entrypoints": "entrypoint", "endpointGroups": "endpoint", "endpoints": "endpoint", "resources": "resource"}
 URL_HOST = re.compile(r"://(?:[^/?#\s@]*@)?([\w.-]+)")   # the host a URL names, after the user and password it may hold
+# The pages of the Lab UI that the platform's UIs and the apps let frame them (x-ui-frames in docker-compose.yml, the
+# frame-ancestors of the apps): the Lab UI is served on its own port, 9000
+PAGES = ("http://localhost:9000", "http://127.0.0.1:9000")
 LOCK_FILE = "contract.lock"   # what the engine promises units: its anchors say which plugin folders a unit may mount
 ANCHOR = re.compile(r"anchor[ \t]+plugins/([a-z0-9-]+)(?:[ \t]|$)")   # one line of it: `anchor plugins/apim since=1`
 
@@ -381,9 +378,9 @@ def _seed_scan(folder):
 
 
 def _includes(path):
-    """compose.includes of a file that may be anything, a list on one line too: nothing when it cannot be read."""
+    """compose.includes of a file that may be anything: nothing when it cannot be read."""
     try:
-        return compose.includes(path, flow=True)
+        return compose.includes(path)
     except (OSError, ValueError):
         return []
 
@@ -777,7 +774,7 @@ def gather():
     pool, and what the pool learned of a unit is kept while its files stay as they are, unless Compose did not answer
     (that is read again at the next gather). A problem of such a file is the catalog's (`catalog_problems`), not the
     banner's. The units of this machine, and every unit while no default file exists, are read together as they always
-    were (each file as written is kept as a catalog's unit is, but before catalogs); an add-on or a playground of this
+    were (each file as written is kept as a catalog's unit is, the core's too, but before catalogs); an add-on or a playground of this
     machine is also resolved alone with the core (`own_configs`) and its seed read (`seed_references`), for the notes of the
     policy, which judges them and blocks none."""
     _REAL.clear()
@@ -797,6 +794,7 @@ def gather():
     clean = set(judged) - bad   # the files of a catalog that the closure of a unit may follow: units the screen read, and found clean
     own_seeds = _own_seeds([file for file in unit_files if tiers[file] == "local"])
     reach = {file: _reach(file, bad, clean) for file in unit_files if tiers[file] != "legacy" and file not in bad}
+    reach[CORE_FILE] = _reach(CORE_FILE, bad, clean)   # the core is kept as a unit is, while the files it was read from stay
     held = {file: lines for file, found in reach.items() for lines in [held_reasons(found, bad)] if lines}
     stubs = bad | set(held)
 
@@ -1007,7 +1005,7 @@ def license_features(requires):
 def _apim_features(requires):
     """The license features of API Management that a unit requires: those a platform running it must have. The others
     (Access Management's, Gamma's) are for the machines they run on."""
-    return sorted(feature for feature in license_features(requires or {}) if feature.startswith("apim-"))
+    return sorted(feature for feature in license_features(requires or {}) if feature.startswith(APIM_FEATURES))
 
 
 def _lists(meta, path, problems):
@@ -1273,7 +1271,7 @@ def _service(name, written, running, owner, project_name):
             "depends_on": sorted(running.get("depends_on") or {}),   # what Compose starts first
             "command": " ".join(command) if isinstance(command, list) else str(command),
             # A setting of its own names the Lab UI's pages: how a UI that is configured, not patched, lets them frame it
-            "lets_frame": any(all(page in str(value) for page in frames.PAGES) for value in (running.get("environment") or {}).values()),
+            "lets_frame": any(all(page in str(value) for page in PAGES) for value in (running.get("environment") or {}).values()),
             "built": bool(running.get("build")), "pull_policy": running.get("pull_policy"),
             "role": labels.get("io.gravitee.role"),
             "needs_license": labels.get(LICENSE_LABEL) == "required"}
@@ -1491,7 +1489,7 @@ def asks(playground, project, raw, seed, uses=None):
             "plugins": any((playground["requires"].get("plugins") or {}).values()),
             "changes": bool(set(playground["restarts"]) & _control_plane(project) or any(changes for _, changes, _ in brought)),
             "uses": any(waits for _, _, waits in brought) or _uses_the_core(playground, project, raw),
-            "more": any(name not in ("apim", *SEEDED_HERE) for name in seed),
+            "more": any(name not in (DEPLOYED, *SEEDED_HERE) for name in seed),
             "features": _apim_features(playground["requires"]),
             "needs": {kind: list((uses or {}).get(kind, [])) for kind in PLUGIN_KINDS}}
 
@@ -1562,7 +1560,7 @@ def judge(asked, offers):
         found.append("Its apps use this machine's Management API")
     # What only this machine's API Management serves: Gamma, controls, refills, a folder that is no product
     if asked["more"]:
-        found.append("Seeds more than API Management and Access Management")
+        found.append(f"Seeds more than {APIM} and {AM}")
     return found
 
 
@@ -2312,7 +2310,15 @@ def saved(project):
     does not answer: nothing is known to run behind."""
     if not project["core_loaded"]:
         return {"hashes": {}, "images": {}}
-    hashes = compose.CACHE.get(f"config-hash:{config_key()}", 300, compose.config_hashes) or {}   # a failure is not kept
+    def ask():
+        found = compose.config_hashes()
+        if found is None:   # not kept: asked again at the next state
+            raise compose.ComposeError("the files do not load")
+        return found
+    try:
+        hashes = compose.CACHE.get(f"config-hash:{config_key()}", 300, ask)
+    except compose.ComposeError:
+        hashes = {}
     held = compose.image_ids() or {}
     images = {name: held.get(compose.reference(service["image"])) for name, service in project["services"].items()
               if service["image"]}

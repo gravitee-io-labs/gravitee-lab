@@ -726,10 +726,9 @@ class Holds(Seam):
             encoding="utf-8")
         walked = []
         real = compose.includes
-        self.patch(compose, "includes", lambda path, flow=False: walked.append(path) or real(path, flow))
-        found = service._on_by_catalog()
+        self.patch(compose, "includes", lambda path: walked.append(path) or real(path))
+        found = install.on_by_catalog()
         self.assertEqual(found, {"partner": {"addon:ledger"}, "lab-old": {"addon:older"}})
-        self.assertEqual(sorted(found), sorted(ns for ns in found if install.on_units(ns)))
         for ns, keys in found.items():
             self.assertEqual(keys, install.on_units(ns), "the same answer as the function install holds the rule with")
         walked.clear()

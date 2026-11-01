@@ -14,8 +14,8 @@ from collections import Counter
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from ..docker import compose, images, plugins
-from . import layers, model, project as projects, tested
+from ..docker import compose, images
+from . import layers, model, plugins, project as projects, tested
 from ..gravitee import license, places, platforms
 from .. import paths
 from ..catalogs import trust

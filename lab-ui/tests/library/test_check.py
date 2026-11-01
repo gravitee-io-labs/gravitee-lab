@@ -24,7 +24,7 @@ from unittest import mock
 
 from lab_ui.library import check, project
 from lab_ui.docker import compose, envfiles
-from lab_ui.gravitee import frames, license, platforms
+from lab_ui.gravitee import license, platforms
 from lab_ui import paths
 from lab_ui.catalogs import manifest, registry
 
@@ -700,21 +700,21 @@ class Playgrounds(Machine):
             "x-gravitee.consoles: agent-lens is not a service with a console that this playground runs"])
 
     def test_a_console_shown_in_a_frame_lets_the_lab_ui_frame_it(self):
-        pages = " ".join(frames.PAGES)
+        pages = " ".join(project.PAGES)
         framed = [part.replace("{pages}", pages) for part in PORTAL_COMMAND]
         message = ("x-gravitee.consoles: apim-portal-ui is shown in a frame, so its command must name "
-                   f"{' and '.join(frames.PAGES)} and remove X-Frame-Options (x-ui-frames in docker-compose.yml), "
+                   f"{' and '.join(project.PAGES)} and remove X-Frame-Options (x-ui-frames in docker-compose.yml), "
                    "or a setting of it must name them as the pages that may frame it")
         shown = {"consoles": ["acme-website", "apim-portal-ui"]}
         self.assertEqual(self.playground(meta=shown, command=framed), [])
         self.assertEqual(self.playground(meta=shown, command=" ".join(framed)), [])   # Compose may print it as one text
         # No command; one that leaves a page out; one that leaves the X-Frame-Options line, which refuses every page
-        for command in (None, ["nginx"], ["sh", "-c", f"s|self|& {frames.PAGES[0]}|; /X-Frame-Options/d"],
+        for command in (None, ["nginx"], ["sh", "-c", f"s|self|& {project.PAGES[0]}|; /X-Frame-Options/d"],
                         ["sh", "-c", f"s|self|& {pages}|"]):
             with self.subTest(command=command):
                 self.assertEqual(self.playground(meta=shown, command=command), [message])
         # A setting of its own that names the pages is enough: the portal is configured, not patched
-        for pages, expected in ((" ".join(frames.PAGES), []), (frames.PAGES[0], [message])):
+        for pages, expected in ((" ".join(project.PAGES), []), (project.PAGES[0], [message])):
             with self.subTest(setting=pages):
                 self.assertEqual(self.playground(meta=shown, environment={"ALLOWED_FRAME_ANCESTOR_URLS": "http://localhost:8084 " + pages}), expected)
         # Only the consoles listed are asked, and only the platform's: an app answers for its own headers

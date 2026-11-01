@@ -14,8 +14,8 @@ from pathlib import Path
 from unittest import mock
 
 from lab_ui.server import api
-from lab_ui.docker import compose, envfiles, files
-from lab_ui.library import layers
+from lab_ui.docker import compose, envfiles
+from lab_ui.library import files, layers
 from lab_ui import paths
 from lab_ui.catalogs import registry
 

@@ -16,8 +16,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from lab_ui.library import check, layers, layout, moves, project
-from lab_ui.docker import compose, envfiles, files
+from lab_ui.library import check, files, layers, layout, moves, project
+from lab_ui.docker import compose, envfiles
 from lab_ui import paths
 from lab_ui.catalogs import contribute, gitx, manifest, registry, understood
 from lab_ui.catalogs.registry import CatalogError

@@ -970,10 +970,11 @@ its catalog have the Start or Stop of their item, as the lists' rows have.
   the answer calls `reclaimable`.
 - **When it reads.** `GET /api/dashboard` (`docker`, `machine`, `data`, `products`, `pending`) when the page
   opens, when what the versions depend on moves (Docker answering, the state of each group, the tag each container runs:
-  `signature` in `dashboard.js`, checked at each draw, one read at a time) and by *Count storage again*. Docker's answers are cached for 60
-  seconds: `docker info`, `docker compose version` and `docker system df` (about 2 seconds) are read when the page opens, so
-  quick trips between pages read nothing again. *Count storage again* reads them again (`GET /api/dashboard?refresh=1`) and renews the
-  cache. Nothing polls them. The one thing the page asks for again is the latest versions, every 3 seconds while the server
+  `signature` in `dashboard.js`, checked at each draw, one read at a time) and by *Count storage again*. `docker system df` (about 2
+  seconds) is cached for 60 seconds; `docker info` and `docker compose version` are the Lab's one reading of each, which the state and
+  the machine's check share (`compose.docker_info`, kept until Docker does not answer and at most 10 minutes, and
+  `compose.compose_version`, a minute), so quick trips between pages read nothing again. *Count storage again* reads them again
+  (`GET /api/dashboard?refresh=1`) and renews the cache. Nothing polls them. The one thing the page asks for again is the latest versions, every 3 seconds while the server
   says it is still reading them (`pending`), and a read that failed, after 10 seconds (`RETRY`), so that the page does not stay
   half empty. The page is drawn before its first read: the state alone, a spinner where the version is (the version saved is not
   said: it may not be the one that runs), nothing for the update.

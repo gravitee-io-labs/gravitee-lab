@@ -1,8 +1,9 @@
 """What the Dashboard reads that the state does not hold: the Gravitee products here against the latest version of
 their channel in the registry, the gateway a platform of the Cloud runs here against the latest stable one, Docker and
-this machine. What runs and what is on is the state's (`/api/state`), which the page draws live. Docker's answers are
-kept for a minute and the registry's for an hour; the load of the containers comes from one `docker stats` that every
-page following it shares."""
+this machine. What runs and what is on is the state's (`/api/state`), which the page draws live. What Docker says of
+itself and of its Compose is what the state reads (compose.docker_info, compose_version), what it holds is kept for a
+minute and the registry's answers for an hour; the load of the containers comes from one `docker stats` that every page
+following it shares."""
 
 import http.client
 import json
@@ -19,9 +20,9 @@ from pathlib import Path
 
 from ..docker import compose, images
 from ..library import project as projects
-from ..library.layers import bare   # a tag without the system it is built on, as the version gate reads it
+from ..library.versions import judge, channel, latest, order, parse
 
-DOCKER_TTL = 60       # seconds Docker's answers are kept: a quick back and forth does not read them again
+DOCKER_TTL = 60       # seconds what Docker holds is kept: a quick back and forth does not read it again
 DF_WAIT = 0.4         # seconds a read lasts at the most for what Docker holds, the slow one, before the page is drawn without it
 LATEST_TTL = 3600     # seconds the versions a registry lists are kept
 RETRY = 60            # seconds before a registry that did not answer is asked again
@@ -30,8 +31,6 @@ RESTART = 2           # seconds before `docker stats` is started again when it e
 NAMES_TTL = 10        # seconds the names of the lab's containers are kept
 MEMINFO = Path("/proc/meminfo")
 TYPES = ("images", "containers", "volumes", "cache")   # what `docker system df` counts, in the order it lists them
-# A tag that names a build: three numbers, then a pre-release that ends with one (alpha.4); not 4.12, latest or alpha
-VERSION = re.compile(r"v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]*\d))?")
 # Docker writes sizes in powers of 1000 (`system df`: 58.89GB) or of 1024 (`stats`: 731.8MiB)
 UNITS = {"B": 1,
          **{unit: 1000 ** power for power, unit in enumerate(["kB", "MB", "GB", "TB", "PB"], 1)},
@@ -66,28 +65,6 @@ def _number(text):
     return int(text) if str(text).isdigit() else 0
 
 
-def _info():
-    """What `docker info` says of the engine: {engine, os, cpus, memory}. Cpus and memory are what Docker has, not the
-    machine. Raises RuntimeError with Docker's words when it does not answer, which is not kept."""
-    def ask():
-        rc, out, err = compose.run(["docker", "info", "--format", "{{json .}}"], timeout=20)
-        info = _object(out)
-        if rc != 0 or not info.get("ServerVersion"):
-            raise RuntimeError(next(iter(info.get("ServerErrors") or []), None)
-                               or (err.strip().splitlines() or ["Docker is not reachable"])[-1])
-        return {"engine": info["ServerVersion"], "os": info.get("OperatingSystem"), "cpus": info.get("NCPU"),
-                "memory": info.get("MemTotal")}
-    return compose.CACHE.get("local:dashboard:info", DOCKER_TTL, ask)
-
-
-def _compose_version():
-    """The version of Docker Compose; None when it does not answer."""
-    def ask():
-        rc, out, _ = compose.run(["docker", "compose", "version", "--short"], timeout=20)
-        return out.strip().lstrip("v") if rc == 0 and out.strip() else None
-    return compose.CACHE.get("local:dashboard:compose", DOCKER_TTL, ask)
-
-
 def parse_df(out):
     """What Docker holds, from `docker system df --format '{{json .}}'` (an object a line): {images, containers, volumes,
     cache, total}, sizes in bytes. `size` is what a type takes and `reclaimable` what no container uses (Docker's word for
@@ -118,12 +95,18 @@ def parse_df(out):
 
 
 def _usage():
-    """parse_df of Docker now, with when it was read; about two seconds. None when Docker does not answer."""
+    """parse_df of Docker now, with when it was read; about two seconds. None when Docker does not answer, which is not
+    kept."""
     def ask():
-        rc, out, _ = compose.run(["docker", "system", "df", "--format", "{{json .}}"], timeout=60)
+        rc, out, err = compose.run(["docker", "system", "df", "--format", "{{json .}}"], timeout=60)
         found = parse_df(out) if rc == 0 else None
-        return {**found, "read_at": int(time.time())} if found else None
-    return compose.CACHE.get("local:dashboard:df", DOCKER_TTL, ask)
+        if not found:
+            raise compose.ComposeError(err.strip() or "Docker did not say what it holds")
+        return {**found, "read_at": int(time.time())}
+    try:
+        return compose.CACHE.get("local:dashboard:df", DOCKER_TTL, ask)
+    except compose.ComposeError:
+        return None
 
 
 _flight, _flying = None, threading.Lock()   # the one read of what Docker holds that is under way
@@ -156,7 +139,7 @@ def _asked(ask):
 
 def cores():
     """The cores Docker has, which the load of the containers is a share of; this machine's when it does not say."""
-    info, _ = _asked(_info)
+    info, _ = _asked(compose.docker_info)
     return (info or {}).get("cpus") or os.cpu_count() or 1
 
 
@@ -206,71 +189,6 @@ def machine():
 
 
 # ---------------------------------------------------------------------------------------------------------------------
-# Versions
-# ---------------------------------------------------------------------------------------------------------------------
-
-def parse(tag):
-    """(numbers, pre-release or None) of a tag that names a build, its system ignored ("4.13.0-alpha.8-debian" gives
-    ((4, 13, 0), "alpha.8")); None for a tag that moves (latest, 4.12, 4.13.0-alpha)."""
-    found = VERSION.fullmatch(bare(tag)[0])
-    return (tuple(int(number) for number in found.groups()[:3]), found.group(4)) if found else None
-
-
-def _order(version):
-    """What orders versions, as semver does: a release above its pre-releases, the identifiers of a pre-release one by
-    one, numbers before words."""
-    numbers, pre = version
-    if pre is None:
-        return numbers, 1, ()
-    return numbers, 0, tuple((0, int(part), "") if part.isdigit() else (1, 0, part) for part in pre.split("."))
-
-
-def _text(version):
-    numbers, pre = version
-    return ".".join(map(str, numbers)) + (f"-{pre}" if pre else "")
-
-
-def older(saved, running):
-    """Whether the tag saved names an older version than the one that runs, their systems ignored: making it again goes
-    back. False when either names no version (a tag that moves, a local build)."""
-    one, other = parse(saved or ""), parse(running or "")
-    return bool(one and other) and _order(one) < _order(other)
-
-
-def latest(tags):
-    """(the latest stable, the latest pre-release) among tag names, each as a version without its system; None for
-    none. A pre-release is listed only above the stable one: once 4.13.0 is out, 4.13.0-alpha.8 is not news."""
-    found = [version for version in map(parse, tags) if version]
-    stable = max((version for version in found if version[1] is None), key=_order, default=None)
-    pre = max((version for version in found if version[1] is not None), key=_order, default=None)
-    if pre and stable and _order(pre) < _order(stable):
-        pre = None
-    return _text(stable) if stable else None, _text(pre) if pre else None
-
-
-def channel(deployed):
-    """The channel a version is of: 'pre-release' for a build with a pre-release part (4.13.0-alpha.8), else 'stable',
-    also for a tag that names no version."""
-    found = parse(deployed or "")
-    return "pre-release" if found and found[1] is not None else "stable"
-
-
-def judge(deployed, stable, prerelease):
-    """(status, latest): the newest version of the channel of the deployed one, and whether it is that one. 'latest'
-    when nothing above the deployed version is known (the latest then is the highest version known, the deployed one
-    when the registry lists none that high), 'newer' when the channel has a version above it, 'unknown' (and none)
-    when a version is missing or moves. A stable version is compared with the latest stable, a pre-release with the
-    latest pre-release, else with the stable one: a release is above its pre-releases."""
-    here, other = parse(deployed or ""), parse(stable or "")
-    ahead = parse(prerelease or "") if here and here[1] is not None and prerelease else other
-    if not here or not ahead:
-        return "unknown", None
-    if _order(here) < _order(ahead):
-        return "newer", _text(ahead)
-    return "latest", _text(max(here, ahead, key=_order))
-
-
-# ---------------------------------------------------------------------------------------------------------------------
 # Products
 # ---------------------------------------------------------------------------------------------------------------------
 
@@ -309,7 +227,7 @@ def _listed(project, component):
 def _oldest(tags):
     """The tag with the lowest version: what a product runs when its services are not on the same one. A tag that
     names no version comes after."""
-    return min(tags, key=lambda tag: (parse(tag) is None, _order(parse(tag)) if parse(tag) else (), tag))
+    return min(tags, key=lambda tag: (parse(tag) is None, order(parse(tag)) if parse(tag) else (), tag))
 
 
 def deployed(project, component, containers):
@@ -349,23 +267,26 @@ def products(project, containers):
 
 def read(project, refresh=False):
     """What the page reads besides the state: {docker, machine, data, products, pending}. Docker is asked at
-    once for what it says of itself, its Compose, what it holds (the slow one, about two seconds) and what runs; each
-    answer is kept DOCKER_TTL seconds, and `refresh` reads them again. Docker not answering is `docker.error`, with the
-    rest: the machine and the products as configured. What Docker holds is waited for until the read has lasted
-    DF_WAIT seconds, as long as it takes for a `refresh`: past that `data` is None and the answer is `pending`, and the
-    next read has it. `pending`: versions or data are still being read, ask again."""
+    once for what it says of itself and its Compose (as the state keeps them: compose.docker_info, compose_version),
+    what it holds (the slow one, about two seconds, kept DOCKER_TTL seconds) and what runs; `refresh` reads them again.
+    Docker not answering is `docker.error`, with the rest: the machine and the products as configured. What Docker holds
+    is waited for until the read has lasted DF_WAIT seconds, as long as it takes for a `refresh`: past that `data` is None
+    and the answer is `pending`, and the next read has it. `pending`: versions or data are still being read, ask again."""
     began = time.monotonic()
     if refresh:
         compose.CACHE.drop("local:dashboard:")
+        compose.CACHE.drop("docker:")
     flight = _usage_flight(refresh)
     with ThreadPoolExecutor(max_workers=3) as pool:
-        asked = [pool.submit(_asked, _info), pool.submit(_compose_version), pool.submit(compose.containers)]
-    (info, why), version, (containers, down) = (future.result() for future in asked)
+        asked = [pool.submit(_asked, compose.docker_info), pool.submit(_asked, compose.compose_version),
+                 pool.submit(compose.containers)]
+    (info, why), (version, _), (containers, down) = (future.result() for future in asked)
     try:
         data, slow = flight.result(timeout=None if refresh else max(0, DF_WAIT - (time.monotonic() - began))), False
     except Slow:
         data, slow = None, True
-    docker = {"engine": None, "compose": version, "os": None, "cpus": None, "memory": None, **(info or {})}
+    docker = {"engine": None, "compose": version, "os": None, "cpus": None, "memory": None,
+              **{key: value for key, value in (info or {}).items() if key != "root"}}
     if down or why:
         docker["error"] = down or why
     rows, pending = products(project, containers)
@@ -394,13 +315,15 @@ def lab_names():
     """The names of the containers of this project, which is the lab's: what Docker runs for something else is not its
     load. Kept a few seconds; None when they cannot be told, and the load is then every container's."""
     def ask():
-        try:
-            rc, out, _ = compose.run(["docker", "ps", "--filter", f"label=com.docker.compose.project={compose.project_name()}",
-                                      "--format", "{{.Names}}"], timeout=10)
-        except compose.ComposeError:
-            return None
-        return set(out.split()) if rc == 0 else None
-    return compose.CACHE.get("dashboard:names", NAMES_TTL, ask)
+        rc, out, err = compose.run(["docker", "ps", "--filter", f"label=com.docker.compose.project={compose.project_name()}",
+                                    "--format", "{{.Names}}"], timeout=10)
+        if rc != 0:
+            raise compose.ComposeError(err.strip())
+        return set(out.split())
+    try:
+        return compose.CACHE.get("dashboard:names", NAMES_TTL, ask)
+    except compose.ComposeError:
+        return None
 
 
 class Stats:

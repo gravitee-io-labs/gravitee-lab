@@ -160,15 +160,19 @@ class Images(Case):
                             "registry.example.com:5000/a/b": ("registry.example.com:5000", "a/b")}.items():
             self.assertEqual(images._locate(name), where, name)
 
+    def state(self, effective=(), playground=None):
+        """images.state with these add-ons and this playground on, as the Images page's route says it (api.images_state)."""
+        return images.state(self.project, lambda owner: layers.is_on(owner["kind"], owner["id"], playground, effective),
+                            layers.outside())
+
     def test_state(self):
-        self.patch(layers, "current", return_value={"effective": ["kiosk"], "playground": None})
         self.patch(images, "local_images", return_value={"mongo:8.0.29", "bitnamilegacy/kafka:3.9"})
         self.patch(compose, "project_name", return_value="lab")
         self.patch(compose, "ps", return_value={"mongodb": {"state": "running", "image": "mongo:7"},
                                                 "kafka": {"state": "exited", "image": "x"}})
         env = {".env": {"APIM_REGISTRY": "graviteeio.azurecr.io", "APIM_VERSION": "4.13.0"}}
         self.patch(envfiles, "read", side_effect=lambda path: env.get(path, {}))
-        state = images.state(self.project)
+        state = self.state(["kiosk"])
         self.assertEqual(state["registries"], [{"value": "graviteeio", "label": "Docker Hub"},
                                                {"value": "graviteeio.azurecr.io", "label": "Azure"}])
         by_id = {c["id"]: c for c in state["components"]}
@@ -186,7 +190,7 @@ class Images(Case):
         self.assertEqual((mongo["outside"], kafka["outside"]), (None, None))
         # Kafka runs while its add-on is off: started by a command, in the words of its row
         self.patch(compose, "ps", return_value={"kafka": {"state": "running", "image": "bitnamilegacy/kafka:3.9"}})
-        kafka = {c["id"]: c for c in images.state(self.project)["components"]}["KAFKA_VERSION"]
+        kafka = {c["id"]: c for c in self.state(["kiosk"])["components"]}["KAFKA_VERSION"]
         self.assertEqual(kafka["outside"], {"note": "Started by hand",
                                             "note_title": "Not from the Lab UI, so the platform does not start it."})
 
@@ -194,28 +198,25 @@ class Images(Case):
         self.patch(images, "local_images", return_value=set())
         self.patch(compose, "containers", return_value=({}, None))
         self.patch(envfiles, "read", return_value={})
-        current = self.patch(layers, "current", return_value={"effective": [], "playground": None})
         # The platform is always on: its images come from the Azure registry its .env names (resolved here)
-        self.assertTrue(images.state(self.project)["azure_in_use"])
+        self.assertTrue(self.state()["azure_in_use"])
         for name in ("gamma-ui", "apim-management-api", "apim-gateway"):
             self.project["services"][name]["registry"] = "graviteeio"
-        self.assertFalse(images.state(self.project)["azure_in_use"])
+        self.assertFalse(self.state()["azure_in_use"])
         # An add-on's, only while it is on; a namespace under an Azure host counts too
         self.project["services"]["mirror"].update(raw_image="${MIRROR_REGISTRY:-team}/mirror:${MIRROR_VERSION:-1}",
                                                   registry="acme.azurecr.io/team")
-        self.assertFalse(images.state(self.project)["azure_in_use"])
-        current.return_value = {"effective": ["tools"], "playground": None}
-        self.assertTrue(images.state(self.project)["azure_in_use"])
+        self.assertFalse(self.state()["azure_in_use"])
+        self.assertTrue(self.state(["tools"])["azure_in_use"])
 
     def test_with_docker_not_answering_what_is_pulled_is_not_known(self):
-        compose.CACHE.drop("local:images")
-        self.addCleanup(compose.CACHE.drop, "local:images")
+        compose.CACHE.drop("local:image-ids")
+        self.addCleanup(compose.CACHE.drop, "local:image-ids")
         self.patch(compose, "run", return_value=(1, "", "Cannot connect to the Docker daemon"))
         self.assertIsNone(images.local_images())
-        self.patch(layers, "current", return_value={"effective": [], "playground": None})
         self.patch(compose, "containers", return_value=({}, "Cannot connect to the Docker daemon"))
         self.patch(envfiles, "read", return_value={})
-        self.assertEqual({c["pulled"] for c in images.state(self.project)["components"]}, {None})
+        self.assertEqual({c["pulled"] for c in self.state()["components"]}, {None})
 
     def test_save_writes_each_value_to_the_env_that_owns_it(self):
         write = self.patch(envfiles, "write")
@@ -238,21 +239,20 @@ class Images(Case):
         self.assertEqual(write.call_args.args, (".env", {"APIM_REGISTRY": None, "APIM_GATEWAY_REGISTRY": None}))
 
     def test_what_saving_them_would_have_compose_make_again(self):
-        # The core's values in its .env as a save writes them, an add-on's given to Compose as they are
-        drafted = self.patch(images.files, "drafted", return_value=({"kafka": "h"}, True))
+        # The core's values in its .env as a save writes them, an add-on's given to Compose as they are (files.drafted)
         self.patch(envfiles, "read", return_value={})
         values = {"APIM_VERSION": "4.13.0", "APIM_REGISTRY": "graviteeio", "KIOSK_VERSION": "9.5.0",
                   "KAFKA_VERSION": "3.9"}
-        self.assertEqual(images.drafted(self.project, values), ({"kafka": "h"}, True))
         # Each add-on's by its .env: Compose reads them for every file, which those of another add-on must not reach
-        drafted.assert_called_once_with(self.project, {"APIM_VERSION": "4.13.0", "APIM_REGISTRY": None},
-                                        {paths.unit_env("addon", "kiosk"): {"KIOSK_VERSION": "9.5.0"},
-                                         paths.unit_env("addon", "kafka"): {"KAFKA_VERSION": "3.9"}})
+        self.assertEqual(images.as_saved(self.project, values),
+                         ({"APIM_VERSION": "4.13.0", "APIM_REGISTRY": None},
+                          {paths.unit_env("addon", "kiosk"): {"KIOSK_VERSION": "9.5.0"},
+                           paths.unit_env("addon", "kafka"): {"KAFKA_VERSION": "3.9"}}))
         # What they may make again, when that cannot be known: the services of the components they set
         self.assertEqual(images.changing(self.project, {"APIM_VERSION": "4.13.0", "KAFKA_VERSION": "3.9"}),
                          ["apim-gateway", "apim-management-api", "gamma-ui", "kafka"])
         with self.assertRaisesRegex(ValueError, "Invalid tag"):
-            images.drafted(self.project, {"APIM_VERSION": "not a tag!"})
+            images.as_saved(self.project, {"APIM_VERSION": "not a tag!"})
 
     def test_save_refuses_what_is_not_a_tag_a_registry_or_a_followed_reference(self):
         write = self.patch(envfiles, "write")
@@ -473,11 +473,10 @@ class Shared(Case):
 
     def test_a_link_saved_to_a_variable_that_does_not_reach_reads_as_compose_reads_it(self):
         # Saved by an earlier Lab: Compose reads it empty, so the image is the default's. The page says what runs
-        self.patch(layers, "current", return_value={"effective": ["kafka", "tools"], "playground": "shop"})
         self.patch(images, "local_images", return_value=set())
         self.patch(compose, "containers", return_value=({}, None))
         self.env[paths.unit_env("playground", "shop")] = {"SHOP_OPENSSL_VERSION": "${KAFKA_CERTS_VERSION}"}
-        listed = {c["id"]: c for c in images.state(self.project)["components"]}
+        listed = {c["id"]: c for c in images.state(self.project, lambda owner: True, None)["components"]}
         self.assertEqual((listed["SHOP_OPENSSL_VERSION"]["version"], listed["SHOP_OPENSSL_VERSION"]["version_resolved"]),
                          ("3.5.9", "3.5.9"))
 
