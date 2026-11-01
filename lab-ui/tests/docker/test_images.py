@@ -367,6 +367,39 @@ class Images(Case):
         self.assertEqual(images._azure_tags("graviteeio.azurecr.io", "apim-management-api"), [])
         self.assertEqual(images.SUBSCRIPTIONS, {"graviteeio": None})
 
+    def test_an_azure_registry_out_of_reach_says_so_in_plain_words(self):
+        # What Azure CLI 2.71 writes when the network is down or its proxy does not answer: with its token still
+        # valid; with one to renew at login.microsoftonline.com (not a session that expired)
+        self.patch(images.shutil, "which", lambda name: name)
+        self.patch(images, "SUBSCRIPTIONS", {"graviteeio": None})
+        unreachable = ("NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x10b8b7170>: Failed to "
+                       "establish a new connection: [Errno 61] Connection refused')")
+        renewing = ("HTTPSConnectionPool(host='login.microsoftonline.com', port=443): Max retries exceeded with url: "
+                    "/11111111-1111-1111-1111-111111111111/oauth2/v2.0/token (Caused by ProxyError('Cannot connect "
+                    f"to proxy.', {unreachable}))")
+        said = {
+            "token valid": f"ERROR: ('Cannot connect to proxy.', {unreachable})\n",
+            "token to renew": (
+                "ERROR: The command failed with an unexpected error. Here is the traceback:\n"
+                f"ERROR: {renewing}\nTraceback (most recent call last):\n"
+                '  File ".../azure/cli/core/auth/msal_credentials.py", line 29, in __init__\n'
+                f"requests.exceptions.ProxyError: {renewing}\n"
+                "To check existing issues, please visit: https://github.com/Azure/azure-cli/issues\n"),
+            # Not the network: what the Azure CLI says is never shown as it is
+            "slow": "az did not answer within 90 s",   # compose.run's end of a command that takes too long
+            "other": "ERROR: (ResourceNotFound) The Resource 'Microsoft.ContainerRegistry/registries/graviteeio' was "
+                     "not found.\nCode: ResourceNotFound\n"}
+        shown = {}
+        for case, err in said.items():
+            self.patch(compose, "run", return_value=(124 if case == "slow" else 1, "", err))
+            with self.assertRaises(RuntimeError) as failed:
+                images._azure_tags("graviteeio.azurecr.io", "apim-management-api")
+            shown[case] = str(failed.exception)
+        self.assertEqual(shown, {"token valid": "Cannot reach graviteeio.azurecr.io",
+                                 "token to renew": "Cannot reach graviteeio.azurecr.io",
+                                 "slow": "graviteeio.azurecr.io does not answer in time",
+                                 "other": "The Azure CLI could not list the tags of graviteeio.azurecr.io"})
+
     def test_a_registry_that_does_not_answer_says_why_in_plain_words(self):
         compose.CACHE.drop("tags:")
         self.addCleanup(compose.CACHE.drop, "tags:")

@@ -563,6 +563,34 @@ class Installed(Case):
             plugins._download(Job("Plugins", []), self.root / "plugins/apim", plugin, {"file": file, "size": 3})
         self.assertEqual(len(asked), 1)
 
+    def test_a_folder_that_cannot_be_written_is_not_said_as_the_network(self):
+        # plugins/apim made by Docker as root, or a full disk: the site answered, writing the file failed
+        content = b"0123456789"
+        self.served((self.URL, content), (self.URL + ".sha1", 404))
+        folder = self.root / "plugins/apim"
+        folder.mkdir(parents=True)
+        for error in (PermissionError(13, "Permission denied"), OSError(28, "No space left on device")):
+            with self.subTest(error=error), mock.patch.object(plugins, "open", side_effect=error, create=True):
+                with self.assertRaises(Exception) as failed:
+                    plugins._download(Job("Plugins", []), folder, self.PLUGIN, {"file": self.FILE, "size": 10})
+                self.assertNotIn("Cannot reach", str(failed.exception))
+        if os.geteuid() == 0:
+            return
+        folder.chmod(0o555)   # a real folder that cannot be written
+        self.addCleanup(folder.chmod, 0o755)
+        with self.assertRaises(Exception) as failed:
+            plugins._download(Job("Plugins", []), folder, self.PLUGIN, {"file": self.FILE, "size": 10})
+        self.assertNotIn("Cannot reach", str(failed.exception))
+        self.assertEqual(str(failed.exception), f"{self.FILE}: Cannot be saved in plugins/apim: permission denied")
+        # plugins/ made by Docker as root, its product's folder not there yet
+        locked = self.root / "locked"
+        locked.mkdir()
+        locked.chmod(0o555)
+        self.addCleanup(locked.chmod, 0o755)
+        with self.assertRaises(JobFailed) as failed:
+            plugins._download(Job("Plugins", []), locked / "am", self.PLUGIN, {"file": self.FILE, "size": 10})
+        self.assertEqual(str(failed.exception), f"{self.FILE}: Cannot be saved in locked/am: permission denied")
+
     def test_the_download_site_out_of_reach_is_said_in_plain_words(self):
         def offline(request, timeout):
             raise plugins.urllib.error.URLError(OSError(8, "nodename nor servname provided, or not known"))
@@ -689,11 +717,12 @@ class Installed(Case):
         # first, with what it depends on, and the others once it is ready
         project, commands = self.project_sharing_a_folder(), []
         job = Job("Start", [])
-        job.exec = commands.append
+        job.exec = lambda command, quiet=False: commands.append(command)
         plugins.up(job, project, ["web", "gateway", "hybrid", "hybrid-redis", "api", "mongodb"])
-        wait = [*compose.COMPOSE, "up", "-d", "--no-deps", "--wait", f"--wait-timeout={plugins.WAIT}"]
-        self.assertEqual(commands, [[*wait, "hybrid", "hybrid-redis"],
-                                    [*compose.COMPOSE, "up", "-d", "--no-deps", "web", "gateway", "api", "mongodb"]])
+        start = [*compose.COMPOSE, "up", "-d", "--no-deps"]
+        self.assertEqual(commands, [[*start, "hybrid", "hybrid-redis"],
+                                    [*start, "--wait", f"--wait-timeout={plugins.WAIT}", "hybrid", "hybrid-redis"],
+                                    [*start, "web", "gateway", "api", "mongodb"]])
         # Without the add-on's, nothing changes: one `up`, as Compose orders it
         commands.clear()
         plugins.up(job, project, ["gateway", "api", "web"])
@@ -703,18 +732,18 @@ class Installed(Case):
         project, commands = self.project_sharing_a_folder(), []
         job = Job("Start", [])
 
-        def run(command):
+        def run(command, quiet=False):
             commands.append(command)
             if "--wait" in command:
                 raise JobFailed("container gio-hybrid is unhealthy")
         job.exec = run
         plugins.up(job, project, ["hybrid", "api"])
-        self.assertEqual([command[-1] for command in commands], ["api", "hybrid"])   # neither depends on the other
+        self.assertEqual([command[-1] for command in commands], ["api", "api", "hybrid"])   # neither depends on the other
         commands.clear()
         job.cancel()
         with self.assertRaisesRegex(JobFailed, "unhealthy"):
             plugins.up(job, project, ["hybrid", "api"])
-        self.assertEqual(len(commands), 1)
+        self.assertEqual(len(commands), 2)
 
     def test_apply_starts_again_one_at_a_time_what_shares_the_folder(self):
         project = self.project_sharing_a_folder()
@@ -727,12 +756,43 @@ class Installed(Case):
         plugins.apply(project, "apim", [], [added.name])
         title, steps, more = self.started(jobs)
         job, commands = Job(title, steps, phases=more["phases"], waits=more["waits"]), []
-        job.exec = commands.append
+        job.exec = lambda command, quiet=False: commands.append(command)
         job.run()
-        self.assertEqual(commands, [[*compose.COMPOSE, "stop", "api", "gateway", "hybrid"],
-                                    [*compose.COMPOSE, "up", "-d", "--no-deps", "--wait",
-                                     f"--wait-timeout={plugins.WAIT}", "hybrid"],
-                                    [*compose.COMPOSE, "up", "-d", "--no-deps", "api", "gateway"]])
+        start = [*compose.COMPOSE, "up", "-d", "--no-deps"]
+        self.assertEqual(commands, [[*compose.COMPOSE, "stop", "api", "gateway", "hybrid"], [*start, "hybrid"],
+                                    [*start, "--wait", f"--wait-timeout={plugins.WAIT}", "hybrid"],
+                                    [*start, "api", "gateway"]])
+
+    def test_a_service_started_alone_that_could_not_be_pulled_fails_the_job(self):
+        # Only the wait's own end may pass: an image refused before the add-on's gateway starts leaves it stopped, and
+        # the job must say so, as the one `up` did before
+        import json
+        from lab_ui.docker import jobs
+        project = self.project_sharing_a_folder()
+        self.patch(compose, "containers", lambda: ({name: {"state": "running"} for name in ("api", "gateway", "hybrid")},
+                                                   None))
+        added = self.root / "plugins/apim/gravitee-policy-old-1.0.0.zip"
+        added.parent.mkdir(parents=True)
+        added.write_text("zip", encoding="utf-8")
+        jobs_ = self.patch(plugins, "JOBS")
+        plugins.apply(project, "apim", [], [added.name])
+        title, steps, more = self.started(jobs_)
+        job, started = Job(title, steps, phases=more["phases"], waits=more["waits"]), []
+        refused = {"id": "Image graviteeio/gio-hybrid:5", "status": "Error", "text": "Error",
+                   "details": "manifest unknown"}
+
+        def command(cmd, **options):
+            started.append(cmd)
+            pull = "pull" in cmd and "--policy" in cmd
+            lines = [json.dumps(refused)] if pull and cmd[-1] == "hybrid" else [] if pull else \
+                ["Container gio-x Started"]
+            return mock.Mock(stdout=iter(line + "\n" for line in lines), wait=lambda: 0, returncode=0)
+        with mock.patch.object(jobs.subprocess, "Popen", command):
+            job.run()
+        # The hybrid gateway ran before the apply and stopped for it: its own `up` never ran
+        self.assertNotIn(["up", "-d", "--no-deps", "--wait", f"--wait-timeout={plugins.WAIT}", "hybrid"],
+                         [cmd[cmd.index("up"):] for cmd in started if "up" in cmd])
+        self.assertEqual((job.ok, job.error()), (False, "Could not pull graviteeio/gio-hybrid:5: manifest unknown"))
 
 
 if __name__ == "__main__":

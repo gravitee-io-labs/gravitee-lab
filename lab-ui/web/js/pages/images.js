@@ -15,7 +15,7 @@ const PER_GROUP = 80;   // the tags of a group listed until a search finds the o
 let images = null;      // the components, and the registries in use
 let registry = null;    // the registry that asks for a login, as /api/registry says it
 let draft = {};         // the variables changed and not saved yet
-const tags = {};        // the tags of a component on a registry, once listed since the page opened or a job ended
+const tags = {};        // the tags of a component on a registry as last listed, old once the page opens or a job ends
 // The sections that fold: the platform and its add-ons open, the third-party components folded. The browser keeps the choice.
 const KEPT = { platform: "platformOpen", addons: "addonsOpen", third: "thirdPartyOpen" };
 const open = { platform: recall(KEPT.platform) !== "0", addons: recall(KEPT.addons) !== "0", third: recall(KEPT.third) === "1" };
@@ -102,15 +102,16 @@ function causesOf(c) {
 }
 const tagsKey = (c) => `${c.id}:${regOf(c) ?? ""}`;
 
-// The tags of a component on its registry. A registry that does not answer is asked again the next time.
+// The tags of a component on its registry, read again once old (load). A registry that does not answer is asked again
+// the next time, and the list it gave before stays.
 async function tagsOf(c) {
   const key = tagsKey(c);
-  if (!tags[key]) {
+  if (!tags[key] || tags[key].old) {
     const registry = c.kind === "gravitee" ? `&registry=${encodeURIComponent(regOf(c))}` : "";
     try {
       tags[key] = await api(`/api/tags?component=${encodeURIComponent(c.id)}${registry}`);
     } catch (err) {
-      return { error: err.message };
+      return tags[key] || { error: err.message };
     }
     draw();   // the row says when its tag is not among them
   }
@@ -415,8 +416,9 @@ const login = (host) => runJob(() => api("/api/registry/login", { host }), { key
 
 async function load() {
   loadRegistry();
-  // The tags listed and those Docker holds are asked again too: a job may have pulled one, and a registry gets new ones
-  for (const key of Object.keys(tags)) delete tags[key];
+  // The tags listed and those Docker holds are asked again too: a job may have pulled one, and a registry gets new ones.
+  // A row judges its tag by the list it had until the new one comes
+  for (const list of Object.values(tags)) list.old = true;
   reading = true;
   try {
     images = await api("/api/images");
@@ -428,6 +430,7 @@ async function load() {
   }
   reading = false;
   draw();
+  images.components.filter((c) => isChanged(c) && !followOf(c)).forEach(tagsOf);   // the rows that may say "Tag not listed"
 }
 
 // Save, or Save & apply (`apply`) of the draft as it is when clicked. What applying recreates is said first, as the

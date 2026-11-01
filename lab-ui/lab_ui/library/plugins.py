@@ -5,6 +5,7 @@ import hashlib
 import http.client
 import re
 import socket
+import ssl
 import time
 import urllib.error
 import urllib.parse
@@ -287,19 +288,19 @@ def _download(job, folder, plugin, version):
     the network), is tried again, up to DOWNLOAD_TRIES times: a nightly test must not fail on a transfer. A cancel ends
     it at the next piece read, or before the next try. Nothing is left of a download that failed, and why is said in
     plain words."""
-    folder.mkdir(parents=True, exist_ok=True)
     url, unit = f"{DOWNLOADS}/{plugin['path']}{version['file']}", ("Download", plugin["name"])
     job.lines.append(f"Downloading {version['file']} ({max(1, version['size'] // 1024)} KB)")
     part = folder / f".{version['file']}.part"
     for attempt in range(1, DOWNLOAD_TRIES + 1):
         _canceled(job)
         try:
+            folder.mkdir(parents=True, exist_ok=True)
             expected = _fetch_part(job, url, part, unit, version["size"])
             break
         except BaseException as error:
             part.unlink(missing_ok=True)
             said = error if isinstance(error, JobFailed) or not isinstance(error, Exception) else \
-                JobFailed(f"{version['file']}: {web_error(error, SITE)}")
+                JobFailed(f"{version['file']}: {_unsaved(error, folder) or web_error(error, SITE)}")
             if job.canceled or attempt == DOWNLOAD_TRIES or not _transient(error):
                 if said is error:
                     raise
@@ -308,6 +309,15 @@ def _download(job, folder, plugin, version):
             time.sleep(2 ** attempt)
     job.lines.append("  SHA-1 verified" if expected else "  No published checksum")
     return part
+
+
+def _unsaved(error, folder):
+    """Why a download cannot be written in the shared folder, in plain words: a full disk, a folder Docker made as
+    root. None for an error of the network (an OSError too), which web_error() says."""
+    if not isinstance(error, OSError) or isinstance(error, (urllib.error.URLError, ConnectionError, TimeoutError,
+                                                            socket.timeout, ssl.SSLError)):
+        return None
+    return f"Cannot be saved in {folder.relative_to(ROOT)}: {(error.strerror or 'disk error').lower()}"
 
 
 def _fetch_part(job, url, part, unit, size):
@@ -408,8 +418,9 @@ def up(job, project, names):
     folder as they start (.work), and two at once break each other's: a plugin of one does not load. Compose starts them
     one after the other when one depends on the other, as the core's do. Any other one starts first and alone, with what
     it depends on among these, in the order Compose would start them, and the next one once it is ready (healthy, or
-    running without a health check). A wait that ends otherwise, unhealthy or after WAIT seconds, keeps nothing else
-    from starting: its container says it."""
+    running without a health check). It is started, then waited for: a start that fails (an image it could not pull,
+    a container not made) fails the job; a wait that ends otherwise, unhealthy or after WAIT seconds, keeps nothing
+    else from starting: its container says it."""
     names = list(names)
     depends = {name: layers.depends(project, names, [name]) for name in names}
     order = {name: (len(depends[name]), name) for name in names}
@@ -422,8 +433,9 @@ def up(job, project, names):
     for name in sorted(alone, key=order.get):
         group = sorted(({name} | depends[name]) - started)
         started.update(group)
-        try:
-            job.exec([*COMPOSE, "up", "-d", "--no-deps", "--wait", f"--wait-timeout={WAIT}", *group])
+        job.exec([*COMPOSE, "up", "-d", "--no-deps", *group])
+        try:   # the containers are made: this `up` only waits
+            job.exec([*COMPOSE, "up", "-d", "--no-deps", "--wait", f"--wait-timeout={WAIT}", *group], quiet=True)
         except JobFailed:
             if job.canceled:
                 raise
