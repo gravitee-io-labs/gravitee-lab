@@ -203,8 +203,8 @@ def _reset(project, by_name):
 
 def _core_start(project, accept):
     """Start all with API Management in the Cloud (core.plan, made again now, the platform read again): the hybrid gateway
-    of the chosen environment, its token written first when the add-on holds another one, its plan run as every plan's
-    (layers.steps), then the rest of the platform and what is on, with what they depend on. Nothing of API Management
+    of the chosen environment, its plan run as every plan's (layers.steps, its token written once what goes is removed
+    when the add-on holds another one), then the rest of the platform and what is on, with what they depend on. Nothing of API Management
     starts, nor what exists only for it. What it stops or turns off besides must be what the page showed (`accept`)."""
     state, containers = layers.current(project), compose.ps()
     found = core.plan(project, state, containers, projects.saved(project), live=True)
@@ -220,8 +220,8 @@ def _core_start(project, accept):
     changes = layers.changes(project, gateway)
     changes["start"] += [["service", name] for name in others]
     # The job says what its dialog showed it starts: the gateway and the rest
-    swap = [] if place["here"] else [layers.swapping(project, gateway, uid, found["gateway_id"])]
-    steps = [*swap, serve, *layers.steps(project, {**gateway, "starts": found["dialog"]["starts"]}),
+    swap = None if place["here"] else layers.swapping(project, gateway, uid, found["gateway_id"])
+    steps = [serve, *layers.steps(project, {**gateway, "starts": found["dialog"]["starts"]}, swap=swap),
              *([[*COMPOSE, "up", "-d", "--no-deps", *others]] if others else []), lambda job: places.invalidate(uid)]
     waits = layers.waits(project, gateway) + ([awaited(project["services"], start=others)] if others else [])
     return JOBS.start(f"Start all for {place['name']}", steps, key="platform", verb="start", changes=changes, waits=waits)

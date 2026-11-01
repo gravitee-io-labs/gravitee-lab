@@ -386,16 +386,16 @@ def gateway_dialog(req, pid, gid):
 
 def start_gateway(req, pid, gid):
     """Starts a gateway: the add-on that runs it, with the token kept for this one. It is a job of the add-on, whose
-    own buttons show it, and runs as every plan's (layers.steps). The token is written by the job first, before the
-    add-on is made, whenever the gateway is not the one that runs here: the add-on may hold another, or one no platform
-    lists any more. The add-on may come from a catalog: the start is verified by the catalogs (layers.check), as every
+    own buttons show it, and runs as every plan's (layers.steps). The token is written by the job once what goes is
+    removed, before the on file is written and the add-on made, whenever the gateway is not the one that runs here: the
+    add-on may hold another, or one no platform lists any more. The add-on may come from a catalog: the start is verified by the catalogs (layers.check), as every
     other start is."""
     p = project.load()
     plan, place = gateway_plan(p, pid, gid)
     layers.check(p, plan, accepted(req))
     name = p["addons"][place["gateway"]]["name"]
-    swap = [] if place["here"] else [layers.swapping(p, plan, pid, gid)]
-    steps = [*swap, *layers.steps(p, plan), lambda job: places.invalidate(pid)]
+    swap = None if place["here"] else layers.swapping(p, plan, pid, gid)
+    steps = [*layers.steps(p, plan, swap=swap), lambda job: places.invalidate(pid)]
     return JOBS.start(f"{plan['label']} {name}", steps, key=f"addon:{place['gateway']}", verb="start",
                       changes=layers.changes(p, plan), waits=layers.waits(p, plan))
 

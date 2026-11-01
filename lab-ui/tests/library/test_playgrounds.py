@@ -1958,6 +1958,19 @@ class Deploying(Deploys):
         job, calls = self.execute()
         self.assertEqual((job.ok, job.error(), calls, self.written), (False, "Its token is not kept here", [], []))
 
+    def test_a_deploy_whose_removal_fails_leaves_the_token_the_gateway_holds(self):
+        # The add-on holds no token of this place's gateway; what the deploy also stops cannot be removed: the job changed
+        # nothing
+        self.ready()
+        swap = self.patch(platforms, "swap_gateway")
+        envfiles.write(ADDON_ENV, {"HYBRID_CLOUD_TOKEN": None})
+        self.state, self.containers = on(self.project, playground="demo"), running("demo-app", "kiosk")
+        self.deploy(accept=["playground:demo", "addon:kiosk"])
+        job, calls = self.execute({"rm": (["Error response from daemon: cannot stop container"], 1)})
+        self.assertEqual((job.ok, [command for command, _ in calls], self.written),
+                         (False, [[*compose.by_name(), "rm", "--stop", "--force", "-v", "demo-app", "kiosk"]], []))
+        swap.assert_not_called()
+
     def test_a_deploy_whose_on_file_changed_since_its_plan_does_not_change_the_gateways_token(self):
         # Another tab turned something on meanwhile: the job ends before anything changes, the token included
         self.ready()

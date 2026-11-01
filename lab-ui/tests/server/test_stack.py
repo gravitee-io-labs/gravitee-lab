@@ -275,6 +275,22 @@ class StackActions(Case):
         self.assertIn("addons/kafka/compose.yml", (self.root / paths.ON_FILE).read_text(),
                       "Kafka still runs: it is still on, never off and running")
 
+    def test_a_cloud_cores_start_all_whose_removal_fails_leaves_the_token_the_add_on_holds(self):
+        # The add-on holds the token of another environment's gateway (here false); Kafka, on and running, cannot run with
+        # it: Start all stops it, and the removal fails, before anything changed
+        self.folder(paths, compose, envfiles)
+        swap = self.patch(stack.platforms, "swap_gateway")
+        self.patch(stack.places, "invalidate")
+        self.write(paths.ON_FILE, "include:\n  - playgrounds/welcome/compose.yml\n  - addons/kafka/compose.yml\n")
+        gateway = self.cloud_core(here=False).return_value["gateway"]
+        gateway.update(explicit=["hybrid"], stops=[{"kind": "addon", "id": "kafka", "name": "Kafka"}],
+                       services={"remove": ["kafka", "kafka-ui"], "start": ["hybrid"]}, stamp=layers.stamp())
+        stack.action(PROJECT, "start", for_core=True, accept=["addon:kafka"])
+        job, ran = self.core_job(fails="rm")
+        self.assertEqual((job.ok, ran[0][-6:]), (False, ["rm", "--stop", "--force", "-v", "kafka", "kafka-ui"]))
+        self.assertIn("addons/kafka/compose.yml", (self.root / paths.ON_FILE).read_text())
+        swap.assert_not_called()   # the job changed nothing: the add-on still holds the token it held
+
     def test_a_cloud_cores_start_all_with_nothing_to_start_or_unaccepted_stops_is_refused(self):
         self.cloud_core(needed=False)
         with self.assertRaisesRegex(RuntimeError, "Everything runs"):

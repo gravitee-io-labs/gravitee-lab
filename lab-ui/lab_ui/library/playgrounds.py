@@ -518,8 +518,8 @@ def deploy_unit(project, kind, uid, accept, place):
 
 
 def _on_place(project, plan, uid, gateway, said):
-    """The steps, phases and waits of a start on a place: the gateway of its platform takes the place's token when it
-    serves another one (platforms.swap_gateway), then the plan's own steps (layers.steps: what goes removed, the on file
+    """The steps, phases and waits of a start on a place: the plan's own steps (layers.steps: what goes removed, the
+    place's token given to the gateway of its platform when it serves another one (platforms.swap_gateway), the on file
     written for the platform, what starts by name, what of this machine's platform it needs with it, which Compose
     starts in the order of what each depends on), then the wait for the platform to say that the gateway is connected.
     `said`: where it runs, in a line."""
@@ -528,8 +528,8 @@ def _on_place(project, plan, uid, gateway, said):
     def addons(job):
         job.step("Add-ons")
         # The add-on is set to run another gateway, or none that exists: it takes this one's
-        swap = [] if gateway["here"] else [layers.swapping(project, plan, uid, gateway["id"])]
-        job.run_steps([*swap, *layers.steps(project, plan, ())])
+        swap = None if gateway["here"] else layers.swapping(project, plan, uid, gateway["id"])
+        job.run_steps(layers.steps(project, plan, (), swap=swap))
         job.lines.append(said)
 
     def apps(job):

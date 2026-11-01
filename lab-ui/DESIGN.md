@@ -1346,7 +1346,8 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
 - **The swap** is a Start: on the line of another gateway, or of a playground whose place is served by another gateway.
   A dialog says first what it does: *Restarts* the Hybrid gateway (*Recreated to take the changes*), *Serves* the place
   from now on, *Stops serving* the place it served. The job writes the kept token as `HYBRID_GATEWAY_CLOUD_TOKEN`
-  (`platforms.swap_gateway`) before Compose recreates the container, whenever the place's gateway is not the one here,
+  (`platforms.swap_gateway`) once what goes is removed, before the on file is written and Compose recreates the container
+  (a job that ends before then leaves the token as it was), whenever the place's gateway is not the one here,
   also when the token the add-on holds belongs to no listed gateway any more. The APIs of the environment that stops
   being served stay in Cloud and answer from nothing here; the note says *Stops serving* for that reason.
 - **The gateway outlives the playground's Stop.** It is an add-on that a deploy turned on and is independent from then

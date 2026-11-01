@@ -1601,7 +1601,7 @@ class GatewayRoutes(GatewayCase):
         title, steps, more, job = self.run_steps()
         self.assertEqual(more["key"], "addon:hybrid")
         self.swap.assert_called_once_with(self.project, "my-account", "gw-1")
-        self.assertEqual([call[0] for call in calls.mock_calls], ["swap", "write"], "the token first, then the plan's job")
+        self.assertEqual([call[0] for call in calls.mock_calls], ["swap", "write"], "the token, then the on file")
         self.assertEqual(job.lines, ["Restarts: Hybrid gateway"])
 
     def test_a_gateway_whose_token_is_gone_by_the_job_fails_in_the_words_of_the_refusal(self):
@@ -1695,6 +1695,41 @@ class GatewayOnFile(GatewayCase):
         self.assertEqual((job.ok, ran[0][-5:]), (False, ["rm", "--stop", "--force", "-v", "redpanda"]))
         self.assertIn("addons/redpanda/compose.yml", (self.root / paths.ON_FILE).read_text(),
                       "Redpanda still runs: it is still on, never off and running")
+
+    def test_a_gateway_s_job_whose_removal_fails_leaves_the_token_the_add_on_holds(self):
+        # The add-on holds the token of the gateway of Test (here false) and is off; Redpanda, on and running, cannot run
+        # with it: the start stops it, and the removal fails, before anything changed
+        self.project["addons"]["redpanda"]["conflicts"]["hybrid"] = "same ports"
+        self.on_file("include:\n  - addons/redpanda/compose.yml\n")
+        self.state = {**test_layers.on(self.project, ["redpanda"]), "stamp": layers.stamp()}
+        self.running = test_layers.up("redpanda", project=self.project)
+        self.where = {**self.where, "here": False, "serving": {"id": "client-lab/test", "name": "Test (Client lab)"}}
+        accept = [layers.key("addon", "redpanda")]
+        status, _, body = self.request("POST", f"{self.GATEWAY}/start", {"accept": accept})
+        self.assertEqual(status, 200, body)
+        job, ran = self.job(fails="rm")
+        self.assertEqual((job.ok, ran[0][-5:]), (False, ["rm", "--stop", "--force", "-v", "redpanda"]))
+        self.assertIn("addons/redpanda/compose.yml", (self.root / paths.ON_FILE).read_text())
+        self.swap.assert_not_called()   # the job changed nothing: the add-on still holds the token of Test
+
+    def test_a_gateway_s_job_swaps_the_token_once_what_goes_is_removed_and_before_the_on_file_is_written(self):
+        self.project["addons"]["redpanda"]["conflicts"]["hybrid"] = "same ports"
+        self.on_file("include:\n  - addons/redpanda/compose.yml\n")
+        self.state = {**test_layers.on(self.project, ["redpanda"]), "stamp": layers.stamp()}
+        self.running = test_layers.up("redpanda", project=self.project)
+        self.where = {**self.where, "here": False, "serving": {"id": "client-lab/test", "name": "Test (Client lab)"}}
+        order = []
+        self.swap.side_effect = lambda *args: order.append(("swap", (self.root / paths.ON_FILE).read_text()))
+        status, _, body = self.request("POST", f"{self.GATEWAY}/start", {"accept": [layers.key("addon", "redpanda")]})
+        self.assertEqual(status, 200, body)
+        title, steps, more = self.started(self.jobs)
+        job = Job(title, steps, **more)
+        job.exec = lambda cmd, quiet=False: order.append(("run", cmd[-5:]))
+        job.run()
+        self.assertTrue(job.ok, job.error())
+        self.assertEqual(order[:2], [("run", ["rm", "--stop", "--force", "-v", "redpanda"]),
+                                     ("swap", "include:\n  - addons/redpanda/compose.yml\n")])
+        self.assertNotIn("redpanda", (self.root / paths.ON_FILE).read_text())
 
 
 class GatewayDeletes(GatewayCase):

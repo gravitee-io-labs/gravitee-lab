@@ -1508,9 +1508,11 @@ def unchanged(plan):
 
 
 def swapping(project, plan, uid, gateway):
-    """The step that makes a platform's gateway the one its add-on runs here (platforms.swap_gateway), first in the job of
-    a plan that starts it elsewhere than the one that runs: once the on file is as the plan read it (unchanged()), since
-    the job changes nothing otherwise. Its refusal (no add-on runs it, its token is no longer kept) is the job's reason."""
+    """The step that makes a platform's gateway the one its add-on runs here (platforms.swap_gateway), in the job of a
+    plan that starts it elsewhere than the one that runs: once what goes is removed and just before the on file is
+    written (steps(), `swap`), so that a job that fails or is canceled before then leaves the token as it was, and once
+    the on file is as the plan read it (unchanged()), since the job changes nothing otherwise. Its refusal (no add-on runs
+    it, its token is no longer kept) is the job's reason."""
     def swap(job):
         unchanged(plan)
         try:
@@ -1520,15 +1522,16 @@ def swapping(project, plan, uid, gateway):
     return swap
 
 
-def steps(project, plan, start=None):
+def steps(project, plan, start=None, swap=None):
     """The steps of the job of a plan, in the order that leaves the lab as it says wherever the job ends (it fails, it
     is canceled, the Lab UI stops): nothing for a plan the on file changed since (unchanged()); then what goes is
     removed, while the on file still names it, so that it is on and stopped rather than off and still running, which
-    would read as started by hand; then the on file is written (written()); then what starts and restarts, by name
+    would read as started by hand; then a gateway's token is swapped (`swap`, the step swapping() makes, when the plan
+    starts one that does not run here); then the on file is written (written()); then what starts and restarts, by name
     (commands()). `start`: the services the last one names, when they are more than the plan's (a playground's product,
     stopped to load its plugins)."""
-    return [lambda job: unchanged(plan), *_removal(plan["services"]["remove"]), lambda job: written(job, project, plan),
-            *starting(plan["services"]["start"] if start is None else start)]
+    return [lambda job: unchanged(plan), *_removal(plan["services"]["remove"]), *([swap] if swap else []),
+            lambda job: written(job, project, plan), *starting(plan["services"]["start"] if start is None else start)]
 
 
 SAID = (("starts", "Starts"), ("stops", "Stops"), ("turns_off", "Turns off"), ("restarts", "Restarts"))
