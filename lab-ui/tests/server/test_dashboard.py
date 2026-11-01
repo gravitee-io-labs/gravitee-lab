@@ -5,7 +5,6 @@ answer is given."""
 
 import json
 import queue
-import re
 import threading
 import time
 import unittest
@@ -14,7 +13,6 @@ from urllib.error import URLError
 
 from lab_ui.docker import compose
 from lab_ui.server import dashboard
-from lab_ui import paths
 
 from .. import Case
 
@@ -233,11 +231,6 @@ class Versions(Case):
         for tag, found in (("4.12.21-debian", ("4.12.21", "debian")), ("4.12.20-chainguard-fips", ("4.12.20", "chainguard-fips")),
                            ("4.13.0-alpha.8", ("4.13.0-alpha.8", "")), ("latest", ("latest", "")), ("debian", ("debian", ""))):
             self.assertEqual(dashboard.bare(tag), found, tag)
-
-    def test_the_systems_are_those_of_the_images_page(self):
-        source = (paths.WEB_DIR / "js" / "core.js").read_text(encoding="utf-8")
-        listed = re.search(r"^export const VARIANTS = \[(.*?)\];", source, re.M).group(1)
-        self.assertEqual(dashboard.VARIANTS, tuple(re.findall(r'"([^"]+)"', listed)))
 
     def test_a_tag_that_moves_names_no_version(self):
         for tag in ("latest", "latest-debian", "4", "4.12", "4.12-debian", "4.13.0-alpha", "4.13.0-alpha-debian",

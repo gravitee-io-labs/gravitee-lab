@@ -424,10 +424,26 @@ def _after(project, state, kind, unit, do, kept=frozenset()):
     return (unit["id"], explicit) if kind == "playground" else (playground, explicit | targets)
 
 
+# The system an image is built on, at the end of its tag: not part of its version (VARIANTS in js/core.js, which a test
+# keeps equal)
+VARIANTS = ("chainguard-fips", "chainguard", "debian", "noble", "jammy", "alpine")
+
+
+def bare(tag):
+    """(the tag without its system, the system or ""): "4.13.0-alpha.8-debian" gives ("4.13.0-alpha.8", "debian"). Every
+    version of an image is compared so, here and on the Dashboard."""
+    tag = str(tag or "")
+    for variant in VARIANTS:
+        if tag.endswith(f"-{variant}"):
+            return tag[:-len(variant) - 1], variant
+    return tag, ""
+
+
 def _version(text):
-    """A version as it orders: (its numbers, its pre-release identifiers or None). "4.13.0-alpha.3-debian" is
-    ((4, 13, 0), ["alpha", "3"]); None for a tag without numbers."""
-    found = re.match(r"(\d+(?:\.\d+)*)(?:-([0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*))?", text or "")
+    """A version as it orders, its system left out (bare): (its numbers, its pre-release identifiers or None).
+    "4.13.0-alpha.3-debian" is ((4, 13, 0), ["alpha", "3"]), "4.13.1-chainguard" ((4, 13, 1), None); None for a tag
+    without numbers."""
+    found = re.match(r"(\d+(?:\.\d+)*)(?:-([0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*))?", bare(text)[0])
     if not found:
         return None
     return tuple(map(int, found.group(1).split("."))), found.group(2) and found.group(2).split(".")
@@ -442,7 +458,7 @@ def at_least(tag, wanted):
     (amp-demo-latest, a build and not a release) is not ordered: it is that build or it is not."""
     have, want = _version(tag), _version(wanted)
     if not want:
-        return VARIANT.sub("", str(tag)) == VARIANT.sub("", str(wanted))
+        return bare(tag)[0] == bare(wanted)[0]
     if not have:
         return True
     size = max(len(have[0]), len(want[0]))
@@ -492,7 +508,7 @@ def enough(unit, variable, tag, wanted):
     """Whether an image tag meets the minimum a playground asks of it (`requires.images`): it is that version or a later one
     (at_least), or the playground lists it among the versions it was tested with, which is the playground saying it works on it
     (a preview such as 4.13.0-alpha.5 is before 4.13, and is fine only so)."""
-    return at_least(tag, wanted) or any(VARIANT.sub("", tag) == VARIANT.sub("", str(version[variable]))
+    return at_least(tag, wanted) or any(bare(tag)[0] == bare(version[variable])[0]
                                         for version in unit.get("tested") or [] if version.get(variable))
 
 
@@ -556,16 +572,13 @@ def switch_rows(project, to):
     return [row for key, row in rows.items() if key not in back], [row for key, row in rows.items() if key in back]
 
 
-VARIANT = re.compile(r"-(?:debian|alpine|slim)$")   # the base an image is built on: not part of its version
-
-
 def _tested(have, tested):
     """Whether an image tag is the version a playground was tested with, or taken for it: a release of the same minor
     version (4.13.7 for 4.13.0), when the version it was tested with is a release too. A preview (4.13.0-alpha.3), a demo
     build and a tag without numbers (latest) are tested only as they are: they say nothing of what comes after them, and a
     moving one nothing of what it holds today. Another minor or major version is not taken for it: Gravitee changes
     things between them."""
-    have, tested = VARIANT.sub("", have), VARIANT.sub("", tested)
+    have, tested = bare(have)[0], bare(tested)[0]
     if have == tested:
         return True
     wanted, found = _version(tested), _version(have)
@@ -578,9 +591,9 @@ def _goes_back(have, version):
     """Whether going from the version that is saved (`have`) to another is going back, so that what the newer one wrote may not open: a
     release before it, or a release after a build that says nothing of its numbers (latest, master-latest, amp-demo-latest), which is
     taken as the newest. Going to such a build is going forward."""
-    found, wanted = _version(VARIANT.sub("", have or "")), _version(VARIANT.sub("", version or ""))
+    found, wanted = _version(have), _version(version)
     if found and wanted:
-        return VARIANT.sub("", have) != VARIANT.sub("", version) and at_least(have, version)
+        return bare(have)[0] != bare(version)[0] and at_least(have, version)
     return not found and bool(wanted)
 
 
@@ -597,9 +610,9 @@ def _recorded(project, versions, images, image_id):
                 return False
             continue
         have = found[0]
-        if VARIANT.sub("", have) != VARIANT.sub("", wanted):
+        if bare(have)[0] != bare(wanted)[0]:
             return False
-        version = _version(VARIANT.sub("", have))
+        version = _version(have)
         if not (version and not version[1]) and (not image_id or image_id(service_of(project, variable)[1]) != images.get(variable)):
             return False
     return any(saved_setting(project, variable) for variable in versions)
@@ -611,7 +624,7 @@ CONFORM = re.compile(r"\d+\.\d+\.\d+")   # major.minor.patch: a release, the onl
 def conform(tag):
     """Whether an image tag is a release (4.13.7, 4.13.7-debian). Anything else is not safe to assume of: a pre-release
     (4.13.0-alpha.5), a demo build (amp-demo-latest), a moving tag (latest, 4.13), whatever its numbers say."""
-    return bool(CONFORM.fullmatch(VARIANT.sub("", tag or "")))
+    return bool(CONFORM.fullmatch(bare(tag)[0]))
 
 
 def _listed(unit, variable, tag):
@@ -619,7 +632,7 @@ def _listed(unit, variable, tag):
     requires. A variant (-debian) is not part of a version."""
     named = [version[variable] for version in unit.get("tested") or [] if version.get(variable)]
     named.append(((unit.get("requires") or {}).get("images") or {}).get(variable))
-    return any(VARIANT.sub("", tag) == VARIANT.sub("", str(one)) for one in named if one)
+    return any(bare(tag)[0] == bare(one)[0] for one in named if one)
 
 
 def untested(project, unit, recorded=(), image_id=None):

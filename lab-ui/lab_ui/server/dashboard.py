@@ -19,6 +19,7 @@ from pathlib import Path
 
 from ..docker import compose, images
 from ..library import project as projects
+from ..library.layers import bare   # a tag without the system it is built on, as the version gate reads it
 
 DOCKER_TTL = 60       # seconds Docker's answers are kept: a quick back and forth does not read them again
 DF_WAIT = 0.4         # seconds a read lasts at the most for what Docker holds, the slow one, before the page is drawn without it
@@ -29,8 +30,6 @@ RESTART = 2           # seconds before `docker stats` is started again when it e
 NAMES_TTL = 10        # seconds the names of the lab's containers are kept
 MEMINFO = Path("/proc/meminfo")
 TYPES = ("images", "containers", "volumes", "cache")   # what `docker system df` counts, in the order it lists them
-# The system an image is built on, at the end of a tag: not part of its version (VARIANTS in js/core.js)
-VARIANTS = ("chainguard-fips", "chainguard", "debian", "noble", "jammy", "alpine")
 # A tag that names a build: three numbers, then a pre-release that ends with one (alpha.4); not 4.12, latest or alpha
 VERSION = re.compile(r"v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]*\d))?")
 # Docker writes sizes in powers of 1000 (`system df`: 58.89GB) or of 1024 (`stats`: 731.8MiB)
@@ -209,14 +208,6 @@ def machine():
 # ---------------------------------------------------------------------------------------------------------------------
 # Versions
 # ---------------------------------------------------------------------------------------------------------------------
-
-def bare(tag):
-    """(the tag without its system, the system or ""): "4.13.0-alpha.8-debian" gives ("4.13.0-alpha.8", "debian")."""
-    for variant in VARIANTS:
-        if tag.endswith(f"-{variant}"):
-            return tag[:-len(variant) - 1], variant
-    return tag, ""
-
 
 def parse(tag):
     """(numbers, pre-release or None) of a tag that names a build, its system ignored ("4.13.0-alpha.8-debian" gives
