@@ -970,8 +970,8 @@ def find_docker():
 
 
 def requirement():
-    """What this machine lacks to run the lab, in one line, in the words of the Makefile's; None when it lacks
-    nothing."""
+    """What this machine lacks to run the lab, in one line, in the words of the Makefile's; "" when it lacks nothing,
+    which the cache of the state keeps as it keeps a line (it keeps no None)."""
     rc, out, _ = compose.run(["docker", "compose", "version", "--short"], timeout=20)
     if rc == 127:   # docker itself is not there
         return f"docker not found: install Docker with Compose 5.0 or later {README}"
@@ -981,7 +981,7 @@ def requirement():
     if rc != 0 or len(version) < 2 or version < (5, 0):
         found = out.strip().lstrip("v") if rc == 0 else ""
         return f"Docker Compose 5.0 or later is needed, found: {found or 'none'} {README}"
-    return None
+    return ""
 
 
 def listing():

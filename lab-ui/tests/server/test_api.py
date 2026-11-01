@@ -1852,14 +1852,22 @@ class CommandLine(LabUI):
         for answer, expected in [((0, "2.40.3\n", ""), old.format("2.40.3")),
                                  ((0, "v4.9.1\n", ""), old.format("4.9.1")),
                                  ((0, "dev\n", ""), old.format("dev")),
-                                 ((0, "5.0.0-desktop.1\n", ""), None), ((0, "v5.4.0\n", ""), None),
-                                 ((0, "5.6.0\n", ""), None),
+                                 ((0, "5.0.0-desktop.1\n", ""), ""), ((0, "v5.4.0\n", ""), ""),
+                                 ((0, "5.6.0\n", ""), ""),
                                  ((1, "", "docker: 'compose' is not a docker command"), old.format("none")),
                                  ((127, "", "docker: not found"),
                                   "docker not found: install Docker with Compose 5.0 or later "
                                   "(see Prerequisites in README.md)")]:
             run.return_value = answer
             self.assertEqual(api.requirement(), expected)
+
+    def test_a_compose_that_lacks_nothing_is_asked_once_for_the_time_the_state_keeps_it(self):
+        # Every state asks it: the answer that nothing lacks is kept as long as a line that something does
+        run = self.patch(api.compose, "run", return_value=(0, "5.6.1\n", ""))
+        self.patch(api.compose, "CACHE", api.compose.Cache())
+        for _ in range(3):
+            api._docker_down({"docker": {"error": None}, "problems": []})
+        self.assertEqual(run.call_count, 1)
 
     def test_busy_port_opens_the_lab_ui_that_runs(self):
         port = self.server.server_port
