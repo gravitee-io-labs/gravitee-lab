@@ -828,12 +828,26 @@ class Saved(Case):
         with mock.patch.object(compose, "run", return_value=(0, listed, "")) as run:
             self.assertEqual(compose.image_ids(), {"mongo:8.3.11": "sha256:d731", "<none>:<none>": "sha256:0ld",
                                                    "graviteeio/am-gateway:4": "sha256:e633"})
-            compose.image_ids()   # kept for a moment
+            compose.image_ids()
         self.assertEqual(run.call_count, 1)
         self.assertIn("--no-trunc", run.call_args.args[0])
         compose.CACHE.drop("local:")   # a job ended: a pull may have moved a tag
         with mock.patch.object(compose, "run", return_value=(1, "", "Cannot connect to the Docker daemon")):
             self.assertIsNone(compose.image_ids())
+
+    def test_the_images_docker_holds_are_kept_a_minute(self):
+        # A state's refresh every few seconds does not list them each time: they change as a job ends, which drops them
+        compose.CACHE.drop("local:")
+        self.addCleanup(compose.CACHE.drop, "local:")
+        clock = [1000.0]
+        with mock.patch.object(compose.time, "monotonic", lambda: clock[0]), \
+                mock.patch.object(compose, "run", return_value=(0, "mongo:8 sha256:d731\n", "")) as run:
+            for clock[0] in (1000.0, 1030.0, 1059.0):
+                compose.image_ids()
+            self.assertEqual(run.call_count, 1)
+            clock[0] = 1061.0
+            compose.image_ids()
+            self.assertEqual(run.call_count, 2)
 
     def test_an_image_built_again_from_unchanged_sources_is_the_same_image(self):
         # Docker's image store gives each build its own id: the manifest the container was made from says what it runs
@@ -943,6 +957,21 @@ class Docker(Case):
         info = json.dumps({"ServerVersion": "29.7.2", "MemTotal": 8_000_000_000, "NCPU": 8})
         with mock.patch.object(compose, "run", return_value=(0, info, "")):
             self.assertEqual(compose.docker_memory(), 8_000_000_000)
+
+    def test_its_memory_is_kept_until_it_does_not_answer(self):
+        # It changes only as Docker starts again: a state's refresh does not ask for the whole of `docker info`
+        info = json.dumps({"ServerVersion": "29.7.2", "MemTotal": 8_000_000_000})
+        with mock.patch.object(compose, "run", return_value=(0, info, "")) as run:
+            for _ in range(3):
+                self.assertEqual(compose.docker_memory(), 8_000_000_000)
+        self.assertEqual(run.call_count, 1)
+        self.assertGreaterEqual(compose.MEMORY_TTL, 600)
+        with mock.patch.object(compose, "project_name", return_value="lab"), \
+                mock.patch.object(compose, "run", return_value=(1, "", "Cannot connect to the Docker daemon")):
+            self.assertEqual(compose.containers(), ({}, "Cannot connect to the Docker daemon"))
+        more = json.dumps({"ServerVersion": "29.7.2", "MemTotal": 16_000_000_000})
+        with mock.patch.object(compose, "run", return_value=(0, more, "")):
+            self.assertEqual(compose.docker_memory(), 16_000_000_000)   # started again with more
 
     def test_its_scratch_folder_is_private_and_kept_for_the_run(self):
         folder = compose.scratch()

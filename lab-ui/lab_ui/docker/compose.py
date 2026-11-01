@@ -31,6 +31,8 @@ COMPOSE = ["docker", "compose", "--progress", "plain"]
 
 # How long after its last start a container that Docker restarted still counts as restarting, in seconds
 RESTART_WINDOW = 300
+# How long the images Docker holds, and the memory it has, are kept, in seconds: a job drops the images it may move
+IMAGES_TTL, MEMORY_TTL = 60, 600
 
 NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 COMMENT = re.compile(r"(?:^|\s)#(.*)$")
@@ -1180,6 +1182,7 @@ def containers(variable=None):
     try:
         return ps(variable) if variable else ps(), None
     except ComposeError as error:
+        CACHE.drop("docker-memory")   # read again once it answers: it may have started again with other settings
         return {}, str(error)
 
 
@@ -1212,11 +1215,11 @@ def reference(image):
 
 def image_ids():
     """The images Docker holds: {repository:tag: image id}; None when Docker does not answer. A pull or a build may
-    move a tag to another image: asked again after every job."""
+    move a tag to another image: asked again after every job, and a minute later (a pull typed in a terminal)."""
     def ask():
         rc, out, _ = run(["docker", "images", "--no-trunc", "--format", "{{.Repository}}:{{.Tag}} {{.ID}}"], timeout=30)
         return dict(line.split(" ", 1) for line in out.splitlines() if " " in line) if rc == 0 else None
-    return CACHE.get("local:image-ids", 10, ask)
+    return CACHE.get("local:image-ids", IMAGES_TTL, ask)
 
 
 _same = {}
@@ -1335,9 +1338,10 @@ def loaded():
 
 
 def docker_memory():
-    """The memory Docker has, or None when Docker is not reachable."""
+    """The memory Docker has, or None when Docker is not reachable. It changes only as Docker starts again (its
+    settings changed): kept MEMORY_TTL seconds, and dropped when Docker did not answer (containers)."""
     def ask():
         rc, out, _ = run(["docker", "info", "--format", "{{json .}}"], timeout=20)
         info = json.loads(out) if rc == 0 else {}
         return info.get("MemTotal") if info.get("ServerVersion") else None
-    return CACHE.get("docker-memory", 30, ask)
+    return CACHE.get("docker-memory", MEMORY_TTL, ask)
