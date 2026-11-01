@@ -1809,6 +1809,15 @@ class JobRoutes(LabUI):
         self.assertEqual(json.loads(lines[len("data: "):]), self.job.lines)
         self.assertEqual(done, f"event: done\ndata: {json.dumps(self.job.summary())}")
 
+    def test_a_silent_job_is_followed_with_a_comment_now_and_then_so_that_a_closed_page_ends_the_stream(self):
+        self.patch(api, "KEEP_ALIVE", 0)
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=5)
+        self.addCleanup(connection.close)
+        connection.request("GET", f"/api/jobs/{self.job.id}")
+        response = connection.getresponse()
+        self.assertEqual(response.fp.readline(), b": keep-alive\n")
+        self.job.done, self.job.ok = True, True
+
     def test_cancel(self):
         status, _, body = self.request("POST", f"/api/jobs/{self.job.id}/cancel")
         self.assertEqual((status, json.loads(body)["id"]), (200, self.job.id))

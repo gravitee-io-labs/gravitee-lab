@@ -45,6 +45,7 @@ TYPES = {".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".p
 STAMP = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d")   # a log line's timestamp, as `logs --timestamps` writes it
 FOLLOW_AGAIN = 2   # seconds between two looks at a container whose logs ended, until it runs again
 STATS_EVERY = 1    # seconds between two events of the containers' load
+KEEP_ALIVE = 15    # seconds a stream says nothing before it writes a comment: that is how a closed page is noticed
 # The page is HTML in the origin that holds the keys to Docker, and a guide is third-party HTML in it: it runs only the scripts it
 # loads itself (its own files and the pinned directories of the CDN libraries it loads with their hash, never inline), and nothing
 # is framed but the consoles of a playground on this machine. This is what the page needs (tests/web/test_static.py reads it from
@@ -570,21 +571,26 @@ def static(req, folder="", name="index.html"):
 
 def stream_job(req, jid):
     """A job's output as it comes, then its summary. Between them, how far the images it pulls are, when it pulls
-    any ("pulls" events, each the whole of it)."""
+    any ("pulls" events, each the whole of it), and a comment while it is silent: a page that closed ends the stream."""
     job = JOBS.get(jid)
     req.sse_start()
-    sent, pulls = 0, None
+    sent, pulls, beat = 0, None, time.monotonic()
     while True:
         lines = job.lines[sent:]
         if lines:
             req.sse_send(lines)
             sent += len(lines)
+            beat = time.monotonic()
         found = job.pull_view()
         if found and found != pulls:
             req.sse_send(found, event="pulls")
-            pulls = found
+            pulls, beat = found, time.monotonic()
         if job.done and sent >= len(job.lines):
             return req.sse_send(job.summary(), event="done")
+        if time.monotonic() - beat >= KEEP_ALIVE:
+            req.wfile.write(b": keep-alive\n\n")
+            req.wfile.flush()
+            beat = time.monotonic()
         time.sleep(0.2)
 
 
@@ -708,7 +714,7 @@ def send_batches(req, lines):
                 batch.append(item)
         if batch:
             req.sse_send(batch)
-        elif time.time() - beat > 15:   # a silent stream is written to as well: that is how a closed page is noticed
+        elif time.time() - beat > KEEP_ALIVE:   # a silent stream is written to as well: that is how a closed page is noticed
             req.wfile.write(b": keep-alive\n\n")
             req.wfile.flush()
             beat = time.time()
