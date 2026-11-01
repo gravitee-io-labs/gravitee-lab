@@ -69,7 +69,6 @@ def configure(workers=None):
     STOP.clear()
     _failures.clear()
     _later.clear()
-    _milestones.clear()
     _deferring[0] = False
 
 
@@ -123,27 +122,6 @@ def parallel(function, items):
     if STOP.is_set():
         raise failure() or SeedError("the seed was stopped")
     return [future.result() for future in futures]
-
-
-_milestones = {}
-
-
-def milestone(name):
-    """Says that `name` is done: the steps that wait for it (`reached`) go on."""
-    with _state:
-        _milestones.setdefault(name, threading.Event()).set()
-
-
-def reached(name, also=None):
-    """Waits until `name` (or `also`, which says that everything of it is done) is, and not past the end of the seed. Returns at
-    once when the seed runs in order: what it waits for is done."""
-    if WORKERS <= 1:
-        return
-    with _state:
-        events = [_milestones.setdefault(each, threading.Event()) for each in (name, also) if each]
-    while not any(event.is_set() for event in events):
-        check()
-        events[0].wait(0.05)
 
 
 def waits_for_gateway():

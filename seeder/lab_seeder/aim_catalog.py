@@ -57,7 +57,6 @@ from .gamma import CATALOG, Gamma
 
 SECTION = "aim-catalog"
 LISTED = 60   # seconds the catalog has to list an API that API Management has just made
-DEPENDS = ("apim",)   # the modules whose work this one reads on the platform (schedule.py)
 # The folders of the seed it owns
 FOLDERS = ("aim/credentials", "aim/providers", "aim/models", "aim/mcp-servers", "aim/knowledge", "aim/skills",
            "aim/agents", "aim/api-tools")

@@ -595,6 +595,10 @@ class AgentsPlan(Studios):
 
 class Gateway(Studios):
 
+    def setUp(self):
+        super().setUp()
+        self.env(SEED_WAIT_GATEWAY="1")   # what it tests is the wait for the gateway, which a seed does when asked
+
     def test_the_gateway_is_not_asked_unless_the_seed_is_asked_to_wait_for_it(self):
         self.env(SEED_WAIT_GATEWAY="0")
         self.seed()

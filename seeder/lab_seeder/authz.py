@@ -42,7 +42,6 @@ from .common import (HttpError, SeedError, adopted, created, excerpt, files, for
 from .gamma import CATALOG, LISTS, Gamma
 
 SECTION = "authz"
-DEPENDS = ("aim_catalog", "aim_proxies", "aim_agents")   # the modules whose work this one reads on the platform (schedule.py)
 # The folder of the seed it owns
 FOLDERS = ("authz",)
 # The Gamma modules it fills: seed.py checks that the platform serves them before it changes anything

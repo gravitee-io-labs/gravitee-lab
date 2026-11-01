@@ -70,8 +70,6 @@ from .common import (OK, REFUSED, Api, HttpError, SeedError, adopted, claimed, c
                      parallel, record, recorded, seed_file, setting, text, unmade, wait_until)
 
 SECTION = "apim-portal"
-DEPENDS = ("apim",)   # the modules whose work this one reads on the platform (schedule.py)
-MEANWHILE = ("apim",)   # a seed starts it with them: the portal of an environment waits for that environment's APIs (apply)
 ORDER = ["portal-api-page", "portal-listing", "portal-link", "portal-page", "portal", "portal-theme"]   # what depends on what: removed first
 KINDS = {"portal-theme": ("portal theme", "portal themes"), "portal": ("portal", "portals"),
          "portal-page": ("portal page", "portal pages"), "portal-link": ("portal link", "portal links"),
@@ -567,7 +565,6 @@ class Portals:
         return out
 
     def apply(self, folder):
-        common.reached(f"apim:{folder.env}", also="apim")   # its listings name APIs that API Management is making
         log(SECTION, f"Developer Portal of {folder.env}")
         if folder.theme:
             self.upsert(folder, "portal-theme", folder.theme)

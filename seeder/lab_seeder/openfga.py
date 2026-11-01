@@ -20,7 +20,6 @@ from pathlib import Path
 from .common import REFUSED, Api, SeedError, adopted, files, forget, load, log, making, owned, record, setting, wait_until
 
 SECTION = "openfga"
-DEPENDS = ()   # the modules whose work this one reads on the platform: none, so it runs at the start (schedule.py)
 # What it records
 ORDER = ["store"]
 

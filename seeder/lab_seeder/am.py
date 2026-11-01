@@ -26,7 +26,6 @@ from .common import (REFUSED, Api, SeedError, adopted, excerpt, files, forget, i
                      seed_file, setting, unmade, wait_until)
 
 SECTION = "am"
-DEPENDS = ("openfga",)   # the modules whose work this one reads on the platform (schedule.py)
 # What it records, dependents first
 ORDER = ["authorization-engine", "protected-resource", "agent", "application", "group", "user", "scope", "domain"]
 # Where each kind lives under its domain; the domain itself lives under the environment

@@ -488,6 +488,7 @@ class Refilling(Workspaces):
         self.assertIn("[refills] ✓ hackathon: the cost budget of team-hackathon is whole again", self.output())
 
     def test_it_is_done_once_the_workspace_is_deployed_and_the_gateway_serves_it(self):
+        self.env(SEED_WAIT_GATEWAY="1")
         self.seed()
         self.assertEqual(self.moments, [("DEPLOYED", True, 4)])
 
@@ -607,6 +608,7 @@ class Gateway(Workspaces):
 
     def setUp(self):
         super().setUp()
+        self.env(SEED_WAIT_GATEWAY="1")   # what it tests is the wait for the gateway, which a seed does when asked
         self.env(GATEWAY_INTERNAL_URL="http://gateway")
         self.world.users["user-admin"] = ADMIN
 

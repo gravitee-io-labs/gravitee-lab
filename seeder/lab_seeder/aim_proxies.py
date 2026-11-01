@@ -43,7 +43,6 @@ from .common import (Api, SeedError, adopted, making, trouble, created, files, f
                     waits_for_gateway)
 
 SECTION = "aim-proxies"
-DEPENDS = ("aim_catalog", "am_link")   # the modules whose work this one reads on the platform (schedule.py)
 # The folders of the seed it owns
 FOLDERS = ("aim/mcp-proxies", "aim/studios")
 # The Gamma modules it fills: seed.py checks that the platform serves them before it changes anything

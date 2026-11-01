@@ -11,7 +11,6 @@ from .aim_workspaces import subset
 from .common import HttpError, SeedError, adopted, files, forget, has_seed, load, log, making, owned, record, recorded
 
 SECTION = "aim-dashboards"
-DEPENDS = ()   # the modules whose work this one reads on the platform: none, so it runs at the start (schedule.py)
 # The folder of the seed it owns
 FOLDERS = ("aim/dashboards",)
 # What it records, dependents first

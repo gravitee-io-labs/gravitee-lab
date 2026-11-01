@@ -33,7 +33,6 @@ from .common import (SeedError, adopted, excerpt, files, forget, has_seed, items
 from .gamma import CATALOG, WORKSPACES, Gamma
 
 SECTION = "aim-agents"
-DEPENDS = ("am", "am_link", "aim_catalog", "aim_proxies", "apim")   # the modules whose work this one reads on the platform (schedule.py)
 # The folder of the seed it reads: aim_catalog reads it too, for the card of each agent
 FOLDERS = ("aim/agents",)
 # The Gamma modules it fills: seed.py checks that the platform serves them before it changes anything

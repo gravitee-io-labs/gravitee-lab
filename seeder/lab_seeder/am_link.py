@@ -28,7 +28,6 @@ from .common import SeedError, adopted, forget, has_seed, items, load, log, maki
 from .gamma import Gamma
 
 SECTION = "am-link"
-DEPENDS = ("am",)   # the modules whose work this one reads on the platform (schedule.py)
 # The one file of the seed it owns: seed/am/ itself belongs to every playground that seeds Access Management
 FOLDERS = ("am/gamma-link.yaml",)
 # The Gamma modules it fills: seed.py checks that the platform serves them before it changes anything

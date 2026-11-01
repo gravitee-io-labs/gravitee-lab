@@ -135,7 +135,9 @@ playground's seed service sets the variables. `make test` fails on a literal add
   `final=REFUSED`, so a wrong password, a revoked token or a wrong environment id ends it at once. Gamma's modules: a
   `not_configured` is final, and a 404 once it lasts `UNSERVED` seconds (`gamma.py`). Any other wait goes through `pause`,
   which stops when another step has failed.
-- **Parallel** is `schedule.py` for the modules (their `DEPENDS`), `common.parallel` and `common.together` for what a module knows to be independent, `SEED_WORKERS` for how many requests are in flight. A step shared by several threads keeps its state in `common.record`/`common._state`, never in a read-modify-write of its own; see the README (Order and parallelism).
+- **Parallel** is `common.parallel` and `common.together` for what a module knows to be independent, and `SEED_WORKERS` for how
+  many requests are in flight; the modules themselves run one after the other. A step shared by several threads keeps its state
+  in `common.record`, never in a read-modify-write of its own; see the README (Order and parallelism).
 - **A refill** deletes the Redis hashes `ratelimit:*:cost-rl` whose `subscription` field is the member's. Redis trouble is
   a `[refills] !` line and never stops the seed (`refills.py`).
 

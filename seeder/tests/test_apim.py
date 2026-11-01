@@ -1009,6 +1009,7 @@ class StartingTheLessonsOver(ControlledConverged):
         self.assertAlmostEqual(self.clock.elapsed - slept, 0, delta=1)
 
     def test_a_deployment_of_a_control_is_waited_for_until_the_gateway_has_taken_it(self):
+        self.env(SEED_WAIT_GATEWAY="1")
         self.switch("request", "Prompt guard rails", True)
         self.env(GATEWAY_SYNC_SECONDS="5")
         slept = self.clock.elapsed
@@ -1036,6 +1037,7 @@ class Replacement(Converged):
                 if call.url == GATEWAY + "/llm/" or (call.method, call.path) in names]
 
     def test_the_new_definition_is_imported_once_the_gateway_has_dropped_the_old_one(self):
+        self.env(SEED_WAIT_GATEWAY="1")
         self.gateway([401, 401, NO_API, 401])
         before = len(self.platform.calls)
         apim.seed()
@@ -1076,6 +1078,7 @@ class Waiting(Playground):
 
     def setUp(self):
         super().setUp()
+        self.env(SEED_WAIT_GATEWAY="1")   # what it tests is the wait for the gateway, which a seed does when asked
         self.env(GATEWAY_INTERNAL_URL=GATEWAY, GATEWAY_READY_TIMEOUT="30")
         self.paths = {"/llm/": 401, "/ace/": 401, "/open/": 401}
 
@@ -2477,6 +2480,7 @@ class ManyEnvironments(Estates):
         self.assertEqual(first["users"], 0, "the users come before everything else")
 
     def test_the_gateway_is_waited_for_once_for_the_apis_of_every_environment_within_one_deadline(self):
+        self.env(SEED_WAIT_GATEWAY="1")
         self.env(GATEWAY_INTERNAL_URL=GATEWAY, GATEWAY_READY_TIMEOUT="30")
         paths = {"/open/": 401, "/events/novo/batch-status/": [NO_API, 401], "/events/moderna/batch-status/": [NO_API, NO_API, 401]}
         self.platform.add({("GET", GATEWAY + path): answer for path, answer in paths.items()})
@@ -2488,6 +2492,7 @@ class ManyEnvironments(Estates):
         self.assertEqual(out.count("answers on the gateway"), 3)
 
     def test_an_api_of_an_environment_that_never_answers_names_its_environment(self):
+        self.env(SEED_WAIT_GATEWAY="1")
         self.env(GATEWAY_INTERNAL_URL=GATEWAY, GATEWAY_READY_TIMEOUT="30")
         self.platform.add({("GET", GATEWAY + "/open/"): 401, ("GET", GATEWAY + "/events/moderna/batch-status/"): 401,
                            ("GET", GATEWAY + "/events/novo/batch-status/"): NO_API})

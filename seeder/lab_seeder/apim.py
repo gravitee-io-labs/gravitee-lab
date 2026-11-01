@@ -68,7 +68,6 @@ from .common import (OK, REFUSED, Api, HttpError, SeedError, adopted, created, e
                      owned, parallel, pause, together, record, recorded, seed_file, setting, unmade, wait_until)
 
 SECTION = "apim"
-DEPENDS = ()   # the modules whose work this one reads on the platform: none, so it runs at the start (schedule.py)
 ORDER = ["subscription", "application", "api", "group", "user", "membership"]   # what depends on what: removed first
 ENVIRONMENTS = "environments"   # the folder of seed/ that holds one folder for each extra environment
 ENVIRONMENT = re.compile(r"[a-z0-9-]+")
@@ -188,6 +187,7 @@ class ApiManagement:
         self.automation = Api(f"{root}/automation/organizations/{self.org}/environments/{self.env}", SECTION)
         self.automation.session = self.api.session   # one login for every address
         self.known = None   # the APIs of the environment, listed once and kept up to date as this seed makes them (apis())
+        self.listing = threading.Lock()   # held while `known` is read or changed
         self.groups_by_hrid = {}   # hrid -> {"id", "name"} of the groups of this environment, as groups() finds or makes them
         self.waiting = {}   # (source, sourceId) -> the entry of users.yaml of a user the platform has no row for yet
 
@@ -403,15 +403,16 @@ class ApiManagement:
     # --- APIs -----------------------------------------------------------------------------
 
     def apis(self):
-        """The APIs of the environment: listed the first time they are asked for, then as this seed leaves them."""
-        with common._state:
+        """The APIs of the environment: listed the first time they are asked for, then as this seed leaves them. The steps that
+        import at the same time wait for the one list, which no other step of the seed waits for."""
+        with self.listing:
             if self.known is None:
                 self.known = self.all_apis()
             return list(self.known)
 
     def remember(self, api_id, definition, name, gone=None):
         """What the list of the environment holds after an API was made (and `gone` was dropped)."""
-        with common._state:
+        with self.listing:
             if self.known is not None:
                 self.known = [a for a in self.known if a.get("id") not in (api_id, gone)]
                 self.known.append({"id": api_id, "name": name, "listeners": definition.get("api", definition).get("listeners", [])})
@@ -942,7 +943,6 @@ def seed_own(apim, settings, apis, applications, subscriptions, definitions):
     together([lambda each=each: apim.import_api(*each) for each in loaded]
              + [lambda path=path: apim.application(load(path)) for path in applications])
     parallel(apim.subscription, [spec for path in subscriptions for spec in load(path).get("subscriptions", [])])
-    common.milestone(f"apim:{apim.env}")   # what waits for this environment (the portal) goes on
 
 
 def seed_environment(apim, wanted, definitions):
@@ -963,7 +963,6 @@ def seed_environment(apim, wanted, definitions):
         imports.append(lambda each=(definition, file_name): apim.import_api(*each))
     together(imports + [lambda spec=spec: apim.application(spec) for spec in wanted["applications"]])
     parallel(apim.subscription, wanted["subscriptions"])
-    common.milestone(f"apim:{apim.env}")
 
 
 def seed():

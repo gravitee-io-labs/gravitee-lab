@@ -464,6 +464,7 @@ class Gateway(Proxies):
 
     def setUp(self):
         super().setUp()
+        self.env(SEED_WAIT_GATEWAY="1")   # what it tests is the wait for the gateway, which a seed does when asked
         self.env(GATEWAY_INTERNAL_URL="http://gateway")
 
     def test_the_gateway_is_not_asked_when_the_seed_does_not_know_it(self):
@@ -652,6 +653,7 @@ class ReadyProtections(Protections):
 
     def setUp(self):
         super().setUp()
+        self.env(SEED_WAIT_GATEWAY="1")   # what it tests is the wait for the gateway, which a seed does when asked
         self.env(GATEWAY_INTERNAL_URL="http://gateway", GATEWAY_READY_TIMEOUT="20")
 
     def test_off_a_customer_is_expected_to_see_every_tool(self):

@@ -4,8 +4,11 @@ for a platform that is still starting."""
 
 import json
 import os
+import tempfile
+import threading
 import time
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import requests
@@ -162,6 +165,76 @@ class Requests(Seed):
     def test_a_busy_platform_is_waited_for_about_a_minute(self):
         self.assertLessEqual(common.RETRIES * common.RETRY_PAUSE, 60)
         self.assertGreaterEqual(common.RETRIES * common.RETRY_PAUSE, 45)
+
+
+class Parallel(unittest.TestCase):
+    """What a module does at the same time (`parallel`, `together`, `later`): bounded in one place, the first failure stopping
+    the others."""
+
+    def setUp(self):
+        common.configure(4)
+        self.addCleanup(common.configure, 1)
+
+    def test_items_that_do_not_depend_on_one_another_run_at_the_same_time(self):
+        meeting = threading.Barrier(2, timeout=5)   # each waits for the other: one after the other, neither would ever come
+        self.assertEqual(common.together([lambda: (meeting.wait(), "a")[1], lambda: (meeting.wait(), "b")[1]]), ["a", "b"])
+
+    def test_items_are_done_together_with_their_results_in_the_order_of_the_items(self):
+        self.assertEqual(common.parallel(lambda number: number * 2, [3, 1, 2]), [6, 2, 4])
+        common.configure(1)
+        self.assertEqual(common.parallel(lambda number: number * 2, [3, 1, 2]), [6, 2, 4])
+
+    def test_an_item_that_fails_ends_the_others_and_is_the_failure_raised(self):
+        def work(number):
+            if number == 2:
+                raise common.SeedError("two failed")
+            while True:
+                common.pause(0.01)
+        with self.assertRaisesRegex(common.SeedError, "^two failed$"):
+            common.parallel(work, [1, 2, 3])
+
+    def test_no_more_requests_are_in_flight_than_workers(self):
+        common.configure(2)
+        inside, most, lock = [0], [0], threading.Lock()
+        hold = threading.Event()
+
+        class Session:
+            def request(self, *args, **kwargs):
+                with lock:
+                    inside[0] += 1
+                    most[0] = max(most[0], inside[0])
+                hold.wait(0.1)
+                with lock:
+                    inside[0] -= 1
+        api = common.Api("http://apim")
+        api.session = Session()
+        common.parallel(lambda _: api.send("GET", "/x"), range(6))
+        self.assertEqual(most[0], 2)
+
+    def test_a_request_does_not_start_once_the_seed_stops(self):
+        common.stop(common.SeedError("x"))
+        with self.assertRaises(common.Stopped):
+            common.check()
+        with self.assertRaises(common.Stopped):
+            common.pause(1)
+
+    def test_what_was_created_is_recorded_whole_whoever_records_it(self):
+        with tempfile.TemporaryDirectory() as folder:
+            with mock.patch.object(common, "STATE_FILE", Path(folder) / "created.json"):
+                common.parallel(lambda number: common.record("p", "k", "ks", f"n{number}", number), range(40))
+                self.assertEqual(sorted(x["id"] for x in common.created()), list(range(40)))
+                self.assertEqual(len(json.loads(common.STATE_FILE.read_text())), 40)
+
+    def test_a_wait_put_off_runs_at_the_end_and_at_once_when_nothing_is_put_off(self):
+        ran = []
+        common.later("a wait", lambda: ran.append("now"))
+        self.assertEqual(ran, ["now"])
+        common.defer_waits()
+        common.later("a wait", lambda: ran.append("at the end"))
+        common.later("another", lambda: ran.append("also at the end"))
+        self.assertEqual(ran, ["now"])
+        common.run_later()
+        self.assertEqual(sorted(ran[1:]), ["also at the end", "at the end"])
 
 
 class Provided(Seed):

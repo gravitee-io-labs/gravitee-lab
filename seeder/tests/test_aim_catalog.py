@@ -1083,6 +1083,16 @@ class Playground(Catalog):
         operations = ["listBranches", "getBranch", "listRates", "getRate"]
         self.world.apis["api-1"] = {"name": "Acme Bakery Open API", "operations": operations}
 
+    def test_the_catalog_seeded_with_the_requests_a_seed_has_in_flight_by_default_is_the_one_seeded_in_order(self):
+        """The cards and the servers are read at the same time: the catalog they make is the same, and so is its record."""
+        aim_catalog.seed()
+        alone = (sorted((i["kind"], i["entityId"]) for i in self.world.items.values()), sorted(x["name"] for x in self.records()))
+        self.setUp()
+        self.workers(4)
+        aim_catalog.seed()
+        self.assertEqual((sorted((i["kind"], i["entityId"]) for i in self.world.items.values()), sorted(x["name"] for x in self.records())),
+                         alone)
+
     def test_the_seed_makes_every_object_of_the_catalog_with_an_acme_bakery_name(self):
         self.run_seed()
         self.assertEqual(sorted(c["name"] for c in self.world.credentials.values()),

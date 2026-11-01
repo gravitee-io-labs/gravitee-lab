@@ -17,7 +17,7 @@ on *Re-seed*, and runs `seed.py --remove` for *Delete what it created*. The serv
 
 | Where | What |
 |---|---|
-| `lab_seeder/` | The seeder: one module for each thing it seeds, the helpers they share (`common.py`, `schedule.py`, `controls.py`, `refills.py`, `gamma.py`), the lint of seed files (`seedlint.py`) and the kit of the tests (`testkit.py`) |
+| `lab_seeder/` | The seeder: one module for each thing it seeds, the helpers they share (`common.py`, `controls.py`, `refills.py`, `gamma.py`), the lint of seed files (`seedlint.py`) and the kit of the tests (`testkit.py`) |
 | `seed.py` | The command the image runs: it calls `lab_seeder.seed.main` |
 | `seedlint.py`, `testkit.py` | The paths a catalog reads the lint and the kit at (`python lab/seeder/seedlint.py`, `from testkit import Seed`): each one hands over to the module of the package |
 | `tests/` | The tests, and the invented samples they read (`fixtures/samples/`) |
@@ -54,33 +54,26 @@ A file is named after the object it describes, as its id or its slug: `acme-bake
 
 ## Order and parallelism
 
-What a seed makes, it makes in this order only where one thing depends on another, and otherwise at the same time:
+The modules run one after the other, in the order of the table above, and a removal in the reverse. What a module knows to
+be independent, it makes at the same time:
 
-- **Modules.** Each module (`apim.py`, `am.py`, the Gamma modules...) says in `DEPENDS` which modules' work it reads on the
-  platform. `schedule.py` runs a module as soon as those are done, so Access Management, API Management and Gamma are
-  chains that run side by side and join where one reads the work of another. A removal goes the other way round. A module
-  that says nothing depends on all those before it. A module may say it can start `MEANWHILE` with one it depends on, and
-  wait for what it needs of it step by step (`common.reached("apim:<environment>", also="apim")`, which the other
-  releases with `common.milestone`, or by ending): the portal of an environment starts when that environment's APIs are made,
-  not when every environment's are.
-- **Inside a module.** What a module knows to be independent is made together: the groups, the APIs and the applications of an
-  environment, then its subscriptions; the environments; the portals; what a removal deletes of one kind. A folder whose files
-  depend on one another (the pages of a portal, the manifests of a cluster, the policies of a schema) stays in name order. The
-  platform's users are the organization's, and it does not make them well at the same time (a user was not found after it was
-  made, or a search missed one): one environment at a time makes them, behind a lock, and looks for a new user until the
-  platform lists it.
+- **Inside a module.** The groups, the APIs and the applications of an environment, then its subscriptions; the environments;
+  the portals; the agent cards and the MCP servers the catalog reads; what a removal deletes of one kind. A folder whose
+  files depend on one another (the pages of a portal, the manifests of a cluster, the policies of a schema) stays in name
+  order. The platform's users are the organization's, and it does not make them well at the same time (a user was not found
+  after it was made, or a search missed one): one environment at a time makes them, behind a lock, and looks for a new user
+  until the platform lists it.
 - **Waits.** The seed does not wait for the gateway: what the management API holds is what the seed made, and the gateway takes
   it within seconds. `SEED_WAIT_GATEWAY=1` brings the waits back (every API served, the protections and the budgets in force, a
-  chat through every LLM proxy), put off to the end of the seed (`common.later`) so the steps that do not need them go on
+  chat through every LLM proxy), put off to the end of the seed (`common.later`) so the modules that do not need them go on
   meanwhile. What the seed must wait for to be right stays: an API that is replaced leaves the gateway before it is imported
   again, and a user that a group has just made is looked for until the platform lists it.
 - **Load.** `SEED_WORKERS` (4 by default) is the number of requests in flight at any moment, whatever the number of steps that
   wait for an answer; `1` runs everything in order. The first step that fails stops the others at their next request, and
   its failure is the last line of the output.
 
-A step that is new says what it depends on (`DEPENDS`) and goes through `common.parallel` or `common.together` for what is
-independent in it; a request goes through `Api`, a wait through `pause`, and a record through
-`common.record`, which is safe to call from several steps.
+A step that is new goes through `common.parallel` or `common.together` for what is independent in it; a request goes through
+`Api`, a wait through `pause`, and a record through `common.record`, which is safe to call from several steps.
 
 ## Settings
 

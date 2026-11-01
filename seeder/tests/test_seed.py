@@ -264,45 +264,14 @@ class Modules(Seed):
                 patch.start()
                 self.addCleanup(patch.stop)
 
-    def test_the_modules_that_do_not_depend_on_one_another_seed_at_the_same_time_and_the_others_after_theirs(self):
+    def test_one_module_runs_at_a_time_and_a_failure_stops_the_seed_before_the_next(self):
+        """What the tests run is what a seed does: the modules in their order, whatever SEED_WORKERS says, which only bounds
+        what a module does at the same time."""
         self.workers(4)
-        meeting, events, lock = threading.Barrier(2, timeout=5), [], threading.Lock()   # the two that start first wait for each other
-        for module in seed.MODULES:
-            def note(*arguments, name=module.__name__.rsplit('.', 1)[-1]):
-                with lock:
-                    events.append(("start", name))
-                if name in ("openfga", "apim"):
-                    meeting.wait()
-                with lock:
-                    events.append(("end", name))
-            patch = mock.patch.object(module, "seed", side_effect=note)
-            patch.start()
-            self.addCleanup(patch.stop)
-        self.assertEqual(self.main(), 0, self.output())
-        self.assertEqual(sorted(name for kind, name in events if kind == "start"), sorted(module.__name__.rsplit('.', 1)[-1] for module in seed.MODULES))
-        for module in seed.MODULES:
-            for need in module.DEPENDS:
-                self.assertLess(events.index(("end", need)), events.index(("start", module.__name__.rsplit('.', 1)[-1])), f"{module.__name__.rsplit('.', 1)[-1]} after {need}")
-
-    def test_the_seed_says_what_running_steps_together_saved_and_says_nothing_when_it_saved_nothing(self):
-        seed.told({"apim": 40.2, "am": 25.0, "k8s": 0.2}, 41.0)
-        self.assertIn("[seed] Took 41 s; the steps add up to 65 s (apim 40 s, am 25 s)", self.output())
-        before = self.output()
-        seed.told({"apim": 40.0}, 40.5)
-        self.assertEqual(self.output(), before)
-
-    def test_the_first_failure_is_the_one_the_seed_reports(self):
-        self.workers(4)
-        for module in seed.MODULES:
-            def note(*arguments, name=module.__name__.rsplit('.', 1)[-1]):
-                if name == "apim":
-                    raise common.SeedError("apim failed")
-                for _ in range(100):
-                    common.pause(0.01)   # stops when the seed does
-            patch = mock.patch.object(module, "seed", side_effect=note)
-            patch.start()
-            self.addCleanup(patch.stop)
-        self.assertEqual(self.main(), 1)
+        self.run_modules()
+        with mock.patch.object(seed.apim, "seed", side_effect=common.SeedError("apim failed")):
+            self.assertEqual(self.main(), 1)
+        self.assertEqual([name for _, name in self.order], ["openfga", "am"])
         self.assertTrue(self.output().rstrip().endswith("[seed] ✗ apim failed"), self.output())
 
     def test_the_modules_seed_in_their_order(self):

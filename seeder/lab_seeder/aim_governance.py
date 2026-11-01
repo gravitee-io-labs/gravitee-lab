@@ -36,7 +36,6 @@ from .common import SeedError, adopted, created, forget, has_seed, items, load, 
 from .gamma import CATALOG, Gamma
 
 SECTION = "aim-governance"
-DEPENDS = ("aim_catalog", "aim_agents")   # the modules whose work this one reads on the platform (schedule.py)
 # The folder of the seed it owns
 FOLDERS = ("aim/governance",)
 # The Gamma modules it fills: seed.py checks that the platform serves them before it changes anything

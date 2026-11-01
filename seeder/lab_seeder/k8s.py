@@ -33,7 +33,6 @@ from .common import READY_TIMEOUT, REFUSED, Api, Gone, HttpError, SeedError, exc
     record, render_yaml, setting, wait_until
 
 SECTION = "k8s"
-DEPENDS = ("apim",)   # the modules whose work this one reads on the platform (schedule.py)
 # What it records
 ORDER = ["resource", "namespace"]
 FIELD_MANAGER = "gravitee-lab"

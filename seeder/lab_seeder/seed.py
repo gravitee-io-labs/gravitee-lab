@@ -21,7 +21,6 @@ pays nothing for what it does not seed.
 
 import os
 import sys
-import time
 import traceback
 
 from . import aim_agents
@@ -39,7 +38,6 @@ from . import controls
 from . import k8s
 from . import openfga
 from . import refills
-from . import schedule
 from . import common
 from .common import KEYS, SeedError, created, forget, has_seed, log, owned
 from .gamma import require_modules
@@ -53,26 +51,7 @@ from .gamma import require_modules
 # the APIs their listings name, and a removal deletes them first.
 AFTER_AM = (apim, apim_portal, am_link, aim_catalog, aim_workspaces, aim_proxies, aim_agents, aim_governance, authz, aim_dashboards,
             k8s)
-MODULES = (openfga, am) + AFTER_AM
-# What a module reads of the work of the others is its DEPENDS. That order is the one a seed used to run in (SEED_WORKERS=1
-# still runs it), and the modules that do not depend on one another run at the same time: Access Management, API Management and
-# Gamma are three chains, joined where one reads the work of another. A removal goes the other way round.
-
-
-def graph(seeding=False):
-    """({name: module}, {name: the names it needs}) of the modules in order. A module that does not say what it depends on depends
-    on every one before it. A seed starts a module together with those it says it can start MEANWHILE (it waits for what it needs
-    of them, step by step, with common.reached); a removal keeps the whole of its dependencies."""
-    named, needs = {}, {}
-    for index, module in enumerate((openfga, am) + AFTER_AM):
-        name = getattr(module, "__name__", f"module-{index}").rsplit(".", 1)[-1]
-        declared = getattr(module, "DEPENDS", None)
-        needs[name] = declared if isinstance(declared, tuple) else tuple(named)
-        meanwhile = getattr(module, "MEANWHILE", ())
-        if seeding and isinstance(meanwhile, tuple):
-            needs[name] = tuple(each for each in needs[name] if each not in meanwhile)
-        named[name] = module
-    return named, needs
+MODULES = (openfga, am) + AFTER_AM   # a seed runs them in this order, one after the other, and a removal in the reverse
 
 
 def gamma_modules():
@@ -85,14 +64,6 @@ def key(record):
     return tuple(record[name] for name in KEYS)
 
 
-def told(spent, took):
-    """How long the seed took and what running steps together saved, when it saved something worth saying."""
-    busy = [f"{name} {seconds:.0f} s" for name, seconds in sorted(spent.items(), key=lambda each: -each[1]) if seconds >= 1]
-    total = sum(spent.values())
-    if busy and total - took >= 1:
-        log("seed", f"Took {took:.0f} s; the steps add up to {total:.0f} s ({', '.join(busy)})")
-
-
 def main():
     removing = "--remove" in sys.argv
     log("seed", "Removing what the playground created" if removing else "Seeding the playground")
@@ -101,10 +72,9 @@ def main():
         common.defer_waits()
         if removing:
             records = created()
-            named, needs = graph()
-            # each module forgets a record as its object goes; what the platform refused to delete stays recorded
-            schedule.run(list(named), needs, lambda name: named[name].remove(records), back=True)
-            known = {key(x) for module in named.values() for x in owned(records, module.SECTION, module.ORDER)}
+            for module in reversed(MODULES):   # each forgets a record as its object goes; what the platform refused stays
+                module.remove(records)
+            known = {key(x) for module in MODULES for x in owned(records, module.SECTION, module.ORDER)}
             forget(*[x for x in records if key(x) not in known])   # of no module of this seeder: nothing can delete it
             left = {key(x) for x in created()}
             kept = sum(key(x) in left for x in records)
@@ -116,24 +86,14 @@ def main():
         if found:
             log("seed", f"Protections {controls.mode()}: {controls.named(found)}")
         require_modules(gamma_modules())
-        stores, (named, needs), spent, begun = {}, graph(seeding=True), {}, time.monotonic()
-
-        def seed(name):
-            started = time.monotonic()
-            if named[name] is openfga:
-                stores.update(openfga.seed() or {})
-            elif named[name] is am:
-                am.seed(stores)
-            else:
-                named[name].seed()
-            spent[name] = time.monotonic() - started
-        schedule.run(list(named), needs, seed)
+        am.seed(openfga.seed() or {})
+        for module in AFTER_AM:
+            module.seed()
         if not common.waits_for_gateway() and os.getenv("GATEWAY_INTERNAL_URL"):
             log("seed", "The gateway takes what was deployed within seconds; SEED_WAIT_GATEWAY=1 waits for it")
         common.run_later()   # the waits that nothing depended on: the gateway has taken what was deployed
         refills.finish()
         controls.finish()
-        told(spent, time.monotonic() - begun)
     except SeedError as e:
         log("seed", f"✗ {e}")
         return 1

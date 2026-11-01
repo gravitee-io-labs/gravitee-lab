@@ -28,7 +28,6 @@ from .common import (Api, HttpError, SeedError, adopted, excerpt, files, forget,
                      recorded, setting, wait_until, waits_for_gateway)
 
 SECTION = "aim-workspaces"
-DEPENDS = ("aim_catalog",)   # the modules whose work this one reads on the platform (schedule.py)
 # The folder of the seed it owns
 FOLDERS = ("aim/workspaces",)
 # The Gamma modules it fills: seed.py checks that the platform serves them before it changes anything
