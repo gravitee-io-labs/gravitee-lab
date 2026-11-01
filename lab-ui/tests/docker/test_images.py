@@ -2,6 +2,8 @@
 that owns each value, where tags are listed, and the Azure login. No disk, no Docker, no registry: what they would
 answer is given."""
 
+import io
+import json
 import unittest
 
 from lab_ui.docker import compose, envfiles, images
@@ -335,6 +337,48 @@ class Images(Case):
         for key in ("platform", "registry:x.azurecr.io", "addon:Kafka", "group:databases", ""):
             with self.assertRaises(ValueError, msg=key):
                 images.login("graviteeio.azurecr.io", key)
+
+    def test_a_long_list_of_tags_is_read_page_by_page(self):
+        # The registry API lists a thousand at most, by name, and says where the next ones are (Link): the newest
+        # releases, last by name, are not cut off. As many pages as OCI_PAGES at most
+        pages = {"https://ghcr.io/v2/team/app/tags/list?n=1000": (["1.0.0", "1.1.0"], "</v2/team/app/tags/list?n=1000&last=1.1.0>; rel=\"next\""),
+                 "https://ghcr.io/v2/team/app/tags/list?n=1000&last=1.1.0": (["sha256-ab", "v2.0.0"], None)}
+        asked = []
+
+        class Answer(io.BytesIO):
+            def __init__(self, tags, link):
+                super().__init__(json.dumps({"tags": tags}).encode())
+                self.headers = {"Link": link} if link else {}
+
+        def urlopen(request, timeout):
+            asked.append(request.full_url)
+            return Answer(*pages[request.full_url])
+        self.patch(images.urllib.request, "urlopen", urlopen)
+        self.assertEqual([tag["name"] for tag in images._oci_tags("ghcr.io", "team/app")], ["1.0.0", "1.1.0", "v2.0.0"])
+        self.assertEqual(len(asked), 2)
+        pages["https://ghcr.io/v2/team/app/tags/list?n=1000&last=1.1.0"] = (["1.2.0"], "</v2/team/app/tags/list?n=1000&last=1.1.0>; rel=next")
+        asked.clear()
+        images._oci_tags("ghcr.io", "team/app")
+        self.assertEqual(len(asked), images.OCI_PAGES)
+
+    def test_a_registry_that_asks_for_a_token_gives_one_to_anyone_for_every_page(self):
+        realm = 'Bearer realm="https://ghcr.io/token",service="ghcr.io",scope="repository:team/app:pull"'
+        sent = []
+
+        class Answer(io.BytesIO):
+            headers = {}
+
+        def urlopen(request, timeout):
+            token = request.get_header("Authorization")
+            sent.append(token)
+            if request.full_url.startswith("https://ghcr.io/token"):
+                return Answer(json.dumps({"token": "t"}).encode())
+            if not token:
+                raise images.urllib.error.HTTPError(request.full_url, 401, "Unauthorized", {"WWW-Authenticate": realm}, None)
+            return Answer(json.dumps({"tags": ["1.0.0"]}).encode())
+        self.patch(images.urllib.request, "urlopen", urlopen)
+        self.assertEqual(images._oci_tags("ghcr.io", "team/app"), [{"name": "1.0.0", "updated": None}])
+        self.assertEqual(sent, [None, None, "Bearer t"])
 
 
 class Shared(Case):

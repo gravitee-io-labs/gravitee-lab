@@ -20,6 +20,7 @@ AZURE = re.compile(r"[a-z0-9]+\.azurecr\.io")
 DOCKER_HUB = ("docker.io", "index.docker.io")
 ITEM = re.compile(rf"(?:{'|'.join(paths.KINDS)}):{paths.ID}")   # the key of an item's row: "playground:<id>"
 AZ = shutil.which("az") or "az"   # the Azure CLI, found once
+OCI_PAGES = 5   # pages of a thousand tags read of a registry's list, which comes by name: the newest are near its end
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -323,20 +324,43 @@ def _hub_tags(repository):
     return tags
 
 
+def _realm(said):
+    """The address where anyone gets a token, from the WWW-Authenticate a registry answers a request without one with;
+    None when it names none."""
+    asked = dict(re.findall(r'(\w+)="([^"]*)"', said or ""))
+    if not asked.get("realm", "").startswith("https://"):
+        return None
+    query = urllib.parse.urlencode({key: asked[key] for key in ("service", "scope") if key in asked})
+    return f"{asked['realm']}?{query}"
+
+
+def _tags_page(url, token=None):
+    """A page of a registry's list of tags: (its names, the address of the next page, None after the last)."""
+    request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"} if token else {})
+    with urllib.request.urlopen(request, timeout=15) as response:
+        following = re.search(r'<([^>]+)>\s*;\s*rel="?next"?', response.headers.get("Link") or "")
+        listed = json.load(response).get("tags") or []
+    return listed, urllib.parse.urljoin(url, following.group(1)) if following else None
+
+
 def _oci_tags(host, repository):
-    """The registry API every registry speaks: names only, oldest first. A registry that wants a token says where
-    anyone gets one."""
-    url = f"https://{host}/v2/{repository}/tags/list?n=1000"
-    try:
-        names = _json(url).get("tags") or []
-    except urllib.error.HTTPError as error:
-        asked = dict(re.findall(r'(\w+)="([^"]*)"', error.headers.get("WWW-Authenticate") or ""))
-        if error.code != 401 or not asked.get("realm", "").startswith("https://"):
-            raise
-        query = urllib.parse.urlencode({key: asked[key] for key in ("service", "scope") if key in asked})
-        granted = _json(f"{asked['realm']}?{query}")
-        names = _json(url, granted.get("token") or granted.get("access_token")).get("tags") or []
-    return [{"name": name, "updated": None} for name in reversed(names) if not name.startswith("sha256-")]
+    """The registry API every registry speaks: names only, in the order it lists them, by name (the page orders the
+    releases). A long list comes in pages, of which OCI_PAGES are read; a registry that wants a token says where anyone
+    gets one."""
+    url, token, names, pages = f"https://{host}/v2/{repository}/tags/list?n=1000", None, [], 0
+    while url and pages < OCI_PAGES:
+        try:
+            listed, url = _tags_page(url, token)
+        except urllib.error.HTTPError as error:
+            realm = _realm(error.headers.get("WWW-Authenticate")) if error.code == 401 and token is None else None
+            if not realm:
+                raise
+            granted = _json(realm)
+            token = granted.get("token") or granted.get("access_token") or ""
+            continue
+        names += listed
+        pages += 1
+    return [{"name": name, "updated": None} for name in names if not name.startswith("sha256-")]
 
 
 SUBSCRIPTIONS = {}   # the Azure subscription that holds each registry, by name, as found once per run of the Lab UI
@@ -433,12 +457,11 @@ def _anonymous(host, repository, reference="latest"):
         return True
     if code != 401:
         return False if code == 403 else None
-    said = dict(re.findall(r'(\w+)="([^"]*)"', asked))
-    if not said.get("realm", "").startswith("https://"):
+    realm = _realm(asked)
+    if not realm:
         return False
-    query = urllib.parse.urlencode({key: said[key] for key in ("service", "scope") if key in said})
     try:
-        granted = _json(f"{said['realm']}?{query}")
+        granted = _json(realm)
     except urllib.error.HTTPError:
         return False
     except (urllib.error.URLError, OSError, ValueError):
