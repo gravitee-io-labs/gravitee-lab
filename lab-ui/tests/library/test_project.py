@@ -2380,6 +2380,9 @@ class Brings(Case):
         _, built = read(self, fixture={"files": {"addons/aa-joiner/compose.yml": text}})
         self.assertIsNone(built["addons"]["aa-joiner"]["blocked"])
         self.assertEqual(built["addons"]["aa-joiner"]["services"], ["fixture-aa-joiner"])
+        # Its container's hash is not the file's: it is compared by its image only (model.lateness)
+        self.assertTrue(built["services"]["fixture-aa-joiner"]["joins"])
+        self.assertFalse(built["services"]["fixture-echo"]["joins"])
         # And one that joins a service it does not bring is refused
         other = text.replace("service:fixture-echo", "service:apim-gateway")
         _, built = read(self, fixture={"files": {"addons/aa-joiner/compose.yml": other}})

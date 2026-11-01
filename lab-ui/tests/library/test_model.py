@@ -1367,6 +1367,14 @@ class Behind(Built):
         self.assertEqual(model.behind(self.project, {"kiosk": made(image_id="sha256:old")}, saved), set())
         self.assertEqual(model.behind(self.project, containers, {"hashes": {}, "images": SAVED["images"]}), set())
 
+    def test_a_service_that_joins_another_namespace_is_compared_by_its_image_only(self):
+        # pid: service:<name>: Compose labels the container with the hash of a configuration that names the other
+        # container by id, which is never the hash it gives the file. Its image is still compared
+        self.project["services"]["mongodb"]["joins"] = True
+        self.assertEqual(model.behind(self.project, {**AS_SAVED, "mongodb": made("old")}, SAVED), set())
+        self.assertEqual(model.behind(self.project, {**AS_SAVED, "mongodb": made("old", image_id="sha256:old")}, SAVED),
+                         {"mongodb"})
+
     def test_an_image_built_again_from_unchanged_sources_is_not_behind(self):
         # A build that changed nothing gives the tag another id for the same image: Compose keeps it running, and so
         # no Apply could make it again

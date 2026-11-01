@@ -1283,6 +1283,9 @@ def _service(name, written, running, owner, project_name):
             "lets_frame": any(all(page in str(value) for page in PAGES) for value in (running.get("environment") or {}).values()),
             "built": bool(running.get("build")), "pull_policy": running.get("pull_policy"),
             "role": labels.get("io.gravitee.role"),
+            # It joins a namespace of another service (pid, ipc or network `service:<name>`): Compose labels its container
+            # with the hash of its configuration once that name is the other container's id, which `config --hash` never sees
+            "joins": any(str(running.get(key) or "").startswith("service:") for key in ("pid", "ipc", "network_mode")),
             "needs_license": labels.get(LICENSE_LABEL) == "required"}
 
 
