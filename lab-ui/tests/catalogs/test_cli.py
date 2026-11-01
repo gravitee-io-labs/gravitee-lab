@@ -24,6 +24,7 @@ from unittest import mock
 
 from lab_ui.catalogs import cli as catalog
 from lab_ui.library import check, project
+from lab_ui.library import layout as moves   # the real one: a test replaces it while the command runs
 from lab_ui.docker import compose, envfiles
 from lab_ui.gravitee import license
 from lab_ui import paths
@@ -1357,10 +1358,13 @@ class Provision(Tool):
         firstrun = module(reconcile=lambda: calls.append("reconcile"), PROGRESS={},
                           provision=provision or (lambda ns: calls.append(f"provision {ns}") or {"id": ns, "name": ns.title()}),
                           **more)
-        layout = module(run=lambda say, complain, download=True: True)
+        layout = module(run=lambda say, complain, download=True: True, NO_DOCKER=moves.NO_DOCKER)
         patcher = mock.patch.dict(sys.modules, {"lab_ui.catalogs.firstrun": firstrun, "lab_ui.library.layout": layout})
         patcher.start()
         self.addCleanup(patcher.stop)
+        signals = mock.patch.object(catalog.compose, "stop_on_signals")   # the test's own process keeps its handlers
+        self.signals = signals.start()
+        self.addCleanup(signals.stop)
         return calls, firstrun, layout
 
     def declare(self, *names):
@@ -1395,6 +1399,28 @@ class Provision(Tool):
         self.fake(lambda ns: {"id": ns, "error": "no_access", "state": {"reason": "No access to acme/hub. Run gh auth login in a terminal, then try again."}})
         code, out, err = self.run_tool("provision")
         self.assertEqual((code, err), (1, "partner: No access to acme/hub. Run gh auth login in a terminal, then try again.\n"))
+
+    def test_a_docker_that_is_not_ready_is_said_as_nothing_here_downloads_later(self):
+        # The first start's line says the catalog downloads once Docker is ready: in the Lab UI its worker does, here
+        # nothing does
+        self.declare("partner")
+
+        def provision(ns):
+            raise registry.CatalogError("docker_missing", phases.LINES["docker_missing"], 400)
+        self.fake(provision)
+        code, out, err = self.run_tool("provision")
+        self.assertEqual((code, err), (1, f"partner: {moves.NO_DOCKER}\n"))
+        self.assertNotIn("once it is", err)
+
+    def test_a_closed_terminal_ends_the_downloads_and_the_move_as_it_ends_the_lab_ui(self):
+        # git and Compose lead sessions of their own, which the terminal's hang-up does not reach: what ends them is set
+        # before the first download
+        self.declare("partner")
+        order = []
+        self.fake(lambda ns: order.append("provision") or {"id": ns, "name": "Partner"})
+        self.signals.side_effect = lambda *others: order.append(("signals", others))
+        self.assertEqual(self.run_tool("provision")[0], 0)
+        self.assertEqual(order, [("signals", (gitx.stop_running,)), "provision"])
 
     def test_nothing_to_download_is_a_success_and_the_intent_is_still_written(self):
         calls, _, _ = self.fake()

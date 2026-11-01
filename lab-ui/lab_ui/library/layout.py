@@ -78,8 +78,9 @@ _backed = None   # the compose texts of the backup while a run keeps count of th
 MOVING = "Moving your settings to the new layout"
 DOWNLOADING = "Downloading playgrounds, setups and add-ons"
 FAILED = "Could not move your settings to the new layout. Nothing was deleted."   # then why, in a line of its own
-# Why, when the download needs Docker: the Makefile's words, since the Lab UI does not start
-NO_DOCKER = "Install Docker with Compose 5.0 or later (see Prerequisites in README.md), then start the Lab again."
+# Why, when the download needs Docker that does not answer: the Makefile's words, since nothing runs to download later
+NO_DOCKER = ("Docker is not ready. Start it, or install it with Compose 5.0 or later (see Prerequisites in README.md), then "
+             "start the Lab again.")
 TRACKED = ("The Lab did not move any settings: git tracks addons, setups or playgrounds here, so they are the current "
            "layout.")
 # The rows of what moved that a person may want to look at, by the key of the report: what it is, and why

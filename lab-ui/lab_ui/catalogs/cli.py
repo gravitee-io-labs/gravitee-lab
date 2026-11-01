@@ -401,9 +401,10 @@ def provision(args):
     """The first start from a terminal, in the foreground (`make catalogs`, and `make update` after its pull). The intent is
     written when catalogs.json does not exist, every git entry that has no copy is downloaded, and a folder of the layout
     before catalogs is moved to theirs (layout.run, which downloads nothing more). Exit 1, with the line of the error, when
-    something fails."""
+    something fails. A closed terminal ends the download and the move it runs, as it ends the Lab UI's."""
     firstrun = _lab("firstrun")
     layout = importlib.import_module("lab_ui.library.layout")
+    compose.stop_on_signals(gitx.stop_running)
     firstrun.reconcile()
     failed = 0
     for entry in registry.entries():
@@ -420,8 +421,8 @@ def provision(args):
             if problem:
                 raise CatalogError(str(problem), str((row.get("state") or {}).get("reason") or problem), 400)
             say(f"Installed {(row or {}).get('name') or ns}")
-        except CatalogError as error:
-            complain(f"{ns}: {error.message}")
+        except CatalogError as error:   # the first start's line for Docker says it downloads later: nothing here does
+            complain(f"{ns}: {layout.NO_DOCKER if error.code == 'docker_missing' else error.message}")
             failed += 1
         finally:
             stop.set()
