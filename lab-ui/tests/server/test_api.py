@@ -1604,6 +1604,18 @@ class GatewayRoutes(GatewayCase):
         self.assertEqual([call[0] for call in calls.mock_calls], ["swap", "write"], "the token first, then the plan's job")
         self.assertEqual(job.lines, ["Restarts: Hybrid gateway"])
 
+    def test_a_gateway_whose_token_is_gone_by_the_job_fails_in_the_words_of_the_refusal(self):
+        self.elsewhere()
+        self.swap.side_effect = paths.NotFound("No add-on runs a gateway of My Account")
+        accepted = [layers.key("addon", "hybrid")]
+        self.assertEqual(self.request("POST", f"{self.GATEWAY}/start", {"accept": accepted})[0], 200)
+        title, steps, more = self.started(self.jobs)
+        job, ran = Job(title, steps), []
+        job.exec = lambda cmd, **options: ran.append(cmd)
+        job.run()
+        self.assertEqual((job.ok, job.error(), ran), (False, "No add-on runs a gateway of My Account", []))
+        self.write.assert_not_called()
+
     def test_a_token_that_no_gateway_matches_is_replaced_whatever_the_add_on_does(self):
         # The add-on holds a token that no platform lists any more (here is false), and it does not run: it starts, with
         # the token of this gateway, which is written first

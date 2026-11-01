@@ -527,12 +527,9 @@ def _on_place(project, plan, uid, gateway, said):
 
     def addons(job):
         job.step("Add-ons")
-        if not gateway["here"]:   # the add-on is set to run another gateway, or none that exists: it takes this one's
-            try:
-                platforms.swap_gateway(project, uid, gateway["id"])
-            except (ValueError, paths.NotFound) as error:
-                raise JobFailed(str(error)) from None
-        job.run_steps(layers.steps(project, plan, ()))
+        # The add-on is set to run another gateway, or none that exists: it takes this one's
+        swap = [] if gateway["here"] else [layers.swapping(project, plan, uid, gateway["id"])]
+        job.run_steps([*swap, *layers.steps(project, plan, ())])
         job.lines.append(said)
 
     def apps(job):

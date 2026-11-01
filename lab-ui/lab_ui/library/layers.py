@@ -1507,6 +1507,19 @@ def unchanged(plan):
         raise JobFailed(CHANGED)
 
 
+def swapping(project, plan, uid, gateway):
+    """The step that makes a platform's gateway the one its add-on runs here (platforms.swap_gateway), first in the job of
+    a plan that starts it elsewhere than the one that runs: once the on file is as the plan read it (unchanged()), since
+    the job changes nothing otherwise. Its refusal (no add-on runs it, its token is no longer kept) is the job's reason."""
+    def swap(job):
+        unchanged(plan)
+        try:
+            platforms.swap_gateway(project, uid, gateway)
+        except (ValueError, paths.NotFound) as error:
+            raise JobFailed(str(error)) from None
+    return swap
+
+
 def steps(project, plan, start=None):
     """The steps of the job of a plan, in the order that leaves the lab as it says wherever the job ends (it fails, it
     is canceled, the Lab UI stops): nothing for a plan the on file changed since (unchanged()); then what goes is

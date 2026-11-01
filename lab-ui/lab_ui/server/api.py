@@ -393,12 +393,9 @@ def start_gateway(req, pid, gid):
     p = project.load()
     plan, place = gateway_plan(p, pid, gid)
     layers.check(p, plan, accepted(req))
-
-    def swap(job):   # once the on file is as the plan read it: the job changes nothing otherwise
-        layers.unchanged(plan)
-        platforms.swap_gateway(p, pid, gid)
     name = p["addons"][place["gateway"]]["name"]
-    steps = [*([] if place["here"] else [swap]), *layers.steps(p, plan), lambda job: places.invalidate(pid)]
+    swap = [] if place["here"] else [layers.swapping(p, plan, pid, gid)]
+    steps = [*swap, *layers.steps(p, plan), lambda job: places.invalidate(pid)]
     return JOBS.start(f"{plan['label']} {name}", steps, key=f"addon:{place['gateway']}", verb="start",
                       changes=layers.changes(p, plan), waits=layers.waits(p, plan))
 

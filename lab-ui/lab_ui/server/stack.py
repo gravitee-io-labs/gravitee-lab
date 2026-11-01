@@ -216,13 +216,12 @@ def _core_start(project, accept):
 
     def serve(job):   # once the on file is as the plan read it: the job changes nothing otherwise
         layers.unchanged(gateway)
-        if not place["here"]:
-            platforms.swap_gateway(project, uid, found["gateway_id"])
         job.lines.append(f"Serves: {place['name']}")
     changes = layers.changes(project, gateway)
     changes["start"] += [["service", name] for name in others]
     # The job says what its dialog showed it starts: the gateway and the rest
-    steps = [serve, *layers.steps(project, {**gateway, "starts": found["dialog"]["starts"]}),
+    swap = [] if place["here"] else [layers.swapping(project, gateway, uid, found["gateway_id"])]
+    steps = [*swap, serve, *layers.steps(project, {**gateway, "starts": found["dialog"]["starts"]}),
              *([[*COMPOSE, "up", "-d", "--no-deps", *others]] if others else []), lambda job: places.invalidate(uid)]
     waits = layers.waits(project, gateway) + ([awaited(project["services"], start=others)] if others else [])
     return JOBS.start(f"Start all for {place['name']}", steps, key="platform", verb="start", changes=changes, waits=waits)

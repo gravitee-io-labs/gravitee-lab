@@ -211,6 +211,17 @@ class StackActions(Case):
         self.assertFalse(any(name in str(ran) for name in ("mongodb", "redis")), "no service of the core")
         invalidate.assert_called_once_with("my-account")
 
+    def test_a_cloud_cores_start_all_whose_gateway_token_is_gone_fails_in_the_words_of_the_refusal(self):
+        # The token was forgotten between the click and the job: its reason, as a deploy says it, and nothing starts
+        self.cloud_core()
+        written = self.patch(stack.layers, "write")
+        self.patch(stack.platforms, "swap_gateway", side_effect=ValueError("Its token is not kept here"))
+        self.patch(stack.places, "invalidate")
+        stack.action(PROJECT, "start", for_core=True, accept=[])
+        job, ran = self.core_job()
+        self.assertEqual((job.ok, job.error(), ran), (False, "Its token is not kept here", []))
+        written.assert_not_called()
+
     def test_a_cloud_cores_start_all_is_checked_as_the_project_it_reads_and_makes_its_folders(self):
         found = self.cloud_core().return_value
         self.patch(stack.layers, "write")

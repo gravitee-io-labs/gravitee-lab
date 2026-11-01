@@ -1958,6 +1958,17 @@ class Deploying(Deploys):
         job, calls = self.execute()
         self.assertEqual((job.ok, job.error(), calls, self.written), (False, "Its token is not kept here", [], []))
 
+    def test_a_deploy_whose_on_file_changed_since_its_plan_does_not_change_the_gateways_token(self):
+        # Another tab turned something on meanwhile: the job ends before anything changes, the token included
+        self.ready()
+        swap = self.patch(platforms, "swap_gateway")
+        envfiles.write(ADDON_ENV, {"HYBRID_CLOUD_TOKEN": None})
+        self.state = {**self.state, "stamp": "read by the plan"}   # the on file is not that any more
+        self.deploy()
+        job, calls = self.execute()
+        self.assertEqual((job.ok, job.error(), calls), (False, layers.CHANGED, []))
+        swap.assert_not_called()
+
     def test_the_job_waits_for_the_platform_to_say_the_gateway_is_connected(self):
         self.ready()
         answers = iter([False, False, True])
