@@ -178,6 +178,14 @@ class MakefileTest(unittest.TestCase):
     def test_reset_empties_the_records_of_the_playgrounds_of_every_catalog(self):
         self.assertIn(".lab/catalogs/*/playgrounds/*/.state/created.json", (self.folder / "Makefile").read_text())
 
+    def test_down_removes_the_containers_with_their_anonymous_volumes_as_remove_containers_does(self):
+        # The page's Remove containers runs `rm --stop --force -v` then `down` (stack.py): a `down` alone leaves the
+        # anonymous volumes, which nothing reaches once the containers are gone, not even make reset
+        code, out = self.make("down")
+        self.assertEqual(0, code, out)
+        calls = [call for call in self.docker_calls() if call.startswith("compose -p")]
+        self.assertEqual(calls, ["compose -p gravitee rm --stop --force -v", "compose -p gravitee down"])
+
     # docker is running, or is not
 
     def test_docker_that_runs_passes(self):

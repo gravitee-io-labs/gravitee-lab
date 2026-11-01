@@ -108,6 +108,7 @@ restart: docker-up legacy-ok $(on) ## Restart containers (SVC=name for one servi
 	docker compose restart $(SVC)
 
 down: docker-up $(on) ## Remove all containers and networks (keeps data volumes)
+	docker compose -p $(project) rm --stop --force -v
 	docker compose -p $(project) down
 
 catalogs: python-ok ## Download the catalogs that have no copy yet, then move what an update left behind

@@ -15,7 +15,7 @@ Run `make help` to list them. A target that needs a tool the machine lacks stops
 | `make start` | Starts stopped containers | Docker running |
 | `make stop` | Stops all containers, keeps data | Docker running |
 | `make restart` | Restarts containers (`SVC=name` for one service) | Docker running |
-| `make down` | Removes all containers and networks, keeps the data volumes | Docker running |
+| `make down` | Removes all containers with their anonymous volumes, and the networks; keeps the data volumes | Docker running |
 | `make reset` | Removes containers and data volumes, and empties what the seeds recorded (`.lab/catalogs/<catalog>/playgrounds/<id>/.state/created.json`). Asks you to type `yes` first | Docker running |
 | `make ps` | Shows container status and health | Docker running |
 | `make logs` | Follows the logs (`SVC=name` for one service) | Docker running |

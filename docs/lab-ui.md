@@ -315,7 +315,7 @@ The head acts on containers, and what is on stays on:
 | Restart | Restarts what runs, as it is |
 | Update | Pulls the images, then recreates the containers that run and changed. What was stopped stays stopped |
 | Apply | Recreates the containers that do not run what is saved |
-| ⋯ → Remove containers | Removes containers and networks, keeps the data volumes |
+| ⋯ → Remove containers | Removes containers with their anonymous volumes, and networks; keeps the data volumes |
 | ⋯ → Reset | Deletes every container and volume, and turns off the playground that is on. You type `reset` to confirm |
 
 A group, a container, or the containers of an add-on or a playground start, stop and restart on their own line. The
