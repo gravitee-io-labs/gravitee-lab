@@ -12,7 +12,7 @@ from unittest import mock
 
 from lab_ui.catalogs import cli as catalog
 
-from lab_ui.library import check, layers, layout, moves, personal
+from lab_ui.library import check, moves, personal
 from lab_ui.docker import compose, envfiles, files
 from lab_ui import paths
 from lab_ui.catalogs.registry import CatalogError
@@ -538,49 +538,6 @@ class Deleted(Folder):
         self.assertEqual(personal.held(self.project, on, "addon", "local/whoami"), "", "not even while it is on")
         self.assertEqual(personal.held(self.project, on, "addon", "local/whoami", deleting=True), "Turn it off first")
         self.assertEqual(personal.held(self.project, on, "addon", "local/whoami", deleting=True, running=True), "Stop it first")
-
-
-class Waiting(Folder):
-    """While the old layout is being moved nothing is created, renamed or deleted: what it would say or check is read
-    from files that are not where the on file says, and an item the old on file turns on is not seen as on."""
-
-    def refuses(self, call):
-        before, files = self.tree(), {path: (self.root / path).stat().st_mtime_ns for path in self.tree()}
-        with self.assertRaises(RuntimeError) as caught:
-            call()
-        self.assertEqual(str(caught.exception), layers.WAITING)
-        self.assertEqual(self.tree(), before)
-        self.assertEqual({path: (self.root / path).stat().st_mtime_ns for path in self.tree()}, files)
-
-    def test_nothing_is_created_renamed_or_deleted_while_the_layout_moves(self):
-        self.own()
-        self.patch(layout, "waiting", return_value=True)
-        self.refuses(lambda: personal.create_addon(self.project, "New one", "An add-on", "Other", "busybox:1.36"))
-        self.refuses(lambda: personal.save_setup(self.project, "New", "", ["kiosk"]))
-        self.refuses(lambda: personal.save_setup(self.project, "New", "", ["kiosk"], check_only=True))
-        self.refuses(lambda: personal.save_setup(self.project, "Other name", "", ["kiosk"], sid="local/mine"))
-        self.refuses(lambda: personal.create_playground(self.project, "New one", "A playground"))
-        self.refuses(lambda: personal.delete(self.project, "addon", "local/whoami"))
-        self.refuses(lambda: personal.delete(self.project, "setup", "local/mine"))
-
-    def test_the_same_calls_work_once_it_has_moved(self):
-        self.own()
-        waiting = self.patch(layout, "waiting", return_value=True)
-        with self.assertRaises(RuntimeError):
-            personal.create_addon(self.project, "New one", "An add-on", "Other", "busybox:1.36")
-        waiting.return_value = False
-        self.assertEqual(personal.create_addon(self.project, "New one", "An add-on", "Other", "busybox:1.36")["id"],
-                         "local/new-one")
-
-    def test_a_machine_that_has_a_legacy_line_waits_for_real(self):
-        self.own()
-        self.write(".lab/on.yml", "include:\n  - addons/echo/compose.yml\n")   # S1: the on file names the old layout
-        self.assertTrue(layout.waiting())
-        self.refuses(lambda: personal.create_playground(self.project, "New one", "A playground"))
-        self.refuses(lambda: personal.delete(self.project, "setup", "local/mine"))
-        self.write(".lab/layout.json", '{"layout": 2, "from": 1}\n')   # the move ended
-        self.assertFalse(layout.waiting())
-        self.assertEqual(personal.delete(self.project, "setup", "local/mine"), {})
 
 
 class Sharing(Folder):

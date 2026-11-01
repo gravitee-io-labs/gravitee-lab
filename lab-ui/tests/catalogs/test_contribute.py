@@ -16,7 +16,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from lab_ui.library import check, layers, layout, moves, project
+from lab_ui.library import check, moves, project
 from lab_ui.docker import compose, envfiles, files
 from lab_ui import paths
 from lab_ui.catalogs import contribute, gitx, manifest, registry, understood
@@ -1551,17 +1551,6 @@ class Ended(Seam):
         self.assertNotEqual((there / "README.md").read_text(), "# mine\n")
         self.assertFalse((there / "notes.txt").exists())
         self.assertEqual((self.root / ".lab/migration/kept/local/addons/echo/notes.txt").read_text(), "mine")
-
-    def test_nothing_is_replaced_while_the_old_layout_is_being_moved(self):
-        before = self.tree()
-        waiting = self.patch(layout, "waiting", return_value=True)
-        with self.assertRaises(RuntimeError) as caught:
-            self.use()
-        self.assertEqual(str(caught.exception), layers.WAITING)
-        self.assertEqual(self.tree(), before)
-        self.assertEqual(self.stars(), {"addon": ["local/echo", "kafka"]})
-        waiting.return_value = False
-        self.assertEqual(self.use(), {"id": "echo"})
 
     def test_the_star_and_what_started_well_follow_it(self):
         self.item("playground", "shop", "Shop", "services: {}\n", twin={"id": "shop", "name": "Fixture catalog"})

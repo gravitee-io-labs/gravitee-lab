@@ -6,9 +6,8 @@ already says so. `provision` is the Add pipeline of 9.1 with no ticket and no pr
 tracked address (and, when that is refused, its ssh form), the audience, a fetch that reports how far it is, the checks
 that the repository is the catalog expected, the newest version this Lab reads, the stage and `install.commit_add`.
 `start_worker` runs the thread: it downloads what has no copy, retries a failure at 15 s, 1 min, 5 min and then every 30
-min (a click on Try again starts the schedule again), runs the second part of the migration of an old layout right after the
-default catalog is committed and after a Remove (the person may have decided to have no default catalog), and then makes the
-background check of 9.2 (`service.check_all`) on its schedule.
+min (a click on Try again starts the schedule again), and makes the background check of 9.2 (`service.check_all`) on its
+schedule.
 
 Three rules run through it. A download never holds the catalogs lock for its network steps: git runs with no lock, and
 only `install.commit_add` takes them, for the milliseconds of the commit. Nothing it runs can ask a question: git is run
@@ -502,8 +501,7 @@ def _arrived() -> None:
 # ---------------------------------------------------------------- the thread
 
 class Worker:
-    """The one background thread of the Lab: downloads what has no copy, finishes the migration of an old layout,
-    and makes the background check. Sequential, so an attempt is never started while another runs. `tick` does what is due
+    """The one background thread of the Lab: downloads what has no copy, and makes the background check. Sequential, so an attempt is never started while another runs. `tick` does what is due
     now and answers the seconds until something is due again; `run` is the loop. The clock is a parameter so that a test
     drives the schedule without waiting."""
 
@@ -515,23 +513,13 @@ class Worker:
         self.failures = 0   # attempts that failed in a row, for the schedule
         self.retry_at = None   # when the next automatic attempt is due, None while none is waiting
         self.check_at = clock() + FIRST_CHECK
-        self.first = True   # the first pass: the layout is looked at once even when nothing arrives
-        self.arrived = False   # the default catalog arrived since the layout was looked at
         self._clicked = False
-        self._removed = False   # a catalog was removed since the layout was looked at
         self._mutex = threading.Lock()
 
     def wake(self) -> None:
         """A click on Try again: the schedule starts again, and what has no copy is attempted now."""
         with self._mutex:
             self._clicked = True
-        self.nudge.set()
-
-    def removed(self) -> None:
-        """A catalog was removed: the layout is looked at again at once. The one that waits for the default catalog is settled by
-        the person's decision to have none, and nothing else would make the move before the next start."""
-        with self._mutex:
-            self._removed = True
         self.nudge.set()
 
     def _click(self) -> bool:
@@ -557,9 +545,6 @@ class Worker:
                 continue   # removed while an earlier one downloaded: provision would take it for an Add and bring it back
             try:
                 provision(ns)
-                if ns == paths.default_ns():   # the move waits for this catalog alone: not for the downloads that follow it
-                    self.arrived = True
-                    self._move()
             except CatalogError as error:
                 if _ending(error):
                     self.stop.set()
@@ -574,27 +559,6 @@ class Worker:
             self.retry_at = self.clock() + delay(self.failures)
         else:
             self.failures, self.retry_at = 0, None
-
-    def _move(self) -> None:
-        """The second part of the migration of an old layout once the default catalog is there, or once the person
-        removed a catalog (it may be that one: the move then runs with none). The first part ran at start, offline. It
-        raises nothing for a disk or a registry that failed: the report says so, and so does the status of the layout, whose
-        Try again is the person's (a route of its own); the lines the report holds are said once, as `layout.ensure` says them
-        at start."""
-        with self._mutex:
-            removed, self._removed = self._removed, False
-        if not (self.first or self.arrived or removed):
-            return
-        self.first = self.arrived = False
-        try:
-            from ..library import layout   # here and not above: it reads this package
-            if layout.waiting():
-                report = layout.migrate()
-                for line in (report.get("problems") if isinstance(report, dict) else None) or ():
-                    if line != layout.FAILED_LINE:   # `migrate` has said that one, with its reason
-                        print(f"Gravitee Lab UI: {line}", file=sys.stderr)
-        except Exception as error:  # noqa: BLE001 - the layout says it failed in its status; the Lab goes on
-            print(f"Gravitee Lab UI: could not move the settings ({type(error).__name__}: {error})", file=sys.stderr)
 
     def _check(self) -> None:
         """The background check: first 5 seconds after the start, then every six hours, with up to ten minutes
@@ -615,7 +579,6 @@ class Worker:
             self.failures, self.retry_at = 0, None
         self._download(clicked)
         if not self.stop.is_set():
-            self._move()
             self._check()
         now = self.clock()
         due = [NAP, self.check_at - now] + ([self.retry_at - now] if self.retry_at is not None else [])
@@ -645,8 +608,8 @@ _started = threading.Lock()
 
 
 def start_worker() -> None:
-    """Starts the one background thread of the Lab, a daemon: it provisions what has no copy, runs the
-    second part of the migration, and then makes the background check. A second call does nothing while the thread
+    """Starts the one background thread of the Lab, a daemon: it provisions what has no copy, and then makes the
+    background check. A second call does nothing while the thread
     runs. Nothing with LAB_NO_FIRST_RUN set."""
     global _worker
     if opted_out():
@@ -675,10 +638,3 @@ def wake() -> None:
     if worker is not None:
         worker.wake()
 
-
-def removed() -> None:
-    """A catalog was removed: while the old layout waits for the default catalog, the person may just have decided to have none,
-    and the worker makes the move at once. Nothing without a worker (the next start looks at the layout)."""
-    worker = _worker
-    if worker is not None:
-        worker.removed()

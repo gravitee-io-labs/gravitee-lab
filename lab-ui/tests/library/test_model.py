@@ -1674,24 +1674,6 @@ class Catalogs(Built):
         self.assertEqual((item["note"], item["note_title"], item["action"]["reason"]), ("Said by layers for failed",) * 3)
         self.assertFalse(hasattr(model, "_need_line") or hasattr(model, "_minimum"))
 
-    def test_a_move_of_the_old_layout_that_is_not_over_is_the_reason_of_each_start_and_the_note_of_none(self):
-        before = self.build()
-        self.patch(layers, "_waiting", return_value=True)
-        body = self.build()
-        started = [item for kind in ("addons", "setups", "playgrounds") for item in body[kind] if item["action"]["do"] == "start"]
-        self.assertTrue(started)
-        for item in started:
-            self.assertEqual((item["action"]["enabled"], item["action"]["reason"]), (False, layers.WAITING), item["id"])
-            self.assertNotEqual(item["note"], layers.WAITING, f"{item['id']}: said once, by its button")
-            self.assertNotIn(layers.WAITING, (item["note_title"], item["note"]))
-        # Everything a row says besides its button is what it said before
-        shown = lambda built: {(kind, item["id"]): (item["note"], item["note_tone"], item["note_title"], item["note_target"])  # noqa: E731
-                               for kind in ("addons", "setups", "playgrounds") for item in built[kind]}
-        self.assertEqual(shown(body), shown(before))
-        # A stop is never held by it
-        running = self.item("addon", "kafka", explicit=["kafka"], containers={**CORE, **healthy("kafka", "kafka-ui")})
-        self.assertEqual((running["action"]["do"], running["action"]["enabled"]), ("stop", True))
-
     def test_what_blocks_an_item_waits_for_the_settings_in_the_reason_of_its_start(self):
         self.mark("hybrid", needs_catalogs=[{"id": "partner", "name": "Partner Bank", "min": None, "reason": "missing"}])
         self.assertEqual(self.item("addon", "hybrid", missing=["hybrid"])["action"]["reason"], "Needs the catalog Partner Bank")
@@ -1726,21 +1708,18 @@ class Catalogs(Built):
 
     def test_what_the_catalogs_and_the_first_start_say_is_in_the_body_as_it_is_given(self):
         body = self.build()
-        self.assertFalse({"git", "catalogs", "content", "layout"} & set(body), "left out when not given")
+        self.assertFalse({"git", "catalogs", "content"} & set(body), "left out when not given")
         given = {"git": model.git_state((2, 43, 2)), "catalogs": [{"id": "acme-hub"}],
-                 "content": {"key": "ready", "line": "", "code": None, "progress": None, "address": "", "offer": None},
-                 "layout": {"phase": "ready", "notice": None}}
+                 "content": {"key": "ready", "line": "", "code": None, "progress": None, "address": "", "offer": None}}
         body = self.build(**given)
         self.assertEqual({key: body[key] for key in given}, given)
         json.dumps(body)
 
-    def test_what_the_first_start_and_the_migration_answer_goes_through_as_it_is(self):
-        # Whatever firstrun.content and layout.status answer, now or when they are written, is the state's content and layout
-        from lab_ui.library import layout
+    def test_what_the_first_start_answers_goes_through_as_it_is(self):
+        # Whatever firstrun.content answers, now or when it is written, is the state's content
         from lab_ui.catalogs import firstrun
-        content, status = firstrun.content(self.project, {}), layout.status()
-        body = self.build(content=content, layout=status)
-        self.assertEqual((body["content"], body["layout"]), (content, status))
+        content = firstrun.content(self.project, {})
+        self.assertEqual(self.build(content=content)["content"], content)
 
     def test_git_is_said_as_the_page_reads_it(self):
         self.assertEqual(model.git_state((2, 43, 2)), {"available": True, "version": "2.43.2"})

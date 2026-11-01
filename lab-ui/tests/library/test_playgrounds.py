@@ -16,7 +16,7 @@ from unittest import mock
 
 from lab_ui.gravitee import cloud, license, places, platforms
 from lab_ui.docker import compose, envfiles, jobs, plugins
-from lab_ui.library import layers, layout, playgrounds, project as projects
+from lab_ui.library import layers, playgrounds, project as projects
 from lab_ui import paths
 from lab_ui.catalogs import trust
 from lab_ui.docker.jobs import Job, JobFailed, awaited
@@ -1130,12 +1130,6 @@ class Playgrounds(Case):
             with self.assertRaisesRegex(RuntimeError, "^Welcome changed on disk"):
                 playgrounds.start(self.project, "welcome", [])
         service.preflight.assert_called_once_with(self.project, [("playground", "welcome")])
-        self.jobs.start.assert_not_called()
-
-    def test_nothing_starts_while_the_layout_is_moving(self):
-        self.patch(layout, "waiting", return_value=True)
-        with self.assertRaisesRegex(RuntimeError, "^Your settings are being moved. Try again in a moment.$"):
-            playgrounds.start(self.project, "welcome", [])
         self.jobs.start.assert_not_called()
 
     def test_where_a_playground_comes_from_is_said_in_the_dialog_that_opens_for_another_reason(self):

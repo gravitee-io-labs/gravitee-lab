@@ -2093,14 +2093,6 @@ class Since(Moves):
         again = self.undo()   # and the next run has nothing to keep
         self.assertEqual((again.returncode, again.stderr), (0, ""))
 
-    def test_closing_the_notice_does_not_change_what_was_written_since(self):
-        self.build()
-        self.since(".lab/starred.json", '{"addon": ["new"]}\n')
-        later = os.stat(self.script).st_mtime + 10 * self.LATER
-        os.utime(self.root / moves.MARKER, (later, later))   # the marker is written again when the notice is closed
-        self.assertEqual(self.undo().returncode, 0)
-        self.assertEqual(self.text(".lab/starred.json.after-update"), '{"addon": ["new"]}\n')
-
     def test_a_script_that_cannot_find_itself_keeps_what_it_would_put_over(self):
         self.build()
         self.put(".lab/on.yml", "the migration wrote it\n")
@@ -2138,13 +2130,11 @@ class Since(Moves):
 
 class AfterTheMigration(Case):
     """The undo script of the real migration (`layout.migrate`) on a small machine: it puts every file back as it was, and what
-    was written since is kept beside it. The migration writes the script last, and closing its notice writes the marker again:
-    the measure of "since" has to hold with both."""
+    was written since is kept beside it. The migration writes the script last: the measure of "since" is the script, not the
+    marker, which a run that translates a stale line does not write again."""
 
     def setUp(self):
         fixtures.project(self, paths, compose)
-        self.patch(layout, "_failed", None)
-        self.patch(layout, "_said", set())
         self.patch(layout, "_backed", None)
         self.patch(moves, "STEP", None)
         moves._INDEXES.clear()
@@ -2194,9 +2184,6 @@ class AfterTheMigration(Case):
         self.later(".lab/starred.json", json.dumps({"addon": ["echo", "new"]}) + "\n")   # a star
         self.later(".lab/on.yml", "include:\n  - .lab/catalogs/fixture/addons/echo/compose.yml\n", 120)   # an Apply
         self.later(".lab/targets/cloud/addons__echo__compose.yml", "deployed again by a Lab that did not know\n", 180)   # a platform copy
-        layout.dismiss()   # the person closed the notice: the marker is written again, after all of those
-        later = os.stat(self.script).st_mtime + 3600
-        os.utime(self.root / moves.MARKER, (later, later))
         done = self.undo()
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(sorted(line.split(" as ")[1] for line in done.stderr.splitlines()),
@@ -2521,35 +2508,6 @@ class Module(Case):
     def test_the_marker_is_the_one_the_layout_writes_and_the_undo_script_removes(self):
         self.assertEqual((moves.MARKER, moves.UNDO, moves.MIGRATION), (layout.MARKER, f"{layout.MIGRATION}/undo.sh", layout.MIGRATION))
 
-
-class Layout(Moves):
-    """The stub that ships first: a machine is ready, nothing waits and nothing moves."""
-
-    def test_a_machine_is_ready(self):
-        self.assertEqual(layout.status(), {"phase": "ready", "notice": None})
-        self.assertIs(layout.waiting(), False)
-
-    def test_ensure_does_nothing_even_on_an_old_layout(self):
-        self.put("addons/echo/.env", "TOKEN=1\n")
-        self.put(".lab/on.yml", "include:\n  - addons/echo/compose.yml\n")
-        before = digest(self.root)
-        self.assertIsNone(layout.ensure())
-        self.assertEqual(digest(self.root), before)
-
-    def test_the_signatures_are_the_ones_the_migration_keeps(self):
-        import inspect
-        self.assertEqual({name: str(inspect.signature(getattr(layout, name)))
-                          for name in ("status", "waiting", "ensure", "migrate_personal", "migrate")},
-                         {"status": "() -> dict", "waiting": "() -> bool", "ensure": "() -> None",
-                          "migrate_personal": "() -> dict", "migrate": "() -> dict"})
-
-    def test_the_two_parts_answer_an_empty_report_of_the_shape_of_the_real_one(self):
-        keys = ["moved", "personal", "promoted", "kept", "left", "held", "turned_off", "problems"]
-        for part in (layout.migrate_personal, layout.migrate):
-            self.assertEqual(part(), {key: [] for key in keys})
-        report = layout.migrate()
-        report["moved"].append("x")
-        self.assertEqual(layout.migrate()["moved"], [])   # a report is not shared between calls
 
 
 if __name__ == "__main__":

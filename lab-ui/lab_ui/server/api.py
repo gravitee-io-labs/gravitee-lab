@@ -132,7 +132,7 @@ def snapshot():
     body = model.build(p, on, containers, job, JOBS.failed_job, license.features(p), docker,
                        created, saved=saved, license_status=license.status(p), platforms=platforms.read(),
                        deployed=deployed, changed=changed, git=model.git_state(service.git_version()),
-                       catalogs=service.describe(p, read), content=firstrun.content(p, read), layout=layout.status())
+                       catalogs=service.describe(p, read), content=firstrun.content(p, read))
     # What the page gives an AI agent to create an item: where the project is, the folder and the word on its commands
     # for the agent (machine.agent), and the skills to follow. The Lab's own version, from what was read of its repository
     # in the last 30 s (updates.FRESH). Where API Management runs, from this machine's choice and what its platform last said
@@ -504,34 +504,12 @@ def update_catalog(req, ns, change):
 
 def delete_catalog(req, ns):
     """Remove: `check` says what it would do; a removal says whether to keep the settings, and a request that says
-    neither removes nothing. Once a catalog is removed the first-run thread looks at the layout again: a person
-    whose old layout waits for the default catalog has just decided to have none, and the move must not wait for the next start."""
+    neither removes nothing."""
     if req.body.get("check"):
         return service.remove(ns, check=True)
     if "keep_settings" not in req.body:
         raise ValueError("Say whether to keep the settings of the catalog")
-    removed = service.remove(ns, keep_settings=req.body["keep_settings"])
-    firstrun.removed()
-    return removed
-
-
-def close_layout(req):
-    """The person closed the "Lab updated" notice: it is not shown again. The marker is written again, and what the
-    project reads is read again at once (the marker's time is part of what it is read from, 6.7), so the next state does not
-    carry the notice. Answers the status of the layout, which is what the state says."""
-    layout.dismiss()
-    project.forget()
-    return layout.status()
-
-
-def retry_layout(req):
-    """Try again, after a move that failed: what has no copy is attempted now (firstrun.wake) and the move is made
-    again, here, so that the answer says whether it worked. It raises nothing for a disk or a registry that failed: the status
-    does (`failed`, with the notice that offers Try again once more). A move with nothing to do changes nothing."""
-    firstrun.wake()
-    layout.migrate()
-    project.forget()
-    return layout.status()
+    return service.remove(ns, keep_settings=req.body["keep_settings"])
 
 
 def use_catalog(req, kind, uid):
@@ -561,8 +539,6 @@ def created(req, make, *names, **given):
     """A new add-on, setup or playground from the form's fields. `catalog` (a catalog's namespace) says where it is kept: not
     given, it is Personal; the namespace of an editable folder catalog writes it there, and any other is `not_editable`
     (personal.py). `shared`, the destination that was deleted, is ignored."""
-    if layout.waiting():   # what a create writes is read from files that are not where the on file says
-        raise CatalogError("layout_waiting", layers.WAITING, 409)
     asked = req.body.get("catalog")
     if asked is not None and not isinstance(asked, str):
         raise ValueError("The catalog must be text")
@@ -823,9 +799,6 @@ ROUTES = [(method, re.compile(pattern), handler) for method, pattern, handler in
     ("POST", f"/api/catalogs/{NS}/repair", lambda r, ns: service.repair(ns)),
     ("POST", f"/api/catalogs/{NS}/delete", delete_catalog),
     ("POST", f"/api/catalogs/{NS}/allow", lambda r, ns: service.allow_host(ns, r.body.get("enabled"))),
-    # The move of an old layout: the notice is closed, a move that failed is made again. The state says where it is
-    ("POST", "/api/layout/close", close_layout),
-    ("POST", "/api/layout/retry", retry_layout),
     ("POST", f"/api/{KIND}s/{UNIT}/star", lambda r, kind, uid: starred.star(
         project.load(), kind, uid, bool(r.body.get("starred")))),
     ("POST", f"/api/{KIND}s/{UNIT}/delete", delete),
@@ -914,8 +887,6 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as error:  # noqa: BLE001 - reported to the page
             if isinstance(error, CatalogError):
                 code, answer = error.status, {"error": error.message, "code": error.code}
-            elif isinstance(error, RuntimeError) and str(error) == layers.WAITING:   # Start and Apply say it as Create does
-                code, answer = 409, {"error": str(error), "code": "layout_waiting"}
             else:
                 code = next((code for kinds, code in ERRORS if isinstance(error, kinds)), 500)
                 answer = {"error": str(error) if code != 500 else f"{type(error).__name__}: {error}"}
@@ -1003,11 +974,7 @@ def requirement():
 
 
 def listing():
-    """Prints what is on, then its consoles by section, the platform's groups first. While the old layout is waiting to be
-    moved it says so first, as the Makefile does for a `docker compose` typed by hand: this command moves nothing, and
-    what it lists is the core and the person's own items."""
-    if layout.waiting():
-        print(layout.GUARD)
+    """Prints what is on, then its consoles by section, the platform's groups first."""
     p = project.load()
     on = layers.current(p)
     names = [p["playgrounds"][on["playground"]]["name"]] if on["playground"] else []
@@ -1063,13 +1030,13 @@ def warm_up():
 
 
 def start_up():
-    """What the Lab does once its port is bound in this order: the layout of an existing machine is looked
-    at and its own items moved (it never touches the network), what a stop left of a change of Personal is put right, the sweeper finishes what a stop left in the installs of the Lab
-    and then in the folders of the catalogs that are linked (the half copies a Share left), the intent of the first run is
-    written and what has no copy is marked as downloading, the background threads of the Lab start, and the lab is read once
-    in the background (warm_up). Each step is local and fast but the last ones, which return at once; a failure of one is said
-    in a line and never keeps the Lab from serving, because its row says what is wrong."""
-    for what, step in (("looking at the layout", layout.ensure), ("finishing what a stop left", service.recover),
+    """What the Lab does once its port is bound in this order: what a stop left of a change of Personal is put right, the
+    sweeper finishes what a stop left in the installs of the Lab and then in the folders of the catalogs that are linked (the
+    half copies a Share left), the intent of the first run is written and what has no copy is marked as downloading, the
+    background threads of the Lab start, and the lab is read once in the background (warm_up). Each step is local and fast
+    but the last ones, which return at once; a failure of one is said in a line and never keeps the Lab from serving, because
+    its row says what is wrong."""
+    for what, step in (("finishing what a stop left", service.recover),
                        ("finishing a change of Personal that a stop left", moving.recover_at_start),
                        ("sweeping what a share left", contribute.sweep), ("preparing the first run", firstrun.reconcile),
                        ("starting the download of catalogs", firstrun.start_worker),
@@ -1122,6 +1089,9 @@ def _serve(port, browser):
                      "again. One lab runs at a time")
         sys.exit(f"Port {port} is used by another program. Free it, or use another port: UI_PORT={port + 1} "
                  "gravitee-lab (the UIs of a playground do not show next to the guide on another port)")
+    if not layout.run():   # a folder of the layout before catalogs is moved before anything is served; one that could not be is said
+        server.server_close()
+        sys.exit(1)
     server.daemon_threads = True   # an open log stream does not keep the Lab UI from stopping
     address(url, "Keep this terminal open: Ctrl+C stops the Lab UI, and the containers keep running.")
     compose.stop_on_signals()   # once, from the main thread, before it serves: a closed terminal ends what runs
@@ -1185,6 +1155,8 @@ def main(argv=None):
     missing = requirement()
     if missing and (args.check or args.list or args.e2e):
         sys.exit(missing)
+    if (args.check or args.list) and layout.pending():   # they read the lab and move nothing: the Makefile's words
+        sys.exit(layout.GUARD)
     layers.prepare()
     if args.check:
         sys.exit(check.run())

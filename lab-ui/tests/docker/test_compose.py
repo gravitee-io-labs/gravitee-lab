@@ -1,7 +1,7 @@
 """The two parsers that read compose files as text: the include list and the variables with their comments. Then
 what `raw` and `ps` make of Docker's answers, the project's name while the core file does not load, where a script
 runs, and Docker's memory and the Lab UI's scratch folder. And what every command runs under: the environment it gets
-(no remote include, the core alone while the layout is waiting), the time it has and what happens to what it started
+(the core and what is on, no remote include), the time it has and what happens to what it started
 when that is up; and what a file written by someone else can make Compose do, tried with Compose itself where it is
 installed."""
 
@@ -17,11 +17,11 @@ import subprocess
 import sys
 import threading
 import time
-import types
 import unittest
 from pathlib import Path
 from unittest import mock
 
+from lab_ui import paths
 from lab_ui.docker import compose
 
 from .. import Case
@@ -32,7 +32,6 @@ DOCKER_CLI_SAYS = ("failed to connect to the docker API at unix:///var/run/docke
                    "and if the daemon is running: dial unix /var/run/docker.sock: connect: no such file or directory")
 
 LAB_UI = Path(compose.__file__).resolve().parents[2]   # the folder that holds the lab_ui package
-LAYOUT = "lab_ui.library.layout"
 GONE = "addons/gone/compose.yml"   # an include that this machine does not have
 FOREVER = 600   # seconds a command that must be ended would run for
 
@@ -1056,20 +1055,7 @@ class Docker(Case):
 class Environment(Case):
     """What every command gets: the files Compose reads, and no remote include."""
 
-    def layout(self, waiting=None):
-        """The layout module replaced until the test ends: by one that says whether it is waiting, else (None) by no
-        module at all, as in a checkout that has not got one yet."""
-        module = None
-        if waiting is not None:
-            module = types.ModuleType(LAYOUT)
-            module.waiting = lambda: waiting
-        absent = object()
-        was = sys.modules.get(LAYOUT, absent)
-        sys.modules[LAYOUT] = module
-        self.addCleanup(lambda: sys.modules.pop(LAYOUT, None) if was is absent else sys.modules.update({LAYOUT: was}))
-
     def test_the_core_and_what_is_on_whatever_the_shell_says_and_no_remote_include(self):
-        self.layout(waiting=False)
         shell = {"COMPOSE_FILE": "other.yml", "COMPOSE_EXPERIMENTAL_GIT_REMOTE": "true",
                  "COMPOSE_EXPERIMENTAL_OCI_REMOTE": "true", "SHELL_KEEPS": "this"}
         with mock.patch.dict(os.environ, shell):
@@ -1080,38 +1066,21 @@ class Environment(Case):
         self.assertEqual(found["SHELL_KEEPS"], "this")
 
     def test_the_flags_reach_every_command(self):
-        self.layout(waiting=False)
         with mock.patch.dict(os.environ, {"COMPOSE_EXPERIMENTAL_GIT_REMOTE": "true"}):
             answer = compose.run(["sh", "-c", 'printf "%s %s" "$COMPOSE_EXPERIMENTAL_GIT_REMOTE" '
                                               '"$COMPOSE_EXPERIMENTAL_OCI_REMOTE"'])
         self.assertEqual(answer, (0, "false false", ""))
 
-    def test_the_core_alone_while_the_layout_is_waiting(self):
-        self.layout(waiting=True)
+    def test_a_folder_of_the_layout_before_catalogs_changes_nothing_of_it(self):
+        # The engine knows one layout: such a folder is moved before the Lab works on it (layout.run), never read as one here
+        self.folder(compose, paths, files={paths.DEFAULT_FILE: '{"schema": 1, "catalogs": [{"id": "fixture"}]}\n',
+                                           paths.ON_FILE: "include:\n  - addons/kafka/compose.yml\n",
+                                           "addons/kafka/.env": "A=1\n"})
         with mock.patch.dict(os.environ, {"COMPOSE_FILE": "other.yml"}):
-            found = compose.environment()
-            answer = compose.run(["sh", "-c", 'printf "%s" "$COMPOSE_FILE"'])
-        self.assertEqual(found["COMPOSE_FILE"], "docker-compose.yml")
-        self.assertEqual(found["COMPOSE_EXPERIMENTAL_GIT_REMOTE"], "false")   # in every phase
-        self.assertEqual(answer, (0, "docker-compose.yml", ""))
-
-    def test_the_core_and_what_is_on_once_the_layout_is_not_waiting(self):
-        self.layout(waiting=False)
-        self.assertEqual(compose.environment()["COMPOSE_FILE"], compose.COMPOSE_FILE)
-
-    def test_a_checkout_without_the_layout_is_not_waiting(self):
-        self.layout(None)
-        self.assertEqual(compose.environment()["COMPOSE_FILE"], compose.COMPOSE_FILE)
-
-    def test_a_module_that_the_layout_needs_and_is_missing_is_a_fault_to_see(self):
-        modules = self.patch(compose, "importlib")
-        modules.import_module.side_effect = ModuleNotFoundError("No module named 'tomllib'", name="tomllib")
-        with self.assertRaisesRegex(ModuleNotFoundError, "tomllib"):
-            compose.environment()
+            self.assertEqual(compose.run(["sh", "-c", 'printf "%s" "$COMPOSE_FILE"']), (0, compose.COMPOSE_FILE, ""))
 
     def test_a_command_gets_the_environment_it_is_given_in_place_of_the_shells(self):
         # scrubbed_environment() and build_environment() are given whole: nothing of the shell stays under them
-        self.layout(waiting=False)
         given = {"PATH": os.environ["PATH"], "ONLY_THIS": "yes"}
         show = 'printf "%s|%s|%s|%s" "$ONLY_THIS" "$SHELL_KEEPS" "$SOME_API_TOKEN" "$COMPOSE_EXPERIMENTAL_GIT_REMOTE"'
         with mock.patch.dict(os.environ, {"SHELL_KEEPS": "this", "SOME_API_TOKEN": "secret-value"}):
@@ -1122,12 +1091,6 @@ class Environment(Case):
         answer = compose.run(["sh", "-c", 'printf "%s %s" "$A" "$B"'], environ={"PATH": os.environ["PATH"], "A": "1"},
                              env={"A": "2", "B": "3"})
         self.assertEqual(answer, (0, "2 3", ""))
-
-    def test_an_environment_given_does_not_ask_the_layout(self):
-        # environment() reads the layout of the machine; a scrubbed environment has nothing to do with it
-        modules = self.patch(compose, "importlib")
-        modules.import_module.side_effect = AssertionError("asked the layout")
-        self.assertEqual(compose.run(["sh", "-c", "printf ok"], environ={"PATH": os.environ["PATH"]}), (0, "ok", ""))
 
 
 class Commands(Case):

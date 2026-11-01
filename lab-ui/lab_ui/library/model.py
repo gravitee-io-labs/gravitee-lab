@@ -475,9 +475,8 @@ def _note(c, unit, state, on, is_up, plan, failure, services, offer=None):
                 "note_causes": _switch_causes(*layers.switch_rows(c["project"], plan["switch"]))}
     if offer:
         return {**_said(UNTESTED, "warn", target={"kind": "image", "id": None}), "note_causes": _switch_causes(offer.get("versions", []), offer.get("goes_back", []))}
-    # A locked on file is said once, in the banner, and a move of the old layout that is not over once, by the button of each
-    # row (its reason): neither is the note of every row that could start
-    if plan and plan["do"] == "start" and plan["blocked"] and plan["blocked"] not in (c["state"]["locked"], layers.WAITING):
+    # A locked on file is said once, in the banner: it is not the note of every row that could start
+    if plan and plan["do"] == "start" and plan["blocked"] and plan["blocked"] != c["state"]["locked"]:
         # A playground on images older than it needs: a short label, the versions it needs in its explanation
         # leads to the Images page, where they are chosen
         if unit["kind"] == "playground" and plan["blocked"] == layers.too_old(c["project"], unit):
@@ -1030,8 +1029,7 @@ def git_state(version):
 
 
 def build(project, state, containers, job, failures, license_features, docker, created, saved=None,
-          license_status=None, platforms=(), deployed=None, changed=None, git=None, catalogs=None, content=None,
-          layout=None):
+          license_status=None, platforms=(), deployed=None, changed=None, git=None, catalogs=None, content=None):
     """The body of /api/state. `state` is layers.current(), `containers` compose.ps() ({} when Docker does not
     answer), `job` the summary of the last job or None, `failures(kind, id)` the failed or canceled last job on an
     item ({id, verb, error, login}, jobs.Jobs.failed_job) or None, `license_features` the features the license allows
@@ -1047,13 +1045,12 @@ def build(project, state, containers, job, failures, license_features, docker, c
     is not known, Docker not answering or docker-compose.yml not loading: no state is said, but, while only Docker
     does not answer, what is on, which the files say. The consoles come in their order, which puts the legacy ones
     last. The state of the catalogs is read by the caller, who has the disk: `git` (git_state), `catalogs` (the rows of the
-    Catalogs page), `content` (what the first start says of the content) and `layout` (where the migration of an
-    existing machine is) are put in the body as they are given, and left out when they are not."""
+    Catalogs page) and `content` (what the first start says of the content) are put in the body as they are given, and left
+    out when they are not."""
     platforms = list(platforms)
     loaded = project["core_loaded"]
     readonly = {ns for ns, found in (project.get("catalogs") or {}).items() if found.get("kind") == "git"}
-    forwarded = {key: value for key, value in (("git", git), ("catalogs", catalogs), ("content", content),
-                                               ("layout", layout)) if value is not None}
+    forwarded = {key: value for key, value in (("git", git), ("catalogs", catalogs), ("content", content)) if value is not None}
     containers = containers if loaded else {}   # without the core, Compose reads nothing: what runs is not known
     running_job = job if job and not job["done"] else None
     # The last job, while what it starts or stops is on its way: as it runs, then, once it ended well, until every

@@ -11,7 +11,6 @@ import contextlib
 import copy
 import functools
 import hashlib
-import importlib
 import json
 import os
 import posixpath
@@ -134,25 +133,10 @@ def scratch():
 NO_REMOTE = {"COMPOSE_EXPERIMENTAL_GIT_REMOTE": "false", "COMPOSE_EXPERIMENTAL_OCI_REMOTE": "false"}
 
 
-def _waiting():
-    """Whether the layout of an existing machine is being moved to the catalogs (layout.waiting()). The module is
-    looked up when asked, as it needs this one; a checkout without it is not waiting."""
-    name = "lab_ui.library.layout"
-    try:
-        layout = importlib.import_module(name)
-    except ModuleNotFoundError as error:
-        if error.name != name:   # a module it needs is missing: that is a fault to show, not a layout to ignore
-            raise
-        return False
-    return bool(layout.waiting())
-
-
 def environment():
     """The shell's environment, for a command, with the files Compose reads: the core and what is on, whatever the
-    shell or .env says, and no remote include (NO_REMOTE). While the layout is waiting (_waiting), the core alone:
-    the on file may name files that are not where they were, and the Lab's own commands must not fail on it. It is the
-    only time Compose reads fewer files than .env says."""
-    return {**os.environ, "COMPOSE_FILE": CORE_FILE if _waiting() else COMPOSE_FILE, **NO_REMOTE}
+    shell or .env says, and no remote include (NO_REMOTE)."""
+    return {**os.environ, "COMPOSE_FILE": COMPOSE_FILE, **NO_REMOTE}
 
 
 # What a command that reads or builds the files of a stranger (a catalog's pull request) is told of the shell: these

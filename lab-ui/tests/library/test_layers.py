@@ -13,7 +13,7 @@ import unittest
 from unittest import mock
 
 from lab_ui.docker import compose, envfiles
-from lab_ui.library import layers, layout, project as projects
+from lab_ui.library import layers, project as projects
 from lab_ui import paths
 from lab_ui.docker.jobs import Job, JobFailed, awaited
 
@@ -353,7 +353,6 @@ class Plans(Case):
 
     def setUp(self):
         self.project = lab()
-        self.patch(layout, "waiting", return_value=False)   # whatever tree this runs in: no old layout is being moved
 
     def plan(self, state, running, kind, uid, do, fresh=False):
         return layers.plan(self.project, state, running, kind, uid, do, fresh=fresh)
@@ -1149,9 +1148,6 @@ def snapshot(**extra):
 class ThisMachine(Case):
     """Without a place, or with This machine, a plan is the one it always was."""
 
-    def setUp(self):
-        self.patch(layout, "waiting", return_value=False)   # whatever tree this runs in: no old layout is being moved
-
     def test_the_plans_are_those_of_main(self):
         self.assertEqual(snapshot(), MAIN_PLANS)
 
@@ -1190,7 +1186,6 @@ class Places(Case):
         cloud(self.project)
         self.core = [name for name, service in self.project["services"].items()
                      if service["owner"]["kind"] == "platform"]
-        self.patch(layout, "waiting", return_value=False)   # whatever tree this runs in: no old layout is being moved
 
     def up(self, *addons, **kwargs):
         return up(*addons, project=self.project, **kwargs)
@@ -1939,7 +1934,6 @@ class Gates(Case):
     def setUp(self):
         self.project = lab()
         own(self.project)
-        self.waiting = self.patch(layout, "waiting", return_value=False)
 
     def block(self, uid, *reasons, kind="addon"):
         self.project[kind + "s"][uid]["blocked"] = {"reasons": list(reasons)}
@@ -1956,7 +1950,6 @@ class Gates(Case):
     def test_a_stop_is_refused_for_none_of_them(self):
         self.block("kiosk", "Mounts the Docker socket")
         self.project["addons"]["kiosk"]["needs_catalogs"] = [need("missing")]
-        self.waiting.return_value = True
         state, running = on(self.project, ["kiosk"]), up("kiosk", project=self.project)
         self.assertIsNone(self.why("addon", "kiosk", state, running, "stop"))
 
@@ -1983,44 +1976,32 @@ class Gates(Case):
         self.assertEqual(self.why("addon", "kafka-desk"), "Downloading Partner Bank")
 
     def test_the_reasons_come_in_an_order(self):
-        # The file is locked, the layout is moving, the policy blocks it, a catalog is lacking, its twin is on, a setting
-        # is lacking, a port is taken: each is said once the one before it is gone
+        # The file is locked, the policy blocks it, a catalog is lacking, its twin is on, a setting is lacking, a port is
+        # taken: each is said once the one before it is gone
         twins(self.project)
         self.project["addons"]["kiosk"].update(catalog="fixture", services=["kiosk"])
         self.project["services"]["kiosk"]["ports"] = ["5601"]
         self.project["services"]["jade"]["ports"] = ["5601"]
         self.block("kiosk", "Mounts the Docker socket")
         self.project["addons"]["kiosk"]["needs_catalogs"] = [need("missing")]
-        self.waiting.return_value = True
         state = on(self.project, ["jade", "local/kiosk"], missing=["kiosk"], locked=layers.LOCKED)
         running = up(project=self.project)
         said = []
-        for step in range(7):
+        for step in range(6):
             said.append(layers.plan(self.project, state, running, "addon", "kiosk", "start")["blocked"])
             if step == 0:
                 state["locked"] = None
             elif step == 1:
-                self.waiting.return_value = False
-            elif step == 2:
                 self.project["addons"]["kiosk"]["blocked"] = None
-            elif step == 3:
+            elif step == 2:
                 self.project["addons"]["kiosk"]["needs_catalogs"] = []
-            elif step == 4:
+            elif step == 3:
                 state = on(self.project, ["jade"], missing=["kiosk"])
-            elif step == 5:
+            elif step == 4:
                 state = on(self.project, ["jade"])
-        self.assertEqual(said, [layers.LOCKED, layers.WAITING, "Mounts the Docker socket", NEEDS["missing"],
+        self.assertEqual(said, [layers.LOCKED, "Mounts the Docker socket", NEEDS["missing"],
                                 "Also in Personal: turn it off first", "Kiosk needs settings",
                                 "Port 5601 is used by Jade"])
-
-    def test_nothing_starts_while_the_old_layout_is_moving(self):
-        self.waiting.return_value = True
-        self.assertEqual(self.why("addon", "kiosk"), "Your settings are being moved. Try again in a moment.")
-        self.assertEqual(self.why("playground", "welcome"), layers.WAITING)
-        with self.assertRaisesRegex(RuntimeError, "^Your settings are being moved. Try again in a moment.$"):
-            layers.ready()
-        self.waiting.return_value = False
-        layers.ready()
 
     def test_the_twin_of_an_item_that_is_on_or_up_is_not_started(self):
         twins(self.project)
@@ -2203,7 +2184,6 @@ class Preflight(Case):
         self.service = types.ModuleType("service")
         self.service.preflight = mock.Mock()
         self.start(mock.patch.dict(sys.modules, {"lab_ui.catalogs.service": self.service}))
-        self.patch(layout, "waiting", return_value=False)
 
     def plan(self, kind, uid, do="start", state=None):
         return layers.plan(self.project, state or on(self.project), up(project=self.project), kind, uid, do)
@@ -2274,7 +2254,6 @@ class From(Case):
     def setUp(self):
         self.project = lab()
         own(self.project)
-        self.patch(layout, "waiting", return_value=False)
 
     def plan(self, kind="addon", uid="kiosk", do="start", state=None):
         return layers.plan(self.project, state or on(self.project), up(project=self.project), kind, uid, do)
@@ -2360,7 +2339,6 @@ class Entries(Case):
                 self.write(unit["file"])
                 if kind == "addon":
                     unit["env_file"] = paths.unit_env(kind, uid)
-        self.waiting = self.patch(layout, "waiting", return_value=False)
 
     def on_file(self, text):
         self.write(paths.ON_FILE, text)
@@ -2394,93 +2372,21 @@ class Entries(Case):
         state = self.on_file("include:\n  - .lab/catalogs/partner/addons/ledger/compose.yml\n")
         self.assertEqual(state["locked"], ".lab/catalogs/partner/addons/ledger/compose.yml does not load")
 
-    def test_a_line_of_the_old_layout_locks_the_file_once_the_layout_is_moved(self):
+    def test_a_line_of_the_old_layout_is_a_line_like_any_other_and_locks_the_file(self):
+        # The engine knows one layout: the move of the old one is made before the Lab works on the folder (layout.run)
         self.write("addons/kiosk/compose.yml")
         state = self.on_file("include:\n  - addons/kiosk/compose.yml\n")
         self.assertEqual((state["explicit"], state["locked"]), ([], layers.LOCKED))
 
-    def test_while_the_layout_is_moving_a_line_of_the_old_layout_is_no_problem_and_locks_nothing(self):
-        self.waiting.return_value = True
-        # The files are not where the line says: neither a missing file, nor a file that does not load
-        state = self.on_file("include:\n  - addons/kiosk/compose.yml\n  - setups/events.yml\n"
-                             "  - playgrounds/local/mine/compose.yml\n  - addons/local/whoami/compose.yml\n"
-                             "  - .lab/catalogs/fixture/addons/jade/compose.yml\n")
-        self.assertEqual((state["explicit"], state["locked"], state["problems"], state["setups"]),
-                         (["jade"], None, [], []))
-
-    def test_the_state_asks_whether_the_layout_is_moving_once_and_only_for_a_line_that_looks_like_the_old_ones(self):
-        # layout.waiting() reads the disk, and every state poll and every plan reads the on file: it is not asked per line
-        self.waiting.return_value = True
-        self.on_file("include:\n  - addons/kiosk/compose.yml\n  - setups/events.yml\n  - playgrounds/local/mine/compose.yml\n"
-                     "  - addons/local/whoami/compose.yml\n  - addons/kafka/compose.yml\n")
-        self.assertEqual(self.waiting.call_count, 1)
-        self.waiting.reset_mock()
-        self.on_file("include:\n  - .lab/catalogs/fixture/addons/jade/compose.yml\n  - .lab/catalogs/local/addons/whoami/compose.yml\n")
-        self.waiting.assert_not_called()
-        self.on_file("")
-        self.waiting.assert_not_called()
-
-    def test_while_the_layout_is_moving_the_old_line_of_an_item_on_another_platform_is_none_either(self):
-        self.waiting.return_value = True
-        state = self.on_file('include:\n  - {path: ".lab/targets/cloud/addons__hybrid__compose.yml", '
-                             'project_directory: "addons/hybrid"}\n')
-        self.assertEqual((state["explicit"], state["locked"], state["problems"], state["targets"]), ([], None, [], {}))
-
-    LEGACY_ON = ('include:\n  - addons/kafka/compose.yml\n  - .lab/catalogs/local/addons/whoami/compose.yml\n'
-                 '  - {path: ".lab/targets/cloud/addons__hybrid__compose.yml", project_directory: "addons/hybrid"}\n'
-                 "  - setups/events.yml\n  - .lab/catalogs/fixture/addons/jade/compose.yml\n")
-
-    def test_a_write_while_the_layout_is_moving_keeps_the_lines_of_the_old_layout(self):
-        # The move translates the file as it finds it, and reads it live: a stop of one item of the person's own, which stays
-        # possible, must not drop what they had on
-        self.waiting.return_value = True
-        state = self.on_file(self.LEGACY_ON)
-        self.assertEqual((state["explicit"], state["locked"]), (["jade", "local/whoami"], None))
-        plan = layers.plan(self.project, state, up(project=self.project), "addon", "local/whoami", "stop")
-        layers.write(plan["playground"], plan["explicit"])
-        self.assertEqual((self.root / paths.ON_FILE).read_text(encoding="utf-8"),
-                         "include:\n  - .lab/catalogs/fixture/addons/jade/compose.yml\n  - addons/kafka/compose.yml\n"
-                         '  - {path: ".lab/targets/cloud/addons__hybrid__compose.yml", project_directory: "addons/hybrid"}\n'
-                         "  - setups/events.yml\n")
-        # Nothing else on: the file holds the old lines alone, and is still read as before
-        layers.write(None, [])
-        self.assertEqual(layers.current(self.project)["locked"], None)
-        self.assertEqual((self.root / paths.ON_FILE).read_text(encoding="utf-8"),
-                         "include:\n  - addons/kafka/compose.yml\n"
-                         '  - {path: ".lab/targets/cloud/addons__hybrid__compose.yml", project_directory: "addons/hybrid"}\n'
-                         "  - setups/events.yml\n")
-        # Every write after keeps them, and so does a write that adds an entry
-        layers.write(None, ["kiosk"])
-        self.assertEqual((self.root / paths.ON_FILE).read_text(encoding="utf-8").splitlines()[:2],
-                         ["include:", "  - .lab/catalogs/fixture/addons/kiosk/compose.yml"])
-        self.assertEqual(layers._legacy_lines(), ["  - addons/kafka/compose.yml",
-                                                  '  - {path: ".lab/targets/cloud/addons__hybrid__compose.yml", '
-                                                  'project_directory: "addons/hybrid"}', "  - setups/events.yml"])
-
-    def test_only_a_line_that_names_a_file_of_the_old_layout_is_kept(self):
-        self.waiting.return_value = True
-        self.on_file("include:\n  - addons/kafka/compose.yml  # mine\n  - './playgrounds/local/mine/compose.yml'\n"
-                     "  - mine.yml\n  - addons/kafka/other.yml\n  - ../addons/kafka/compose.yml\n"
-                     '  - {path: ".lab/targets/cloud/mine__compose.yml", project_directory: "x"}\n'
-                     "  - .lab/catalogs/fixture/addons/jade/compose.yml\n# addons/kafka/compose.yml\n")
-        self.assertEqual(layers._legacy_lines(), ["  - addons/kafka/compose.yml  # mine",
-                                                  "  - './playgrounds/local/mine/compose.yml'"])
-
-    def test_once_the_layout_is_moved_a_write_keeps_what_it_is_given_and_nothing_else(self):
-        self.write(paths.ON_FILE, self.LEGACY_ON)
-        self.assertEqual(layers._legacy_lines(), [])
+    def test_a_write_keeps_what_it_is_given_and_nothing_else(self):
+        self.write(paths.ON_FILE, 'include:\n  - addons/kafka/compose.yml\n  - .lab/catalogs/local/addons/whoami/compose.yml\n'
+                   '  - {path: ".lab/targets/cloud/addons__hybrid__compose.yml", project_directory: "addons/hybrid"}\n'
+                   "  - setups/events.yml\n")
         layers.write(None, ["kiosk"])
         self.assertEqual((self.root / paths.ON_FILE).read_text(encoding="utf-8"),
                          "include:\n  - .lab/catalogs/fixture/addons/kiosk/compose.yml\n")
         layers.write(None, [])
         self.assertEqual((self.root / paths.ON_FILE).read_text(encoding="utf-8"), "")
-
-    def test_while_the_layout_is_moving_what_is_not_a_line_of_the_old_layout_still_locks(self):
-        self.waiting.return_value = True
-        self.write("mine.yml")
-        state = self.on_file("include:\n  - addons/kiosk/compose.yml\n  - mine.yml\n")
-        self.assertEqual(state["locked"], layers.LOCKED)
-        self.assertEqual(self.on_file("include:\n  - addons/kiosk/compose.yml\nservices:\n  redis: {}\n")["locked"], layers.LOCKED)
 
     def test_an_item_of_a_catalog_runs_on_a_platform_through_its_copy(self):
         self.write(paths.unit_file("addon", "kafka"), "services:\n  apim-gateway:\n    environment:\n      A: b\n")
@@ -2790,7 +2696,6 @@ class Real(Case):
         cls.root = holder.root
 
     def setUp(self):
-        self.waiting = self.patch(layout, "waiting", return_value=False)
         self.addCleanup(lambda: (self.root / paths.ON_FILE).exists() and (self.root / paths.ON_FILE).unlink())
 
     def begin(self, kind, uid, state=None, running=None):
@@ -2894,9 +2799,6 @@ class RealTwins(Case):
             text = (fixtures.CATALOGS / "fixture/addons/echo/compose.yml").read_text(encoding="utf-8")
             case.write(".lab/catalogs/local/addons/echo/compose.yml", text)
         cls.inputs, cls.built = read(holder, more=twin)
-
-    def setUp(self):
-        self.patch(layout, "waiting", return_value=False)
 
     def why(self, uid, explicit, running=None):
         state = on(self.built, explicit)

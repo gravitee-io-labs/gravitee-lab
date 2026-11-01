@@ -981,7 +981,7 @@ def _written_since(removes) -> str:
     """The line of the script that says what "written since the update" means for the files it puts back over (`counts`, in
     `_HELPERS`). The migration is over when its marker is there. A file that differs from the backup is then its own work
     unless it is newer than the script, which the migration writes last (and writes again when it translates a line a stale
-    Lab brought back): nothing it writes comes after. The marker is not the measure, since closing the notice writes it again.
+    Lab brought back): nothing it writes comes after.
     With no marker, but with something the migration left that the script removes (its witness, its plan), it stopped: what is
     there is its own half work and goes back as the backup has it. With nothing of either, the update is already undone:
     whatever differs from the backup was written after it."""

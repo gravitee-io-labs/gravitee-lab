@@ -1045,17 +1045,12 @@ class Beat(Served, Case):
     def setUp(self):
         self.world()
         self.calls = []
-        self.migrated = []
         self.checked = []
         # The schedule of the downloads is the point of most tests: the check and the look at the file are far away unless
         # a test brings them near
         self.patch(firstrun, "FIRST_CHECK", 10 ** 9)
         self.patch(firstrun, "NAP", 10 ** 9)
         self.patch(service, "check_all", side_effect=lambda: self.checked.append(1))
-        from lab_ui.library import layout
-        self.layout = layout
-        self.patch(layout, "waiting", return_value=False)
-        self.patch(layout, "migrate", side_effect=lambda: self.migrated.append(1) or {})
 
     def failing(self, code="unreachable", then=None):
         """provision replaced by one that fails with `code` (and, from the call number `then` on, succeeds): the calls
@@ -1204,9 +1199,8 @@ class Beat(Served, Case):
         self.assertEqual([one["id"] for one in defaults.not_added()], ["second"], "it is a Not added row, as the person left it")
         self.assertEqual((worker.failures, worker.retry_at), (0, None), "and a catalog that is gone is no failure")
 
-    def test_a_catalog_another_process_finished_meanwhile_still_counts_as_an_arrival(self):
+    def test_a_catalog_another_process_finished_meanwhile_is_no_failure(self):
         self.two()
-        self.layout.waiting.return_value = True
         calls = []
 
         def provision(ns):
@@ -1216,20 +1210,17 @@ class Beat(Served, Case):
             return {"id": ns}
         self.patch(firstrun, "provision", provision)
         _, worker = self.worker()
-        worker.first = False
         worker.tick()
         self.assertEqual(calls, [self.ns, "second"], "only a catalog that is gone is skipped")
-        self.assertEqual(self.migrated, [1], "the arrival is seen, as it is for a download of this thread")
+        self.assertEqual((worker.failures, worker.retry_at), (0, None))
 
-    def test_a_catalog_that_arrived_with_an_env_that_is_not_utf8_still_runs_the_migration(self):
-        self.layout.waiting.return_value = True
+    def test_a_catalog_that_arrived_with_an_env_that_is_not_utf8_is_no_failure(self):
         (self.root / ".env").write_bytes(b"# caf\xe9\nFOO=1\n")
         _, worker = self.worker()
-        worker.first = False   # only the arrival of the catalog can start it
         with mock.patch("sys.stderr") as err:
             worker.tick()
         self.assertEqual(self.lock()["pin"], self.remote.head())
-        self.assertEqual((worker.failures, worker.retry_at, self.migrated), (0, None, [1]))
+        self.assertEqual((worker.failures, worker.retry_at), (0, None))
         self.assertEqual(err.write.call_args_list, [], "and nothing is said of a failure that did not happen")
 
     def test_a_fault_of_an_attempt_is_a_failure_of_the_schedule_and_the_thread_goes_on(self):
@@ -1292,130 +1283,6 @@ class Beat(Served, Case):
         now[0] += 60
         worker.tick()
         self.assertEqual(order, ["provision", "check"])
-
-    def test_the_migration_of_an_old_layout_runs_once_the_catalog_is_there(self):
-        self.layout.waiting.return_value = True
-        self.arriving()
-        now, worker = self.worker()
-        worker.tick()
-        self.assertEqual(self.migrated, [1])
-        worker.tick()
-        self.assertEqual(self.migrated, [1], "once, not at every pass")
-        self.failing()
-        registry.drop_lock(self.ns)
-        worker.arrived = False
-        now[0] += 100
-        worker.tick()
-        self.assertEqual(self.migrated, [1], "and not while the download fails")
-
-    def test_the_migration_runs_after_a_retry_succeeds(self):
-        self.layout.waiting.return_value = True
-        self.failing(then=2)
-        now, worker = self.worker()
-        worker.tick()
-        self.assertEqual(self.migrated, [1], "the first pass looks at the layout once")
-        now[0] += 15
-        worker.tick()
-        self.assertEqual(self.migrated, [1, 1], "and the arrival of the catalog is the second")
-
-    def test_the_move_of_an_old_layout_is_made_right_after_the_default_catalog_not_after_the_downloads_that_follow_it(self):
-        # a second catalog that takes ten minutes to fetch, or never arrives, does not keep a person from their settings
-        self.two()
-        order = []
-
-        def provision(ns):
-            order.append(("provision", ns))
-            registry.set_lock(ns, pin="a" * 40, error=None)
-            return {"id": ns}
-        self.patch(firstrun, "provision", provision)
-        self.layout.waiting.side_effect = lambda: ("migrate",) not in order   # waiting until the move is made
-        self.layout.migrate.side_effect = lambda: order.append(("migrate",)) or {}
-        _, worker = self.worker()
-        worker.first = False
-        worker.tick()
-        self.assertEqual(order, [("provision", self.ns), ("migrate",), ("provision", "second")])
-        worker.tick()
-        self.assertEqual(order.count(("migrate",)), 1, "once")
-
-    def test_the_arrival_of_a_catalog_that_is_not_the_default_one_is_none_the_move_waits_for(self):
-        # Part B needs the default catalog, and no other: a second catalog that arrives does not make it again
-        self.two()
-        self.layout.waiting.return_value = True
-        order = []
-
-        def provision(ns):
-            order.append(ns)
-            if ns == self.ns:
-                raise CatalogError("unreachable", "Cannot reach somewhere.", 502)
-            registry.set_lock(ns, pin="a" * 40, error=None)
-            return {"id": ns}
-        self.patch(firstrun, "provision", provision)
-        _, worker = self.worker()
-        worker.first = False
-        worker.tick()
-        self.assertEqual((order, self.migrated), ([self.ns, "second"], []), "the default one failed, the other arrived")
-
-    def test_a_remove_makes_the_thread_look_at_the_layout_at_once_and_only_once(self):
-        # the person decided to have no default catalog; the move that waited for it runs against none
-        self.layout.waiting.return_value = True
-        registry.write_config({"schema": 1, "catalogs": []})
-        _, worker = self.worker()
-        worker.first = False
-        worker.tick()
-        self.assertEqual(self.migrated, [], "nothing arrived and nothing was removed since: nothing to look at")
-        worker.removed()
-        self.assertTrue(worker.nudge.is_set(), "the thread wakes, it does not wait for its nap")
-        worker.tick()
-        self.assertEqual(self.migrated, [1])
-        worker.tick()
-        self.assertEqual(self.migrated, [1], "once")
-
-    def test_a_remove_when_the_layout_waits_for_nothing_changes_nothing(self):
-        registry.write_config({"schema": 1, "catalogs": []})
-        _, worker = self.worker()
-        worker.first = False
-        worker.removed()
-        worker.tick()
-        self.assertEqual(self.migrated, [], "the layout is ready: the move is not made again for a click of Remove")
-
-    def test_the_module_tells_the_live_worker_and_nobody_when_there_is_none(self):
-        firstrun.removed()   # no thread: the next start looks at the layout, and this raises nothing
-        worker = firstrun.Worker()
-        self.patch(firstrun, "_worker", worker)
-        firstrun.removed()
-        self.assertTrue(worker.nudge.is_set())
-        self.assertTrue(worker._removed)
-
-    def test_what_the_move_reports_is_said_once_but_the_line_that_it_has_said_itself_is_not_said_again(self):
-        self.layout.waiting.return_value = True
-        failed = self.layout.FAILED_LINE
-        self.layout.migrate.side_effect = lambda: {"problems": ["Edit COMPOSE_FILE in .env by hand.", failed]}
-        self.arriving()
-        _, worker = self.worker()
-        with mock.patch("sys.stderr") as err:
-            worker.tick()
-        said = "".join(call.args[0] for call in err.write.call_args_list)
-        self.assertIn("Gravitee Lab UI: Edit COMPOSE_FILE in .env by hand.", said)
-        self.assertNotIn(failed, said, "`migrate` said it, with its reason")
-
-    def test_a_move_that_failed_is_not_made_again_by_the_thread_the_person_presses_try_again(self):
-        self.layout.waiting.return_value = True   # still waiting: the move failed
-        self.layout.migrate.side_effect = lambda: self.migrated.append(1) or {"problems": [self.layout.FAILED_LINE]}
-        self.arriving()
-        now, worker = self.worker()
-        for _ in range(4):
-            worker.tick()
-            now[0] += 100
-        self.assertEqual(self.migrated, [1], "no loop on a disk that is full")
-
-    def test_a_migration_that_fails_is_said_and_the_thread_goes_on(self):
-        self.layout.waiting.return_value = True
-        self.layout.migrate.side_effect = OSError("disk")
-        self.arriving()
-        _, worker = self.worker()
-        with mock.patch("sys.stderr") as err:
-            worker.tick()
-        self.assertIn("could not move the settings", "".join(call.args[0] for call in err.write.call_args_list))
 
     def test_nothing_is_attempted_when_nothing_is_waiting_and_the_wait_is_bounded(self):
         self.patch(firstrun, "NAP", 60.0)
@@ -1495,16 +1362,6 @@ class Beat(Served, Case):
         self.assertTrue(self.until(lambda: self.lock()["pin"]), "the worker downloaded it")
         self.assertEqual(registry.entry(self.ns)["url"], self.remote.url)
         self.assertEqual(defaults.not_added(), [])
-
-    def test_a_remove_wakes_the_real_thread_which_makes_the_move_that_waited_for_the_default_catalog(self):
-        # The thread sleeps for its nap (patched to forever): only the Remove makes it look again
-        self.layout.waiting.return_value = True
-        registry.write_config({"schema": 1, "catalogs": []})
-        self.started()
-        self.thread()
-        self.assertTrue(self.until(lambda: self.migrated == [1], 10), "the first pass looks at the layout once")
-        firstrun.removed()
-        self.assertTrue(self.until(lambda: self.migrated == [1, 1], 10), "and the Remove makes it look again, at once")
 
     def test_two_starts_at_once_make_one_thread(self):
         registry.write_config({"schema": 1, "catalogs": []})

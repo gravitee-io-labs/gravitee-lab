@@ -1348,14 +1348,15 @@ class Service(Tool):
 
 
 class Provision(Tool):
-    """The first start from a terminal: the intent, the downloads, the migration; exit 1 with the line on a failure."""
+    """The first start from a terminal: the intent, the downloads, the move of a folder of the layout before catalogs; exit 1
+    with the line on a failure."""
 
     def fake(self, provision=None, **more):
         calls = []
         firstrun = module(reconcile=lambda: calls.append("reconcile"), PROGRESS={},
                           provision=provision or (lambda ns: calls.append(f"provision {ns}") or {"id": ns, "name": ns.title()}),
                           **more)
-        layout = module(waiting=lambda: False, migrate=lambda: {"moved": [], "problems": []})
+        layout = module(run=lambda say, complain: True)
         patcher = mock.patch.dict(sys.modules, {"lab_ui.catalogs.firstrun": firstrun, "lab_ui.library.layout": layout})
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -1399,14 +1400,25 @@ class Provision(Tool):
         self.assertEqual(self.run_tool("provision"), (0, "", ""))
         self.assertEqual(calls, ["reconcile"])
 
-    def test_the_old_layout_is_moved_when_it_waits_and_its_problems_fail_the_command(self):
+    def test_the_move_of_an_old_layout_runs_after_the_downloads_says_what_it_says_and_a_move_that_fails_fails_the_command(self):
+        # What it moved and why it could not are the move's words (test_layout), said through the command's own lines
+        self.declare("partner")
         calls, _, layout = self.fake()
-        layout.waiting = lambda: True
-        layout.migrate = lambda: {"moved": ["a", "b"], "problems": []}
-        self.assertEqual(self.run_tool("provision"), (0, "Moved 2 items of the old layout\n", ""))
-        layout.migrate = lambda: {"moved": ["addon:a"], "problems": ["addons/x: could not be moved"]}
+
+        def run(say, complain):
+            calls.append("move")
+            say("Moving your settings to the new layout")
+            return True
+        layout.run = run
         code, out, err = self.run_tool("provision")
-        self.assertEqual((code, out, err), (1, "Moved 1 item of the old layout\n", "addons/x: could not be moved\n"))
+        self.assertEqual((code, err, calls), (0, "", ["reconcile", "provision partner", "move"]))
+        self.assertEqual(out.splitlines()[-1], "Moving your settings to the new layout")
+
+        def failed(say, complain):
+            complain("Could not move your settings to the new layout. Nothing was deleted.")
+            return False
+        layout.run = failed
+        self.assertEqual(self.run_tool("provision")[0::2], (1, "Could not move your settings to the new layout. Nothing was deleted.\n"))
 
     def test_the_progress_of_a_download_is_said_as_its_phase_changes(self):
         self.declare("partner")

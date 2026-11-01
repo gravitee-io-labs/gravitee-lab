@@ -1479,7 +1479,7 @@ class Catalogs(Fixture):
         inputs = self.inputs
         self.assertEqual(inputs["default"], "fixture")
         self.assertEqual(inputs["contract"], {"contract": 4, "contract_min": 1, "seeder_image": fixtures.seeder_image(self.holder)})
-        self.assertEqual(inputs["layout"], {"phase": "ready", "notice": None})
+        self.assertNotIn("layout", inputs, "the move of an old layout is made before the project is read: it is no input")
         self.assertEqual(list(inputs["catalogs"]), ["fixture", "local", "partner", "lab-new", "lab-old"])
         self.assertEqual(inputs["screened"], {})
         self.assertIsNotNone(inputs["core_config"])
@@ -2913,7 +2913,7 @@ class Fingerprints(Case):
 
     def test_what_says_which_catalogs_there_are_changes_it(self):
         root = self.project()
-        for name in (".lab/catalogs.json", ".lab/catalogs.lock", "catalogs.default.json", ".lab/layout.json"):
+        for name in (".lab/catalogs.json", ".lab/catalogs.lock", "catalogs.default.json"):
             with self.subTest(name=name):
                 file = root / name
                 self.assertTrue(self.changes(lambda: self.write(name, (file.read_text(encoding="utf-8") if file.is_file() else "{}") + "\n ")))
