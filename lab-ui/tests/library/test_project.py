@@ -15,7 +15,7 @@ from pathlib import Path
 from unittest import mock
 
 from lab_ui.docker import compose, envfiles
-from lab_ui.library import layers, project
+from lab_ui.library import layers, model, project
 from lab_ui.gravitee import license, places, platforms
 from lab_ui import paths
 from lab_ui.catalogs import trust
@@ -607,6 +607,30 @@ class Degraded(Legacy):
         self.assertEqual(built["addons"]["agent-lens"]["requires"], {})
         self.assertEqual(built["playgrounds"]["welcome"]["requires"], {})
         self.assertEqual(built["addons"]["agent-lens"]["name"], "AI Agent Lens")
+
+    def test_the_lists_a_page_reads_keep_what_they_are_written_for_and_say_the_rest(self):
+        # A console written as a mapping (a form of a newer Lab), a terminal that is a list, tags as one text, an account that
+        # is no mapping: each is said under its file and left out, and the state of the whole lab is still drawn
+        given = inputs()
+        given["raw"][WELCOME]["x-gravitee"].update(
+            consoles=["acme-website", {"console": "apim-portal-ui", "as": "someone"}, ["x"]], terminal=["acme-website"],
+            tags="MCP", accounts=[{"for": "Website", "username": "john"}, "john", None])
+        built = project.build(given)
+        welcome = built["playgrounds"]["welcome"]
+        self.assertEqual((welcome["consoles"], welcome["terminal"], welcome["tags"], [one["for"] for one in welcome["accounts"]]),
+                         (["acme-website"], None, [], ["Website"]))
+        said = [problem["message"] for problem in built["problems"] if problem["file"] == WELCOME]
+        self.assertEqual(said, ["x-gravitee.consoles must be a list of services", "x-gravitee.tags must be a list of short labels",
+                                "x-gravitee.accounts must be a list of accounts, each a mapping",
+                                "x-gravitee.terminal must be the name of a service"])
+        state = {"playground": None, "explicit": [], "setups": [], "effective": [], "missing": [], "problems": [], "locked": None}
+        body = model.build(built, state, {}, None, lambda kind, uid: None, None, {"error": None, "memory": None}, {})
+        shown = next(one for one in body["playgrounds"] if one["id"] == "welcome")
+        self.assertEqual((shown["terminal"], [link["service"] for link in shown["links"]][-1:]), (None, ["acme-website"]))
+        # A mapping is a mapping of names to Compose: its keys are not taken for services
+        given["raw"][WELCOME]["x-gravitee"].update(consoles={"acme-website": 1}, tags=None, accounts=None, terminal=None)
+        welcome = project.build(given)["playgrounds"]["welcome"]
+        self.assertEqual((welcome["consoles"], welcome["tags"], welcome["accounts"]), ([], [], []))
 
     def test_the_tested_versions_are_a_list_of_sets_or_are_reported_and_left_out(self):
         given = inputs()
@@ -1507,14 +1531,20 @@ class Accounts(Legacy):
              "admin": True, "tags": ["${WELCOME_USER:-john}"]},
             {"for": "LLM", "key": "${WELCOME_KEY:-key-1}"}, "text", None]
         given["env"] = {self.OWN: {"WELCOME_USER": "jane", "WELCOME_KEY": "key-2"}}
-        self.assertEqual(project.build(given)["playgrounds"]["welcome"]["accounts"], [
+        built = project.build(given)
+        self.assertEqual(built["playgrounds"]["welcome"]["accounts"], [
             {"for": "Website of ACME", "username": "jane", "port": 8002, "admin": True, "tags": ["${WELCOME_USER:-john}"]},
-            {"for": "LLM", "key": "key-2"}, "text", None])
+            {"for": "LLM", "key": "key-2"}])   # what is no account is said, and left out: the page reads each as one
+        self.assertIn({"file": WELCOME, "message": "x-gravitee.accounts must be a list of accounts, each a mapping"},
+                      built["problems"])
 
-    def test_accounts_that_are_not_a_list_are_left_as_they_are(self):
+    def test_accounts_that_are_not_a_list_are_said_and_none(self):
         given = inputs()
         given["raw"][WELCOME]["x-gravitee"]["accounts"] = "${WELCOME_PASSWORD:-doe}"
-        self.assertEqual(project.build(given)["playgrounds"]["welcome"]["accounts"], "${WELCOME_PASSWORD:-doe}")
+        built = project.build(given)
+        self.assertEqual(built["playgrounds"]["welcome"]["accounts"], [])
+        self.assertIn({"file": WELCOME, "message": "x-gravitee.accounts must be a list of accounts, each a mapping"},
+                      built["problems"])
         del given["raw"][WELCOME]["x-gravitee"]["accounts"]
         self.assertEqual(project.build(given)["playgrounds"]["welcome"]["accounts"], [])
 

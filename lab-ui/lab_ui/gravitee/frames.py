@@ -47,9 +47,7 @@ def declared(p, pid):
     project is looked up when asked, because it reads this module."""
     from ..library import project
     playground = p["playgrounds"][pid]
-    listed = playground.get("consoles")
-    consoles = [name for name in listed if isinstance(name, str)] if isinstance(listed, list) else []
-    return tabs(project.shown(p["links"], pid, playground.get("addons") or (), tabs=True), consoles)
+    return tabs(project.shown(p["links"], pid, playground.get("addons") or (), tabs=True), playground.get("consoles") or [])
 
 
 def allowed(p, pid, url):

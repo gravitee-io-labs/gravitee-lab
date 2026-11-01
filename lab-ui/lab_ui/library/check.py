@@ -184,7 +184,9 @@ def _listing(meta):
     them), how long its guide takes and how long its first start takes (a person plans a demo with them). They are what a person
     reads before starting one, so that none is shared without."""
     tags = meta.get("tags")
-    if not (isinstance(tags, list) and tags and all(isinstance(tag, str) and tag.strip() for tag in tags)):
+    if tags and not (isinstance(tags, list) and all(isinstance(tag, str) for tag in tags)):
+        pass   # written otherwise than a list of labels: the project says how it must be (project._lists)
+    elif not (tags and all(tag.strip() for tag in tags)):
         yield "x-gravitee.tags is missing: a list of short labels, the first one the most telling"
     elif len(set(tags)) != len(tags):
         yield "x-gravitee.tags lists a tag twice"
@@ -676,10 +678,7 @@ def _consoles(playground, project):
     it brings), each with a console, once. The platform's are images the lab does not write: their command must let the
     Lab UI frame them. The app of a playground and an add-on's allow it in their own headers, which only the page can
     see: it says when one refuses."""
-    consoles = playground["consoles"]
-    if not (isinstance(consoles, list) and all(isinstance(name, str) for name in consoles)):
-        yield "x-gravitee.consoles must be a list of services"
-        return
+    consoles = playground["consoles"]   # a list of names: the project says one written otherwise (project._lists)
     mine = {("playground", playground["id"]), *(("addon", aid) for aid in playground["addons"])}
     for name in dict.fromkeys(consoles):
         service = project["services"].get(name)
@@ -702,7 +701,7 @@ def _terminal(playground, project):
     name = playground["terminal"]
     if name is None or not project["core_loaded"]:
         return
-    service = project["services"].get(name) if isinstance(name, str) else None
+    service = project["services"].get(name)
     mine = {("playground", playground["id"]), *(("addon", aid) for aid in playground["addons"])}
     if not service or (service["owner"]["kind"], service["owner"]["id"]) not in mine:
         yield "x-gravitee.terminal must name a service that this playground runs"

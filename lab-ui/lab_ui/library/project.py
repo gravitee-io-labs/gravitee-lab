@@ -40,6 +40,9 @@ CHAPTER = re.compile(r"^## \d+\.\s*(.+)$", re.M)   # the guide's numbered sectio
 URL_PORT = re.compile(r"\w+://[^/:]+:(\d+)")
 BROUGHT = {"addon": "needs", "setup": "members", "playground": "addons"}   # where a unit lists what it brings
 GATEWAY_KEYS = ("platform", "service", "token")   # what an add-on says of the gateway it runs, each a text
+# The lists of an x-gravitee block that the pages read, each as how it must be written and what each entry is
+LISTED = {"consoles": ("a list of services", str), "tags": ("a list of short labels", str),
+          "accounts": ("a list of accounts, each a mapping", dict)}
 # The product that each entry of a playground's seed/ fills, in the seeder's layout (seeder/README.md): what a reason
 # names when a platform does not run it, in the order it lists them
 SEEDED = {"apim": "API Management", "am": "Access Management", "aim": platforms.GAMMA, "authz": platforms.GAMMA}
@@ -946,13 +949,31 @@ def _apim_features(requires):
     return sorted(feature for feature in license_features(requires or {}) if feature.startswith("apim-"))
 
 
+def _lists(meta, path, problems):
+    """The keys of the block that the pages read as lists or as a name (LISTED, `terminal`), each as it is read: an entry
+    of a list written otherwise is left out, a `terminal` that is no name is none, and either is reported."""
+    for key, (shape, kept) in LISTED.items():
+        value = meta.get(key)
+        if value is None:
+            continue
+        found = [one for one in value if isinstance(one, kept)] if isinstance(value, list) else []
+        if not isinstance(value, list) or len(found) != len(value):
+            problems.append({"file": path, "message": f"x-gravitee.{key} must be {shape}"})
+            meta = {**meta, key: found}
+    if meta.get("terminal") is not None and not isinstance(meta["terminal"], str):
+        problems.append({"file": path, "message": "x-gravitee.terminal must be the name of a service"})
+        meta = {**meta, "terminal": None}
+    return meta
+
+
 def _meta(config, path, problems):
-    """The x-gravitee block of a file. It and its requires must be mappings, and each requirement written as it is
-    read: Compose does not look inside. What is not is reported and left out."""
+    """The x-gravitee block of a file. It and its requires must be mappings, each requirement written as it is read, and
+    so each list a page reads (_lists): Compose does not look inside. What is not is reported and left out."""
     meta = config.get("x-gravitee") or {}
     if not isinstance(meta, dict):
         problems.append({"file": path, "message": "x-gravitee must be a mapping"})
         return {}
+    meta = _lists(meta, path, problems)
     requires = meta.get("requires") or {}
     if not isinstance(requires, dict):
         problems.append({"file": path, "message": "x-gravitee.requires must be a mapping"})
@@ -1052,10 +1073,7 @@ def _accounts(uid, accounts, inputs):
     """The accounts of a playground, with the settings in their values replaced by what they are now, as Compose would
     read them (_reader, with the playground's own .env). Only text is read; what else a file writes stays as it is."""
     read = _reader(inputs, paths.unit_env("playground", uid))
-    if not isinstance(accounts, list):
-        return accounts
-    return [{key: read(value) for key, value in account.items()} if isinstance(account, dict) else account
-            for account in accounts]
+    return [{key: read(value) for key, value in account.items()} for account in accounts]
 
 
 def _playground(uid, inputs, core_names, problems):

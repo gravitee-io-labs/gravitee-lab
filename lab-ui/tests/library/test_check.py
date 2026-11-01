@@ -384,11 +384,13 @@ class Items(Machine):
     def test_a_shared_playground_says_what_a_person_reads_before_starting_it(self):
         good = {"tags": ["API", "Gateway"], "duration": "35 min", "first_start": "1 h 30 min"}
         self.assertEqual(list(check._listing(good)), [])
-        for tags, said in ((None, "is missing"), ([], "is missing"), ([""], "is missing"), ("API", "is missing"),
-                           (["API", "API"], "lists a tag twice")):
+        for tags, said in ((None, "is missing"), ([], "is missing"), ([""], "is missing"), (["API", "API"], "lists a tag twice")):
             with self.subTest(tags=tags):
                 self.assertEqual([line.split(" ", 1)[0] + " " + line.split(" ", 1)[1].split(":")[0] for line in check._listing({**good, "tags": tags})],
                                  [f"x-gravitee.tags {said}"])
+        for tags in ("API", ["API", 3]):   # not a list of labels: the project says how they must be written, once
+            with self.subTest(tags=tags):
+                self.assertEqual(list(check._listing({**good, "tags": tags})), [])
         self.assertEqual(list(check._listing({**good, "duration": None, "first_start": None})), [
             "x-gravitee.duration is missing: how long its guide takes, as 20 min or 1 h 30 min",
             "x-gravitee.first_start is missing: how long its first start takes, as 20 min or 1 h 30 min"])
@@ -658,9 +660,14 @@ class Playgrounds(Machine):
         self.assertEqual(self.playground(), [])
         self.assertEqual(self.playground(meta={"consoles": []}), [])
         self.assertEqual(self.playground(meta={"consoles": ["acme-website"]}), [])
-        for consoles in ("acme-website", ["acme-website", 8002], {"acme-website": 1}):
+        # Written otherwise than a list of names: the project says it once, among the catalog's problems, and keeps the names
+        shape = {"file": fixtures.unit_file("fixture", "playground", "welcome"), "message": "x-gravitee.consoles must be a list of services"}
+        for consoles, kept in (("acme-website", []), (["acme-website", 8002], ["acme-website"]), ({"acme-website": 1}, []),
+                               (["acme-website", {"console": "apim-portal-ui", "as": "someone"}], ["acme-website"])):
             with self.subTest(consoles=consoles):
-                self.assertEqual(self.playground(meta={"consoles": consoles}), ["x-gravitee.consoles must be a list of services"])
+                self.assertEqual(self.playground(meta={"consoles": consoles}), [])
+                self.assertEqual(self.built["playgrounds"]["welcome"]["consoles"], kept)
+                self.assertIn(shape, [{key: one[key] for key in ("file", "message")} for one in self.built["catalog_problems"]["fixture"]])
         self.assertEqual(self.playground(meta={"consoles": ["acme-website", "acme-website"]}),
                          ["x-gravitee.consoles: acme-website is listed twice"])
         # A service with no console, one that does not exist, one that this playground does not run
@@ -673,9 +680,15 @@ class Playgrounds(Machine):
         self.assertEqual(self.playground(meta={"terminal": "acme-website"}), [])
         self.assertEqual(self.playground(), [])   # one is not required
         wrong = "x-gravitee.terminal must name a service that this playground runs"
-        for name in ("nothing", "apim-portal-ui", 8000, ["acme-website"]):   # unknown, the core's, not a name
+        for name in ("nothing", "apim-portal-ui"):   # unknown, the core's
             with self.subTest(name=name):
                 self.assertEqual(self.playground(meta={"terminal": name}), [wrong])
+        for name in (8000, ["acme-website"]):   # not a name: the project says it once, and the playground has no terminal
+            with self.subTest(name=name):
+                self.assertEqual(self.playground(meta={"terminal": name}), [])
+                self.assertIsNone(self.built["playgrounds"]["welcome"]["terminal"])
+                self.assertIn("x-gravitee.terminal must be the name of a service",
+                              [one["message"] for one in self.built["catalog_problems"]["fixture"]])
         self.assertEqual(self.playground(meta={"terminal": "hello-seed"}),
                          ["x-gravitee.terminal cannot be the seed, which ends once it ran"])
 
