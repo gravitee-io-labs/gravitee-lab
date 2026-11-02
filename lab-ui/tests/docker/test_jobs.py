@@ -3,6 +3,7 @@ how far a job is: from what each stage waits for, known before it begins, moved 
 what Docker says of the containers. Nothing is run: a command prints lines taken from real output, and Docker is a
 fixture that follows them. Then "Start the stack" replayed as Compose printed it."""
 
+import math
 import os
 import sys
 import threading
@@ -205,10 +206,16 @@ class Running(Case):
         self.assertEqual(ran, [1])
 
 
-# The grace a command the tests end has before its kill (compose.GRACE), and how long a test waits for its job: a runner
-# under load may need the kill, and a command the job never ended sleeps for minutes
-GRACE = 1
-ENDED = GRACE + 10
+# How long a test waits for a job whose command it ends: the command gets a termination, then a kill GRACE seconds later
+# (compose.end). A runner under load may need the kill, and a command the job never ended sleeps for minutes
+ENDED = compose.GRACE + 10
+
+
+def later(began, seconds):
+    """The time `seconds` after `began`, as the job measures it (asked - since): their sum is rounded, and a sum that
+    crosses a power of two (began near 400 s, as on a runner that started minutes ago) comes out a hair short."""
+    at = began + seconds
+    return at if at - began >= seconds else math.nextafter(at, math.inf)
 
 
 def waited(done, seconds=10):
@@ -222,10 +229,6 @@ def waited(done, seconds=10):
 class Cut(Case):
     """A job does not wait for ever: a command that prints nothing for long is ended, and so is one that waits for a
     container Docker says keeps restarting. Real commands run, in a session of their own."""
-
-    def setUp(self):
-        super().setUp()
-        self.patch(compose, "GRACE", GRACE)
 
     def run_job(self, step):
         """A job of one step, a shell script or a function, run in a thread. The output of each command it ran is closed
@@ -276,9 +279,9 @@ class Cut(Case):
         self.assertTrue(waited(lambda: job.detail() == "Container gio-mongodb Waiting"))
         began = time.monotonic()
         job.observe({"gio-mongodb": "issue", "gio-redis": "issue"}, began)
-        job.observe({"gio-mongodb": "issue"}, began + jobs.STUCK - 1)
+        job.observe({"gio-mongodb": "issue"}, later(began, jobs.STUCK - 1))
         self.assertIsNone(job._why)   # not yet
-        job.observe({"gio-mongodb": "issue"}, began + jobs.STUCK)
+        job.observe({"gio-mongodb": "issue"}, later(began, jobs.STUCK))
         thread.join(ENDED)
         if thread.is_alive():
             self.fail(f"the job still waits: {self.said(job)}")
@@ -292,7 +295,7 @@ class Cut(Case):
         self.assertTrue(waited(lambda: job.detail() == "Container gio-redis Waiting"))
         began = time.monotonic()
         for at, step in ((0, "issue"), (jobs.STUCK / 2, "ready"), (jobs.STUCK, "issue"), (jobs.STUCK * 1.4, "issue")):
-            job.observe({"gio-mongodb": "issue", "gio-redis": step}, began + at)
+            job.observe({"gio-mongodb": "issue", "gio-redis": step}, later(began, at))
         self.assertIsNone(job._why)   # nothing ended it
         job.cancel()
         thread.join(ENDED)
@@ -304,7 +307,7 @@ class Cut(Case):
         self.assertTrue(waited(lambda: job.detail() == "Container gio-mongodb Waiting"))
         began = time.monotonic()
         for at in range(0, jobs.STUCK * 3, 3):
-            job.observe({"gio-mongodb": "issue" if at < compose.RESTART_WINDOW else "running"}, began + at)
+            job.observe({"gio-mongodb": "issue" if at < compose.RESTART_WINDOW else "running"}, later(began, at))
         self.assertIsNone(job._why)
 
     def test_a_container_that_dies_90_s_into_each_start_is_said_to_keep_restarting(self):
@@ -321,7 +324,7 @@ class Cut(Case):
             inspected = f"/gio-mongodb|false|{at // 90}|{started(at % 90)}||\n"
             with mock.patch.object(compose, "run", return_value=(0, inspected, "")):
                 found = {"mongodb": {**container(health="starting"), **compose._inspect(["gio-mongodb"])["gio-mongodb"]}}
-            job.observe(model.container_steps(project, found), began + at)
+            job.observe(model.container_steps(project, found), later(began, at))
             if job._why:
                 cut = at
                 break
@@ -364,7 +367,7 @@ class Cut(Case):
                 self.fail(f"{name} is not waited for: {self.said(job)}")
             began = time.monotonic()
             job.observe({name: "issue"}, began)
-            job.observe({name: "issue"}, began + jobs.STUCK)
+            job.observe({name: "issue"}, later(began, jobs.STUCK))
         thread.join(ENDED)
         if thread.is_alive():
             self.fail(f"the second command still waits for gio-api: {self.said(job)}")
