@@ -129,9 +129,11 @@ def up(project, containers):
 def lateness(project, containers, saved):
     """The services whose container runs behind what is saved (project.saved()), each with why: `config`, it was made
     from another configuration than the one Compose would make it from now, or `image`, it runs another image than its
-    tag names here. Only a container that runs is compared: one that starts takes what is saved. A one-shot runs once:
-    it is left out, and so is what Compose does not read (an add-on that is off, whose container runs all the same): an
-    apply leaves it as it is. Nothing is known to run behind while what Compose reads is not known."""
+    tag names here. Only a container that runs is compared: one that starts takes what is saved. A service that joins a
+    namespace of another (`pid: service:<name>`) is compared by its image only: Compose labels its container with the
+    hash of a configuration that names the other container by id. A one-shot runs once: it is left out, and so is what
+    Compose does not read (an add-on that is off, whose container runs all the same): an apply leaves it as it is.
+    Nothing is known to run behind while what Compose reads is not known."""
     hashes, held = (saved or {}).get("hashes") or {}, (saved or {}).get("images") or {}
     found, other = {}, {}
     for name, service in project["services"].items():
@@ -140,7 +142,7 @@ def lateness(project, containers, saved):
                 or not service_state(container, False, False)["running"]:
             continue
         configured, image = hashes.get(name), held.get(name)
-        if configured and container.get("config_hash") and configured != container["config_hash"]:
+        if configured and container.get("config_hash") and configured != container["config_hash"] and not service.get("joins"):
             found[name] = "config"
         elif image and container.get("image_id") and image != container["image_id"]:
             other[name] = (image, container["image_id"])
