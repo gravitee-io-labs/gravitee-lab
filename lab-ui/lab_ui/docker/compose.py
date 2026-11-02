@@ -314,6 +314,8 @@ def _stop(process):
     """Ends a command and everything it started. `docker compose` is a CLI that starts the Compose plugin: killing
     the CLI alone leaves the plugin running, and a file that it reads without end (`env_file: /dev/zero`) makes it
     fill the machine's memory. Each command leads a process group of its own (run), and the group is killed."""
+    if not isinstance(process.pid, int) or process.pid <= 1:   # never this process's own group (0) nor the machine's first
+        return
     try:
         os.killpg(process.pid, signal.SIGKILL)
     except OSError:   # the group is gone already
@@ -426,7 +428,7 @@ def end(process):
     """Asks a command that spawn() started to end, with what it started: a termination of its process group, which
     Compose answers by ending what it waits for, then a kill (_stop) if it still runs GRACE seconds later. Nothing for
     one that ended."""
-    if process.poll() is not None:
+    if process.poll() is not None or not isinstance(process.pid, int) or process.pid <= 1:   # as _stop
         return
     try:
         os.killpg(process.pid, signal.SIGTERM)

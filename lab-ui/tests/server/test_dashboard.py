@@ -718,6 +718,8 @@ class Process(Case):
         self.assertTrue(self.spawned[0].killed)
 
     def test_the_process_is_a_docker_stats_of_json_lines_read_as_utf8(self):
+        # The process it starts is a fake one: kept out of the commands the exit of this process ends (compose._end)
+        self.patch(compose, "_running", set())
         popen = self.patch(dashboard.subprocess, "Popen")
         dashboard._stats_process()
         self.assertEqual(popen.call_args.args[0], ["docker", "stats", "--format", "{{json .}}"])

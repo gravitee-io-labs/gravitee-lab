@@ -1280,6 +1280,17 @@ class Run(Commands):
         self.assertNotEqual(answered[0][0], 0)
         self.assertTrue(settled(lambda: not alive(pid)))
 
+    def test_what_is_no_process_of_its_own_is_never_signalled(self):
+        # A pid that is not one of its commands' groups: 0 is this process's own group, 1 the machine's first, and a fake
+        # process left by a test has none. Its group would be killed whole as this process exits
+        for pid in (0, 1, mock.MagicMock(), None):
+            with self.subTest(pid=pid), mock.patch.object(compose.os, "killpg") as killpg:
+                process = mock.Mock(pid=pid)
+                compose._stop(process)
+                compose.end(process)
+                killpg.assert_not_called()
+                process.kill.assert_not_called()
+
     def test_a_signal_ends_what_another_module_runs_too(self):
         # Git's commands (gitx.stop_running), which this module does not know: what starts the Lab UI hands their end over
         handlers, ended = {}, []
