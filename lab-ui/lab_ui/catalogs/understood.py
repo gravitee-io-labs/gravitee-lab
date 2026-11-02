@@ -177,9 +177,10 @@ def items(config: dict, folder=None, kind: str = "", root: Optional[Path] = None
     lab = os.path.join(project_root, paths.LAB_DIR)
     consoles = meta.get("consoles")
     listed = consoles if isinstance(consoles, list) else _names(consoles)
-    # A console written as a mapping is a form of the key that this Lab does not read: its keys say which
+    # A console written as a mapping ({console, as}, a persona's tab) uses the keys it has: a Lab that does not read one says so
     found |= {("unit.key", f"x-gravitee.consoles.{key}") for one in listed if isinstance(one, dict) for key in one}
-    named = [name for name in [*listed, meta.get("terminal")] if isinstance(name, str)]
+    named = [name for name in [*(one.get("console") if isinstance(one, dict) else one for one in listed), meta.get("terminal")]
+             if isinstance(name, str)]
     for name, service in services.items():
         service = _mapping(service)
         if not service.get("image") and not service.get("build") and not partial:   # it adds to a service it does not define

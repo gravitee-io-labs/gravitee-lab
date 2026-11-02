@@ -768,7 +768,7 @@ def _playground(c, playground, addons, created):
     reseed = c["wait"] or c["unread"] or (None if on else f"{playground['name']} is off") or needs
     return {**item, **{key: playground[key] for key in PLAYGROUND_KEYS},
             # Its apps, then the consoles of its add-ons, then those it lists
-            "links": _links(c, playground["services"], brought, playground.get("consoles") or []),
+            "links": _links(c, playground["services"], brought, frames.names(playground.get("consoles"))),
             "tabs": _tabs(c, uid), "terminal": _terminal(c, playground),
             "setups": _named(project["setups"], playground["setups"]),
             "addons": _named(project["addons"], playground["addons"]), "includes": playground["includes"],

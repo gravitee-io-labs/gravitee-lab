@@ -4,7 +4,7 @@ x-gravitee:
   name: Gravitee Platform
   groups: [API Management, Access Management, Alert Engine, Databases]
   categories: [Gravitee Platform, AI, Event, API, Observability, Other]
-  contract: 4       # The newest level of what units rely on (docs/contract.md): grows with every addition to it
+  contract: 5       # The newest level of what units rely on (docs/contract.md): grows with every addition to it
   contract_min: 1   # The oldest level still read: grows when something is removed or changed
   seeder:
     image: ghcr.io/gravitee-io-labs/gravitee-lab/seeder   # The seeder image, built from ./seeder: the only image a seed service may have
@@ -59,7 +59,7 @@ x-ui-frames: &ui-frames
     for f in $$(grep -L gravitee-lab.js /etc/nginx/conf.d/*.conf); do
     sed -i -e "/location \/ {/i location = /gravitee-lab.js { alias /gravitee-lab.js; }"
     -e "/location \/ {/a sub_filter </head> '<script src=/gravitee-lab.js></script></head>';" "$$f"; done;
-    sh /check_ip_config.sh; sh /run.sh
+    sh /check_ip_config.sh; sh /gravitee-lab-hosts.sh; sh /run.sh
 
 services:
 
@@ -288,6 +288,8 @@ services:
     command: *ui-frames
     volumes:
       - ./lab-ui/frames/location.js:/gravitee-lab.js:ro   # tells the Lab UI which page it is on (Reload)
+      - ./lab-ui/frames/hosts.sh:/gravitee-lab-hosts.sh:ro   # a persona's tab of the Lab UI signs in on its own (lab_ui/server/personas.py)
+      - ./lab-ui/frames/hosts.js:/gravitee-lab-hosts.js:ro
     depends_on:
       apim-management-api:
         condition: service_healthy
@@ -319,6 +321,10 @@ services:
         condition: service_healthy
     ports:
       - "127.0.0.1:8085:8080"   # Web UI
+    command: ["/bin/sh", "-c", "sh /portal-next-run.sh; sh /check_ip_config.sh; sh /gravitee-lab-hosts.sh; sh /run.sh"]
+    volumes:
+      - ./lab-ui/frames/hosts.sh:/gravitee-lab-hosts.sh:ro   # a persona's tab of the Lab UI signs in on its own (lab_ui/server/personas.py)
+      - ./lab-ui/frames/hosts.js:/gravitee-lab-hosts.js:ro
     environment:
       PORTAL_API_URL: http://localhost:8083/portal/environments/DEFAULT
       FRAME_PROTECTION_ENABLED: "true"
@@ -347,6 +353,8 @@ services:
     command: *ui-frames
     volumes:
       - ./lab-ui/frames/location.js:/gravitee-lab.js:ro   # tells the Lab UI which page it is on (Reload)
+      - ./lab-ui/frames/hosts.sh:/gravitee-lab-hosts.sh:ro   # a persona's tab of the Lab UI signs in on its own (lab_ui/server/personas.py)
+      - ./lab-ui/frames/hosts.js:/gravitee-lab-hosts.js:ro
     depends_on:
       apim-management-api:
         condition: service_healthy

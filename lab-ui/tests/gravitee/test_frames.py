@@ -6,6 +6,7 @@ from pathlib import Path
 
 from lab_ui.gravitee import frames
 from lab_ui.library import project
+from lab_ui.server import personas
 
 from .. import Case
 
@@ -57,6 +58,43 @@ class Declared(Case):
             with self.subTest(url=url):
                 self.assertEqual(frames.tabs([link("Odd", url, "odd"), *self.LINKS], ["odd", "gamma-ui"]),
                                  [{"id": "gamma-ui", "label": "Gamma Console", "url": GAMMA, "service": "gamma-ui"}])
+
+    def test_a_service_can_be_shown_again_signed_in_as_an_account(self):
+        # A persona's tab: the same console, named for whom it is signed in as, on a host of its own
+        accounts = [{"for": "Developer Portal: Anouk Bakker, Van Dijk's developer", "username": "dev@vandijk-logistics.test"},
+                    {"for": "The admin", "username": "admin"}]
+        found = frames.tabs(self.LINKS, ["portal", {"console": "portal", "as": "dev@vandijk-logistics.test"},
+                                         {"console": "gamma-ui", "as": "admin"}], accounts)
+        anouk, admin = frames.persona("dev@vandijk-logistics.test"), frames.persona("admin")
+        self.assertEqual(found, [
+            {"id": "portal", "label": "Developer Portal", "url": "http://localhost:8085/next/", "service": "portal"},
+            {"id": f"portal@{anouk}", "label": "Developer Portal as Anouk Bakker", "url": "http://localhost:8085/next/",
+             "service": "portal", "persona": anouk, "as": "dev@vandijk-logistics.test"},
+            {"id": f"gamma-ui@{admin}", "label": "Gamma Console as The admin", "url": GAMMA, "service": "gamma-ui",
+             "persona": admin, "as": "admin"}])
+
+    def test_a_persona_that_is_no_account_or_comes_twice_is_one_tab_at_most(self):
+        accounts = [{"for": "Anna", "username": "anna"}]
+        found = frames.tabs(self.LINKS, [{"console": "portal", "as": "bob"}, {"console": "portal", "as": "anna"},
+                                         {"console": "portal", "as": "anna"}, {"console": 8085}, {"as": "anna"}], accounts)
+        self.assertEqual([tab["id"] for tab in found], [f"portal@{frames.persona('anna')}"])
+
+    def test_the_name_of_a_persona_is_its_username_in_words_then_a_digest_of_it(self):
+        for username, words in (("anouk@van-dijk.test", "anouk-van-dijk-test"), ("Admin", "admin"), ("@@", "persona"),
+                                ("x" * 80, "x" * 56)):
+            with self.subTest(username=username):
+                name = frames.persona(username)
+                self.assertRegex(name, rf"^{words}-[0-9a-f]{{6}}$")
+                self.assertRegex(f"/persona/{name}/x", personas.PERSONA, "the relay takes it")
+
+    def test_usernames_that_read_alike_are_two_personas_each_with_its_tab(self):
+        # A persona's cookies go by its name: two accounts that shared one would share one sign-in
+        for one, other in (("anna.b@acme.test", "anna-b@acme.test"), ("Anna", "anna"), ("y" * 70 + "1", "y" * 70 + "2")):
+            with self.subTest(one=one):
+                self.assertNotEqual(frames.persona(one), frames.persona(other))
+                accounts = [{"for": "One", "username": one}, {"for": "Other", "username": other}]
+                found = frames.tabs(self.LINKS, [{"console": "portal", "as": one}, {"console": "portal", "as": other}], accounts)
+                self.assertEqual([tab["label"] for tab in found], ["Developer Portal as One", "Developer Portal as Other"])
 
     def project(self):
         services = {"bakery-web": {}, "gamma-ui": {}, "tracing-ui": {}, "am-ui": {}}

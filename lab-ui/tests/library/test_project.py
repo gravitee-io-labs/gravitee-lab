@@ -612,24 +612,28 @@ class Degraded(Legacy):
         self.assertEqual(built["addons"]["agent-lens"]["name"], "AI Agent Lens")
 
     def test_the_lists_a_page_reads_keep_what_they_are_written_for_and_say_the_rest(self):
-        # A console written as a mapping (a form of a newer Lab), a terminal that is a list, tags as one text, an account that
-        # is no mapping: each is said under its file and left out, and the state of the whole lab is still drawn
+        # A console written as a mapping that is no persona's entry, a terminal that is a list, tags as one text, an account
+        # that is no mapping: each is said under its file and left out, and the state of the whole lab is still drawn. A
+        # persona's entry, {console, as}, is kept
+        persona = {"console": "apim-portal-ui", "as": "someone"}
         given = inputs()
         given["raw"][WELCOME]["x-gravitee"].update(
-            consoles=["acme-website", {"console": "apim-portal-ui", "as": "someone"}, ["x"]], terminal=["acme-website"],
+            consoles=["acme-website", persona, {"console": "apim-portal-ui"}, ["x"]], terminal=["acme-website"],
             tags="MCP", accounts=[{"for": "Website", "username": "john"}, "john", None])
         built = project.build(given)
         welcome = built["playgrounds"]["welcome"]
         self.assertEqual((welcome["consoles"], welcome["terminal"], welcome["tags"], [one["for"] for one in welcome["accounts"]]),
-                         (["acme-website"], None, [], ["Website"]))
+                         (["acme-website", persona], None, [], ["Website"]))
         said = [problem["message"] for problem in built["problems"] if problem["file"] == WELCOME]
-        self.assertEqual(said, ["x-gravitee.consoles must be a list of services", "x-gravitee.tags must be a list of short labels",
+        self.assertEqual(said, ["x-gravitee.consoles must be a list of services, or of {console: a service, as: the username of "
+                                "one of its accounts}", "x-gravitee.tags must be a list of short labels",
                                 "x-gravitee.accounts must be a list of accounts, each a mapping",
                                 "x-gravitee.terminal must be the name of a service"])
         state = {"playground": None, "explicit": [], "setups": [], "effective": [], "missing": [], "problems": [], "locked": None}
         body = model.build(built, state, {}, None, lambda kind, uid: None, None, {"error": None, "memory": None}, {})
         shown = next(one for one in body["playgrounds"] if one["id"] == "welcome")
-        self.assertEqual((shown["terminal"], [link["service"] for link in shown["links"]][-1:]), (None, ["acme-website"]))
+        services = list(dict.fromkeys(link["service"] for link in shown["links"]))
+        self.assertEqual((shown["terminal"], services[-2:]), (None, ["acme-website", "apim-portal-ui"]))
         # A mapping is a mapping of names to Compose: its keys are not taken for services
         given["raw"][WELCOME]["x-gravitee"].update(consoles={"acme-website": 1}, tags=None, accounts=None, terminal=None)
         welcome = project.build(given)["playgrounds"]["welcome"]
@@ -1509,7 +1513,7 @@ class Catalogs(Fixture):
     def test_what_gather_read_for_the_policy_is_given_with_the_inputs(self):
         inputs = self.inputs
         self.assertEqual(inputs["default"], "fixture")
-        self.assertEqual(inputs["contract"], {"contract": 4, "contract_min": 1, "seeder_image": fixtures.seeder_image(self.holder)})
+        self.assertEqual(inputs["contract"], {"contract": 5, "contract_min": 1, "seeder_image": fixtures.seeder_image(self.holder)})
         self.assertNotIn("layout", inputs, "the move of an old layout is made before the project is read: it is no input")
         self.assertEqual(list(inputs["catalogs"]), ["fixture", "local", "partner", "lab-new", "lab-old"])
         self.assertEqual(inputs["screened"], {})

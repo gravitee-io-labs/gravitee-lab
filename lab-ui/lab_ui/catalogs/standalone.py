@@ -604,7 +604,7 @@ def _readme(gathered, raw, services, consoles, seed, missing):
 def _consoles(config, keep, unit):
     """(name, address) of each console of the archive, those the playground lists first; a legacy one only when the playground
     lists its service."""
-    asked = unit.get("consoles") or []
+    asked = [entry.get("console") if isinstance(entry, dict) else entry for entry in unit.get("consoles") or []]
     found = []
     for name in sorted(config["services"], key=lambda one: (0, asked.index(one)) if one in asked else (1, one)):
         if name not in keep:

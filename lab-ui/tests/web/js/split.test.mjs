@@ -4,7 +4,7 @@
 // when the guide may run a block at its prompt). No DOM.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { actionMessage, actionOf, actionReason, bytesOf, chooseTab, commandOf, edge, fits, guideWidth, isLook, isReady, limits, linkTarget, located, looksAt,
+import { actionMessage, actionOf, actionReason, bytesOf, chooseTab, commandOf, edge, fits, frameName, windowName, guideWidth, isLook, isReady, limits, linkTarget, located, looksAt,
   newPage, nudge, opening, originOf, plainClick, termEdge, termHeight, termLimits, termNudge, terminalReason } from "../../../web/js/workspace/split.js";
 
 const BANK = { id: "bakery-web", label: "Acme Bakery", url: "http://localhost:8110" };
@@ -313,4 +313,17 @@ test("an action looks when its id starts with open-, and does otherwise", () => 
   assert.equal(isLook("open-kafka-plans"), true);
   assert.equal(isLook("send-order"), false);
   assert.equal(isLook("reopen-it"), false);
+});
+
+test("the frame of a persona's tab is named for the persona and this Lab UI; every other frame has no name", () => {
+  assert.equal(frameName({ ...GAMMA, persona: "anouk-van-dijk-test" }, "http://localhost:9000"),
+    "gravitee-lab-persona anouk-van-dijk-test http://localhost:9000");
+  assert.equal(frameName(GAMMA, "http://localhost:9000"), "");
+  assert.equal(frameName(null, "http://localhost:9000"), "");
+});
+
+test("a persona's Open in a new tab names a browser tab apart from its frame, which a link would load into", () => {
+  assert.equal(windowName({ ...GAMMA, persona: "anouk-van-dijk-test-1a2b3c" }, "http://localhost:9000"),
+    "gravitee-lab-persona anouk-van-dijk-test-1a2b3c http://localhost:9000 tab");
+  assert.equal(windowName(GAMMA, "http://localhost:9000"), "");
 });

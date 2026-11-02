@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from ..docker import compose, images
-from ..gravitee import platforms
+from ..gravitee import frames, platforms
 from . import layers
 from .. import paths
 from ..catalogs import defaults, gitx, manifest, registry, trust, understood
@@ -49,6 +49,7 @@ from .project import PAGES, REACH_LIMIT, apart, brought, forget, loaded
 META = {"kind", "name", "description", "category", "conflicts", "requires", "tags", "source", "duration", "first_start",
         "accounts", "consoles", "terminal", "gateway", "tested", "host_access", "copy_of", "private_from", "private_id"}
 KEY_OF = {"gateway": "addon", "tested": "playground", "terminal": "playground"}   # the keys that only one kind of item reads
+PARTS = {"consoles": ("console", "as")}   # the keys of an entry of a list written as a mapping: a persona's console
 # How long a guide takes or a first start takes, as the page says it: "35 min", "1 h", "1 h 30 min"
 DURATION = re.compile(r"(?:\d+ h(?: \d{1,2} min)?|\d+ min)")
 # The keys that were read once and are not any more, and why: a file that still has one is told so, not just that the
@@ -678,13 +679,18 @@ def _consoles(playground, project):
     it brings), each with a console, once. The platform's are images the lab does not write: their command must let the
     Lab UI frame them. The app of a playground and an add-on's allow it in their own headers, which only the page can
     see: it says when one refuses."""
-    consoles = playground["consoles"]   # a list of names: the project says one written otherwise (project._lists)
+    consoles = playground["consoles"]   # names and personas' entries: the project says one written otherwise (project._lists)
+    entries = frames.entries(consoles)
+    users = {account.get("username") for account in playground.get("accounts") or [] if isinstance(account, dict)}
+    for name, user in dict.fromkeys(entries):
+        if entries.count((name, user)) > 1:
+            yield f"x-gravitee.consoles: {name} is listed twice" + (f" as {user}" if user else "")
+        if user is not None and user not in users:
+            yield f"x-gravitee.consoles: {name} is shown as {user}, which is no username of its accounts"
     mine = {("playground", playground["id"]), *(("addon", aid) for aid in playground["addons"])}
-    for name in dict.fromkeys(consoles):
+    for name in frames.names(consoles):
         service = project["services"].get(name)
         owner = service and (service["owner"]["kind"], service["owner"]["id"])
-        if consoles.count(name) > 1:
-            yield f"x-gravitee.consoles: {name} is listed twice"
         if not project["core_loaded"]:   # without the core, no service is known: its problem is the one to fix
             continue
         if not service or not service["consoles"] or not (owner[0] == "platform" or owner in mine):
