@@ -19,12 +19,25 @@ its keys. A file with `plan`, `supportedProtocolVersions` and `fga` is created w
 check switched. A file with `access` is built in steps, each writing only what differs:
 
     1. It is created with the registration plan (the platform registers the studio in Access Management with it), the
-       protocol version, the tools with their aliases and the key each API expects from the studio.
+       protocol versions, the tools with their aliases and the key each API expects from the studio. API Management 4.13.1
+       takes the list `supportedProtocolVersions`, as a studio made in one go; the amp-demo build took one `protocolVersion`.
     2. The plan of the agents (JWT) is published, then the registration plan is closed: it lets in any token and
        attributes the call to no one, while the plan of the agents keeps the subscription required.
-    3. The authorization check is switched on, then its flow is given the arguments of the call and the attributes of the
-       person; human approval is switched on and given its hold window.
+    3. The authorization check is switched on, then its flow is given the arguments of the call, the attributes of the
+       person and, with `agentIdentityResolution`, the agent the token names (authz-pep 3.0.2 leaves it out by default);
+       human approval is switched on and given its hold window.
     4. One deployment follows when anything changed, and the gateway must serve the studio and refuse a caller without a token.
+
+Re-seed starts the lessons over, and a lesson may add tools to a studio with Edit tools in Gamma: on every run, the tools of a
+studio of either shape are brought back to its file, with the keys of the APIs, by a write of its specification (one the
+platform does not take has the studio made again). The checks and their flows follow that write, because saving the tools may
+rebuild the flow of the authorization check.
+
+A file of either shape may list `subscriptions`: [{application, plan, apiKey}], each an application of API Management (by its
+name) subscribed to a published plan of the studio (by its name; `plan` may be left out when the studio has one), with the
+custom key `apiKey` on a plan of API keys. They are made once the studio is deployed, through the management API (a studio is
+an API: apim.subscribe, the one way that takes a custom key), and again for a studio made again. One that holds the access
+already (accepted, pending or paused) is left as it is, but for one the seed made and left pending, which it accepts.
 """
 
 import hashlib
@@ -38,9 +51,9 @@ import requests
 from . import controls
 from . import gamma
 from .aim_workspaces import subset
-from .apim import merge
-from .common import (Api, SeedError, adopted, created, files, forget, has_seed, load, log, making, owned, record, recorded, setting,
-                     trouble, wait_until, waits_for_gateway)
+from .apim import ENDED, accept, find_application, held_subscription, merge, subscribe
+from .common import (OK, Api, SeedError, adopted, created, files, forget, has_seed, load, log, making, owned, record, recorded,
+                     setting, trouble, wait_until, waits_for_gateway)
 
 SECTION = "aim-proxies"
 # The folders of the seed it owns
@@ -48,7 +61,7 @@ FOLDERS = ("aim/mcp-proxies", "aim/studios")
 # The Gamma modules it fills: seed.py checks that the platform serves them before it changes anything
 GAMMA = ("aim",)
 # What it records, dependents first
-ORDER = ["mcp-proxy", "studio"]
+ORDER = ["subscription", "mcp-proxy", "studio"]
 # What APIM gives back that it does not take: an API and a plan are written from what they were read as, without these
 API_READ_ONLY = ("id", "deployedAt", "createdAt", "updatedAt", "state", "lifecycleState", "deploymentState", "_links",
                  "primaryOwner", "originContext", "definitionContext", "plans", "pages")
@@ -64,7 +77,11 @@ V4_PLAN_READ_ONLY = ("id", "apiId", "createdAt", "updatedAt", "publishedAt", "cl
 # The flows the platform writes when the switches of a studio are turned on, and the policies a flow edit looks for
 FGA_FLOW, APPROVAL_FLOW = "FGA Authorization", "Human approval"
 PEP, ASSIGN, APPROVAL = "authz-pep", "policy-assign-attributes", "human-approval"
-KINDS = {"mcp-proxy": "MCP proxy", "studio": "MCP studio"}
+KINDS = {"subscription": "subscription to an MCP studio", "mcp-proxy": "MCP proxy", "studio": "MCP studio"}
+# What a platform answers for a write of a studio's tools it does not offer: the studio is made again instead
+UNSUPPORTED = (404, 405, 501)
+# What a subscription of a studio's file may say
+SUBSCRIPTION_KEYS = ("application", "plan", "apiKey")
 
 
 def fill(value, slug):
@@ -173,6 +190,10 @@ def authorization_flow(api, authorization, studio):
         if entries is not None and configuration.get(key) != entries:
             configuration[key] = entries
             changed = True
+    resolution = authorization.get("agentIdentityResolution")
+    if resolution is not None and configuration.get("agentIdentityResolution") != resolution:
+        configuration["agentIdentityResolution"] = resolution
+        changed = True
     return changed
 
 
@@ -216,6 +237,75 @@ def jwt_security(agents):
         "checkRequiredScopes": False, "modeStrict": True}}
 
 
+def read_authorization(spec, studio):
+    """The `authorization` of a studio's file, checked before anything is made."""
+    authorization = spec.get("authorization")
+    if authorization is not None and not isinstance(authorization, dict):
+        raise SeedError(f"MCP studio {studio}: authorization is a mapping")
+    resolution = (authorization or {}).get("agentIdentityResolution")
+    if resolution is not None and not isinstance(resolution, bool):
+        raise SeedError(f"MCP studio {studio}: authorization.agentIdentityResolution is true or false")
+    return authorization
+
+
+def of_studio(api_id):
+    """The records of a studio and of the subscriptions to it: what goes when the studio is deleted."""
+    return [x for x in created() if x["product"] == SECTION
+            and ((x["kind"], x["id"]) == ("studio", api_id) or (x["kind"], x.get("api")) == ("subscription", api_id))]
+
+
+def read_subscriptions(spec, studio):
+    """The `subscriptions` of a studio's file, checked before anything is made: [{application, plan, apiKey}]."""
+    listed = spec.get("subscriptions")
+    if listed is None:
+        return []
+    where = f"MCP studio {studio}: subscriptions"
+    if not isinstance(listed, list) or not all(isinstance(s, dict) for s in listed):
+        raise SeedError(f"{where} is a list of {{application, plan, apiKey}}")
+    for sub in listed:
+        unknown = sorted(set(sub) - set(SUBSCRIPTION_KEYS), key=str)
+        if unknown:
+            raise SeedError(f"{where}: {', '.join(map(str, unknown))} is not a key of a subscription ({', '.join(SUBSCRIPTION_KEYS)})")
+        if not (isinstance(sub.get("application"), str) and sub["application"]):
+            raise SeedError(f"{where}: each names its application")
+        if "plan" in sub and not (isinstance(sub["plan"], str) and sub["plan"]):
+            raise SeedError(f"{where}: the plan of {sub['application']} is the name of a plan of the studio")
+        if "apiKey" in sub and not isinstance(sub["apiKey"], str):
+            # An unquoted ${NAME} whose value YAML reads as a number or a boolean would send the key changed
+            raise SeedError(f"{where}: the apiKey of {sub['application']} is read as {type(sub['apiKey']).__name__}, not as "
+                            "text: quote the variable in the file, '${NAME}'")
+        if "apiKey" in sub and not sub["apiKey"]:
+            raise SeedError(f"{where}: the apiKey of {sub['application']} is empty")
+    return listed
+
+
+def live_tools(detail):
+    """The tools a studio serves, as Gamma gives the studio: each endpoint of its API holds the specification of the tools
+    of one source, each tool with its catalog id, its entity id and its alias. The same tool once."""
+    found, seen = [], set()
+    for group in detail.get("endpointGroups") or []:
+        for endpoint in group.get("endpoints") or []:
+            for tool in (((endpoint.get("configuration") or {}).get("specification") or {}).get("tools") or []):
+                if tool.get("id") and tool["id"] not in seen:
+                    seen.add(tool["id"])
+                    found.append(tool)
+    return found
+
+
+def same_tools(live, wanted, entities):
+    """Whether the studio serves the tools its file asks for, no more, no fewer, under the same aliases. A tool the platform
+    gives is the file's when it carries its catalog id or its entity id (`entities`: catalog id -> entity id); its alias is
+    compared when the platform says one, and an alias that is the tool's own name is none."""
+    def alias(value, name):
+        return None if not value or value == name else value
+
+    def matches(tool, entry):
+        return tool["id"] in (entry["id"], entities.get(entry["id"])) and (
+            "alias" not in tool or alias(tool.get("alias"), tool.get("name")) == alias(entry.get("alias"), tool.get("name")))
+    return (all(any(matches(t, e) for e in wanted) for t in live)
+            and all(any(matches(t, e) for t in live) for e in wanted))
+
+
 def needs(spec, studio, where, *keys):
     """A key of the file the studio cannot be made without, named by where it should stand."""
     for key in keys:
@@ -232,6 +322,7 @@ class McpProxies:
         self.g = gamma.Gamma()
         self.slugs = {}
         self.sources = {}
+        self.entities = {}   # catalog id of a tool -> its entity id, as the catalog lists them
 
     def connect(self):
         self.g.connect(SECTION, lambda: self.g.aim.get("/mcp-proxies", params={"perPage": 1}), "MCP proxies")
@@ -363,6 +454,7 @@ class McpProxies:
         """The catalog's tools a studio exposes, by their entity ids: `mcp-tool.<server slug>.<tool>` for an MCP server's
         and `mcp-tool.<api>-<operation>` for the ones made from a REST API."""
         catalog = {t["entityId"]: t["id"] for t in self.g.aim.rows("/catalog/mcp-tools", gamma.CATALOG)}
+        self.entities.update({i: e for e, i in catalog.items()})
         entries = []
         for spec in specs:
             if "server" in spec:
@@ -398,28 +490,118 @@ class McpProxies:
         (self.agents_studio if "access" in spec else self.plain_studio)(spec)
 
     def plain_studio(self, spec):
-        """Created from the catalog's tools, and replaced when its file or its tools changed: neither its plan nor its
-        tools can be edited in place. Its authorization check is switched as its file says, then deployed."""
+        """Created from the catalog's tools, and replaced when its file changed: its plan cannot be edited in place. Tools
+        someone changed are brought back to the file. Its authorization check is switched as its file says, then deployed,
+        then its applications are subscribed."""
         name, path = spec["name"], spec["contextPath"]
+        if "authorization" in spec:   # read by a studio built in steps, which writes its check's flow; this one only switches it
+            raise SeedError(f"MCP studio {name}: authorization is read for a studio built in steps (access); this one switches "
+                            "its check with fga")
+        subscriptions = read_subscriptions(spec, name)
         body = {"name": name, "description": spec.get("description"), "contextPath": path,
                 "supportedProtocolVersions": spec["supportedProtocolVersions"], "plans": [spec["plan"]],
                 "specification": {"tools": self.tools(spec["tools"]), "promptIds": [], "resourceIds": []}}
         wanted = digest(body)
-        found = self.existing(name, path)
-        if found and recorded_digest(found["id"]) != wanted:
-            self.g.aim.delete(f"/mcp-proxies/{found['id']}")
-            forget(*[x for x in created() if (x["product"], x["kind"], x["id"]) == (SECTION, "studio", found["id"])])
-            found = None
+        found, recomposed = self.kept(name, path, wanted, body)
         if found is None:
             with making(SECTION, "studio", "MCP studios", name, missing=True, contextPath=path):
                 found = self.g.aim.post("/mcp-studios", json=body).json()
                 record(SECTION, "studio", "MCP studios", name, found["id"], digest=wanted)
             log(SECTION, f"✓ MCP studio created: {name}")
         enabled = bool(spec.get("fga"))
-        if self.g.aim.get(f"/mcp-proxies/{found['id']}").json().get("fgaEnabled", False) != enabled:
+        toggled = self.g.aim.get(f"/mcp-proxies/{found['id']}").json().get("fgaEnabled", False) != enabled
+        if toggled:
             self.g.aim.put(f"/mcp-studios/{found['id']}/fga", json={"enabled": enabled})
+        if toggled or recomposed:
             self.g.v2.post(f"/apis/{found['id']}/deployments", json=DEPLOYMENT)
+        if toggled:
             log(SECTION, f"  ✓ Authorization check {'on' if enabled else 'off'}")
+        self.subscribe(found["id"], name, subscriptions)
+
+    def kept(self, name, path, wanted, body):
+        """The studio at this path, as the seed keeps it: (None, False) when there is none, or when it was made from another
+        file (its digest) and is deleted to be made again; else (the studio, whether its tools were written back to the
+        file). A platform that does not take that write has the studio made again too."""
+        found = self.existing(name, path)
+        if found and recorded_digest(found["id"]) != wanted:
+            self.drop(found, f"{name} is made again from its file")
+            return None, False
+        if found is None:
+            return None, False
+        recomposed = self.recompose(found["id"], name, body)
+        if recomposed is None:
+            self.drop(found, f"{name} is made again with the tools of its file")
+            return None, False
+        return found, recomposed
+
+    def drop(self, found, why):
+        """Deletes a studio to make it again, and its record with it, as soon as it is gone."""
+        self.g.aim.delete(f"/mcp-proxies/{found['id']}")
+        forget(*of_studio(found["id"]))
+        log(SECTION, f"  ✓ MCP studio deleted: {why}")
+
+    def recompose(self, api_id, name, body):
+        """Brings the tools of the studio back to its file when they differ (a lesson added some with Edit tools), with the
+        keys of the APIs, by a write of its specification. Whether it wrote; None when the platform does not offer the
+        write (the caller makes the studio again). A studio whose tools the platform does not show is left as it is."""
+        live = live_tools(self.g.aim.get(f"/mcp-proxies/{api_id}").json())
+        wanted = body["specification"]["tools"]
+        if not live or same_tools(live, wanted, self.entities):
+            return False
+        answer = self.g.aim.call("PUT", f"/mcp-studios/{api_id}/specification", expect=(*OK, *UNSUPPORTED),
+                                 json={"specification": body["specification"], "upstreamAuth": body.get("upstreamAuth") or []})
+        if answer.status_code in UNSUPPORTED:
+            return None
+        log(SECTION, f"  ✓ Tools brought back to the file: {len(wanted)} in {name}")
+        return True
+
+    def subscribe(self, api_id, studio, subscriptions):
+        """Subscribes each application of the file to its plan of the studio, unless it holds a subscription to it."""
+        if not subscriptions:
+            return
+        plans = [p for p in self.g.v2.rows(f"/apis/{api_id}/plans", gamma.LISTS) if p.get("status") == "PUBLISHED"]
+        for sub in subscriptions:
+            plan = self.plan_of(plans, studio, sub)
+            application = find_application(self.g.v1, "", sub["application"])
+            if application is None:
+                raise SeedError(f"MCP studio {studio}: no application is named '{sub['application']}': seed/apim/applications makes it")
+            label = f"{sub['application']} → {studio} ({plan['name']})"
+            held = held_subscription(self.g.v2, "", api_id, application["id"], plan["id"])
+            if held:
+                if not recorded(SECTION, "subscription", held["id"]):   # one an earlier seed made and lost the answer of, if any
+                    adopted(SECTION, "subscription", label, held["id"], api=api_id)
+                if held.get("status") == "PENDING" and recorded(SECTION, "subscription", held["id"]):
+                    accept(self.g.v2, "", api_id, held["id"], sub.get("apiKey"))
+                    log(SECTION, f"  ✓ Subscription accepted: {label}")
+                else:
+                    log(SECTION, f"  Subscription exists: {label}")
+                continue
+            with making(SECTION, "subscription", "subscriptions to MCP studios", label, missing=True, api=api_id):
+                made = subscribe(self.g.v2, "", api_id, application["id"], plan["id"], sub.get("apiKey"))
+                record(SECTION, "subscription", "subscriptions to MCP studios", label, made["id"], api=api_id)
+            if made.get("status") == "PENDING":
+                accept(self.g.v2, "", api_id, made["id"], sub.get("apiKey"))
+            log(SECTION, f"  ✓ Subscribed: {label}")
+
+    @staticmethod
+    def plan_of(plans, studio, sub):
+        """The published plan of the studio a subscription of its file names, or its only one."""
+        if "plan" in sub:
+            plan = next((p for p in plans if p["name"] == sub["plan"]), None)
+            if plan is None:
+                raise SeedError(f"MCP studio {studio}: no published plan is named '{sub['plan']}'")
+        elif len(plans) == 1:
+            plan = plans[0]
+        else:
+            raise SeedError(f"MCP studio {studio}: {len(plans)} plans are published: the subscription of "
+                            f"{sub['application']} names its plan")
+        kind = (plan.get("security") or {}).get("type")
+        if kind == "KEY_LESS":
+            raise SeedError(f"MCP studio {studio}: the plan {plan['name']} is keyless, which takes no subscription")
+        if sub.get("apiKey") and kind != "API_KEY":
+            raise SeedError(f"MCP studio {studio}: the subscription of {sub['application']} has an apiKey, which needs a plan "
+                            f"of API keys, and {plan['name']} is {kind}")
+        return plan
 
     # --- A studio built in steps (a file with `access`) ----------------------------------------
 
@@ -428,12 +610,16 @@ class McpProxies:
         replaced only when what it is created from changed: the tools, their aliases, the key it calls the APIs with and
         its plan cannot be edited in place. What the seed did not create is never touched."""
         name, path, access = spec["name"], spec["contextPath"], spec["access"]
+        read_authorization(spec, name)
+        subscriptions = read_subscriptions(spec, name)
         needs(access, name, "access", "registration", "agents")
         needs(access["registration"], name, "access.registration", "name", "type")
         needs(access["agents"], name, "access.agents", "name", "type", "jwksUrl", "clientIdClaim")
         if access["agents"]["type"] != "JWT":
             raise SeedError(f"MCP studio {name}: access.agents.type is {access['agents']['type']}, only JWT keeps the subscription required")
-        body = {"name": name, "contextPath": path, "protocolVersion": spec["protocolVersion"],
+        versions = {"supportedProtocolVersions": spec["supportedProtocolVersions"]} if "supportedProtocolVersions" in spec \
+            else {"protocolVersion": spec["protocolVersion"]}
+        body = {"name": name, "contextPath": path, **versions,
                 "specification": {"tools": self.tools(spec["tools"])},
                 "plans": [{"name": access["registration"]["name"], "security": {
                     "type": access["registration"]["type"], "configuration": access["registration"].get("configuration", {"scopes": []})}}],
@@ -443,22 +629,18 @@ class McpProxies:
         if "description" in spec:
             body["description"] = spec["description"]
         wanted = digest(body)
-        found = self.existing(name, path)
-        if found and recorded_digest(found["id"]) != wanted:
-            self.g.aim.delete(f"/mcp-proxies/{found['id']}")
-            forget(*[x for x in created() if (x["product"], x["kind"], x["id"]) == (SECTION, "studio", found["id"])])
-            log(SECTION, f"  ✓ MCP studio deleted: {name} is made again from its file")
-            found = None
-        changed = found is None
-        if changed:
+        found, changed = self.kept(name, path, wanted, body)
+        if found is None:
             with making(SECTION, "studio", "MCP studios", name, missing=True, contextPath=path):
                 found = self.g.aim.post("/mcp-studios", json=body).json()
                 record(SECTION, "studio", "MCP studios", name, found["id"], digest=wanted)
             log(SECTION, f"✓ MCP studio created: {name}")
+            changed = True
         api_id = found["id"]
         changed = self.access(api_id, name, access) or changed
-        changed = self.checks(api_id, name, spec) or changed
+        changed = self.checks(api_id, name, spec) or changed   # after the tools: writing them may rebuild the check's flow
         self.deploy(api_id, changed)
+        self.subscribe(api_id, name, subscriptions)
         self.wait_served(spec)
 
     def access(self, api_id, studio, access):
@@ -531,7 +713,7 @@ class McpProxies:
             return
         path = spec["contextPath"]
         hello = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
-            "protocolVersion": str(spec["protocolVersion"]), "capabilities": {}, "clientInfo": {"name": "gravitee-lab-seed", "version": "1.0"}}}
+            "protocolVersion": str(spec.get("protocolVersion") or spec["supportedProtocolVersions"][0]), "capabilities": {}, "clientInfo": {"name": "gravitee-lab-seed", "version": "1.0"}}}
 
         def check():
             try:
@@ -557,14 +739,20 @@ def seed():
 
 
 def remove(records):
-    """An MCP proxy through the Automation API and a studio through Gamma, both of which keep a record of what they made
-    that APIM's own delete would leave behind."""
+    """A subscription to a studio is closed first, then an MCP proxy goes through the Automation API and a studio through
+    Gamma, both of which keep a record of what they made that APIM's own delete would leave behind. A subscription whose
+    studio is gone is closed already (404)."""
     mine = owned(records, SECTION, ORDER)
     if not mine:
         return
     proxies = McpProxies()
     proxies.connect()
     for x in mine:
+        if x["kind"] == "subscription":
+            proxies.g.v2.post(f"/apis/{x['api']}/subscriptions/{x['id']}/_close", expect=ENDED, idempotent=True)
+            forget(x)
+            log(SECTION, f"✓ Closed subscription '{x['name']}'")
+            continue
         if x["kind"] == "mcp-proxy":
             proxies.g.automation.delete(f"/aim/mcp-proxies/{x['hrid']}")
         else:

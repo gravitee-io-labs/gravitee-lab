@@ -350,23 +350,20 @@ class Tailoring(Tools):
     def refund(self):
         return self.world.tool("createRefund")
 
-    def test_the_tools_are_imported_as_the_page_gave_them_and_the_one_with_words_written_is_saved_after(self):
-        self.assertEqual(self.run_seed(), [("POST", "/catalog/mcp-tools/_importFromApis"),
-                                           ("PUT", f"/catalog/mcp-tools/{self.refund()['id']}")])
+    def test_the_words_written_for_a_tool_are_part_of_its_import_and_nothing_is_saved_after(self):
+        self.assertEqual(self.run_seed(), [("POST", "/catalog/mcp-tools/_importFromApis")])
         self.assertEqual(self.imported(), [["listOrders", "getOrder", "listRefunds", "createRefund", "cancelOrder"]])
         [call] = self.sent("POST", "/catalog/mcp-tools/_importFromApis")
         sent = next(t for t in call.json["tools"] if t["definition"]["name"] == "createRefund")
-        self.assertEqual(sorted(sent), ["apiId", "definition", "gatewayMapping"])   # the words are not part of the import
-        self.assertEqual(sent["definition"]["inputSchema"], order_tools()[3]["toolDefinition"]["inputSchema"])
+        self.assertEqual(sorted(sent), ["apiId", "definition", "gatewayMapping"])
+        self.assertEqual(sent["definition"]["inputSchema"]["required"], ["orderId", "amount", "reason"])
+        self.assertEqual(self.saved(), [])
 
-    def test_the_save_is_the_tool_as_read_with_the_words_of_the_file_in_place_of_those_of_the_page(self):
+    def test_the_tool_is_imported_with_the_words_of_the_file_in_place_of_those_of_the_page(self):
         self.run_seed()
-        [body] = self.saved()
         tool = self.refund()
-        self.assertEqual(sorted(body), ["definition", "entityId", "extensions", "metadata", "sourceId"])
-        self.assertEqual((body["sourceId"], body["entityId"]),
-                         (tool["sourceId"], "mcp-tool.harbor-orders-api-createrefund"))
-        definition = body["definition"]
+        self.assertEqual(tool["entityId"], "mcp-tool.harbor-orders-api-createrefund")
+        definition = tool["definition"]
         self.assertEqual(sorted(definition), ["annotations", "description", "inputSchema", "name"])
         self.assertEqual(definition["name"], "createRefund")
         self.assertTrue(definition["description"].startswith("Refund part or all of a delivered order"))
@@ -377,7 +374,23 @@ class Tailoring(Tools):
         self.assertEqual(definition["annotations"],
                          {"title": "Refund an order", "readOnlyHint": False, "destructiveHint": True,
                           "idempotentHint": False, "openWorldHint": False})
-        self.assertEqual(tool["definition"], definition)
+
+    def test_a_platform_that_refuses_every_save_of_an_api_tool_still_gets_the_words(self):
+        self.world.refuses = "parentId is required for this kind"   # API Management 4.13.1
+        self.run_seed()
+        self.assertEqual(self.refund()["definition"]["annotations"]["title"], "Refund an order")
+        self.assertIn("(5 tools, 1 tailored)", self.output())
+
+    def test_the_save_of_references_is_the_tool_as_read_with_the_references_in_its_extensions(self):
+        self.seed_files({"aim/api-tools/orders.yaml": REFUND.replace("    annotations:", "    referenceCost: 0.01\n    annotations:")})
+        self.run_seed()
+        [body] = self.saved()
+        tool = self.refund()
+        self.assertEqual(sorted(body), ["definition", "entityId", "extensions", "metadata", "sourceId"])
+        self.assertEqual((body["sourceId"], body["entityId"]),
+                         (tool["sourceId"], "mcp-tool.harbor-orders-api-createrefund"))
+        self.assertEqual(body["definition"]["annotations"]["title"], "Refund an order")
+        self.assertEqual(body["extensions"]["referenceCost"], 0.01)
 
     def test_the_tool_keeps_its_mapping_to_the_api_which_a_save_would_otherwise_lose(self):
         self.run_seed()
@@ -385,13 +398,13 @@ class Tailoring(Tools):
         self.assertEqual(mapping, order_tools()[3]["gatewayMapping"])
         self.assertEqual(mapping["http"]["pathParams"], ["orderId"])
 
-    def test_a_tool_with_nothing_written_for_it_is_not_saved(self):
+    def test_a_tool_with_nothing_written_for_it_keeps_the_words_of_the_page(self):
         self.run_seed()
         for operation in ("listOrders", "getOrder", "listRefunds", "cancelOrder"):
             tool = self.world.tool(operation)
             self.assertEqual(tool["definition"]["description"], f"{operation} as the page says it")
             self.assertNotIn("outputSchema", tool["definition"])
-        self.assertEqual(len(self.saved()), 1)
+        self.assertEqual(self.saved(), [])
 
     def test_a_description_alone_leaves_the_rest_of_the_generated_definition(self):
         self.seed_files({"aim/api-tools/orders.yaml": orders("{id: getOrder, description: Read one order}")})
@@ -412,7 +425,6 @@ class Tailoring(Tools):
 
     def test_a_second_run_writes_nothing(self):
         self.run_seed()
-        self.assertEqual(len(self.saved()), 1)
         self.assertEqual(self.run_seed(), [])
 
     def test_the_log_counts_the_tools_that_were_tailored(self):
@@ -439,8 +451,7 @@ class Tailoring(Tools):
         self.seed_files({"aim/api-tools/orders.yaml": REFUND.replace("Refund part or all", "Give back part or all")})
         changes = self.run_seed()
         self.assertEqual(changes, [("DELETE", "/mcp-proxies/studio-1"), ("DELETE", f"/catalog/sources/{old}"),
-                                   ("POST", "/catalog/mcp-tools/_importFromApis"),
-                                   ("PUT", f"/catalog/mcp-tools/{self.refund()['id']}")])
+                                   ("POST", "/catalog/mcp-tools/_importFromApis")])
         self.assertTrue(self.refund()["definition"]["description"].startswith("Give back part or all"))
         self.assertIn("Studio 'Customer care' deleted: it is made again from the new tools", self.output())
         self.assertEqual(self.run_seed(), [])
@@ -453,18 +464,20 @@ class Tailoring(Tools):
         for what, text in changes.items():
             with self.subTest(what):
                 self.seed_files({"aim/api-tools/orders.yaml": text})
-                self.assertEqual([m for m, _ in self.run_seed()], ["DELETE", "POST", "PUT"])
+                saves = ["PUT"] if what == "reference" else []
+                self.assertEqual([m for m, _ in self.run_seed()], ["DELETE", "POST", *saves])
                 self.assertEqual(self.run_seed(), [])
         self.assertEqual(self.refund()["extensions"]["referenceCost"], 0.01)
 
     def test_the_tools_of_an_api_that_changed_are_replaced_and_tailored_again(self):
         self.run_seed()
         self.world.apis["orders"]["tools"][3]["gatewayMapping"]["http"]["path"] = "/orders/:orderId/refund"
-        self.assertEqual([m for m, _ in self.run_seed()], ["DELETE", "POST", "PUT"])
+        self.assertEqual([m for m, _ in self.run_seed()], ["DELETE", "POST"])
         self.assertEqual(self.refund()["extensions"]["gatewayMapping"]["http"]["path"], "/orders/:orderId/refund")
         self.assertEqual(self.refund()["definition"]["inputSchema"]["required"], ["orderId", "amount", "reason"])
 
     def test_a_refused_save_stops_the_seed_naming_the_tool_and_the_next_run_replaces_the_tools(self):
+        self.seed_files({"aim/api-tools/orders.yaml": REFUND.replace("    annotations:", "    referenceCost: 0.01\n    annotations:")})
         self.world.refuses = "inputSchema.invalid"
         with self.assertRaises(common.SeedError) as stopped:
             self.run_seed()
@@ -481,7 +494,7 @@ class Tailoring(Tools):
                                    ("POST", "/catalog/mcp-tools/_importFromApis"),
                                    ("PUT", f"/catalog/mcp-tools/{self.refund()['id']}")])
         self.assertIn("digest", self.records("api-tools")[0])
-        self.assertEqual(self.refund()["definition"]["annotations"]["title"], "Refund an order")
+        self.assertEqual(self.refund()["extensions"]["referenceCost"], 0.01)
         self.assertEqual(self.run_seed(), [])
 
     def test_a_negative_reference_is_refused_by_the_file_and_not_left_for_the_platform(self):
@@ -508,6 +521,7 @@ class Tailoring(Tools):
                 tool["definition"]["outputSchema"] = {"type": "object"}
             return code, body
         self.platform.add({("POST", IMPORT): keeps})
+        self.seed_files({"aim/api-tools/orders.yaml": REFUND.replace("    annotations:", "    referenceCost: 0.01\n    annotations:")})
         self.run_seed()
         self.assertNotIn("outputSchema", self.saved()[0]["definition"])
 

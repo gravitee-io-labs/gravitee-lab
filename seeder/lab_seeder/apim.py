@@ -21,7 +21,8 @@ that id or path: the seed stops there, it never changes it. An import that fails
 with error") leaves it, with its id in the error: the seed records it with no digest, so that the next run finds it as its own and
 updates it from the file.
 The controls of seed/controls.yaml (controls.py) are the one thing a run brings back whatever the digest says: the steps they
-name are enabled or disabled as the mode says (SEED_PROTECTIONS), in the live API, even one someone switched in the console.
+name are enabled or disabled as the mode says (SEED_PROTECTIONS), and so is the failover a control names, in the live API, even
+one someone switched in the console.
 That is an update of the API entity then a deployment, never an import: the API keeps its keys and its plans, and the gateway
 reloads it once. The digest is the file's, the mode is not part of it, so a run in the other mode replaces nothing. An API
 whose live flows lack a step a control names is imported again from its file, and so is one on a platform that does not offer
@@ -125,6 +126,45 @@ def made_by_seed(api_id):
 def made_under(name):
     """The record of the API the seed created under this name, None for none: a subscription goes to that one only."""
     return next((x for x in created() if (x["product"], x["kind"], x["name"]) == (SECTION, "api", name)), None)
+
+
+def find_application(api, v1, name):
+    """The application of that exact name, through `api` and the v1 path of its environment (`v1`, empty for a client made
+    for it). The Management API reads `query` as a search, in which a parenthesis or a colon is syntax: a name such as
+    `OpenCode (developer)` finds nothing. A name the search misses is looked for in the whole list, which the same route
+    answers without a query, so that a second run finds what the first one made."""
+    for params in ({"query": name}, {}):
+        found = next((a for a in api.get(f"{v1}/applications", params=params).json() if a.get("name") == name), None)
+        if found:
+            return found
+    return None
+
+
+def held_subscription(api, v2, api_id, application_id, plan_id):
+    """The subscription of the application to the plan that holds its access (accepted, pending or paused), None for none,
+    through `api` and the v2 path of its environment (`v2`, empty for a client made for it). The statuses are one
+    comma-separated value: repeated, the platform reads the first only and misses a pending one."""
+    found = api.get(f"{v2}/apis/{api_id}/subscriptions", params={
+        "applicationIds": application_id, "planIds": plan_id, "statuses": "ACCEPTED,PENDING,PAUSED"}).json()
+    return next(iter(found.get("data") or []), None)
+
+
+def accept(api, v2, api_id, subscription_id, key=None):
+    """Accepts a pending subscription, with the custom API key it asks for."""
+    api.post(f"{v2}/apis/{api_id}/subscriptions/{subscription_id}/_accept", json={"customApiKey": key} if key else {})
+
+
+def subscribe(api, v2, api_id, application_id, plan_id, key=None, configuration=None):
+    """Asks for the subscription of the application to the plan through the v2 management API, the one way that takes a
+    custom API key (`key`, which the environment settings must allow) and the callback of a push plan (`configuration`).
+    Any API of the environment takes it, an MCP studio of Gamma too. Returns the subscription, which the platform may
+    leave pending (`accept`)."""
+    body = {"applicationId": application_id, "planId": plan_id}
+    if key:
+        body["customApiKey"] = key
+    if configuration:
+        body["consumerConfiguration"] = configuration
+    return api.post(f"{v2}/apis/{api_id}/subscriptions", json=body).json()
 
 
 def code_of(answer):
@@ -527,15 +567,17 @@ class ApiManagement:
 
     @staticmethod
     def as_mode_says(definition, found):
-        """The definition with the steps its controls name enabled or not, as the mode says: a copy, for what is imported."""
+        """The definition with the steps its controls name enabled or not, and its failover on or off, as the mode says: a
+        copy, for what is imported."""
         if not found:
             return definition
         wanted = copy.deepcopy(definition)
         controls.align(wanted["api"].get("flows"), found)
+        controls.align_failover(wanted["api"], found)
         return wanted
 
     def in_place(self, api_id, name, found, deploy):
-        """Brings the steps the controls name to the state the mode says in the API as it is now, with the update of its
+        """Brings the steps the controls name, and the failover, to the state the mode says in the API as it is now, with the update of its
         entity (an import would replace an LLM proxy, drop its keys and cost the gateway a reload) and a deployment, which
         also puts on the gateway a state someone saved without deploying. False when the API lacks a step a control names,
         or when the platform does not offer the update of the entity (404, 405 or 501, a preview that does not take it): the
@@ -547,6 +589,7 @@ class ApiManagement:
         live = self.entity(api_id, name)
         try:
             changed = controls.align(live.get("flows"), found)
+            changed = controls.align_failover(live, found) or changed
         except controls.Missing as e:
             log(SECTION, f"! {name}: {e}")
             return False
@@ -662,14 +705,8 @@ class ApiManagement:
     # --- Applications ---------------------------------------------------------------------
 
     def find_application(self, name):
-        """The application of that exact name. The Management API reads `query` as a search, in which a parenthesis or a
-        colon is syntax: a name such as `OpenCode (developer)` finds nothing. A name the search misses is looked for in the
-        whole list, which the same route answers without a query, so that a second run finds what the first one made."""
-        for params in ({"query": name}, {}):
-            found = next((a for a in self.api.get(f"{self.v1}/applications", params=params).json() if a.get("name") == name), None)
-            if found:
-                return found
-        return None
+        """The application of that exact name in this environment (see find_application)."""
+        return find_application(self.api, self.v1, name)
 
     def application(self, spec):
         name = spec["name"]
@@ -711,13 +748,11 @@ class ApiManagement:
                      if p.get("name") == spec["plan"]), None)
         if not plan:
             raise SeedError(f"Subscription {label}: plan not found")
-        # The statuses are one comma-separated value: repeated, the platform reads the first only and misses a pending one
-        existing = self.api.get(f"{self.v2}/apis/{api['id']}/subscriptions", params={
-            "applicationIds": app["id"], "planIds": plan["id"], "statuses": "ACCEPTED,PENDING,PAUSED"}).json()
-        if existing.get("data"):
-            if not recorded(SECTION, "subscription", existing["data"][0]["id"]):
-                adopted(SECTION, "subscription", label, existing["data"][0]["id"], api=api["id"], **self.scope())
-            if self.callback(existing["data"][0], api["id"], spec, label):
+        existing = held_subscription(self.api, self.v2, api["id"], app["id"], plan["id"])
+        if existing:
+            if not recorded(SECTION, "subscription", existing["id"]):
+                adopted(SECTION, "subscription", label, existing["id"], api=api["id"], **self.scope())
+            if self.callback(existing, api["id"], spec, label):
                 log(SECTION, f"✓ Subscription updated: {label}")
             else:
                 log(SECTION, f"Subscription exists: {label}")
@@ -734,19 +769,14 @@ class ApiManagement:
                 body["request"] = comment
             if configuration:
                 body["configuration"] = configuration
-            address = f"{self.portal}/subscriptions"
-        else:
-            body = {"applicationId": app["id"], "planId": plan["id"]}
-            if key:
-                body["customApiKey"] = key
-            if configuration:
-                body["consumerConfiguration"] = configuration
-            address = f"{self.v2}/apis/{api['id']}/subscriptions"
-        with making(SECTION, "subscription", "subscriptions", label, api=api["id"], **self.scope()):
-            sub = self.api.post(address, json=body).json()
+        with making(SECTION, "subscription", "subscriptions", label, missing=True, api=api["id"], **self.scope()):
+            if pending or comment:
+                sub = self.api.post(f"{self.portal}/subscriptions", json=body).json()
+            else:
+                sub = subscribe(self.api, self.v2, api["id"], app["id"], plan["id"], key, configuration)
             record(SECTION, "subscription", "subscriptions", label, sub["id"], api=api["id"], **self.scope())
         if sub.get("status") == "PENDING" and not pending:
-            self.api.post(f"{self.v2}/apis/{api['id']}/subscriptions/{sub['id']}/_accept", json={"customApiKey": key} if key else {})
+            accept(self.api, self.v2, api["id"], sub["id"], key)
         log(SECTION, f"✓ Subscription: {label}" + (" (pending)" if pending else ""))
 
     def callback(self, found, api_id, spec, label):

@@ -519,6 +519,22 @@ class WhatItDidNotMake(Agents):
 
 
 class WhatItNeeds(Agents):
+    def test_a_platform_that_serves_no_application_for_an_agent_stops_the_seed_saying_which_build_the_keys_need(self):
+        """API Management 4.13.1 has no /catalog/agents/{id}/application: the route answers 404 to the read and the creation
+        alike, and the seed says so in one line instead of an HTTP error."""
+        self.platform.add({("POST", re.compile(AGENTS + "/[^/]+/application")): (404, {"message": "HTTP 404 Not Found"})})
+        with self.assertRaises(common.SeedError) as stopped:
+            aim_agents.seed()
+        message = str(stopped.exception)
+        self.assertTrue(message.startswith("The agent 'Care copilot': this platform has no application for an agent of the "
+                                           "catalog (/catalog/agents/{id}/application)"), message)
+        for words in ("identity and access", "amp-demo build", "4.13.1", "client_id"):
+            self.assertIn(words, message)
+        self.assertNotIn("\n", message)
+        self.assertEqual(self.records(), [])
+        self.assertEqual(common.notes(aim_agents.SECTION, "agent-application"), [], "nothing was made, so no note is left")
+        self.assertEqual([c for c in self.changed() if c[0] != "POST"], [])
+
     def test_an_agent_that_is_not_in_the_catalog_stops_the_seed_before_it_writes(self):
         self.world.agents.clear()
         with self.assertRaises(common.SeedError) as stopped:

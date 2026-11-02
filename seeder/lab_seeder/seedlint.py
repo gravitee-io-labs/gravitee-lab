@@ -1,7 +1,8 @@
 """Lints the seed files of playgrounds, read as the seeder reads them: each ${VAR} they use is one the playground's seed
 service sets (or one the engine gives the files of an environment), no address is written out (it is a variable, so the
-same files work against any platform), each file parses once its variables are replaced, and the folders of
-seed/environments agree with themselves.
+same files work against any platform), each file parses once its variables are replaced, the folders of
+seed/environments agree with themselves, and the subscriptions of a studio (seed/aim/studios) name a plan of it that takes
+them, with an apiKey that is text.
 
     python seedlint.py [FOLDER...] [--format text|github|json]
 
@@ -118,8 +119,10 @@ COMMANDS = ("::", "##[")
 
 Problem = namedtuple("Problem", "check path line message")
 Report = namedtuple("Report", "problems playgrounds files")   # the playgrounds that have a seed, the seed files read
+# What a subscription of a studio's file may say (aim_proxies.SUBSCRIPTION_KEYS)
+STUDIO_SUBSCRIPTION = ("application", "plan", "apiKey")
 TITLES = {"variable": "Seed variable", "address": "Seed address", "read": "Seed file", "parse": "Seed file",
-          "environment": "Seed environment", "playground": "Seed service"}
+          "environment": "Seed environment", "playground": "Seed service", "studio": "Seed studio"}
 
 
 class Unreadable(common.SeedError):
@@ -756,6 +759,56 @@ def says_about_subscription(path, where, sub, plan, says):
         says(path, f"{where}: an apiKey needs a plan with API keys")
 
 
+def _mapping(value):
+    """A mapping of a file as it is, or an empty one for what is written otherwise (the seed says what is wrong with it)."""
+    return value if isinstance(value, dict) else {}
+
+
+def studio_problems(spec):
+    """What the seed or the platform refuses of the `subscriptions` of a studio's file (seed/aim/studios), read as the seed
+    reads it: what aim_proxies.read_subscriptions refuses, then the plan each names, which its file holds: the `plan` of a
+    studio made in one go, or the plan of the agents (JWT) of one built in steps (`access`), whose registration plan is closed."""
+    if not isinstance(spec, dict) or "subscriptions" not in spec:
+        return []
+    listed = spec["subscriptions"]
+    if listed is None:   # `subscriptions:` with nothing under it, which the seed reads as none
+        return []
+    if not isinstance(listed, list) or not all(isinstance(sub, dict) for sub in listed):
+        return ["subscriptions is a list of {application, plan, apiKey}"]
+    found = []
+    for sub in listed:
+        unknown = sorted(set(sub) - set(STUDIO_SUBSCRIPTION), key=str)
+        if unknown:
+            found.append(f"subscriptions: {_brief(', '.join(map(str, unknown)))} is not a key of a subscription "
+                         f"({', '.join(STUDIO_SUBSCRIPTION)})")
+        if not (isinstance(sub.get("application"), str) and sub["application"]):
+            found.append("subscriptions: each names its application")
+        elif "plan" in sub and not (isinstance(sub["plan"], str) and sub["plan"]):
+            found.append(f"subscriptions: the plan of {_brief(sub['application'])} is the name of a plan of the studio")
+        elif "apiKey" in sub and not isinstance(sub["apiKey"], str):
+            found.append(f"subscriptions: the apiKey of {_brief(sub['application'])} is read as {type(sub['apiKey']).__name__}, "
+                         "not as text: quote the variable in the file, '${NAME}'")
+        elif "apiKey" in sub and not sub["apiKey"]:
+            found.append(f"subscriptions: the apiKey of {_brief(sub['application'])} is empty")
+    if found:
+        return found
+    if "access" in spec:
+        plans = {_mapping(_mapping(spec["access"]).get("agents")).get("name"): "JWT"}
+    else:
+        plan = _mapping(spec.get("plan"))
+        plans = {plan.get("name"): _mapping(plan.get("security")).get("type")}
+    for sub in listed:
+        where = f"subscriptions: {_brief(sub['application'])}"
+        name = sub.get("plan", next(iter(plans)))
+        if name not in plans:
+            found.append(f"{where}: {_brief(name, quoted=True)} is no plan of the studio that takes subscriptions")
+        elif plans[name] == "KEY_LESS":
+            found.append(f"{where}: a keyless plan takes no subscription")
+        elif sub.get("apiKey") and plans[name] != "API_KEY":
+            found.append(f"{where}: an apiKey needs a plan with API keys")
+    return found
+
+
 # --- One playground, and a folder of them -----------------------------------------------
 
 def _parse(path, text, matches, environment, provided):
@@ -842,6 +895,15 @@ def _lint(folder):
                 out.append(Problem("read", str(path), 0, UNREAD))
         if blocked:
             unread.add(path)
+        elif path.suffix in (".yaml", ".yml") and path.parent == folder / "seed" / "aim" / "studios":
+            try:
+                with _with_environment(environment):
+                    spec = _load(path)
+            except Exception as e:  # noqa: BLE001 - a stranger's file of any shape is a finding, never a crash
+                spec, told = None, ["cannot be checked: " + f"{type(e).__name__}: {_flat(e)}"]
+            else:
+                told = studio_problems(spec)
+            out.extend(Problem("studio", str(path), 0, _short(text)) for text in told)
     # The files of an environment agree with one another only once each of them can be read
     environments = folder / "seed" / "environments"
     if environments.is_dir() and not environments.is_symlink():
