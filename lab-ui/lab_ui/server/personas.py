@@ -10,12 +10,17 @@ import re
 from urllib.parse import urlsplit
 
 API = ("localhost", 8083)   # the Management API, as this machine reaches it: the address its UIs are told to use
+# The addresses of the API that its answers name: a redirect to one goes back through the relay, as the persona's
+ORIGINS = ("http://localhost:8083", "http://127.0.0.1:8083")
 PREFIX = "/persona/"
 PERSONA = re.compile(r"^/persona/([a-z0-9][a-z0-9-]{0,62})(/.*)$")
 LOCAL = ("localhost", "127.0.0.1")
 HOP = {"connection", "keep-alive", "transfer-encoding", "te", "trailer", "upgrade", "proxy-authorization", "proxy-authenticate",
        "host", "content-length"}
 TIMEOUT = 130   # an approval holds a call for up to two minutes
+BODY_LIMIT = 64 * 1024 * 1024   # what a call may send: an image or a document a person uploads, never more
+# What every answer of the relay says beside the API's: it is read by the UI's scripts, never shown as a page of this origin
+GUARDED = {"X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; sandbox"}
 
 
 def handles(path):
@@ -45,6 +50,15 @@ def response_cookie(persona, header):
     return "; ".join([f"{_cookie_name(persona, name)}={value}", f"Path={PREFIX}{persona}/", *kept])
 
 
+def location(persona, value):
+    """A Location of the API as the persona's: one on the API, absolute or from its root, goes back through the relay."""
+    for origin in ORIGINS:
+        if value.startswith(origin + "/") or value == origin:
+            value = value[len(origin):] or "/"
+            break
+    return f"{PREFIX}{persona}{value}" if value.startswith("/") and not value.startswith("//") else value
+
+
 def allowed(headers):
     """Only a page of this machine asks: the Host is a local name, and the page that asks is one of this machine's (the
     platform's UIs are on its ports). A page of another site would not send the persona's cookies anyway."""
@@ -61,8 +75,14 @@ def relay(handler, method):
         return
     persona, query = found.group(1), urlsplit(handler.path).query
     target = found.group(2) + (f"?{query}" if query else "")
-    length = int(handler.headers.get("Content-Length") or 0)
-    body = handler.rfile.read(length) if length else None
+    size = handler.headers.get("Content-Length") or "0"
+    if not (size.isascii() and size.isdigit()):   # a negative number reads until the connection closes
+        handler.answer(400, b"The Content-Length must be a number of bytes", "text/plain; charset=utf-8")
+        return
+    if int(size) > BODY_LIMIT:
+        handler.answer(413, b"", "text/plain; charset=utf-8")
+        return
+    body = handler.rfile.read(int(size)) if int(size) else None
     headers = {key: value for key, value in handler.headers.items() if key.lower() not in HOP and key.lower() != "cookie"}
     cookies = request_cookies(persona, handler.headers.get("Cookie"))
     if cookies:
@@ -73,16 +93,20 @@ def relay(handler, method):
         connection.request(method, target, body=body, headers=headers)
         response = connection.getresponse()
         data = response.read()
-    except OSError as error:
+    except (OSError, http.client.HTTPException) as error:   # not reached, or no answer of HTTP
         handler.answer(502, str(error).encode(), "text/plain; charset=utf-8")
         return
     finally:
         connection.close()
     handler.send_response(response.status)
     for key, value in response.getheaders():
-        if key.lower() in HOP:
+        if key.lower() in HOP or key.lower() in {name.lower() for name in GUARDED}:
             continue
-        handler.send_header(key, response_cookie(persona, value) if key.lower() == "set-cookie" else value)
+        name = key.lower()
+        handler.send_header(key, response_cookie(persona, value) if name == "set-cookie" else location(persona, value)
+                            if name == "location" else value)
+    for key, value in GUARDED.items():
+        handler.send_header(key, value)
     handler.send_header("Content-Length", str(len(data)))
     handler.end_headers()
     if method != "HEAD":

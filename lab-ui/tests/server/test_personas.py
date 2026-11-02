@@ -4,6 +4,7 @@ to the API."""
 
 import http.client
 import json
+import socketserver
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -29,7 +30,24 @@ class FakeApi(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    do_GET = do_POST = do_PUT = do_DELETE = do_PATCH = do_OPTIONS = reply
+    def redirect(self):
+        # A redirect of the API names it by the address it is told to have, or from its root
+        self.send_response(302)
+        self.send_header("Location", "http://localhost:8083/management/next" if self.path == "/away" else "/management/next")
+        self.send_header("Content-Security-Policy", "default-src *")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def do_GET(self):
+        (self.redirect if self.path in ("/away", "/root") else self.reply)()
+
+    do_POST = do_PUT = do_DELETE = do_PATCH = do_OPTIONS = reply
+
+
+class NotHttp(socketserver.BaseRequestHandler):
+    def handle(self):
+        self.request.recv(65536)
+        self.request.sendall(b"this is no answer of HTTP\r\n\r\n")
 
 
 def serve(handler):
@@ -102,3 +120,36 @@ class Relay(unittest.TestCase):
         self.assertEqual(self.ask("GET", "/persona/anouk/x", headers={"Origin": "https://evil.example"})[0], 403)
         self.assertEqual(self.ask("GET", "/persona/Bad_Name/x")[0], 404)
         self.assertEqual(self.ask("GET", "/persona/anouk")[0], 404)
+
+    def test_a_redirect_of_the_api_stays_the_personas(self):
+        # Followed straight to localhost:8083, it would carry the sign-in everybody shares, not the persona's
+        for path in ("/away", "/root"):
+            with self.subTest(path=path):
+                status, headers, _ = self.ask("GET", f"/persona/anouk{path}")
+                self.assertEqual((status, dict(headers)["Location"]), (302, "/persona/anouk/management/next"))
+        self.assertEqual(personas.location("anouk", "https://elsewhere.example/x"), "https://elsewhere.example/x")
+        self.assertEqual(personas.location("anouk", "//elsewhere.example/x"), "//elsewhere.example/x")
+
+    def test_an_answer_is_never_a_page_of_this_origin(self):
+        # Every answer is read by the UI's scripts: one opened as a page of localhost:9000 runs nothing
+        for path in ("/persona/anouk/management/x", "/persona/anouk/away"):
+            with self.subTest(path=path):
+                headers = dict(self.ask("GET", path)[1])
+                self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
+                self.assertEqual(headers["Content-Security-Policy"], "default-src 'none'; frame-ancestors 'none'; sandbox")
+
+    def test_a_body_whose_length_is_no_number_of_bytes_or_too_large_is_refused(self):
+        for size in ("-1", "abc", "1.5"):
+            with self.subTest(size=size):
+                self.assertEqual(self.ask("POST", "/persona/anouk/x", headers={"Content-Length": size})[0], 400)
+        with mock.patch.object(personas, "BODY_LIMIT", 10):
+            self.assertEqual(self.ask("POST", "/persona/anouk/x", headers={"Content-Length": "11"})[0], 413)
+            self.assertEqual(self.ask("POST", "/persona/anouk/x", b"x" * 10)[0], 200)
+
+    def test_an_api_that_answers_no_http_is_a_502(self):
+        server = socketserver.ThreadingTCPServer(("127.0.0.1", 0), NotHttp)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        with mock.patch.object(personas, "API", ("127.0.0.1", server.server_address[1])):
+            self.assertEqual(self.ask("GET", "/persona/anouk/x")[0], 502)

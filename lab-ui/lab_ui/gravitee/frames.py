@@ -2,6 +2,7 @@
 only addresses the Lab UI ever asks for (probe.py looks at those). What is not a web page a frame can show is never a
 tab, whatever a file says."""
 
+import hashlib
 import re
 from urllib.parse import urlsplit
 
@@ -47,9 +48,11 @@ def names(listed):
 
 
 def persona(username):
-    """The name of a persona in an address and a cookie: its username in lowercase letters, digits and hyphens
-    (anouk@van-dijk.test: anouk-van-dijk-test)."""
-    return re.sub(r"[^a-z0-9]+", "-", username.lower()).strip("-")[:63] or "persona"
+    """The name of a persona in an address and a cookie: its username in lowercase letters, digits and hyphens, then a short
+    digest of the username as it is written (anouk@van-dijk.test: anouk-van-dijk-test-<6 hex>), so that two usernames that
+    read alike (anna.b and anna-b, Anna and anna) are two personas, each with its own sign-in."""
+    words = re.sub(r"[^a-z0-9]+", "-", username.lower()).strip("-")[:56] or "persona"
+    return f"{words}-{hashlib.sha256(username.encode()).hexdigest()[:6]}"
 
 
 def who(account):

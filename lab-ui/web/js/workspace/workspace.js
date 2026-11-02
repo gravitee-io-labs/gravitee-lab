@@ -10,7 +10,7 @@ import { unopened, stateDot, dockerDown, setOff } from "../components/ui.js";
 import { Divider } from "../components/divider.js";
 import { TermPane } from "./termpane.js";
 import { fits, chooseTab, looksAt, linkTarget, opening, originOf, isReady, located, actionOf, actionMessage, actionReason, newPage,
-  terminalReason, frameName } from "./split.js";
+  terminalReason, frameName, windowName } from "./split.js";
 
 const DETAILS = "@details";    // the last tab, which is not a UI: its id is none a service has
 const RUNS = "button.guide-run";       // the buttons markdown.js makes of the guide's blocks to run: they type at the shell's prompt
@@ -64,11 +64,11 @@ function paint() {
   paintGuide();
 }
 
-// Open in a new tab opens the page the UI is on, when it said which, else the address it was last sent to. A persona's opens under
-// the name of its frame, which keeps it that persona's.
+// Open in a new tab opens the page the UI is on, when it said which, else the address it was last sent to. A persona's opens in a
+// browser tab named for the persona, which keeps it that persona's.
 function linkOpen(panel) {
   if (panel.tab.id !== shown) return;
-  const link = $("[data-open]", card), name = frameName(panel.tab);
+  const link = $("[data-open]", card), name = windowName(panel.tab);
   link.href = panel.current || panel.url;
   link.target = name || "_blank";
   link.rel = name ? "" : "noopener";

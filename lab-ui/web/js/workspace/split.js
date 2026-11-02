@@ -70,6 +70,9 @@ export function originOf(url) {
 // Management API through this Lab UI (`origin`), which keeps that persona's sign-in apart (lab_ui/server/personas.py). A browser
 // tab opened under the same name is that persona's too.
 export const frameName = (tab, origin = location.origin) => (tab?.persona ? `gravitee-lab-persona ${tab.persona} ${origin}` : "");
+// The name of the browser tab Open in a new tab opens for a persona: not the frame's, which a link to it would load into, and
+// read by the UI in it as that persona's all the same
+export const windowName = (tab, origin = location.origin) => (tab?.persona ? `${frameName(tab, origin)} tab` : "");
 
 // The tab whose UI an address belongs to: the first with the same origin
 function tabOf(tabs, url) {

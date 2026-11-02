@@ -1,9 +1,10 @@
 // Runs first in each page of a platform UI (lab-ui/frames/hosts.sh). In a tab of the Lab UI shown as one of a playground's
-// accounts, the frame is named "gravitee-lab-persona <persona> <the Lab UI's address>", and what the UI asks of the Management
+// accounts, the frame is named "gravitee-lab-persona <persona> <the Lab UI's address>" (and the browser tab its Open in a new
+// tab opens, the same name and " tab"), and what the UI asks of the Management
 // API (localhost:8083, which the API also names itself) goes through the Lab UI's relay for that persona
 // (lab_ui/server/personas.py), which keeps the persona's sign-in apart. Anywhere else it does nothing.
 (function () {
-  var named = /^gravitee-lab-persona ([a-z0-9][a-z0-9-]{0,62}) (http:\/\/(?:localhost|127\.0\.0\.1):\d{1,5})$/.exec(window.name || "");
+  var named = /^gravitee-lab-persona ([a-z0-9][a-z0-9-]{0,62}) (http:\/\/(?:localhost|127\.0\.0\.1):\d{1,5})(?: tab)?$/.exec(window.name || "");
   if (!named) return;
   var from = "http://localhost:8083", to = named[2] + "/persona/" + named[1];
   function moved(url) {
