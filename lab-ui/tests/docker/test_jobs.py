@@ -204,9 +204,10 @@ class Running(Case):
         self.assertEqual(ran, [1])
 
 
-# How long a test waits for a job whose command it ends: the command gets a termination, then a kill GRACE seconds later
-# (compose.end). A runner under load may need the kill, and a command the job never ended sleeps for minutes
-ENDED = compose.GRACE + 10
+# The grace a command the tests end has before its kill (compose.GRACE), and how long a test waits for its job: a runner
+# under load may need the kill, and a command the job never ended sleeps for minutes
+GRACE = 1
+ENDED = GRACE + 10
 
 
 def waited(done, seconds=10):
@@ -220,6 +221,10 @@ def waited(done, seconds=10):
 class Cut(Case):
     """A job does not wait for ever: a command that prints nothing for long is ended, and so is one that waits for a
     container Docker says keeps restarting. Real commands run, in a session of their own."""
+
+    def setUp(self):
+        super().setUp()
+        self.patch(compose, "GRACE", GRACE)
 
     def run_job(self, step):
         """A job of one step, a shell script or a function, run in a thread. The output of each command it ran is closed
@@ -246,7 +251,7 @@ class Cut(Case):
         self.patch(jobs, "WATCH", 0.05)
         job, thread = self.run_job("echo pulling; exec sleep 600")
         thread.join(ENDED)
-        self.assertFalse(thread.is_alive(), "the job still waits")
+        self.assertFalse(thread.is_alive(), f"the job still waits: {job.lines}")
         self.assertEqual((job.ok, job.lines[-2]), (False, "pulling"))
         self.assertTrue(job.error().startswith("Stopped: nothing happened for"), job.error())
 
@@ -261,7 +266,7 @@ class Cut(Case):
         self.assertIsNone(job._why)   # not yet
         job.observe({"gio-mongodb": "issue"}, began + jobs.STUCK)
         thread.join(ENDED)
-        self.assertFalse(thread.is_alive(), "the job still waits")
+        self.assertFalse(thread.is_alive(), f"the job still waits: {job.lines}")
         self.assertEqual((job.ok, job.error()), (False, "gio-mongodb keeps restarting"))
 
     def test_only_an_issue_that_lasts_while_compose_waits_for_it_ends_the_command(self):
@@ -340,12 +345,12 @@ class Cut(Case):
             job.exec(["sh", "-c", 'echo " Container gio-api Waiting "; exec sleep 600'])
         job, thread = self.run_job(step)
         for name in ("gio-hybrid", "gio-api"):
-            self.assertTrue(waited(lambda: job.detail() == f"Container {name} Waiting"))
+            self.assertTrue(waited(lambda: job.detail() == f"Container {name} Waiting"), job.lines)
             began = time.monotonic()
             job.observe({name: "issue"}, began)
             job.observe({name: "issue"}, began + jobs.STUCK)
         thread.join(ENDED)
-        self.assertFalse(thread.is_alive(), "the second command still waits for gio-api")
+        self.assertFalse(thread.is_alive(), f"the second command still waits for gio-api: {job.lines}")
         self.assertEqual((caught, job.ok, job.error()), (["gio-hybrid keeps restarting"], False, "gio-api keeps restarting"))
 
     def test_plugins_up_is_not_left_to_wait_for_ever_once_its_first_wait_was_ended(self):
