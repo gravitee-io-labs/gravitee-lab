@@ -488,6 +488,7 @@ class Refilling(Workspaces):
         self.assertIn("[refills] ✓ hackathon: the cost budget of team-hackathon is whole again", self.output())
 
     def test_it_is_done_once_the_workspace_is_deployed_and_the_gateway_serves_it(self):
+        self.env(SEED_WAIT_GATEWAY="1")
         self.seed()
         self.assertEqual(self.moments, [("DEPLOYED", True, 4)])
 
@@ -607,6 +608,7 @@ class Gateway(Workspaces):
 
     def setUp(self):
         super().setUp()
+        self.env(SEED_WAIT_GATEWAY="1")   # what it tests is the wait for the gateway, which a seed does when asked
         self.env(GATEWAY_INTERNAL_URL="http://gateway")
         self.world.users["user-admin"] = ADMIN
 
@@ -692,6 +694,14 @@ class Removal(Workspaces):
                   {"product": "aim-catalog", "kind": "provider", "name": "o", "id": "o", "label": ""}]
         aim_workspaces.remove(theirs)
         self.assertEqual(self.platform.calls, [])
+
+    def test_a_user_the_platform_refuses_to_delete_keeps_its_record_and_the_rest_goes(self):
+        """A member that someone added to a workspace of their own owns an application that a subscription still uses."""
+        care = next(u for u in common.created() if u["kind"] == "workspace-user" and u["name"] == "team-care")
+        self.platform.add({("DELETE", USERS + "/" + care["id"]): (400, {"message": "The user is the primary owner of an application"})})
+        self.remove()
+        self.assertEqual([x["name"] for x in common.created()], ["team-care"])
+        self.assertIn("! Workspace user 'team-care' kept: HTTP 400", self.output())
 
     def test_it_says_what_it_deleted(self):
         self.remove()

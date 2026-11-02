@@ -1207,7 +1207,7 @@ NOT_READ = {
     "merge keys that double": ("a.yaml", doubling(22), {}),
     "merge keys that double, by their tag": ("a.yaml", doubling(22, merge="!!merge m"), {}),
     "one mapping that a thousand others merge": ("a.yaml", fanned(2000, 1000), {}),
-    "merge keys that a variable brings": ("a.yaml", "a: ${BOMB}\n", {"BOMB": flowing(22)}),
+    "merge keys that a variable brings": ("a.yaml", "a: [${BOMB}]\n", {"BOMB": flowing(22)}),   # no YAML until it is replaced
     "merge keys in the front matter of a skill": ("aim/skills/x/SKILL.md", "---\n" + doubling(22) + "---\nA skill.\n", {}),
 }
 MERGING = [name for name in NOT_READ if name.startswith(("merge keys", "one mapping"))]

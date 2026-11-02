@@ -115,8 +115,7 @@ const KINDS = { platform: "Platform", group: "Platform", service: "Container", a
   playground: "Playground", data: "Data", environment: "Environment", version: "Version", catalog: "Catalog" };
 
 // The rows of an effects dialog as markup, the way the dialog draws them: the rows that have items, the ones that are not notes as numbered
-// steps, the notes as lines of pills (a few) or one line that counts them (many). A dialog that is drawn again as its state changes (the notice
-// of the move to catalogs, whose phase changes under it) draws its rows through it, so that they look as every other dialog's.
+// steps, the notes as lines of pills (a few) or one line that counts them (many).
 const named = (i) => (typeof i === "string" ? { name: i } : i);
 const line = (i) => `<li><span class="step-name">${esc(named(i).name)}</span>${KINDS[named(i).kind]
   ? `<span class="step-kind">${KINDS[named(i).kind]}</span>` : ""}</li>`;
@@ -136,7 +135,7 @@ const more = (r) => {
 const row = (r) => (r.items.length > 4 ? more(r) : `<div class="choice-row ${esc(r.tone || "")}"><span class="choice-row-label">${esc(r.label)}</span>
   <span class="choice-items">${r.items.map((i) => `<span class="pill ${r.tone === "danger" ? "err" : ""}"><span class="pill-text" data-tip="${esc(named(i).name)}" data-tip-cut>${esc(named(i).name)}</span></span>`).join("")}${
     r.hint ? `<span class="muted">${esc(r.hint)}</span>` : ""}</span></div>`);
-export const effectRows = (rows = []) => {
+const effectRows = (rows = []) => {
   const shown = rows.filter((r) => r.items.length), steps = shown.filter((r) => !r.note);
   return (steps.length ? `<ol class="steps">${steps.map(step).join("")}</ol>` : "")
     + shown.filter((r) => r.note).map(row).join("");
@@ -933,8 +932,9 @@ export function progressBar(key) {
   return `<span class="progress" data-progress="${esc(key)}" role="progressbar" aria-valuemin="0" aria-valuemax="100" hidden><span></span></span>`;
 }
 
-// Sets every bar under `root`: hidden while nothing is measured. It runs once the state is drawn (main.js); whoever
-// draws bars at another time (a filter, a toggle) calls it on what it drew.
+// Sets every bar under `root`: hidden while nothing is measured; and the latest line of the running job where a page
+// shows it (`data-job-line`). It runs once the state is drawn, and as the job's measures come (main.js); whoever draws bars
+// at another time (a filter, a toggle) calls it on what it drew.
 export function paintProgress(root = document) {
   for (const bar of $$("[data-progress]", root)) {
     const value = store.progress(bar.dataset.progress), percent = (value || 0) * 100;
@@ -942,6 +942,7 @@ export function paintProgress(root = document) {
     bar.setAttribute("aria-valuenow", Math.round(percent));
     bar.firstElementChild.style.width = `${percent}%`;
   }
+  for (const line of $$("[data-job-line]", root)) line.textContent = store.running()?.detail || "";
 }
 
 // --- Content ----------------------------------------------------------------------
@@ -1080,12 +1081,14 @@ function waitOn(b, wait) {
   setOff(b, !!wait || b._idle.off, (own ? "" : wait) || b._idle.why);
 }
 
+// What a button marked data-busy waits for: `data-busy="name"` is one that Compose runs by the project's name (store.wait)
+const busyWait = (b) => store.wait(b.dataset.busy === "name");
+
 // Makes unusable, under `root`, what waits for Docker, for the running job and for the Lab UI (data-busy), saying
 // why. It runs once the state is drawn (main.js); whoever draws such a button at another time calls it
 // on what it drew. The button of the action at work is left to paintActions: it is busy, not unusable.
 export function paintBusy(root = document) {
-  const wait = store.wait();
-  for (const b of $$("[data-busy]", root)) if (!b.matches(".busy, .said")) waitOn(b, wait);
+  for (const b of $$("[data-busy]", root)) if (!b.matches(".busy, .said")) waitOn(b, busyWait(b));
 }
 
 // --- Actions at work --------------------------------------------------------------
@@ -1166,7 +1169,7 @@ function acting(key, verbs) {
   const allowed = (verb) => !verbs || verbs.split(" ").includes(verb);
   const job = store.state?.job, running = job && !job.done ? job : null;
   if (running?.for === key && allowed(running.verb)) {
-    return { verb: running.verb, progress: store.offline ? null : running.progress, title: running.title };
+    return { verb: running.verb, progress: store.progress("job"), title: running.title };
   }
   const verb = store.pending.get(key);
   if (verb && allowed(verb)) return { verb, progress: null, title: ing(verb) };
@@ -1313,7 +1316,7 @@ function paint(b, { act, flash: ended }) {
   b.classList.toggle("said", !act && !!ended);
   if (!up && was) {
     showOff(b);
-    if (b.hasAttribute("data-busy")) waitOn(b, store.wait());
+    if (b.hasAttribute("data-busy")) waitOn(b, busyWait(b));
   }
   const aria = [[b, "aria-busy", act], [face, "aria-hidden", up], [side, "aria-hidden", !up]];
   for (const [el, name, on] of aria) {

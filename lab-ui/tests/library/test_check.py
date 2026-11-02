@@ -24,7 +24,7 @@ from unittest import mock
 
 from lab_ui.library import check, project
 from lab_ui.docker import compose, envfiles
-from lab_ui.gravitee import frames, license, platforms
+from lab_ui.gravitee import license, platforms
 from lab_ui import paths
 from lab_ui.catalogs import manifest, registry
 
@@ -384,11 +384,13 @@ class Items(Machine):
     def test_a_shared_playground_says_what_a_person_reads_before_starting_it(self):
         good = {"tags": ["API", "Gateway"], "duration": "35 min", "first_start": "1 h 30 min"}
         self.assertEqual(list(check._listing(good)), [])
-        for tags, said in ((None, "is missing"), ([], "is missing"), ([""], "is missing"), ("API", "is missing"),
-                           (["API", "API"], "lists a tag twice")):
+        for tags, said in ((None, "is missing"), ([], "is missing"), ([""], "is missing"), (["API", "API"], "lists a tag twice")):
             with self.subTest(tags=tags):
                 self.assertEqual([line.split(" ", 1)[0] + " " + line.split(" ", 1)[1].split(":")[0] for line in check._listing({**good, "tags": tags})],
                                  [f"x-gravitee.tags {said}"])
+        for tags in ("API", ["API", 3]):   # not a list of labels: the project says how they must be written, once
+            with self.subTest(tags=tags):
+                self.assertEqual(list(check._listing({**good, "tags": tags})), [])
         self.assertEqual(list(check._listing({**good, "duration": None, "first_start": None})), [
             "x-gravitee.duration is missing: how long its guide takes, as 20 min or 1 h 30 min",
             "x-gravitee.first_start is missing: how long its first start takes, as 20 min or 1 h 30 min"])
@@ -533,6 +535,13 @@ class Items(Machine):
         self.assertEqual(list(check._guide(self.folder(files={"guide.md": "[Maya](account:maya.chen)\n"}))),
                          ["guide.md: account:maya.chen is no user of x-gravitee.accounts, so the page cannot show its sign-in"])
 
+    def test_an_account_link_finds_a_user_name_yaml_read_as_a_number_as_the_page_does(self):
+        # `username: 1234` unquoted: the check reads the playground's accounts as the page gets them
+        self.machine([member("fixture", "playground", "welcome", ["acme-website"], says={"accounts": [
+            {"for": "Kiosk", "username": 1234, "password": "${SHOP_PIN:-0000}"}]})])
+        accounts = self.built["playgrounds"]["welcome"]["accounts"]
+        self.assertEqual(list(check._guide(self.folder(files={"guide.md": "[Sign in](account:1234)\n"}), accounts)), [])
+
     def test_the_steps_of_a_guide_are_numbered_in_order(self):
         # A page per step, at the address of its number: the details link to the third step as /3
         good = "# Lab\n\n## 1. One\n\n## 2. Two\n\n## What to look at\n"
@@ -658,9 +667,14 @@ class Playgrounds(Machine):
         self.assertEqual(self.playground(), [])
         self.assertEqual(self.playground(meta={"consoles": []}), [])
         self.assertEqual(self.playground(meta={"consoles": ["acme-website"]}), [])
-        for consoles in ("acme-website", ["acme-website", 8002], {"acme-website": 1}):
+        # Written otherwise than a list of names: the project says it once, among the catalog's problems, and keeps the names
+        shape = {"file": fixtures.unit_file("fixture", "playground", "welcome"), "message": "x-gravitee.consoles must be a list of services"}
+        for consoles, kept in (("acme-website", []), (["acme-website", 8002], ["acme-website"]), ({"acme-website": 1}, []),
+                               (["acme-website", {"console": "apim-portal-ui", "as": "someone"}], ["acme-website"])):
             with self.subTest(consoles=consoles):
-                self.assertEqual(self.playground(meta={"consoles": consoles}), ["x-gravitee.consoles must be a list of services"])
+                self.assertEqual(self.playground(meta={"consoles": consoles}), [])
+                self.assertEqual(self.built["playgrounds"]["welcome"]["consoles"], kept)
+                self.assertIn(shape, [{key: one[key] for key in ("file", "message")} for one in self.built["catalog_problems"]["fixture"]])
         self.assertEqual(self.playground(meta={"consoles": ["acme-website", "acme-website"]}),
                          ["x-gravitee.consoles: acme-website is listed twice"])
         # A service with no console, one that does not exist, one that this playground does not run
@@ -673,9 +687,15 @@ class Playgrounds(Machine):
         self.assertEqual(self.playground(meta={"terminal": "acme-website"}), [])
         self.assertEqual(self.playground(), [])   # one is not required
         wrong = "x-gravitee.terminal must name a service that this playground runs"
-        for name in ("nothing", "apim-portal-ui", 8000, ["acme-website"]):   # unknown, the core's, not a name
+        for name in ("nothing", "apim-portal-ui"):   # unknown, the core's
             with self.subTest(name=name):
                 self.assertEqual(self.playground(meta={"terminal": name}), [wrong])
+        for name in (8000, ["acme-website"]):   # not a name: the project says it once, and the playground has no terminal
+            with self.subTest(name=name):
+                self.assertEqual(self.playground(meta={"terminal": name}), [])
+                self.assertIsNone(self.built["playgrounds"]["welcome"]["terminal"])
+                self.assertIn("x-gravitee.terminal must be the name of a service",
+                              [one["message"] for one in self.built["catalog_problems"]["fixture"]])
         self.assertEqual(self.playground(meta={"terminal": "hello-seed"}),
                          ["x-gravitee.terminal cannot be the seed, which ends once it ran"])
 
@@ -687,21 +707,21 @@ class Playgrounds(Machine):
             "x-gravitee.consoles: agent-lens is not a service with a console that this playground runs"])
 
     def test_a_console_shown_in_a_frame_lets_the_lab_ui_frame_it(self):
-        pages = " ".join(frames.PAGES)
+        pages = " ".join(project.PAGES)
         framed = [part.replace("{pages}", pages) for part in PORTAL_COMMAND]
         message = ("x-gravitee.consoles: apim-portal-ui is shown in a frame, so its command must name "
-                   f"{' and '.join(frames.PAGES)} and remove X-Frame-Options (x-ui-frames in docker-compose.yml), "
+                   f"{' and '.join(project.PAGES)} and remove X-Frame-Options (x-ui-frames in docker-compose.yml), "
                    "or a setting of it must name them as the pages that may frame it")
         shown = {"consoles": ["acme-website", "apim-portal-ui"]}
         self.assertEqual(self.playground(meta=shown, command=framed), [])
         self.assertEqual(self.playground(meta=shown, command=" ".join(framed)), [])   # Compose may print it as one text
         # No command; one that leaves a page out; one that leaves the X-Frame-Options line, which refuses every page
-        for command in (None, ["nginx"], ["sh", "-c", f"s|self|& {frames.PAGES[0]}|; /X-Frame-Options/d"],
+        for command in (None, ["nginx"], ["sh", "-c", f"s|self|& {project.PAGES[0]}|; /X-Frame-Options/d"],
                         ["sh", "-c", f"s|self|& {pages}|"]):
             with self.subTest(command=command):
                 self.assertEqual(self.playground(meta=shown, command=command), [message])
         # A setting of its own that names the pages is enough: the portal is configured, not patched
-        for pages, expected in ((" ".join(frames.PAGES), []), (frames.PAGES[0], [message])):
+        for pages, expected in ((" ".join(project.PAGES), []), (project.PAGES[0], [message])):
             with self.subTest(setting=pages):
                 self.assertEqual(self.playground(meta=shown, environment={"ALLOWED_FRAME_ANCESTOR_URLS": "http://localhost:8084 " + pages}), expected)
         # Only the consoles listed are asked, and only the platform's: an app answers for its own headers

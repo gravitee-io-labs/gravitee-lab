@@ -2,12 +2,15 @@
 reads them."""
 
 import re
+import threading
 
 from ..paths import ENV_FILE, ROOT, write_atomic
 
 LINE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
 SINGLE_QUOTED = re.compile(r"'((?:[^'\\]|\\.)*)'")
 DOUBLE_QUOTED = re.compile(r'"((?:[^"\\]|\\.)*)"')
+# The writes of this process, one at a time: each reads the file and writes it again, and none loses what another set
+LOCK = threading.RLock()
 
 
 def _lines(path):
@@ -67,8 +70,9 @@ def write(path, changes):
     """Sets variables (None removes one), keeping the file's comments and order; new ones go at the end. Values are
     written as given: quote() the ones that are not references. An add-on's .env left without a variable is deleted."""
     file = ROOT / path
-    if file != ROOT / ENV_FILE and not any(LINE.match(line) for line in _changed(path, changes)):
-        if file.is_file():
-            file.unlink()
-        return
-    write_atomic(file, changed(path, changes), mode=0o600)   # it holds secrets
+    with LOCK:
+        if file != ROOT / ENV_FILE and not any(LINE.match(line) for line in _changed(path, changes)):
+            if file.is_file():
+                file.unlink()
+            return
+        write_atomic(file, changed(path, changes), mode=0o600)   # it holds secrets

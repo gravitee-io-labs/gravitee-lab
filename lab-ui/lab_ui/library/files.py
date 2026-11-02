@@ -14,13 +14,13 @@ import posixpath
 import re
 import threading
 
-from . import compose, envfiles
-from ..library import layers
+from ..docker import compose, envfiles
+from . import layers
 from .. import paths
 from ..catalogs import registry
 from ..catalogs.resolve import shown
 from ..paths import CORE_FILE, ENV_FILE, ON_FILE, ROOT, write_atomic
-from ..library.project import brought
+from .project import brought
 
 SECTIONS = (("Secrets", "secret"), ("Settings", "setting"))
 POSITION = re.compile(r"L(\d+)\.C(\d+)")
@@ -354,16 +354,28 @@ def accepted(project, path, content):
     return check
 
 
+def _unchanged(path, version):
+    """Refuses a file that is no longer the version that was opened."""
+    if _version(path) != version:
+        raise RuntimeError(f"{path} changed on disk since you opened it: reload it first")
+
+
+# One save at a time: the version is compared again just before the write, and what saved the file meanwhile is seen
+_saving = threading.Lock()
+
+
 def save(project, path, content, version):
     """Writes an edited file when it still is the version that was opened and Compose accepts it: {content, version,
-    problems}, the warnings Compose still has. ReadOnly for a file of a git catalog."""
+    problems}, the warnings Compose still has. ReadOnly for a file of a git catalog. The version is compared before the
+    check, which takes a second or more, and again at the write: what was saved during the check is not written over."""
     target = _file(path)
     _refuse(path)
     _text(content)
-    if _version(path) != version:
-        raise RuntimeError(f"{path} changed on disk since you opened it: reload it first")
+    _unchanged(path, version)
     check = accepted(project, path, content)
-    write_atomic(target, content)
+    with _saving:
+        _unchanged(path, version)
+        write_atomic(target, content)
     return {**read(path), "problems": check["problems"]}
 
 
@@ -577,9 +589,10 @@ def _changes(values, defaults):
 def save_settings(project, env_file, values, version):
     """Writes form values into a .env, keeping its comments and order. A value that is the default needs no line."""
     variables = _variables(project, env_file)
-    if version != _version(env_file):
-        raise RuntimeError(f"{env_file} changed on disk since you opened it: reload it first")
+    _unchanged(env_file, version)
     defaults = {v["key"]: v["default"] or "" for v in variables}
     _checked(values, defaults)
-    envfiles.write(env_file, _changes(values, defaults))
+    with envfiles.LOCK:   # no other write of a .env between the comparison and this one
+        _unchanged(env_file, version)
+        envfiles.write(env_file, _changes(values, defaults))
     return settings(project, env_file)

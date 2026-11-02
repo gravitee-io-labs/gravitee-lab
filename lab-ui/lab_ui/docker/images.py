@@ -2,24 +2,27 @@
 version (and registry, when a variable chooses it) the page sets, and what saving them would have Compose make again.
 Also the tags a registry lists, and its login."""
 
+import http.client
 import json
 import re
 import shutil
+import socket
+import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
 
-from . import compose, envfiles, files
-from ..library import layers
+from . import compose, envfiles
 from .. import paths
+from ..products import AZURE
 from .jobs import JOBS
 
 TAG = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,127}")
 REGISTRY = re.compile(r"[a-z0-9]+(?:[._-][a-z0-9]+)*(?::\d+)?(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*")
-AZURE = re.compile(r"[a-z0-9]+\.azurecr\.io")
 DOCKER_HUB = ("docker.io", "index.docker.io")
 ITEM = re.compile(rf"(?:{'|'.join(paths.KINDS)}):{paths.ID}")   # the key of an item's row: "playground:<id>"
 AZ = shutil.which("az") or "az"   # the Azure CLI, found once
+OCI_PAGES = 5   # pages of a thousand tags read of a registry's list, which comes by name: the newest are near its end
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -44,13 +47,14 @@ def _parts(raw):
     return registry, (name[slashes[0] + 1:] if registry else name), version
 
 
-def _bare(default):
+def _bare(default, unset=()):
     """A default as a .env holds it, references without their own defaults: ${OTHER_VERSION:-1.2}-debian becomes
-    ${OTHER_VERSION}-debian."""
-    for key, inner, _ in compose.references(default or ""):
-        for form in ("${%s:-%s}", "${%s-%s}"):
-            default = default.replace(form % (key, inner), "${%s}" % key)
-    return default
+    ${OTHER_VERSION}-debian. A variable of `unset` does not reach the file the default is in: in its place is what
+    Compose makes of it there, its own default (nothing without one)."""
+    if not default:
+        return default
+    text = re.sub(r"\$\{(\w+)\}", lambda m: "" if m.group(1) in unset else m.group(0), default)
+    return compose.interpolated(text, lambda key: None if key in unset else "${%s}" % key)
 
 
 def _locate(name):
@@ -74,12 +78,33 @@ def _component(services, names):
     owner = first["owner"]
     return {"id": version[0], "label": ", ".join(dict.fromkeys(services[name]["label"] for name in names)),
             "detail": owner["name"], "kind": "gravitee" if registry else "third-party",
-            "version_key": version[0], "version_default": _bare(version[1]),
+            "version_key": version[0], "version_default": version[1],
             "registry_key": registry[0] if registry else None,
-            "registry_default": _bare(registry[1]) if registry else None,
+            "registry_default": registry[1] if registry else None,
             "host": host, "repository": listed,
             "source": None if registry else _locate(repository)[0] or "Docker Hub",
             "services": names, "owner": owner}
+
+
+def _env_files(services, component):
+    """The .env files a component's variables are written to: the core's when it runs one of the core's services, as it
+    reaches every file, and comes before what a unit's own says; else the .env of each unit it runs a service of, as a
+    unit's .env reaches only that unit's file."""
+    found = {paths.unit_env(services[name]["owner"]["kind"], services[name]["owner"]["id"]) or paths.ENV_FILE
+             for name in component["services"]}
+    return [paths.ENV_FILE] if paths.ENV_FILE in found else sorted(found)
+
+
+def _unset(services, component, found):
+    """The variables of the other components that do not reach this one's file: those written to a unit's .env that is
+    not the one of each of its services."""
+    mine = set(_env_files(services, component))
+    unset = set()
+    for other in found:
+        theirs = _env_files(services, other)
+        if other is not component and paths.ENV_FILE not in theirs and not mine <= set(theirs):
+            unset |= {other["version_key"], other["registry_key"]} - {None}
+    return unset
 
 
 def _follows(component, others):
@@ -99,7 +124,9 @@ def _follows(component, others):
 
 def components(project):
     """The images whose version is a variable: [{id (the version variable), label, detail, kind, version_key,
-    version_default, registry_key, registry_default, host, repository, source, services, owner, group, follows}].
+    version_default, registry_key, registry_default, host, repository, source, services, owner, group, follows}]. The
+    services that share a variable are one component, whose value is written to the .env of each (_env_files); a
+    default follows another component only where that one's variable reaches its file.
     `group` is the group of the platform a component belongs to: its owner's, or for the gateway of an add-on the
     group that runs its image (project._gateway_groups); None for the others. The platform's come first, in the order
     of its groups, each followed by the add-ons' gateways of it, then the others by the name of what owns them; under
@@ -110,6 +137,11 @@ def components(project):
         if version:
             sharing.setdefault(version[0], []).append(name)
     found = [_component(services, names) for names in sharing.values()]
+    # What a default refers to of another component is that component only where its variable reaches
+    unset = {component["id"]: _unset(services, component, found) for component in found}
+    for component in found:
+        for what in ("version", "registry"):
+            component[f"{what}_default"] = _bare(component[f"{what}_default"], unset[component["id"]])
     for component in found:
         component["follows"] = _follows(component, found)
     groups = [group["id"] for group in project["groups"]]
@@ -137,12 +169,6 @@ def components(project):
 # State and saving
 # ---------------------------------------------------------------------------------------------------------------------
 
-def _env_file(component):
-    """The .env that holds a component's variables: the add-on's own, else the core's."""
-    owner = component["owner"]
-    return paths.unit_env(owner["kind"], owner["id"]) or paths.ENV_FILE
-
-
 def _registries(project, found):
     """The registries Gravitee images come from, the defaults first: the ones the page offers."""
     gravitee = [c for c in found if c["registry_key"]]
@@ -164,38 +190,40 @@ def registry_label(registry):
 
 
 def local_images():
-    """The images Docker holds, as repository:tag; None when Docker does not answer."""
-    def ask():
-        rc, out, _ = compose.run(["docker", "images", "--format", "{{.Repository}}:{{.Tag}}"], timeout=30)
-        return set(out.split()) if rc == 0 else None
-    return compose.CACHE.get("local:images", 10, ask)
+    """The images Docker holds, as repository:tag (compose.image_ids); None when Docker does not answer."""
+    held = compose.image_ids()
+    return None if held is None else set(held)
 
 
-def state(project):
+def state(project, is_on, outside):
     """What the Images page shows: every component with the value its .env holds (or its default), the image that
     value gives, what runs and what is pulled (None when Docker does not answer); the registries in use; and
     whether a component that is on takes its images from an Azure registry (`azure_in_use`): pulling them takes a
-    login. A component that runs without its owner being on has its note (`outside`, layers.outside)."""
+    login. What is on is the caller's to say: `is_on(owner)`, whether the owner of a component runs with it, and
+    `outside`, the note of a component that runs without its owner being on (layers.is_on, layers.outside)."""
     services, found = project["services"], components(project)
-    on, local = layers.current(project), local_images()
+    local = local_images()
     containers, _ = compose.containers()   # none when Docker does not answer: the versions still show
-    envs = {path: envfiles.read(path) for path in {_env_file(c) for c in found}}
+    targets = {c["id"]: _env_files(services, c) for c in found}
+    envs = {path: envfiles.read(path) for written in targets.values() for path in written}
     listed = []
     for c in found:
-        env, first, owner = envs[_env_file(c)], services[c["services"][0]], c["owner"]
+        env, first, owner = envs[targets[c["id"]][0]], services[c["services"][0]], c["owner"]
+        # A value saved that refers to a variable that does not reach the file is what Compose makes of it there
+        unset = _unset(services, c, found)
         configured = sorted({services[name]["image"] for name in c["services"]})
         running = {containers[name]["image"] for name in c["services"]
                    if name in containers and containers[name]["state"] == "running"}
         # docker images lists Docker Hub images without docker.io/ and library/
         pulled = None if local is None else all(re.sub(r"^docker\.io/(library/)?", "", image) in local
                                                 for image in configured)
-        enabled = layers.is_on(owner["kind"], owner["id"], on["playground"], on["effective"])
-        listed.append({**c, "version": env.get(c["version_key"]) or c["version_default"] or "",
-                       "registry": env.get(c["registry_key"]) or c["registry_default"],
+        enabled = is_on(owner)
+        listed.append({**c, "version": _bare(env.get(c["version_key"]), unset) or c["version_default"] or "",
+                       "registry": _bare(env.get(c["registry_key"]), unset) or c["registry_default"],
                        "version_resolved": first["tag"], "registry_resolved": first["registry"],
                        "configured": configured, "running": sorted(running), "pulled": pulled, "enabled": enabled,
                        # what runs without its owner being on says so, in the words of its owner's row
-                       "outside": layers.outside(owner["kind"]) if running and not enabled else None})
+                       "outside": outside if running and not enabled else None})
     return {"components": listed,
             "registries": [{"value": r, "label": registry_label(r)} for r in _registries(project, found)],
             "azure_in_use": any(c["enabled"] and _azure(c["registry_resolved"]) for c in listed if c["registry_key"])}
@@ -215,10 +243,11 @@ def _setting(found, key):
 
 
 def _changes(project, values):
-    """Versions and registries as the .env that owns each holds them, ({.env: {variable: value, None for the
-    default}}, {variable: value}): the core's, or the add-on's. A value may be a tag, a registry, or the reference
-    that follows another component; anything else is refused."""
-    found, changes, given = components(project), {}, {}
+    """Versions and registries as the .env files that hold each write them, ({.env: {variable: value, None for the
+    default}}, {variable: value}): the core's, or each unit's whose services share it (_env_files). A value may be a
+    tag, a registry, or the reference that follows another component; anything else is refused."""
+    services, found, changes, given = project["services"], components(project), {}, {}
+    targets = {c["id"]: _env_files(services, c) for c in found}
     for key, value in values.items():
         component, what = _setting(found, key)
         default = component[f"{what}_default"]
@@ -226,34 +255,39 @@ def _changes(project, values):
         pattern = TAG if what == "version" else REGISTRY
         if not isinstance(value, str) or (value not in references and not pattern.fullmatch(value)):
             raise ValueError(f"Invalid {'tag' if what == 'version' else 'registry'} for {key}")
-        changes.setdefault(_env_file(component), {})[key] = None if value == default else value
+        for path in targets[component["id"]]:
+            changes.setdefault(path, {})[key] = None if value == default else value
         given[key] = value
     # A line that follows another component as its default does, ${APIM_REGISTRY}, goes too: the default needs no line,
     # and Compose would read it blank, with a warning, once the variable it follows has no line either
-    envs = {}
+    envs, cleared = {}, {}
     for component in found:
         for what in ("version", "registry"):
-            key, default, path = component[f"{what}_key"], component[f"{what}_default"], _env_file(component)
-            env = envs.setdefault(path, envfiles.read(path))
-            if key and key not in given and default and "${" in default and env.get(key) == default:
-                changes.setdefault(path, {})[key] = None
-                given[key] = default
-    return changes, given
+            key, default = component[f"{what}_key"], component[f"{what}_default"]
+            if not key or key in given or not default or "${" not in default:
+                continue
+            for path in targets[component["id"]]:
+                if envs.setdefault(path, envfiles.read(path)).get(key) == default:
+                    changes.setdefault(path, {})[key] = None
+                    cleared[key] = default
+    return changes, {**given, **cleared}
 
 
 def save(project, values):
-    """Writes versions and registries to the .env that owns each: the core's, or the add-on's. A value may be a tag,
-    a registry, or the reference that follows another component. The default needs no line."""
+    """Writes versions and registries to the .env files that hold each: the core's, or each unit's whose services share
+    it. A value may be a tag, a registry, or the reference that follows another component. The default needs no
+    line."""
     for path, change in _changes(project, values)[0].items():
         envfiles.write(path, change)
 
 
-def drafted(project, values):
-    """What Compose would make each service of what is on from, were these versions and registries saved as save()
-    writes them: (hashes, exact), as files.drafted() says it."""
+def as_saved(project, values):
+    """These versions and registries as save() would write them, for what Compose would make of them (files.drafted):
+    (the change of the core's .env or None, {an add-on's .env: its values}), each add-on's by its own .env, which Compose
+    reads for every file and which another add-on's must not reach."""
     changes, given = _changes(project, values)
     core = changes.pop(paths.ENV_FILE, None)
-    return files.drafted(project, core, {path: {key: given[key] for key in change} for path, change in changes.items()})
+    return core, {path: {key: given[key] for key in change} for path, change in changes.items()}
 
 
 def changing(project, values):
@@ -268,6 +302,26 @@ def changing(project, values):
 # ---------------------------------------------------------------------------------------------------------------------
 # Tags
 # ---------------------------------------------------------------------------------------------------------------------
+
+def web_error(error, host):
+    """Why a request to `host` got no answer it could use, in plain words: the network, a rate limit, a refusal, an
+    error of the site. Where registries and the download site are asked, so that what fails never shows urllib's
+    words."""
+    if isinstance(error, urllib.error.HTTPError):
+        if error.code == 429:
+            return f"Too many requests to {host}: try again later"
+        if error.code in (401, 403):
+            return f"{host} refuses the request"
+        if error.code == 404:
+            return f"Not found on {host}"
+        return f"{host} answered an error (HTTP {error.code})"
+    reason = getattr(error, "reason", error)
+    if isinstance(reason, (TimeoutError, socket.timeout)):
+        return f"{host} does not answer in time"
+    if isinstance(reason, ssl.SSLError):
+        return f"The certificate of {host} is not trusted"
+    return f"Cannot reach {host}"
+
 
 def _json(url, token=None):
     request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"} if token else {})
@@ -292,31 +346,99 @@ def _hub_tags(repository):
     return tags
 
 
+def _realm(said):
+    """The address where anyone gets a token, from the WWW-Authenticate a registry answers a request without one with;
+    None when it names none."""
+    asked = dict(re.findall(r'(\w+)="([^"]*)"', said or ""))
+    if not asked.get("realm", "").startswith("https://"):
+        return None
+    query = urllib.parse.urlencode({key: asked[key] for key in ("service", "scope") if key in asked})
+    return f"{asked['realm']}?{query}"
+
+
+def _tags_page(url, token=None):
+    """A page of a registry's list of tags: (its names, the address of the next page, None after the last)."""
+    request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"} if token else {})
+    with urllib.request.urlopen(request, timeout=15) as response:
+        following = re.search(r'<([^>]+)>\s*;\s*rel="?next"?', response.headers.get("Link") or "")
+        listed = json.load(response).get("tags") or []
+    return listed, urllib.parse.urljoin(url, following.group(1)) if following else None
+
+
 def _oci_tags(host, repository):
-    """The registry API every registry speaks: names only, oldest first. A registry that wants a token says where
-    anyone gets one."""
-    url = f"https://{host}/v2/{repository}/tags/list?n=1000"
-    try:
-        names = _json(url).get("tags") or []
-    except urllib.error.HTTPError as error:
-        asked = dict(re.findall(r'(\w+)="([^"]*)"', error.headers.get("WWW-Authenticate") or ""))
-        if error.code != 401 or not asked.get("realm", "").startswith("https://"):
-            raise
-        query = urllib.parse.urlencode({key: asked[key] for key in ("service", "scope") if key in asked})
-        granted = _json(f"{asked['realm']}?{query}")
-        names = _json(url, granted.get("token") or granted.get("access_token")).get("tags") or []
-    return [{"name": name, "updated": None} for name in reversed(names) if not name.startswith("sha256-")]
+    """The registry API every registry speaks: names only, in the order it lists them, by name (the page orders the
+    releases). A long list comes in pages, of which OCI_PAGES are read; a registry that wants a token says where anyone
+    gets one."""
+    url, token, names, pages = f"https://{host}/v2/{repository}/tags/list?n=1000", None, [], 0
+    while url and pages < OCI_PAGES:
+        try:
+            listed, url = _tags_page(url, token)
+        except urllib.error.HTTPError as error:
+            realm = _realm(error.headers.get("WWW-Authenticate")) if error.code == 401 and token is None else None
+            if not realm:
+                raise
+            granted = _json(realm)
+            token = granted.get("token") or granted.get("access_token") or ""
+            continue
+        names += listed
+        pages += 1
+    return [{"name": name, "updated": None} for name in names if not name.startswith("sha256-")]
+
+
+SUBSCRIPTIONS = {}   # the Azure subscription that holds each registry, by name, as found once per run of the Lab UI
+
+
+def _az():
+    """The Azure CLI; an error that says to install it when this machine has none."""
+    if not shutil.which(AZ):
+        raise RuntimeError("Install the Azure CLI (az)")
+    return AZ
+
+
+def _subscription(name):
+    """The flags that name the Azure subscription holding registry `name`: none when the session's own subscription has
+    it, else the first of the account's subscriptions that does (a registry is often in another one than the default).
+    Kept once found: not found, it is looked for again, as an expired session finds none."""
+    if name not in SUBSCRIPTIONS:
+        rc, _, _ = compose.run([_az(), "acr", "show", "--name", name, "--query", "id", "-o", "tsv"], timeout=60)
+        if rc == 0:
+            SUBSCRIPTIONS[name] = None
+        else:
+            rc, out, _ = compose.run([AZ, "account", "list", "--query", "[].id", "-o", "tsv"], timeout=60)
+            for subscription in out.split() if rc == 0 else []:
+                if compose.run([AZ, "acr", "show", "--name", name, "--subscription", subscription, "--query", "id",
+                                "-o", "tsv"], timeout=60)[0] == 0:
+                    SUBSCRIPTIONS[name] = subscription
+                    break
+    return ["--subscription", SUBSCRIPTIONS[name]] if SUBSCRIPTIONS.get(name) else []
+
+
+AZ_OFFLINE = ("Failed to establish a new connection", "Max retries exceeded", "Cannot connect to proxy",
+              "Failed to resolve", "NameResolutionError", "Connection refused")   # what the Azure CLI says offline
+
+
+def _azure_error(host, rc, err):
+    """Why the Azure CLI could not list the tags of `host`, in the words web_error() has for the network: its own text
+    never shows. An expired session is said once the network is not the cause: a token renewed offline fails at
+    login.microsoftonline.com."""
+    if any(marker in err for marker in AZ_OFFLINE):
+        return f"Cannot reach {host}"
+    if rc == 124 or "timed out" in err.lower():
+        return f"{host} does not answer in time"
+    if "az login" in err or "AADSTS" in err:
+        return "Azure session expired: run az login in a terminal"
+    return f"The Azure CLI could not list the tags of {host}"
 
 
 def _azure_tags(host, repository):
-    """An Azure registry lists its tags to the Azure CLI's session, newest first."""
-    rc, out, err = compose.run([AZ, "acr", "repository", "show-tags", "--name", host.split(".")[0],
+    """An Azure registry lists its tags to the Azure CLI's session, newest first. That session is the Azure CLI's own:
+    when it expired, `az login` renews it, which the page's Log in (Docker's login to the registry) cannot."""
+    name = host.split(".")[0]
+    rc, out, err = compose.run([_az(), "acr", "repository", "show-tags", "--name", name, *_subscription(name),
                                 "--repository", repository, "--orderby", "time_desc", "--top", "300", "--detail",
                                 "-o", "json"], timeout=90)
     if rc != 0:
-        if "login" in err.lower() or "credential" in err.lower():
-            raise RuntimeError("Azure session expired: use Log in")
-        raise RuntimeError(err.strip().splitlines()[-1][:200] if err.strip() else "Azure registry not reachable")
+        raise RuntimeError(_azure_error(host, rc, err))
     # Builds of dependency updates are not versions anyone picks
     return [{"name": tag["name"], "updated": tag.get("lastUpdateTime")} for tag in json.loads(out)
             if not tag["name"].startswith("renovate")]
@@ -324,7 +446,8 @@ def _azure_tags(host, repository):
 
 def tags(project, component, registry=None):
     """The tags a component can run: [{name, updated}], newest first when the registry tells. A Gravitee component
-    is listed on `registry`, the one it runs from when none is given."""
+    is listed on `registry`, the one it runs from when none is given. A registry that does not answer says why in
+    plain words (web_error)."""
     c = next((found for found in components(project) if found["id"] == component), None)
     if c is None:
         raise paths.NotFound(f"No such component: {component}")
@@ -336,9 +459,12 @@ def tags(project, component, registry=None):
         host, repository = _locate(f"{registry}/{repository}")
 
     def ask():
-        if host is None:
-            return _hub_tags(repository)
-        return _azure_tags(host, repository) if AZURE.fullmatch(host) else _oci_tags(host, repository)
+        try:
+            if host is None:
+                return _hub_tags(repository)
+            return _azure_tags(host, repository) if AZURE.fullmatch(host) else _oci_tags(host, repository)
+        except (urllib.error.URLError, OSError, http.client.HTTPException) as error:
+            raise RuntimeError(web_error(error, host or "Docker Hub")) from error
     return compose.CACHE.get(f"tags:{host}:{repository}", 600, ask)
 
 
@@ -381,12 +507,11 @@ def _anonymous(host, repository, reference="latest"):
         return True
     if code != 401:
         return False if code == 403 else None
-    said = dict(re.findall(r'(\w+)="([^"]*)"', asked))
-    if not said.get("realm", "").startswith("https://"):
+    realm = _realm(asked)
+    if not realm:
         return False
-    query = urllib.parse.urlencode({key: said[key] for key in ("service", "scope") if key in said})
     try:
-        granted = _json(f"{said['realm']}?{query}")
+        granted = _json(realm)
     except urllib.error.HTTPError:
         return False
     except (urllib.error.URLError, OSError, ValueError):
@@ -419,8 +544,16 @@ def private_images(images):
 
     def ask(where):
         host, repository, reference = where
-        key = f"anonymous:{host}:{repository}" + (f":{reference}" if host else "")
-        return compose.CACHE.get(key, 3600, lambda: _anonymous(*where))
+
+        def public():
+            found = _anonymous(*where)
+            if found is None:   # the registry cannot tell: asked again the next time
+                raise LookupError(host)
+            return found
+        try:
+            return compose.CACHE.get(f"anonymous:{host}:{repository}" + (f":{reference}" if host else ""), 3600, public)
+        except LookupError:
+            return None
     places = list(dict.fromkeys(asked.values()))
     with ThreadPoolExecutor(max_workers=8) as pool:
         public = dict(zip(places, pool.map(ask, places)))
@@ -469,5 +602,6 @@ def login(host, key=None):
         raise ValueError("Not an Azure registry")
     if key is not None and not ITEM.fullmatch(str(key)):
         raise ValueError("Not an add-on, a setup or a playground")
-    return JOBS.start("Log in to Azure registry", [[AZ, "acr", "login", "--name", host.split(".")[0]]],
+    name = host.split(".")[0]
+    return JOBS.start("Log in to Azure registry", [[_az(), "acr", "login", "--name", name, *_subscription(name)]],
                       key=key or f"registry:{host}", verb="login")

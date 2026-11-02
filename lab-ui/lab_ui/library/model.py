@@ -6,17 +6,18 @@ import re
 
 from ..docker import compose, images
 from ..gravitee import frames, license, platforms
-from . import layers, personal, reasons, tested
+from . import layers, machine, personal, reasons, tested
 from .. import paths
 from ..catalogs import resolve
 from .project import license_features, shown, tag
 
 # A running container, by its health check: (state, label)
 HEALTH = {"healthy": ("healthy", "Healthy"), "starting": ("starting", "Starting"), "unhealthy": ("issue", "Unhealthy")}
-# 0, and 130 / 143 (SIGINT / SIGTERM): what a stop leaves. 137: killed, a failure only when out of memory
+# 0, and 130 / 143 (SIGINT / SIGTERM): what a stop leaves of what runs until stopped. 137: killed, a failure only when out
+# of memory. A one-shot runs to its end: any of them but 0 is one it did not reach
 STOP_CODES = (0, 130, 137, 143)
 # Docker's words for a duration, and the unit the page writes
-DURATIONS = (("second", "s"), ("minute", "min"), ("hour", "h"), ("day", "d"), ("month", "mo"), ("year", "y"))
+DURATIONS = (("minute", "min"), ("hour", "h"), ("day", "d"), ("month", "mo"), ("year", "y"))
 LABELS = {"running": "Running", "partly": "Partly running", "starting": "Starting", "stopping": "Stopping",
           "stopped": "Stopped", "issue": "Issue", "off": ""}
 # Where a service is as it should be: it runs, healthy or without a health check, or it is a one-shot that ended well
@@ -26,7 +27,6 @@ FINE = ("healthy", "running", "done")
 SERVICE_KEYS = ("label", "description", "container", "image", "tag", "registry", "built", "role", "needs_license")
 PLAYGROUND_KEYS = ("tags", "duration", "first_start", "source", "chapters", "guide", "accounts", "requires", "services",
                    "apps", "seed")
-LOW_MEMORY = 7.5 * 2 ** 30   # under 8 GB, Docker struggles once add-ons run with the platform
 APPLY = "Apply needed"   # what runs behind what is saved, as a row says it
 NEWER = "Needs newer versions"   # a playground whose images are older than it needs
 UNTESTED = "Not tested with these versions"   # a playground whose images are not those it was tested with
@@ -45,7 +45,8 @@ def _state(key, label, running=False):
 
 def service_state(container, oneshot, job_running):
     """The state of a service from its container: {key, label, running}. `running` says the container runs now:
-    a one-shot that ended well is "done", without running."""
+    a one-shot that ended well is "done", without running; one that was stopped or killed before its end did not do its
+    part, an issue as any other exit (a seed that Docker stopped is run again at the next start: seed_failed)."""
     if not container:
         return _state("absent", "Not created")
     status, code = container.get("state") or "unknown", container.get("exit_code")
@@ -64,7 +65,7 @@ def service_state(container, oneshot, job_running):
         return _state("issue", status.capitalize())
     if code == 0 and oneshot:
         return _state("done", "Done")
-    return _state("stopped", "Stopped") if code in STOP_CODES else _state("issue", f"Exited ({code})")
+    return _state("stopped", "Stopped") if code in STOP_CODES and not oneshot else _state("issue", f"Exited ({code})")
 
 
 def container_steps(project, containers):
@@ -93,9 +94,10 @@ def container_steps(project, containers):
 
 def uptime(status):
     """Docker's status text, in the short units of the page: "Up 5 minutes (healthy)" -> "5 min", "Up 2 weeks" ->
-    "14 d", "Exited (0) About an hour ago" -> "1 h ago"."""
+    "14 d", "Exited (0) About an hour ago" -> "1 h ago". Its first minute is one text, "< 1 min": Docker counts it in
+    seconds, which would change the state at every poll while a job starts containers."""
     text = re.sub(r"^Up |^(Exited|Restarting) \(\d+\) | \((healthy|unhealthy|health: starting)\)$", "", status or "")
-    text = re.sub(r"Less than a second", "1 s", text, flags=re.I)
+    text = re.sub(r"Less than a second|\d+ seconds?", "< 1 min", text, flags=re.I)
     text = re.sub(r"About an? ", "1 ", text, flags=re.I)
     text = re.sub(r"(\d+) weeks?", lambda weeks: f"{int(weeks.group(1)) * 7} d", text)
     for word, unit in DURATIONS:
@@ -106,17 +108,20 @@ def uptime(status):
 def up(project, containers):
     """What runs, from the containers: {platform: whether a service of it runs, groups: the platform groups whose
     services all run (a one-shot aside), addons: the ids of those with a running container, playgrounds: those with
-    a running app, services: the services whose container runs, created: those that have a container, done: the
+    a running app, services: the services whose container runs, ready: those of them that are ready as a job judges
+    it (healthy, running without a health check: container_steps), created: those that have a container, done: the
     one-shots that ended well}. A seed runs only while it seeds."""
     alive = {name for name, container in containers.items() if service_state(container, False, False)["running"]}
     services = project["services"]
+    ready = {name for name in alive if not (services.get(name) or {}).get("oneshot")
+             and service_state(containers[name], False, False)["key"] in ("healthy", "running")}
     return {"platform": any(services[name]["owner"]["kind"] == "platform" for name in alive & set(services)),
             "groups": {group["id"] for group in project["groups"]
                        if all(name in alive or services[name]["oneshot"] for name in group["services"])},
             "addons": {aid for aid, addon in project["addons"].items() if alive & set(addon["services"])},
             "playgrounds": {pid for pid, playground in project["playgrounds"].items()
                             if alive & set(playground["apps"])},
-            "services": alive, "created": set(containers),
+            "services": alive, "ready": ready, "created": set(containers),
             "done": {name for name, container in containers.items() if name in services
                      and service_state(container, services[name]["oneshot"], False)["key"] == "done"}}
 
@@ -274,8 +279,8 @@ def _progress(c, key, names, state):
         return None
     if state["key"] not in ("starting", "stopping"):
         return None
-    if job["for"] == key:
-        return job["progress"]
+    if job["for"] == key:   # while it runs, how far is the job's own, beside the state (_job)
+        return job["progress"] if job["done"] else "job"
     found = job["containers"]
     shares = [found[container] for container in (c["services"][name]["container"] for name in names)
               if container in found]
@@ -470,9 +475,8 @@ def _note(c, unit, state, on, is_up, plan, failure, services, offer=None):
                 "note_causes": _switch_causes(*layers.switch_rows(c["project"], plan["switch"]))}
     if offer:
         return {**_said(UNTESTED, "warn", target={"kind": "image", "id": None}), "note_causes": _switch_causes(offer.get("versions", []), offer.get("goes_back", []))}
-    # A locked on file is said once, in the banner, and a move of the old layout that is not over once, by the button of each
-    # row (its reason): neither is the note of every row that could start
-    if plan and plan["do"] == "start" and plan["blocked"] and plan["blocked"] not in (c["state"]["locked"], layers.WAITING):
+    # A locked on file is said once, in the banner: it is not the note of every row that could start
+    if plan and plan["do"] == "start" and plan["blocked"] and plan["blocked"] != c["state"]["locked"]:
         # A playground on images older than it needs: a short label, the versions it needs in its explanation
         # leads to the Images page, where they are chosen
         if unit["kind"] == "playground" and plan["blocked"] == layers.too_old(c["project"], unit):
@@ -541,7 +545,7 @@ def _action(c, plan, blocked=None, offer=None):
     that (layers.asks). `blocked`: why it cannot run, in the words of the row's own note (the settings an add-on lacks). `warns`: it
     can run, and does or offers what the row's note warns of; `offer`: what it offers (_offer)."""
     reason = blocked or plan["blocked"] or (None if c["project"]["core_loaded"] else f"{paths.CORE_FILE} does not load") \
-        or c["wait"]
+        or c["wait"] or (c["unread"] if plan["do"] == "start" else None)
     return {"do": plan["do"], "label": plan["label"], "enabled": not reason, "reason": reason,
             "dialog": layers.dialog(plan) if layers.asks(plan) else None,
             # Its start does or offers what the row's note warns of (it switches versions): the note stays beside the button
@@ -549,8 +553,8 @@ def _action(c, plan, blocked=None, offer=None):
 
 
 def seed_failed(states, playground):
-    """Whether a playground's seed ended in an issue (it exited with an error): its start runs it again. `states`: the
-    state of its services, {name: service_state()}."""
+    """Whether a playground's seed ended in an issue (it exited with an error, or was stopped or killed before its end):
+    its start runs it again. `states`: the state of its services, {name: service_state()}."""
     seed = playground["seed"]
     return bool(seed) and states[seed]["key"] == "issue" and not states[seed]["running"]
 
@@ -661,7 +665,8 @@ def _item(c, unit, state, on, is_up, services):
     members_on = kind == "setup" and any(aid in c["state"]["effective"] for aid in unit["members"])
     offers = do == "start" and (on or is_up or members_on)
     # Why what is of this machine cannot be shared or deleted now: its menu says it before the click
-    held = {what: personal.held(c["project"], c["state"], kind, uid, deleting=what == "delete", running=is_up)
+    held = {what: personal.held(c["project"], c["state"], kind, uid, deleting=what == "delete", running=is_up,
+                                deployed=c["deployed"].get(uid, []) if kind == "playground" else ())
             for what in ("share", "delete")} if unit["personal"] else None
     return {"kind": kind, "id": uid, "name": unit["name"], "personal": unit["personal"], "held": held,
             "category": unit["category"], "description": unit["description"],
@@ -731,13 +736,15 @@ def _setup(c, setup, addons):
 
 
 def seed_reason(project, state, up, playground):
-    """Why a playground's seed cannot reach what it needs now: the first service it depends on, among what is on with
-    the playground, that neither runs nor ended well ("Management API (Access Management) is not running"), what it
-    depends on itself first, then what those depend on in turn. None when all of it runs, or it has no seed. `up` is
-    up()."""
+    """Why a playground's seed cannot run now: it still runs (a job canceled meanwhile), and another run would race it
+    on the same record; else the first service it depends on, among what is on with the playground, that neither runs
+    nor ended well ("Management API (Access Management) is not running"), what it depends on itself first, then what
+    those depend on in turn. None when all of it runs, or it has no seed. `up` is up()."""
     seed = playground["seed"]
     if not seed:
         return None
+    if seed in up["services"]:
+        return f"{layers.service_name(project, seed)} is still running"
     on = set(layers.up_services(project, playground["id"],
                                 layers.closure(project, [*state["explicit"], *playground["addons"]])))
     direct = project["services"][seed]["depends_on"]
@@ -758,7 +765,7 @@ def _playground(c, playground, addons, created):
     item = _item(c, playground, _folded(c, names, on), on, is_up, names)
     brought = [name for aid in playground["addons"] if aid in addons for name in addons[aid]["services"]]
     stop, needs = _plan(c, "playground", uid, "stop"), seed_reason(project, c["state"], c["up"], playground)
-    reseed = c["wait"] or (None if on else f"{playground['name']} is off") or needs
+    reseed = c["wait"] or c["unread"] or (None if on else f"{playground['name']} is off") or needs
     return {**item, **{key: playground[key] for key in PLAYGROUND_KEYS},
             # Its apps, then the consoles of its add-ons, then those it lists
             "links": _links(c, playground["services"], brought, playground.get("consoles") or []),
@@ -810,9 +817,9 @@ def _group_note(c, group, state):
 
 
 def _reason(c):
-    """Why the platform's actions cannot run now: docker-compose.yml does not load, Docker does not answer, a job
-    runs; None when they can."""
-    return (None if c["project"]["core_loaded"] else f"{paths.CORE_FILE} does not load") or c["wait"]
+    """Why the platform's actions that read the files cannot run now: docker-compose.yml does not load, Docker does not
+    answer, a job runs, an entry of the on file that Compose cannot read; None when they can."""
+    return (None if c["project"]["core_loaded"] else f"{paths.CORE_FILE} does not load") or c["wait"] or c["unread"]
 
 
 def _dialog(starts=(), restarts=(), consequences=None):
@@ -965,7 +972,9 @@ def _by_name(items):
 
 
 def _wait(docker, job, loaded):
-    """Why nothing can be started now, as what waits says it; None when it can."""
+    """Why nothing can be started now, as what waits says it; None when it can. An entry of the on file that Compose
+    cannot read is not among it (`unread`): only what reads the files waits for it, not what Compose runs by the
+    project's name (a stop, Remove containers, Reset)."""
     if docker["error"]:
         return "Docker is not reachable"
     if not loaded:
@@ -975,7 +984,7 @@ def _wait(docker, job, loaded):
 
 def memory_warning(memory):
     """What to know of the memory Docker has, whatever is on: None when it is enough, or not known."""
-    if memory and memory < LOW_MEMORY:
+    if memory and memory < machine.LOW_MEMORY:
         return f"{memory / 2 ** 30:.1f} GB, 8 GB+ recommended"
     return None
 
@@ -1014,6 +1023,22 @@ def _license(c, containers):
             "reason": unapplied_line(c["project"], unapplied, status != "none")}
 
 
+def _job(job):
+    """The job as the state says it, None without one: all but what the state says otherwise (`changes`, `containers`,
+    `settled`). While it runs, not how far it is (its progress, that of its phases, its latest line), which changes at every
+    byte a pull brings and would change the state with it: that comes beside the state (Job.live, api.state), and the item
+    the job is for says `"job"` as its progress. Once it ended, all of it, as it ended."""
+    if not job:
+        return None
+    shown = {key: value for key, value in job.items() if key not in ("changes", "containers", "settled")}
+    if job["done"]:
+        return shown
+    shown = {key: value for key, value in shown.items() if key not in ("progress", "detail")}
+    if "phases" in shown:
+        shown["phases"] = [{key: value for key, value in phase.items() if key != "progress"} for phase in shown["phases"]]
+    return shown
+
+
 def git_state(version):
     """state.git, from the version of git that gitx.version() found (a tuple of numbers) or None for none:
     {available, version}."""
@@ -1021,8 +1046,7 @@ def git_state(version):
 
 
 def build(project, state, containers, job, failures, license_features, docker, created, saved=None,
-          license_status=None, platforms=(), deployed=None, changed=None, git=None, catalogs=None, content=None,
-          layout=None):
+          license_status=None, platforms=(), deployed=None, changed=None, git=None, catalogs=None, content=None):
     """The body of /api/state. `state` is layers.current(), `containers` compose.ps() ({} when Docker does not
     answer), `job` the summary of the last job or None, `failures(kind, id)` the failed or canceled last job on an
     item ({id, verb, error, login}, jobs.Jobs.failed_job) or None, `license_features` the features the license allows
@@ -1033,18 +1057,19 @@ def build(project, state, containers, job, failures, license_features, docker, c
     page gets {id, name, kind, url}; `deployed` what each playground holds in the places besides This machine:
     {id: [{place, environment, created: [{what, count}]}]} (places.deployed); `changed` the settings that differ in
     what runs behind by configuration ({service: {settings: [name], labels}}, drift.changes). Of the job, the page gets all but
-    `changes`, `containers` and `settled`: they are in the state and the progress of every item. Of Docker, it gets why
-    it does not answer and what to know of its memory; `wait` says why nothing can be started now. `blind`: what runs
+    `changes`, `containers` and `settled` (_job): they are in the state and the progress of every item. Of Docker, it gets why
+    it does not answer and what to know of its memory; `wait` says why nothing can be started now, and `unread` the entry of
+    the on file that Compose cannot read (layers.current), which holds what reads the files besides. `blind`: what runs
     is not known, Docker not answering or docker-compose.yml not loading: no state is said, but, while only Docker
     does not answer, what is on, which the files say. The consoles come in their order, which puts the legacy ones
     last. The state of the catalogs is read by the caller, who has the disk: `git` (git_state), `catalogs` (the rows of the
-    Catalogs page), `content` (what the first start says of the content) and `layout` (where the migration of an
-    existing machine is) are put in the body as they are given, and left out when they are not."""
+    Catalogs page) and `content` (what the first start says of the content) are put in the body as they are given, and left
+    out when they are not."""
     platforms = list(platforms)
     loaded = project["core_loaded"]
     readonly = {ns for ns, found in (project.get("catalogs") or {}).items() if found.get("kind") == "git"}
-    forwarded = {key: value for key, value in (("git", git), ("catalogs", catalogs), ("content", content),
-                                               ("layout", layout)) if value is not None}
+    forwarded = {key: value for key, value in (("git", git), ("catalogs", catalogs), ("content", content))
+                 if value is not None}
     containers = containers if loaded else {}   # without the core, Compose reads nothing: what runs is not known
     running_job = job if job and not job["done"] else None
     # The last job, while what it starts or stops is on its way: as it runs, then, once it ended well, until every
@@ -1071,7 +1096,7 @@ def build(project, state, containers, job, failures, license_features, docker, c
     # what is saved; `held`: what the Lab UI does not start for want of a usable license, and `unlicensed` its note;
     # `unlicensing`: with no license saved, what still runs one, which loses it once it is made again
     c = {"project": project, "state": state, "up": running, "job": running_job,
-         "wait": _wait(docker, running_job, loaded), "failures": failures, "features": license_features,
+         "wait": _wait(docker, running_job, loaded), "unread": state.get("unread"), "failures": failures, "features": license_features,
          "services": services, "created": created, "blind": bool(docker["error"]) or not loaded,
          "docker_down": bool(docker["error"]) and loaded,
          "changing": changing, "behind": set(late), "why": late, "license": license_status, "held": set(waiting),
@@ -1087,9 +1112,8 @@ def build(project, state, containers, job, failures, license_features, docker, c
         service["recreates"] = _recreates(c, [name])
     conflicts = _conflicts(project)
     addons = {aid: _addon(c, addon, conflicts) for aid, addon in project["addons"].items()}
-    return {"docker": _docker(docker), "wait": c["wait"], "blind": c["blind"], "license": _license(c, containers),
-            "job": {key: value for key, value in job.items() if key not in ("changes", "containers", "settled")}
-            if job else None,
+    return {"docker": _docker(docker), "wait": c["wait"], "unread": c["unread"], "blind": c["blind"], "license": _license(c, containers),
+            "job": _job(job),
             "platform": _platform(c),
             "platforms": [{key: record[key] for key in ("id", "name", "kind", "url")} for record in platforms],
             "products": [{"id": group["product"], "name": project["products"][group["product"]]["name"]}

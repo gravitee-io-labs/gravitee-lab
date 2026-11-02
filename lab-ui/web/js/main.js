@@ -9,7 +9,6 @@ import { initJobs } from "./activity/jobs.js";
 import { Combo } from "./components/combo.js";
 import { License } from "./dialogs/license.js";
 import { Welcome } from "./dialogs/welcome.js";
-import { LabUpdated } from "./dialogs/layout.js";
 import { dashboardPage } from "./pages/dashboard.js";
 import { playgroundsPage, setupsPage, addonsPage } from "./pages/list.js";
 import { playgroundPage } from "./pages/playground.js";
@@ -50,11 +49,11 @@ Combo.init();
 // The page shows at once: until the first state comes, it says that the lab is read, or why it cannot be (core.js)
 router.start();
 store.subscribe(afterDraw);
+store.onMeasure(() => { paintProgress(); paintActions(); });   // how far the running job is, alone: the pages are not drawn again
 addEventListener("hashchange", afterDraw);
 afterDraw();
 await store.refresh();
 Welcome.init();
-LabUpdated.init();   // after the welcome, which it may open over: what moved is more urgent than how the Lab works
 License.load();   // the banner and the pages draw again once it is read
 // Every second while the server measures something on its way, a job or what it started that still passes its health
 // checks, so that its progress shows as it comes. A tick is skipped while the last refresh still waits for its

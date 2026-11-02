@@ -80,7 +80,8 @@ services:
   component from the `image:` line and writes another version to the add-on's `.env`. Services that share a version
   variable are one component. A Gravitee image whose registry can change is
   `${NAME_REGISTRY:-graviteeio}/repository:${NAME_VERSION:-tag}`. A version follows another component when its default
-  is that component's variable: `${KIOSK_VERSION:-${ELASTICSEARCH_VERSION:-9.5.2}}`.
+  is that component's variable: `${KIOSK_VERSION:-${ELASTICSEARCH_VERSION:-9.5.2}}`. That variable is the core's or
+  the unit's own: another unit's `.env` does not reach this file.
 - **An image built here** (its vendor publishes none) is
   `<images>/<unit>-<service>:latest`, where `<images>` is the `images` prefix of the catalog's `catalog.yml`
   (`ghcr.io/<owner>/<repository>`), with `pull_policy: ${<ID>_PULL_POLICY:-build}` and the comment
@@ -96,7 +97,10 @@ services:
   [the naming rule](../AGENTS.md#rules). `${VAR}` with no default is required: the add-on shows Settings instead of
   Start until its `.env` gives it a value. An optional one carries an empty default, `${VAR:-}`. The core's
   `GRAVITEE_LICENSE`, `INTERNAL_API_PASSWORD` and `REDIS_PASSWORD` come from the core's `.env`: reference them with the
-  core's defaults and never copy their values.
+  core's defaults and never copy their values. A setting is never written into a `CMD-SHELL` test or a `command` written
+  as one line, where a value with a space, an `&`, a `$` or a quote is split, run or expanded: a check reads the
+  container's own variable as `"$${VAR}"`, in double quotes, a command is a list, and `redis-cli` takes its password
+  from `REDISCLI_AUTH`.
 - **No hardcoded password**: a password, secret, token or key is a setting, `${NAME:-default}` with a public demo value
   as the default, or `${NAME}` when the person must provide it, never a literal, and `make check` refuses one in a
   shared add-on ([the rule](../AGENTS.md#rules)). That includes a password inside a URI, as in

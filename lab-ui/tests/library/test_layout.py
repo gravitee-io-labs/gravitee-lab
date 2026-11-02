@@ -1,9 +1,10 @@
-"""layout: the migration of an existing machine to the layout of the catalogs, on synthetic trees. The tree is the
+"""layout: the move of a folder of the layout before catalogs to theirs, on synthetic trees. The tree is the
 shape of a clone after the `git pull` of the split: the units that git removed leave their settings, keys and state
 behind (`.env`, `secrets/`, certificates, `.state/`), the person's own items sit in the `local` folders, and the on file
 and the platform copies name folders that are not there. The default catalog is the fixture catalog, so the unit names
 are the fixture's (`echo`, `shop`, ...): no real item is named. Nothing here needs Docker or the network: a guard makes
-a program run or a connection opened a failure of the test. A crash is injected between any two steps with
+a program run or a connection opened a failure of the test, and the download of the default catalog, which `run` makes
+before the move when it is not there, is played (`downloads`). A crash is injected between any two steps with
 `moves.STEP`, which the migration extends with steps of its own."""
 
 import ast
@@ -28,9 +29,10 @@ from lab_ui.docker import compose, envfiles
 from lab_ui.library import layers, layout, moves, project
 from lab_ui.gravitee import license
 from lab_ui import paths
-from lab_ui.catalogs import registry, store
+from lab_ui.catalogs import firstrun, install, registry, store
 
 from .. import Case, fixtures, gitfixture
+from ..catalogs.test_provision import Served   # a real download of a listed catalog, from a bare repository here
 
 # The pattern of the Makefile (an ERE for `grep -E`): the lines of an on file that name folders of the old layout
 GUARD_PATTERN = r'^[[:space:]]*-[[:space:]]*"?(addons|setups|playgrounds)/'
@@ -214,8 +216,6 @@ class Machine(Case):
 
     def setUp(self):
         self.install()
-        self.patch(layout, "_failed", None)
-        self.patch(layout, "_said", set())
         self.patch(layout, "_backed", None)
         self.patch(layout, "_now", lambda: STAMP)
         self.patch(moves, "STEP", None)
@@ -284,9 +284,27 @@ class Machine(Case):
         with outside():
             return layout.migrate()
 
-    def ensure(self):
+    def at_start(self):
+        """What the Lab UI does as it starts, before it serves: (whether it may serve, the lines it said, the lines it
+        complained)."""
+        said, complained = [], []
         with outside():
-            return layout.ensure()
+            ok = layout.run(said.append, complained.append)
+        return ok, said, complained
+
+    def downloads(self, error=None):
+        """The download of the default catalog that `run` asks for, played: it installs the fixture catalog, or raises
+        `error`. Answers the list of the catalogs asked for."""
+        asked = []
+
+        def provision(ns):
+            asked.append(ns)
+            if error:
+                raise error
+            fixtures.install(self, ns)
+        self.patch(firstrun, "provision", provision)
+        self.patch(firstrun, "reconcile", lambda: None)
+        return asked
 
     def moved(self, **how):
         """The tree after a clean run of `build(**how)`, for what a run that was stopped must end as."""
@@ -336,17 +354,17 @@ class Detection(Machine):
 
     def test_a_fresh_clone_gets_the_marker_and_nothing_moves(self):   # B1
         before = digest(self.root, skip=SKIP)
-        self.ensure()
+        self.assertEqual(self.at_start(), (True, [], []))   # nothing to say
         self.assertEqual(self.marker(), {"layout": 2, "from": 0})
         after = digest(self.root, skip=SKIP)
         self.assertEqual({key: value for key, value in after.items() if key != ".lab/layout.json"}, before)
-        self.assertEqual(layout.status(), {"phase": "ready", "notice": None})
+        self.assertIs(layout.pending(), False)
 
     def test_nothing_is_signalled_by_a_tree_of_the_new_layout(self):
         fixtures.local(self, "scratch")
         fixtures.local(self, "sandbox")
         self.assertEqual(layout._signals(), [])
-        self.assertIs(layout.waiting(), False)
+        self.assertIs(layout.pending(), False)
 
     def test_each_signal_is_read_from_the_disk(self):
         self.assertEqual(layout._signals(), [])
@@ -369,9 +387,9 @@ class Detection(Machine):
     def test_s0_is_the_witness_or_the_plan_and_the_marker_ends_it(self):
         self.put(layout.STARTED, "{}")
         self.assertEqual(layout._signals(), ["S0"])
-        self.assertEqual((layout.status()["phase"], layout.waiting()), ("waiting", True))
+        self.assertIs(layout.pending(), True)
         self.put(".lab/layout.json", '{"layout": 2}')
-        self.assertEqual((layout.status()["phase"], layout.waiting()), ("ready", False))
+        self.assertIs(layout.pending(), False)
 
     def test_the_guide_files_junk_and_ghost_folders_are_not_signals(self):
         for name in ("README.md", "AGENTS.md", "CLAUDE.md", ".DS_Store"):
@@ -418,9 +436,8 @@ class Detection(Machine):
         (self.root / "catalogs.default.json").unlink()
         self.build()
         before = digest(self.root)
-        self.assertEqual(layout.status(), {"phase": "ready", "notice": None})
-        self.assertIs(layout.waiting(), False)
-        self.ensure()
+        self.assertIs(layout.pending(), False)
+        self.assertEqual(self.at_start(), (True, [], []))
         self.assertEqual(self.migrate(), {key: [] for key in layout._report()})
         self.assertEqual(digest(self.root), before)
         self.assertFalse(self.exists(".lab/layout.json"))
@@ -428,9 +445,8 @@ class Detection(Machine):
     def test_a_lock_is_not_taken_when_there_is_nothing_to_do(self):
         self.put(".lab/layout.json", '{"layout": 2, "from": 0}')
         with mock.patch.object(registry, "flock", side_effect=AssertionError("the lock was taken")):
-            self.ensure()
-            self.migrate()
-            self.assertEqual(layout.migrate_personal(), {key: [] for key in layout._report()})
+            self.assertEqual(self.at_start(), (True, [], []))
+            self.assertEqual(self.migrate(), {key: [] for key in layout._report()})
 
 
 @unittest.skipUnless(gitfixture.available(), "git is not installed")
@@ -440,7 +456,7 @@ class Tracked(Machine):
     def git(self, *args):
         return gitfixture.git("-C", str(self.root), *args)
 
-    def test_nothing_is_touched_nothing_is_written_and_one_line_says_why(self):
+    def test_nothing_is_touched_nothing_is_written_and_a_line_says_why(self):
         self.build()
         self.put(".gitignore", "/.lab/\n.env\n.env.*\n*.key\n*.crt\n/addons/*/secrets/\n/addons/local/\n/setups/local/\n"
                                "/playgrounds/local/\n/playgrounds/*/.state/\n")
@@ -451,25 +467,22 @@ class Tracked(Machine):
         self.git("commit", "-qm", "the old layout")
         moves._INDEXES.clear()
         before, index, status = digest(self.root), (self.root / ".git/index").read_bytes(), self.git("status", "--porcelain")
-        said = io.StringIO()
-        with contextlib.redirect_stderr(said):
-            self.ensure()
-            self.ensure()
-            report = self.migrate()
+        ok, said, complained = self.at_start()
+        self.assertEqual(self.at_start(), (ok, said, complained))
+        report = self.migrate()
         self.assertEqual((digest(self.root), (self.root / ".git/index").read_bytes(), self.git("status", "--porcelain")),
                          (before, index, status))
-        self.assertEqual((report, layout.status(), layout.waiting()), ({key: [] for key in layout._report()},
-                                                                        {"phase": "ready", "notice": None}, False))
+        self.assertEqual((report, layout.pending()), ({key: [] for key in layout._report()}, False))
         self.assertFalse(self.exists(".lab/layout.json"))
-        self.assertEqual(said.getvalue().count("\n"), 1)   # one line, the first time only
-        self.assertIn("git tracks", said.getvalue())
+        self.assertEqual((ok, said, complained), (True, [layout.TRACKED], []))   # the Lab starts, and says why nothing moved
+        self.assertIn("git tracks", layout.TRACKED)
         with self.assertRaisesRegex(moves.Refused, "tracked by git"):
             moves.relocate("addons/echo/compose.yml", ".lab/catalogs/local/addons/echo/compose.yml", "personal")
 
     def test_a_download_without_a_git_folder_is_not_tracked(self):
         self.build()
         self.assertFalse(layout._tracked())
-        self.assertEqual(layout.status()["phase"], "waiting")
+        self.assertIs(layout.pending(), True)
 
     def test_a_folder_with_a_git_folder_whose_index_cannot_be_read_is_tracked(self):
         self.build()
@@ -477,7 +490,7 @@ class Tracked(Machine):
         (self.root / ".git/index").write_bytes(b"garbage")
         moves._INDEXES.clear()
         self.assertTrue(layout._tracked())
-        self.assertEqual(layout.status(), {"phase": "ready", "notice": None})
+        self.assertIs(layout.pending(), False)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -636,16 +649,17 @@ class Replica(Machine):
         os.makedirs(self.root / "addons/kafka/certs/server.key")
         os.makedirs(self.root / "playgrounds/acme/data")
         self.assertEqual(layout._signals(), [])
-        self.ensure()
+        self.assertEqual(self.at_start(), (True, [], []))
         self.assertEqual(self.marker(), {"layout": 2, "from": 0})
 
 
 # ---------------------------------------------------------------------------------------------------------------------
-# Part A offline (A1, E4), the other ways in (B3, B4, B5, B6, B7)
+# The default catalog downloaded first (A1, E4), the person who has none, the other ways in (B3, B4, B5, B6, B7)
 # ---------------------------------------------------------------------------------------------------------------------
 
-class Offline(Machine):
-    """The default catalog is listed and has been asked for, and has not arrived: nothing of it is installed."""
+class Download(Machine):
+    """The default catalog is listed and has been asked for, and has not arrived: nothing of it is installed. The move needs
+    it, so the start downloads it first, and moves nothing until it is there."""
 
     def install(self):
         self.folder(paths, compose)
@@ -653,69 +667,61 @@ class Offline(Machine):
         fixtures.default(self, "fixture")
         fixtures.declare(self, "fixture")
 
-    def test_the_persons_own_items_move_at_once_and_nothing_else_does(self):   # A1
+    def test_the_catalog_is_downloaded_first_then_everything_moves_in_one_run(self):   # E4 then B6
         self.build()
-        untouched = {key: value for key, value in digest(self.root, skip=SKIP).items()
-                     if not key.startswith(("addons/local", "setups/local", "playgrounds/local", ".lab/migration"))}
-        report = layout.migrate_personal()
-        self.assertEqual(report["personal"], ["addon:local/other", "addon:local/scratch", "playground:local/relay",
-                                              "playground:local/trip-demo", "setup:local/duo", "setup:local/trio"])
-        for rel in ("addons/local/scratch", "playgrounds/local/relay", "setups/local/duo.yml"):
-            self.assertFalse(self.exists(rel), rel)
-        self.assertEqual(self.text(".lab/catalogs/local/playgrounds/trip-demo/.env"), "TRIP=secret-trip\n")
-        self.assertEqual(paths.ids("playground"), ["local/relay", "local/trip-demo"])
-        self.assertEqual(paths.ids("addon"), ["local/other", "local/scratch"])
-        self.assertEqual(paths.ids("setup"), ["local/duo", "local/trio"])
-        # their includes of the catalog's units point where the catalog will put them, whether or not it is there
-        self.assertIn("../../../fixture/addons/echo/compose.yml", self.text(".lab/catalogs/local/playgrounds/trip-demo/compose.yml"))
-        after = {key: value for key, value in digest(self.root, skip=SKIP).items()
-                 if not key.startswith((".lab/catalogs", ".lab/migration", "addons/local", "setups/local",
-                                        "playgrounds/local"))}
-        self.assertEqual(after, {key: value for key, value in untouched.items() if not key.startswith(".lab/catalogs")})
-        self.assertFalse(self.exists(".lab/layout.json"))
-        again = digest(self.root, skip=SKIP)
-        self.assertEqual(layout.migrate_personal(), report)   # a second run says the same, from the disk
-        self.assertEqual(digest(self.root, skip=SKIP), again)   # and changes nothing
-
-    def test_what_part_a_writes_is_the_golden_text(self):   # D1
-        self.build()
-        layout.migrate_personal()
-        for kind, rel in (("playgrounds", "trip-demo"), ("playgrounds", "relay")):
-            self.assertEqual(self.text(f".lab/catalogs/local/{kind}/{rel}/compose.yml"),
-                             (DATA / "expected" / kind / "local" / rel / "compose.yml").read_text(encoding="utf-8"), rel)
-        for rel in ("duo", "trio"):
-            self.assertEqual(self.text(f".lab/catalogs/local/setups/{rel}.yml"),
-                             (DATA / "expected/setups/local" / f"{rel}.yml").read_text(encoding="utf-8"), rel)
-
-    def test_the_layout_waits_and_the_core_alone_is_read_until_the_catalog_is_installed(self):
-        self.build()
-        on = self.text(".lab/on.yml")
-        legacy = digest(self.root / "addons/echo"), digest(self.root / "playgrounds/shop")
-        self.ensure()
-        self.assertEqual(self.text(".lab/on.yml"), on)   # byte for byte
-        self.assertEqual((digest(self.root / "addons/echo"), digest(self.root / "playgrounds/shop")), legacy)
-        self.assertFalse(self.exists(".lab/layout.json"))
-        self.assertTrue(self.exists(".lab/catalogs/local/addons/scratch/compose.yml"))   # but Part A has run
-        status = layout.status()
-        self.assertEqual((status["phase"], layout.waiting()), ("waiting", True))
-        self.assertEqual(status["notice"]["rows"], [{"key": "settings", "label": "Settings", "items": ["Not changed"],
-                                                      "hint": ""}])
-        self.assertEqual(compose.environment()["COMPOSE_FILE"], "docker-compose.yml")   # the core alone
-        self.assertEqual(self.migrate(), self.migrate())   # Part B waits, and says what Part A did
-        self.assertEqual(self.text(".lab/on.yml"), on)
-        self.assertFalse(self.exists(layout.PLAN))
-
-    def test_part_b_runs_when_the_catalog_arrives_and_finishes_the_move(self):   # E4 then B6
-        self.build()
-        self.ensure()
-        self.assertEqual(layout.status()["phase"], "waiting")
-        fixtures.install(self, "fixture")
-        self.put("addons/echo-core/compose.yml", self.installed("addons/echo-core/compose.yml"))
-        report = self.migrate()
-        self.assertEqual((self.marker()["from"], layout.status()["phase"], layout.waiting()), (1, "ready", False))
+        asked = self.downloads()
+        ok, said, complained = self.at_start()
+        self.assertEqual((ok, asked, complained), (True, ["fixture"], []))
+        self.assertEqual(said[:2], [layout.MOVING, layout.DOWNLOADING])
+        self.assertEqual(self.marker()["from"], 1)
         self.assertEqual(self.text(".lab/on.yml"), ON_AFTER)
-        self.assertIn("playground:local/mine", report["promoted"])
-        self.assertEqual(compose.environment()["COMPOSE_FILE"], paths.COMPOSE_FILE)
+        self.assertIn("playground:local/mine", self.report()["promoted"])
+        self.assertEqual(self.text(".lab/catalogs/local/playgrounds/trip-demo/.env"), "TRIP=secret-trip\n")
+        self.assertIs(layout.pending(), False)
+
+    def test_a_download_that_fails_is_said_moves_nothing_and_the_lab_does_not_start(self):   # A1
+        self.build()
+        before = digest(self.root, skip=SKIP)
+        line = "Cannot reach example.invalid. Check your connection, then try again."
+        asked = self.downloads(registry.CatalogError("unreachable", line, 502))
+        ok, said, complained = self.at_start()
+        self.assertEqual((ok, asked, said, complained), (False, ["fixture"], [layout.MOVING, layout.DOWNLOADING],
+                                                         [layout.FAILED, line]))
+        self.assertEqual(digest(self.root, skip=SKIP), before)   # not even the person's own items: nothing moves half way
+        self.assertIs(layout.pending(), True)   # the next start tries again
+        with self.assertRaisesRegex(ValueError, "not installed"):
+            self.migrate()   # the move itself refuses to run without its catalog
+        self.assertEqual(digest(self.root, skip=SKIP), before)
+
+    def test_make_update_tries_a_download_that_fails_once_and_says_it_once(self):
+        # catalog.py provision downloads every catalog with no copy, the default one too, then moves: the move does not
+        # download it a second time (a stalled network would be waited for twice, and a second try that worked would
+        # still end in exit 1)
+        from lab_ui.catalogs import cli
+        self.build()
+        line = "Cannot reach example.invalid. Check your connection, then try again."
+        asked = self.downloads(registry.CatalogError("unreachable", line, 502))
+        out, err = io.StringIO(), io.StringIO()
+        with outside(), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = cli.provision(None)
+        err = err.getvalue().splitlines()
+        self.assertEqual((code, asked, sum(line in one for one in err)), (1, ["fixture"], 1), err)
+        self.assertEqual(err[1:], [layout.FAILED, "The default catalog is not installed"])
+        self.assertNotIn(layout.DOWNLOADING, out.getvalue())
+        self.assertIs(layout.pending(), True)
+
+    def test_no_compose_says_what_to_do_and_promises_no_download_that_will_not_happen(self):
+        # The stage check of the download stops on docker_missing (install.readable): the Lab UI exits, so its last line
+        # says what to do, not that the catalog downloads by itself later as the line of the background worker does
+        from lab_ui.library import check
+        self.build()
+        self.patch(firstrun, "reconcile", lambda: None)
+        self.patch(install, "unknown_at", lambda *args: None)   # Compose could not read the staged version
+        self.patch(check, "compose_missing", lambda: check.NO_COMPOSE)   # no docker CLI, or Compose older than 5
+        self.patch(firstrun, "_download", lambda ns, entry, row: install.readable("store")("0" * 40))
+        ok, said, complained = self.at_start()
+        self.assertEqual((ok, said, complained), (False, [layout.MOVING, layout.DOWNLOADING], [layout.FAILED, layout.NO_DOCKER]))
+        self.assertIs(layout.pending(), True)   # the next start tries again, and only a start does
 
     def test_the_catalog_has_to_be_valid_not_only_added(self):
         self.build()
@@ -725,19 +731,28 @@ class Offline(Machine):
         fixtures.declare(self, "fixture", pin="1" * 40)   # a git entry with a pin and no install
         self.assertFalse(layout._default_ready("fixture"))
 
-    def test_a_person_s_edit_while_the_catalog_downloads_is_kept(self):
+    def test_a_person_s_edit_between_a_run_that_stopped_and_the_next_is_kept(self):
+        # Part A wrote the provisional texts, the run stopped before Part B, the person edited one: their text stays
         self.build()
-        layout.migrate_personal()
-        edited = self.text(".lab/catalogs/local/setups/duo.yml") + "# mine, while I waited\n"
-        self.put(".lab/catalogs/local/setups/duo.yml", edited)
         fixtures.install(self, "fixture")
-        self.migrate()
+        self.patch(moves, "STEP", crash_on("layout:plan"))
+        with self.assertRaises(Crash):
+            self.migrate()
+        moves.STEP = None
+        edited = self.text(".lab/catalogs/local/setups/duo.yml") + "# mine, while it was stopped\n"
+        self.put(".lab/catalogs/local/setups/duo.yml", edited)
+        self.assertEqual(self.at_start()[0], True)
         self.assertEqual(self.text(".lab/catalogs/local/setups/duo.yml"), edited)
+
+
+# What the start says in the terminal of a catalogs file that is no JSON
+NOT_JSON = (".lab/catalogs.json could not be read (it is not valid JSON): fix it, or move it aside to start again with the "
+            "default catalog. Then start the Lab again.")
 
 
 class OptedOut(Machine):
     """The person has no default catalog: their catalogs file reads whole and does not list it (`catalog.py reset --empty`).
-    Nothing will install it, so the layout does not wait for it."""
+    Nothing will install it, so the move does not wait for it."""
 
     def install(self):
         self.folder(paths, compose)
@@ -745,10 +760,12 @@ class OptedOut(Machine):
         fixtures.default(self, "fixture")
         self.put(".lab/catalogs.json", json.dumps({"schema": 1, "catalogs": []}))
 
-    def test_the_move_runs_against_a_catalog_with_no_items_and_the_layout_does_not_wait(self):
+    def test_the_move_runs_against_a_catalog_with_no_items_and_downloads_nothing(self):
         self.build()
-        self.ensure()
-        self.assertEqual((layout.status()["phase"], layout.waiting()), ("ready", False))
+        asked = self.downloads()
+        ok, said, complained = self.at_start()
+        self.assertEqual((ok, asked, complained, said[0]), (True, [], [], layout.MOVING))
+        self.assertNotIn(layout.DOWNLOADING, said)
         self.assertEqual(self.marker()["from"], 1)
         self.assertEqual(SECRETS - set(texts(self.root, skip=(".lab/migration/backup",))), set())
         report = self.report()
@@ -759,28 +776,88 @@ class OptedOut(Machine):
         self.assertNotIn("addons/echo", self.text(".lab/on.yml"))
         self.assertIn(".lab/catalogs/local/addons/scratch/compose.yml", self.text(".lab/on.yml"))
         self.assertEqual(paths.ids("addon").count("local/scratch"), 1)
-        layers.ready()   # Start, Apply and Create are not refused
 
     def test_a_line_a_stale_lab_writes_later_is_translated_against_the_same_catalog(self):
         self.build()
-        self.ensure()
+        self.at_start()
         self.put(".lab/on.yml", self.text(".lab/on.yml") + "  - addons/echo/compose.yml\n")
-        self.ensure()
+        self.assertIs(layout.pending(), True)
+        self.at_start()
         self.assertNotIn("addons/echo", self.text(".lab/on.yml"))
         self.assertEqual(layout._signals(first=False), [])
 
     def test_a_catalogs_file_that_does_not_read_is_a_doubt_not_a_decision(self):
+        # Nor is it replaced by a download: the person fixes it, and the next start moves the folder
         self.put(".lab/catalogs.json", "{not json")
         self.build()
-        self.ensure()
-        self.assertEqual((layout.status()["phase"], self.exists(".lab/layout.json")), ("waiting", False))
-        self.assertEqual(self.text("addons/echo/.env"), "ECHO_TOKEN=secret-echo-env\n")   # only Part A ran
+        asked = self.downloads()
+        ok, said, complained = self.at_start()
+        self.assertEqual((ok, said, complained), (False, [layout.MOVING], [layout.FAILED, NOT_JSON]))
+        self.assertEqual((asked, self.exists(".lab/layout.json")), ([], False))   # nothing was asked for
+        self.assertEqual(self.text(".lab/catalogs.json"), "{not json")
+        self.assertEqual([name for name in os.listdir(self.root / ".lab") if ".bad-" in name], [])
+        self.assertEqual(self.text("addons/echo/.env"), "ECHO_TOKEN=secret-echo-env\n")   # and nothing moved
+
+    def test_the_line_of_a_catalog_of_the_file_that_does_not_read_names_the_file_and_no_action_of_a_page(self):
+        # Said in the terminal, where the Lab UI does not start until the file reads: what to do there (the file that is
+        # no JSON: test_a_catalogs_file_that_does_not_read_is_a_doubt_not_a_decision)
+        self.put(".lab/catalogs.json", '{"schema": 1, "catalogs": [{"id": "x y"}]}')
+        self.build()
+        ok, said, complained = self.at_start()
+        self.assertEqual((ok, said, complained[0]), (False, [layout.MOVING], layout.FAILED))
+        self.assertRegex(complained[1], r"^\.lab/catalogs\.json lists 1 catalog that could not be read \(.+\): fix it, or move it "
+                                        r"aside to start again with the default catalog\. Then start the Lab again\.$")
+
+    def test_an_opted_out_folder_with_a_damaged_record_of_catalogs_names_it(self):
+        # catalogs.lock does not read: the folder's choice is a doubt, and the line says the record, not the page's Check
+        self.put(".lab/catalogs.lock", "{not json")
+        self.build()
+        asked = self.downloads()
+        ok, said, complained = self.at_start()
+        self.assertEqual((ok, said, complained, asked), (False, [layout.MOVING], [
+            layout.FAILED, ".lab/catalogs.lock could not be read (it is not valid JSON): fix it, or delete it. Then start the "
+                           "Lab again."], []))
 
     def test_no_catalogs_file_at_all_is_a_first_run_not_a_decision(self):
         os.remove(self.root / ".lab/catalogs.json")
         self.build()
-        self.ensure()
-        self.assertEqual(layout.status()["phase"], "waiting")
+        asked = self.downloads()
+        self.assertEqual((self.at_start()[0], asked), (True, ["fixture"]))
+
+
+DAMAGED = ('{"schema": 1, "catalogs": [{"id": "other", "kind": "git", "url": "https://example.invalid/team/other.git"},'
+           ']}\n')   # a hand edit that left a trailing comma
+
+
+class DamagedFile(Served, Case):
+    """A folder that still needs the move, whose catalogs file does not read and lists another catalog installed here: the
+    real download, not a played one. A file that does not read is a doubt, not a decision: a start never replaces it, so
+    the sweep of the start never takes the other catalog for one the person removed."""
+
+    def setUp(self):
+        self.world()   # the default file lists `demos`, served by a bare repository on this machine
+        self.patch(layout, "_backed", None)
+        self.patch(moves, "STEP", None)
+        moves._INDEXES.clear()
+        self.addCleanup(moves._INDEXES.clear)
+        self.write(".lab/catalogs.json", DAMAGED)
+        self.write(".lab/catalogs/other/addons/x/.env", "OTHER_TOKEN=secret\n")
+        self.write("addons/echo/.env", "ECHO_TOKEN=secret-echo-env\n")   # what the old layout left: the move waits
+
+    def test_a_start_does_not_download_into_a_catalogs_file_that_does_not_read(self):
+        self.assertTrue(registry.config_problem())
+        self.assertIs(layout.pending(), True)
+        said, complained = [], []
+        ok = layout.run(said.append, complained.append)
+        install.recover()   # what the start does next (service.recover)
+        self.assertEqual((ok, said, complained), (False, [layout.MOVING], [layout.FAILED, NOT_JSON]))
+        self.assertEqual(self.text(".lab/catalogs.json"), DAMAGED)
+        self.assertEqual(sorted(os.listdir(self.root / ".lab/catalogs")), ["other"])
+        self.assertEqual(self.text(".lab/catalogs/other/addons/x/.env"), "OTHER_TOKEN=secret\n")
+        self.assertIs(layout.pending(), True)   # once the file is fixed, the next start moves the folder
+
+    def text(self, path):
+        return (self.root / path).read_text(encoding="utf-8")
 
 
 class Ways(Machine):
@@ -804,8 +881,8 @@ class Ways(Machine):
         self.put(".lab/on.yml", "include:\n  - addons/gateway/compose.yml\n  - playgrounds/mine/compose.yml\n"
                                 "  - addons/not-a-unit/compose.yml\n")
         self.put(".lab/targets/cloud/addons__gateway__compose.yml", GATEWAY_COPY + "# a later one\n")
-        self.assertEqual((layout.status()["phase"], layout._signals(first=False)), ("ready", ["S1", "S4"]))
-        self.ensure()
+        self.assertEqual((layout.pending(), layout._signals(first=False)), (True, ["S1", "S4"]))
+        self.at_start()
         self.assertEqual(self.text(".lab/on.yml"), f"include:\n  - {HOME}/addons/gateway/compose.yml\n"
                                                    "  - .lab/catalogs/local/playgrounds/mine/compose.yml\n")
         self.assertFalse(self.exists(".lab/targets/cloud/addons__gateway__compose.yml"))   # nothing names it any more
@@ -813,7 +890,7 @@ class Ways(Machine):
         self.assertEqual(len(backups), 2)   # the first copy, and the later one that was not in the backup
         self.assertEqual(layout._signals(first=False), [])
         after = digest(self.root, skip=SKIP)
-        self.ensure()
+        self.assertEqual(self.at_start(), (True, [], []))
         self.assertEqual(digest(self.root, skip=SKIP), after)
 
     def test_a_directory_the_lab_could_not_move_is_not_found_again_after_the_marker(self):   # B5
@@ -828,22 +905,20 @@ class Ways(Machine):
             report = self.migrate()
         self.assertEqual(report["left"], ["playgrounds/shop/.state"])
         self.assertTrue(self.exists("playgrounds/shop/.state/created.json"))   # it stayed where it was
-        self.assertEqual((layout.status()["phase"], layout._signals(first=False)), ("ready", []))
+        self.assertEqual((layout.pending(), layout._signals(first=False)), (False, []))
         before = digest(self.root, skip=SKIP)
-        self.ensure()
+        self.assertEqual(self.at_start(), (True, [], []))
         self.assertEqual(self.migrate(), {key: [] for key in layout._report()})
         self.assertEqual(digest(self.root, skip=SKIP), before)
-        self.assertEqual(layout.status()["notice"]["rows"][-1],
-                         {"key": "not_moved", "label": "Not moved", "items": ["playgrounds/shop/.state"],
-                          "hint": "Files stay where they were"})
+        self.assertEqual(layout._told(report)[-1], "  Not moved: playgrounds/shop/.state (files stay where they were)")
 
     def test_a_catalog_installed_before_the_first_start_is_moved_to_at_once(self):   # B6
         self.build()
-        self.ensure()
+        ok, said, complained = self.at_start()
+        self.assertEqual((ok, complained), (True, []))
         self.assertEqual(self.marker(), {"layout": 2, "from": 1, "migrated": STAMP})
         self.assertEqual(self.text(".lab/on.yml"), ON_AFTER)
-        notice = layout.status()["notice"]
-        self.assertEqual([row["key"] for row in notice["rows"]], ["personal", "kept", "turned_off"])
+        self.assertEqual([line.split(":")[0].strip() for line in said], [layout.MOVING, "Now personal", "Kept aside", "Turned off"])
         self.assertTrue(self.exists(layout.REPORT))
         self.assertTrue(self.exists(".lab/migration/undo.sh"))
 
@@ -853,24 +928,22 @@ class Ways(Machine):
         with self.assertRaises(Crash):
             self.migrate()
         self.patch(moves, "STEP", None)
-        layout._failed = None   # the process ended with the crash: the next one knows nothing of it
         self.assertEqual(self.text(".lab/on.yml"), ON_AFTER)   # the switch was made
         self.assertFalse(self.exists(".lab/layout.json"))
         self.assertEqual(layout._signals(), ["S0"])   # and only the plan says the move is not over
-        self.assertEqual((layout.status()["phase"], layout.waiting()), ("waiting", True))
-        self.assertEqual(compose.environment()["COMPOSE_FILE"], "docker-compose.yml")
+        self.assertIs(layout.pending(), True)
         report = self.migrate()
         self.assertEqual(self.text(".lab/on.yml"), ON_AFTER)   # nothing was translated twice
         self.assertEqual(self.marker()["from"], 1)
         self.assertTrue(self.exists(".lab/migration/undo.sh"))
         self.assertEqual(report["turned_off"], ["addon:moved-echo"])   # said by the journal, not by this run
-        self.assertEqual((layout.status()["phase"], layout.waiting()), ("ready", False))
+        self.assertIs(layout.pending(), False)
 
     def test_a_marker_that_does_not_read_is_still_the_commit_point(self):
         self.build(on="include: []\n")
         os.remove(self.root / ".lab/targets/cloud/addons__gateway__compose.yml")
         self.put(".lab/layout.json", "not json")
-        self.assertEqual(layout.status(), {"phase": "ready", "notice": None})
+        self.assertIs(layout.pending(), False)
         before = digest(self.root, skip=SKIP)
         self.migrate()
         self.assertEqual(digest(self.root, skip=SKIP), before)
@@ -910,7 +983,7 @@ class Elsewhere(Machine):
                          "include:\n  - ../../../fixture/addons/echo/compose.yml\nservices: {}\n")
         self.assertEqual((outer / "scratch/.env").read_text(encoding="utf-8"), "SCRATCH=secret-synced\n")
         self.assertIn("local/scratch", paths.ids("addon"))
-        self.assertIn("addons/local", [item for row in layout.status()["notice"]["rows"] for item in row["items"]])
+        self.assertIn("  Not moved: addons/local (files stay where they were)", layout._told(report))
         self.assertIn("drop .lab/catalogs/local/addons", self.text(".lab/migration/undo.sh"))
         done = subprocess.run(["sh", str(self.root / ".lab/migration/undo.sh")], cwd="/", capture_output=True, text=True)
         self.assertEqual((done.returncode, done.stderr, os.path.islink(self.root / ".lab/catalogs/local/addons")),
@@ -934,7 +1007,6 @@ class Elsewhere(Machine):
         with self.assertRaises(Crash):
             self.migrate()
         moves.STEP = None
-        layout._failed = None
         self.assertTrue((outer / "custom/compose.yml").exists())
         self.migrate()
         self.assertFalse(self.exists(f"{layout.BACKUP}/units/addons/local/custom"))   # it is not a personal item's text
@@ -953,7 +1025,7 @@ class Elsewhere(Machine):
         self.assertEqual(report["left"], ["addons/local", "playgrounds/local", "setups/local"])
         self.assertEqual(self.text("setups/local"), "a file called local, in setups\n")
         self.assertEqual(self.text(f"{HOME}/addons/echo/.env"), "ECHO_TOKEN=secret-echo-env\n")   # the rest went on
-        self.assertEqual((self.marker()["from"], layout.status()["phase"]), (1, "ready"))
+        self.assertEqual((self.marker()["from"], layout.pending()), (1, False))
 
     def test_a_local_folder_the_person_cannot_read_is_left_and_said_and_does_not_fail_the_move(self):
         self.build()
@@ -968,7 +1040,7 @@ class Elsewhere(Machine):
         self.assertEqual(report["left"], ["addons/local"])
         self.assertEqual(self.text("addons/local/scratch/.env"), "SCRATCH=secret-scratch\n")
         self.assertEqual(self.text(".lab/catalogs/local/playgrounds/relay/compose.yml")[:1], "x")   # the others moved
-        self.assertEqual((self.marker()["from"], layout.status()["phase"]), (1, "ready"))
+        self.assertEqual((self.marker()["from"], layout.pending()), (1, False))
 
     def test_an_item_that_stays_where_it_was_is_told_as_not_moved_and_not_as_turned_off(self):
         self.build(on=ON + "  - addons/local/linked/compose.yml\n")
@@ -980,8 +1052,9 @@ class Elsewhere(Machine):
         report = self.migrate()
         self.assertEqual((report["left"], report["turned_off"]), (["addons/local/linked"], ["addon:moved-echo"]))
         self.assertNotIn("linked", self.text(".lab/on.yml"))   # its line went: nothing reads it where it was
-        rows = {row["key"]: row["items"] for row in layout.status()["notice"]["rows"]}
-        self.assertEqual((rows["turned_off"], rows["not_moved"]), (["moved-echo"], ["addons/local/linked"]))
+        told = layout._told(report)
+        self.assertIn("  Turned off: moved-echo (needs a catalog)", told)
+        self.assertIn("  Not moved: addons/local/linked (files stay where they were)", told)
         self.assertEqual(self.text(f"{layout.BACKUP}/on.yml").count("linked"), 1)   # and the backup keeps it
 
     def test_a_relative_symlink_is_made_relative_to_its_new_place(self):   # C8
@@ -1012,7 +1085,7 @@ class Elsewhere(Machine):
         self.assertEqual([entry["src"] for entry in copied], ["playgrounds/shop/.state"])
         before = digest(self.root, skip=SKIP)
         self.assertEqual(layout.migrate(), {key: [] for key in layout._report()})   # the marker is there: no retry
-        self.ensure()
+        self.at_start()
         self.assertEqual(digest(self.root, skip=SKIP), before)
         self.assertEqual(len([entry for entry in moves.read_journal() if entry["op"] == "copied"]), 1)
 
@@ -1060,7 +1133,7 @@ class Elsewhere(Machine):
         self.assertEqual(report["left"], ["addons/My Addon", "addons/local/Spaces Here", "playgrounds/Upper",
                                           "setups/readme.txt"])
         self.assertEqual(self.text("playgrounds/Upper/.env"), "X=secret-upper\n")
-        self.assertEqual((layout.status()["phase"], layout._signals(first=False)), ("ready", []))
+        self.assertEqual((layout.pending(), layout._signals(first=False)), (False, []))
 
     def test_a_folder_too_big_to_sort_is_left_and_said(self):
         self.build()
@@ -1069,7 +1142,7 @@ class Elsewhere(Machine):
             report = self.migrate()
         self.assertIn("addons/echo", report["left"])
         self.assertEqual(self.text("addons/echo/.env"), "ECHO_TOKEN=secret-echo-env\n")   # not moved, not lost
-        self.assertEqual(layout.status()["phase"], "ready")
+        self.assertIs(layout.pending(), False)
 
     def test_a_secret_file_with_a_capital_in_its_suffix_is_one(self):
         self.build()
@@ -1117,8 +1190,7 @@ class Converges(Machine):
         self.migrate()
         after, lines = digest(self.root, skip=SKIP), len(moves.read_journal())
         self.assertEqual(self.migrate(), {key: [] for key in layout._report()})
-        self.ensure()
-        self.assertEqual(layout.migrate_personal(), {key: [] for key in layout._report()})
+        self.assertEqual(self.at_start(), (True, [], []))
         self.assertEqual(digest(self.root, skip=SKIP), after)
         self.assertEqual(len(moves.read_journal()), lines)
 
@@ -1162,7 +1234,6 @@ class Converges(Machine):
                 with self.assertRaises(Crash):
                     self.migrate()
                 moves.STEP = None
-                layout._failed = None
                 self.assertTrue(self.exists(".lab/migration/undo.sh"))
                 self.undoes(original, label)
 
@@ -1196,7 +1267,6 @@ class Converges(Machine):
                 with self.assertRaises(Crash):
                     self.migrate()
                 moves.STEP = None
-                layout._failed = None
                 found = set(texts(self.root, skip=(".lab/migration/backup",)))
                 self.assertEqual(SECRETS - found, set(), "a secret was lost at the stop")
                 if hook.calls[number - 1] not in ("relocate:before", "relocate:journaled"):   # nothing was renamed yet
@@ -1204,55 +1274,6 @@ class Converges(Machine):
                 self.migrate()
                 self.assertEqual(digest(self.root, skip=SKIP), clean)
                 self.assertEqual([path for path in digest(self.root) if path.endswith(".partial")], [])
-        moves.STEP = None
-
-    def test_a_run_that_stops_while_the_catalog_is_not_there_and_another_when_it_is_end_where_one_that_did_not_stop_does(self):
-        # Part A alone, stopped anywhere, then the catalog arrives and Part B is stopped anywhere
-        hook = crash_at(0)
-        self.patch(moves, "STEP", hook)
-        self.build()
-        self.keep()
-        shutil.rmtree(self.root / ".lab/catalogs/fixture")
-        fixtures.declare(self, "fixture")   # listed and asked for, and not here
-        self.keep()
-        self.migrate()
-        part_a = len(hook.calls)
-        clean_a = digest(self.root, skip=SKIP)
-        for number in range(1, part_a + 1):
-            with self.subTest(part="A", step=number, label=hook.calls[number - 1]):
-                self.restore()
-                moves.STEP = crash_at(number)
-                with self.assertRaises(Crash):
-                    self.migrate()
-                moves.STEP = None
-                layout._failed = None
-                self.migrate()
-                self.assertEqual(digest(self.root, skip=SKIP), clean_a)
-        moves.STEP = None
-        self.restore()
-        self.migrate()
-        fixtures.install(self, "fixture")
-        self.put("addons/echo-core/compose.yml", self.installed("addons/echo-core/compose.yml"))
-        self.put("addons/echo-core/README.md", self.installed("addons/echo-core/README.md"))
-        self.put("addons/echo-twin/compose.yml", self.installed("addons/echo-twin/compose.yml") + "# mine\n")
-        self.put("addons/echo-twin/README.md", self.installed("addons/echo-twin/README.md"))
-        self.keep()
-        hook.calls.clear()
-        moves.STEP = hook
-        self.migrate()
-        moves.STEP = None
-        clean_b, part_b = digest(self.root, skip=SKIP), len(hook.calls)
-        self.assertGreater(part_b, 60)
-        for number in range(1, part_b + 1):
-            with self.subTest(part="B", step=number, label=hook.calls[number - 1]):
-                self.restore()
-                moves.STEP = crash_at(number)
-                with self.assertRaises(Crash):
-                    self.migrate()
-                moves.STEP = None
-                layout._failed = None
-                self.migrate()
-                self.assertEqual(digest(self.root, skip=SKIP), clean_b)
         moves.STEP = None
 
     def test_a_run_over_places_that_are_taken_stops_anywhere_and_loses_nothing(self):
@@ -1276,7 +1297,6 @@ class Converges(Machine):
                 with self.assertRaises(Crash):
                     self.migrate()
                 moves.STEP = None
-                layout._failed = None
                 self.assertEqual(SECRETS - set(texts(self.root, skip=(".lab/migration/backup",))), set())
                 self.migrate()
                 self.assertEqual(digest(self.root, skip=SKIP), clean)
@@ -1289,7 +1309,6 @@ class Converges(Machine):
         with self.assertRaises(Crash):
             self.migrate()
         moves.STEP = None
-        layout._failed = None
 
     def test_a_copy_that_was_the_catalog_s_at_the_plan_and_is_not_when_it_goes_is_put_aside_not_dropped(self):
         self.stopped_after_the_plan()
@@ -1310,7 +1329,6 @@ class Converges(Machine):
         with self.assertRaises(Crash):
             self.migrate()
         moves.STEP = None
-        layout._failed = None
         self.put("addons/ghost/deeper/note.txt", "mine\n")
         self.put("playgrounds/shop/data/mine.txt", "mine too\n")
         report = self.migrate()
@@ -1318,9 +1336,8 @@ class Converges(Machine):
                          ("mine\n", "mine too\n"))
         self.assertEqual(report["left"], ["addons/ghost", "playgrounds/shop"])
         self.assertEqual(self.report()["left"], report["left"])
-        rows = {row["key"]: row["items"] for row in layout.status()["notice"]["rows"]}
-        self.assertEqual(rows["not_moved"], ["addons/ghost", "playgrounds/shop"])
-        self.assertEqual((self.marker()["from"], layout.status()["phase"]), (1, "ready"))
+        self.assertIn("  Not moved: addons/ghost, playgrounds/shop (files stay where they were)", layout._told(report))
+        self.assertEqual((self.marker()["from"], layout.pending()), (1, False))
 
     def test_a_file_whose_place_under_kept_is_taken_stays_and_is_told(self):
         self.build()
@@ -1341,7 +1358,7 @@ class Converges(Machine):
         self.assertEqual(sorted(path.read_text(encoding="utf-8") for path in saved.iterdir()), sorted([GATEWAY_COPY, later]))
         self.assertFalse(self.exists(".lab/targets/cloud/addons__gateway__compose.yml"))
 
-    def test_the_run_that_stops_leaves_the_layout_waiting_until_the_marker(self):
+    def test_the_run_that_stops_leaves_the_folder_pending_until_the_marker(self):
         self.build()
         self.keep()
         hook = crash_at(0)
@@ -1355,8 +1372,7 @@ class Converges(Machine):
             with self.assertRaises(Crash):
                 self.migrate()
             moves.STEP = None
-            layout._failed = None
-            self.assertEqual((self.exists(".lab/layout.json"), layout.waiting()), (False, True), number)
+            self.assertEqual((self.exists(".lab/layout.json"), layout.pending()), (False, True), number)
         moves.STEP = None
 
     def test_a_second_process_waits_for_the_lock_then_does_nothing(self):
@@ -1417,7 +1433,7 @@ class Converges(Machine):
         self.migrate()
         self.assertEqual(self.text(f"{HOME}/addons/echo/.env"), "ECHO_TOKEN=changed-since\n")
         self.assertEqual(self.text(".lab/on.yml"), ON_AFTER)
-        self.assertEqual(layout.status()["phase"], "ready")
+        self.assertIs(layout.pending(), False)
         aside = [path.name for path in (self.root / layout.MIGRATION).iterdir() if path.name.startswith("backup.")]
         self.assertEqual(len(aside), 1)   # the first one's backup was set aside, not deleted
         subprocess.run(["sh", str(self.root / ".lab/migration/undo.sh")], cwd="/", capture_output=True, check=True)
@@ -1427,8 +1443,9 @@ class Converges(Machine):
         self.build()
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            _, said, complained = self.at_start()
             self.migrate()
-            self.ensure()
+        out.write("\n".join(said + complained))
         migration = self.root / ".lab/migration"
         written = [path for path in sorted(migration.rglob("*")) if path.is_file() and not path.is_symlink()]
         self.assertTrue(written)
@@ -1452,12 +1469,9 @@ class Converges(Machine):
                 mock.patch.object(os, "system", side_effect=refuse), mock.patch.object(socket.socket, "connect", side_effect=refuse), \
                 mock.patch.object(socket, "getaddrinfo", side_effect=refuse), \
                 mock.patch.object(compose, "run", side_effect=refuse), mock.patch.object(compose, "COMPOSE", calls):
-            layout.status()
-            layout.waiting()
-            layout.ensure()
-            layout.migrate_personal()
+            layout.pending()
+            self.assertTrue(layout.run(lambda line: None, lambda line: None))   # the catalog is there: nothing to download
             layout.migrate()
-            layout.dismiss()
         self.assertEqual(self.marker()["from"], 1)
 
     def test_the_machine_of_the_spec_does_not_cost_a_move_for_each_file(self):
@@ -1687,18 +1701,6 @@ class Hashes(Machine):
         self.assertNotIn("pg-seed", late)   # a one-shot runs once: left out by design
         self.assertNotIn("plain", late)
 
-    def test_the_row_restart_needed_names_a_promoted_item_that_runs_behind(self):
-        from lab_ui.library import model
-        old, new = self.moved()
-        built = self.loaded_project()
-        containers = {name: {"state": "running", "config_hash": old.get(name, new[name]), "image_id": None} for name in new}
-        late = model.lateness(built, containers, {"hashes": new, "images": {}})
-        self.assertEqual(late, {"longrun": "config"})
-        owners = {f"{built['services'][name]['owner']['kind']}:{built['services'][name]['owner']['id']}" for name in late}
-        self.assertEqual(owners, {"addon:local/longrun"})   # promoted: the catalog never had it
-        self.assertEqual(layout.restart_row(layout.status()["notice"], owners),
-                         {"key": "restart", "label": "Restart needed", "items": ["longrun"], "hint": "Their folders moved"})
-
     def loaded_project(self):
         for module in (project, envfiles):
             self.patch(module, "ROOT", self.root)
@@ -1709,7 +1711,7 @@ class Hashes(Machine):
 
 
 # ---------------------------------------------------------------------------------------------------------------------
-# The notice, a move that fails, and what the person does with it
+# What a run says, and a move that fails
 # ---------------------------------------------------------------------------------------------------------------------
 
 REPORT_FULL = {"moved": ["addon:echo", "playground:shop"], "personal": ["addon:local/scratch"],
@@ -1718,167 +1720,106 @@ REPORT_FULL = {"moved": ["addon:echo", "playground:shop"], "personal": ["addon:l
                "problems": []}
 
 
-class Notice(Machine):
+class Said(Machine):
 
-    def written(self, report, **marker):
-        self.put(layout.REPORT, json.dumps({"schema": 1, "report": report}))
-        self.put(".lab/layout.json", json.dumps({"layout": 2, "from": 1, "migrated": STAMP, **marker}))
-        return layout.status()
-
-    def test_each_row_has_its_words_and_only_a_row_with_something_in_it_is_drawn(self):
-        found = self.written(REPORT_FULL)
-        self.assertEqual(found["phase"], "ready")
-        notice = found["notice"]
-        self.assertEqual((notice["title"], notice["button"], notice["text"], notice["id"]), ("Lab updated", "Close", "", STAMP))
-        self.assertEqual(notice["rows"], [
-            {"key": "personal", "label": "Now personal", "items": ["custom", "mine"], "hint": "Not in a catalog"},
-            {"key": "kept", "label": "Kept aside", "items": ["addons/README.md", "echo-twin"],
-             "hint": "Your changes, in .lab/migration/kept"},
-            {"key": "turned_off", "label": "Turned off", "items": ["moved-echo"], "hint": "Needs a catalog"},
-            {"key": "not_moved", "label": "Not moved", "items": ["playgrounds/shop/.state"],
-             "hint": "Files stay where they were"}])
-        self.assertEqual(notice["moved"], [{"kind": "addon", "id": "echo"}, {"kind": "playground", "id": "shop"}])
-        for row, key in (("personal", "promoted"), ("kept", "kept"), ("turned_off", "turned_off"), ("not_moved", "left")):
+    def test_each_row_has_its_words_and_only_a_row_with_something_in_it_is_said(self):
+        self.assertEqual(layout._told(REPORT_FULL), [
+            "  Now personal: custom, mine (not in a catalog)",
+            "  Kept aside: addons/README.md, echo-twin (your changes, in .lab/migration/kept)",
+            "  Turned off: moved-echo (needs a catalog)",
+            "  Not moved: playgrounds/shop/.state (files stay where they were)"])
+        for row, key in (("Now personal", "promoted"), ("Kept aside", "kept"), ("Turned off", "turned_off"), ("Not moved", "left")):
             lone = {name: [] for name in REPORT_FULL}
             lone[key] = REPORT_FULL[key]
-            rows = self.written(lone)["notice"]["rows"]
-            self.assertEqual([one["key"] for one in rows], [row])   # a row with something in it, and no other
+            self.assertEqual([line.split(":")[0].strip() for line in layout._told(lone)], [row])   # that row, and no other
 
-    def test_nothing_is_said_when_nothing_is_to_say(self):
+    def test_nothing_is_said_when_nothing_is_to_say_but_a_problem_always_is(self):
         empty = {name: [] for name in REPORT_FULL}
-        self.assertEqual(self.written(empty), {"phase": "ready", "notice": None})
-        self.assertEqual(self.written({**empty, "held": ["addon:x"], "problems": ["p"]}), {"phase": "ready", "notice": None})
-        only_moved = self.written({**empty, "moved": ["addon:echo"]})["notice"]
-        self.assertEqual((only_moved["rows"], only_moved["moved"]), ([], [{"kind": "addon", "id": "echo"}]))
+        self.assertEqual(layout._told({**empty, "moved": ["addon:echo"], "personal": ["addon:local/x"], "held": ["addon:x"]}), [])
+        self.assertEqual(layout._told({**empty, "problems": ["COMPOSE_FILE in .env names a file that moved: edit it by hand"]}),
+                         ["  COMPOSE_FILE in .env names a file that moved: edit it by hand"])
 
     def test_the_words_follow_the_rules_of_the_interface(self):
-        found = self.written(REPORT_FULL)["notice"]
-        strings = [found["title"], found["button"], *(row["label"] for row in found["rows"]),
-                   *(row["hint"] for row in found["rows"]), layout.FAILED_LINE, layout.status()["notice"]["title"],
-                   *(label for label, _ in layout.ROWS.values()), *(hint for _, hint in layout.ROWS.values())]
-        for text in strings:
+        strings = [layout.MOVING, layout.DOWNLOADING, layout.FAILED, layout.NO_DOCKER, layout.TRACKED, layout.GUARD,
+                   *(label for label, _ in layout.ROWS.values())]
+        for text in strings + [hint for _, hint in layout.ROWS.values()]:
             self.assertEqual(text, text.strip())
             self.assertNotIn("·", text)   # no middle dot
             self.assertNotIn("•", text)
             self.assertFalse(text.endswith("..."), text)
             self.assertFalse(text.endswith("…"), text)
-            self.assertTrue(text[0].isupper(), text)
             self.assertNotRegex(text[1:], r"(?<![.\w/])[A-Z][a-z]+ [A-Z][a-z]+", text)   # sentence case, not Title Case
+        for text in strings:
+            self.assertTrue(text[0].isupper(), text)
         for label, hint in layout.ROWS.values():
             self.assertFalse(label.endswith(".") or hint.endswith("."), (label, hint))
-        # a path is shown only where it is the fix: the hint of Kept aside, and nothing else
-        self.assertEqual([hint for _, hint in layout.ROWS.values() if ".lab" in hint], ["Your changes, in .lab/migration/kept"])
-        for key in ("personal", "turned_off", "not_moved"):
-            self.assertNotIn(".lab", layout.ROWS[key][1])
-        self.assertNotRegex(json.dumps(found), r"@[a-z-]+/|/Users/|/private/")
+            self.assertTrue(hint[0].islower(), hint)   # said after the names, between brackets
+        # a path is said only where it is the fix: the hint of Kept aside, and nothing else
+        self.assertEqual([hint for _, hint in layout.ROWS.values() if ".lab" in hint], ["your changes, in .lab/migration/kept"])
 
     def test_what_the_person_reads_of_an_item_is_its_name_never_its_place(self):
-        found = self.written({**REPORT_FULL, "promoted": ["setup:local/mine-set"], "kept": ["playground:local/deep",
-                                                                                             "setup:pair"],
-                              "turned_off": ["path:addons/odd/other.yml"]})["notice"]["rows"]
-        self.assertEqual([row["items"] for row in found[:3]], [["mine-set"], ["deep", "pair"], ["addons/odd/other.yml"]])
+        told = layout._told({**REPORT_FULL, "promoted": ["setup:local/mine-set"], "kept": ["playground:local/deep", "setup:pair"],
+                             "turned_off": ["path:addons/odd/other.yml"]})
+        self.assertEqual([line.split(": ")[1].split(" (")[0] for line in told[:3]], ["mine-set", "deep, pair", "addons/odd/other.yml"])
+        self.assertNotRegex("\n".join(told), r"@[a-z-]+/|/Users/|/private/|local/")
 
-    def test_the_row_restart_needed_is_the_moved_items_that_run_and_are_behind(self):
-        notice = self.written(REPORT_FULL)["notice"]
-        row = layout.restart_row(notice, {"addon:echo", "addon:other", "playground:nothing"})
-        self.assertEqual(row, {"key": "restart", "label": "Restart needed", "items": ["echo"], "hint": "Their folders moved"})
-        self.assertIsNone(layout.restart_row(notice, set()))
-        self.assertIsNone(layout.restart_row(None, {"addon:echo"}))
-        self.assertEqual(layout.restart_row(notice, ["addon:echo", "playground:shop"])["items"], ["echo", "shop"])
+    def test_a_name_that_holds_a_control_character_does_not_write_to_the_screen(self):
+        said = layout._told({"left": ["addons/a\x1b[2Jb"], "problems": ["x\x07y"]})
+        self.assertEqual([layout._printable(line) for line in said], ["  Not moved: addons/a [2Jb (files stay where they were)",
+                                                                     "  x y"])
 
-    def test_the_row_restart_needed_names_the_personal_the_promoted_and_the_catalog_items_too(self):
+    def test_a_real_move_says_what_it_did(self):
         self.build()
-        self.ensure()
-        notice = layout.status()["notice"]
-        # none of these had a machine file moved into the install, and each one's compose file is in another folder now
-        late = {"addon:local/scratch", "addon:local/custom", "playground:local/mine", "addon:future", "setup:pair",
-                "addon:not-an-item"}
-        self.assertEqual(layout.restart_row(notice, late),
-                         {"key": "restart", "label": "Restart needed", "items": ["custom", "future", "mine", "pair", "scratch"],
-                          "hint": "Their folders moved"})
-        # and nothing that is of another catalog, or that the migration did not move
-        self.assertIsNone(layout.restart_row(notice, {"addon:@elsewhere/x", "addon:other"}))
+        ok, said, complained = self.at_start()
+        self.assertEqual((ok, complained), (True, []))
+        self.assertEqual(said, [layout.MOVING,
+                                "  Now personal: custom, mine, mine-set (not in a catalog)",
+                                "  Kept aside: echo-twin, port-core, shop (your changes, in .lab/migration/kept)",
+                                "  Turned off: moved-echo (needs a catalog)"])
+        self.assertEqual(self.at_start(), (True, [], []), "once: the next start has nothing to move and says nothing")
 
-    def test_a_closed_notice_is_not_shown_again_and_closing_it_twice_changes_nothing(self):
-        self.written(REPORT_FULL)
-        layout.dismiss()
-        self.assertEqual(layout.status(), {"phase": "ready", "notice": None})
-        self.assertEqual(self.marker()["closed"], STAMP)
-        self.assertEqual(self.marker()["from"], 1)
-        before = digest(self.root, skip=SKIP)
-        layout.dismiss()
-        self.assertEqual(digest(self.root, skip=SKIP), before)
-
-    def test_closing_with_no_marker_does_nothing(self):
-        layout.dismiss()
-        self.assertFalse(self.exists(".lab/layout.json"))
-
-    def test_the_notice_of_a_real_move_says_what_the_move_did(self):
-        self.build()
-        self.ensure()
-        notice = layout.status()["notice"]
-        self.assertEqual([(row["key"], row["items"]) for row in notice["rows"]], [
-            ("personal", ["custom", "mine", "mine-set"]),
-            ("kept", ["echo-twin", "port-core", "shop"]),
-            ("turned_off", ["moved-echo"])])
-        self.assertEqual([(item["kind"], item["id"]) for item in notice["moved"]], [
-            ("addon", "cluster"), ("addon", "echo"), ("addon", "echo-core"), ("addon", "echo-twin"), ("addon", "future"),
-            ("addon", "gateway"), ("addon", "local/custom"), ("addon", "local/other"), ("addon", "local/scratch"),
-            ("addon", "port-core"), ("playground", "local/mine"), ("playground", "local/relay"),
-            ("playground", "local/trip-demo"), ("playground", "shop"), ("playground", "tour"), ("setup", "local/duo"),
-            ("setup", "local/mine-set"), ("setup", "local/trio"), ("setup", "pair")])
-
-    def test_a_move_with_nothing_to_report_says_nothing_at_all(self):
+    def test_a_move_with_nothing_to_look_at_says_only_that_it_moves(self):
         self.put("addons/echo/.env", "ECHO_TOKEN=secret-echo-env\n", 0o600)
         self.put("playgrounds/shop/.env", "X=secret-x\n", 0o600)
-        self.ensure()
-        notice = layout.status()["notice"]
-        self.assertEqual(notice["rows"], [])   # the page adds the row of the items that run
-        os.remove(self.root / HOME / "addons/echo/.env")
-        os.remove(self.root / HOME / "playgrounds/shop/.env")
-        self.written({name: [] for name in REPORT_FULL})
-        self.assertIsNone(layout.status()["notice"])
+        self.assertEqual(self.at_start(), (True, [layout.MOVING], []))
 
 
 class Failing(Machine):
 
-    def test_a_move_that_fails_is_said_nothing_is_deleted_and_the_next_try_finishes_it(self):
-        self.build()
-        trip = digest(self.root / "playgrounds/local/trip-demo")
+    def eio(self, ending):
+        """os.rename refused with an error of the disk for a source that ends so."""
         real = os.rename
 
         def rename(src, dst, *more, **how):
-            if str(src).endswith("playgrounds/local/trip-demo"):
+            if str(src).endswith(ending):
                 raise OSError(errno.EIO, "Input/output error")
             return real(src, dst, *more, **how)
-        said = io.StringIO()
-        with mock.patch.object(moves.os, "rename", rename), contextlib.redirect_stderr(said):
-            report = self.migrate()
-        self.assertEqual(report["problems"], [layout.FAILED_LINE])
+        return mock.patch.object(moves.os, "rename", rename)
+
+    def test_a_move_that_fails_is_said_nothing_is_deleted_the_lab_does_not_start_and_the_next_start_finishes_it(self):
+        self.build()
+        trip = digest(self.root / "playgrounds/local/trip-demo")
+        with self.eio("playgrounds/local/trip-demo"):
+            ok, said, complained = self.at_start()
+        self.assertEqual((ok, said), (False, [layout.MOVING]))
+        self.assertEqual(complained, [layout.FAILED, "Input/output error"])   # a disk's own words
         self.assertEqual(self.text("playgrounds/local/trip-demo/.env"), "TRIP=secret-trip\n")
         self.assertEqual(digest(self.root / "playgrounds/local/trip-demo"), trip)   # nothing of it was touched
-        status = layout.status()
-        self.assertEqual((status["phase"], layout.waiting(), status["notice"]["text"], status["notice"]["button"]),
-                         ("failed", True, "Could not move your settings. Nothing was deleted.", "Try again"))
-        self.assertEqual(status["notice"]["rows"], [])
-        self.assertIn("Input/output error", said.getvalue())
         self.assertFalse(self.exists(".lab/layout.json"))
-        self.assertEqual(self.migrate()["problems"], [])   # Try again
-        self.assertEqual((layout.status()["phase"], layout.waiting()), ("ready", False))
+        self.assertIs(layout.pending(), True)
+        self.assertEqual(self.at_start()[0], True)   # the next start
+        self.assertIs(layout.pending(), False)
         self.assertEqual(self.text(".lab/on.yml"), ON_AFTER)
+
+    def test_the_move_itself_raises_what_stopped_it(self):
+        self.build()
+        with self.eio("playgrounds/local/trip-demo"), self.assertRaisesRegex(OSError, "Input/output error"):
+            self.migrate()
 
     def test_a_move_that_fails_leaves_the_script_for_a_person_who_goes_back_before_the_next_try(self):
         self.build()
-        real = os.rename
-        calls = []
-
-        def rename(src, dst, *more, **how):
-            if str(src).endswith(".state") and "playgrounds/shop" in str(src):
-                raise OSError(errno.EIO, "Input/output error")
-            calls.append(str(src))
-            return real(src, dst, *more, **how)
-        with mock.patch.object(moves.os, "rename", rename), contextlib.redirect_stderr(io.StringIO()):
-            self.assertEqual(self.migrate()["problems"], [layout.FAILED_LINE])
+        with self.eio(".state"), self.assertRaises(OSError):
+            self.migrate()
         script = self.text(".lab/migration/undo.sh")
         self.assertIn("addons/echo/.env", script)   # what was moved before the failure goes back
         done = subprocess.run(["sh", str(self.root / ".lab/migration/undo.sh")], cwd="/", capture_output=True, text=True)
@@ -1895,8 +1836,8 @@ class Failing(Machine):
             if str(file).endswith(".lab/on.yml"):
                 raise OSError(errno.EIO, "Input/output error")
             return real(file, text)
-        with mock.patch.object(layout, "_overwrite", overwrite), contextlib.redirect_stderr(io.StringIO()):
-            self.assertEqual(self.migrate()["problems"], [layout.FAILED_LINE])
+        with mock.patch.object(layout, "_overwrite", overwrite), self.assertRaises(OSError):
+            self.migrate()
         new_copy = ".lab/targets/cloud/.lab__catalogs__fixture__addons__gateway__compose.yml"
         self.assertTrue(self.exists(new_copy))   # written before the on file that names it
         self.assertIn(f"drop {new_copy}", self.text(".lab/migration/undo.sh"))
@@ -1907,39 +1848,57 @@ class Failing(Machine):
     def test_a_failure_before_any_migration_started_writes_no_script(self):
         self.build()
         with mock.patch.object(registry, "flock", side_effect=registry.CatalogError("busy", "Another change is running.")):
-            with contextlib.redirect_stderr(io.StringIO()):
-                self.ensure()
+            self.assertEqual(self.at_start(), (False, [layout.MOVING], [layout.FAILED, "Another change is running."]))
         self.assertFalse(self.exists(".lab/migration"))
 
-    def test_a_move_that_fails_is_printed_once_at_the_start_with_its_reason(self):
+    def test_a_bug_is_said_by_its_type_and_the_lab_does_not_start_on_a_folder_half_moved(self):
         self.build()
-        real = os.rename
+        with mock.patch.object(layout, "_run", side_effect=RuntimeError("a bug with a secret-value")):
+            self.assertEqual(self.at_start(), (False, [layout.MOVING], [layout.FAILED, "RuntimeError"]))   # the type, not the content
+        with mock.patch.object(layout, "_run", side_effect=KeyboardInterrupt):
+            self.assertEqual(self.at_start(), (False, [layout.MOVING], [layout.FAILED, "Stopped"]))
 
-        def rename(src, dst, *more, **how):
-            if str(src).endswith("playgrounds/local/trip-demo"):
-                raise OSError(errno.EIO, "Input/output error")
+    def test_a_platform_copy_that_cannot_be_read_is_said_in_plain_words(self):
+        # The platform copies are a folder copied to the backup: its first failure is said as the disk says it, from the
+        # project folder, never as a list of what failed in words for a programmer
+        self.build()
+        self.put(".lab/targets/cloud/notes.txt", "mine\n", 0o000)
+        self.addCleanup(os.chmod, self.root / ".lab/targets/cloud/notes.txt", 0o644)
+        ok, said, complained = self.at_start()
+        self.assertEqual((ok, said), (False, [layout.MOVING]))
+        self.assertEqual(complained, [layout.FAILED, "Permission denied: .lab/targets/cloud/notes.txt"])
+
+    def test_a_full_disk_while_the_platform_copies_are_backed_up_is_said_in_plain_words(self):
+        self.build()
+        real = shutil.copyfile
+
+        def copyfile(src, dst, *more, **how):
+            if "/.lab/targets/" in os.fspath(src):
+                raise OSError(errno.ENOSPC, "No space left on device", str(dst))
             return real(src, dst, *more, **how)
-        said = io.StringIO()
-        with mock.patch.object(moves.os, "rename", rename), contextlib.redirect_stderr(said):
-            self.ensure()
-        self.assertEqual(said.getvalue().count("Nothing was deleted"), 1)
-        self.assertIn("Input/output error", said.getvalue())
+        with mock.patch.object(shutil, "copyfile", copyfile):
+            ok, said, complained = self.at_start()
+        self.assertEqual((ok, said), (False, [layout.MOVING]))
+        self.assertEqual(complained, [layout.FAILED, "No space left on device: .lab/migration/backup/targets.partial/cloud/"
+                                                     "addons__gateway__compose.yml"])
 
-    def test_starting_the_server_comes_first_a_failure_is_recorded_and_never_raised(self):
+    def test_the_backup_of_the_platform_copies_keeps_their_links_and_modes(self):
         self.build()
-        said = io.StringIO()
-        with mock.patch.object(layout, "_run", side_effect=RuntimeError("a bug")), contextlib.redirect_stderr(said):
-            self.assertIsNone(layout.ensure())
-        self.assertIn("RuntimeError", said.getvalue())
-        self.assertNotIn("a bug", said.getvalue().replace("RuntimeError", ""))   # the type, not the content
-        with mock.patch.object(registry, "flock", side_effect=registry.CatalogError("busy", "Another change is running.")):
-            with contextlib.redirect_stderr(io.StringIO()):
-                self.assertIsNone(layout.ensure())
-            self.assertEqual(layout.status()["phase"], "failed")
+        os.symlink("addons__gateway__compose.yml", self.root / ".lab/targets/cloud/latest")
+        os.symlink("cloud", self.root / ".lab/targets/cloud-link")   # a link to a folder, not followed either
+        os.chmod(self.root / ".lab/targets/cloud/addons__gateway__compose.yml", 0o640)
+        self.migrate()
+        backup = f"{layout.BACKUP}/targets"
+        self.assertEqual(os.readlink(self.root / backup / "cloud/latest"), "addons__gateway__compose.yml")
+        self.assertEqual(os.readlink(self.root / backup / "cloud-link"), "cloud")
+        self.assertEqual((self.text(f"{backup}/cloud/addons__gateway__compose.yml"),
+                          self.mode(f"{backup}/cloud/addons__gateway__compose.yml")), (GATEWAY_COPY, 0o640))
 
-    def test_waiting_never_raises(self):
-        with mock.patch.object(layout, "_phase", side_effect=OSError("denied")):
-            self.assertIs(layout.waiting(), False)
+    def test_pending_never_raises(self):
+        with mock.patch.object(layout, "_signals", side_effect=OSError("denied")):
+            self.assertIs(layout.pending(), False)
+        with mock.patch.object(layout, "_marker", side_effect=ValueError("odd")):
+            self.assertIs(layout.pending(), False)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -2099,10 +2058,9 @@ class Pulled(Machine):
         # while git tracks the units the paths are the layout, and nothing is touched
         before = digest(self.root, skip=SKIP)
         status = self.git(work, "status", "--porcelain")
-        with contextlib.redirect_stderr(io.StringIO()):
-            self.ensure()
+        self.assertEqual(self.at_start(), (True, [layout.TRACKED], []))
         self.assertEqual((digest(self.root, skip=SKIP), self.git(work, "status", "--porcelain")), (before, status))
-        self.assertEqual(layout.status(), {"phase": "ready", "notice": None})
+        self.assertIs(layout.pending(), False)
         # the split commit: the units go, five legacy lines of the ignore file stay
         self.git(upstream, "rm", "-rq", "addons", "setups", "playgrounds")
         (upstream / ".gitignore").write_text(NEW_IGNORE, encoding="utf-8")
@@ -2117,7 +2075,7 @@ class Pulled(Machine):
             "addons/echo/certs", "addons/echo/certs/server.key", "addons/local", "addons/local/mine",
             "addons/local/mine/.env", "addons/local/mine/compose.yml", "playgrounds", "playgrounds/shop",
             "playgrounds/shop/.env", "playgrounds/shop/.state", "playgrounds/shop/.state/created.json"]))
-        self.assertEqual((layout.status()["phase"], layout._signals()), ("waiting", ["S1", "S2", "S3"]))
+        self.assertEqual((layout.pending(), layout._signals()), (True, ["S1", "S2", "S3"]))
         report = self.migrate()   # offline: it reads the checkout's index, it does not run git
         self.assertEqual(self.text(f"{HOME}/addons/echo/.env"), "ECHO=secret-git-env\n")
         self.assertEqual(self.text(f"{HOME}/addons/echo/certs/server.key"), "secret-git-key\n")
@@ -2131,7 +2089,7 @@ class Pulled(Machine):
         self.assertEqual((report["kept"], report["left"], report["problems"]), ([], [], []))
         self.assertEqual(self.git(work, "status", "--porcelain").count("\n"), len(self.git(work, "status", "--porcelain").splitlines()))
         self.assertNotIn("addons", self.git(work, "status", "--porcelain"))   # git sees none of it: the files are ignored or gone
-        self.assertEqual(layout.status()["phase"], "ready")
+        self.assertIs(layout.pending(), False)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -2142,7 +2100,7 @@ class Odd(Machine):
 
     def test_a_clone_with_no_lab_folder_gets_one_with_its_marker(self):
         shutil.rmtree(self.root / ".lab")
-        self.ensure()
+        self.assertEqual(self.at_start(), (True, [], []))
         self.assertEqual(self.marker(), {"layout": 2, "from": 0})
 
     def test_a_name_that_is_not_utf8_is_kept_aside_and_the_run_goes_on(self):
@@ -2190,15 +2148,12 @@ class Odd(Machine):
         self.assertEqual(report["problems"], ["COMPOSE_FILE in .env names a file that moved: edit it by hand"])
         self.assertNotIn("secret-license", json.dumps(report) + self.text(layout.REPORT))
 
-    def test_a_problem_of_the_move_is_printed_once_when_the_lab_starts(self):
+    def test_a_problem_of_the_move_is_said_once_when_the_lab_starts_and_the_lab_starts(self):
         self.build()
         self.put(".env", "COMPOSE_FILE=docker-compose.yml:addons/echo/compose.yml\n", 0o600)
-        said, out = io.StringIO(), io.StringIO()
-        with contextlib.redirect_stderr(said), contextlib.redirect_stdout(out):
-            self.ensure()
-            self.ensure()
-        self.assertEqual(said.getvalue(), "COMPOSE_FILE in .env names a file that moved: edit it by hand\n")
-        self.assertEqual(out.getvalue(), "")
+        ok, said, complained = self.at_start()
+        self.assertEqual((ok, complained, said[-1]), (True, [], "  COMPOSE_FILE in .env names a file that moved: edit it by hand"))
+        self.assertEqual(self.at_start(), (True, [], []))
 
     def test_a_second_migration_reports_and_undoes_itself_and_not_the_first(self):
         self.build()
@@ -2214,8 +2169,8 @@ class Odd(Machine):
         report = self.report()
         self.assertEqual(report["turned_off"], ["addon:local/scratch"])   # its line is still there: this migration's finding
         self.assertNotIn("addon:local/scratch", report["personal"] + report["moved"])
-        rows = {row["key"]: row["items"] for row in layout.status()["notice"]["rows"]}
-        self.assertEqual(rows["turned_off"], ["scratch"])   # and moved-echo, the first migration's, is not in the notice
+        self.assertIn("  Turned off: scratch (needs a catalog)", layout._told(report))   # and moved-echo, the first migration's,
+        self.assertNotIn("moved-echo", "\n".join(layout._told(report)))                 # is not said
         undo = self.text(".lab/migration/undo.sh")
         self.assertNotIn("scratch", undo)   # the first migration's moves are not this one's
         self.assertIn("trip-demo", undo)
@@ -2235,27 +2190,12 @@ class Odd(Machine):
         self.assertEqual(self.marker()["from"], 1)
 
     def test_a_marker_from_a_clone_that_had_nothing_to_move_still_translates_a_stale_line(self):
-        self.ensure()
+        self.at_start()
         self.assertEqual(self.marker(), {"layout": 2, "from": 0})
         self.put(".lab/on.yml", "include:\n  - playgrounds/tour/compose.yml\n")
-        self.ensure()
+        self.at_start()
         self.assertEqual(self.text(".lab/on.yml"), f"include:\n  - {HOME}/playgrounds/tour/compose.yml\n")
         self.assertEqual(self.marker(), {"layout": 2, "from": 0})   # the marker is not rewritten
-
-    def test_status_and_waiting_are_cheap_enough_for_every_poll(self):
-        # The CPU time of this process: the clock on the wall also counts the other tests of a parallel run
-        self.build(filler=300)
-        started = time.process_time()
-        for _ in range(200):
-            layout.status()
-            layout.waiting()
-        self.assertLess((time.process_time() - started) / 200, 0.01)   # well under the 15 ms the fingerprint is allowed
-        self.migrate()
-        started = time.process_time()
-        for _ in range(200):
-            layout.status()
-            layout.waiting()
-        self.assertLess((time.process_time() - started) / 200, 0.005)
 
     def test_a_setup_that_is_a_folder_or_a_file_in_a_kind_folder_is_left(self):
         self.build()
@@ -2316,7 +2256,10 @@ class Odd(Machine):
 
     def test_an_edit_to_a_personal_file_is_not_written_over_by_the_final_text_either(self):
         self.build()
-        layout.migrate_personal()
+        self.patch(moves, "STEP", crash_on("layout:plan"))   # Part A is done, Part B not begun
+        with self.assertRaises(Crash):
+            self.migrate()
+        moves.STEP = None
         edited = self.text(".lab/catalogs/local/playgrounds/relay/compose.yml") + "# I changed this\n"
         self.put(".lab/catalogs/local/playgrounds/relay/compose.yml", edited)
         self.migrate()
@@ -2361,7 +2304,6 @@ class Odd(Machine):
         with self.assertRaises(Crash):
             self.migrate()
         moves.STEP = None
-        layout._failed = None
         plan = json.loads(self.text(layout.PLAN))
         plan["ops"].append({"step": 4, "op": "move", "from": str(outside_file), "to": ".lab/stolen", "why": "kept"})
         self.put(layout.PLAN, json.dumps(plan))
@@ -2376,14 +2318,13 @@ class Odd(Machine):
         os.chmod(self.root / "addons", 0o000)
         try:
             self.assertIn("S2", layout._signals())
-            with contextlib.redirect_stderr(io.StringIO()):
-                self.ensure()
+            self.assertEqual(self.at_start(), (False, [layout.MOVING], [layout.FAILED, "Permission denied: addons"]))   # from the project
             self.assertFalse(self.exists(".lab/layout.json"))
-            self.assertEqual((layout.status()["phase"], layout.waiting()), ("failed", True))
+            self.assertIs(layout.pending(), True)
         finally:
             os.chmod(self.root / "addons", 0o755)
         self.assertEqual(self.migrate()["problems"], [])
-        self.assertEqual(layout.status()["phase"], "ready")
+        self.assertIs(layout.pending(), False)
 
     def test_a_link_to_nothing_in_place_of_a_local_folder_is_said_and_does_not_fail_the_move(self):
         self.build(personal=False)
@@ -2404,18 +2345,7 @@ class Odd(Machine):
             os.chmod(self.root / "addons/gateway", 0o755)
         self.assertEqual(report["left"], ["addons/gateway"])
         self.assertEqual(self.text("addons/gateway/.env"), "FIXTURE_GATEWAY_TOKEN=secret-gateway\n")
-        self.assertEqual(layout.status()["phase"], "ready")
-
-    def test_status_never_raises(self):
-        with mock.patch.object(layout, "_phase", side_effect=OSError("denied")):
-            self.assertEqual(layout.status(), {"phase": "ready", "notice": None})
-        with mock.patch.object(layout, "_marker", side_effect=ValueError("odd")):
-            self.assertEqual(layout.status(), {"phase": "ready", "notice": None})
-
-    def test_closing_the_notice_of_a_clone_that_has_none_takes_no_lock(self):
-        with mock.patch.object(registry, "flock", side_effect=AssertionError("the lock was taken")):
-            layout.dismiss()
-
+        self.assertIs(layout.pending(), False)
 
 class KeyFiles(Machine):
     """The files that are keys are the machine's in the old layout as they are what the Lab does not install from a catalog:
@@ -2486,6 +2416,7 @@ class Module(Case):
     SOURCE = Path(layout.__file__).read_text(encoding="utf-8")
 
     def test_it_uses_the_standard_library_the_moves_and_nothing_that_runs_a_program_or_opens_a_connection(self):
+        # The download of the default catalog before the move is the first start's (firstrun): this module runs nothing
         tree = ast.parse(self.SOURCE)
         imported = {alias.name.split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
         imported |= {node.module.split(".")[0] for node in ast.walk(tree)
@@ -2495,18 +2426,39 @@ class Module(Case):
         for forbidden in ("subprocess", "socket", "urllib", "http", "docker", "git"):
             self.assertNotIn(forbidden, imported)
         relative = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.level}
-        self.assertEqual(relative - {None, "catalogs", "docker", "project"}, set())   # project is imported where it is used: it imports this
+        self.assertEqual(relative - {None, "catalogs", "docker"}, set())
 
     def test_it_reads_as_python_3_9(self):
         ast.parse(self.SOURCE, feature_version=(3, 9))
         ast.parse(Path(__file__).read_text(encoding="utf-8"), feature_version=(3, 9))
 
-    def test_the_signatures_are_the_ones_the_stub_shipped_and_the_spec_froze(self):
+    def test_the_signatures_of_what_the_two_commands_call(self):
         import inspect
-        self.assertEqual({name: str(inspect.signature(getattr(layout, name)))
-                          for name in ("status", "waiting", "ensure", "migrate_personal", "migrate")},
-                         {"status": "() -> dict", "waiting": "() -> bool", "ensure": "() -> None",
-                          "migrate_personal": "() -> dict", "migrate": "() -> dict"})
+        self.assertEqual({name: str(inspect.signature(getattr(layout, name))) for name in ("pending", "run", "migrate")},
+                         {"pending": "() -> bool", "run": "(say=None, complain=None, download=True) -> bool",
+                          "migrate": "() -> dict"})
+        for gone in ("status", "waiting", "ensure", "migrate_personal", "dismiss", "restart_row"):
+            self.assertFalse(hasattr(layout, gone), gone)
+
+    def test_nothing_of_the_engine_reads_it_but_the_two_commands_that_run_it(self):
+        # One layout for the engine: a folder of the old one is moved before the Lab UI serves (api.serve) and by make update
+        # (catalog.py provision), and the commands that move nothing refuse it (api.main). No other module reads this one, and
+        # no hook of a move under way is left in the hot paths (the environment of Compose, the on file, a plan, the state)
+        package = Path(layout.__file__).resolve().parents[1]
+        importers, hooks = [], []
+        for file in sorted(package.rglob("*.py")):
+            text, name = file.read_text(encoding="utf-8"), str(file.relative_to(package))
+            if name != "library/layout.py" and re.search(r"import[^\n]*\blayout\b|library\.layout\b", text):
+                importers.append(name)
+            hooks += [f"{name}: {found}" for found in re.findall(
+                r"\blayout\.(?:waiting|status|ensure|dismiss|migrate)\b|\blayers\.(?:ready|WAITING|LEGACY)\b|_legacy_lines|"
+                r"layout_waiting|/api/layout/", text)]
+        self.assertEqual(importers, ["catalogs/cli.py", "server/api.py"])
+        self.assertEqual(hooks, [])
+        web = package.parent / "web"
+        self.assertEqual([str(file.relative_to(web)) for file in web.rglob("*") if file.is_file()
+                          and re.search(r"state\.layout|/api/layout|layout_waiting", file.read_text(encoding="utf-8", errors="replace"))],
+                         [], "nor does the page")
 
     def test_it_names_no_product_catalog_address_or_organization(self):
         for word in ("dobl1", "github.com", "azurecr", "acme-bakery", "Gravitee public", "gravitee-lab", "kafka"):

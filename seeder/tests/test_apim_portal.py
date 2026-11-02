@@ -1183,13 +1183,33 @@ class Documents(Portals):
     def test_a_page_that_is_made_is_recorded_before_it_is_published_so_a_failure_leaves_none_the_seed_does_not_know(self):
         self.document()
         self.world.publishing = False
-        with self.assertRaisesRegex(SeedError, r"^Documentation tab of Batch status in moderna \(.*\): HTTP 500 .* \(5 tries\)$"):
+        with self.assertRaisesRegex(SeedError, rf"^Documentation tab of Batch status in moderna \(.*\): HTTP 500 .* \({common.RETRIES + 1} tries\)$"):
             self.run_seed()
         [made] = self.own(0).values()
         self.assertEqual((made["published"], self.record()["legacy"]), (False, [{"api": "api-1", "page": made["id"]}]))
         self.world.publishing = True   # the platform is back: the page is the seed's, so it is published, and not made twice
         self.run_seed()
         self.assertEqual(([p["published"] for p in self.own(0).values()], len(self.own(0))), ([True], 1))
+
+    def test_a_page_whose_answer_was_lost_stays_the_seeds_when_the_run_that_claims_it_fails_after(self):
+        self.document()
+        pages = re.compile(V2 + "/[^/]+/apis/[^/]+/pages")
+
+        def made(call):   # the platform makes the page, and the seed never gets the answer
+            self.world.create_own(call)
+            raise requests.ReadTimeout("slow")
+        self.platform.add({("POST", pages): made})
+        with self.assertRaisesRegex(SeedError, "no answer in 30 s"):
+            self.run_seed()
+        self.platform.add({("POST", pages): self.world.known(self.world.create_own)})
+        self.world.publishing = False   # the run that finds the page and claims it cannot publish it
+        with self.assertRaisesRegex(SeedError, "HTTP 500"):
+            self.run_seed()
+        self.world.publishing = True   # the platform is back: the page is the seed's, published, not refused as someone else's
+        self.run_seed()
+        [page] = self.own(0).values()
+        self.assertTrue(page["published"])
+        self.assertEqual(self.record()["legacy"], [{"api": "api-1", "page": page["id"]}])
 
     def test_a_second_run_changes_nothing_in_the_pages_of_the_apis_either(self):
         self.document()
@@ -1619,7 +1639,7 @@ class Refused(Portals):
                      {"portal/portal.yaml": PORTAL + "    - {path: Event feeds/--}\n"})
 
     def test_a_file_that_is_not_yaml_is_said_on_one_line(self):
-        self.refused(r"^environments/moderna/portal/links/broker\.yaml: it is not YAML \([^\n]*\)$",
+        self.refused(r"^environments/moderna/portal/links/broker\.yaml: it is not valid YAML once its variables are replaced \(line \d+\)$",
                      {"portal/links/broker.yaml": "name: [unclosed\nhref: {\n"})
 
     def test_a_file_that_is_not_a_mapping(self):
@@ -1686,7 +1706,7 @@ class Documented(Portals):
         self.refused(r"portal/api-details\.md: UNSET_URL not set", {"portal/api-details.md": "${UNSET_URL}\n"})
 
     def test_a_document_that_is_not_yaml_is_said_on_one_line(self):
-        self.refused(r"^environments/moderna/portal/api-docs/batch-status\.yaml: it is not YAML \([^\n]*\)$",
+        self.refused(r"^environments/moderna/portal/api-docs/batch-status\.yaml: it is not valid YAML once its variables are replaced \(line \d+\)$",
                      {"portal/api-docs/batch-status.yaml": "asyncapi: [unclosed\nx: {\n"})
 
     def test_a_file_that_is_no_asyncapi_document(self):
@@ -1822,14 +1842,14 @@ class Trouble(Portals):
         self.platform.add({("PUT", f"{AUTO}/moderna/portal-themes"): [503, 429, (200, {"id": "t1"})]})
         self.run_seed()
         self.assertEqual(len(self.sent("PUT", "/moderna/portal-themes")), 3)
-        self.assertEqual(self.clock.sleeps, [apim_portal.RETRY_PAUSE] * 2)
+        self.assertEqual(self.clock.sleeps, [common.RETRY_PAUSE] * 2)
         self.assertIn("! Portal theme moderna-theme in moderna: HTTP 503, trying again", self.output())
 
     def test_a_platform_that_never_answers_ends_the_seed_with_what_it_said(self):
         self.platform.add({("PUT", f"{AUTO}/moderna/portal-themes"): 503})
-        with self.assertRaisesRegex(SeedError, r"^Portal theme moderna-theme in moderna: HTTP 503 \(5 tries\)$"):
+        with self.assertRaisesRegex(SeedError, rf"^Portal theme moderna-theme in moderna: HTTP 503 \({common.RETRIES + 1} tries\)$"):
             self.run_seed()
-        self.assertEqual(len(self.clock.sleeps), apim_portal.RETRIES)
+        self.assertEqual(len(self.clock.sleeps), common.RETRIES)
 
     def test_a_refusal_stops_the_seed_at_once_with_the_platforms_message_on_one_line(self):
         self.platform.add({("PUT", f"{AUTO}/moderna/portals"): (400, {"message": "structure.topNavbar[0].path\nmust start with '/'"})})
@@ -1843,7 +1863,7 @@ class Trouble(Portals):
         self.platform.add({("PUT", f"{AUTO}/moderna/portal-themes"):
                            [requests.ConnectionError("http://secret-host"), (200, {"id": "t1"})]})
         self.run_seed()
-        self.assertIn("no answer from the management API: ConnectionError", self.output())
+        self.assertIn("[apim-portal] ! Portal theme moderna-theme in moderna: the connection was cut, trying again", self.output())
         self.assertNotIn("secret-host", self.output())
 
     def test_a_platform_that_says_what_it_could_not_put_in_a_200_stops_the_seed(self):

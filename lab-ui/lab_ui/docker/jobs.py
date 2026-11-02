@@ -2,6 +2,7 @@
 from it and from what Docker says of their containers. The last failure on an item is remembered until the next job
 that starts or stops it."""
 
+import atexit
 import json
 import re
 import subprocess
@@ -11,6 +12,7 @@ import uuid
 
 from . import compose
 from .. import paths
+from ..products import AZURE
 from .pulls import Pulls
 
 # Per-layer pull progress ("3f1c0a7d9e2b Pull complete 0B"): one line per layer, too noisy to stream
@@ -43,12 +45,20 @@ GONE = ("stopped", "absent", "created")
 ON_ITS_WAY = ("created", "running")
 NEVER = float("inf")   # when what has not happened yet happened: no answer of Docker comes after it
 KEPT = 20
+# A command that prints nothing for this long is ended, the job failing with it: a pull that stalls, a wait that has no
+# end. Longer than anything a step waits for in silence (a health check, the seed's wait for an API), checked every WATCH
+SILENT, WATCH = 15 * 60, 5
+# How long after it went into an issue (it keeps restarting, Docker restarts it) a container that Compose waits for (its
+# "Waiting") may still be in one, as Docker says it, before the command is ended: its health check may never pass, and
+# Compose would wait on. Longer than compose.RESTART_WINDOW: one that restarted while what it needs warmed up, and runs
+# since, is out of its issue before
+STUCK = 120
 # What the catalog turns on and off, as a job's key names it ("addon:kafka"): a stop of one that failed is a failure of
 # what it stopped with it too (Jobs.failed_job). The Stack's stop leaves what is on as it is
 ITEMS = ("addon", "setup", "playground")
 # An Azure registry refusing a pull for want of a login, as Docker says it in the last lines of a job: the registry
 # and the refusal on one line, in either order ("pull access denied for x.azurecr.io/…", "…azurecr.io…: unauthorized")
-AZURE_REGISTRY = re.compile(r"\b([a-z0-9]+\.azurecr\.io)\b", re.I)
+AZURE_REGISTRY = re.compile(rf"\b({AZURE.pattern})\b", re.I)
 REFUSED = re.compile(r"unauthorized|authentication required|access denied", re.I)
 NOT_LOGGED_IN = "Not logged in to Azure"
 # The image a build starts from, which BuildKit could not fetch: "failed to resolve source metadata for
@@ -74,7 +84,8 @@ def _command(cmd):
 
 def _pull_before(cmd):
     """The pull that comes before an `up`: what is missing of the images it names, which Compose shows layer by layer
-    here and not when it pulls them itself, as it starts. What it cannot pull is left to the `up`, which says why."""
+    here and not when it pulls them itself, as it starts. An image it cannot pull is missing and has no build to fall
+    back on (`--ignore-buildable`): the `up` would only try again and fail, so the job fails on it (_spawn)."""
     found = _command(cmd)
     if not found or found[1] != "up":
         return None
@@ -133,7 +144,12 @@ def _share(how, status):
 
 
 class JobFailed(Exception):
-    """Stops a job, with the reason shown as its last line."""
+    """Stops a job, with the reason shown as its last line. `code`: the exit code of the command that failed, when one
+    did."""
+
+    def __init__(self, reason, code=None):
+        super().__init__(reason)
+        self.code = code
 
 
 class Stage:
@@ -191,6 +207,9 @@ class Job:
         # The lines of the commands and what the state's refresh reads of Docker move the same stages
         self._lock = threading.RLock()
         self._process, self._canceled = None, False
+        # Of the command that runs: why the job ended it ((process, reason), _cut), the containers Compose waits for
+        # (its "Waiting" lines), since when Docker says each is in an issue (observe), when it last printed a line
+        self._why, self._waiting, self._issues, self._heard = None, set(), {}, 0
         # The images it pulls, layer by layer (pulls.Pulls)
         self.pulls = Pulls()
 
@@ -245,6 +264,8 @@ class Job:
         kind, name, status = found.groups()
         unit = (kind, _image(name) if kind == "Image" else name)
         with self._lock:
+            if kind == "Container":   # waited for until Compose says something else of it ("Healthy", "Error")
+                (self._waiting.add if status == "Waiting" else self._waiting.discard)(name)
             stage = self._stage
             if stage is None:
                 return
@@ -266,8 +287,10 @@ class Job:
         which comes after it returns. It counts for a container that starts once the lines said that it runs, or
         once its stage is over, and only when asked after that: until then Docker may still show the container it
         replaces, healthy. For one that stops, once its stage began. A job that failed stays where it was; one that
-        ended well settles once nothing it waits for is still on its way."""
+        ended well settles once nothing it waits for is still on its way. A command that waits for what will not get
+        there is ended (_stuck)."""
         with self._lock:
+            self._stuck(steps, asked)
             if self.ok is False:
                 return
             for stage in self._stages:
@@ -288,6 +311,22 @@ class Job:
             if self.ok and not self.settled and asked >= self._finished:
                 self.settled = not any(unit[0] == "Container" and done < 1 and steps.get(unit[1]) in ON_ITS_WAY
                                        for stage in self._stages for unit, done in stage.done.items())
+
+    def _stuck(self, steps, asked):
+        """Ends the command that runs when a container that Compose waits for is in an issue STUCK seconds after it went
+        into one, as Docker says it (`steps`, asked at `asked`): it keeps restarting, its health check does not pass, and
+        Compose would wait on. Its time goes on while it runs between two issues: Docker says it keeps restarting only for
+        compose.RESTART_WINDOW seconds after each start, and one that dies later in each start is running in between. It
+        starts again once the container is ready, stops, or Compose no longer waits for it. Called with the lock held."""
+        process = self._process
+        if self.done or process is None:
+            return
+        self._issues = {name: self._issues.get(name, asked) for name in self._waiting
+                        if steps.get(name) == "issue" or name in self._issues and steps.get(name) == "running"}
+        for name, since in sorted(self._issues.items()):
+            if steps.get(name) == "issue" and asked - since >= STUCK:
+                self._cut(process, f"{name} keeps restarting")
+                return
 
     def _measure(self):
         """How far the job is: its stages alike, each by its share, one not begun counting 0. Nothing is measured
@@ -358,6 +397,14 @@ class Job:
         base = self.base_image()
         return f"Base image {base} could not be fetched" if base else self.last_line(0)[:300]
 
+    def live(self):
+        """How far the job is now: {id, progress, phase (how far its running phase is), detail (its latest line)}. It changes
+        at every byte a pull brings, so the state carries it beside its body while the job runs (api.state), not in it."""
+        with self._lock:
+            phases = self._phases()
+            return {"id": self.id, "progress": self.progress, "phase": phases[-1]["progress"] if phases else None,
+                    "detail": self.detail()}
+
     def summary(self):
         """What the state and the job's stream say of it. `containers` is how far each container it waits for is
         (_containers), for the progress of what they belong to; `settled`, whether it ended well with nothing it
@@ -376,22 +423,41 @@ class Job:
         return self._canceled
 
     def cancel(self):
-        """Ends the job: the command that runs is terminated and the steps left are skipped."""
+        """Ends the job: the command that runs is ended (compose.end) and the steps left are skipped."""
         if self.done:
             return
         self._canceled = True
         process = self._process
-        if process and process.poll() is None:
-            process.terminate()
+        if process:
+            compose.end(process)
 
-    def exec(self, cmd, quiet=False, env=None):
+    def _cut(self, process, why):
+        """Ends the command that runs for a reason of the job's own (_spawn says it): it said nothing for too long, or
+        what Compose waits for will not get there. The first reason of each command stays: a step may go on after one
+        (plugins.up), and the next is ended by the same rules."""
+        with self._lock:
+            if process.poll() is not None or (self._why and self._why[0] is process):
+                return
+            self._why = (process, why)
+        compose.end(process)
+
+    def _watch(self, process, over):
+        """Ends a command that printed nothing for SILENT seconds: a pull that stalls, a wait that has no end."""
+        while not over.wait(min(WATCH, SILENT)):
+            if time.monotonic() - self._heard >= SILENT:
+                self._cut(process, f"Stopped: nothing happened for {SILENT // 60} min")
+                return
+
+    def exec(self, cmd, quiet=False, env=None, shown=None):
         """Runs a command in the project root, streaming its output. When it fails, the job fails with the last line
         it printed: Compose's reason ("dependency failed to start: ..."). It gets no input: a question Compose asks
         would wait on the terminal the Lab UI was started from. `env`: variables set for this command alone, which a
         secret goes by, named in the command (`-e NAME`) and never written in it, since the command is a line of the
-        job. What an `up` starts is pulled first, if missing, where its progress is told layer by layer (pull_view)."""
+        job. `shown`: the line of the job in place of the command, as a person types it in the project's folder, for a
+        command that names a file the Lab writes for itself (compose.all_files). What an `up` starts is pulled first, if
+        missing, where its progress is told layer by layer (pull_view)."""
         if not quiet:
-            self.lines.append(f"$ {' '.join(cmd)}")
+            self.lines.append(f"$ {' '.join(shown or cmd)}")
         before = _pull_before(cmd)
         if before:
             self._spawn(before, env, lenient=True)
@@ -400,31 +466,63 @@ class Job:
         self._spawn(cmd, env)
 
     def _spawn(self, cmd, env, lenient=False):
-        """One command. A pull is read as JSON, its progress told as a plain one would; `lenient`: it does not fail
-        the job, nor does it say what it could not pull."""
+        """One command, run as compose.spawn() runs one: the Lab UI ends it as it exits. A pull is read as JSON, its
+        progress told as a plain one would; it fails the job on an image it could not pull, once it pulled the rest.
+        `lenient`: its exit code and its plain lines (warnings) do not count, the `up` it comes before says those.
+        One that prints nothing for SILENT seconds is ended (_watch), and so is one that waits for what will not get
+        there (observe): the job fails with the reason."""
         pull = (_command(cmd) or (0, ""))[1] == "pull"
         start = len(self.lines)
-        process = subprocess.Popen(_json(cmd) if pull else cmd, cwd=paths.ROOT,
-                                   env={**compose.environment(), **(env or {})}, stdin=subprocess.DEVNULL,
-                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8", errors="replace",
-                                   bufsize=1)
-        self._process = process
-        if self._canceled:   # canceled while the command was starting
-            process.terminate()
-        for line in process.stdout:
-            event = _event(line) if pull else None
-            if event is not None:
-                self._pulled(event, lenient)
-            elif not (lenient or LAYER_PROGRESS.match(line)):
-                self.lines.append(line.rstrip("\n"))
-                self._printed(line)
-        if process.wait() != 0 and not lenient:
-            raise JobFailed(self.last_line(start) or f"Failed with exit code {process.returncode}")
-
-    def _pulled(self, event, lenient):
-        """A line of a pull's progress: what a plain one would print, and how far the image is."""
+        try:
+            # In the project's folder, its errors with its output: what it printed last is why it failed
+            process = compose.spawn(_json(cmd) if pull else cmd, subprocess.STDOUT, cwd=paths.ROOT, env=env)
+        except OSError:
+            raise JobFailed(f"{cmd[0]} could not be run") from None
+        if process is None:
+            raise JobFailed("Not run: the Lab UI is ending")
         with self._lock:
-            line = self.pulls.event(event, lenient)
+            self._process, self._waiting, self._issues, self._heard = process, set(), {}, time.monotonic()
+        if self._canceled:   # canceled while the command was starting
+            compose.end(process)
+        over, refused = threading.Event(), []
+        threading.Thread(target=self._watch, args=(process, over), daemon=True).start()
+        try:
+            for line in process.stdout:
+                self._heard = time.monotonic()
+                event = _event(line) if pull else None
+                if event is not None:
+                    self._pulled(event, lenient, refused)
+                elif not (lenient or LAYER_PROGRESS.match(line)):
+                    self._printed(line)   # first: a line in the output is one the job took in
+                    self.lines.append(line.rstrip("\n"))
+            code = process.wait()
+        finally:
+            over.set()
+            compose.release(process)
+        why = self._why
+        if why and why[0] is process and not self._canceled:
+            raise JobFailed(why[1])
+        if refused and not self._canceled:   # what could be pulled was: the job fails on the rest, with Docker's reason
+            reasons = dict(self.pulls.refused())
+            first = reasons.get(refused[0])
+            raise JobFailed(f"Could not pull {', '.join(refused)}" + (f": {first}" if first else ""))
+        if code != 0 and not lenient:
+            raise JobFailed(self.last_line(start) or f"Failed with exit code {process.returncode}", code)
+
+    def _pulled(self, event, lenient, refused):
+        """A line of a pull's progress: what a plain one would print, and how far the image is; an image it could not
+        pull goes to `refused`. Compose's own last word when the command fails ({"error": true, "message"}), which names
+        no image, is a line of the output too, but of a pull that may fail."""
+        if event.get("error") is True:
+            said = [line.strip() for line in str(event.get("message") or "").splitlines() if line.strip()]
+            if not lenient:
+                with self._lock:
+                    self.lines.extend(dict.fromkeys(said))   # once each: Compose repeats the reason of every image
+            return
+        with self._lock:
+            line = self.pulls.event(event)
+            if event.get("text") == "Error" and (event.get("id") or "").startswith("Image "):
+                refused.append(event["id"][6:])
             if line:
                 self.lines.append(line)
                 self._printed(line)
@@ -537,3 +635,17 @@ class Jobs:
 
 
 JOBS = Jobs()
+
+
+def _cut_short():
+    """As the Lab UI exits by itself (Ctrl+C): the job that runs ends with it, its command ended with every other one
+    (compose._end, which runs after this), and the terminal says which."""
+    job = JOBS.current
+    if job and not job.done:
+        print(f"Stopped with the Lab UI: {job.title}", flush=True)
+
+
+if hasattr(threading, "_register_atexit"):   # CPython 3.9 and later: before compose._end, registered first
+    threading._register_atexit(_cut_short)
+else:
+    atexit.register(_cut_short)

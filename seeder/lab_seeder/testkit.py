@@ -10,8 +10,9 @@ to run against it, and the seed services of playgrounds. A module is tested in i
             aim_catalog.seed()
             self.assertEqual(self.platform.changes(), [("POST", providers)])
 
-The settings are those of SETTINGS, the state is a temporary file, the seed folder is empty (`self.seed_files` fills it),
-nothing sleeps and the output is kept (`output`).
+The settings are those of SETTINGS, which a seed has by default, the gateway not waited for (a test of a wait sets
+`SEED_WAIT_GATEWAY=1`) but one request at a time (`workers` lets more go at once); the state is a temporary file, the seed
+folder is empty (`self.seed_files` fills it), nothing sleeps and the output is kept (`output`).
 
 A test that needs the files of a playground reads them under PLAYGROUNDS: the folder `LAB_PLAYGROUNDS` names, so that a
 catalog runs the engine's checks on its own playgrounds, or else the frozen sample of the engine, SAMPLES. Only the checks
@@ -56,7 +57,7 @@ from . import seed
 
 SETTINGS = {"APIM_MANAGEMENT_URL": "http://apim", "APIM_USERNAME": "admin", "APIM_PASSWORD": "admin",
             "AM_MANAGEMENT_URL": "http://am", "AM_USERNAME": "admin", "AM_PASSWORD": "adminadmin",
-            "OPENFGA_API_URL": "http://openfga", "SEED_WORKERS": "1", "SEED_WAIT_GATEWAY": "1"}
+            "OPENFGA_API_URL": "http://openfga", "SEED_WORKERS": "1", "SEED_WAIT_GATEWAY": "0"}
 
 # The two playgrounds the engine's tests read when no catalog is given: invented samples (a bakery and a hostel chain), so
 # that the engine holds no content of a catalog

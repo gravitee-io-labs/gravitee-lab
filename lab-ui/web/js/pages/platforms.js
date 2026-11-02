@@ -97,8 +97,10 @@ function primary(p, env, st) {
   if (["start-gateway", "stop-gateway"].includes(action.do)) {
     const swap = action.do === "start-gateway" && !st.gateway.here ? holder(p, checks.get(p.id), env.id) : "";
     const said = action.disabled ? `aria-disabled="true" data-why="${esc(action.reason)}"` : swap ? `data-tip="${esc(`Stops the gateway of ${swap}`)}"` : "";
+    // Its Stop runs by the project's name and reads no file: it does not wait for an entry of the on file, as the gateway's own does
+    const busy = action.do === "stop-gateway" ? 'data-busy="name"' : "data-busy";
     return actionButton({ key: `addon:${addon.id}`, verb: ["stop", "start"], label: action.label, cls: "plat-primary",
-      attrs: `data-busy ${data} ${said}` });
+      attrs: `${busy} ${data} ${said}` });
   }
   return `<button class="btn plat-primary" ${data}>${esc(action.label)}</button>`;
 }
@@ -164,7 +166,7 @@ function gatewayAction(p, g) {
   if (g.orphan) return `<button class="btn plat-primary" ${data("replace", "Replace gateway")}>Replace gateway</button>`;
   if (g.here && runs(addon)) {
     const stop = stopOf(addon), off = !stop?.enabled ? `aria-disabled="true" data-why="${esc(stop?.reason || "")}"` : "";
-    return actionButton({ key: `addon:${addon.id}`, verb: ["stop", "start"], label: "Stop gateway", cls: "plat-primary", attrs: `data-busy ${data("stop", "Stop gateway")} ${off}` });
+    return actionButton({ key: `addon:${addon.id}`, verb: ["stop", "start"], label: "Stop gateway", cls: "plat-primary", attrs: `data-busy="name" ${data("stop", "Stop gateway")} ${off}` });
   }
   if (!(g.here || g.kept)) return "";
   const unlicensed = !!addon.note_file && ["warn", "err"].includes(addon.note_tone);

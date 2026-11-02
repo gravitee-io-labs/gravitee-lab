@@ -30,7 +30,7 @@ from http.server import ThreadingHTTPServer
 from urllib.parse import urlsplit
 
 from .docker import compose
-from .library import layers, project
+from .library import layers, playgrounds, project
 from . import paths
 from .catalogs import gitx, manifest, registry
 from .paths import ON_FILE, ROOT
@@ -38,6 +38,11 @@ from .paths import ON_FILE, ROOT
 OK, FAILED, CANNOT = 0, 1, 2
 POLL = 3            # seconds between two readings of the state while waiting
 SETTLE = 300        # seconds a started item has to be up: its containers healthy, nothing in an issue
+# Seconds a container may stay in an issue once the start ended, while the item settles. Longer than the Lab UI says Keeps
+# restarting of one that Docker started again and that runs since (compose.RESTART_WINDOW). While the start runs, the job
+# itself ends a container that Compose waits for and that stays in an issue (jobs.STUCK)
+STUCK = compose.RESTART_WINDOW + 30
+CANCEL_WAIT = 60    # seconds a canceled job has to end, before what the run made is removed
 CONSOLES = 90       # seconds a console has to answer, once everything is up
 LOG_LINES = 80      # lines of the log of a container that is not up, which the report prints
 LOG_CHARS = 20000   # characters of such a log that the report keeps (the end of it): a summary of a job is 1 MiB at most
@@ -259,7 +264,9 @@ class Run:
 
     def start(self, timeout):
         """Asks for the start as the item's button does, then waits for its job. A start the Lab UI itself says cannot happen
-        here (no license, a setting to give) is Unable: nothing was tried."""
+        here (no license, a setting to give) is Unable: nothing was tried. A container that Compose waits for and that stays
+        in an issue ends the job, which says which (jobs.STUCK). A job that outlasts the time it was given is canceled, and
+        has ended before anything is removed."""
         item = self.unit()
         action = item.get("action") or {}
         if not action.get("enabled", True):
@@ -275,23 +282,37 @@ class Run:
                 job = self.lab.call("POST", route, {"accept": accept})
             except RuntimeError as error:
                 raise Failed(str(error)) from None
-            done = self.wait(lambda state: state["job"] if state.get("job") and state["job"]["id"] == job["id"]
-                             and state["job"]["done"] else None, timeout, "the start")
+            try:
+                done = self.wait(lambda state: state["job"] if state.get("job") and state["job"]["id"] == job["id"]
+                                 and state["job"]["done"] else None, timeout, "the start")
+            except Failed:
+                self.cancel(job["id"])
+                raise
             if not done["ok"]:
                 raise Failed(done.get("error") or "the start failed")
 
+    def cancel(self, jid):
+        """Cancels the job as its button does, and waits for it to end: its command ends with it."""
+        try:
+            self.lab.call("POST", f"/api/jobs/{jid}/cancel")
+            self.wait(lambda state: (state.get("job") or {}).get("done") or (state.get("job") or {}).get("id") != jid,
+                      CANCEL_WAIT, "the end of the canceled job")
+        except (Failed, RuntimeError):   # what is removed next ends what is left of it
+            pass
+
     def settle(self):
-        """Every container of the item is up, none is in an issue, and nor is the platform: what a person sees as running."""
+        """Every container of the item is up, none is in an issue, and nor is the platform: what a person sees as running.
+        A container in an issue fails it once it has been so for STUCK seconds: one that Docker started again while what it
+        needs warmed up, and that runs since, says Keeps restarting for a while after the start."""
         names = self.unit()["services"]
+        since = {}   # the containers in an issue, and since when
 
         def settled(state):
             platform = (state.get("platform") or {}).get("state") or {}
             if platform.get("key") == "issue":   # what the item needs of the core
                 raise Failed(f"the platform is in an issue: {platform.get('label') or 'no reason'}")
+            self.stuck(state, since)
             found = {name: state["services"][name]["state"] for name in names if name in state["services"]}
-            bad = [name for name, one in found.items() if one["key"] == "issue"]
-            if bad:
-                raise Failed(f"{', '.join(bad)} in an issue: {', '.join(found[name]['label'] or 'no reason' for name in bad)}")
             return all(one["key"] in UP for one in found.values()) and len(found) == len(names)
 
         with self.step("Containers are up"):
@@ -301,8 +322,21 @@ class Run:
                 late = self.not_up()
                 raise Failed(f"{error}" + (f" (not up: {', '.join(late)})" if late else "")) from None
 
-    def not_up(self):
-        state = self.state()
+    def stuck(self, state, since):
+        """Failed when a container has been in an issue for STUCK seconds; `since` keeps when each one went into it."""
+        now = self.clock()
+        issues = {name: one["state"] for name, one in state["services"].items() if (one.get("state") or {}).get("key") == "issue"}
+        for name in set(since) - set(issues):
+            del since[name]
+        for name in issues:
+            since.setdefault(name, now)
+        late = sorted(name for name in issues if now - since[name] >= STUCK)
+        if late:
+            raise Failed(f"{', '.join(late)} in an issue for {int(STUCK)} s: "
+                         + ", ".join(issues[name].get("label") or "no reason" for name in late))
+
+    def not_up(self, state=None):
+        state = state or self.state()
         return [name for name in self.unit(state)["services"]
                 if (state["services"].get(name, {}).get("state") or {}).get("key") not in UP]
 
@@ -325,15 +359,18 @@ class Run:
                     status = self.get(link["url"])
 
     def logs(self):
-        """The end of the log of each container of the item that is not up, to say why."""
+        """The end of the log of each container that says why: those of the item that are not up, and any in an issue, of the
+        core it waits for too."""
+        state = self.state()
+        names = self.not_up(state)
+        names += sorted(name for name, one in state["services"].items()
+                        if (one.get("state") or {}).get("key") == "issue" and name not in names)
         found = {}
-        for name in self.not_up():
-            rc, out, err = self.shell(["docker", "logs", "--tail", str(LOG_LINES), self.container(name)], timeout=30)
+        for name in names:
+            container = (state["services"].get(name) or {}).get("container") or name
+            rc, out, err = self.shell(["docker", "logs", "--tail", str(LOG_LINES), container], timeout=30)
             found[name] = (out + err).strip()
         return found
-
-    def container(self, name):
-        return (self.state()["services"].get(name) or {}).get("container") or name
 
     def stop(self):
         """Removes what the run made: containers, networks and volumes of the project, which a free machine held none of."""
@@ -480,11 +517,25 @@ def run(text, tested=None, timeout=1800, keep=False, out=print, given=None):
     if busy:
         out(f"Not tried: {busy}")
         return CANNOT
+    lab = Lab()
+    running = paths.serve_here(lab.port)   # the run is the Lab UI of this folder while it lasts: its jobs are the only ones
+    if running is not None:
+        lab.close()
+        out(f"Not tried: a Lab UI runs on this folder (http://localhost:{running or 9000}): stop it first, with Ctrl+C in its "
+            "terminal")
+        return CANNOT
+    try:
+        return _tried(lab, built, kind, uid, used, timeout, keep, out)
+    finally:
+        paths.stop_serving()
+
+
+def _tried(lab, built, kind, uid, used, timeout, keep, out):
+    """The run itself, with the Lab UI `lab` serving it: the exit code."""
     os.environ.update(used)   # Compose reads the process before .env: no file of this machine changes
     compose.CACHE.drop()
     project.forget()
     restore = keep_on_file()
-    lab = Lab()
     attempt = Run(lab, kind, uid)
     outcome, message, logs = OK, "", None
     try:
@@ -502,9 +553,13 @@ def run(text, tested=None, timeout=1800, keep=False, out=print, given=None):
         lab.close()
         if not keep:
             restore()
+        # What the seeds recorded is gone with the volumes, as after a Reset: no page lists what is no longer there
+        kept = [] if keep or removal else [pid for pid in built["playgrounds"] if not playgrounds.forget(pid)]
     report(attempt, outcome, used, message, logs, out)
     if removal:
         out(f"The lab could not be removed: {removal}")
+    for pid in kept:
+        out(f"What {built['playgrounds'][pid]['name']} recorded could not be emptied: its state folder leads out of its folder")
     return outcome
 
 

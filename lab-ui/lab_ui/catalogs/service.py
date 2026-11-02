@@ -410,16 +410,29 @@ def _progress_of(ns, state_key):
 
 def _no_job():
     """`job_running` while a job runs: a change of catalogs is a plain request and never starts a job, and a job reads the
-    install while it runs."""
+    install while it runs. `busy` while a Lab UI of this folder runs in another process (the command line asks): its jobs,
+    which this process cannot see, write the files the change moves, so the change is made in it (_elsewhere)."""
     last = jobs.JOBS.current
     if last and not last.done:
         raise CatalogError("job_running", f"Wait for {last.title}.", 409)
+    elsewhere = _elsewhere()
+    if elsewhere:
+        raise CatalogError("busy", f"{elsewhere}.", 409)
+
+
+def _elsewhere():
+    """The line of a change that waits for the Lab UI of this folder, which runs in another process; None when none does."""
+    port = paths.served_elsewhere()
+    if port is None:
+        return None
+    return f"The Lab UI runs on this folder: make this change in it, at http://localhost:{port or 9000}, or stop it first"
 
 
 def _waiting():
-    """"Wait for {job title}" while a job runs, else None: the same reason, as the line of a plan that is held."""
+    """"Wait for {job title}" while a job runs, the line of _elsewhere while a Lab UI of this folder runs in another process,
+    else None: the same reasons, as the line of a plan that is held."""
     last = jobs.JOBS.current
-    return f"Wait for {last.title}" if last and not last.done else None
+    return f"Wait for {last.title}" if last and not last.done else _elsewhere()
 
 
 def _unit_id(ns, kind, name):
@@ -484,26 +497,6 @@ def _counts(units):
 
 def _unit_text(entry):
     return {key: entry.get(key) for key in ("id", "name", "what", "why", "service") if key in entry}
-
-
-def _on_by_catalog():
-    """{catalog: {kind:name}} of the units that the on file turns on, directly or through what they include: what
-    `install.on_units(ns)` says, for every catalog in one walk of the include closure (a state asks it of every row, every few
-    seconds, and each walk reads the files again). Nothing is on when the files cannot be read."""
-    found, seen, todo = {}, set(), [paths.ON_FILE]
-    while todo and len(seen) < 2000:
-        file = todo.pop()
-        if file in seen:
-            continue
-        seen.add(file)
-        target = resolve.target_of(file)
-        if target:
-            found.setdefault(target[0], set()).add(f"{target[1]}:{target[2]}")
-        try:
-            todo += compose.includes(file, flow=True)
-        except (OSError, ValueError):
-            continue
-    return found
 
 
 def _held_of(ns, project_, held, on):
@@ -607,7 +600,7 @@ def describe(project, inputs):
     entries = {one["id"]: one for one in registry.entries()}
     suggestions = registry.suggestions()
     asked = {registry.display_address(one["url"]) for one in suggestions if one.get("host_access")}
-    on = _on_by_catalog()
+    on = install.on_by_catalog()
     rows = []
     for ns, one in found.items():
         if one.get("kind") == "machine":
@@ -1429,7 +1422,7 @@ def _on_includers(found, ns, renamed, after, moved):
     waits until it is off, as it does for an item removed."""
     if not renamed:
         return {}
-    on = _on_by_catalog()
+    on = install.on_by_catalog()
 
     def is_on(item):
         file = ((found.get(f"{item['kind']}s") or {}).get(item["id"]) or {}).get("file")
@@ -1734,12 +1727,11 @@ def unshadow(ns):
 
 def preflight(found, closure):
     """The gate at Start, asked by `layers.check` for a start that puts a unit of a catalog in the on file: (a) each
-    unit of `closure` ([(kind, id)]) is judged again on the project as it is now, since `.env` and the shell change what
-    Compose says without a file changing; (b) the installed files of the units of a git catalog are the ones that were
-    installed (the sha256 of the manifest). Raises RuntimeError with the line to show; `damaged` (a CatalogError too) for a
-    file that changed after the install, which the lock then records, so that the row of the catalog says Damaged and offers
+    unit of `closure` ([(kind, id)]) is judged again on the project as it is now (project.load reads again what changed of
+    what it was read from, the .env files included); (b) the installed files of the units of a git catalog are the ones that
+    were installed (the sha256 of the manifest). Raises RuntimeError with the line to show; `damaged` (a CatalogError too) for
+    a file that changed after the install, which the lock then records, so that the row of the catalog says Damaged and offers
     Repair (a refusal is gone with its request; the state stays until Repair)."""
-    project.forget()
     fresh = project.load()
     blocked = layers.blocked_files(fresh)
     wanted = {}

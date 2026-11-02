@@ -13,6 +13,7 @@ import json
 import os
 import shutil
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -725,10 +726,9 @@ class Holds(Seam):
             encoding="utf-8")
         walked = []
         real = compose.includes
-        self.patch(compose, "includes", lambda path, flow=False: walked.append(path) or real(path, flow))
-        found = service._on_by_catalog()
+        self.patch(compose, "includes", lambda path: walked.append(path) or real(path))
+        found = install.on_by_catalog()
         self.assertEqual(found, {"partner": {"addon:ledger"}, "lab-old": {"addon:older"}})
-        self.assertEqual(sorted(found), sorted(ns for ns in found if install.on_units(ns)))
         for ns, keys in found.items():
             self.assertEqual(keys, install.on_units(ns), "the same answer as the function install holds the rule with")
         walked.clear()
@@ -2777,6 +2777,15 @@ class Growth(unittest.TestCase):
         self.assertEqual(service._growth(old, new), [("reads", "gateway token")])
 
 
+# A Lab UI that serves a folder, as another process: it holds the lock of the folder with its port, until its input ends
+HOLDER = ("import fcntl, os, sys\n"
+          "descriptor = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o600)\n"
+          "fcntl.flock(descriptor, fcntl.LOCK_EX)\n"
+          "os.write(descriptor, b'9001\\n')\n"
+          "print('held', flush=True)\n"
+          "sys.stdin.read()\n")
+
+
 class Removing(Seam):
     """What Remove says first, what holds it, and what it leaves."""
 
@@ -2835,6 +2844,20 @@ class Removing(Seam):
         with self.assertRaises(CatalogError) as raised:
             service.remove("partner", keep_settings=True)
         self.assertEqual(lines_of(raised.exception), ("job_running", 409, "Wait for Start Ledger."))
+
+    def test_a_lab_ui_of_this_folder_in_another_process_holds_it_and_the_request_is_busy(self):
+        # The command line asks while a Lab UI serves the folder: its jobs, which this process cannot see, write what moves
+        holder = subprocess.Popen([sys.executable, "-c", HOLDER, str(self.root / paths.SERVING_FILE)], stdin=subprocess.PIPE,
+                                  stdout=subprocess.PIPE, text=True)
+        self.addCleanup(holder.wait, 10)
+        self.addCleanup(holder.stdin.close)
+        self.assertEqual(holder.stdout.readline(), "held\n")
+        line = "The Lab UI runs on this folder: make this change in it, at http://localhost:9001, or stop it first"
+        self.assertEqual(service.remove("partner", check=True)["held"], line)
+        with self.assertRaises(CatalogError) as raised:
+            service.remove("partner", keep_settings=True)
+        self.assertEqual(lines_of(raised.exception), ("busy", 409, f"{line}."))
+        self.assertIsNotNone(registry.entry("partner"), "nothing was removed")
 
     def test_remove_keeps_the_settings_by_default_and_leaves_a_marker_and_forgets_the_catalog(self):
         env = self.base / "addons" / "ledger" / ".env"
@@ -3222,12 +3245,18 @@ class Gate(Real):
         built = project.loaded()[0]
         service.preflight(built, [("addon", "local/scratch"), ("addon", "echo"), ("addon", "cluster")])
 
-    def test_the_project_is_judged_again_at_the_gate_since_the_environment_changes_without_a_file(self):
-        forgot = []
-        real = project.forget
-        self.patch(project, "forget", lambda: forgot.append(True) or real())
-        service.preflight(project.loaded()[0], [("addon", "echo")])
-        self.assertEqual(forgot, [True])
+    def test_the_gate_judges_the_project_as_it_is_now_and_reads_again_only_what_changed(self):
+        # Nothing changed since the state was read: the gate asks Compose nothing, and holds no one up behind the lock
+        built = project.loaded()[0]
+        asked = []
+        real = compose.run
+        self.patch(compose, "run", lambda *args, **how: asked.append(args[0]) or real(*args, **how))
+        service.preflight(built, [("addon", "echo")])
+        self.assertEqual(asked, [])
+        # A setting of the unit changed: what it says is read again, and judged
+        self.write(".lab/catalogs/fixture/addons/echo/.env", "FIXTURE_ECHO_VERSION=1.36\n")
+        service.preflight(built, [("addon", "echo")])
+        self.assertTrue(asked, "the unit is read again")
 
 
 class Reading2(Real):

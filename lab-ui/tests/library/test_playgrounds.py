@@ -12,11 +12,12 @@ import types
 import unittest
 import warnings
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from unittest import mock
 
 from lab_ui.gravitee import cloud, license, places, platforms
-from lab_ui.docker import compose, envfiles, jobs, plugins
-from lab_ui.library import layers, layout, playgrounds
+from lab_ui.docker import compose, envfiles, jobs
+from lab_ui.library import layers, playgrounds, plugins, project as projects, versions
 from lab_ui import paths
 from lab_ui.catalogs import trust
 from lab_ui.docker.jobs import Job, JobFailed, awaited
@@ -47,7 +48,7 @@ def ran(steps, fail=None):
     """Runs the steps of a job without its commands: (job, the commands). A command that holds `fail` fails."""
     job, commands = Job("Test", steps), []
 
-    def collect(cmd, quiet=False):
+    def collect(cmd, quiet=False, env=None, shown=None):
         commands.append(cmd)
         if fail in cmd:
             raise JobFailed("Failed with exit code 1")
@@ -100,7 +101,7 @@ class Playgrounds(Case):
                               "resources": [{"type": "cache-redis"}],
                               "flows": [{"request": [{"policy": "rate-limit"}]}]},
                       "plans": [{"security": {"type": "API_KEY"}}]}
-        self.assertEqual(playgrounds._plugin_ids(definition),
+        self.assertEqual(set().union(*projects.plugins_used(definition).values()),
                          {"http-proxy", "llm-proxy", "cache-redis", "rate-limit", "api-key"})
 
     def test_a_playground_of_this_machine_has_its_guide_and_its_record(self):
@@ -260,15 +261,15 @@ class Playgrounds(Case):
         self.project["products"] = {"API Management": {}}
         self.patch(plugins, "installed", lambda project, product: installed)
         # The endpoint's plugin is not on the gateway yet: its feature is the one the playground declares
-        self.assertEqual(playgrounds._features(self.project, welcome), {
+        self.assertEqual(playgrounds._features(self.project, welcome), ({
             "apim-en-message-reactor": [],
-            "apim-en-entrypoint-sse": ["Own: sse", "Batch status: sse"]})
+            "apim-en-entrypoint-sse": ["Own: sse", "Batch status: sse"]}, []))
         # Once installed it is found in the APIs of the environments, each API named once
         installed["feature_by_id"]["solace"] = "apim-en-endpoint-solace"
-        self.assertEqual(playgrounds._features(self.project, welcome), {
+        self.assertEqual(playgrounds._features(self.project, welcome), ({
             "apim-en-message-reactor": [],
             "apim-en-entrypoint-sse": ["Own: sse", "Batch status: sse"],
-            "apim-en-endpoint-solace": ["Batch status: solace"]})
+            "apim-en-endpoint-solace": ["Batch status: solace"]}, []))
 
     def test_a_seed_file_that_is_a_link_or_a_pipe_or_huge_is_no_definition_of_an_api(self):
         welcome = self.project["playgrounds"]["welcome"]
@@ -283,7 +284,29 @@ class Playgrounds(Case):
         (apis / "huge.json").write_text(" " * (1 << 20) + sse, encoding="utf-8")
         self.patch(plugins, "installed", lambda project, product: {"feature_by_id": {"sse": "apim-en-entrypoint-sse"}})
         self.project["products"] = {"API Management": {}}
-        self.assertEqual(playgrounds._features(self.project, welcome), {"apim-en-entrypoint-sse": ["Own: sse"]})
+        self.assertEqual(playgrounds._features(self.project, welcome),
+                         ({"apim-en-entrypoint-sse": ["Own: sse"]},
+                          ["seed/apim/apis/huge.json", "seed/apim/apis/linked.json", "seed/apim/apis/piped.json"]))
+
+    def test_a_seed_file_that_is_no_definition_is_one_line_and_the_others_are_still_checked(self):
+        # A list, a trailing comma, an `api` that is a text: each is named, and what the other APIs use is still counted
+        welcome = self.project["playgrounds"]["welcome"]
+        welcome["requires"] = {}
+        self.write("playgrounds/welcome/seed/apim/apis/own.json",
+                   json.dumps({"api": {"name": "Own", "listeners": [{"entrypoints": [{"type": "sse"}]}]}}))
+        self.write("playgrounds/welcome/seed/apim/apis/list.json", json.dumps([{"api": {"name": "Listed"}}]))
+        self.write("playgrounds/welcome/seed/apim/apis/comma.json", '{"api": {"name": "Comma",}}')
+        self.write("playgrounds/welcome/seed/apim/apis/text.json", json.dumps({"api": "text", "plans": [{"security": {"type": "JWT"}}]}))
+        self.patch(plugins, "installed", lambda project, product: {"feature_by_id": {"sse": "apim-en-entrypoint-sse",
+                                                                                     "jwt": "apim-en-plan-jwt"}})
+        self.project["products"] = {"API Management": {}}
+        self.patch(license, "info", return_value={"present": False})
+        lines = playgrounds._license_checks(self.project, welcome)
+        self.assertEqual([(line["name"], line["detail"]) for line in lines[:2]],
+                         [("seed/apim/apis/comma.json", playgrounds.UNREAD), ("seed/apim/apis/list.json", playgrounds.UNREAD)])
+        self.assertEqual((lines[2]["detail"], len(lines)), ("Needs a license", 3))
+        self.assertEqual(playgrounds._features(self.project, welcome)[0],
+                         {"apim-en-entrypoint-sse": ["Own: sse"], "apim-en-plan-jwt": ["text: jwt"]})
 
     def test_the_platform_line_comes_first(self):
         # Nothing of it was ever created; then its containers stopped; then it runs
@@ -430,13 +453,13 @@ class Playgrounds(Case):
         for tag, wanted, enough in (("4.12.20", "4.13", False), ("4.13.0-alpha.2", "4.13", False), ("4.13.0-alpha.5", "4.13.0", False),
                                     ("4.13", "4.13", True), ("4.13.0", "4.13", True), ("4.13.7", "4.13.0", True),
                                     ("4.14.0-alpha.1", "4.13", True), ("5.0", "4.13", True), ("4", "4.13", False), ("latest", "4.13", True)):
-            self.assertEqual(layers.at_least(tag, wanted), enough, tag)
+            self.assertEqual(versions.at_least(tag, wanted), enough, tag)
 
     def test_a_preview_is_ordered_when_one_is_wanted(self):
         for tag, enough in (("4.13.0-alpha.2", False), ("4.13.0-alpha.3", True), ("4.13.0-alpha.10", True),
                             ("4.13.0-alpha.3-debian", True), ("4.13.0-beta.1", True), ("4.13.0", True),
                             ("4.13.1-alpha.1", True), ("4.12.20", False), ("latest", True)):
-            self.assertEqual(layers.at_least(tag, "4.13.0-alpha.3"), enough, tag)
+            self.assertEqual(versions.at_least(tag, "4.13.0-alpha.3"), enough, tag)
 
     def test_a_build_that_is_no_release_is_met_by_that_build_only(self):
         """requires.images may name a build (amp-demo-latest, master-latest): it has no numbers to order, so the saved tag is that
@@ -444,8 +467,44 @@ class Playgrounds(Case):
         for tag, wanted, enough in (("amp-demo-latest", "amp-demo-latest", True), ("amp-demo-latest-debian", "amp-demo-latest", True),
                                     ("4.12.20", "amp-demo-latest", False), ("latest", "amp-demo-latest", False),
                                     ("master-latest", "amp-demo-latest", False), ("master-latest", "master-latest", True)):
-            self.assertEqual(layers.at_least(tag, wanted), enough, (tag, wanted))
+            self.assertEqual(versions.at_least(tag, wanted), enough, (tag, wanted))
         self.assertEqual((layers.or_later("4.13"), layers.or_later("amp-demo-latest")), (" or later", ""))
+
+    def test_a_port_another_program_uses_is_a_line_and_refuses_the_start(self):
+        # A dev server on 3000, the port of the welcome's app: said before the start, which is refused before anything changes
+        from lab_ui.library import machine
+        self.patch(machine, "_taken", lambda port: port == 3000)
+        self.patch(plugins, "installed", lambda project, product: {"bundled": {"gravitee-policy-x": {}}, "bundled_error": None,
+                                                                    "ext": {}, "feature_by_id": {}})
+        self.patch(license, "info", lambda project: {"present": False})
+        self.patch(license, "status", lambda project: {"status": "none", "digest": "x"})
+        self.project["services"]["hello-app"]["ports"] = ["3000"]
+        self.assertIn({"name": "Ports", "state": "warn", "detail": "3000 is used by another program"},
+                      playgrounds.check(self.project, "welcome")["checks"])
+        with self.assertRaisesRegex(RuntimeError, "^Port 3000 is used by another program$"):
+            playgrounds.start(self.project, "welcome", [])
+        self.jobs.start.assert_not_called()
+        # Free again: no line, and it starts
+        self.patch(machine, "_taken", return_value=False)
+        self.assertNotIn("Ports", [line["name"] for line in playgrounds.check(self.project, "welcome")["checks"]])
+        playgrounds.start(self.project, "welcome", [])
+        self.jobs.start.assert_called_once()
+
+    def test_a_port_is_no_line_and_refuses_no_start_while_docker_does_not_list_the_labs_own_containers(self):
+        # Docker answers `docker info`, then `docker ps` fails: the lab's own ports cannot be told from another program's
+        # (machine.held answers None). The click's check reads it as no port held: no line, and it starts
+        from lab_ui.library import machine
+        self.patch(machine, "_lab_ports", side_effect=compose.ComposeError("Docker did not list the lab's containers"))
+        self.patch(machine, "_taken", lambda port: port == 3000)
+        self.patch(plugins, "installed", lambda project, product: {"bundled": {"gravitee-policy-x": {}}, "bundled_error": None,
+                                                                    "ext": {}, "feature_by_id": {}})
+        self.patch(license, "info", lambda project: {"present": False})
+        self.patch(license, "status", lambda project: {"status": "none", "digest": "x"})
+        self.project["services"]["hello-app"]["ports"] = ["3000"]
+        self.assertEqual(layers.taken(self.project, ["hello-app"]), [])
+        self.assertNotIn("Ports", [line["name"] for line in playgrounds.check(self.project, "welcome")["checks"]])
+        playgrounds.start(self.project, "welcome", [])
+        self.jobs.start.assert_called_once()
 
     def test_docker_memory_when_it_is_short(self):
         self.patch(plugins, "installed", lambda project, product: {"bundled": {"gravitee-policy-x": {}},
@@ -512,16 +571,17 @@ class Playgrounds(Case):
             "agent-lens", "hello-app", "seed", "apim-gateway", "apim-management-api"]), None])
         self.assertEqual(more["waits"][1][("Container", "lab-seed")], "once")
         job, commands = ran(steps)
-        self.assertEqual(self.phases(job), ["Add-ons", "Plugins", "Apps and services", "Seed"])
+        self.assertEqual(self.phases(job), ["Plugins", "Apps and services", "Seed"])
         self.assertEqual(self.written, [("welcome", [])])
         # What goes is removed by name; what starts is named, with the product stopped to load its plugins: nothing
         # else is started or removed
-        self.assertEqual(commands, [[*COMPOSE, "-p", "gravitee", "rm", "--stop", "--force", "jade"],
+        self.assertEqual(commands, [[*COMPOSE, "-p", "gravitee", "rm", "--stop", "--force", "-v", "jade"],
                                     [*COMPOSE, "up", "-d", "--no-deps", "agent-lens", "apim-gateway",
                                      "apim-management-api", "hello-app", "seed"],
                                     SEED_LOGS])
         self.assertEqual([line for line in job.lines if not line.startswith("▸")],
-                         ["Stops: Jade", "Add-ons: AI Agent Lens", "Plugins of apim: gravitee-policy-x"])
+                         ["Plugins of apim: gravitee-policy-x", "Add-ons: AI Agent Lens", "Starts: Welcome apps, AI Agent Lens",
+                          "Stops: Jade", "Restarts: Gateway"])
         self.assertTrue((self.root / "playgrounds/welcome/.state").is_dir())   # where the seed records
         kept.assert_called_once_with(self.project, "welcome")   # once all of it ended well: the versions it worked on
 
@@ -541,7 +601,7 @@ class Playgrounds(Case):
         playgrounds.start(self.project, "welcome", [])
         self.assertEqual(self.started(self.jobs)[2]["phases"], ["Platform, apps and services", "Seed"])
         self.assertEqual(self.phases(ran(self.started(self.jobs)[1])[0]),
-                         ["Add-ons", "Plugins", "Platform, apps and services", "Seed"])
+                         ["Plugins", "Platform, apps and services", "Seed"])
 
     def test_start_with_no_plugin_to_install_does_not_count_the_phase(self):
         self.patch(plugins, "install_steps", lambda project, product, names: ([], [], {}))
@@ -550,7 +610,7 @@ class Playgrounds(Case):
         self.assertEqual(more["phases"], ["Apps and services", "Seed"])
         self.assertEqual([waits and set(waits) for waits in more["waits"]], [
             {("Container", f"lab-{name}") for name in ("agent-lens", "hello-app", "seed", "apim-gateway")}, None])
-        self.assertEqual(self.phases(ran(steps)[0]), ["Add-ons", "Plugins", "Apps and services", "Seed"])
+        self.assertEqual(self.phases(ran(steps)[0]), ["Plugins", "Apps and services", "Seed"])
 
     def test_start_is_measured_phase_by_phase(self):
         # The plugin it lacks, downloaded; then what the apps' `up` starts, the seed until it ended well; then the
@@ -575,7 +635,7 @@ class Playgrounds(Case):
         docker.healthy("apim-gateway")
         docker.containers["seed"] = container("exited", code=0)
         docker.observe(job)
-        self.assertEqual((job.progress, [phase["progress"] for phase in job.summary()["phases"]]), (1, [1, 1, 1, 1]))
+        self.assertEqual((job.progress, [phase["progress"] for phase in job.summary()["phases"]]), (1, [1, 1, 1]))
 
     def test_start_again_marks_the_playground_as_starting(self):
         # Never seeded, its apps running: only its seed starts, and the playground says that it starts
@@ -632,28 +692,231 @@ class Playgrounds(Case):
         self.assertEqual(ran(steps)[1][0], [*COMPOSE, "up", "-d", "--no-deps", "agent-lens",
                                             "apim-gateway", "hello-app", "seed"])
 
-    def test_a_start_on_versions_too_old_saves_those_it_was_tested_with_then_makes_again_what_runs_behind_them(self):
-        """The plan of the page changes the versions; the start saves them, and its job recreates the platform that runs behind them."""
+    def switching(self, pid="welcome"):
+        """The playground needs a later API Management than the one saved, and was tested with one: its start goes there."""
         self.patch(plugins, "install_steps", lambda project, product, names: ([], [], {}))
-        welcome, gateway = self.project["playgrounds"]["welcome"], self.project["services"]["apim-gateway"]
+        playground, gateway = self.project["playgrounds"][pid], self.project["services"]["apim-gateway"]
         gateway.update(raw_image="graviteeio/apim-gateway:${APIM_VERSION:-4.12.20}", tag="4.12.20")
-        welcome["requires"] = {"images": {"APIM_VERSION": "4.13.0-alpha.3"}}
-        welcome["tested"] = [{"APIM_VERSION": "4.13.0-alpha.5"}]
-        self.containers = {**running(*CORE), "mongodb": {**running("x")["x"], "config_hash": "old"}}
+        playground["requires"] = {"images": {"APIM_VERSION": "4.13.0-alpha.3"}}
+        playground["tested"] = [{"APIM_VERSION": "4.13.0-alpha.5"}]
+        self.jobs.current = None   # no job runs
+
+    def test_a_start_that_fails_before_its_apps_leaves_what_it_replaces_on_and_running(self):
+        # Demo runs; the start of the welcome fails on a plugin download: nothing is written and nothing removed, so Demo is
+        # still on and running, not off and "started by hand"
+        second(self.project)
+        self.state = on(self.project, playground="demo")
+        self.containers = running(*CORE, "demo-app", "kiosk")
+
+        def unpublished(job):
+            raise JobFailed("Plugin gravitee-policy-x is not on download.gravitee.io")
+        self.patch(plugins, "install_steps", lambda project, product, names: ([unpublished], [], {}))
+        playgrounds.start(self.project, "welcome", [f"{row['kind']}:{row['id']}" for row in self.plan()["stops"]])
+        job, commands = ran(self.started(self.jobs)[1])
+        self.assertEqual((job.ok, job.error()), (False, "Plugin gravitee-policy-x is not on download.gravitee.io"))
+        self.assertEqual((self.written, commands), ([], []))
+        # The removal of Demo's apps fails: still nothing is written
+        self.patch(plugins, "install_steps", lambda project, product, names: ([], [], {}))
+        playgrounds.start(self.project, "welcome", [f"{row['kind']}:{row['id']}" for row in self.plan()["stops"]])
+        job, commands = ran(self.started(self.jobs)[1], fail="rm")
+        self.assertEqual((job.ok, self.written, len(commands)), (False, [], 1))
+
+    def test_a_first_start_refused_for_a_stale_plan_leaves_the_product_running(self):
+        # Demo runs; the welcome's start is planned, then another tab's job writes the on file before this job begins.
+        # The job is refused for it before its plugins phase stops the gateway, which nothing would start again
+        second(self.project)
+        self.state = {**on(self.project, playground="demo"), "stamp": "read by the plan"}
+        self.containers = running(*CORE, "demo-app", "kiosk")
+        self.patch(plugins, "install_steps", lambda project, product, names: (
+            [lambda job: job.exec([*COMPOSE, "stop", "apim-gateway"])], ["apim-gateway"], {}))
+        playgrounds.start(self.project, "welcome", [f"{row['kind']}:{row['id']}" for row in self.plan()["stops"]])
+        job, commands = ran(self.started(self.jobs)[1])
+        self.assertEqual((job.error(), commands), (layers.CHANGED, []))
+
+    def test_a_first_start_that_fails_on_its_plugins_leaves_the_item_off_as_the_pages_say(self):
+        # Nothing is on; the welcome's first Start fails on a plugin download: the on file is not written, so the welcome is
+        # still off. The pages say so, and no longer that every failed job leaves the item on
+        self.state = on(self.project)
+
+        def unpublished(job):
+            raise JobFailed("Plugin gravitee-policy-x is not on download.gravitee.io")
+        self.patch(plugins, "install_steps", lambda project, product, names: ([unpublished], [], {}))
+        playgrounds.start(self.project, "welcome", [])
+        job, commands = ran(self.started(self.jobs)[1])
+        self.assertEqual((job.ok, self.written, commands), (False, [], []))
+        repository = Path(__file__).resolve().parents[3]
+        for page, promise in (("docs/lab-ui.md", "- **A failed or canceled job**: the item stays on."),
+                              ("lab-ui/DESIGN.md", "A failed job leaves the on file as written: the item is on")):
+            self.assertFalse(promise in (repository / page).read_text(encoding="utf-8"), f"{page} says: {promise}")
+
+    def pages_say(self, *promises):
+        """That the guide and DESIGN.md say each of these (page, text) as it is, or (page, text, False) no longer."""
+        repository = Path(__file__).resolve().parents[3]
+        for page, promise, *said in promises:
+            text = " ".join((repository / page).read_text(encoding="utf-8").split())
+            self.assertEqual(promise in text, said != [False], f"{page}: {promise}")
+
+    def test_a_stop_that_fails_after_its_on_file_write_leaves_the_item_off_as_the_pages_say(self):
+        # The gateway, made again without the playground's settings, fails: the playground is already off
+        self.on_and_running(*CORE)
+        playgrounds.stop(self.project, "welcome", False, ["addon:agent-lens"])
+        job, commands = ran(self.started(self.jobs)[1], fail="up")
+        self.assertEqual((job.ok, commands[-1][-2:], self.written), (False, ["--no-deps", "apim-gateway"], [(None, ["kiosk"])]))
+        self.pages_say(("docs/lab-ui.md", "a Stop's item is off"), ("lab-ui/DESIGN.md", "A Stop's item is off"),
+                       ("docs/lab-ui.md", "One that ended later leaves the item on, not running", False),
+                       ("lab-ui/DESIGN.md", "the item is on, does not run, and can be started again or turned off", False))
+
+    def test_a_first_start_whose_seed_fails_leaves_the_item_on_and_its_apps_running_as_the_pages_say(self):
+        self.state = on(self.project)
+        self.patch(compose, "run", lambda cmd, **how: (0, f"{STARTED}\n" if "{{.State.StartedAt}}" in cmd else "1 false\n", ""))
+        playgrounds.start(self.project, "welcome", [])
+        job, commands = ran(self.started(self.jobs)[1])
+        self.assertEqual((job.ok, self.written), (False, [("welcome", [])]))
+        self.assertEqual([command[len(COMPOSE):len(COMPOSE) + 1] for command in commands if command[:len(COMPOSE)] == COMPOSE],
+                         [["up"]], "nothing stops the apps it started")
+        self.pages_say(("docs/lab-ui.md", "what it started still runs (the apps, when only the seed failed)"),
+                       ("lab-ui/DESIGN.md", "what the job started before it failed runs on (a playground's apps, when its seed "
+                                            "failed)"))
+
+    def test_a_stop_whose_removal_fails_leaves_the_on_file_as_it_was(self):
+        self.on_and_running(*CORE)
+        playgrounds.stop(self.project, "welcome", False, ["addon:agent-lens"])
+        job, commands = ran(self.started(self.jobs)[1], fail="rm")
+        self.assertEqual((job.ok, self.written, len(commands)), (False, [], 1))
+
+    def test_a_start_on_versions_too_old_saves_those_it_was_tested_with_then_makes_again_what_runs_on_them(self):
+        """The plan of the page changes the versions; the start saves them, and its job recreates what runs on those images, as
+        the plan said, from the project read again."""
+        self.switching()
         saved = self.patch(playgrounds.images, "save")
         reloaded = self.patch(playgrounds.projects, "load", return_value=self.project)
         with self.assertRaisesRegex(RuntimeError, "Would also change"):   # the page did not show the switch
             playgrounds.start(self.project, "welcome", [])
         saved.assert_not_called()
-        # Once saved, mongodb runs behind what is saved: the start makes it again
-        def save(project, values):
-            gateway["tag"] = values["APIM_VERSION"]
-            self.saved.return_value = {"hashes": {"mongodb": "saved"}, "images": {}}
-        saved.side_effect = save
         playgrounds.start(self.project, "welcome", ["version:APIM"])
         saved.assert_called_once_with(self.project, {"APIM_VERSION": "4.13.0-alpha.5"})
         reloaded.assert_called_once_with()
-        self.assertIn(["service", "mongodb"], self.started(self.jobs)[2]["changes"]["start"])
+        self.assertIn(["service", "apim-gateway"], self.started(self.jobs)[2]["changes"]["start"])
+
+    def test_a_start_that_cannot_begin_once_its_versions_are_saved_puts_them_back(self):
+        # A job began meanwhile, from another tab: the start is refused, and the versions are what they were
+        self.switching()
+        self.patch(envfiles, "ROOT", self.root)
+        before = "# Versions\nAPIM_VERSION=4.12.20\n"
+        self.write(".env", before)
+        self.patch(playgrounds.projects, "load", return_value=self.project)
+        self.jobs.start.side_effect = RuntimeError("'Stop Kiosk' is still running")
+        with self.assertRaisesRegex(RuntimeError, "^'Stop Kiosk' is still running$"):
+            playgrounds.start(self.project, "welcome", ["version:APIM"])
+        self.assertEqual((self.root / ".env").read_text(encoding="utf-8"), before)
+        # It begins: they are saved
+        self.jobs.start.side_effect = None
+        playgrounds.start(self.project, "welcome", ["version:APIM"])
+        self.assertIn("APIM_VERSION=4.13.0-alpha.5\n", (self.root / ".env").read_text(encoding="utf-8"))
+
+    def test_a_refused_start_puts_back_every_env_its_versions_were_saved_to(self):
+        # The welcome's app and the add-on Kiosk run the same image, on one version variable: saved to both units' .env.
+        # A job began meanwhile, from another tab: the start is refused, and both files are what they were
+        self.patch(envfiles, "ROOT", self.root)
+        self.jobs.current = None
+        for name in ("hello-app", "kiosk"):
+            self.project["services"][name].update(raw_image="example/kiosk:${KIOSK_VERSION:-1.0.0}", tag="1.0.0",
+                                                   image="example/kiosk:1.0.0")
+        welcome = self.project["playgrounds"]["welcome"]
+        welcome["requires"] = {"images": {"KIOSK_VERSION": "2.0.0"}}
+        welcome["tested"] = [{"KIOSK_VERSION": "2.0.0"}]
+        self.patch(plugins, "install_steps", lambda project, product, names: ([], [], {}))
+        self.patch(playgrounds.projects, "load", return_value=self.project)
+        kiosk, mine = paths.unit_env("addon", "kiosk"), paths.unit_env("playground", "welcome")
+        self.write(kiosk, "# Kiosk\n")
+        self.write(mine, "# Welcome\n")
+        self.jobs.start.side_effect = RuntimeError("'Stop Kiosk' is still running")
+        with self.assertRaisesRegex(RuntimeError, "^'Stop Kiosk' is still running$"):
+            playgrounds.start(self.project, "welcome", ["version:KIOSK"])
+        self.assertEqual({path: (self.root / path).read_text(encoding="utf-8") for path in (kiosk, mine)},
+                         {kiosk: "# Kiosk\n", mine: "# Welcome\n"})
+
+    def kiosk_switch(self):
+        """The welcome's app and the add-on Kiosk run the same image, on one version variable, which its start switches:
+        saved to both units' .env. Answers the two files, as they are before the start."""
+        self.patch(envfiles, "ROOT", self.root)
+        self.jobs.current = None
+        for name in ("hello-app", "kiosk"):
+            self.project["services"][name].update(raw_image="example/kiosk:${KIOSK_VERSION:-1.0.0}", tag="1.0.0",
+                                                   image="example/kiosk:1.0.0")
+        welcome = self.project["playgrounds"]["welcome"]
+        welcome["requires"] = {"images": {"KIOSK_VERSION": "2.0.0"}}
+        welcome["tested"] = [{"KIOSK_VERSION": "2.0.0"}]
+        self.patch(plugins, "install_steps", lambda project, product, names: ([], [], {}))
+        kiosk, mine = paths.unit_env("addon", "kiosk"), paths.unit_env("playground", "welcome")
+        self.write(kiosk, "# Kiosk\n")
+        self.write(mine, "# Welcome\n")
+        return {kiosk: "# Kiosk\n", mine: "# Welcome\n"}
+
+    def test_a_start_whose_plan_read_an_on_file_written_since_saves_no_version(self):
+        # Another tab's job wrote the on file after this start's plan read it: refused at once, nothing written
+        before = self.kiosk_switch()
+        self.patch(playgrounds.projects, "load", return_value=self.project)
+        self.state = {**self.state, "stamp": "read by the plan"}
+        with self.assertRaisesRegex(RuntimeError, f"^{re.escape(layers.CHANGED)}$"):
+            playgrounds.start(self.project, "welcome", ["version:KIOSK"])
+        self.assertEqual({path: (self.root / path).read_text(encoding="utf-8") for path in before}, before)
+        self.jobs.start.assert_not_called()
+
+    def test_a_start_whose_job_ends_on_a_stale_plan_puts_back_the_versions_it_saved(self):
+        # Another tab's job writes the on file once this start saved its versions, before its job begins: the job ends
+        # on its first gate, having done nothing, and both files are what they were
+        before = self.kiosk_switch()
+        self.state = {**self.state, "stamp": layers.stamp()}
+
+        def meanwhile():
+            (self.root / paths.ON_FILE).parent.mkdir(exist_ok=True)
+            (self.root / paths.ON_FILE).write_text("include:\n  - addons/kiosk/compose.yml\n", encoding="utf-8")
+            return self.project
+        self.patch(playgrounds.projects, "load", side_effect=meanwhile)
+        playgrounds.start(self.project, "welcome", ["version:KIOSK"])
+        job, commands = ran(self.started(self.jobs)[1])
+        self.assertEqual((job.ok, job.error(), commands), (False, layers.CHANGED, []))
+        self.assertEqual({path: (self.root / path).read_text(encoding="utf-8") for path in before}, before)
+
+    def test_a_start_again_whose_job_ends_on_a_stale_plan_puts_back_the_versions_it_saved(self):
+        # The welcome is on and seeded: its start runs it again as an add-on's does (layers.apply), with the version
+        # switch all the same. Another tab's job writes the on file once this start saved its versions: the job ends on
+        # its first gate, and both files are what they were
+        before = self.kiosk_switch()
+        self.record("APIs")
+        self.state = {**on(self.project, playground="welcome"), "stamp": layers.stamp()}
+        jobs = self.patch(layers, "JOBS")
+
+        def meanwhile():
+            (self.root / paths.ON_FILE).parent.mkdir(exist_ok=True)
+            (self.root / paths.ON_FILE).write_text("include:\n  - addons/kiosk/compose.yml\n", encoding="utf-8")
+            return self.project
+        self.patch(playgrounds.projects, "load", side_effect=meanwhile)
+        playgrounds.start(self.project, "welcome", ["version:KIOSK"])
+        self.jobs.start.assert_not_called()
+        job, commands = ran(self.started(jobs)[1])
+        self.assertEqual((job.ok, job.error(), commands), (False, layers.CHANGED, []))
+        self.assertEqual({path: (self.root / path).read_text(encoding="utf-8") for path in before}, before)
+
+    def test_no_version_changes_while_a_job_runs_or_for_a_start_that_is_refused(self):
+        self.switching()
+        saved = self.patch(playgrounds.images, "save")
+        self.jobs.current = mock.Mock(done=False, title="Stop Kiosk")
+        with self.assertRaisesRegex(RuntimeError, "^'Stop Kiosk' is still running$"):
+            playgrounds.start(self.project, "welcome", ["version:APIM"])
+        # Asked to delete what the playground it replaces created, while what that seed needs does not run
+        self.jobs.current = None
+        with_cloud(self.project)
+        self.switching("hotels")
+        self.project["services"]["seed"]["depends_on"] = ["apim-management-api"]
+        self.state = on(self.project, ["kiosk"], "welcome")
+        self.containers = running("mongodb", "agent-lens", "hello-app", "kiosk")
+        self.patch(playgrounds, "created", lambda pid, place=None: [{"what": "APIs", "count": 1}] if pid == "welcome" else [])
+        with self.assertRaisesRegex(RuntimeError, "^Management API is not running$"):
+            playgrounds.start(self.project, "hotels", ["playground:welcome", "addon:agent-lens", "version:APIM"], remove=True)
+        saved.assert_not_called()
+        self.jobs.start.assert_not_called()
 
     def test_what_its_start_changes_is_done_for_you_at_start_and_not_a_line_that_needs_you(self):
         welcome, gateway = self.project["playgrounds"]["welcome"], self.project["services"]["apim-gateway"]
@@ -724,6 +987,84 @@ class Playgrounds(Case):
             job.exec = lambda cmd, quiet=False: job.lines.extend(printed)
             job.run()
             self.assertEqual((job.ok, job.error()), (False, error))
+
+    def test_a_seed_ended_from_outside_says_so_rather_than_where_it_was(self):
+        # Killed for its memory, or stopped (137, 143), it printed no ✗: its last line is only where it was
+        follow = playgrounds._follow_seed(self.project, self.project["playgrounds"]["welcome"])
+        for state, error in (("137 true", "The seed ran out of memory"), ("137 false", "The seed was stopped before it ended"),
+                             ("143 false", "The seed was stopped before it ended"), ("1 false", "[apim] Creating API Orders")):
+            self.patch(compose, "run", lambda cmd, **how: (0, f"{state}\n", ""))
+            job = Job("Test", [follow])
+            job.exec = lambda cmd, quiet=False: job.lines.append("[apim] Creating API Orders")
+            job.run()
+            self.assertEqual((job.ok, job.error()), (False, error), state)
+        self.assertEqual(playgrounds._seed_reason("[seed] ✗ No such store: hello", 137, True), "No such store: hello")
+
+    def canceling(self, word):
+        """Docker as a canceled job sees it: the seed's container still runs; the command that holds `word` is canceled
+        while it runs. Answers the commands run outside the job, and the function that runs the job's steps."""
+        outside = []
+
+        def run(cmd, **how):
+            outside.append(cmd)
+            if "{{.State.StartedAt}}" in cmd:
+                return 0, f"{STARTED}\n", ""
+            return (0, "c0ffee\n", "") if cmd[:3] == ["docker", "ps", "-q"] else (0, "143 false\n", "")
+        self.patch(compose, "run", run)
+
+        def go(steps, more=None):
+            job = Job("Test", steps, **(more or {}))
+
+            def command(cmd, quiet=False, env=None, shown=None):
+                if word in cmd:
+                    job.cancel()   # the person cancels while it runs: the command ends
+                    raise JobFailed("Failed with exit code 143")
+            job.exec = command
+            job.run()
+            return job
+        return outside, go
+
+    def test_a_job_canceled_while_its_seed_runs_stops_the_seed(self):
+        # Compose started it detached, or runs it apart: ending the job's command leaves it running, so it is stopped, by
+        # the labels Compose gives its containers
+        stop = ["docker", "stop", "c0ffee"]
+        asked = ["docker", "ps", "-q", "--filter", "label=com.docker.compose.project=gravitee", "--filter",
+                 "label=com.docker.compose.service=seed"]
+        self.state = on(self.project, playground="welcome")
+        for word, call in (("logs", lambda: playgrounds.reseed(self.project, "welcome")),
+                           ("--force-recreate", lambda: playgrounds.reseed(self.project, "welcome"))):
+            outside, go = self.canceling(word)
+            call()
+            title, steps, more = self.started(self.jobs)
+            job = go(steps, {"phases": more["phases"], "waits": more["waits"]})
+            self.assertEqual(job.error(), "Canceled", word)
+            self.assertIn(asked, outside, word)
+            self.assertIn(stop, outside, word)
+            self.assertIn("Stopping the seed", job.lines)
+        # The run of its delete too
+        outside, go = self.canceling("--remove")
+        self.containers = running(*CORE, "agent-lens", "hello-app")
+        self.record("APIs")
+        playgrounds.stop(self.project, "welcome", True, ["addon:agent-lens"])
+        job = go(self.started(self.jobs)[1])
+        self.assertEqual(job.error(), "Canceled")
+        self.assertIn(stop, outside)
+        # A seed that ends by itself is left alone
+        outside, go = self.canceling("never")
+        playgrounds.reseed(self.project, "welcome")
+        go(self.started(self.jobs)[1])
+        self.assertNotIn(stop, outside)
+
+    def test_a_seed_that_still_runs_is_not_seeded_again_nor_its_record_deleted(self):
+        # A job canceled while it seeded, whose seed could not be stopped: another run would race it on its record
+        self.state = on(self.project, playground="welcome")
+        self.containers = running(*CORE, "agent-lens", "hello-app", "seed")
+        self.record("APIs")
+        with self.assertRaisesRegex(RuntimeError, "^Seed is still running$"):
+            playgrounds.reseed(self.project, "welcome")
+        with self.assertRaisesRegex(RuntimeError, "^Seed is still running$"):
+            playgrounds.stop(self.project, "welcome", True, ["addon:agent-lens"])
+        self.jobs.start.assert_not_called()
 
     def test_reseed_waits_for_what_the_seed_needs(self):
         # The seed would wait for the management API, then fail: it is refused with the reason the page shows
@@ -801,7 +1142,7 @@ class Playgrounds(Case):
         job, commands = ran(steps)
         self.assertEqual(self.phases(job), ["Stop the apps"])
         self.assertEqual(self.written, [(None, ["kiosk"])])
-        self.assertEqual(commands, [[*COMPOSE, "-p", "gravitee", "rm", "--stop", "--force", "agent-lens",
+        self.assertEqual(commands, [[*COMPOSE, "-p", "gravitee", "rm", "--stop", "--force", "-v", "agent-lens",
                                      "hello-app"],
                                     [*COMPOSE, "up", "-d", "--no-deps", "apim-gateway"]])
         self.containers["seed"] = {"state": "exited", "exit_code": 0}
@@ -813,7 +1154,7 @@ class Playgrounds(Case):
         playgrounds.stop(self.project, "welcome", False, ["addon:agent-lens"])
         job, commands = ran(self.started(self.jobs)[1])
         self.assertEqual(self.phases(job), ["Stop the apps"])
-        self.assertEqual(commands, [[*COMPOSE, "-p", "gravitee", "rm", "--stop", "--force", "agent-lens",
+        self.assertEqual(commands, [[*COMPOSE, "-p", "gravitee", "rm", "--stop", "--force", "-v", "agent-lens",
                                      "hello-app"]])
         self.assertEqual(self.written, [(None, ["kiosk"])])
 
@@ -839,7 +1180,7 @@ class Playgrounds(Case):
         playgrounds.stop(self.project, "welcome", True, ["addon:agent-lens"])
         job = Job("Test", self.started(self.jobs)[1])
 
-        def failing(cmd, quiet=False):   # what exec does: the command's last line is the reason
+        def failing(cmd, quiet=False, env=None, shown=None):   # what exec does: the command's last line is the reason
             job.lines.append("[seed] ✗ Cannot reach the management API")
             raise JobFailed(job.lines[-1])
         job.exec = failing
@@ -928,7 +1269,7 @@ class Playgrounds(Case):
         _, steps, _ = self.started(self.jobs)
         ran(steps)
         write.assert_called_once_with("welcome", [], {"playgrounds/welcome/compose.yml": None, "addons/agent-lens/compose.yml": None},
-                                      blocked={"addons/jade/compose.yml": "Mounts the Docker socket"})
+                                      {}, blocked={"addons/jade/compose.yml": "Mounts the Docker socket"}, since=None)
         binds.assert_called_once()
         self.assertEqual(binds.call_args.args[1]["id"], "welcome")
 
@@ -948,12 +1289,6 @@ class Playgrounds(Case):
             with self.assertRaisesRegex(RuntimeError, "^Welcome changed on disk"):
                 playgrounds.start(self.project, "welcome", [])
         service.preflight.assert_called_once_with(self.project, [("playground", "welcome")])
-        self.jobs.start.assert_not_called()
-
-    def test_nothing_starts_while_the_layout_is_moving(self):
-        self.patch(layout, "waiting", return_value=True)
-        with self.assertRaisesRegex(RuntimeError, "^Your settings are being moved. Try again in a moment.$"):
-            playgrounds.start(self.project, "welcome", [])
         self.jobs.start.assert_not_called()
 
     def test_where_a_playground_comes_from_is_said_in_the_dialog_that_opens_for_another_reason(self):
@@ -1443,19 +1778,19 @@ class Deploying(Deploys):
         with self.assertRaisesRegex(ValueError, "cannot go to .*: Changes this machine's Management API"):
             playgrounds.deploy_unit(self.project, "addon", "kiosk", [], PLACE)
 
-    def test_what_the_playground_needs_of_the_platform_starts_first_with_what_it_depends_on(self):
-        # Access Management and its database run here: they start with their dependencies, then the apps and the
-        # gateway alone, as they did
+    def test_what_the_playground_needs_of_the_platform_starts_with_it_by_name(self):
+        # Access Management and its database run here: named with the apps and the gateway, as every start names what it
+        # starts, which Compose starts in the order of what each depends on, waiting for each to be ready
         self.project["services"]["hotels-api"]["depends_on"] = ["mongodb"]
         self.ready()
         self.deploy()
         job, calls = self.execute()
         self.assertTrue(job.ok, job.lines)
         commands = [command for command, _ in calls]
-        self.assertEqual(commands[0], [*COMPOSE, "up", "-d", "mongodb"])
-        self.assertEqual(commands[1], UP)
-        self.assertNotIn("mongodb", UP)
-        self.assertEqual(commands[2], seed())
+        self.assertEqual(commands, [[*COMPOSE, "up", "-d", "--no-deps", "apim-hybrid-gateway", "hotels-api", "hybrid-redis",
+                                     "mongodb"], seed()])
+        # Nothing it does not need: not the gateway of this machine, which the platform replaces
+        self.assertNotIn("apim-gateway", commands[0])
 
     def test_the_seed_runs_with_its_settings_by_name_and_their_values_in_its_environment_alone(self):
         self.ready()
@@ -1551,7 +1886,10 @@ class Deploying(Deploys):
         self.ready()
         self.deploy()
         self.execute()
-        self.assertEqual(write.call_args.kwargs, {"blocked": {}})
+        self.assertEqual(write.call_args.kwargs, {"blocked": {}, "since": None})
+        # Written for the platform's gateway: the playground and what it brings, not the add-on that runs that gateway
+        self.assertEqual(write.call_args.args[2:], ({"playgrounds/hotels/compose.yml": "cloud"},
+                                                    {"cloud": platforms.retarget_names(self.project, "cloud")}))
         binds.assert_called_once()
 
     def test_no_token_is_in_a_command_a_line_an_answer_or_a_record(self):
@@ -1654,7 +1992,7 @@ class Deploying(Deploys):
         job, calls = self.execute()
         self.assertTrue(job.ok, job.lines)
         self.assertIn("Stops: Demo apps, Kiosk", job.lines)
-        self.assertEqual(calls[0][0], [*compose.by_name(), "rm", "--stop", "--force", "demo-app", "kiosk"])
+        self.assertEqual(calls[0][0], [*compose.by_name(), "rm", "--stop", "--force", "-v", "demo-app", "kiosk"])
 
     # --- Nothing of the core -----------------------------------------------------------------------------------------
 
@@ -1727,6 +2065,43 @@ class Deploying(Deploys):
         self.deploy()
         job, calls = self.execute()
         self.assertEqual((job.ok, job.error(), calls, self.written), (False, "Its token is not kept here", [], []))
+
+    def test_a_unit_s_deploy_gives_the_gateway_this_place_s_token_once_what_goes_is_removed(self):
+        # deploy_unit: Redpanda cannot run with Kafka, which is on and runs: the deploy removes Kafka, then the gateway
+        # takes this place's token, then the on file is written and Compose starts what it names
+        self.project["addons"]["redpanda"]["deploys_to"] = ["cloud"]
+        self.ready()
+        order = []
+        self.patch(platforms, "swap_gateway", lambda *args: order.append("swap"))
+        envfiles.write(ADDON_ENV, {"HYBRID_CLOUD_TOKEN": None})
+        self.state, self.containers = on(self.project, ["kafka"]), running("kafka", "kafka-ui")
+        playgrounds.deploy_unit(self.project, "addon", "redpanda", ["addon:kafka"], PLACE)
+        job, calls = self.execute(seen=lambda command, options: order.append("rm" if "rm" in command else "up"))
+        self.assertEqual(order[:3], ["rm", "swap", "up"], (order, job.lines))
+
+    def test_a_deploy_whose_removal_fails_leaves_the_token_the_gateway_holds(self):
+        # The add-on holds no token of this place's gateway; what the deploy also stops cannot be removed: the job changed
+        # nothing
+        self.ready()
+        swap = self.patch(platforms, "swap_gateway")
+        envfiles.write(ADDON_ENV, {"HYBRID_CLOUD_TOKEN": None})
+        self.state, self.containers = on(self.project, playground="demo"), running("demo-app", "kiosk")
+        self.deploy(accept=["playground:demo", "addon:kiosk"])
+        job, calls = self.execute({"rm": (["Error response from daemon: cannot stop container"], 1)})
+        self.assertEqual((job.ok, [command for command, _ in calls], self.written),
+                         (False, [[*compose.by_name(), "rm", "--stop", "--force", "-v", "demo-app", "kiosk"]], []))
+        swap.assert_not_called()
+
+    def test_a_deploy_whose_on_file_changed_since_its_plan_does_not_change_the_gateways_token(self):
+        # Another tab turned something on meanwhile: the job ends before anything changes, the token included
+        self.ready()
+        swap = self.patch(platforms, "swap_gateway")
+        envfiles.write(ADDON_ENV, {"HYBRID_CLOUD_TOKEN": None})
+        self.state = {**self.state, "stamp": "read by the plan"}   # the on file is not that any more
+        self.deploy()
+        job, calls = self.execute()
+        self.assertEqual((job.ok, job.error(), calls), (False, layers.CHANGED, []))
+        swap.assert_not_called()
 
     def test_the_job_waits_for_the_platform_to_say_the_gateway_is_connected(self):
         self.ready()
@@ -1826,6 +2201,14 @@ class Deploying(Deploys):
         job, _ = self.execute({"run": ([], 3)})
         self.assertEqual((job.ok, job.error()), (False, "Failed with exit code 3"))
 
+    def test_a_seed_apart_ended_from_outside_says_so_rather_than_where_it_was(self):
+        # `compose run` exits with its container's code: killed (137) or stopped (143), the seed printed no ✗
+        self.ready()
+        for code in (137, 143):
+            self.deploy()
+            job, _ = self.execute({"run": (["[seed] Seeding", "[apim] Creating API Orders"], code)})
+            self.assertEqual((job.ok, job.error()), (False, "The seed was stopped before it ended"), code)
+
     def test_a_cloud_token_that_expired_since_the_request_fails_the_job_in_plain_words(self):
         self.ready()
         self.deploy()
@@ -1915,7 +2298,7 @@ class Deleting(Deploys):
         self.assertEqual([call[1]["env"]["APIM_ENV"] for call in calls[1:3]], [DEV, TEST])
         self.assertIn(f"Deletes from {DEVELOPMENT}", job.lines)
         self.assertIn(f"Deletes from {TEST_ENVIRONMENT}", job.lines)
-        self.assertEqual(commands[3], [*compose.by_name(), "rm", "--stop", "--force", "hotels-api"])
+        self.assertEqual(commands[3], [*compose.by_name(), "rm", "--stop", "--force", "-v", "hotels-api"])
         self.assertNoSecret(job.lines, commands, job.summary())
 
     def test_a_stop_is_refused_with_the_reason_of_the_first_place_that_cannot_be_reached(self):
@@ -1981,6 +2364,26 @@ class Deleting(Deploys):
                          (False, "Gravitee Cloud refuses this token", 1, []))
         self.assertEqual(playgrounds.created("hotels", PLACE), [{"what": "APIs", "count": 1}])
 
+    def test_a_stop_that_deletes_from_a_place_is_refused_while_an_entry_of_the_on_file_is_gone(self):
+        # A personal add-on that is on had its folder deleted outside the Lab (unread). The seed run apart on a place names
+        # no file: Compose reads the core and the on file, and would fail on the gone entry
+        gone = "addons/local/x/compose.yml does not exist"
+        self.ready()
+        self.record(None, "APIs")
+        self.record(PLACE, "APIs")
+        self.on(*self.core)
+        self.state = {**self.state, "unread": gone}
+        with self.assertRaisesRegex(RuntimeError, f"^{re.escape(gone)}$"):
+            playgrounds.stop(self.project, "hotels", True, [])
+        self.jobs.start.assert_not_called()
+        self.assertEqual(self.written, [])
+        # Without deleting, or with a record on This machine alone, whose delete names its files, the stop goes
+        playgrounds.stop(self.project, "hotels", False, [])
+        self.assertEqual(self.jobs.start.call_count, 1)
+        self.record(PLACE).unlink()
+        playgrounds.stop(self.project, "hotels", True, [])
+        self.assertEqual(self.jobs.start.call_count, 2)
+
     # --- One place --------------------------------------------------------------------------------------------------
 
     def test_delete_place_deletes_what_the_seed_created_in_that_place_only(self):
@@ -2011,6 +2414,46 @@ class Deleting(Deploys):
         job, _ = self.execute({"--remove": (["[seed] ✗ Cloud does not answer"], 1)})
         self.assertEqual((job.ok, job.error()), (False, "Cloud does not answer"))
         self.assertEqual(playgrounds.created("hotels", PLACE), [{"what": "APIs", "count": 1}])
+
+    def test_a_delete_ended_from_outside_says_so_rather_than_where_it_was(self):
+        self.ready()
+        self.record(PLACE, "APIs")
+        self.on()
+        playgrounds.delete_place(self.project, "hotels", PLACE)
+        job, _ = self.execute({"--remove": (["[seed] Deleting", "[apim] Deleting API Orders"], 137)})
+        self.assertEqual((job.ok, job.error()), (False, "The seed was stopped before it ended"))
+
+    def test_a_delete_here_ended_from_outside_says_so_rather_than_where_it_was(self):
+        self.record(None, "APIs")
+        self.on(*self.core)
+        playgrounds.stop(self.project, "hotels", True, [])
+        job, calls = self.execute({"--remove": (["[seed] Deleting", "[apim] Deleting API Orders"], 137)})
+        self.assertIn("--rm", calls[0][0])
+        self.assertEqual((job.ok, job.error()), (False, "The seed was stopped before it ended"))
+
+    def test_the_delete_here_is_said_as_it_is_typed_in_the_folder(self):
+        # It runs with the include file the Lab writes for the playground's own file, outside the project: its line is the
+        # command a person types in the folder, where the on file names the playground, and names no file of the Lab
+        self.record(None, "APIs")
+        self.on(*self.core)
+        playgrounds.stop(self.project, "hotels", True, [])
+        job, calls = self.execute()
+        self.assertTrue(job.ok, job.lines)
+        self.assertTrue(removes(calls[0][0], "hotels-seed"), calls[0][0])
+        self.assertIn(str(compose.scratch()), " ".join(calls[0][0]))
+        self.assertIn(f"$ {' '.join(COMPOSE)} run --rm --no-deps --pull=missing hotels-seed --remove", job.lines)
+        self.assertNotIn(str(compose.scratch()), "\n".join(job.lines))
+
+    def test_the_delete_here_does_not_warn_of_what_else_is_on_as_orphans(self):
+        # It loads the core and the playground's own file alone: an add-on that is on would be orphan containers to
+        # Compose, which warns of them in a line of the job, with a flag the person must not use
+        self.record(None, "APIs")
+        self.on(*self.core)
+        playgrounds.stop(self.project, "hotels", True, [])
+        job, calls = self.execute()
+        self.assertTrue(job.ok, job.lines)
+        self.assertTrue(removes(calls[0][0], "hotels-seed"), calls[0][0])
+        self.assertEqual(calls[0][1]["env"]["COMPOSE_IGNORE_ORPHANS"], "true")
 
     def test_delete_place_is_refused_in_words(self):
         self.ready()

@@ -4,17 +4,22 @@ a playground declares (frames.py) are ever asked for."""
 
 import http.client
 import re
+import socket
+import ssl
 import threading
 import time
 from urllib.parse import urljoin, urlsplit
 
-from ..gravitee import frames
+from . import frames
 
 TTL = 4            # seconds an answer is kept: the page asks again while a notice shows
 TIMEOUT = 3        # seconds a UI has to answer
 REDIRECTS = 2      # a UI that sends the page further than this does not answer
 MOVED = (301, 302, 303, 307, 308)
 NOT_ANSWERING = (502, 503, 504)   # what a proxy says while what is behind it is not there
+# What a look says of a UI that does not answer, besides the words of the network (_why)
+TOO_FAR, NOWHERE = "Too many redirects", "Sends the page to what is no web address"
+UNTRUSTED = "Its certificate is not trusted"
 DEFAULT_PORT = {**frames.PORTS, "ws": 80, "wss": 443}   # the schemes a source of frame-ancestors can name
 NETWORK = tuple(DEFAULT_PORT) + ("ftp",)   # the schemes a `*` source stands for
 UPGRADES = {"http": ("https",), "ws": ("wss", "http", "https"), "wss": ("https",)}   # also allowed, as in CSP 3
@@ -102,9 +107,9 @@ def _get(url):
             parts = urlsplit(url)
             port = parts.port
         except ValueError as error:   # a port out of range, a bracket left open
-            raise OSError(str(error)) from error
+            raise OSError(NOWHERE) from error
         if parts.scheme not in ("http", "https") or not parts.hostname:
-            raise OSError(f"Not an address to ask: {url}")
+            raise OSError(NOWHERE)
         connect = http.client.HTTPSConnection if parts.scheme == "https" else http.client.HTTPConnection
         connection = connect(parts.hostname, port, timeout=TIMEOUT)
         try:
@@ -118,24 +123,37 @@ def _get(url):
             connection.close()
         if status in MOVED and headers.get("Location"):
             if hops == REDIRECTS:
-                raise OSError("Too many redirects")
+                raise OSError(TOO_FAR)
             try:
                 url = urljoin(url, headers["Location"])
             except ValueError as error:   # an address that is none: a bracket left open
-                raise OSError(str(error)) from error
+                raise OSError(NOWHERE) from error
             hops += 1
             continue
         return status, url, headers
 
 
+def _why(error):
+    """Why a UI did not answer, in the words of its tooltip: "" when there is nothing to add to "Does not answer"."""
+    if isinstance(error, ConnectionRefusedError):
+        return "Not listening yet"
+    if isinstance(error, (socket.timeout, TimeoutError)):
+        return f"No answer within {TIMEOUT:g} s"
+    return str(error) if str(error) in (TOO_FAR, NOWHERE) else ""
+
+
 def look(url, page):
-    """What a UI is for the page: {answers, frameable, reason}. One that does not answer is not judged."""
+    """What a UI is for the page: {answers, frameable, reason}, the reason in a person's words. One that does not answer is
+    not judged; one whose certificate this machine does not trust answers, and is not shown here: a new tab lets the person
+    decide."""
     try:
         status, final, headers = _get(url)
+    except ssl.SSLCertVerificationError:
+        return {"answers": True, "frameable": False, "reason": UNTRUSTED}
     except OSError as error:
-        return {"answers": False, "frameable": False, "reason": str(error)}
+        return {"answers": False, "frameable": False, "reason": _why(error)}
     if status in NOT_ANSWERING:
-        return {"answers": False, "frameable": False, "reason": f"{status}"}
+        return {"answers": False, "frameable": False, "reason": "Not ready yet"}
     frameable, reason = can_frame(final, page, headers.get_all("Content-Security-Policy") or [],
                                   headers.get_all("X-Frame-Options") or [])
     return {"answers": True, "frameable": frameable, "reason": reason}

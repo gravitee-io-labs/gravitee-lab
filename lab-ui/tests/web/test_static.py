@@ -8,16 +8,13 @@ import ast
 import http.client
 import itertools
 import json
-import os
 import re
 import shutil
 import subprocess
-import tempfile
 import threading
 import unittest
 from http.server import ThreadingHTTPServer
 from pathlib import Path
-from unittest import mock
 
 from lab_ui.server import api
 
@@ -177,45 +174,6 @@ class Agreements(Case):
         for case in cases:
             with self.subTest(case["about"]):
                 self.assertEqual(contribute._cannot_run(case["unit"]), case["why"])
-
-
-    def test_the_rows_of_the_notice_of_the_move_are_the_ones_the_server_says(self):
-        """The notice "Lab updated" draws the rows of the server in their order: its list of keys is the server's own
-        (layout.ROWS, and Settings, the one row of a move that waits), so that a row the server adds is not left to the end by a page that
-        never heard of it."""
-        from lab_ui.library import layout
-        found = re.search(r"^const ORDER = \[([^\]]*)\];", (WEB / "js" / "dialogs" / "layout.js").read_text(), re.M)
-        self.assertIsNotNone(found)
-        order = re.findall(r'"(\w+)"', found[1])
-        self.assertEqual(sorted(order), sorted([*layout.ROWS, "settings"]))
-        self.assertEqual(order, ["settings", "personal", "kept", "turned_off", "restart", "not_moved"], "the order of the rows of the notice")
-
-
-    def test_the_notice_the_page_draws_is_what_the_status_of_the_layout_says(self):
-        """The three statuses of the layout, as layout.status() writes them (a move that is done and left something to say, one that waits,
-        one that failed), are the file tests/js/layout-status.json, which layout.test.mjs draws: a key or a word that the server renames
-        is found here, not by a person who sees a notice with nothing in it. WRITE_LAYOUT_STATUS=1 writes the file again."""
-        from lab_ui.library import layout
-        from lab_ui import paths
-        report = {"moved": ["addon:echo", "playground:shop"], "personal": [], "promoted": ["playground:local/scratch"], "kept": ["addon:local/ledger"],
-                  "left": ["path:addons/README.md"], "held": [], "turned_off": ["addon:old-demo"], "problems": []}
-        found = {}
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            (root / ".lab" / "migration").mkdir(parents=True)
-            with mock.patch.object(paths, "ROOT", root):
-                (root / layout.MARKER).write_text(json.dumps({"migrated": "2026-10-17T10:00:00Z"}))
-                (root / layout.REPORT).write_text(json.dumps({"report": report}))
-                found["ready"] = layout.status()
-                found["restart"] = layout.restart_row(found["ready"]["notice"], {"addon:echo"})   # the row the state adds, from what runs and is late
-                (root / layout.MARKER).unlink()
-                for phase in ("waiting", "failed"):
-                    with mock.patch.object(layout, "_phase", return_value=phase):
-                        found[phase] = layout.status()
-        golden = LAB_UI / "tests" / "web" / "js" / "layout-status.json"
-        if os.environ.get("WRITE_LAYOUT_STATUS"):
-            golden.write_text(json.dumps(found, indent=1) + "\n")
-        self.assertEqual(json.loads(golden.read_text()), found)
 
 
 class Files(Case):

@@ -870,7 +870,7 @@ p.panel-row { padding-block: 9px; }
 .job-group-note { font-variant-numeric: tabular-nums; font-weight: var(--fw-1); }
 .job-step { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 3px 16px; }
 .job-step .job-state { width: 10px; height: 10px; }
-.job-step .job-state:is(.ok, .failed, .warn) { width: 8px; height: 8px; justify-self: center; }
+.job-step .job-state:is(.ok, .failed, .warn, .idle) { width: 8px; height: 8px; justify-self: center; }
 .job-step-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .job-step-status { font-size: var(--fs-1); color: var(--muted); white-space: nowrap; }
 /* An image on its way down: its bar, its percentage and its bytes, in columns that do not move as the numbers change */

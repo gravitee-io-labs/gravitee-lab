@@ -3,13 +3,14 @@ how far a job is: from what each stage waits for, known before it begins, moved 
 what Docker says of the containers. Nothing is run: a command prints lines taken from real output, and Docker is a
 fixture that follows them. Then "Start the stack" replayed as Compose printed it."""
 
+import sys
 import threading
 import time
 import unittest
 from unittest import mock
 
 from lab_ui.docker import compose, jobs
-from lab_ui.library import model
+from lab_ui.library import model, plugins
 from lab_ui import paths
 from lab_ui.server import stack
 from lab_ui.docker.jobs import KEPT, Job, JobFailed, Jobs, awaited
@@ -28,7 +29,7 @@ def ended(title, ok, key=None, **changes):
 
 def prepull(cmd):
     """Whether a command is the pull that comes before an `up`: it prints nothing here, the images are there."""
-    return "--ignore-pull-failures" in cmd
+    return "pull" in cmd and "--policy" in cmd
 
 
 def replay(job, *outputs, code=0, refresh=None):
@@ -201,6 +202,173 @@ class Running(Case):
         job, ran = Job("Plugins", []), []
         job.run_steps([lambda job: ran.append(1), lambda job: job.cancel(), lambda job: ran.append(3)])
         self.assertEqual(ran, [1])
+
+
+# How long a test waits for a job whose command it ends: the command gets a termination, then a kill GRACE seconds later
+# (compose.end). A runner under load may need the kill, and a command the job never ended sleeps for minutes
+ENDED = compose.GRACE + 10
+
+
+def waited(done, seconds=10):
+    """Whether `done()` comes true within a few seconds."""
+    deadline = time.monotonic() + seconds
+    while not done() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    return done()
+
+
+class Cut(Case):
+    """A job does not wait for ever: a command that prints nothing for long is ended, and so is one that waits for a
+    container Docker says keeps restarting. Real commands run, in a session of their own."""
+
+    def run_job(self, step):
+        """A job of one step, a shell script or a function, run in a thread. The output of each command it ran is closed
+        once the test ends."""
+        job = Job("Start Acme Shop", [["sh", "-c", step] if isinstance(step, str) else step], key="addon:acme-shop",
+                  verb="start")
+        spawned, spawn = [], compose.spawn
+        self.patch(compose, "spawn", lambda *args, **how: spawned.append(spawn(*args, **how)) or spawned[-1])
+        thread = threading.Thread(target=job.run)
+        thread.start()
+        self.addCleanup(lambda: (job.cancel(), thread.join(10), [process.stdout.close() for process in spawned]))
+        return job, thread
+
+    def test_a_command_runs_in_the_project_folder_in_a_session_of_its_own(self):
+        # Where the project is (a `git` or a `make` of an update acts there), out of reach of the Lab UI's own signals
+        self.folder(paths)
+        job = Job("Update", [[sys.executable, "-c", "import os; print(os.getcwd()); print(os.getsid(0) == os.getpid())"]],
+                  key="lab", verb="update")
+        job.run()
+        self.assertEqual((job.ok, job.lines[-2:]), (True, [str(self.root), "True"]))
+
+    def test_a_command_that_says_nothing_for_long_is_ended(self):
+        self.patch(jobs, "SILENT", 0.3)
+        self.patch(jobs, "WATCH", 0.05)
+        job, thread = self.run_job("echo pulling; exec sleep 600")
+        thread.join(ENDED)
+        self.assertFalse(thread.is_alive(), "the job still waits")
+        self.assertEqual((job.ok, job.lines[-2]), (False, "pulling"))
+        self.assertTrue(job.error().startswith("Stopped: nothing happened for"), job.error())
+
+    def test_a_command_that_waits_for_a_container_that_keeps_restarting_is_ended(self):
+        # Compose waits for its health, which does not come: Docker restarts it again and again, its health check starts
+        # over. Once in an issue for STUCK seconds as Docker says it, the command is ended with that reason
+        job, thread = self.run_job('echo " Container gio-mongodb Waiting "; exec sleep 600')
+        self.assertTrue(waited(lambda: job.detail() == "Container gio-mongodb Waiting"))
+        began = time.monotonic()
+        job.observe({"gio-mongodb": "issue", "gio-redis": "issue"}, began)
+        job.observe({"gio-mongodb": "issue"}, began + jobs.STUCK - 1)
+        self.assertIsNone(job._why)   # not yet
+        job.observe({"gio-mongodb": "issue"}, began + jobs.STUCK)
+        thread.join(ENDED)
+        self.assertFalse(thread.is_alive(), "the job still waits")
+        self.assertEqual((job.ok, job.error()), (False, "gio-mongodb keeps restarting"))
+
+    def test_only_an_issue_that_lasts_while_compose_waits_for_it_ends_the_command(self):
+        # One that got better meanwhile (ready) starts its time again; one Compose does not wait for is not the
+        # command's to end
+        job, thread = self.run_job('echo " Container gio-mongodb Waiting "; echo " Container gio-mongodb Healthy "; '
+                                   'echo " Container gio-redis Waiting "; exec sleep 600')
+        self.assertTrue(waited(lambda: job.detail() == "Container gio-redis Waiting"))
+        began = time.monotonic()
+        for at, step in ((0, "issue"), (jobs.STUCK / 2, "ready"), (jobs.STUCK, "issue"), (jobs.STUCK * 1.4, "issue")):
+            job.observe({"gio-mongodb": "issue", "gio-redis": step}, began + at)
+        self.assertIsNone(job._why)   # nothing ended it
+        job.cancel()
+        thread.join(ENDED)
+        self.assertEqual(job.error(), "Canceled")
+
+    def test_one_that_restarted_while_it_warmed_up_and_runs_since_is_not_ended(self):
+        # Docker started it again twice, then it ran: its health check runs on, out of the issue for good
+        job, thread = self.run_job('echo " Container gio-mongodb Waiting "; exec sleep 600')
+        self.assertTrue(waited(lambda: job.detail() == "Container gio-mongodb Waiting"))
+        began = time.monotonic()
+        for at in range(0, jobs.STUCK * 3, 3):
+            job.observe({"gio-mongodb": "issue" if at < compose.RESTART_WINDOW else "running"}, began + at)
+        self.assertIsNone(job._why)
+
+    def test_a_container_that_dies_90_s_into_each_start_is_said_to_keep_restarting(self):
+        # A JVM Compose waits for dies about 90 s into each start; Docker starts it again at once (its back-off resets
+        # after 10 s of uptime) and its health is starting again. The page asks every 3 s, Docker as compose._inspect
+        # reads it. The command is ended for that container, before the 15 min of silence end it
+        job, thread = self.run_job('echo " Container gio-mongodb Waiting "; exec sleep 600')
+        self.assertTrue(waited(lambda: job.detail() == "Container gio-mongodb Waiting"))
+        project, began, cut = {"services": services(("mongodb", False))}, time.monotonic(), None
+
+        def started(seconds_ago):
+            return time.strftime("%Y-%m-%dT%H:%M:%S.123456789Z", time.gmtime(time.time() - seconds_ago))
+        for at in range(0, jobs.SILENT, 3):
+            inspected = f"/gio-mongodb|false|{at // 90}|{started(at % 90)}||\n"
+            with mock.patch.object(compose, "run", return_value=(0, inspected, "")):
+                found = {"mongodb": {**container(health="starting"), **compose._inspect(["gio-mongodb"])["gio-mongodb"]}}
+            job.observe(model.container_steps(project, found), began + at)
+            if job._why:
+                cut = at
+                break
+        self.assertIsNotNone(cut, "only the 15 min of silence end it")
+        thread.join(ENDED)
+        self.assertEqual((job.ok, job.error()), (False, "gio-mongodb keeps restarting"))
+
+    # A step may go on once a command of its own was ended (plugins.up starts the next services anyway): the next
+    # command is ended as well when it says nothing for long, or waits for a container that keeps restarting
+
+    def test_a_command_after_one_that_was_ended_for_its_silence_is_ended_too(self):
+        self.patch(jobs, "SILENT", 0.3)
+        self.patch(jobs, "WATCH", 0.05)
+        caught = []
+
+        def step(job):
+            try:
+                job.exec(["sh", "-c", "exec sleep 600"])
+            except JobFailed as failed:
+                caught.append(str(failed))
+            job.exec(["sh", "-c", "exec sleep 600"])
+        job, thread = self.run_job(step)
+        thread.join(ENDED)
+        self.assertEqual(len(caught), 1, caught)
+        self.assertFalse(thread.is_alive(), "the second command still runs")
+        self.assertIs(job.ok, False)
+
+    def test_a_command_after_one_that_was_ended_on_a_container_in_an_issue_is_ended_too(self):
+        caught = []
+
+        def step(job):
+            try:
+                job.exec(["sh", "-c", 'echo " Container gio-hybrid Waiting "; exec sleep 600'])
+            except JobFailed as failed:
+                caught.append(str(failed))
+            job.exec(["sh", "-c", 'echo " Container gio-api Waiting "; exec sleep 600'])
+        job, thread = self.run_job(step)
+        for name in ("gio-hybrid", "gio-api"):
+            self.assertTrue(waited(lambda: job.detail() == f"Container {name} Waiting"))
+            began = time.monotonic()
+            job.observe({name: "issue"}, began)
+            job.observe({name: "issue"}, began + jobs.STUCK)
+        thread.join(ENDED)
+        self.assertFalse(thread.is_alive(), "the second command still waits for gio-api")
+        self.assertEqual((caught, job.ok, job.error()), (["gio-hybrid keeps restarting"], False, "gio-api keeps restarting"))
+
+    def test_plugins_up_is_not_left_to_wait_for_ever_once_its_first_wait_was_ended(self):
+        # The real step: one of the two is made, then waited for alone, a wait that says nothing; the other starts after
+        # it and says nothing either. The pulls before them have nothing to do
+        self.patch(jobs, "SILENT", 0.3)
+        self.patch(jobs, "WATCH", 0.05)
+        script = 'case " $* " in *" pull "*) exit 0;; *" --wait "*) exec sleep 600;; *" api "*) exit 0;; esac; exec sleep 600'
+        self.patch(plugins, "COMPOSE", ["sh", "-c", script, "compose"])
+
+        def service(container):
+            return {"container": container, "image": f"graviteeio/{container}:4", "label": container, "oneshot": False,
+                    "depends_on": [], "owner": {"kind": "platform", "id": "api-management", "name": "API"}}
+        product = {"name": "API Management", "folder": "plugins/apim", "lib": {},
+                   "services": {"api": "/opt/api/plugins", "hybrid": "/opt/h/plugins"}}
+        project = {"products": {"apim": product}, "services": {"api": service("gio-api"), "hybrid": service("gio-hybrid")}}
+        job, thread = self.run_job(lambda job: plugins.up(job, project, ["hybrid", "api"]))
+        thread.join(ENDED)
+        self.assertFalse(thread.is_alive(), "plugins.up still waits on the `up` of the rest")
+        self.assertEqual([line.split(" compose ")[-1] for line in job.lines if line.startswith("$")],
+                         ["up -d --no-deps api", "up -d --no-deps hybrid"])   # the wait in between is quiet, and was ended
+        self.assertIs(job.ok, False)
+        self.assertTrue(job.error().startswith("Stopped: nothing happened for"), job.error())
 
 
 UP = ["docker", "compose", "up", "-d"]
@@ -584,7 +752,11 @@ class Replay(Case):
         self.docker.observe(self.job)
         body = self.body()
         ready = sum(container["health"] == "healthy" for container in self.docker.containers.values())
-        self.curve.append({"job": self.job.progress, "platform": body["platform"]["progress"],
+        # While the job runs, the platform it is for is as far as the job, which comes beside the state (Job.live): the page
+        # reads it there
+        progress = body["platform"]["progress"]
+        self.curve.append({"job": self.job.progress, "beside": progress == "job",
+                           "platform": self.job.live()["progress"] if progress == "job" else progress,
                            "state": body["platform"]["state"]["key"], "ready": ready, "named": len(self.named),
                            "groups": [(group["progress"], group["state"]["key"])
                                       for group in body["platform"]["groups"]]})
@@ -604,9 +776,11 @@ class Replay(Case):
         self.assertEqual((self.job.ok, self.curve[returned - 1]["job"]), (True, 0.75))
         # All of it once every service is ready, and only then
         self.assertEqual([point["job"] == 1 for point in self.curve], [point["ready"] == 12 for point in self.curve])
-        # The platform's progress is the job's, while it runs and after, until the state says it runs
+        # The platform's progress is the job's, while it runs and after, until the state says it runs: beside the state while
+        # the job runs, in it once the job ended
         for point in self.curve[:-2]:
             self.assertEqual((point["platform"], point["state"]), (point["job"], "starting"))
+        self.assertEqual([point["beside"] for point in self.curve], [index < returned for index in range(len(self.curve))])
         self.assertEqual([(point["platform"], point["state"]) for point in self.curve[-2:]],
                          [(None, "running")] * 2)
         # A group is the mean of its containers while it starts: Databases runs long before the gateways, once Redis

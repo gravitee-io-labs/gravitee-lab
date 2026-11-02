@@ -121,7 +121,7 @@ export function itemButton(x) {
   const lacking = a.enabled && a.do === "start" ? barred(x) : "";
   const off = !a.enabled || !!lacking, tip = TURNS[a.label] ? ` data-tip="${TURNS[a.label]}"` : "";
   return actionButton({ key: `${x.kind}:${x.id}`, label: a.label, icon: glyph, cls: "act",
-    attrs: `data-act data-busy aria-label="${esc(`${a.label} ${x.name}`)}"${tip} ${off ? `aria-disabled="true" data-why="${esc(lacking || a.reason)}"` : ""}` });
+    attrs: `data-act data-busy${a.do === "start" ? "" : '="name"'} aria-label="${esc(`${a.label} ${x.name}`)}"${tip} ${off ? `aria-disabled="true" data-why="${esc(lacking || a.reason)}"` : ""}` });
 }
 
 // What a click on an item's Start or Stop does: a playground is stopped as it is on its page
@@ -487,9 +487,9 @@ function list(kind, title, noun) {
   }
 
   function more(x) {
-    // What the primary button waits for, Restart and Log in wait for too. While the Lab UI does not answer,
-    // nothing is asked of it: what the server allowed last waits with the rest.
-    const wait = store.wait(), offline = store.offline ? wait : "";
+    // What the primary button waits for, Restart and Log in wait for too, Restart as Compose runs it: by the project's name.
+    // While the Lab UI does not answer, nothing is asked of it: what the server allowed last waits with the rest.
+    const wait = store.wait(), byName = store.wait(true), offline = store.offline ? wait : "";
     const can = (action) => ({ disabled: !!offline || !action.enabled, reason: offline || action.reason });
     return [
       // The form is that of a setup: an add-on or a playground is changed in its file, and two copies of one could
@@ -510,7 +510,7 @@ function list(kind, title, noun) {
       ...runOn(x),
       x.services?.some(hasLogs) && { label: "Logs", onSelect: () => { selectLogs(x.services); router.go("#/logs"); } },
       // Its containers restart as they are, as from its group on the Stack: it stays on or off
-      kind === "addon" && x.up && { label: "Restart", disabled: !!wait, reason: wait,
+      kind === "addon" && x.up && { label: "Restart", disabled: !!byName, reason: byName,
         onSelect: () => runJob(() => api(`/api/addons/${x.id}/containers/restart`, {}), { key: `addon:${x.id}`, verb: "restart" }),
       },
       // What starts until its health check passes can be stopped meanwhile, from here: its button says Starting

@@ -1,7 +1,7 @@
 """The two parsers that read compose files as text: the include list and the variables with their comments. Then
 what `raw` and `ps` make of Docker's answers, the project's name while the core file does not load, where a script
 runs, and Docker's memory and the Lab UI's scratch folder. And what every command runs under: the environment it gets
-(no remote include, the core alone while the layout is waiting), the time it has and what happens to what it started
+(the core and what is on, no remote include), the time it has and what happens to what it started
 when that is up; and what a file written by someone else can make Compose do, tried with Compose itself where it is
 installed."""
 
@@ -17,11 +17,11 @@ import subprocess
 import sys
 import threading
 import time
-import types
 import unittest
 from pathlib import Path
 from unittest import mock
 
+from lab_ui import paths
 from lab_ui.docker import compose
 
 from .. import Case
@@ -32,7 +32,6 @@ DOCKER_CLI_SAYS = ("failed to connect to the docker API at unix:///var/run/docke
                    "and if the daemon is running: dial unix /var/run/docker.sock: connect: no such file or directory")
 
 LAB_UI = Path(compose.__file__).resolve().parents[2]   # the folder that holds the lab_ui package
-LAYOUT = "lab_ui.library.layout"
 GONE = "addons/gone/compose.yml"   # an include that this machine does not have
 FOREVER = 600   # seconds a command that must be ended would run for
 
@@ -95,13 +94,12 @@ class Includes(ProjectFolder):
                                 "  - ../../../setups/local/mine.yml\n  - ../../../addons/local/whoami/compose.yml\n")
         self.assertEqual(compose.includes(playground), ["setups/local/mine.yml", "addons/local/whoami/compose.yml"])
 
-    def test_a_list_on_one_line_is_read_only_by_a_caller_that_asks_and_a_copy_keeps_it_as_written(self):
+    def test_a_list_on_one_line_is_read_and_a_copy_keeps_it_as_written(self):
         self.write("b-x/compose.yml", "services:\n  bee:\n    image: alpine\n    pull_policy: ${B_PULL_POLICY:-missing}\n")
         self.write("c/compose.yml", "services:\n  cee:\n    image: alpine\n")
         line = "include: [../b-x/compose.yml, ../c/compose.yml]"
         path = self.write("a/compose.yml", f"{line}\nservices:\n  app:\n    image: alpine\n")
-        self.assertEqual(compose.includes(path), [], "what is written again is written from the lines of a list")
-        self.assertEqual(compose.includes(path, flow=True), ["b-x/compose.yml", "c/compose.yml"], "what is on reads them")
+        self.assertEqual(compose.includes(path), ["b-x/compose.yml", "c/compose.yml"])
         for skip in ((), ["c/compose.yml"]):
             with self.subTest(skip=skip), compose._readable(path, skip=skip) as (_, copies):
                 for copy, original in copies.items():
@@ -739,6 +737,15 @@ class Containers(Case):
                          {"kiosk": ("h1", "sha256:k"), "kafka": (None, None), "mail": (None, None)})
         self.assertNotIn("variable", found["kiosk"])   # not asked: not read
 
+    def test_a_container_that_restarted_while_what_it_needs_warmed_up_and_runs_since_is_stable(self):
+        # Two restarts while Kafka started, then up for two minutes: not one that keeps restarting
+        def started(seconds_ago):
+            return time.strftime("%Y-%m-%dT%H:%M:%S.123456789Z", time.gmtime(time.time() - seconds_ago))
+        lines = [{"Service": name, "State": "running", "Name": f"gio-{name}"} for name in ("kafka-ui", "kiosk")]
+        inspected = "\n".join([f"/gio-kafka-ui|false|2|{started(120)}||", f"/gio-kiosk|false|2|{started(15)}||"])
+        found = self.ps((0, "\n".join(map(json.dumps, lines)), ""), inspected=inspected)
+        self.assertEqual({name: c["restarts"] for name, c in found.items()}, {"kafka-ui": 0, "kiosk": 2})
+
     def test_a_container_that_never_started_has_no_restarts(self):
         line = {"Service": "kiosk", "State": "created", "Name": "gio-kiosk"}
         found = self.ps((0, json.dumps(line), ""), inspected="/gio-kiosk|false|0|0001-01-01T00:00:00Z||\n")
@@ -766,6 +773,15 @@ class Containers(Case):
         with self.assertRaises(compose.ComposeError) as raised:
             self.ps((1, "", "warning\nCannot connect to the Docker daemon\n"))
         self.assertEqual(str(raised.exception), "Cannot connect to the Docker daemon")
+
+    def test_a_docker_that_hangs_is_said_so_within_seconds(self):
+        # Its machine asleep, an update: every state's refresh would wait for it, the page showing what ran before
+        self.assertEqual(self.ps((124, "", "docker did not answer within 10 s"), call=compose.containers),
+                         ({}, "Docker did not answer within 10 s"))
+        with mock.patch.object(compose, "project_name", return_value="lab"), \
+                mock.patch.object(compose, "run", return_value=(124, "", "")) as run:
+            compose.containers()
+        self.assertEqual(run.call_args.kwargs["timeout"], 10)
 
     def test_containers_says_why_docker_did_not_answer(self):
         self.assertEqual(self.ps((1, "", "Cannot connect to the Docker daemon\n"), call=compose.containers),
@@ -828,12 +844,26 @@ class Saved(Case):
         with mock.patch.object(compose, "run", return_value=(0, listed, "")) as run:
             self.assertEqual(compose.image_ids(), {"mongo:8.3.11": "sha256:d731", "<none>:<none>": "sha256:0ld",
                                                    "graviteeio/am-gateway:4": "sha256:e633"})
-            compose.image_ids()   # kept for a moment
+            compose.image_ids()
         self.assertEqual(run.call_count, 1)
         self.assertIn("--no-trunc", run.call_args.args[0])
         compose.CACHE.drop("local:")   # a job ended: a pull may have moved a tag
         with mock.patch.object(compose, "run", return_value=(1, "", "Cannot connect to the Docker daemon")):
             self.assertIsNone(compose.image_ids())
+
+    def test_the_images_docker_holds_are_kept_a_minute(self):
+        # A state's refresh every few seconds does not list them each time: they change as a job ends, which drops them
+        compose.CACHE.drop("local:")
+        self.addCleanup(compose.CACHE.drop, "local:")
+        clock = [1000.0]
+        with mock.patch.object(compose.time, "monotonic", lambda: clock[0]), \
+                mock.patch.object(compose, "run", return_value=(0, "mongo:8 sha256:d731\n", "")) as run:
+            for clock[0] in (1000.0, 1030.0, 1059.0):
+                compose.image_ids()
+            self.assertEqual(run.call_count, 1)
+            clock[0] = 1061.0
+            compose.image_ids()
+            self.assertEqual(run.call_count, 2)
 
     def test_an_image_built_again_from_unchanged_sources_is_the_same_image(self):
         # Docker's image store gives each build its own id: the manifest the container was made from says what it runs
@@ -847,10 +877,18 @@ class Saved(Case):
         # Built from changed sources: another manifest
         with mock.patch.object(compose, "run", side_effect=[(0, made, ""), (0, "sha256:other\n", "")]):
             self.assertFalse(compose.same_image("gio-bakery-api", "sha256:newer", "sha256:old"))
-        # No manifest to compare (Docker's former image store, or the container is gone), or the image is not
-        # there: another id is another image, asked again next time
-        for answers in (((0, "null\n", ""),), ((1, "", "No such container"),),
-                        ((0, made, ""), (1, "", "No such image"))):
+        # No manifest to compare (Docker's former image store), or the image has none for that platform: another id is
+        # another image, kept as the rest, so that a state's refresh does not ask again
+        for answers in (((0, "null\n", ""),), ((0, made, ""), (1, "", "Error: No such image: sha256:gone"))):
+            compose._same.clear()
+            with mock.patch.object(compose, "run", side_effect=answers) as run:
+                self.assertFalse(compose.same_image("gio-bakery-api", "sha256:gone", "sha256:old"))
+                self.assertFalse(compose.same_image("gio-bakery-api", "sha256:gone", "sha256:old"))
+            self.assertEqual(run.call_count, len(answers))
+        # Docker did not answer, or the container is gone: not known, asked again next time
+        compose._same.clear()
+        for answers in (((1, "", "No such container"),), ((0, made, ""), (1, "", "Cannot connect to the Docker daemon")),
+                        ((124, "", "docker did not answer within 20 s"),)):
             with mock.patch.object(compose, "run", side_effect=answers):
                 self.assertFalse(compose.same_image("gio-bakery-api", "sha256:gone", "sha256:old"))
         self.assertNotIn(("sha256:gone", "sha256:old"), compose._same)
@@ -876,6 +914,26 @@ class Saved(Case):
 
 
 class Retargeted(ProjectFolder):
+
+    def test_a_service_is_named_again_as_a_service_and_as_a_host_never_in_a_path_or_an_image(self):
+        text = ("services:\n  apim-gateway:\n    image: graviteeio/apim-gateway:4.13.1\n    container_name: gio-apim-gateway\n"
+                "    volumes:\n      - ./apim-gateway/gravitee.yml:/opt/gravitee.yml\n      - apim-gateway/x.yml:/x\n"
+                "      - ./config/apim-gateway.yml:/y\n"
+                "  app:\n    image: apim-gateway:4.13\n    depends_on: [apim-gateway, mongodb]\n"
+                "    command: [\"TCP-LISTEN:9092\", \"TCP:apim-gateway:9092\"]\n"
+                "    environment:\n      GATEWAY_URL: http://apim-gateway:8082/mcp\n      AUTH_URL: http://me@apim-gateway/x\n"
+                "  seed:\n    depends_on:\n      apim-gateway:\n        condition: service_healthy\n")
+        found = compose.retarget(text, {"apim-gateway": "apim-hybrid-gateway"}).split("\n")
+        self.assertEqual([line.strip() for line in found if "hybrid" in line],
+                         ["apim-hybrid-gateway:", "depends_on: [apim-hybrid-gateway, mongodb]",
+                          'command: ["TCP-LISTEN:9092", "TCP:apim-hybrid-gateway:9092"]',
+                          "GATEWAY_URL: http://apim-hybrid-gateway:8082/mcp", "AUTH_URL: http://me@apim-hybrid-gateway/x",
+                          "apim-hybrid-gateway:"])
+        # The image and the binds are what the files say: a Cloud deploy changes the service, not what it runs or mounts
+        for kept in ("image: graviteeio/apim-gateway:4.13.1", "container_name: gio-apim-gateway",
+                     "- ./apim-gateway/gravitee.yml:/opt/gravitee.yml", "- apim-gateway/x.yml:/x", "- ./config/apim-gateway.yml:/y",
+                     "image: apim-gateway:4.13"):
+            self.assertIn(kept, [line.strip() for line in found])
 
     def test_a_copy_includes_copies_in_place_of_the_files(self):
         text = ("include:\n  - ../kafka/compose.yml   # what it needs\n  - path: ../mail/compose.yml\n"
@@ -923,11 +981,95 @@ class Shell(Case):
         self.assertEqual((answer, asked), ((1, "", "unzip: cannot find license-model.yml\n"), [self.EXEC]))
 
 
+class Kept(unittest.TestCase):
+    """The cache of what is slow to ask again."""
+
+    def test_asked_at_the_same_time_it_is_asked_once(self):
+        # Two pages' refreshes that both find nothing kept: one `config --hash`, not two
+        cache, calls, release = compose.Cache(), [], threading.Event()
+
+        def slow():
+            calls.append(1)
+            release.wait(5)
+            return {"mongodb": "h"}
+        answers = []
+        threads = [threading.Thread(target=lambda: answers.append(cache.get("config-hash:x", 300, slow)))
+                   for _ in range(3)]
+        for thread in threads:
+            thread.start()
+        deadline = time.monotonic() + 5
+        while not calls and time.monotonic() < deadline:
+            time.sleep(0.01)
+        time.sleep(0.05)   # the others ask meanwhile
+        release.set()
+        for thread in threads:
+            thread.join(5)
+        self.assertEqual((len(calls), answers), (1, [{"mongodb": "h"}] * 3))
+
+    def test_callers_that_wait_on_a_read_that_fails_each_get_its_failure_after_one_read(self):
+        # Docker hangs: the Welcome check, the state and a second tab ask docker:info at once, and `docker info` fails
+        # after its limit. Each caller has the failure after one read's time, not one read more than the caller before
+        cache, calls, waited, READ = compose.Cache(), [], [], 0.5
+
+        def failing():
+            calls.append(1)
+            time.sleep(READ)
+            raise compose.ComposeError("Docker does not answer")
+
+        def ask():
+            began = time.monotonic()
+            with self.assertRaises(compose.ComposeError):
+                cache.get("docker:info", 600, failing)
+            waited.append(time.monotonic() - began)
+        threads = [threading.Thread(target=ask) for _ in range(3)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(10)
+        self.assertLess(max(waited), READ * 1.6, f"fn ran {len(calls)} times, callers waited {sorted(waited)}")
+        self.assertEqual((len(waited), len(calls)), (3, 1))
+        # Not kept: the next caller asks again
+        self.assertEqual(cache.get("docker:info", 600, lambda: "29.7.2"), "29.7.2")
+
+    def test_a_failure_is_asked_again_and_an_answer_is_kept_for_its_time(self):
+        # What the read raises is not kept; any answer is, None and "" too (an answer that nothing lacks is one)
+        cache = compose.Cache()
+
+        def failing():
+            raise compose.ComposeError("Cannot connect to the Docker daemon")
+        with self.assertRaises(compose.ComposeError):
+            cache.get("version", 10, failing)
+        self.assertEqual(cache.get("version", 10, lambda: "29.7.2"), "29.7.2")
+        self.assertIsNone(cache.get("none", 10, lambda: None))
+        self.assertIsNone(cache.get("none", 10, lambda: "asked again"))
+        self.assertEqual(cache.get("version", 10, lambda: "asked again"), "29.7.2")
+        self.assertEqual(cache.get("version", 0, lambda: "asked again"), "asked again")
+        cache.drop("ver")
+        self.assertEqual(cache.get("version", 10, lambda: "dropped"), "dropped")
+
+    def test_what_is_kept_is_looked_at_without_waiting_for_a_read_under_way(self):
+        # The Dashboard looks for the latest versions while a background read asks the registry: it does not wait
+        cache, asking, release = compose.Cache(), threading.Event(), threading.Event()
+        cache.get("tags", 60, lambda: ["4.12.21"])
+        reader = threading.Thread(target=lambda: cache.get("latest", 60, lambda: (asking.set(), release.wait(5))[1]))
+        reader.start()
+        self.addCleanup(reader.join, 5)
+        self.addCleanup(release.set)
+        asking.wait(5)
+        began = time.monotonic()
+        self.assertEqual([cache.kept("latest", 60), cache.kept("tags", 60), cache.kept("tags", 0)],
+                         [None, ["4.12.21"], None])
+        self.assertLess(time.monotonic() - began, 1)
+        release.set()
+        reader.join(5)
+        self.assertTrue(cache.kept("latest", 60))
+
+
 class Docker(Case):
 
     def setUp(self):
-        compose.CACHE.drop("docker-memory")
-        self.addCleanup(compose.CACHE.drop, "docker-memory")
+        compose.CACHE.drop("docker:")
+        self.addCleanup(compose.CACHE.drop, "docker:")
 
     def test_its_memory_or_none_when_it_does_not_answer(self):
         with mock.patch.object(compose, "run", return_value=(1, "", "Cannot connect to the Docker daemon")):
@@ -935,6 +1077,72 @@ class Docker(Case):
         info = json.dumps({"ServerVersion": "29.7.2", "MemTotal": 8_000_000_000, "NCPU": 8})
         with mock.patch.object(compose, "run", return_value=(0, info, "")):
             self.assertEqual(compose.docker_memory(), 8_000_000_000)
+
+    def test_its_memory_is_kept_until_it_does_not_answer(self):
+        # It changes only as Docker starts again: a state's refresh does not ask for the whole of `docker info`
+        info = json.dumps({"ServerVersion": "29.7.2", "MemTotal": 8_000_000_000})
+        with mock.patch.object(compose, "run", return_value=(0, info, "")) as run:
+            for _ in range(3):
+                self.assertEqual(compose.docker_memory(), 8_000_000_000)
+        self.assertEqual(run.call_count, 1)
+        self.assertGreaterEqual(compose.INFO_TTL, 600)
+        with mock.patch.object(compose, "project_name", return_value="lab"), \
+                mock.patch.object(compose, "run", return_value=(1, "", "Cannot connect to the Docker daemon")):
+            self.assertEqual(compose.containers(), ({}, "Cannot connect to the Docker daemon"))
+        more = json.dumps({"ServerVersion": "29.7.2", "MemTotal": 16_000_000_000})
+        with mock.patch.object(compose, "run", return_value=(0, more, "")):
+            self.assertEqual(compose.docker_memory(), 16_000_000_000)   # started again with more
+
+    def test_what_it_says_of_itself_and_its_words_when_it_does_not_answer_which_are_not_kept(self):
+        down = json.dumps({"ServerVersion": "", "ServerErrors": ["Cannot connect to the Docker daemon at unix:///x"]})
+        info = json.dumps({"ServerVersion": "29.7.2", "OperatingSystem": "Docker Desktop", "NCPU": 6, "MemTotal": 8,
+                           "DockerRootDir": "/var/lib/docker"})
+        with mock.patch.object(compose, "run", return_value=(1, down, "")) as run:
+            with self.assertRaisesRegex(compose.ComposeError, "Cannot connect to the Docker daemon"):
+                compose.docker_info()
+            run.return_value = (1, "", "Client: x\nerror during connect: Get docker.sock: EOF\n")
+            with self.assertRaisesRegex(compose.ComposeError, "error during connect"):   # the last line it printed
+                compose.docker_info()
+            run.return_value = (127, "", "")
+            with self.assertRaisesRegex(compose.ComposeError, "Docker is not reachable"):
+                compose.docker_info()
+            run.return_value = (0, info, "")
+            self.assertEqual(compose.docker_info(), {"engine": "29.7.2", "os": "Docker Desktop", "cpus": 6, "memory": 8,
+                                                     "root": "/var/lib/docker"})
+            self.assertEqual(run.call_args.args[0], ["docker", "info", "--format", "{{json .}}"])
+        self.assertEqual(run.call_count, 4)
+
+    def test_the_version_of_its_compose_is_kept_a_minute_and_none_is_asked_again(self):
+        answers = {"version": (0, "v5.4.0\n", "")}
+        with mock.patch.object(compose, "run", side_effect=lambda command, **_: answers["version"]) as run:
+            self.assertEqual([compose.compose_version() for _ in range(3)], ["5.4.0"] * 3)
+            self.assertEqual((run.call_count, compose.DOCKER_TTL), (1, 60))
+            compose.CACHE.drop("docker:")
+            answers["version"] = (127, "", "[Errno 2] No such file or directory: 'docker'")
+            with self.assertRaisesRegex(compose.ComposeError, compose.NO_DOCKER):
+                compose.compose_version()
+            answers["version"] = (1, "", "docker: 'compose' is not a docker command")
+            with self.assertRaisesRegex(compose.ComposeError, "is not a docker command"):
+                compose.compose_version()
+            self.assertEqual(run.call_count, 3)   # a Compose that is not there is looked for again
+        with mock.patch.object(compose, "run", return_value=(0, "5.6.1\n", "")):
+            self.assertEqual(compose.compose_version(), "5.6.1")
+        with mock.patch.object(compose, "project_name", return_value="lab"), \
+                mock.patch.object(compose, "run", return_value=(1, "", "Cannot connect to the Docker daemon")):
+            compose.containers()   # Docker does not answer: an update may start it again with another Compose
+        with mock.patch.object(compose, "run", return_value=(0, "5.7.0\n", "")):
+            self.assertEqual(compose.compose_version(), "5.7.0")
+
+    def test_each_fact_docker_says_is_read_in_one_place(self):
+        # One reading of `docker info`, `docker compose version` and `docker images` that the state, the Dashboard, the check
+        # of the machine and the Images page share: a second one would see a change of Docker at another time. The CI's
+        # commands (catalogs/ci) run once and keep nothing
+        package = Path(compose.__file__).parents[1]
+        found = [f"{path.relative_to(package)}: {spelled}" for path in sorted(package.rglob("*.py"))
+                 if path != Path(compose.__file__) and path.relative_to(package).parts[:2] != ("catalogs", "ci")
+                 for spelled in ('"docker", "info"', '"compose", "version"', '"docker", "images"')
+                 if spelled in path.read_text(encoding="utf-8")]
+        self.assertEqual(found, [])
 
     def test_its_scratch_folder_is_private_and_kept_for_the_run(self):
         folder = compose.scratch()
@@ -949,20 +1157,7 @@ class Docker(Case):
 class Environment(Case):
     """What every command gets: the files Compose reads, and no remote include."""
 
-    def layout(self, waiting=None):
-        """The layout module replaced until the test ends: by one that says whether it is waiting, else (None) by no
-        module at all, as in a checkout that has not got one yet."""
-        module = None
-        if waiting is not None:
-            module = types.ModuleType(LAYOUT)
-            module.waiting = lambda: waiting
-        absent = object()
-        was = sys.modules.get(LAYOUT, absent)
-        sys.modules[LAYOUT] = module
-        self.addCleanup(lambda: sys.modules.pop(LAYOUT, None) if was is absent else sys.modules.update({LAYOUT: was}))
-
     def test_the_core_and_what_is_on_whatever_the_shell_says_and_no_remote_include(self):
-        self.layout(waiting=False)
         shell = {"COMPOSE_FILE": "other.yml", "COMPOSE_EXPERIMENTAL_GIT_REMOTE": "true",
                  "COMPOSE_EXPERIMENTAL_OCI_REMOTE": "true", "SHELL_KEEPS": "this"}
         with mock.patch.dict(os.environ, shell):
@@ -973,38 +1168,21 @@ class Environment(Case):
         self.assertEqual(found["SHELL_KEEPS"], "this")
 
     def test_the_flags_reach_every_command(self):
-        self.layout(waiting=False)
         with mock.patch.dict(os.environ, {"COMPOSE_EXPERIMENTAL_GIT_REMOTE": "true"}):
             answer = compose.run(["sh", "-c", 'printf "%s %s" "$COMPOSE_EXPERIMENTAL_GIT_REMOTE" '
                                               '"$COMPOSE_EXPERIMENTAL_OCI_REMOTE"'])
         self.assertEqual(answer, (0, "false false", ""))
 
-    def test_the_core_alone_while_the_layout_is_waiting(self):
-        self.layout(waiting=True)
+    def test_a_folder_of_the_layout_before_catalogs_changes_nothing_of_it(self):
+        # The engine knows one layout: such a folder is moved before the Lab works on it (layout.run), never read as one here
+        self.folder(compose, paths, files={paths.DEFAULT_FILE: '{"schema": 1, "catalogs": [{"id": "fixture"}]}\n',
+                                           paths.ON_FILE: "include:\n  - addons/kafka/compose.yml\n",
+                                           "addons/kafka/.env": "A=1\n"})
         with mock.patch.dict(os.environ, {"COMPOSE_FILE": "other.yml"}):
-            found = compose.environment()
-            answer = compose.run(["sh", "-c", 'printf "%s" "$COMPOSE_FILE"'])
-        self.assertEqual(found["COMPOSE_FILE"], "docker-compose.yml")
-        self.assertEqual(found["COMPOSE_EXPERIMENTAL_GIT_REMOTE"], "false")   # in every phase
-        self.assertEqual(answer, (0, "docker-compose.yml", ""))
-
-    def test_the_core_and_what_is_on_once_the_layout_is_not_waiting(self):
-        self.layout(waiting=False)
-        self.assertEqual(compose.environment()["COMPOSE_FILE"], compose.COMPOSE_FILE)
-
-    def test_a_checkout_without_the_layout_is_not_waiting(self):
-        self.layout(None)
-        self.assertEqual(compose.environment()["COMPOSE_FILE"], compose.COMPOSE_FILE)
-
-    def test_a_module_that_the_layout_needs_and_is_missing_is_a_fault_to_see(self):
-        modules = self.patch(compose, "importlib")
-        modules.import_module.side_effect = ModuleNotFoundError("No module named 'tomllib'", name="tomllib")
-        with self.assertRaisesRegex(ModuleNotFoundError, "tomllib"):
-            compose.environment()
+            self.assertEqual(compose.run(["sh", "-c", 'printf "%s" "$COMPOSE_FILE"']), (0, compose.COMPOSE_FILE, ""))
 
     def test_a_command_gets_the_environment_it_is_given_in_place_of_the_shells(self):
         # scrubbed_environment() and build_environment() are given whole: nothing of the shell stays under them
-        self.layout(waiting=False)
         given = {"PATH": os.environ["PATH"], "ONLY_THIS": "yes"}
         show = 'printf "%s|%s|%s|%s" "$ONLY_THIS" "$SHELL_KEEPS" "$SOME_API_TOKEN" "$COMPOSE_EXPERIMENTAL_GIT_REMOTE"'
         with mock.patch.dict(os.environ, {"SHELL_KEEPS": "this", "SOME_API_TOKEN": "secret-value"}):
@@ -1016,28 +1194,14 @@ class Environment(Case):
                              env={"A": "2", "B": "3"})
         self.assertEqual(answer, (0, "2 3", ""))
 
-    def test_an_environment_given_does_not_ask_the_layout(self):
-        # environment() reads the layout of the machine; a scrubbed environment has nothing to do with it
-        modules = self.patch(compose, "importlib")
-        modules.import_module.side_effect = AssertionError("asked the layout")
-        self.assertEqual(compose.run(["sh", "-c", "printf ok"], environ={"PATH": os.environ["PATH"]}), (0, "ok", ""))
 
-
-class Run(Case):
-    """A command that does not finish in time is ended with everything it started, and so is one that the Lab UI leaves
-    behind: Compose is a plugin that the Docker CLI starts, and ending the CLI alone leaves it running."""
+class Commands(Case):
+    """A command of a test records the id of a process it started (`self.record`), which the test then finds."""
 
     def setUp(self):
         self.folder()
         self.pidfile = self.root / "child.pid"
         self.record = f"echo $$ > {shlex.quote(str(self.pidfile))}"
-
-    def test_a_command_is_told_the_folder_it_runs_in_whatever_environment_it_gets(self):
-        """$PWD is what Compose spells its paths from: two environments (the Lab's, the scrubbed one) must not spell them two ways."""
-        for environ in (None, {"PATH": os.environ["PATH"], "PWD": "/somewhere/else"}):
-            with self.subTest(environ=environ):
-                code, out, _ = compose.run(["sh", "-c", 'printf %s "$PWD"'], cwd=str(self.root), environ=environ)
-                self.assertEqual((code, out), (0, str(self.root)))
 
     def started(self):
         """Waits for the command to record the id of a process it started."""
@@ -1051,6 +1215,18 @@ class Run(Case):
         pid = int(self.pidfile.read_text(encoding="utf-8"))
         self.addCleanup(lambda: alive(pid) and os.kill(pid, 9))
         return pid
+
+
+class Run(Commands):
+    """A command that does not finish in time is ended with everything it started, and so is one that the Lab UI leaves
+    behind: Compose is a plugin that the Docker CLI starts, and ending the CLI alone leaves it running."""
+
+    def test_a_command_is_told_the_folder_it_runs_in_whatever_environment_it_gets(self):
+        """$PWD is what Compose spells its paths from: two environments (the Lab's, the scrubbed one) must not spell them two ways."""
+        for environ in (None, {"PATH": os.environ["PATH"], "PWD": "/somewhere/else"}):
+            with self.subTest(environ=environ):
+                code, out, _ = compose.run(["sh", "-c", 'printf %s "$PWD"'], cwd=str(self.root), environ=environ)
+                self.assertEqual((code, out), (0, str(self.root)))
 
     def test_it_answers_its_code_and_what_it_printed(self):
         self.assertEqual(compose.run(["sh", "-c", "echo out; echo err >&2; exit 3"]), (3, "out\n", "err\n"))
@@ -1104,11 +1280,29 @@ class Run(Case):
         self.assertNotEqual(answered[0][0], 0)
         self.assertTrue(settled(lambda: not alive(pid)))
 
+    def test_what_is_no_process_of_its_own_is_never_signalled(self):
+        # A pid that is not one of its commands' groups: 0 is this process's own group, 1 the machine's first, and a fake
+        # process left by a test has none. Its group would be killed whole as this process exits
+        for pid in (0, 1, mock.MagicMock(), None):
+            with self.subTest(pid=pid), mock.patch.object(compose.os, "killpg") as killpg:
+                process = mock.Mock(pid=pid)
+                compose._stop(process)
+                compose.end(process)
+                killpg.assert_not_called()
+                process.kill.assert_not_called()
+
+    def test_a_signal_ends_what_another_module_runs_too(self):
+        # Git's commands (gitx.stop_running), which this module does not know: what starts the Lab UI hands their end over
+        handlers, ended = {}, []
+        with mock.patch.object(compose.signal, "getsignal", return_value=signal.SIG_DFL), \
+                mock.patch.object(compose.signal, "signal", side_effect=lambda number, handler: handlers.setdefault(number, handler)), \
+                mock.patch.object(compose.signal, "raise_signal"), mock.patch.object(compose, "_end", lambda: ended.append("compose")):
+            compose.stop_on_signals(lambda: ended.append("git"))
+            handlers[signal.SIGTERM](signal.SIGTERM, None)
+        self.assertEqual(ended, ["compose", "git"])
+
     def test_the_exit_function_ends_what_runs_and_nothing_is_started_after_it(self):
         self.patch(compose, "_ending", False)
-        git = sys.modules.get("lab_ui.catalogs.gitx")   # _end ends its commands too, and leaves it ending for the rest of the run
-        if git is not None:
-            self.patch(git, "_ending", False)
         answered = []
         thread = threading.Thread(target=lambda: answered.append(
             compose.run(["sh", "-c", f"{self.record}; exec sleep {FOREVER}"], timeout=FOREVER)))
@@ -1140,6 +1334,50 @@ class Run(Case):
         self.assertEqual(code, -signal.SIGKILL)   # not 124: it did not wait for its time
         self.assertLess(time.monotonic() - started, 4)
         self.assertEqual(compose._running, set())
+
+
+class Spawn(Commands):
+    """A command whose output is read as it comes (a job's) runs as run() runs one: a session of its own, which the
+    Lab UI ends as it exits, and ends when asked, with what it started."""
+
+    def spawned(self, script):
+        process = compose.spawn(["sh", "-c", script], subprocess.STDOUT, cwd=self.root)
+        self.addCleanup(lambda: (process.poll() is None and os.killpg(process.pid, signal.SIGKILL), process.wait(),
+                                 process.stdout.close(), compose.release(process)))
+        return process
+
+    def test_it_leads_a_session_of_its_own_and_is_known_until_released(self):
+        process = self.spawned(f"echo out; echo err >&2; exec sleep {FOREVER}")
+        self.assertEqual([process.stdout.readline(), process.stdout.readline()], ["out\n", "err\n"])
+        self.assertEqual(os.getsid(process.pid), process.pid)   # what ends the Lab UI's own group does not reach it
+        self.assertIn(process, compose._running)
+        compose.end(process)
+        process.wait(10)
+        compose.release(process)
+        self.assertNotIn(process, compose._running)
+
+    def test_asked_to_end_it_ends_with_what_it_started(self):
+        process = self.spawned(f"sleep {FOREVER} & echo $! > {shlex.quote(str(self.pidfile))}; wait")
+        pid = self.child()
+        compose.end(process)
+        self.assertEqual(process.wait(10), -signal.SIGTERM)
+        self.assertTrue(settled(lambda: not alive(pid)), "what the command started is still running")
+
+    def test_one_that_does_not_end_when_asked_is_killed(self):
+        self.patch(compose, "GRACE", 0.2)
+        process = self.spawned(f"trap '' TERM; {self.record}; while :; do sleep 0.1; done")
+        self.child()
+        compose.end(process)
+        self.assertEqual(process.wait(10), -signal.SIGKILL)
+
+    def test_it_is_ended_when_the_lab_ui_exits_and_not_started_after(self):
+        process = self.spawned(f"{self.record}; exec sleep {FOREVER}")
+        pid = self.child()
+        compose.stop_running()
+        self.assertEqual(process.wait(10), -signal.SIGKILL)
+        self.assertTrue(settled(lambda: not alive(pid)))
+        self.patch(compose, "_ending", True)
+        self.assertIsNone(compose.spawn(["true"], subprocess.STDOUT))
 
 
 # A Lab UI, as a program: the commands of a project read, six of them asked of a pool of two threads, which is how the
@@ -1187,6 +1425,23 @@ while not compose._running:
 print("ready", flush=True)
 while True:   # (not one long sleep: a signal that the system hands to another thread does not wake the main thread)
     time.sleep(0.05)
+"""
+
+# A Lab UI that runs a job, whose command runs until it is ended, then waits; Ctrl+C ends it
+JOB = """
+import os, signal, sys, threading, time
+sys.path.insert(0, sys.argv[1])
+from lab_ui.docker import compose, jobs
+compose.stop_on_signals()
+job = jobs.JOBS.start("Start Acme Shop", [["sleep", os.environ["SLEEP"]]], key="addon:acme-shop", verb="start")
+while job._process is None:
+    time.sleep(0.05)
+try:
+    print("ready", flush=True)
+    while True:
+        time.sleep(0.05)
+except KeyboardInterrupt:
+    pass
 """
 
 
@@ -1246,6 +1501,21 @@ class Exiting(Case):
                 os.kill(process.pid, getattr(signal, signal_name))   # to the Lab UI alone, as `kill` does
                 self.assertEqual(self.exits(process), -getattr(signal, signal_name))   # it ends as it would have
                 self.assertTrue(settled(lambda: not holding(self.marker)), "the command is still running")
+
+    def test_the_command_of_a_job_is_ended_with_the_lab_ui_and_the_terminal_says_which_job(self):
+        # Ctrl+C does not reach it, in a session of its own: the Lab UI ends it as it exits, and says so
+        process = self.program(JOB)
+        os.killpg(process.pid, signal.SIGINT)
+        self.assertEqual(self.exits(process), 0)
+        self.assertIn("Stopped with the Lab UI: Start Acme Shop", process.stdout.read())
+        self.assertTrue(settled(lambda: not holding(self.marker)), "the job's command is still running")
+        # A termination of the Lab UI alone ends it too: it is not left running without the Lab UI
+        for signal_name in ("SIGHUP", "SIGTERM"):
+            with self.subTest(signal_name):
+                process = self.program(JOB)
+                os.kill(process.pid, getattr(signal, signal_name))
+                self.assertEqual(self.exits(process), -getattr(signal, signal_name))
+                self.assertTrue(settled(lambda: not holding(self.marker)), "the job's command is still running")
 
     def test_a_signal_the_lab_ui_ignores_or_handles_is_left_to_it(self):
         for how, expected in (("ignored", None), ("handled", "handled")):

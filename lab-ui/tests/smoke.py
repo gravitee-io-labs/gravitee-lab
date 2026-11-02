@@ -1,5 +1,6 @@
-"""`make smoke`: the Lab UI against the running stack. Starts it on a free port, reads every page's data and checks
-its shape, then stops it. Nothing is started, stopped or saved."""
+"""`make smoke`: the Lab UI against the running stack. Reads every page's data and checks its shape, on the Lab UI that
+serves this folder when one runs (one Lab UI serves a folder: a second would only send to it), else on one it starts on a
+free port and stops after. Nothing is started, stopped or saved."""
 
 import json
 import socket
@@ -42,9 +43,13 @@ def head(body):
 
 
 class LabUI:
-    """The Lab UI on a free port, asked like the page asks it."""
+    """The Lab UI of this folder, asked like the page asks it: the one that runs, else one started on a free port."""
 
     def __init__(self):
+        self.port, self.process = paths.served_elsewhere(), None
+        if self.port:
+            print(f"Checking the Lab UI that runs on http://localhost:{self.port}\n")
+            return
         with socket.socket() as probe:
             probe.bind(("127.0.0.1", 0))
             self.port = probe.getsockname()[1]
@@ -70,13 +75,15 @@ class LabUI:
             try:
                 return self.ask("/favicon.ico")
             except OSError:
-                assert self.process.poll() is None, "it stopped at once"
+                assert self.process is None or self.process.poll() is None, "it stopped at once"
                 time.sleep(0.1)
         raise AssertionError("no answer within 10 s")
 
     def stop(self):
-        self.process.terminate()
-        self.process.wait(10)
+        """Stops the Lab UI it started: the one that ran before keeps running."""
+        if self.process:
+            self.process.terminate()
+            self.process.wait(10)
 
 
 def has(data, keys, what):
@@ -120,8 +127,9 @@ def state(lab_ui):
         has(body["license"], {"status", "expires", "days_left", "problem", "tone", "applied"}, "the license")
     for problem in body["problems"]:
         has(problem, {"file", "message", "editable"}, "a problem")
-    if body["job"]:
-        has(body["job"], {"id", "title", "for", "verb", "done", "phases", "progress"}, "the job")
+    if body["job"]:   # how far a running job is comes beside the state, in a header (api.LIVE): in it once it ended
+        has(body["job"], {"id", "title", "for", "verb", "done", "phases"} | ({"progress"} if body["job"]["done"] else set()),
+            "the job")
     assert body["root"] == str(paths.ROOT), f"the project is not in {body['root']}"
     for what, skill in body["skills"].items():
         assert (paths.ROOT / skill).is_file(), f"the skill for {what} is not in {skill}"
@@ -144,7 +152,7 @@ def state(lab_ui):
 
 
 def unchanged(lab_ui):
-    # An uptime in seconds, or a job that runs, changes the state between two requests: then it is sent again
+    # An uptime that turns a minute, or a job that runs, changes the state between two requests: then it is sent again
     status, headers, first = lab_ui.ask("/api/state")
     again, _, body = lab_ui.ask("/api/state", headers={"If-None-Match": headers["ETag"]})
     assert status == 200 and ((again, body) == (304, b"") or (again == 200 and body != first)), \
@@ -295,7 +303,7 @@ def run(name, check, *args):
 
 def checks(lab_ui):
     """What the state lists decides which add-on, product and playground the other pages are asked about."""
-    if not run("the Lab UI starts", lab_ui.wait):
+    if not run("the Lab UI answers" if lab_ui.process is None else "the Lab UI starts", lab_ui.wait):
         return
     run("static files", static, lab_ui)
     body = run("state", state, lab_ui)

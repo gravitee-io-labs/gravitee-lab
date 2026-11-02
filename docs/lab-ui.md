@@ -165,10 +165,15 @@ shows how far the job is.
 - **Jobs**: one job runs at a time. The other buttons wait and say *Wait for* the job. The Activity chip, in the menu
   while the job runs, opens its output and a *Cancel* button. An image that is not there yet is downloaded first, and each
   one shows a bar, a percentage and the bytes downloaded of its total; the title of the list adds what all of them come to
-  and how fast they go. Once downloaded, an image shows *Extracting* until it is *Pulled*.
-- **A failed or canceled job**: the item stays on. Its row says *Failed*, or *Canceled* after a *Cancel*. The last line
-  of the command is the tooltip of a failure, and *Show output* in its ⋯ menu opens the whole output. Start it again,
-  or turn it off.
+  and how fast they go. Once downloaded, an image shows *Extracting* until it is *Pulled*. An image that cannot be pulled
+  fails the job with Docker's reason (`Could not pull ...`), once the other images are pulled. A job does not wait for ever:
+  it fails when a container it waits for keeps restarting (`gio-mongodb keeps restarting`), or when nothing happens for
+  15 minutes. Ctrl+C in the Lab UI's terminal stops the job that runs, and the terminal says which.
+- **A failed or canceled job**: one that ended before it changed what is on (a plugin download, removing what it
+  replaces) leaves everything as it was. One that ended later leaves what is on as it wrote it: a Start's item is on, and
+  what it started still runs (the apps, when only the seed failed); a Stop's item is off. Its row says *Failed*, or
+  *Canceled* after a *Cancel*. The last line of the command is the tooltip of a failure, and *Show output* in its ⋯ menu
+  opens the whole output. Start it again, or turn it off when it is on.
 
 ## Dashboard
 
@@ -265,8 +270,10 @@ resources run across the page under them, one line that you unfold.
 | The load and memory of the containers | One `docker stats` process | While the page is in view, folded or not |
 | The memory and cores of the machine, the disk | The system itself, with no Docker | The page opens |
 
-- **Docker's answers are kept for a minute.** Going to another page and back reads nothing again. *Count storage again* reads
-  `docker system df` again at once and keeps that answer for a minute. A read that failed is tried again after 10 seconds.
+- **Docker's answers are kept.** What Docker stores is kept for a minute, its Compose's version too; what Docker says of itself
+  until it restarts (at most 10 minutes), the same answer every page and the first step of *Welcome to Gravitee Lab* read. Going to
+  another page and back reads nothing again. *Count storage again* reads them again at once. A read that failed is tried again after
+  10 seconds.
 - **The load is live.** The Lab UI starts one `docker stats` process when the page connects and stops it when the last
   page that listens leaves. A tab you hide, or a page you leave, closes its connection, so the Lab UI in the background
   costs Docker nothing. A connection that the browser gave up on is opened again after 3 seconds, then 6, 12 and so on up to a minute. The CPU is the sum of the lab's
@@ -288,8 +295,8 @@ platform (the ones in the *Gravitee Platform* category) that are on or still run
 of it as a badge after its name (*Apply needed*, *Needs a license*, *Started by hand*), its state (a dot and a
 word: *Running*, *Partly running*, *Stopped*), its version, the ports it publishes (the first, and how many more, all of
 them in its tooltip) and how long it has run whole (the uptime of its youngest container), with buttons to open it, read its
-logs, restart it, and stop or start it. Opened, it lists its containers, each with its own state, version, ports and uptime; a
-version is said without the system its image is built on (`-debian`), the whole tag in its tooltip, and the one saved there too
+logs, restart it, and stop or start it. Opened, it lists its containers, each with its own state, version, ports and uptime
+(to the minute, *< 1 min* in its first one); a version is said without the system its image is built on (`-debian`), the whole tag in its tooltip, and the one saved there too
 when it differs, its group's badge saying why. A product's row has a plug button that opens its plugins, and the name
 of a playground or an add-on opens its page or its row. The *Consoles* card lists every console, each with its port and the path of its address. The primary
 button of the head, *Start* or *Apply*, is its last, before its menu.
@@ -308,7 +315,7 @@ The head acts on containers, and what is on stays on:
 | Restart | Restarts what runs, as it is |
 | Update | Pulls the images, then recreates the containers that run and changed. What was stopped stays stopped |
 | Apply | Recreates the containers that do not run what is saved |
-| ⋯ → Remove containers | Removes containers and networks, keeps the data volumes |
+| ⋯ → Remove containers | Removes containers with their anonymous volumes, and networks; keeps the data volumes |
 | ⋯ → Reset | Deletes every container and volume, and turns off the playground that is on. You type `reset` to confirm |
 
 A group, a container, or the containers of an add-on or a playground start, stop and restart on their own line. The
@@ -380,7 +387,8 @@ To share a personal item:
 
 A playground's copy carries the versions it ran on as its `tested` set, unless its file declares some. An item of a catalog
 never includes a personal one, so it runs on any machine. An item that another item includes cannot be deleted: its menu says
-*Used by*.
+*Used by*. Nor can one while something of it runs (*Stop it first*), or a playground that deployed to a Gravitee Cloud
+environment while it holds what it created there (*Delete what it created in Development first*): its record goes with it.
 
 The star next to a name keeps an item at hand. *Starred* shows only those. Stars belong to this machine, in
 `.lab/starred.json`.
@@ -542,7 +550,11 @@ The lines cover:
 - **The license**: named for what needs it (the packs of the license, such as *Enterprise authorization engine,
   Observability*), with *Needs a license*, *License expired*, *Not in the license* or *Apply needed* under it, and a *Set
   license* button. Start still runs without it, and says so under its button: *Starts without what needs the license*.
+  A file of the seed's APIs that is not a JSON object has a line of its own, *Cannot be read as an API definition*: what
+  it uses is not counted.
 - **Docker's memory**, when it is short.
+- **Ports**: a port that what starts publishes and another program of your machine uses (a database or a dev server of
+  yours). Start is refused for it, before it changes anything: [A port is already allocated](troubleshooting.md#a-port-is-already-allocated).
 - **Host prerequisites**, such as Ollama with a model: a missing one warns, with the fix. A check is an http or https
   address, called from your machine.
 - **A place besides This machine**: with a [Gravitee Cloud account](#gravitee-cloud) connected, the lines follow the place that *Deploy
@@ -553,22 +565,21 @@ The checks are read again when the window comes back, so what you fixed meanwhil
 A warning does not block Start: the part of the guide that needs the missing piece will not work. A required setting
 missing on one of its add-ons does block it, so does an image version older than the playground needs, and so does a
 license that everything of it needs (*Needs a license*, *License expired*, *Not in the license*); a license needed for
-one step only blocks nothing. The button
-says why. For the images, it names every one that is too old in one sentence, such as *Needs Access Management 4.13 or
-later and API Management 4.13.0-alpha.5 or later: choose them on the Images page*, so one visit to Images is
-enough. The guide is readable before the first start.
+one step only blocks nothing. The button says why. For the images, it names every one that is too old in one sentence,
+such as *Needs Access Management 4.13 or later and API Management 4.13.0-alpha.5 or later: choose them on the Images
+page*, so one visit to Images is enough. A port another program uses is asked when you click Start, which is refused
+then, its line saying which. The guide is readable before the first start.
 
 ### What Start does
 
 Start sets the playground up in one job, shown in phases:
 
-1. **Add-ons**: the playground goes first in the [on file](#the-on-file), and it includes its add-ons and setups. What
-   conflicts with them is turned off.
-2. **Plugins**: the missing ones are downloaded.
-3. **Apps and services**, or **Platform, apps and services** when the platform starts too: its apps are built and
-   started, with what they and the seed need. The core services it changes restart.
-4. **Seed**: its output is followed until it ends. A seed that fails fails the start, and the reason is the last line it
-   printed. Start again to retry.
+1. **Plugins**: the missing ones are downloaded. Nothing else has changed yet: a failure here leaves what was on as it was.
+2. **Apps and services**, or **Platform, apps and services** when the platform starts too: what it replaces or conflicts
+   with is removed, then the playground goes first in the [on file](#the-on-file), with its add-ons and setups; its apps
+   are built and started, with what they and the seed need. The core services it changes restart.
+3. **Seed**: its output is followed until it ends. A seed that fails fails the start, and the reason is the last line it
+   printed (or that it ran out of memory, or was stopped). Start again to retry. Cancel stops the seed too.
 
 Once the seed has recorded what it created, Start only runs again what does not run, for example after a Stop on the
 Containers page. It builds nothing and seeds nothing. If the seed recorded nothing, or failed, Start sets the playground
@@ -631,7 +642,8 @@ anything stops, as its own Stop would, and refuses in the same cases. A row of a
 stop: the dialog does, once.
 
 **Reset**, on the Containers page, deletes every container and volume, so what the seed created goes with them. It
-turns the playground off and empties what the seed recorded, so the next Start sets it up again, seed included.
+turns the playground off and empties what the seed recorded, so the next Start sets it up again, seed included. A
+Reset that fails or is canceled once a volume is deleted does that too.
 
 ### Deploy to
 
@@ -693,6 +705,9 @@ A playground comes first in the list. With an empty file, Compose runs the core 
 
 - If you add anything else to the file, the Lab UI leaves it as you wrote it and turns off the Start and Stop of the
   catalog. The banner says so and opens the file in the editor.
+- If it lists a file that is gone or does not load, every command that reads the files fails on it: Start, Apply,
+  Restart, Update and Pull wait, and say which file. Stop, Remove containers and Reset on the Containers page still
+  work. Fix that file, or remove its line in the editor, which the banner opens.
 - Stop on the Containers page, or Docker restarting, leaves the file as it is. The platform's next Start runs
   everything that is on again.
 - An included add-on reads its own `.env` and the core's, and its paths start from its folder. An add-on includes the

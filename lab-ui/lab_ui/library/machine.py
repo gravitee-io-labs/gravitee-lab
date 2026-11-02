@@ -22,7 +22,7 @@ from pathlib import Path
 from .. import paths
 from ..catalogs.registry import CatalogError
 from ..docker import compose
-from . import model
+from . import project
 
 COMPOSE_MIN = (5, 0)
 DISK_MIN_GB = 15.0
@@ -55,6 +55,7 @@ SYNCED = (("Mobile Documents", "iCloud Drive"), ("GoogleDrive", "Google Drive"),
           ("OneDrive", "OneDrive"), ("Dropbox", "Dropbox"))
 CLONE = "git clone https://github.com/gravitee-io-labs/gravitee-lab.git ~/gravitee-lab"
 FRESH = 3   # seconds a report is reused: the page asks every few seconds, and so may two tabs
+LOW_MEMORY = 7.5 * 2 ** 30   # under 8 GB, Docker struggles once add-ons run with the platform
 
 _lock = threading.Lock()
 _last = {"at": 0.0, "report": None}
@@ -153,14 +154,11 @@ def _desktop(title):
 
 
 def _info():
-    """What Docker says of itself, or None when it does not answer"""
-    rc, out, _ = compose.run(["docker", "info", "--format",
-                              "{{.ServerVersion}}|{{.OperatingSystem}}|{{.MemTotal}}|{{.DockerRootDir}}"], timeout=15)
-    fields = out.strip().split("|")
-    if rc != 0 or len(fields) != 4 or not fields[0]:
+    """What Docker says of itself (compose.docker_info), or None when it does not answer"""
+    try:
+        return compose.docker_info()
+    except compose.ComposeError:
         return None
-    return {"version": fields[0], "system": fields[1], "memory": int(fields[2]) if fields[2].isdigit() else None,
-            "root": fields[3]}
 
 
 def _install_docker():
@@ -203,9 +201,11 @@ def _docker():
         else:
             actions = []
         return _check("docker", "error", title, f"{name} is not running", actions), None
-    rc, out, _ = compose.run(["docker", "compose", "version", "--short"], timeout=15)
-    found = _version(out) if rc == 0 else None
-    engine = ("Docker Desktop" if "Docker Desktop" in info["system"] else "OrbStack" if info["system"] == "OrbStack"
+    try:
+        found = _version(compose.compose_version())
+    except compose.ComposeError:
+        found = None
+    engine = ("Docker Desktop" if "Docker Desktop" in (info["os"] or "") else "OrbStack" if info["os"] == "OrbStack"
               else "Docker Engine")
     if found is None and Path(BREW_COMPOSE).is_file():
         return _check("docker", "error", title, "Compose is installed, and Docker does not find it",
@@ -216,7 +216,7 @@ def _docker():
         actions = [_action("open-docker", f"Open {app[1]}", True)] if app else \
             [_action("docker-engine", "Update Docker", True, href=DOCKER_ENGINE)]
         return _check("docker", "error", title, f"{said}: update {engine} to get Compose 5.0 or later", actions), info
-    return _check("docker", "ok", title, f"{engine} {info['version']}, Compose {_dotted(found)}"), info
+    return _check("docker", "ok", title, f"{engine} {info['engine']}, Compose {_dotted(found)}"), info
 
 
 def _memory(info):
@@ -224,7 +224,7 @@ def _memory(info):
     if not info or not info["memory"]:
         return _check("memory", "idle", title, "Known once Docker runs")
     shown = f"{info['memory'] / 2 ** 30:.0f} GB"
-    if info["memory"] >= model.LOW_MEMORY:
+    if info["memory"] >= LOW_MEMORY:
         return _check("memory", "ok", title, shown)
     app = docker_app()
     if app:
@@ -258,7 +258,6 @@ def _disk(info):
 
 def core_ports():
     """The ports of this machine that the platform publishes: {port: the name of its service}"""
-    from . import project   # the project reads the machine's state too: imported when asked
     try:
         services = project.load()["services"]
     except Exception:  # noqa: BLE001 - a core that does not load has its own notice
@@ -274,10 +273,13 @@ def core_ports():
 
 
 def _lab_ports():
-    """The ports the lab's own containers hold now"""
+    """The ports the lab's own containers hold now. Raises ComposeError while Docker does not list them (it fails, or
+    does not answer in time): none would read as all of them another program's."""
     rc, out, _ = compose.run(["docker", "ps", "--filter", f"label=com.docker.compose.project={compose.project_name()}",
                               "--format", "{{.Ports}}"], timeout=10)
-    return {int(p) for p in re.findall(r":(\d+)->", out)} if rc == 0 else set()
+    if rc != 0:
+        raise compose.ComposeError("Docker did not list the lab's containers")
+    return {int(p) for p in re.findall(r":(\d+)->", out)}
 
 
 def _taken(port):
@@ -301,6 +303,21 @@ def _windows_ports():
     return {int(port) for port in WINDOWS_LISTENING.findall(out)} if rc == 0 else set()
 
 
+def held(ports):
+    """The ports among these that another program uses on this machine, sorted: not those the lab's own containers
+    publish (_lab_ports), and in WSL those Windows listens on too, where Docker Desktop publishes the containers' ports.
+    None while the lab's own cannot be told, its core file not loading or Docker not listing its containers: they would
+    read as another program's, and an empty list would say that none is."""
+    if not ports:
+        return []
+    try:
+        ours = _lab_ports()
+    except compose.ComposeError:
+        return None
+    windows = _windows_ports()
+    return sorted(port for port in ports if port not in ours and (port in windows or _taken(port)))
+
+
 def _ports(info):
     title = "Ports"
     if not info:
@@ -308,9 +325,9 @@ def _ports(info):
     ports = core_ports()
     if not ports:
         return _check("ports", "idle", title, "Known once the platform's file loads")
-    ours = _lab_ports() if info else set()
-    windows = _windows_ports()
-    busy = sorted(port for port in ports if port not in ours and (port in windows or _taken(port)))
+    busy = held(ports)
+    if busy is None:
+        return _check("ports", "idle", title, "Known once Docker lists the lab's containers")
     if not busy:
         return _check("ports", "ok", title, f"No other program uses the {len(ports)} ports of the platform")
     named = ", ".join(f"{port} ({ports[port]})" for port in busy[:4]) + (" and more" if len(busy) > 4 else "")
@@ -353,10 +370,13 @@ def _git():
 
 
 def report(fresh=False):
-    """Every check, the newest within FRESH seconds"""
+    """Every check, the newest within FRESH seconds. `fresh` (the window back to the front, a fix run here) asks Docker
+    again what the state keeps of it (compose.docker_info, compose_version)."""
     with _lock:
         if not fresh and _last["report"] and time.monotonic() - _last["at"] < FRESH:
             return _last["report"]
+    if fresh:
+        compose.CACHE.drop("docker:")
     docker, info = _docker()
     checks = [docker, _memory(info), _disk(info), _ports(info), _git(), _folder()]
     checks = [check for check in checks if check]

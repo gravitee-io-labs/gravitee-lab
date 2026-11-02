@@ -33,9 +33,9 @@ USABLE = ("valid", "expiring")
 # Words of a pack's id that are written in capitals, as the License dialog writes them; a product's id is too
 ACRONYMS = ("mfa", "oem")
 
-# What the license last read allows, and the packs of the license model by name ({name: features}), for the pages
-# that only need to know what it allows and how a person calls it
-_known = {"features": None, "packs": None}
+# What the license last read allows, the digest of the license it was read from, and the packs of the license model by
+# name ({name: features}), for the pages that only need to know what it allows and how a person calls it
+_known = {"features": None, "digest": None, "packs": None}
 
 
 def _der(data, i):
@@ -128,13 +128,12 @@ def parse_model(text):
     return model
 
 
-def _read_model(service, lib, why):
-    """The license model in a service's image: read in its container when it runs, else from the image. None when it
-    cannot be read, and `why` gets what Docker said."""
+def _read_model(service, lib):
+    """The license model in a service's image: read in its container when it runs, else from the image. ComposeError with
+    what Docker said when it cannot be read."""
     rc, out, err = compose.shell(service, ["-c", MODEL_SCRIPT.format(lib=lib)])
     if rc != 0 or not out:
-        why.append(err)
-        return None
+        raise compose.ComposeError(err)
     jar, _, text = out.partition("\n")
     return {"source": jar.split("/")[-1].removesuffix(".jar"), "service": service["label"], **parse_model(text)}
 
@@ -155,12 +154,12 @@ def _model(project):
     for group in project["groups"]:
         product = project["products"].get(group["product"]) or {}
         for name, lib in product.get("lib", {}).items():
-            service, why = project["services"][name], []
-            key = f"license-model:{compose.image_key(service)}"
-            model = compose.CACHE.get(key, 24 * 3600, lambda: _read_model(service, lib, why))
-            if model:
-                return model
-            unread += [(service["image"], compose.unread(service["image"], said)) for said in why]
+            service = project["services"][name]
+            try:
+                return compose.CACHE.get(f"license-model:{compose.image_key(service)}", 24 * 3600,
+                                         lambda: _read_model(service, lib))
+            except compose.ComposeError as error:
+                unread.append((service["image"], compose.unread(service["image"], str(error))))
     image, reason = next(((image, reason) for image, reason in unread if reason), (None, None))
     if reason == "Docker is not reachable":
         raise Unknown(reason)
@@ -284,10 +283,11 @@ def info(project):
     to read the license model from, what is counted with it (MODEL_FACTS) is None, `model_error` says why ("Docker is
     not reachable", "Not known until <image> is pulled") and `pull` names the image to pull, when that is what it
     takes. The packs of the model are kept by name for named(), read without a license too."""
+    digest = _saved(project)
     result = _read(project)
     # A Gravitee employee gets no invitation to a license or a Cloud account: said by GRAVITEE_EMPLOYEE in the .env, which nothing else shows
     result["employee"] = envfiles.read(ENV_FILE).get("GRAVITEE_EMPLOYEE", "").strip().strip("\"'").lower() in ("true", "1", "yes")
-    _known["features"] = allowed(result)
+    _known.update(features=allowed(result), digest=digest)
     model = result.get("model")
     if not result["present"]:   # nothing to count with the model, but its packs still name what a row needs
         try:
@@ -325,8 +325,20 @@ def named(features):
     return sorted(names) + sorted(left)
 
 
-def features_cached():
-    """The features the license allows, as info() last read them: empty without a license that is genuine and current,
-    None before the first read and while they are not known. Never asks Docker: the state is built from it every few
-    seconds."""
+def _saved(project):
+    """The digest of the license saved in the core's .env (compose.digest), "" without a variable that holds it."""
+    return compose.digest(envfiles.read(ENV_FILE).get(project["license_var"], "").strip()) if project["license_var"] else ""
+
+
+def features(project, ask=True):
+    """The features the license saved allows, for the state: what info() read of that very license, read here when it was
+    not (the Lab UI started since, or another license was saved), whoever asks first: empty without a license that is
+    genuine and current, None while they are not known (no product image to read the license model from: the page reads the
+    license again after a job). The state is built every few seconds: Docker is asked only once for each license saved,
+    and the license model is kept by the image it was read from (_model). Not `ask`: Docker did not answer the state, so
+    it is not asked for the license model either, and a license not read yet is not known."""
+    if _known["digest"] != _saved(project):
+        if not ask:
+            return None
+        info(project)
     return _known["features"]

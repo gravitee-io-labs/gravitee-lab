@@ -65,6 +65,8 @@ ENVIRONMENT = ("bad_address", "bad_address_secret", "folder_missing", "folder_no
 FORMATS = ("text", "github", "json")
 SUGGEST_LIMIT = 50   # as many entries as the Lab reads of the suggestions file
 POLL = 0.2   # seconds between two looks at where a download is
+# The phases of a download (firstrun.PHASES) as the terminal says them; one that is not here is not said
+PHASE_WORDS = {"probe": "Checking the address", "fetch": "Downloading the files", "stage": "Installing"}
 LAB = paths.ROOT   # the Lab checkout this command runs from: the folder that holds lab-ui
 FULL_COMMIT = re.compile(r"[0-9a-f]{40}")
 RULE_CODE = re.compile(r"[A-Z][A-Z0-9]*[0-9]{2}")
@@ -385,22 +387,24 @@ def list_catalogs(args):
 
 
 def _progress(firstrun, ns, stop):
-    """Says where a download is while `firstrun.provision` runs: a line when its phase changes."""
+    """Says where a download is while `firstrun.provision` runs: a line, in words, when its phase changes."""
     last = None
     while not stop.wait(POLL):
         found = (getattr(firstrun, "PROGRESS", None) or {}).get(ns)
-        phase = found.get("phase") if isinstance(found, dict) else None
-        if phase and phase != last:
-            say(f"  {phase}")
-            last = phase
+        words = PHASE_WORDS.get(found.get("phase")) if isinstance(found, dict) else None
+        if words and words != last:
+            say(f"  {words}")
+            last = words
 
 
 def provision(args):
-    """The first start from a terminal, in the foreground. The intent is written when catalogs.json does not exist,
-    every git entry that has no copy is downloaded, and the migration of an old layout runs when it waits. Exit 1, with the
-    line of the error, when something fails."""
+    """The first start from a terminal, in the foreground (`make catalogs`, and `make update` after its pull). The intent is
+    written when catalogs.json does not exist, every git entry that has no copy is downloaded, and a folder of the layout
+    before catalogs is moved to theirs (layout.run, which downloads nothing more). Exit 1, with the line of the error, when
+    something fails. A closed terminal ends the download and the move it runs, as it ends the Lab UI's."""
     firstrun = _lab("firstrun")
     layout = importlib.import_module("lab_ui.library.layout")
+    compose.stop_on_signals(gitx.stop_running)
     firstrun.reconcile()
     failed = 0
     for entry in registry.entries():
@@ -417,19 +421,14 @@ def provision(args):
             if problem:
                 raise CatalogError(str(problem), str((row.get("state") or {}).get("reason") or problem), 400)
             say(f"Installed {(row or {}).get('name') or ns}")
-        except CatalogError as error:
-            complain(f"{ns}: {error.message}")
+        except CatalogError as error:   # the first start's line for Docker says it downloads later: nothing here does
+            complain(f"{ns}: {layout.NO_DOCKER if error.code == 'docker_missing' else error.message}")
             failed += 1
         finally:
             stop.set()
             watcher.join()
-    if layout.waiting():
-        report = layout.migrate()
-        moved = len(report.get("moved") or [])
-        say(f"Moved {moved} item{'' if moved == 1 else 's'} of the old layout")
-        for line in report.get("problems") or []:
-            complain(str(line))
-            failed += 1
+    if not layout.run(say, complain, download=False):   # the default catalog was tried above: once is enough
+        failed += 1
     return 1 if failed else 0
 
 
@@ -1161,7 +1160,7 @@ def parser():
     sub.add_argument("address")
     sub.add_argument("--branch")
     sub.add_argument("--yes", action="store_true", help="add it, after the preview")
-    one("provision", provision, "download what has no copy yet and migrate an old layout")
+    one("provision", provision, "download what has no copy yet and move a folder of the layout before catalogs")
     one("list", list_catalogs, "the catalogs and their state")
     for name, function, text in (("update", update, "update a catalog"), ("undo", undo, "go back to the previous version")):
         sub = one(name, function, text)

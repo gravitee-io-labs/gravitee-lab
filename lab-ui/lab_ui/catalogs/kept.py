@@ -34,10 +34,9 @@ KINDS = {".env": "Settings", "secrets": "Secrets", ".state": "State"}   # each, 
 
 
 def record():
-    try:
-        found = json.loads((paths.ROOT / RECORD).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        found = {}
+    """{imported, kept} as the file says it; empty when it is missing or does not read as such (paths.read_record keeps it
+    aside)."""
+    found = paths.read_record(paths.ROOT / RECORD)
     found = found if isinstance(found, dict) else {}
     return {key: dict(found.get(key)) if isinstance(found.get(key), dict) else {} for key in ("imported", "kept")}
 

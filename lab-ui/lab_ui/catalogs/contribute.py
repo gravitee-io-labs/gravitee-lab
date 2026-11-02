@@ -1791,9 +1791,7 @@ def use_catalog_version(project: dict, kind: str, uid: str) -> dict:
     `.lab/migration/kept/`, `moved` takes the settings to the catalog's item and re-keys the star and the tested set, and the
     personal copy is deleted. Answers {"id": the catalog's id}. `held` (409) while either is on or runs. ValueError when the
     personal item has no twin or its file is gone, when the twin cannot run here (the personal copy is the one that works),
-    and when anything of the folder could not be moved to where it is kept: then nothing is deleted. RuntimeError
-    (`layers.WAITING`) while the old layout is being moved: an item the old on file turns on would not be seen as on."""
-    layers.ready()
+    and when anything of the folder could not be moved to where it is kept: then nothing is deleted."""
     file, name, slug = _own(project, kind, uid, "replaced")
     twin = ((project.get(kind + "s") or {}).get(uid) or {}).get("twin")
     there = twin.get("id") if isinstance(twin, dict) else None

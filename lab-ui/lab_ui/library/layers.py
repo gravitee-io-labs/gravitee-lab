@@ -3,29 +3,25 @@ or a stop and its job: the services it changes and what its commands wait for, f
 place, which leaves the platform alone; what an apply recreates.
 
 An item of a catalog is read here as any other (its id says where it is), and three gates stand between it and the
-platform. The plan refuses a start for what the policy blocks, a catalog it lacks, its twin that is on, a port that is
-taken, and a layout still being moved (`_blocked`). `check` asks the catalogs to verify what is installed before a start
-runs (the preflight). `write`, the only writer of the on file, adds no entry for a unit that is blocked."""
+platform. The plan refuses a start for what the policy blocks, a catalog it lacks, its twin that is on, and a port that
+something of the lab publishes (`_blocked`). `check` refuses a port another program holds, then asks the catalogs to
+verify what is installed before a start runs (the preflight). `write`, the only writer of the on file, adds no entry for
+a unit that is blocked, and writes nothing over a file another job wrote since the plan."""
 
-import importlib
+import functools
 import os
 import re
 import stat
 
-from ..docker import compose, envfiles
+from ..docker import compose, envfiles, images
 from .. import paths
-from ..docker.jobs import JOBS, awaited
+from ..docker.jobs import JOBS, JobFailed, awaited
 from ..gravitee import platforms
 from ..catalogs import registry, resolve
-from . import moves
+from . import machine, moves, versions
 from .project import _control_plane, _dotenv, brought
 
 LOCKED = f"{paths.ON_FILE} has your own changes"
-# Why nothing starts while an old layout is being moved: the line of `layout_waiting`
-WAITING = "Your settings are being moved. Try again in a moment."
-# A line of the on file in the layout before catalogs, which the move translates: addons/<id>/compose.yml, the personal
-# ones under local/
-LEGACY = re.compile(r"(?:addons|playgrounds)/(?:local/)?[a-z0-9-]+/compose\.yml|setups/(?:local/)?[a-z0-9-]+\.yml")
 # What a plan says besides ROWS and PLACE_ROWS when its item comes from a catalog: the row From, and the words under it
 FROM = "from"
 # Said once more in .env when the first catalog is added (prepare_catalogs)
@@ -173,45 +169,35 @@ def service_name(project, name):
     return label
 
 
-def _waiting():
-    """Whether the layout of an old machine is still being moved to the catalogs (layout.waiting()). The module is looked
-    up when asked, because the move reads the on file with this one."""
-    from . import layout
-    return bool(layout.waiting())
-
-
-def ready():
-    """Raises RuntimeError(WAITING) while the old layout is being moved: what the Lab starts or applies would be read from
-    files that are not where the on file says."""
-    if _waiting():
-        raise RuntimeError(WAITING)
+def stamp():
+    """What tells the on file as it is now from what it was: a digest of its text, empty text for a file that is not
+    there."""
+    file = paths.ROOT / paths.ON_FILE
+    return compose.digest(file.read_text(encoding="utf-8") if file.is_file() else "")
 
 
 def current(project):
-    """What the on file turns on: {playground, explicit, effective, setups, targets, missing, unset, problems, locked}.
-    `targets` says where each item runs that does not run on this machine. `unset`
-    names the required settings each add-on of `missing` lacks. A setup
-    listed there stands for the add-ons it includes; `setups` names it. An entry whose file is gone is ignored and
-    reported. `locked` is the reason the file must not be rewritten: it holds more than the Lab UI writes, or an entry
-    whose file does not load, which a rewrite would drop. An item of a catalog is an entry like any other, and one the
-    policy blocks is still one: it is loaded, so it locks nothing. While the old layout is being moved an entry
-    of that layout is neither a problem nor a lock: it is off until the move translates it."""
+    """What the on file turns on: {playground, explicit, effective, setups, targets, missing, unset, problems, locked,
+    unread, stamp}. `targets` says where each item runs that does not run on this machine; `stamp` is the file as it was
+    read (stamp()), which a plan made from this keeps, so that its job does not write it over what another job wrote
+    since. `unset` names the required settings each add-on of `missing` lacks. A setup listed there stands for the
+    add-ons it includes; `setups` names it. An entry whose file is gone is ignored and reported. `locked` is the reason
+    the file must not be rewritten: it holds more than the Lab UI writes, or an entry whose file does not load, which a
+    rewrite would drop. `unread` is the first entry that Compose cannot read, as a line: its file is gone or does not
+    load, and every command that reads the on file fails on it; None without one. An item of a catalog is an entry like
+    any other, and one the policy blocks is still one: it is loaded, so it locks nothing."""
     file = paths.ROOT / paths.ON_FILE
+    text = file.read_text(encoding="utf-8") if file.is_file() else ""
     entries = compose.includes(paths.ON_FILE)
-    lines = [line for line in (file.read_text(encoding="utf-8").split("\n") if file.is_file() else [])
-             if line.strip() and not line.lstrip().startswith("#")]
+    lines = [line for line in text.split("\n") if line.strip() and not line.lstrip().startswith("#")]
     # The Lab UI writes `include:` and one line per entry: any other line is the user's
     own = bool(lines) and (lines[0].split("#")[0].strip() != "include:" or len(lines) != len(entries) + 1)
-    playgrounds, setups, explicit, broken, problems = [], [], set(), [], []
-    moving = None   # whether the layout is being moved: asked once, and only for a line that looks like the old layout's
+    playgrounds, setups, explicit, broken, problems, unread = [], [], set(), [], [], []
     for path in entries:
         kind, uid = paths.unit_of(path) or (None, None)
-        if not kind and LEGACY.fullmatch(path):
-            moving = _waiting() if moving is None else moving
-            if moving:
-                continue
         if not (paths.ROOT / path).is_file():
             problems.append({"file": paths.ON_FILE, "message": f"{path} does not exist"})
+            unread.append(f"{path} does not exist")
         elif kind == "addon" and uid in project["addons"]:
             explicit.add(uid)
         elif kind == "setup" and uid in project["setups"]:
@@ -221,6 +207,7 @@ def current(project):
             playgrounds.append(uid)
         elif kind:   # an add-on, a setup or a playground that does not load: the project's problems say why
             broken.append(path)
+            unread.append(f"{path} does not load")
         else:
             own = True
     playground, locked = (playgrounds[0] if playgrounds else None), None
@@ -237,7 +224,8 @@ def current(project):
              if (unit := paths.unit_of(path))}
     return {"playground": playground, "explicit": sorted(explicit), "setups": sorted(setups),
             "effective": sorted(_effective(project, playground, explicit)), "targets": where,
-            "missing": list(unset), "unset": unset, "problems": problems, "locked": locked}
+            "missing": list(unset), "unset": unset, "problems": problems, "locked": locked, "unread": next(iter(unread), None),
+            "stamp": compose.digest(text)}
 
 
 def _named(project, file):
@@ -424,39 +412,11 @@ def _after(project, state, kind, unit, do, kept=frozenset()):
     return (unit["id"], explicit) if kind == "playground" else (playground, explicit | targets)
 
 
-def _version(text):
-    """A version as it orders: (its numbers, its pre-release identifiers or None). "4.13.0-alpha.3-debian" is
-    ((4, 13, 0), ["alpha", "3"]); None for a tag without numbers."""
-    found = re.match(r"(\d+(?:\.\d+)*)(?:-([0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*))?", text or "")
-    if not found:
-        return None
-    return tuple(map(int, found.group(1).split("."))), found.group(2) and found.group(2).split(".")
-
-
-def at_least(tag, wanted):
-    """Whether an image tag is that version or a later one, as semantic versioning orders them: a pre-release comes before
-    its release, so 4.13.0-alpha.5 is not a 4.13 (nor a 4.13.0), and a version asked in release form is met by a release.
-    A wanted pre-release orders the previews of its version too: 4.13.0-alpha.2 is before 4.13.0-alpha.3, itself before
-    4.13.0-beta.1 and 4.13.0; a later version, a preview included, is after them all (4.14.0-alpha.1 is a 4.13). A tag
-    without numbers (latest) says nothing of its version: it is taken as fine. A version asked that has no numbers
-    (amp-demo-latest, a build and not a release) is not ordered: it is that build or it is not."""
-    have, want = _version(tag), _version(wanted)
-    if not want:
-        return VARIANT.sub("", str(tag)) == VARIANT.sub("", str(wanted))
-    if not have:
-        return True
-    size = max(len(have[0]), len(want[0]))
-    numbers = [version[0] + (0,) * (size - len(version[0])) for version in (have, want)]
-    if numbers[0] != numbers[1]:
-        return numbers[0] > numbers[1]
-    if not want[1]:
-        return not have[1]   # a preview comes before its release
-    if not have[1]:
-        return True   # the release comes after its previews
-    # Identifier by identifier, as semantic versioning orders them: numbers by value, before words
-    def key(part):
-        return (0, int(part), "") if part.isdigit() else (1, 0, part)
-    return [key(part) for part in have[1]] >= [key(part) for part in want[1]]
+@functools.lru_cache(maxsize=4096)
+def _sets(raw_image):
+    """The variables an image line sets itself, its registry's and its version's (images._parts): what a line says is
+    the same each time it is read, so it is read once."""
+    return frozenset((key or (None,))[0] for key in images._parts(raw_image)[::2]) - {None}
 
 
 def service_of(project, variable):
@@ -464,12 +424,11 @@ def service_of(project, variable):
     only follows it (`${OWN_VERSION:-${VARIABLE:-1.2}}`, as the portals of a playground follow API Management's) does not set
     it: the first of those is the answer only when no service sets it, so that what a variable belongs to is its component's
     owner, as the Images page says, whatever the names sort like."""
-    from ..docker import images   # images imports this module
-    found = sorted(project["services"].items())
-    sets = ((name, service) for name, service in found
-            if variable in {(key or (None,))[0] for key in images._parts(service.get("raw_image") or "")[::2]})
-    return next(sets, None) or next(((name, service) for name, service in found
-                                     if "${" + variable in (service.get("raw_image") or "")), None)
+    services = project["services"]
+    name = min((name for name, service in services.items() if variable in _sets(service.get("raw_image") or "")),
+               default=None) or min((name for name, service in services.items()
+                                     if "${" + variable in (service.get("raw_image") or "")), default=None)
+    return (name, services[name]) if name else None
 
 
 def saved_setting(project, variable):
@@ -492,7 +451,7 @@ def enough(unit, variable, tag, wanted):
     """Whether an image tag meets the minimum a playground asks of it (`requires.images`): it is that version or a later one
     (at_least), or the playground lists it among the versions it was tested with, which is the playground saying it works on it
     (a preview such as 4.13.0-alpha.5 is before 4.13, and is fine only so)."""
-    return at_least(tag, wanted) or any(VARIANT.sub("", tag) == VARIANT.sub("", str(version[variable]))
+    return versions.at_least(tag, wanted) or any(versions.bare(tag)[0] == versions.bare(version[variable])[0]
                                         for version in unit.get("tested") or [] if version.get(variable))
 
 
@@ -535,7 +494,6 @@ def switch_rows(project, to):
     """The rows of what a switch changes, one for each image ("API Management 4.12.20 → 4.13.0-alpha.3", with the registry it comes from
     when that changes too), as (what goes forward or sideways, what goes back: _goes_back). `component` and `to` are for whoever says it
     in other words (the checks of a playground's page)."""
-    from ..docker import images   # images imports this module
     rows, back = {}, set()
     for variable in sorted(to):
         image = re.sub(r"_(VERSION|REGISTRY)$", "", variable)
@@ -556,39 +514,36 @@ def switch_rows(project, to):
     return [row for key, row in rows.items() if key not in back], [row for key, row in rows.items() if key in back]
 
 
-VARIANT = re.compile(r"-(?:debian|alpine|slim)$")   # the base an image is built on: not part of its version
-
-
 def _tested(have, tested):
     """Whether an image tag is the version a playground was tested with, or taken for it: a release of the same minor
     version (4.13.7 for 4.13.0), when the version it was tested with is a release too. A preview (4.13.0-alpha.3), a demo
     build and a tag without numbers (latest) are tested only as they are: they say nothing of what comes after them, and a
     moving one nothing of what it holds today. Another minor or major version is not taken for it: Gravitee changes
     things between them."""
-    have, tested = VARIANT.sub("", have), VARIANT.sub("", tested)
+    have, tested = versions.bare(have)[0], versions.bare(tested)[0]
     if have == tested:
         return True
-    wanted, found = _version(tested), _version(have)
+    wanted, found = versions.split(tested), versions.split(have)
     if not wanted or not found or wanted[1] or found[1]:
         return False
-    return found[0][:2] == wanted[0][:2] and at_least(have, tested)
+    return found[0][:2] == wanted[0][:2] and versions.at_least(have, tested)
 
 
 def _goes_back(have, version):
     """Whether going from the version that is saved (`have`) to another is going back, so that what the newer one wrote may not open: a
     release before it, or a release after a build that says nothing of its numbers (latest, master-latest, amp-demo-latest), which is
     taken as the newest. Going to such a build is going forward."""
-    found, wanted = _version(VARIANT.sub("", have or "")), _version(VARIANT.sub("", version or ""))
+    found, wanted = versions.split(have), versions.split(version)
     if found and wanted:
-        return VARIANT.sub("", have) != VARIANT.sub("", version) and at_least(have, version)
+        return versions.bare(have)[0] != versions.bare(version)[0] and versions.at_least(have, version)
     return not found and bool(wanted)
 
 
-def _recorded(project, versions, images, image_id):
-    """Whether what a machine started a playground on well is what is saved: each image it kept has the tag it had, and a tag
-    that is not a release, which is rebuilt under the same name, is the same image (`image_id` says which one a service
-    has). A registry is the same host."""
-    for variable, wanted in versions.items():
+def _recorded(project, kept, images, image_id):
+    """Whether what a machine started a playground on well is what is saved: each image it kept (`kept`, {variable: version})
+    has the tag it had, and a tag that is not a release, which is rebuilt under the same name, is the same image (`image_id`
+    says which one a service has). A registry is the same host."""
+    for variable, wanted in kept.items():
         found = saved_setting(project, variable)
         if not found:
             continue
@@ -597,12 +552,12 @@ def _recorded(project, versions, images, image_id):
                 return False
             continue
         have = found[0]
-        if VARIANT.sub("", have) != VARIANT.sub("", wanted):
+        if versions.bare(have)[0] != versions.bare(wanted)[0]:
             return False
-        version = _version(VARIANT.sub("", have))
+        version = versions.split(have)
         if not (version and not version[1]) and (not image_id or image_id(service_of(project, variable)[1]) != images.get(variable)):
             return False
-    return any(saved_setting(project, variable) for variable in versions)
+    return any(saved_setting(project, variable) for variable in kept)
 
 
 CONFORM = re.compile(r"\d+\.\d+\.\d+")   # major.minor.patch: a release, the only version taken as it is
@@ -611,7 +566,7 @@ CONFORM = re.compile(r"\d+\.\d+\.\d+")   # major.minor.patch: a release, the onl
 def conform(tag):
     """Whether an image tag is a release (4.13.7, 4.13.7-debian). Anything else is not safe to assume of: a pre-release
     (4.13.0-alpha.5), a demo build (amp-demo-latest), a moving tag (latest, 4.13), whatever its numbers say."""
-    return bool(CONFORM.fullmatch(VARIANT.sub("", tag or "")))
+    return bool(CONFORM.fullmatch(versions.bare(tag)[0]))
 
 
 def _listed(unit, variable, tag):
@@ -619,7 +574,7 @@ def _listed(unit, variable, tag):
     requires. A variant (-debian) is not part of a version."""
     named = [version[variable] for version in unit.get("tested") or [] if version.get(variable)]
     named.append(((unit.get("requires") or {}).get("images") or {}).get(variable))
-    return any(VARIANT.sub("", tag) == VARIANT.sub("", str(one)) for one in named if one)
+    return any(versions.bare(tag)[0] == versions.bare(one)[0] for one in named if one)
 
 
 def untested(project, unit, recorded=(), image_id=None):
@@ -658,7 +613,7 @@ def untested(project, unit, recorded=(), image_id=None):
 
 def or_later(wanted):
     """The words after a minimum: a release is asked "or later", a build that is no release (amp-demo-latest) is asked as it is."""
-    return " or later" if _version(wanted) else ""
+    return " or later" if versions.split(wanted) else ""
 
 
 def too_old(project, unit):
@@ -776,13 +731,12 @@ def _published(project, names):
 
 def _port_clash(project, state, up, kind, unit, going=frozenset()):
     """"Port 8140 is used by Acme Bakery" when a host port the item's services publish is published by something else
-    that is on or runs, the first by port; None otherwise. Only an item that brings a unit of a catalog (that is every item
-    but the core) is asked. What the item brings itself, its twin and what this very plan turns off (`going`: [(kind, id)])
-    do not count: they do not run with it."""
+    that is on or runs, the platform whether it runs or not (it is always on: the next Start all would fail), the first
+    by port; None otherwise. Every item is asked, this machine's own too. What the item brings itself, its twin and what
+    this very plan turns off (`going`: [(kind, id)]) do not count: they do not run with it. What another program holds
+    is asked at the click (check(): taken())."""
     nodes = _reach(project, kind, unit["id"])
     members = [project[node[0] + "s"][node[1]] for node in nodes]
-    if not any(member.get("catalog") for member in members):
-        return None
     mine = set(nodes) | going | {(node[0], member["twin"]["id"]) for node, member in zip(nodes, members)
                                  if isinstance(member.get("twin"), dict)}
     wanted = _published(project, [name for member in members for name in member.get("services") or ()])
@@ -790,7 +744,8 @@ def _port_clash(project, state, up, kind, unit, going=frozenset()):
         return None
     on = [project["playgrounds"].get(state["playground"]) or {}] + [project["addons"].get(aid) or {}
                                                                      for aid in state["effective"]]
-    names = {name for one in on for name in one.get("services") or ()} | set((up or {}).get("services") or ())
+    names = {name for one in on for name in one.get("services") or ()} | set((up or {}).get("services") or ()) \
+        | {name for name, service in project["services"].items() if service["owner"]["kind"] == "platform"}
     others = [name for name in sorted(names) if name in project["services"]
               and (project["services"][name]["owner"]["kind"], project["services"][name]["owner"]["id"]) not in mine]
     taken = _published(project, others)
@@ -798,8 +753,16 @@ def _port_clash(project, state, up, kind, unit, going=frozenset()):
     return f"Port {clash[0]} is used by {taken[clash[0]]}" if clash else None
 
 
+def taken(project, names):
+    """The host ports these services publish that another program uses now (machine.held), sorted: Compose would fail to
+    publish them once the on file names what publishes them, and every later Start all with it. Asked when a start is
+    clicked, never for the state: it binds each port for an instant. None while the lab's own cannot be told: Compose
+    says it then."""
+    return machine.held(_published(project, names)) or []
+
+
 def _blocked(project, state, kind, unit, do, gateway=None, up=None, going=frozenset()):
-    """Why the action cannot run, or None: the on file is locked; the old layout is still being moved; the policy blocks
+    """Why the action cannot run, or None: the on file is locked; the policy blocks
     the item or something it brings, or it lacks a catalog; the twin of the item or of something it brings is on
     (_twins_on); an add-on it brings lacks a setting; a playground is on images older than it needs, which would end on its
     seed, after the whole setup, so its Start waits for them; a host port it publishes is taken. A stop is refused
@@ -810,8 +773,6 @@ def _blocked(project, state, kind, unit, do, gateway=None, up=None, going=frozen
         return state["locked"]
     if do != "start":
         return None
-    if _waiting():
-        return WAITING
     why = _unusable(project, kind, unit["id"]) or (_unusable(project, "addon", gateway) if gateway else None)
     if why:
         return why
@@ -881,6 +842,14 @@ def _idle(project, up, on, names):
     Compose would start first, which `up --no-deps` names. What runs, or ended well, is left as it is, with what it
     depends on."""
     return depends(project, on, names, past=up["services"] | up["done"]) - set(names)
+
+
+def _unready(project, up, on, names, behind):
+    """What these services depend on, and what that depends on in turn, among what is on, that runs and is not ready
+    yet (its health check has not passed, or it keeps restarting): named in `up --no-deps` with them, Compose waits for
+    it as their `depends_on` asks, which it does not for a service it is not given. Nothing is made again on the way:
+    what runs behind what is saved (`behind`) is left as it is."""
+    return (depends(project, on, names, past=up["ready"] | up["done"]) & up["services"]) - set(names) - set(behind)
 
 
 def _once(project, on, names):
@@ -961,13 +930,14 @@ def _restarting(project, rows):
             for name in (project["addons"][row["id"]]["services"] if row["kind"] == "addon" else [row["id"]])}
 
 
-def _starts(project, up, kind, unit, playground, effective, restarts, fresh, gateway=None):
+def _starts(project, up, kind, unit, playground, effective, restarts, fresh, gateway=None, behind=()):
     """What a start runs, as rows and as the services `up --no-deps` names: those of the item and of the add-ons it
     brings that do not run, for a playground the platform too while none of it runs (once part of it runs, what its
     apps and its seed depend on); its seed when the start sets the playground up (`fresh`); what it restarts
     (`restarts`: the core services it changes, what of it runs behind what is saved, an add-on made again); the
     one-shots all that depends on, run again first (_once); and what these depend on among what is on and does not
-    run, which Compose starts first. A one-shot of the item that ended well is not run again for itself."""
+    run, which Compose starts first. A one-shot of the item that ended well is not run again for itself. What they
+    depend on that runs and is not ready yet is named too, not a row: Compose waits for it (_unready)."""
     services, on = project["services"], set(up_services(project, playground, effective))
     if kind == "playground":
         platform = [] if up["platform"] else [name for name, s in services.items() if s["owner"]["kind"] == "platform"]
@@ -983,7 +953,7 @@ def _starts(project, up, kind, unit, playground, effective, restarts, fresh, gat
     restart = _restarting(project, restarts)
     start |= _once(project, on, start | restart)
     start |= _idle(project, up, on, start | restart)
-    return start_rows(project, start), sorted(start | restart)
+    return start_rows(project, start), sorted(start | restart | _unready(project, up, on, start | restart, behind))
 
 
 def _label(project, state, up, kind, unit, do):
@@ -1038,6 +1008,19 @@ def _late(project, kind, unit, behind):
     return sorted(set(mine) & set(behind))
 
 
+def _brought_back(given, project, state, up, kind, uid):
+    """What a start on this machine makes again of what it brings back from a platform it ran on (state's `targets`),
+    whose job writes its plain file again: what of it runs, made as its copy for that platform, and what runs of the
+    services its plain file configures here and its copy configured there. `given`: the project as its files say it,
+    `project` as the plan sees it, where such an item restarts its platform's gateway (_on_their_platforms)."""
+    away, names = state.get("targets") or {}, set()
+    for node in _reach(given, kind, uid):
+        if key(*node) in away:
+            unit, there = given[node[0] + "s"][node[1]], project[node[0] + "s"][node[1]]
+            names |= {*unit.get("services", ()), *unit.get("restarts", ()), *there.get("restarts", ())}
+    return names & up["services"]
+
+
 def _switch_parts(project, to):
     """What a plan says of a switch of versions: its rows, in `versions` and `goes_back` (only the parts that have some), and `switch`,
     the values the start saves."""
@@ -1055,15 +1038,9 @@ def local_needs(project, unit):
     setup: those its apps, its seed and the services of what it brings depend on, and what they depend on in turn, but the
     gateway and the control plane of API Management, which the platform runs (Access Management with its database, for
     example). Sorted."""
-    services = project["services"]
-    core = {name for name, service in services.items() if service["owner"]["kind"] == "platform"}
+    core = {name for name, service in project["services"].items() if service["owner"]["kind"] == "platform"}
     core -= {platforms.local_gateway(project)} | _control_plane(project)
-    mine = [*unit.get("services", []), *_addon_services(project, brought(unit))]
-    found, frontier = set(), {need for name in mine if name in services for need in services[name]["depends_on"]} & core
-    while frontier:
-        found |= frontier
-        frontier = {need for name in frontier for need in services[name]["depends_on"]} & core - found
-    return sorted(found)
+    return sorted(depends(project, core, [*unit.get("services", []), *_addon_services(project, brought(unit))]))
 
 
 def _remote_view(project, kind, uid, gateway):
@@ -1126,16 +1103,17 @@ def _on_their_platforms(project, state):
     return {**project, **{key: {**project[key], **units} for key, units in found.items()}} if found else project
 
 
-def plan(project, state, up, kind, uid, do, fresh=False, behind=frozenset(), place=None, also=frozenset(), switching=False):
+def plan(project, state, up, kind, uid, do, fresh=False, behind=frozenset(), place=None, switching=False):
     """What starting or stopping an add-on, a setup or a playground changes, said before it runs (ROWS): rows of {kind,
     id, name} that start, stop (they run), are turned off (they are on and do not run), are kept or restart; the
-    services its commands remove and start (`services`); the reason it cannot run (`blocked`); the on file it leads
-    to (`playground`, `explicit`); the keys of the rows that are the item itself (`itself`): a setup's add-ons are the
-    setup, but those that were turned on by themselves when it stops; and the word of its button (`label`). `state`
-    is current(), `up` what runs (model.up()). `fresh`: a playground's start that sets it up, its seed included.
-    `behind`: the services that run behind what is saved (model.behind). `also`: services a start makes again besides its own: the
-    platform that runs behind the versions a playground's start just switched to (playgrounds.start). `switching`: the person chose to
-    take a playground to the versions it was tested with (switch); it goes there anyway when the saved ones are older than it asks.
+    services its commands remove and start (`services`); the reason it cannot run (`blocked`); the on file it leads to
+    (`playground`, `explicit`), where what a start brings runs (`targets`, as write() takes them) and the on file it was
+    made from (`stamp`, state's); the keys of the rows that are the item itself (`itself`): a setup's add-ons are the
+    setup, but those that were turned on by themselves when it stops; and the word of its button (`label`). `state` is
+    current(), `up` what runs (model.up()). `fresh`: a playground's start that sets it up, its seed included. `behind`:
+    the services that run behind what is saved (model.behind). `switching`: the person chose to take a playground to the
+    versions it was tested with (switch); it goes there anyway when the saved ones are older than it asks, and what runs
+    on an image the switch changes restarts with it (images.changing).
 
     `place`: where a start deploys. None, or This machine (MACHINE, by its id or as a place), is the plan above, as it
     always was, and so is every stop. A remote place, {id, name, gateway, here, serving}, makes the plan of a lab
@@ -1149,9 +1127,10 @@ def plan(project, state, up, kind, uid, do, fresh=False, behind=frozenset(), pla
     addon, `uid` the gateway), whose start is then the swap alone.
 
     It does only what it says: a start runs the item, what it brings and needs, restarts the core services it changes
-    and makes again what of it runs behind what is saved; a stop removes what goes by name and restarts the core
-    services it changed. What was stopped on purpose, or started outside the Lab UI, is left as it is."""
-    remote = do == "start" and _remote(place)
+    and makes again what of it runs behind what is saved, and what it brings back here from a platform (_brought_back);
+    a stop removes what goes by name and restarts the core services it changed. What was stopped on purpose, or started
+    outside the Lab UI, is left as it is."""
+    remote, given = do == "start" and _remote(place), project
     if remote:
         project = _remote_view(project, kind, uid, place["gateway"])
     else:
@@ -1171,21 +1150,22 @@ def plan(project, state, up, kind, uid, do, fresh=False, behind=frozenset(), pla
     swap = remote and gateway["id"] in up["addons"] and not place.get("here")
     if do == "start":
         named = {row["id"] for row in restarts} | set(gateway["services"] if swap else ())
-        later = dict.fromkeys([*_late(project, kind, unit, behind), *sorted(set(also) & set(project["services"]))])
-        restarts = sorted(restarts + [_service_row(project, name) for name in later if name not in named], key=lambda row: row["id"])
+        later = set(_late(project, kind, unit, behind))
+        later |= set() if remote else _brought_back(given, project, state, up, kind, uid)
+        restarts = sorted(restarts + [_service_row(project, name) for name in sorted(later) if name not in named],
+                          key=lambda row: row["id"])
         if swap:   # made again with this place's token, as one row
             restarts.insert(0, _row("addon", gateway["id"], gateway["name"]))
     # A playground on images older than it asks: its start goes to the versions it was tested with first (`switch`), and what runs on
     # those images is made again with it
     to = switch(project, unit, switching) if (kind, do) == ("playground", "start") and not remote else None
     if to:
-        from ..docker import images   # images imports this module
         named = {row["id"] for row in restarts}
         restarts = sorted(restarts + [_service_row(project, name) for name in images.changing(project, to)
                                       if name in up["services"] and name not in named], key=lambda row: row["id"])
     fresh = fresh and (kind, do) == ("playground", "start")
     starts, start = _starts(project, up, kind, unit, playground, effective, restarts, fresh and not remote,
-                            place["gateway"] if remote and kind != "playground" else None) \
+                            place["gateway"] if remote and kind != "playground" else None, behind) \
         if do == "start" else ([], sorted(row["id"] for row in restarts))
     stops = (_apps_row(project, leaving) if leaves else []) + _addon_rows(project, set(going) & up["addons"])
     turns_off = (_apps_row(project, leaving) if not leaves else []) + _addon_rows(project, set(going) - up["addons"])
@@ -1198,6 +1178,13 @@ def plan(project, state, up, kind, uid, do, fresh=False, behind=frozenset(), pla
         # On, its add-ons are the setup, but those turned on by themselves: they are said first
         alone = (set(state["explicit"]) & members) - set(unit["includes"])
         itself |= {key("addon", aid) for aid in members - alone}
+    # Where what a start brings runs from now on, {its file: the kind of platform, None for this machine}: here, or on
+    # the platform of the remote place; a stop leaves every item where it runs, and so does a place that does not say
+    # its kind
+    runs = place.get("kind") if remote else None
+    targets = {} if do != "start" or (remote and not runs) else {
+        project[node[0] + "s"][node[1]]["file"]: runs for node in _reach(project, kind, uid)
+        if project[node[0] + "s"][node[1]].get("file") and not (remote and node == ("addon", place["gateway"]))}
     departing = {("addon", aid) for aid in going} | ({("playground", leaving)} if leaving else set())
     blocked = _blocked(project, state, kind, unit, do, place["gateway"] if remote else None, up, departing)
     if not blocked and (kind, do) == ("setup", "stop") and not (stops or turns_off):
@@ -1208,7 +1195,7 @@ def plan(project, state, up, kind, uid, do, fresh=False, behind=frozenset(), pla
             "restarts": restarts,
             "services": {"remove": _removed(project, up, leaving, going), "start": start},
             "blocked": blocked, "itself": itself, "fresh": fresh,
-            "playground": playground, "explicit": sorted(explicit),
+            "playground": playground, "explicit": sorted(explicit), "targets": targets, "stamp": state.get("stamp"),
             **(_place_rows(place, (kind, uid) == ("addon", place["gateway"]), swap) if remote else {}),
             **(_from(unit) if do == "start" else {}),
             **(_switch_parts(project, to) if to else {})}
@@ -1306,11 +1293,12 @@ def _on_the_file(project, plan):
 
 def check(project, plan, accept):
     """Refuses a plan that cannot run as the page showed it: blocked, or stopping or turning off something that is
-    neither the item itself nor accepted, by its key. A start that puts a unit of a catalog in the on file (this machine's
-    own is no catalog's) is then handed to the catalogs' preflight: it judges the units again on the live model and
-    verifies that their installed files are the ones that were installed, and refuses with its own line. What it raises is
-    not changed here. Every caller passes the project, and what the page sent back (`accept`), even when it sent nothing:
-    a form that left either out would skip the preflight without a word."""
+    neither the item itself nor accepted, by its key; a start, also when a host port of what it starts is used by
+    another program (taken()). A start that puts a unit of a catalog in the on file (this machine's own is no catalog's)
+    is then handed to the catalogs' preflight: it judges the units again on the live model and verifies that their
+    installed files are the ones that were installed, and refuses with its own line. What it raises is not changed here.
+    Every caller passes the project, and what the page sent back (`accept`), even when it sent nothing: a form that left
+    either out would skip the preflight without a word."""
     if plan["blocked"]:
         raise RuntimeError(plan["blocked"])
     for part, verb in (("stops", "stop"), ("turns_off", "turn off"), ("versions", "change"), ("goes_back", "take back")):
@@ -1320,11 +1308,14 @@ def check(project, plan, accept):
                 raise RuntimeError(f"Would also {verb} {row['name']}")
     if plan.get("do") != "start":
         return
+    held = taken(project, plan["services"]["start"])
+    if held:
+        raise RuntimeError(f"Port {held[0]} is used by another program")
     of_catalogs = [node for node in _on_the_file(project, plan)
                    if project[node[0] + "s"][node[1]].get("catalog") not in (None, paths.LOCAL)]
     if of_catalogs:
-        # Looked up when asked: the service reads the project, which reads this module
-        importlib.import_module("lab_ui.catalogs.service").preflight(project, of_catalogs)
+        from ..catalogs import service   # the catalogs' preflight reads this module: imported when a start needs it
+        service.preflight(project, of_catalogs)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1337,33 +1328,10 @@ def _called(file):
     return found[1].rsplit("/", 1)[-1] if found else file
 
 
-def _legacy_lines():
-    """The lines of the on file that name a file of the old layout (LEGACY), plain or as the copy of an item that runs on
-    another platform, as the file has them; none unless that layout is being moved. current() leaves them out, so a file
-    written from it alone would drop what the move is about to translate (it reads the live file, not the backup)."""
-    file = paths.ROOT / paths.ON_FILE
-    if not file.is_file() or not _waiting():   # the cheap look first: nothing on, nothing to keep
-        return []
-    try:
-        text = file.read_text(encoding="utf-8")
-    except (OSError, ValueError):
-        return []
-    found = []
-    for line in text.split("\n"):
-        target = compose.TARGET_ITEM.fullmatch(line)
-        item = None if target else compose.INCLUDE_ITEM.fullmatch(line)
-        if target:
-            named = compose._original(target.group(1))
-        elif item:
-            named = os.path.normpath(next(filter(None, item.groups())))
-        else:
-            continue
-        if LEGACY.fullmatch(named):
-            found.append(line.rstrip())
-    return found
+CHANGED = "What is on changed meanwhile: try again"   # the on file was written since the plan of a job was made
 
 
-def write(playground, explicit, targets=None, names=None, blocked=None):
+def write(playground, explicit, targets=None, names=None, blocked=None, since=None):
     """Writes the on file: the playground first (with include, the first file to set a key wins), then the
     add-ons turned on one by one. Nothing on: an empty file, the core runs alone; Compose needs the file all the
     same, COMPOSE_FILE names it. An item that runs on another platform is written as its copy for it
@@ -1373,8 +1341,12 @@ def write(playground, explicit, targets=None, names=None, blocked=None):
 
     `blocked`, {unit file: why it must not start} (blocked_files), is the gate: an entry that is not in the file yet is
     not added for a unit it names, and writing it raises. One already there stays, and removing entries never raises, so a
-    stop works for whatever is on. While the old layout is being moved the lines that name its files stay after the others
-    (_legacy_lines): the move translates the file as it finds it."""
+    stop works for whatever is on.
+
+    `since`, the stamp of the file a plan was made from (current()), is the other gate: the file is not written when it
+    changed since (RuntimeError CHANGED), for what the plan made of it would undo what another job did meanwhile."""
+    if since is not None and stamp() != since:
+        raise RuntimeError(CHANGED)
     files = [paths.unit_file("playground", playground)] if playground else []
     files += [paths.unit_file("addon", aid) for aid in sorted(set(explicit))]
     if blocked:
@@ -1395,7 +1367,6 @@ def write(playground, explicit, targets=None, names=None, blocked=None):
         old = compose.target_names(compose.target_copy(file, kind))
         copy = compose.write_target(file, kind, (names or {}).get(kind) or old)
         lines.append(f'  - {{path: "{copy}", project_directory: "{os.path.dirname(file)}"}}\n')
-    lines += [f"{line}\n" for line in _legacy_lines()]
     paths.write_atomic(target, "include:\n" + "".join(lines) if lines else "")
 
 
@@ -1513,9 +1484,78 @@ def commands(plan):
     all): what goes is removed by name, Compose asked by project name, whatever the files include; then what starts
     and what restarts, by name, without what they depend on (`--no-deps`), which the plan names when it does not
     run. What runs is left as it is, what was stopped stays stopped, what was started outside the Lab UI stays."""
-    remove, start = plan["services"]["remove"], plan["services"]["start"]
-    found = [[*compose.by_name(), "rm", "--stop", "--force", *remove]] if remove else []
-    return found + ([[*compose.COMPOSE, "up", "-d", "--no-deps", *start]] if start else [])
+    return _removal(plan["services"]["remove"]) + starting(plan["services"]["start"])
+
+
+def _removal(names):
+    """The run that removes these services by name, with the anonymous volumes of their containers (`-v`): an image that
+    declares a VOLUME gets one at each start, which nothing reaches once its container is gone, not even a Reset. Named
+    volumes stay."""
+    return [[*compose.by_name(), "rm", "--stop", "--force", "-v", *names]] if names else []
+
+
+def starting(names):
+    """The run that starts these services by name, as every start of an item does (commands()): none for no service,
+    which Compose would read as every one."""
+    return [[*compose.COMPOSE, "up", "-d", "--no-deps", *names]] if names else []
+
+
+def unchanged(plan, undo=None):
+    """Ends the job of a plan before it changes anything when the on file was written since the plan read it (its
+    `stamp`): what the plan would do undoes what another job did meanwhile (CHANGED). Every plan's job asks it first
+    (steps()); write() asks again, for an edit by hand while the job runs. `undo`: what puts back what the action wrote
+    before its job (the versions a playground's start saved), called when the job ends here, having done nothing."""
+    if plan.get("stamp") is not None and stamp() != plan["stamp"]:
+        if undo:
+            undo()
+        raise JobFailed(CHANGED)
+
+
+def swapping(project, plan, uid, gateway):
+    """The step that makes a platform's gateway the one its add-on runs here (platforms.swap_gateway), in the job of a
+    plan that starts it elsewhere than the one that runs: once what goes is removed and just before the on file is
+    written (steps(), `swap`), so that a job that fails or is canceled before then leaves the token as it was, and once
+    the on file is as the plan read it (unchanged()), since the job changes nothing otherwise. Its refusal (no add-on runs
+    it, its token is no longer kept) is the job's reason."""
+    def swap(job):
+        unchanged(plan)
+        try:
+            platforms.swap_gateway(project, uid, gateway)
+        except (ValueError, paths.NotFound) as error:
+            raise JobFailed(str(error)) from None
+    return swap
+
+
+def steps(project, plan, start=None, swap=None, undo=None):
+    """The steps of the job of a plan, in the order that leaves the lab as it says wherever the job ends (it fails, it
+    is canceled, the Lab UI stops): nothing for a plan the on file changed since (unchanged()); then what goes is
+    removed, while the on file still names it, so that it is on and stopped rather than off and still running, which
+    would read as started by hand; then a gateway's token is swapped (`swap`, the step swapping() makes, when the plan
+    starts one that does not run here); then the on file is written (written()); then what starts and restarts, by name
+    (commands()). `start`: the services the last one names, when they are more than the plan's (a playground's product,
+    stopped to load its plugins). `undo`: the first gate's (unchanged())."""
+    return [lambda job: unchanged(plan, undo), *_removal(plan["services"]["remove"]), *([swap] if swap else []),
+            lambda job: written(job, project, plan), *starting(plan["services"]["start"] if start is None else start)]
+
+
+SAID = (("starts", "Starts"), ("stops", "Stops"), ("turns_off", "Turns off"), ("restarts", "Restarts"))
+
+
+def written(job, project, plan):
+    """The step that writes the on file of a plan: through both gates of write() (a unit that is blocked, a file another
+    job wrote since the plan was made), with where the plan says what it starts runs (`targets`), each platform's copy
+    made for the gateway that platform runs here; then the folders its binds name are made, and the job says what it
+    changes."""
+    names = {kind: platforms.retarget_names(project, kind) for kind in set(plan.get("targets", {}).values()) if kind}
+    try:
+        write(plan["playground"], plan["explicit"], plan.get("targets"), names, blocked=blocked_files(project),
+              since=plan.get("stamp"))
+    except RuntimeError as error:   # its reason, as a line of the job says it
+        raise JobFailed(str(error)) from None
+    make_binds(project, plan)
+    for part, verb in SAID:
+        if plan[part]:
+            job.lines.append(f"{verb}: {', '.join(row['name'] for row in plan[part])}")
 
 
 def _target_pairs(project, plan):
@@ -1577,17 +1617,10 @@ def waits(project, plan):
     return ([awaited(services, stop=remove)] if remove else []) + ([awaited(services, start=start)] if start else [])
 
 
-def apply(project, plan, title):
-    """Runs the plan of an add-on, a setup or a playground already set up as a job, once check() let it through.
-    When it fails the on file stays as written: the item is on, does not run, and can be started again or stopped."""
-
-    def write_on_file(job):
-        write(plan["playground"], plan["explicit"], blocked=blocked_files(project))
-        make_binds(project, plan)
-        for part, verb in (("starts", "Starts"), ("stops", "Stops"), ("turns_off", "Turns off"),
-                           ("restarts", "Restarts")):
-            if plan[part]:
-                job.lines.append(f"{verb}: {', '.join(row['name'] for row in plan[part])}")
-
-    return JOBS.start(title, [write_on_file, *commands(plan)], key=f"{plan['kind']}:{plan['id']}",
+def apply(project, plan, title, undo=None):
+    """Runs the plan of an add-on, a setup or a playground already set up as a job (steps()), once check() let it
+    through. When it fails the on file stays as written: a start's item is on and can be started again or stopped, a
+    stop's is off; when it fails before (what goes could not be removed), nothing is written and what was on stays on.
+    `undo`: what its first gate puts back when it ends the job (unchanged())."""
+    return JOBS.start(title, steps(project, plan, undo=undo), key=f"{plan['kind']}:{plan['id']}",
                       verb=plan["do"], changes=changes(project, plan), waits=waits(project, plan))

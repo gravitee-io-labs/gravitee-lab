@@ -1,7 +1,8 @@
 """Docker Compose from the command line: a file's configuration as JSON, its includes and variables, the project's
-containers, what Compose would create each service as, the images Docker holds. Every command runs under the same
-limits: a time after which it and what it started are ended, and an environment that lets Compose read local files
-only. Also holds the environments of a command that reads or builds what someone else wrote (the catalog standard), and the cache of what is slow to ask again (registries, Docker)."""
+containers, what Compose would create each service as, the images Docker holds. Every command runs in a session of
+its own, which the Lab UI ends as it exits, with an environment that lets Compose read local files only; one whose
+answer is awaited (run) has a time after which it and what it started are ended, one whose output is read as it comes
+(spawn: a job's, a log followed) is ended when asked (end). Also holds the environments of a command that reads or builds what someone else wrote (the catalog standard), and the cache of what is slow to ask again (registries, Docker)."""
 
 import atexit
 import calendar
@@ -10,7 +11,6 @@ import contextlib
 import copy
 import functools
 import hashlib
-import importlib
 import json
 import os
 import posixpath
@@ -18,18 +18,26 @@ import re
 import shutil
 import signal
 import subprocess
-import sys
 import tempfile
 import threading
 import time
+from concurrent.futures import Future
 from pathlib import Path
 
 from ..paths import CATALOGS_DIR, COMPOSE_FILE, CORE_FILE, ON_FILE, ROOT, write_atomic
 
 COMPOSE = ["docker", "compose", "--progress", "plain"]
 
-# How long after its last start a container that Docker restarted still counts as restarting, in seconds
-RESTART_WINDOW = 300
+# How long after its last start a container that Docker restarted still counts as restarting, in seconds: one that has run
+# longer since is stable (Docker's own back-off starts again after 10 s of uptime), however often it restarted while what it
+# needs warmed up
+RESTART_WINDOW = 60
+# How long Docker's answers are kept, in seconds: the images it holds (a job drops them) and its Compose's version a minute,
+# what it says of itself ten minutes at most, as it changes only when Docker starts again (containers drops it then)
+DOCKER_TTL, INFO_TTL = 60, 600
+# How long Docker has to list the containers, in seconds: every state's refresh and every action asks it, and a Docker
+# that hangs (its machine asleep, an update) is said so then, not after the long limit of a command
+PS_TIMEOUT = 10
 
 NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 COMMENT = re.compile(r"(?:^|\s)#(.*)$")
@@ -60,17 +68,46 @@ class Cache:
     job ends."""
 
     def __init__(self):
-        self._items, self._lock = {}, threading.Lock()
+        # Of each key whose answer is being asked, that read: those who want it meanwhile wait for what it answers or
+        # raises
+        self._items, self._lock, self._asking = {}, threading.Lock(), {}
 
-    def get(self, key, ttl, fn):
+    def _hit(self, key, ttl):
         with self._lock:
             hit = self._items.get(key)
-        if hit and time.monotonic() - hit[0] < ttl:
-            return hit[1]
-        value = fn()
-        if value is not None:   # a failure is asked again next time
+        return hit if hit and time.monotonic() - hit[0] < ttl else None
+
+    def kept(self, key, ttl):
+        """The answer kept under `key` while younger than `ttl` seconds, None otherwise. Nothing is asked, nor waited
+        for: a read under way for that key is not."""
+        hit = self._hit(key, ttl)
+        return hit[1] if hit else None
+
+    def get(self, key, ttl, fn):
+        """The answer kept under `key` while younger than `ttl` seconds, else what fn() answers, kept whatever it is. What
+        fn raises is not kept: it reaches the caller, and the next one asks again. Asked at the same time (two pages'
+        refreshes), fn runs once and all get what it answers or raises."""
+        with self._lock:
+            hit = self._items.get(key)
+            if hit and time.monotonic() - hit[0] < ttl:
+                return hit[1]
+            read = self._asking.get(key)
+            mine = read is None
+            if mine:
+                read = self._asking[key] = Future()
+        if not mine:   # asked by another meanwhile
+            return read.result()
+        try:
+            value = fn()
+        except BaseException as error:
             with self._lock:
-                self._items[key] = (time.monotonic(), value)
+                del self._asking[key]
+            read.set_exception(error)
+            raise
+        with self._lock:
+            self._items[key] = (time.monotonic(), value)
+            del self._asking[key]
+        read.set_result(value)
         return value
 
     def drop(self, prefix=""):
@@ -110,25 +147,10 @@ def scratch():
 NO_REMOTE = {"COMPOSE_EXPERIMENTAL_GIT_REMOTE": "false", "COMPOSE_EXPERIMENTAL_OCI_REMOTE": "false"}
 
 
-def _waiting():
-    """Whether the layout of an existing machine is being moved to the catalogs (layout.waiting()). The module is
-    looked up when asked, as it needs this one; a checkout without it is not waiting."""
-    name = "lab_ui.library.layout"
-    try:
-        layout = importlib.import_module(name)
-    except ModuleNotFoundError as error:
-        if error.name != name:   # a module it needs is missing: that is a fault to show, not a layout to ignore
-            raise
-        return False
-    return bool(layout.waiting())
-
-
 def environment():
     """The shell's environment, for a command, with the files Compose reads: the core and what is on, whatever the
-    shell or .env says, and no remote include (NO_REMOTE). While the layout is waiting (_waiting), the core alone:
-    the on file may name files that are not where they were, and the Lab's own commands must not fail on it. It is the
-    only time Compose reads fewer files than .env says."""
-    return {**os.environ, "COMPOSE_FILE": CORE_FILE if _waiting() else COMPOSE_FILE, **NO_REMOTE}
+    shell or .env says, and no remote include (NO_REMOTE)."""
+    return {**os.environ, "COMPOSE_FILE": COMPOSE_FILE, **NO_REMOTE}
 
 
 # What a command that reads or builds the files of a stranger (a catalog's pull request) is told of the shell: these
@@ -292,6 +314,8 @@ def _stop(process):
     """Ends a command and everything it started. `docker compose` is a CLI that starts the Compose plugin: killing
     the CLI alone leaves the plugin running, and a file that it reads without end (`env_file: /dev/zero`) makes it
     fill the machine's memory. Each command leads a process group of its own (run), and the group is killed."""
+    if not isinstance(process.pid, int) or process.pid <= 1:   # never this process's own group (0) nor the machine's first
+        return
     try:
         os.killpg(process.pid, signal.SIGKILL)
     except OSError:   # the group is gone already
@@ -299,8 +323,8 @@ def _stop(process):
 
 
 def stop_running():
-    """Ends every command that runs, with what it started. A command leads a session of its own (run), so the Ctrl+C
-    or the hang-up that ends the Lab UI no longer reaches it: the Lab UI ends it."""
+    """Ends every command that runs, with what it started. A command leads a session of its own (run, spawn), so the
+    Ctrl+C or the hang-up that ends the Lab UI no longer reaches it: the Lab UI ends it."""
     for process in list(_running):
         _stop(process)
 
@@ -313,9 +337,6 @@ def _end():
     global _ending
     _ending = True
     stop_running()
-    git = sys.modules.get("lab_ui.catalogs.gitx")   # only if git was ever run
-    if git is not None:
-        git.stop_running()
 
 
 atexit.register(_end)
@@ -323,13 +344,16 @@ if hasattr(threading, "_register_atexit"):   # CPython 3.9 and later
     threading._register_atexit(_end)
 
 
-def stop_on_signals():
-    """Makes a hang-up (the terminal closed) and a termination of the Lab UI end what runs (_end) before the Lab UI ends
-    as it would have. A command leads a session of its own (run), so these signals, which the terminal sends to the
-    Lab UI's process group, no longer reach it, and Python does not run its exit functions for them. A signal that the
-    Lab UI ignores (`nohup`) or handles stays as it is. Called once by what starts the Lab UI, from the main thread."""
+def stop_on_signals(*others):
+    """Makes a hang-up (the terminal closed) and a termination of the Lab UI end what runs (_end, then each of `others`:
+    what ends the commands another module runs, gitx.stop_running) before the Lab UI ends as it would have. A command
+    leads a session of its own (run, spawn), so these signals, which the terminal sends to the Lab UI's process group, no
+    longer reach it, and Python does not run its exit functions for them. A signal that the Lab UI ignores (`nohup`) or
+    handles stays as it is. Called once by what starts the Lab UI, from the main thread."""
     def ending(number, frame):
         _end()
+        for stop in others:
+            stop()
         signal.signal(number, signal.SIG_DFL)
         signal.raise_signal(number)
     for name in ("SIGHUP", "SIGTERM"):
@@ -372,6 +396,47 @@ def run(cmd, timeout=120, cwd=None, env=None, environ=None, given=None):
     finally:
         _running.discard(process)
     return process.returncode, out, err
+
+
+# How long a command asked to end (end) has to end by itself before it is killed with what it started
+GRACE = 10
+
+
+def spawn(cmd, errors, cwd=None, env=None):
+    """A command started as run() starts one, for a caller that reads its output as it comes (a job, a log followed):
+    from the project root, with no input, in a session of its own that the Lab UI ends as it exits (_end), its output
+    as text. `errors`: where its errors go, subprocess.STDOUT with its output or subprocess.DEVNULL. `env`: variables
+    set for it. None while the Lab UI exits: it is not started. The caller reads its lines, waits for it, then calls
+    release()."""
+    if _ending:
+        return None
+    process = subprocess.Popen(cmd, cwd=cwd or ROOT, env={**environment(), "PWD": str(cwd or ROOT), **(env or {})},
+                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=errors, encoding="utf-8",
+                               errors="replace", bufsize=1, start_new_session=True)
+    _running.add(process)
+    if _ending:   # the Lab UI began to exit while it started: _end did not see it
+        _stop(process)
+    return process
+
+
+def release(process):
+    """A command that spawn() started has ended: the Lab UI has nothing more to end of it."""
+    _running.discard(process)
+
+
+def end(process):
+    """Asks a command that spawn() started to end, with what it started: a termination of its process group, which
+    Compose answers by ending what it waits for, then a kill (_stop) if it still runs GRACE seconds later. Nothing for
+    one that ended."""
+    if process.poll() is not None or not isinstance(process.pid, int) or process.pid <= 1:   # as _stop
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except OSError:   # the group is gone already
+        return
+    timer = threading.Timer(GRACE, lambda: process.poll() is None and _stop(process))
+    timer.daemon = True
+    timer.start()
 
 
 def _last_line(err):
@@ -474,9 +539,8 @@ def _there(file):
 
 
 def _items(file, text):
-    """The items of the `include` list in the text of a project file (_include_items), those that a copy can be
-    written for: not the files that an item lists under its `path:`, which are read where they are."""
-    return _include_items(text, ROOT / file, ROOT if file == ON_FILE else None, nested=False)
+    """The items of the `include` list in the text of a project file that a copy writes again (_include_items, `copied`)."""
+    return _include_items(text, ROOT / file, ROOT if file == ON_FILE else None, copied=True)
 
 
 def _extent(lines, number):
@@ -802,13 +866,28 @@ def targets(path):
     return found
 
 
+IMAGE_KEY = re.compile(r"\s*(?:-\s*)?[\"']?image[\"']?\s*:")
+
+
+def _in_path(found):
+    """Whether a name found in a line stands in a path or in the repository of an image, which a slash stands next to, and
+    not as the host of an address (after its `//` or its `@`)."""
+    before, after = found.string[:found.start()], found.string[found.end():]
+    return not before.endswith(("//", "@")) and (before.endswith("/") or after.startswith("/"))
+
+
 def retarget(text, names):
-    """The text of a compose file with a service named again wherever it is named: its own entry, what depends on it and
-    a host that its address names. `names`: {the service as the file says it: the service of the platform}. A name is
-    replaced whole: gio-apim-gateway, a container name, stays."""
+    """The text of a compose file with a service named again where the file names that service: its own key, what depends
+    on it, and a host its addresses name (`http://apim-gateway:8082`, `TCP:apim-gateway:9092`). Never a path or an image,
+    which a slash stands next to (`./apim-gateway/gravitee.yml`, `graviteeio/apim-gateway:4.13.1`), a file
+    (`apim-gateway.yml`), the value of an `image:`, or a longer name (gio-apim-gateway, a container name). `names`:
+    {the service as the file says it: the service of the platform}."""
+    lines = text.split("\n")
     for old, new in names.items():
-        text = re.sub(rf"(?<![\w.-]){re.escape(old)}(?![\w-])", new, text)
-    return text
+        name = re.compile(rf"(?<![\w.-]){re.escape(old)}(?![\w.-])")
+        lines = [line if IMAGE_KEY.match(line) else name.sub(lambda found: found.group() if _in_path(found) else new, line)
+                 for line in lines]
+    return "\n".join(lines)
 
 
 HEADER = "# Written for another platform by the Lab UI, from the file it names: "
@@ -862,16 +941,16 @@ def top_keys(text, block):
 FLOW_INCLUDE = re.compile(r"include:\s*\[([^\]]*)\]\s*(?:#.*)?$")
 
 
-def _include_items(text, file, base=None, nested=True, flow=False):
+def _include_items(text, file, base=None, copied=False):
     """The items of a compose file's `include` list: (line number, the path as written, the project file it names, or
-    None outside the project). With `flow`, a list on one line gives its plain items, for a caller that only reads them (the
-    rewrites handle the lines of a list). The next top-level key ends the list. An item in long form holds keys below its dash,
-    and a list under one of them (`env_file`) is not a list of items; but the files of its `path:`, when it lists
-    them, are, unless `nested` is False."""
+    None outside the project). A list on one line gives its plain items. The next top-level key ends the list. An item in
+    long form holds keys below its dash, and a list under one of them (`env_file`) is not a list of items; but the files of
+    its `path:`, when it lists them, are. With `copied`, only the items a copy writes again in its place, each a line of
+    the list: not those of a list on one line nor the files an item lists under its `path:`, which are read where they are."""
     inside, column, key = False, None, None   # the column of the dashes of the items, the last key opened without a value
     for number, line in enumerate(text.split("\n")):
         indent = len(line) - len(line.lstrip())
-        one_line = FLOW_INCLUDE.match(line) if flow else None
+        one_line = None if copied else FLOW_INCLUDE.match(line)
         if one_line:   # the list on one line: its plain items
             for written in (item.strip().strip("\"'") for item in one_line.group(1).split(",")):
                 if written and not re.search(r"[{}:#\s]", written):
@@ -899,7 +978,7 @@ def _include_items(text, file, base=None, nested=True, flow=False):
         column = indent if column is None else column
         if indent <= column:   # an item of the list; deeper, a line of the list of a key of the item above
             key = None
-        elif not (nested and key == "path"):
+        elif copied or key != "path":
             continue
         if target:
             yield number, target.group(1), _original(target.group(1))
@@ -909,14 +988,13 @@ def _include_items(text, file, base=None, nested=True, flow=False):
             yield number, written, path.relative_to(ROOT).as_posix() if path.is_relative_to(ROOT) else None
 
 
-def includes(path, flow=False):
-    """The project files a compose file includes itself, each written relative to the file that includes it; those
-    of the on file relative to the project, as Compose reads a file it is given. `flow`: those of a list on one line too, for
-    a caller that only reads what is on (`_include_items`)."""
+def includes(path):
+    """The project files a compose file includes itself (_include_items), each written relative to the file that includes
+    it; those of the on file relative to the project, as Compose reads a file it is given."""
     file = ROOT / path
     text = file.read_text(encoding="utf-8") if file.is_file() else ""
     base = ROOT if path == ON_FILE else None
-    return [target for _, _, target in _include_items(text, file, base, flow=flow) if target]
+    return [target for _, _, target in _include_items(text, file, base) if target]
 
 
 def retargeted(path, text, targets):
@@ -1087,7 +1165,7 @@ def _inspect(names, variable=None):
     if not names:
         return {}
     fields = INSPECT + (VARIABLE % variable if variable else "")
-    _, out, _ = run(["docker", "container", "inspect", "--format", fields, *names], timeout=20)
+    _, out, _ = run(["docker", "container", "inspect", "--format", fields, *names], timeout=PS_TIMEOUT)
     found = {}
     for parts in (line.split("|", 6) for line in out.splitlines()):
         if len(parts) < (7 if variable else 6):
@@ -1106,11 +1184,13 @@ def ps(variable=None):
     """The project's containers, by service: {state, health, status, image, exit_code, name, ports, oom, restarts,
     config_hash, image_id, variable} (_inspect: `variable` names the variable of their environment to report a digest
     of). Asked by project name from a folder without compose files, so containers of what was turned off since are
-    listed too."""
+    listed too. Docker has PS_TIMEOUT seconds to answer: "Docker did not answer within 10 s" otherwise."""
     command = [*by_name(), "ps", "-a", "--format", "json"]
-    rc, out, err = run(command, timeout=30, cwd=scratch())
+    rc, out, err = run(command, timeout=PS_TIMEOUT, cwd=scratch())
     if rc != 0 and "No such container" in err:   # removed while Compose was listing them: a job recreates it
-        rc, out, err = run(command, timeout=30, cwd=scratch())
+        rc, out, err = run(command, timeout=PS_TIMEOUT, cwd=scratch())
+    if rc == 124:
+        raise ComposeError(f"Docker did not answer within {PS_TIMEOUT} s")
     if rc != 0:
         raise ComposeError(_last_line(err))
     containers = {}
@@ -1138,6 +1218,7 @@ def containers(variable=None):
     try:
         return ps(variable) if variable else ps(), None
     except ComposeError as error:
+        CACHE.drop("docker:")   # what Docker says of itself, read again once it answers: it may start again otherwise
         return {}, str(error)
 
 
@@ -1170,11 +1251,16 @@ def reference(image):
 
 def image_ids():
     """The images Docker holds: {repository:tag: image id}; None when Docker does not answer. A pull or a build may
-    move a tag to another image: asked again after every job."""
+    move a tag to another image: asked again after every job, and a minute later (a pull typed in a terminal)."""
     def ask():
-        rc, out, _ = run(["docker", "images", "--no-trunc", "--format", "{{.Repository}}:{{.Tag}} {{.ID}}"], timeout=30)
-        return dict(line.split(" ", 1) for line in out.splitlines() if " " in line) if rc == 0 else None
-    return CACHE.get("local:image-ids", 10, ask)
+        rc, out, err = run(["docker", "images", "--no-trunc", "--format", "{{.Repository}}:{{.Tag}} {{.ID}}"], timeout=30)
+        if rc != 0:
+            raise ComposeError(_last_line(err))
+        return dict(line.split(" ", 1) for line in out.splitlines() if " " in line)
+    try:
+        return CACHE.get("local:image-ids", DOCKER_TTL, ask)
+    except ComposeError:
+        return None
 
 
 _same = {}
@@ -1184,20 +1270,25 @@ def same_image(container, image, running):
     """Whether a container that runs image id `running` runs what image id `image` holds for its platform. Docker's
     image store records each build in an image's id: built again from unchanged sources, a tag names another id for
     the same image, which Compose keeps running. What it runs is told by the manifest it was made from; an image
-    built here has no other id to compare it with. Kept for good: an id always names the same content."""
+    built here has no other id to compare it with, and neither has one that Docker's former image store holds. Kept for
+    good once Docker answered: an id always names the same content. Asked again when it did not (the container gone,
+    Docker not answering)."""
     key = (image, running)
     if key not in _same:
         rc, out, _ = run(["docker", "container", "inspect", "--format", "{{json .ImageManifestDescriptor}}", container],
                          timeout=20)
-        made = json.loads(out) if rc == 0 and out.strip() not in ("", "null") else None
+        if rc != 0:
+            return False   # not known now: another id is another image
+        made = json.loads(out) if out.strip() else None
         platform = (made or {}).get("platform") or {}
         if not made or not platform.get("os"):
-            return False   # no manifest to compare: another id is another image
+            _same[key] = False   # no manifest to compare: another id is another image
+            return False
         wanted = "/".join(filter(None, (platform["os"], platform.get("architecture"), platform.get("variant"))))
-        rc, out, _ = run(["docker", "image", "inspect", "--platform", wanted, "--format", "{{.Id}}", image], timeout=20)
-        if rc != 0:
-            return False   # not known now: asked again next time
-        _same[key] = out.strip() == made["digest"]
+        rc, out, err = run(["docker", "image", "inspect", "--platform", wanted, "--format", "{{.Id}}", image], timeout=20)
+        if rc != 0 and "No such image" not in err:
+            return False   # not known now
+        _same[key] = rc == 0 and out.strip() == made["digest"]
     return _same[key]
 
 
@@ -1282,15 +1373,54 @@ def loaded():
     """The services of the files Compose reads now, the core's with what is on: an add-on that is off has none here, and
     `pull` or `up` of its service says "no such service". None when Compose cannot say."""
     def ask():
-        code, out, _ = run(["docker", "compose", "config", "--services"], 60)
-        return set(out.split()) if code == 0 else None
-    return CACHE.get("local:loaded-services", 5, ask)
+        code, out, err = run(["docker", "compose", "config", "--services"], 60)
+        if code != 0:
+            raise ComposeError(_last_line(err))
+        return set(out.split())
+    try:
+        return CACHE.get("local:loaded-services", 5, ask)
+    except ComposeError:
+        return None
+
+
+def docker_info():
+    """What Docker says of itself, the one reading of `docker info` that every page shares: {engine, os, cpus, memory, root}
+    (the cpus and memory Docker has, not the machine; root, where it keeps its images). ComposeError in Docker's words when
+    it does not answer."""
+    def ask():
+        rc, out, err = run(["docker", "info", "--format", "{{json .}}"], timeout=20)
+        try:
+            info = json.loads(out)
+        except ValueError:
+            info = None
+        info = info if isinstance(info, dict) else {}
+        if rc != 0 or not info.get("ServerVersion"):
+            raise ComposeError(next(iter(info.get("ServerErrors") or []), None)
+                               or (err.strip().splitlines() or ["Docker is not reachable"])[-1])
+        return {"engine": info["ServerVersion"], "os": info.get("OperatingSystem"), "cpus": info.get("NCPU"),
+                "memory": info.get("MemTotal"), "root": info.get("DockerRootDir")}
+    return CACHE.get("docker:info", INFO_TTL, ask)
 
 
 def docker_memory():
-    """The memory Docker has, or None when Docker is not reachable."""
+    """The memory Docker has (docker_info), or None when Docker is not reachable."""
+    try:
+        return docker_info()["memory"]
+    except ComposeError:
+        return None
+
+
+NO_DOCKER = "docker not found"   # what compose_version() raises when there is no `docker` to run
+
+
+def compose_version():
+    """The version of Docker Compose without its v ("5.6.1"), the one reading of `docker compose version` that every page
+    shares. ComposeError when there is none: NO_DOCKER without a `docker` to run."""
     def ask():
-        rc, out, _ = run(["docker", "info", "--format", "{{json .}}"], timeout=20)
-        info = json.loads(out) if rc == 0 else {}
-        return info.get("MemTotal") if info.get("ServerVersion") else None
-    return CACHE.get("docker-memory", 30, ask)
+        rc, out, err = run(["docker", "compose", "version", "--short"], timeout=20)
+        if rc == 127:
+            raise ComposeError(NO_DOCKER)
+        if rc != 0 or not out.strip():
+            raise ComposeError(_last_line(err))
+        return out.strip().lstrip("v")
+    return CACHE.get("docker:compose", DOCKER_TTL, ask)

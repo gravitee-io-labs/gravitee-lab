@@ -10,11 +10,8 @@ FILE = ".lab/starred.json"   # {kind: [ids]}, relative to the project
 
 
 def read():
-    """{kind: set of ids}; nothing starred when the file is missing or does not read as such."""
-    try:
-        found = json.loads((paths.ROOT / FILE).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        found = {}
+    """{kind: set of ids}; nothing starred when the file is missing or does not read as such (paths.read_record keeps it aside)."""
+    found = paths.read_record(paths.ROOT / FILE)
     found = found if isinstance(found, dict) else {}
     ids = {kind: found.get(kind) if isinstance(found.get(kind), list) else [] for kind in paths.KINDS}
     return {kind: {uid for uid in ids[kind] if isinstance(uid, str)} for kind in paths.KINDS}

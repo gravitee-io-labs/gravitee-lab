@@ -53,8 +53,10 @@ def failed(jid="j1", verb="start", error="dependency failed to start: container 
 
 
 def sent(summary):
-    """What the page gets of a job: all but what the items say."""
-    return {key: value for key, value in summary.items() if key not in ("changes", "containers", "settled")}
+    """What the page gets of a job in the state: all but what the items say and, while it runs, how far it is, which comes
+    beside the state (api.state)."""
+    hidden = ("changes", "containers", "settled") + (() if summary["done"] else ("progress", "detail"))
+    return {key: value for key, value in summary.items() if key not in hidden}
 
 
 class Services(Case):
@@ -66,8 +68,10 @@ class Services(Case):
             (container(health=""), False, False, ("running", "Running", True)),
             (container(health="starting"), False, False, ("starting", "Starting", True)),
             (container(health="unhealthy"), False, False, ("issue", "Unhealthy", True)),
-            (container(health="", restarts=3), False, False, ("issue", "Keeps restarting", True)),
-            (container(health="starting", restarts=2), False, False, ("issue", "Keeps restarting", True)),
+            # Restarted more than once, its last start within the minute (compose.RESTART_WINDOW)
+            (container(health="", restarts=3, status="Up 20 seconds"), False, False, ("issue", "Keeps restarting", True)),
+            (container(health="starting", restarts=2, status="Up 20 seconds (health: starting)"), False, False,
+             ("issue", "Keeps restarting", True)),
             (container(health="", restarts=1), False, False, ("running", "Running", True)),
             (container(restarts=3), False, False, ("healthy", "Healthy", True)),
             (container("restarting"), False, False, ("issue", "Restarting", True)),
@@ -83,8 +87,11 @@ class Services(Case):
             (exited(1), False, False, ("issue", "Exited (1)", False)),
             (exited(1), True, False, ("issue", "Exited (1)", False)),
             (exited(130), False, False, ("stopped", "Stopped", False)),
-            (exited(143), True, False, ("stopped", "Stopped", False)),
+            (exited(143), False, False, ("stopped", "Stopped", False)),
             (exited(137), False, False, ("stopped", "Stopped", False)),
+            # A one-shot stopped or killed before its end did not do its part: Docker stopped it while it ran
+            (exited(143), True, False, ("issue", "Exited (143)", False)),
+            (exited(137), True, False, ("issue", "Exited (137)", False)),
             (exited(137, oom=True), False, False, ("issue", "Out of memory", False)),
         ]
         for found, oneshot, job, (key, label, running) in cases:
@@ -94,11 +101,12 @@ class Services(Case):
 
     def test_uptime(self):
         for status, text in (("Up 5 minutes (healthy)", "5 min"), ("Up About an hour (healthy)", "1 h"),
-                             ("Up About a minute (health: starting)", "1 min"), ("Up Less than a second", "1 s"),
-                             ("Up 30 seconds (unhealthy)", "30 s"), ("Up 7 hours", "7 h"), ("Up 3 days", "3 d"),
+                             ("Up About a minute (health: starting)", "1 min"), ("Up Less than a second", "< 1 min"),
+                             ("Up 1 second", "< 1 min"), ("Up 30 seconds (unhealthy)", "< 1 min"),
+                             ("Up 7 hours", "7 h"), ("Up 3 days", "3 d"),
                              ("Up 2 weeks (healthy)", "14 d"), ("Up 5 months", "5 mo"), ("Up 2 years", "2 y"),
                              ("Exited (0) 2 minutes ago", "2 min ago"),
-                             ("Restarting (1) 2 seconds ago", "2 s ago"),
+                             ("Restarting (1) 2 seconds ago", "< 1 min ago"),
                              ("Exited (137) About an hour ago", "1 h ago"), (None, "")):
             self.assertEqual(model.uptime(status), text)
 
@@ -126,10 +134,15 @@ class Services(Case):
             "platform": True, "groups": set(), "addons": {"kafka"}, "playgrounds": {"welcome"},
             # What runs, what has a container, the one-shots that ended well
             "services": {"apim-gateway", "kafka-ui", "hello-app", "stray"}, "created": set(containers),
-            "done": {"openfga-migrate"}})
+            "ready": {"apim-gateway", "kafka-ui", "hello-app", "stray"}, "done": {"openfga-migrate"}})
         self.assertEqual(model.up(project, {}), {"platform": False, "groups": set(), "addons": set(),
                                                  "playgrounds": set(), "services": set(), "created": set(),
-                                                 "done": set()})
+                                                 "ready": set(), "done": set()})
+        # Ready as a job judges it: not while its health check has not passed, nor a one-shot that runs
+        project["services"]["openfga-migrate"]["oneshot"] = True
+        waiting = {**healthy("hello-app", "openfga-migrate"), "apim-gateway": container(health="starting")}
+        self.assertEqual((model.up(project, waiting)["services"], model.up(project, waiting)["ready"]),
+                         ({"hello-app", "apim-gateway", "openfga-migrate"}, {"hello-app"}))
         # A group runs when all its services do; a one-shot does not have to
         project["services"]["mongodb"]["oneshot"] = True
         self.assertEqual(model.up(project, healthy("apim-gateway", "apim-management-api"))["groups"],
@@ -293,6 +306,19 @@ class State(Built):
         self.assertTrue(model.seed_failed(states, self.project["playgrounds"]["welcome"]))
         states["seed"] = model.service_state(exited(0), True, False)
         self.assertFalse(model.seed_failed(states, self.project["playgrounds"]["welcome"]))
+
+    def test_a_seed_that_docker_stopped_before_its_end_runs_again_at_its_start(self):
+        # Docker Desktop restarted in the middle of a first seed that had recorded a few objects: its apps came back, the
+        # seed did not, and its Start sets the playground up again, seed included
+        created = {"welcome": [{"what": "APIs", "count": 1}]}
+        for code in (137, 143):
+            with self.subTest(code=code):
+                containers = {**CORE, **WELCOME, "seed": exited(code)}
+                item = self.item("playground", "welcome", playground="welcome", containers=containers, created=created)
+                self.assertEqual((item["state"]["key"], item["note"], item["action"]["label"]),
+                                 ("issue", f"Seed exited ({code})", "Start"))
+                states = {name: model.service_state(found, name == "seed", False) for name, found in containers.items()}
+                self.assertTrue(model.seed_failed(states, self.project["playgrounds"]["welcome"]))
 
     def test_a_container_stopped_on_purpose_is_partly_running(self):
         # Kafka UI stopped from the Stack: Kafka runs partly, said muted, never red; its button stays Stop
@@ -851,9 +877,39 @@ class State(Built):
         self.assertEqual(body["platform"]["state"]["key"], "starting")
         self.assertEqual([group["state"]["key"] for group in body["platform"]["groups"]], ["starting", "starting"])
         self.assertEqual(next(s for s in body["setups"] if s["id"] == "events")["state"]["key"], "starting")
-        # What the job changes and what it said of each container are in the items: the page gets the rest
+        # What the job changes and what it said of each container are in the items, and how far it is beside the state while
+        # it runs: the page gets the rest
         self.assertEqual(body["job"], sent(events))
-        self.assertEqual(sorted(body["job"]), ["done", "for", "id", "ok", "progress", "title", "verb"])
+        self.assertEqual(sorted(body["job"]), ["done", "for", "id", "ok", "title", "verb"])
+        ended = {**events, "done": True, "ok": True, "progress": 1}
+        self.assertEqual(sorted(self.build(explicit=["kafka-desk", "jade"], job=ended)["job"]),
+                         ["done", "for", "id", "ok", "progress", "title", "verb"], "once it ended, all of it")
+
+    def test_how_far_a_running_job_is_is_not_in_the_state_which_changes_only_with_the_lab(self):
+        # Its progress, that of its phases and its last line move at every byte a pull brings: they come beside the state
+        # (Job.live, api.state), and the state built at two moments of a pull is the same
+        running = {**job("Start Kafka", start=[["addon", "kafka"]], key="addon:kafka", progress=0.1),
+                   "phases": [{"name": "Pull", "started": 1.0, "progress": 0.1}], "detail": "Image a Pulling"}
+        later = {**running, "progress": 0.4, "phases": [{"name": "Pull", "started": 1.0, "progress": 0.4}],
+                 "detail": "Image b Pulling"}
+        first, second = (self.build(explicit=["kafka"], job=one) for one in (running, later))
+        self.assertEqual(json.dumps(first, sort_keys=True), json.dumps(second, sort_keys=True))
+        self.assertEqual(first["job"]["phases"], [{"name": "Pull", "started": 1.0}])
+        self.assertEqual(next(a for a in first["addons"] if a["id"] == "kafka")["progress"], "job")
+
+    def test_a_container_that_just_started_does_not_change_the_state_at_each_second_of_a_running_job(self):
+        # A Start waits for its containers' health checks; Docker words their age to the second for their first minute
+        running = {**job("Start Kafka", start=[["addon", "kafka"]], key="addon:kafka", progress=0.6),
+                   "phases": [{"name": "Start", "started": 1.0, "progress": 0.6}], "detail": "Container kafka Started"}
+
+        def at(age):
+            return {**CORE, "kafka": container(health="starting", status=f"Up {age} (health: starting)"),
+                    "seed": container("exited", "", 0, f"Exited (0) {age} ago")}
+
+        bodies = {json.dumps(self.build(explicit=["kafka"], job=running, containers=at(age)), sort_keys=True)
+                  for age in ("Less than a second", "1 second", "3 seconds", "4 seconds", "59 seconds")}
+        self.assertEqual(len(bodies), 1, "the state changed at each second while the job runs")
+        self.assertEqual(json.loads(bodies.pop())["services"]["kafka"]["uptime"], "< 1 min")
 
     def test_what_a_job_stops_keeps_stop_and_says_nothing_else(self):
         # The on file no longer lists it and its containers still run: neither "started outside" nor a Start
@@ -919,22 +975,22 @@ class State(Built):
         return {**found, ("platform", "platform"): body["platform"]["progress"]}
 
     def test_progress_of_what_the_job_starts(self):
-        # Start Events: the setup is what the job is for, it says the job's own progress; an add-on, the mean of its
-        # containers the job waits for, each known from the start. Kafka Desk, which the job brought where it goes,
-        # runs: nothing of it is measured any more, though the job runs
+        # Start Events: the setup is what the job is for, it is as far as the job ("job": the page reads it beside the
+        # state); an add-on, the mean of its containers the job waits for, each known from the start. Kafka Desk, which the
+        # job brought where it goes, runs: nothing of it is measured any more, though the job runs
         events = job("Start Events", start=[["addon", "kafka"], ["addon", "kafka-desk"]], key="setup:events",
                      progress=0.375, containers={"lab-kafka": 0.5, "lab-kafka-ui": 0, "lab-kafka-desk": 1})
         console = {**CORE, **healthy("kafka-desk")}
         found = self.progress(explicit=["kafka-desk"], containers=console, job=events)
         self.assertEqual((found["addon", "kafka"], found["addon", "kafka-desk"], found["setup", "events"]),
-                         (0.25, None, 0.375))
+                         (0.25, None, "job"))
         self.assertEqual(self.item("addon", "kafka-desk", explicit=["kafka-desk"], containers=console,
                                    job=events)["state"]["key"], "running")
         # What it leaves alone says nothing
         self.assertEqual({found[key] for key in found if key[1] not in ("kafka", "kafka-desk", "events")}, {None})
-        # Nothing measured yet: what it is for says nothing either; without a job, nothing does
-        self.assertIsNone(self.progress(explicit=["kafka-desk"], job={**events, "progress": None})["setup",
-                                                                                                    "events"])
+        # Nothing measured yet: what it is for is as far as the job all the same, which says None beside the state (once the
+        # job ended, its own progress is in the state: test_jobs.Replay); without a job, nothing is measured
+        self.assertEqual(self.progress(explicit=["kafka-desk"], job={**events, "progress": None})["setup", "events"], "job")
         self.assertEqual(set(self.progress(explicit=["kafka-desk"]).values()), {None})
 
     def test_what_the_job_brought_where_it_goes_is_there_while_it_runs(self):
@@ -946,7 +1002,7 @@ class State(Built):
         body = self.build(containers=checking, job=stack)
         self.assertEqual([(g["id"], g["state"]["key"], g["progress"]) for g in body["platform"]["groups"]],
                          [("api-management", "starting", 0.75), ("databases", "running", None)])
-        self.assertEqual((body["platform"]["state"]["key"], body["platform"]["progress"]), ("starting", 0.6))
+        self.assertEqual((body["platform"]["state"]["key"], body["platform"]["progress"]), ("starting", "job"))
         # A container it does not wait for is on its way until the job ends; one it stops, until it measured it there
         stopping = job("Stop Kafka", stop=[["addon", "kafka"], ["addon", "jade"]], key="addon:kafka",
                        containers={"lab-kafka": 1, "lab-kafka-ui": 0.5})
@@ -965,13 +1021,13 @@ class State(Built):
                                                  "lab-mongodb": 0.5, "lab-kafka": 1, "lab-kafka-ui": 0})
         found = self.progress(explicit=["kafka"], containers={**CORE, **healthy("kafka", "kafka-ui")}, job=stopping)
         self.assertEqual((found["group", "api-management"], found["group", "databases"], found["platform", "platform"],
-                          found["addon", "kafka"]), (0.5, 0.5, 0.6, 0.5))
+                          found["addon", "kafka"]), (0.5, 0.5, "job", 0.5))
         # One service of a group restarts with an add-on: the group and the platform say how far that one is
         kafka = job("Start Kafka", start=[["addon", "kafka"], ["service", "apim-gateway"]], key="addon:kafka",
                     progress=0.3, containers={"lab-kafka": 0.2, "lab-kafka-ui": 0.2, "lab-apim-gateway": 0.5})
         found = self.progress(explicit=["kafka"], job=kafka)
         self.assertEqual((found["addon", "kafka"], found["group", "api-management"], found["group", "databases"],
-                          found["platform", "platform"]), (0.3, 0.5, None, 0.5))
+                          found["platform", "platform"]), ("job", 0.5, None, 0.5))
 
     def test_progress_counts_what_the_job_waits_for(self):
         # A migration counts as soon as the job waits for it, before it was created; a playground that is what the
@@ -980,7 +1036,7 @@ class State(Built):
                        key="playground:welcome", progress=0.4,
                        containers={"lab-openfga": 1, "lab-openfga-migrate": 0, "lab-hello-app": 1, "lab-seed": 0})
         found = self.progress(explicit=["openfga"], playground="welcome", job=welcome)
-        self.assertEqual((found["addon", "openfga"], found["playground", "welcome"]), (0.5, 0.4))
+        self.assertEqual((found["addon", "openfga"], found["playground", "welcome"]), (0.5, "job"))
         # What it does not wait for is not counted: OpenFGA restarted alone, its migration left as it is
         restart = job("Restart the stack", start=[["addon", "openfga"]], key="platform",
                       containers={"lab-openfga": 0.5})
@@ -1240,7 +1296,7 @@ class State(Built):
         json.dumps(body)   # nothing in it that the page cannot be sent
         self.assertEqual(sorted(body), ["addons", "blind", "categories", "docker", "job", "license", "links",
                                         "platform", "platforms", "playgrounds", "problems", "products", "running",
-                                        "services", "setups", "wait"])
+                                        "services", "setups", "unread", "wait"])
         # A file the editor opens can be repaired from where the problem shows; the on file opens too
         self.assertEqual(body["problems"], [dict(problem, editable=True)
                                             for problem in self.project["problems"] + state["problems"]])
@@ -1651,24 +1707,6 @@ class Catalogs(Built):
         self.assertEqual((item["note"], item["note_title"], item["action"]["reason"]), ("Said by layers for failed",) * 3)
         self.assertFalse(hasattr(model, "_need_line") or hasattr(model, "_minimum"))
 
-    def test_a_move_of_the_old_layout_that_is_not_over_is_the_reason_of_each_start_and_the_note_of_none(self):
-        before = self.build()
-        self.patch(layers, "_waiting", return_value=True)
-        body = self.build()
-        started = [item for kind in ("addons", "setups", "playgrounds") for item in body[kind] if item["action"]["do"] == "start"]
-        self.assertTrue(started)
-        for item in started:
-            self.assertEqual((item["action"]["enabled"], item["action"]["reason"]), (False, layers.WAITING), item["id"])
-            self.assertNotEqual(item["note"], layers.WAITING, f"{item['id']}: said once, by its button")
-            self.assertNotIn(layers.WAITING, (item["note_title"], item["note"]))
-        # Everything a row says besides its button is what it said before
-        shown = lambda built: {(kind, item["id"]): (item["note"], item["note_tone"], item["note_title"], item["note_target"])  # noqa: E731
-                               for kind in ("addons", "setups", "playgrounds") for item in built[kind]}
-        self.assertEqual(shown(body), shown(before))
-        # A stop is never held by it
-        running = self.item("addon", "kafka", explicit=["kafka"], containers={**CORE, **healthy("kafka", "kafka-ui")})
-        self.assertEqual((running["action"]["do"], running["action"]["enabled"]), ("stop", True))
-
     def test_what_blocks_an_item_waits_for_the_settings_in_the_reason_of_its_start(self):
         self.mark("hybrid", needs_catalogs=[{"id": "partner", "name": "Partner Bank", "min": None, "reason": "missing"}])
         self.assertEqual(self.item("addon", "hybrid", missing=["hybrid"])["action"]["reason"], "Needs the catalog Partner Bank")
@@ -1703,21 +1741,18 @@ class Catalogs(Built):
 
     def test_what_the_catalogs_and_the_first_start_say_is_in_the_body_as_it_is_given(self):
         body = self.build()
-        self.assertFalse({"git", "catalogs", "content", "layout"} & set(body), "left out when not given")
+        self.assertFalse({"git", "catalogs", "content"} & set(body), "left out when not given")
         given = {"git": model.git_state((2, 43, 2)), "catalogs": [{"id": "acme-hub"}],
-                 "content": {"key": "ready", "line": "", "code": None, "progress": None, "address": "", "offer": None},
-                 "layout": {"phase": "ready", "notice": None}}
+                 "content": {"key": "ready", "line": "", "code": None, "progress": None, "address": "", "offer": None}}
         body = self.build(**given)
         self.assertEqual({key: body[key] for key in given}, given)
         json.dumps(body)
 
-    def test_what_the_first_start_and_the_migration_answer_goes_through_as_it_is(self):
-        # Whatever firstrun.content and layout.status answer, now or when they are written, is the state's content and layout
-        from lab_ui.library import layout
+    def test_what_the_first_start_answers_goes_through_as_it_is(self):
+        # Whatever firstrun.content answers, now or when it is written, is the state's content
         from lab_ui.catalogs import firstrun
-        content, status = firstrun.content(self.project, {}), layout.status()
-        body = self.build(content=content, layout=status)
-        self.assertEqual((body["content"], body["layout"]), (content, status))
+        content = firstrun.content(self.project, {})
+        self.assertEqual(self.build(content=content)["content"], content)
 
     def test_git_is_said_as_the_page_reads_it(self):
         self.assertEqual(model.git_state((2, 43, 2)), {"available": True, "version": "2.43.2"})
@@ -1735,6 +1770,34 @@ class Catalogs(Built):
 
 class Trouble(Built):
     """What keeps restarting, the license, docker-compose.yml that does not load, a registry refusing a pull."""
+
+    def test_an_entry_of_the_on_file_that_compose_cannot_read_makes_what_reads_the_files_wait_on_it(self):
+        # Its file broke outside the Lab, or is gone: every command that reads the on file would fail on it, so every
+        # action that runs one says why before the click, as for a core that does not load
+        line = "addons/local/mine/compose.yml does not load"
+        state = on(self.project, ["kafka"])
+        body = model.build(self.project, {**state, "unread": line}, {**CORE}, None, lambda kind, uid: None, None,
+                           {"error": None, "memory": None}, {})
+        platform = body["platform"]
+        self.assertEqual((body["wait"], body["unread"]), (None, line), "the page holds what reads the files on it")
+        self.assertEqual([(platform[key]["enabled"], platform[key]["reason"]) for key in ("start", "apply", "restart", "update")],
+                         [(False, line)] * 4)
+        kafka = next(item for item in body["addons"] if item["id"] == "kafka")
+        self.assertEqual((kafka["action"]["do"], kafka["action"]["enabled"], kafka["action"]["reason"]), ("start", False, line))
+        self.assertIsNone(self.build(explicit=["kafka"])["unread"])
+
+    def test_an_entry_of_the_on_file_that_is_gone_leaves_what_goes_by_project_name_usable(self):
+        # Stop all, an item's Stop, Remove containers and Reset run `docker compose -p <name> ...`, which reads no
+        # file: a gone entry does not make them fail, so the lab that runs can still be stopped from the page
+        line = "addons/local/mine/compose.yml does not exist"
+        state = on(self.project, ["kafka"])
+        body = model.build(self.project, {**state, "unread": line}, {**CORE, "kafka": container(), "kafka-ui": container()},
+                           None, lambda kind, uid: None, None, {"error": None, "memory": None}, {})
+        kafka = next(item for item in body["addons"] if item["id"] == "kafka")
+        self.assertEqual(kafka["action"]["do"], "stop")
+        self.assertEqual((kafka["action"]["enabled"], kafka["action"]["reason"]), (True, None))
+        # The page's Stop all, Remove containers and Reset wait on state.wait (paintBusy, platformMenu)
+        self.assertIsNone(body["wait"])
 
     def test_what_keeps_restarting_gets_stop(self):
         # Its start would change nothing: up leaves running containers as they are
@@ -1986,13 +2049,13 @@ class Platforms(Built):
         running = up("hybrid", playgrounds=["hotels"], project=self.project)
         plan = layers.plan(self.project, on(self.project, ["hybrid"], "hotels"), running, "addon", "hybrid", "start",
                            place=where)
-        action = model._action({"project": self.project, "wait": None}, plan)
+        action = model._action({"project": self.project, "wait": None, "unread": None}, plan)
         self.assertEqual(action["dialog"], layers.dialog(plan))
         self.assertEqual([found["name"] for found in action["dialog"]["serves"]], ["Development (My Account)"])
         self.assertEqual([found["name"] for found in action["dialog"]["stops_serving"]], ["Test (Client lab)"])
         # The plan of a start on This machine says what it always did
         local = layers.plan(self.project, on(self.project), up(project=self.project), "addon", "kafka", "start")
-        self.assertEqual(sorted(model._action({"project": self.project, "wait": None}, local)["dialog"]),
+        self.assertEqual(sorted(model._action({"project": self.project, "wait": None, "unread": None}, local)["dialog"]),
                          sorted(layers.ROWS))
 
 

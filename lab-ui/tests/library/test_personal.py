@@ -12,8 +12,9 @@ from unittest import mock
 
 from lab_ui.catalogs import cli as catalog
 
-from lab_ui.library import check, layers, layout, moves, personal
-from lab_ui.docker import compose, envfiles, files
+from lab_ui.gravitee import places
+from lab_ui.library import check, files, moves, personal, playgrounds
+from lab_ui.docker import compose, envfiles
 from lab_ui import paths
 from lab_ui.catalogs.registry import CatalogError
 
@@ -491,10 +492,46 @@ class Deleted(Folder):
                 personal.delete(self.project, kind, uid)
         self.assertEqual(self.tree(), sorted([*before, paths.ON_FILE]))
 
-    def test_docker_is_asked_only_for_what_is_on(self):
-        with self.assertRaisesRegex(RuntimeError, "Used by Sandbox"):
+    def test_what_is_off_and_still_runs_is_stopped_first(self):
+        # Its stop failed, or it was started from Containers: deleted, its containers would run on with no file
+        before = self.tree()
+        self.containers.return_value = ({"whoami": {"state": "running"}}, None)
+        with self.assertRaisesRegex(RuntimeError, "^Stop it first$"):
             personal.delete(self.project, "addon", "local/whoami")
-        self.containers.assert_not_called()
+        self.assertEqual(self.tree(), before)
+        on = {"playground": None, "effective": [], "setups": []}
+        self.assertEqual(personal.held(self.project, on, "addon", "local/whoami", deleting=True, running=True), "Stop it first")
+        # A setup owns no container: what of its add-ons runs is theirs
+        self.assertEqual(personal.held(self.project, on, "setup", "local/mine", deleting=True, running=True), "")
+        # What it brings runs for something else: an item that is off is only its own services
+        self.containers.return_value = ({"kiosk": {"state": "running"}}, None)
+        with self.assertRaisesRegex(RuntimeError, "^Used by Sandbox$"):
+            personal.delete(self.project, "addon", "local/whoami")
+
+    def test_a_playground_that_holds_a_record_in_a_place_is_not_deleted_before_what_it_created_there(self):
+        # It deployed to a Development environment: deleting it would take the record, and what it created there could not
+        # be deleted any more
+        before = self.tree()
+        state = self.root / paths.unit_folder("playground", "local/sandbox") / ".state/my-account/dev-env"
+        state.mkdir(parents=True)
+        (state / "created.json").write_text(json.dumps([{"kind": "api", "label": "APIs"}]), encoding="utf-8")
+        (state / "meta.json").write_text(json.dumps({"environment": "Development"}), encoding="utf-8")
+        def delete():   # as the route deletes it: with the records of the places (api.delete)
+            personal.delete(self.project, "playground", "local/sandbox", places.deployed("local/sandbox", playgrounds.created))
+        with self.assertRaisesRegex(RuntimeError, "^Delete what it created in Development first$"):
+            delete()
+        self.assertTrue(state.is_dir())
+        on = {"playground": None, "effective": [], "setups": []}
+        deployed = [{"place": "my-account/dev-env", "environment": "Development", "created": [{"what": "APIs", "count": 1}]}]
+        self.assertEqual(personal.held(self.project, on, "playground", "local/sandbox", deleting=True, deployed=deployed),
+                         "Delete what it created in Development first")
+        # Deleted there, its record is empty: it goes
+        (state / "created.json").write_text("[]", encoding="utf-8")
+        self.assertEqual(personal.held(self.project, on, "playground", "local/sandbox", deleting=True,
+                                       deployed=[{**deployed[0], "created": []}]), "")
+        delete()
+        self.assertFalse((self.root / SANDBOX).exists())
+        self.assertNotEqual(self.tree(), before)
 
     def test_what_the_menu_says_of_a_share_and_of_a_delete(self):
         on = {"playground": None, "effective": [], "setups": []}
@@ -504,49 +541,6 @@ class Deleted(Folder):
         self.assertEqual(personal.held(self.project, on, "addon", "local/whoami"), "", "not even while it is on")
         self.assertEqual(personal.held(self.project, on, "addon", "local/whoami", deleting=True), "Turn it off first")
         self.assertEqual(personal.held(self.project, on, "addon", "local/whoami", deleting=True, running=True), "Stop it first")
-
-
-class Waiting(Folder):
-    """While the old layout is being moved nothing is created, renamed or deleted: what it would say or check is read
-    from files that are not where the on file says, and an item the old on file turns on is not seen as on."""
-
-    def refuses(self, call):
-        before, files = self.tree(), {path: (self.root / path).stat().st_mtime_ns for path in self.tree()}
-        with self.assertRaises(RuntimeError) as caught:
-            call()
-        self.assertEqual(str(caught.exception), layers.WAITING)
-        self.assertEqual(self.tree(), before)
-        self.assertEqual({path: (self.root / path).stat().st_mtime_ns for path in self.tree()}, files)
-
-    def test_nothing_is_created_renamed_or_deleted_while_the_layout_moves(self):
-        self.own()
-        self.patch(layout, "waiting", return_value=True)
-        self.refuses(lambda: personal.create_addon(self.project, "New one", "An add-on", "Other", "busybox:1.36"))
-        self.refuses(lambda: personal.save_setup(self.project, "New", "", ["kiosk"]))
-        self.refuses(lambda: personal.save_setup(self.project, "New", "", ["kiosk"], check_only=True))
-        self.refuses(lambda: personal.save_setup(self.project, "Other name", "", ["kiosk"], sid="local/mine"))
-        self.refuses(lambda: personal.create_playground(self.project, "New one", "A playground"))
-        self.refuses(lambda: personal.delete(self.project, "addon", "local/whoami"))
-        self.refuses(lambda: personal.delete(self.project, "setup", "local/mine"))
-
-    def test_the_same_calls_work_once_it_has_moved(self):
-        self.own()
-        waiting = self.patch(layout, "waiting", return_value=True)
-        with self.assertRaises(RuntimeError):
-            personal.create_addon(self.project, "New one", "An add-on", "Other", "busybox:1.36")
-        waiting.return_value = False
-        self.assertEqual(personal.create_addon(self.project, "New one", "An add-on", "Other", "busybox:1.36")["id"],
-                         "local/new-one")
-
-    def test_a_machine_that_has_a_legacy_line_waits_for_real(self):
-        self.own()
-        self.write(".lab/on.yml", "include:\n  - addons/echo/compose.yml\n")   # S1: the on file names the old layout
-        self.assertTrue(layout.waiting())
-        self.refuses(lambda: personal.create_playground(self.project, "New one", "A playground"))
-        self.refuses(lambda: personal.delete(self.project, "setup", "local/mine"))
-        self.write(".lab/layout.json", '{"layout": 2, "from": 1}\n')   # the move ended
-        self.assertFalse(layout.waiting())
-        self.assertEqual(personal.delete(self.project, "setup", "local/mine"), {})
 
 
 class Sharing(Folder):
@@ -559,41 +553,30 @@ class Sharing(Folder):
 
     def test_without_a_destination_a_check_says_where_the_item_is_in_its_own_catalog(self):
         before = self.tree()
-        self.assertEqual(personal.share(self.project, "addon", "local/whoami", check_only=True),
+        self.assertEqual(personal.share("addon", "local/whoami", check_only=True),
                          {"file": "addons/whoami/compose.yml", "problems": [], "changes": []})
-        self.assertEqual(personal.share(self.project, "setup", "local/mine", check_only=True)["file"], "setups/mine.yml")
+        self.assertEqual(personal.share("setup", "local/mine", check_only=True)["file"], "setups/mine.yml")
         self.assertEqual(self.tree(), before)
 
     def test_without_a_destination_there_is_nothing_to_share(self):
         before = self.tree()
-        for to in ("", None):
-            with self.subTest(to=to), self.assertRaisesRegex(ValueError, "Choose where to share"):
-                personal.share(self.project, "addon", "local/whoami", to=to)
+        with self.assertRaisesRegex(ValueError, "Choose where to share"):
+            personal.share("addon", "local/whoami")
         self.assertEqual(self.tree(), before)
 
     def test_only_what_belongs_to_this_machine(self):
         before = self.tree()
         for kind, uid in (("addon", "kafka"), ("addon", "local/../kafka"), ("setup", "observability")):
-            for to in ("", "acme-hub"):
-                with self.subTest(uid=uid, to=to), self.assertRaisesRegex(ValueError, "Only your own .* can be shared here"):
-                    personal.share(self.project, kind, uid, True, to)
+            with self.subTest(uid=uid), self.assertRaisesRegex(ValueError, "Only your own .* can be shared here"):
+                personal.share(kind, uid, True)
         with self.assertRaises(paths.NotFound):
-            personal.share(self.project, "playground", "local/gone", True)
+            personal.share("playground", "local/gone", True)
         self.assertEqual(self.tree(), before)
 
     def test_it_is_not_held_while_it_is_on(self):
         self.write(paths.ON_FILE, f"include:\n  - {WHOAMI}\n  - {MINE}\n")
         for kind, uid in (("addon", "local/whoami"), ("setup", "local/mine")):
-            self.assertEqual(personal.share(self.project, kind, uid, True)["problems"], [])
-
-    def test_with_a_destination_it_is_the_business_of_contribute(self):
-        shared = mock.Mock(return_value={"branch": "lab/whoami-20261016"})
-        with mock.patch("lab_ui.catalogs.contribute.share", shared):
-            self.assertEqual(personal.share(self.project, "addon", "local/whoami", False, "acme-hub"),
-                             {"branch": "lab/whoami-20261016"})
-            personal.share(self.project, "setup", "local/mine", check_only=True, to="acme-hub")
-        self.assertEqual(shared.call_args_list, [mock.call(self.project, "addon", "local/whoami", "acme-hub", False),
-                                                 mock.call(self.project, "setup", "local/mine", "acme-hub", True)])
+            self.assertEqual(personal.share(kind, uid, True)["problems"], [])
 
 
 class Following(Folder):

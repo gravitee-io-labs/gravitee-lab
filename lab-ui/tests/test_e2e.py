@@ -2,6 +2,7 @@
 it needs, what it checks once started, and how it says it. No Docker, no server: the Lab UI's answers, the time and the shell are
 given. Then the plan CI makes before it tries anything: which items of a catalog a change touches, and the jobs of each."""
 
+import fcntl
 import json
 import os
 import re
@@ -14,7 +15,7 @@ from unittest import mock
 
 from lab_ui.docker import compose, envfiles
 from lab_ui import e2e, paths
-from lab_ui.library import project
+from lab_ui.library import model, project
 from lab_ui.catalogs import gitx, manifest, registry
 
 from . import Case, fixtures, gitfixture
@@ -303,11 +304,60 @@ class Starting(Case):
         self.assertEqual([(step.name, step.ok, step.detail) for step in run.steps], [("Start Shop", False, "seed: HTTP 400")])
 
     def test_a_job_that_does_not_end_is_a_failure_after_the_time_it_was_given(self):
-        run = attempt(FakeLab(lab_state({"shop": UP}), lab_state({"shop": UP}, job={**JOB, "done": False})))
+        lab = FakeLab(lab_state({"shop": UP}), lab_state({"shop": UP}, job={**JOB, "done": False}))
+        run = attempt(lab)
         with self.assertRaisesRegex(e2e.Failed, "the start did not happen within 30 s"):
             run.start(30)
         self.assertGreaterEqual(run.clock(), 30)
+        self.assertIn(("POST", f"/api/jobs/{JOB['id']}/cancel", None), lab.calls, "the job is canceled before anything is removed")
 
+    def test_a_container_that_stays_in_an_issue_while_the_job_runs_is_the_job_s_to_end(self):
+        # The core's database keeps restarting and Compose waits for it: the job ends itself (jobs.STUCK) and says which
+        issue = {"key": "issue", "label": "Keeps restarting", "running": False}
+        running = lab_state({"shop": {"key": "starting", "label": "Starting", "running": False}}, job={**JOB, "done": False})
+        running["services"]["mongodb"] = {"state": issue, "container": "gio-mongodb"}
+        ended = {**running, "job": {**JOB, "ok": False, "error": "gio-mongodb keeps restarting"}}
+        lab = FakeLab(lab_state({"shop": UP}), *[running] * 40, ended)
+        with self.assertRaisesRegex(e2e.Failed, "^gio-mongodb keeps restarting$"):
+            attempt(lab).start(1800)
+        self.assertNotIn(("POST", f"/api/jobs/{JOB['id']}/cancel", None), lab.calls)
+
+    def test_an_app_that_restarted_while_it_warmed_up_and_runs_since_does_not_fail_the_start(self):
+        # Docker started it again at 2, 4.5 and 8 s, and it runs since: "Keeps restarting" for 60 s after its last start, while
+        # the seed runs for 5 minutes and the job ends well
+        clock, t0, starts, seed = Clock(), 1_800_000_000, (0, 2, 4.5, 8), 300
+        self.patch(compose.time, "time", lambda: t0 + clock.now)
+
+        def inspect(command, timeout=0, **_):
+            done = [at for at in starts if at <= clock.now]
+            started = time.strftime("%Y-%m-%dT%H:%M:%S.000000000Z", time.gmtime(t0 + done[-1]))
+            return 0, f"/gio-shop-app|false|{len(done) - 1}|{started}||", ""
+        self.patch(compose, "run", side_effect=inspect)
+
+        def app():
+            """shop-app as /api/state says it: compose._inspect, then model.service_state."""
+            restarting = any(at - 0.2 <= clock.now < at for at in starts[1:])
+            container = {"state": "restarting" if restarting else "running", "health": "", "exit_code": 0,
+                         "name": "gio-shop-app", **compose._inspect(["gio-shop-app"])["gio-shop-app"]}
+            return model.service_state(container, False, True)
+
+        seen = {}
+
+        class Lab(FakeLab):
+            def call(self, method, path, body=None):
+                if method != "GET":
+                    return super().call(method, path, body)
+                self.calls.append((method, path, body))
+                seen[clock.now] = (shop := app())["label"]
+                return lab_state({"shop-app": shop, "shop-seed": UP}, job=JOB if clock.now >= seed else {**JOB, "done": False})
+
+        lab = Lab()
+        run = e2e.Run(lab, "playground", "shop", clock=clock, sleep=clock.sleep, get=lambda url: 200,
+                      shell=lambda command, timeout=0: (0, "", ""))
+        run.start(1800)
+        self.assertEqual([(step.name, step.ok) for step in run.steps], [("Start Shop", True)])
+        self.assertEqual((seen[9], seen[69]), ("Keeps restarting", "Running"))
+        self.assertNotIn(("POST", f"/api/jobs/{JOB['id']}/cancel", None), lab.calls)
 
 class Settling(Case):
 
@@ -324,9 +374,23 @@ class Settling(Case):
     def test_a_container_in_an_issue_ends_the_wait_and_says_which(self):
         issue = {"key": "issue", "label": "Restarting (1)", "running": True}
         run = attempt(FakeLab(lab_state({"shop": UP, "api": issue})))
-        with self.assertRaisesRegex(e2e.Failed, r"api in an issue: Restarting \(1\)"):
+        with self.assertRaisesRegex(e2e.Failed, rf"api in an issue for {e2e.STUCK} s: Restarting \(1\)"):
             run.settle()
         self.assertFalse(run.steps[-1].ok)
+        self.assertEqual(run.clock(), -(-e2e.STUCK // e2e.POLL) * e2e.POLL, "once in an issue for STUCK seconds")
+
+    def test_an_app_that_restarted_while_kafka_warmed_up_and_runs_since_settles(self):
+        # No health check: it exited twice while Kafka warmed up, during the start, and has run fine since. For
+        # RESTART_WINDOW seconds after its last start the Lab UI says Keeps restarting, then Running
+        done = {"key": "done", "label": "Done", "running": False}
+        recent = model.service_state({"state": "running", "health": "", "restarts": 2, "status": "Up 5 seconds"}, False, False)
+        later = model.service_state({"state": "running", "health": "", "restarts": 0, "status": "Up About a minute"}, False, False)
+        self.assertEqual(recent["label"], "Keeps restarting")
+        readings = (compose.RESTART_WINDOW - 5) // e2e.POLL + 1   # the readings until its last start is RESTART_WINDOW old
+        lab = FakeLab(*[lab_state({"shop": recent, "seed": done})] * readings, lab_state({"shop": later, "seed": done}))
+        run = attempt(lab)
+        run.settle()
+        self.assertEqual([(step.name, step.ok) for step in run.steps], [("Containers are up", True)])
 
     def test_a_platform_in_an_issue_ends_the_wait_too(self):
         state = lab_state({"shop": UP})
@@ -352,6 +416,15 @@ class Settling(Case):
         run = attempt(FakeLab(lab_state({"shop": UP, "slow": starting})), shell=shell)
         self.assertEqual(run.logs(), {"slow": "line 1\nwarning"})
         self.assertEqual(calls, [["docker", "logs", "--tail", "80", "gio-slow"]])
+
+    def test_the_log_of_a_container_of_the_core_in_an_issue_is_read_too(self):
+        calls = []
+        state = lab_state({"shop": {"key": "starting", "label": "Starting", "running": False}})
+        state["services"].update(mongodb={"state": {"key": "issue", "label": "Keeps restarting"}, "container": "gio-mongodb"},
+                                 redis={"state": UP, "container": "gio-redis"})
+        run = attempt(FakeLab(state), shell=lambda command, timeout=0: (calls.append(command[-1]), (0, "said", ""))[1])
+        self.assertEqual(sorted(run.logs()), ["mongodb", "shop"])
+        self.assertEqual(calls, ["gio-shop", "gio-mongodb"])
 
 
 class Consoles(Case):
@@ -604,6 +677,7 @@ class Running(Case):
     """run(): the steps in order, the exit code, the machine left as it was found."""
 
     def setUp(self):
+        self.folder(paths)
         self.said = []
         self.built = {"playgrounds": {"shop": {"name": "Shop", "tested": [{"APIM_VERSION": "4.13.0"}]}}, "addons": {}, "setups": {}}
         self.patch(project, "load", lambda: self.built)
@@ -612,7 +686,7 @@ class Running(Case):
         self.removed = []
         self.stub_run = mock.Mock()
         self.stub_run.return_value.stop.side_effect = lambda: self.removed.append(True)
-        self.lab = mock.Mock()
+        self.lab = mock.Mock(port=50123)
         self.patch(e2e, "Lab", lambda: self.lab)
         self.patch(e2e, "Run", lambda *args, **more: self.stub_run.return_value)
         self.patch(e2e, "report")
@@ -633,6 +707,17 @@ class Running(Case):
         self.assertEqual(self.removed, [True])
         self.assertEqual(self.restored, [True], "the on file is as it was")
         self.lab.close.assert_called_once_with()
+
+    def test_what_the_seeds_recorded_is_emptied_once_the_volumes_are_gone(self):
+        forget = self.patch(e2e.playgrounds, "forget", return_value=True)
+        self.assertEqual(self.go(), e2e.OK)
+        forget.assert_called_once_with("shop")
+        forget.reset_mock()
+        self.stub_run.return_value.stop.side_effect = lambda: "docker compose down failed"   # still there: still recorded
+        self.go()
+        forget.assert_not_called()
+        self.go(keep=True)
+        forget.assert_not_called()
 
     def test_what_is_left_to_look_at_is_not_removed(self):
         self.assertEqual(self.go(keep=True), e2e.OK)
@@ -681,6 +766,30 @@ class Running(Case):
         at = next(i for i, line in enumerate(said) if "::error::forged" in line)
         self.assertTrue(said[at - 1].startswith("::stop-commands::") and re.fullmatch(r"::[0-9a-f]{32}::", said[at + 1]), said)
         self.assertNotIn("\n", said[at])
+
+    def held(self):
+        """Whether a Lab UI holds the lock of this folder, as another process would find it."""
+        descriptor = os.open(self.root / paths.SERVING_FILE, os.O_RDONLY)
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            return False
+        except BlockingIOError:
+            return True
+        finally:
+            os.close(descriptor)
+
+    def test_while_it_runs_it_is_the_lab_ui_of_this_folder_and_one_that_runs_already_is_two(self):
+        self.stub_run.return_value.start.side_effect = lambda timeout: self.said.append(self.held())
+        self.assertEqual(self.go(), e2e.OK)
+        self.assertEqual(self.said[0], True, "the run held the folder: a Lab UI that starts meanwhile is sent to it")
+        self.assertFalse(self.held(), "and let it go")
+        self.said.clear()
+        found = mock.patch.object(paths, "serve_here", return_value=9000)
+        with found:
+            self.assertEqual(self.go(), e2e.CANNOT)
+        self.assertEqual(self.said, ["Not tried: a Lab UI runs on this folder (http://localhost:9000): stop it first, with Ctrl+C "
+                                     "in its terminal"])
+        self.lab.close.assert_called_with()
 
     def test_a_machine_that_holds_a_lab_is_two_and_nothing_is_started_or_removed(self):
         self.patch(e2e, "clean_machine", lambda *args: "This machine already has containers of the lab (gravitee)")

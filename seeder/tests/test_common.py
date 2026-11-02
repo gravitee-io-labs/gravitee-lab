@@ -4,11 +4,16 @@ for a platform that is still starting."""
 
 import json
 import os
+import tempfile
+import threading
 import time
 import unittest
+from pathlib import Path
 from unittest import mock
 
+import requests
 import yaml
+from urllib3.exceptions import MaxRetryError, NewConnectionError
 from yaml.constructor import SafeConstructor
 
 from lab_seeder import common
@@ -59,6 +64,177 @@ class Client(Seed):
     def test_a_delete_of_what_is_gone_is_done(self):
         self.answer({("DELETE", "/x"): 404})
         self.assertEqual(common.Api("http://apim").delete("/x").status_code, 404)
+
+
+def refused_connection():
+    """What requests raises for a connection that could not be made: the request never reached the platform."""
+    return requests.ConnectionError(MaxRetryError(None, "/x", NewConnectionError(None, "Connection refused")))
+
+
+class Requests(Seed):
+    """The one policy of every request of the seed: what is sent again, how often, and what is said when it is not."""
+
+    def ask(self, method, *answers, **kwargs):
+        self.answer({(method, "/x"): list(answers)})
+        return common.Api("http://apim").call(method, "/x", **kwargs)
+
+    def sent(self, method):
+        return len(self.platform.sent(method, "/x"))
+
+    def test_a_get_put_or_delete_the_platform_could_not_answer_now_is_sent_again(self):
+        for method in ("GET", "PUT", "DELETE"):
+            for trouble in (500, 502, 503, 504, 429, requests.ConnectionError("reset"), requests.ReadTimeout("slow"), refused_connection()):
+                with self.subTest(method=method, trouble=str(trouble)):
+                    self.platform.calls.clear()
+                    self.assertEqual(self.ask(method, trouble, (200, {"ok": True})).status_code, 200)
+                    self.assertEqual(self.sent(method), 2)
+
+    def test_a_post_or_a_patch_whose_answer_is_lost_is_sent_once(self):
+        """The platform may have made what it asked for: sent again, it would make a second one."""
+        for method in ("POST", "PATCH"):
+            for lost in (500, 502, 504, requests.ConnectionError("reset"), requests.ReadTimeout("slow"),
+                         requests.exceptions.ChunkedEncodingError("cut")):
+                with self.subTest(method=method, lost=str(lost)):
+                    self.platform.calls.clear()
+                    with self.assertRaises(common.SeedError):
+                        self.ask(method, lost, 201)
+                    self.assertEqual(self.sent(method), 1)
+        self.assertEqual(self.clock.sleeps, [])
+
+    def test_a_post_the_platform_did_not_take_is_sent_again(self):
+        for trouble in (refused_connection(), requests.ConnectTimeout("no route"), 429, 503):
+            with self.subTest(trouble=str(trouble)):
+                self.platform.calls.clear()
+                self.assertEqual(self.ask("POST", trouble, 201).status_code, 201)
+                self.assertEqual(self.sent("POST"), 2)
+
+    def test_a_post_its_caller_says_is_idempotent_is_sent_again_as_a_put_is(self):
+        self.assertEqual(self.ask("POST", requests.ReadTimeout("slow"), 502, 202, idempotent=True).status_code, 202)
+        self.assertEqual(self.sent("POST"), 3)
+
+    def test_it_waits_between_two_tries_and_says_so_in_words(self):
+        self.ask("GET", requests.ConnectionError("http://secret-host:8083 Max retries"), 503, 200)
+        self.assertEqual(self.clock.sleeps, [common.RETRY_PAUSE, common.RETRY_PAUSE])
+        self.assertIn(f"[seed] ! GET /x: the connection was cut, trying again in {common.RETRY_PAUSE} s (1/{common.RETRIES})", self.output())
+        self.assertIn(f"[seed] ! GET /x: HTTP 503, trying again in {common.RETRY_PAUSE} s (2/{common.RETRIES})", self.output())
+        self.assertNotIn("secret-host", self.output())
+
+    def test_a_platform_that_stays_busy_stops_the_seed_with_its_last_answer(self):
+        with self.assertRaisesRegex(common.HttpError, rf"^GET /x: HTTP 502 bad gateway \({common.RETRIES + 1} tries\)$"):
+            self.ask("GET", (502, "bad gateway"))
+        self.assertEqual((self.sent("GET"), len(self.clock.sleeps)), (common.RETRIES + 1, common.RETRIES))
+
+    def test_no_answer_stops_the_seed_with_one_line_in_words_and_never_the_library_text(self):
+        """A traceback line of requests (HTTPConnectionPool(host=...): Read timed out) is what the Lab would show as the reason."""
+        for error, words in ((requests.ReadTimeout("HTTPConnectionPool(host='apim'): Read timed out"), "no answer in 30 s"),
+                             (refused_connection(), f"cannot connect ({common.RETRIES + 1} tries)"),
+                             (requests.ConnectionError("('Connection aborted.', RemoteDisconnected())"), "the connection was cut")):
+            with self.subTest(words=words):
+                with self.assertRaises(common.SeedError) as raised:
+                    self.ask("POST", error, what="API Orders")
+                self.assertEqual(str(raised.exception), f"API Orders: {words}")
+                self.assertNotIsInstance(raised.exception, common.HttpError)
+
+    def test_a_refusal_is_not_sent_again(self):
+        for status in (400, 401, 403, 404, 409, 422):
+            with self.subTest(status=status):
+                self.platform.calls.clear()
+                with self.assertRaises(common.HttpError) as raised:
+                    self.ask("GET", (status, {"message": "no"}))
+                self.assertEqual((raised.exception.status, self.sent("GET")), (status, 1))
+        self.assertEqual(self.clock.sleeps, [])
+
+    def test_a_status_the_caller_expects_is_handed_back_and_not_asked_again(self):
+        self.assertEqual(self.ask("GET", 503, 200, expect=(200, 503)).status_code, 503)
+        self.assertEqual(self.sent("GET"), 1)
+
+    def test_no_request_waits_for_ever(self):
+        self.answer({("GET", "/x"): 200})
+        common.Api("http://apim").send("GET", "/x")
+        common.Api("http://apim").send("GET", "/x", timeout=5)
+        self.assertEqual([call.timeout for call in self.platform.calls], [common.TIMEOUT, 5])
+
+    def test_inside_a_wait_a_request_is_sent_once_and_the_wait_asks_again(self):
+        api = common.Api("http://apim")
+        self.answer({("GET", "/x"): [503, requests.ConnectionError("reset"), 200]})
+        common.wait_until("test", "API", lambda: api.get("/x"))
+        self.assertEqual(self.sent("GET"), 3)
+        self.assertNotIn("trying again", self.output())
+        self.assertEqual(self.clock.sleeps, [0.5, 1])
+
+    def test_a_busy_platform_is_waited_for_about_a_minute(self):
+        self.assertLessEqual(common.RETRIES * common.RETRY_PAUSE, 60)
+        self.assertGreaterEqual(common.RETRIES * common.RETRY_PAUSE, 45)
+
+
+class Parallel(unittest.TestCase):
+    """What a module does at the same time (`parallel`, `together`, `later`): bounded in one place, the first failure stopping
+    the others."""
+
+    def setUp(self):
+        common.configure(4)
+        self.addCleanup(common.configure, 1)
+
+    def test_items_that_do_not_depend_on_one_another_run_at_the_same_time(self):
+        meeting = threading.Barrier(2, timeout=5)   # each waits for the other: one after the other, neither would ever come
+        self.assertEqual(common.together([lambda: (meeting.wait(), "a")[1], lambda: (meeting.wait(), "b")[1]]), ["a", "b"])
+
+    def test_items_are_done_together_with_their_results_in_the_order_of_the_items(self):
+        self.assertEqual(common.parallel(lambda number: number * 2, [3, 1, 2]), [6, 2, 4])
+        common.configure(1)
+        self.assertEqual(common.parallel(lambda number: number * 2, [3, 1, 2]), [6, 2, 4])
+
+    def test_an_item_that_fails_ends_the_others_and_is_the_failure_raised(self):
+        def work(number):
+            if number == 2:
+                raise common.SeedError("two failed")
+            while True:
+                common.pause(0.01)
+        with self.assertRaisesRegex(common.SeedError, "^two failed$"):
+            common.parallel(work, [1, 2, 3])
+
+    def test_no_more_requests_are_in_flight_than_workers(self):
+        common.configure(2)
+        inside, most, lock = [0], [0], threading.Lock()
+        hold = threading.Event()
+
+        class Session:
+            def request(self, *args, **kwargs):
+                with lock:
+                    inside[0] += 1
+                    most[0] = max(most[0], inside[0])
+                hold.wait(0.1)
+                with lock:
+                    inside[0] -= 1
+        api = common.Api("http://apim")
+        api.session = Session()
+        common.parallel(lambda _: api.send("GET", "/x"), range(6))
+        self.assertEqual(most[0], 2)
+
+    def test_a_request_does_not_start_once_the_seed_stops(self):
+        common.stop(common.SeedError("x"))
+        with self.assertRaises(common.Stopped):
+            common.check()
+        with self.assertRaises(common.Stopped):
+            common.pause(1)
+
+    def test_what_was_created_is_recorded_whole_whoever_records_it(self):
+        with tempfile.TemporaryDirectory() as folder:
+            with mock.patch.object(common, "STATE_FILE", Path(folder) / "created.json"):
+                common.parallel(lambda number: common.record("p", "k", "ks", f"n{number}", number), range(40))
+                self.assertEqual(sorted(x["id"] for x in common.created()), list(range(40)))
+                self.assertEqual(len(json.loads(common.STATE_FILE.read_text())), 40)
+
+    def test_a_wait_put_off_runs_at_the_end_and_at_once_when_nothing_is_put_off(self):
+        ran = []
+        common.later("a wait", lambda: ran.append("now"))
+        self.assertEqual(ran, ["now"])
+        common.defer_waits()
+        common.later("a wait", lambda: ran.append("at the end"))
+        common.later("another", lambda: ran.append("also at the end"))
+        self.assertEqual(ran, ["now"])
+        common.run_later()
+        self.assertEqual(sorted(ran[1:]), ["also at the end", "at the end"])
 
 
 class Provided(Seed):
@@ -192,6 +368,74 @@ def outcome(load, text):
         return "refused", type(e).__name__, str(e)
 
 
+class YamlValues(Seed):
+    """A YAML file is read as a document before its variables are replaced, as a JSON file is: a value is put in a string of
+    it, and never changes the file around it."""
+
+    def load(self, text, **values):
+        self.env(**values)
+        self.seed_files({"a.yaml": text})
+        return common.load(common.SEED_DIR / "a.yaml")
+
+    def test_a_password_with_a_quote_a_backslash_or_an_escape_arrives_as_it_was_set(self):
+        for password in ('S3cr3t"Pw', "back\\slash", "pa\\nss", "tab\\tbed", "it's", "a: b # c", "- [x]", "{x}", "%x", "&a *b"):
+            with self.subTest(password=password):
+                self.assertEqual(self.load('password: "${PW}"\nother: \'${PW}\'\nplain: ${PW}\n', PW=password),
+                                 {"password": password, "other": password, "plain": password})
+
+    def test_a_plain_variable_is_read_as_yaml_reads_its_value_as_in_a_file_written_out(self):
+        self.assertEqual(self.load("port: ${PORT}\nenabled: ${FLAG}\nempty: ${NONE:-}\nkey: '${PORT}'\nurl: http://h:${PORT}/x\n",
+                                   PORT="8080", FLAG="true"),
+                         {"port": 8080, "enabled": True, "empty": None, "key": "8080", "url": "http://h:8080/x"})
+
+    def test_an_explicit_str_tag_keeps_a_plain_variable_a_string(self):
+        text = "version: !!str ${VERSION}\nport: !!str ${PORT}\nflag: !!str ${FLAG}\nanchored: &a !!str ${PORT}\ncopy: *a\nbare: ! ${PORT}\n"
+        self.assertEqual(self.load(text, VERSION="1.10", PORT="8080", FLAG="true"),
+                         {"version": "1.10", "port": "8080", "flag": "true", "anchored": "8080", "copy": "8080", "bare": 8080})
+
+    def test_keys_aliases_and_lists_get_their_values_too(self):
+        text = "${NAME}: &u {user: '${USER}'}\ncopy: *u\nlist: ['${USER}', x]\nmerged: {<<: *u, own: 1}\n"
+        self.assertEqual(self.load(text, NAME="alice", USER='o"brien'),
+                         {"alice": {"user": 'o"brien'}, "copy": {"user": 'o"brien'}, "list": ['o"brien', "x"],
+                          "merged": {"user": 'o"brien', "own": 1}})
+
+    def test_a_string_that_is_json_text_gets_the_value_escaped_for_that_text(self):
+        loaded = self.load("configuration: '{\"password\": \"${PW}\"}'\n", PW='q"uo\\te')
+        self.assertEqual(json.loads(loaded["configuration"]), {"password": 'q"uo\\te'})
+
+    def test_every_name_that_is_not_set_is_said_at_once(self):
+        with self.assertRaisesRegex(common.SeedError, "a.yaml: ONE, TWO not set"):
+            self.load("a: ${ONE}\nb: '${TWO}'\n")
+
+    def test_a_name_in_a_comment_is_no_value_to_give(self):
+        self.assertEqual(self.load("a: 1   # set ${NOBODY} to change it\n"), {"a": 1})
+
+    def test_a_file_that_is_not_yaml_says_its_line_and_never_what_it_holds(self):
+        """What the parser quotes of a file is where a password would be: the reason the Lab shows says the line alone."""
+        with self.assertRaises(common.SeedError) as raised:
+            self.load('a: 1\nb: [1, 2\npassword: "${PW}"\n', PW="S3cr3t-Pw")
+        self.assertRegex(str(raised.exception), r"a\.yaml: it is not valid YAML once its variables are replaced \(line \d+\)$")
+        self.assertNotIn("S3cr3t", str(raised.exception))
+        self.assertNotIn("\n", str(raised.exception))
+
+    def test_a_kubernetes_file_of_several_documents_gets_its_values_the_same_way(self):
+        self.env(PW='p"w')
+        docs = common.render_yaml("a: '${PW}'\n---\nb: ${PW}\n", "k8s.yaml", every=True)
+        self.assertEqual(docs, [{"a": 'p"w'}, {"b": 'p"w'}])
+
+    def test_the_playgrounds_yaml_files_read_as_they_did_as_text(self):
+        """With values YAML reads alike whichever way they are put in, a document reads as the text it used to be replaced in."""
+        found = list(seeded_playgrounds())
+        self.assertTrue(found)
+        for folder, _ in found:
+            for path in sorted((folder / "seed").rglob("*.y*ml")):
+                text = path.read_text(encoding="utf-8")
+                values = {m.group(2): "value-" + m.group(2).lower() for m in common.VARIABLE.finditer(text) if not m.group(1)}
+                with self.subTest(file=str(path.relative_to(folder))), mock.patch.dict(os.environ, values):
+                    as_text = common.parse_yaml_all(common.render(text, path), path)
+                    self.assertEqual(common.render_yaml(text, path, every=True), as_text)
+
+
 class MergeKeys(unittest.TestCase):
     """A `<<` key makes the loader of YAML copy the pairs of the mappings it merges into its own, and each of those may have
     merged others: a file of a kilobyte can ask for a million pairs, or for more than the machine holds. What the loader would
@@ -303,21 +547,27 @@ class Bombs(Seed):
             common.merged_pairs(text)
         self.assertLess(time.process_time() - started, 5.0)
 
-    def test_the_variables_are_replaced_before_the_merge_keys_are_counted(self):
-        """A variable may bring the keys that the file itself does not show: the loader gets the replaced text."""
+    def test_a_variable_brings_a_value_never_keys_so_never_merge_keys(self):
+        """The file's structure is its own: a value that is YAML text, a bomb even, stays the text it is."""
         self.seed_files({"a.yaml": "a: ${KEY}\n"})
         path = common.SEED_DIR / "a.yaml"
-        self.assertEqual(common.merged_pairs("a: ${KEY}\n"), 0)
+        self.env(KEY=flowing(22))
+        started = time.process_time()
+        self.assertEqual(common.load(path), {"a": flowing(22)})
+        self.assertEqual(common.load(path, provided={"KEY": flowing(22)}), {"a": flowing(22)})
+        self.assertLess(time.process_time() - started, 1.0, "the loader copied no pair")
+
+    def test_a_file_that_is_no_yaml_until_its_variables_are_replaced_is_guarded_once_they_are(self):
+        """Replaced as text, the variables may bring the keys: the loader gets the replaced text and counts its pairs."""
+        self.seed_files({"a.yaml": "a: [${KEY}]\n"})
+        path = common.SEED_DIR / "a.yaml"
         self.env(KEY=flowing(5))
-        self.assertEqual(common.load(path)["a"]["a5"], {"k": 1})
+        self.assertEqual(common.load(path)["a"][0]["a5"], {"k": 1})
         self.env(KEY=flowing(22))
         with self.refuses_to_build(), self.assertRaises(common.MergeError):
             common.load(path)
-
-    def test_the_variables_the_engine_gives_are_replaced_too(self):
-        self.seed_files({"a.yaml": "a: ${ENV_NAME}\n"})
         with self.refuses_to_build(), self.assertRaises(common.MergeError):
-            common.load(common.SEED_DIR / "a.yaml", provided={"ENV_NAME": flowing(22)})
+            common.load(path, provided={"KEY": flowing(22)})
 
     def test_a_json_file_has_no_merge_keys(self):
         self.seed_files({"a.json": json.dumps({"<<": [1, 2], "!!merge": 3})})
@@ -416,6 +666,31 @@ class Waiting(Seed):
         with self.assertRaisesRegex(common.SeedError, "API not ready after 300 s: down"):
             common.wait_until("test", "API", lambda: (_ for _ in ()).throw(common.SeedError("down")))
         self.assertGreaterEqual(self.clock.elapsed, 300)
+
+    def test_a_refusal_the_wait_is_told_is_final_ends_it_at_once(self):
+        """A wrong password, a revoked token or a wrong environment id is not fixed by waiting five minutes."""
+        api = common.Api("http://apim")
+        for status in common.REFUSED:
+            with self.subTest(status=status):
+                self.platform.calls.clear()
+                self.answer({("GET", "/x"): (status, {"message": "no"})})
+                with self.assertRaisesRegex(common.SeedError, rf'^API: GET /x: HTTP {status} {{"message": "no"}}$'):
+                    common.wait_until("test", "API", lambda: api.get("/x"), final=common.REFUSED)
+                self.assertEqual(len(self.platform.calls), 1)
+        self.assertEqual(self.clock.sleeps, [])
+
+    def test_a_refusal_is_waited_out_when_the_wait_does_not_say_it_is_final(self):
+        """A role just given takes a few seconds to count: some waits are for a refusal to end."""
+        api = common.Api("http://apim")
+        self.answer({("GET", "/x"): [(403, {"message": "no"}), 200]})
+        common.wait_until("test", "access", lambda: api.get("/x"))
+        self.assertEqual(len(self.platform.calls), 2)
+
+    def test_a_probe_that_gets_no_answer_is_said_in_words(self):
+        with self.assertRaises(common.SeedError) as raised:
+            common.wait_until("test", "API", lambda: (_ for _ in ()).throw(requests.ConnectionError("HTTPConnectionPool(host='x')")),
+                              timeout=5)
+        self.assertEqual(str(raised.exception), "API not ready after 5 s: the connection was cut")
 
 
 if __name__ == "__main__":

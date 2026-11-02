@@ -174,7 +174,7 @@ test("the details list the consoles of the playground and of the platform alike,
 
 page.ids["combo-pop"].innerHTML = '<div class="combo-search"><input id="combo-input"></div><div id="combo-bar"></div><div id="combo-list"></div><div id="combo-foot"></div>';
 const { Combo } = await import("../../../web/js/components/combo.js");
-const { serviceCells } = await import("../../../web/js/components/ui.js");
+const { serviceCells, paintBusy } = await import("../../../web/js/components/ui.js");
 Combo.init();
 
 const ACCOUNT = { id: "my-account", name: "My Account", kind: "cloud", url: "https://eu.cloud.gravitee.io" };
@@ -644,11 +644,13 @@ test("Deploy and Re-seed on a remote place ask too, and run the seed there; This
 
 test("a Deploy at work says so on its button, with the verb of its job", async () => {
   await visit({}, { kept: DEV.id });
-  store.state = { ...store.state, job: { ...JOB, verb: "deploy", title: "Deploy Acme Hostels", progress: 0.4 } };
+  store.state = { ...store.state, job: { ...JOB, verb: "deploy", title: "Deploy Acme Hostels" } };
+  store.live = { id: JOB.id, progress: 0.4, phase: null, detail: "" };   // how far it is comes beside the state
   playgroundPage.render(store.state);
   const seed = section.querySelector('[data-act="deploy"]');
   assert.ok(seed.classList.contains("busy"), "it works");
   assert.match(text(seed.querySelector(".pbtn-side")), /Deploying 40%/);
+  store.live = null;
   await leave();
 });
 
@@ -805,6 +807,23 @@ test("Stop says per place what stays or goes; the deletion waits for the first p
 
   await stop({ stop: { ...hotels().stop, delete: { enabled: false, reason: "Management API is not running" } } });
   assert.deepEqual(choices()[1].slice(0, 2), ["Delete what it created", "Management API is not running"], "the local place comes first");
+  await answer(false);
+  await leave();
+});
+
+test("while an entry of the on file is gone, Stop's delete from a place waits on it, as the place's Delete does", async () => {
+  const GONE = "addons/local/x/compose.yml does not exist";
+  await visit({ deployed: [HOTELS_DEV] });
+  store.state = { ...store.state, unread: GONE };
+  playgroundPage.render(store.state);
+  paintBusy(section);   // as main.js does once the state is drawn
+  await flush();
+  const drop = section.querySelector("#pg-deployed [data-delete-place]");
+  assert.deepEqual([isOff(drop), offWhy(drop)], [true, GONE], "the place's own Delete waits");
+  section.querySelector('[data-act="stop"]').click();
+  await flush();
+  assert.deepEqual(choices()[1].slice(0, 2), ["Delete what it created", GONE]);
+  assert.ok(picks.querySelectorAll("input")[1].disabled);
   await answer(false);
   await leave();
 });

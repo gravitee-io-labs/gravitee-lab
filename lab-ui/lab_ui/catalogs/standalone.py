@@ -37,7 +37,8 @@ import tempfile
 from pathlib import Path
 
 from .. import paths
-from ..docker import compose, plugins
+from ..docker import compose
+from ..library import plugins
 from ..library import project
 from . import exports, resolve
 
@@ -66,14 +67,16 @@ def _fail(code, message, status=400):
 # ---------------------------------------------------------------------------------------------------------------------
 
 def _gather(pid):
-    """{found, unit, folder, nodes, units}: the playground, its folder and every item it brings. Raises NotFound."""
-    found = project.load()
+    """{found, unit, folder, nodes, units, reach}: the playground, its folder, every item it brings, and what the closure of each
+    file reaches (project.loaded: the walk gather made). Raises NotFound."""
+    found, inputs = project.loaded()
     unit = found["playgrounds"].get(pid)
     if unit is None:
         raise paths.NotFound(f"No playground {pid}")
     units = {"addon": found["addons"], "setup": found["setups"], "playground": found["playgrounds"]}
     nodes = [node for node in resolve.closure(units, "playground", pid) if node[1] in (units.get(node[0]) or {})]
-    return {"found": found, "unit": unit, "folder": paths.ROOT / Path(unit["file"]).parent, "nodes": nodes, "units": units}
+    return {"found": found, "unit": unit, "folder": paths.ROOT / Path(unit["file"]).parent, "nodes": nodes, "units": units,
+            "reach": inputs.get("reach") or {}}
 
 
 def _kept(gathered):
@@ -101,7 +104,7 @@ def _defaults(gathered):
     files = [compose.CORE_FILE, *[paths.unit_file(kind, uid) for kind, uid in gathered["nodes"]]]
     found = {}
     for file in files:
-        for each in compose._closure(file):
+        for each in (gathered["reach"].get(file) or {}).get("files") or [file]:
             try:
                 rows = compose.variables(each)
             except (OSError, ValueError):
@@ -490,9 +493,9 @@ def _comment(row, gone=()):
 
 
 def _default(text):
-    """The default of a `${NAME:-default}` text, else the text."""
-    found = re.fullmatch(r"\$\{[A-Za-z_][A-Za-z0-9_]*:-([^}]*)\}", str(text or ""))
-    return found.group(1) if found else str(text or "")
+    """A text as the page shows it in a Lab where nothing is set: each setting in it by its default, `$$` a dollar sign,
+    a `${NAME}` without a default as written (compose.interpolated)."""
+    return compose.interpolated(str(text or ""), lambda name: None)
 
 
 FENCE = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})")
@@ -550,7 +553,14 @@ def _first_step(text):
 def _readme(gathered, raw, services, consoles, seed, missing):
     unit, folder = gathered["unit"], gathered["folder"]
     meta, requires = raw.get("x-gravitee") or {}, unit.get("requires") or {}
-    accounts = meta.get("accounts") or []
+    # The accounts as the file writes them, a password as its ${VAR:-default}: those of the page (project._lists), each a mapping
+    # whose user name is text as the page shows it, a setting's its default as the password's is
+    listed = meta.get("accounts") if isinstance(meta, dict) else None
+    accounts = []
+    for one in listed if isinstance(listed, list) else []:
+        if isinstance(one, dict):
+            name = one.get("username")
+            accounts.append({**one, "username": project.user_name(_default(name) if isinstance(name, str) else name)})
     guide_file = folder / "guide.md"
     first = {}
     for one in accounts:

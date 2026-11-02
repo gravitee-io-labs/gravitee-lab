@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { El, Ev, installDom, text } from "./dom-stub.mjs";
+import { El, Ev, installDom, isOff, offWhy, text } from "./dom-stub.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
 const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
@@ -21,6 +21,7 @@ El.prototype.matches = function (selector) { return selector === ":focus-visible
 El.prototype.closest = function (selector) { return closest.call(this, selector.replace(":is(.busy, .said)", ".busy")); };
 const { store } = await import("../../../web/js/core.js");
 const { stackPage } = await import("../../../web/js/pages/stack.js");
+const { paintBusy } = await import("../../../web/js/components/ui.js");
 const registry = { platforms: [] };   // the platforms registered, which a test sets
 Object.defineProperty(store, "platforms", { get: () => registry.platforms, configurable: true });
 
@@ -103,6 +104,16 @@ test("with a license it is a service as any other: no note, its state a dot and 
   assert.equal(container.querySelectorAll(".pill.note").length, 0);
 });
 
+test("a group has run whole as long as its youngest container, one in its first minute too", () => {
+  const state = lab({ licensed: true });
+  state.services.api = service("api", RUNNING, { uptime: "< 1 min" });
+  state.platform.groups[0].services = ["gateway", "api"];
+  draw(state);
+  const row = section.querySelector('.group[data-key="group:api-management"] > .group-row');
+  assert.equal(text(row.querySelector(".s-uptime")), "< 1 min");
+  assert.equal(text(section.querySelector('.container[data-service="api"] .s-uptime')), "< 1 min");
+});
+
 test("a service of no license that is not on and has no container is still left out", () => {
   const state = lab({ licensed: true });
   state.services["alert-engine"].needs_license = false;
@@ -110,6 +121,26 @@ test("a service of no license that is not on and has no container is still left 
   const { row, container } = draw(state);
   assert.equal(row, null);
   assert.equal(container, null);
+});
+
+test("an entry of the on file that Compose cannot read holds what reads the files, not what Compose runs by the project's name", () => {
+  // Stop, a group's Stop and Restart go by the project's name, which reads no file: the lab that runs can still be stopped
+  const line = "addons/local/mine/compose.yml does not exist";
+  draw({ ...lab({ licensed: true }), unread: line });
+  paintBusy(section);
+  const head = (verb) => section.querySelector(`[data-stack="${verb}"]`);
+  const api = section.querySelector('.group[data-key="group:api-management"] > .group-row');
+  for (const button of [head("stop"), api.querySelector('[data-act="stop"]'), api.querySelector('[data-act="restart"]')]) {
+    assert.ok(button && !isOff(button), button?.getAttribute("data-act") || button?.getAttribute("data-stack"));
+  }
+  const engine = section.querySelector('.group[data-key="group:alert-engine"] > .group-row');
+  for (const button of [head("start"), head("restart"), head("update"), engine.querySelector('[data-act="start"]')]) {
+    assert.ok(isOff(button), button.getAttribute("data-act") || button.getAttribute("data-stack"));
+    assert.equal(offWhy(button), line);
+  }
+  draw(lab({ licensed: true }));
+  paintBusy(section);
+  assert.ok(!isOff(head("start")), "the entry is fixed: Start no longer waits");
 });
 
 // --- The bands --------------------------------------------------------------------------------

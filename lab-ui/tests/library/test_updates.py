@@ -74,6 +74,31 @@ class Versions(Case):
         self.at("v1.1.0")
         self.assertEqual((updates.describe()["version"], updates.describe()["update"]), ("1.1.0", False))
 
+    def test_while_a_newer_version_waits_the_state_runs_no_git_between_two_reads_of_the_repository(self):
+        self.at("v1.0.0")
+        ran = []
+        real = updates._git
+        self.patch(updates, "_git", side_effect=lambda *args, **how: ran.append(args[0]) or real(*args, **how))
+        self.assertEqual((updates.describe()["update"], updates.describe()["blocked"]), (True, None))
+        ran.clear()
+        for _ in range(3):
+            updates.describe()
+        self.assertEqual(ran, [])
+        # What waits for a job is said as it is: it is no fact of the repository
+        self.patch(jobs, "JOBS", jobs.Jobs())
+        jobs.JOBS.current = mock.Mock(done=False, title="Start Kiosk")
+        self.assertEqual(updates.describe()["blocked"], "Wait for Start Kiosk to end")
+        self.assertEqual(ran, [])
+
+    def test_reading_the_repository_never_writes_its_index_which_the_person_s_own_git_locks(self):
+        index = self.lab / ".git" / "index"
+        before = index.read_bytes()
+        stamp = (self.lab / "file.txt").stat().st_mtime + 60
+        os.utime(self.lab / "file.txt", (stamp, stamp))   # the same text, touched: a status that may lock writes the index again
+        updates.forget()
+        self.assertEqual(updates.describe()["version"], "1.1.0")
+        self.assertEqual(index.read_bytes(), before)
+
     def test_a_clone_of_main_past_the_newest_version_says_how_many_changes(self):
         self.commit(self.lab, "Something on main (#17)")
         updates.forget()

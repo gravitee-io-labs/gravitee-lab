@@ -16,11 +16,9 @@ KEPT = 20   # per playground: the latest ones
 
 
 def read():
-    """{playground id: [{versions, images, at}]}, oldest first; nothing when the file is not there or is not readable."""
-    try:
-        found = json.loads((paths.ROOT / FILE).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
+    """{playground id: [{versions, images, at}]}, oldest first; nothing when the file is not there or is not readable
+    (paths.read_record keeps it aside)."""
+    found = paths.read_record(paths.ROOT / FILE)
     return found if isinstance(found, dict) else {}
 
 

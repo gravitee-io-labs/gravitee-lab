@@ -423,8 +423,9 @@ def _lazy(function):
 
 
 def _load_config():
-    """(config, problems): the parsed catalogs.json and the lines that say what could not be read of it. The config is
-    None for a file that does not exist; an empty list for one that cannot be read at all."""
+    """(config, problems): the parsed catalogs.json and what could not be read of it, each problem as (the line of the
+    Catalogs page, what is wrong in words that follow the file's name). The config is None for a file that does not
+    exist; an empty list for one that cannot be read at all."""
     blank = {"schema": SCHEMA, "catalogs": []}
     data, why = _read(_root(CONFIG_FILE), FILE_LIMIT)
     if why is _MISSING:
@@ -442,7 +443,7 @@ def _load_config():
         elif not isinstance(value.get("catalogs"), list):
             why = "it has no list of catalogs"
     if why is not None:
-        return blank, [LISTING_PROBLEM.format(why=why)]
+        return blank, [(LISTING_PROBLEM.format(why=why), f"could not be read ({why})")]
     config = {"schema": SCHEMA, **{key: item for key, item in value.items() if key not in ("schema", "catalogs")},
               "catalogs": []}
     listed = _lazy(lambda: _tracked()[1])
@@ -456,8 +457,9 @@ def _load_config():
         else:
             seen.add(entry["id"])
             config["catalogs"].append(entry)
-    problems = [ENTRIES_PROBLEM.format(count=len(dropped), why=dropped[0], are="is" if len(dropped) == 1 else "are")] \
-        if dropped else []
+    problems = [(ENTRIES_PROBLEM.format(count=len(dropped), why=dropped[0], are="is" if len(dropped) == 1 else "are"),
+                 f"lists {len(dropped)} {'catalog that' if len(dropped) == 1 else 'catalogs that'} could not be read "
+                 f"({dropped[0]})")] if dropped else []
     return config, problems
 
 
@@ -471,7 +473,7 @@ def read_config() -> Optional[dict]:
 
 def _load_lock():
     """(lock, problems) of catalogs.lock: {"schema": 1, "catalogs": {ns: entry}}, empty when it does not exist or cannot
-    be read."""
+    be read; the problems as _load_config's."""
     blank = {"schema": SCHEMA, "catalogs": {}}
     data, why = _read(_root(LOCK_FILE), FILE_LIMIT)
     if why is _MISSING:
@@ -483,7 +485,7 @@ def _load_lock():
     if why is None and type(value.get("schema", SCHEMA)) is int and value.get("schema", SCHEMA) > SCHEMA:
         why = "its format is newer than this Lab reads"
     if why is not None:
-        return blank, [RECORD_PROBLEM.format(why=why)]
+        return blank, [(RECORD_PROBLEM.format(why=why), f"could not be read ({why})")]
     lock = {"schema": SCHEMA, **{key: item for key, item in value.items() if key not in ("schema", "catalogs")},
             "catalogs": {}}
     dropped = []
@@ -492,15 +494,22 @@ def _load_lock():
             lock["catalogs"][ns] = _lock_entry(raw, strict=False)
         else:
             dropped.append(ns)
-    problems = [RECORD_PROBLEM.format(why="a record in it is not one")] if dropped else []
+    problems = [(RECORD_PROBLEM.format(why="a record in it is not one"), "could not be read (a record in it is not one)")] \
+        if dropped else []
     return lock, problems
 
 
 def config_problem() -> Optional[str]:
     """Why catalogs.json or catalogs.lock could not be read, as a line for the Catalogs page, else None. The lines of
     both files if both are damaged. Read from the files at each call, so it is gone as soon as the file is fixed."""
-    lines = _load_config()[1] + _load_lock()[1]
+    lines = [line for line, _ in _load_config()[1] + _load_lock()[1]]
     return " ".join(lines) or None
+
+
+def damage() -> list:
+    """[(file, what is wrong)] of catalogs.json and catalogs.lock, each file from the project folder, for a command that
+    stops on them and names the file to fix (layout.run), where config_problem() says what the Catalogs page does."""
+    return [(CONFIG_FILE, what) for _, what in _load_config()[1]] + [(LOCK_FILE, what) for _, what in _load_lock()[1]]
 
 
 def _dump(document):

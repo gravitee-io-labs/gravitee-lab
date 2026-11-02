@@ -24,11 +24,10 @@ stops the seed, which does not renew the tokens of an account it does not own.
 import os
 
 from . import am
-from .common import SeedError, has_seed, items, load, log, owned, record, recorded, seed_file, setting, wait_until
+from .common import SeedError, adopted, forget, has_seed, items, load, log, making, owned, record, recorded, seed_file, setting, wait_until
 from .gamma import Gamma
 
 SECTION = "am-link"
-DEPENDS = ("am",)   # the modules whose work this one reads on the platform (schedule.py)
 # The one file of the seed it owns: seed/am/ itself belongs to every playground that seeds Access Management
 FOLDERS = ("am/gamma-link.yaml",)
 # The Gamma modules it fills: seed.py checks that the platform serves them before it changes anything
@@ -101,15 +100,17 @@ def service_account_token(access, name):
     api, org = access.api, access.org_url
     users = items(api.get(f"{org}/users", params={"q": name, "size": 50}).json())
     user = next((u for u in users if u.get("username") == name and u.get("serviceAccount")), None)
-    if user and not recorded(SECTION, "am-service-account", user["id"]):
+    if user and not recorded(SECTION, "am-service-account", user["id"]) and \
+            not adopted(SECTION, "am-service-account", name, user["id"], role=ORG_OWNER):
         # Its tokens would be deleted below, and the role it has is not ours to change
         raise SeedError(f"AM already has a service account '{name}' that the seed did not create: delete it in Access "
                         "Management, or name another in seed/am/gamma-link.yaml, or give Gamma a token of its own "
                         "with AM_TOKEN")
     if not user:
-        user = api.post(f"{org}/users", json={"username": name, "serviceAccount": True, "firstName": "Gamma",
-                                              "lastName": "Service account"}).json()
-        record(SECTION, "am-service-account", "AM service accounts", name, user["id"], role=ORG_OWNER)
+        with making(SECTION, "am-service-account", "AM service accounts", name, missing=True, role=ORG_OWNER):
+            user = api.post(f"{org}/users", json={"username": name, "serviceAccount": True, "firstName": "Gamma",
+                                                  "lastName": "Service account"}).json()
+            record(SECTION, "am-service-account", "AM service accounts", name, user["id"], role=ORG_OWNER)
         log(SECTION, f"✓ AM service account '{name}' created")
     role = next((r for r in items(api.get(f"{org}/roles").json())
                  if r["name"] == ORG_OWNER and r.get("assignableType") == "organization"), None)
@@ -137,4 +138,5 @@ def remove(records):
     if accounts:
         message += (f". So does the service account '{accounts[0]}' with the {ORG_OWNER} role and its token, which does "
                     "not expire: delete the account in Access Management when you are done with the lab")
+    forget(*mine)   # notes: nothing the API can undo
     log(SECTION, message)

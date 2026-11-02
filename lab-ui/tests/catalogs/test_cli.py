@@ -24,11 +24,13 @@ from unittest import mock
 
 from lab_ui.catalogs import cli as catalog
 from lab_ui.library import check, project
+from lab_ui.library import layout as moves   # the real one: a test replaces it while the command runs
 from lab_ui.docker import compose, envfiles
 from lab_ui.gravitee import license
 from lab_ui import paths
 from lab_ui.catalogs import defaults, gitx, manifest, registry
 from lab_ui.catalogs import store as bare
+from lab_ui.catalogs import firstrun as phases   # the real one: a test replaces it while the command runs
 
 from .. import Case, fixtures, gitfixture
 
@@ -1348,17 +1350,21 @@ class Service(Tool):
 
 
 class Provision(Tool):
-    """The first start from a terminal: the intent, the downloads, the migration; exit 1 with the line on a failure."""
+    """The first start from a terminal: the intent, the downloads, the move of a folder of the layout before catalogs; exit 1
+    with the line on a failure."""
 
     def fake(self, provision=None, **more):
         calls = []
         firstrun = module(reconcile=lambda: calls.append("reconcile"), PROGRESS={},
                           provision=provision or (lambda ns: calls.append(f"provision {ns}") or {"id": ns, "name": ns.title()}),
                           **more)
-        layout = module(waiting=lambda: False, migrate=lambda: {"moved": [], "problems": []})
+        layout = module(run=lambda say, complain, download=True: True, NO_DOCKER=moves.NO_DOCKER)
         patcher = mock.patch.dict(sys.modules, {"lab_ui.catalogs.firstrun": firstrun, "lab_ui.library.layout": layout})
         patcher.start()
         self.addCleanup(patcher.stop)
+        signals = mock.patch.object(catalog.compose, "stop_on_signals")   # the test's own process keeps its handlers
+        self.signals = signals.start()
+        self.addCleanup(signals.stop)
         return calls, firstrun, layout
 
     def declare(self, *names):
@@ -1394,25 +1400,59 @@ class Provision(Tool):
         code, out, err = self.run_tool("provision")
         self.assertEqual((code, err), (1, "partner: No access to acme/hub. Run gh auth login in a terminal, then try again.\n"))
 
+    def test_a_docker_that_is_not_ready_is_said_as_nothing_here_downloads_later(self):
+        # The first start's line says the catalog downloads once Docker is ready: in the Lab UI its worker does, here
+        # nothing does
+        self.declare("partner")
+
+        def provision(ns):
+            raise registry.CatalogError("docker_missing", phases.LINES["docker_missing"], 400)
+        self.fake(provision)
+        code, out, err = self.run_tool("provision")
+        self.assertEqual((code, err), (1, f"partner: {moves.NO_DOCKER}\n"))
+        self.assertNotIn("once it is", err)
+
+    def test_a_closed_terminal_ends_the_downloads_and_the_move_as_it_ends_the_lab_ui(self):
+        # git and Compose lead sessions of their own, which the terminal's hang-up does not reach: what ends them is set
+        # before the first download
+        self.declare("partner")
+        order = []
+        self.fake(lambda ns: order.append("provision") or {"id": ns, "name": "Partner"})
+        self.signals.side_effect = lambda *others: order.append(("signals", others))
+        self.assertEqual(self.run_tool("provision")[0], 0)
+        self.assertEqual(order, [("signals", (gitx.stop_running,)), "provision"])
+
     def test_nothing_to_download_is_a_success_and_the_intent_is_still_written(self):
         calls, _, _ = self.fake()
         self.assertEqual(self.run_tool("provision"), (0, "", ""))
         self.assertEqual(calls, ["reconcile"])
 
-    def test_the_old_layout_is_moved_when_it_waits_and_its_problems_fail_the_command(self):
+    def test_the_move_of_an_old_layout_runs_after_the_downloads_says_what_it_says_and_a_move_that_fails_fails_the_command(self):
+        # What it moved and why it could not are the move's words (test_layout), said through the command's own lines
+        self.declare("partner")
         calls, _, layout = self.fake()
-        layout.waiting = lambda: True
-        layout.migrate = lambda: {"moved": ["a", "b"], "problems": []}
-        self.assertEqual(self.run_tool("provision"), (0, "Moved 2 items of the old layout\n", ""))
-        layout.migrate = lambda: {"moved": ["addon:a"], "problems": ["addons/x: could not be moved"]}
-        code, out, err = self.run_tool("provision")
-        self.assertEqual((code, out, err), (1, "Moved 1 item of the old layout\n", "addons/x: could not be moved\n"))
 
-    def test_the_progress_of_a_download_is_said_as_its_phase_changes(self):
+        def run(say, complain, download=True):
+            calls.append(f"move, download {download}")
+            say("Moving your settings to the new layout")
+            return True
+        layout.run = run
+        code, out, err = self.run_tool("provision")
+        self.assertEqual((code, err, calls), (0, "", ["reconcile", "provision partner", "move, download False"]))
+        self.assertEqual(out.splitlines()[-1], "Moving your settings to the new layout")
+
+        def failed(say, complain, download=True):
+            complain("Could not move your settings to the new layout. Nothing was deleted.")
+            return False
+        layout.run = failed
+        self.assertEqual(self.run_tool("provision")[0::2], (1, "Could not move your settings to the new layout. Nothing was deleted.\n"))
+
+    def test_the_progress_of_a_download_is_said_in_words_as_its_phase_changes(self):
+        # The phases of firstrun, which are its own ids: each is said in words, and the last, which has none, not at all
         self.declare("partner")
 
         def provision(ns):
-            for phase in ("fetching", "installing"):
+            for phase in ("probe", "fetch", "stage", "commit"):
                 firstrun.PROGRESS[ns] = {"phase": phase, "fraction": 0.5}
                 time.sleep(0.3)   # long enough for the watcher, which looks every hundredth of a second
             return {"id": ns, "name": "Partner"}
@@ -1420,7 +1460,9 @@ class Provision(Tool):
         self.patch(catalog, "POLL", 0.01)
         code, out, err = self.run_tool("provision")
         self.assertEqual((code, err), (0, ""))
-        self.assertEqual(out.splitlines(), ["Downloading example.invalid/partner", "  fetching", "  installing", "Installed Partner"])
+        self.assertEqual(out.splitlines(), ["Downloading example.invalid/partner", "  Checking the address",
+                                            "  Downloading the files", "  Installing", "Installed Partner"])
+        self.assertLessEqual(set(catalog.PHASE_WORDS), set(phases.PHASES), "the words are of phases there are")
 
 def scratch_lab(case):
     """A Lab checkout of its own for a test: a clone of a repository whose `main` holds one commit. Answers (the folder, the commit

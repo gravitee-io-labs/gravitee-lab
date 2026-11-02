@@ -549,6 +549,22 @@ class Replacement(Studios):
         self.assertEqual(self.changes(), [("PUT", "/apis/studio-1"), ("POST", "/apis/studio-1/deployments")])
         self.assertEqual(self.the_flow("Human approval")["request"][0]["configuration"]["holdWindowMs"], 90000)
 
+    def test_a_studio_replaced_whose_answer_was_lost_is_the_seeds_at_the_next_run(self):
+        self.seed()
+        self.file(STUDIO.replace("alias: get_customer", "alias: customer"))
+
+        def made(call):   # the platform makes the new studio, and the seed never gets the answer
+            self.world.create(call)
+            raise requests.ReadTimeout("slow")
+        self.platform.add({("POST", AIM + "/mcp-studios"): made})
+        with self.assertRaises(common.SeedError):
+            self.seed()
+        self.assertEqual([x["contextPath"] for x in common.notes("aim-proxies", "studio")], [PATH],
+                         "the note names the path the studio is found by (aim_catalog.release_studios)")
+        self.platform.add({("POST", AIM + "/mcp-studios"): self.world.create})
+        self.seed()
+        self.assertEqual([x["id"] for x in common.created() if x["kind"] == "studio"], list(self.world.studios))
+
     def test_a_studio_the_seed_did_not_create_is_never_adopted(self):
         self.world.studios["theirs"] = {"name": "Theirs", "contextPath": PATH, "fga": False, "approval": False}
         with self.assertRaisesRegex(common.SeedError, "/mcp/customer-care is the path of 'Theirs', which the seed did not create"):
@@ -595,6 +611,10 @@ class AgentsPlan(Studios):
 
 class Gateway(Studios):
 
+    def setUp(self):
+        super().setUp()
+        self.env(SEED_WAIT_GATEWAY="1")   # what it tests is the wait for the gateway, which a seed does when asked
+
     def test_the_gateway_is_not_asked_unless_the_seed_is_asked_to_wait_for_it(self):
         self.env(SEED_WAIT_GATEWAY="0")
         self.seed()
@@ -634,7 +654,8 @@ class Gateway(Studios):
         with self.assertRaises(common.SeedError) as raised:
             self.seed()
         self.assertNotIn("\n", str(raised.exception))
-        self.assertIn("Max retries exceeded with url", str(raised.exception))
+        self.assertTrue(str(raised.exception).endswith("not ready after 30 s: the connection was cut"), str(raised.exception))
+        self.assertNotIn("Max retries", self.output() + str(raised.exception), "what the library says is not for a reader")
 
     def test_a_seed_that_does_not_know_the_gateway_does_not_wait(self):
         self.env(GATEWAY_INTERNAL_URL=None)
@@ -722,6 +743,21 @@ class OldShape(Studios):
         self.assertEqual(call.json["specification"]["promptIds"], [])
         self.assertEqual(self.changes(), [("POST", "/mcp-studios"), ("PUT", "/mcp-studios/studio-1/fga"), ("POST", "/apis/studio-1/deployments")])
         self.assertEqual(self.world.gateway_calls, [])
+
+    def test_one_replaced_whose_answer_was_lost_is_the_seeds_at_the_next_run(self):
+        self.seed()
+        self.file(OLD_STUDIO.replace("tool: getCustomer", "tool: searchCustomers"))
+
+        def made(call):   # the platform makes the new studio, and the seed never gets the answer
+            self.world.create(call)
+            raise requests.ReadTimeout("slow")
+        self.platform.add({("POST", AIM + "/mcp-studios"): made})
+        with self.assertRaises(common.SeedError):
+            self.seed()
+        self.assertEqual([x["contextPath"] for x in common.notes("aim-proxies", "studio")], ["/old"])
+        self.platform.add({("POST", AIM + "/mcp-studios"): self.world.create})
+        self.seed()
+        self.assertEqual([x["id"] for x in common.created() if x["kind"] == "studio"], list(self.world.studios))
 
 
 class Removal(Studios):

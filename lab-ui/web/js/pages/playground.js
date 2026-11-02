@@ -283,11 +283,12 @@ function records(item) {
 }
 const at = (record) => `${record.what.join(", ")} in ${record.name}`;
 
-// Why what a remote place holds cannot be deleted now: the playground is off (the seed runs only then), or the place cannot
-// be reached; "" when it can
+// Why what a remote place holds cannot be deleted now: the playground is off (the seed runs only then), an entry of the on
+// file cannot be read (Compose finds the seed in the files it names), or the place cannot be reached; "" when it can
 const TOKENS = { unset: "No Cloud Token", expired: "Cloud Token expired", refused: "Cloud Token refused" };
 function unreachable(item, record) {
   if (!item.on) return `${item.name} is off`;
+  if (store.state?.unread) return store.state.unread;
   const place = entry(store.places, record.id);
   if (!place) return store.placesRead ? "Account not connected" : "Loading";
   return place.state === "unusable" ? place.reason : TOKENS[place.token?.state] || "";
@@ -318,7 +319,7 @@ const startButton = (item, apart, cls = "primary") => {
 const stopButton = (item, apart) => {
   const stop = stopOf(item);
   return actionButton({ key: keyOf(item), verb: startStop(apart, "stop"), label: stop?.label || "Stop", icon: "stop",
-    attrs: `data-act="stop" data-busy ${stop ? lock(stop, TURNS[stop.label]) : ""}` });
+    attrs: `data-act="stop" data-busy="name" ${stop ? lock(stop, TURNS[stop.label]) : ""}` });
 };
 
 // Re-seed waits for what the seed needs to run, the server says which
@@ -713,7 +714,7 @@ function progress(item, job) {
     return `<li class="pg-phase ${cls}">
       <span class="pg-phase-icon">${cls === "done" ? icon("check") : ended ? icon("close") : '<span class="spinner"></span>'}</span>
       <div><strong>${esc(p.name)}</strong>
-        ${cls === "done" ? "" : `<div class="pg-phase-detail ${failed ? "err-text" : ""}"></div>`}</div>
+        ${cls === "done" ? "" : `<div class="pg-phase-detail ${failed ? "err-text" : ""}"${ended ? "" : " data-job-line"}></div>`}</div>
       ${seconds(p.started, job.phases[i + 1]?.started || job.ended)}
       ${cls === "current" ? progressBar("phase") : ""}</li>`;
   }).join("");
@@ -734,7 +735,7 @@ function session(item, job, state) {
   renderGuide(item, $("#pg-guide", root));
   setHTML($("#pg-progress", root), job ? progress(item, job) : "");
   const said = $(".pg-phase-detail", root);
-  if (said) said.textContent = (job.done ? job.error : job.detail) || "";
+  if (said && job.done) said.textContent = job.error || "";   // while it runs, its latest line is the job's measure (paintProgress)
   tick();
 
   // Everything it runs: its apps and its seed, then what its add-ons bring. What to open is the server's list: its

@@ -42,6 +42,13 @@ class Stars(Folder):
             starred.star(self.project, "addon", "nope", True)
         self.assertFalse((self.root / starred.FILE).exists())
 
+    def test_a_file_cut_short_is_kept_aside_before_a_star_replaces_it(self):
+        cut = '{"addon": ["kafka", "local/whoami"], "playground": ["wel'
+        self.write(starred.FILE, cut)
+        starred.star(self.project, "playground", "welcome", True)
+        self.assertEqual(self.saved(), {"playground": ["welcome"]})
+        self.assertEqual([one.read_text(encoding="utf-8") for one in (self.root / ".lab").glob("starred.json.bad-*")], [cut])
+
     def test_a_file_that_does_not_read_stars_nothing(self):
         empty = {"addon": set(), "setup": set(), "playground": set()}
         for text, found in (("{", empty), ("[]", empty), ('{"addon": "kafka", "setup": [1, "observability"]}',
@@ -57,7 +64,7 @@ class Stars(Folder):
     def test_asked_to_share_it_keeps_its_star_where_it_is(self):
         # A share is a copy: the item stays, and so does its star
         starred.star(self.project, "addon", "local/whoami", True)
-        personal.share(self.project, "addon", "local/whoami", check_only=True)
+        personal.share("addon", "local/whoami", check_only=True)
         self.assertEqual(self.saved(), {"addon": ["local/whoami"]})
 
     def test_become_a_catalogs_it_keeps_its_star_under_the_new_id(self):

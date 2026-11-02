@@ -87,7 +87,8 @@ off or remove its containers, then **Repair** finishes the update.
 **Remove.** Takes the copy away. Choose **Keep my settings** (what you set and what its playgrounds created, if you add it
 again) or **Delete them too**. An item that is on blocks the removal until you turn it off.
 
-From a terminal: `python3 lab-ui/catalog.py add|update|undo|remove|list`.
+From a terminal: `python3 lab-ui/catalog.py add|update|undo|remove|list`. While the Lab UI runs on the folder, update, undo
+and remove are made on its Catalogs page: the command says so.
 
 ## Versions
 
@@ -296,13 +297,19 @@ make update
 ```
 
 `make update` is `git pull --ff-only` then `make catalogs`: it downloads the default catalog and moves your settings,
-your stars and what you had in the old folders to the new layout. What moves, where, and why is told in one notice on the next
-page load, **Lab updated**. Your own add-ons, setups and playgrounds (the ones under `local/`) become Personal. Anything you
-changed inside a shared item is kept aside in `.lab/migration/kept`. `.lab/migration/undo.sh` puts the previous layout
-back; a file that changed since is kept beside the restored one with the suffix `.after-update`.
+your stars and what you had in the old folders to the new layout. Starting the Lab UI does the same, once, before it opens:
+a Lab that was pulled some other way is moved all the same. Your own add-ons, setups and playgrounds (the ones under
+`local/`) become Personal. Both then say in the terminal what you may want to look at: what the catalog does not have is now
+Personal, anything you changed inside a shared item is kept aside in `.lab/migration/kept`, what needs a catalog you do not
+have is turned off, and files that could not be moved stay where they were. When the move cannot be made (the catalog does
+not download, `.lab/catalogs.json` or `.lab/catalogs.lock` does not read, a disk error), they say why, and what to do with a
+file that does not read, nothing is deleted, and the Lab UI does not start until it is fixed: start it again to finish the
+move. `.lab/migration/undo.sh` puts the previous layout back;
+a file that changed since is kept beside the restored one with the suffix `.after-update`.
 
-Until you run it, `make start`, `make ps` and the other targets that read what is on say `This Lab was updated: run make
-update to move your settings.` and stop. `make stop`, `make down` and `make reset` keep working.
+Until the move is made, `make start`, `make ps`, `make urls`, `make check` and the other targets that read what is on say
+`This Lab was updated: run make update to move your settings.` and stop. `make stop`, `make down` and `make reset` keep
+working.
 
 ## Errors and what to do
 

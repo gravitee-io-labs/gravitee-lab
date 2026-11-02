@@ -8,6 +8,8 @@ import re
 import unittest
 from unittest import mock
 
+import requests
+
 from lab_seeder import authz
 from lab_seeder import common
 from lab_seeder.testkit import PERSONAL, PLAYGROUNDS, Seed
@@ -390,7 +392,7 @@ entities:
 """})
         authz.seed()
         customers = next(x for x in self.records() if x["name"] == "harbor/Customer")
-        self.assertEqual(customers["ids"], ["C-2001", "C-1001", "C-3001"], "the stale id first: it is deleted last")
+        self.assertEqual(customers["ids"], ["C-1001", "C-2001", "C-3001"], "the stale id where the record has it")
 
     def test_no_secret_or_attribute_is_recorded(self):
         authz.seed()
@@ -476,6 +478,238 @@ class Refusals(Case):
                                                      r"entity C-1001: the type 'Customer' is not allowed$"):
             authz.seed()
         self.assertEqual(self.records(), [])
+        self.assertEqual(common.notes(authz.SECTION, "entities"), [], "a 4xx takes the note back: nothing was saved")
+
+    def test_an_entity_someone_made_after_a_refused_request_is_never_taken_over(self):
+        self.platform.add({("POST", BULK): (400, {"message": "the type 'Customer' is not allowed"})})
+        with self.assertRaises(common.SeedError):
+            authz.seed()
+        self.platform.add({("POST", BULK): self.world.bulk})
+        self.world.entities["C-2001"] = {"id": "x", "entityId": "C-2001", "entityType": "Customer", "kind": "RESOURCE",
+                                         "attributes": {"mine": True}, "parents": [], "source": "someone"}
+        with self.assertRaisesRegex(common.SeedError, "Customer 'C-2001' exists in Authorization Management and the seed did "
+                                                      "not create it: it is left alone"):
+            authz.seed()
+        self.assertEqual(self.world.entities["C-2001"]["source"], "someone")
+        self.assertNotIn("C-2001", authz.made_entities())
+
+    def test_an_answer_that_refuses_some_takes_the_note_back_too(self):
+        self.world.refused["O-6001"] = "no"
+        with self.assertRaises(common.SeedError):
+            authz.seed()
+        self.assertEqual(common.notes(authz.SECTION, "entities"), [], "the answer said what was saved, and that is recorded")
+
+    def lose_the_answer(self, text=None):
+        """A run whose bulk request the platform saves whole, and whose answer never comes back: of the file, or of `text`."""
+        if text:
+            self.seed_files({"authz/entities.yaml": text})
+
+        def made(call):
+            self.world.bulk(call)
+            raise requests.ReadTimeout("slow")
+        self.platform.add({("POST", BULK): made})
+        with self.assertRaises(common.SeedError):
+            authz.seed()
+        self.platform.add({("POST", BULK): self.world.bulk})
+        self.assertEqual((len(self.world.entities), authz.made_entities()), (4, set()))
+
+    def test_a_refused_request_after_a_lost_answer_keeps_what_the_lost_one_saved_as_the_seeds(self):
+        self.lose_the_answer()
+        self.platform.add({("POST", BULK): (400, {"message": "entity C-1001: the type 'Customer' is not allowed"})})
+        with self.assertRaises(common.SeedError):
+            authz.seed()
+        self.assertEqual(authz.made_entities(), {"C-1001", "O-5001", "C-2001", "O-6001"})
+        self.platform.add({("POST", BULK): self.world.bulk})
+        authz.seed()
+        self.assertEqual(authz.made_entities(), {"C-1001", "O-5001", "C-2001", "O-6001"})
+
+    def test_a_refusal_of_one_the_lost_answer_saved_keeps_it_as_the_seeds_too(self):
+        self.lose_the_answer()
+        self.world.refused["O-6001"] = "attribute 'customer' is not an entity"
+        with self.assertRaises(common.SeedError):
+            authz.seed()
+        self.world.refused.clear()
+        authz.seed()
+        self.assertEqual(authz.made_entities(), {"C-1001", "O-5001", "C-2001", "O-6001"})
+        self.assertEqual(common.notes(authz.SECTION, "entities"), [])
+
+    def test_one_the_lost_answer_saved_and_the_file_no_longer_has_stays_the_seeds_and_a_removal_deletes_it(self):
+        self.lose_the_answer()
+        self.seed_files({"authz/entities.yaml": ENTITIES.replace("  - {type: Order, id: O-6001", "  # {type: Order, id: O-6001")})
+        authz.seed()
+        self.assertEqual(authz.made_entities(), {"C-1001", "O-5001", "C-2001", "O-6001"})
+        self.assertEqual(common.notes(authz.SECTION, "entities"), [])
+        authz.remove(common.created())
+        self.assertEqual(self.world.entities, {})
+
+    def test_one_the_lost_answer_saved_can_come_back_in_the_file(self):
+        self.lose_the_answer()
+        self.seed_files({"authz/entities.yaml": ENTITIES.replace("  - {type: Order, id: O-6001", "  # {type: Order, id: O-6001")})
+        authz.seed()
+        self.seed_files({"authz/entities.yaml": ENTITIES})
+        authz.seed()
+        self.assertEqual(authz.made_entities(), {"C-1001", "O-5001", "C-2001", "O-6001"})
+
+    def test_a_type_the_file_no_longer_has_keeps_the_rank_of_its_record_with_what_the_lost_answer_saved(self):
+        authz.seed()
+        self.seed_files({"authz/entities.yaml": ENTITIES + "  - {type: Order, id: O-7001, attributes: {customer: {ref: [Customer, C-1001]}}}\n"})
+
+        def made(call):
+            self.world.bulk(call)
+            raise requests.ReadTimeout("slow")
+        self.platform.add({("POST", BULK): made})
+        with self.assertRaises(common.SeedError):
+            authz.seed()
+        self.platform.add({("POST", BULK): self.world.bulk})
+        # The customers are the seed's and as the file says: nothing is sent, and the old note goes all the same
+        self.seed_files({"authz/entities.yaml": "".join(line for line in ENTITIES.splitlines(keepends=True) if "type: Order" not in line)})
+        authz.seed()
+        [orders] = [x for x in common.created() if x["name"] == "harbor/Order"]
+        self.assertEqual((set(orders["ids"]), orders["rank"]), ({"O-5001", "O-6001", "O-7001"}, 1))
+        self.assertEqual(common.notes(authz.SECTION, "entities"), [])
+
+    def deleted(self):
+        return [path.rsplit("/", 1)[1] for method, path in self.platform.changes() if method == "DELETE"]
+
+    def test_a_type_only_the_lost_answer_saved_is_still_deleted_before_the_one_it_points_at(self):
+        self.lose_the_answer()
+        # The orders are in no record and no longer in the file: what they point at ranks them
+        self.seed_files({"authz/entities.yaml": "".join(line for line in ENTITIES.splitlines(keepends=True) if "type: Order" not in line)})
+        authz.seed()
+        [orders] = [x for x in common.created() if x["name"] == "harbor/Order"]
+        self.assertEqual((orders["ids"], orders["rank"]), (["O-5001", "O-6001"], 1))
+        self.platform.calls.clear()
+        authz.remove(common.created())
+        self.assertEqual(self.deleted(), ["O-6001", "O-5001", "C-2001", "C-1001"])
+        self.assertEqual(self.world.entities, {})
+
+    def lose_an_invoice_then_seed(self, text):
+        """A first seed of the customers and orders, a run that adds an invoice of an order and loses the answer, then a
+        seed of `text`."""
+        authz.seed()
+        self.seed_files({"authz/entities.yaml": ENTITIES + "  - {type: Invoice, id: I-1, attributes: {order: {ref: [Order, O-5001]}}}\n"})
+
+        def made(call):
+            self.world.bulk(call)
+            raise requests.ReadTimeout("slow")
+        self.platform.add({("POST", BULK): made})
+        with self.assertRaises(common.SeedError):
+            authz.seed()
+        self.platform.add({("POST", BULK): self.world.bulk})
+        self.assertEqual(("I-1" in self.world.entities, "I-1" in authz.made_entities()), (True, False))
+        self.seed_files({"authz/entities.yaml": text})
+        authz.seed()
+
+    def test_a_type_only_the_lost_answer_saved_ranks_above_one_only_a_record_has(self):
+        # The orders the invoice points at are in a record only, and the invoice in no record and no longer in the file
+        self.lose_an_invoice_then_seed("source: harbor\nentities: []\n")
+        [invoices] = [x for x in common.created() if x["name"] == "harbor/Invoice"]
+        self.assertEqual((invoices["ids"], invoices["rank"]), (["I-1"], 2), "one above the record of the orders")
+        self.platform.calls.clear()
+        authz.remove(common.created())
+        self.assertEqual(self.deleted(), ["I-1", "O-6001", "O-5001", "C-2001", "C-1001"])
+        self.assertEqual(self.world.entities, {})
+
+    def test_the_same_when_the_file_keeps_the_customers(self):
+        self.lose_an_invoice_then_seed("".join(line for line in ENTITIES.splitlines(keepends=True) if "type: Order" not in line))
+        [invoices] = [x for x in common.created() if x["name"] == "harbor/Invoice"]
+        self.assertEqual(invoices["rank"], 2)
+        self.platform.calls.clear()
+        authz.remove(common.created())
+        self.assertEqual(self.deleted(), ["I-1", "O-6001", "O-5001", "C-2001", "C-1001"])
+
+    def test_the_same_when_the_file_keeps_the_orders_and_no_longer_the_customers_they_point_at(self):
+        chain = """\
+source: harbor
+entities:
+  - {type: Region, id: EU}
+  - {type: Customer, id: C-1, attributes: {region: {ref: [Region, EU]}}}
+  - {type: Order, id: O-1, attributes: {customer: {ref: [Customer, C-1]}}}
+"""
+        self.seed_files({"authz/entities.yaml": chain})
+        authz.seed()
+        self.seed_files({"authz/entities.yaml": chain + "  - {type: Invoice, id: I-1, attributes: {order: {ref: [Order, O-1]}}}\n"})
+
+        def made(call):
+            self.world.bulk(call)
+            raise requests.ReadTimeout("slow")
+        self.platform.add({("POST", BULK): made})
+        with self.assertRaises(common.SeedError):
+            authz.seed()
+        self.platform.add({("POST", BULK): self.world.bulk})
+        self.seed_files({"authz/entities.yaml": "".join(line for line in chain.splitlines(keepends=True)
+                                                        if "type: Region" not in line and "type: Customer" not in line)})
+        authz.seed()
+        [invoices] = [x for x in common.created() if x["name"] == "harbor/Invoice"]
+        self.assertEqual(invoices["rank"], 3, "one above the orders, which the file ranks above the record of the customers")
+        self.platform.calls.clear()
+        authz.remove(common.created())
+        self.assertEqual(self.deleted(), ["I-1", "O-1", "C-1", "EU"])
+
+    def test_a_child_only_the_lost_answer_saved_is_still_deleted_before_its_parent(self):
+        self.lose_the_answer("""\
+source: harbor
+entities:
+  - {type: Customer, id: C-1}
+  - {type: Folder, id: leaf, parents: [[Folder, middle]]}
+  - {type: Folder, id: middle, parents: [[Folder, root]]}
+  - {type: Folder, id: root}
+""")
+        self.seed_files({"authz/entities.yaml": "source: harbor\nentities:\n  - {type: Customer, id: C-1}\n"})
+        authz.seed()
+        [folders] = [x for x in common.created() if x["name"] == "harbor/Folder"]
+        self.assertEqual(folders["ids"], ["root", "middle", "leaf"], "each after its parent, as the file had them")
+        self.platform.calls.clear()
+        authz.remove(common.created())
+        self.assertEqual([entity_id for entity_id in self.deleted() if entity_id != "C-1"], ["leaf", "middle", "root"])
+
+    def test_a_child_only_the_lost_answer_saved_is_still_deleted_before_its_parent_the_file_keeps(self):
+        tree = """\
+source: harbor
+entities:
+  - {type: Customer, id: C-1}
+  - {type: Folder, id: leaf, parents: [[Folder, middle]]}
+  - {type: Folder, id: middle, parents: [[Folder, root]]}
+  - {type: Folder, id: root}
+"""
+        self.lose_the_answer(tree)
+        self.seed_files({"authz/entities.yaml": tree.replace("  - {type: Folder, id: leaf, parents: [[Folder, middle]]}\n", "")})
+        authz.seed()
+        [folders] = [x for x in common.created() if x["name"] == "harbor/Folder"]
+        self.assertEqual(folders["ids"], ["root", "middle", "leaf"], "the one the file no longer has after its parent")
+        self.platform.calls.clear()
+        authz.remove(common.created())
+        self.assertEqual([entity_id for entity_id in self.deleted() if entity_id != "C-1"], ["leaf", "middle", "root"])
+
+    def test_what_the_lost_answer_saved_stays_the_seeds_when_the_file_lists_no_entity_any_more(self):
+        self.lose_the_answer()
+        self.seed_files({"authz/entities.yaml": "source: harbor\nentities: []\n"})
+        authz.seed()
+        self.assertEqual(authz.made_entities(), {"C-1001", "O-5001", "C-2001", "O-6001"})
+        self.assertEqual(common.notes(authz.SECTION, "entities"), [])
+        self.assertIn("! 4 entities of 'harbor': saved by an earlier seed that lost the platform's answer", self.output())
+        self.platform.calls.clear()
+        authz.remove(common.created())
+        self.assertEqual(self.deleted(), ["O-6001", "O-5001", "C-2001", "C-1001"])
+
+    def test_the_same_when_the_entities_file_is_gone_and_the_folder_seeds_the_rest(self):
+        self.lose_the_answer()
+        (common.SEED_DIR / "authz" / "entities.yaml").unlink()
+        self.seed_files({"authz/schema.yaml": f"schema: '{SCHEMA_TEXT.splitlines()[1]}'\n"})
+        authz.seed()
+        self.assertEqual(authz.made_entities(), {"C-1001", "O-5001", "C-2001", "O-6001"})
+        authz.remove(common.created())
+        self.assertEqual(self.world.entities, {})
+
+    def test_a_source_the_file_renamed_after_a_lost_answer_takes_what_it_saved_as_the_seeds(self):
+        self.lose_the_answer()
+        self.seed_files({"authz/entities.yaml": ENTITIES.replace("source: harbor", "source: harbor2")})
+        authz.seed()
+        self.assertEqual(sorted(x["name"] for x in self.records()), ["harbor2/Customer", "harbor2/Order"])
+        self.assertEqual({entity["source"] for entity in self.world.entities.values()}, {"harbor2"})
+        self.assertEqual(common.notes(authz.SECTION, "entities"), [])
+        authz.remove(common.created())
+        self.assertEqual(self.world.entities, {})
 
     def test_a_failed_count_without_the_errors_is_still_a_refusal_and_the_request_is_taken_as_saved(self):
         self.platform.add({("POST", BULK): (200, {"status": "PARTIAL", "created": 3, "failed": 1, "results": [], "errors": []})})
@@ -530,6 +764,118 @@ entities:
         self.platform.calls.clear()
         authz.remove(common.created())
         self.assertEqual([entity for kind, entity in self.deleted() if kind == "entities"], ["leaf", "middle", "root"])
+
+    def test_a_child_the_file_no_longer_has_is_still_deleted_before_its_parent_the_file_keeps(self):
+        self.seed_files({"authz/entities.yaml": """
+source: harbor
+entities:
+  - {type: Folder, id: leaf, parents: [[Folder, middle]]}
+  - {type: Folder, id: middle, parents: [[Folder, root]]}
+  - {type: Folder, id: root}
+"""})
+        authz.seed()
+        self.seed_files({"authz/entities.yaml": """
+source: harbor
+entities:
+  - {type: Folder, id: middle, parents: [[Folder, root]]}
+  - {type: Folder, id: root, attributes: {label: Root}}
+"""})
+        authz.seed()   # root is saved again, and the record of the folders written anew
+        self.assertEqual(self.world.bulks[-1], ["root"])
+        self.platform.calls.clear()
+        authz.remove(common.created())
+        self.assertEqual([entity for kind, entity in self.deleted() if kind == "entities"], ["leaf", "middle", "root"])
+
+    def test_a_child_the_file_no_longer_has_is_still_deleted_before_its_parent_it_no_longer_has_either(self):
+        self.seed_files({"authz/entities.yaml": "source: harbor\nentities:\n  - {type: Doc, id: index}\n"})
+        authz.seed()
+        self.seed_files({"authz/entities.yaml": """
+source: harbor
+entities:
+  - {type: Doc, id: index}
+  - {type: Doc, id: chapter}
+  - {type: Doc, id: section, parents: [[Doc, chapter]]}
+"""})
+        authz.seed()
+        # Both go from the file, and the entity it keeps now points at the child: the platform's row says its parent
+        self.seed_files({"authz/entities.yaml": """
+source: harbor
+entities:
+  - {type: Doc, id: index, attributes: {first: {ref: [Doc, section]}}}
+"""})
+        authz.seed()
+        self.assertEqual(self.world.bulks[-1], ["index"])
+        self.platform.calls.clear()
+        authz.remove(common.created())
+        self.assertEqual([entity for kind, entity in self.deleted() if kind == "entities"], ["index", "section", "chapter"])
+
+    def test_the_same_when_its_parent_is_one_the_file_keeps_and_now_points_at_another_it_no_longer_has(self):
+        self.seed_files({"authz/entities.yaml": """
+source: harbor
+entities:
+  - {type: Doc, id: book}
+  - {type: Doc, id: chapter, parents: [[Doc, book]]}
+  - {type: Doc, id: appendix}
+"""})
+        authz.seed()
+        self.seed_files({"authz/entities.yaml": """
+source: harbor
+entities:
+  - {type: Doc, id: book, attributes: {last: {ref: [Doc, appendix]}}}
+"""})
+        authz.seed()
+        self.platform.calls.clear()
+        authz.remove(common.created())
+        self.assertEqual([entity for kind, entity in self.deleted() if kind == "entities"], ["chapter", "book", "appendix"])
+
+    def test_a_type_the_file_keeps_is_still_deleted_before_one_it_points_at_that_the_file_no_longer_lists(self):
+        self.seed_files({"authz/entities.yaml": """
+source: harbor
+entities:
+  - {type: Region, id: EU}
+  - {type: Customer, id: C-1, attributes: {region: {ref: [Region, EU]}}}
+  - {type: Order, id: O-1, attributes: {customer: {ref: [Customer, C-1]}}}
+"""})
+        authz.seed()
+        self.seed_files({"authz/entities.yaml": """
+source: harbor
+entities:
+  - {type: Region, id: EU}
+  - {type: Order, id: O-1, attributes: {customer: {ref: [Customer, C-1]}, total: 3}}
+"""})
+        authz.seed()   # the order is saved again, and ranked above the record of the customers
+        self.assertEqual(self.world.bulks[-1], ["O-1"])
+        self.platform.calls.clear()
+        authz.remove(common.created())
+        self.assertEqual([entity for kind, entity in self.deleted() if kind == "entities"], ["O-1", "C-1", "EU"])
+
+    def test_the_same_for_a_new_type_and_for_a_parent_of_another_type(self):
+        authz.seed()
+        self.seed_files({"authz/entities.yaml": "".join(line for line in ENTITIES.splitlines(keepends=True) if "type: Order" not in line)
+                         + "  - {type: Invoice, id: I-1, attributes: {order: {ref: [Order, O-5001]}}}\n"})
+        authz.seed()   # the orders are in their record only, and the invoice is new
+        self.platform.calls.clear()
+        authz.remove(common.created())
+        self.assertEqual([entity for kind, entity in self.deleted() if kind == "entities"],
+                         ["I-1", "O-6001", "O-5001", "C-2001", "C-1001"])
+        self.seed_files({"authz/entities.yaml": """
+source: harbor
+entities:
+  - {type: Customer, id: C-1}
+  - {type: Order, id: O-1, parents: [[Customer, C-1]]}
+  - {type: Invoice, id: I-1, parents: [[Order, O-1]]}
+"""})
+        authz.seed()
+        self.seed_files({"authz/entities.yaml": """
+source: harbor
+entities:
+  - {type: Customer, id: C-1}
+  - {type: Invoice, id: I-1, parents: [[Order, O-1]], attributes: {n: 2}}
+"""})
+        authz.seed()
+        self.platform.calls.clear()
+        authz.remove(common.created())
+        self.assertEqual([entity for kind, entity in self.deleted() if kind == "entities"], ["I-1", "O-1", "C-1"])
 
     def test_an_entity_that_is_already_gone_is_no_error(self):
         authz.seed()
@@ -666,7 +1012,7 @@ class Policies(Case):
     def test_a_server_that_is_down_is_not_reported_as_a_policy_that_is_wrong_but_still_in_one_line(self):
         self.platform.add({("POST", AUTHZ + "/policies"): (503, {"message": "restarting"})})
         self.seed_files({"authz/policies/01-reads.yaml": POLICY})
-        with mock.patch("lab_seeder.gamma.PAUSE", 0), self.assertRaisesRegex(common.SeedError, r"\(HTTP 503\)"):
+        with self.assertRaisesRegex(common.SeedError, r"\(HTTP 503\)"):
             authz.seed()
 
     def test_the_text_of_the_policies_is_not_changed_but_by_its_placeholders(self):

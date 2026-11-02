@@ -5,11 +5,11 @@ import json
 import os
 import unittest
 
-from lab_ui.docker import compose
-from lab_ui.library import layout, playgrounds
+from lab_ui.docker import compose, envfiles
+from lab_ui.library import layers, playgrounds
 from lab_ui import paths
 from lab_ui.server import stack
-from lab_ui.docker.jobs import Job, awaited
+from lab_ui.docker.jobs import Job, JobFailed, awaited
 
 from .. import Case
 from .test_api import PROJECT
@@ -23,7 +23,7 @@ HEALTH_CHECKED = {"mongodb", "redis", "kafka", "jade"}
 def migrate(**more):
     """A migration of the databases: a one-shot of the platform."""
     return {"role": None, "oneshot": True, "owner": {"kind": "platform", "id": "databases"}, "container": "gio-migrate",
-            "image": "mongo:8.0.29", "built": False, "depends_on": [], "needs_license": False, **more}
+            "label": "Migration", "image": "mongo:8.0.29", "built": False, "depends_on": [], "needs_license": False, **more}
 
 
 def unlicensed(usable=False):
@@ -53,7 +53,6 @@ class StackActions(Case):
     def setUp(self):
         self.state = {"playground": "welcome", "explicit": ["kafka"], "effective": ["kafka"], "locked": None}
         self.patch(stack.layers, "current", return_value=self.state)
-        self.patch(layout, "waiting", return_value=False)   # whatever tree this runs in: no old layout is being moved
         self.patch(stack.compose, "project_name", return_value="gravitee")
         self.patch(stack.compose, "ps", return_value={name: {"state": "running"}
                                                       for name in ("mongodb", "redis", "kafka", "kafka-ui")})
@@ -105,7 +104,7 @@ class StackActions(Case):
         # What changed is not known before the pull: what runs is named, Compose makes again what got another image,
         # built here or pulled. The playground's app does not run: it is not started
         stack.action(PROJECT, "update")
-        pull = [*self.COMPOSE, "pull", "--ignore-buildable"]
+        pull = [*self.COMPOSE, "pull", "--ignore-buildable", "--ignore-pull-failures"]
         up = [*self.COMPOSE, "up", "-d", "--no-deps", "kafka", "kafka-ui", "mongodb", "redis"]
         runs = ["kafka", "kafka-ui", "mongodb", "redis"]
         self.assertEqual(self.started(self.jobs), ("Update the stack", [pull, up], {
@@ -128,14 +127,34 @@ class StackActions(Case):
 
     def test_stop_down_and_reset_go_by_project_name(self):
         # A job is named as the action that started it, and does what it says
-        for name, title, command in (("stop", "Stop the stack", ["stop"]), ("down", "Remove containers", ["down"]),
-                                     ("reset", "Reset the stack", ["down", "-v"])):
+        for name, title, commands in (("stop", "Stop the stack", [["stop"]]),
+                                      ("down", "Remove containers", [["rm", "--stop", "--force", "-v"], ["down"]])):
             stack.action(PROJECT, name)
-            started, steps, options = self.started(self.jobs)
-            self.assertEqual((started, steps[0], options),
-                             (title, [*self.BY_NAME, *command],
+            self.assertEqual(self.started(self.jobs),
+                             (title, [[*self.BY_NAME, *command] for command in commands],
                               {"key": "platform", "verb": name, "changes": {"stop": self.ON}, "waits": [self.STOPS]}))
-            self.assertEqual(len(steps), 2 if name == "reset" else 1)
+        self.patch(stack.layers, "write")
+        self.patch(stack.playgrounds, "forget")
+        job, ran = self.reset()
+        self.assertEqual(ran, [[*self.BY_NAME, "down", "-v"]])
+        self.assertEqual((job.title, job.key, job.verb, job.changes["stop"]), ("Reset the stack", "platform", "reset", self.ON))
+        self.assertEqual((job.ok, job.lines[0], job.summary()["phases"][0]["name"]), (True, "▸ Reset", "Reset"))
+
+    def reset(self, printed=(), fails=None):
+        """The reset the last action started, run, its `down -v` printing these lines, then failing with `fails`
+        when given: the job, and the commands it ran."""
+        stack.action(PROJECT, "reset")
+        title, steps, options = self.started(self.jobs)
+        job, ran = Job(title, steps, **options), []
+
+        def run(cmd):
+            ran.append(cmd)
+            job.lines.extend(printed)
+            if fails:
+                raise JobFailed(fails)
+        job.exec = run
+        job.run()
+        return job, ran
 
     def test_the_dashboards_start_all_and_stop_all_with_this_machine_are_the_platforms(self):
         self.patch(stack.core, "current", return_value={"place": "machine", "chosen": True, "environment": ""})
@@ -159,47 +178,120 @@ class StackActions(Case):
         self.patch(stack.layers, "waits", return_value=[awaited(DEFINED, start=["kafka"])])
         return self.patch(stack.core, "plan", return_value=found)
 
+    def core_job(self, fails=None):
+        """The job Start all started, run, its commands failing with `fails` when given: the job, and its commands."""
+        title, steps, options = self.started(self.jobs)
+        job, ran = Job(title, steps, **options), []
+
+        def run(cmd, quiet=False):
+            ran.append(cmd)
+            if fails and fails in cmd:
+                raise JobFailed("Error response from daemon: cannot stop container")
+        job.exec = run
+        job.run()
+        return job, ran
+
     def test_a_cloud_cores_start_all_starts_its_gateway_and_what_is_on_and_nothing_of_the_core(self):
         plan = self.cloud_core()
         written = self.patch(stack.layers, "write")
         swap = self.patch(stack.platforms, "swap_gateway")
+        invalidate = self.patch(stack.places, "invalidate")
         stack.action(PROJECT, "start", for_core=True, accept=[])
         self.assertTrue(plan.call_args.kwargs["live"], "the platform is read again at the click")
         title, steps, options = self.started(self.jobs)
         self.assertEqual(title, "Start all for Development (My Account)")
-        self.assertEqual(steps[1:3], [[*self.COMPOSE, "up", "-d", "--no-deps", "hybrid"], [*self.COMPOSE, "up", "-d", "--no-deps", "kafka-ui"]])
         self.assertEqual(options["key"], "platform")
         self.assertEqual(options["changes"]["start"], [["addon", "hybrid"], ["service", "kafka-ui"]])
         self.assertEqual(len(options["waits"]), 2, "one wait for each Compose command")
-        job = Job(title, [])
-        steps[0](job)
-        written.assert_called_once_with("welcome", ["hybrid", "kafka"], blocked={})   # no unit of this project is blocked
+        job, ran = self.core_job()
+        self.assertEqual(ran, [[*self.COMPOSE, "up", "-d", "--no-deps", "hybrid"], [*self.COMPOSE, "up", "-d", "--no-deps", "kafka-ui"]])
+        written.assert_called_once_with("welcome", ["hybrid", "kafka"], None, {}, blocked={}, since=None)   # none is blocked
         swap.assert_called_once_with(PROJECT, "my-account", "g1")
-        self.assertEqual(job.lines, ["Starts: Hybrid, Kafka", "Serves: Development (My Account)"])
-        self.assertFalse(any(name in str(steps[1:3]) for name in ("mongodb", "redis")), "no service of the core")
+        self.assertEqual(job.lines, ["Serves: Development (My Account)", "Starts: Hybrid, Kafka"])
+        self.assertFalse(any(name in str(ran) for name in ("mongodb", "redis")), "no service of the core")
+        invalidate.assert_called_once_with("my-account")
+
+    def test_a_cloud_cores_start_all_whose_gateway_token_is_gone_fails_in_the_words_of_the_refusal(self):
+        # The token was forgotten between the click and the job: its reason, as a deploy says it, and nothing starts
+        self.cloud_core()
+        written = self.patch(stack.layers, "write")
+        self.patch(stack.platforms, "swap_gateway", side_effect=ValueError("Its token is not kept here"))
+        self.patch(stack.places, "invalidate")
+        stack.action(PROJECT, "start", for_core=True, accept=[])
+        job, ran = self.core_job()
+        self.assertEqual((job.ok, job.error(), ran), (False, "Its token is not kept here", []))
+        self.assertEqual(job.lines, ["Its token is not kept here"], "no line says the gateway serves the place")
+        written.assert_not_called()
 
     def test_a_cloud_cores_start_all_is_checked_as_the_project_it_reads_and_makes_its_folders(self):
-        self.cloud_core()
+        found = self.cloud_core().return_value
         self.patch(stack.layers, "write")
         self.patch(stack.platforms, "swap_gateway")
+        self.patch(stack.places, "invalidate")
         check, binds = self.patch(stack.layers, "check"), self.patch(stack.layers, "make_binds", return_value=[])
         stack.action(PROJECT, "start", for_core=True, accept=["addon:jade"])
-        gateway = stack.core.plan.return_value["gateway"]
-        check.assert_called_once_with(PROJECT, gateway, ["addon:jade"])
-        steps = self.started(self.jobs)[1]
-        steps[0](Job("Start all", []))
-        binds.assert_called_once_with(PROJECT, gateway)
+        check.assert_called_once_with(PROJECT, found["gateway"], ["addon:jade"])
+        self.core_job()
+        # The gateway's plan, which says what the dialog showed it starts
+        binds.assert_called_once_with(PROJECT, {**found["gateway"], "starts": found["dialog"]["starts"]})
 
     def test_a_cloud_cores_start_all_adds_no_entry_for_a_unit_that_is_blocked(self):
         self.cloud_core()
         self.patch(stack.platforms, "swap_gateway")
+        self.patch(stack.places, "invalidate")
         kafka = {**PROJECT["addons"]["kafka"], "file": "addons/kafka/compose.yml",
                  "blocked": {"reasons": ["Mounts the Docker socket"]}}
         project = {**PROJECT, "addons": {**PROJECT["addons"], "kafka": kafka}}
         written = self.patch(stack.layers, "write")
         stack.action(project, "start", for_core=True, accept=[])
-        self.started(self.jobs)[1][0](Job("Start all", []))
-        self.assertEqual(written.call_args.kwargs, {"blocked": {"addons/kafka/compose.yml": "Mounts the Docker socket"}})
+        self.core_job()
+        self.assertEqual(written.call_args.kwargs, {"blocked": {"addons/kafka/compose.yml": "Mounts the Docker socket"},
+                                                    "since": None})
+
+    def test_a_cloud_cores_start_all_does_not_write_the_on_file_over_what_another_job_wrote_since_its_plan(self):
+        self.folder(paths, compose, envfiles)
+        swap = self.patch(stack.platforms, "swap_gateway")
+        self.patch(stack.places, "invalidate")
+        self.write(paths.ON_FILE, "include:\n  - playgrounds/welcome/compose.yml\n  - addons/kafka/compose.yml\n")
+        self.cloud_core().return_value["gateway"]["stamp"] = layers.stamp()   # the on file its plan read
+        stack.action(PROJECT, "start", for_core=True, accept=[])
+        layers.write("welcome", [])   # meanwhile another tab turns Kafka off: a job with no command
+        job, ran = self.core_job()
+        self.assertNotIn("kafka", (self.root / paths.ON_FILE).read_text(), "what the other job wrote stays")
+        self.assertEqual((job.error(), ran), (layers.CHANGED, []))
+        swap.assert_not_called()   # nor is the gateway's token changed
+
+    def test_a_cloud_cores_start_all_removes_what_goes_before_the_on_file_says_it_is_off(self):
+        # Kafka is on and runs, and cannot run with the gateway: Start all stops it, and the removal fails
+        self.folder(paths, compose, envfiles)
+        self.patch(stack.platforms, "swap_gateway")
+        self.patch(stack.places, "invalidate")
+        self.write(paths.ON_FILE, "include:\n  - playgrounds/welcome/compose.yml\n  - addons/kafka/compose.yml\n")
+        gateway = self.cloud_core().return_value["gateway"]
+        gateway.update(explicit=["hybrid"], stops=[{"kind": "addon", "id": "kafka", "name": "Kafka"}],
+                       services={"remove": ["kafka", "kafka-ui"], "start": ["hybrid"]}, stamp=layers.stamp())
+        stack.action(PROJECT, "start", for_core=True, accept=["addon:kafka"])
+        job, ran = self.core_job(fails="rm")
+        self.assertEqual((job.ok, ran[0][-6:]), (False, ["rm", "--stop", "--force", "-v", "kafka", "kafka-ui"]))
+        self.assertIn("addons/kafka/compose.yml", (self.root / paths.ON_FILE).read_text(),
+                      "Kafka still runs: it is still on, never off and running")
+
+    def test_a_cloud_cores_start_all_whose_removal_fails_leaves_the_token_the_add_on_holds(self):
+        # The add-on holds the token of another environment's gateway (here false); Kafka, on and running, cannot run with
+        # it: Start all stops it, and the removal fails, before anything changed
+        self.folder(paths, compose, envfiles)
+        swap = self.patch(stack.platforms, "swap_gateway")
+        self.patch(stack.places, "invalidate")
+        self.write(paths.ON_FILE, "include:\n  - playgrounds/welcome/compose.yml\n  - addons/kafka/compose.yml\n")
+        gateway = self.cloud_core(here=False).return_value["gateway"]
+        gateway.update(explicit=["hybrid"], stops=[{"kind": "addon", "id": "kafka", "name": "Kafka"}],
+                       services={"remove": ["kafka", "kafka-ui"], "start": ["hybrid"]}, stamp=layers.stamp())
+        stack.action(PROJECT, "start", for_core=True, accept=["addon:kafka"])
+        job, ran = self.core_job(fails="rm")
+        self.assertEqual((job.ok, ran[0][-6:]), (False, ["rm", "--stop", "--force", "-v", "kafka", "kafka-ui"]))
+        self.assertIn("addons/kafka/compose.yml", (self.root / paths.ON_FILE).read_text())
+        swap.assert_not_called()   # the job changed nothing: the add-on still holds the token it held
+        self.assertEqual([line for line in job.lines if line.startswith("Serves:")], [], job.lines)
 
     def test_a_cloud_cores_start_all_with_nothing_to_start_or_unaccepted_stops_is_refused(self):
         self.cloud_core(needed=False)
@@ -221,39 +313,40 @@ class StackActions(Case):
     def test_reset_turns_the_playground_off_and_empties_what_seeds_recorded(self):
         # Its volumes gone, nothing any seed created is left: the playground is off, its next start seeds it
         written, forgotten = self.patch(stack.layers, "write"), self.patch(stack.playgrounds, "forget")
-        stack.action(PROJECT, "reset")
-        job = Job("Reset the stack", [self.started(self.jobs)[1][1]])
-        job.run()
+        job, _ = self.reset()
         written.assert_called_once_with(None, ["kafka"])
         self.assertEqual([call.args for call in forgotten.call_args_list], [("welcome",), ("local/sandbox",)])
-        self.assertEqual(job.lines, ["Turned off Welcome"])
+        self.assertEqual(job.lines, ["▸ Reset", "Turned off Welcome"])
         # An on file with the user's own changes is not written: what the seeds recorded is emptied all the same
         self.state["locked"] = ".lab/on.yml has your own changes"
         written.reset_mock()
-        stack.action(PROJECT, "reset")
-        Job("Reset the stack", [self.started(self.jobs)[1][1]]).run()
+        self.reset()
         written.assert_not_called()
         self.assertEqual(forgotten.call_count, 4)
+
+    def test_a_reset_cut_once_a_volume_went_forgets_what_seeds_recorded_all_the_same(self):
+        # Canceled or failed after Docker removed the volumes: what the seeds created went with them. Before, the
+        # records stay with the data they name
+        written, forgotten = self.patch(stack.layers, "write"), self.patch(stack.playgrounds, "forget")
+        removed = [" Container gio-mongodb Removed ", " Volume gravitee_mongo-data Removing ",
+                   " Volume gravitee_mongo-data Removed ", " Network gravitee_default Removing "]
+        job, _ = self.reset(removed, fails="Error response from daemon: network has active endpoints")
+        self.assertEqual((job.ok, job.error()), (False, "Error response from daemon: network has active endpoints"))
+        written.assert_called_once_with(None, ["kafka"])
+        self.assertEqual(forgotten.call_count, 2)
+        written.reset_mock()
+        job, _ = self.reset(removed[:2], fails="Canceled")
+        self.assertFalse(job.ok)
+        written.assert_not_called()
+        self.assertEqual(forgotten.call_count, 2)
 
     def test_reset_says_which_record_it_could_not_empty(self):
         self.patch(stack.layers, "write")
         refused = {"welcome": False, "local/sandbox": True}
         self.patch(stack.playgrounds, "forget", side_effect=lambda pid: refused[pid])
-        stack.action(PROJECT, "reset")
-        job = Job("Reset the stack", [self.started(self.jobs)[1][1]])
-        job.run()
-        self.assertEqual(job.lines, ["Turned off Welcome", "Could not empty what Welcome recorded: its state folder leads out "
-                                                         "of its folder"])
-
-    def test_apply_is_refused_while_the_old_layout_is_moving_and_the_rest_of_the_stack_is_not(self):
-        self.patch(layout, "waiting", return_value=True)
-        with self.assertRaisesRegex(RuntimeError, "^Your settings are being moved. Try again in a moment.$"):
-            stack.action(PROJECT, "apply")
-        self.jobs.start.assert_not_called()
-        for name in ("start", "stop", "down", "reset", "restart", "pull"):
-            stack.action(PROJECT, name)
-            self.assertEqual(self.jobs.start.call_count, 1, name)
-            self.jobs.start.reset_mock()
+        job, _ = self.reset()
+        self.assertEqual(job.lines, ["▸ Reset", "Turned off Welcome", "Could not empty what Welcome recorded: its state "
+                                                                     "folder leads out of its folder"])
 
     def test_reset_says_what_it_leaves_in_the_platforms(self):
         # What a seed created in a platform is still there, and still recorded: only This machine's record is emptied
@@ -265,10 +358,8 @@ class StackActions(Case):
                             {"place": "gone/prod", "environment": "Production", "created": []}],
                 "local/sandbox": [{"place": "my-account/test", "environment": "Test", "created": []}]}
         deployed = self.patch(stack.places, "deployed", side_effect=lambda pid, created: held.get(pid, []))
-        stack.action(PROJECT, "reset")
-        job = Job("Reset the stack", [self.started(self.jobs)[1][1]])
-        job.run()
-        self.assertEqual(job.lines, ["Turned off Welcome", "Stays: Welcome in Development (My Account)",
+        job, _ = self.reset()
+        self.assertEqual(job.lines, ["▸ Reset", "Turned off Welcome", "Stays: Welcome in Development (My Account)",
                                      "Stays: Welcome in Production (gone)", "Stays: Sandbox in Test (My Account)"])
         self.assertEqual(forgotten.call_count, 2, "their record is not among what is emptied")
         self.assertEqual({call.args[1] for call in deployed.call_args_list}, {stack.playgrounds.created})
@@ -278,10 +369,8 @@ class StackActions(Case):
         self.patch(stack.playgrounds, "forget")
         self.patch(stack.places, "deployed", return_value=[])
         reads = self.patch(stack.platforms, "read", return_value=[])
-        stack.action(PROJECT, "reset")
-        job = Job("Reset the stack", [self.started(self.jobs)[1][1]])
-        job.run()
-        self.assertEqual(job.lines, ["Turned off Welcome"])
+        job, _ = self.reset()
+        self.assertEqual(job.lines, ["▸ Reset", "Turned off Welcome"])
         reads.assert_not_called()   # nothing recorded, no platform to name
 
     def test_restart_restarts_what_runs_as_it_is(self):
@@ -316,9 +405,10 @@ class StackActions(Case):
 
     def test_pull(self):
         stack.action(PROJECT, "pull")
-        self.assertEqual(self.started(self.jobs)[1:], ([[*self.COMPOSE, "pull", "--ignore-buildable"]],
-                                                       {"key": "platform", "verb": "pull", "changes": None,
-                                                        "waits": [self.PULLS]}))
+        # Every image it can, past one that is refused
+        pull = [*self.COMPOSE, "pull", "--ignore-buildable", "--ignore-pull-failures"]
+        self.assertEqual(self.started(self.jobs)[1:], ([pull], {"key": "platform", "verb": "pull", "changes": None,
+                                                                "waits": [self.PULLS]}))
 
     def test_own_changes_in_the_on_file_run_as_compose_reads_them(self):
         # Everything the files hold is named, what only the user's own on file adds too, but a seed, which its
@@ -457,11 +547,29 @@ class StackActions(Case):
             {"key": "addon:kafka", "verb": "restart", "changes": {"start": [["addon", "kafka"]]},
              "waits": [awaited(DEFINED, start=["kafka", "kafka-ui"])]}))
 
+    def test_a_service_s_job_is_named_as_the_state_names_it(self):
+        # Its label, with what it belongs to when another service has the same: the chip, the drawer and the toast say
+        # that, never the name of the service in the file
+        gateway = migrate(oneshot=False, label="Gateway", container="gio-apim-gateway", image="graviteeio/apim-gateway:4.9.0",
+                          owner={"kind": "platform", "id": "apim", "name": "API Management"})
+        project = {**PROJECT, "services": {**DEFINED, "apim-gateway": gateway,
+                                           "am-gateway": {**gateway, "container": "gio-am-gateway",
+                                                          "owner": {"kind": "platform", "id": "am",
+                                                                    "name": "Access Management"}}}}
+        stack.compose.ps.return_value = {"apim-gateway": {"state": "running"}}
+        stack.service_action(project, "apim-gateway", "restart")
+        title, steps, options = self.started(self.jobs)
+        self.assertEqual((title, steps, options["key"]), ("Restart Gateway (API Management)",
+                                                          [[*self.BY_NAME, "restart", "apim-gateway"]], "service:apim-gateway"))
+        stack.compose.ps.return_value = {}
+        with self.assertRaisesRegex(RuntimeError, r"^Gateway \(API Management\) has no container$"):
+            stack.service_action(project, "apim-gateway", "stop")
+
     def test_a_start_of_what_needs_a_license_is_refused_without_one(self):
         # Its row says so: a click that reaches the server anyway is told why, and starts nothing
         project = unlicensed()
         for call, name in ((lambda: stack.group_action(project, "alert-engine", "start"), "Alert Engine"),
-                           (lambda: stack.service_action(project, "alert-engine", "start"), "alert-engine")):
+                           (lambda: stack.service_action(project, "alert-engine", "start"), "Alert Engine")):
             with self.assertRaisesRegex(RuntimeError, f"^{name} needs a license$"):
                 call()
         self.jobs.start.assert_not_called()

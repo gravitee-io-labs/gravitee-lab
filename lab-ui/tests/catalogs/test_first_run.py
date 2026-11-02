@@ -5,7 +5,6 @@ exists left as the person's decision (a removed listed catalog is a Not added ro
 second `make ui` start nothing). Everything is on disk in a temporary project folder (a visible skip without git): no
 network, no Docker daemon."""
 
-import errno
 import http.client
 import json
 import os
@@ -496,7 +495,7 @@ class Early(Case):
     def setUp(self):
         self.steps = [self.patch(firstrun, "reconcile", side_effect=AssertionError("reconcile ran")),
                       self.patch(firstrun, "start_worker", side_effect=AssertionError("the worker started")),
-                      self.patch(layout, "ensure", side_effect=AssertionError("the layout was moved")),
+                      self.patch(layout, "run", side_effect=AssertionError("the layout was moved")),
                       self.patch(service, "recover", side_effect=AssertionError("the sweeper ran"))]
         self.patch(api, "requirement", return_value="")
         self.patch(api.layers, "prepare")
@@ -513,8 +512,8 @@ class Early(Case):
         said.assert_called_once_with()
 
     def test_a_second_make_ui_finds_the_first_and_touches_nothing(self):
-        self.patch(api, "ThreadingHTTPServer", side_effect=OSError(errno.EADDRINUSE, "Address already in use"))
-        self.patch(api, "is_lab_ui", return_value=True)
+        self.patch(api.paths, "serve_here", return_value=9000)   # the Lab UI of this folder holds it (paths.serve_here)
+        self.patch(api, "ThreadingHTTPServer", side_effect=AssertionError("the port was bound"))
         opened = self.patch(api, "open_browser")
         with mock.patch("builtins.print"):
             api.serve(9000, True)
@@ -531,12 +530,11 @@ class Early(Case):
         calls = []
         for step in self.steps:
             step.side_effect = None
-        self.patch(layout, "ensure", side_effect=lambda: calls.append("ensure"))
         self.patch(service, "recover", side_effect=lambda: calls.append("recover"))
         self.patch(firstrun, "reconcile", side_effect=lambda: calls.append("reconcile"))
         self.patch(firstrun, "start_worker", side_effect=lambda: calls.append("start_worker"))
         api.start_up()
-        self.assertEqual(calls, ["ensure", "recover", "reconcile", "start_worker"])
+        self.assertEqual(calls, ["recover", "reconcile", "start_worker"])
 
 
 class Wording(Case):
@@ -642,7 +640,7 @@ class State(Served, Case):
         (row,) = [one for one in first["catalogs"] if one["kind"] == "git"]
         self.assertEqual((row["id"], row["state"]["key"], row["progress"]), (self.ns, "downloading", 0.02))
         self.assertEqual((first["addons"], first["setups"], first["playgrounds"]), ([], [], []), "and no list yet")
-        self.assertEqual(first["layout"]["phase"], "ready")
+        self.assertNotIn("layout", first)
         # The attempt fails: the state says it, in place, and an automatic retry leaves it so
         real = gitx.ls_remote
         self.patch(gitx, "ls_remote", side_effect=gitx.fail("unreachable", gitx.parse_address(self.remote.url)))

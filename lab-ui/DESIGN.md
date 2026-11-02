@@ -389,7 +389,7 @@ Every page and dialog does the same thing the same way. Before adding a piece, f
 - **What cannot be used says why**, on hover, on keyboard focus and on a tap: the control is `aria-disabled` with its reason as
   its tooltip ("<name> is not running"; `setOff`), so that the keyboard reaches it and a screen reader hears why. What
   waits for Docker, for the running job or for the Lab UI is marked `data-busy`: `paintBusy` makes it wait with the
-  reason the state gives (`wait`), or "Lab UI offline".
+  reason the state gives (`wait`, then `unread` but for `data-busy="name"`), or "Lab UI offline".
 - **Empty and loading**: `.empty`, in the place of the rows, with the texts of `emptyHtml` and its action as a plain button.
 
 ### Actions
@@ -550,7 +550,9 @@ What the server decides and the page shows. A name in backticks is the code to r
   - What its containers do (`state`): running; partly running (`partly`: some run, the others stopped cleanly or were
     never created); starting; stopping; stopped (it is on, nothing of it runs); issue (a bad exit, out of memory,
     unhealthy, restarting); off.
-  - A container also says "Not created", "Not started" (made, never started), and a one-shot that ended well "Done".
+  - A container also says "Not created", "Not started" (made, never started), and a one-shot that ended well "Done". A
+    one-shot stopped or killed before its end did not do its part: an issue ("Exited (137)"), and a seed so ended runs
+    again at its playground's Start.
   - An item without a service of its own (a playground without apps) is what it brings while it is on, a playground's
     seed with it. What only ended well, or nothing, is never running.
 - An add-on is on when the on file brings it, itself or through what needs it. A playground brings the add-ons it
@@ -577,9 +579,11 @@ What the server decides and the page shows. A name in backticks is the code to r
   check` has nothing to say of it as a shared item (`personal.share`). Share, and the rename of a setup, list first the
   other files they write again ("Changes").
 - An item cannot be shared or deleted while it is on (`personal.held`).
-  - An add-on or a playground says "Stop it first" while something of it runs, "Turn it off first" otherwise.
+  - An add-on or a playground says "Stop it first" while something of it runs, "Turn it off first" otherwise. It is not
+    deleted while something of it runs, on or off either: its containers would run on with no file.
   - A setup is held only when the on file names it itself (a person may write it), and it is not renamed either.
-  - Nothing that another item includes is deleted ("Used by").
+  - Nothing that another item includes is deleted ("Used by"), nor a playground that holds a record of what it created in a
+    place ("Delete what it created in Development first"): the record is in its folder.
   - The item's menu says so (`held`). The Lab UI does not run git.
 
 ### Actions and their plans
@@ -602,8 +606,20 @@ What the server decides and the page shows. A name in backticks is the code to r
     failed after the on file named the item left them as they were).
   - The one-shots all that depends on run again first, as Compose would run them (a migration before what it migrates,
     which has nothing more to do the second time).
+  - What it depends on that runs and is not ready yet (its health check has not passed) is named too, with no row of
+    its own: Compose waits for it as `depends_on` asks, which it does not for a service it is not given. Not one that
+    runs behind what is saved, which naming would make again.
   - A playground's Start also runs the platform while none of it runs, else what of it its apps and its seed need.
-  - Its Stop removes its own containers by name (`rm --stop --force`) and recreates the core services it changed.
+  - Its Stop removes its own containers by name, with their anonymous volumes (`rm --stop --force -v`: once a container
+    is gone, nothing reaches the volume an image's VOLUME gave it, not even a Reset; named volumes stay), and recreates
+    the core services it changed.
+  - A job removes what goes before the on file says it is off, and writes the on file before it starts what comes
+    (`layers.steps`): wherever it fails, is canceled or the Lab UI stops, what it was taking away is on and stopped, never
+    off and running. A playground's first Start installs its plugins before either.
+  - A job acts only on the on file its plan read (`stamp`): one another job wrote meanwhile ends it with *What is on
+    changed meanwhile: try again*, before it removes, installs or writes anything (`layers.unchanged`). A Start on This
+    machine writes what it brings for this machine, whatever platform it ran on before (the plan's `targets`), and makes
+    again what of that runs, with the gateways its two files configure (`restarts`).
   - Nothing is removed as an orphan: what was stopped on purpose stays stopped, what was started outside the Lab UI
     stays.
 - **Side effects are asked first.** The plan (`layers.plan`) lists what starts, stops (it runs), is turned off (it is on
@@ -667,15 +683,17 @@ place gone with its platform, or a place not read yet.
 
 ### Playgrounds
 
-- A playground's first Start sets it up, in phases: Add-ons, Plugins, Apps and services ("Platform, apps and services"
-  when the platform starts too: its apps are built), Seed. A deploy to a place besides This machine has Add-ons, Apps and
-  services, Gateway and Seed, never Plugins or Platform.
+- A playground's first Start sets it up, in phases: Plugins, Apps and services ("Platform, apps and services" when the
+  platform starts too: what goes is removed, the on file written, its apps built), Seed. A deploy to a place besides This
+  machine has Add-ons (the gateway's token, what goes removed, the on file written), Apps and services, Gateway and Seed,
+  never Plugins or Platform.
 - Once it is on and its seed recorded what it created (`layers.fresh`), its Start runs it again as an add-on's does, in
   one job: no build, no seed. After its seed failed, its Start sets it up again, its seed with it, and follows only that
   run of the seed.
 - Re-seed runs the seed again. It, and the stop that deletes what the seed created, wait for what the seed needs, and
-  what that needs in turn ("Management API is not running"). Re-seed also waits for the playground to be on ("Acme Bakery
-  is off").
+  what that needs in turn ("Management API is not running"), and for the seed itself to end ("Seed is still running":
+  two runs would race on its record). Re-seed also waits for the playground to be on ("Acme Bakery is off"). A job
+  canceled while its seed runs stops the seed, which Compose would leave running.
 - Containers does not start a seed ("Re-seed runs it again"); a service's `role` says which one is.
 - A playground has its own `.env` and settings, as an add-on has (`paths.unit_env`): its form shows what its compose file
   describes, the image variables staying on the Images page.
@@ -686,7 +704,10 @@ place gone with its platform, or a place not read yet.
   - Nothing else is a UI: there is no other key, no address of its own, no flag on a link.
   - Whether a UI answers and the page may frame it is a look of the Lab UI's server
     (`GET /api/playgrounds/<id>/frame?url=`, `probe.py`, kept 4 s), asked only for these addresses, judged against the
-    origin the page was opened with: `frame-ancestors` first, then X-Frame-Options, as a browser does.
+    origin the page was opened with: `frame-ancestors` first, then X-Frame-Options, as a browser does. One whose certificate
+    this machine does not trust answers and is not framed. Why one does not answer is said in words in the tooltip of
+    *Does not answer* (Not listening yet, No answer within 3 s, Not ready yet for a proxy's 502 to 504), and not at all
+    when there is nothing more to say.
   - `make check` reads what files can say: each console is a service the playground runs, listed once, and a console of
     the platform lets the Lab UI's pages frame it (its command, `x-ui-frames`). The headers of an app are its own, which
     only that look sees.
@@ -952,10 +973,11 @@ its catalog have the Start or Stop of their item, as the lists' rows have.
   the answer calls `reclaimable`.
 - **When it reads.** `GET /api/dashboard` (`docker`, `machine`, `data`, `products`, `pending`) when the page
   opens, when what the versions depend on moves (Docker answering, the state of each group, the tag each container runs:
-  `signature` in `dashboard.js`, checked at each draw, one read at a time) and by *Count storage again*. Docker's answers are cached for 60
-  seconds: `docker info`, `docker compose version` and `docker system df` (about 2 seconds) are read when the page opens, so
-  quick trips between pages read nothing again. *Count storage again* reads them again (`GET /api/dashboard?refresh=1`) and renews the
-  cache. Nothing polls them. The one thing the page asks for again is the latest versions, every 3 seconds while the server
+  `signature` in `dashboard.js`, checked at each draw, one read at a time) and by *Count storage again*. `docker system df` (about 2
+  seconds) is cached for 60 seconds; `docker info` and `docker compose version` are the Lab's one reading of each, which the state and
+  the machine's check share (`compose.docker_info`, kept until Docker does not answer and at most 10 minutes, and
+  `compose.compose_version`, a minute), so quick trips between pages read nothing again. *Count storage again* reads them again
+  (`GET /api/dashboard?refresh=1`) and renews the cache. Nothing polls them. The one thing the page asks for again is the latest versions, every 3 seconds while the server
   says it is still reading them (`pending`), and a read that failed, after 10 seconds (`RETRY`), so that the page does not stay
   half empty. The page is drawn before its first read: the state alone, a spinner where the version is (the version saved is not
   said: it may not be the one that runs), nothing for the update.
@@ -980,9 +1002,11 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
 - The head shows Stop, Restart and Update while something of what is on runs, an add-on alone too (`platform.restart`,
   `platform.update`: `needed`, else "Nothing runs"). Its primary is Start while the platform is stopped, else Apply, the last
   button before the menu, as in every head.
-- **Remove containers** keeps the volumes. **Reset** deletes them too, turns off the playground that is on
+- **Remove containers** keeps the named volumes: it removes the containers with their anonymous volumes (`rm --stop
+  --force -v`), which nothing reaches once they are gone, then the networks (`down`). **Reset** deletes them too, turns off the playground that is on
   (`platform.reset_turns_off`, not in an on file with the user's own changes, which it does not write) and empties what
-  every seed recorded: its next Start sets it up again.
+  every seed recorded: its next Start sets it up again. So does a Reset that failed or was canceled once Compose said
+  it removed a volume; one cut before keeps the records, with the data they name.
 - With an on file with the user's own changes, Start and Update name every service Compose reads in it, but a seed.
 - A group, a container, and the containers of an add-on or a playground start, stop and restart on their own line
   (`/api/(addon|playground)s/<id>/containers/<do>`, the catalog's Restart of an add-on too). The item stays on or off. A
@@ -1008,7 +1032,8 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
     out of the words, and said in full when it is what differs), the same tag on another image ("Image 3.0.2 changed since it
     started"; also a tag that a pull moved, which Docker then names by its id or digest, never read as a version), a
     configuration that changed, with what differs told when it can be (`drift.py`: the variables of the container against the
-    ones Compose would set, compared as digests, named by the `.env` setting that holds them when one does, never a value, and
+    ones Compose would set, compared as digests, named by the `.env` setting that holds them when one does, never a value; a
+    variable the container lacks comes from a changed file (a Lab update) and is said as the configuration; and
     the labels Compose sets, which are no word of a person's and are said as the configuration): "Its settings changed since it started:
     INTERNAL_API_PASSWORD", else "Its configuration changed since it started". Services that say the same are one
     clause, each set of settings its own, never a union said of all. A group, an add-on and a playground say it for their services
@@ -1046,6 +1071,12 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
   - A service that runs the image another one builds reads "local build" too.
   - A pull a registry refuses says "Not logged in to <registry>" in the warn tone. Compose then runs the image it has,
     or builds it.
+  - Pull images and Update pull every image they can, past one a registry refuses, then fail on it: "Could not pull
+    <images>: <Docker's reason>", or "Not logged in to Azure". Update then makes nothing again: what it pulled shows as
+    Apply needed. The pull before an `up` (what is missing of its images,
+    none built here) fails its job at once on an image it could not pull: the `up` would try again and fail. Compose's
+    own reason for a pull that fails, which names no image, is its last line. An image interrupted is no longer
+    pulled; once a job ended, its drawer's rows show where they were, none at work.
 - What is read from an image (the plugins it bundles, the license model) is kept by the image the container runs, and
   read again once it runs another. An image not pulled is said so ("<image> is not pulled"), with Pull images.
 
@@ -1069,6 +1100,11 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
   repositories, and when another component's default is made of it by adding text (the gateway's
   `${APIM_VERSION}-debian`). A component that another follows with nothing added (Kiosk follows Elasticsearch) keeps
   its variants.
+- A component is one variable, written to every `.env` that its images read it from (`_env_files`): the core's, which
+  reaches every file, or the `.env` of each unit whose services share it. A default follows another component only
+  where that one's variable reaches its file; elsewhere it is what Compose makes of it, its own default (`_unset`).
+- The tags of a picker, and which of them Docker holds, are read again when the page opens and after every job. A row
+  that will change keeps *Tag not listed* meanwhile: it is judged by the list read before until the new one comes.
 
 ### Gravitee Cloud
 
@@ -1310,7 +1346,8 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
 - **The swap** is a Start: on the line of another gateway, or of a playground whose place is served by another gateway.
   A dialog says first what it does: *Restarts* the Hybrid gateway (*Recreated to take the changes*), *Serves* the place
   from now on, *Stops serving* the place it served. The job writes the kept token as `HYBRID_GATEWAY_CLOUD_TOKEN`
-  (`platforms.swap_gateway`) before Compose recreates the container, whenever the place's gateway is not the one here,
+  (`platforms.swap_gateway`) once what goes is removed, before the on file is written and Compose recreates the container
+  (a job that ends before then leaves the token as it was), whenever the place's gateway is not the one here,
   also when the token the add-on holds belongs to no listed gateway any more. The APIs of the environment that stops
   being served stay in Cloud and answer from nothing here; the note says *Stops serving* for that reason.
 - **The gateway outlives the playground's Stop.** It is an add-on that a deploy turned on and is independent from then
@@ -1450,10 +1487,19 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
   (`layers.current`, `locked`). The catalog's Start and Stop are disabled, and its problem line says why ("has your own
   changes: the catalog's Start and Stop are off", "<path> does not load: the catalog's Start and Stop are off"). So they
   are while `docker-compose.yml` does not load.
+- An entry whose file is gone or does not load makes every command that reads the on file fail: what reads the files
+  waits, saying which ("<path> does not exist", "<path> does not load", `layers.current`, `unread`), as for a core that
+  does not load. What Compose runs by the project's name reads no file and does not wait for it: Stop, Stop all, an
+  item's Stop or Turn off, Remove containers, Reset, the Stop and Restart of a group or a container (`data-busy="name"`,
+  `store.wait(true)`). A playground's Stop that deletes what its seed created in a place runs that seed apart, which
+  reads the files: its *Delete what it created* waits, with the entry's reason. Its problem line opens the on file, whose
+  Save does not wait.
 
 ### Docker, jobs and progress
 
-- What runs is not known while Docker does not answer or `docker-compose.yml` does not load (`blind`).
+- What runs is not known while Docker does not answer or `docker-compose.yml` does not load (`blind`). Docker has 10
+  seconds to list the containers (`compose.PS_TIMEOUT`): one that hangs is said so then ("Docker did not answer within
+  10 s"), on the state's refresh as on an action.
   - No dot is colored, no state is said, and every action waits, saying which ("Docker is not reachable",
     "docker-compose.yml does not load").
   - While only Docker does not answer, what is on still says so, with its ring and "Starts with the platform": the files
@@ -1464,9 +1510,21 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
   (`docker.warning`: in the banner, and in a playground's checks).
 - Docker Compose 5.0 or later is needed: an add-on or a playground changes core services from an included file, which
   older versions refuse ("conflicts with imported resource"). The Lab UI says so at start (`api.requirement`).
-- A failed job leaves the on file as written: the item is on, does not run, and can be started again or turned off. Its
-  row says "Failed", the last line its command printed in its tooltip, with Show output in its menu. A canceled one says
-  "Canceled", muted. The activity chip and the drawer say "<title> failed" or "<title> canceled".
+- A failed job leaves the on file as it wrote it. A Start's item is on, and what the job started before it failed runs
+  on (a playground's apps, when its seed failed): it can be started again or turned off. A Stop's item is off.
+  One that failed before it wrote it (a plugin download, the removal of what goes, "What is on changed meanwhile") wrote
+  nothing, and what was on stays on (`layers.apply`). Its row says "Failed", the last line its command printed in its
+  tooltip, with Show output in its menu. A canceled one says "Canceled", muted. The activity chip and the drawer say
+  "<title> failed" or "<title> canceled".
+- A job's command runs in a session of its own (`compose.spawn`, as every command the Lab UI runs), which the Lab UI ends
+  as it exits, printing the job it stopped. It is ended, the job failing with the reason, when it prints nothing for 15
+  minutes (`jobs.SILENT`), and when a container that Compose waits for ("Waiting") is in an issue 2 minutes after it went
+  into one, as Docker says it (`jobs.STUCK`, read by `Job.observe`): "gio-mongodb keeps restarting". Running in between
+  does not start the time again (Docker says it keeps restarting only for a minute after each start,
+  `compose.RESTART_WINDOW`); being ready, stopping, or no longer waited for does.
+- One Lab UI serves a folder (`paths.serve_here`, a lock held for its life): started again on any port, it sends the person
+  to the one that runs, and `catalog.py`'s update, undo and remove leave the change to it. A Lab UI of another folder on the
+  port is said, never opened.
 - One job runs at a time. Meanwhile every action that waits gives the one reason of the state (`wait`): "Wait for" and its
   title, or why what runs is not known; while the Lab UI does not answer, "Lab UI offline". When the Lab UI
   restarts while the page follows a job, that job is gone: a toast says "<title>: interrupted".
@@ -1488,6 +1546,13 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
   - What the job starts or stops says so (Starting, Stopping) until the job measured its containers there. What the job
     is for has the job's `progress`; anything else it starts or stops, the mean of its containers the job waits for,
     while it is starting or stopping.
+  - While the job runs, how far it is (its `progress`, its phase's, its latest line) moves at every byte a pull brings: it
+    is not in the body of the state, which would change at every poll, but beside it, in the header `X-Gravitee-Lab-Job`
+    of every answer of `/api/state`, a 304 too (`Job.live`). What the job is for says `"progress": "job"` meanwhile.
+    The page draws only the bars, the buttons at work and the job's line as those measures move (`store.onMeasure`),
+    and every page once a measure comes or goes. Once the job ended, the state says all of it.
+  - A container's uptime is said to the minute, *< 1 min* in its first one (`model.uptime`): Docker counts that minute
+    in seconds, which would change the state at every poll while a job starts containers.
   - A stage with nothing to count (a login, following the seed) is not measured. Progress shows only while there is
     something to measure: the button or the pill of what changes fills, a head or a phase gets a bar.
 - Logs follows each service chosen through its restarts: once its container runs again after a new start, the stream
@@ -1501,7 +1566,10 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
   runs still reads one), and whether what runs reads the one
   saved (`applied`).
 - What it lacks is said in the words of a row (`model.license_note`): by the items of the state, and by `GET
-  /api/plugins/installed` of each plugin it loads that needs a feature (`licensed`).
+  /api/plugins/installed` of each plugin it loads that needs a feature (`licensed`). The state reads what the license saved
+  allows itself, once for each license saved (`license.features`), whether a page asked `GET /api/license` or not; not
+  while Docker does not answer it, which would make the state wait on each command's own limit: what the license allows
+  is then not known, and no row gives it as a reason.
 - Its tooltip names the packs that give what is missing ("Uses: Agent management, Authorization management",
   `license.named`), from the license model last read, with a license or without; the features' ids while the model is not
   known.

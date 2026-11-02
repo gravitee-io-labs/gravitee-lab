@@ -429,7 +429,7 @@
                   "Running"
             <span class="list-actions">
               <span class="warn-slot">
-              <button class="btn pbtn act" data-act-for="addon:kafka" data-act="" data-busy="" aria-label="Stop Kafka">
+              <button class="btn pbtn act" data-act-for="addon:kafka" data-act="" data-busy="name" aria-label="Stop Kafka">
                 <span class="pbtn-wrap">
                   <span class="pbtn-face">
                     <svg aria-hidden="true">
@@ -524,7 +524,7 @@
       <h1>
         "Containers"
     <div class="page-actions">
-      <button class="btn pbtn" data-act-for="platform" data-act-verb="stop" data-busy="" data-stack="stop" hidden="">
+      <button class="btn pbtn" data-act-for="platform" data-act-verb="stop" data-busy="name" data-stack="stop" hidden="">
         <span class="pbtn-wrap">
           <span class="pbtn-face">
             <svg aria-hidden="true">
@@ -743,6 +743,7 @@
               <span>
                 "+1"
             <span class="s-uptime">
+              "5 min"
             <span class="row-icons">
               <span class="icon-gap">
               <button class="icon-btn" data-file="addons/kafka/compose.yml" data-tip="Edit addons/kafka/compose.yml" aria-label="Edit addons/kafka/compose.yml">
@@ -752,7 +753,7 @@
               <button class="icon-btn" data-act="logs" data-tip="Logs" aria-label="Logs of Kafka">
                 <svg aria-hidden="true">
                   <use href="#i-logs">
-              <button class="pbtn icon-btn" data-act-for="addon:kafka" data-act-verb="restart" data-busy="" data-act="restart" data-tip="Restart" aria-label="Restart Kafka">
+              <button class="pbtn icon-btn" data-act-for="addon:kafka" data-act-verb="restart" data-busy="name" data-act="restart" data-tip="Restart" aria-label="Restart Kafka">
                 <span class="pbtn-wrap">
                   <span class="pbtn-face">
                     <svg aria-hidden="true">
@@ -765,7 +766,7 @@
                         <span class="pbtn-mark">
                         <span>
                           "Restarting…"
-              <button class="pbtn icon-btn" data-act-for="addon:kafka" data-act-verb="stop start" data-busy="" data-act="stop" data-tip="Stop" aria-label="Stop Kafka">
+              <button class="pbtn icon-btn" data-act-for="addon:kafka" data-act-verb="stop start" data-busy="name" data-act="stop" data-tip="Stop" aria-label="Stop Kafka">
                 <span class="pbtn-wrap">
                   <span class="pbtn-face">
                     <svg aria-hidden="true">
@@ -807,7 +808,7 @@
                 <button class="icon-btn" data-act="logs" data-tip="Logs" aria-label="Logs of kafka">
                   <svg aria-hidden="true">
                     <use href="#i-logs">
-                <button class="pbtn icon-btn" data-act-for="service:kafka" data-act-verb="restart" data-busy="" data-act="restart" data-tip="Restart" aria-label="Restart kafka">
+                <button class="pbtn icon-btn" data-act-for="service:kafka" data-act-verb="restart" data-busy="name" data-act="restart" data-tip="Restart" aria-label="Restart kafka">
                   <span class="pbtn-wrap">
                     <span class="pbtn-face">
                       <svg aria-hidden="true">
@@ -820,7 +821,7 @@
                           <span class="pbtn-mark">
                           <span>
                             "Restarting…"
-                <button class="pbtn icon-btn" data-act-for="service:kafka" data-act-verb="stop start" data-busy="" data-act="stop" data-tip="Stop" aria-label="Stop kafka">
+                <button class="pbtn icon-btn" data-act-for="service:kafka" data-act-verb="stop start" data-busy="name" data-act="stop" data-tip="Stop" aria-label="Stop kafka">
                   <span class="pbtn-wrap">
                     <span class="pbtn-face">
                       <svg aria-hidden="true">

@@ -629,6 +629,20 @@ test("Start and Stop are the add-on's own action: they carry its key and show it
   platformsPage.hide();
 });
 
+test("while an entry of the on file is gone, the environment's Stop gateway works as the gateway's own row's does, and Start waits", async () => {
+  const GONE = "addons/local/x/compose.yml does not exist";
+  const look = (b) => [said(b), isOff(b), isOff(b) ? offWhy(b) : ""];
+  store.state = { ...state(), unread: GONE };
+  await open(ok([gateway({ id: "g1", name: "dev", here: true, connection: "CONNECTED" })], { Development: VALID }));
+  assert.deepEqual(look(gwRow("dev").querySelector("[data-gw-do]")), ["Stop gateway", false, ""]);
+  assert.deepEqual(look(primary("Development")), ["Stop gateway", false, ""]);
+  store.state = { ...state({ addons: [ADDON(STOPPED)] }), unread: GONE };
+  await open(ok([gateway({ here: true })], { Development: VALID }));
+  assert.deepEqual(look(primary("Development")), ["Start gateway", true, GONE], "a start reads the files: it waits");
+  store.state = state();
+  platformsPage.hide();
+});
+
 test("Stop is disabled with the reason of the add-on while it cannot be used", async () => {
   store.state = state({ addons: [ADDON({ action: { do: "stop", label: "Stop", enabled: false, reason: "Wait for Start Acme Hostels", dialog: null } })] });
   await open(ok([gateway({ here: true, connection: "CONNECTED" })], { Development: VALID }));

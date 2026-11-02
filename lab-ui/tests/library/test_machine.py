@@ -3,6 +3,7 @@ answer (stood in for here): Docker not there, there and stopped, with a Compose 
 the platform held by another program; Git missing; in WSL, Docker Desktop for Windows stopped, lost or never told to serve the
 distribution, and a lab on a disk of Windows. A fix runs here on a Mac and in WSL; a link or a command to copy otherwise."""
 
+import json
 from pathlib import Path
 from unittest import mock
 
@@ -13,7 +14,8 @@ from .. import Case
 
 HEALTHY = {
     ("docker", "--version"): (0, "Docker version 29.8.2", ""),
-    ("docker", "info"): (0, "29.8.2|Docker Desktop|8320028672|/var/lib/docker\n", ""),
+    ("docker", "info"): (0, json.dumps({"ServerVersion": "29.8.2", "OperatingSystem": "Docker Desktop", "MemTotal": 8320028672,
+                                        "DockerRootDir": "/var/lib/docker"}), ""),
     ("docker", "compose"): (0, "5.6.0\n", ""),
     ("docker", "ps"): (0, "127.0.0.1:9200->9200/tcp\n", ""),
     ("git", "--version"): (0, "git version 2.43.2", ""),
@@ -42,6 +44,8 @@ class Machine(Case):
         self.patch(machine.shutil, "which", side_effect=lambda name: f"/opt/homebrew/bin/{name}")
         machine._asked.clear()
         machine._last.update(at=0.0, report=None)
+        machine.compose.CACHE.drop("docker:")
+        self.addCleanup(machine.compose.CACHE.drop, "docker:")
 
     def check(self, check_id):
         return next(c for c in machine.report(fresh=True)["checks"] if c["id"] == check_id)
@@ -244,7 +248,8 @@ class Machine(Case):
         self.assertNotIn("folder", [c["id"] for c in machine.report(fresh=True)["checks"]])
 
     def test_short_memory_is_a_warning_that_lets_the_platform_start(self):
-        self.answers[("docker", "info")] = (0, f"29.8.2|Docker Desktop|{6 * 2 ** 30}|/var/lib/docker", "")
+        self.answers[("docker", "info")] = (0, json.dumps({"ServerVersion": "29.8.2", "OperatingSystem": "Docker Desktop",
+                                                           "MemTotal": 6 * 2 ** 30}), "")
         memory = self.check("memory")
         self.assertEqual((memory["state"], memory["detail"]), ("warn", "6 GB: give it 8 GB in the settings of Docker Desktop"))
         self.assertTrue(machine.report(fresh=True)["ready"])
@@ -254,6 +259,36 @@ class Machine(Case):
         ports = self.check("ports")
         self.assertEqual((ports["state"], ports["detail"]),
                          ("warn", "27017 (MongoDB) is used by another program: stop it before the platform starts"))
+
+    def test_the_ports_another_program_holds_are_any_ports_but_the_labs_own(self):
+        # What a start of an item asks of its own ports, as the check asks of the platform's
+        self.answers[("docker", "ps")] = (0, "127.0.0.1:8082->8082/tcp\n", "")
+        self.patch(machine, "_taken", side_effect=lambda port: port in (5432, 8082))
+        self.assertEqual(machine.held({5432: "Kiosk", 8082: "Gateway", 3000: "Shop"}), [5432])
+        self.assertEqual(machine.held({}), [])
+        # The lab's own cannot be told while its core file does not load: nothing is said
+        self.patch(machine.compose, "project_name", side_effect=machine.compose.ComposeError("no such file"))
+        self.assertIsNone(machine.held({5432: "Kiosk"}))
+
+    def test_nothing_is_said_of_the_ports_while_docker_does_not_list_the_labs_own_containers(self):
+        # Docker Desktop busy: docker ps fails, or does not answer within 10 s. The lab's own gateway holds 8082, which
+        # cannot be told from another program's
+        self.patch(machine, "_taken", side_effect=lambda port: port == 8082)
+        for answer in ((1, "", "Cannot connect to the Docker daemon"), (124, "", "docker did not answer within 10 s")):
+            with self.subTest(code=answer[0]):
+                self.answers[("docker", "ps")] = answer
+                self.assertIsNone(machine.held({8082: "Gateway"}))
+
+    def test_the_ports_line_gives_no_all_clear_while_docker_does_not_list_the_labs_own_containers(self):
+        # Docker answered `docker info`, then `docker ps` fails or does not answer in time; another program holds 27017.
+        # The line cannot tell, and says so, as it does before Docker runs
+        self.patch(machine, "_taken", return_value=True)
+        for answer in ((1, "", "Cannot connect to the Docker daemon"), (124, "", "docker did not answer within 10 s")):
+            with self.subTest(code=answer[0]):
+                self.answers[("docker", "ps")] = answer
+                ports = self.check("ports")
+                self.assertEqual(self.check("docker")["state"], "ok")
+                self.assertEqual((ports["state"], ports["detail"]), ("idle", "Known once Docker lists the lab's containers"))
 
     def test_git_missing_on_a_mac_opens_apples_installer(self):
         self.answers[("git", "--version")] = (127, "", "not found")

@@ -39,11 +39,10 @@ from . import controls
 from . import gamma
 from .aim_workspaces import subset
 from .apim import merge
-from .common import (Api, SeedError, created, files, has_seed, load, log, owned, record, recorded, setting, wait_until,
-                    waits_for_gateway)
+from .common import (Api, SeedError, adopted, created, files, forget, has_seed, load, log, making, owned, record, recorded, setting,
+                     trouble, wait_until, waits_for_gateway)
 
 SECTION = "aim-proxies"
-DEPENDS = ("aim_catalog", "am_link")   # the modules whose work this one reads on the platform (schedule.py)
 # The folders of the seed it owns
 FOLDERS = ("aim/mcp-proxies", "aim/studios")
 # The Gamma modules it fills: seed.py checks that the platform serves them before it changes anything
@@ -257,14 +256,16 @@ class McpProxies:
         controls.align(automation.get("flows"), found_controls)   # written in both modes: a step someone switched is put back
         state = self.g.automation.get(f"/aim/mcp-proxies/{hrid}", expect=(200, 404))
         found = state.json() if state.status_code == 200 else None
-        if found and not recorded(SECTION, "mcp-proxy", found["id"]):
+        if found and not recorded(SECTION, "mcp-proxy", found["id"]) and not adopted(SECTION, "mcp-proxy", name, found["id"], hrid=hrid):
             raise SeedError(f"MCP proxy {name}: {hrid} is the hrid of an API the seed did not create")
-        if found is None or not subset(public(automation), found):
-            created_now = found is None
-            found = self.g.automation.put("/aim/mcp-proxies", json=automation).json()
-            if created_now:
+        if found is None:
+            with making(SECTION, "mcp-proxy", "MCP proxy APIs", name, missing=True, hrid=hrid):
+                found = self.g.automation.put("/aim/mcp-proxies", json=automation).json()
                 record(SECTION, "mcp-proxy", "MCP proxy APIs", name, found["id"], hrid=hrid)
-            log(SECTION, f"✓ MCP proxy {'created' if created_now else 'updated'}: {name}")
+            log(SECTION, f"✓ MCP proxy created: {name}")
+        elif not subset(public(automation), found):
+            found = self.g.automation.put("/aim/mcp-proxies", json=automation).json()
+            log(SECTION, f"✓ MCP proxy updated: {name}")
         api_id = found["id"]
         written = [self.plans(api_id, spec["securityConfiguration"]), self.api(api_id, spec), self.versions(api_id, spec)]
         self.deploy(api_id, any(written))
@@ -388,7 +389,7 @@ class McpProxies:
         """The studio at this path, which must be one the seed made."""
         found = next((p for p in self.g.aim.rows("/mcp-proxies", gamma.WORKSPACES)
                       if p.get("mode") == "STUDIO" and (p.get("contextPath") or "").rstrip("/") == path.rstrip("/")), None)
-        if found and not recorded(SECTION, "studio", found["id"]):
+        if found and not recorded(SECTION, "studio", found["id"]) and not adopted(SECTION, "studio", name, found["id"]):
             raise SeedError(f"MCP studio {name}: {path} is the path of '{found['name']}', which the seed did not create")
         return found
 
@@ -407,10 +408,12 @@ class McpProxies:
         found = self.existing(name, path)
         if found and recorded_digest(found["id"]) != wanted:
             self.g.aim.delete(f"/mcp-proxies/{found['id']}")
+            forget(*[x for x in created() if (x["product"], x["kind"], x["id"]) == (SECTION, "studio", found["id"])])
             found = None
         if found is None:
-            found = self.g.aim.post("/mcp-studios", json=body).json()
-            record(SECTION, "studio", "MCP studios", name, found["id"], digest=wanted)
+            with making(SECTION, "studio", "MCP studios", name, missing=True, contextPath=path):
+                found = self.g.aim.post("/mcp-studios", json=body).json()
+                record(SECTION, "studio", "MCP studios", name, found["id"], digest=wanted)
             log(SECTION, f"✓ MCP studio created: {name}")
         enabled = bool(spec.get("fga"))
         if self.g.aim.get(f"/mcp-proxies/{found['id']}").json().get("fgaEnabled", False) != enabled:
@@ -443,12 +446,14 @@ class McpProxies:
         found = self.existing(name, path)
         if found and recorded_digest(found["id"]) != wanted:
             self.g.aim.delete(f"/mcp-proxies/{found['id']}")
+            forget(*[x for x in created() if (x["product"], x["kind"], x["id"]) == (SECTION, "studio", found["id"])])
             log(SECTION, f"  ✓ MCP studio deleted: {name} is made again from its file")
             found = None
         changed = found is None
         if changed:
-            found = self.g.aim.post("/mcp-studios", json=body).json()
-            record(SECTION, "studio", "MCP studios", name, found["id"], digest=wanted)
+            with making(SECTION, "studio", "MCP studios", name, missing=True, contextPath=path):
+                found = self.g.aim.post("/mcp-studios", json=body).json()
+                record(SECTION, "studio", "MCP studios", name, found["id"], digest=wanted)
             log(SECTION, f"✓ MCP studio created: {name}")
         api_id = found["id"]
         changed = self.access(api_id, name, access) or changed
@@ -533,7 +538,7 @@ class McpProxies:
                 answer = Api(gateway).send("POST", path, json=hello, timeout=15,
                                            headers={"Accept": "application/json, text/event-stream"})
             except requests.RequestException as e:
-                raise SeedError(one_line(e)) from None
+                raise SeedError(trouble(e, 15)) from None
             if answer.status_code != 401:
                 raise SeedError(f"HTTP {answer.status_code} without a token, 401 expected")
 
@@ -564,4 +569,5 @@ def remove(records):
             proxies.g.automation.delete(f"/aim/mcp-proxies/{x['hrid']}")
         else:
             proxies.g.aim.delete(f"/mcp-proxies/{x['id']}")
+        forget(x)
         log(SECTION, f"✓ Deleted {KINDS[x['kind']]} '{x['name']}'")

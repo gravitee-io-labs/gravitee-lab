@@ -2,14 +2,22 @@
 on, and what an apply recreates; start, stop and restart of a platform group, of the containers of an add-on or a
 playground, or of a service."""
 
+import re
+
 from ..docker import compose
 from ..gravitee import core, places, platforms
 from ..library import layers, model, playgrounds, project as projects
 from .. import paths
 from ..docker.compose import COMPOSE
-from ..docker.jobs import JOBS, awaited
+from ..docker.jobs import JOBS, JobFailed, awaited
 
-PULL = [*COMPOSE, "pull", "--ignore-buildable"]   # the images of what is on, but those built here
+# The images of what is on, but those built here. One refused does not stop the others: the job fails on it once they
+# are pulled (jobs.Job._spawn)
+PULL = [*COMPOSE, "pull", "--ignore-buildable", "--ignore-pull-failures"]
+# What Compose prints of a volume that `down -v` removed: " Volume gravitee_mongo-data Removed "
+VOLUME_REMOVED = re.compile(r"\s*Volume\s+\S+\s+Removed\s*")
+# The one phase of a reset, which its progress counts
+RESET = "Reset"
 
 
 def _units(state):
@@ -91,9 +99,7 @@ def _apply(project):
     """Applies what was saved to what runs (layers.applies): `up --no-deps` makes again what runs behind what is saved
     and starts again what failed, after the one-shots they depend on. What was stopped (from the Stack, a group or the
     whole) stays stopped, what has no container is not created, what was started outside the Lab UI stays: nothing is
-    removed as an orphan. While nothing of what is on runs, nothing does: what was saved applies at the next start. Not
-    while the old layout is being moved (layers.ready): the Stack's Start, Stop and Remove need no file and stay."""
-    layers.ready()
+    removed as an orphan. While nothing of what is on runs, nothing does: what was saved applies at the next start."""
     found = _applies(project)
     names, services = found["names"], project["services"]
 
@@ -176,11 +182,31 @@ def _forget(project):
     return forget
 
 
+def _reset(project, by_name):
+    """The step of a reset: `down -v`, then what the seeds recorded on this machine is forgotten (_forget). So it is
+    when the down failed or was canceled once it removed a volume: what the seeds created went with it. One that removed
+    none leaves the records as they are, with the data they name, which a seed refuses to touch unrecorded."""
+    forget = _forget(project)
+
+    def reset(job):
+        job.step(RESET)
+        start = len(job.lines)
+        try:
+            job.exec([*by_name, "down", "-v"])
+        except JobFailed:
+            if any(VOLUME_REMOVED.fullmatch(line) for line in job.lines[start:]):
+                forget(job)
+            raise
+        forget(job)
+    return reset
+
+
 def _core_start(project, accept):
     """Start all with API Management in the Cloud (core.plan, made again now, the platform read again): the hybrid gateway
-    of the chosen environment, its token written first when the add-on holds another one, then the rest of the platform
-    and what is on, with what they depend on. Nothing of API Management starts, nor what exists only for it. What it
-    stops or turns off besides must be what the page showed (`accept`)."""
+    of the chosen environment, its plan run as every plan's (layers.steps, its token written once what goes is removed
+    when the add-on holds another one), then the rest of the platform and what is on, with what they depend on. Nothing
+    of API Management starts, nor what exists only for it. What it stops or turns off besides must be what the page
+    showed (`accept`)."""
     state, containers = layers.current(project), compose.ps()
     found = core.plan(project, state, containers, projects.saved(project), live=True)
     gateway, place, others = found["gateway"], found["place"], found["others"]
@@ -188,21 +214,18 @@ def _core_start(project, accept):
     if not found["needed"]:
         raise RuntimeError("Everything runs")
     uid = place["id"].partition("/")[0]
+    swap = None if place["here"] else layers.swapping(project, gateway, uid, found["gateway_id"])
 
-    def prepare(job):
-        layers.write(gateway["playground"], gateway["explicit"], blocked=layers.blocked_files(project))
-        layers.make_binds(project, gateway)
-        if not place["here"]:
-            platforms.swap_gateway(project, uid, found["gateway_id"])
-        starts = [row["name"] for row in found["dialog"]["starts"]]
-        for verb, names in (("Starts", starts), ("Restarts", [row["name"] for row in gateway["restarts"]]),
-                            ("Serves", [place["name"]])):
-            if names:
-                job.lines.append(f"{verb}: {', '.join(names)}")
+    def serve(job):   # in the swap's place: once what goes is removed, the token being this place's when it was another's
+        layers.unchanged(gateway)
+        if swap:
+            swap(job)
+        job.lines.append(f"Serves: {place['name']}")
     changes = layers.changes(project, gateway)
     changes["start"] += [["service", name] for name in others]
-    steps = [prepare, *layers.commands(gateway), *([[*COMPOSE, "up", "-d", "--no-deps", *others]] if others else []),
-             lambda job: places.invalidate(uid)]
+    # The job says what its dialog showed it starts: the gateway and the rest
+    steps = [*layers.steps(project, {**gateway, "starts": found["dialog"]["starts"]}, swap=serve),
+             *([[*COMPOSE, "up", "-d", "--no-deps", *others]] if others else []), lambda job: places.invalidate(uid)]
     waits = layers.waits(project, gateway) + ([awaited(project["services"], start=others)] if others else [])
     return JOBS.start(f"Start all for {place['name']}", steps, key="platform", verb="start", changes=changes, waits=waits)
 
@@ -237,14 +260,17 @@ def action(project, name, for_core=False, accept=()):
     actions = {
         "stop":  ("Stop the stack", [[*by_name, "stop"]], "stop", [stops]),
         "pull":  ("Pull images", [PULL], None, [awaited(project["services"], images=_pulled(project, units))]),
-        "down":  ("Remove containers", [[*by_name, "down"]], "stop", [stops]),
-        "reset": ("Reset the stack", [[*by_name, "down", "-v"], _forget(project)], "stop", [stops]),
+        # The containers with their anonymous volumes, which nothing reaches once they are gone, not even a Reset, then
+        # the networks. Named volumes stay
+        "down":  ("Remove containers", [[*by_name, "rm", "--stop", "--force", "-v"], [*by_name, "down"]], "stop", [stops]),
+        "reset": ("Reset the stack", [_reset(project, by_name)], "stop", [stops]),
     }
     if name not in actions:
         raise paths.NotFound(f"No such action: {name}")
     title, steps, change, waits = actions[name]
+    phases = {"phases": [RESET]} if name == "reset" else {}
     return JOBS.start(title, steps, key="platform", verb=name, changes={change: units} if change else None,
-                      waits=waits)
+                      waits=waits, **phases)
 
 
 def _idle_dependencies(project, names):
@@ -295,13 +321,14 @@ def group_action(project, gid, do):
 
 
 def service_action(project, name, do):
-    """Starts, stops or restarts one service. A playground's seed is run again by its Re-seed, which records what it
-    creates and follows it: it is only stopped here."""
+    """Starts, stops or restarts one service, which its job names as the state does ("Restart Gateway (API Management)").
+    A playground's seed is run again by its Re-seed, which records what it creates and follows it: it is only stopped
+    here."""
     if name not in project["services"]:
         raise paths.NotFound(f"No such service: {name}")
     if project["services"][name]["role"] == "seed" and do != "stop":
         raise RuntimeError("Re-seed runs it again")
-    return _containers(project, name, [name], do, "service", name)
+    return _containers(project, layers.service_name(project, name), [name], do, "service", name)
 
 
 def unit_action(project, kind, uid, do):

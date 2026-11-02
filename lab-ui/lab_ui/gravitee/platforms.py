@@ -18,14 +18,11 @@ from . import cloud, license
 from ..docker import envfiles
 from .. import paths
 from ..catalogs import resolve
+from ..products import GAMMA, GATEWAY, SCOPES
 
 FILE = ".lab/platforms.json"   # [record], relative to the project
 STATE = ".state"   # in a playground's folder, what it recorded; a platform has a folder of its id in it
 KINDS = {"cloud": "https://eu.cloud.gravitee.io"}   # a kind of platform and its address, the EU region of the Cloud
-# The scope of a gateway, as the Cloud says it, and the id the project gives that product (its plugins folder, the
-# `product` of a group of the core), whose group names it
-SCOPES = {"APIM": "apim", "AM": "am"}
-GAMMA = "Gamma"   # the product the plan of an account enables (its subscription says gammaEnabled), which no gateway scope names
 CLOUD_HOST = ".cloud.gravitee.io"   # a platform whose address ends so is Gravitee Cloud: its Cloud Gate is by region
 GATE_URL = "https://{}.cloudgate.gravitee.io"
 ACCOUNT_ID = re.compile(r"[A-Za-z0-9-]{1,64}")   # one segment of a path; the Cloud's are UUIDs
@@ -50,11 +47,8 @@ def _valid(item):
 
 
 def read():
-    """The records kept, none when the file is missing or does not read as such."""
-    try:
-        found = json.loads((paths.ROOT / FILE).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        found = []
+    """The records kept, none when the file is missing or does not read as such (paths.read_record keeps it aside)."""
+    found = paths.read_record(paths.ROOT / FILE)
     return [{**{key: item[key] for key in ("id", "name", "kind", "url")},
              "account": {key: str(item["account"].get(key) or "") for key in ("id", "hrid", "name")}}
             for item in (found if isinstance(found, list) else []) if _valid(item)]
@@ -471,10 +465,10 @@ def product_name(project, scope):
 
 def local_gateway(project):
     """The service of the core that is the gateway of API Management on this machine: the one whose image is the
-    gateway's. None when the core has none."""
+    gateway's (products.GATEWAY), with a registry before it or not. None when the core has none."""
     return next((name for name, service in sorted(project["services"].items())
-                 if service["owner"]["kind"] == "platform" and re.search(r"/apim-gateway(?::|$)", service.get("raw_image") or "")),
-                None)
+                 if service["owner"]["kind"] == "platform"
+                 and re.search(rf"(?:^|/){re.escape(GATEWAY)}(?::|$)", service.get("raw_image") or "")), None)
 
 
 def retarget_names(project, kind):

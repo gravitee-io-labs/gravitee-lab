@@ -110,7 +110,8 @@ sudo usermod -aG docker $USER
 ### A port is already allocated
 
 **Symptom:** a start fails with `port is already allocated`, `Bind for 127.0.0.1:8083 failed`, or `address already in
-use`.
+use`, or the Start of an add-on, a setup or a playground is refused with *Port 5432 is used by another program* (a
+playground's *Before you start* says it on its *Ports* line).
 
 **Cause:** another program, or another copy of the lab, holds the port.
 
@@ -126,16 +127,24 @@ each other at these addresses. [Ports](configuration.md#ports) lists every port.
   do not show next to the guide on another port)`
 - `Already running. To load a new version, stop it with Ctrl+C in its terminal, then run gravitee-lab again.`, under the
   address of the Lab UI
+- `Port 9000 is used by another Lab UI: stop it with Ctrl+C in its terminal, then run gravitee-lab again. One lab runs at a
+  time`
 - `UI_PORT must be a port number, for example 9001`
 
-**Cause:** another program listens on 9000, you started the Lab UI twice, or `UI_PORT` holds something else than a port
-number.
+In a clone you made yourself, without the `gravitee-lab` command, they say `make ui` where these say `gravitee-lab`.
 
-**Fix:** for the second message, use the Lab UI that runs. It acts on the clone that started it: if you meant another
-clone, see [A second clone collides with the first](#a-second-clone-collides-with-the-first). For the first, free port
-9000 if you can. With `UI_PORT=9001 make ui` the Lab UI works, but the UIs of a playground show as refused beside the
-guide, because the platform's UIs and the apps let only port 9000 frame them. For the third, set `UI_PORT` to a number
-from 1 to 65535, or leave it empty.
+**Cause:** another program listens on 9000, you started the Lab UI of this clone twice, a Lab UI of another clone (or
+one started before you updated the Lab) holds the port, or `UI_PORT` holds something else than a port number.
+
+**Fix:** for the second message, use the Lab UI that runs: one Lab UI serves a clone, whatever port you start it on, and
+the message gives its address. For the third, stop the other Lab UI, then start this one: see
+[A second clone collides with the first](#a-second-clone-collides-with-the-first). For the first, free port 9000 if you
+can. With `UI_PORT=9001 make ui` the Lab UI works, but the UIs of a playground show as refused beside the guide, because
+the platform's UIs and the apps let only port 9000 frame them. For the last, set `UI_PORT` to a number from 1 to 65535,
+or leave it empty.
+
+While the Lab UI runs, `python3 lab-ui/catalog.py update`, `undo` and `remove` refuse with `The Lab UI runs on this
+folder`: make the change on its Catalogs page, or stop it first. Its jobs would write the same files.
 
 ### The Lab UI says to open it at localhost
 
@@ -151,7 +160,8 @@ Lab UI at http://localhost:9000`.
 
 **Symptom:** a tab of a playground says `cannot be shown here`.
 
-**Cause:** the Lab UI is not on port 9000, or the app's own headers refuse frames.
+**Cause:** the Lab UI is not on port 9000, the app's own headers refuse frames, or this machine does not trust the
+certificate of a UI on `https` (the line under the notice says `Its certificate is not trusted`).
 
 **Fix:** open http://localhost:9000, or use *Open in a new tab*.
 
@@ -205,7 +215,9 @@ setting, open the key button of the add-on and fill in the field marked *Require
 
 ### A start fails right after a version change
 
-**Symptom:** a component fails to start after you chose another version on the Images page.
+**Symptom:** a component fails to start after you chose another version on the Images page. The start fails, and its
+row's tooltip says `container gio-mongodb is unhealthy` or `gio-mongodb keeps restarting`, with the container of that
+component.
 
 **Cause:** a version switch on existing data can fail on migrations.
 
@@ -216,9 +228,9 @@ setting, open the key button of the add-on and fill in the field marked *Require
 **Symptom:** a playground's seed ends with `API <name>: /<path>/ is the path of '<name>', which the seed did not create`, though
 you never made that API.
 
-**Cause:** the platform made the API and the seed lost the record of it, so it takes the API for someone else's. The seed
-records an API whose import fails with an error of the platform, but not one whose request got no answer (a timeout): the
-platform may finish the import after the seed has stopped waiting. A lost `.state/created.json` does the same.
+**Cause:** the seed has no record of the API: `.state/created.json` was lost or emptied while the platform kept its data
+(no Reset), or someone made an API at that path. An import whose answer was lost is not a cause: the next seed takes that
+API as its own and says so with a `!` line.
 
 **Fix:** delete the API named in the message in the Console (stop it, then delete it), then choose *Re-seed*. For an
 environment of its own, open that environment first.
@@ -256,26 +268,21 @@ the license is missing or has insufficient permission`, and Docker starts it aga
 [What needs a license](installation.md#what-needs-a-license). Without a license, API Management, Access Management and
 Gamma's community features run.
 
-### A plugin does not load, or `.work` fails
+### A plugin does not load
 
-**Symptom:** a product logs `DirectoryNotEmptyException ... .work`, or a job of the Plugins page fails with
-`apim/.work could not be cleared`, often with `Permission denied` on Linux.
+**Symptom:** a product logs `DirectoryNotEmptyException` or `NoSuchFileException` on a path in `.work`, and a plugin
+it should load is missing.
 
-**Cause:** `.work` is the cache a product unpacks plugins into, in `plugins/apim/` or `plugins/am/`. A stale one breaks
-loading. On Linux, the containers write it as user 1001, so your user cannot delete it.
+**Cause:** `.work`, in `plugins/apim/` or `plugins/am/`, is where a product unpacks the plugins of that folder as it
+starts. Two services that load the same folder and start at the same time, such as the Management API and the gateway
+of an add-on, unpack into it together and break each other's files. After a plugin change the Lab UI starts them one
+after another, and the core's gateway always waits for its Management API.
 
-**Fix:** remove it, then restart:
-
-```bash
-rm -rf plugins/apim/.work
-```
+**Fix:** restart the service that logs it, alone. It unpacks every plugin again:
 
 ```bash
-make restart
+make restart SVC=apim-gateway
 ```
-
-Use `plugins/am/.work` for Access Management. On Linux the files may belong to another user: add `sudo` to the first
-command.
 
 If an added plugin does not load, check the Plugins page. A plugin found twice, bundled in the image and added in the
 folder, loads from the most recent file, not the highest version. The page says `Added, ignored` when the bundled one is
@@ -334,8 +341,8 @@ If Ollama runs elsewhere, set `OLLAMA_URL` in the settings of the playground. On
 **Cause:** one lab runs per machine. Every clone uses the Compose project `gravitee`, the container names `gio-*`, the
 volumes `gravitee_*` and the same host ports.
 
-**Fix:** use one clone at a time. Run `make stop` in the first before you start the second. They share the data
-volumes, but each clone keeps its own record of what its seeds created (`.lab/catalogs/<catalog>/playgrounds/<id>/.state/`). To start the second
+**Fix:** use one clone at a time. Run `make stop` in the first, and stop its Lab UI with Ctrl+C in its terminal, before you
+start the second. They share the data volumes, but each clone keeps its own record of what its seeds created (`.lab/catalogs/<catalog>/playgrounds/<id>/.state/`). To start the second
 clean, run `make reset` in it: it deletes the shared volumes and empties that clone's records. The first clone's records
 then no longer match the volumes, so run `make reset` there too before you use it again.
 

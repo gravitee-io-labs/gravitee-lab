@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from ..docker import compose, images
-from ..gravitee import frames, platforms
+from ..gravitee import platforms
 from . import layers
 from .. import paths
 from ..catalogs import defaults, gitx, manifest, registry, trust, understood
@@ -42,7 +42,7 @@ from ..catalogs.registry import CatalogError
 from ..catalogs.report import ERROR, WARNING, Problem
 from ..catalogs.tree import read_inside
 from ..paths import CORE_FILE, KINDS, NOUNS, ROOT
-from .project import REACH_LIMIT, apart, brought, forget, loaded
+from .project import PAGES, REACH_LIMIT, apart, brought, forget, loaded
 
 # What x-gravitee can say, of any item: a key outside it is read by nothing, and so does nothing (a typo, or a key
 # the Lab UI does not know)
@@ -184,7 +184,9 @@ def _listing(meta):
     them), how long its guide takes and how long its first start takes (a person plans a demo with them). They are what a person
     reads before starting one, so that none is shared without."""
     tags = meta.get("tags")
-    if not (isinstance(tags, list) and tags and all(isinstance(tag, str) and tag.strip() for tag in tags)):
+    if tags and not (isinstance(tags, list) and all(isinstance(tag, str) for tag in tags)):
+        pass   # written otherwise than a list of labels: the project says how it must be (project._lists)
+    elif not (tags and all(tag.strip() for tag in tags)):
         yield "x-gravitee.tags is missing: a list of short labels, the first one the most telling"
     elif len(set(tags)) != len(tags):
         yield "x-gravitee.tags lists a tag twice"
@@ -668,7 +670,7 @@ def _frameable(service):
     """Whether the Lab UI's pages may frame a console of the platform: its command lets them (x-ui-frames) and drops
     X-Frame-Options, which would refuse every page but its own, or a setting of its own names them as the pages that may."""
     command = service.get("command") or ""
-    return bool(service.get("lets_frame")) or (all(page in command for page in frames.PAGES) and "X-Frame-Options" in command)
+    return bool(service.get("lets_frame")) or (all(page in command for page in PAGES) and "X-Frame-Options" in command)
 
 
 def _consoles(playground, project):
@@ -676,10 +678,7 @@ def _consoles(playground, project):
     it brings), each with a console, once. The platform's are images the lab does not write: their command must let the
     Lab UI frame them. The app of a playground and an add-on's allow it in their own headers, which only the page can
     see: it says when one refuses."""
-    consoles = playground["consoles"]
-    if not (isinstance(consoles, list) and all(isinstance(name, str) for name in consoles)):
-        yield "x-gravitee.consoles must be a list of services"
-        return
+    consoles = playground["consoles"]   # a list of names: the project says one written otherwise (project._lists)
     mine = {("playground", playground["id"]), *(("addon", aid) for aid in playground["addons"])}
     for name in dict.fromkeys(consoles):
         service = project["services"].get(name)
@@ -692,7 +691,7 @@ def _consoles(playground, project):
             yield f"x-gravitee.consoles: {name} is not a service with a console that this playground runs"
         elif owner[0] == "platform" and not _frameable(service):
             yield (f"x-gravitee.consoles: {name} is shown in a frame, so its command must name "
-                   f"{' and '.join(frames.PAGES)} and remove X-Frame-Options (x-ui-frames in docker-compose.yml), "
+                   f"{' and '.join(PAGES)} and remove X-Frame-Options (x-ui-frames in docker-compose.yml), "
                    "or a setting of it must name them as the pages that may frame it")
 
 
@@ -702,7 +701,7 @@ def _terminal(playground, project):
     name = playground["terminal"]
     if name is None or not project["core_loaded"]:
         return
-    service = project["services"].get(name) if isinstance(name, str) else None
+    service = project["services"].get(name)
     mine = {("playground", playground["id"]), *(("addon", aid) for aid in playground["addons"])}
     if not service or (service["owner"]["kind"], service["owner"]["id"]) not in mine:
         yield "x-gravitee.terminal must name a service that this playground runs"
@@ -1844,11 +1843,10 @@ def _pattern(line):
 
 def _blocked(reason, codes, ns, file):
     """(code, the words of the problem) for a reason of a unit that cannot run: the code of the rule of the policy that says that
-    line among those the unit's verdict names, the reason as the Lab says it, then `Fix:` from the table of fixes (trust.FIXES,
-    else the standard's, explain.T_FIXES) with its blanks filled from the reason and the catalog. A reason that two of those rules
-    say alike, with different fixes, has no code: it would send the author to the wrong one."""
-    from ..catalogs import explain   # here and not above: it reads the rule modules, which the engine's check has no use for
-    fixes = getattr(trust, "FIXES", None) or explain.T_FIXES
+    line among those the unit's verdict names, the reason as the Lab says it, then `Fix:` from the table of fixes (trust.FIXES)
+    with its blanks filled from the reason and the catalog. A reason that two of those rules say alike, with different fixes,
+    has no code: it would send the author to the wrong one."""
+    fixes = trust.FIXES
     found = []
     for code in codes:
         for line in (trust.RULES.get(code) or {}).get("lines") or ():

@@ -51,7 +51,7 @@ from typing import Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
 from ..docker import compose
 from ..library import moves, starred
 from .. import paths
-from . import defaults, gitx, manifest, registry, renames, resolve, understood
+from . import defaults, gitx, manifest, registry, renames, resolve, trust, understood
 from . import store as bare
 from .registry import CatalogError
 
@@ -1053,25 +1053,31 @@ def _adopted(ns, moved_from) -> List[dict]:
 
 # ---------------------------------------------------------------- what is on, and what holds an update back
 
-def on_units(ns: str) -> Set[str]:
-    """`kind:name` of the units of catalog `ns` that the on file turns on, directly or through what it includes (a
-    playground and the add-ons and setups it includes, an item of another catalog and the unit of this one it includes).
-    Read from the on file and the include lists of the files it names: the defence of the hold rule where a caller has
-    not asked the running state, never a substitute for it."""
-    found, seen, todo = set(), set(), [paths.ON_FILE]
+def on_by_catalog() -> Dict[str, Set[str]]:
+    """{catalog: {`kind:name`}} of the units that the on file turns on, directly or through what they include (a playground
+    and the add-ons and setups it includes, an item of another catalog and the unit of this one it includes), every catalog
+    in one walk of the include closure: a state asks it of every row, and each walk reads the files again. Read from the on
+    file and the include lists of the files it names: the defence of the hold rule where a caller has not asked the running
+    state, never a substitute for it. Nothing is on when the files cannot be read."""
+    found, seen, todo = {}, set(), [paths.ON_FILE]
     while todo and len(seen) < 2000:
         file = todo.pop()
         if file in seen:
             continue
         seen.add(file)
         target = resolve.target_of(file)
-        if target and target[0] == ns:
-            found.add(f"{target[1]}:{target[2]}")
+        if target:
+            found.setdefault(target[0], set()).add(f"{target[1]}:{target[2]}")
         try:
-            todo += compose.includes(file, flow=True)
+            todo += compose.includes(file)
         except (OSError, ValueError):
             continue
     return found
+
+
+def on_units(ns: str) -> Set[str]:
+    """`kind:name` of the units of catalog `ns` that the on file turns on (on_by_catalog)."""
+    return on_by_catalog().get(ns, set())
 
 
 def _held(ns, keys, context) -> List[str]:
@@ -1116,8 +1122,7 @@ def _unit_at(ns, key, commit) -> dict:
         except (CatalogError, OSError, ValueError):
             return ""
     own = text(file) if commit else ""
-    theirs = {service for _, _, target in compose._include_items(own, paths.ROOT / file, flow=True) if target
-              for service in compose.top_keys(text(target), "services")}
+    theirs = {service for target in trust.include_targets(own, file) or () for service in compose.top_keys(text(target), "services")}
     try:
         said = (compose.x_gravitee(own, (paths.ROOT / file).parent) or {}).get("name") if own else None
     except compose.ComposeError:

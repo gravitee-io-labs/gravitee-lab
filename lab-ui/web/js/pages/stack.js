@@ -14,7 +14,7 @@ import { License } from "../dialogs/license.js";
 
 // An action of the platform in the head: it shows on its button as it works
 const headButton = (verb, label, glyph, title = "") => actionButton({ key: "platform", verb, label, icon: glyph,
-  attrs: `data-busy data-stack="${verb}"${title ? ` data-tip="${title}"` : ""} hidden` });
+  attrs: `data-busy${verb === "stop" ? '="name"' : ""} data-stack="${verb}"${title ? ` data-tip="${title}"` : ""} hidden` });
 
 // The head of a page of the platform: its title, the badge "Apply needed" while something runs behind what is saved (the
 // platform's state is the sidebar's chip, on every page), then its actions. The Containers' has all the actions, and
@@ -96,7 +96,7 @@ function rowButton(act, key, name = "") {
   const attrs = `data-act="${act}" data-tip="${label}" aria-label="${esc(name ? said : label)}"`;
   if (act === "logs") return `<button class="icon-btn" ${attrs}>${icon(symbol)}</button>`;
   return actionButton({ key, verb: act === "restart" ? act : ["stop", "start"], icon: symbol, cls: "icon-btn",
-    attrs: `data-busy ${attrs}` });
+    attrs: `data-busy${act === "start" ? "" : '="name"'} ${attrs}` });
 }
 
 // Whether a restart of `key` has something to say (showing): its button keeps its place while it works, the
@@ -158,10 +158,12 @@ function portsOf(services) {
     ports.length > 1 ? `<span>+${ports.length - 1}</span>` : ""}</span>`;
 }
 
-// How long a container has run, in seconds, from the words of its uptime ("5 min", "14 h"); null when they say none
-const UNITS = { s: 1, min: 60, h: 3600, d: 86400, mo: 2592000, y: 31536000 };
+// How long a container has run, in seconds, from the words of its uptime ("5 min", "14 h", "< 1 min" in its first
+// minute); null when they say none
+const UNITS = { min: 60, h: 3600, d: 86400, mo: 2592000, y: 31536000 };
 function seconds(uptime) {
-  const [, n, unit] = /^(\d+) (s|min|h|d|mo|y)$/.exec(uptime || "") || [];
+  if (uptime === "< 1 min") return 0;
+  const [, n, unit] = /^(\d+) (min|h|d|mo|y)$/.exec(uptime || "") || [];
   return n ? Number(n) * UNITS[unit] : null;
 }
 
@@ -345,7 +347,7 @@ export function onHeadClick(e) {
 }
 
 function platformMenu(button) {
-  const wait = store.wait(), waits = { disabled: !!wait, reason: wait };
+  const wait = store.wait(true), waits = { disabled: !!wait, reason: wait };
   openMenu(button, [
     { label: CONFIRM.down.title, hint: CONFIRM.down.text, ...waits, onSelect: () => stackAction("down") },
     { label: CONFIRM.reset.title, hint: CONFIRM.reset.text, danger: true, ...waits, onSelect: () => stackAction("reset") },

@@ -10,8 +10,8 @@ import re
 import shutil
 import stat
 
-from . import check, layers, moves, starred, tested
-from ..docker import compose, files, images
+from . import check, files, layers, moves, starred, tested
+from ..docker import compose, images
 from .. import paths
 from ..catalogs import registry, resolve
 from ..catalogs.registry import CatalogError
@@ -216,8 +216,7 @@ def _write(project, kind, uid, texts):
 def create_addon(project, name, description, category, image, port=None, catalog=None):
     """Writes an add-on that runs one image, to be completed in the editor: in the folder `addons/<name>/` of the personal
     catalog, or of the folder catalog `catalog`, with its README. `image` is repository[:tag], `port` host[:container] or
-    nothing. Answers {file, id}. Refused (RuntimeError, `layers.WAITING`) while the old layout is being moved."""
-    layers.ready()
+    nothing. Answers {file, id}."""
     ns = _where(catalog)
     name, uid = _named("addon", name, ns)
     slug = uid.split("/")[-1]
@@ -245,10 +244,7 @@ def save_setup(project, name, description, addons, sid=None, category=None, cata
     """Saves add-ons as a setup, a compose file that includes them: `setups/<name>.yml` of the personal catalog, or of the
     folder catalog `catalog`. With `sid`, that setup of this machine is replaced; renamed, its file moves, and what includes it
     follows. Answers {file, changes, id}: where it is, the other files a rename writes again, and its id. With `check_only`,
-    nothing is written: what it would do is said first. It is shared from its menu, not here. Nothing starts or stops. Refused
-    (RuntimeError, `layers.WAITING`) while the old layout is being moved, a check too: what it would say is read from files that
-    are not where the on file says."""
-    layers.ready()
+    nothing is written: what it would do is said first. It is shared from its menu, not here. Nothing starts or stops."""
     ns = _where(catalog)
     if sid is not None and ns:
         raise ValueError("Share it from its menu")
@@ -285,9 +281,7 @@ def save_setup(project, name, description, addons, sid=None, category=None, cata
 def create_playground(project, name, description, category=None, setups=None, addons=None, catalog=None):
     """Writes a playground to be completed in the editor: the folder `playgrounds/<name>/` of the personal catalog, or of the
     folder catalog `catalog`, with its compose file, which includes these setups and add-ons and runs nothing yet, the first
-    lines of its guide and its README. Answers {file, id}. Refused (RuntimeError, `layers.WAITING`) while the old layout is
-    being moved."""
-    layers.ready()
+    lines of its guide and its README. Answers {file, id}."""
     ns = _where(catalog)
     name, uid = _named("playground", name, ns)
     _free("playground", uid)
@@ -337,15 +331,22 @@ def _on(on, kind, uid, running):
     return ""
 
 
-def held(project, on, kind, uid, deleting=False, running=False):
-    """Why an item of this machine cannot be deleted now; "" when it can. `on` is layers.current(). It goes only while it is
-    off: the on file would name a file that is not there; and what another item includes is not deleted: that one would not
-    load. Sharing it is never held: a share is a copy, the item stays, runs and keeps its settings. Pure: the state gives it
-    to the item's menu, delete() refuses with it."""
+def held(project, on, kind, uid, deleting=False, running=False, deployed=()):
+    """Why an item of this machine cannot be deleted now; "" when it can. `on` is layers.current(). It goes only while
+    it is off: the on file would name a file that is not there; and, an add-on or a playground, while nothing of it
+    runs, on or off (`running`): its containers would run on with no file, which no page shows. What another item
+    includes is not deleted: that one would not load. Nor is a playground that holds a record of what it created in a
+    place besides This machine (`deployed`, as places.deployed says it): the record goes with its folder, and what it
+    created there could not be deleted any more. Sharing it is never held: a share is a copy, the item stays, runs and
+    keeps its settings. Pure: the state gives it to the item's menu, delete() refuses with it."""
     if not deleting:
         return ""
+    if running and kind != "setup":   # a setup owns no container: its add-ons do
+        return "Stop it first"
     users = [] if _turned_on(on, kind, uid) else _users(project, kind, uid)
-    return _on(on, kind, uid, running) or (f"Used by {', '.join(users)}" if users else "")
+    place = next((one for one in deployed if one.get("created")), None)
+    return _on(on, kind, uid, running) or (f"Used by {', '.join(users)}" if users else "") \
+        or (f"Delete what it created in {place['environment']} first" if place else "")
 
 
 def _turned_on(on, kind, uid):
@@ -353,31 +354,36 @@ def _turned_on(on, kind, uid):
     return (kind == "setup" and uid in on["setups"]) or layers.is_on(kind, uid, on["playground"], on["effective"])
 
 
-def _running(project, kind, uid):
-    """Whether something of an item runs now, as held() says it: nothing does while Docker does not answer."""
+def _running(project, kind, uid, on=True):
+    """Whether something of an item runs now, as held() says it, `on` whether it is: nothing does while Docker does not
+    answer. Off, only its own services count: what it brings may run for something else."""
     containers, _ = compose.containers()
     unit = project[kind + "s"].get(uid)
-    names = layers.unit_services(project, unit, True) if unit else []
+    names = layers.unit_services(project, unit, on) if unit else []
     return any(containers.get(name, {}).get("state") == "running" for name in names)
 
 
-def _not_held(project, kind, uid, deleting=False):
-    """Refuses while the item is on (Docker is asked what runs only for an item that is on) and, to delete it, while another
-    item includes it."""
+def _not_held(project, kind, uid, deleting=False, deployed=()):
+    """Refuses while the item is on and, to delete it, while something of it runs, another item includes it, or a place
+    holds a record of what it created (`deployed`, held()). Docker is asked what runs of an item that is off only for a
+    delete: a move keeps its services, whose containers it still runs."""
     on = layers.current(project)
-    running = _turned_on(on, kind, uid) and _running(project, kind, uid)
-    reason = held(project, on, kind, uid, deleting, running=running) if deleting else _on(on, kind, uid, running)
+    turned_on = _turned_on(on, kind, uid)
+    running = (deleting or turned_on) and _running(project, kind, uid, turned_on)
+    if not deleting:
+        reason = _on(on, kind, uid, running)
+    else:
+        reason = held(project, on, kind, uid, deleting, running=running, deployed=deployed)
     if reason:
         raise RuntimeError(reason)
 
 
-def delete(project, kind, uid):
+def delete(project, kind, uid, deployed=()):
     """Deletes an item of this machine: the file of a setup, the folder of an add-on or a playground with what it holds. What
-    a catalog keeps is changed in the catalog, like any file. Its star and its tested sets go with it. Refused (RuntimeError,
-    `layers.WAITING`) while the old layout is being moved: an item the old on file turns on would not be seen as on."""
-    layers.ready()
+    a catalog keeps is changed in the catalog, like any file. Its star and its tested sets go with it. Refused (RuntimeError)
+    while a place holds a record of what a playground created there (`deployed`: places.deployed, the caller's)."""
     path = _own(kind, uid, "deleted")
-    _not_held(project, kind, uid, deleting=True)
+    _not_held(project, kind, uid, deleting=True, deployed=deployed)
     target = paths.ROOT / path
     if kind == "setup":
         target.unlink()
@@ -423,14 +429,11 @@ def _move(path, target):
     follow(path, target)
 
 
-def share(project, kind, uid, check_only=False, to=""):
-    """Shares an item of this machine to the catalog `to` (catalogs/contribute.py: a copy, the item stays); the answer is its
-    ShareCheck or ShareDone. Without `to` there is no share to make, since nothing is shared into the Lab: a check answers the
-    item's file in its own catalog, the problems that keep it from being shared anywhere (none) and the other files that would
-    change (none), for the page to ask for the destinations; asked to share, it is refused."""
-    if to:
-        from ..catalogs import contribute   # here: it reads this module
-        return contribute.share(project, kind, uid, to, check_only)
+def share(kind, uid, check_only=False):
+    """An item of this machine shared without a destination (one to a catalog is catalogs/contribute.py's share: a copy, the
+    item stays). There is no share to make, since nothing is shared into the Lab: a check answers the item's file in its own
+    catalog, the problems that keep it from being shared anywhere (none) and the other files that would change (none), for
+    the page to ask for the destinations; asked to share, it is refused."""
     path = _own(kind, uid, "shared")
     if not check_only:
         raise ValueError("Choose where to share")

@@ -27,14 +27,12 @@ import tempfile
 import time
 from pathlib import Path
 
-import requests
 import yaml
 
-from .common import READY_TIMEOUT, Gone, HttpError, SeedError, excerpt, files, has_seed, log, owned, parse_yaml_all, pause, record, render, slot, \
-    setting, wait_until
+from .common import READY_TIMEOUT, REFUSED, Api, Gone, HttpError, SeedError, excerpt, files, forget, has_seed, log, owned, pause, \
+    record, render_yaml, setting, wait_until
 
 SECTION = "k8s"
-DEPENDS = ("apim",)   # the modules whose work this one reads on the platform (schedule.py)
 # What it records
 ORDER = ["resource", "namespace"]
 FIELD_MANAGER = "gravitee-lab"
@@ -46,8 +44,9 @@ DELETE_FIRST = ["Subscription", "Application", "ApiV4Definition", "ApiDefinition
 DELETE_LAST = ["ManagementContext"]
 
 
-class Cluster:
-    """The Kubernetes API of a kubeconfig, over HTTP: the client certificate or the token of its first user."""
+class Cluster(Api):
+    """The Kubernetes API of a kubeconfig, over HTTP: the client certificate or the token of its first user. Its requests
+    follow the policy of every request of the seed (`common.Api.call`)."""
 
     def __init__(self, kubeconfig):
         data = yaml.safe_load(Path(kubeconfig).read_text(encoding="utf-8")) or {}
@@ -56,8 +55,8 @@ class Cluster:
             user = data["users"][0]["user"]
         except (KeyError, IndexError, TypeError) as e:
             raise SeedError(f"{kubeconfig} is not a kubeconfig with a cluster and a user") from e
-        self.server = cluster["server"].rstrip("/")
-        self.session = requests.Session()
+        super().__init__(cluster["server"], SECTION)
+        self.server = self.base_url
         self.dir = tempfile.mkdtemp(prefix="kube-")
         ca = self.file("ca.crt", cluster.get("certificate-authority-data"))
         self.session.verify = ca if ca else not cluster.get("insecure-skip-tls-verify", False)
@@ -75,13 +74,6 @@ class Cluster:
         with open(os.open(path, os.O_WRONLY | os.O_CREAT, 0o600), "wb") as f:
             f.write(base64.b64decode(encoded))
         return path
-
-    def call(self, method, path, expect=range(200, 300), **kwargs):
-        with slot():
-            r = self.session.request(method, self.server + path, timeout=kwargs.pop("timeout", 30), **kwargs)
-        if r.status_code not in expect:
-            raise HttpError(f"{method} {path}: HTTP {r.status_code} {excerpt(r.text)}", r.status_code, r.text)
-        return r
 
     def resource(self, api_version, kind):
         """(plural, namespaced) of a kind, found in the discovery document of its group: a kind the cluster does not know
@@ -109,7 +101,7 @@ def manifests():
     """The manifests of seed/k8s, in order, with their variables replaced."""
     out = []
     for path in files("k8s", suffixes=(".yaml", ".yml")):
-        for doc in parse_yaml_all(render(path.read_text(encoding="utf-8"), path), str(path)):
+        for doc in render_yaml(path.read_text(encoding="utf-8"), path, every=True):
             if doc:
                 if not all(doc.get(k) for k in ("apiVersion", "kind")) or not doc.get("metadata", {}).get("name"):
                     raise SeedError(f"{path.name}: a manifest needs apiVersion, kind and metadata.name")
@@ -199,7 +191,7 @@ def seed():
         return
     docs = manifests()
     cluster = Cluster(setting("KUBECONFIG"))
-    wait_until(SECTION, "the Kubernetes API", lambda: cluster.call("GET", "/readyz", timeout=10))
+    wait_until(SECTION, "the Kubernetes API", lambda: cluster.call("GET", "/readyz", timeout=10), final=REFUSED)
     for doc in docs:
         api_version, kind, namespace, name = identity(doc)
         wait_until(SECTION, f"the cluster to know {kind}", lambda: cluster.resource(api_version, kind))
@@ -265,8 +257,9 @@ def remove(records):
     cluster = Cluster(setting("KUBECONFIG"))
     try:
         cluster.call("GET", "/readyz", timeout=10)
-    except (requests.RequestException, SeedError) as e:
+    except SeedError as e:
         log(SECTION, f"! The cluster does not answer ({excerpt(e, 200)}): what it holds is left as it is")
+        forget(*mine)
         return
     deleted = set()
     for namespace in namespaces_of(mine):
@@ -281,12 +274,14 @@ def remove(records):
     resources = [x for x in mine if x["kind"] == "resource"]
     for item in reversed(resources):
         path = cluster.path(item["apiVersion"], item["kind_name"], item["namespace"], item["id"])
-        if path in deleted:
-            continue
-        try:
-            delete_retrying(cluster, path, item["name"])
-        except SeedError as e:
-            log(SECTION, f"! {item['name']}: {e}")
-    for namespace in namespaces_of(mine):
-        cluster.call("DELETE", f"/api/v1/namespaces/{namespace}", expect=(200, 202, 404))
-        log(SECTION, f"✓ namespace {namespace} deleted")
+        if path not in deleted:
+            try:
+                delete_retrying(cluster, path, item["name"])
+            except SeedError as e:
+                log(SECTION, f"! {item['name']}: {e}")
+                continue
+        forget(item)
+    for x in (x for x in mine if x["kind"] == "namespace"):
+        cluster.call("DELETE", f"/api/v1/namespaces/{x['name']}", expect=(200, 202, 404))
+        forget(x)
+        log(SECTION, f"✓ namespace {x['name']} deleted")

@@ -63,16 +63,13 @@ import re
 import uuid
 from pathlib import Path
 
-import requests
 import yaml
 
 from . import common
-from .common import (Api, SeedError, created, excerpt, files, items, load, log, owned, parallel, pause, record, recorded, save_created, seed_file,
-                    setting, text, wait_until)
+from .common import (OK, REFUSED, Api, HttpError, SeedError, adopted, claimed, created, excerpt, files, items, load, log, making, owned,
+                     parallel, record, recorded, seed_file, setting, text, unmade, wait_until)
 
 SECTION = "apim-portal"
-DEPENDS = ("apim",)   # the modules whose work this one reads on the platform (schedule.py)
-MEANWHILE = ("apim",)   # a seed starts it with them: the portal of an environment waits for that environment's APIs (apply)
 ORDER = ["portal-api-page", "portal-listing", "portal-link", "portal-page", "portal", "portal-theme"]   # what depends on what: removed first
 KINDS = {"portal-theme": ("portal theme", "portal themes"), "portal": ("portal", "portals"),
          "portal-page": ("portal page", "portal pages"), "portal-link": ("portal link", "portal links"),
@@ -90,8 +87,6 @@ DOC_KINDS = {"asyncapi": (ASYNCAPI_TITLE, "ASYNCAPI", "ASYNCAPI"), "openapi": (O
 ASYNCAPI_VERSIONS = ("2.0.0", "2.1.0", "2.2.0", "2.3.0", "2.4.0", "2.5.0", "2.6.0", "3.0.0", "3.1.0")
 API_PAGE_VISIBILITY = "PUBLIC"   # of a page of the API itself: the visibility of the API says who may open the API and so its pages
 
-RETRIES = 4   # times a request that got no answer (a connection that fails, a timeout), a 5xx or a 429 is tried again
-RETRY_PAUSE = 8   # seconds before each: a management API that reloads is back within about half a minute
 MAX_IMAGE = 256 * 1024   # bytes of an image file: a theme is one document of the platform's database, and its images are in it
 IMAGE_TYPES = {".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
                ".gif": "image/gif", ".webp": "image/webp", ".ico": "image/x-icon"}
@@ -167,8 +162,6 @@ class Scope:
             spec = load(path, provided=self.provided)
         except SeedError as e:
             raise SeedError(str(e).replace(str(path), shown(path))) from None
-        except yaml.YAMLError as e:
-            raise SeedError(f"{shown(path)}: it is not YAML ({excerpt(e, 200)})") from None
         if not isinstance(spec, dict):
             raise SeedError(f"{shown(path)}: it is not a mapping")
         unknown = sorted(set(spec) - set(keys))
@@ -355,7 +348,7 @@ def api_document(scope, path):
     try:
         spec = yaml.safe_load(document)
     except yaml.YAMLError as e:
-        raise SeedError(f"{shown(path)}: it is not YAML ({excerpt(e, 200)})") from None
+        raise SeedError(common.unreadable(shown(path), e)) from None
     if isinstance(spec, dict) and spec.get("openapi") is not None and spec.get("asyncapi") is None:
         info = spec.get("info")
         if not isinstance(info, dict) or any(info.get(key) in (None, "") for key in ("title", "version")):
@@ -513,7 +506,7 @@ class Portals:
         management = setting("APIM_MANAGEMENT_URL")
         self.org = setting("APIM_ORG", "DEFAULT")
         self.path = setting("APIM_MANAGEMENT_PATH", "/management")   # /apim/rest on the Cloud Gate of Gravitee Cloud
-        self.console, self.automation = Api(management), Api(setting("AIM_AUTOMATION_URL", management))
+        self.console, self.automation = Api(management, SECTION), Api(setting("AIM_AUTOMATION_URL", management), SECTION)
         self.found = {}   # environment -> whether the platform has it, asked once
 
     def v1(self, env):
@@ -532,27 +525,13 @@ class Portals:
                 api.session.headers["Authorization"] = f"Bearer {token}"
             else:
                 api.session.auth = (setting("APIM_USERNAME"), setting("APIM_PASSWORD"))
-        wait_until(SECTION, "API Management", lambda: self.console.get(f"{self.path}/organizations/{self.org}/environments"))
+        wait_until(SECTION, "API Management", lambda: self.console.get(f"{self.path}/organizations/{self.org}/environments"),
+                   final=REFUSED)
 
     def ask(self, what, api, method, path, passed=(), **kwargs):
-        """The response of a call of the management API, asked again after a pause when the platform cannot answer now: a connection
-        that fails or times out as much as a 5xx or a 429, RETRIES times, and then the seed stops with what it said. Any other refusal
-        stops it at once with the platform's message, and a status in `passed` is handed back to the caller, which says what it means."""
-        for attempt in range(RETRIES + 1):
-            try:
-                response = api.send(method, path, timeout=30, **kwargs)
-            except requests.RequestException as e:
-                short = said = f"no answer from the management API: {type(e).__name__}"   # its address is no help to a reader
-            else:
-                if response.ok or response.status_code in passed:
-                    return response
-                short, said = f"HTTP {response.status_code}", f"HTTP {response.status_code} {excerpt(response.text, 300)}".rstrip()
-                if response.status_code < 500 and response.status_code != 429:
-                    raise SeedError(f"{what}: {said}")
-            if attempt == RETRIES:
-                raise SeedError(f"{what}: {said} ({RETRIES + 1} tries)")
-            log(SECTION, f"! {what}: {short}, trying again")
-            pause(RETRY_PAUSE)
+        """The answer to a call of the management API, named `what` in what is said: asked again as every call of the seed is
+        (`common.Api.call`), and a status in `passed` is handed back to the caller, which says what it means."""
+        return api.call(method, path, expect=(*OK, *passed), what=what, **kwargs)
 
     def environment(self, env, name):
         """The name of an environment, which the files of its portal are rendered with; the environment must be there."""
@@ -586,7 +565,6 @@ class Portals:
         return out
 
     def apply(self, folder):
-        common.reached(f"apim:{folder.env}", also="apim")   # its listings name APIs that API Management is making
         log(SECTION, f"Developer Portal of {folder.env}")
         if folder.theme:
             self.upsert(folder, "portal-theme", folder.theme)
@@ -629,10 +607,8 @@ class Portals:
                  and x.get("hrid") not in wanted[x["kind"]]]
         for x in stale:
             self.delete(x)
+            common.forget(x)
             log(SECTION, f"✓ Deleted {x['kind']} '{x['name']}': its file is gone")
-        if stale:
-            with common._state:
-                save_created([x for x in created() if x not in stale])
 
     def upsert(self, folder, kind, body):
         """The object, created when the platform has none, updated when it holds the seed's and is not as the file says."""
@@ -643,19 +619,21 @@ class Portals:
         what = f"{one.capitalize()} {hrid} in {env}"
         found = self.ask(what, self.automation, "GET", f"{self.auto(env)}{collection}/{hrid}", passed=(404,))
         verb = "created"
+        extra = {"portal": portal} if kind in ("portal-page", "portal-link") else {}
         if found.status_code == 200:
-            if not recorded(SECTION, kind, found.json().get("id")):
+            if not recorded(SECTION, kind, found.json().get("id")) and not adopted(SECTION, kind, f"{env}: {hrid}", found.json().get("id"),
+                                                                                  env=env, hrid=hrid, **extra):
                 raise SeedError(f"{what}: the hrid is taken by one the seed did not create")
             if covers(found.json(), body):
                 log(SECTION, f"{one.capitalize()} exists: {env}: {hrid}")
                 return
             verb = "updated"
-        state = self.ask(what, self.automation, "PUT", f"{self.auto(env)}{collection}", json=body).json()
-        problems = state.get("errors") or {}
-        if problems.get("severe"):
-            raise SeedError(f"{what}: {excerpt('; '.join(problems['severe']), 300)}")
-        extra = {"portal": portal} if kind in ("portal-page", "portal-link") else {}
-        record(SECTION, kind, many, f"{env}: {hrid}", state["id"], env=env, hrid=hrid, **extra)
+        with making(SECTION, kind, many, f"{env}: {hrid}", missing=verb == "created", env=env, hrid=hrid, **extra):
+            state = self.ask(what, self.automation, "PUT", f"{self.auto(env)}{collection}", json=body).json()
+            problems = state.get("errors") or {}
+            if problems.get("severe"):
+                raise SeedError(f"{what}: {excerpt('; '.join(problems['severe']), 300)}")
+            record(SECTION, kind, many, f"{env}: {hrid}", state["id"], env=env, hrid=hrid, **extra)
         log(SECTION, f"✓ {one.capitalize()} {verb}: {env}: {hrid}")
 
     # --- Listings -------------------------------------------------------------------------
@@ -864,21 +842,26 @@ class Portals:
             for kind, title, content, homepage, label in asked:
                 page = next((p for p in live if p.get("type") == kind and p.get("name") == title), None)
                 body = {"type": kind, "name": title, "visibility": API_PAGE_VISIBILITY, "homepage": homepage, "content": content}
-                if page and page["id"] not in mine:
+                if page and page["id"] not in mine and not claimed(SECTION, "portal-api-page", label):
                     raise SeedError(f"{label}: the page is taken by one the seed did not create")
                 if not page:
-                    page = self.refusable(label, "POST", address, body)
-                    mine.add(page["id"])
-                    own.append({"api": api["id"], "page": page["id"]})
-                    note(own)
+                    with making(SECTION, "portal-api-page", KINDS["portal-api-page"][1], label):   # the listing's record holds it once it is made
+                        page = self.refusable(label, "POST", address, body)
+                        mine.add(page["id"])
+                        own.append({"api": api["id"], "page": page["id"]})
+                        note(own)
+                    unmade(SECTION, "portal-api-page", label)
                     changed = True
                 else:
                     own.append({"api": api["id"], "page": page["id"]})
+                    if page["id"] not in mine:   # claimed: in the listing's record at once, as a page just made
+                        mine.add(page["id"])
+                        note(own)
                     if (page.get("content"), page.get("visibility"), bool(page.get("homepage"))) != (content, API_PAGE_VISIBILITY, homepage):
                         page = self.refusable(label, "PUT", f"{address}/{page['id']}", {**body, "order": page.get("order", 0)})
                         changed = True
                 if not page.get("published"):
-                    self.ask(label, self.console, "POST", f"{address}/{page['id']}/_publish")
+                    self.ask(label, self.console, "POST", f"{address}/{page['id']}/_publish", idempotent=True)
                     changed = True
         return own, changed
 
@@ -887,7 +870,7 @@ class Portals:
         HTML first, and refuses one it cannot (a 400 that names the expression or the tag), which stops the seed with that."""
         answer = self.ask(what, self.console, method, address, json=body, passed=(400,))
         if answer.status_code == 400:
-            raise SeedError(f"{what}: the platform refuses it: {excerpt(reason(answer), 250)}")
+            raise HttpError(f"{what}: the platform refuses it: {excerpt(reason(answer), 250)}", 400, answer.text)
         return answer.json()
 
     def put(self, env, what, item, changes, params=None):
@@ -941,4 +924,5 @@ def remove(records):
     portals.connect()
     for x in mine:
         gone = "" if portals.delete(x) else ": its environment is gone"   # an environment that is gone has nothing left in it
+        common.forget(x)
         log(SECTION, f"✓ Deleted {x['kind']} '{x['name']}'{gone}")

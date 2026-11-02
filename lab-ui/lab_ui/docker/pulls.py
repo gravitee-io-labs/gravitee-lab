@@ -22,11 +22,9 @@ class Pulls:
     def __init__(self, clock=time.monotonic):
         self._images, self._samples, self._clock = {}, deque(), clock
 
-    def event(self, event, quiet=False):
+    def event(self, event):
         """Takes one line of Compose's progress. Answers the line a plain progress would have printed for it
-        ("Image redis:8 Pulled"), None when it says nothing the output shows (a layer, an image already there).
-        `quiet`: a pull that may fail without the job failing, since the command it comes before says why: an image
-        refused is not said."""
+        ("Image redis:8 Pulled"), None when it says nothing the output shows (a layer, an image already there)."""
         name, text, parent = event.get("id") or "", event.get("text") or "", event.get("parent_id") or ""
         if parent.startswith("Image "):
             self._layer(parent[6:], name, text, event)
@@ -37,15 +35,17 @@ class Pulls:
         if text == "Skipped":   # it is there already
             self._images.pop(image, None)
             return None
+        if text == "Interrupted":   # another image failed, or the job was canceled: it is not on its way any more
+            self._images.pop(image, None)
+            return f"{name} {text}"
         if text == "Pulling":
             self._images.setdefault(image, {"layers": {}, "state": PULLING})
         elif text == "Pulled":
             self._images.setdefault(image, {"layers": {}})["state"] = PULLED
         elif text == "Error":
-            self._images.setdefault(image, {"layers": {}})["state"] = FAILED
-            if quiet:
-                return None
-            return f"{name} Error {' '.join((event.get('details') or '').split())}".rstrip()
+            found = self._images.setdefault(image, {"layers": {}})
+            found["state"], found["why"] = FAILED, " ".join((event.get("details") or "").split())
+            return f"{name} Error {found['why']}".rstrip()
         else:
             return None
         return f"{name} {text}"
@@ -94,6 +94,10 @@ class Pulls:
         found = self._images.get(image)
         total = sum(layer["total"] for layer in found["layers"].values()) if found else 0
         return sum(layer["current"] for layer in found["layers"].values()) / total if total else None
+
+    def refused(self):
+        """The images that could not be pulled, in the order Compose named them: [(image, Docker's reason)]."""
+        return [(image, found.get("why") or "") for image, found in self._images.items() if found.get("state") == FAILED]
 
     def view(self):
         """What the page draws: {"images": [{image, state, current, total}], "speed"}; None before any image."""

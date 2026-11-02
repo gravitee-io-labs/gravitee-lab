@@ -527,6 +527,7 @@ class Protections(Authorization):
                 self.assertEqual(self.statuses()[name], "DEPLOYED", name)
 
     def test_the_deployment_of_a_control_is_waited_for(self):
+        self.env(SEED_WAIT_GATEWAY="1")
         self.env(SEED_PROTECTIONS="off", GATEWAY_SYNC_SECONDS="5")
         self.seeded()
         self.by_name(CAP_POLICY)["status"] = "DEPLOYED"
