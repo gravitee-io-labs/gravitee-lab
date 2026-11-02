@@ -204,6 +204,11 @@ class Running(Case):
         self.assertEqual(ran, [1])
 
 
+# How long a test waits for a job whose command it ends: the command gets a termination, then a kill GRACE seconds later
+# (compose.end). A runner under load may need the kill, and a command the job never ended sleeps for minutes
+ENDED = compose.GRACE + 10
+
+
 def waited(done, seconds=10):
     """Whether `done()` comes true within a few seconds."""
     deadline = time.monotonic() + seconds
@@ -240,7 +245,7 @@ class Cut(Case):
         self.patch(jobs, "SILENT", 0.3)
         self.patch(jobs, "WATCH", 0.05)
         job, thread = self.run_job("echo pulling; exec sleep 600")
-        thread.join(10)
+        thread.join(ENDED)
         self.assertFalse(thread.is_alive(), "the job still waits")
         self.assertEqual((job.ok, job.lines[-2]), (False, "pulling"))
         self.assertTrue(job.error().startswith("Stopped: nothing happened for"), job.error())
@@ -255,7 +260,7 @@ class Cut(Case):
         job.observe({"gio-mongodb": "issue"}, began + jobs.STUCK - 1)
         self.assertIsNone(job._why)   # not yet
         job.observe({"gio-mongodb": "issue"}, began + jobs.STUCK)
-        thread.join(10)
+        thread.join(ENDED)
         self.assertFalse(thread.is_alive(), "the job still waits")
         self.assertEqual((job.ok, job.error()), (False, "gio-mongodb keeps restarting"))
 
@@ -270,7 +275,7 @@ class Cut(Case):
             job.observe({"gio-mongodb": "issue", "gio-redis": step}, began + at)
         self.assertIsNone(job._why)   # nothing ended it
         job.cancel()
-        thread.join(10)
+        thread.join(ENDED)
         self.assertEqual(job.error(), "Canceled")
 
     def test_one_that_restarted_while_it_warmed_up_and_runs_since_is_not_ended(self):
@@ -301,7 +306,7 @@ class Cut(Case):
                 cut = at
                 break
         self.assertIsNotNone(cut, "only the 15 min of silence end it")
-        thread.join(10)
+        thread.join(ENDED)
         self.assertEqual((job.ok, job.error()), (False, "gio-mongodb keeps restarting"))
 
     # A step may go on once a command of its own was ended (plugins.up starts the next services anyway): the next
@@ -319,7 +324,7 @@ class Cut(Case):
                 caught.append(str(failed))
             job.exec(["sh", "-c", "exec sleep 600"])
         job, thread = self.run_job(step)
-        thread.join(10)
+        thread.join(ENDED)
         self.assertEqual(len(caught), 1, caught)
         self.assertFalse(thread.is_alive(), "the second command still runs")
         self.assertIs(job.ok, False)
@@ -339,7 +344,7 @@ class Cut(Case):
             began = time.monotonic()
             job.observe({name: "issue"}, began)
             job.observe({name: "issue"}, began + jobs.STUCK)
-        thread.join(10)
+        thread.join(ENDED)
         self.assertFalse(thread.is_alive(), "the second command still waits for gio-api")
         self.assertEqual((caught, job.ok, job.error()), (["gio-hybrid keeps restarting"], False, "gio-api keeps restarting"))
 
@@ -358,7 +363,7 @@ class Cut(Case):
                    "services": {"api": "/opt/api/plugins", "hybrid": "/opt/h/plugins"}}
         project = {"products": {"apim": product}, "services": {"api": service("gio-api"), "hybrid": service("gio-hybrid")}}
         job, thread = self.run_job(lambda job: plugins.up(job, project, ["hybrid", "api"]))
-        thread.join(10)
+        thread.join(ENDED)
         self.assertFalse(thread.is_alive(), "plugins.up still waits on the `up` of the rest")
         self.assertEqual([line.split(" compose ")[-1] for line in job.lines if line.startswith("$")],
                          ["up -d --no-deps api", "up -d --no-deps hybrid"])   # the wait in between is quiet, and was ended
