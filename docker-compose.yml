@@ -378,7 +378,7 @@ services:
   # Access Management
 
   am-management-api:
-    image: ${AM_REGISTRY:-graviteeio}/am-management-api:${AM_VERSION:-4.13.1}
+    image: ${AM_REGISTRY:-graviteeio}/am-management-api:${AM_VERSION:-4.13.2}
     container_name: gio-am-management-api
     restart: unless-stopped
     depends_on:
@@ -402,7 +402,7 @@ services:
       - internal
 
   am-gateway:
-    image: ${AM_REGISTRY:-graviteeio}/am-gateway:${AM_VERSION:-4.13.1}
+    image: ${AM_REGISTRY:-graviteeio}/am-gateway:${AM_VERSION:-4.13.2}
     container_name: gio-am-gateway
     restart: unless-stopped
     depends_on:
@@ -428,7 +428,7 @@ services:
       - internal
 
   am-management-ui:
-    image: ${AM_REGISTRY:-graviteeio}/am-management-ui:${AM_VERSION:-4.13.1}
+    image: ${AM_REGISTRY:-graviteeio}/am-management-ui:${AM_VERSION:-4.13.2}
     container_name: gio-am-management-ui
     restart: unless-stopped
     depends_on:
