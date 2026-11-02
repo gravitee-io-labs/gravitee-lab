@@ -58,6 +58,31 @@ class Declared(Case):
                 self.assertEqual(frames.tabs([link("Odd", url, "odd"), *self.LINKS], ["odd", "gamma-ui"]),
                                  [{"id": "gamma-ui", "label": "Gamma Console", "url": GAMMA, "service": "gamma-ui"}])
 
+    def test_a_service_can_be_shown_again_signed_in_as_an_account(self):
+        # A persona's tab: the same console, named for whom it is signed in as, on a host of its own
+        accounts = [{"for": "Developer Portal: Anouk Bakker, Van Dijk's developer", "username": "dev@vandijk-logistics.test"},
+                    {"for": "The admin", "username": "admin"}]
+        found = frames.tabs(self.LINKS, ["portal", {"console": "portal", "as": "dev@vandijk-logistics.test"},
+                                         {"console": "gamma-ui", "as": "admin"}], accounts)
+        self.assertEqual(found, [
+            {"id": "portal", "label": "Developer Portal", "url": "http://localhost:8085/next/", "service": "portal"},
+            {"id": "portal@dev-vandijk-logistics-test", "label": "Developer Portal as Anouk Bakker", "url": "http://localhost:8085/next/",
+             "service": "portal", "persona": "dev-vandijk-logistics-test", "as": "dev@vandijk-logistics.test"},
+            {"id": "gamma-ui@admin", "label": "Gamma Console as The admin", "url": GAMMA, "service": "gamma-ui",
+             "persona": "admin", "as": "admin"}])
+
+    def test_a_persona_that_is_no_account_or_comes_twice_is_one_tab_at_most(self):
+        accounts = [{"for": "Anna", "username": "anna"}]
+        found = frames.tabs(self.LINKS, [{"console": "portal", "as": "bob"}, {"console": "portal", "as": "anna"},
+                                         {"console": "portal", "as": "anna"}, {"console": 8085}, {"as": "anna"}], accounts)
+        self.assertEqual([tab["id"] for tab in found], ["portal@anna"])
+
+    def test_the_host_label_of_a_persona_is_its_username_as_a_host_name_holds_it(self):
+        for username, label in (("anouk@van-dijk.test", "anouk-van-dijk-test"), ("Admin", "admin"), ("@@", "persona"),
+                                ("x" * 80, "x" * 63)):
+            with self.subTest(username=username):
+                self.assertEqual(frames.persona(username), label)
+
     def project(self):
         services = {"bakery-web": {}, "gamma-ui": {}, "tracing-ui": {}, "am-ui": {}}
         links = [*self.LINKS, link("Tracing", GAMMA + "/tracing", "tracing-ui")]

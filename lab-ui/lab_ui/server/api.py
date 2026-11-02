@@ -24,7 +24,7 @@ from urllib.parse import parse_qs, urlparse
 from ..library import check, drift, files, layers, layout, machine, model, personal, playgrounds, plugins, project, starred, updates
 from ..docker import compose, images, terminal
 from ..gravitee import core, license, places, platforms, probe
-from . import dashboard, stack
+from . import dashboard, personas, stack
 from .. import paths
 from ..catalogs import contribute, exports, firstrun, gitx, kept, moving, service, standalone, trust
 from ..catalogs.registry import CatalogError
@@ -870,6 +870,24 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         self.route("POST")
 
+    # What a persona's tab asks of the Management API (personas.py) uses every method; nothing else of the Lab UI does
+    def do_PUT(self):
+        self.relay("PUT")
+
+    def do_DELETE(self):
+        self.relay("DELETE")
+
+    def do_PATCH(self):
+        self.relay("PATCH")
+
+    def do_OPTIONS(self):
+        self.relay("OPTIONS")
+
+    def relay(self, method):
+        if personas.handles(urlparse(self.path).path):
+            return personas.relay(self, method)
+        return self.answer(405, b"")
+
     def allowed(self, method):
         """Only this Lab UI's own page uses the API: asked for by a local name, not from a page of another site (a
         browser says where a request comes from), and a POST carries a header that such a page cannot send without a
@@ -881,6 +899,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def route(self, method):
         url = urlparse(self.path)
+        if personas.handles(url.path):
+            return personas.relay(self, method)
         if not self.allowed(method):
             if method == "GET" and url.path == "/":   # a person opening the page: say where it is
                 address = f"http://localhost:{self.server.server_port}"

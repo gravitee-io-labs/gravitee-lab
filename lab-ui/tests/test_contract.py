@@ -306,10 +306,13 @@ def frame_items(folders):
     return {("frame.message", name): "" for name in found}
 
 
-def key_items(meta, owners, requires):
-    """The keys a unit may carry in x-gravitee and in its `requires`, with the kind that reads each (`any` when all)."""
+def key_items(meta, owners, requires, parts=None):
+    """The keys a unit may carry in x-gravitee and in its `requires`, with the kind that reads each (`any` when all), and the
+    keys of an entry of a list that is written as a mapping (`parts`), read by the kind that reads the list."""
     items = {("unit.key", f"x-gravitee.{key}"): f"kinds={owners.get(key, 'any')}" for key in meta}
     items.update({("unit.key", f"x-gravitee.requires.{key}"): "kinds=any" for key in requires})
+    items.update({("unit.key", f"x-gravitee.{key}.{part}"): f"kinds={owners.get(key, 'any')}"
+                  for key, names in (parts or {}).items() for part in names})
     return items
 
 
@@ -380,7 +383,7 @@ def stated(config=None, variables=None):
     names = [found["key"] for found in compose.variables(CORE_FILE)] if variables is None else variables
     items = core_items(config, names)
     items.update(catalog_items(manifest.KEYS, manifest.PARTS))
-    items.update(key_items(check.META, check.KEY_OF, check.REQUIRES))
+    items.update(key_items(check.META, check.KEY_OF, check.REQUIRES, check.PARTS))
     items.update(label_items(paths.LAB_UI_DIR / "lab_ui", config, project.CONSOLE_LABEL))
     items.update({("label.value", f"{label}={value}"): "" for label, values in understood.LABEL_VALUES.items() for value in values})
     items.update(seed_items(ROOT / "seeder"))
@@ -921,6 +924,11 @@ def go(kind, name):
         self.assertEqual(key_items({"name", "gateway"}, {"gateway": "addon"}, {"images"}),
                          {("unit.key", "x-gravitee.name"): "kinds=any", ("unit.key", "x-gravitee.gateway"): "kinds=addon",
                           ("unit.key", "x-gravitee.requires.images"): "kinds=any"})
+        self.assertEqual(key_items({"consoles", "terminal"}, {"terminal": "playground"}, set(),
+                                   {"consoles": ("console", "as"), "terminal": ("name",)}),
+                         {("unit.key", "x-gravitee.consoles"): "kinds=any", ("unit.key", "x-gravitee.terminal"): "kinds=playground",
+                          ("unit.key", "x-gravitee.consoles.console"): "kinds=any", ("unit.key", "x-gravitee.consoles.as"): "kinds=any",
+                          ("unit.key", "x-gravitee.terminal.name"): "kinds=playground"})
 
     def test_the_core_services_say_their_container_ports_healthcheck_and_networks(self):
         config = {"services": {

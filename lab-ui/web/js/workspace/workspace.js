@@ -10,7 +10,7 @@ import { unopened, stateDot, dockerDown, setOff } from "../components/ui.js";
 import { Divider } from "../components/divider.js";
 import { TermPane } from "./termpane.js";
 import { fits, chooseTab, looksAt, linkTarget, opening, originOf, isReady, located, actionOf, actionMessage, actionReason, newPage,
-  terminalReason } from "./split.js";
+  terminalReason, frameName } from "./split.js";
 
 const DETAILS = "@details";    // the last tab, which is not a UI: its id is none a service has
 const RUNS = "button.guide-run";       // the buttons markdown.js makes of the guide's blocks to run: they type at the shell's prompt
@@ -64,9 +64,14 @@ function paint() {
   paintGuide();
 }
 
-// Open in a new tab opens the page the UI is on, when it said which, else the address it was last sent to
+// Open in a new tab opens the page the UI is on, when it said which, else the address it was last sent to. A persona's opens under
+// the name of its frame, which keeps it that persona's.
 function linkOpen(panel) {
-  if (panel.tab.id === shown) $("[data-open]", card).href = panel.current || panel.url;
+  if (panel.tab.id !== shown) return;
+  const link = $("[data-open]", card), name = frameName(panel.tab);
+  link.href = panel.current || panel.url;
+  link.target = name || "_blank";
+  link.rel = name ? "" : "noopener";
 }
 
 // --- The actions of the guide -----------------------------------------------------------
@@ -176,7 +181,8 @@ function noticeHtml({ tab, status, reason, url }) {
 }
 
 function makeFrame(panel) {
-  const el = Object.assign(document.createElement("iframe"), { title: panel.tab.label, src: panel.tab.url, allow: "clipboard-write" });
+  const el = Object.assign(document.createElement("iframe"), { name: frameName(panel.tab), title: panel.tab.label,
+    src: panel.tab.url, allow: "clipboard-write" });
   const wait = Object.assign(document.createElement("div"), { className: "pg-wait", innerHTML: loading("Loading") });
   // A person on the keyboard who opened the tab keeps it: the UI may take the focus as it loads (Gamma does)
   const keys = card.contains(document.activeElement) && document.activeElement.matches('[role="tab"]:focus-visible');

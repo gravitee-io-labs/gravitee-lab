@@ -667,16 +667,33 @@ class Playgrounds(Machine):
         self.assertEqual(self.playground(), [])
         self.assertEqual(self.playground(meta={"consoles": []}), [])
         self.assertEqual(self.playground(meta={"consoles": ["acme-website"]}), [])
-        # Written otherwise than a list of names: the project says it once, among the catalog's problems, and keeps the names
-        shape = {"file": fixtures.unit_file("fixture", "playground", "welcome"), "message": "x-gravitee.consoles must be a list of services"}
+        # Written otherwise than a list of names and personas' entries: the project says it once, among the catalog's
+        # problems, and keeps the entries that are written as one
+        shape = {"file": fixtures.unit_file("fixture", "playground", "welcome"),
+                 "message": "x-gravitee.consoles must be a list of services, or of {console: a service, as: the username of one of its accounts}"}
         for consoles, kept in (("acme-website", []), (["acme-website", 8002], ["acme-website"]), ({"acme-website": 1}, []),
-                               (["acme-website", {"console": "apim-portal-ui", "as": "someone"}], ["acme-website"])):
+                               (["acme-website", {"console": "acme-website"}], ["acme-website"]),
+                               ([{"console": "acme-website", "as": ""}], []),
+                               ([{"console": "acme-website", "as": "anna", "port": 1}], [])):
             with self.subTest(consoles=consoles):
                 self.assertEqual(self.playground(meta={"consoles": consoles}), [])
                 self.assertEqual(self.built["playgrounds"]["welcome"]["consoles"], kept)
                 self.assertIn(shape, [{key: one[key] for key in ("file", "message")} for one in self.built["catalog_problems"]["fixture"]])
         self.assertEqual(self.playground(meta={"consoles": ["acme-website", "acme-website"]}),
                          ["x-gravitee.consoles: acme-website is listed twice"])
+
+    def test_a_console_can_be_shown_again_signed_in_as_one_of_its_accounts(self):
+        # A persona's tab: the same service, as the username of one of its accounts, once for each
+        accounts = [{"for": "The shop: Anna, a buyer", "username": "anna@acme.test", "password": "x"}]
+        anna = {"console": "acme-website", "as": "anna@acme.test"}
+        self.assertEqual(self.playground(meta={"consoles": ["acme-website", anna], "accounts": accounts}), [])
+        self.assertEqual(self.playground(meta={"consoles": [anna, dict(anna)], "accounts": accounts}),
+                         ["x-gravitee.consoles: acme-website is listed twice as anna@acme.test"])
+        self.assertEqual(self.playground(meta={"consoles": [{"console": "acme-website", "as": "bob@acme.test"}], "accounts": accounts}),
+                         ["x-gravitee.consoles: acme-website is shown as bob@acme.test, which is no username of its accounts"])
+        # The service is checked as any other
+        self.assertEqual(self.playground(meta={"consoles": [{"console": "hello-agent", "as": "anna@acme.test"}], "accounts": accounts}),
+                         ["x-gravitee.consoles: hello-agent is not a service with a console that this playground runs"])
         # A service with no console, one that does not exist, one that this playground does not run
         nothing = "is not a service with a console that this playground runs"
         for name in ("hello-agent", "nothing", "agent-lens"):

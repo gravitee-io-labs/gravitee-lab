@@ -40,9 +40,13 @@ CHAPTER = re.compile(r"^## \d+\.\s*(.+)$", re.M)   # the guide's numbered sectio
 URL_PORT = re.compile(r"\w+://[^/:]+:(\d+)")
 BROUGHT = {"addon": "needs", "setup": "members", "playground": "addons"}   # where a unit lists what it brings
 GATEWAY_KEYS = ("platform", "service", "token")   # what an add-on says of the gateway it runs, each a text
-# The lists of an x-gravitee block that the pages read, each as how it must be written and what each entry is
-LISTED = {"consoles": ("a list of services", str), "tags": ("a list of short labels", str),
-          "accounts": ("a list of accounts, each a mapping", dict)}
+# The lists of an x-gravitee block that the pages read, each as how it must be written and whether an entry is: a console is a
+# service, or {console, as} for its UI signed in as one of the accounts, a persona's tab (gravitee/frames.py)
+LISTED = {"consoles": ("a list of services, or of {console: a service, as: the username of one of its accounts}",
+                       lambda one: isinstance(one, str) or (isinstance(one, dict) and set(one) == {"console", "as"}
+                                                            and all(isinstance(one[key], str) and one[key] for key in one))),
+          "tags": ("a list of short labels", lambda one: isinstance(one, str)),
+          "accounts": ("a list of accounts, each a mapping", lambda one: isinstance(one, dict))}
 PLUGIN_KINDS = ("entrypoint", "endpoint", "policy", "resource")   # what an API definition names that a plugin provides
 # The lists of an API definition whose items name a plugin by their `type`, and the kind of that plugin
 TYPED = {"entrypoints": "entrypoint", "endpointGroups": "endpoint", "endpoints": "endpoint", "resources": "resource"}
@@ -1016,7 +1020,7 @@ def _lists(meta, path, problems):
         value = meta.get(key)
         if value is None:
             continue
-        found = [one for one in value if isinstance(one, kept)] if isinstance(value, list) else []
+        found = [one for one in value if kept(one)] if isinstance(value, list) else []
         if not isinstance(value, list) or len(found) != len(value):
             problems.append({"file": path, "message": f"x-gravitee.{key} must be {shape}"})
             meta = {**meta, key: found}

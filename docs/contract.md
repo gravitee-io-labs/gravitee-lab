@@ -157,6 +157,8 @@ the check of a catalog reports it. *Kinds* says which kind of unit may carry the
 | `x-gravitee.source` | any | The repository its apps are built from, shown as a link |
 | `x-gravitee.requires` | any | What it needs: the keys below |
 | `x-gravitee.consoles` | any | The services whose UI shows in a tab next to the guide |
+| `x-gravitee.consoles.console` | any | In an entry of `consoles` written `{console, as}`: the service whose UI the tab shows again, signed in as one of the accounts |
+| `x-gravitee.consoles.as` | any | In that entry: the username of the account its tab is signed in as, which keeps its own sign-in |
 | `x-gravitee.accounts` | any | The sign-ins its guide uses, shown with copy buttons. A `password` and a `key` are settings, never literals |
 | `x-gravitee.conflicts` | any | Maps each add-on it cannot run with to the reason. Only an add-on's is read |
 | `x-gravitee.gateway` | addon | The gateway of a remote Gravitee that the add-on runs on this machine: `platform`, `service`, `token` |

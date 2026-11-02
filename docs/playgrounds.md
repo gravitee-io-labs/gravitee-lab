@@ -211,6 +211,14 @@ of the platform.
 - A UI that cannot be framed is not listed. Access Management's console is one: it stays under *Details*, with all the
   platform's consoles.
 - A playground that lists none has its guide beside *Details* alone.
+- An entry can show a console again as one of its `accounts`: `{ console: apim-portal-ui, as: anna@acme.test }`, where
+  `as` is the account's username. Its tab, *Developer Portal as Anna* (the `for` of the account, after its colon and before
+  its first comma), keeps its own sign-in, as a private window would: the portal next to Gamma signed in as the admin. A
+  console is listed once for each persona, and a tab without `as` is the one everybody opens.
+- A persona's tab works in one browser on `localhost:9000`, side by side with the others: its frame is named for the persona,
+  and the platform's UI in it (`lab-ui/frames/hosts.js`) asks the Management API through the Lab UI, under
+  `/persona/<persona>/`, which keeps that persona's cookies apart (`lab_ui/server/personas.py`). *Open in a new tab* opens it
+  under the same name, as that persona. A UI opened anywhere else is the one everybody opens.
 
 ### Deploying to Gravitee Cloud
 

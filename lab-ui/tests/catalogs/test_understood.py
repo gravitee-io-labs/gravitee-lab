@@ -81,11 +81,14 @@ class Unknown(Case):
         self.assertEqual(self.unknown(config), [("core.service", "gamma-agent"), ("core.service", "gamma-gateway"),
                                                 ("core.service", "gamma-portal")])
 
-    def test_a_console_written_as_a_mapping_is_a_form_this_lab_does_not_read_named_by_its_keys(self):
-        # What a newer Lab may read: said by its keys, never as the text of the mapping
+    def test_a_console_written_as_a_mapping_is_read_by_its_keys(self):
+        # A persona's tab, {console, as}, is a form this Lab reads; a key it does not know is what a newer Lab may read: said
+        # by its keys, never as the text of the mapping
         config = unit()
         config["x-gravitee"]["consoles"] = ["echo", {"console": "apim-portal-ui", "as": "someone"}, 8002]
-        self.assertEqual(self.unknown(config), [("unit.key", "x-gravitee.consoles.as"), ("unit.key", "x-gravitee.consoles.console")])
+        self.assertEqual(self.unknown(config), [])
+        config["x-gravitee"]["consoles"] = [{"console": "apim-portal-ui", "as": "someone", "theme": "dark"}]
+        self.assertEqual(self.unknown(config), [("unit.key", "x-gravitee.consoles.theme")])
 
     def test_a_network_it_joins_and_does_not_declare(self):
         config = unit()
