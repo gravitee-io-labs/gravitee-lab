@@ -759,6 +759,11 @@ def says_about_subscription(path, where, sub, plan, says):
         says(path, f"{where}: an apiKey needs a plan with API keys")
 
 
+def _mapping(value):
+    """A mapping of a file as it is, or an empty one for what is written otherwise (the seed says what is wrong with it)."""
+    return value if isinstance(value, dict) else {}
+
+
 def studio_problems(spec):
     """What the seed or the platform refuses of the `subscriptions` of a studio's file (seed/aim/studios), read as the seed
     reads it: what aim_proxies.read_subscriptions refuses, then the plan each names, which its file holds: the `plan` of a
@@ -766,11 +771,13 @@ def studio_problems(spec):
     if not isinstance(spec, dict) or "subscriptions" not in spec:
         return []
     listed = spec["subscriptions"]
+    if listed is None:   # `subscriptions:` with nothing under it, which the seed reads as none
+        return []
     if not isinstance(listed, list) or not all(isinstance(sub, dict) for sub in listed):
         return ["subscriptions is a list of {application, plan, apiKey}"]
     found = []
     for sub in listed:
-        unknown = sorted(set(sub) - set(STUDIO_SUBSCRIPTION))
+        unknown = sorted(set(sub) - set(STUDIO_SUBSCRIPTION), key=str)
         if unknown:
             found.append(f"subscriptions: {_brief(', '.join(map(str, unknown)))} is not a key of a subscription "
                          f"({', '.join(STUDIO_SUBSCRIPTION)})")
@@ -786,10 +793,10 @@ def studio_problems(spec):
     if found:
         return found
     if "access" in spec:
-        plans = {((spec.get("access") or {}).get("agents") or {}).get("name"): "JWT"}
+        plans = {_mapping(_mapping(spec["access"]).get("agents")).get("name"): "JWT"}
     else:
-        plan = spec.get("plan") or {}
-        plans = {plan.get("name"): (plan.get("security") or {}).get("type")}
+        plan = _mapping(spec.get("plan"))
+        plans = {plan.get("name"): _mapping(plan.get("security")).get("type")}
     for sub in listed:
         where = f"subscriptions: {_brief(sub['application'])}"
         name = sub.get("plan", next(iter(plans)))

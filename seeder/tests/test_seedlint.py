@@ -32,7 +32,7 @@ from urllib.parse import urlsplit
 
 import yaml
 
-from lab_seeder import common
+from lab_seeder import aim_proxies, common
 from lab_seeder import seedlint
 from lab_seeder.seedlint import Problem, Report
 
@@ -319,7 +319,6 @@ class Studios(Made):
                 self.assertIn(message, found[0][2])
 
     def test_the_lint_and_the_seed_take_the_same_keys(self):
-        from lab_seeder import aim_proxies
         self.assertEqual(seedlint.STUDIO_SUBSCRIPTION, aim_proxies.SUBSCRIPTION_KEYS)
 
     def test_a_file_of_another_folder_is_not_read_as_a_studio(self):
@@ -1604,3 +1603,28 @@ class InTheEngine(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StudioShapes(Made):
+    """The subscriptions of a studio's file, in a file of any shape: a finding or none, never a crash."""
+
+    STUDIO = ("name: Desk\ncontextPath: /mcp/desk\nsupportedProtocolVersions: ['2025-11-25']\nfga: false\n"
+              "plan: {name: Copilots, security: {type: API_KEY}}\ntools: [{api: Clients API, tool: getClient}]\n")
+
+    def studio(self, text):
+        return seedlint.problems(self.playground({**GOOD, "seed/aim/studios/desk.yaml": text}))
+
+    def test_a_plan_or_an_access_of_another_shape_is_read_without_a_crash(self):
+        for text in ("name: Desk\ncontextPath: /mcp/desk\nplan: Copilots\nsubscriptions: [{application: Copilot}]\n",
+                     "name: Desk\ncontextPath: /mcp/desk\naccess: yes\nsubscriptions: [{application: Copilot}]\n",
+                     "name: Desk\ncontextPath: /mcp/desk\nplan: {name: P, security: API_KEY}\nsubscriptions: [{application: A}]\n"):
+            with self.subTest(text=text):
+                self.assertIsInstance(self.studio(text), list)
+
+    def test_unknown_keys_of_any_type_are_named(self):
+        said = [p.message for p in self.studio(self.STUDIO + "subscriptions: [{application: A, 1: x, b: y}]\n")]
+        self.assertTrue(any("is not a key of a subscription" in message for message in said), said)
+
+    def test_an_empty_list_of_subscriptions_is_what_the_seed_takes(self):
+        self.assertEqual(aim_proxies.read_subscriptions({"subscriptions": None}, "Desk"), [])
+        self.assertEqual(self.studio(self.STUDIO + "subscriptions:\n"), [])

@@ -438,7 +438,7 @@ except API exports, which are `.json` (`seed/apim/apis/*.json`, and the `apis/*.
 | `seed/am/domain.yaml`, `applications/*.yaml`, `protected-resources/*.yaml` | Domain with its scopes, users, applications, MCP servers | AM Management API |
 | `seed/am/gamma-link.yaml` | The link from Gamma to the AM domain | Gamma and AM APIs |
 | `seed/openfga/*.yaml` | OpenFGA store file (`fga store import`) | OpenFGA API |
-| `seed/aim/<resource>/*.yaml` | Agent Management: credentials, providers, models, MCP servers, knowledge, skills, agents (an agent file may also carry its `identity` and its `access` to the plan of a studio, on the amp-demo build only), API tools (only the `operations` listed, tailored when asked), workspaces, MCP proxies, studios (with their `subscriptions`, and `authorization.agentIdentityResolution` for a policy that reads the agent), dashboards, governance (approval rules and settings, compliance); a file with `needs: NAME` is skipped while the setting NAME is empty | Gamma and Automation APIs |
+| `seed/aim/<resource>/*.yaml` | Agent Management: credentials, providers, models, MCP servers, knowledge, skills, agents (an agent file may also carry its `identity` and its `access` to the plan of a studio, on the amp-demo build only), API tools (only the `operations` listed, tailored when asked), workspaces, MCP proxies, studios (with their `subscriptions`, and, for one built in steps with `access`, `authorization.agentIdentityResolution` for a policy that reads the agent), dashboards, governance (approval rules and settings, compliance); a file with `needs: NAME` is skipped while the setting NAME is empty | Gamma and Automation APIs |
 | `seed/authz/entities.yaml`, `policies/*.yaml`, `schema.yaml`, `schemas/*.yaml` | Authorization Management: what the policies are about, GAPL policies, the schema of the editor | Gamma API |
 | `seed/k8s/*.yaml` | Kubernetes manifests: a namespace, a Secret, a `ManagementContext` for the Gravitee Kubernetes Operator. One manifest to a file, in name order | Server-side apply on the cluster of `KUBECONFIG` |
 | `seed/controls.yaml` | The protections the lessons switch on | The APIs of the files above, aligned to the mode on every run |
@@ -457,8 +457,9 @@ serve the lessons:
     - {application: Acme Shop copilot, apiKey: '${ACME_SHOP_COPILOT_KEY}'}
   ```
 
-- `authorization.agentIdentityResolution: true` makes the authorization check put the agent the token names in the
-  context (`context.agent`), which authz-pep 3.0.2 leaves out by default.
+- In a file with `access`, `authorization.agentIdentityResolution: true` makes the authorization check put the agent the
+  token names in the context (`context.agent`), which authz-pep 3.0.2 leaves out by default. A file with `plan` switches
+  its check with `fga` and takes no `authorization`.
 - The tools come back to the file on every run. Tools a person adds or removes with *Edit tools* in Gamma are written
   back in place, with the keys of the APIs, and the flow of the authorization check is written again after them.
 - A file with `access` gives `supportedProtocolVersions`, a list, on API Management 4.13.1, as a file with a `plan` does

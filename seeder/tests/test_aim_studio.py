@@ -1181,3 +1181,85 @@ class Contract(Studios):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AfterAStudioMadeAgain(Studios):
+    """A studio made again from a changed file is subscribed again: what its first subscription left must not stand in the way."""
+
+    def setUp(self):
+        super().setUp()
+        self.env(OPERATIONS_KEY="operations-key-0013", GATEWAY_INTERNAL_URL=None)
+        self.file(PLAIN)
+
+    def changed(self):   # another digest: the studio is dropped and made again
+        self.file(PLAIN.replace("fga: false", "fga: false\ndescription: Another").replace(
+            "description: Every operation of the APIs, one tool each\n", ""))
+
+    def test_a_lost_answer_after_it_is_the_seeds_at_the_next_run(self):
+        self.seed()
+        self.changed()
+
+        def made(call):   # the platform makes the subscription, and the seed never gets the answer
+            self.world.subscribe(call)
+            raise requests.ReadTimeout("slow")
+        self.platform.add({("POST", re.compile(V2 + "/apis/[^/]+/subscriptions")): made})
+        with self.assertRaises(common.SeedError):
+            self.seed()
+        self.assertEqual([x["name"] for x in common.notes("aim-proxies", "subscription")],
+                         ["Copilot on 13 tools → Havenbank operations (Copilots)"], "a note before the request")
+        self.platform.add({("POST", re.compile(V2 + "/apis/[^/]+/subscriptions")): self.world.subscribe})
+        self.seed()
+        live = [s["id"] for s in self.world.subscriptions.values() if s["status"] == "ACCEPTED"]
+        self.assertEqual([(x["id"], x["api"]) for x in common.created() if x["kind"] == "subscription"], [(live[0], "studio-2")])
+
+    def test_the_studio_deleted_takes_the_records_of_its_subscriptions(self):
+        self.seed()
+        self.changed()
+        self.platform.add({("POST", AIM + "/mcp-studios"): (400, {"message": "refused"})})
+        with self.assertRaises(common.SeedError):
+            self.seed()
+        self.assertEqual(self.world.studios, {})
+        self.assertEqual([x for x in common.created() if x["kind"] == "subscription"], [],
+                         "no record names a subscription of the studio that is gone")
+
+    def test_a_pending_subscription_the_seed_made_is_accepted_at_the_next_run(self):
+        self.world.subscriptions_wait = True
+        self.platform.add({("POST", re.compile(V2 + "/apis/[^/]+/subscriptions/[^/]+/_accept")): (502, {"message": "bad gateway"})})
+        with self.assertRaises(common.SeedError):
+            self.seed()
+        self.platform.add({("POST", re.compile(V2 + "/apis/[^/]+/subscriptions/[^/]+/_accept")):
+                           lambda call: self.world.settle(call, "ACCEPTED")})
+        self.seed()
+        [sub] = self.world.subscriptions.values()
+        self.assertEqual(sub["status"], "ACCEPTED", "the key of the file works")
+        self.assertIn("✓ Subscription accepted: Copilot on 13 tools → Havenbank operations (Copilots)", self.output())
+
+
+class BusyPlatform(Studios):
+
+    def test_a_busy_answer_to_the_write_of_the_tools_is_asked_again(self):
+        self.seed()
+        self.world.set_specification(type("Call", (), {"path": AIM + "/mcp-studios/studio-1/specification",
+                                                       "json": {"specification": {"tools": [{"id": "tool-cancelOrder"}]},
+                                                                "upstreamAuth": []}})())
+        answers = iter([(503, {"message": "restarting"})])
+
+        def busy(call):
+            try:
+                return next(answers)
+            except StopIteration:
+                return self.world.set_specification(call)
+        self.platform.add({("PUT", re.compile(AIM + "/mcp-studios/[^/]+/specification")): busy})
+        self.seed()   # a PUT answered 503 is sent again, as every PUT of the seed is
+        self.assertEqual(len(self.sent("PUT", AIM + "/mcp-studios/studio-1/specification")), 2)
+
+
+class PlainAuthorization(Studios):
+
+    def test_a_studio_made_in_one_go_takes_no_authorization(self):
+        self.env(OPERATIONS_KEY="k", GATEWAY_INTERNAL_URL=None)
+        self.file(PLAIN.replace("fga: false", "fga: true\nauthorization: {agentIdentityResolution: true}"))
+        with self.assertRaisesRegex(common.SeedError, "^MCP studio Havenbank operations: authorization is read for a studio built "
+                                                      "in steps"):
+            self.seed()
+        self.assertEqual(self.world.studios, {})

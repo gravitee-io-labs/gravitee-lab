@@ -251,7 +251,7 @@ class Agents:
             else:
                 log(SECTION, f"  Subscription exists: {label}")
             return
-        with making(SECTION, "subscription", LABELS["subscription"], label, api=studio["id"], application=app):
+        with making(SECTION, "subscription", LABELS["subscription"], label, missing=True, api=studio["id"], application=app):
             made = self.aim.post(path, json={"applicationId": app, "planId": plan["id"]}).json()
             record(SECTION, "subscription", LABELS["subscription"], label, made["id"], api=studio["id"], application=app)
         if made.get("status") == "PENDING":

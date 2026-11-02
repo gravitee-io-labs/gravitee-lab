@@ -37,7 +37,7 @@ A file of either shape may list `subscriptions`: [{application, plan, apiKey}], 
 name) subscribed to a published plan of the studio (by its name; `plan` may be left out when the studio has one), with the
 custom key `apiKey` on a plan of API keys. They are made once the studio is deployed, through the management API (a studio is
 an API: apim.subscribe, the one way that takes a custom key), and again for a studio made again. One that holds the access
-already (accepted, pending or paused) is left as it is.
+already (accepted, pending or paused) is left as it is, but for one the seed made and left pending, which it accepts.
 """
 
 import hashlib
@@ -52,8 +52,8 @@ from . import controls
 from . import gamma
 from .aim_workspaces import subset
 from .apim import ENDED, accept, find_application, held_subscription, merge, subscribe
-from .common import (Api, HttpError, SeedError, adopted, created, excerpt, files, forget, has_seed, load, log, making, owned, record,
-                     recorded, setting, trouble, wait_until, waits_for_gateway)
+from .common import (OK, Api, SeedError, adopted, created, files, forget, has_seed, load, log, making, owned, record, recorded,
+                     setting, trouble, wait_until, waits_for_gateway)
 
 SECTION = "aim-proxies"
 # The folders of the seed it owns
@@ -248,6 +248,12 @@ def read_authorization(spec, studio):
     return authorization
 
 
+def of_studio(api_id):
+    """The records of a studio and of the subscriptions to it: what goes when the studio is deleted."""
+    return [x for x in created() if x["product"] == SECTION
+            and ((x["kind"], x["id"]) == ("studio", api_id) or (x["kind"], x.get("api")) == ("subscription", api_id))]
+
+
 def read_subscriptions(spec, studio):
     """The `subscriptions` of a studio's file, checked before anything is made: [{application, plan, apiKey}]."""
     listed = spec.get("subscriptions")
@@ -257,7 +263,7 @@ def read_subscriptions(spec, studio):
     if not isinstance(listed, list) or not all(isinstance(s, dict) for s in listed):
         raise SeedError(f"{where} is a list of {{application, plan, apiKey}}")
     for sub in listed:
-        unknown = sorted(set(sub) - set(SUBSCRIPTION_KEYS))
+        unknown = sorted(set(sub) - set(SUBSCRIPTION_KEYS), key=str)
         if unknown:
             raise SeedError(f"{where}: {', '.join(map(str, unknown))} is not a key of a subscription ({', '.join(SUBSCRIPTION_KEYS)})")
         if not (isinstance(sub.get("application"), str) and sub["application"]):
@@ -488,6 +494,9 @@ class McpProxies:
         someone changed are brought back to the file. Its authorization check is switched as its file says, then deployed,
         then its applications are subscribed."""
         name, path = spec["name"], spec["contextPath"]
+        if "authorization" in spec:   # read by a studio built in steps, which writes its check's flow; this one only switches it
+            raise SeedError(f"MCP studio {name}: authorization is read for a studio built in steps (access); this one switches "
+                            "its check with fga")
         subscriptions = read_subscriptions(spec, name)
         body = {"name": name, "description": spec.get("description"), "contextPath": path,
                 "supportedProtocolVersions": spec["supportedProtocolVersions"], "plans": [spec["plan"]],
@@ -528,7 +537,7 @@ class McpProxies:
     def drop(self, found, why):
         """Deletes a studio to make it again, and its record with it, as soon as it is gone."""
         self.g.aim.delete(f"/mcp-proxies/{found['id']}")
-        forget(*[x for x in created() if (x["product"], x["kind"], x["id"]) == (SECTION, "studio", found["id"])])
+        forget(*of_studio(found["id"]))
         log(SECTION, f"  ✓ MCP studio deleted: {why}")
 
     def recompose(self, api_id, name, body):
@@ -539,13 +548,10 @@ class McpProxies:
         wanted = body["specification"]["tools"]
         if not live or same_tools(live, wanted, self.entities):
             return False
-        answer = self.g.aim.call("PUT", f"/mcp-studios/{api_id}/specification", expect=range(200, 600),
+        answer = self.g.aim.call("PUT", f"/mcp-studios/{api_id}/specification", expect=(*OK, *UNSUPPORTED),
                                  json={"specification": body["specification"], "upstreamAuth": body.get("upstreamAuth") or []})
         if answer.status_code in UNSUPPORTED:
             return None
-        if not answer.ok:
-            raise HttpError(f"PUT /mcp-studios/{api_id}/specification: HTTP {answer.status_code} {excerpt(answer.text)}",
-                            answer.status_code, answer.text)
         log(SECTION, f"  ✓ Tools brought back to the file: {len(wanted)} in {name}")
         return True
 
@@ -562,11 +568,15 @@ class McpProxies:
             label = f"{sub['application']} → {studio} ({plan['name']})"
             held = held_subscription(self.g.v2, "", api_id, application["id"], plan["id"])
             if held:
-                if not recorded(SECTION, "subscription", held["id"]):
+                if not recorded(SECTION, "subscription", held["id"]):   # one an earlier seed made and lost the answer of, if any
                     adopted(SECTION, "subscription", label, held["id"], api=api_id)
-                log(SECTION, f"  Subscription exists: {label}")
+                if held.get("status") == "PENDING" and recorded(SECTION, "subscription", held["id"]):
+                    accept(self.g.v2, "", api_id, held["id"], sub.get("apiKey"))
+                    log(SECTION, f"  ✓ Subscription accepted: {label}")
+                else:
+                    log(SECTION, f"  Subscription exists: {label}")
                 continue
-            with making(SECTION, "subscription", "subscriptions to MCP studios", label, api=api_id):
+            with making(SECTION, "subscription", "subscriptions to MCP studios", label, missing=True, api=api_id):
                 made = subscribe(self.g.v2, "", api_id, application["id"], plan["id"], sub.get("apiKey"))
                 record(SECTION, "subscription", "subscriptions to MCP studios", label, made["id"], api=api_id)
             if made.get("status") == "PENDING":

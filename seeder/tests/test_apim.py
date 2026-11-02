@@ -433,6 +433,26 @@ class LostAnswers(Playground):
                 self.assertEqual(len(self.apim.apis), 3)
                 self.assertIn("made by an earlier seed that lost the platform's answer", self.output())
 
+    def test_a_subscription_closed_in_the_console_whose_new_answer_is_lost_is_the_seeds_at_the_next_run(self):
+        # The record of the closed one stays under its name: the note of the new one goes beside it (`making`, missing)
+        self.run_seed()
+        closed = next(s for s in self.apim.subscriptions.values() if s["planId"] == "llm-id-Developers")
+        closed["status"] = "CLOSED"
+        subscriptions = re.compile(V2 + "/apis/[^/]+/subscriptions")
+
+        def made(call):
+            self.apim.subscribe(call)
+            raise requests.ReadTimeout("slow")
+        self.platform.add({("POST", subscriptions): made})
+        with self.assertRaises(common.SeedError):
+            self.run_seed()
+        self.assertEqual(len(common.notes("apim", "subscription")), 1)
+        self.platform.add({("POST", subscriptions): self.apim.subscribe})
+        self.run_seed()
+        live = next(s["id"] for s in self.apim.subscriptions.values() if s["planId"] == "llm-id-Developers" and s["status"] == "ACCEPTED")
+        self.assertIn(live, [x["id"] for x in common.created() if x["kind"] == "subscription"])
+        self.assertEqual(common.notes("apim", "subscription"), [])
+
     def test_the_troubleshooting_page_does_not_give_a_lost_answer_as_why_a_seed_stops_on_an_api(self):
         """Its entry "A seed stops on an API it did not create": an import whose answer was lost is the seed's, as above."""
         page = (Path(__file__).resolve().parents[2] / "docs" / "troubleshooting.md").read_text(encoding="utf-8")

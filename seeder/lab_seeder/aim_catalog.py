@@ -508,7 +508,7 @@ def release_studios(aim):
         for x in common.created():
             if (x["product"], x["kind"]) == (aim_proxies.SECTION, "studio"):
                 aim.delete(f"/mcp-proxies/{x['id']}")
-                common.forget(x)   # gone: its create is noted
+                common.forget(*aim_proxies.of_studio(x["id"]))   # gone, with its subscriptions: its create is noted
                 log(SECTION, f"  ✓ Studio '{x['name']}' deleted: it is made again from the new tools")
     release()
     for note in noted:
@@ -653,9 +653,9 @@ def seed_api_tools(aim):
     What the file asks counts as a change of the API: another list of operations, or other words written for a tool,
     are a new fingerprint, and the tools are replaced. They could be edited in place, but a studio keeps a copy of each
     tool it was made with: a tool edited in place would leave the studio serving the old words, where a replacement
-    releases the studios, which are made again from the new tools. The words are written right after the import, and
-    the tools are recorded without their fingerprint until they are: a seed that stops between the two replaces the
-    tools on its next run."""
+    releases the studios, which are made again from the new tools. The words are part of the import (import_entry); the
+    references (REFERENCES) are written right after it, and the tools are recorded without their fingerprint until they
+    are: a seed that stops between the two replaces the tools on its next run."""
     # Every file is read first: one that asks what cannot be done stops the seed before anything changes
     asked = [(spec["api"], operations_of(spec)) for spec in specs("api-tools", "api")]
     for name, operations in asked:

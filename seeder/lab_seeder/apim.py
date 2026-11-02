@@ -769,7 +769,7 @@ class ApiManagement:
                 body["request"] = comment
             if configuration:
                 body["configuration"] = configuration
-        with making(SECTION, "subscription", "subscriptions", label, api=api["id"], **self.scope()):
+        with making(SECTION, "subscription", "subscriptions", label, missing=True, api=api["id"], **self.scope()):
             if pending or comment:
                 sub = self.api.post(f"{self.portal}/subscriptions", json=body).json()
             else:
