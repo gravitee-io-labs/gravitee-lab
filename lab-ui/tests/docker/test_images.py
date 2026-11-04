@@ -5,6 +5,7 @@ answer is given."""
 import io
 import json
 import unittest
+from unittest import mock
 
 from lab_ui.docker import compose, envfiles, images
 from lab_ui.library import layers
@@ -351,6 +352,48 @@ class Images(Case):
                 call()
         jobs.start.assert_not_called()
         run.assert_not_called()
+
+    def test_a_login_to_ghcr_io_is_the_github_cli_s_session_given_to_docker(self):
+        # The session can read packages: its token goes to docker login on standard input, in no argument and no line
+        self.patch(images.shutil, "which", lambda name: name)
+        jobs = self.patch(images, "JOBS")
+        images.login("ghcr.io", "playground:@acme/shop")
+        title, steps, more = self.started(jobs)
+        self.assertEqual((title, more), ("Log in to GitHub registry", {"key": "playground:@acme/shop", "verb": "login"}))
+        answers = {"--include": (0, "HTTP/2.0 200 OK\nX-Oauth-Scopes: read:packages, repo\n\n{}", ""),
+                   "--jq": (0, "octocat\n", ""), "token": (0, "gho_secret\n", ""), "login": (0, "Login Succeeded\n", "")}
+        calls = []
+
+        def run(cmd, timeout=120, given=None, **options):
+            calls.append((cmd, given))
+            return next(answer for word, answer in answers.items() if word in cmd)
+        self.patch(compose, "run", run)
+        job = mock.Mock(lines=[])
+        steps[0](job)
+        job.exec.assert_not_called()
+        self.assertEqual(calls[-1], (["docker", "login", "ghcr.io", "--username", "octocat", "--password-stdin"], "gho_secret"))
+        self.assertEqual(job.lines, ["$ docker login ghcr.io --username octocat --password-stdin", "Login Succeeded"])
+        # A session without the scope gets it first, from the browser; no session signs in
+        answers["--include"] = (0, "X-Oauth-Scopes: gist, read:org, repo\n\n{}", "")
+        job = mock.Mock(lines=[])
+        steps[0](job)
+        job.exec.assert_called_once_with([images.GH, "auth", "refresh", "--hostname", "github.com", "--scopes", "read:packages"])
+        answers["--include"] = (1, "", "To get started with GitHub CLI, please run:  gh auth login")
+        job = mock.Mock(lines=[])
+        steps[0](job)
+        job.exec.assert_called_once_with([images.GH, "auth", "login", "--hostname", "github.com", "--web", "--scopes",
+                                          "read:packages"])
+        # Docker refusing the login fails the job with its reason
+        answers["login"] = (1, "", "Error response from daemon: Get https://ghcr.io/v2/: denied")
+        with self.assertRaisesRegex(images.JobFailed, "denied$"):
+            steps[0](mock.Mock(lines=[]))
+
+    def test_without_the_github_cli_ghcr_io_says_to_install_it(self):
+        self.patch(images.shutil, "which", return_value=None)
+        jobs = self.patch(images, "JOBS")
+        with self.assertRaisesRegex(RuntimeError, r"^Install the GitHub CLI \(gh\)$"):
+            images.login("ghcr.io")
+        jobs.start.assert_not_called()
 
     def test_an_expired_azure_session_says_to_log_in_with_the_azure_cli(self):
         # Tags are listed with the Azure CLI's own session, which the page's Log in (Docker's) cannot renew; and a

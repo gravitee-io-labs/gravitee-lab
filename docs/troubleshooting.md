@@ -177,6 +177,24 @@ certificate of a UI on `https` (the line under the notice says `Its certificate 
 docker login
 ```
 
+### Not logged in to ghcr.io
+
+**Symptom:** a start fails with `Not logged in to ghcr.io`, though `gh auth status` says you are logged in to GitHub.
+
+**Cause:** Docker pulls with its own credentials, not the GitHub CLI's, and pulling a private image takes the
+`read:packages` scope, which `gh auth login` does not ask for.
+
+**Fix:** click *Log in* next to the failed start. The Lab UI asks the GitHub CLI for that scope (paste the code it copied
+in the page it opens on github.com), gives its token to Docker, then you start again. Without the Lab UI:
+
+```bash
+gh auth refresh --hostname github.com --scopes read:packages
+```
+
+```bash
+gh auth token | docker login ghcr.io --username "$(gh api user --jq .login)" --password-stdin
+```
+
 ### Out of memory, exit 137, or restarting
 
 **Symptom:** a container exits with code 137 or keeps restarting. The Lab UI says `Out of memory` or `Keeps
