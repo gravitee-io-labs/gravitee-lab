@@ -180,13 +180,25 @@ class Run(unittest.TestCase):
         # It is missing and has nothing to be built from: the up would try again, the time Docker takes to give up
         # included, and fail. Its warnings and its exit code are the up's to say
         refused = {"id": "Image ghcr.io/acme/x:1", "status": "Error", "text": "Error", "details": "denied"}
-        job, started = self.run_job(UP, said({"id": "Image ghcr.io/acme/x:1", "text": "Pulling"}, refused)
-                                    + ["a warning"], ["Container gio-redis  Started"], code=0)
+        with mock.patch.object(compose, "image_ids", return_value={"redis:8": "sha256:1"}):
+            job, started = self.run_job(UP, said({"id": "Image ghcr.io/acme/x:1", "text": "Pulling"}, refused)
+                                        + ["a warning"], ["Container gio-redis  Started"], code=0)
         self.assertEqual(len(started), 1)
         self.assertEqual((job.ok, job.error()), (False, "Could not pull ghcr.io/acme/x:1: denied"))
         self.assertEqual(job.lines[1:3], ["Image ghcr.io/acme/x:1 Pulling", "Image ghcr.io/acme/x:1 Error denied"])
         job, started = self.run_job(UP, ["a warning"], ["Container gio-redis  Started"], code=1)   # only a warning
         self.assertEqual((len(started), job.ok), (2, False))
+
+    def test_a_latest_image_that_docker_holds_is_not_missing_when_its_registry_refuses_it(self):
+        # Compose pulls a latest tag even with --policy missing: one built here, from a registry that wants a login,
+        # is refused, and the up runs the one Docker holds. Its row still says the registry wants a login
+        image = "ghcr.io/acme/hub/shop-api:latest"
+        refused = {"id": f"Image {image}", "status": "Error", "text": "Error", "details": "unauthorized"}
+        with mock.patch.object(compose, "image_ids", return_value={image: "sha256:1"}):
+            job, started = self.run_job(UP, said({"id": f"Image {image}", "text": "Pulling"}, refused),
+                                        ["Container gio-shop-api  Started"])
+        self.assertEqual((len(started), job.ok), (2, True))
+        self.assertIn(f"Image {image} Error unauthorized", job.lines)
 
     def test_a_pull_before_an_up_that_stalls_is_ended_and_the_up_not_run(self):
         # A registry that stops sending: nothing more comes, and the job does not wait for ever

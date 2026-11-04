@@ -787,7 +787,7 @@ class Installed(Case):
             lines = [json.dumps(refused)] if pull and cmd[-1] == "hybrid" else [] if pull else \
                 ["Container gio-x Started"]
             return mock.Mock(stdout=iter(line + "\n" for line in lines), wait=lambda: 0, returncode=0)
-        with mock.patch.object(jobs.subprocess, "Popen", command):
+        with mock.patch.object(jobs.subprocess, "Popen", command), mock.patch.object(compose, "image_ids", return_value={}):
             job.run()
         # The hybrid gateway ran before the apply and stopped for it: its own `up` never ran
         self.assertNotIn(["up", "-d", "--no-deps", "--wait", f"--wait-timeout={plugins.WAIT}", "hybrid"],

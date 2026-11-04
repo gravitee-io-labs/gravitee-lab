@@ -61,6 +61,7 @@ class World:
             ("POST", re.compile(ws + "/models/_bulk")): self.add_models,
             ("PUT", re.compile(ws + "/models/[^/]+")): self.replace_models,
             ("DELETE", re.compile(ws + "/models/[^/]+/[^/]+")): self.remove_model,
+            ("DELETE", re.compile(ws + "/models/[^/]+")): self.remove_component,
             ("GET", re.compile(ws + "/router")): lambda call: (200, self.workspace(call)["router"]),
             ("PUT", re.compile(ws + "/router")): self.save_router,
             ("GET", re.compile(ws + "/analytics")): self.get_analytics,
@@ -144,7 +145,10 @@ class World:
         """Adds a provider, or merges into it: the models and aliases it has stay."""
         workspace = self.workspace(call)
         for component in call.json:
-            have = next((c for c in workspace["models"] if c["providerId"] == component["providerId"]), None)
+            if "target" in component:   # one with an endpoint of its own: the platform names its kind
+                workspace["models"].append({**component, "kind": "inline", "id": self.new("component")})
+                continue
+            have = next((c for c in workspace["models"] if c.get("providerId") == component["providerId"]), None)
             if have is None:
                 workspace["models"].append(self.component(component))
             else:
@@ -157,15 +161,21 @@ class World:
     def replace_models(self, call):
         """Sets the aliases and governance of a provider: not which models it has."""
         workspace = self.workspace(call)
-        have = next(c for c in workspace["models"] if c["providerId"] == ids(call)[1])
+        have = next(c for c in workspace["models"] if c.get("providerId") == ids(call)[1])
         if sorted(m["name"] for m in have["models"]) != sorted(m["name"] for m in call.json["models"]):
             return 400, {"message": "Editing provider changes its models' settings, not which models it exposes; "
                                     "add or remove a model on its own."}
         have.update(self.component(call.json))
         return 200, workspace["models"]
 
+    def remove_component(self, call):
+        """Removes a component with an endpoint of its own, by its name."""
+        workspace = self.workspace(call)
+        workspace["models"] = [c for c in workspace["models"] if c.get("name") != unquote(call.path.rsplit("/", 1)[1])]
+        return 204
+
     def remove_model(self, call):
-        have = next(c for c in self.workspace(call)["models"] if c["providerId"] == ids(call)[1])
+        have = next(c for c in self.workspace(call)["models"] if c.get("providerId") == ids(call)[1])
         have["models"] = [m for m in have["models"] if m["name"] != unquote(call.path.rsplit("/", 1)[1])]
         return 200, self.workspace(call)["models"]
 
@@ -707,6 +717,60 @@ class Removal(Workspaces):
         self.remove()
         self.assertIn("✓ Deleted AI workspace 'Acme Bakery Teams'", self.output())
         self.assertIn("✓ Deleted workspace user 'team-care'", self.output())
+
+
+class OwnEndpoint(Workspaces):
+    """A component that names its endpoint itself, with no provider of the catalog, as the amp-demo build wants it."""
+
+    COMPONENTS = """components:
+  - name: bakery-on-prem
+    provider: OPEN_AI_COMPATIBLE
+    target: http://ollama:11434/v1
+    prefixPolicy: NO_PREFIX
+    models:
+      - {name: "qwen3:1.7b", aliases: [smart], inputPrice: 50, outputPrice: 50}
+      - {name: "qwen3:0.6b", aliases: [lite], inputPrice: 20, outputPrice: 20}
+"""
+
+    def setUp(self):
+        super().setUp()
+        text = FILE.read_text(encoding="utf-8")
+        start, end = text.index("components:"), text.index("router:")
+        self.seed_files({"aim/workspaces/acme-bakery-teams.yaml": text[:start] + self.COMPONENTS + "\n" + text[end:]})
+
+    def bulk(self):
+        return self.platform.sent("POST", re.compile(AIM + "/ai-workspaces/[^/]+/models/_bulk"))
+
+    def test_it_is_added_with_its_endpoint_and_its_prices_and_no_provider_of_the_catalog(self):
+        self.seed()
+        [added] = self.bulk()
+        [component] = added.json
+        self.assertEqual((component["name"], component["provider"], component["target"]),
+                         ("bakery-on-prem", "OPEN_AI_COMPATIBLE", "http://ollama:11434/v1"))
+        self.assertNotIn("providerId", component)
+        self.assertEqual([(m["name"], m["aliases"], m["inputPrice"], m["outputPrice"]) for m in component["models"]],
+                         [("qwen3:1.7b", ["smart"], 50.0, 50.0), ("qwen3:0.6b", ["lite"], 20.0, 20.0)])
+        self.assertEqual(component["modelGovernance"]["prefixPolicy"], {"policy": "NO_PREFIX"})
+        self.assertFalse(self.platform.sent("GET", AIM + "/providers"))
+
+    def test_a_second_run_leaves_it_alone(self):
+        self.seed()
+        self.platform.calls.clear()
+        self.seed()
+        self.assertEqual(self.bulk(), [])
+        self.assertEqual(self.platform.sent("DELETE", re.compile(AIM + "/ai-workspaces/[^/]+/models/.+")), [])
+
+    def test_one_that_differs_is_replaced_by_the_one_of_the_file(self):
+        self.seed()
+        [component] = self.the_workspace()["models"]
+        component["models"][0]["inputPrice"] = 1.0
+        self.platform.calls.clear()
+        self.seed()
+        [removed] = self.platform.sent("DELETE", re.compile(AIM + "/ai-workspaces/[^/]+/models/.+"))
+        self.assertTrue(removed.path.endswith("/models/bakery-on-prem"))
+        self.assertEqual(len(self.bulk()), 1)
+        [component] = self.the_workspace()["models"]
+        self.assertEqual(component["models"][0]["inputPrice"], 50.0)
 
 
 class Folder(Seed):

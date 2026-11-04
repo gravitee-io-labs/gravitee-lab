@@ -85,7 +85,8 @@ def _command(cmd):
 def _pull_before(cmd):
     """The pull that comes before an `up`: what is missing of the images it names, which Compose shows layer by layer
     here and not when it pulls them itself, as it starts. An image it cannot pull is missing and has no build to fall
-    back on (`--ignore-buildable`): the `up` would only try again and fail, so the job fails on it (_spawn)."""
+    back on (`--ignore-buildable`): the `up` would only try again and fail, so the job fails on it (_spawn). Compose
+    pulls a `latest` tag that Docker holds all the same: refused, that one is not missing, and the `up` runs it."""
     found = _command(cmd)
     if not found or found[1] != "up":
         return None
@@ -503,6 +504,9 @@ class Job:
         why = self._why
         if why and why[0] is process and not self._canceled:
             raise JobFailed(why[1])
+        if refused and lenient:   # the pull before an up: an image Docker holds is there for the up (_pull_before)
+            held = compose.image_ids() or {}
+            refused = [image for image in refused if compose.reference(image) not in held]
         if refused and not self._canceled:   # what could be pulled was: the job fails on the rest, with Docker's reason
             reasons = dict(self.pulls.refused())
             first = reasons.get(refused[0])
