@@ -86,7 +86,9 @@ def _pull_before(cmd):
     """The pull that comes before an `up`: what is missing of the images it names, which Compose shows layer by layer
     here and not when it pulls them itself, as it starts. An image it cannot pull is missing and has no build to fall
     back on (`--ignore-buildable`): the `up` would only try again and fail, so the job fails on it (_spawn). Compose
-    pulls a `latest` tag that Docker holds all the same: refused, that one is not missing, and the `up` runs it."""
+    pulls a `latest` tag that Docker holds all the same: refused, that one is not missing, and the `up` runs it. It
+    also pulls the image of a service that has no build but runs what another service builds (`pull_policy: never`):
+    refused, that one is not missing either, Compose said it can be built, and the `up` builds it."""
     found = _command(cmd)
     if not found or found[1] != "up":
         return None
@@ -486,14 +488,14 @@ class Job:
             self._process, self._waiting, self._issues, self._heard = process, set(), {}, time.monotonic()
         if self._canceled:   # canceled while the command was starting
             compose.end(process)
-        over, refused = threading.Event(), []
+        over, refused, buildable = threading.Event(), [], set()
         threading.Thread(target=self._watch, args=(process, over), daemon=True).start()
         try:
             for line in process.stdout:
                 self._heard = time.monotonic()
                 event = _event(line) if pull else None
                 if event is not None:
-                    self._pulled(event, lenient, refused)
+                    self._pulled(event, lenient, refused, buildable)
                 elif not (lenient or LAYER_PROGRESS.match(line)):
                     self._printed(line)   # first: a line in the output is one the job took in
                     self.lines.append(line.rstrip("\n"))
@@ -504,9 +506,9 @@ class Job:
         why = self._why
         if why and why[0] is process and not self._canceled:
             raise JobFailed(why[1])
-        if refused and lenient:   # the pull before an up: an image Docker holds is there for the up (_pull_before)
+        if refused and lenient:   # the pull before an up: an image Docker holds or builds is there (_pull_before)
             held = compose.image_ids() or {}
-            refused = [image for image in refused if compose.reference(image) not in held]
+            refused = [image for image in refused if compose.reference(image) not in held and image not in buildable]
         if refused and not self._canceled:   # what could be pulled was: the job fails on the rest, with Docker's reason
             reasons = dict(self.pulls.refused())
             first = reasons.get(refused[0])
@@ -514,10 +516,11 @@ class Job:
         if code != 0 and not lenient:
             raise JobFailed(self.last_line(start) or f"Failed with exit code {process.returncode}", code)
 
-    def _pulled(self, event, lenient, refused):
+    def _pulled(self, event, lenient, refused, buildable=None):
         """A line of a pull's progress: what a plain one would print, and how far the image is; an image it could not
-        pull goes to `refused`. Compose's own last word when the command fails ({"error": true, "message"}), which names
-        no image, is a line of the output too, but of a pull that may fail."""
+        pull goes to `refused`, one it skipped because a service builds it to `buildable`. Compose's own last word when
+        the command fails ({"error": true, "message"}), which names no image, is a line of the output too, but of a
+        pull that may fail."""
         if event.get("error") is True:
             said = [line.strip() for line in str(event.get("message") or "").splitlines() if line.strip()]
             if not lenient:
@@ -528,6 +531,9 @@ class Job:
             line = self.pulls.event(event)
             if event.get("text") == "Error" and (event.get("id") or "").startswith("Image "):
                 refused.append(event["id"][6:])
+            built = event.get("text") == "Skipped" and "can be built" in str(event.get("details"))
+            if buildable is not None and built and (event.get("id") or "").startswith("Image "):
+                buildable.add(event["id"][6:])
             if line:
                 self.lines.append(line)
                 self._printed(line)
