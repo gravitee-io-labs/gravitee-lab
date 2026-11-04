@@ -698,6 +698,11 @@ function workspace(item) {
     ${Workspace.html(item, side(item))}`;
 }
 
+// A registry refused the start's pull for want of a login (`item.login`): logging in is what it takes, the page's primary
+// until it is done. Its job is the playground's, as from its row's menu
+const loginButton = (item) => actionButton({ key: keyOf(item), verb: "login", label: "Log in", icon: "login", cls: "primary",
+  attrs: 'data-act="login" data-busy' });
+
 // The seconds of the running job and of its current phase
 function tick() {
   for (const el of $$("[data-since]", root)) el.textContent = `${Math.round(Date.now() / 1000 - el.dataset.since)} s`;
@@ -724,7 +729,8 @@ function progress(item, job) {
     <ol class="pg-phases">${rows}</ol>
     ${ended ? `<div class="pg-progress-foot">
       <button class="btn" data-act="output">${icon("logs")}Show output</button>
-      ${item.action.do === "start" ? startButton(item, item.on || item.up) : ""}</div>` : ""}
+      ${item.login ? loginButton(item) : ""}
+      ${item.action.do === "start" ? startButton(item, item.on || item.up, item.login ? "" : "primary") : ""}</div>` : ""}
   </div>`;
 }
 
@@ -899,6 +905,8 @@ const ACTIONS = {
   stop: stopPlayground,
   reseed: (item) => seedPlayground(item, "reseed"),
   deploy: (item) => seedPlayground(item, "deploy"),
+  login: (item) => runJob(() => api("/api/registry/login", { host: item.login, key: keyOf(item) }),
+    { key: keyOf(item), verb: "login" }),
   output: () => showOutput(store.state.job.id),
   cancel: () => cancelJob(store.state.job.id),
 };

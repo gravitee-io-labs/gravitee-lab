@@ -874,6 +874,11 @@ class Failures(Case):
             self.assertEqual(self.failure(start),
                              self.said(start, error="Not logged in to Azure", login="graviteeio.azurecr.io"))
             self.assertEqual(start.summary()["error"], "Not logged in to Azure")
+        # GitHub's registry too, as the pull before an up says it
+        start = Job("Start Welcome", [], key=KAFKA, verb="start")
+        start.done, start.ok = True, False
+        start.lines = ["Image ghcr.io/acme/hub/shop-api:latest Error unauthorized", "Could not pull ghcr.io/acme/hub/shop-api:latest"]
+        self.assertEqual(self.failure(start), self.said(start, error="Not logged in to ghcr.io", login="ghcr.io"))
         # Docker Hub's refusal, or another reason, is said as it is
         hub = Job("Start Kafka", [], key=KAFKA, verb="start")
         hub.done, hub.ok, hub.lines = True, False, ["pull access denied for nope/kafka, repository does not exist"]

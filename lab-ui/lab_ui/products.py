@@ -25,3 +25,4 @@ SCOPES = {"APIM": "apim", "AM": "am"}
 GATEWAY = "apim-gateway"   # the image of API Management's gateway: the service of the core that runs it is this machine's gateway
 
 AZURE = re.compile(r"[a-z0-9]+\.azurecr\.io")   # an Azure registry, which Docker pulls from once the Azure CLI logged it in
+GHCR = "ghcr.io"   # GitHub's registry, which Docker pulls from once the GitHub CLI logged it in

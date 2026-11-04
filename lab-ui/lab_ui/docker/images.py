@@ -14,14 +14,15 @@ import urllib.request
 
 from . import compose, envfiles
 from .. import paths
-from ..products import AZURE
-from .jobs import JOBS
+from ..products import AZURE, GHCR
+from .jobs import JOBS, JobFailed
 
 TAG = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,127}")
 REGISTRY = re.compile(r"[a-z0-9]+(?:[._-][a-z0-9]+)*(?::\d+)?(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*")
 DOCKER_HUB = ("docker.io", "index.docker.io")
 ITEM = re.compile(rf"(?:{'|'.join(paths.KINDS)}):{paths.ID}")   # the key of an item's row: "playground:<id>"
 AZ = shutil.which("az") or "az"   # the Azure CLI, found once
+GH = shutil.which("gh") or "gh"   # the GitHub CLI, found once
 OCI_PAGES = 5   # pages of a thousand tags read of a registry's list, which comes by name: the newest are near its end
 
 
@@ -595,13 +596,64 @@ def registry_status(project):
 
 
 def login(host, key=None):
-    """Logs Docker in to an Azure registry with the Azure CLI's session: one command that says nothing of how far it
-    is. Its job is the registry's (`registry:<host>`, Images' Log in), or the item's whose pull the registry refused
-    (`key`, "<kind>:<id>": the Log in of its row's menu), which its row's button shows."""
-    if not AZURE.fullmatch(host or ""):
-        raise ValueError("Not an Azure registry")
+    """Logs Docker in to a registry with the session of its CLI: an Azure registry with the Azure CLI's, in one command
+    that says nothing of how far it is, GitHub's with the GitHub CLI's (_github_login). Its job is the registry's
+    (`registry:<host>`, Images' Log in), or the item's whose pull the registry refused (`key`, "<kind>:<id>": the Log
+    in of its row's menu and of its failed start), which its row's button shows."""
+    if host != GHCR and not AZURE.fullmatch(host or ""):
+        raise ValueError("Not a registry the Lab UI logs in to")
     if key is not None and not ITEM.fullmatch(str(key)):
         raise ValueError("Not an add-on, a setup or a playground")
+    if host == GHCR:
+        return JOBS.start("Log in to GitHub registry", [_github_login(_gh())], key=key or f"registry:{host}", verb="login")
     name = host.split(".")[0]
     return JOBS.start("Log in to Azure registry", [[_az(), "acr", "login", "--name", name, *_subscription(name)]],
                       key=key or f"registry:{host}", verb="login")
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# GitHub's registry
+# ---------------------------------------------------------------------------------------------------------------------
+
+GITHUB = "github.com"   # where the GitHub CLI's session is
+PACKAGES = re.compile(r"\b(read|write):packages\b")   # the scope that lets a token pull from ghcr.io; write holds read
+SCOPES = re.compile(r"^X-Oauth-Scopes:(.*)$", re.M | re.I)   # the scopes of a classic token, which GitHub's API says
+
+
+def _gh():
+    """The GitHub CLI; an error that says to install it when this machine has none."""
+    if not shutil.which(GH):
+        raise RuntimeError("Install the GitHub CLI (gh)")
+    return GH
+
+
+def _github_login(gh):
+    """The step of a login to ghcr.io. The GitHub CLI signs in, or adds the right to read packages to a session that
+    lacks it, as `gh auth login` does it without a terminal: it copies a one-time code, opens github.com/login/device
+    in the browser, where the person pastes it, and waits. A fine-grained token says no scopes: it is tried as it is.
+    Its token then goes to `docker login` on standard input, in no argument and no line of the job."""
+    def step(job):
+        rc, out, _ = compose.run([gh, "api", "--include", "user"], timeout=30)
+        scopes = SCOPES.search(out)
+        if rc != 0:
+            job.exec([gh, "auth", "login", "--hostname", GITHUB, "--web", "--scopes", "read:packages"])
+        elif scopes and not PACKAGES.search(scopes.group(1)):
+            job.exec([gh, "auth", "refresh", "--hostname", GITHUB, "--scopes", "read:packages"])
+        rc, user, err = compose.run([gh, "api", "user", "--jq", ".login"], timeout=30)
+        if rc == 0:
+            rc, token, err = compose.run([gh, "auth", "token", "--hostname", GITHUB], timeout=30)
+        if rc != 0:
+            raise JobFailed(_last(err) or "The GitHub CLI has no session")
+        cmd = ["docker", "login", GHCR, "--username", user.strip(), "--password-stdin"]
+        job.lines.append(f"$ {' '.join(cmd)}")
+        rc, out, err = compose.run(cmd, timeout=60, given=token.strip())
+        job.lines.extend(line for line in (out + err).splitlines() if line.strip())
+        if rc != 0:
+            raise JobFailed(_last(err) or f"docker login failed with exit code {rc}")
+    return step
+
+
+def _last(text):
+    """The last line a command printed, without its blanks."""
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return lines[-1] if lines else ""

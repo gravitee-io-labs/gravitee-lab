@@ -12,7 +12,7 @@ import uuid
 
 from . import compose
 from .. import paths
-from ..products import AZURE
+from ..products import AZURE, GHCR
 from .pulls import Pulls
 
 # Per-layer pull progress ("3f1c0a7d9e2b Pull complete 0B"): one line per layer, too noisy to stream
@@ -56,11 +56,11 @@ STUCK = 120
 # What the catalog turns on and off, as a job's key names it ("addon:kafka"): a stop of one that failed is a failure of
 # what it stopped with it too (Jobs.failed_job). The Stack's stop leaves what is on as it is
 ITEMS = ("addon", "setup", "playground")
-# An Azure registry refusing a pull for want of a login, as Docker says it in the last lines of a job: the registry
-# and the refusal on one line, in either order ("pull access denied for x.azurecr.io/…", "…azurecr.io…: unauthorized")
-AZURE_REGISTRY = re.compile(rf"\b({AZURE.pattern})\b", re.I)
+# A registry the Lab UI logs Docker in to (an Azure one, GitHub's) refusing a pull for want of a login, as Docker says it
+# in the last lines of a job: the registry and the refusal on one line, in either order ("pull access denied for
+# x.azurecr.io/…", "…azurecr.io…: unauthorized", "Image ghcr.io/… Error unauthorized")
+LOGIN_REGISTRY = re.compile(rf"\b({AZURE.pattern}|{re.escape(GHCR)})\b", re.I)
 REFUSED = re.compile(r"unauthorized|authentication required|access denied", re.I)
-NOT_LOGGED_IN = "Not logged in to Azure"
 # The image a build starts from, which BuildKit could not fetch: "failed to resolve source metadata for
 # docker.io/library/node:20-alpine: …", or the line of the step that failed, "ERROR [internal] load metadata for …"
 BASE_IMAGE = re.compile(r"(?:resolve source metadata|load metadata) for (\S+?)(?::\s|$)")
@@ -371,12 +371,12 @@ class Job:
         return next((line.strip() for line in reversed(self.lines[start:]) if line.strip()), "")
 
     def login(self):
-        """The Azure registry the job needed a login to: one refused its pull, in the last lines it printed; None
-        otherwise."""
+        """The registry the job needed a login to (LOGIN_REGISTRY): one refused its pull, in the last lines it printed;
+        None otherwise."""
         for line in self.lines[-10:]:
-            found = AZURE_REGISTRY.search(line)
-            if found and REFUSED.search(line):
-                return found.group(1).lower()
+            found = LOGIN_REGISTRY.findall(line)
+            if found and REFUSED.search(line):   # the last one named is the one that refused: Docker's reason ends the line
+                return found[-1].lower()
         return None
 
     def base_image(self):
@@ -390,11 +390,12 @@ class Job:
 
     def error(self):
         """Why the job failed, in one line: its last line, where _fail() leaves the reason; "Not logged in to Azure"
-        when an Azure registry refused a pull, the base image when a build could not fetch it."""
+        (or to ghcr.io) when that registry refused a pull, the base image when a build could not fetch it."""
         if self._canceled:
             return "Canceled"
-        if self.login():
-            return NOT_LOGGED_IN
+        login = self.login()
+        if login:
+            return f"Not logged in to {'Azure' if AZURE.fullmatch(login) else login}"
         base = self.base_image()
         return f"Base image {base} could not be fetched" if base else self.last_line(0)[:300]
 
