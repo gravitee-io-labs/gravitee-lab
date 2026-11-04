@@ -603,18 +603,114 @@ class WhatItNeeds(Agents):
         self.assertIn("has no published plan 'Humans'", str(stopped.exception))
 
     def test_an_agent_file_is_checked_before_any_call(self):
-        access = "care-copilot.yaml: access is a list of {studio, plan}"
+        access = "care-copilot.yaml: access is a list of {studio, plan} or {api, plan, apiKey}"
         for text, problem in ((AGENT.replace("entityId: care-copilot\n", ""), "care-copilot.yaml: entityId missing"),
                               (AGENT.replace("clientId: care-copilot", "clientIds: x"),
                                "care-copilot.yaml: identity needs a clientId"),
                               (AGENT.replace("- {studio: Customer care, plan: Agents}", "- Customer care"), access),
-                              (AGENT.replace(", plan: Agents", ""), access)):
+                              (AGENT.replace(", plan: Agents", ""), access),
+                              (AGENT.replace("{studio: Customer care,", "{studio: Customer care, api: Harbor models,"), access),
+                              (AGENT.replace("plan: Agents}", "plan: Agents, apiKey: k}"), access)):
             with self.subTest(problem=problem):
                 self.seed_files({"aim/agents/care-copilot.yaml": text})
                 with self.assertRaises(common.SeedError) as stopped:
                     aim_agents.seed()
                 self.assertEqual(str(stopped.exception), problem)
                 self.assertEqual(self.platform.calls, [])
+
+
+MODELS_API, MODELS_PLANS = "api-models", ENV.replace("/management/", "/management/v2/") + "/apis/api-models/plans"
+MODELS_SUBSCRIPTIONS = ENV.replace("/management/", "/management/v2/") + "/apis/api-models/subscriptions"
+TO_THE_MODEL = AGENT.replace("  - {studio: Customer care, plan: Agents}\n",
+                             "  - {studio: Customer care, plan: Agents}\n"
+                             "  - {api: Harbor models, plan: Agents, apiKey: \"${HARBOR_LLM_KEY}\"}\n")
+
+
+class AccessToAnApi(Agents):
+    """The access to a plan of an API of seed/apim (an LLM proxy the agent asks its model through), with its key: made in
+    the step that makes the agent's application, after the API, so that the agent's calls through it are its own."""
+
+    def setUp(self):
+        super().setUp()
+        self.env(HARBOR_LLM_KEY="harbor-llm-key")
+        self.seed_files({"aim/agents/care-copilot.yaml": TO_THE_MODEL})
+        common.record("apim", "api", "APIs", "Harbor models", MODELS_API)   # what seed/apim made before
+        self.api_plans = [{"id": "plan-llm-agents", "name": "Agents", "status": "PUBLISHED", "security": {"type": "API_KEY"}},
+                          {"id": "plan-llm-old", "name": "Agents", "status": "CLOSED", "security": {"type": "API_KEY"}}]
+        self.api_subscriptions = []
+        self.platform.add({
+            ("GET", MODELS_PLANS): lambda call: (200, {"data": self.api_plans, "pagination": {"totalCount": len(self.api_plans)}}),
+            ("GET", MODELS_SUBSCRIPTIONS): lambda call: (200, {"data": [
+                s for s in self.api_subscriptions if s["application"] == call.params["applicationIds"]
+                and s["plan"] == call.params["planIds"] and s["status"] in call.params["statuses"].split(",")]}),
+            ("POST", MODELS_SUBSCRIPTIONS): self.subscribe,
+            ("POST", re.compile(MODELS_SUBSCRIPTIONS + "/[^/]+/_close")): self.close,
+        })
+
+    def subscribe(self, call):
+        made = {"id": f"llm-sub-{len(self.api_subscriptions) + 1}", "application": call.json["applicationId"],
+                "plan": call.json["planId"], "status": "ACCEPTED", "key": call.json.get("customApiKey")}
+        self.api_subscriptions.append(made)
+        return 201, made
+
+    def close(self, call):
+        found = next(s for s in self.api_subscriptions if s["id"] == call.path.split("/")[-2])
+        found["status"] = "CLOSED"
+        return 200, found
+
+    def test_the_application_of_the_agent_is_subscribed_to_the_published_plan_with_the_key_of_the_file(self):
+        aim_agents.seed()
+        self.assertEqual(self.api_subscriptions, [{"id": "llm-sub-1", "application": APPLICATION_ID, "plan": "plan-llm-agents",
+                                                   "status": "ACCEPTED", "key": "harbor-llm-key"}])
+        self.assertIn("[aim-agents]   ✓ Subscribed: Care copilot → Harbor models (Agents)", self.output())
+
+    def test_it_comes_after_the_application_is_made_and_with_the_access_to_the_studio(self):
+        aim_agents.seed()
+        writes = [path for method, path in self.changed()]
+        self.assertLess(writes.index(APPLICATION), writes.index(MODELS_SUBSCRIPTIONS))
+        self.assertIn(SUBSCRIPTIONS, writes)
+
+    def test_it_is_recorded_as_a_subscription_of_the_agent_to_an_api_of_seed_apim(self):
+        aim_agents.seed()
+        [record] = [x for x in self.records("subscription") if x["api"] == MODELS_API]
+        self.assertEqual((record["id"], record["application"], record["via"]), ("llm-sub-1", APPLICATION_ID, "apim"))
+
+    def test_a_second_run_writes_nothing(self):
+        self.made()
+        aim_agents.seed()
+        self.assertEqual(self.changed(), [])
+
+    def test_a_subscription_that_was_closed_is_made_again(self):
+        self.made()
+        self.api_subscriptions[0]["status"] = "CLOSED"
+        aim_agents.seed()
+        self.assertEqual([s["status"] for s in self.api_subscriptions], ["CLOSED", "ACCEPTED"])
+
+    def test_an_api_that_the_seed_did_not_make_stops_it(self):
+        common.save_created([x for x in common.created() if x["product"] != "apim"])
+        with self.assertRaises(common.SeedError) as stopped:
+            aim_agents.seed()
+        self.assertIn("The API 'Harbor models' was not made by this playground", str(stopped.exception))
+        self.assertEqual(self.api_subscriptions, [])
+
+    def test_a_plan_that_is_not_published_is_not_there(self):
+        self.api_plans[0]["status"] = "STAGING"
+        with self.assertRaises(common.SeedError) as stopped:
+            aim_agents.seed()
+        self.assertIn("The API 'Harbor models' has no published plan 'Agents'", str(stopped.exception))
+
+    def test_a_key_needs_a_plan_of_api_keys(self):
+        self.api_plans[0]["security"] = {"type": "JWT"}
+        with self.assertRaises(common.SeedError) as stopped:
+            aim_agents.seed()
+        self.assertIn("has an apiKey, which needs a plan of API keys, and Agents is JWT", str(stopped.exception))
+
+    def test_removal_closes_it_through_api_management_and_the_studio_one_through_agent_management(self):
+        self.made()
+        aim_agents.remove(common.created())
+        self.assertIn(("POST", MODELS_SUBSCRIPTIONS + "/llm-sub-1/_close"), self.changed())
+        self.assertIn(("POST", SUBSCRIPTIONS + "/sub-1/_close"), self.changed())
+        self.assertEqual(self.api_subscriptions[0]["status"], "CLOSED")
 
 
 class WhatItLeavesAlone(Agents):

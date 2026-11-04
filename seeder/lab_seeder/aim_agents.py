@@ -1,4 +1,4 @@
-"""What an agent of the catalog needs to sign in and to call an MCP server, from the keys `identity` and `access` of
+"""What an agent of the catalog needs to sign in and to call an MCP server or an API, from the keys `identity` and `access` of
 seed/aim/agents/*.yaml. The card and the `metadata` of the same file are aim_catalog's, which registered the agent
 before; a file with neither key is left to it.
 
@@ -6,6 +6,7 @@ before; a file with neither key is left to it.
       clientId: care-copilot                       # the AM application the agent signs in with
     access:
       - {studio: Customer care, plan: Agents}      # a subscription to a plan of an MCP studio (aim/studios)
+      - {api: Harbor models, plan: Agents, apiKey: "${HARBOR_LLM_KEY}"}   # to a plan of an API of seed/apim/apis
 
 Three steps for each agent, each writing only what is missing:
 
@@ -16,7 +17,10 @@ Three steps for each agent, each writing only what is missing:
        application, whose client id becomes the identity's. A JWT plan matches a token to its subscription by that
        client id. Gamma attaches it through its link to Access Management, which am_link sets up before this module
        runs.
-    3. The access: a subscription of the application to the plan of each studio, accepted when the plan asks for it.
+    3. The access: a subscription of the application to the plan of each studio, or of each API that seed/apim made (an
+       LLM proxy the agent asks its model through), with the `apiKey` of the file on a plan of API keys, accepted when
+       the plan asks for it. The agent's calls through that API are then its own traffic, and revoking it pauses them
+       too. The step that makes the application makes its subscriptions: apim, which made the API, ran before.
 
 The seed records the application and the subscriptions it makes, and changes nothing else. An application that acts for
 the agent and was not made by it stops the seed, as does an identity of another client id attached to the application.
@@ -34,7 +38,8 @@ paused. A subscription that exists, whatever its status, is otherwise left as it
 from . import am
 from .common import (SeedError, adopted, excerpt, files, forget, has_seed, items, load, log, making, owned, record, recorded, seed_file,
                      unmade)
-from .gamma import CATALOG, WORKSPACES, Gamma
+from . import apim
+from .gamma import CATALOG, LISTS, WORKSPACES, Gamma
 
 SECTION = "aim-agents"
 # The folder of the seed it reads: aim_catalog reads it too, for the card of each agent
@@ -75,14 +80,20 @@ def wanted():
         if "identity" in spec and not (isinstance(spec["identity"], dict) and spec["identity"].get("clientId")):
             raise SeedError(f"{path.name}: identity needs a clientId")
         access = spec.get("access") or []
-        if not isinstance(access, list) or not all(isinstance(a, dict) and a.get("studio") and a.get("plan")
-                                                   for a in access):
-            raise SeedError(f"{path.name}: access is a list of {{studio, plan}}")
+        if not isinstance(access, list) or not all(_access(a) for a in access):
+            raise SeedError(f"{path.name}: access is a list of {{studio, plan}} or {{api, plan, apiKey}}")
         found.append({**spec, "access": access})
     if any("identity" in spec for spec in found) and not seed_file("am", "gamma-link.yaml"):
         raise SeedError("An agent's identity is an application of Access Management: seed/am/gamma-link.yaml names the "
                         "domain that holds it")
     return found
+
+
+def _access(entry):
+    """Whether an entry of `access` names a plan of a studio, or of an API with an optional key: one or the other."""
+    if not isinstance(entry, dict) or not entry.get("plan") or bool(entry.get("studio")) == bool(entry.get("api")):
+        return False
+    return not (entry.get("studio") and "apiKey" in entry)
 
 
 # --- Access Management ----------------------------------------------------------------------
@@ -135,7 +146,10 @@ class Agents:
             application = self.identity(agent, name, application, spec["identity"]["clientId"])
         self.restore(agent, name)
         for access in spec["access"]:
-            self.subscribe(name, application, access)
+            if "api" in access:
+                self.subscribe_api(name, application, access)
+            else:
+                self.subscribe(name, application, access)
 
     def agent(self, spec):
         wanted_id = f"agent.{spec['entityId']}"
@@ -258,6 +272,45 @@ class Agents:
             self.aim.post(f"{path}/{made['id']}/_accept", json={})
         log(SECTION, f"  ✓ Subscribed: {label}")
 
+    def subscribe_api(self, agent_name, application, access):
+        """Subscribes the application to the plan of an API that seed/apim made, with the key of the file on a plan of
+        API keys, unless it holds a subscription to it. One the seed made and left pending is accepted."""
+        made = apim.made_under(access["api"])
+        if made is None:
+            raise SeedError(f"The API '{access['api']}' was not made by this playground: seed/apim/apis makes it before the "
+                            "agent subscribes")
+        api_id, key = made["id"], access.get("apiKey")
+        plans = [p for p in self.g.v2.rows(f"/apis/{api_id}/plans", LISTS) if p.get("status") == "PUBLISHED"]
+        plan = next((p for p in plans if p["name"] == access["plan"]), None)
+        if plan is None:
+            raise SeedError(f"The API '{access['api']}' has no published plan '{access['plan']}'")
+        kind = (plan.get("security") or {}).get("type")
+        if kind == "KEY_LESS":
+            raise SeedError(f"The API '{access['api']}': the plan {plan['name']} is keyless, which takes no subscription")
+        if key and kind != "API_KEY":
+            raise SeedError(f"The API '{access['api']}': the access of {agent_name} has an apiKey, which needs a plan of API "
+                            f"keys, and {plan['name']} is {kind}")
+        label = f"{agent_name} → {access['api']} ({plan['name']})"
+        app = application["applicationId"]
+        held = apim.held_subscription(self.g.v2, "", api_id, app, plan["id"])
+        if held:
+            if not recorded(SECTION, "subscription", held["id"]):   # one an earlier seed made and lost the answer of, if any
+                adopted(SECTION, "subscription", label, held["id"], api=api_id, application=app, via=apim.SECTION)
+            if held.get("status") == "PENDING" and recorded(SECTION, "subscription", held["id"]):
+                apim.accept(self.g.v2, "", api_id, held["id"], key)
+                log(SECTION, f"  ✓ Subscription accepted: {label}")
+            else:
+                log(SECTION, f"  Subscription exists: {label}")
+            return
+        with making(SECTION, "subscription", LABELS["subscription"], label, missing=True, api=api_id, application=app,
+                    via=apim.SECTION):
+            subscription = apim.subscribe(self.g.v2, "", api_id, app, plan["id"], key)
+            record(SECTION, "subscription", LABELS["subscription"], label, subscription["id"], api=api_id, application=app,
+                   via=apim.SECTION)
+        if subscription.get("status") == "PENDING":
+            apim.accept(self.g.v2, "", api_id, subscription["id"], key)
+        log(SECTION, f"  ✓ Subscribed: {label}")
+
     # --- Removal --------------------------------------------------------------------------
 
     def detach(self, x, records):
@@ -300,7 +353,10 @@ def remove(records):
     agents.connect()
     for x in mine:
         if x["kind"] == "subscription":
-            agents.aim.post(f"/mcp-proxies/{x['api']}/subscriptions/{x['id']}/_close", expect=CLOSED, idempotent=True)
+            if x.get("via") == apim.SECTION:   # to an API of seed/apim, closed where it was made
+                agents.g.v2.post(f"/apis/{x['api']}/subscriptions/{x['id']}/_close", expect=CLOSED, idempotent=True)
+            else:
+                agents.aim.post(f"/mcp-proxies/{x['api']}/subscriptions/{x['id']}/_close", expect=CLOSED, idempotent=True)
             forget(x)
             log(SECTION, f"✓ Closed subscription '{x['name']}'")
         else:
