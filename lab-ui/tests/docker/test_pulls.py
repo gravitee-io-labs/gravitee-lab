@@ -200,6 +200,17 @@ class Run(unittest.TestCase):
         self.assertEqual((len(started), job.ok), (2, True))
         self.assertIn(f"Image {image} Error unauthorized", job.lines)
 
+    def test_an_image_another_service_builds_is_not_missing_when_its_registry_refuses_it(self):
+        # A service that runs what another one builds (no build of its own, pull_policy: never): Compose skips the
+        # image for the service that builds it and pulls it for the other. Refused, the up still builds it
+        image = "ghcr.io/acme/hub/shop-api:latest"
+        built = {"id": f"Image {image}", "status": "Done", "text": "Skipped", "details": "Image can be built"}
+        refused = {"id": f"Image {image}", "status": "Error", "text": "Error", "details": "denied"}
+        with mock.patch.object(compose, "image_ids", return_value={}):
+            job, started = self.run_job(UP, said(built, {"id": f"Image {image}", "text": "Pulling"}, refused),
+                                        ["Container gio-shop-api  Started"])
+        self.assertEqual((len(started), job.ok), (2, True))
+
     def test_a_pull_before_an_up_that_stalls_is_ended_and_the_up_not_run(self):
         # A registry that stops sending: nothing more comes, and the job does not wait for ever
         ended, started = threading.Event(), []
