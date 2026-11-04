@@ -4,7 +4,8 @@ for each person.
 A workspace is an API product plus the LLM proxy that carries its models. A file describes:
 
     budgets      one plan of the product each: a cost limit per member, optionally a request rate
-    components   the models of the LLM proxy, from a provider of the catalog
+    components   the models of the LLM proxy, from a provider of the catalog, or with an endpoint of their own
+                 (`target`, with a price on each model), the only kind the amp-demo build takes
     router       the steps every budget runs before the call (spend-aware routing...); the ones a control of
                  seed/controls.yaml names (controls.py) are enabled or disabled as the mode says, on every run
     analytics    what the gateway records for each call
@@ -127,7 +128,7 @@ class AiWorkspaces:
     def budgets(self, base, specs):
         """{name: budget} once each budget of the file exists as written. Names are not unique for the API: they are
         looked up here. The workspace starts with one budget, named Default, which becomes the first of the file."""
-        live = self.aim.rows(f"{base}/budgets", gamma.LISTS)
+        live = self.aim.rows(f"{base}/budgets", gamma.BUDGETS)
         starting = next((b for b in live if b["name"] == "Default"), None)
         out = {}
         for spec in specs:
@@ -159,6 +160,9 @@ class AiWorkspaces:
         model at a time (add, remove) and its aliases and governance as one edit that leaves the set as it is."""
         live = self.aim.get(f"{base}/models").json()
         for spec in specs:
+            if "target" in spec:
+                self.inline(base, spec, live)
+                continue
             wanted = {"kind": "managed", "providerId": self.provider_id(spec["provider"]),
                       "models": [{"name": m["name"], "aliases": m.get("aliases", [])} for m in spec["models"]],
                       "modelGovernance": {"aliasOnly": False, "modelPattern": "",
@@ -172,6 +176,24 @@ class AiWorkspaces:
             if changed:
                 self.touched()
                 log(SECTION, f"  ✓ Models of {spec['provider']}: {', '.join(m['name'] for m in spec['models'])}")
+
+    def inline(self, base, spec, live):
+        """A component that names its endpoint itself, with no provider of the catalog: the only kind some builds accept
+        (amp-demo). Its models carry their prices."""
+        wanted = {"name": spec["name"], "provider": spec["provider"], "target": spec["target"],
+                  "authentication": spec.get("authentication", {"type": "NONE"}),
+                  "models": [{"name": m["name"], "aliases": m.get("aliases", []), "inputPrice": float(m["inputPrice"]),
+                              "outputPrice": float(m["outputPrice"])} for m in spec["models"]],
+                  "modelGovernance": {"aliasOnly": False, "modelPattern": "",
+                                      "prefixPolicy": {"policy": spec.get("prefixPolicy", "PREFIXED_BOTH")}}}
+        found = next((c for c in live if c.get("kind") == "inline" and c.get("name") == spec["name"]), None)
+        if found is not None and subset(wanted, found):
+            return
+        if found is not None:
+            self.aim.delete(f"{base}/models/{quote(spec['name'], safe='')}")
+        self.aim.post(f"{base}/models/_bulk", json=[wanted])
+        self.touched()
+        log(SECTION, f"  ✓ Models of {spec['name']}: {', '.join(m['name'] for m in spec['models'])}")
 
     def models_of(self, base, wanted, found):
         """Adds the models the provider lacks (the others and their aliases stay), removes those the file does not

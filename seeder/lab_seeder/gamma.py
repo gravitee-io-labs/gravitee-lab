@@ -41,7 +41,8 @@ class Paging:
 # What a platform whose lists start elsewhere than the seed expected says: they have not all started at the same page in every build
 PAGE_FLOOR = re.compile(r"page param must be >= (\d+)")
 WORKSPACES = Paging(first=0, size=100)   # AI workspaces and the MCP proxies
-LISTS = Paging(first=1, size=100)        # budgets (see requires.images in compose.yml), workspace members, access entities and policies, dashboards
+BUDGETS = Paging(first=0, size=100)      # budgets of a workspace: the amp-demo build counts from 0, 4.13.1 says its floor and is asked again
+LISTS = Paging(first=1, size=100)        # workspace members, access entities and policies, dashboards
 CATALOG = Paging(first=1, size=200)      # the catalog, providers and credentials
 
 
