@@ -470,8 +470,8 @@ serve the lessons:
   its check with `fga` and takes no `authorization`.
 - The tools come back to the file on every run. Tools a person adds or removes with *Edit tools* in Gamma are written
   back in place, with the keys of the APIs, and the flow of the authorization check is written again after them.
-- A file with `access` gives `supportedProtocolVersions`, a list, on API Management 4.13.1, as a file with a `plan` does
-  (`["2025-11-25"]`). The amp-demo build took one `protocolVersion` instead.
+- A studio file of either shape gives `supportedProtocolVersions`, a list (`["2025-11-25"]`), on API Management 4.13.1,
+  and one `protocolVersion` (`"2025-11-25"`) on the amp-demo build, which refuses the list.
 
 Seed files use `${VAR}` for everything that depends on the target: service URLs, the Redis password of a vector store
 resource, the gateway and AM addresses shown to clients. Acme Shop's seed files use, among others, `${AM_GATEWAY_URL}`,

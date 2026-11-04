@@ -802,7 +802,7 @@ def studio_problems(spec):
         name = sub.get("plan", next(iter(plans)))
         if name not in plans:
             found.append(f"{where}: {_brief(name, quoted=True)} is no plan of the studio that takes subscriptions")
-        elif plans[name] == "KEY_LESS":
+        elif plans[name] in ("KEYLESS", "KEY_LESS"):   # a studio's plan says KEYLESS (Agent Management), an API's KEY_LESS
             found.append(f"{where}: a keyless plan takes no subscription")
         elif sub.get("apiKey") and plans[name] != "API_KEY":
             found.append(f"{where}: an apiKey needs a plan with API keys")

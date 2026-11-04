@@ -822,6 +822,13 @@ class OldShape(Studios):
         self.assertEqual(self.changes(), [("POST", "/mcp-studios"), ("PUT", "/mcp-studios/studio-1/fga"), ("POST", "/apis/studio-1/deployments")])
         self.assertEqual(self.world.gateway_calls, [])
 
+    def test_a_file_with_one_version_is_created_with_it_as_the_amp_demo_build_asks(self):
+        self.file(OLD_STUDIO.replace('supportedProtocolVersions: ["2025-11-25"]', 'protocolVersion: "2025-11-25"'), "customer-care")
+        self.seed()
+        [call] = self.platform.sent("POST", AIM + "/mcp-studios")
+        self.assertEqual(call.json["protocolVersion"], "2025-11-25")
+        self.assertNotIn("supportedProtocolVersions", call.json)
+
     def test_one_replaced_whose_answer_was_lost_is_the_seeds_at_the_next_run(self):
         self.seed()
         self.file(OLD_STUDIO.replace("tool: getCustomer", "tool: searchCustomers"))

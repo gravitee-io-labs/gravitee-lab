@@ -306,6 +306,8 @@ class Studios(Made):
                  "an apiKey needs a plan with API keys"),
                 ("subscriptions: [{application: Copilot}]\n", STUDIO.replace("API_KEY", "KEY_LESS"),
                  "a keyless plan takes no subscription"),
+                ("subscriptions: [{application: Copilot}]\n", STUDIO.replace("API_KEY", "KEYLESS"),
+                 "a keyless plan takes no subscription"),
                 ("subscriptions: [{application: Copilot, apiKey: abc}]\n", AGENTS_STUDIO, "an apiKey needs a plan with API keys"),
                 ("subscriptions: [{application: Copilot, plan: Registration}]\n", AGENTS_STUDIO, "'Registration' is no plan"),
                 ("subscriptions: [{apiKey: abc}]\n", STUDIO, "each names its application"),
