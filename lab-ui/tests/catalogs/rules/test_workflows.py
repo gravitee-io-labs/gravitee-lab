@@ -1,4 +1,4 @@
-"""Catalogs/rules/workflows.py: WF01 to WF21 of the catalog repository standard. The files of are the passing set;
+"""Catalogs/rules/workflows.py: WF01 to WF21 of the catalog repository standard. The files of tests/data/workflows are the passing set;
 every rule has planted violations (a mutation test) and each violation is tried in five spellings of the same file (as it is, the
 indentation doubled, sequences at the column of their key, Windows line ends, a byte order mark), because the rules read by
 indentation and must not depend on how a file is laid out. Hostile text is the other half: a line of 1 MB and every kind of
@@ -1221,11 +1221,7 @@ class Readers(unittest.TestCase):
     def test_the_engines_ci_and_the_compose_action_pass_every_rule(self):
         found = []
         for relative in (".github/workflows/ci.yml", ".github/actions/compose/action.yml"):
-            file = ROOT / relative
-            if not file.is_file():
-                print("skipped: %s is not in this checkout" % relative)
-                continue
-            text = file.read_text(encoding="utf-8")
+            text = (ROOT / relative).read_text(encoding="utf-8")
             found += [(relative, each.code) for each in wf.problems(relative, text, wf.ALL)]
         self.assertEqual(found, [])
 
@@ -1491,11 +1487,7 @@ class Trees(unittest.TestCase):
         self.assertEqual(first, sorted(first, key=lambda each: (each.path, each.line, each.code)))
 
     def test_with_the_real_tree_of_the_audit(self):
-        try:
-            from lab_ui.catalogs import tree as real
-        except ImportError:
-            print("skipped: lab_ui.catalogs.tree is not in this checkout")
-            self.skipTest("tree.py is not here")
+        from lab_ui.catalogs import tree as real
         with tempfile.TemporaryDirectory() as holder:
             shutil.copytree(DATA / "inline", Path(holder) / "catalog")
             self.assertEqual(wf.check(real.FolderTree(Path(holder) / "catalog")), [])

@@ -574,10 +574,6 @@ class Shared(Case):
         self.assertEqual([call.args for call in write.call_args_list], [(".env", {"MONGODB_VERSION": "8.0.30"})])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class Anonymous(Case):
     """images.private_images: whether a person with no login can pull an image, asked of its registry as `docker pull` asks it
     (stood in for here): Docker Hub on its own API, another registry for the manifest of that very image, without a login then with
@@ -618,3 +614,7 @@ class Anonymous(Case):
 
     def test_a_registry_that_does_not_answer_is_not_said_private(self):
         self.assertEqual(images.private_images(["reg.example/quiet/app:1"]), {})
+
+
+if __name__ == "__main__":
+    unittest.main()

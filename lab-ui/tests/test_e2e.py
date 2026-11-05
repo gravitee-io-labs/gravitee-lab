@@ -499,6 +499,7 @@ class Removing(Case):
                                   "--timeout", "30"]])
 
     def test_a_removal_that_fails_says_so(self):
+        self.patch(compose, "project_name", lambda: "gravitee")
         run = attempt(FakeLab(), shell=lambda command, timeout=0: (1, "", "network in use\nremoving failed"))
         self.assertEqual(run.stop(), "removing failed")
 
