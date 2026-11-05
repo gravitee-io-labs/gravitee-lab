@@ -826,6 +826,14 @@ ROUTES = [(method, re.compile(pattern), handler) for method, pattern, handler in
 ]]
 
 
+class Server(ThreadingHTTPServer):
+    """The Lab UI's server. Each request has a connection of its own (HTTP/1.0) and a page asks for its modules at once,
+    over as many as six connections in a browser: macOS resets one that finds the listen queue full, Python's default
+    queue is 5, and a module that does not load leaves the page empty. 128 is the most macOS takes by default."""
+    request_queue_size = 128
+    daemon_threads = True   # an open log stream does not keep the Lab UI from stopping
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "GraviteeLabUI"
 
@@ -1072,7 +1080,7 @@ def _serve(port, browser):
     try:
         if answers_on_ipv6(port):   # the browser may go there for localhost, and find another program
             raise OSError(errno.EADDRINUSE, f"Port {port} is used on ::1")
-        server = ThreadingHTTPServer(("127.0.0.1", port), Handler)   # this machine only
+        server = Server(("127.0.0.1", port), Handler)   # this machine only
     except OSError as error:
         if error.errno != errno.EADDRINUSE:
             raise
@@ -1083,7 +1091,6 @@ def _serve(port, browser):
                  f"{command()} (the UIs of a playground do not show next to the guide on another port)")
     # Once, from the main thread, before it serves: a closed terminal ends what runs
     compose.stop_on_signals(gitx.stop_running)
-    server.daemon_threads = True   # an open log stream does not keep the Lab UI from stopping
     address(url, "Keep this terminal open: Ctrl+C stops the Lab UI, and the containers keep running.")
     start_up()
     if browser:
