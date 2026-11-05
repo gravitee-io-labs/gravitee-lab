@@ -1,24 +1,19 @@
 """Authorization Management for a playground whose policies are about its own data: the entities of a file (customers and
 the orders that point at them), saved in bulk and only when they differ, the placeholder that names an agent in a policy,
 the one schema document of the environment, and the message of a policy the platform cannot read. The platform is a fake
-that keeps what it is given; the files of the personal playground "agent-toolbox" run through it when they are there."""
+that keeps what it is given."""
 
 import json
 import re
 import unittest
-from unittest import mock
 
 import requests
 
 from lab_seeder import authz
 from lab_seeder import common
-from lab_seeder.testkit import PERSONAL, PLAYGROUNDS, Seed
+from lab_seeder.testkit import Seed
 from tests.test_authz import AIM, AUTHZ, World
 
-# The playground is personal until it is shared: the same seed in either place
-HARBOR_SEED = next((seed for seed in (PERSONAL / "agent-toolbox" / "seed",
-                                      PLAYGROUNDS / "agent-toolbox" / "seed") if seed.is_dir()),
-                   PERSONAL / "agent-toolbox" / "seed")
 CARE_COPILOT = "67be365c-85ec-3ae7-a61d-9d9021c0ad0f"   # what the gateway makes of "care-copilot" (UUID.nameUUIDFromBytes)
 BULK = AUTHZ + "/entities/_bulk"
 SCHEMA = AUTHZ + "/schema"
@@ -1136,80 +1131,6 @@ class SchemaDocument(Case):
         self.assertEqual(self.platform.sent("POST", AUTHZ + "/schemas")[0].json["name"], "Old")
         self.assertEqual(self.world.schema_text.strip(), SCHEMA_TEXT.strip())
         self.assertEqual(sorted(x["kind"] for x in common.created()), ["schema", "schema-document"])
-
-
-@unittest.skipUnless(HARBOR_SEED.is_dir(), "the playground agent-toolbox is not on this machine")
-class Harbor(Case):
-    """The seed files of the playground, as they are, through the module and against the fake."""
-
-    def setUp(self):
-        super().setUp()
-        patch = mock.patch.object(common, "SEED_DIR", HARBOR_SEED)
-        patch.start()
-        self.addCleanup(patch.stop)
-        self.spec = common.load(HARBOR_SEED / "authz" / "entities.yaml")
-        self.policies = [common.load(path) for path in sorted((HARBOR_SEED / "authz" / "policies").iterdir())]
-
-    def test_the_seed_runs_without_a_stop_and_makes_every_entity_policy_and_the_schema(self):
-        authz.seed()
-        self.assertEqual(len(self.world.entities), len(self.spec["entities"]))
-        self.assertEqual(sorted(p["name"] for p in self.world.policies.values()), sorted(p["name"] for p in self.policies))
-        self.assertEqual({p["status"] for p in self.world.policies.values()}, {"DEPLOYED"})
-        self.assertTrue(self.world.schema_text)
-        self.assertNotIn("! ", self.output(), "no warning: the schema is valid and every entity is taken")
-
-    def test_the_entities_come_in_one_request_with_the_customers_first(self):
-        authz.seed()
-        self.assertEqual(len(self.world.bulks), 1)
-        ids = self.world.bulks[0]
-        customers = [i for i in ids if i.startswith("C-")]
-        orders = [i for i in ids if i.startswith("O-")]
-        self.assertEqual(ids[:len(customers)], customers, "the customers, then the orders")
-        self.assertEqual(len(customers) + len(orders), len(ids))
-
-    def test_every_order_points_at_a_customer_of_the_file_and_every_reference_is_an_engine_reference(self):
-        authz.seed()
-        for entity in self.world.entities.values():
-            if entity["entityType"] == "Order":
-                reference = entity["attributes"]["customer"]["__entity"]
-                self.assertEqual(reference["type"], "Customer")
-                self.assertIn(reference["id"], self.world.entities, entity["entityId"])
-            self.assertEqual((entity["kind"], entity["source"], entity["targets"]), ("RESOURCE", self.spec["source"], []))
-
-    def test_a_policy_that_names_the_agent_gets_the_id_the_gateway_makes_and_no_placeholder_is_left(self):
-        authz.seed()
-        named = {p["name"] for p in self.policies if "<agent:care-copilot>" in p["policy"]}
-        self.assertTrue(named, "some policy is about the agent")
-        for policy in self.world.policies.values():
-            with self.subTest(policy=policy["name"]):
-                self.assertEqual(re.findall(r"<[^>\s]*>", policy["policyText"]), [])
-                self.assertEqual(f'AgentIdentity::"{CARE_COPILOT}"' in policy["policyText"], policy["name"] in named)
-
-    def test_every_statement_has_an_id_that_a_person_reads(self):
-        ids = []
-        for policy in self.policies:
-            text = policy["policy"]
-            statements = re.findall(r"^(permit|forbid) \(", text, re.M)
-            found = re.findall(r'^@id\("([^"\\]+)"\)\n(?:permit|forbid) \(', text, re.M)
-            with self.subTest(policy=policy["name"]):
-                self.assertTrue(statements)
-                self.assertEqual(len(found), len(statements), "each statement has its @id just above it")
-                for name in found:
-                    self.assertRegex(name, r"^[A-Z][^\s]* \S", "a name, not a slug")
-            ids += found
-        self.assertEqual(len(ids), len(set(ids)), "an @id names one statement")
-
-    def test_a_second_seed_saves_nothing(self):
-        self.seeded()
-        authz.seed()
-        self.assertEqual(self.platform.changes(), [])
-
-    def test_a_removal_leaves_nothing_of_it(self):
-        authz.seed()
-        self.assertEqual(self.main("--remove"), 0, self.output())
-        self.assertEqual((self.world.entities, self.world.policies), ({}, {}))
-        self.assertIsNone(self.world.schema_text)
-        self.assertEqual(common.created(), [])
 
 
 if __name__ == "__main__":

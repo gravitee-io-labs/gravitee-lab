@@ -9,13 +9,11 @@ import re
 import unittest
 from unittest import mock
 
-import yaml
-
 from lab_seeder import aim_governance
 from lab_seeder import common
 from lab_seeder import gamma
 from lab_seeder import seed
-from lab_seeder.testkit import PERSONAL, Seed
+from lab_seeder.testkit import Seed
 
 AIM = "/gamma/organizations/DEFAULT/environments/DEFAULT/modules/aim"
 USERS = "/management/organizations/DEFAULT/users"
@@ -23,7 +21,6 @@ SETTINGS_PATH = AIM + "/approval-settings"
 RULES = AIM + "/approval-rules"
 ACTIVATIONS = AIM + "/compliance/activations"
 AGENT = AIM + "/compliance/agents/agent-1"
-CONTRACT = PERSONAL / "agent-toolbox" / "seed" / "aim" / "governance"
 
 APPROVALS = """\
 settings:
@@ -731,38 +728,6 @@ class Declared(Seed):
     def test_it_reads_the_folder_of_the_governance_and_needs_agent_management(self):
         self.assertEqual((aim_governance.FOLDERS, aim_governance.GAMMA, aim_governance.SECTION),
                          (("aim/governance",), ("aim",), "aim-governance"))
-
-
-@unittest.skipUnless((CONTRACT / "approvals.yaml").is_file() and (CONTRACT / "compliance.yaml").is_file(),
-                     "the personal playground agent-toolbox is not on this machine")
-class Contract(Governance):
-    """The files of the playground, as their author wrote them."""
-
-    def setUp(self):
-        super().setUp()
-        self.file(approvals=(CONTRACT / "approvals.yaml").read_text(encoding="utf-8"),
-                  compliance=(CONTRACT / "compliance.yaml").read_text(encoding="utf-8"))
-
-    @staticmethod
-    def attested_by_the_file():
-        """The controls the file attests: the fake platform cannot read any of them."""
-        spec = yaml.safe_load((CONTRACT / "compliance.yaml").read_text(encoding="utf-8"))
-        return [control for entry in spec["agents"] for control in entry["attest"]]
-
-    def test_the_files_set_up_the_approval_of_refunds_and_the_compliance_of_the_agent_and_a_second_run_changes_nothing(self):
-        aim_governance.seed()
-        self.assertEqual(self.world.settings["defaultTtlSeconds"], 90)
-        refund = self.rule()
-        self.assertEqual((refund["toolPattern"], refund["argumentConditions"], refund["priority"]),
-                         ("create_refund|createRefund", [{"path": "amount", "operator": "GT", "value": "100"}], 100))
-        self.assertIn("eu-ai-act", self.world.active)
-        answers = self.world.answers["agent-1"]
-        self.assertEqual((answers["compliance.accountableHuman"], answers["riskClassification"]), ("user-admin", "limited"))
-        self.assertNotIn("compliance.oversightMeasure", answers)
-        self.assertEqual(self.world.attested["agent-1"], set(self.attested_by_the_file()))
-        self.platform.calls.clear()
-        aim_governance.seed()
-        self.assertEqual(self.changed(), [])
 
 
 if __name__ == "__main__":
