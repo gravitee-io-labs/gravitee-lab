@@ -1564,6 +1564,7 @@ class Limits(ProjectFolder):
         self.assertEqual([call.kwargs["timeout"] for call in run.call_args_list], [15, 15, 3, 120, 120])
 
     def test_a_read_that_is_not_answered_in_time_raises_compose_error(self):
+        self.patch(compose, "plugin", lambda: None)
         self.patch(compose, "COMPOSE", ["sh", "-c", f"sleep {FOREVER}", "sh"])   # a Compose that never answers
         started = time.monotonic()
         with self.assertRaisesRegex(compose.ComposeError, "^sh did not answer within 1 s$"):
@@ -1571,11 +1572,45 @@ class Limits(ProjectFolder):
         self.assertLess(time.monotonic() - started, 10)
 
     def test_the_whole_configuration_is_answered_not_only_the_services(self):
+        self.patch(compose, "plugin", lambda: None)
         with mock.patch.object(compose, "run", return_value=(0, json.dumps(self.WHOLE), "")) as run:
             found = compose.config_json(["-f", "a.yml"])
             self.assertEqual(compose.resolved(["-f", "a.yml"]), self.WHOLE["services"])
         self.assertEqual(found, self.WHOLE)
         self.assertEqual(run.call_args.args[0], [*compose.COMPOSE, "-f", "a.yml", "config", "--format", "json"])
+
+    def test_files_are_read_by_the_plugin_and_anything_but_its_answer_by_docker_compose(self):
+        plugin, docker = ["/p/docker-compose", "--progress", "plain"], compose.COMPOSE
+        said = "docker did not answer within 15 s"
+        for found, answers, asked in (
+                ("/p/docker-compose", [(0, "{}", "")], [plugin]),
+                (None, [(0, "{}", "")], [docker]),
+                ("/p/docker-compose", [(1, "", "no such flag"), (0, "{}", "")], [plugin, docker]),   # the plugin under another plugin
+                ("/p/docker-compose", [(127, "", "[Errno 8] Exec format error"), (1, "", said)], [plugin, docker]),
+                ("/p/docker-compose", [(130, "", "/p/docker-compose was not run: the Lab UI is ending"), (130, "", "docker was not run")],
+                 [plugin, docker])):
+            with self.subTest(found=found, answers=answers):
+                self.patch(compose, "plugin", lambda found=found: found)
+                with mock.patch.object(compose, "run", side_effect=answers) as run:
+                    self.assertEqual(compose._read(["config"], timeout=15), answers[-1])
+                self.assertEqual([call.args[0] for call in run.call_args_list], [[*command, "config"] for command in asked])
+                self.assertEqual({call.kwargs["timeout"] for call in run.call_args_list}, {15})
+
+    def test_a_plugin_that_does_not_answer_in_time_is_said_as_docker_and_not_asked_twice(self):
+        self.patch(compose, "plugin", lambda: "/p/docker-compose")
+        with mock.patch.object(compose, "run", return_value=(124, "", "/p/docker-compose did not answer within 15 s")) as run:
+            self.assertEqual(compose._read(["config"], timeout=15), (124, "", "docker did not answer within 15 s"))
+        self.assertEqual(run.call_count, 1)
+
+    def test_the_plugin_on_its_own_answers_as_docker_compose_does(self):
+        if not COMPOSE_5 or compose.plugin() is None:
+            self.skipTest("needs docker compose 5 or later, as a plugin of the Docker CLI")
+        folder = self.folder()
+        (folder / "a.yml").write_text("services:\n  web:\n    image: nginx\n    volumes: [./site:/usr/share/nginx/html]\n")
+        ask = ["-f", str(folder / "a.yml"), "config", "--format", "json"]
+        answers = [compose.run([*command, *ask], cwd=folder) for command in (compose.COMPOSE, [compose.plugin(), *compose.COMPOSE[2:]])]
+        self.assertEqual(answers[0][0], 0, answers[0][2])
+        self.assertEqual(answers[0], answers[1])
 
     def test_what_compose_refuses_raises_its_last_line(self):
         with mock.patch.object(compose, "run", return_value=(1, "", "time=x level=warning msg=y\nyaml: line 3: bad key\n")):
@@ -1746,10 +1781,6 @@ class Compose5(ProjectFolder):
         self.assertTrue(settled(lambda: not holding(name)), "Compose is still waiting")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 @unittest.skipUnless(have_compose(), "needs docker compose")
 class XGravitee(ProjectFolder):
     """The x-gravitee block of a text, as Compose reads it in the item's folder: from its input, nothing written, bounded."""
@@ -1874,3 +1905,7 @@ class XGravitee(ProjectFolder):
         compose.raw("addons/read/compose.yml")
         self.assertEqual(compose.x_gravitee(text.replace("Once", "Read"), self.root / "addons" / "read"), {"kind": "addon", "name": "Read"})
         self.assertEqual(len(runs), 2, "raw's reading answers")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -26,7 +26,7 @@ The module docstring (Python) or the header comment (JavaScript) of a file is th
 
 | Module | What it holds |
 |---|---|
-| `compose.py` | Runs `docker compose` and reads its answers: files as JSON (a `pull_policy` variable is read as its default, which Compose 5.5.1 and later refuse), containers, `config --hash`, images; the one reading of `docker info`, `docker compose version` and `docker images`, which every page shares; a cache, which keeps any answer and never what a read raises |
+| `compose.py` | Runs `docker compose` and reads its answers: files as JSON (read by the Compose plugin on its own, in half the time, and by `docker compose` for anything but an answer: `_read`; a `pull_policy` variable is read as its default, which Compose 5.5.1 and later refuse), containers, `config --hash`, images; the one reading of `docker info`, `docker compose version` and `docker images`, which every page shares; a cache, which keeps any answer and never what a read raises |
 | `envfiles.py` | `.env` files, read and changed the way Compose reads them |
 | `images.py` | Components read from `image:` lines, their versions, registry tags and login |
 | `jobs.py` | Long-running actions: one at a time, cancelable, with their output and progress |
