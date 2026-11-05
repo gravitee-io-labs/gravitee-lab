@@ -121,6 +121,8 @@ Problem = namedtuple("Problem", "check path line message")
 Report = namedtuple("Report", "problems playgrounds files")   # the playgrounds that have a seed, the seed files read
 # What a subscription of a studio's file may say (aim_proxies.SUBSCRIPTION_KEYS)
 STUDIO_SUBSCRIPTION = ("application", "plan", "apiKey")
+# The keys of a studio's file that give its protocol versions, one of the two (aim_proxies.VERSION_KEYS)
+STUDIO_VERSIONS = ("supportedProtocolVersions", "protocolVersion")
 TITLES = {"variable": "Seed variable", "address": "Seed address", "read": "Seed file", "parse": "Seed file",
           "environment": "Seed environment", "playground": "Seed service", "studio": "Seed studio"}
 
@@ -765,17 +767,21 @@ def _mapping(value):
 
 
 def studio_problems(spec):
-    """What the seed or the platform refuses of the `subscriptions` of a studio's file (seed/aim/studios), read as the seed
-    reads it: what aim_proxies.read_subscriptions refuses, then the plan each names, which its file holds: the `plan` of a
-    studio made in one go, or the plan of the agents (JWT) of one built in steps (`access`), whose registration plan is closed."""
-    if not isinstance(spec, dict) or "subscriptions" not in spec:
+    """What the seed or the platform refuses of a studio's file (seed/aim/studios), read as the seed reads it: its protocol
+    versions (aim_proxies.protocol_versions) and its `subscriptions`: what aim_proxies.read_subscriptions refuses, then the
+    plan each names, which its file holds: the `plan` of a studio made in one go, or the plan of the agents (JWT) of one built
+    in steps (`access`), whose registration plan is closed."""
+    if not isinstance(spec, dict):
         return []
-    listed = spec["subscriptions"]
-    if listed is None:   # `subscriptions:` with nothing under it, which the seed reads as none
-        return []
+    given = [spec[key] for key in STUDIO_VERSIONS if key in spec]
+    found = [] if len(given) == 1 else [f"it gives {' or '.join(STUDIO_VERSIONS)}, one of the two"]
+    if len(given) == 1 and not all(isinstance(v, str) for v in (given[0] if isinstance(given[0], list) else [given[0]])):
+        found.append("a protocol version is text: quote it")
+    listed = spec.get("subscriptions")
+    if listed is None:   # no `subscriptions`, or `subscriptions:` with nothing under it, which the seed reads as none
+        return found
     if not isinstance(listed, list) or not all(isinstance(sub, dict) for sub in listed):
-        return ["subscriptions is a list of {application, plan, apiKey}"]
-    found = []
+        return [*found, "subscriptions is a list of {application, plan, apiKey}"]
     for sub in listed:
         unknown = sorted(set(sub) - set(STUDIO_SUBSCRIPTION), key=str)
         if unknown:

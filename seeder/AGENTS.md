@@ -112,6 +112,12 @@ playground's seed service sets the variables. `make test` fails on a literal add
 
 ## Behavior to keep
 
+- **Builds differ, versions are not read.** No module compares a version. A difference between builds is handled, in this
+  order of preference: the seed file writes what its build takes and the module sends it on; the module adapts to what the
+  platform answers (a status, a field, a code, what it serves), never to a sentence meant for a person; when neither can
+  work, the seed stops with a line that says what to write instead. Each difference is a row of
+  [What differs from one build to another](../docs/playgrounds.md#what-differs-from-one-build-to-another), added with its
+  code and removed with it. The code of a row has a test for each case the row names.
 - **An import that fails after the platform made the API** ("API imported with error", the API kept, stopped) is recorded
   with no digest before the error is raised, so that the next run finds it as its own and updates it. The same for the
   import that follows a replacement.

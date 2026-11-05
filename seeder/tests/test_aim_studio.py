@@ -1114,6 +1114,9 @@ class Subscriptions(Studios):
                 (PLAIN.replace("application: Copilot on 13 tools", "application: Nobody"),
                  "no application is named 'Nobody': seed/apim/applications makes it"),
                 (PLAIN.replace("type: API_KEY", "type: KEY_LESS"), "the plan Copilots is keyless, which takes no subscription"),
+                (PLAIN + 'protocolVersion: "2025-11-25"\n', "supportedProtocolVersions or protocolVersion, one of the two"),
+                (PLAIN.replace('supportedProtocolVersions: ["2025-11-25", "2026-07-28"]\n', ""), "supportedProtocolVersions or protocolVersion, one of the two"),
+                (PLAIN.replace('["2025-11-25", "2026-07-28"]', "[2025-11-25]"), "a protocol version is text: quote it"),
                 (PLAIN.replace("type: API_KEY", "type: JWT"), "has an apiKey, which needs a plan of API keys, and Copilots is JWT")):
             with self.subTest(message=message), self.assertRaisesRegex(common.SeedError, message):
                 self.file(text)

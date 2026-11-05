@@ -27,8 +27,8 @@ the agent and was not made by it stops the seed, as does an identity of another 
 The AM application is seed/am's, which makes it.
 
 The keys need a platform that serves an agent's application in the catalog (`/catalog/agents/{id}/application`), which the
-amp-demo build does and API Management 4.13.1 does not: there the seed stops with a line that says so before it changes
-anything, and the agent reaches the gateway through an application of seed/apim/applications that carries its client ID.
+amp-demo build does and API Management 4.13.1 does not: there the seed stops with a line that says so, and the agent
+reaches the gateway through an application of seed/apim/applications that carries its client ID.
 
 Re-seed starts the lessons over, and the last of them is the kill switch: an agent whose access was revoked is put back
 in service before its subscriptions are looked at, with the platform's own restore, which resumes what revoking
