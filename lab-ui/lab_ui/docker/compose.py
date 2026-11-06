@@ -1303,8 +1303,8 @@ _SIGNS = (
     "docker: 'compose' is not a docker command",        # the CLI of an older Docker
     "[Errno 2] No such file or directory: 'docker'",    # no `docker` to run
 )
-# A few blanks may come before them
-INDENT = 64
+# At the start of a line of the CLI's, where a few blanks may come before them
+SAYS_MISSING = re.compile(r"^[ \t]{0,64}(?:" + "|".join(map(re.escape, _SIGNS)) + ")", re.M)
 
 
 def missing(error):
@@ -1312,18 +1312,8 @@ def missing(error):
     Compose plugin, which says `docker: unknown command: docker compose` to `docker compose version`, `unknown flag:
     --progress` to the Lab's own command line (COMPOSE), and `'compose' is not a docker command` if it is an older one.
     What "Docker Compose not found" is reported from, apart from plugin() (None: there is no plugin to link) and a
-    run with the scrubbed environment (config_json raises NO_COMPOSE for it); a file that Compose refuses is not that.
-    Reads at the start of a line: each place a phrase is found is looked at for the characters just before it (INDENT
-    and one more, for the line break), so a text of any size is read in one pass."""
-    text = error or ""
-    for sign in _SIGNS:
-        at = text.find(sign)
-        while at != -1:
-            _, newline, before = text[max(0, at - INDENT - 1):at].rpartition("\n")
-            if (newline or at <= INDENT) and not before.strip(" \t"):
-                return True
-            at = text.find(sign, at + 1)
-    return False
+    run with the scrubbed environment (config_json raises NO_COMPOSE for it); a file that Compose refuses is not that."""
+    return bool(SAYS_MISSING.search(error or ""))
 
 
 def unread(image, said):
