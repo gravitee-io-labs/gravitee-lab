@@ -639,8 +639,8 @@ const needCard = (x) => (x.note_causes[0]?.kind === "switch"
 export const noteCard = (x) => (x.note_causes?.length && feetOf(x.note_causes[0]?.kind) ? needCard(x) : null);
 function behindCard(behind) {
   const total = behind.reduce((sum, row) => sum + (row.count || 1), 0);
-  return { title: count(total), rows: behind.map((row) => ({ subject: row.name, lines: (row.causes || []).map(causeLine) })),
-    foot: applies(total === 1 ? "it" : "them", behind.flatMap((row) => row.causes || [])) };
+  return { title: count(total), rows: behind.map((row) => ({ subject: row.name, lines: row.causes.map(causeLine) })),
+    foot: applies(total === 1 ? "it" : "them", behind.flatMap((row) => row.causes)) };
 }
 
 // What runs behind what is saved, as a badge: an amber pill, "Apply needed" and an information mark, its explanation the popover of
@@ -655,8 +655,8 @@ export function applyBadge(reason, causes = null, more = []) {
   return tipHtml(`Apply needed${icon("info")}`, card || (reasons.length ? reasons : "Differs from what is saved"), "pill warn", "Apply needed", { said, title: false });
 }
 
-// What the platform says runs behind what is saved, as the popover of the head and the notice, when the server gives the causes
-export const behindWhy = (platform) => (platform.behind.length && platform.behind.every((row) => row.causes) ? behindCard(platform.behind) : null);
+// What the platform says runs behind what is saved, as the popover of the notice
+export const behindWhy = (platform) => behindCard(platform.behind);
 
 // Where a bubble goes: under its button, its left edge at the button's, kept 12 px inside the window; above it when there is more room
 // there. A popover taller than the room it has scrolls inside (components.css). Its arrow points at the button's middle.

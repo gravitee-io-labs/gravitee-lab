@@ -335,7 +335,8 @@ test("a platform with an issue says what it is in the popover of the sidebar's c
   const license = { note: "Needs a license", note_tone: "warn", note_title: "", note_target: null, note_file: ".env" };
   const groups = [group("api-management", "API Management", ["apim-gateway"], { key: "issue", label: "Issue" }, note),
     group("access-management", "Access Management", ["am-gateway"], RUNNING), group("alert-engine", "Alert Engine", ["alert-engine"], OFF, license)];
-  const behind = [{ kind: "group", id: "access-management", name: "Access Management", reason: "Access Management: 4.12.7 is saved, 4.13.0-alpha.7 still runs." }];
+  const behind = [{ kind: "group", id: "access-management", name: "Access Management", reason: "Access Management: 4.12.7 is saved, 4.13.0-alpha.7 still runs.",
+    causes: [{ kind: "tag", saved: "4.12.7", running: "4.13.0-alpha.7", services: [] }] }];
   await open({ state: lab({ groups, platform: { state: { key: "issue", label: "Issue" }, apply: { needed: true, restarts: [], starts: [], dialog: null }, behind } }) });
   renderShell();
   const chip = page.ids["health-state"], health = page.ids.health;
@@ -344,7 +345,7 @@ test("a platform with an issue says what it is in the popover of the sidebar's c
   assert.equal(text(page.ids["health-said"]), "Platform issue", "a screen reader hears it change");
   // And what is to apply is the banner's, with its reason: Apply is not offered with no reason
   assert.ok(text(page.ids.banner).startsWith("Apply needed"));
-  assert.deepEqual(tipOf(page.ids.banner.querySelector(".tip-btn")), ["Access Management: 4.12.7 is saved, 4.13.0-alpha.7 still runs."]);
+  assert.deepEqual(tipOf(page.ids.banner.querySelector(".tip-btn")), ["Access Management 4.13.0-alpha.7 4.12.7", "Apply restarts it with what is saved."]);
   // A state with nothing to explain has no popover: running, stopped, Docker that does not answer (the banner says why)
   await move(lab());
   renderShell();
@@ -406,7 +407,7 @@ test("with the platform stopped the banner leaves its Start to the head, and the
   assert.deepEqual(drawn(lab({ core: "stopped" }), "playgrounds"), ["Gravitee platform is stopped Start"], "any other page has it");
   const why = "API Management: 4.12.20 is saved, 4.13.0-alpha.4 still runs.";
   const late = lab({ platform: { apply: { needed: true, restarts: [], starts: [], dialog: null },
-    behind: [{ kind: "group", id: "api-management", name: "API Management", reason: why }] } });
+    behind: [{ kind: "group", id: "api-management", name: "API Management", reason: why, causes: [] }] } });
   assert.deepEqual(drawn(late, "stack"), [], "Containers shows it in its table");
   // One notice: its headline, a summary that names no product, whose popover says which and why, and Apply
   for (const id of ["dashboard", "playgrounds", "images", "plugins"]) assert.deepEqual(drawn(late, id), ["Apply needed 1 container differs from what is saved Apply"], id);

@@ -96,17 +96,8 @@ function ownStart() {
   return PLATFORM_HEAD.includes(id) || id === "playground" || (id === "logs" && offersStart());
 }
 
-// The card of the notice's popover has no title: the summary beside it says it
-const untitled = (card) => card && { ...card, title: "" };
-
-// How many containers differ from what is saved, the summary of the Apply notice; its popover says which and why
 // What the notices about Docker offer: the machine's checks, each with its fix
 const MACHINE = '<button class="btn" data-machine>Check your machine</button>';
-
-const behindSaid = (behind) => {
-  const n = behind.reduce((sum, row) => sum + (row.count || 1), 0);
-  return `${n} ${n === 1 ? "container differs" : "containers differ"} from what is saved`;
-};
 
 // What the banner says of the lab once Docker answers and the core loads, a notice for each fact that applies: the platform
 // stopped, with its Start, but where a page has its own, and when a remote platform is registered and something else
@@ -130,9 +121,10 @@ function lab({ docker, platform, license, addons, playgrounds }) {
   if (late) applying = platform.behind;
   else if (!showing("platform", "apply")) applying = [];
   if (applying.length && router.current?.page.id !== "stack") {
-    // One summary, its popover a row for each product, add-on or playground with why; once applied, the names alone
-    const summary = behindSaid(applying);
-    const text = late ? tipHtml(`<span>${esc(summary)}</span>${icon("info")}`, untitled(behindWhy(platform)) || platform.behind.map((row) => row.reason), "", summary,
+    // How many containers differ, its popover a row for each product, add-on or playground with why (the summary beside it is the card's
+    // title); once applied, the names alone
+    const card = late && behindWhy(platform);
+    const text = late ? tipHtml(`<span>${esc(card.title)}</span>${icon("info")}`, { ...card, title: "" }, "", card.title,
       { said: platform.behind.map((row) => row.reason).join(" ") })
       : esc(applying.map((row) => row.name).join(", "));
     notices.push({ tone: "warn", title: "Apply needed", text, action: APPLY });

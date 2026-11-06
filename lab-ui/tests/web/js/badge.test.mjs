@@ -175,7 +175,7 @@ const lab = () => ({
   blind: false, wait: "", docker: { error: null }, license: null, products: [], categories: [], playgrounds: [], addons: [], setups: [], links: [], problems: [],
   services: { mongodb: service("mongodb", { behind: true, ...LATE }), redis: service("redis") },
   platform: { name: "Gravitee platform", state: RUNNING, progress: null, file: "docker-compose.yml", env_file: ".env", settings: [],
-    behind: [{ kind: "group", id: "databases", name: "Databases", reason: `Databases: ${WHY}` }],
+    behind: [{ kind: "group", id: "databases", name: "Databases", reason: `Databases: ${WHY}`, causes: [] }],
     groups: [{ id: "databases", name: "Databases", services: ["mongodb", "redis"], state: RUNNING, progress: null, version: "", registry: null, registry_label: null,
       product: null, file: "docker-compose.yml", env_file: ".env", settings: [], brings: [], recreates: [], ...LATE }],
     start: { needed: false, starts: [], restarts: [], enabled: true, reason: null, dialog: null }, apply: { needed: true, restarts: [], starts: [], dialog: null },
@@ -248,7 +248,6 @@ test("the platform's card: how many containers in all, a row for each product wi
   assert.deepEqual(root.querySelectorAll(".pop-run").map(text), ["4.13.0-alpha.4", "9.5.3", "8.3.11"], "every version that runs in one column");
   assert.equal(root.querySelector(".tip-btn").getAttribute("aria-label"), "Apply needed: a. b");
   assert.equal(behindWhy({ behind: [{ name: "Kafka", count: 1, causes: [{ kind: "config", services: [] }] }] }).title, "1 container differs from what is saved");
-  assert.equal(behindWhy({ behind: [{ name: "Kafka", reason: "x" }] }), null, "no causes, no card: the lines say it");
   assert.equal(draw(applyBadge("x", [TAG, SETTINGS])).querySelectorAll(".pop-line").length, 2, "a row's card has a line for each of its causes");
 });
 
