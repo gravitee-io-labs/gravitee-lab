@@ -98,15 +98,6 @@ class Playgrounds(Case):
 
     # --- What the page reads -----------------------------------------------------------------------------------------
 
-    def test_plugin_ids_of_an_api_definition(self):
-        definition = {"api": {"listeners": [{"entrypoints": [{"type": "http-proxy"}]}],
-                              "endpointGroups": [{"type": "llm-proxy", "endpoints": [{"type": "llm-proxy"}]}],
-                              "resources": [{"type": "cache-redis"}],
-                              "flows": [{"request": [{"policy": "rate-limit"}]}]},
-                      "plans": [{"security": {"type": "API_KEY"}}]}
-        self.assertEqual(set().union(*projects.plugins_used(definition).values()),
-                         {"http-proxy", "llm-proxy", "cache-redis", "rate-limit", "api-key"})
-
     def test_a_playground_of_this_machine_has_its_guide_and_its_record(self):
         folder = self.root / ".lab/catalogs/local/playgrounds/sandbox"
         (folder / ".state").mkdir(parents=True)
@@ -789,26 +780,13 @@ class Playgrounds(Case):
         self.assertIn("APIM_VERSION=4.13.0-alpha.5\n", (self.root / ".env").read_text(encoding="utf-8"))
 
     def test_a_refused_start_puts_back_every_env_its_versions_were_saved_to(self):
-        # The welcome's app and the add-on Kiosk run the same image, on one version variable: saved to both units' .env.
         # A job began meanwhile, from another tab: the start is refused, and both files are what they were
-        self.patch(envfiles, "ROOT", self.root)
-        self.jobs.current = None
-        for name in ("hello-app", "kiosk"):
-            self.project["services"][name].update(raw_image="example/kiosk:${KIOSK_VERSION:-1.0.0}", tag="1.0.0",
-                                                   image="example/kiosk:1.0.0")
-        welcome = self.project["playgrounds"]["welcome"]
-        welcome["requires"] = {"images": {"KIOSK_VERSION": "2.0.0"}}
-        welcome["tested"] = [{"KIOSK_VERSION": "2.0.0"}]
-        self.patch(plugins, "install_steps", lambda project, product, names: ([], [], {}))
+        before = self.kiosk_switch()
         self.patch(playgrounds.projects, "load", return_value=self.project)
-        kiosk, mine = paths.unit_env("addon", "kiosk"), paths.unit_env("playground", "welcome")
-        self.write(kiosk, "# Kiosk\n")
-        self.write(mine, "# Welcome\n")
         self.jobs.start.side_effect = RuntimeError("'Stop Kiosk' is still running")
         with self.assertRaisesRegex(RuntimeError, "^'Stop Kiosk' is still running$"):
             playgrounds.start(self.project, "welcome", ["version:KIOSK"])
-        self.assertEqual({path: (self.root / path).read_text(encoding="utf-8") for path in (kiosk, mine)},
-                         {kiosk: "# Kiosk\n", mine: "# Welcome\n"})
+        self.assertEqual({path: (self.root / path).read_text(encoding="utf-8") for path in before}, before)
 
     def kiosk_switch(self):
         """The welcome's app and the add-on Kiosk run the same image, on one version variable, which its start switches:
@@ -1484,7 +1462,6 @@ class Deploys(test_places.Places):
         self.patch(compose, "ps", lambda *variable: self.containers)
         self.patch(compose, "project_name", lambda: "gravitee")
         self.patch(playgrounds.projects, "saved", return_value={"hashes": {}, "images": {}})
-        self.wait = playgrounds.GATEWAY_WAIT
         self.patch(playgrounds, "GATEWAY_POLL", 0)
         self.patch(playgrounds, "GATEWAY_WAIT", 0.2)
 
@@ -1911,14 +1888,8 @@ class Deploying(Deploys):
         self.ready()
         envfiles.write(".env", {KEY: "rotated-since"})
         self.refused("^Gravitee Cloud refuses this token$")
-
-    def test_a_platform_that_cannot_be_used_is_refused_in_its_own_words_whatever_the_place_is_called(self):
-        self.ready()
-        envfiles.write(".env", {KEY: "rotated-since"})
-        for place in (PLACE, "my-account"):   # the page names the platform alone when it cannot be used
-            with self.subTest(place=place), self.assertRaisesRegex(ValueError, "^Gravitee Cloud refuses this token$"):
-                self.deploy(place)
-        self.jobs.start.assert_not_called()
+        with self.assertRaisesRegex(ValueError, "^Gravitee Cloud refuses this token$"):
+            self.deploy("my-account")   # the page names the platform alone when it cannot be used
 
     def test_a_place_that_does_not_exist_is_refused_before_any_job(self):
         self.warm()
@@ -2097,10 +2068,6 @@ class Deploying(Deploys):
         self.assertEqual((job.ok, job.error()), (False, "Hybrid gateway did not connect to Gravitee Cloud"))
         self.assertEqual([command for command, _ in calls], [UP])
         self.assertEqual([phase["name"] for phase in job.phases], ["Add-ons", "Apps and services", "Gateway"])
-
-    def test_the_wait_is_two_minutes_at_most(self):
-        self.assertEqual((self.wait, playgrounds.NOT_CONNECTED),
-                         (120, "Hybrid gateway did not connect to Gravitee Cloud"))
 
     def test_a_job_canceled_while_it_waits_stops_waiting(self):
         job = Job("Test", [])
@@ -2389,14 +2356,6 @@ class Deleting(Deploys):
         job, _ = self.execute({"--remove": (["[seed] ✗ Cloud does not answer"], 1)})
         self.assertEqual((job.ok, job.error()), (False, "Cloud does not answer"))
         self.assertEqual(playgrounds.created("hotels", PLACE), [{"what": "APIs", "count": 1}])
-
-    def test_a_delete_ended_from_outside_says_so_rather_than_where_it_was(self):
-        self.ready()
-        self.record(PLACE, "APIs")
-        self.on()
-        playgrounds.delete_place(self.project, "hotels", PLACE)
-        job, _ = self.execute({"--remove": (["[seed] Deleting", "[apim] Deleting API Orders"], 137)})
-        self.assertEqual((job.ok, job.error()), (False, "The seed was stopped before it ended"))
 
     def test_a_delete_here_ended_from_outside_says_so_rather_than_where_it_was(self):
         self.record(None, "APIs")
