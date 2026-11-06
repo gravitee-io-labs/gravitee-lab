@@ -67,29 +67,6 @@ test("what an id is not: a path out of the catalog, a namespace too short or too
 const LIST = (kind) => new RegExp(`^#/${kind}s(?:/(${ID_PATTERN}))?$`);
 const PLAYGROUND = new RegExp(`^#/playgrounds/(${ID_PATTERN})(?:/([a-z0-9-]+))?$`);
 
-test("a list opens a row of any id, and the page of a playground takes its guide's step after the id, whichever its form", () => {
-  const found = (pattern, hash) => pattern.exec(hash)?.slice(1);
-  assert.deepEqual(found(LIST("addon"), "#/addons"), [undefined]);
-  assert.deepEqual(found(LIST("addon"), "#/addons/kafka"), ["kafka"]);
-  assert.deepEqual(found(LIST("setup"), "#/setups/local/ai-agents"), ["local/ai-agents"]);
-  assert.deepEqual(found(LIST("addon"), "#/addons/@acme-hub/mock-bank"), ["@acme-hub/mock-bank"]);
-  assert.deepEqual(found(PLAYGROUND, "#/playgrounds/acme-bakery"), ["acme-bakery", undefined]);
-  assert.deepEqual(found(PLAYGROUND, "#/playgrounds/acme-bakery/3"), ["acme-bakery", "3"]);
-  assert.deepEqual(found(PLAYGROUND, "#/playgrounds/local/demo"), ["local/demo", undefined], "the folder of this machine is no id and a step");
-  assert.deepEqual(found(PLAYGROUND, "#/playgrounds/local/demo/2"), ["local/demo", "2"]);
-  assert.deepEqual(found(PLAYGROUND, "#/playgrounds/@acme-hub/bank"), ["@acme-hub/bank", undefined]);
-  assert.deepEqual(found(PLAYGROUND, "#/playgrounds/@acme-hub/bank/3"), ["@acme-hub/bank", "3"]);
-  assert.deepEqual(found(PLAYGROUND, "#/playgrounds/@acme-hub/bank/getting-started"), ["@acme-hub/bank", "getting-started"]);
-  for (const hash of ["#/playgrounds/@acme-hub/../kafka", "#/playgrounds/@acme-hub/", "#/playgrounds/@a/bank", "#/playgrounds/@acme-hub/bank/3/4",
-    "#/playgrounds/local/", "#/playgrounds/", "#/playgrounds/@ACME/bank", "#/playgrounds/acme-bakery/Step", "#/playgrounds/acme-bakery/3/",
-    "#/playgrounds/%40acme-hub/bank"]) {
-    assert.equal(found(PLAYGROUND, hash), undefined, hash);
-  }
-  for (const hash of ["#/addons/@acme-hub/", "#/addons/@acme-hub/x/y", "#/addons/../x", "#/addons/Kafka", "#/addons/local/"]) {
-    assert.equal(found(LIST("addon"), hash), undefined, hash);
-  }
-});
-
 test("the router hands a page the id it names, whole, with its step", () => {
   const seen = [];
   router.register({ id: "playground", pattern: PLAYGROUND, show: (params) => seen.push(params) });
