@@ -1391,23 +1391,9 @@ def _emptying_line(found, ns, key, on, running, name=None):
     """The line of a hold for a unit that has containers: turning it off removes them, and so does stopping one that runs
     without being on; the stopped containers of one that is off go with Remove containers. `name`: what the version it is
     moved from calls it, when the project no longer shows it."""
-    name = resolve.shown(name, NAME_CUT) if name else _item_name(found, ns, key)
+    name = resolve.shown(name, NAME_CUT) if name else _unit_name(found, ns, key)
     return f"Turn off {name} first" if key in on else f"Stop {name} first" if key in running \
         else f"Remove the containers of {name} first"
-
-
-def _item_name(found, ns, key):
-    """`_unit_name`, and for a unit the project does not show (a catalog that is damaged) the name its file gives it."""
-    kind, _, name = key.partition(":")
-    if (found.get(f"{kind}s") or {}).get(_unit_id(ns, kind, name)) is None:
-        file = paths.ROOT / paths.CATALOG_FILES[kind].format(ns=ns, name=name)
-        try:
-            said = compose.x_gravitee(file.read_text(encoding="utf-8"), file.parent, name=file.name) or {}
-        except (OSError, ValueError, compose.ComposeError):
-            said = {}
-        if isinstance(said.get("name"), str):
-            return resolve.shown(said["name"], NAME_CUT)
-    return _unit_name(found, ns, key)
 
 
 def _named(ns, error):
@@ -1417,7 +1403,7 @@ def _named(ns, error):
         return error
     found = project.loaded()[0]
     if error.code == "rename_stuck":
-        return CatalogError("rename_stuck", renames.STUCK.format(name=_item_name(found, ns, units[0])), 409, units=units)
+        return CatalogError("rename_stuck", renames.STUCK.format(name=_unit_name(found, ns, units[0])), 409, units=units)
     on, running = _used(ns, found)
     if error.detail.get("containers"):   # what runs is asked of the containers: a damaged catalog shows no unit
         with contextlib.suppress(CatalogError):
