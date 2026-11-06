@@ -584,6 +584,7 @@
 .diagram [class~="cluster-label"] :is(text, span, p) { fill: var(--accent) !important; color: var(--accent) !important; }
 .diagram path[class~="flowchart-link"] { stroke: var(--muted) !important; }
 .diagram marker path { fill: var(--muted) !important; stroke: var(--muted) !important; }
+/* The paragraph too: Mermaid gives it a background of its own, which hides the label's text in the dark theme */
 .diagram :is([class~="edgeLabel"], [class~="labelBkg"], [class~="edgeLabel"] p) { background: var(--surface) !important; }
 
 @container (max-width: 1000px) {

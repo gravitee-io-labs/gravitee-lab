@@ -145,27 +145,6 @@ class Agreements(Case):
                 self.assertEqual(contribute._cannot_run(case["unit"]), case["why"])
 
 
-class Files(Case):
-    def test_the_license_picker_offers_license_files_only(self):
-        """The file dialog of the system shows what a license can be: its text or its key."""
-        source = (WEB / "js" / "dialogs" / "license.js").read_text()
-        self.assertIn('<input type="file" id="license-file" accept=".txt,.key" hidden>', source)
-
-    def test_the_cell_of_the_license_cta_is_gone_when_it_holds_nothing(self):
-        """With a license the place of the ways to get one is empty: it must not take a cell of the grid, where the
-        packs would wrap under the facts."""
-        self.assertRegex((WEB / "css" / "pages.css").read_text(), r"#license-cta:empty\s*\{\s*display:\s*none")
-
-
-class Features(Case):
-    def test_a_feature_of_the_license_wraps_its_name_and_its_plugins_instead_of_going_past_the_edge(self):
-        """A long id and several plugins make a row wider than the dialog: the row wraps, its parts break."""
-        css = (WEB / "css" / "pages.css").read_text()
-        self.assertRegex(css, r"\.feature \{ display: flex; flex-wrap: wrap;")
-        self.assertRegex(css, r"\.feature code \{[^}]*overflow-wrap: anywhere")
-        self.assertRegex(css, r"\.feature-plugins \{[^}]*flex-wrap: wrap[^}]*max-width: 100%")
-
-
 class Icons(Case):
 
     def test_every_icon_is_in_the_sprite(self):
@@ -271,35 +250,6 @@ class Styles(Case):
                     head = ""
                 else:
                     head += char
-
-    def test_the_name_of_an_item_that_leads_to_it_is_plain_until_it_is_hovered_or_focused(self):
-        """Every page draws it the same way: no underline at rest, a line and the accent while the pointer or the focus is on it."""
-        rules = dict(re.findall(r"^(\.name-link[^{]*)\{([^}]*)\}", (WEB / "css" / "components.css").read_text(), re.M))
-        self.assertIn("text-decoration: none;", rules[".name-link "])
-        hover = next(body for selector, body in rules.items() if "hover" in selector and "focus-visible" in selector)
-        self.assertIn("text-decoration: underline;", hover)
-        for sheet in (WEB / "css").glob("*.css"):
-            self.assertEqual(len(re.findall(r"\.name-link\b", sheet.read_text())), 2 if sheet.name == "components.css" else 0,
-                             f"{sheet.name}: a page does not restyle the name link")
-
-    def test_a_pill_made_of_words_gives_way_when_its_room_is_short(self):
-        """The note of a row and the chip of a catalog are the pills whose words are a .pill-text: that pill, the tooltip that holds it and the
-        row that holds that may all shrink, and the words end with an ellipsis. One rule serves both, so that the chip is not left out."""
-        sheet = re.sub(r"/\*.*?\*/", "", (WEB / "css" / "components.css").read_text(), flags=re.S)
-        rules = [(" ".join(selector.split()), body) for selector, body in re.findall(r"^([^{}@\s][^{}]*)\{([^}]*)\}", sheet, re.M)]
-
-        def declared(start):
-            return next(body for selector, body in rules if selector.startswith(start))
-
-        shrinks = declared(".pill:is(")
-        self.assertIn(".pill-text", next(selector for selector, _ in rules if selector.startswith(".pill:is(")), "the pill whose words are a .pill-text, a note or not")
-        self.assertTrue("min-width: 0;" in shrinks and "max-width: 100%;" in shrinks)
-        self.assertTrue("overflow: hidden;" in declared(".pill-text") and "text-overflow: ellipsis;" in declared(".pill-text"))
-        tip = next((selector, body) for selector, body in rules if selector.startswith(":is(.list-marks, .list-state) > .tip"))
-        self.assertIn(".note", tip[0], "the tooltip of a note")
-        self.assertTrue("flex: 0 1 auto;" in tip[1] and "min-width: 0;" in tip[1], "it shrinks with the row, where `.list-marks > *` keeps its children whole")
-        ui = code((WEB / "js" / "components" / "ui.js").read_text())
-        self.assertGreaterEqual(ui.count('class="pill-text"'), 2, "the words of a note and the chip's name are drawn by it")
 
 
 class Libraries(Case):

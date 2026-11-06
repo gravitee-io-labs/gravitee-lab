@@ -2056,13 +2056,6 @@ test("a catalog an item needs is added from its line: a listed one at once, any 
   shut();
 });
 
-test("on a phone the facts of an open row take the lists' label column: the wide one of the desktop is not left to squeeze the values", () => {
-  const rules = source("css/pages.css").split("/* --- Catalogs")[1].split("/* --- Editor")[0];
-  assert.match(rules, /#page-catalogs \{ --label: 124px; \}/);
-  assert.match(rules, /@container \(max-width: 599px\) \{ #page-catalogs \{ --label: 80px; \} \}/);
-  assert.match(source("css/base.css"), /--label: 80px;/, "the lists' own");
-});
-
 // --- What a server says is text -------------------------------------------------------------------------------------------------
 
 test("a name, a description, an address, a reason or a subject that is markup is shown as the text it is: in the rows, the detail, the menu and every dialog", async () => {

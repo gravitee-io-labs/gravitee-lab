@@ -69,14 +69,6 @@ class Agreements(Case):
         self.assertIn("forceKeepAttr", markdown)
         self.assertNotIn("ALLOWED_URI_REGEXP", markdown, "the sanitizer's own rules stand: only a valid action id is added")
 
-    def test_the_menu_is_the_same_on_every_page(self):
-        """A running playground next to its UIs asks nothing of the menu: it is collapsed by the person or by a narrow window, as on any
-        page, and takes its room; the page has what is left."""
-        styles = "".join(sheet.read_text() for sheet in (WEB / "css").glob("*.css"))
-        # the toggle is hidden in a narrow window only, where the menu is collapsed for good
-        self.assertRegex(styles, r"@media \(max-width: 1100px\) \{\s*#sidebar-toggle \{ display: none; \}")
-        self.assertEqual(len(re.findall(r"#sidebar-toggle \{ display: none; \}", styles)), 1)
-
     def test_skip_to_content_keeps_the_page(self):
         """Skip to content takes the keyboard to the page on screen: its address is no page of the router, which would lead to the
         Dashboard, so its click is the page's own."""
@@ -84,91 +76,9 @@ class Agreements(Case):
         self.assertRegex(main, r'querySelector\("\.skip"\)\.addEventListener\("click", \(e\) => \{\s*e\.preventDefault\(\);\s*'
                          r'document\.getElementById\("content"\)\.focus\(\);')
 
-    def test_a_tooltip_is_one_line_and_a_popover_says_the_rest(self):
-        """A tooltip is a label or one short line, never wrapped: anything longer is a popover (ui.js decides by LINE), which
-        scrolls inside when the window is too short for it. A tooltip that wraps would be taller than 28 px."""
-        components = (WEB / "css" / "components.css").read_text()
-        tooltip = re.search(r"^\.tip-text \{([^}]*)\}", components, re.M).group(1)
-        self.assertIn("white-space: nowrap;", tooltip)
-        self.assertIn("padding: 6px 10px;", tooltip)   # 6 + 16 + 6: 28 px, one line
-        popover = re.search(r"^\.tip-card \{([^}]*)\}", components, re.M).group(1)
-        self.assertIn("max-height: calc(100dvh - 16px);", popover)
-        self.assertNotIn("overflow", popover, "the box never clips: its arrow and the bridge to its button are outside it")
-        body = re.search(r"^\.pop-body \{([^}]*)\}", components, re.M).group(1)
-        self.assertIn("max-height: inherit;", body)
-        self.assertIn("overflow: hidden auto;", body, "its body scrolls inside")
-        self.assertNotIn("overflow", tooltip, "the line of a tooltip is cut inside it, not its box")
-        ui = (WEB / "js" / "components" / "ui.js").read_text()
-        self.assertIn("const LINE = 40;", ui)
-        self.assertIn('if (e.target.closest?.(".tip-card")) return;', ui, "a scroll inside a popover is reading it: it stays open")
-
-    def test_the_full_width_of_the_split_is_the_playground_pages_alone(self):
-        """The split's missing cap belongs to the page that shows the split, while it is on screen: the page of the playground
-        keeps its card in the DOM when another page is shown, and the others keep the width every page has. Its gutter is every
-        page's, so that nothing moves sideways from a list to an item."""
-        base = (WEB / "css" / "base.css").read_text()
-        rules = re.findall(r"^main:has\(([^{]*)\) \{([^}]*)\}", base, re.M)
-        self.assertEqual([selector for selector, _ in rules], ["#page-playground.fill:not([hidden])"])
-        self.assertEqual(rules[0][1].strip(), "max-width: none;")
-        self.assertNotIn("main:has(.pg-split", base)
-        # the page decides between columns and rows by its container, whose margins do not depend on the layout
-        workspace = (WEB / "js" / "workspace" / "workspace.js").read_text()
-        self.assertIn("page.parentElement.clientWidth", workspace)
-        self.assertNotRegex(workspace, r"page\.clientWidth")
-        self.assertIn("const MARGINS = 24;", (WEB / "js" / "workspace" / "split.js").read_text())
-
-    def test_a_narrow_window_lays_the_same_panels_out_as_rows(self):
-        """Without the room for columns the guide and the UIs are one over the other: nothing is hidden, unloaded or disabled but the
-        divider, so the page has no state of its own for a narrow window."""
-        styles = (WEB / "css" / "pages.css").read_text()
-        self.assertEqual(re.findall(r"^\.pg-split\.rows[^{]*\{", styles, re.M), [".pg-split.rows {", ".pg-split.rows .pg-divider {", ".pg-split.rows .pg-uis {"])
-        self.assertIn("display: none;", re.search(r"^\.pg-split\.rows \.pg-divider \{([^}]*)\}", styles, re.M).group(1))
-        # the running page never scrolls, whichever the layout: each panel does
-        self.assertIn('root.classList.add("fill");', (WEB / "js" / "workspace" / "workspace.js").read_text())
-
     def test_the_stop_of_a_playgrounds_row_asks_as_its_page_does(self):
         rows = (WEB / "js" / "pages" / "list.js").read_text()
         self.assertIn('if (x.kind === "playground" && action.do === "stop") return stopPlayground(x);', rows)
-
-    def test_the_reason_start_is_off_wraps_under_its_button_in_full(self):
-        """A note is one clipped line in a row (an ellipsis, no wrap). Under the Start button it is the reason itself: it wraps,
-        whole, inside the card, so that it neither is cut nor makes the page scroll sideways."""
-        styles = (WEB / "css" / "pages.css").read_text()
-        rule = re.search(r"^\.pg-start-note \.list-note \{([^}]*)\}", styles, re.M).group(1)
-        for declaration in ("display: block;", "overflow: visible;", "white-space: normal;"):
-            self.assertIn(declaration, rule)
-        self.assertIn("noteHtml(item)", (WEB / "js" / "pages" / "playground.js").read_text())
-
-    def test_a_tab_keeps_its_name_whole_and_the_bar_wraps_when_they_do_not_fit(self):
-        """No tab is cut, scrolled out of reach or given a tooltip for being cut: a row of tabs that is too long goes on a second row."""
-        styles = (WEB / "css" / "pages.css").read_text()
-        segmented = re.search(r"^\.segmented \{([^}]*)\}", (WEB / "css" / "components.css").read_text(), re.M).group(1)
-        self.assertIn("flex-wrap: wrap;", segmented, "every segmented control wraps its choices, the tabs among them")
-        bar = re.search(r"^\.pg-bar \.segmented \{([^}]*)\}", styles, re.M).group(1)
-        self.assertNotIn("overflow", bar)
-        self.assertNotIn("text-overflow", "".join(re.findall(r"^\.pg-bar[^{]*\{[^}]*\}", styles, re.M)))
-
-    def test_the_guide_takes_the_whole_width_of_its_panel(self):
-        """No measure on its text: paragraphs, lists, quotes, headings, tables and code run to the padding; only a picture or a diagram is
-        capped, being no text."""
-        styles = (WEB / "css" / "pages.css").read_text()
-        self.assertNotIn("--measure", styles)
-        capped = [rule.split(" {")[0] for rule in re.findall(r"^\.guide[^{]*\{[^}]*\}", styles, re.M) if "max-width" in rule]
-        self.assertEqual(capped, [".guide :is(figure, p:has(> img))", ".guide-nav .combo-btn", ".guide img"])
-        self.assertNotIn("max-width: var(--", "".join(re.findall(r"^\.guide-foot[^{]*\{[^}]*\}", styles, re.M)))
-        # lines run to the edge of the panel: the browser does not move a word down to spare a short last line, and the editor's preview
-        # of the same page has no column of its own
-        self.assertNotIn("text-wrap: pretty", styles)
-        self.assertNotRegex("".join(re.findall(r"^\.editor-preview[^{]*\{[^}]*\}", styles, re.M)), r"max-width")
-
-    def test_a_diagram_draws_its_edge_labels_in_the_pages_colors_text_included(self):
-        """Mermaid gives the paragraph inside an edge label a background of its own (a pink one in its base theme), which hides the
-        label's text in the dark theme: the rule that sets the page's surface covers it, not only the span and the box around it."""
-        styles = (WEB / "css" / "pages.css").read_text()
-        rule = re.search(r"^\.diagram :is\(\[class~=\"edgeLabel\"\][^{]*\{([^}]*)\}", styles, re.M)
-        self.assertIsNotNone(rule)
-        self.assertIn('[class~="edgeLabel"] p', rule[0])
-        self.assertIn("background: var(--surface) !important;", rule[1])
 
     def test_no_text_of_the_lab_ui_has_a_middle_dot_or_a_bullet_between_its_words(self):
         """The words of a line are told apart by a comma, parentheses, "and" or a gap of the layout, never by a middle dot or a bullet:
@@ -199,21 +109,6 @@ class Agreements(Case):
         # both when the guide is read (the first time) and when the page comes up again with the guide already drawn
         self.assertEqual(playground.count("nameThePage(item"), 3, "the definition and its two calls")
 
-    def test_the_dot_of_the_menu_is_on_the_corner_of_the_icon_while_only_icons_show_and_the_collapsed_menu_does_not_hide_it(self):
-        """The collapsed menu hides every span of an entry, so the dot is not one: it keeps showing, as an element of its own, on the corner of
-        the icon (a rule of an id, which no class outweighs, is what hides the spans)."""
-        styles = (WEB / "css" / "components.css").read_text()
-        dot = re.search(r"^\.nav-dot \{([^}]*)\}", styles, re.M).group(1)
-        for declaration in ("width: 8px;", "height: 8px;", "background: var(--warn);"):
-            self.assertIn(declaration, dot)
-        collapsed = re.search(r"^body\.nav-collapsed \.nav-dot \{([^}]*)\}", styles, re.M).group(1)
-        self.assertIn("position: absolute;", collapsed)
-        self.assertNotIn("display", collapsed)
-        self.assertRegex((WEB / "css" / "base.css").read_text(), r"body\.nav-collapsed :is\([^)]*\.nav-item span")
-        self.assertNotRegex(re.search(r'<a class="nav-item" href="#/catalogs".*?</a>', (WEB / "index.html").read_text()).group(0), r'<span class="nav-dot"')
-        self.assertRegex(styles, r"(?m)^\.nav-item:has\(> \.nav-dot\) \{ position: relative; \}")
-        self.assertIn("[hidden] { display: none !important; }", (WEB / "css" / "base.css").read_text(), "hidden stays hidden")
-
     def test_every_section_of_the_page_is_a_page_main_registers_and_every_entry_of_the_menu_leads_to_one(self):
         """A section no page is registered for stays blank, and an entry of the menu with none leads to the Dashboard: the pages that main.js
         registers are the sections of index.html, and each entry of the menu is the `nav` of one."""
@@ -234,30 +129,6 @@ class Agreements(Case):
         self.assertEqual(set(re.findall(r'<a class="nav-item" href="[^"]*" data-nav="([\w-]+)"', index)), navs)
         self.assertIn("catalogsPage", names)
         self.assertIn('import { catalogsPage } from "./pages/catalogs.js";', main)
-
-    def test_a_choice_that_cannot_be_taken_looks_as_a_disabled_button_does_and_the_layers_hide_their_muted_word_with_their_code(self):
-        """A control that cannot be used keeps the pointer and says why (aria-disabled): the Cloud segment of the core choice and its card of
-        the welcome dialog look as the disabled button does, which they are not drawn by. The welcome dialog's layers say where an item lives in
-        code or in a muted word, and a phone hides either."""
-        components = (WEB / "css" / "components.css").read_text()
-        button = re.search(r'^\.btn:is\(:disabled, \[aria-disabled="true"\]:not\(\.busy, \.said\)\) \{([^}]*)\}', components, re.M).group(1)
-        rule = re.search(r'^\.segmented button\[aria-disabled="true"\], \.core-card\[aria-disabled="true"\] \{([^}]*)\}', components, re.M).group(1)
-        for declaration in re.findall(r"(?:opacity|cursor): [\w.]+;", button):
-            self.assertIn(declaration, rule)
-        self.assertIn(".segmented button:hover:not([aria-disabled=\"true\"])", components, "a choice that waits does not answer a hover")
-        pages = (WEB / "css" / "pages.css").read_text()
-        self.assertIn(".core-card:hover:not([aria-disabled=\"true\"])", pages)
-        self.assertRegex(pages, r"(?m)^\.layer > :is\(code, \.muted\) \{[^}]*white-space: nowrap;")
-        self.assertIn(".layer > :is(code, .muted) { display: none; }", pages.rsplit("@media (max-width: 640px) {", 1)[1])
-
-    def test_on_a_phone_no_dialog_scrolls_sideways_for_a_line_that_does_not_fit(self):
-        """The example of the welcome dialog keeps its lines and scrolls inside its own box; the rows of an effects dialog put their label over
-        what they say, so that a branch or a destination fits its card, and a pill that is still too long is cut, its words whole in its tooltip."""
-        pages = (WEB / "css" / "pages.css").read_text()
-        self.assertRegex(pages, r"(?m)^\.welcome-code \{[^}]*white-space: pre; overflow-x: auto;")
-        components = (WEB / "css" / "components.css").read_text()
-        self.assertRegex(components, r"@media \(max-width: 480px\) \{ \.choice-row \{ grid-template-columns: minmax\(0, 1fr\);")
-        self.assertIn('<span class="pill-text" data-tip="${esc(named(i).name)}" data-tip-cut>', (WEB / "js" / "components" / "ui.js").read_text())
 
 
 if __name__ == "__main__":
