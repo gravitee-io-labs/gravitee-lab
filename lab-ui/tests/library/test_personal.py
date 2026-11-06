@@ -543,42 +543,6 @@ class Deleted(Folder):
         self.assertEqual(personal.held(self.project, on, "addon", "local/whoami", deleting=True, running=True), "Stop it first")
 
 
-class Sharing(Folder):
-    """Sharing is a copy into a catalog, which catalogs/contribute.py does: this module answers the check without a destination
-    and hands the rest over."""
-
-    def setUp(self):
-        super().setUp()
-        self.own()
-
-    def test_without_a_destination_a_check_says_where_the_item_is_in_its_own_catalog(self):
-        before = self.tree()
-        self.assertEqual(personal.share("addon", "local/whoami", check_only=True),
-                         {"file": "addons/whoami/compose.yml", "problems": [], "changes": []})
-        self.assertEqual(personal.share("setup", "local/mine", check_only=True)["file"], "setups/mine.yml")
-        self.assertEqual(self.tree(), before)
-
-    def test_without_a_destination_there_is_nothing_to_share(self):
-        before = self.tree()
-        with self.assertRaisesRegex(ValueError, "Choose where to share"):
-            personal.share("addon", "local/whoami")
-        self.assertEqual(self.tree(), before)
-
-    def test_only_what_belongs_to_this_machine(self):
-        before = self.tree()
-        for kind, uid in (("addon", "kafka"), ("addon", "local/../kafka"), ("setup", "observability")):
-            with self.subTest(uid=uid), self.assertRaisesRegex(ValueError, "Only your own .* can be shared here"):
-                personal.share(kind, uid, True)
-        with self.assertRaises(paths.NotFound):
-            personal.share("playground", "local/gone", True)
-        self.assertEqual(self.tree(), before)
-
-    def test_it_is_not_held_while_it_is_on(self):
-        self.write(paths.ON_FILE, f"include:\n  - {WHOAMI}\n  - {MINE}\n")
-        for kind, uid in (("addon", "local/whoami"), ("setup", "local/mine")):
-            self.assertEqual(personal.share(kind, uid, True)["problems"], [])
-
-
 class Following(Folder):
     """The items of this machine that include an item follow it to the place it has now."""
 

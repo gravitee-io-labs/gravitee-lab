@@ -61,12 +61,6 @@ class Stars(Folder):
         personal.save_setup(self.project, "Other name", "", ["kiosk"], sid="local/mine")
         self.assertEqual(self.saved(), {"setup": ["local/other-name"]})
 
-    def test_asked_to_share_it_keeps_its_star_where_it_is(self):
-        # A share is a copy: the item stays, and so does its star
-        starred.star(self.project, "addon", "local/whoami", True)
-        personal.share("addon", "local/whoami", check_only=True)
-        self.assertEqual(self.saved(), {"addon": ["local/whoami"]})
-
     def test_become_a_catalogs_it_keeps_its_star_under_the_new_id(self):
         starred.star(self.project, "addon", "local/whoami", True)
         starred.star(self.project, "addon", "kafka", True)

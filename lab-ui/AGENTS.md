@@ -58,7 +58,7 @@ The module docstring (Python) or the header comment (JavaScript) of a file is th
 | `check.py` | `make check` |
 | `files.py` | The editor's files (read, check, save) and a `.env` as a form |
 | `plugins.py` | The plugin catalog, what each product loads, install and remove |
-| `personal.py` | Creating, sharing and deleting items of this machine; finding the skills |
+| `personal.py` | Creating and deleting items of this machine; finding the skills |
 | `starred.py` | What is starred on this machine (`.lab/starred.json`) |
 | `tested.py` | What a playground started on here: the image versions that worked, kept in `.lab/tested.json`, so that starting it again on them is no warning |
 | `playgrounds.py` | A playground's checks, guide, start, re-seed and stop, on This machine or on a place: its deploy, its delete from one place and its records |

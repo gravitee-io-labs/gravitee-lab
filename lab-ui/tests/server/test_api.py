@@ -1019,15 +1019,14 @@ class Personal(LabUI):
                     "code": "not_editable"}))
 
     def test_shared_and_deleted_by_kind_and_id(self):
-        share = self.patch(api.personal, "share", return_value={"file": "f", "problems": ["p"]})
+        destinations = self.patch(api.contribute, "destinations", return_value=[])
         delete = self.patch(api.personal, "delete", return_value={})
         deployed = self.patch(api.places, "deployed", return_value=[])
-        self.patch(api, "destinations", return_value={})   # the catalogs a share can go to are the module's, tested below
         status, _, body = self.request("POST", "/api/addons/local/whoami/share", {"check": True})
-        self.assertEqual((status, json.loads(body)), (200, share.return_value))
-        share.assert_called_once_with("addon", "local/whoami", check_only=True)
-        self.request("POST", "/api/setups/local/mine/share")
-        share.assert_called_with("setup", "local/mine", check_only=False)
+        self.assertEqual((status, json.loads(body)), (200, {"destinations": []}))
+        destinations.assert_called_once_with(PROJECT, "addon", "local/whoami")
+        status, _, body = self.request("POST", "/api/setups/local/mine/share")
+        self.assertEqual((status, json.loads(body)), (400, {"error": "Choose where to share"}))
         for kind in ("addon", "setup", "playground"):
             status, _, body = self.request("POST", f"/api/{kind}s/local/it/delete")
             self.assertEqual((status, json.loads(body)), (200, delete.return_value))
@@ -1038,8 +1037,8 @@ class Personal(LabUI):
         delete.side_effect = RuntimeError("Stop it first")
         status, _, body = self.request("POST", "/api/playgrounds/local/sandbox/delete")
         self.assertEqual((status, json.loads(body)), (409, {"error": "Stop it first"}))
-        share.side_effect = ValueError("Only your own add-ons can be shared here")
-        self.assertEqual(self.request("POST", "/api/addons/kafka/share")[0], 400)
+        destinations.side_effect = ValueError("Only your own add-ons can be shared here")
+        self.assertEqual(self.request("POST", "/api/addons/kafka/share", {"check": True})[0], 400)
         # To a catalog, it is the business of contribute
         shared = self.patch(api.contribute, "share", return_value={"branch": "lab/whoami-20261016"})
         status, _, body = self.request("POST", "/api/addons/local/whoami/share", {"to": "acme-hub"})
@@ -2458,31 +2457,22 @@ class UseCatalog(LabUI):
         status, _, body = self.request("POST", "/api/playgrounds/local/bank/use-catalog", {})
         self.assertEqual((status, json.loads(body)), (409, {"error": "Turn off Bank first.", "code": "held"}))
 
-    def test_the_first_check_of_a_share_names_the_destinations_beside_the_fields_it_always_had(self):
-        share = self.patch(api.personal, "share", return_value={"file": "f", "problems": [], "changes": ["compose.yml"]})
+    def test_the_first_check_of_a_share_names_the_destinations(self):
         status, _, body = self.request("POST", "/api/playgrounds/local/bank/share", {"check": True})
-        self.assertEqual(json.loads(body), {"file": "f", "problems": [], "changes": ["compose.yml"], "destinations": [
+        self.assertEqual(json.loads(body), {"destinations": [
             {"id": "gravitee", "name": "Gravitee public", "kind": "git", "writable": True, "reason": ""}]})
-        share.assert_called_once_with("playground", "local/bank", check_only=True)
         self.contribute.destinations.assert_called_once_with(PROJECT, "playground", "local/bank")
 
-    def test_a_share_with_a_destination_is_the_modules_check_and_share_and_the_old_share_has_no_destinations(self):
-        share = self.patch(api.personal, "share", return_value={"file": "f", "problems": [], "changes": []})
+    def test_a_share_with_a_destination_is_the_modules_check_and_share(self):
         self.request("POST", "/api/playgrounds/local/bank/share", {"check": True, "to": "gravitee"})
         self.contribute.share.assert_called_with(PROJECT, "playground", "local/bank", "gravitee", True)
         self.request("POST", "/api/playgrounds/local/bank/share", {"to": "gravitee"})
         self.contribute.share.assert_called_with(PROJECT, "playground", "local/bank", "gravitee", False)
-        share.assert_not_called()
-        _, _, body = self.request("POST", "/api/playgrounds/local/bank/share", {})
-        self.assertNotIn("destinations", json.loads(body), "only a check names them")
-        self.request("POST", "/api/playgrounds/local/bank/share", {"to": ""})
-        share.assert_called_with("playground", "local/bank", check_only=False)
         status, _, body = self.request("POST", "/api/playgrounds/local/bank/share", {"to": ["x"]})
         self.assertEqual((status, json.loads(body)), (400, {"error": "The destination must be text"}))
 
     def test_no_destination_at_all_is_an_empty_list_the_page_answers_with_new_catalog_and_add_catalog(self):
         self.contribute.destinations.return_value = []
-        self.patch(api.personal, "share", return_value={"file": "f", "problems": [], "changes": []})
         _, _, body = self.request("POST", "/api/playgrounds/local/bank/share", {"check": True})
         self.assertEqual(json.loads(body)["destinations"], [])
 

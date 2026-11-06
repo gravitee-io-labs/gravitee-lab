@@ -10,7 +10,7 @@ import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
 import { El, Ev, bubble, flush, installDom, text, isOff, offWhy } from "./dom-stub.mjs";
-import { FIRST, FOLDER, HOSTILE, NOT_ADDED, PERSONAL, catalog, content, item, lab, origin } from "./fixtures.mjs";
+import { FIRST, FOLDER, HOSTILE, catalog, content, item, lab, origin } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
 const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
@@ -25,8 +25,7 @@ const page = installDom({ ids, fetch: async (path, options = {}) => {
   server.calls.push({ path, body });
   if (/^\/api\/(addons|setups|playgrounds)$/.test(path)) return server.refuse ? reply({ error: server.refuse }, 400) : reply({ file: `${path.slice(5, -1)}s/${body.name}/compose.yml`, id: body.name });
   if (!path.endsWith("/share")) return reply({});
-  // The first check, with no `to`: the destinations; an answer that has none is today's {file, problems, changes}
-  if (body.check && !body.to) return reply(server.destinations ? { destinations: server.destinations } : { file: "playgrounds/local/bank/compose.yml", problems: [], changes: [] });
+  if (body.check && !body.to) return reply({ destinations: server.destinations });
   if (body.check && server.rejects[body.to]) return reply({ error: server.rejects[body.to] }, 400);
   if (body.check) return typeof server.checks[body.to] === "function" ? reply(server.checks[body.to]()) : reply(server.checks[body.to] || { problems: [], changes: [], identity: null });
   if (server.refuse) return reply({ error: server.refuse }, 400);
@@ -170,32 +169,12 @@ test("a single destination that everyone can read says so in its rows, not in a 
   assert.deepEqual(shares(), []);
 });
 
-test("an answer to the first check that lists no destination does not hide Share: the catalogs added are asked in turn, and each says if it cannot take the item", async () => {
-  server.checks = { gravitee: CHECK({ identity: "you@corp.com", audience: "public" }), "my-catalog": CHECK({ audience: "private" }) };
-  server.rejects = { "acme-hub": "Acme Hub does not take contributions from the Lab." };
-  // (the fetch of an Add that is on its way is carried among the catalogs, and is none of them)
-  store.state = state({ catalogs: [FIRST({ address: "github.com/example/demos" }), PERSONAL(), NOT_ADDED({ id: "listed" }), { id: "check", kind: "progress", progress: 0.4 },
-    catalog({ address: "github.com/acme/lab-hub" }), FOLDER()] });
-  for (const answered of [undefined, "boom", { gravitee: 1 }]) {
-    server.destinations = answered;
-    const done = opened();
-    await settle();
-    assert.deepEqual(options().map(({ name, hint, disabled }) => [name, hint, disabled]),
-      [["Gravitee public", "Public", false], ["Acme Hub", "Acme Hub does not take contributions from the Lab.", true], ["My catalog", "Private", false]],
-      "a repository or a folder, never this machine's row nor one that is not added; the first catalog first");
-    assert.deepEqual(server.calls.filter((call) => call.body?.check).map((call) => call.body.to ?? null), [null, "gravitee", "acme-hub", "my-catalog"]);
-    await answer(false);
-    await done;
-  }
-  // With no catalog added there is nothing to share to: the two ways to one
-  store.state = state({ catalogs: [PERSONAL(), NOT_ADDED()] });
-  server.destinations = undefined;
+test("with no catalog to share to, the two ways to one", async () => {
+  server.destinations = [];
   await opened();
   assert.equal(choice.hasAttribute("open"), false);
   assert.deepEqual(notice().querySelectorAll(".dialog-actions .btn").map(text), ["New catalog", "Add catalog", "Close"]);
   notice().close();
-  server.rejects = {};
-  store.state = state();
 });
 
 test("the branch is the result: its name, to copy, and the pull request to open when the host gives one; the item stays where it was", async () => {

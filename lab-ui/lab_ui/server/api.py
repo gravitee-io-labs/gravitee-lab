@@ -525,22 +525,18 @@ def use_catalog(req, kind, uid):
     return contribute.use_catalog_version(project.load(), kind, uid)
 
 
-def destinations(p, kind, uid):
-    """The catalogs a personal item can be shared to, {"destinations": [...]}, for the first check of a share."""
-    return {"destinations": contribute.destinations(p, kind, uid)}
-
-
 def share_item(req, kind, uid):
-    """Share. With no `to` it is today's check and share: {file, problems, changes}, and a check also names the
-    catalogs it can go to (`destinations`); with `to`, a catalog's namespace, the check and the share of that destination."""
+    """Share. With `to`, a catalog's namespace, the check and the share of that destination; with no `to`, a check names the
+    catalogs it can go to (`destinations`)."""
     p, body = project.load(), req.body
     to, check = body.get("to") or "", bool(body.get("check"))
     if not isinstance(to, str):
         raise ValueError("The destination must be text")
     if to:
         return contribute.share(p, kind, uid, to, check)
-    found = personal.share(kind, uid, check_only=check)
-    return {**found, **destinations(p, kind, uid)} if check else found
+    if not check:
+        raise ValueError("Choose where to share")
+    return {"destinations": contribute.destinations(p, kind, uid)}
 
 
 def created(req, make, *names, **given):
