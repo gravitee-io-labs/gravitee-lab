@@ -2,7 +2,6 @@
 from it and from what Docker says of their containers. The last failure on an item is remembered until the next job
 that starts or stops it."""
 
-import atexit
 import json
 import re
 import subprocess
@@ -651,7 +650,4 @@ def _cut_short():
         print(f"Stopped with the Lab UI: {job.title}", flush=True)
 
 
-if hasattr(threading, "_register_atexit"):   # CPython 3.9 and later: before compose._end, registered first
-    threading._register_atexit(_cut_short)
-else:
-    atexit.register(_cut_short)
+threading._register_atexit(_cut_short)   # before compose._end, registered first

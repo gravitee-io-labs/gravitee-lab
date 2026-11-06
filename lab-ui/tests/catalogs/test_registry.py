@@ -822,15 +822,6 @@ class Flock(Disk):
             release.set()
             thread.join(10)
 
-    def test_without_fcntl_it_is_a_no_op(self):
-        with mock.patch.object(registry, "fcntl", None):
-            with registry.flock(wait=0):
-                with registry.flock(wait=0):
-                    pass
-            registry.set_lock("acme-hub", pin=A)
-        self.assertFalse(self.lock_file().exists())
-        self.assertEqual(registry.lock_of("acme-hub")["pin"], A)
-
     def test_a_lock_file_that_cannot_be_made_leaves_the_lock_of_the_process(self):
         os.makedirs(self.root / ".lab")
         self.lock_file().mkdir()   # a folder in its place: it cannot be opened for writing

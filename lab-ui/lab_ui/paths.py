@@ -1,6 +1,7 @@
 """The project's layout: the core file, and the add-ons, setups and playgrounds of its catalogs.
 The folder decides what a file is and gives its id. Also how a file is replaced whole, never read half-written."""
 
+import fcntl
 import json
 import os
 import re
@@ -8,11 +9,6 @@ import stat
 import tempfile
 import time
 from pathlib import Path
-
-try:
-    import fcntl
-except ImportError:   # no advisory locks on this system: a second Lab UI of the folder is not seen
-    fcntl = None
 
 LAB_UI_DIR = Path(__file__).resolve().parent.parent
 ROOT = LAB_UI_DIR.parent
@@ -345,9 +341,9 @@ _serving = []        # the descriptor by which this process holds it
 
 def serve_here(port):
     """Takes the lock that says a Lab UI serves this folder, with its port, until stop_serving() or the end of the process.
-    None once this process holds it, and where nothing locks (no fcntl, a folder that cannot be written): the Lab UI then
-    serves as it always did. Else the port of the Lab UI that holds it, 0 when it has not written it yet."""
-    if fcntl is None or _serving:
+    None once this process holds it, and where nothing locks (a folder that cannot be written): the Lab UI then serves as it
+    always did. Else the port of the Lab UI that holds it, 0 when it has not written it yet."""
+    if _serving:
         return None
     file = ROOT / SERVING_FILE
     try:
@@ -384,7 +380,7 @@ def stop_serving():
 def served_elsewhere():
     """The port of the Lab UI of another process that serves this folder (0 when it has not written it yet); None when none
     does, or this process is the one."""
-    if fcntl is None or _serving:
+    if _serving:
         return None
     try:
         descriptor = os.open(ROOT / SERVING_FILE, os.O_RDONLY)
@@ -419,10 +415,7 @@ def write_atomic(file, text, mode=0o644):
     handle, tmp = tempfile.mkstemp(dir=file.parent, prefix=f".{file.name}.", suffix=".tmp")
     try:
         with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as f:
-            if hasattr(os, "fchmod"):
-                os.fchmod(f.fileno(), mode)
-            else:
-                os.chmod(tmp, mode)
+            os.fchmod(f.fileno(), mode)
             f.write(text)
             f.flush()
             os.fsync(f.fileno())

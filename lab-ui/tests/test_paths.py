@@ -892,15 +892,6 @@ class WriteAtomic(Case):
         paths.write_atomic(notes, "# Démo ✓\nline two\n")
         self.assertEqual(notes.read_bytes(), "# Démo ✓\nline two\n".encode("utf-8"))
 
-    def test_a_system_without_fchmod_sets_the_mode_on_the_copy(self):
-        env = self.root / ".env"
-        fchmod = paths.os.fchmod
-        self.addCleanup(setattr, paths.os, "fchmod", fchmod)
-        del paths.os.fchmod
-        paths.write_atomic(env, "TOKEN=x\n", mode=0o600)
-        self.assertEqual((env.read_text(encoding="utf-8"), env.stat().st_mode & 0o777, self.copies()),
-                         ("TOKEN=x\n", 0o600, []))
-
     def test_a_write_that_fails_leaves_the_file_and_no_copy(self):
         env = self.root / self.write(".env", "TOKEN=old\n")
         self.patch(paths.os, "replace", side_effect=OSError("No space left on device"))

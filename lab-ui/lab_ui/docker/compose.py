@@ -339,8 +339,7 @@ def _end():
 
 
 atexit.register(_end)
-if hasattr(threading, "_register_atexit"):   # CPython 3.9 and later
-    threading._register_atexit(_end)
+threading._register_atexit(_end)
 
 
 def stop_on_signals(*others):
@@ -355,9 +354,8 @@ def stop_on_signals(*others):
             stop()
         signal.signal(number, signal.SIG_DFL)
         signal.raise_signal(number)
-    for name in ("SIGHUP", "SIGTERM"):
-        number = getattr(signal, name, None)
-        if number is not None and signal.getsignal(number) == signal.SIG_DFL:
+    for number in (signal.SIGHUP, signal.SIGTERM):
+        if signal.getsignal(number) == signal.SIG_DFL:
             signal.signal(number, ending)
 
 
