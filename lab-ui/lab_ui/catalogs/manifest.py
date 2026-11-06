@@ -616,37 +616,12 @@ def with_legacy(text: str, lab: Optional[int]) -> str:
 
 def _lab_of(data) -> Optional[int]:
     """The `lab` a catalog.yml states, from its bytes, read the way the registry reads the file of an install; 0 (a
-    level no Lab reads) for a file that is missing or damaged, or whose `lab` is no number. None when it states none, the
-    form a catalog has now, and when the reader says it is not sure (`partial`: an anchor, a scalar on several lines, a
-    number spelled another way, a block it did not find): the files of that version say whether this Lab reads it (`pick`
-    with `readable`), and the strict reading of a catalog (`read_catalog`, at Add and at Update) has the last word, so a
-    level is never invented here."""
+    level no Lab reads) for a file that is missing or damaged. None when it states none, the form a catalog has now, and
+    when it states one the reader does not read (a word, an anchor, a number spelled another way): the files of that version
+    say whether this Lab reads it (`pick` with `readable`), and the strict reading of a catalog (`read_catalog`, at Add and
+    at Update) has the last word, so a level is never invented here."""
     found = registry.scan(data) if data else {}
-    if found.get("partial"):
-        return None
-    if type(found.get("lab")) is int:
-        return found["lab"]
-    return None if found and not _states_lab(data) else 0
-
-
-def _states_lab(data) -> bool:
-    """Whether the x-gravitee-catalog block of a catalog.yml has a `lab` line of its own, at its first level, whatever it says:
-    one that is no number is no level. A `lab` deeper in the block (under `requires`) or in another block is not the catalog's."""
-    text = data.decode("utf-8", "replace") if isinstance(data, bytes) else str(data or "")
-    inside, indent = False, None
-    for line in text.replace("\r\n", "\n").split("\n"):
-        if not line.strip() or line.lstrip(" \t").startswith("#"):
-            continue
-        if line[0] not in " \t":
-            inside = bool(_BLOCK_LINE.fullmatch(line))
-            indent = None
-            continue
-        if inside:
-            here = len(line) - len(line.lstrip(" \t"))
-            indent = here if indent is None else indent
-            if here == indent and re.match(r"[\"']?lab[\"']?[ \t]*:", line.lstrip(" \t")):
-                return True
-    return False
+    return found.get("lab") if found else 0
 
 
 def levels(store: Path, tip: str, limit: int = 50, address: Optional[gitx.Address] = None) -> list:
@@ -656,9 +631,8 @@ def levels(store: Path, tip: str, limit: int = 50, address: Optional[gitx.Addres
     the files that say whether this Lab reads a version, each form is also a version for each change of its units: the
     first parent of each commit that changed `addons/`, `setups/` or `playgrounds/` since the form appeared, with the `lab`
     of the form, which `pick` reads as a hint. One `git log --first-parent` for the commits that touched the file, one for
-    the changes of the units of each form, and one read of the file for each form. A form that states no `lab` is None, one
-    that is damaged is `lab` 0, which no Lab reads, one the reader cannot be sure of is None (`_lab_of`), and a form that was
-    deleted is left out. A tip with no `catalog.yml` is `not_catalog` (`address` names the repository in the line); a tip
+    the changes of the units of each form, and one read of the file for each form. A form that states no `lab` the reader
+    reads is None (`_lab_of`), one that is damaged is `lab` 0, which no Lab reads, and a form that was deleted is left out. A tip with no `catalog.yml` is `not_catalog` (`address` names the repository in the line); a tip
     the store does not hold is `fsck`."""
     commit = bare.resolve(store, tip)
     if commit is None:

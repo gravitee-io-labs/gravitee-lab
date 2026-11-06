@@ -949,30 +949,27 @@ def _closed(text):
     return False
 
 
-def _item(text, depth, lost):
+def _item(text, depth):
     """A value inside a flow: another flow while there is room for one, else a scalar."""
     text = text.strip()
     if depth < 8 and len(text) >= 2 and (text[0], text[-1]) in (("[", "]"), ("{", "}")):
-        return _flow(text, depth + 1, lost)
+        return _flow(text, depth + 1)
     return _scalar(text)
 
 
-def _flow(text, depth=0, lost=None):
+def _flow(text, depth=0):
     """A one-line YAML flow list or mapping: [a, b] or {key: value, key: "value"}, its values scalars or flows of the
-    same kind. A part of a mapping that is no `key: value` is left out and noted in the list `lost`."""
-    lost = [] if lost is None else lost
+    same kind. A part of a mapping that is no `key: value` is left out."""
     inner = text[1:-1]
     cuts = [-1] + _outside(inner, ",") + [len(inner)]
     parts = [inner[a + 1:b] for a, b in zip(cuts, cuts[1:]) if inner[a + 1:b].strip()]
     if text[0] == "[":
-        return [_item(part, depth, lost) for part in parts]
+        return [_item(part, depth) for part in parts]
     result = {}
     for part in parts:
         colon = next((at for at in _outside(part, ":") if part[at + 1:at + 2] in ("", " ", "\t")), None)
-        if colon is None:
-            lost.append(part.strip()[:20])
-        else:
-            result[_scalar(part[:colon])] = _item(part[colon + 1:], depth, lost)
+        if colon is not None:
+            result[_scalar(part[:colon])] = _item(part[colon + 1:], depth)
     return result
 
 
@@ -980,19 +977,13 @@ def _flow(text, depth=0, lost=None):
 _NAME_OF_KEY = r"[A-Za-z0-9_][A-Za-z0-9_.-]*"
 _KEY = re.compile(rf"(?:({_NAME_OF_KEY})|\"({_NAME_OF_KEY})\"|'({_NAME_OF_KEY})'):(?:[ \t]+(.*))?")
 _TOP = re.compile(r"(?:x-gravitee-catalog|\"x-gravitee-catalog\"|'x-gravitee-catalog'):(?:[ \t]+(.*))?")
-# What this Lab reads of the block; a key of any other name that the scan cannot read is nothing to it
-_WANTED = ("id", "name", "description", "version", "lab", "requires", "host_access")
-# A number in a spelling that YAML knows and the scan does not read (0x2, +2, 1_0, 2.0, 2e0)
-_NUMBER = re.compile(r"[+-]?(?:0[xX][0-9a-fA-F_]+|0[oO][0-7_]+|0[bB][01_]+"
-                     r"|[0-9][0-9_]*(?:\.[0-9_]*)?(?:[eE][+-]?[0-9]+)?)")
 
 
-def _block(lines, at, indent, skipped, trail=()):
+def _block(lines, at, indent, depth=0):
     """({key: value}, next line) of the block of mapping keys at `indent` of `lines`, [(indent, text)]: a value is a
     plain or quoted scalar, a one-line flow list or mapping, or the block below the key. What it cannot read it leaves
-    out, and appends to `skipped` the path of the key it belongs to: a list in block form, a scalar on several lines, an
-    anchor, an alias, a tag, a line that is no key (path `?`)."""
-    result, last = {}, None
+    out: a list in block form, a scalar on several lines, an anchor, an alias, a tag, a line that is no key."""
+    result = {}
     while at < len(lines):
         here, content = lines[at]
         if here < indent:
@@ -1000,27 +991,19 @@ def _block(lines, at, indent, skipped, trail=()):
         at += 1
         found = _KEY.fullmatch(content) if here == indent else None
         if not found:
-            if here == indent:   # a list item level with its key (YAML allows it), or a line this does not know
-                skipped.append(trail + ((last if content.startswith("- ") and last else "?"),))
             continue
         name, value = next(one for one in found.groups()[:3] if one), (found.group(4) or "").strip()
-        last, below = name, False
-        if not value and at < len(lines) and lines[at][0] > indent and not lines[at][1].startswith("- ") \
-                and len(trail) < 8:
-            result[name], at = _block(lines, at, lines[at][0], skipped, trail + (name,))
+        below = False
+        if not value and at < len(lines) and lines[at][0] > indent and not lines[at][1].startswith("- ") and depth < 8:
+            result[name], at = _block(lines, at, lines[at][0], depth + 1)
             continue
         while at < len(lines) and lines[at][0] > indent:
             at, below = at + 1, True
-        lost = []
         if below:   # a list in block form below the key, or a scalar that goes on over several lines
-            skipped.append(trail + (name,))
-        elif value[:1] in ("{", "[") and _closed(value):
-            result[name] = _flow(value, 0, lost)
-            if lost:
-                skipped.append(trail + (name,))
-        elif value and value[0] in "|>&*!{[":
-            skipped.append(trail + (name,))
-        elif value:
+            continue
+        if value[:1] in ("{", "[") and _closed(value):
+            result[name] = _flow(value)
+        elif value and value[0] not in "|>&*!{[":
             result[name] = _scalar(value)
     return result, at
 
@@ -1043,18 +1026,14 @@ def scan(data):
     name, description, version, lab, host_access (only when true), requires_catalogs: {ns: {name, url, min}}}, a requirement's url being the address
     of a git repository or None. The block is the one shows (a mapping, two spaces deep, or one line of
     flow); this is not a YAML parser, it reads that shape and nothing else, and what it does not understand it leaves
-    out.
-    `partial` is True, and there only then, when something it could not read may have been a key the Lab reads (an
-    anchor, a scalar on several lines, a number spelled 0x2, a block it cannot find): the answer is then not the
-    file's, and the strict reading of a catalog (manifest.read_catalog, at Add) is. A file with no block, or one that
-    is not YAML, is {}."""
+    out: the strict reading of a catalog (manifest.read_catalog, at Add) has the last word. A file with no block it can
+    find, or one that is not YAML, is {}."""
     try:
         text = data.decode("utf-8-sig")
     except UnicodeDecodeError:
         return {}
-    every = text.splitlines()
     lines = []
-    for line in every[:4000]:
+    for line in text.splitlines()[:4000]:
         stripped = _uncomment(line).rstrip()
         if stripped.strip():
             content = stripped.lstrip(" \t")
@@ -1064,21 +1043,18 @@ def scan(data):
             lines.append((len(lead), content))
     start = next((at for at, (indent, content) in enumerate(lines) if indent == 0 and _TOP.fullmatch(content)), None)
     if start is None:
-        return {"partial": True} if len(every) > 4000 else {}
-    skipped, lost, partial = [], [], False
+        return {}
     inline = (_TOP.fullmatch(lines[start][1]).group(1) or "").strip()
     if inline:   # the block on the line of its key: a flow mapping, else something this does not read
         if not (inline.startswith("{") and _closed(inline)):
-            return {"partial": True}
-        block = _flow(inline, 0, lost)
-        partial = bool(lost)
+            return {}
+        block = _flow(inline)
     else:
         end = next((at for at in range(start + 1, len(lines)) if lines[at][0] == 0), len(lines))
         inside = lines[start + 1:end]
         if not inside or inside[0][0] == 0:
             return {}
-        block, stop = _block(inside, 0, inside[0][0], skipped)
-        partial = stop < len(inside) or any(path[0] in _WANTED or path[0] == "?" for path in skipped)
+        block = _block(inside, 0, inside[0][0])[0]
     found = {}
     if isinstance(block.get("id"), str) and _namespace(block["id"]):
         found["id"] = block["id"]
@@ -1090,8 +1066,6 @@ def scan(data):
         found["version"] = block["version"]
     if isinstance(block.get("lab"), str) and re.fullmatch(r"[0-9]{1,6}", block["lab"]):
         found["lab"] = int(block["lab"])
-    elif isinstance(block.get("lab"), str) and _NUMBER.fullmatch(block["lab"]):
-        partial = True
     if block.get("host_access") == "true":
         found["host_access"] = True
     needs = {}
@@ -1104,8 +1078,6 @@ def scan(data):
                          "url": _git_url(want.get("url")),
                          "min": floor if isinstance(floor, str) and _VERSION.fullmatch(floor) else None}
     found["requires_catalogs"] = needs
-    if partial:
-        found["partial"] = True
     return found
 
 

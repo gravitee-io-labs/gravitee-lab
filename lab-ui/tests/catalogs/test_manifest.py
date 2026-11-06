@@ -949,13 +949,6 @@ class Legacy(Case):
         self.assertNotIn("\n", written.replace("\r\n", ""), "no line ends otherwise")
 
     def test_only_the_blocks_own_lab_is_its_lab(self):
-        for text, states in (("x-gravitee-catalog:\n  id: a\n  lab: 2\n", True),
-                             ("x-gravitee-catalog:\n  id: a\n  lab: soon\n", True),
-                             ("x-gravitee-catalog:\n  id: a\n  requires:\n    lab: 2\n", False),
-                             ("x-other:\n  lab: 2\nx-gravitee-catalog:\n  id: a\n", False),
-                             ("x-gravitee-catalog:\r\n  id: a\r\n  lab: 1\r\n", True)):
-            with self.subTest(text=text):
-                self.assertEqual(manifest._states_lab(text.encode()), states)
         self.assertIsNone(manifest._lab_of(b"x-gravitee-catalog:\n  id: history\n  requires:\n    lab: 2\n"),
                           "a catalog.yml whose block has no lab of its own is read by its files")
 
@@ -1080,7 +1073,7 @@ class History(Case):
         """An unusual word, or a file that is no catalog, is a level no Lab reads (0); a file with no `lab` and a form the
         reader gave up on are None: the files say."""
         for how, (text, level) in {"no lab": ("x-gravitee-catalog:\n  schema: 1\n  id: history\n", None),
-                                   "a word": ("x-gravitee-catalog:\n  schema: 1\n  id: history\n  lab: soon\n", 0),
+                                   "a word": ("x-gravitee-catalog:\n  schema: 1\n  id: history\n  lab: soon\n", None),
                                    "not yaml": ("plain text\n", 0)}.items():
             with self.subTest(how=how):
                 self.push({"catalog.yml": text})

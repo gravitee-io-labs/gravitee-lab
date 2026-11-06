@@ -1529,7 +1529,6 @@ class Scanner(Disk):
         self.assertTrue(self.scan(block + "  host_access: true\n")["host_access"])
         for text in ("  host_access: false\n", "  host_access: yes\n", ""):
             self.assertNotIn("host_access", self.scan(block + text), text)
-        self.assertNotIn("partial", self.scan(block + "  host_access: true\n"))
 
     def test_the_block_of_section_4_1(self):
         found = self.scan("""x-gravitee-catalog:
@@ -1592,7 +1591,6 @@ class Scanner(Disk):
                 self.assertEqual((found["id"], found["name"], found["version"], found["lab"]),
                                  (ns, meta["name"], meta["version"], meta["lab"]))
                 self.assertEqual(sorted(found["requires_catalogs"]), fixtures._requires(ns))
-                self.assertNotIn("partial", found)   # every shape the fixtures use is one it reads
 
     def test_what_is_wrong_is_left_out_and_the_rest_is_kept(self):
         found = self.scan("""x-gravitee-catalog:
@@ -1659,47 +1657,22 @@ class Scanner(Disk):
         self.assertEqual(found["requires_catalogs"], {
             "gravitee": {"name": "G", "url": "https://example.invalid/y.git", "min": "1.0.0"},
             "other": {"name": "O", "url": None, "min": None}})
-        self.assertNotIn("partial", found)
         self.assertEqual(registry._flow("{a: [1, {b: c}], d: {e: {f: g}}}"), {"a": ["1", {"b": "c"}], "d": {"e": {"f": "g"}}})
         deep = "{a: " * 30 + "x" + "}" * 30
         self.assertIsInstance(registry._flow(deep), dict)   # nested flows go so deep and then are text
 
-    def test_it_says_when_it_could_not_read_what_the_lab_reads(self):
+    def test_what_it_cannot_read_is_left_out(self):
         head = "x-gravitee-catalog:\n  id: acme-hub\n"
-        cannot = {
-            "an anchor on a key it reads": head + "  name: &n Acme\n", "an alias": head + "  name: *n\n",
-            "a tag": head + "  lab: !!int 2\n", "a folded description": head + "  description: >\n    folded\n    text\n",
-            "a literal name": head + "  name: |\n    literal\n", "a name on two lines": head + "  name: Acme\n    Hub\n",
-            "a hexadecimal level": head + "  lab: 0x2\n", "a signed level": head + "  lab: +2\n",
-            "a level with a point": head + "  lab: 2.0\n", "a level with a mark": head + "  lab: 1_0\n",
-            "a merge key": head + "  <<: *base\n", "a line that is no key": head + "  junk\n  name: A\n",
-            "a complex key": head + "  ? complex\n  name: A\n",
-            "a list where a mapping goes": head + "  requires:\n    - catalogs\n",
-            "a list level with the key": head + "  requires:\n  - catalogs\n",
-            "a flow that does not close": head + "  requires: {catalogs: {a: {name: x}}\n",
-            "a flow with a part that is no pair": head + "  requires: {catalogs, a: b}\n",
-            "a block that is lower than its first line": "x-gravitee-catalog:\n    id: acme-hub\n  name: Low\n",
-            "an anchor on the block": "x-gravitee-catalog: &c\n  id: acme-hub\n",
-            "an alias for the block": "x-gravitee-catalog: *c\n",
-            "a flow on several lines": "x-gravitee-catalog: {\n  id: acme-hub\n}\n",
-            "a flow with a part that is no pair, on the key line": "x-gravitee-catalog: {id: acme-hub, junk}\n",
-            "a block after the lines it reads": "services: {}\n" * 4100 + head}
-        for label, text in cannot.items():
+        for key, text in (("name", head + "  name: &n Acme\n"), ("name", head + "  name: *n\n"), ("lab", head + "  lab: !!int 2\n"),
+                          ("description", head + "  description: >\n    folded\n    text\n"), ("name", head + "  name: |\n    literal\n"),
+                          ("name", head + "  name: Acme\n    Hub\n"), ("lab", head + "  lab: 0x2\n"), ("lab", head + "  lab: +2\n"),
+                          ("lab", head + "  lab: 2.0\n"), ("lab", head + "  lab: 1_0\n")):
+            with self.subTest(text):
+                self.assertNotIn(key, self.scan(text))
+        for label, text in {"an alias for the block": "x-gravitee-catalog: *c\n", "a flow on several lines": "x-gravitee-catalog: {\n  id: acme-hub\n}\n",
+                            "a block after the lines it reads": "services: {}\n" * 4100 + head}.items():
             with self.subTest(label):
-                self.assertIs(self.scan(text).get("partial"), True)
-        can = {
-            "the block of catalog.yml": "x-gravitee-catalog:\n  schema: 1\n  id: acme-hub\n  name: Acme Hub\n  version: 1.4.0\n  lab: 1\n"
-                                        "  license: Apache-2.0\n  canary:\n    - playground:bank\n  moved_from:\n  - addon:x\n"
-                                        "  shared_settings: [A, B]\n  requires:\n    catalogs:\n      other:\n        name: O\n"
-                                        "        url: https://example.invalid/o.git\n        min: 1.0.0\n",
-            "a key it does not read, however it is written": head + "  images: &i ghcr.io/acme\n  note: >\n    folded\n"
-                                                                    "  extra:\n    - a\n    - b\n  other: {a: b\n",
-            "values that are readable and wrong": "x-gravitee-catalog:\n  id: Bad_Id\n  name: ''\n  version: 1.0\n  lab: one\n",
-            "a level in decimal, quoted": head + "  lab: \"2\"\n", "comments": head + "  # a comment\n  name: A # another\n",
-            "no description": head, "no block": "services: {}\n", "nothing": ""}
-        for label, text in can.items():
-            with self.subTest(label):
-                self.assertNotIn("partial", self.scan(text))
+                self.assertEqual(self.scan(text), {})
 
     def test_a_requirement_is_the_address_of_a_git_repository_or_nothing(self):
         table = {"https://example.invalid/p.git": "https://example.invalid/p.git",
