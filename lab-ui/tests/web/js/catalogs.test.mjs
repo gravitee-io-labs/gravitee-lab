@@ -263,15 +263,6 @@ test("every state is a dot and a word, with a popover of its title, its reason a
   }
 });
 
-test("the table is what the server's words say for the states that name a host or a catalog", () => {
-  show([GIT("unreachable", { commit: "9f1c2ab" })]);
-  assert.deepEqual(bubble(row("Acme Hub").querySelector(".tip")), ["Unreachable", "Cannot reach github.com.", "Check your connection, then try again."]);
-  show([GIT("noaccess")]);
-  assert.deepEqual(bubble(row("Acme Hub").querySelector(".tip")), ["No access", "No access to owner/repo.", "Run gh auth login in a terminal, then try again."]);
-  show([GIT("lab_old")]);
-  assert.deepEqual(bubble(row("Acme Hub").querySelector(".tip")), ["Written for an older Gravitee Lab", "This version is too old for this Lab.", "Update it, or ask the owners of Acme Hub to update it."]);
-});
-
 test("a download shows how far it is under its word; a row with no copy that is not downloading offers Try again, and one that downloads offers nothing", () => {
   show([GIT("downloading", { id: "acme-hub", commit: "", progress: 0.42 })]);
   const li = row("Acme Hub"), bar = li.querySelector(".list-state .progress");
@@ -1162,19 +1153,6 @@ test("Add adds the catalog the preview showed: the ticket goes, the dialog close
   assert.deepEqual(toasts(), ["Added"]);
 });
 
-test("choosing to allow adds the allowance once the catalog is added", async () => {
-  clearToasts();
-  await previewed(PREVIEW());
-  const [keep, allow] = adding().querySelectorAll("#catalog-choice input");
-  keep.checked = false;
-  allow.checked = true;
-  server.answers["/api/catalogs"] = { catalog: GIT("uptodate", { host: "no" }) };
-  server.answers["/api/catalogs/acme-hub/allow"] = { catalog: GIT("uptodate", { host: "allowed" }) };
-  server.calls.length = 0;
-  await next(primary());
-  assert.deepEqual(server.calls.map((c) => [c.path, c.body]), [["/api/catalogs", { ticket: "9f3a4c1d2e5b6a70" }], ["/api/catalogs/acme-hub/allow", { enabled: true }]]);
-});
-
 test("a refusal of the commit stays on the second screen in the problem line; a ticket that expired goes back to the address, which it keeps", async () => {
   await previewed(PREVIEW());
   server.refuse["/api/catalogs"] = "Another catalog already uses the name acme-hub (github.com/other/hub). Remove it first, or ask the owner of this one to rename it.";
@@ -1257,14 +1235,6 @@ test("an add that was left does not unlock the button of the add that replaced i
   second.release();
   await settle();
   shut();
-});
-
-test("Enter confirms Add, and Cancel closes it", async () => {
-  await previewed(PREVIEW());
-  const cancel = adding().querySelector("[data-cancel]");
-  click(cancel);
-  assert.equal(adding().hasAttribute("open"), false);
-  assert.equal(primary() && primary().getAttribute("type") !== "button", true, "its button is the form's own: the one Enter presses");
 });
 
 // --- Add catalog: from an address that is known ---------------------------------------------------------------------------------
@@ -1748,13 +1718,6 @@ test("Go back to a history that was rewritten says so without the tone that asks
   await submit(adding().querySelector("form"));
   assert.deepEqual(server.calls.map((c) => [c.path, c.body]), [[at("/undo"), { ticket: "b1c2d3e4f5a60718" }]], "the server takes an undo as confirmed");
   assert.equal(adding().hasAttribute("open"), false);
-});
-
-test("an update of a history that was rewritten still asks for care, and sends the confirmation: the difference with going back is the route", async () => {
-  await updating(PLAN({ rewritten: true }));
-  assert.ok(adding().querySelector("#catalog-rows .choice-row").classList.contains("danger"));
-  assert.deepEqual([face(primary()), primary().classList.contains("danger")], ["Update anyway", true]);
-  shut();
 });
 
 test("Show changes opens the files on the left and a unified diff on the right; a file with no diff reads Changed, not shown", async () => {

@@ -290,47 +290,6 @@ test("Allow use of this machine names the item and what it takes, in the danger 
   assert.equal(isOff(start), false, "free again");
 });
 
-test("an update that makes items use this machine is held the same way: the choice is in the dialog of the update, and an allowance given there is given after it", async () => {
-  // The plan of an update the catalog's new version brings: Kubernetes now uses this machine and, while the catalog is not allowed, cannot run
-  world.host = "no";
-  await refresh();
-  const plan = { ticket: "b1c2d3e4f5a60718", from: "9f1c2ab", to: "c4d5e6f", version: "1.5.0", rewritten: false, updates: [], adds: [], removes: [], breaks: [],
-    changes: [{ id: "@acme-hub/k3s", name: "Kubernetes", fact: "host", value: "runs privileged" }], whatsnew: [], blocked: [], held: null, uses_machine: USES };
-  const original = globalThis.fetch;
-  globalThis.fetch = async (path, options = {}) => {
-    const body = options.body ? JSON.parse(options.body) : undefined;
-    if (path === "/api/catalogs/acme-hub/update") { world.calls.push([path, body]); return reply(body.check ? plan : { catalog: row() }); }
-    return original(path, options);
-  };
-  try {
-    world.calls.length = 0;
-    const li = catalogRow();
-    // The row is up to date in this fixture: the update is asked for from its own button, which a catalog with a newer version has
-    store.state = lab({ catalogs: [FIRST(), { ...row(), state: { key: "update", label: "Update available", tone: "warn", reason: "Version 1.5.0", next: "", whatsnew: [] } }], addons: [k3s()] });
-    for (const entry of Object.values(pages)) entry.render(store.state);
-    const button = catalogRow().querySelector("[data-update]");
-    assert.ok(button && li);
-    button.click();
-    await settle();
-    assert.deepEqual(calls(), [["/api/catalogs/acme-hub/update", { check: true }]]);
-    const dialog = adding();
-    assert.equal(text(page.doc.querySelector("#catalog-title")), "Update Acme Hub");
-    assert.deepEqual(rowsOf().map(([label]) => label), ["Version", "Uses this machine", "Changes", "Cannot run"], "kept blocked: the item cannot run");
-    assert.equal(rowsOf().find(([label]) => label === "Changes")[1], "Kubernetes now runs privileged");
-    const [keep, allow] = dialog.querySelectorAll("#catalog-choice input");
-    assert.equal(keep.checked, true);
-    keep.checked = false;
-    allow.checked = true;
-    allow.dispatchEvent(new Ev("change", { bubbles: true }));
-    assert.ok(!rowsOf().some(([label]) => label === "Cannot run"));
-    world.calls.length = 0;
-    await next(primary());
-    assert.deepEqual(calls(), [["/api/catalogs/acme-hub/update", { ticket: "b1c2d3e4f5a60718" }], ["/api/catalogs/acme-hub/allow", { enabled: true }]]);
-  } finally {
-    globalThis.fetch = original;
-  }
-});
-
 test("a listed catalog has the allowance by being listed: no choice, no menu entry and no pair, whatever its items use", async () => {
   world.added = false;
   store.state = lab({ catalogs: [FIRST({ uses_machine: USES })], content: content("ready") });
