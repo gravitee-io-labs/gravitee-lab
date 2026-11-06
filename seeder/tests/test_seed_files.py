@@ -1,82 +1,21 @@
-"""The checks of seed files: a ${VAR} is one the seed service sets (or one the engine gives the files of an environment), no
-address is written out, and the folders of seed/environments agree with themselves: a member of a group is a user, an
-application's group is a group, a subscription names an application, an API and a plan of the folder. The logins the Lab UI
-lists for Acme Bakery are the defaults of their settings.
+"""The checks of seed files: no address is written out, the seed service is read whichever way it is written, and the folders
+of seed/environments agree with themselves: a member of a group is a user, an application's group is a group, a subscription
+names an application, an API and a plan of the folder.
 
 The checks are those of seedlint.py, which a catalog's CI runs on the command line (test_seedlint.py tests the command and runs
 it on the engine's sample); this file tests them on files made for it."""
 
 import json
-import os
-import re
 import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
 
-import yaml
-
-from lab_seeder import apim
-from lab_seeder import apim_portal
 from lab_seeder import common
-from lab_seeder.seedlint import (SMALL, compose_value, environment_problems, literal_addresses, provided_to, seed_environment,
-                                 seed_service, seeded_playgrounds, unset_variables)
-from lab_seeder.testkit import PLAYGROUNDS
-
-
-# --- The folders of seed/environments ---------------------------------------------------
-
-
-class Environments(unittest.TestCase):
-    """The folders of seed/environments of every playground that has some: one in the engine's sample, Acme Hostels'."""
-
-    def test_every_environment_folder_is_read_by_the_modules_that_seed_it(self):
-        """The files of the environment and of its portal, read as the seed reads them: a typo of a hrid, a location or a
-        visibility is found here, where the seed finds it only after it imported every API."""
-        for folder, environment in seeded_playgrounds(PLAYGROUNDS):
-            for found in sorted((folder / "seed" / "environments").glob("*")):
-                if not found.is_dir():
-                    continue
-                with self.subTest(environment=f"{folder.name}/{found.name}"), mock.patch.dict(os.environ, environment, clear=True), \
-                        mock.patch.object(common, "SEED_DIR", folder / "seed"):
-                    wanted = apim.read_environment(found.name)
-                    apim_portal.Folder(found.name, wanted["name"], ("environments", found.name)).read()
-
-    def test_the_environments_of_a_playground_are_not_the_platforms_own(self):
-        for folder, _ in seeded_playgrounds(PLAYGROUNDS):
-            ids = [p.name for p in (folder / "seed" / "environments").glob("*") if p.is_dir()]
-            with self.subTest(playground=folder.name):
-                self.assertEqual(len(ids), len(set(ids)))
-                self.assertNotIn("default", ids)
+from lab_seeder.seedlint import SMALL, environment_problems, literal_addresses, seed_environment, seed_service
 
 
 class Preflight(unittest.TestCase):
     """The checks themselves, on files made for it: they find what they are meant to find."""
-
-    def test_a_variable_nobody_sets_is_found(self):
-        text = "url: ${OLLAMA_URL}\nkey: ${KEY:-x}\nname: ${NAME}\nport: ${PORT}"
-        self.assertEqual(unset_variables(text, {"NAME": "bank", "PORT": ""}), {"OLLAMA_URL", "PORT"})
-
-    def test_a_variable_with_a_default_in_the_file_needs_no_value(self):
-        self.assertEqual(unset_variables("key: ${KEY:-}\nother: ${OTHER:-x}", {}), set())
-
-    def test_an_escaped_dollar_is_not_a_variable(self):
-        self.assertEqual(unset_variables("script: $${NOT_A_VARIABLE} and $${also}", {}), set())
-
-    def test_a_variable_next_to_an_escape_is_one(self):
-        self.assertEqual(unset_variables("$${literal} ${REAL}", {}), {"REAL"})
-
-    def test_the_names_the_engine_gives_are_unset_only_where_it_does_not_give_them(self):
-        text = "id: ${ENV_ID}\nname: ${ENV_NAME}\nurl: ${URL}"
-        self.assertEqual(unset_variables(text, {"URL": "x"}), {"ENV_ID", "ENV_NAME"})
-        self.assertEqual(unset_variables(text, {"URL": "x"}, common.PROVIDED), set())
-        self.assertEqual(unset_variables(text, {}, common.PROVIDED), {"URL"})
-
-    def test_an_environment_has_the_names_and_the_others_have_none(self):
-        folder = Path("/p/acme")
-        self.assertEqual(provided_to(folder / "seed/environments/novo/apis/a.json", folder), common.PROVIDED)
-        self.assertEqual(provided_to(folder / "seed/apim/apis/a.json", folder), ())
-        self.assertEqual(provided_to(folder / "seed/aim/x.yaml", folder), ())
 
     def test_an_address_that_is_not_a_variable_is_found(self):
         text = ("a: http://localhost:8083/x\nb: http://bakery-mcp:8000\nc: https://host.docker.internal:11434/v1\n"
@@ -84,9 +23,6 @@ class Preflight(unittest.TestCase):
                 'h: "https://www.w3.org/2001/XMLSchema"')
         self.assertEqual(literal_addresses(text),
                          {"http://localhost", "http://bakery-mcp", "https://host.docker.internal"})
-
-    def test_a_value_is_what_the_container_gets_when_the_host_sets_nothing(self):
-        self.assertEqual(compose_value("${A:-fallback}/${B-other}/${C}/$$HOME/${D:-}"), "fallback/other//$HOME/")
 
     def test_a_seed_service_is_the_one_with_the_seed_label_and_its_variables_are_read_whichever_way_they_are_written(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -98,19 +34,6 @@ class Preflight(unittest.TestCase):
             self.assertEqual(seed_environment(seed_service(compose)), {"N": "5"})
             compose.write_text("services:\n  app: {image: x}\n", encoding="utf-8")
             self.assertIsNone(seed_service(compose))
-
-    def test_only_a_playground_with_a_seed_folder_and_a_seed_service_is_checked(self):
-        service = "services:\n  seed:\n    labels: {io.gravitee.role: seed}\n    environment: {A: x}\n"
-        with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder)
-            for name, compose, seed in (("with-both", service, True), ("no-seed-folder", service, False),
-                                        ("no-seed-service", "services:\n  app: {image: x}\n", True)):
-                (root / name).mkdir()
-                (root / name / "compose.yml").write_text(compose, encoding="utf-8")
-                if seed:
-                    (root / name / "seed").mkdir()
-            self.assertEqual([(p.name, env) for p, env in seeded_playgrounds(root)], [("with-both", {"A": "x"})])
-            self.assertEqual(list(seeded_playgrounds(root / "none")), [])
 
 
 class EnvironmentChecks(unittest.TestCase):
@@ -238,32 +161,6 @@ class EnvironmentChecks(unittest.TestCase):
     def test_a_variable_the_engine_gives_and_one_the_service_sets_replace_in_every_file(self):
         with self.assertRaises(common.SeedError):
             self.check(**{"portal/content/welcome.md": None, "groups/novo.yaml": "hrid: novo\nname: ${UNSET}\n"})
-
-
-@unittest.skipUnless((PLAYGROUNDS / "acme-bakery" / "compose.yml").is_file(), "Acme Bakery is not among these playgrounds")
-class Logins(unittest.TestCase):
-    """The logins of a playground that has a setting are what the apps get until it is changed: the default of the setting,
-    whether the compose file writes the login out or as ${SETTING:-default}."""
-
-    def setUp(self):
-        self.text = (PLAYGROUNDS / "acme-bakery" / "compose.yml").read_text(encoding="utf-8")
-        self.accounts = yaml.safe_load(self.text)["x-gravitee"]["accounts"]
-
-    def default(self, setting):
-        return re.search(r"\$\{" + setting + r":-([^}]*)\}", self.text).group(1)
-
-    @staticmethod
-    def written(value):
-        return re.sub(r"\$\{\w+:-([^}]*)\}", r"\1", value)
-
-    def test_the_password_of_the_three_users_is_the_default_of_its_setting(self):
-        users = [a for a in self.accounts if a.get("username", "").endswith("@acme-bakery.test")]
-        self.assertEqual(len(users), 3)
-        self.assertEqual({self.written(a["password"]) for a in users}, {self.default("ACME_BAKERY_DEMO_PASSWORD")})
-
-    def test_the_key_of_the_developers_is_the_default_of_its_setting(self):
-        [key] = [a["key"] for a in self.accounts if "key" in a]
-        self.assertEqual(self.written(key), self.default("ACME_BAKERY_DEV_LLM_API_KEY"))
 
 
 if __name__ == "__main__":

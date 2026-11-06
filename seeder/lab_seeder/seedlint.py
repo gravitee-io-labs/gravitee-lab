@@ -377,17 +377,6 @@ def _playgrounds(root):
             [Path(e.path) for e in entries if e.is_symlink() and os.path.isdir(e.path)])
 
 
-def seeded_playgrounds(root):
-    """(folder, environment of its seed service) of each shared playground of `root` that has a seed folder and a seed
-    service. A compose file that cannot be read stops it, as the test that asks must not miss a playground."""
-    for folder in _playgrounds(root)[0]:
-        environment, trouble = _seeded(folder)
-        if trouble:
-            raise common.SeedError(f"{trouble[0].path}: {trouble[0].message}")
-        if environment is not None:
-            yield folder, environment
-
-
 # --- The folders of seed/environments ---------------------------------------------------
 
 def _flat(error):

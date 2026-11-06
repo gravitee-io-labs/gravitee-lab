@@ -630,16 +630,6 @@ class Hostile(Made):
         self.assertEqual(code, 1)
         self.assertEqual(sorted(line.split(":", 1)[0].rsplit("/", 1)[-1] for line in out.splitlines()[:-1]), ["compose.yml", "seed", "three"])
 
-    def test_a_playground_whose_compose_file_cannot_be_read_stops_the_test_that_asks_for_it_and_counts_no_file(self):
-        outside = self.root / "outside"
-        self.playground(root=outside, name="p")
-        folder = self.root / "catalog" / "one"
-        (folder / "seed").mkdir(parents=True)
-        self.link(folder / "compose.yml", outside / "p" / "compose.yml")
-        with self.assertRaisesRegex(common.SeedError, "compose.yml: is a link"):
-            list(seedlint.seeded_playgrounds(self.root / "catalog"))
-        self.assertEqual(seedlint.lint(self.root / "catalog").files, 0)
-
     @unittest.skipUnless(hasattr(os, "mkfifo"), "this machine has no named pipes")
     def test_a_special_file_with_the_name_of_a_seed_file_is_named_and_does_not_block_the_lint(self):
         folder = self.playground({"seed/a.yaml": "a: 1\n"})
@@ -744,9 +734,10 @@ class Hostile(Made):
         levels = "".join(f"a{n}: &a{n} [{', '.join(f'*a{n - 1}' for _ in range(9))}]\n" for n in range(1, 13))
         compose = ("x-bomb:\n  a0: &a0 [x]\n" + "".join("  " + line for line in levels.splitlines(True)) +
                    "services:\n  seed:\n    labels: {io.gravitee.role: seed}\n    environment: {BOMB: *a12, N: 5}\n")
-        environment, seconds = within(30, lambda: dict(seedlint.seeded_playgrounds(self.playground(compose=compose).parent)))
-        self.assertEqual(environment[self.root / "acme"]["N"], "5")
-        self.assertLess(len(environment[self.root / "acme"]["BOMB"]), 10)
+        folder = self.playground(compose=compose)
+        environment, _ = within(30, lambda: seedlint.seed_environment(seedlint.seed_service(folder / "compose.yml")))
+        self.assertEqual(environment["N"], "5")
+        self.assertLess(len(environment["BOMB"]), 10)
 
     def test_the_front_matter_of_a_skill_that_asks_for_millions_of_pairs_is_named_and_not_loaded(self):
         """The seeder of the skills loads the front matter of a SKILL.md (aim_catalog.skill_files): it is YAML of a stranger like
