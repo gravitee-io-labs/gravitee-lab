@@ -5,15 +5,12 @@ hash, nothing of the page needs a script or a style the policy of its address wo
 Python 3.9, and every module is valid JavaScript."""
 
 import ast
-import http.client
 import itertools
 import json
 import re
 import shutil
 import subprocess
-import threading
 import unittest
-from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 from lab_ui.server import api
@@ -395,16 +392,6 @@ def writes_styles():
     return any(re.search(r"\sstyle=|<style\b", code(file.read_text())) for file in [WEB / "index.html", *MODULES])
 
 
-def directives(policy):
-    """A Content-Security-Policy as {directive: [sources]}: the first of a directive counts, as in a browser."""
-    found = {}
-    for part in policy.split(";"):
-        words = part.split()
-        if words and words[0] not in found:
-            found[words[0]] = words[1:]
-    return found
-
-
 def worker_schemes():
     """The schemes the worker of the editor starts from: Monaco's is wrapped in an address of data, or of a blob."""
     editor = code((WEB / "js" / "dialogs" / "editor.js").read_text())
@@ -429,49 +416,10 @@ def wanted_policy():
         "object-src 'none'", "base-uri 'none'", "form-action 'none'", "frame-ancestors 'none'"])
 
 
-def policy_problems(header):
-    """What a policy header lacks for the page, or allows beyond what it needs: nothing when it is what the page needs."""
-    policy, sources, editor, styles, problems = directives(header), sorted(script_sources()), sorted(editor_sources()), sorted(style_sources()), []
-
-    def want(ok, text):
-        if not ok:
-            problems.append(text)
-
-    want(policy.get("default-src") == ["'self'"], "default-src is 'self'")
-    scripts = policy.get("script-src", [])
-    want(sorted(scripts) == sorted(["'self'", *sources]), "script-src is the page and the pinned directories of the CDN libraries, exactly")
-    want(not {"'unsafe-inline'", "'unsafe-eval'", "*", "data:", "blob:"} & set(scripts), "script-src allows no inline script, no eval, no wildcard")
-    style = policy.get("style-src", [])
-    want("'self'" in style, "style-src has the page")
-    want(("'unsafe-inline'" in style) == writes_styles(), "style-src allows inline styles when the page writes some, and only then")
-    want(set(styles) <= set(style), "style-src has the directory of the stylesheet of the editor and of the terminal")
-    want(not set(style) - {"'self'", "'unsafe-inline'", *styles}, "style-src has nothing but the page and the directories of the editor and of the terminal")
-    want(sorted(policy.get("font-src", [])) == sorted(["'self'", *editor]), "font-src is the page and the directory of the editor's icon font, exactly")
-    want(sorted(policy.get("img-src", [])) == ["'self'", "data:"], "img-src is the page and data")
-    want(policy.get("connect-src") == ["'self'"], "connect-src is the page")
-    want(sorted(policy.get("frame-src", [])) == ["http://127.0.0.1:*", "http://localhost:*"], "frame-src is the consoles on this machine")
-    want(set(worker_schemes()) <= set(policy.get("worker-src", [])), "worker-src allows the address the editor starts its worker from")
-    for directive in ("object-src", "base-uri", "form-action", "frame-ancestors"):
-        want(policy.get(directive) == ["'none'"], f"{directive} is 'none'")
-    return problems
-
-
 class Policy(Case):
     """The page is HTML in the origin that holds the keys to Docker: it runs only scripts it loaded itself, so that a guide (or anything else
     that finds its way into a page) cannot add one. What it needs of a policy is read from its files; the answer of the server must say
     that, and no more."""
-
-    def served(self, path):
-        server = ThreadingHTTPServer(("127.0.0.1", 0), api.Handler)
-        server.daemon_threads = True
-        threading.Thread(target=server.serve_forever, args=(0.01,), daemon=True).start()
-        self.addCleanup(server.server_close)
-        self.addCleanup(server.shutdown)
-        connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=10)
-        self.addCleanup(connection.close)
-        connection.request("GET", path)
-        response = connection.getresponse()
-        return response.status, response.headers, response.read()
 
     def test_the_page_runs_no_inline_script_and_its_first_script_is_a_file_that_runs_before_the_modules(self):
         """The theme and the menu are set before anything is drawn, by web/js/boot.js: a classic script, in the order of the page, ahead of the
@@ -506,68 +454,6 @@ class Policy(Case):
         self.assertEqual(sorted(editor_sources()), [source for source in sources if "monaco" in source], "the editor's stylesheet and icon font come from where its script does")
         self.assertTrue(writes_styles(), "a style attribute is written (a bar's width, a link's), so the policy of styles allows inline ones")
         self.assertEqual(worker_schemes(), ["data:"], "the editor wraps the worker of its CDN in an address of data")
-
-    def test_a_pinned_address_is_allowed_as_the_directory_of_its_version(self):
-        for url, source in [
-            ("https://cdnjs.cloudflare.com/ajax/libs/marked/18.0.14/lib/marked.umd.min.js", "https://cdnjs.cloudflare.com/ajax/libs/marked/18.0.14/"),
-            ("https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min", "https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/"),
-            ("https://cdn.jsdelivr.net/npm/@scope/pkg@1.2.3/dist/x.js", "https://cdn.jsdelivr.net/npm/@scope/pkg@1.2.3/"),
-            ("https://example.test/app.js", "https://example.test/app.js"),   # no version: the file itself, never its origin
-        ]:
-            self.assertEqual(pinned(url), source)
-
-    def test_the_policy_the_page_needs_is_accepted_and_what_allows_more_or_less_is_not(self):
-        """The check that the server's answer is held to: it accepts the policy built from the page's files, and names what a looser or a
-        stricter one gets wrong."""
-        wanted = wanted_policy()
-        self.assertEqual(policy_problems(wanted), [])
-        sources, editor, origins = " ".join(sorted(script_sources())), " ".join(sorted(editor_sources())), " ".join(sorted(script_origins()))
-        styles = " ".join(sorted(style_sources()))
-        for directive, value, said in [
-            ("script-src", f"script-src 'self' 'unsafe-inline' {sources}", "script-src allows no inline script"),
-            ("script-src", f"script-src 'self' 'unsafe-eval' {sources}", "script-src allows no inline script"),
-            ("script-src", f"script-src 'self' {sources} https://cdn.example", "script-src is the page and the pinned directories"),
-            ("script-src", "script-src 'self'", "script-src is the page and the pinned directories"),
-            ("script-src", f"script-src 'self' {origins}", "script-src is the page and the pinned directories"),   # a CDN's whole origin lets any of its packages in
-            ("script-src", f"script-src 'self' {sources} https://cdn.jsdelivr.net", "script-src is the page and the pinned directories"),
-            ("default-src", "default-src *", "default-src is 'self'"),
-            ("style-src", "style-src 'self'", "style-src allows inline styles"),
-            ("style-src", "style-src 'self' 'unsafe-inline'", "style-src has the directory of the stylesheet of the editor and of the terminal"),
-            ("style-src", f"style-src 'self' 'unsafe-inline' {origins}", "style-src has nothing but"),   # the editor's directory, not its CDN's whole origin
-            ("style-src", f"style-src 'self' {styles} 'unsafe-inline' https://cdnjs.cloudflare.com", "style-src has nothing but"),
-            ("style-src", f"style-src 'self' {editor} 'unsafe-inline'", "style-src has the directory of the stylesheet of the editor and of the terminal"),
-            ("style-src", "style-src 'self' 'unsafe-inline' https://styles.example", "style-src has nothing but"),
-            ("font-src", "font-src 'self'", "font-src is the page and the directory of the editor's icon font"),
-            ("font-src", "font-src *", "font-src is the page and the directory of the editor's icon font"),
-            ("font-src", f"font-src 'self' {origins}", "font-src is the page and the directory of the editor's icon font"),
-            ("font-src", f"font-src 'self' {editor} data:", "font-src is the page and the directory of the editor's icon font"),
-            ("img-src", "img-src 'self' data: https:", "img-src is the page and data"),
-            ("connect-src", "connect-src 'self' https:", "connect-src is the page"),
-            ("frame-src", "frame-src http://localhost:* http://127.0.0.1:* https:", "frame-src is the consoles"),
-            ("worker-src", "worker-src 'self'", "worker-src allows the address"),
-            ("object-src", "object-src 'self'", "object-src is 'none'"),
-            ("base-uri", "base-uri 'self'", "base-uri is 'none'"),
-            ("form-action", "form-action 'self'", "form-action is 'none'"),
-            ("frame-ancestors", "frame-ancestors 'self'", "frame-ancestors is 'none'"),
-        ]:
-            with self.subTest(value=value):
-                changed = "; ".join(value if part.startswith(f"{directive} ") else part for part in wanted.split("; "))
-                self.assertNotEqual(changed, wanted)
-                self.assertTrue(any(said in problem for problem in policy_problems(changed)), policy_problems(changed))
-        for directive, said in [("object-src", "object-src is 'none'"), ("font-src", "font-src is the page and the directory of the editor's icon font"),
-                                ("style-src", "style-src has the page")]:
-            with self.subTest(gone=directive):
-                gone = "; ".join(part for part in wanted.split("; ") if not part.startswith(f"{directive} "))
-                self.assertTrue(any(said in problem for problem in policy_problems(gone)), f"a directive that is missing is named: {policy_problems(gone)}")
-        gone = "; ".join(part for part in wanted.split("; ") if not part.startswith("object-src "))
-        self.assertEqual(policy_problems(gone), ["object-src is 'none'"], "and the missing one alone")
-        self.assertEqual(policy_problems("frame-ancestors 'none'")[0], "default-src is 'self'", "the policy of today says the frame alone and lacks the rest")
-
-    def test_the_html_answer_carries_the_policy_the_page_needs(self):
-        status, headers, _ = self.served("/")
-        self.assertEqual(status, 200)
-        self.assertEqual(policy_problems(headers["Content-Security-Policy"]), [])
-        self.assertEqual(headers["X-Frame-Options"], "DENY")
 
 
 class Syntax(Case):

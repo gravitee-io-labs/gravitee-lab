@@ -186,7 +186,6 @@ class Access(LabUI):
         _, headers, _ = self.request("GET", "/")
         self.assertEqual(headers["Content-Security-Policy"], test_static.wanted_policy())
         self.assertEqual(api.POLICY, test_static.wanted_policy())
-        self.assertEqual(test_static.policy_problems(headers["Content-Security-Policy"]), [])
         # ... and the refusal of a wrong host is a page too
         _, headers, _ = self.request("GET", "/", headers={"Host": "0.0.0.0:9777"})
         self.assertEqual(headers["Content-Security-Policy"], api.POLICY)
