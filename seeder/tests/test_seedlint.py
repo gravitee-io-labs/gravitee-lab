@@ -35,6 +35,7 @@ import yaml
 from lab_seeder import aim_proxies, common
 from lab_seeder import seedlint
 from lab_seeder.seedlint import Problem, Report
+from lab_seeder.testkit import PLAYGROUNDS
 
 from . import chained, doubling, fanned, flowing
 
@@ -773,18 +774,8 @@ class Command(Made):
         out = run(str(self.root), "--format", "github")[1]
         self.assertTrue(out.startswith("::error file=" + seedlint.escape_property(f"{self.root}/acme/seed/a.yaml") + ",line=1,"), out[:100])
 
-    def test_json_is_a_list_of_problems_with_sorted_keys_and_nothing_else(self):
-        self.bad()
-        code, out, _ = run(str(self.root), "--format", "json")
-        self.assertEqual(code, 1)
-        found = json.loads(out)
-        self.assertEqual([sorted(p) for p in found], [["check", "line", "message", "path"]] * 2)
-        self.assertEqual(out, json.dumps(found, indent=2, sort_keys=True) + "\n")
-        self.playground(root=self.root / "good")
-        self.assertEqual(run(str(self.root / "good"), "--format", "json"), (0, "[]\n", ""))
-
     def test_a_folder_that_does_not_exist_is_nothing_to_lint(self):
-        for fmt in ("text", "github", "json"):
+        for fmt in ("text", "github"):
             with self.subTest(format=fmt):
                 code, out, err = run(str(self.root / FOLDER), "--format", fmt)
                 self.assertEqual((code, err), (0, ""))
@@ -883,14 +874,14 @@ class Command(Made):
     def test_a_playground_may_be_given_itself(self):
         folder = self.bad()
         self.assertEqual(run(str(folder))[0], 1)
-        self.assertEqual(run(str(self.playground(name="good")), "--format", "json"), (0, "[]\n", ""))
+        self.assertEqual(run(str(self.playground(name="good")))[0], 0)
 
     def test_a_path_that_is_not_a_folder_is_a_wrong_command_line(self):
         (self.root / "file").write_text("x", encoding="utf-8")
         self.assertEqual(run(str(self.root / "file")), (2, "", f"{self.root}/file is not a folder\n"))
 
     def test_a_wrong_option_is_a_wrong_command_line(self):
-        for argv in (["--format", "xml"], ["--nope"]):
+        for argv in (["--format", "xml"], ["--format", "json"], ["--nope"], []):
             with self.subTest(argv=argv), contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as stop:
                 seedlint.main(argv)
             self.assertEqual(stop.exception.code, 2)
@@ -914,10 +905,6 @@ class Command(Made):
         code, out, _ = run(str(here / "acme"), "--format", "github")
         self.assertEqual(code, 1)
         self.assertTrue(out.startswith("::error file=acme/seed/a.yaml,line=1,"), out[:80])
-
-    def test_without_a_folder_it_lints_the_sample_of_the_engine(self):
-        code, out, _ = run()
-        self.assertEqual((code, out.splitlines()[0].split(" (")[0]), (0, "All good: 58 seed files of 2 playgrounds"))
 
     def test_only_the_first_problems_are_printed_and_the_others_counted(self):
         text = "".join(f"v{n}: http://h{n}\n" for n in range(seedlint.MANY))
@@ -977,7 +964,7 @@ class Annotations(unittest.TestCase):
     def test_a_name_that_is_not_text_cannot_stop_the_command(self):
         """A name with bytes that are no UTF-8 reaches Python as lone surrogates, which stdout cannot write."""
         report = Report([Problem("variable", "seed/a\udcffb.yaml", 1, "m\ud800")], 1, 1)
-        for fmt in ("text", "github", "json"):
+        for fmt in ("text", "github"):
             with self.subTest(format=fmt), mock.patch.object(seedlint, "lint", return_value=report):
                 out = io.StringIO()
                 with tempfile.TemporaryDirectory() as folder:
@@ -1563,7 +1550,7 @@ class InTheEngine(unittest.TestCase):
         self.assertFalse(defined & {"_copied", "_merging", "merged_pairs", "parse_yaml"}, "the count and the guard are common.py's")
 
     def test_the_sample_is_read_whole(self):
-        report = seedlint.lint(seedlint.SAMPLES)
+        report = seedlint.lint(PLAYGROUNDS)
         self.assertEqual((report.problems, report.playgrounds, report.files), ([], 2, 58))
 
 

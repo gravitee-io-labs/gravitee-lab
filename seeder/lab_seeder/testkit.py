@@ -32,8 +32,6 @@ from urllib.parse import parse_qsl, urlsplit
 try:
     import requests
     from requests.structures import CaseInsensitiveDict
-
-    from . import seedlint   # reads the seed with pyyaml and the seeder's own `common`, and says so itself when they are missing
 except ImportError as e:
     raise ImportError("The seeder's tests need requests and pyyaml: pip install -r seeder/requirements.txt "
                       "(Python 3.10 or later), or run make setup") from e
@@ -49,8 +47,7 @@ SETTINGS = {"APIM_MANAGEMENT_URL": "http://apim", "APIM_USERNAME": "admin", "API
 
 # The two playgrounds the engine's tests read: invented samples (a bakery and a hostel chain), so that the engine holds no
 # content of a catalog
-SAMPLES = seedlint.SAMPLES
-PLAYGROUNDS = SAMPLES
+PLAYGROUNDS = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "samples"
 
 
 # --- The platform -----------------------------------------------------------------------

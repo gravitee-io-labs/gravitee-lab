@@ -15,7 +15,7 @@ import yaml
 from lab_seeder import common
 from lab_seeder import seedlint
 from lab_seeder.seedlint import seeded_playgrounds
-from lab_seeder.testkit import SAMPLES
+from lab_seeder.testkit import PLAYGROUNDS
 
 from . import chained, doubling
 
@@ -45,15 +45,15 @@ def readers_of_content(folder):
 class Sample(unittest.TestCase):
 
     def test_the_sample_is_two_playgrounds_that_each_have_a_seed_folder_and_a_seed_service(self):
-        found = {folder.name: environment for folder, environment in seeded_playgrounds(SAMPLES)}
+        found = {folder.name: environment for folder, environment in seeded_playgrounds(PLAYGROUNDS)}
         self.assertEqual(sorted(found), ["acme-bakery", "acme-hostels"])
         for name, environment in found.items():
             with self.subTest(playground=name):
                 self.assertTrue(environment, "its seed service sets variables")
 
     def test_the_sample_holds_playgrounds_only(self):
-        self.assertEqual(sorted(path.name for path in SAMPLES.iterdir() if path.is_dir()), ["acme-bakery", "acme-hostels"])
-        self.assertEqual([path.name for path in SAMPLES.iterdir() if not path.is_dir()], [])
+        self.assertEqual(sorted(path.name for path in PLAYGROUNDS.iterdir() if path.is_dir()), ["acme-bakery", "acme-hostels"])
+        self.assertEqual([path.name for path in PLAYGROUNDS.iterdir() if not path.is_dir()], [])
 
 
 CHECKS = "service: {labels: {io.gravitee.role: seed}, environment: {A: x}}"

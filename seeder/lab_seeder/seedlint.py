@@ -4,13 +4,12 @@ same files work against any platform), each file parses once its variables are r
 seed/environments agree with themselves, and the subscriptions of a studio (seed/aim/studios) name a plan of it that takes
 them, with an apiKey that is text.
 
-    python seedlint.py [FOLDER...] [--format text|github|json]
+    python seedlint.py FOLDER... [--format text|github]
 
 A FOLDER is a folder of playgrounds (each has a compose.yml with a seed service, and a seed/ folder) or one playground, or
 both: it is read as a playground, and so is each folder under it, so that a compose file beside the playgrounds hides none of
-them. With none, the folder is the sample of the engine. A folder that
-does not exist is nothing to lint, not an error: a catalog with add-ons and tests only has no `playgrounds/`. The exit code
-is 0 when nothing is wrong, 1 when something is, 2 when the command line is wrong. `--format github` prints one workflow
+them. A folder that does not exist is nothing to lint, not an error: a catalog with add-ons and tests only has no `playgrounds/`.
+The exit code is 0 when nothing is wrong, 1 when something is, 2 when the command line is wrong. `--format github` prints one workflow
 annotation for each problem, on the file as the diff of the repository names it, escaped as the catalog tools escape theirs
 (report.py of the Lab UI): `%`, CR and LF in the message, also `:` and `,` in a property, so that a file name cannot start a
 command of its own.
@@ -67,9 +66,6 @@ try:
 except ImportError as e:
     raise ImportError("seedlint reads the seed as the seeder does and needs its requirements: pip install -r "
                       "seeder/requirements.txt (Python 3.10 or later), or run make setup") from e
-
-# The folder of playgrounds the command lints when none is given: a frozen copy in the engine
-SAMPLES = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "samples"
 
 TEXT = (".yaml", ".yml", ".json", ".md", ".gapl", ".cedar", ".txt")   # whatever the seed may read, not only what it parses
 # An address that is not a variable would break on a platform that is not this one (a scheme is written in any case). The
@@ -987,9 +983,7 @@ def _named(path):
 
 
 def render(found, fmt="text"):
-    """The problems as text lines (path:line: message), as GitHub annotations, or as JSON, one string."""
-    if fmt == "json":
-        return json.dumps([p._asdict() for p in found], indent=2, sort_keys=True)
+    """The problems as text lines (path:line: message) or as GitHub annotations, one string."""
     if fmt == "github":
         return "\n".join(annotation(p) for p in found)
     return "\n".join(f"{_named(p.path)}{':' + str(p.line) if p.line else ''}: {_plain(p.message)}" for p in found)
@@ -1023,10 +1017,9 @@ def _shown(folder):
 
 def _parser():
     parser = argparse.ArgumentParser(prog="seedlint.py", description="Lints the seed files of playgrounds, as the seeder reads them.",
-                                     epilog="With no FOLDER: the sample of the engine. Exit code "
-                                            "0: nothing wrong, 1: problems, 2: wrong command line.")
-    parser.add_argument("folders", nargs="*", metavar="FOLDER", help="a folder of playgrounds, or one playground")
-    parser.add_argument("--format", choices=("text", "github", "json"), default="text")
+                                     epilog="Exit code 0: nothing wrong, 1: problems, 2: wrong command line.")
+    parser.add_argument("folders", nargs="+", metavar="FOLDER", help="a folder of playgrounds, or one playground")
+    parser.add_argument("--format", choices=("text", "github"), default="text")
     return parser
 
 
@@ -1034,7 +1027,7 @@ def main(argv=None, out=None):
     """The command. `out` is where it prints (sys.stdout)."""
     args = _parser().parse_intermixed_args(argv)
     out = sys.stdout if out is None else out
-    folders = [_shown(folder) for folder in args.folders] or [_shown(SAMPLES)]
+    folders = [_shown(folder) for folder in args.folders]
     for folder in folders:
         if os.path.lexists(folder) and not os.path.isdir(folder):
             print(f"{folder} is not a folder", file=sys.stderr)
@@ -1053,15 +1046,12 @@ def main(argv=None, out=None):
             lines.append(f"All good: {read}")
         else:
             lines.append(f"Nothing to lint: no playground of {folder} has a seed.")
-    if args.format == "json":
-        text = render(found, "json")
-    else:
-        shown = found[:SHOWN]
-        if args.format == "github":
-            shown = [problem._replace(path=_in_repository(problem.path)) for problem in shown]
-        text = render(shown, args.format)
-        if len(found) > len(shown):
-            lines.insert(0, f"{_n(len(found) - len(shown), 'more problem')} not shown.")
-    for line in ([text] if text else []) + ([] if args.format == "json" else lines):
+    shown = found[:SHOWN]
+    if args.format == "github":
+        shown = [problem._replace(path=_in_repository(problem.path)) for problem in shown]
+    text = render(shown, args.format)
+    if len(found) > len(shown):
+        lines.insert(0, f"{_n(len(found) - len(shown), 'more problem')} not shown.")
+    for line in ([text] if text else []) + lines:
         out.write(line.encode("utf-8", "replace").decode("utf-8") + "\n")
     return 1 if found else 0
