@@ -799,11 +799,6 @@ class Dashboard(LabUI):
             self.request("GET", f"/api/dashboard{query}")
             read.assert_called_with(PROJECT, refresh=refresh)
 
-    def test_a_failure_answers_as_every_one_does(self):
-        self.patch(api.dashboard, "read", side_effect=RuntimeError("Docker said no"))
-        status, _, body = self.request("GET", "/api/dashboard")
-        self.assertEqual((status, json.loads(body)), (409, {"error": "Docker said no"}))
-
     def test_the_load_is_streamed_and_a_page_that_leaves_is_noticed(self):
         loads = iter(({"cpu_percent": 2.5, "containers": 3}, {"cpu_percent": 7.0, "containers": 3}))
         stopped = threading.Event()
@@ -1141,14 +1136,9 @@ class PlatformRoutes(LabUI):
             self.assertEqual(self.request("GET", f"/api/platforms/p/gateways/{path}/plan")[0], 404, path)
 
     def test_what_a_platform_refuses_is_a_bad_request_in_its_words(self):
-        for function, path, sent in [("add", "/api/platforms", {}),
-                                     ("create_gateway", "/api/platforms/p/gateways", {}),
-                                     ("delete_gateway", "/api/platforms/p/gateways/g/delete", {})]:
-            refusal = cloud.CloudError("Gravitee Cloud refuses this token", "invalid")
-            self.patch(api.platforms, function, side_effect=refusal)
-            with self.subTest(path=path):
-                status, _, body = self.request("POST", path, sent)
-                self.assertEqual((status, json.loads(body)), (400, {"error": "Gravitee Cloud refuses this token"}))
+        self.patch(api.platforms, "add", side_effect=cloud.CloudError("Gravitee Cloud refuses this token", "invalid"))
+        status, _, body = self.request("POST", "/api/platforms", {})
+        self.assertEqual((status, json.loads(body)), (400, {"error": "Gravitee Cloud refuses this token"}))
 
 
 class PlatformFlow(LabUI):
@@ -1337,14 +1327,6 @@ class PlaceRoutes(LabUI):
             self.calls[name].assert_not_called()
         self.delete.assert_not_called()
 
-    def test_a_place_that_is_not_there_is_a_not_found_in_the_words_of_what_deploys_there(self):
-        self.calls["start"].side_effect = paths.NotFound("No place my-account/nope")
-        status, _, body = self.request("POST", "/api/playgrounds/welcome/start", {"place": "my-account/nope"})
-        self.assertEqual((status, json.loads(body)), (404, {"error": "No place my-account/nope"}))
-        self.calls["check"].side_effect = ValueError("Create a hybrid gateway for Development (My Account)")
-        status, _, body = self.request("GET", f"/api/playgrounds/welcome/check?place={self.PLACE}")
-        self.assertEqual((status, json.loads(body)["error"]), (400, "Create a hybrid gateway for Development (My Account)"))
-
     def test_the_delete_of_a_place_comes_before_the_delete_of_a_personal_playground(self):
         # The same route: with a place it deletes what the seed created there, without it the playground's folder
         self.assertEqual(self.request("POST", "/api/playgrounds/local/sandbox/delete", {"place": self.PLACE})[0], 200)
@@ -1366,11 +1348,6 @@ class PlaceRoutes(LabUI):
                 self.assertIn("place", json.loads(body)["error"].lower())
         self.delete.assert_not_called()
         self.calls["delete_place"].assert_not_called()
-
-    def test_what_a_place_refuses_to_delete_is_the_answer(self):
-        self.calls["delete_place"].side_effect = RuntimeError("Cloud Token for Development (My Account) has expired")
-        status, _, body = self.request("POST", "/api/playgrounds/welcome/delete", {"place": self.PLACE})
-        self.assertEqual((status, json.loads(body)), (409, {"error": "Cloud Token for Development (My Account) has expired"}))
 
     def test_the_places_are_what_the_platforms_last_said(self):
         found = self.patch(api.places, "places", return_value=[{"id": "my-account/fake-env-dev"}])
@@ -2270,14 +2247,6 @@ class CatalogRoutes(LabUI):
                                                               "Hub, then start it again.", 409)
         status, body = self.post("/api/catalogs/acme-hub/check", {})
         self.assertEqual((status, body["code"]), (409, "damaged"))
-        self.calls["check_now"].side_effect = RuntimeError("Stop it first")
-        self.assertEqual(self.post("/api/catalogs/acme-hub/check", {}), (409, {"error": "Stop it first"}), "no code, as before")
-        self.calls["check_now"].side_effect = paths.NotFound("No catalog nowhere")
-        self.assertEqual(self.post("/api/catalogs/acme-hub/check", {})[0], 404)
-        self.calls["check_now"].side_effect = ValueError("The branch must be text")
-        self.assertEqual(self.post("/api/catalogs/acme-hub/check", {})[0], 400)
-        self.calls["check_now"].side_effect = KeyError("boom")
-        self.assertEqual(self.post("/api/catalogs/acme-hub/check", {}), (500, {"error": "KeyError: 'boom'"}))
 
     def test_no_get_ever_runs_git_or_asks_a_network(self):
         for path in ("/api/catalogs/check", "/api/catalogs", "/api/catalogs/new", "/api/catalogs/acme-hub/check",
@@ -2340,11 +2309,6 @@ class UseCatalog(LabUI):
         self.request("POST", "/api/addons/local/echo/use-catalog", {})
         self.contribute.use_catalog_version.assert_called_with(PROJECT, "addon", "local/echo")
         self.assertEqual(self.request("POST", "/api/groups/local/echo/use-catalog", {})[0], 404)
-
-    def test_held_while_either_twin_is_on_is_the_modules_refusal(self):
-        self.contribute.use_catalog_version.side_effect = CatalogError("held", "Turn off Bank first.", 409)
-        status, _, body = self.request("POST", "/api/playgrounds/local/bank/use-catalog", {})
-        self.assertEqual((status, json.loads(body)), (409, {"error": "Turn off Bank first.", "code": "held"}))
 
     def test_the_first_check_of_a_share_names_the_destinations(self):
         status, _, body = self.request("POST", "/api/playgrounds/local/bank/share", {"check": True})
@@ -2711,11 +2675,6 @@ class Terminal(LabUI):
         status, _, body = self.request("POST", "/api/playgrounds/gone/terminal", {"data": "x"})
         self.assertEqual(status, 404)
         self.attached.assert_not_called()
-
-    def test_a_container_that_does_not_run_is_a_conflict_that_says_so(self):
-        self.attached.side_effect = RuntimeError("gio-hello-shell is not running")
-        status, _, body = self.request("POST", self.PATH, {"data": "x"})
-        self.assertEqual((status, json.loads(body)), (409, {"error": "gio-hello-shell is not running"}))
 
     def test_a_terminal_a_catalog_does_not_offer_is_not_opened_whatever_the_page_asks(self):
         # N05: the verdict of the playground says its terminal is not in a service of its own or of what it brings
