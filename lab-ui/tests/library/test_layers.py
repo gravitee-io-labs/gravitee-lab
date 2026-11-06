@@ -1714,16 +1714,6 @@ class Files(Case):
         self.assertEqual((self.root / paths.ON_FILE).read_text(encoding="utf-8"), "")
         self.assertEqual(layers.current(self.project)["locked"], None)
 
-    def test_prepare_makes_the_on_file_and_adds_compose_file_to_env_once(self):
-        # .env gets COMPOSE_FILE once, its values kept
-        self.write(".env", "GRAVITEE_LICENSE=x")
-        layers.prepare()
-        layers.prepare()
-        self.assertEqual((self.root / paths.ON_FILE).read_text(encoding="utf-8"), "")
-        self.assertEqual((self.root / ".env").read_text(encoding="utf-8"), "GRAVITEE_LICENSE=x\n" + layers.COMPOSE_FILE_LINES)
-        self.assertEqual(envfiles.read(".env")["COMPOSE_FILE"], "docker-compose.yml:.lab/on.yml")
-        self.assertEqual(oct((self.root / ".env").stat().st_mode & 0o777), "0o600")
-
     def test_a_fresh_clone_starts_with_nothing_on(self):
         layers.prepare()
         self.assertEqual((self.root / paths.ON_FILE).read_text(encoding="utf-8"), "")

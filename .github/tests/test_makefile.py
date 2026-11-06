@@ -103,7 +103,7 @@ class MakefileTest(unittest.TestCase):
     def clone(self):
         """What `make init` reads in a fresh clone: the template of .env, the demo certificates (already made), a
         python and an openssl that are fakes."""
-        (self.folder / ".env.example").write_text("GRAVITEE_LICENSE=\n")
+        shutil.copy(ROOT / ".env.example", self.folder)
         (self.folder / "certs" / "mtls").mkdir(parents=True)
         (self.folder / "certs" / "mtls" / "server.p12").write_text("")
         self.program("python3", "#!/bin/sh\nexit 0\n")

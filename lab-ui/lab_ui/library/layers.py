@@ -27,10 +27,6 @@ FROM = "from"
 # Said once more in .env when the first catalog is added (prepare_catalogs)
 NO_REMOTE_COMMENT = ("\n# Compose never fetches an include from a repository or a registry: nothing a catalog's files "
                      "name is read with your sign-ins\n")
-# What .env says of the files Compose reads, as .env.example has it
-COMPOSE_FILE_LINES = ("\n# The files Compose reads: the core, and what is on. "
-                      "Keep it: without it, docker compose runs the core alone\n"
-                      f"COMPOSE_FILE={paths.COMPOSE_FILE}\n")
 OFF = "the catalog's Start and Stop are off"   # what a locked on file keeps from running, as its problem says
 # What a plan says before it runs, in the order of its dialog: what starts, stops (it runs), is turned off (it is on
 # and does not run), is kept, and restarts
@@ -1371,17 +1367,11 @@ def write(playground, explicit, targets=None, names=None, blocked=None, since=No
 
 
 def prepare():
-    """What this machine needs before Compose runs: .lab/ with an empty on file when nothing is on yet, and
-    COMPOSE_FILE in .env, for a `docker compose` typed by hand to read what is on."""
+    """What this machine needs before Compose runs: .lab/ with an empty on file when nothing is on yet."""
     root = paths.ROOT
     (root / paths.LAB_DIR).mkdir(exist_ok=True)
     if not (root / paths.ON_FILE).exists():
         write(None, [])
-    env = root / paths.ENV_FILE
-    if env.is_file() and "COMPOSE_FILE" not in envfiles.read(paths.ENV_FILE):
-        text = env.read_text(encoding="utf-8")
-        paths.write_atomic(env, text + ("" if text.endswith("\n") or not text else "\n") + COMPOSE_FILE_LINES,
-                           mode=0o600)
 
 
 def prepare_catalogs():
