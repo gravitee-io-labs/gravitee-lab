@@ -1823,8 +1823,10 @@ class Verifying(Base):
         (self.base / "addons/echo/compose.yml").write_text("services: {}\n", encoding="utf-8")
         (self.base / "setups/pair.yml").unlink()
         readme = self.base / "playgrounds/shop/guide.md"
+        same = self.root / "same-bytes.md"   # a link is no file of the install, whatever it leads to
+        same.write_bytes(readme.read_bytes())
         readme.unlink()
-        readme.symlink_to(self.root)
+        readme.symlink_to(same)
         self.assertEqual(install.verify("fixture", ["addon:echo", "playground:shop", "setup:pair"]),
                          ["addons/echo/compose.yml", "playgrounds/shop/guide.md", "setups/pair.yml"])
 
