@@ -388,7 +388,7 @@ Every rule that `catalog.py check` and the stages of `catalog.py ci` can print, 
 
 ### WF06
 
-*Error.* `runs-on` is `ubuntu-24.04`, `ubuntu-24.04-arm`, or exactly `${{ matrix.runner }}` where the job's `matrix` is `fromJSON(needs.&lt;job>.outputs.matrix)` of a job of the same file, or lists only those two labels.
+*Error.* `runs-on` is `ubuntu-24.04`, `ubuntu-24.04-arm`, or exactly `${{ matrix.runner }}` where the job's `matrix` is `fromJSON(needs.&lt;job>.outputs.matrix)` of a job of the same file.
 
 - **Message**: {file}: job {job} runs on {label}. Use ubuntu-24.04 or ubuntu-24.04-arm, or a matrix that the plan job of this file makes: a self-hosted runner keeps what a pull request leaves on it.
 

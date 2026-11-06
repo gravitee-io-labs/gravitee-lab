@@ -79,8 +79,7 @@ RULES = table((code, ERROR, rule, message) for code, rule, message in (
     ("WF05", "Every job has `timeout-minutes` (a job that calls a reusable workflow is exempt)",
      "{file}: job {job} has no timeout-minutes. Add one, so that a stuck build ends."),
     ("WF06", "`runs-on` is `ubuntu-24.04`, `ubuntu-24.04-arm`, or exactly `${{ matrix.runner }}` where the job's "
-             "`matrix` is `fromJSON(needs.<job>.outputs.matrix)` of a job of the same file, or lists only those "
-             "two labels",
+             "`matrix` is `fromJSON(needs.<job>.outputs.matrix)` of a job of the same file",
      "{file}: job {job} runs on {label}. Use ubuntu-24.04 or ubuntu-24.04-arm, or a matrix that the plan job of "
      "this file makes: a self-hosted runner keeps what a pull request leaves on it."),
     ("WF07", "Every `actions/checkout` says `persist-credentials: false`",
@@ -970,29 +969,6 @@ def _label(node: _Node) -> str:
     return ""
 
 
-def _listed_runners(node: _Node) -> Optional[List[str]]:
-    """The labels a matrix lists under the key `runner`, anywhere in it; None when one is written so that it cannot be read."""
-    found, stack = [], [node]
-    while stack:
-        current = stack.pop()
-        if current.kind == "seq":
-            stack.extend(current.items)
-        elif current.kind == "map":
-            for entry in current.entries:
-                value = entry.value
-                if entry.name.lower() != "runner":
-                    stack.append(value)
-                elif value.kind == "scalar":
-                    found.append(value.text.strip())
-                elif value.kind == "flow" and value.text.startswith("["):
-                    found.extend(_unquote(item) for item in _flow_items(value.text))
-                elif value.kind == "seq" and all(item.kind == "scalar" for item in value.items):
-                    found.extend(item.text.strip() for item in value.items)
-                else:
-                    return None
-    return found
-
-
 @_rule("WF06", ("workflow",))
 def _wf06(doc):
     names = {job.name for job in doc.jobs}
@@ -1009,9 +985,6 @@ def _wf06(doc):
                 if matrix is not None:
                     plan = _PLAN.match(matrix.value.text.strip()) if matrix.value.kind == "scalar" else None
                     if plan is not None and plan.group(1) in names:
-                        continue
-                    listed = _listed_runners(matrix.value) if matrix.value.kind == "map" else None
-                    if listed and all(each in RUNNERS for each in listed):
                         continue
             yield entry.line, {"job": job.name, "label": label}
 
