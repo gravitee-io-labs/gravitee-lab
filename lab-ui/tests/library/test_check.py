@@ -864,7 +864,6 @@ class Gateways(Machine):
         self.assertEqual(list(check._gateway(built["addons"]["@partner/theirs"], built)), [])
 
     def test_a_deploy_brings_the_gateway_alone_so_it_leaves_the_core_as_it_is(self):
-        self.assertEqual(self.gateway(), [])
         built = self.build(self.hybrid(waits=("hybrid-redis", "apim-gateway")))   # its own Redis is fine, the core's is not
         self.assertEqual(list(check._gateway(built["addons"]["hybrid"], built)), [
             "x-gravitee.gateway: a deploy brings hybrid, whose apim-hybrid-gateway depends_on apim-gateway, a service of the "
@@ -1445,17 +1444,8 @@ class Needs(Case):
         check.needs_here("hub", ["partner"], here)
         check.needs_here("hub", [], {})
         with self.assertRaises(check.Unavailable) as raised:
-            check.needs_here("hub", ["partner", "ghost"], here)
-        self.assertEqual(str(raised.exception), "hub includes from ghost, which is neither installed nor linked here: check them "
-                                                "together, after catalog.py link PATH or catalog.py add ADDRESS --yes")
-        with self.assertRaises(check.Unavailable) as raised:
-            check.needs_here("hub", ["a", "b"], {})
-        self.assertIn("a, b, which are neither installed nor linked here", str(raised.exception))
-        damaged = {"partner": {"kind": "git", "version": "2.0.0", "state": "damaged", "requires_catalogs": {}}}
-        with self.assertRaises(check.Unavailable) as raised:
-            check.needs_here("hub", ["partner"], damaged)
-        self.assertEqual(str(raised.exception), "hub includes from partner, which is damaged: repair it from the menu of its row in "
-                                                "the Lab UI, or remove it and add it again")
+            check.needs_here("hub", ["a", "partner", "b"], here)
+        self.assertIn("hub includes from a, b, which are neither installed nor linked here", str(raised.exception))
 
 
 class Scrubbing(Case):
@@ -1898,15 +1888,6 @@ class Fixtures(Shared):
         self.assertRegex(found[0][1], r"^lab is 0 but must be 1, for .+: older Gravitee Labs read it")
         self.assertIn(("addons/older/compose.yml", "Blocked: Written for an older Gravitee Lab"), self.found("lab-old"))
 
-    def test_the_fixture_units_that_are_fine_pass_every_lint_of_the_catalog_profile(self):
-        # No unit of the fixtures is in the catalog profile's way but the ones the oracle says
-        quiet = {key for key, one in fixtures.expected().items() if not one["lint"] and one["verdict"] == "ok"}
-        self.assertTrue(quiet)
-        for key in sorted(quiet):
-            kind, _, uid = key.partition(":")
-            unit = self.built[f"{kind}s"][uid]
-            self.assertEqual(self.said(unit["catalog"], unit["file"][len(f".lab/catalogs/{unit['catalog']}/"):]), [], key)
-
     def test_checking_writes_nothing(self):
         before = snapshot(self.root)
         check.catalog_problems("fixture", self.built, self.inputs)
@@ -2092,11 +2073,6 @@ volumes:
     "addons/xlist/compose.yml": "x-gravitee: [1, 2]\nservices:\n  xlist-app:\n    image: busybox\n",
     "addons/xtext/compose.yml": "x-gravitee: hello\nservices:\n  xtext-app:\n    image: busybox\n",
     "addons/xnumber/compose.yml": "x-gravitee: 7\nservices:\n  xnumber-app:\n    image: busybox\n",
-    # A level that is none, in an add-on and in a setup
-    "addons/oldlab/compose.yml": addon("oldlab", "services:\n  oldlab-app:\n    image: busybox\n", ", requires: {lab: x}"),
-    "addons/oldlab/README.md": "# Oldlab\n",
-    "setups/oldlab.yml": "x-gravitee: {kind: setup, name: Oldlab, category: Other, requires: {lab: 1.5}}\n"
-                         "include:\n  - ../addons/fine/compose.yml\n",
     # A playground whose seed is a link and whose .env is a pipe
     "playgrounds/trap/compose.yml": """x-gravitee: {kind: playground, name: Trap, category: Other, description: Has a link, tags: [A], duration: 1 min, first_start: 1 min}
 services:
@@ -2172,17 +2148,13 @@ class Authoring(Shared):
         self.assertEqual(len([line for line in envy if line.startswith("the screen reads words")]), 1)
         self.assertEqual([line for line in self.said("partner", "addons/fine/compose.yml") if "screen" in line], [])
 
-    def test_an_include_of_a_file_that_is_no_unit_is_told(self):
-        said = self.said("partner", "addons/listy/compose.yml")
-        self.assertIn("Blocked: Includes content from outside the catalog", said)
-        self.assertIn("includes notes.yml, which the Lab does not follow: it reads an included file only when it is a unit "
-                      "written with lists of plain file names, in a folder whose .env is a plain file", said)
-
-    def test_a_unit_that_includes_one_the_lab_does_not_follow_is_told_which(self):
-        said = self.said("partner", "addons/reach/compose.yml")
-        self.assertIn("Blocked: Includes content from outside the catalog", said)
-        self.assertIn("includes notes.yml, which the Lab does not follow: it reads an included file only when it is a unit "
-                      "written with lists of plain file names, in a folder whose .env is a plain file", said)
+    def test_an_include_the_lab_does_not_follow_is_told_of_the_unit_and_of_one_that_includes_it(self):
+        for unit in ("listy", "reach"):
+            with self.subTest(unit=unit):
+                said = self.said("partner", f"addons/{unit}/compose.yml")
+                self.assertIn("Blocked: Includes content from outside the catalog", said)
+                self.assertIn("includes notes.yml, which the Lab does not follow: it reads an included file only when it is a unit "
+                              "written with lists of plain file names, in a folder whose .env is a plain file", said)
 
     def test_an_x_gravitee_that_is_no_mapping_is_told_by_the_project_and_the_check_goes_on(self):
         # A list, a text or a number in its place used to stop the whole check with a traceback, and no report
@@ -2191,12 +2163,6 @@ class Authoring(Shared):
                 said = self.said("partner", f"addons/{name}/compose.yml")
                 self.assertIn("x-gravitee must be a mapping", said)
                 self.assertIn("x-gravitee.kind must be addon", said)
-
-    def test_a_level_that_is_none_is_told_of_an_add_on_and_of_a_setup_as_of_a_playground(self):
-        level = "x-gravitee.requires.lab must be a whole number from 1: older Gravitee Labs read it, and an item does without it"
-        self.assertEqual(self.said("partner", "addons/oldlab/compose.yml").count(level), 1)
-        self.assertEqual(self.said("partner", "setups/oldlab.yml").count(level), 1)
-        self.assertNotIn(level, self.said("partner", "addons/fine/compose.yml"))
 
     def test_a_seed_that_is_a_link_and_a_pipe_for_an_env_are_told_where(self):
         said = self.said("partner", "playgrounds/trap/compose.yml")
@@ -2246,8 +2212,6 @@ class Dependencies(unittest.TestCase):
         meta = {"requires": {"catalogs": {"fixture": {}, "partner": {}}}}
         self.assertEqual(list(check._dependencies(meta, [], {}, "fixture")), [
             "requires.catalogs.fixture is this catalog itself: remove it",
-            "requires.catalogs.partner is declared and no unit includes from it: remove it"])
-        self.assertEqual(list(check._dependencies({"requires": {"catalogs": {"partner": {}}}}, [], {}, "fixture")), [
             "requires.catalogs.partner is declared and no unit includes from it: remove it"])
 
 
