@@ -239,6 +239,3 @@ def finish(steps: List[Step], out) -> int:
     else:
         out.write("All good\n")
     return 1 if failed else 2 if errors else 0
-
-
-__all__ = ["Step", "finish", "level", "main", "not_here", "stage_function"]

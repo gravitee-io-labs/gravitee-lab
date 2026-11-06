@@ -571,8 +571,3 @@ def main(argv, out, err, **seams) -> int:
         for label, lines in logs.items():
             extra += f"\nThe last {len(lines)} lines of the log of `{label.replace('`', '')}`:\n\n" + fence(lines)
     return conclude("smoke", problems, args, out, "make ci", skipped, title="Start what does not need the platform", extra=extra)
-
-
-__all__ = ["MESSAGES", "Outcome", "SETTLE", "Selection", "Session", "WAIT", "dependencies", "finding", "labels_of", "main", "make_state",
-           "needs_settings", "project_name", "project_session", "ps_rows", "requires_license", "runs_remote_gateway", "select", "state_folders",
-           "state_of", "up_command"]

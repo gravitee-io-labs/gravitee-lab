@@ -304,7 +304,3 @@ def unreleased_main(argv, out, err, **seams) -> int:
         write_summary("### Not released yet\n\n" + line + "\n\n" + notes_text(Release(
             "HEAD", sha, previous, None, meta.get("name", ""), "(next)", meta.get("lab", ""), new, changed, removed)))
     return 0
-
-
-__all__ = ["Release", "between", "gather", "images_text", "main", "notes_text", "plain", "read_records", "tags_before",
-           "unreleased_main", "unreleased_text", "version_of"]

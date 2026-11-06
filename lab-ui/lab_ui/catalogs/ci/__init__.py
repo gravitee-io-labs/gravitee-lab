@@ -769,11 +769,3 @@ def seconds(value: float) -> str:
 def megabytes(size: int) -> str:
     """A size in bytes as a person reads it: `41.2 MB`."""
     return f"{size / 1_000_000:.1f} MB" if size >= 100_000 else f"{size / 1000:.1f} kB"
-
-
-__all__ = ["ALL_PROFILES", "BD01_PLAIN", "DOCKER_DOWN", "FORMATS", "Help", "IMAGE_NAME", "LINE_WIDTH", "LOADER", "Loaded", "Loading",
-           "MAX_UNITS", "MESSAGES", "NOT_PINNED_YET", "NO_DOCKER", "PLATFORMS", "Parser", "Refused", "SKIPPABLE", "STAGES",
-           "SUMMARY_LIMIT", "Unavailable", "Usage", "WARNING", "blocked_reasons", "cell", "conclude", "docker_ready", "entry", "fence",
-           "gated", "gated_refusal", "hidden_units", "host_platform", "json_line", "lab_loader", "load", "main", "megabytes",
-           "parse_units", "parsed", "parser", "platform_of", "problem", "refusals", "run_docker", "run_limited", "seconds",
-           "seeder_anchor", "structure", "tail", "unit_path", "usage", "write_outputs", "write_summary"]

@@ -456,7 +456,3 @@ def gate_main(argv, out, err, **seams) -> int:
     if args.format != "json":
         out.write("The head of the pull request is the commit that was read\n" if not problems else "")
     return conclude("e2e-gate", problems, args, out, "catalog.py ci e2e-gate", title="The change is the one that was read")
-
-
-__all__ = ["MESSAGES", "Planned", "Surface", "check_inputs", "finding", "gate_main", "guarded_paths", "head_mismatch", "item_key",
-           "license_surface", "make_plan", "merge_base", "plan_main", "pull_request_number", "references_license", "split_words"]

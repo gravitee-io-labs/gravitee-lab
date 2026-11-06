@@ -372,7 +372,3 @@ def main(argv, out, err, **seams) -> int:
         out.write(f"Links: {total['addresses']} addresses in {len({link.path for link in links})} files, "
                   f"{total['broken']} that do not answer\n")
     return conclude("links", problems, args, out, "catalog.py ci links", skipped, title="The links of the guides answer")
-
-
-__all__ = ["Answer", "Fetcher", "Link", "MESSAGE", "ask_all", "broken", "clean", "findings", "is_public", "links_of", "main",
-           "markdown_links", "no_network", "reserved", "wanted"]

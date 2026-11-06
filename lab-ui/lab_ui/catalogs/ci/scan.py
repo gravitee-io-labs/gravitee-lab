@@ -329,6 +329,3 @@ def built_main(argv, out, err, **seams) -> int:
     elif args.format != "json":
         out.write("Built images: the change builds no image, so nothing is scanned\n")
     return conclude("scan-built", problems, args, out, "make ci", skipped, title="The images built have no flaw to fix")
-
-
-__all__ = ["MESSAGES", "built_main", "findings_of", "main", "scan_command", "scan_images"]

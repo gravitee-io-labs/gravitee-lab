@@ -796,8 +796,3 @@ def finish(problems: List[Problem], records: Sequence[Record], args, out, err, r
         extra = "### Published\n\n" + "\n".join(f"- `{each.name.replace('`', '')}` {each.digest} ({', '.join(each.tags)})"
                                                   for each in records) + "\n"
     return conclude("publish", problems, args, out, "make ci", title="Publish the images", extra=extra)
-
-
-__all__ = ["Image", "Info", "MESSAGES", "Record", "Ref", "affected", "carries_tool_credit", "collect", "dig", "finding", "inspect",
-           "labels_for", "main", "make_plan", "named", "newest_check", "parse_ref", "parts_of", "plan_main", "publish_command",
-           "records_text", "revision_in", "tags_for", "wait_for_check"]
