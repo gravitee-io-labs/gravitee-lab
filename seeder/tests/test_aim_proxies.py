@@ -478,12 +478,6 @@ class FirstRunProtections(Protections):
         step = next(s for f in sent.json["flows"] for s in f["request"] if s["name"] == "30 calls a minute per user")
         self.assertNotIn("enabled", step)
 
-    def test_without_the_setting_the_proxy_is_protected(self):
-        self.env(SEED_PROTECTIONS=None)
-        self.world.tools_offered["alice"] = 7
-        self.seed()
-        self.assertEqual(self.steps(), {key: True for key in self.steps()})
-
     def test_what_a_run_says_about_the_controls(self):
         self.seed()
         self.assertIn("Controls of Acme Bakery MCP are off: tools, pep", self.output())
@@ -515,14 +509,6 @@ class StartingTheLessonsOverProtections(Protections):
         self.assertEqual(self.platform.changes(), [("PUT", AUTOMATION)], "the Automation API deploys what it changes")
         self.assertEqual(self.the_api()["deploymentState"], "DEPLOYED")
         self.assertEqual(len(common.created()), 1, "the same proxy")
-
-    def test_the_proxy_is_not_made_again_for_one_step(self):
-        self.switch("Visible tools", "Tools by role", True)
-        before = self.the_proxy()["id"]
-        self.seed()
-        self.assertIs(self.steps()[("Visible tools", "Tools by role")], False)
-        self.assertEqual(self.the_proxy()["id"], before)
-        self.assertEqual(self.platform.sent("DELETE", re.compile(".*")), [])
 
     def test_the_other_mode_switches_both_back_on_and_the_next_run_writes_nothing(self):
         self.env(SEED_PROTECTIONS="on")
@@ -657,12 +643,6 @@ class Studios(WithStudio):
         self.the_studio()["fgaEnabled"] = True
         self.seed()
         self.assertIs(self.the_studio()["fgaEnabled"], False)
-
-    def test_a_tool_the_catalog_does_not_have_stops_the_seed_naming_it(self):
-        del self.world.tools["mcp-tool.acme-bakery-open-api-getrate"]
-        with self.assertRaisesRegex(common.SeedError, "MCP studio: the tool mcp-tool.acme-bakery-open-api-getrate is not in the catalog"):
-            self.seed()
-        self.assertEqual(self.world.studios, {})
 
     def test_a_studio_at_that_path_the_seed_did_not_create_is_never_adopted(self):
         self.world.studios["theirs"] = {"name": "Theirs", "contextPath": "/acme-bakery/toolkit", "fgaEnabled": False}

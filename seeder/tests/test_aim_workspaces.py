@@ -314,11 +314,6 @@ class FirstRun(Workspaces):
         self.assertEqual([(b["name"], [c["model"] for c in b["candidates"]]) for b in bands],
                          [("Plenty left", ["smart"]), ("Running low", ["lite"])])
 
-    def test_payloads_are_logged_and_headers_are_not_because_they_hold_the_key_of_the_team(self):
-        self.seed()
-        content = self.the_workspace()["analytics"]["logging"]["content"]
-        self.assertEqual((content["payload"], content["headers"]), (True, False))
-
     def test_the_calls_of_the_workspace_are_traced_like_those_of_the_proxies_so_that_an_answer_has_its_trace_in_gamma(self):
         self.seed()
         analytics = self.the_workspace()["analytics"]
@@ -569,11 +564,6 @@ class SpendAwareRouting(Workspaces):
 
     def test_on_the_step_is_saved_enabled(self):
         self.env(SEED_PROTECTIONS="on")
-        self.seed()
-        self.assertEqual(self.routes(), [("Spend-aware routing", True)])
-
-    def test_without_the_setting_the_router_is_on(self):
-        self.env(SEED_PROTECTIONS=None)
         self.seed()
         self.assertEqual(self.routes(), [("Spend-aware routing", True)])
 

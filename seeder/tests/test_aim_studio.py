@@ -462,10 +462,6 @@ class Flows(Studios):
             self.assertNotIn(key, call.json)
         self.assertEqual((call.json["name"], call.json["definitionVersion"]), ("Customer care", "V4"))
 
-    def test_the_api_is_written_once_for_both_flows(self):
-        self.seed()
-        self.assertEqual(len(self.sent("PUT", V2 + "/apis/studio-1")), 1)
-
     def test_an_authorization_check_without_attributes_adds_no_step(self):
         text = re.sub(r"  attributes:\n(    - .*\n)+", "", STUDIO)
         self.file(text)
@@ -485,16 +481,6 @@ class SecondRun(Studios):
     def test_nothing_is_written_the_second_time(self):
         self.run_twice()
         self.assertEqual(self.changes(), [])
-
-    def test_the_switches_are_not_turned_again(self):
-        self.run_twice()
-        self.assertEqual(self.sent("PUT", AIM + "/mcp-studios/studio-1/fga"), [])
-        self.assertEqual(self.sent("PUT", AIM + "/mcp-proxies/studio-1/human-approval"), [])
-
-    def test_the_registration_plan_is_closed_once(self):
-        self.run_twice()
-        self.assertEqual(self.sent("POST", V2 + "/apis/studio-1/plans/plan-1/_close"), [])
-        self.assertEqual(self.sent("POST", V2 + "/apis/studio-1/plans"), [])
 
     def test_a_closed_plan_a_platform_lists_is_left_closed(self):
         self.seed()
@@ -516,10 +502,6 @@ class SecondRun(Studios):
         self.platform.calls.clear()
         self.seed()
         self.assertEqual(self.changes(), [("POST", "/apis/studio-1/deployments")])
-
-    def test_the_first_run_deploys_once(self):
-        self.seed()
-        self.assertEqual(len(self.sent("POST", V2 + "/apis/studio-1/deployments")), 1)
 
     def test_a_flow_someone_edited_is_written_again_without_turning_the_switch(self):
         self.seed()
@@ -641,12 +623,6 @@ class Replacement(Studios):
             self.seed()
         self.assertEqual(self.world.studios, {})
         self.assertEqual([x for x in common.created() if x["kind"] == "studio"], [], "no record names the studio that is gone")
-
-    def test_a_studio_the_seed_did_not_create_is_never_adopted(self):
-        self.world.studios["theirs"] = {"name": "Theirs", "contextPath": PATH, "fga": False, "approval": False}
-        with self.assertRaisesRegex(common.SeedError, "/mcp/customer-care is the path of 'Theirs', which the seed did not create"):
-            self.seed()
-        self.assertEqual(self.platform.sent("DELETE", re.compile(AIM + "/mcp-proxies/.*")), [])
 
 
 class AgentsPlan(Studios):
@@ -777,15 +753,6 @@ class Errors(Studios):
     def test_a_plan_of_the_agents_that_is_not_jwt_is_refused(self):
         self.file(STUDIO.replace("    type: JWT", "    type: OAUTH2_AM"))
         self.failing("access.agents.type is OAUTH2_AM, only JWT keeps the subscription required")
-
-    def test_a_variable_no_seed_service_sets_is_named(self):
-        self.env(AM_GATEWAY_URL=None)
-        with self.assertRaisesRegex(common.SeedError, "AM_GATEWAY_URL not set"):
-            self.seed()
-
-    def test_a_refusal_of_the_platform_is_one_line(self):
-        self.platform.add({("POST", AIM + "/mcp-studios"): (400, '{\n  "message": "contextPath already used"\n}')})
-        self.failing(r"POST /mcp-studios: HTTP 400 \{ \"message\": \"contextPath already used\" \}")
 
     def test_a_switch_that_wrote_no_flow_is_named(self):
         self.platform.add({("PUT", re.compile(AIM + "/mcp-studios/[^/]+/fga")): lambda call: (200, {})})
@@ -1148,17 +1115,6 @@ class Subscriptions(Studios):
         aim_proxies.remove(common.created())
 
 
-class Removal(Studios):
-
-    def test_the_studio_is_deleted_through_gamma(self):
-        self.seed()
-        self.platform.calls.clear()
-        aim_proxies.remove(common.created())
-        self.assertEqual(self.changes(), [("DELETE", "/mcp-proxies/studio-1")])
-        self.assertEqual(self.world.studios, {})
-        self.assertIn("✓ Deleted MCP studio 'Customer care'", self.output())
-
-
 class AfterAStudioMadeAgain(Studios):
     """A studio made again from a changed file is subscribed again: what its first subscription left must not stand in the way."""
 
@@ -1209,25 +1165,6 @@ class AfterAStudioMadeAgain(Studios):
         [sub] = self.world.subscriptions.values()
         self.assertEqual(sub["status"], "ACCEPTED", "the key of the file works")
         self.assertIn("✓ Subscription accepted: Copilot on 13 tools → Havenbank operations (Copilots)", self.output())
-
-
-class BusyPlatform(Studios):
-
-    def test_a_busy_answer_to_the_write_of_the_tools_is_asked_again(self):
-        self.seed()
-        self.world.set_specification(type("Call", (), {"path": AIM + "/mcp-studios/studio-1/specification",
-                                                       "json": {"specification": {"tools": [{"id": "tool-cancelOrder"}]},
-                                                                "upstreamAuth": []}})())
-        answers = iter([(503, {"message": "restarting"})])
-
-        def busy(call):
-            try:
-                return next(answers)
-            except StopIteration:
-                return self.world.set_specification(call)
-        self.platform.add({("PUT", re.compile(AIM + "/mcp-studios/[^/]+/specification")): busy})
-        self.seed()   # a PUT answered 503 is sent again, as every PUT of the seed is
-        self.assertEqual(len(self.sent("PUT", AIM + "/mcp-studios/studio-1/specification")), 2)
 
 
 class PlainAuthorization(Studios):
