@@ -283,7 +283,7 @@ export const store = {
     if (kind === "group") return platform?.groups.find((g) => g.id === id);
     if (kind === "service") return store.service(id);
     // A catalog by its namespace, whose download has a progress; "content" is what the lists wait for while one is on its way
-    if (kind === "catalog") return store.state?.catalogs?.find?.((c) => c.id === id);
+    if (kind === "catalog") return store.state?.catalogs.find((c) => c.id === id);
     if (kind === "content") return store.state?.content;
     return ["addon", "setup", "playground"].includes(kind) ? store.item(kind, id) : undefined;
   },
@@ -291,9 +291,9 @@ export const store = {
   // Whether the server measures something on its way: a job runs, or what the last one started or stopped is still
   // going, its health checks running after Compose returned, or a catalog is downloading
   measuring() {
-    const { job, platform, addons = [], setups = [], playgrounds = [], catalogs } = store.state || {};
+    const { job, platform, addons = [], setups = [], playgrounds = [], catalogs = [] } = store.state || {};
     const units = platform ? [platform, ...platform.groups, ...addons, ...setups, ...playgrounds] : [];
-    return (!!job && !job.done) || [...units, ...(Array.isArray(catalogs) ? catalogs : [])].some((unit) => typeof unit.progress === "number");
+    return (!!job && !job.done) || [...units, ...catalogs].some((unit) => typeof unit.progress === "number");
   },
 
   // What each Gravitee Cloud platform's last check answered (`checks`, by platform id) and when (`at`, in milliseconds): one record for the
@@ -366,7 +366,7 @@ export const ofPlatform = (addon) => !!addon && addon.category === store.state?.
 // is never a catalog) for the bar of the Add dialog (`store.unit("catalog:check")`) and for `measuring()`, and nothing else reads it: whoever
 // lists the catalogs asks for the rows.
 const ROW_KINDS = new Set(["git", "folder", "machine", "suggested"]);
-export const catalogRows = (state = store.state) => (Array.isArray(state?.catalogs) ? state.catalogs : []).filter((row) => ROW_KINDS.has(row?.kind));
+export const catalogRows = (state = store.state) => (state?.catalogs || []).filter((row) => ROW_KINDS.has(row.kind));
 
 // --- Drafts ---------------------------------------------------------------------
 

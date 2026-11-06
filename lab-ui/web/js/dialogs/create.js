@@ -123,7 +123,7 @@ function drawPicks() {
   const group = (title, items) => (items.length
     ? `<section class="pick-group"><h3>${esc(title)}</h3>${items.map(pick).join("")}</section>` : "");
   // The categories in their declared order, then any the add-ons use beyond them
-  const nothing = !addons.length && !setups.length ? contentStatus(store.state.content ? store.state : { content: { key: "ready" } }, { kind: "addon" }) : "";
+  const nothing = !addons.length && !setups.length ? contentStatus(store.state, { kind: "addon" }) : "";
   list.innerHTML = nothing || group("Setups", setups.filter(shown)) + [...new Set([...categories, ...addons.map((a) => a.category)])]
     .map((c) => group(c, addons.filter((a) => a.category === c && shown(a)))).join("") || `<div class="empty">${emptyHtml()}</div>`;
   ready();

@@ -517,11 +517,6 @@ test("with no add-on at all the checklist says why, in the words of the lists, a
   nothing("none");
   assert.deepEqual(status()[0].querySelectorAll("[data-content-act]").map((b) => [b.dataset.contentAct, text(b)]), [["add", "Add Gravitee public"]]);
   assert.equal(status()[0].querySelector("[data-content-act]").getAttribute("type"), "button", "a button of the form that does not send it");
-  // A server that does not say: nothing exists, as it always was said
-  store.state = lab2({ addons: [], content: undefined });
-  openCreate({ kind: "setup", mode: "new" });
-  assert.equal(text(status()[0]), "No add-on yet");
-  create.close();
   // An add-on there, and a search that finds none: it is the filter that finds nothing
   open2("setup");
   inCreate("#create-search").setAttribute("value", "zzz");

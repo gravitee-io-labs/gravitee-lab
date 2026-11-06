@@ -7,7 +7,7 @@
 // also where the two actions of the content status live (Try again, Add the listed catalog), for every page that draws it: one click
 // handler, so that none of the four places has a copy of it.
 
-import { $, $$, esc, icon, setHTML, loading, api, store, router, copyButton } from "../core.js";
+import { $, $$, esc, icon, setHTML, loading, api, store, router, copyButton, catalogRows } from "../core.js";
 import { toast, tipHtml, actionButton, paintActions, progressBar, effectsDialog } from "../components/ui.js";
 import { busy } from "../activity/jobs.js";
 import { field, formDialog } from "./form.js";
@@ -274,7 +274,7 @@ const addressTerm = (host) => (host
   : "A Git address you can read, such as owner/repo or a folder on this machine. Private catalogs use the Git sign-in of this machine.");
 
 // The host that the examples of an address are written with is the first catalog's: it comes from the data, never from this page's words
-const exampleHost = () => String(((store.state?.catalogs || []).find((c) => c.kind === "git" && c.address) || {}).address ?? "").split("/")[0];
+const exampleHost = () => String((catalogRows().find((c) => c.kind === "git" && c.address) || {}).address ?? "").split("/")[0];
 
 const address = () => $("#catalog-input", dialog).value.trim();
 const whyNot = () => (!address() ? "Enter an address" : /[\s\u0000-\u001f\u007f]/.test(address()) ? "This is not an address Git can read" : "");
@@ -742,9 +742,8 @@ export function openAdd({ address: known = "", name = "", host = false } = {}) {
 const announced = new Map();
 
 store.subscribe(() => {
-  const rows = Array.isArray(store.state?.catalogs) ? store.state.catalogs : [];
   for (const [id, one] of [...announced]) {
-    const found = rows.find((c) => c.id === id && c.kind !== "suggested");
+    const found = catalogRows().find((c) => c.id === id && c.kind !== "suggested");
     if (found?.commit && typeof found.progress !== "number") {
       announced.delete(id);
       toast(one.word);
@@ -786,7 +785,7 @@ function reveal(id) {
 // Adds a catalog that is listed, with no dialog, or one that is not, through the preview: `row` is a Not added row of the page, or a catalog
 // an item needs ({id, name, url})
 export function addCatalog(row) {
-  const listed = (store.state?.catalogs || []).some((c) => c.kind === "suggested" && c.listed && c.id === row.id);
+  const listed = catalogRows().some((c) => c.kind === "suggested" && c.listed && c.id === row.id);
   if (listed) return addListed(row.id);
   return openAdd({ address: row.url || row.address || "", name: row.name || "", host: row.host_access === true });
 }

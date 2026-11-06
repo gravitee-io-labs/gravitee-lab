@@ -95,7 +95,7 @@ function lab({ away = false, core = "stopped", hotels = {}, ...more } = {}) {
     version: "1", registry: null, registry_label: null, product: null, file: "docker-compose.yml", env_file: ".env", settings: [], brings: [], recreates: [], ...NONE };
   return {
     blind: false, wait: "", docker: { error: null, warning: null }, license: null, products: [], categories: [], job: null, problems: [],
-    links: [], services: { gateway, kafka },
+    links: [], services: { gateway, kafka }, content: content("ready"),
     platform: { name: "Gravitee platform", state: group.state, progress: null, groups: [group], file: "docker-compose.yml", env_file: ".env", settings: [],
       start: { needed: true, starts: [], restarts: [], enabled: true, reason: null, dialog: null }, apply: { needed: false }, behind: [],
       restart: { needed: core === "running", enabled: true, reason: null }, update: { needed: core === "running", enabled: true, reason: null, dialog: null },

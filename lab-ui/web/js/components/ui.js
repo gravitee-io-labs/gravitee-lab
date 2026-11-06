@@ -940,7 +940,7 @@ export function paintProgress(root = document) {
 // one component of the place where the content will be: the Dashboard's card, the three lists (kind "playground", "setup", "addon"), the
 // Catalogs page (kind "catalog") and the foot of the Welcome dialog (contentLead). This is the only place that knows its words. The block
 // is the `.empty` one, a status for a screen reader; with items of this machine to show (`items`) it is one line above them (`data-line`),
-// never in their place. A server without the field draws nothing. The buttons it draws say what the page does with a click:
+// never in their place. The buttons it draws say what the page does with a click:
 // `data-content-act` ("retry": download again, "add": add the listed catalog) and the namespace it is about (`data-catalog`).
 const WAITING = "Downloading playgrounds, setups and add-ons";
 const NO_CATALOG = "No catalog added";
@@ -962,8 +962,7 @@ function offerOf(content, onPage) {
 }
 
 export function contentStatus(state, { kind = "", items = 0 } = {}) {
-  const content = state?.content, onPage = kind === "catalog";
-  if (!content) return "";
+  const { content } = state, onPage = kind === "catalog";
   const block = (key, inner) => `<div class="empty" role="status" data-content="${key}"${items > 0 ? " data-line" : ""}>${inner}</div>`;
   if (content.key === "downloading" && !onPage) {
     // Where a title says what is fetched, the block says only that it is: the address is behind its mark

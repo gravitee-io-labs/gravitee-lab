@@ -143,7 +143,7 @@ function lab({ core = "running", groups, links = LINKS, platform = {}, extra = {
   ];
   return {
     blind: false, wait: "", docker: { error: null, warning: null }, license: null, products: [], categories: ["Observability", "Mail"], job: null, problems: [],
-    links, services,
+    links, services, content: content("ready"),
     platform: { name: "Gravitee platform", state, progress: null, groups: found, containers: { running: core === "running" ? 7 : 0, total: 7 }, file: "docker-compose.yml",
       env_file: ".env", settings: [], start: { needed: core !== "running", starts: [], restarts: [], enabled: true, reason: null, dialog: null },
       apply: { needed: false, restarts: [], starts: [], dialog: null }, behind: [], restart: { needed: core === "running", enabled: true, reason: null },

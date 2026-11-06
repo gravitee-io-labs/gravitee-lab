@@ -2,7 +2,7 @@
 // Catalogs entry of the menu (paintMenuDot), run for real over a small DOM and the state the server answers (fixtures.mjs): one block
 // of the `.empty` family in each of the four keys the server gives, a status for a screen reader, with the buttons a click on which the page
 // owns; what the foot of the Welcome dialog needs to keep its slots; the names the entry of the menu takes, and the name it has while only its
-// icon shows. A server that does not say the content draws nothing.
+// icon shows.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
@@ -125,13 +125,8 @@ test("the Catalogs page leaves a download and a failure to its rows", () => {
   assert.equal(contentStatus(withContent("failed"), { kind: "catalog" }), "");
 });
 
-test("a server that does not say the content, or says a key this page does not know, draws nothing", () => {
-  assert.equal(contentStatus({}), "");
-  assert.equal(contentStatus(null), "");
-  assert.equal(contentStatus(undefined, { kind: "setup" }), "");
-  assert.equal(contentStatus(lab({ content: undefined })), "");
+test("a key this page does not know draws nothing", () => {
   assert.equal(contentStatus(withContent("somewhere else")), "");
-  assert.deepEqual(contentLead({}), { ready: true, why: "", extra: "" });
   assert.deepEqual(contentLead(withContent("somewhere else")), { ready: true, why: "", extra: "" });
 });
 
@@ -198,9 +193,6 @@ test("the entry of the menu is as the page wrote it, with its dot hidden, until 
   paintMenuDot(lab({ catalogs: [FIRST(), catalog({ attention: null })] }));
   assert.deepEqual(named(), ["Catalogs", "Where items come from", "Catalogs", true]);
   paintMenuDot(null);
-  paintMenuDot(undefined);
-  paintMenuDot({ catalogs: "not a list" });
-  paintMenuDot({});
   assert.deepEqual(named(), ["Catalogs", "Where items come from", "Catalogs", true]);
 });
 

@@ -3,7 +3,7 @@
 // the on file, its own unit's, those of the setups a playground includes and of the add-ons it brings. A file of an item of a git catalog
 // is there to be read before it runs: it opens read only, by its path in the catalog, and its settings stay the person's to change.
 
-import { $, esc, icon, setHTML, loading, loadScript, api, store, drafts, theme, copyButton } from "../core.js";
+import { $, esc, icon, setHTML, loading, loadScript, api, store, drafts, theme, copyButton, catalogRows } from "../core.js";
 import { toast, confirmDialog, actionButton, paintActions, applyBadge, setOff } from "../components/ui.js";
 import { runJob, runPlatform, busy, confirmApply, savedOnly } from "../activity/jobs.js";
 import { License } from "./license.js";
@@ -93,7 +93,7 @@ function itemOf(path) {
 
 // The catalog an item is part of, by name: its origin's, else the first catalog's, whose items have none
 const partOf = (item) => item.origin?.name
-  || (Array.isArray(store.state?.catalogs) ? store.state.catalogs.find((c) => c.listed && ["git", "folder"].includes(c.kind))?.name : "") || "its catalog";
+  || catalogRows().find((c) => c.listed && ["git", "folder"].includes(c.kind))?.name || "its catalog";
 
 // What keeps a file from being written: it is part of a catalog that is read and not edited (a git catalog's, `readonly`), and says which
 // ({reason}); null for any other file. The path shown for a file is its own except for a file of a catalog.

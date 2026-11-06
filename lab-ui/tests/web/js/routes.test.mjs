@@ -149,12 +149,6 @@ test("a catalog is a unit of the store by its namespace, and so is the content: 
   assert.equal(store.unit(null), undefined);
   // The request key of an action on a catalog is none of the units: the page tells it apart by its kind
   assert.equal(store.unit("catalog-op:acme-hub"), undefined);
-  // A state that lacks the catalogs, or has them wrong, knows no catalog and breaks nothing
-  for (const catalogs of [undefined, null, "none", 5, {}]) {
-    store.state = { ...lab(), catalogs };
-    assert.equal(store.unit("catalog:acme-hub"), undefined);
-    assert.equal(store.measuring(), false);
-  }
   store.state = null;
   assert.equal(store.unit("catalog:acme-hub"), undefined);
   assert.equal(store.measuring(), false);

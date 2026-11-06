@@ -488,9 +488,8 @@ test("the filter names as many values as its label lets it, two as it always did
 const CHECKING = { id: "check", kind: "progress", progress: 0.4 };
 
 test("the progress of the fetch of an Add rides among the catalogs and is no row: the helper that lists them leaves it out", () => {
-  const rows = [FIRST(), catalog(), PERSONAL(), { id: "gravitee", kind: "suggested", listed: true }, CHECKING, { id: "odd" }, null, { id: "x", kind: "toString" }];
+  const rows = [FIRST(), catalog(), PERSONAL(), { id: "gravitee", kind: "suggested", listed: true }, CHECKING, { id: "odd" }, { id: "x", kind: "toString" }];
   assert.deepEqual(catalogRows(lab({ catalogs: rows })).map((row) => row.kind), ["git", "git", "machine", "suggested"]);
-  assert.deepEqual(catalogRows(lab({ catalogs: "no" })), [], "a state that does not say");
   assert.deepEqual(catalogRows(null), []);
   // The bar of the Add dialog and the clock of the page do read it
   store.state = lab({ catalogs: [FIRST(), CHECKING] });

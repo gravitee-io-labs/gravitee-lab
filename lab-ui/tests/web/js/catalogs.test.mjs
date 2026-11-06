@@ -315,7 +315,7 @@ test("what a plain request is doing is said in the state meanwhile, by the word 
 });
 
 test("an entry of the list that is not a catalog is no row: the progress of the fetch of the Add dialog is carried there", () => {
-  show([FIRST(), { id: "check", kind: "progress", progress: 0.4 }, { id: "odd" }, null]);
+  show([FIRST(), { id: "check", kind: "progress", progress: 0.4 }, { id: "odd" }]);
   assert.deepEqual(items().map((li) => text(li.querySelector(".list-name"))), ["Gravitee public"]);
   // ... and the bar of the dialog reads it, by the key the dialog gives it
   openAdd();
