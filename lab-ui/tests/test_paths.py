@@ -137,6 +137,7 @@ class Serving(Case):
         self.assertEqual((self.root / paths.SERVING_FILE).read_text(), "9000\n", "nothing written over")
 
     def test_a_command_that_only_looks_is_no_lab_ui_that_serves(self):
+        self.patch(paths, "SERVING_WAIT", 60)   # it is free once the command goes: no slow timer may outlast the wait
         (self.root / paths.LAB_DIR).mkdir()
         looking = os.open(self.root / paths.SERVING_FILE, os.O_RDWR | os.O_CREAT, 0o600)
         os.write(looking, b"9000\n")   # what the last Lab UI wrote before it stopped
