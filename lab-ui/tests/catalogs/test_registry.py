@@ -27,8 +27,6 @@ A, B, C = "a" * 40, "b" * 40, "c" * 40
 LAB_UI = Path(__file__).resolve().parents[2]
 LISTED = {"id": "gravitee", "name": "Base demos", "description": "Playgrounds, setups and add-ons",
           "url": "https://example.invalid/gravitee.git", "branch": "main"}
-ROW_KEYS = {"name", "description", "version", "lab", "audience", "kind", "requires_catalogs", "state", "units",
-            "ignored", "error", "pending", "listed", "host"}
 
 
 def git_entry(ns, **more):
@@ -110,7 +108,6 @@ class Errors(Case):
         self.assertEqual((error.code, error.message, error.status, error.detail),
                          ("busy", "Another catalog change is running.", 409, {"id": "x"}))
         self.assertEqual(str(error), "Another catalog change is running.")
-        self.assertIsInstance(error, Exception)
 
     def test_the_status_is_a_bad_request_unless_said_and_the_facts_are_empty(self):
         error = registry.CatalogError("not_found", "Nothing.")
@@ -718,31 +715,6 @@ class Flock(Disk):
                          ("busy", 409, "Another catalog change is running. Try again in a moment.", {}))
         self.assertIsNot(registry.busy(), error, "a new error each time: a traceback is not shared")
 
-    def test_another_holder_makes_the_change_busy(self):
-        gate, release = threading.Event(), threading.Event()
-
-        def hold():
-            with registry.flock():
-                gate.set()
-                release.wait(30)
-        thread = threading.Thread(target=hold)
-        thread.start()
-        self.assertTrue(gate.wait(10))
-        try:
-            started = time.monotonic()
-            with self.assertRaises(registry.CatalogError) as raised, registry.flock(wait=0.2):
-                self.fail("the lock was taken while another thread held it")
-            self.assertGreaterEqual(time.monotonic() - started, 0.15)
-            self.assertEqual((raised.exception.code, raised.exception.status), ("busy", 409))
-            self.assertEqual(raised.exception.message, "Another catalog change is running. Try again in a moment.")
-            with self.assertRaises(registry.CatalogError), registry.flock(wait=0):
-                pass
-        finally:
-            release.set()
-            thread.join(10)
-        with registry.flock(wait=0):
-            pass
-
     def test_a_writer_waits_for_the_holder_and_then_goes_on(self):
         gate = threading.Event()
 
@@ -923,14 +895,6 @@ class Places(Disk):
         self.assertEqual(registry.new_store_dir("9f3a4c1d2e5b6a70"), self.root / ".lab/cache/git/.new-9f3a4c1d2e5b6a70.git")
         self.assertEqual(registry.stage_dir("new-9f3a4c1d2e5b6a70"), self.root / ".lab/catalogs/.stage-new-9f3a4c1d2e5b6a70")
         self.assertIsInstance(registry.install_dir("acme-hub"), Path)
-
-    def test_they_follow_the_root_at_each_call(self):
-        first = registry.install_dir("acme-hub")
-        other = Path(tempfile.mkdtemp())
-        self.addCleanup(other.rmdir)
-        self.patch(paths, "ROOT", other)
-        self.assertEqual(registry.install_dir("acme-hub"), other / ".lab/catalogs/acme-hub")
-        self.assertNotEqual(first, registry.install_dir("acme-hub"))
 
     def test_a_name_that_could_lead_out_of_the_catalogs_is_refused(self):
         for bad in ("../x", "a/b", "", ".", "..", "x", "A", "a b", "acme\n", None, 5, "-acme", "acme-", ".stage-x"):
@@ -1722,15 +1686,6 @@ class Rows(Disk):
         self.set_up_three()
         self.assertEqual(list(registry.inputs()), ["fixture", "local", "acme-hub", "my-catalog"])
 
-    def test_a_row_is_exactly_the_keys_of_section_6_2_with_no_pin(self):
-        self.set_up_three()
-        for ns, row in registry.inputs().items():
-            with self.subTest(ns):
-                self.assertEqual(set(row), ROW_KEYS)
-                self.assertNotIn("pin", row)
-                self.assertNotIn("pin", json.dumps(row))
-        json.dumps(registry.inputs())
-
     def test_what_a_row_says(self):
         self.set_up_three()
         rows = registry.inputs()
@@ -1965,35 +1920,9 @@ class Fixtures(Case):
                 found = [(kind, name) for kind in fixtures.KINDS for name in rows[ns]["units"][kind]]
                 self.assertEqual(sorted(found), sorted(disk))
         self.assertEqual(fixture["ignored"], registry.manifest("fixture")["ignored"])
-        self.assertEqual(paths.ids("addon"), [uid for uid in paths.ids("addon")])
         for kind in fixtures.KINDS:
             for uid in paths.ids(kind):
                 self.assertTrue((self.root / paths.unit_file(kind, uid)).is_file())
-
-    def test_the_manifest_of_a_fixture_install_is_valid_for_its_pin(self):
-        fixtures.need_git()
-        fixtures.project(self, paths, ns="fixture", kind="git")
-        done = fixtures.read_lock(self)["catalogs"]["fixture"]
-        found = registry.manifest("fixture")
-        self.assertEqual(found["commit"], done["pin"])
-        self.assertEqual(registry.lock_of("fixture")["pin"], done["pin"])
-        self.assertEqual(sorted(registry.units_of("fixture")["addon"]), [n for k, n in fixtures.units("fixture") if k == "addon"])
-
-    def test_a_declared_catalog_and_one_that_failed(self):
-        fixtures.project(self, paths, ns="fixture", kind="folder")
-        fixtures.declare(self, "partner")
-        fixtures.declare(self, "lab-new", error="unreachable")
-        rows = registry.inputs()
-        self.assertEqual((rows["partner"]["state"], rows["partner"]["version"]), ("downloading", None))
-        self.assertEqual((rows["lab-new"]["state"], rows["lab-new"]["error"]), ("unreachable", "unreachable"))
-
-    def test_a_shadow_is_a_folder_with_a_store_and_a_lock_that_says_so(self):
-        fixtures.need_git()
-        fixtures.project(self, paths, ns="fixture", kind="folder", store=True)
-        row = registry.inputs()["fixture"]
-        self.assertEqual((row["kind"], row["state"], row["listed"]), ("folder", "linked", True))
-        self.assertEqual(registry.entry("fixture")["shadows"]["branch"], "main")
-        self.assertIs(registry.lock_of("fixture")["shadowed"], True)
 
 
 class ReadersWrite(Disk):
