@@ -283,7 +283,6 @@ them one after another.
 | Credential files | `secrets/` in the folder of an item, such as a service account key | Copy `.lab/` |
 | Added plugins | `plugins/apim/`, `plugins/am/` | Copy the folders |
 | The catalogs and your own items | `.lab/catalogs/`, your own in `.lab/catalogs/local/` | Copy `.lab/` |
-| Settings of a catalog you removed and kept | `.lab/held/` | Copy `.lab/` |
 | Demo certificates | `certs/mtls/` | `make certs` makes new ones |
 | What a seed created | `.lab/catalogs/<catalog>/playgrounds/<id>/.state/created.json` | `make reset` empties it |
 

@@ -1180,7 +1180,7 @@ class Service(Tool):
                "rows": {"builds": {"local": 2, "remote": ["github.com/acme/app"]}, "ports": [8140, 8141],
                         "core": ["API Management gateway"], "reads": ["license"],
                         "uses_machine": [{"name": "Kubernetes", "what": ["runs privileged"]}],
-                        "needs": [{"name": "Partner Bank", "min": "2.0.0"}], "found": [{"name": "Ledger"}]},
+                        "needs": [{"name": "Partner Bank", "min": "2.0.0"}]},
                "blocked": [{"name": "X", "reasons": ["Mounts the Docker socket", "Runs with full privileges"]}]}
 
     def test_an_add_prints_the_preview_and_adds_only_with_yes(self):
@@ -1193,7 +1193,7 @@ class Service(Tool):
                 "Acme Hub 1.4.0 (github.com/acme/hub, private)", "  2 playgrounds, 1 add-ons",
                 "  Builds: 2 here, github.com/acme/app", "  Ports: 8140, 8141", "  Core: API Management gateway",
                 "  Reads: license", "  Uses this machine: Kubernetes (runs privileged)", "  Needs: Partner Bank 2.0.0",
-                "  Settings found: Ledger", "  Cannot run: X (Mounts the Docker socket; Runs with full privileges)",
+                "  Cannot run: X (Mounts the Docker socket; Runs with full privileges)",
                 "Run it again with --yes to add it."])
             calls.clear()
             code, out, err = self.run_tool("add", "github.com/acme/hub", "--yes")
@@ -1312,7 +1312,7 @@ class Service(Tool):
         evil = "A\x1b[2K\x1b]0;pwn\x07\rB\u009b"
         preview = {**self.PREVIEW, "address": evil, "catalog": {"id": "hub", "name": evil, "version": evil},
                    "rows": {"uses_machine": [{"name": evil, "what": [evil]}], "needs": [{"name": evil, "min": evil}],
-                            "found": [{"name": evil}], "ports": [evil]},
+                            "ports": [evil]},
                    "blocked": [{"name": evil, "reasons": [evil]}]}
         plan = {"ticket": "t", "from": evil, "to": evil, "version": evil, "rewritten": True, "updates": [{"name": evil}],
                 "breaks": [{"name": evil, "needs": evil}], "changes": [{"name": evil, "fact": evil, "value": evil}],

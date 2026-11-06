@@ -142,7 +142,6 @@ function previewRows(p, allow, all = false) {
     // The words of the surface start a sentence; the names a catalog gave to its shared settings are shown as they are
     { label: "Reads", items: list((r.reads || []).map((name) => (own(READS, name) ? capital(READS[name]) : name))) },
     { label: "Needs", items: (r.needs || []).map((n) => ({ text: n.name || n.id })), hint: "Not added" },
-    { label: "Settings found", items: list((r.found || []).map((f) => f.name || f.id)), hint: "From before the move" },
     { label: "Cannot run", tone: "danger", items: blocked.length ? [{ text: plural(blocked.length, "item", "items"), tone: "danger", mark: mark(blockedCard(blocked), "Cannot run") }] : [] },
   ];
 }

@@ -1,7 +1,6 @@
 """catalogs/renames.py: a catalog renames an item, and everyone who has it keeps everything. Where each name goes between two
 versions (a chain, a version skipped, a Go back), the settings renamed in a .env, what `follow` moves on disk for one install
-(machine files, the on file and the copy for a platform, includes, copies, stars, tested sets, held settings, what a share
-renamed), and the whole of it end to end: a scratch Lab that adds a catalog from a local git repository, turns
+(machine files, the on file and the copy for a platform, includes, copies, stars, tested sets, what a share renamed), and the whole of it end to end: a scratch Lab that adds a catalog from a local git repository, turns
 an item on, stars it, sets its settings, and updates to releases that rename it."""
 
 import json
@@ -200,44 +199,16 @@ class Following(Case):
         self.assertEqual((imports / "playgrounds/shop/compose.yml").read_text(encoding="utf-8"),
                          "include:\n  - ../../../partner/addons/ledger/compose.yml\n")
 
-    def test_its_star_its_tested_sets_what_a_share_renamed_and_its_held_settings_follow_it(self):
+    def test_its_star_its_tested_sets_and_what_a_share_renamed_follow_it(self):
         self.write(starred.FILE, json.dumps({"addon": ["@partner/books", "echo"]}))
         self.write(renames.SHARED, json.dumps({"addon:@partner/books": {"MINE_X": "PARTNER_X"}}))
-        self.write(".lab/held/addons/books/notes.txt", "kept\n")
-        self.write(".lab/held/addons/books/.env", "BOOKS_CURRENCY=CHF\n")
-        renames.follow("partner", FOUND, moved_from=["addon:ledger"])
+        renames.follow("partner", FOUND)
         self.assertEqual(starred.read()["addon"], {"@partner/ledger", "echo"})
         self.assertEqual(json.loads(self.text(renames.SHARED)), {"addon:@partner/ledger": {"MINE_X": "PARTNER_X"}})
-        self.assertEqual(self.text(".lab/held/addons/ledger/notes.txt"), "kept\n",
-                         "what waits for the item waits under its new name, for the adoption that follows")
-        self.assertEqual(self.text(".lab/held/addons/ledger/.env"), "PARTNER_LEDGER_CURRENCY=CHF\n",
-                         "the settings that wait take their new names before the item adopts them")
-        self.assertFalse((self.root / ".lab/held/addons/books").exists())
-        self.patch(registry, "units_of", lambda ns: {"addon": ["ledger"]})
-        self.assertEqual([one["unit"] for one in install.adopt("partner", ["addon:ledger"])], ["addon:ledger"],
-                         "the catalog that follows is the one that adopts")
-        self.assertEqual(self.text(f"{PARTNER}/addons/ledger/.env"), "PARTNER_LEDGER_CURRENCY=CHF\n")
-
-    def test_held_settings_whose_place_is_taken_are_kept_aside_and_nothing_stays_under_the_old_name(self):
-        self.write(".lab/held/addons/books/.env", "BOOKS_CURRENCY=CHF\n")
-        self.write(".lab/held/addons/ledger/.env", "PARTNER_LEDGER_CURRENCY=EUR\n")
-        renames.follow("partner", FOUND, moved_from=["addon:ledger"])
-        self.assertEqual(self.text(".lab/held/addons/ledger/.env"), "PARTNER_LEDGER_CURRENCY=EUR\n")
-        self.assertEqual(self.text(".lab/migration/kept/partner/held/addons/books/.env"), "BOOKS_CURRENCY=CHF\n")
-        self.assertFalse((self.root / ".lab/held/addons/books").exists())
 
     def test_the_on_file_turns_on_what_a_list_on_one_line_names(self):
         self.write(paths.ON_FILE, f"include: [{OLD_FILE}]\n")
         self.assertEqual(install.on_units("partner"), {"addon:books"})
-
-    def test_held_settings_that_cannot_be_moved_stop_the_rename_as_its_own_files_do(self):
-        self.write(".lab/held/addons/books/.env", "BOOKS_CURRENCY=CHF\n")
-        real = moves.relocate
-        self.patch(moves, "relocate", lambda src, dst, why: "copied" if why == "rename-held" else real(src, dst, why))
-        with self.assertRaises(registry.CatalogError) as raised:
-            renames.follow("partner", FOUND, moved_from=["addon:ledger"])
-        self.assertEqual((raised.exception.code, raised.exception.detail["units"]), ("rename_stuck", ["addon:ledger"]))
-        self.assertTrue((self.root / ".lab/held/addons/books/.env").is_file(), "the value is where it was")
 
     def test_the_release_before_a_rename_is_the_greatest_version_tag_that_leads_to_it(self):
         repo = self.root / PARTNER   # a working copy: its git is the history
@@ -287,14 +258,6 @@ class Following(Case):
             with self.subTest(items=items):
                 self.patch(install, "_moving", lambda *args, items=items: ({"items": items, "settings": {}}, "c" * 40))
                 self.assertEqual(install.movable("partner", "a" * 40, "b" * 40, "update")["items"], items)
-
-    def test_a_held_folder_is_left_for_a_catalog_that_does_not_adopt_the_item(self):
-        self.write(".lab/held/addons/books/notes.txt", "kept\n")
-        renames.follow("partner", FOUND)
-        renames.follow("partner", FOUND, moved_from=["addon:books"])
-        self.assertTrue((self.root / ".lab/held/addons/books/notes.txt").is_file(),
-                        "a moved_from that names only the old name adopts nothing under the new one: install.adopt agrees")
-        self.assertFalse(renames.adopts("partner", "addon:ledger", ["addon:books"]))
 
     def test_the_settings_are_renamed_in_every_item_of_the_catalog(self):
         self.write(f"{PARTNER}/addons/ledger/.env", "BOOKS_CURRENCY=USD\n")

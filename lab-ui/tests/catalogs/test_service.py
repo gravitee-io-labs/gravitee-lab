@@ -404,8 +404,8 @@ class Retrying(Served, Case):
         self.failed_once()
         seen = self.steps()
         labels = [step for step, _, _ in seen]
-        self.assertTrue({"add:pending", "add:install", "add:placed", "add:lock", "add:adopt"} <= set(labels), labels)
-        end = labels.index("add:adopt")
+        self.assertTrue({"add:pending", "add:install", "add:placed", "add:lock", "add:done"} <= set(labels), labels)
+        end = labels.index("add:done")
         self.assertEqual({(row, content) for _, row, content in seen[:end]}, {("unreachable", "failed")}, str(seen))
         self.assertEqual({(row, content) for _, row, content in seen[end:]}, {("uptodate", "ready")}, str(seen))
         row = self.row()
@@ -429,7 +429,7 @@ class Retrying(Served, Case):
         self.assertEqual(self.row()["state"]["key"], "downloading")
         seen = self.steps()
         labels = [step for step, _, _ in seen]
-        end = labels.index("add:adopt")
+        end = labels.index("add:done")
         self.assertEqual({row for _, row, _ in seen[:end]}, {"downloading"}, str(seen))
         self.assertEqual({row for _, row, _ in seen[end:]}, {"uptodate"}, str(seen))
 
@@ -1560,20 +1560,6 @@ class Adding(Seam):
         self.assertTrue((self.root / ".lab" / "catalogs" / "partner").is_symlink())
         self.assertEqual(sorted(str(path.relative_to(folder)) for path in folder.rglob("*")), before)
         self.assertEqual(registry.entry("partner")["path"], str(folder))
-
-    def test_the_items_whose_settings_were_kept_for_a_catalog_are_said_in_the_preview_and_taken_over_by_the_add(self):
-        install.remove("fixture", keep_settings=False)
-        remote = fixtures.remote(self, "fixture")
-        self.list_at("fixture", remote)
-        held = self.root / ".lab" / "held" / "addons" / "echo"
-        held.mkdir(parents=True)
-        (held / ".env").write_text("FIXTURE_ECHO_GREETING=hi\n", encoding="utf-8")
-        shown = service.check_address(remote.url)
-        self.assertEqual(shown["rows"]["found"], [{"id": "echo", "name": "Echo"}])
-        service.add(shown["ticket"])
-        self.assertEqual((self.root / ".lab" / "catalogs" / "fixture" / "addons" / "echo" / ".env").read_text(encoding="utf-8"),
-                         "FIXTURE_ECHO_GREETING=hi\n")
-
 
 class Hostile(Seam):
     """What an author wrote goes through a person's eyes and into the state the page polls: it is cleaned and cut, and a

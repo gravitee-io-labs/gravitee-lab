@@ -1104,10 +1104,10 @@ test("the ports are said as the design words them", async () => {
   assert.equal(await ports([]), undefined);
 });
 
-test("a version older than the newest, the settings found and the catalogs needed are rows of their own", async () => {
-  await previewed(BARE({ newer: true, rows: { found: [{ id: "ledger", name: "Ledger" }], needs: [{ id: "p", name: "Partner Bank" }], reads: ["gateway token", "ACME_SETTING"] } }));
+test("a version older than the newest and the catalogs needed are rows of their own", async () => {
+  await previewed(BARE({ newer: true, rows: { needs: [{ id: "p", name: "Partner Bank" }], reads: ["gateway token", "ACME_SETTING"] } }));
   assert.deepEqual(rowsOf().slice(2), [["Version", "1.4.0 Newer ones need a newer Gravitee Lab"], ["Runs", "Containers on this machine"], ["Reads", "Your Gravitee Cloud gateway token ACME_SETTING"],
-    ["Needs", "Partner Bank Not added"], ["Settings found", "Ledger From before the move"]]);
+    ["Needs", "Partner Bank Not added"]]);
   shut();
 });
 
@@ -2109,7 +2109,7 @@ test("a name, a description, an address, a reason or a subject that is markup is
   shut();
   show([NOT_ADDED()]);
   server.answers["/api/catalogs/check"] = PREVIEW({ catalog: { id: "evil", name: HOSTILE, kind: "git" }, address: HOSTILE, counts: {},
-    rows: { builds: { local: 0, remote: [HOSTILE] }, ports: [], core: [HOSTILE], reads: [HOSTILE_QUOTED], needs: [{ name: HOSTILE }], found: [{ name: HOSTILE_QUOTED }],
+    rows: { builds: { local: 0, remote: [HOSTILE] }, ports: [], core: [HOSTILE], reads: [HOSTILE_QUOTED], needs: [{ name: HOSTILE }],
       uses_machine: [{ id: "z", name: HOSTILE, what: [HOSTILE], why: HOSTILE_QUOTED }] },
     blocked: [{ id: "q", name: HOSTILE, reasons: [HOSTILE_QUOTED] }] });
   openAdd({ address: "x/y" });

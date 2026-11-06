@@ -723,7 +723,7 @@ class Provision(Served, Case):
 
     def test_a_crash_at_every_step_of_the_install_converges_to_a_whole_catalog(self):
         labels = ["stage:begin", "stage:written", "add:begin", "add:manifest", "add:store", "add:pending", "add:install",
-                  "add:placed", "add:lock", "add:adopt", "add:done"]
+                  "add:placed", "add:lock", "add:done"]
         template = self.scratch / "template.git"
         bare.fetch(gitx.parse_address(self.remote.url), None, template)
 
@@ -943,7 +943,7 @@ class Provision(Served, Case):
         self.started()
 
         def refuse(step):
-            if step == "add:adopt":
+            if step == "add:done":
                 raise OSError(13, "Permission denied")
         self.patch(install, "STEP", refuse)
         with self.assertRaises(CatalogError) as caught:
@@ -968,8 +968,8 @@ class Provision(Served, Case):
         self.patch(install, "STEP", lambda step: seen.append((step, firstrun.content({}, {})["key"])))
         firstrun.provision(self.ns)
         steps = [step for step, _ in seen]
-        self.assertTrue({"add:pending", "add:install", "add:placed", "add:lock", "add:adopt"} <= set(steps), steps)
-        end = steps.index("add:adopt")
+        self.assertTrue({"add:pending", "add:install", "add:placed", "add:lock", "add:done"} <= set(steps), steps)
+        end = steps.index("add:done")
         self.assertEqual({key for _, key in seen[:end]}, {"failed"}, f"no flicker through the commit: {seen}")
         self.assertEqual({key for _, key in seen[end:]}, {"ready"}, "and it is ready the moment the lock says so")
 
@@ -982,7 +982,7 @@ class Provision(Served, Case):
         self.patch(install, "STEP", lambda step: seen.append((step, firstrun.content({}, {})["key"])))
         firstrun.provision(self.ns)
         steps = [step for step, _ in seen]
-        end = steps.index("add:adopt")
+        end = steps.index("add:done")
         self.assertEqual({key for _, key in seen[:end]}, {"downloading"}, str(seen))
         self.assertEqual({key for _, key in seen[end:]}, {"ready"})
 

@@ -14,11 +14,10 @@ by `moves.relocate`, which never overwrites (an entry whose place is taken is ke
 one that cannot be moved whole stops the operation: `stuck`); its
 line in the on file, and the copy written for a platform it runs on; the includes of it in the items of this machine and of the
 imported playgrounds; `copy_of` in the person's copies of it; its star and its tested sets (`moves.rekey`); the settings a share
-renamed for it (`contribute.RENAMES`); the settings that wait for it in `.lab/held/`; and the copies written for a platform of
-the items of this machine that include it. The settings of `settings` are renamed in the `.env` of every item of the catalog,
-values kept, and never over a setting that is set under the new name, and so are those that wait for them in `.lab/held/`. An
-update that renames an item waits while the item has a container (`service._plan`): nothing is moved under a container, and
-none is left that the files no longer name.
+renamed for it (`contribute.RENAMES`); and the copies written for a platform of the items of this machine that include it. The
+settings of `settings` are renamed in the `.env` of every item of the catalog, values kept, and never over a setting that is
+set under the new name. An update that renames an item waits while the item has a container (`service._plan`): nothing is
+moved under a container, and none is left that the files no longer name.
 
 Idempotent and judged by the disk: a run that stopped is run again by the operation that ran it (an Update or a Go back is
 finished by `recover()`), and running it twice changes nothing more. Nothing here runs Docker or git, but for the read of a
@@ -113,15 +112,15 @@ STUCK = ("Some files of {name} could not be moved to its new folder: they belong
          "Fix: make them yours again, click Repair, then Update again.")
 
 
-def _read_at(store, commit: Optional[str]) -> dict:
-    """{renamed, moved_from} of the catalog.yml of `commit` in a store, read with Compose as an Add reads it; nothing for a file
+def declared_at(store, commit: Optional[str]) -> dict:
+    """The `renamed` block of the catalog.yml of `commit` in a store, read with Compose as an Add reads it; nothing for a file
     that does not mention `renamed` (no Compose is asked then: there is nothing to follow) or that is not there. A file that
     does mention it and does not read now (Compose busy past its time, the CLI gone) is `renames_unread`, which the operation
     that asked is refused with before it changes anything, and which `recover()` takes for a moment's trouble: it tries again
     at the next start. Never taken for a version that renames nothing: that would leave what it renamed under the old names."""
     data = bare.read(store, commit, manifest.FILE) if commit else None
     if not data or b"renamed" not in data:
-        return {"renamed": declared(None), "moved_from": []}
+        return declared(None)
     key = (manifest.read_catalog, data)
     if key not in _read:
         with tempfile.TemporaryDirectory(dir=compose.scratch()) as folder:
@@ -131,20 +130,8 @@ def _read_at(store, commit: Optional[str]) -> dict:
                 meta = manifest.read_catalog(str(file))
             except CatalogError as error:
                 raise CatalogError("renames_unread", UNREAD, 503, output=str(error)) from None
-            _read[key] = {"renamed": declared(meta), "moved_from": list(meta.get("moved_from") or ())}
+            _read[key] = declared(meta)
     return _read[key]
-
-
-def declared_at(store, commit: Optional[str]) -> dict:
-    """The `renamed` block of the catalog.yml of `commit` in a store (`_read_at`): raises `renames_unread` when it cannot be
-    read now."""
-    return _read_at(store, commit)["renamed"]
-
-
-def moved_from_at(store, commit: Optional[str]) -> list:
-    """The `moved_from` of the catalog.yml of `commit`, for a run that has no reading of it (`recover()`): [] for a file that
-    renames nothing, whose renames need none."""
-    return _read_at(store, commit)["moved_from"]
 
 
 def between(store, frm: Optional[str], to: str, back: bool = False) -> Dict[str, Dict[str, str]]:
@@ -173,22 +160,22 @@ def _content(ns) -> set:
     return files | {"/".join(path.split("/")[:end]) for path in files for end in range(1, path.count("/") + 1)}
 
 
-def _kept(ns, kind, name, rel, held=False):
-    return paths.ROOT / KEPT / ns / ("held" if held else "") / f"{kind}s" / name / rel
+def _kept(ns, kind, name, rel):
+    return paths.ROOT / KEPT / ns / f"{kind}s" / name / rel
 
 
-def _aside(ns, kind, away, top, here, there, held=False):
+def _aside(ns, kind, away, top, here, there):
     """An entry of the old folder whose place in the new one is taken: two folders are merged, what has no place is kept aside
     whole (a `.state` or a `secrets` folder is never mixed with another). Answers what is kept aside, relative to the project."""
     kept = []
     if top in moves.WHOLE or not (moves._plain(here) and moves._plain(there)):
-        target = _kept(ns, kind, away, top, held)
+        target = _kept(ns, kind, away, top)
         if moves.relocate(here, target, "rename-kept") in ("moved", "copied"):
             kept.append(os.path.relpath(target, paths.ROOT))
         return kept
-    for found in moves.merge(here, there, "rename-held" if held else "rename"):
+    for found in moves.merge(here, there, "rename"):
         if found["result"] == "conflict":
-            target = _kept(ns, kind, away, f"{top}/{found['path']}", held)
+            target = _kept(ns, kind, away, f"{top}/{found['path']}")
             if moves.relocate(os.path.join(here, found["path"]), target, "rename-kept") in ("moved", "copied"):
                 kept.append(os.path.relpath(target, paths.ROOT))
     return kept
@@ -213,39 +200,32 @@ def _emptied(folder, stop):
 
 
 def _machine(ns, kind, away, home, step) -> dict:
-    """The machine's entries of the old folder go to the new one (`_carry`), but the files the catalog still puts there."""
-    if kind == "setup":
-        return {"moved": [], "kept": []}
-    root = registry.install_dir(ns)
-    source, target = root / f"{kind}s" / away, root / f"{kind}s" / home
-    content, base = _content(ns), f"{kind}s/{away}"
-    return _carry(ns, kind, away, home, str(source), str(target), str(root), step,
-                  skip=lambda top: f"{base}/{top}" in content)
-
-
-def _carry(ns, kind, away, home, source, target, stop, step, skip=lambda top: False, held=False) -> dict:
-    """The entries of the folder `source` go to `target`, each whole and never over what is there: what has no place is kept
-    aside (`_aside`). Answers {moved, kept}: the entries moved and what was kept aside. One that cannot be moved whole (a right
-    refused, another filesystem, busy) is not counted as moved: it stops the operation (`stuck`), what was copied of it left
-    in both places, and so does one of the settings that wait in `.lab/held/` (`held`): the same fix makes both movable. The
-    folders emptied go, up to `stop`."""
+    """The machine's entries of the old folder go to the new one, but the files the catalog still puts there: each whole and
+    never over what is there, and what has no place is kept aside (`_aside`). Answers {moved, kept}: the entries moved and what
+    was kept aside. One that cannot be moved whole (a right refused, another filesystem, busy) is not counted as moved: it stops
+    the operation (`stuck`), what was copied of it left in both places. The folders emptied go, up to the install."""
     found = {"moved": [], "kept": []}
+    if kind == "setup":
+        return found
+    root = str(registry.install_dir(ns))
+    source, target = os.path.join(root, f"{kind}s", away), os.path.join(root, f"{kind}s", home)
+    content, base = _content(ns), f"{kind}s/{away}"
     if not moves._plain(source) or not moves._plain(target) and os.path.lexists(target):
         return found
     for top in sorted(os.listdir(source)):
-        if skip(top):
+        if f"{base}/{top}" in content:
             continue
         here, there = os.path.join(source, top), os.path.join(target, top)
         step("rename:entry")
-        answer = moves.relocate(here, there, "rename-held" if held else "rename")
+        answer = moves.relocate(here, there, "rename")
         if answer == "conflict":
-            found["kept"] += _aside(ns, kind, away, top, here, there, held)
+            found["kept"] += _aside(ns, kind, away, top, here, there)
             _emptied(here, source)   # what a merge moved leaves its folders behind
             answer = "moved" if not os.path.lexists(here) else "stayed"
         if answer not in ("moved", "gone"):
             raise stuck(kind, home)
         found["moved"].append(top)
-    _emptied(source, stop)
+    _emptied(source, root)
     return found
 
 
@@ -253,27 +233,6 @@ def stuck(kind, home):
     """The refusal of a rename that could not move a file to the item `home`: its Repair puts back what moved (the caller names
     the item, `units`)."""
     return CatalogError("rename_stuck", STUCK.format(name="a renamed item"), 409, units=[f"{kind}:{home}"])
-
-
-def adopts(ns, key, moved_from) -> bool:
-    """Whether catalog `ns` takes the settings that wait in `.lab/held/` for its unit `key` (kind:name): every unit of the
-    default catalog, and the units of another one that its `moved_from` names. The one test of `install.adopt` and `follow`."""
-    return ns == paths.default_ns() or key in set(moved_from or ())
-
-def _held(ns, kind, away, home, moved_from):
-    """The settings that wait in `.lab/held/` under the old name wait under the new one, for the catalog that adopts them (the
-    default one, or one whose `moved_from` names the item): `install.adopt` gives them to the item once it is there. Answers
-    what was kept aside."""
-    if kind == "setup" or not adopts(ns, f"{kind}:{home}", moved_from):
-        return []
-    try:
-        old = moves._held_chain(kind, away)
-    except moves.Refused:
-        return []
-    if old is None:
-        return []
-    return _carry(ns, kind, away, home, str(old), str(moves.held_dir(kind, home)), str(paths.ROOT / moves.HELD), _quiet,
-                  held=True)["kept"]
 
 
 def _write(path: Path, text: str):
@@ -405,42 +364,35 @@ def rename_settings(text: str, settings: Dict[str, str]) -> str:
     return text
 
 
-def _settings(ns, units, settings, moved_from, step):
-    """The settings of `settings` renamed in the .env of every add-on and playground of the catalog, and in the one that waits
-    for it in `.lab/held/`, which the catalog adopts after (`adopts`)."""
+def _settings(ns, units, settings, step):
+    """The settings of `settings` renamed in the .env of every add-on and playground of the catalog."""
     if not settings:
         return
     for kind in ("addon", "playground"):
         for name in units.get(kind, ()):
-            files = [paths.ROOT / _where(ns, kind, name) / ".env"]
+            file = paths.ROOT / _where(ns, kind, name) / ".env"
+            if file.is_symlink() or not file.is_file():
+                continue
             try:
-                held = moves._held_chain(kind, name) if adopts(ns, f"{kind}:{name}", moved_from) else None
-            except moves.Refused:
-                held = None
-            for file in files + ([held / ".env"] if held else []):
-                if file.is_symlink() or not file.is_file():
-                    continue
-                try:
-                    text = file.read_text(encoding="utf-8")
-                except (OSError, ValueError):
-                    continue
-                written = rename_settings(text, settings)
-                if written != text:
-                    step("rename:settings")
-                    _write(file, written)
-                    moves.journal("rename_settings", path=os.path.relpath(file, paths.ROOT),
-                                  names=sorted(old for old in settings if old in text))
+                text = file.read_text(encoding="utf-8")
+            except (OSError, ValueError):
+                continue
+            written = rename_settings(text, settings)
+            if written != text:
+                step("rename:settings")
+                _write(file, written)
+                moves.journal("rename_settings", path=os.path.relpath(file, paths.ROOT),
+                              names=sorted(old for old in settings if old in text))
 
 
 def _quiet(label):
     return None
 
 
-def follow(ns: str, found: Dict[str, Dict[str, str]], moved_from=(), step=_quiet) -> List[dict]:
+def follow(ns: str, found: Dict[str, Dict[str, str]], step=_quiet) -> List[dict]:
     """Follows the renames `found` (`resolve`, `between`) on disk for catalog `ns`, as its install is now: an item pair counts
-    when the new item is a unit of the install and the old one is not. `moved_from` is the catalog's, for the settings that
-    wait in `.lab/held/`; `step` the hook of the operation that runs it (`install.STEP`), called with the label of each change
-    before it is made. Answers [{kind, from, to, moved, kept}] for the items followed, in the order of their old ids; an entry
+    when the new item is a unit of the install and the old one is not. `step` is the hook of the operation that runs it
+    (`install.STEP`), called with the label of each change before it is made. Answers [{kind, from, to, moved, kept}] for the items followed, in the order of their old ids; an entry
     that cannot be moved whole raises (`stuck`)."""
     units = registry.units_of(ns)
     pairs = []
@@ -453,14 +405,13 @@ def follow(ns: str, found: Dict[str, Dict[str, str]], moved_from=(), step=_quiet
     for kind, away, home in pairs:
         old_uid, new_uid = _uid(ns, away), _uid(ns, home)
         result = _machine(ns, kind, away, home, step)
-        result["kept"] += _held(ns, kind, away, home, moved_from)
         _on_file(paths.CATALOG_FILES[kind].format(ns=ns, name=away), paths.CATALOG_FILES[kind].format(ns=ns, name=home), step)
         _retarget(_includes(_where(ns, kind, away), _where(ns, kind, home), step), step)
         _copies(old_uid, new_uid, step)
         moves.rekey({f"{kind}:{old_uid}": new_uid})
         _shared(kind, old_uid, new_uid)
         done.append({"kind": kind, "from": old_uid, "to": new_uid, **result})
-    _settings(ns, units, found.get("settings") or {}, moved_from, step)
+    _settings(ns, units, found.get("settings") or {}, step)
     return done
 
 

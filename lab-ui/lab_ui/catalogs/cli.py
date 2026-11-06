@@ -281,8 +281,6 @@ def _preview_lines(preview):
         lines.append(f"  Uses this machine: {use.get('name')} ({', '.join(use.get('what') or [])})")
     for need in rows.get("needs") or []:
         lines.append(f"  Needs: {need.get('name')} {need.get('min') or ''}".rstrip())
-    for found in rows.get("found") or []:
-        lines.append(f"  Settings found: {found.get('name')}")
     for one in preview.get("blocked") or []:
         lines.append(f"  Cannot run: {one.get('name')} ({'; '.join(one.get('reasons') or [])})")
     return lines

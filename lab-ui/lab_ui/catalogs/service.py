@@ -26,7 +26,7 @@ import time
 from pathlib import Path
 
 from ..docker import compose, jobs
-from ..library import layers, model, moves, project
+from ..library import layers, model, project
 from .. import paths
 from . import defaults, gitx, install, manifest, registry, renames, resolve, trust, understood
 from . import store as bare
@@ -691,32 +691,16 @@ def _needs_of(judged, mine, meta):
     return [found[name] for name in sorted(found)]
 
 
-def _found_of(ns, meta, judged, mine):
-    """The items whose held settings the catalog takes over: [{id, name}]. The first listed catalog
-    qualifies for any unit, another only for the units it declares in `moved_from`."""
-    default, declared = paths.default_ns(), set(meta.get("moved_from") or ())
-    found = []
-    for k, uid in mine:
-        name = uid.rsplit("/", 1)[-1]
-        if (ns == default or f"{k}:{name}" in declared) and moves.has_held(k, name):
-            found.append({"id": uid, "name": resolve.shown(judged[k][uid]["name"], NAME_CUT)})
-    return found
-
-
-def _preview_rows(ns, meta, judged, verdicts, mine, listed):
+def _preview_rows(meta, judged, verdicts, mine, listed):
     surface = _surface(judged, verdicts, mine)
     builds = surface["builds"]
-    rows = {"builds": {"local": sum(1 for one in builds if one["source"] == "local"),
+    return {"builds": {"local": sum(1 for one in builds if one["source"] == "local"),
                        "remote": sorted({one["source"] for one in builds if one["source"] != "local"})},
             "ports": list(surface["ports"]), "core": sorted({one["label"] for one in surface["core"]}),
             "reads": list(surface["reads"]),
             "uses_machine": [] if listed else _uses_of(judged, verdicts, mine),
             "needs": _with_access(_needs_of(judged, mine, meta),
                                   {registry.display_address(one["url"]) for one in registry.suggestions() if one.get("host_access")})}
-    found = _found_of(ns, meta, judged, mine)
-    if found:
-        rows["found"] = found
-    return rows
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -952,7 +936,7 @@ def _preview(ticket, meta, kind, address, audience, listed, ignored, judged, ver
              "catalog": {"id": meta["id"], "name": meta["name"], "description": meta.get("description") or "",
                          "version": meta["version"], "lab": meta["lab"], "kind": kind},
              "address": address.display, "url": address.url if kind == "git" else address.display, "audience": audience,
-             "counts": counts, "rows": _preview_rows(meta["id"], meta, judged, verdicts, mine, listed),
+             "counts": counts, "rows": _preview_rows(meta, judged, verdicts, mine, listed),
              "blocked": _blocked_of(judged, mine), "ignored": ignored}
     if newer:
         shown["newer"] = True

@@ -130,7 +130,7 @@ a catalog reports it, and a published catalog that has one needs a newer Gravite
 | `x-gravitee-catalog.images` | The registry prefix of the images it publishes |
 | `x-gravitee-catalog.contribute` | `pull-request` or `none` |
 | `x-gravitee-catalog.shared_settings` | The settings its items share |
-| `x-gravitee-catalog.moved_from` | The items it received from the Lab repository |
+| `x-gravitee-catalog.moved_from` | The items it received from the Lab repository: read, and changes nothing |
 | `x-gravitee-catalog.canary` | The items the end-to-end test always tries |
 | `x-gravitee-catalog.requires` | What it needs |
 | `x-gravitee-catalog.requires.catalogs` | The catalogs it includes from, with their address and minimum version |

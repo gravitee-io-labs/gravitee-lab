@@ -1,6 +1,5 @@
 """moves: a file or a folder moved without overwriting and written to a journal first, the paths of a compose file
-written again, the stars and tested sets that follow an item, the settings held for an item given to the catalog that
-has it. Nothing here runs Docker, git or the network: a crash is injected
+written again, the stars and tested sets that follow an item, folders merged. Nothing here runs Docker, git or the network: a crash is injected
 between any two steps with `moves.STEP`, and every run is repeated until it converges."""
 
 import errno
@@ -227,18 +226,18 @@ class Relocate(Moves):
         self.assertEqual(self.journal("move")[0]["src"], f"{other}/copy/.env")
         self.assertEqual(self.journal("move")[0]["dst"], ".lab/catalogs/fixture/addons/echo/.env")
 
-    def test_what_is_made_in_the_private_folders_is_0700(self):
+    def test_what_is_made_in_the_private_folder_is_0700(self):
         self.put("addons/moved/.env", "TOKEN=1\n", 0o600)
         self.put("addons/moved/secrets/token", "t\n")
-        os.makedirs(self.root / ".lab/held", mode=0o755)
-        os.chmod(self.root / ".lab/held", 0o755)   # a folder that exists with a wider mode is closed
-        moves.relocate("addons/moved/.env", ".lab/held/addons/moved/.env", "held")
-        moves.relocate("addons/moved/secrets", ".lab/held/addons/moved/secrets", "held")
-        for folder in (".lab/held", ".lab/held/addons", ".lab/held/addons/moved", ".lab/migration"):
+        os.makedirs(self.root / ".lab/migration", mode=0o755)
+        os.chmod(self.root / ".lab/migration", 0o755)   # a folder that exists with a wider mode is closed
+        moves.relocate("addons/moved/.env", ".lab/migration/kept/moved/.env", "kept")
+        moves.relocate("addons/moved/secrets", ".lab/migration/kept/moved/secrets", "kept")
+        for folder in (".lab/migration", ".lab/migration/kept", ".lab/migration/kept/moved"):
             with self.subTest(folder=folder):
                 self.assertEqual(self.mode(folder), 0o700)
         self.assertEqual(self.mode(".lab/migration/journal.jsonl"), 0o600)
-        self.assertEqual(self.mode(".lab/held/addons/moved/.env"), 0o600)
+        self.assertEqual(self.mode(".lab/migration/kept/moved/.env"), 0o600)
 
     def nested(self):
         """The project one folder down in the test's folder, so that what is above it is the test's own and a move that
@@ -1267,273 +1266,6 @@ class Rekey(Moves):
         self.assertEqual(line["ids"], {"addon:echo": "local/echo", "playground:mine": "local/mine"})
 
 
-# ---------------------------------------------------------------------------------------------------------------------
-# The settings held for an item
-# ---------------------------------------------------------------------------------------------------------------------
-
-HOLDER = "include:\n  - ../../../fixture/addons/moved-echo/compose.yml\n  - ../../../fixture/addons/echo/compose.yml\n"
-
-
-class Held(Moves):
-    """An item that left the repository for a catalog that is not installed: its machine files wait in the held area,
-    with a star on its bare id. The catalog `acme-hub` has it now."""
-
-    def setUp(self):
-        super().setUp()
-        self.patch(paths, "default_ns", lambda: DEFAULT_NS, create=True)
-        self.populate()
-
-    def populate(self):
-        self.units()
-        self.put(".lab/held/addons/moved-echo/.env", "MOVED_TOKEN=held-secret\n", 0o600)
-        self.put(".lab/held/addons/moved-echo/secrets/token", "held-token\n", 0o600)
-        self.put(".lab/held/addons/moved-echo/certs/server.crt", "held-crt\n")
-        self.put(".lab/held/addons/moved-echo/certs/server.key", "held-key\n", 0o600)
-        self.put(".lab/catalogs/acme-hub/addons/moved-echo/certs/README.md", "Put the certificates here\n")
-        self.put(".lab/catalogs/local/playgrounds/mine/compose.yml", HOLDER)
-        self.put(".lab/catalogs/local/setups/duo.yml", HOLDER.replace("../../../fixture", "../../fixture"))
-        self.put(".lab/on.yml", "include:\n  - .lab/catalogs/fixture/addons/echo/compose.yml\n")
-        self.put(".lab/starred.json", json.dumps({"addon": ["echo", "moved-echo"]}, indent=2) + "\n")
-        os.chmod(self.root / ".lab/held", 0o700)
-
-    def units(self):
-        for ns, kind, name in (("acme-hub", "addon", "moved-echo"), ("fixture", "addon", "echo"),
-                               ("acme-hub", "playground", "moved-shop"), ("acme-hub", "setup", "moved-pair")):
-            file = paths.CATALOG_FILES[kind].format(ns=ns, name=name)
-            self.put(file, "services: {}\n")
-
-    def held(self):
-        return sorted(str(path.relative_to(self.root / ".lab/held")) for path in (self.root / ".lab/held").rglob("*")
-                      if path.is_file())
-
-    def test_the_settings_move_into_the_catalog_and_the_item_follows(self):
-        result = moves.adopt_held("acme-hub", "addon", "moved-echo")
-        base = ".lab/catalogs/acme-hub/addons/moved-echo"
-        self.assertEqual(result, [{"path": ".env", "result": "moved"}, {"path": "certs/server.crt", "result": "moved"},
-                                  {"path": "certs/server.key", "result": "moved"},
-                                  {"path": "secrets", "result": "moved"}])
-        self.assertEqual((self.text(f"{base}/.env"), self.text(f"{base}/secrets/token"),
-                          self.text(f"{base}/certs/server.crt"),
-                          self.text(f"{base}/certs/README.md")),
-                         ("MOVED_TOKEN=held-secret\n", "held-token\n", "held-crt\n", "Put the certificates here\n"))
-        self.assertEqual([self.mode(f"{base}/{name}") for name in (".env", "secrets/token", "certs/server.key")],
-                         [0o600] * 3)
-        self.assertEqual(self.held(), [])
-        self.assertEqual((self.exists(".lab/held/addons"), self.exists(".lab/held")), (False, True))   # only its own
-        self.assertEqual(json.loads(self.text(".lab/starred.json")), {"addon": ["@acme-hub/moved-echo", "echo"]})
-
-    def test_the_includes_of_the_items_of_this_machine_follow_it_too(self):
-        moves.adopt_held("acme-hub", "addon", "moved-echo")
-        for file, folders in (("playgrounds/mine/compose.yml", "../../../"), ("setups/duo.yml", "../../")):
-            with self.subTest(file=file):
-                text = self.text(f".lab/catalogs/local/{file}")
-                self.assertIn(f"{folders}acme-hub/addons/moved-echo/compose.yml", text)
-                self.assertIn(f"{folders}fixture/addons/echo/compose.yml", text)   # the other include is not touched
-        (first, second) = self.journal("repoint")
-        self.assertEqual((first["old"], first["new"]), (".lab/catalogs/fixture/addons/moved-echo",
-                                                        ".lab/catalogs/acme-hub/addons/moved-echo"))
-
-    def test_the_catalog_the_includes_are_written_again_from_can_be_named(self):
-        self.put(".lab/catalogs/local/addons/other/compose.yml",
-                 "include:\n  - ../../../provisional/addons/moved-echo/compose.yml\n")
-        moves.adopt_held("acme-hub", "addon", "moved-echo", repoint_from="provisional")
-        self.assertEqual(self.text(".lab/catalogs/local/addons/other/compose.yml"),
-                         "include:\n  - ../../../acme-hub/addons/moved-echo/compose.yml\n")
-        # not from there
-        self.assertIn("fixture/addons/moved-echo", self.text(".lab/catalogs/local/playgrounds/mine/compose.yml"))
-
-    def test_includes_are_not_written_again_from_the_catalog_that_adopts(self):
-        before = self.text(".lab/catalogs/local/playgrounds/mine/compose.yml")
-        moves.adopt_held("acme-hub", "addon", "moved-echo", repoint_from="acme-hub")
-        self.assertEqual(self.text(".lab/catalogs/local/playgrounds/mine/compose.yml"), before)
-        self.assertEqual(self.journal("repoint"), [])
-
-    def test_a_machine_with_no_item_of_its_own_adopts_all_the_same(self):
-        shutil.rmtree(self.root / ".lab/catalogs/local")
-        self.assertEqual(len(moves.adopt_held("acme-hub", "addon", "moved-echo")), 4)
-        self.assertEqual(json.loads(self.text(".lab/starred.json")), {"addon": ["@acme-hub/moved-echo", "echo"]})
-
-    def test_the_moves_say_why(self):
-        moves.adopt_held("acme-hub", "addon", "moved-echo")
-        self.assertEqual({line["why"] for line in self.journal("move")}, {"adopt"})
-
-    def test_a_second_run_changes_nothing(self):
-        moves.adopt_held("acme-hub", "addon", "moved-echo")
-        after = digest(self.root, skip=(moves.JOURNAL,))
-        self.assertEqual(moves.adopt_held("acme-hub", "addon", "moved-echo"), [])
-        self.assertEqual(digest(self.root, skip=(moves.JOURNAL,)), after)
-
-    def test_the_on_file_is_never_touched(self):
-        before = self.text(".lab/on.yml")
-        moves.adopt_held("acme-hub", "addon", "moved-echo")
-        self.assertEqual(self.text(".lab/on.yml"), before)
-
-    def test_a_file_that_is_there_is_never_overwritten_and_stays_held(self):
-        self.put(".lab/catalogs/acme-hub/addons/moved-echo/.env", "THEIRS=1\n")
-        self.put(".lab/catalogs/acme-hub/addons/moved-echo/certs/server.crt", "theirs-crt\n")
-        result = moves.adopt_held("acme-hub", "addon", "moved-echo")
-        self.assertEqual({one["path"]: one["result"] for one in result},
-                         {".env": "conflict", "certs/server.crt": "conflict", "certs/server.key": "moved",
-                          "secrets": "moved"})
-        base = ".lab/catalogs/acme-hub/addons/moved-echo"
-        self.assertEqual((self.text(f"{base}/.env"), self.text(f"{base}/certs/server.crt")),
-                         ("THEIRS=1\n", "theirs-crt\n"))
-        self.assertEqual(self.held(), ["addons/moved-echo/.env", "addons/moved-echo/certs/server.crt"])
-        self.assertEqual(self.text(".lab/held/addons/moved-echo/.env"), "MOVED_TOKEN=held-secret\n")
-        # The same again: the conflict is still there and is said again, and nothing else changes
-        again = moves.adopt_held("acme-hub", "addon", "moved-echo")
-        self.assertEqual({one["path"]: one["result"] for one in again},
-                         {".env": "conflict", "certs/server.crt": "conflict"})
-
-    def test_a_folder_of_records_is_never_merged_into_another(self):
-        self.put(".lab/held/addons/moved-echo/.state/created.json", "held\n")
-        self.put(".lab/catalogs/acme-hub/addons/moved-echo/.state/other.json", "theirs\n")
-        result = moves.adopt_held("acme-hub", "addon", "moved-echo")
-        self.assertEqual([one["result"] for one in result if one["path"] == ".state"], ["conflict"])
-        self.assertEqual(self.held(), ["addons/moved-echo/.state/created.json"])
-        self.assertFalse(self.exists(".lab/catalogs/acme-hub/addons/moved-echo/.state/created.json"))
-
-    def test_a_playground_has_its_tested_sets_follow_it(self):
-        self.put(".lab/held/playgrounds/moved-shop/.state/created.json", "{}\n")
-        self.put(".lab/tested.json", json.dumps({"moved-shop": sets("1"), "shop": sets("2")}, indent=2, sort_keys=True))
-        self.put(".lab/starred.json", json.dumps({"playground": ["moved-shop"]}, indent=2) + "\n")
-        moves.adopt_held("acme-hub", "playground", "moved-shop")
-        self.assertEqual(json.loads(self.text(".lab/tested.json")),
-                         {"@acme-hub/moved-shop": sets("1"), "shop": sets("2")})
-        self.assertEqual(json.loads(self.text(".lab/starred.json")), {"playground": ["@acme-hub/moved-shop"]})
-        self.assertEqual(self.text(".lab/catalogs/acme-hub/playgrounds/moved-shop/.state/created.json"), "{}\n")
-
-    def test_a_setup_has_no_folder_so_only_its_star_moves(self):
-        self.put(".lab/held/setups/moved-pair/.env", "x\n")   # not something the Lab makes: it stays
-        self.put(".lab/starred.json", json.dumps({"setup": ["moved-pair"]}, indent=2) + "\n")
-        self.assertEqual(moves.adopt_held("acme-hub", "setup", "moved-pair"), [])
-        self.assertEqual(json.loads(self.text(".lab/starred.json")), {"setup": ["@acme-hub/moved-pair"]})
-        self.assertTrue(self.exists(".lab/held/setups/moved-pair/.env"))
-
-    def test_the_default_catalog_gets_an_item_back_with_its_bare_id(self):
-        self.put(".lab/held/addons/echo/.env", "ECHO=held\n", 0o600)
-        self.put(".lab/catalogs/local/addons/other/compose.yml",
-                 "include:\n  - ../../../fixture/addons/echo/compose.yml\n")
-        result = moves.adopt_held(DEFAULT_NS, "addon", "echo")
-        self.assertEqual(result, [{"path": ".env", "result": "moved"}])
-        self.assertEqual((self.text(".lab/catalogs/fixture/addons/echo/.env"),
-                          self.mode(".lab/catalogs/fixture/addons/echo/.env")),
-                         ("ECHO=held\n", 0o600))
-        self.assertEqual(json.loads(self.text(".lab/starred.json")), {"addon": ["echo", "moved-echo"]})   # still bare
-        self.assertEqual(self.text(".lab/catalogs/local/addons/other/compose.yml"),
-                         "include:\n  - ../../../fixture/addons/echo/compose.yml\n")
-
-    def test_a_catalog_cannot_claim_a_name_the_default_catalog_has(self):
-        self.put(".lab/held/addons/echo/.env", "ECHO=held\n")
-        self.put(".lab/catalogs/acme-hub/addons/echo/compose.yml", "services: {}\n")
-        before = digest(self.root)
-        self.assertEqual(moves.adopt_held("acme-hub", "addon", "echo"), [])
-        self.assertEqual(digest(self.root), before)   # the star on echo is the default catalog's
-
-    def test_a_catalog_that_does_not_have_the_item_adopts_nothing(self):
-        before = digest(self.root)
-        for ns in ("other-hub", "fixture"):
-            with self.subTest(ns=ns):
-                self.assertEqual(moves.adopt_held(ns, "addon", "moved-echo"), [])
-        self.assertEqual(digest(self.root), before)
-
-    def test_what_is_not_an_id_is_refused_before_a_path_is_made(self):
-        before = digest(self.root)
-        for ns, kind, name in (("../acme-hub", "addon", "moved-echo"), ("acme-hub", "addon", "../moved-echo"),
-                               ("acme-hub", "addon", "Moved"), ("acme-hub", "addon", ""),
-                               ("acme-hub", "bogus", "moved-echo"),
-                               ("local", "addon", "moved-echo"), ("a", "addon", "moved-echo"), ("ACME", "addon", "x"),
-                               ("acme-hub", "addon", "moved-echo\n"), ("acme-hub", "addon", "a/b"),
-                               ("acme-hub/x", "addon", "x"),
-                               ("acme-hub", "addon", None), (None, "addon", "x")):
-            with self.subTest(ns=ns, kind=kind, name=name), self.assertRaises(moves.Refused):
-                moves.adopt_held(ns, kind, name)
-        with self.assertRaises(moves.Refused):
-            moves.adopt_held("acme-hub", "addon", "moved-echo", repoint_from="../x")
-        self.assertEqual(digest(self.root), before)
-
-    def test_a_held_folder_that_is_a_link_is_refused_and_what_it_points_to_is_left(self):
-        shutil.move(str(self.root / ".lab/held/addons/moved-echo"), str(self.root / "elsewhere"))
-        os.symlink(self.root / "elsewhere", self.root / ".lab/held/addons/moved-echo")
-        before = digest(self.root / "elsewhere")
-        with self.assertRaisesRegex(moves.Refused, "plain folder"):
-            moves.adopt_held("acme-hub", "addon", "moved-echo")
-        self.assertEqual(digest(self.root / "elsewhere"), before)
-        self.assertFalse(self.exists(".lab/catalogs/acme-hub/addons/moved-echo/.env"))
-
-    def test_a_link_in_the_held_folder_moves_as_a_link(self):
-        os.symlink("/etc/hosts", self.root / ".lab/held/addons/moved-echo/hosts")
-        moves.adopt_held("acme-hub", "addon", "moved-echo")
-        self.assertEqual(os.readlink(self.root / ".lab/catalogs/acme-hub/addons/moved-echo/hosts"), "/etc/hosts")
-
-    def test_a_file_of_this_machine_that_is_a_link_or_is_not_text_is_not_rewritten(self):
-        real = self.put("real.yml", HOLDER)
-        os.makedirs(self.root / ".lab/catalogs/local/addons/linked")
-        os.symlink(real, self.root / ".lab/catalogs/local/addons/linked/compose.yml")
-        (self.root / ".lab/catalogs/local/addons/binary").mkdir()
-        (self.root / ".lab/catalogs/local/addons/binary/compose.yml").write_bytes(b"\xff\xfe include")
-        moves.adopt_held("acme-hub", "addon", "moved-echo")
-        self.assertEqual(real.read_text(encoding="utf-8"), HOLDER)
-        self.assertTrue(os.path.islink(self.root / ".lab/catalogs/local/addons/linked/compose.yml"))   # still a link
-        binary = self.root / ".lab/catalogs/local/addons/binary/compose.yml"
-        self.assertEqual(binary.read_bytes(), b"\xff\xfe include")
-        self.assertIn("acme-hub", self.text(".lab/catalogs/local/playgrounds/mine/compose.yml"))
-
-    def test_the_folder_of_a_kind_of_this_machine_may_be_a_link(self):
-        shutil.move(str(self.root / ".lab/catalogs/local/playgrounds"), str(self.root / "synced"))
-        os.symlink(self.root / "synced", self.root / ".lab/catalogs/local/playgrounds")
-        moves.adopt_held("acme-hub", "addon", "moved-echo")
-        self.assertIn("acme-hub/addons/moved-echo", (self.root / "synced/mine/compose.yml").read_text(encoding="utf-8"))
-
-    def test_a_mode_of_a_file_of_this_machine_is_kept_when_it_is_written(self):
-        os.chmod(self.root / ".lab/catalogs/local/playgrounds/mine/compose.yml", 0o640)
-        moves.adopt_held("acme-hub", "addon", "moved-echo")
-        self.assertEqual(self.mode(".lab/catalogs/local/playgrounds/mine/compose.yml"), 0o640)
-
-    def test_what_waits_for_an_item(self):
-        self.assertEqual(moves.has_held("addon", "moved-echo"), True)
-        self.assertEqual([moves.has_held("addon", "nothing"), moves.has_held("setup", "moved-echo")], [False, False])
-        moves.adopt_held("acme-hub", "addon", "moved-echo")
-        self.assertEqual(moves.has_held("addon", "moved-echo"), False)   # the star moved with the item
-        self.put(".lab/starred.json", json.dumps({"addon": ["only-starred"]}))
-        self.put(".lab/tested.json", json.dumps({"only-tested": []}))
-        self.assertEqual([moves.has_held("addon", "only-starred"), moves.has_held("playground", "only-tested"),
-                          moves.has_held("addon", "only-tested")], [True, True, False])
-        os.makedirs(self.root / ".lab/held/addons/empty")
-        self.assertFalse(moves.has_held("addon", "empty"))
-        with self.assertRaises(moves.Refused):
-            moves.has_held("addon", "../x")
-
-    def test_held_folders_that_cannot_be_trusted_count_as_settings_that_wait(self):
-        shutil.move(str(self.root / ".lab/held/addons/moved-echo"), str(self.root / "elsewhere"))
-        os.symlink(self.root / "elsewhere", self.root / ".lab/held/addons/moved-echo")
-        self.assertTrue(moves.has_held("addon", "moved-echo"))   # adopt_held then says why it refuses
-
-    def test_a_crash_at_any_step_converges_and_loses_nothing(self):
-        def build():
-            self.wipe()
-            self.populate()
-            self.put(".lab/held/addons/moved-echo/.state/created.json", "held\n")
-        build()
-        hook = crash_at(0)
-        self.patch(moves, "STEP", hook)
-        moves.adopt_held("acme-hub", "addon", "moved-echo")
-        clean = digest(self.root, skip=(moves.JOURNAL,))
-        secrets = {b"MOVED_TOKEN=held-secret\n", b"held-token\n", b"held-key\n", b"held-crt\n", b"held\n"}
-        self.assertGreater(len(hook.calls), 6)
-        for number in range(1, len(hook.calls) + 1):
-            with self.subTest(step=number, label=hook.calls[number - 1]):
-                build()
-                moves.STEP = crash_at(number)
-                with self.assertRaises(Crash):
-                    moves.adopt_held("acme-hub", "addon", "moved-echo")
-                moves.STEP = None
-                self.assertTrue(secrets <= set(contents(self.root)), "lost at the crash")
-                moves.adopt_held("acme-hub", "addon", "moved-echo")
-                self.assertEqual(digest(self.root, skip=(moves.JOURNAL,)), clean)
-        moves.STEP = None
-
-
 class Merge(Moves):
     """`moves.merge`: what is in one folder goes into another that exists, and nothing is put over what is there."""
 
@@ -1573,7 +1305,7 @@ class Merge(Moves):
             self.put(f"{base}/.state/{base}.json", base)
             self.put(f"{base}/secrets/{base}", base)
             self.put(f"{base}/apps/web/.state/{base}.json", base)
-        found = moves.merge("from", "to", "adopt")
+        found = moves.merge("from", "to", "rename")
         self.assertEqual(sorted((one["path"], one["result"]) for one in found),
                          [(".state", "conflict"), ("apps/web/.state/from.json", "moved"), ("secrets", "conflict")],
                          "at the top a record folder is never mixed; deeper it is a folder like another unless asked")
@@ -1583,7 +1315,7 @@ class Merge(Moves):
             self.put(f"{base}/secrets/{base}", base)
             self.put(f"{base}/apps/web/.state/{base}.json", base)
             self.put(f"{base}/apps/web/secrets/{base}", base)
-        found = moves.merge("from", "to", "adopt", everywhere=True)
+        found = moves.merge("from", "to", "rename", everywhere=True)
         self.assertEqual(sorted((one["path"], one["result"]) for one in found),
                          [(".state", "conflict"), ("apps/web/.state", "conflict"), ("apps/web/secrets", "conflict"),
                           ("secrets", "conflict")])

@@ -919,7 +919,7 @@ class Adding(Base):
         address = gitx.parse_address(str(folder))
         staged = install.stage(address, "partner", None, "", [])
         before = sorted(p.name for p in folder.rglob("*"))
-        result = install.commit_add(staged, address, None, "private", [], meta_of("partner"))
+        install.commit_add(staged, address, None, "private", [], meta_of("partner"))
         link = registry.install_dir("partner")
         self.assertTrue(link.is_symlink())
         self.assertEqual(os.readlink(link), address.path)
@@ -930,7 +930,6 @@ class Adding(Base):
         self.assertIsNone(registry.lock_of("partner")["pin"])
         self.assertEqual(registry.lock_of("partner")["name"], "Partner fixture")
         self.assertEqual(registry.units_of("partner")["addon"], ["ledger"])
-        self.assertEqual(result["adopted"], [])
         self.assertFalse((Path(paths.ROOT) / ".lab/cache/git").exists() and list((Path(paths.ROOT) / ".lab/cache/git").iterdir()))
 
     def test_a_folder_catalog_takes_the_place_of_the_settings_a_removed_git_catalog_left(self):
@@ -1259,20 +1258,6 @@ class Downloading(Base):
         self.intact("partner")
         self.assertEqual(bare.resolve(store_path, "pin"), tip)
 
-    def test_a_refused_adoption_does_not_make_a_finished_download_damaged(self):
-        self.listed("partner")
-        staged, address, roots = self.prepare("partner")
-        self.patch(install, "STEP", stop_at("add:placed"))
-        with self.assertRaises(Crash):
-            install.commit_add(staged, address, "main", "public", roots, meta_of("partner"))
-        self.patch(install, "STEP", None)
-        self.patch(install, "adopt", mock.Mock(side_effect=moves.Refused("a held folder is a link")))
-        install.recover()
-        held = registry.lock_of("partner")
-        self.assertEqual((held["pin"], held["pending"], held["error"]), (staged.commit, None, None),
-                         "the install and the pin were whole: the settings that wait are tried again at the next start")
-        self.intact("partner")
-
     def test_an_entry_that_has_a_pin_is_already_added(self):
         self.add("partner")
         staged, address, roots = self.prepare("partner")
@@ -1470,7 +1455,7 @@ class Updating(Base):
         steps = dict(zip(watch.labels, watch.depths))
         for label in ("update:apply", "update:file", "update:manifest"):
             self.assertGreater(steps[label], 0, f"{label} runs under the project lock")
-        for label in ("update:pending", "update:lock", "update:refs", "update:adopt"):
+        for label in ("update:pending", "update:lock", "update:refs"):
             self.assertEqual(steps[label], 0, f"{label} does not")
 
     def test_the_project_lock_is_taken_while_the_catalogs_lock_is_held(self):
@@ -1803,18 +1788,6 @@ class Updating(Base):
         with self.assertRaises(registry.CatalogError) as raised:
             install.plan_update("partner", self.advance({"addons/ledger/README.md": "Again\n"}))
         self.assertEqual(raised.exception.code, "catalog_invalid")
-
-    def test_what_was_added_is_adopted_from_the_settings_that_wait(self):
-        held = Path(paths.ROOT) / ".lab/held/addons/audit"
-        held.mkdir(parents=True)
-        (held / ".env").write_text("TOKEN=1\n", encoding="utf-8")
-        self.patch(manifest, "read_catalog", lambda path, address=None, borrowed=(), published=False: {**parsed(path),
-                                                                                       "moved_from": ["addon:audit"]})
-        target = self.advance(AUDIT)
-        self.apply(target)
-        self.assertEqual((Path(paths.ROOT) / ".lab/catalogs/partner/addons/audit/.env").read_text(encoding="utf-8"), "TOKEN=1\n")
-        self.assertFalse(held.exists())
-
 
 class Repairing(Base):
 
@@ -2375,111 +2348,6 @@ class Sweeping(Base):
         self.assertEqual(raised.exception.code, "busy")
 
 
-class Adopting(Base):
-    """The settings that wait for a unit go to it when its catalog is added or updated."""
-
-    def held(self, kind, name, **files):
-        base = Path(paths.ROOT) / ".lab/held" / f"{kind}s" / name
-        for rel, text in (files or {".env": "TOKEN=1\n", "secrets/key": "k\n"}).items():
-            (base / rel).parent.mkdir(parents=True, exist_ok=True)
-            (base / rel).write_text(text, encoding="utf-8")
-        return base
-
-    def test_every_unit_of_the_default_catalog_recovers_its_settings(self):
-        base = self.held("addon", "echo")
-        result, _, _ = self.add("fixture")
-        target = Path(paths.ROOT) / ".lab/catalogs/fixture/addons/echo"
-        self.assertEqual((target / ".env").read_text(encoding="utf-8"), "TOKEN=1\n")
-        self.assertEqual((target / "secrets/key").read_text(encoding="utf-8"), "k\n")
-        self.assertFalse(base.exists())
-        self.assertEqual([one["unit"] for one in result["adopted"]], ["addon:echo"])
-        self.assertEqual(self.content("fixture") & {"addons/echo/.env"}, set())
-
-    def test_a_catalog_receives_only_what_it_declares_in_moved_from(self):
-        mine, other = self.held("addon", "ledger"), self.held("addon", "audit")
-        starred.star({"addons": {"ledger": {}}, "setups": {}, "playgrounds": {}}, "addon", "ledger", True)
-        staged, address, roots = self.prepare("partner")
-        result = install.commit_add(staged, address, "main", "public", roots,
-                                    meta_of("partner", moved_from=["addon:ledger", "addon:gone"]))
-        base = Path(paths.ROOT) / ".lab/catalogs/partner/addons/ledger"
-        self.assertEqual((base / ".env").read_text(encoding="utf-8"), "TOKEN=1\n")
-        self.assertFalse(mine.exists())
-        self.assertTrue(other.exists(), "an item the catalog does not have stays where it waits")
-        self.assertEqual(starred.read()["addon"], {"@partner/ledger"})
-        self.assertEqual([one["unit"] for one in result["adopted"]], ["addon:ledger"])
-
-    def test_a_catalog_that_does_not_declare_the_item_adopts_nothing(self):
-        held = self.held("addon", "ledger")
-        starred.star({"addons": {"ledger": {}}, "setups": {}, "playgrounds": {}}, "addon", "ledger", True)
-        result, _, _ = self.add("partner")
-        self.assertTrue(held.exists())
-        self.assertEqual(starred.read()["addon"], {"ledger"})
-        self.assertEqual(result["adopted"], [])
-        self.assertFalse((Path(paths.ROOT) / ".lab/catalogs/partner/addons/ledger/.env").exists())
-
-    def test_a_conflict_stays_in_the_held_folder(self):
-        held = self.held("addon", "ledger")
-        base = Path(paths.ROOT) / ".lab/catalogs/partner/addons/ledger"
-        staged, address, roots = self.prepare("partner")
-        original = install.adopt
-
-        def blocked(ns, moved_from=None):
-            (base / "secrets").mkdir(parents=True, exist_ok=True)
-            (base / "secrets/key").write_text("already\n", encoding="utf-8")
-            return original(ns, moved_from)
-        self.patch(install, "adopt", blocked)
-        result = install.commit_add(staged, address, "main", "public", roots,
-                                    meta_of("partner", moved_from=["addon:ledger"]))
-        self.assertEqual((base / "secrets/key").read_text(encoding="utf-8"), "already\n")
-        self.assertEqual((held / "secrets/key").read_text(encoding="utf-8"), "k\n")
-        self.assertEqual((base / ".env").read_text(encoding="utf-8"), "TOKEN=1\n")
-        results = {one["path"]: one["result"] for one in result["adopted"][0]["files"]}
-        self.assertEqual(results, {".env": "moved", "secrets": "conflict"}, "a folder of credentials moves whole or stays")
-
-    def test_settings_that_cannot_be_moved_do_not_undo_an_add_that_was_committed(self):
-        outside = self.root / "outside"
-        outside.mkdir()
-        (Path(paths.ROOT) / ".lab/held/addons").mkdir(parents=True)
-        (Path(paths.ROOT) / ".lab/held/addons/ledger").symlink_to(outside, target_is_directory=True)
-        staged, address, roots = self.prepare("partner")
-        result = install.commit_add(staged, address, "main", "public", roots,
-                                    meta_of("partner", moved_from=["addon:ledger"]))
-        self.assertEqual(result["adopted"], [])
-        self.intact("partner")
-        self.assertEqual(list(outside.iterdir()), [], "nothing was moved through the link")
-        install.recover()   # tried again, and refused again, without ending the start
-        self.assertIsNotNone(registry.entry("partner"))
-
-    def test_an_update_adopts_for_the_units_it_adds(self):
-        self.add("partner")
-        address = gitx.parse_address(self.remotes["partner"].url)
-        self.held("addon", "audit")
-        target = self.remotes["partner"].commit(AUDIT, "Add audit")
-        bare.fetch(address, "main", registry.store_dir("partner"))
-        self.patch(manifest, "read_catalog", lambda path, address=None, borrowed=(), published=False: {**parsed(path),
-                                                                                       "moved_from": ["addon:audit"]})
-        install.apply_update("partner", install.plan_update("partner", target))
-        self.assertEqual((Path(paths.ROOT) / ".lab/catalogs/partner/addons/audit/.env").read_text(encoding="utf-8"),
-                         "TOKEN=1\n")
-
-    def test_a_start_repeats_an_adoption_that_stopped(self):
-        self.held("addon", "ledger")
-        self.patch(manifest, "read_catalog", lambda path, address=None, borrowed=(), published=False: {**parsed(path),
-                                                                                       "moved_from": ["addon:ledger"]})
-        staged, address, roots = self.prepare("partner")
-        self.patch(install, "STEP", stop_at("add:adopt"))
-        with self.assertRaises(Crash):
-            install.commit_add(staged, address, "main", "public", roots, meta_of("partner"))
-        self.patch(install, "STEP", None)
-        env = Path(paths.ROOT) / ".lab/catalogs/partner/addons/ledger/.env"
-        self.assertEqual(registry.entry("partner")["kind"], "git", "the catalog was added")
-        self.assertFalse(env.exists())
-        install.recover()
-        self.assertEqual(env.read_text(encoding="utf-8"), "TOKEN=1\n")
-        install.recover()   # and again
-        self.assertEqual(env.read_text(encoding="utf-8"), "TOKEN=1\n")
-
-
 # ---------------------------------------------------------------------------------------------------------------------
 # A working copy in place of a git install
 # ---------------------------------------------------------------------------------------------------------------------
@@ -2777,7 +2645,7 @@ class Stops(Base):
                 self.assertEqual(raised.exception.code, "already_added")
         labels = self.runs(lambda: None, lambda _: self.add("partner"), check)
         for wanted in ("stage:begin", "add:begin", "add:manifest", "add:store", "add:pending", "add:install", "add:placed",
-                       "add:lock", "add:config", "add:adopt", "add:done"):
+                       "add:lock", "add:config", "add:done"):
             self.assertIn(wanted, labels)
 
     def test_a_stop_after_the_install_was_renamed_with_pending_set_and_no_pin_is_cleaned(self):
@@ -2937,7 +2805,7 @@ class Stops(Base):
                              sorted(world["made"]), "the machine's files are where they were")
         labels = self.runs(self.world_to_update, lambda world: install.apply_update("partner", world["plan"]), check)
         for wanted in ("update:pending", "update:apply", "update:file", "update:manifest", "update:lock", "update:refs",
-                       "update:adopt", "update:done"):
+                       "update:done"):
             self.assertIn(wanted, labels)
 
     def test_a_stop_at_any_step_of_an_update_that_renames_an_item_that_is_on_ends_with_everything_under_one_name(self):
@@ -3125,48 +2993,6 @@ class Stops(Base):
         for wanted in ("unshadow:record", "unshadow:link", "unshadow:install", "unshadow:move", "unshadow:config",
                        "unshadow:lock"):
             self.assertIn(wanted, labels)
-
-    # -- a stop inside the adoption of the settings that wait -----------------------------------------------------------
-
-    def test_a_stop_at_any_step_of_the_adoption_is_finished_by_the_next_start(self):
-        self.patch(manifest, "read_catalog", lambda path, address=None, borrowed=(), published=False: {**parsed(path),
-                                                                                       "moved_from": ["addon:ledger"]})
-        self.fresh()
-        held = Path(paths.ROOT) / ".lab/held/addons/ledger"
-        for rel, text in {".env": "TOKEN=1\n", "secrets/key": "k\n", "notes/a.txt": "a\n"}.items():
-            (held / rel).parent.mkdir(parents=True, exist_ok=True)
-            (held / rel).write_text(text, encoding="utf-8")
-        starred.star({"addons": {"ledger": {}}, "setups": {}, "playgrounds": {}}, "addon", "ledger", True)
-        self.remote("partner")
-        saved = self.snapshot()
-        seen = []
-        self.patch(moves, "STEP", seen.append)
-        meta = meta_of("partner", moved_from=["addon:ledger"])
-        self.add("partner", meta=meta)
-        steps = list(seen)
-        self.assertGreater(len(steps), 4, steps)
-        for step, label in enumerate(steps):
-            with self.subTest(step=step, label=label):
-                self.restore(saved)
-                count = []
-
-                def stop(name):
-                    count.append(name)
-                    if len(count) - 1 == step:
-                        raise Crash(name)
-                self.patch(moves, "STEP", stop)
-                with self.assertRaises(Crash):
-                    self.add("partner", meta=meta)
-                self.patch(moves, "STEP", None)
-                self.assertEqual(registry.entry("partner")["kind"], "git", "the catalog was added before the adoption")
-                install.recover()
-                base = Path(paths.ROOT) / ".lab/catalogs/partner/addons/ledger"
-                self.assertEqual((base / ".env").read_text(encoding="utf-8"), "TOKEN=1\n")
-                self.assertEqual((base / "secrets/key").read_text(encoding="utf-8"), "k\n")
-                self.assertEqual((base / "notes/a.txt").read_text(encoding="utf-8"), "a\n")
-                self.assertFalse(held.exists(), "nothing waits any more")
-                self.assertEqual(starred.read()["addon"], {"@partner/ledger"})
-                self.intact("partner")
 
     # -- a stop inside the start ---------------------------------------------------------------------------------------
 

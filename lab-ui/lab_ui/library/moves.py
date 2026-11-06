@@ -1,16 +1,14 @@
-"""The primitives that move things on this machine, shared by the shadow link of a working copy, Share and the adoption of
-held settings: `relocate` moves a file or a folder and never overwrites, `repoint` writes again the paths of a compose file that moved, `rekey` follows an item to its new
-id in the stars and the tested sets, `adopt_held` gives an item the settings that waited for it.
+"""The primitives that move things on this machine, shared by the shadow link of a working copy, Share and the renames of a
+catalog: `relocate` moves a file or a folder and never overwrites, `repoint` writes again the paths of a compose file that
+moved, `rekey` follows an item to its new id in the stars and the tested sets.
 
 State based and idempotent: every function reads the disk and does what is left to do, so a run that crashed is run
 again, never undone. Every move is written to the journal (`.lab/migration/journal.jsonl`: paths, never a content)
 before it is made. Nothing here runs Docker, git or the network: whether git tracks a file is read from the index itself.
 `STEP` is the hook a test sets to crash a run between two steps.
 
-Two folders of `.lab` are only for the person (0700, and so is whatever is made in them): `migration/`, with the
-journal and what was kept aside, and `held/<kind>s/<name>/`, where the machine files of an
-item that is in no installed catalog wait, at the same relative path they had in its folder, for the catalog that gets
-the item."""
+One folder of `.lab` is only for the person (0700, and so is whatever is made in it): `migration/`, with the journal and
+what was kept aside."""
 
 import bisect
 import errno
@@ -26,29 +24,24 @@ import struct
 import threading
 import time
 import unicodedata
-from typing import Optional
 
 from .. import paths
 
 # A test sets it to a callable that takes the name of the step it is about to take and raises to stop the run there:
-# relocate:before, :journaled, :copy, :copied and :renamed, rekey:starred and :tested, adopt:entry, :cleanup, :rekey
-# and :repoint, and <why>:entry for each entry `merge` moves (adopt:entry when a held folder is merged)
+# relocate:before, :journaled, :copy, :copied and :renamed, rekey:starred and :tested, and <why>:entry for each entry
+# `merge` moves
 STEP = None
 
 MIGRATION = f"{paths.LAB_DIR}/migration"   # the journal, and what was kept aside
 JOURNAL = f"{MIGRATION}/journal.jsonl"
-HELD = f"{paths.LAB_DIR}/held"   # the settings of an item that is in no installed catalog, by kind and name
-PRIVATE = (MIGRATION, HELD)   # folders only the person reads: whatever is made inside them is 0700
 STARRED = f"{paths.LAB_DIR}/starred.json"
 TESTED = f"{paths.LAB_DIR}/tested.json"
 TESTED_KEPT = 20   # per playground: the latest sets
-# What a whole entry is at the top of a held folder: a folder of seed records or of credential files moves in one piece
-# and is never merged into another, since records are not meant to be mixed. Any other folder is a container.
+# What a whole entry is at the top of a folder that is merged: a folder of seed records or of credential files moves in one
+# piece and is never merged into another, since records are not meant to be mixed. Any other folder is a container.
 WHOLE = (".state", "secrets")
-DEEP = 16   # how far down a held folder is merged into the install
+DEEP = 16   # how far down a folder is merged
 
-_NAME = re.compile(paths.NAME)
-_NS = re.compile(paths.NS)
 _COPY_MODE = 0o700   # what a copy of a folder is made with, until it is renamed and gets the mode of the original
 
 
@@ -85,11 +78,6 @@ def _inside(path, folder):
     return path == folder or path.startswith(folder.rstrip(os.sep) + os.sep)
 
 
-def _private(path):
-    """Whether a path is inside a folder that only the person reads."""
-    return any(_inside(path, _abs(folder)) for folder in PRIVATE)
-
-
 def _parents(target):
     """Makes the folders above `target` that are missing: 0700 where only the person reads, else as `mkdir` does. A
     folder that another run made in the meantime is used, a link or a file in its place is an error. A private folder
@@ -101,17 +89,16 @@ def _parents(target):
         if above == current:
             break
         current = above
-    private = _private(target)
+    top = _abs(MIGRATION)
+    private = _inside(target, top)
     for folder in reversed(missing):
         try:
             os.mkdir(folder, 0o700 if private else 0o777)
         except FileExistsError:   # another run made it between the look and the mkdir: fine when it is a real folder
             if os.path.islink(folder) or not os.path.isdir(folder):
                 raise
-    if private:
-        for folder in PRIVATE:
-            if _inside(target, _abs(folder)) and os.path.isdir(_abs(folder)) and not os.path.islink(_abs(folder)):
-                os.chmod(_abs(folder), 0o700)
+    if private and os.path.isdir(top) and not os.path.islink(top):
+        os.chmod(top, 0o700)
 
 
 def _discard(path):
@@ -688,66 +675,18 @@ def rekey(mapping: dict) -> None:
 
 
 # ---------------------------------------------------------------------------------------------------------------------
-# Settings held for an item that is in no catalog
+# Folders merged
 # ---------------------------------------------------------------------------------------------------------------------
 
-def _item(kind, name):
-    """Checks the two words of an item before a path is made of them: a hostile id never reaches the disk."""
-    if kind not in paths.KINDS:
-        raise Refused(f"{kind} is not a kind of item")
-    if not isinstance(name, str) or not _NAME.fullmatch(name):
-        raise Refused(f"{name} is not the name of an item")
-
-
-def _catalog(ns):
-    if not isinstance(ns, str) or not _NS.fullmatch(ns) or ns == paths.LOCAL:
-        raise Refused(f"{ns} is not the name of a catalog")
-
-
-def held_dir(kind, name):
-    """Where the machine files of an item wait when it is in no installed catalog: `.lab/held/<kind>s/<name>`."""
-    _item(kind, name)
-    return paths.ROOT / HELD / f"{kind}s" / name
-
-
 def _plain(path):
-    """Whether a path is a real folder, not a link nor a file: what the held area is made of."""
+    """Whether a path is a real folder, not a link nor a file."""
     try:
         return stat.S_ISDIR(os.lstat(path).st_mode)
     except OSError:
         return False
 
 
-def has_held(kind, name):
-    """Whether settings wait for an item: a file in its held folder, or a star or a tested set under its bare id. The
-    caller adds the other half of the rule: that the bare id is not an item of the default catalog. A
-    held folder that cannot be trusted counts as settings that wait, so that `adopt_held` says why it refuses."""
-    _item(kind, name)
-    try:
-        folder = _held_chain(kind, name)
-    except Refused:
-        return True
-    if folder:
-        with os.scandir(folder) as entries:
-            if next(entries, None) is not None:
-                return True
-    stars, tested = (_object(STARRED) or {}).get(kind), _object(TESTED) or {}
-    return (isinstance(stars, list) and name in stars) or (kind == "playground" and name in tested)
-
-
-def _held_chain(kind, name):
-    """The held folder of an item when it is there and nothing on the way is a link: a link there would take the move
-    to a place the Lab never meant."""
-    folder = held_dir(kind, name)
-    chain = [paths.ROOT / HELD, paths.ROOT / HELD / f"{kind}s", folder]
-    if not os.path.lexists(folder):
-        return None
-    if not all(_plain(link) for link in chain):
-        raise Refused(f"The held settings of {name} are not in a plain folder")
-    return folder
-
-
-def _merge(origin, home, inside, found, depth=0, why="adopt", everywhere=False):
+def _merge(origin, home, inside, found, why, depth=0, everywhere=False):
     """Moves what is in the folder `origin` into `home`, a folder that exists. An entry that is a container (a folder
     `home` has too, other than the whole entries at the top, or at any depth with `everywhere`) is merged; every other entry
     is moved whole and never over what is there. Adds {"path", "result"} to `found` for each."""
@@ -755,7 +694,7 @@ def _merge(origin, home, inside, found, depth=0, why="adopt", everywhere=False):
         here, there = os.path.join(origin, name), os.path.join(home, name)
         whole = (depth == 0 or everywhere) and name in WHOLE
         if _plain(here) and _plain(there) and depth < DEEP and not whole:
-            _merge(here, there, f"{inside}{name}/", found, depth + 1, why, everywhere)
+            _merge(here, there, f"{inside}{name}/", found, why, depth + 1, everywhere)
             continue
         _step(f"{why}:entry")
         found.append({"path": f"{inside}{name}", "result": relocate(here, there, why)})
@@ -772,22 +711,8 @@ def merge(origin: str, home: str, why: str, everywhere: bool = False) -> list:
     if not (_plain(_abs(origin)) and _plain(_abs(home))):
         raise Refused(f"{_rel(origin)} and {_rel(home)} have to be folders to be merged")
     found = []
-    _merge(_abs(origin), _abs(home), "", found, why=why, everywhere=everywhere)
+    _merge(_abs(origin), _abs(home), "", found, why, everywhere=everywhere)
     return found
-
-
-def _emptied(folder):
-    """Removes the held folder of an item once nothing is left in it: its folders from the bottom, then the kind's
-    folder when it is empty too, never `.lab/held` itself and never a folder that holds a file."""
-    for here, _, _ in os.walk(folder, topdown=False):
-        try:
-            os.rmdir(here)
-        except OSError:
-            continue
-    try:
-        os.rmdir(os.path.dirname(folder))
-    except OSError:
-        pass
 
 
 def _personal_files():
@@ -803,64 +728,4 @@ def _personal_files():
                 found.append(folder / name)
             elif kind != "setup":
                 found.append(folder / name / "compose.yml")
-    return found
-
-
-def _repoint_personal(old, new):
-    """Writes again the includes of the items of this machine that name the folder or file `old` (relative to the
-    project) as `new`, and journals each file. A file that is a link, or does not read as UTF-8, is left; a file
-    changes only when it names `old`."""
-    for file in _personal_files():
-        if file.is_symlink() or not file.is_file():
-            continue
-        try:
-            text = file.read_text(encoding="utf-8")
-        except (OSError, ValueError):
-            continue
-        folder = _rel(file.parent)
-        written = repoint(text, folder, folder, [(old, new)])
-        if written != text:
-            _step("adopt:repoint")
-            _replaced(file, written)
-            journal("repoint", path=_rel(file), old=old, new=new)
-
-
-def _where(ns, kind, name):
-    """Where an item is in a catalog, relative to the project: its folder, or its file for a setup."""
-    file = paths.CATALOG_FILES[kind].format(ns=ns, name=name)
-    return file if kind == "setup" else posixpath.dirname(file)
-
-
-def adopt_held(ns: str, kind: str, name: str, repoint_from: Optional[str] = None) -> list:
-    """Gives a catalog's item the settings that waited for it. The files of
-    `.lab/held/<kind>s/<name>` move into the item's folder in the installed catalog `ns`, at the same relative path and
-    never over a file that is there (a conflict stays in the held area and is reported). Its star and its tested sets
-    move from the bare id to `@ns/<name>` with `rekey` (the default catalog keeps the bare ids). The includes of the
-    items of this machine are written again from the catalog `repoint_from` (the default catalog's when absent) to `ns`.
-    Answers [{"path": relative to the item's folder, "result": "moved" | "copied" | "conflict" | "stayed"}], empty when
-    no file was there. Repeating it, or running it after a crash, finishes what is left. A setup has no folder, so only
-    its star moves. Nothing is done when the item is not in `ns`, or when `ns` is not the default catalog and the
-    default catalog has the name: that bare id is the default item's. Refused (raises) for an id that is not one and for
-    a held folder that is a link. It never changes what is on, nor the on file."""
-    _catalog(ns)
-    _item(kind, name)
-    if repoint_from is not None:
-        _catalog(repoint_from)
-    default = paths.default_ns()
-    if not os.path.isfile(_abs(paths.CATALOG_FILES[kind].format(ns=ns, name=name))):
-        return []
-    if ns != default and default and os.path.isfile(_abs(paths.CATALOG_FILES[kind].format(ns=default, name=name))):
-        return []
-    found = []
-    folder = _held_chain(kind, name) if kind != "setup" else None
-    if folder:
-        _merge(str(folder), _abs(_where(ns, kind, name)), "", found)
-        _step("adopt:cleanup")
-        _emptied(str(folder))
-    if ns != default:
-        _step("adopt:rekey")
-        rekey({f"{kind}:{name}": f"@{ns}/{name}"})
-        origin = repoint_from or default
-        if origin and origin != ns:
-            _repoint_personal(_where(origin, kind, name), _where(ns, kind, name))
     return found
