@@ -1370,8 +1370,7 @@ def rewritten(before, after, changed, name, what="its private label and whose co
     the file is: its x-gravitee is the one of `before` with the keys of `changed` set to their values (None: gone, or empty) and
     nothing else, and it still loads. Else the refusal that names the item and says why, decided on what is true now: a file
     Compose cannot read as it is (`label_unread`, _unread), or a label or a copy_of the Lab could not write, or whose writing broke
-    a file that reads (`label_failed`, NOT_WRITTEN). A reading remembered (compose.x_gravitee) says a text was readable, not that
-    it is: when what the Lab wrote cannot be read, the file as it is is read again before the Lab takes the fault."""
+    a file that reads (`label_failed`, NOT_WRITTEN)."""
     where = folder or compose.scratch()
     known = compose.named_by(before, where, file)
     try:
@@ -1381,10 +1380,6 @@ def rewritten(before, after, changed, name, what="its private label and whose co
     try:
         new = old if after == before else compose.x_gravitee(after, where, name=file)
     except compose.ComposeError:
-        try:
-            compose.x_gravitee(before, where, fresh=True, name=file)
-        except compose.ComposeError as error:   # the file itself cannot be read now: not what the Lab wrote
-            raise _unread(name, error, known) from None
         raise CatalogError("label_failed", NOT_WRITTEN.format(name=name, what=what), 409) from None   # what the Lab wrote broke it
     old, new = (old if isinstance(old, dict) else {}), ({} if new is None else new)   # no block: nothing it says
     wanted = {**{key: value for key, value in old.items() if key not in changed},

@@ -8,7 +8,6 @@ import atexit
 import calendar
 import concurrent.futures.thread   # noqa: F401  (see _end: its exit hook has to be registered before ours)
 import contextlib
-import copy
 import functools
 import hashlib
 import json
@@ -623,24 +622,12 @@ def _readable(path, skip=(), text=None):
                {str(copy): str(ROOT / file) for file, copy in copies.items()})
 
 
-def _text_of(file):
-    try:
-        return Path(file).read_text(encoding="utf-8")
-    except (OSError, ValueError):
-        return None
-
-
-def _key_of(text, folder):
-    return hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest(), str(folder)
-
-
 def raw(path, skip=(), timeout=120):
     """A compose file as written, with what it includes merged in. Not interpolated: ${VAR} references are kept,
     except in a `pull_policy`, which Compose 5.5.1 and later refuse (_policies_written). Not checked for consistency:
     a file read alone may refer to services of the core. Labels, environment and ports come in one shape, whichever
     way the file writes them. `skip`: project files that it includes and that are not there, which are left out so
     that it still loads and says what it is. `timeout`: seconds Compose has to answer, else ComposeError."""
-    before = _text_of(ROOT / path)
     with _readable(path, skip) as (arguments, originals):
         try:
             config = _config(arguments, "--no-interpolate", "--no-consistency", timeout=timeout)
@@ -649,8 +636,6 @@ def raw(path, skip=(), timeout=120):
             for copy, original in originals.items():
                 message = message.replace(copy, original)
             raise ComposeError(message) from None
-    if before is not None and _text_of(ROOT / path) == before:   # what x_gravitee() answers of that text there: not asked again
-        _remember(_key_of(before, (ROOT / path).parent), config.get("x-gravitee"))
     for service in (config.get("services") or {}).values():
         for key in ("labels", "environment"):
             if key in service:
@@ -662,9 +647,6 @@ def raw(path, skip=(), timeout=120):
 
 ALONE_TIMEOUT = 15   # seconds Compose has to read one item's text: a file that takes longer is one that cannot be read
 ALONE_OUTPUT = 4 << 20   # the most its answer may hold: more is no item, but a file that makes Compose write without end
-READ_KEPT = 512   # readings of an x-gravitee block remembered (_said_by_compose): more than the items of a large Lab
-_said_by_compose = {}   # {(sha-256 of a compose text, its folder): its x-gravitee as Compose read it there}, oldest first
-_said_lock = threading.Lock()
 
 
 def _empty_env():
@@ -685,22 +667,15 @@ def alike(value):
     return value
 
 
-def x_gravitee(text, folder, fresh=False, name="compose.yml"):
+def x_gravitee(text, folder, name="compose.yml"):
     """The x-gravitee block of a compose text as Compose reads it in `folder`, where the item is, the way raw() reads the item for
     gather: what it includes is found from there, and what it includes under the catalogs' folder that is not there is left out
     by the same rule and the same code (left_out, _readable), so that the readings agree; an included file never brings an x- key
     of its own (Compose keeps those of the file it reads). The scrubbed environment, no interpolation, no remote include, no
-    .env and no env_file read. Nothing of the project is written: the text is read as a copy in a folder of this run. A copy of
-    what it answered, None for no block. ComposeError when Compose cannot read it, takes more than ALONE_TIMEOUT seconds, or
-    answers more than ALONE_OUTPUT: never a wait without end. The same text in the same folder is answered from what was read of
-    it before, here or by raw(), unless `fresh`: a reading remembered says the text was readable then, not that it is now.
-    `name`: the file's name in `folder`, by which Compose's words name it."""
+    .env and no env_file read. Nothing of the project is written: the text is read as a copy in a folder of this run. What it
+    answered, None for no block. ComposeError when Compose cannot read it, takes more than ALONE_TIMEOUT seconds, or answers more
+    than ALONE_OUTPUT: never a wait without end. `name`: the file's name in `folder`, by which Compose's words name it."""
     folder = Path(folder)
-    key = _key_of(text, folder)
-    if not fresh:
-        with _said_lock:
-            if key in _said_by_compose:
-                return copy.deepcopy(_said_by_compose[key])
     try:
         rel = folder.relative_to(ROOT).as_posix() if folder.is_absolute() else None
     except ValueError:
@@ -721,11 +696,9 @@ def x_gravitee(text, folder, fresh=False, name="compose.yml"):
     if len(out) > ALONE_OUTPUT:
         raise ComposeError("Compose answered more than an item can hold")
     try:
-        found = alike(json.loads(out).get("x-gravitee"))
+        return alike(json.loads(out).get("x-gravitee"))
     except (ValueError, AttributeError, RecursionError):
         raise ComposeError("Compose answered what is not a compose file") from None
-    _remember(key, found)
-    return copy.deepcopy(found)
 
 
 def cause(error, known=()):
@@ -816,14 +789,6 @@ def named_by(text, folder, name="compose.yml"):
         return []
     path = f"{rel}/{name}" if rel != "." else name
     return [path, f"{posixpath.dirname(path)}/.env" if "/" in path else ".env", *_closure(path, (), text)[1:]]
-
-
-def _remember(key, found):
-    with _said_lock:
-        _said_by_compose.pop(key, None)
-        _said_by_compose[key] = copy.deepcopy(found)
-        while len(_said_by_compose) > READ_KEPT:
-            del _said_by_compose[next(iter(_said_by_compose))]
 
 
 def config_json(file_args, timeout=15, environ=None):

@@ -320,9 +320,9 @@ class OldestCompose(ProjectFolder):
     def test_an_empty_list_of_the_labs_block_reads_as_on_the_oldest_compose(self):
         path = self.write("addons/echo/compose.yml", self.TEXT)
         here = self.root / "addons/echo"
-        newest = compose.x_gravitee(self.TEXT, here, fresh=True), compose.raw(path)["x-gravitee"]
+        newest = compose.x_gravitee(self.TEXT, here), compose.raw(path)["x-gravitee"]
         oldest_compose(self)
-        oldest = compose.x_gravitee(self.TEXT, here, fresh=True), compose.raw(path)["x-gravitee"]
+        oldest = compose.x_gravitee(self.TEXT, here), compose.raw(path)["x-gravitee"]
         self.assertEqual(newest, oldest)
         self.assertEqual(newest[0], {"kind": "addon", "name": "Echo", "private_from": None, "tested": [None],
                                      "nested": {"list": None, "map": {}}, "kept": ["a"]}, "an empty list is null, its key is there")
@@ -1826,7 +1826,7 @@ class XGravitee(ProjectFolder):
         text = "x-gravitee: {kind: playground}\ninclude:\n  - path: tool.yml\n    env_file: tool.env\n"
         started = time.monotonic()
         try:
-            compose.x_gravitee(text, self.here, fresh=True)
+            compose.x_gravitee(text, self.here)
         except compose.ComposeError as error:
             self.assertIn(compose.cause(error), ("Compose took too long to read it", "Compose cannot read it"))
         self.assertLess(time.monotonic() - started, 10)
@@ -1834,7 +1834,7 @@ class XGravitee(ProjectFolder):
         (self.here / "tool.env").unlink()
         (self.here / "tool.env").write_text("SECRET hunter2 is no line of variables\n")
         try:
-            compose.x_gravitee(text, self.here, fresh=True)
+            compose.x_gravitee(text, self.here)
         except compose.ComposeError as error:
             self.assertNotIn("hunter2", compose.cause(error))
 
@@ -1845,9 +1845,9 @@ class XGravitee(ProjectFolder):
         path = self.write(".lab/catalogs/local/playgrounds/mine/compose.yml", text)
         self.assertEqual(compose.left_out(text, path), [".lab/catalogs/local/addons/gone/compose.yml"])
         read = compose.raw(path, skip=compose.left_out(text, path))["x-gravitee"]
-        self.assertEqual(compose.x_gravitee(text, folder, fresh=True), read)
+        self.assertEqual(compose.x_gravitee(text, folder), read)
         edited = text.replace(", copy_of: tour", "")
-        self.assertEqual(compose.x_gravitee(edited, folder, fresh=True), {"kind": "playground", "name": "Mine"},
+        self.assertEqual(compose.x_gravitee(edited, folder), {"kind": "playground", "name": "Mine"},
                          "a text of the Lab's, not on disk, read the same way")
 
     def test_a_refusal_may_name_the_items_own_file_its_env_file_and_what_it_includes(self):
@@ -1893,24 +1893,11 @@ class XGravitee(ProjectFolder):
                 for one in (".env", "x.env"):
                     make(self.here / one)
                 started = time.monotonic()
-                self.assertEqual(compose.x_gravitee(text, self.here, fresh=True), {"kind": "addon", "name": "Quiet"})
+                self.assertEqual(compose.x_gravitee(text, self.here), {"kind": "addon", "name": "Quiet"})
                 self.assertLess(time.monotonic() - started, 5, "answered at once: neither file is opened")
                 self.assertTrue(settled(lambda: not holding(str(self.here))))
                 for one in (".env", "x.env"):
                     (self.here / one).unlink()
-
-    def test_the_same_text_in_the_same_folder_is_read_once_and_a_file_raw_read_is_not_read_again(self):
-        text = "x-gravitee: {kind: addon, name: Once}\nservices:\n  once:\n    image: busybox\n"
-        real, runs = compose.run, []
-        self.patch(compose, "run", lambda cmd, **more: runs.append(cmd) or real(cmd, **more))
-        first = compose.x_gravitee(text, self.here)
-        first["name"] = "changed by its caller"
-        self.assertEqual(compose.x_gravitee(text, self.here), {"kind": "addon", "name": "Once"})
-        self.assertEqual(len(runs), 1)
-        self.write("addons/read/compose.yml", text.replace("Once", "Read"))
-        compose.raw("addons/read/compose.yml")
-        self.assertEqual(compose.x_gravitee(text.replace("Once", "Read"), self.root / "addons" / "read"), {"kind": "addon", "name": "Read"})
-        self.assertEqual(len(runs), 2, "raw's reading answers")
 
 
 if __name__ == "__main__":

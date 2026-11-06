@@ -259,7 +259,7 @@ class RoundTrip(Case):
             exports.archive("local/sandbox")
         self.assertEqual(caught.exception.code, "export_blocked")
 
-    def test_a_file_that_cannot_be_read_now_is_said_as_such_though_it_was_read_before(self):
+    def test_a_file_that_cannot_be_read_now_is_said_as_such(self):
         sandbox = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "playgrounds" / "sandbox"
         (paths.ROOT / "shared").mkdir()
         (paths.ROOT / "shared" / "extra.yml").write_text("services:\n  extra:\n    image: busybox:1.36\n", encoding="utf-8")
@@ -267,8 +267,6 @@ class RoundTrip(Case):
         text = text.replace("include:\n", "include:\n  - ../../../../../shared/extra.yml\n", 1).replace(
             "x-gravitee: {kind: playground,", "x-gravitee: {copy_of: tour, kind: playground,", 1)
         (sandbox / "compose.yml").write_text(text, encoding="utf-8")
-        project.forget()
-        project.load()   # read whole: what it says is remembered
         (paths.ROOT / "shared" / "extra.yml").unlink()   # gone since, outside the catalogs: Compose cannot read the file now
         with self.assertRaises(CatalogError) as caught:
             contribute.rewritten(text, contribute.unmark(text), {"copy_of": None}, "Sandbox", "whose copy it is", sandbox)
@@ -691,7 +689,7 @@ class FromCatalogs(Case):
     def test_a_copy_says_the_id_of_the_private_catalog_with_its_name(self):
         moving.copy("addon", "@partner/ledger")
         copied = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons" / "ledger" / "compose.yml"
-        said = compose.x_gravitee(copied.read_text(), copied.parent, fresh=True)
+        said = compose.x_gravitee(copied.read_text(), copied.parent)
         self.assertEqual((said["private_from"], said["private_id"], said["copy_of"]), (["Partner fixture"], [root("partner")], "@partner/ledger"))
         made = exports.archive("local/sandbox", private=shown(exports.plan("local/sandbox")))
         with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
@@ -1275,7 +1273,7 @@ class Claims(Case):
                     if there:
                         named.write_text("services: {}\n", encoding="utf-8")
                     read, why = project.read_own(paths.unit_file("playground", "local/evil"))
-                    said = compose.x_gravitee(text, file.parent, fresh=True) if read is not None else None
+                    said = compose.x_gravitee(text, file.parent) if read is not None else None
                     self.assertEqual(said, (read or {}).get("x-gravitee"), why)
 
     def test_no_way_of_writing_copy_of_makes_a_twin(self):
