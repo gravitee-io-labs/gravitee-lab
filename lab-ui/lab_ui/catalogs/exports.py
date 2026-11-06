@@ -669,18 +669,19 @@ def _personal_now(kind, rel):
         return None
 
 
-def _same_in_personal(kind, slug, rel, name, files):
-    now = _personal_now(kind, rel)
-    return now is not None and now.encode("utf-8") == files[_compose_rel(kind, rel)][1]
+def _same_in_personal(files):
+    """Whether Personal holds every file of this item as the archive has it: a file that changes only a guide or a seed is another
+    version."""
+    home = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL
+    return all(registry._read(home / path, len(data), follow=False)[0] == data for path, (_, data) in files.items())
 
 
 def _personal_plan(items):
     """What going to Personal does to the items of Personal (`_for_personal`): {replaces: [names], same: [names]}."""
     replaces, same = [], []
     for kind, _, rel, name, files in items:
-        now = _personal_now(kind, rel)
-        if now is not None:
-            (same if now.encode("utf-8") == files[_compose_rel(kind, rel)][1] else replaces).append(name)
+        if _personal_now(kind, rel) is not None:
+            (same if _same_in_personal(files) else replaces).append(name)
     return {"replaces": replaces, "same": same}
 
 
@@ -703,7 +704,7 @@ def to_personal(ticket, allow=False):
         raise _fail("allow_machine", f"{', '.join(uses)} uses this machine: allow it to import it to Personal.")
     top, snapshot = folder.name, _snapshot(folder)   # what is staged is what is digested: the preview's, or a refusal
     items = _for_personal(folder, top, snapshot)
-    going = [one for one in items if not _same_in_personal(*one)]   # the same item is used as Personal has it
+    going = [one for one in items if not _same_in_personal(one[4])]   # the same item is used as Personal has it
 
     def write(root):
         for _, _, _, _, files in going:

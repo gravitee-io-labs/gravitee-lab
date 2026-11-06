@@ -417,6 +417,16 @@ class ToPersonal(Case):
         self.assertEqual(read, [".lab/catalogs/local/addons/scratch/compose.yml"], "the one item it wrote")
         self.assertFalse([one for one in loads if one], "the project is not read again once it is placed")
 
+    def test_an_item_that_differs_only_by_a_file_beside_its_compose_file_is_replaced(self):
+        data = exports.archive("local/sandbox")["data"]
+        readme = self.local("playgrounds/sandbox/README.md")
+        original = readme.read_text(encoding="utf-8")
+        readme.write_text(original + "Changed here\n", encoding="utf-8")
+        preview = exports.receive(data)
+        self.assertEqual(preview["personal"], {"replaces": ["Sandbox"], "same": ["Scratch"]})
+        exports.to_personal(preview["ticket"])
+        self.assertEqual(readme.read_text(encoding="utf-8"), original, "the file's version")
+
     def test_the_same_items_are_used_and_a_different_one_is_replaced_keeping_its_settings(self):
         data = exports.archive("local/sandbox")["data"]
         preview = exports.receive(data)
