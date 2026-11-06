@@ -147,7 +147,7 @@ def _fresh(root, options: Options, folder: bool, skipped: List[str]):
     tree = options.tree if options.tree is not None else trees.FolderTree(root)
     history = options.commits
     base, lost = options.base or "", ""
-    if history is None and folder and trees.is_repository(root) and trees.head_of(root):
+    if history is None and folder and trees.is_repository(root) and trees.resolve(root, "HEAD"):
         if options.history:
             history, base = trees.History(root, None), ""
         else:
@@ -287,7 +287,7 @@ def _against_base(found: List[Problem], tree, root, options: Options, base: str,
     before = options.base_tree
     if before is None and options.tree is None and root is not None and trees.is_repository(root):
         sha = base if re.fullmatch(r"[0-9a-f]{40}", base) else trees.resolve(root, base)
-        if sha and trees.head_of(root) == sha:
+        if sha and trees.resolve(root, "HEAD") == sha:
             return found
         git_dir = trees.git_dir_of(root) if sha else None
         if git_dir:

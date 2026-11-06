@@ -110,7 +110,7 @@ class FolderTrees(WithGit):
         history.commits()
         list(history.added())
         tree.default_base(repo)
-        tree.head_of(repo)
+        tree.resolve(repo, "HEAD")
         self.assertEqual(before, sha_of(repo))
 
     def test_nothing_of_the_repository_runs_to_list_it(self):
@@ -373,7 +373,7 @@ class Histories(WithGit):
         self.assertIsNone(tree.default_base(repo), "no origin/main")
         self.git(repo, "update-ref", "refs/remotes/origin/main", self.base)
         self.assertEqual(self.base, tree.default_base(repo))
-        self.assertEqual(self.third, tree.head_of(repo))
+        self.assertEqual(self.third, tree.resolve(repo, "HEAD"))
         self.assertTrue(tree.is_repository(repo))
         self.assertFalse(tree.is_repository(self.holder))
 
@@ -402,7 +402,7 @@ class Histories(WithGit):
         self.assertTrue((linked / ".git").is_file(), "a linked work tree has a file where a clone has a folder")
         where = tree.git_dir_of(linked)
         self.assertEqual(os.path.realpath(repo / ".git" / "worktrees" / "linked"), os.path.realpath(where))
-        self.assertEqual(self.third, tree.head_of(linked))
+        self.assertEqual(self.third, tree.resolve(linked, "HEAD"))
         listing = tree.GitTree(where, self.base)
         self.assertEqual(["a.txt", "docs/b.md"], [each.path for each in listing.entries()])
         self.assertEqual(b"one\ntwo\nthree\n", listing.read("a.txt"), "the objects are the repository's, found from the linked git directory")
@@ -410,7 +410,7 @@ class Histories(WithGit):
 
     def test_an_empty_repository_has_no_head(self):
         repo = self.work(commit=False)
-        self.assertIsNone(tree.head_of(repo))
+        self.assertIsNone(tree.resolve(repo, "HEAD"))
         self.assertIsNone(tree.default_base(repo))
 
     def test_a_bare_repository_is_read_by_its_git_directory(self):

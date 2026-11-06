@@ -547,17 +547,6 @@ def default_base(repo) -> Optional[str]:
     return sha if result.code == 0 and re.fullmatch(r"[0-9a-f]{40}", sha) else None
 
 
-def head_of(repo) -> Optional[str]:
-    """The commit HEAD names in a work tree, or None."""
-    try:
-        result = gitx.run(["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], cwd=os.path.realpath(str(repo)), env=QUIET,
-                          timeout=60)
-    except gitx.CatalogError:
-        return None
-    sha = result.out.decode("utf-8", "replace").strip()
-    return sha if result.code == 0 and re.fullmatch(r"[0-9a-f]{40}", sha) else None
-
-
 _BASE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/@+~^-]{0,200}")
 
 
@@ -595,4 +584,4 @@ def is_repository(path) -> bool:
 
 
 __all__ = ["Added", "Commit", "Entry", "FolderTree", "GitTree", "History", "ListTree", "REGULAR", "Tree", "TreeError",
-           "default_base", "diff_path", "git_dir_of", "head_of", "is_repository", "read_inside", "resolve", "unquote"]
+           "default_base", "diff_path", "git_dir_of", "is_repository", "read_inside", "resolve", "unquote"]
