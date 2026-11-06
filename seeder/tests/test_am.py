@@ -556,9 +556,8 @@ class Session(Case):
     def test_a_token_given_by_the_environment_is_not_exchanged_and_a_refusal_is_an_error(self):
         self.env(AM_TOKEN="given", AM_USERNAME=None, AM_PASSWORD=None)
         self.platform.add({("GET", DOMAINS): (401, {"message": "Unauthorized"})})
-        with mock.patch.object(common.time, "sleep"):
-            with self.assertRaises(common.SeedError):
-                am.AccessManagement().api.get(DOMAINS)
+        with self.assertRaises(common.SeedError):
+            am.AccessManagement().api.get(DOMAINS)
         self.assertEqual(self.platform.sent(*LOGIN), [])
 
     def test_a_login_that_is_refused_is_asked_again_until_the_platform_answers(self):

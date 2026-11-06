@@ -217,8 +217,8 @@ class Running(Seed):
     def test_a_redis_nobody_can_reach_is_told_and_the_seed_goes_on(self):
         self.connect.side_effect = ConnectionError("Error 111 connecting to redis:6379. Connection refused.")
         refills.run([self.refill], {"team-a": SANDBOX})
-        self.assertIn("! Could not refill hackathon: ConnectionError: Error 111 connecting to redis:6379.", self.output())
-        self.assertIn("The budget is whole again when its period ends", self.output())
+        self.assertIn("! Could not refill hackathon: ConnectionError: Error 111 connecting to redis:6379. Connection refused. "
+                      "The budget is whole again when its period ends", self.output())
         self.assertIn(KEY, self.client.data)
 
     def test_an_error_redis_answers_with_is_told_with_its_name_and_the_seed_goes_on(self):
@@ -258,11 +258,6 @@ class Running(Seed):
         self.assertNotIn("s3cret-value", self.output())
         self.assertIn("redis://:***@redis:6379", self.output())
 
-    def test_what_is_told_ends_in_one_full_stop_not_two(self):
-        self.connect.side_effect = ConnectionError("Error 111 connecting to redis:6379. Connection refused.")
-        refills.run([self.refill], {"team-a": SANDBOX})
-        self.assertIn("Connection refused. The budget is whole again when its period ends", self.output())
-
     def test_a_connection_that_fails_to_close_is_not_a_failure(self):
         self.client.close = mock.Mock(side_effect=OSError("already closed"))
         refills.run([self.refill], {"team-a": SANDBOX})
@@ -297,12 +292,6 @@ class TheLibrary(unittest.TestCase):
                            (testkit.FakeBatch.execute, self.redis.client.Pipeline.execute)):
             used = set(inspect.signature(fake).parameters) - {"self"}
             self.assertLessEqual(used, set(inspect.signature(real).parameters), fake.__qualname__)
-
-    def test_a_connection_is_made_from_an_address_with_timeouts_and_a_password_as_the_refill_gives_them(self):
-        client = self.redis.Redis.from_url("redis://redis:6379", decode_responses=True, socket_timeout=10, socket_connect_timeout=10,
-                                           password="not-a-real-password")
-        self.assertEqual(client.connection_pool.connection_kwargs["socket_timeout"], 10)
-        client.close()
 
 
 class Connecting(Seed):

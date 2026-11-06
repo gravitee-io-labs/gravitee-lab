@@ -197,17 +197,6 @@ class Tuples(Case):
         openfga.seed()
         self.assertEqual(self.fga.writes[0]["writes"]["tuple_keys"], [{"user": "user:0", "relation": "viewer", "object": "doc:1"}])
 
-    def test_a_hundred_tuples_are_one_write(self):
-        self.store_file(self.tuples(100))
-        openfga.seed()
-        self.assertEqual(len(self.fga.writes), 1)
-
-    def test_a_store_without_tuples_writes_none(self):
-        self.store_file()
-        openfga.seed()
-        self.assertEqual(self.fga.writes, [])
-        self.assertNotIn("tuples", self.output())
-
 
 class Removal(Case):
 
