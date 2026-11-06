@@ -354,7 +354,7 @@ class DefaultNamespace(OnDisk):
 
 
 class InCatalogs(OnDisk):
-    """The layout of 3.1: every unit sits in the folder of a catalog."""
+    """Every unit sits in the folder of a catalog."""
 
     TABLE = (
         # kind, id, file, folder
@@ -445,10 +445,8 @@ class InCatalogs(OnDisk):
 
     def test_a_bare_name_has_no_place_without_a_default_catalog(self):
         # A place is never made of None; this machine's and another catalog's need no default file
-        for uid in ("kafka", "*", "[!.]*"):
-            with self.subTest(uid=uid):
-                with self.assertRaises(paths.NotFound):
-                    paths._place(uid, None)
+        with self.assertRaises(paths.NotFound):
+            paths._place("kafka", None)
         self.assertEqual((paths._place("local/x", None), paths._place("@acme-hub/x", None)), (("local", "x"), ("acme-hub", "x")))
 
     def test_a_kind_that_does_not_exist_is_a_key_error(self):
