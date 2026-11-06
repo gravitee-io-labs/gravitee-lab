@@ -7,7 +7,7 @@
 // says so in its state (a menu entry has no button to show it on) and offers nothing else to press. The dialogs are dialogs/catalog.js's.
 
 import { $, esc, icon, setHTML, api, store, router, ago, copyButton } from "../core.js";
-import { toast, openMenu, keyed, statusHtml, progressBar, tipHtml, paintActions, actionButton, holdOff, contentStatus, confirmEffects, GAP } from "../components/ui.js";
+import { toast, openMenu, keyed, statusHtml, progressBar, tipHtml, paintActions, actionButton, holdOff, contentStatus, confirmEffects, GAP, copyAddress } from "../components/ui.js";
 import { busy } from "../activity/jobs.js";
 import { selectCatalog } from "./list.js";
 import { NO_GIT, usesCard, openAdd, addCatalog, tryAgain, openUpdate, openGoBack, openRemove, openAllow, openNew } from "../dialogs/catalog.js";
@@ -192,15 +192,6 @@ function holds(row) {
 
 // --- The menu -----------------------------------------------------------------------------------------------------------------
 
-async function copy(value) {
-  try {
-    await navigator.clipboard.writeText(value);
-    toast("Copied");
-  } catch {
-    toast("Could not copy", true);
-  }
-}
-
 // Why stopping the allowance waits: an item that uses this machine is on (the server's `held` is for updating, going back and removing)
 function allowHeld(row) {
   const on = (row.uses_machine || []).map((u) => ["addon", "setup", "playground"].map((kind) => store.item(kind, u.id)).find(Boolean)).find((x) => x?.on || x?.up);
@@ -256,7 +247,7 @@ function menu(row) {
   const web = /^https:\/\//i.test(row.web_url || "") ? row.web_url : "";
   // Where the Lab keeps an imported playground is its own business: no repository to open, no address to copy
   if (web && !row.imported) items.push({ label: "Open repository", href: web });
-  if (!row.imported) items.push({ label: "Copy address", onSelect: () => copy(row.url || row.address) });
+  if (!row.imported) items.push({ label: "Copy address", onSelect: () => copyAddress(row.url || row.address) });
   if (git) items.push({ label: "Go back to previous version", ...hold(!row.has_previous ? "No previous version" : held.undo === "No previous version" ? "" : held.undo), onSelect: () => openGoBack(row) });
   if (row.state?.key === "damaged") items.push({ label: "Repair", ...hold(""), onSelect: () => repair(row) });
   items.push({ separator: true }, { label: "Remove", danger: true, ...hold(held.remove), onSelect: () => openRemove(row) });

@@ -7,7 +7,7 @@
 // the same plan and confirmation as a Start.
 
 import { $, esc, icon, setHTML, loading, api, store, router, copyButton } from "../core.js";
-import { toast, effectsDialog, paintActions, paintBusy, actionButton, openMenu, tipHtml, keyed, noticeHtml, statusHtml } from "../components/ui.js";
+import { toast, effectsDialog, paintActions, paintBusy, actionButton, openMenu, tipHtml, keyed, noticeHtml, statusHtml, copyAddress } from "../components/ui.js";
 import { busy } from "../activity/jobs.js";
 import { selectLogs, hasLogs } from "./logs.js";
 import { seeded } from "./playground.js";
@@ -181,7 +181,7 @@ function gatewayMenu(p, g) {
   if (g.here && addon && hasLogs(addon.gateway.service)) {
     items.push({ label: "Show logs", onSelect: () => { selectLogs([addon.gateway.service]); router.go("#/logs"); } });
   }
-  if (g.address) items.push({ label: "Copy address", hint: g.address, onSelect: () => copy(g.address) });
+  if (g.address) items.push({ label: "Copy address", hint: g.address, onSelect: () => copyAddress(g.address) });
   const removal = g.orphan ? [] : [{ label: "Remove gateway", danger: true, hint: "Deleted in Gravitee Cloud", onSelect: () => removeGateway(p, g.id) }];
   return removal.length && items.length ? [...items, { separator: true }, ...removal] : [...items, ...removal];
 }
@@ -489,15 +489,6 @@ function added() {
   load();
 }
 
-async function copy(value) {
-  try {
-    await navigator.clipboard.writeText(value);
-    toast("Copied");
-  } catch {
-    toast("Could not copy", true);
-  }
-}
-
 // --- Menus ----------------------------------------------------------------------------
 
 // --- The connection -------------------------------------------------------------------
@@ -562,7 +553,7 @@ function menuOf(p, env, st) {
   if (here && hasLogs(addon.gateway.service)) {
     add({ label: "Show logs", onSelect: () => { selectLogs([addon.gateway.service]); router.go("#/logs"); } });
   }
-  if (g.address) add({ label: "Copy address", hint: g.address, onSelect: () => copy(g.address) });
+  if (g.address) add({ label: "Copy address", hint: g.address, onSelect: () => copyAddress(g.address) });
   if (now === "add-license" && addon && g.id) add({ label: "Start gateway", disabled: true, reason: "Needs a license" });
   // A Cloud Token that expired or is refused is the row's action: what the gateway needs comes here meanwhile. These entries exist only with
   // the add-on that runs the gateway (`addon`), which is what the server names only when one can: no hold for want of one is possible here (the

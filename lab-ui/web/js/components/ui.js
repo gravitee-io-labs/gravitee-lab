@@ -1548,23 +1548,31 @@ document.addEventListener("keydown", (e) => {
   input.focus();
 });
 
+// Copies text, and says whether it could. Clipboard permission refused: through a selection instead, in `near` (a dialog keeps its
+// selection inside).
+async function copyText(value, near = document.body) {
+  try {
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch {
+    const area = Object.assign(document.createElement("textarea"), { value });
+    near.append(area);
+    area.select();
+    const ok = document.execCommand("copy");
+    area.remove();
+    return ok;
+  }
+}
+
+// ... for a menu entry, which has no button to say it on
+export const copyAddress = (value) => copyText(value).then((ok) => toast(ok ? "Copied" : "Could not copy", !ok));
+
 // A click on a copy button (core.js), wherever it is drawn, copies its data-copy value: the button turns into a check for a
 // moment.
 
 document.addEventListener("click", async (e) => {
   const button = e.target.closest("[data-copy]");
-  if (!button) return;
-  try {
-    await navigator.clipboard.writeText(button.dataset.copy);
-  } catch {
-    // Clipboard permission refused: copy through a selection instead
-    const area = Object.assign(document.createElement("textarea"), { value: button.dataset.copy });
-    button.after(area);
-    area.select();
-    const ok = document.execCommand("copy");
-    area.remove();
-    if (!ok) return;
-  }
+  if (!button || !(await copyText(button.dataset.copy, button.parentElement))) return;
   const was = button.innerHTML, icon_only = button.classList.contains("icon-btn");   // a button with words says Copied in them
   button.innerHTML = icon_only ? icon("check") : `${icon("check")}Copied`;
   button.classList.add("done");
