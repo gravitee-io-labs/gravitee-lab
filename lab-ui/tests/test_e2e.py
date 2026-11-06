@@ -561,7 +561,7 @@ class Saying(Case):
         self.assertIn("The summary could not be written: No such file or directory", said)
         self.assertIn("It does not work: x", said)
 
-    def test_a_log_is_kept_by_its_end_and_a_step_is_one_line_of_the_table(self):
+    def test_a_log_is_kept_by_its_end(self):
         self.assertEqual(e2e.tail(None), "")
         self.assertEqual(e2e.tail("short"), "short")
         long = "a" * (e2e.LOG_CHARS + 50) + "THE END"
