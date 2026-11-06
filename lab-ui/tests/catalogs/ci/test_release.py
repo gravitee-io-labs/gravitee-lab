@@ -253,6 +253,7 @@ class Tags(Fixture):
         self.assertEqual(release.next_release("v1.0.0", "1.0.0"), ("1.1.0", False))
         self.assertEqual(release.next_release("v1.0.0", "1.1.0"), ("1.1.0", True), "catalog.yml says more: its tag is what is left")
         self.assertEqual(release.next_release("v1.0.0", "2.0.0"), ("2.0.0", True))
+        self.assertEqual(release.next_release("v1.0.0", "1234567.0.0"), ("1234567.0.0", True), "catalog.yml may say more digits")
         self.assertEqual(release.next_release("v1.4.0", "1.2.0"), ("1.5.0", False), "never below the last release")
         self.assertEqual(release.next_release(None, "0.3.0"), ("0.3.0", True))
         self.assertTrue(release.unreleased_text("v1.0.0", ["addon:a"], [], [], "1.1.0").endswith("make release VERSION=1.1.0 TAG=1"))

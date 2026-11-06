@@ -36,13 +36,11 @@ from pathlib import Path
 from typing import List, NamedTuple, Optional, Sequence, Tuple
 
 from ... import paths
-from .. import gitx, report, store, tree as trees
+from .. import gitx, release as releases, report, store, tree as trees
 from ..rules import catalog_meta
 from . import Unavailable, Usage, entry, parsed, parser, plan as planning, write_summary
 
-TAG = re.compile(r"v(\d{1,6})\.(\d{1,6})\.(\d{1,6})")
 SUBJECTS = 5
-SHA = re.compile(r"[0-9a-f]{40}")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 IMAGE = re.compile(r"[a-z0-9.-]+(?::[0-9]+)?(?:/[a-z0-9][a-z0-9._-]*)+")
 WORD = re.compile(r"[^\s]+")
@@ -50,7 +48,6 @@ SPECIAL = re.compile(r"([\\`*_{}\[\]<>()#+!|~])")
 LINKISH = re.compile(r"@|://|www\.|^#\d|^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+#\d", re.I)
 SHOWN = 160
 NAME_SHOWN = 40
-VERSION = re.compile(r"(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})")
 
 
 class Release(NamedTuple):
@@ -63,13 +60,6 @@ class Release(NamedTuple):
     new: List[str]
     changed: List[Tuple[str, List[str]]]
     removed: List[str]
-
-
-def version_of(tag: str) -> Tuple[int, int, int]:
-    found = TAG.fullmatch(tag)
-    if not found:
-        raise ValueError(f"not a version tag: {tag!r}")
-    return int(found.group(1)), int(found.group(2)), int(found.group(3))
 
 
 def plain(text: str) -> str:
@@ -91,12 +81,12 @@ def tags_before(root: str, sha: str, tag: Optional[str]) -> Optional[str]:
         raise Unavailable("git could not list the tags of this clone") from None
     if done.code != 0:
         raise Unavailable("git could not list the tags that lead to " + sha[:7])
-    here = version_of(tag) if tag else (1 << 30,) * 3
+    here = releases.numbers(tag[1:]) if tag else (1 << 30,) * 3
     older = []
     for name in done.out.decode("utf-8", "replace").split("\n"):
         name = name.strip()
-        if TAG.fullmatch(name) and version_of(name) < here:
-            older.append((version_of(name), name))
+        if releases.TAG.fullmatch(name) and releases.numbers(name[1:]) < here:
+            older.append((releases.numbers(name[1:]), name))
     for _, name in sorted(older, reverse=True):
         try:
             shown = gitx.run(["show", f"refs/tags/{name}:catalog.yml"], cwd=os.path.realpath(root), env=trees.QUIET, timeout=60)
@@ -177,9 +167,9 @@ def next_release(previous: Optional[str], version: str = "") -> Tuple[str, bool]
     pull request is merged: the tag is what is left. Else the next minor version: never one below what catalog.yml says."""
     if previous is None:
         return version or "1.0.0", True
-    if version and version_of("v" + version) > version_of(previous):
+    if version and releases.numbers(version) > releases.numbers(previous[1:]):
         return version, True
-    major, minor, _ = version_of(previous)
+    major, minor, _ = releases.numbers(previous[1:])
     return f"{major}.{minor + 1}.0", False
 
 
@@ -248,7 +238,7 @@ def main(argv, out, err, **seams) -> int:
     found.add_argument("--notes", required=True, help="the file the notes are written to")
     found.add_argument("--images", required=True, help="the file images.json is written to")
     args = parsed(found, argv)
-    if not TAG.fullmatch(args.tag):
+    if not releases.TAG.fullmatch(args.tag):
         raise Usage(f"--tag is a release tag, vX.Y.Z: {report.printable(args.tag)[:40]} is not one")
     root = os.path.abspath(args.path)
     release = gather(root, args.tag, seams)
@@ -282,7 +272,7 @@ def unreleased_main(argv, out, err, **seams) -> int:
     previous = tags_before(root, sha, None)
     tree, (new, changed, removed) = between(root, git_dir, previous, sha, seams)
     meta = catalog_meta(tree.text("catalog.yml") or "")
-    version = meta.get("version", "") if isinstance(meta.get("version"), str) and VERSION.fullmatch(meta["version"]) else ""
+    version = meta.get("version", "") if isinstance(meta.get("version"), str) and releases.VERSION.fullmatch(meta["version"]) else ""
     line = unreleased_text(previous, new, changed, removed, version)
     if args.format == "json":
         wanted, tag_only = next_release(previous, version)
