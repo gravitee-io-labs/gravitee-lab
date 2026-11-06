@@ -739,10 +739,10 @@ class State(Built):
     def test_core_file_that_does_not_load(self):
         # Compose reads nothing without it: Start and Stop say why before the click, the settings an add-on lacks first
         self.project["core_loaded"] = False
-        action = self.item("addon", "kafka", docker_error="down")["action"]
+        action = self.item("addon", "kafka")["action"]
         self.assertEqual((action["enabled"], action["reason"]), (False, "docker-compose.yml does not load"))
         self.assertEqual(self.item("addon", "hybrid", missing=["hybrid"])["action"]["reason"], "Needs settings")
-        start = self.build(docker_error="down")["platform"]["start"]
+        start = self.build()["platform"]["start"]
         self.assertEqual((start["enabled"], start["reason"]), (False, "docker-compose.yml does not load"))
 
     def test_dialog_rows(self):

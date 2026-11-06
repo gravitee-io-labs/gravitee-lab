@@ -485,7 +485,7 @@ def _note(c, unit, state, on, is_up, plan, failure, services, offer=None):
                                            "note_causes": [{"kind": "unset", "settings": unset}] if unset else []}
     # What is on is read from the files: without Docker, it still starts with the platform. Without the core file,
     # what is on is not known either
-    if on and key == "stopped" and (not c["blind"] or c["docker_down"]):
+    if on and key == "stopped" and c["project"]["core_loaded"]:
         return _said("Stopped" if c["up"]["platform"] else "Starts with the platform")
     if unit["kind"] == "setup" and not on:
         names = sorted(c["project"]["addons"][aid]["name"] for aid in unit["members"]
@@ -537,8 +537,7 @@ def _action(c, plan, blocked=None, offer=None):
     Start, Stop, Turn on, Turn off. It asks first (`dialog`: layers.dialog, the rows of its plan) when it does more than
     that (layers.asks). `blocked`: why it cannot run, in the words of the row's own note (the settings an add-on lacks). `warns`: it
     can run, and does or offers what the row's note warns of; `offer`: what it offers (_offer)."""
-    reason = blocked or plan["blocked"] or (None if c["project"]["core_loaded"] else f"{paths.CORE_FILE} does not load") \
-        or c["wait"] or (c["unread"] if plan["do"] == "start" else None)
+    reason = blocked or plan["blocked"] or c["wait"] or (c["unread"] if plan["do"] == "start" else None)
     return {"do": plan["do"], "label": plan["label"], "enabled": not reason, "reason": reason,
             "dialog": layers.dialog(plan) if layers.asks(plan) else None,
             # Its start does or offers what the row's note warns of (it switches versions): the note stays beside the button
@@ -810,9 +809,9 @@ def _group_note(c, group, state):
 
 
 def _reason(c):
-    """Why the platform's actions that read the files cannot run now: docker-compose.yml does not load, Docker does not
-    answer, a job runs, an entry of the on file that Compose cannot read; None when they can."""
-    return (None if c["project"]["core_loaded"] else f"{paths.CORE_FILE} does not load") or c["wait"] or c["unread"]
+    """Why the platform's actions that read the files cannot run now: Docker does not answer, docker-compose.yml does not
+    load, a job runs, an entry of the on file that Compose cannot read; None when they can."""
+    return c["wait"] or c["unread"]
 
 
 def _dialog(starts=(), restarts=(), consequences=None):
@@ -1077,14 +1076,12 @@ def build(project, state, containers, job, failures, license_features, docker, c
     stopping = (running_job or {}).get("changes", {}).get("stop", [])
     running["addons"] -= {uid for kind, uid in stopping if kind == "addon"}
     # What the functions above work from, in one dict. `changing`: what the running job starts or stops, which says
-    # so in its state; `moved`: what the last job did, which its progress measures; `blind`: what runs is not known,
-    # `docker_down` because Docker does not answer, what is on being known all the same; `behind`: what runs behind
-    # what is saved; `held`: what the Lab UI does not start for want of a usable license, and `unlicensed` its note;
-    # `unlicensing`: with no license saved, what still runs one, which loses it once it is made again
+    # so in its state; `moved`: what the last job did, which its progress measures; `blind`: what runs is not known;
+    # `behind`: what runs behind what is saved; `held`: what the Lab UI does not start for want of a usable license, and
+    # `unlicensed` its note; `unlicensing`: with no license saved, what still runs one, which loses it once it is made again
     c = {"project": project, "state": state, "up": running, "job": running_job,
          "wait": _wait(docker, running_job, loaded), "unread": state.get("unread"), "failures": failures, "features": license_features,
          "services": services, "created": created, "blind": bool(docker["error"]) or not loaded,
-         "docker_down": bool(docker["error"]) and loaded,
          "changing": changing, "behind": set(late), "why": late, "license": license_status, "held": set(waiting),
          "unlicensed": _unlicensed(license_status), "kinds": {record["kind"] for record in platforms},
          "unlicensing": license.unapplied(project, containers, license_status["digest"])
