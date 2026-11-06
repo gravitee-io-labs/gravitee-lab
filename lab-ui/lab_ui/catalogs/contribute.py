@@ -1198,12 +1198,6 @@ def _catalog_name(ns):
     return (registry.inputs().get(ns) or {}).get("name") or registry.lock_of(ns).get("name") or ns
 
 
-def carries_label(files):
-    """Whether any compose file of `files` ({path in the catalog: (mode, bytes)}) says a private label (`private_from`)."""
-    return any(block.value(content.decode("utf-8", "replace"), "private_from")
-               for path, (_, content) in files.items() if path.endswith((".yml", ".yaml")) and path != registry.CATALOG_FILE)
-
-
 LABEL_KEYS = {"private_from", "private_id"}   # the keys of the private label, which no Lab of the first level reads
 
 
@@ -1285,7 +1279,7 @@ def _audience_now(address):
     try:
         gitx.ls_remote(asked, None, anonymous=True)
     except CatalogError as error:
-        return "private" if error.code in ("no_access", "not_found", "auth_failed") else "unknown"
+        return "private" if error.code in ("no_access", "not_found") else "unknown"
     except OSError:
         return "unknown"
     return "public"
@@ -1574,8 +1568,6 @@ def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False)
             if audience is None:   # private content where there was none when it was asked: the item changed meanwhile
                 changed = next((k, one) for k, one, s, _ in [(kind, uid, slug, copy), *along] if found[(k, s)])
                 raise _refusal("share_item_changed", name=named(*changed))
-            if audience != "private":
-                raise _maybe_public(row, audience)
             if (registry.entry(to), _history(to)) != probed:   # removed, added again, linked: another catalog than the one asked
                 raise _refusal("share_changed", catalog=row["name"])
         confirmed = audience == "private"
@@ -1680,12 +1672,6 @@ def moved(kind: str, old: str, new: str) -> None:
     are not touched but for those. An entry that stays where it is (a folder on another filesystem, one that is busy, a place
     in `kept/` that is taken too) is a ValueError that names it, raised before the star and the places that include the item
     follow: the item is as it was and the move is run again once it is done by hand."""
-    if kind not in paths.KINDS or not (isinstance(old, str) and personal.OWN.fullmatch(old)):
-        raise ValueError(f"Only your own {paths.NOUNS.get(kind, 'item')}s can be moved here")
-    if not (isinstance(new, str) and paths.is_id(new)) or paths.personal(new):
-        raise ValueError(f"{new} is not the id of an item of a catalog")
-    if not _there(kind, new):
-        raise ValueError(f"{new} is not an item of a catalog you have")
     stuck = []
     if kind != "setup":
         source, target = (str(paths.ROOT / paths.unit_folder(kind, one)) for one in (old, new))

@@ -333,9 +333,7 @@ def ssh_form(address: Address) -> Optional[Address]:
     None for an address that is not https or that names a port (the ssh port is another)."""
     if address.kind != "git" or not address.url.startswith("https://") or ":" in address.display.split("/", 1)[0]:
         return None
-    path = _repo_path(address.display.split("/", 1)[1]) if "/" in address.display else None
-    if path is None:
-        return None
+    path = address.display.split("/", 1)[1]
     return Address("git", f"git@{address.host}:{path}.git", "", address.display, address.host, address.repo)
 
 

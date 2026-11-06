@@ -536,13 +536,9 @@ def _snapshot(folder: Path, people=True):
 
 def _digest(folder, people=True):
     """What the files of an import's folder (or a `_snapshot` of it) are, as one digest: its paths, whether each runs, and their
-    bytes. What a preview judged is what goes to Personal. Without `people`, the person's settings, secrets and state of its
-    items are left out."""
+    bytes. What a preview judged is what goes to Personal."""
     found = hashlib.sha256()
     for rel, (mode, data) in sorted((folder if isinstance(folder, dict) else _snapshot(folder, people)).items()):
-        parts = rel.split("/")
-        if not people and len(parts) > 2 and parts[0] in ("addons", "playgrounds") and parts[2] in MACHINE_FILES:
-            continue
         found.update(f"{rel}\0{mode & 0o111}\0".encode("utf-8"))
         found.update(hashlib.sha256(data).digest())
     return found.hexdigest()
@@ -574,8 +570,6 @@ def _rel(kind, item):
 def _requires(text, needed):
     """catalog.yml with the catalogs `needed` ([(ns, name, url, min)]) in its requires.catalogs, as an export writes them."""
     rows = "".join(f'      {ns}:\n        name: "{name}"\n        url: {url}\n        min: {least}\n' for ns, name, url, least in needed)
-    if not rows:
-        return text
     head = "\n  requires:\n    catalogs:\n"
     if head in text:
         return text.replace(head, head + rows, 1)

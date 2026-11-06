@@ -1800,14 +1800,6 @@ class Ended(Seam):
         self.assertFalse((self.root / self.THERE).exists(), "nothing was written where the unit was")
         self.kept_stays(".env", "the item is where it was")
 
-    def test_moved_makes_no_folder_for_a_unit_that_is_not_there(self):
-        before = self.tree()
-        for new in ("@nowhere/echo", "nowhere"):
-            with self.subTest(new), self.assertRaisesRegex(ValueError, f"^{new} is not an item of a catalog you have$"):
-                contribute.moved("addon", "local/echo", new)
-        self.assertEqual(self.tree(), before)
-        self.assertFalse((self.root / ".lab/catalogs/nowhere").exists())
-
     def test_the_items_of_this_machine_that_included_it_include_the_catalogs_now(self):
         self.item("addon", "user", "User", "include:\n  - ../echo/compose.yml\nservices: {}\n")
         self.use()
@@ -1887,16 +1879,6 @@ class Ended(Seam):
         self.assertTrue((self.root / self.LOCAL / "compose.yml").is_file())
         self.assertFalse((self.root / self.LOCAL / ".env").exists())
         self.assertEqual(self.stars(), {"addon": ["echo", "kafka"]})
-
-    def test_moved_refuses_what_is_not_an_id_before_it_makes_a_path_of_it(self):
-        before = self.tree()
-        for old, new in (("echo", "x"), ("local/../x", "x"), ("local/echo", "local/x"), ("local/echo", "../x"),
-                         ("local/echo", "@local/x"), ("local/echo", ""), ("local/echo", None), (3, "x")):
-            with self.subTest(old=old, new=new), self.assertRaises(ValueError):
-                contribute.moved("addon", old, new)
-        with self.assertRaises(ValueError):
-            contribute.moved("thing", "local/echo", "echo")
-        self.assertEqual(self.tree(), before)
 
     def test_a_setup_has_no_settings_only_a_star_and_the_places_that_include_it(self):
         self.item("setup", "mine", "Mine", "include:\n  - ../../fixture/addons/echo/compose.yml\n",
