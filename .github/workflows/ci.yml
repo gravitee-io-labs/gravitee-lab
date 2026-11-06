@@ -102,6 +102,9 @@ jobs:
       # the first failure
       - name: Run the tests
         run: .venv/bin/python -m unittest discover -s seeder/tests -t seeder
+      # A test compares the reader of the workflow rules with a real YAML reader, and this job is the one that has PyYAML
+      - name: Run the workflow rules' tests
+        run: .venv/bin/python -m unittest discover -s lab-ui/tests/catalogs/rules -t lab-ui -p test_workflows.py
 
   # The whole suite of the Lab UI, on the newest Python, with the JavaScript that Node tests. It renders many files with Compose, so it
   # is split in four parts that take about as long (lab-ui/tests/durations.json)
