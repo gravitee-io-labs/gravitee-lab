@@ -276,7 +276,6 @@ class Rows(Seam):
         self.installed("partner")
         rows = service.describe({}, {})
         self.assertEqual([row["id"] for row in rows if row.get("id")], ["fixture", "partner"])
-        self.assertEqual(service.describe(None, None), rows)
 
     def test_the_summary_of_the_project_gives_the_blocked_items_what_uses_the_machine_the_needs_and_the_problems(self):
         self.installed("partner")
@@ -342,7 +341,6 @@ class PublicNames(unittest.TestCase):
     """service.py works with the modules around it by their public names. A rename inside one of them is then a failure of its
     own tests, and not of a route of the Catalogs page on a day nobody ran it."""
 
-    # Until firstrun publishes `failure(ns, held)`, which `_remembered` asks first
     ALLOWED = {("firstrun", "_failure")}
 
     @staticmethod

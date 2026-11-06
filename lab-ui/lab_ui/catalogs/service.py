@@ -399,9 +399,7 @@ def _progress_of(ns, state_key):
     if state_key != "downloading":
         return None
     from . import firstrun   # here and not above: the worker calls this module
-    found = (getattr(firstrun, "PROGRESS", None) or {}).get(ns)
-    fraction = found.get("fraction") if isinstance(found, dict) else None
-    return float(fraction) if isinstance(fraction, (int, float)) and not isinstance(fraction, bool) else None
+    return (firstrun.PROGRESS.get(ns) or {}).get("fraction")
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -459,9 +457,8 @@ def _running(found, ns):
             if unit.get("catalog") == ns}
 
 
-def _used(ns, found=None):
+def _used(ns, found):
     """({kind:name that the on file turns on}, {kind:name that run}) among the units of catalog `ns`."""
-    found = found if found is not None else project.loaded()[0]
     return install.on_units(ns), _running(found, ns)
 
 
@@ -475,16 +472,13 @@ def _turn_off_line(found, ns, keys, running=()):
     return f"{'Stop' if keys[0] in running else 'Turn off'} {name} first"
 
 
-def _hold(ns, keys=None, found=None):
-    """Why the units of catalog `ns` (all of them, or `keys`) cannot be changed now: a job runs, or one is on or up. None
-    when nothing holds."""
-    found = found if found is not None else project.loaded()[0]
+def _hold(ns, found):
+    """Why the units of catalog `ns` cannot be changed now: a job runs, or one is on or up. None when nothing holds."""
     why = _waiting()
     if why:
         return why
     on, running = _used(ns, found)
-    busy = (on | running) if keys is None else (on | running) & set(keys)
-    return _turn_off_line(found, ns, busy, running)
+    return _turn_off_line(found, ns, on | running, running)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -592,8 +586,6 @@ def describe(project, inputs):
     ever called so). `project` is what project.build made, `inputs` what project.gather read: the rows read the registry's
     reading of the disk (`inputs["catalogs"]`), the lock, the summary the project made of each catalog, and the memory of the
     worker. Nothing here reads git, the network or Docker."""
-    project = project if isinstance(project, dict) else {}
-    inputs = inputs if isinstance(inputs, dict) else {}
     found = inputs["catalogs"] if isinstance(inputs.get("catalogs"), dict) else registry.inputs()
     summaries = project.get("catalogs") if isinstance(project.get("catalogs"), dict) else {}
     contract = inputs.get("contract") if isinstance(inputs.get("contract"), dict) else {}
@@ -1155,7 +1147,6 @@ def allow_host(ns, enabled):
         config["catalogs"] = [({**one, "host": True} if enabled else {k: v for k, v in one.items() if k != "host"})
                               if one["id"] == ns else one for one in config["catalogs"]]
         registry.write_config(config)
-    project.forget()
     return {"catalog": _row_of(ns)}
 
 
@@ -1166,8 +1157,7 @@ def allow_host(ns, enabled):
 def _refetch(ns, entry):
     """The store of a catalog lacks an object (the cache is disposable): the branch is fetched again, with no lock held, from
     the address the entry has (the tracked one for a listed catalog), and the step that needed it is made again."""
-    url, branch = (entry["shadows"].get("url"), entry["shadows"].get("branch")) if entry["kind"] == "folder" \
-        else defaults.effective(entry)
+    url, branch = defaults.effective(entry)
     gitx.require()
     bare.fetch(gitx.parse_address(url), branch, registry.store_dir(ns), stall=30, cap=CHECK_CAP)
 
@@ -1370,12 +1360,12 @@ def _follows(found, item, moved):
     return bool(file) and renames.follows(file, moved)
 
 
-def _contained(found, ns, services):
-    """The units of catalog `ns` among `services` ({kind:name: their services}) that have a container in the project, running
-    or not. A container whose service an item of another origin that is on defines too (the person's copy, under the names of
-    the original) is that item's. Docker not answering is `docker_unknown`: nothing of a renamed item is moved on a guess."""
-    if not services:
-        return set()
+def _containers(ns, services):
+    """`install.CONTAINERS`: the units of catalog `ns` among `services` ({kind:name: their services}) that have a container in the
+    project, running or not. A container whose service an item of another origin that is on defines too (the person's copy, under
+    the names of the original) is that item's. Docker not answering is `docker_unknown`: nothing of a renamed item is moved on a
+    guess."""
+    found = project.loaded()[0]
     made = set(_ps())
     state = layers.current(found)
     on = [("addons", uid) for uid in state["effective"]] + ([("playgrounds", state["playground"])] if state["playground"] else [])
@@ -1390,11 +1380,6 @@ def _ps():
         return compose.ps()
     except (compose.ComposeError, OSError, KeyError, TypeError, ValueError):
         raise CatalogError("docker_unknown", DOCKER_UNKNOWN, 503) from None
-
-
-def _containers(ns, services):
-    """`install.CONTAINERS`: `_contained`, in the project as it is now."""
-    return _contained(project.loaded()[0], ns, services)
 
 
 install.CONTAINERS = _containers
@@ -1489,7 +1474,6 @@ def _apply(ns, ticket, confirm_history, op):
     _spend(ticket)
     with contextlib.suppress(OSError):
         layers.prepare_catalogs()
-    project.forget()
     return {"catalog": _row_of(ns)}
 
 
@@ -1570,7 +1554,7 @@ def _removal(ns, entry):
     found = project.loaded()[0]
     units = registry.units_of(ns)
     going = {(kind, _unit_id(ns, kind, name)) for kind, names in units.items() for name in names}
-    return {"held": _hold(ns, None, found) or _under_way_hold(ns, held), "items": sum(len(names) for names in units.values()),
+    return {"held": _hold(ns, found) or _under_way_hold(ns, held), "items": sum(len(names) for names in units.values()),
             "folder": entry["kind"] == "folder", "breaks": [{k: one[k] for k in ("kind", "id", "name")}
                                                             for one in _items_that_include(found, going)],
             "stays": _stays(found, ns)}
@@ -1624,7 +1608,6 @@ def repair(ns):
     except Exception:
         _unstick(ns)
         raise
-    project.forget()
     return {"catalog": _row_of(ns)}
 
 
