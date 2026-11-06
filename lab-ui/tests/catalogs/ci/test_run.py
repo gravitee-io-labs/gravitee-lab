@@ -1,5 +1,5 @@
 """`catalog.py ci run`: the runner behind `make ci`. It plans from `origin/main` the way CI plans a pull request, reads the
-units once, and runs the stages in the order CI runs them on the architecture of this machine; a stage that is not in this Lab
+units once, and runs the stages in the order CI runs them on the architecture of this machine; a scan this machine cannot run
 is said and skipped, and a run that skipped something never says it is all good.
 
 The stages are stubs that record their arguments, and one class runs the real ones over the fake docker."""
@@ -15,7 +15,6 @@ from pathlib import Path
 from unittest import mock
 
 from lab_ui.catalogs import ci
-from lab_ui.catalogs.ci import main as ci_main
 from lab_ui.catalogs.ci import plan, run
 from tests.data.rules import support
 from tests.fakedocker import FakeDocker, option
@@ -91,7 +90,7 @@ class Order(Fixture):
         self.change({"playgrounds/bank/apps/web/app.py": "print(2)\n"})
         code = self.run_ci()
         self.assertEqual(code, 0, self.err.getvalue())
-        self.assertEqual(self.recorder.names, ["manifests", "build", "test", "smoke", "scan", "gitleaks"])   # smoke of level 2, scan of 6
+        self.assertEqual(self.recorder.names, ["manifests", "build", "test", "smoke", "scan", "gitleaks"])
         calls = {name: argv for name, argv, _ in self.recorder.calls}
         root = str(self.repo)
         units = json.dumps(["playground:bank", "setup:pair"])
@@ -110,15 +109,10 @@ class Order(Fixture):
                         r"✓ smoke\s+passed", r"✓ scan\s+passed", r"✓ gitleaks\s+passed"):
             self.assertRegex(text, re.compile(pattern))
 
-    def test_a_run_that_skipped_nothing_says_all_good_and_one_that_did_not_never_does(self):
+    def test_a_run_that_skipped_nothing_says_all_good(self):
         self.change({"playgrounds/bank/apps/web/app.py": "print(2)\n"})
         self.run_ci()
         self.assertTrue(self.out.getvalue().endswith("All good\n"))
-        self.out = io.StringIO()
-        self.run_ci(stages={**self.recorder.stages(*run.ORDER), "gitleaks": None})
-        self.assertNotIn("All good", self.out.getvalue())
-        self.assertRegex(self.out.getvalue(), r"- gitleaks\s+skipped: this stage is not in this Lab yet")
-        self.assertTrue(self.out.getvalue().endswith("1 stage skipped.\n"))
 
     def test_nothing_changed_in_a_unit_runs_nothing_but_the_scan_of_the_commits(self):
         self.change({"docs/guide.md": "# Changed\n"})
@@ -190,41 +184,7 @@ class Order(Fixture):
         self.assertIsNone(ci.LOADER)   # and put back when the run ends
 
 
-class Levels(Fixture):
-
-    def setUp(self):
-        super().setUp()
-        self.change({"playgrounds/bank/apps/web/app.py": "print(2)\n"})
-
-    def test_smoke_is_not_asked_below_level_two(self):
-        with mock.patch.object(run, "level", lambda: 1):
-            self.run_ci()
-        self.assertEqual(self.recorder.names, ["manifests", "build", "test", "gitleaks"])
-        self.assertRegex(self.out.getvalue(), r"- smoke\s+not asked: not a stage of standard level 1")
-        self.assertTrue(self.out.getvalue().endswith("All good\n"))
-
-    def test_smoke_runs_from_level_two_when_it_is_in_this_lab(self):
-        with mock.patch.object(run, "level", lambda: 2):
-            self.run_ci()
-        self.assertEqual(self.recorder.names, ["manifests", "build", "test", "smoke", "gitleaks"])
-        self.assertEqual(self.recorder.calls[3][1][1:], ["--units", json.dumps(["playground:bank", "setup:pair"])])
-
-    def test_smoke_that_is_not_shipped_is_said_and_skipped(self):
-        with mock.patch.object(run, "level", lambda: 2):
-            code = self.run_ci(stages={**self.recorder.stages(*run.ORDER), "smoke": None})
-        self.assertEqual(code, 0)
-        self.assertRegex(self.out.getvalue(), r"- smoke\s+skipped: this stage is not in this Lab yet")
-        self.assertNotIn("All good", self.out.getvalue())
-
-    def test_the_scan_of_the_images_built_is_not_asked_below_level_six_and_runs_from_it(self):
-        with mock.patch.object(run, "level", lambda: 5):
-            self.run_ci()
-        self.assertNotIn("scan", self.recorder.names)
-        self.assertRegex(self.out.getvalue(), r"- scan\s+not asked: not a stage of standard level 5")
-        self.recorder, self.out = Recorder(), io.StringIO()
-        with mock.patch.object(run, "level", lambda: 6):
-            self.run_ci()
-        self.assertEqual(self.recorder.names, ["manifests", "build", "test", "smoke", "scan", "gitleaks"])
+class Stages(unittest.TestCase):
 
     def test_the_scan_step_is_the_stage_scan_built_of_the_command_line(self):
         self.assertEqual(run.STAGE_OF["scan"], "scan-built")
@@ -232,19 +192,9 @@ class Levels(Fixture):
         from lab_ui.catalogs.ci import scan
         self.assertIs(run.stage_function("scan"), scan.built_main)
 
-    def test_the_level_is_the_standards_and_one_while_it_is_not_here(self):
-        self.assertIsInstance(run.level(), int)
-        self.assertGreaterEqual(run.level(), 1)
-        with mock.patch("importlib.import_module", side_effect=ModuleNotFoundError("no", name="lab_ui.catalogs.standard")):
-            self.assertEqual(run.level(), 1)
-
-    def test_the_real_stage_table_names_a_module_for_each_stage_and_the_missing_ones_answer_not_available(self):
-        out, err = io.StringIO(), io.StringIO()
-        for stage in ("smoke", "publish-plan", "publish", "release-notes", "links", "scan-published", "e2e-plan", "e2e-gate"):
-            module_name, function = ci.STAGES[stage]
-            if run.stage_function(stage) is None:
-                self.assertEqual(ci_main([stage], out, err), 2)
-                self.assertIn(f"{stage} is not available yet in this Lab.", err.getvalue())
+    def test_every_stage_word_has_its_function(self):
+        for stage in ci.STAGES:
+            self.assertTrue(callable(run.stage_function(stage)), stage)
 
 
 class Ends(Fixture):
@@ -400,8 +350,8 @@ class Real(Fixture):
         script = manifests.script()
         script.RESOLVE = lambda name, port, type=None: [(2, 1, 6, "", ("93.184.216.34", port))]
         registry = Registry(default=200)
-        with mock.patch.object(gitleaks, "DOCKERFILE", dockerfile), mock.patch.object(run, "level", lambda: 1):   # smoke needs Compose
-            code = self.real(load, script, registry)
+        with mock.patch.object(gitleaks, "DOCKERFILE", dockerfile):
+            code = self.real(load, script, registry, stages={name: lambda *_, **__: 0 for name in ("smoke", "scan")})   # (they need Compose)
         self.assertEqual(code, 0, self.out.getvalue() + self.err.getvalue())
         text = self.out.getvalue()
         for line in ("== manifests", "== build", "== test", "== gitleaks"):
@@ -431,10 +381,10 @@ class Real(Fixture):
                 self.assertRegex(self.out.getvalue(), shown)
                 self.assertEqual("not pinned by digest" in self.err.getvalue(), code == 2)
 
-    def real(self, load, script, registry):
+    def real(self, load, script, registry, **seams):
         with mock.patch.object(ci, "LOADER", load):
             return run.main([str(self.repo)], self.out, self.err, lab=str(self.repo), sleep=lambda seconds: None,
-                            ask=lambda image: script.exists(image, registry), module=script)
+                            ask=lambda image: script.exists(image, registry), module=script, **seams)
 
 
 if __name__ == "__main__":

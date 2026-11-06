@@ -600,24 +600,6 @@ class Kit(unittest.TestCase):
         with self.assertRaises(ci.Usage):
             ci.platform_of("linux/riscv64")
 
-    def test_the_stage_word_is_looked_up_and_a_stage_that_is_not_in_this_lab_is_not_available_yet(self):
-        out, err = io.StringIO(), io.StringIO()
-        with mock.patch.dict(ci.STAGES, {"ghost": ("a_module_that_is_not_there", "main")}):
-            self.assertEqual(ci_main(["ghost"], out, err), 2)
-        self.assertEqual((out.getvalue(), err.getvalue()), ("", "catalog.py ci: ghost is not available yet in this Lab.\n"))
-
-    def test_a_module_without_the_function_is_not_available_either(self):
-        out, err = io.StringIO(), io.StringIO()
-        with mock.patch.dict(ci.STAGES, {"ghost": ("plan", "no_such_function")}):
-            self.assertEqual(ci_main(["ghost"], out, err), 2)
-        self.assertIn("ghost is not available yet in this Lab.", err.getvalue())
-
-    def test_a_module_that_fails_to_import_is_a_fault_not_a_missing_stage(self):
-        with mock.patch.dict(ci.STAGES, {"ghost": ("plan", "main")}), \
-                mock.patch("importlib.import_module", side_effect=ModuleNotFoundError("no", name="something_it_needs")):
-            with self.assertRaises(ModuleNotFoundError):
-                ci_main(["ghost"], io.StringIO(), io.StringIO())
-
     def test_no_stage_and_a_word_that_is_none_are_usage(self):
         out, err = io.StringIO(), io.StringIO()
         self.assertEqual(ci_main([], out, err), 2)

@@ -502,7 +502,6 @@ class Dispatch(unittest.TestCase):
         self.assertEqual(ci.STAGES["smoke"], ("smoke", "main"))
         self.assertIs(run.stage_function("smoke"), smoke.main)
         self.assertIn("smoke", run.ORDER)
-        self.assertEqual(run.SMOKE_LEVEL, 2)
 
     def test_the_command_line_reaches_the_stage_and_says_a_usage_error_with_exit_2(self):
         out, err = io.StringIO(), io.StringIO()
@@ -539,7 +538,7 @@ class MakeCi(support.WithGit):
         def session(folder):
             yield smoke.Session(str(project), lambda each: ["-f", "docker-compose.yml", "-f", "on.yml"])
         out, err = io.StringIO(), io.StringIO()
-        with mock.patch.object(run, "level", return_value=2), mock.patch.object(ci, "LOADER", loader(unit("addon", "echo"))):
+        with mock.patch.object(ci, "LOADER", loader(unit("addon", "echo"))):
             code = run.main([str(repo)], out, err, stages={name: quiet(name) for name in ("manifests", "build", "test", "gitleaks")},
                             session=session, sleep=lambda seconds: None)
         self.assertEqual(code, 0, out.getvalue() + err.getvalue())

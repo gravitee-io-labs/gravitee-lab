@@ -11,9 +11,8 @@
     versions-plan, versions-record, versions-release
 
 A stage is `main(argv, stdout=None, stderr=None, **seams) -> int` of its module, `argv` being what follows the stage word;
-`STAGES` says which module and which function. A stage whose module is not in this Lab yet answers "not available yet" and
-exits 2, so that the command line does not wait for the packages that write them. Exit 0 it worked, 1 it found
-something to fix, 2 the command or the machine cannot do it (a stage that cannot run is never a green one).
+`STAGES` says which module and which function. Exit 0 it worked, 1 it found something to fix, 2 the command or the machine
+cannot do it (a stage that cannot run is never a green one).
 
 What every stage shares is here:
 
@@ -59,8 +58,7 @@ from .. import explain, report, store, tree as trees, trust
 from ..report import ERROR, Problem
 from ..rules import say
 
-# The stage word, then the module of this package and the function that answers it. A package that writes a stage names its
-# functions as this table does, or says which line to change
+# The stage word, then the module of this package and the function that answers it
 STAGES = {
     "needs": ("needs", "main"),
     "plan": ("plan", "main"),
@@ -243,8 +241,7 @@ def entry(function: Callable) -> Callable:
 
 
 def main(argv=None, stdout=None, stderr=None, **seams) -> int:
-    """`catalog.py ci <stage> ...`: the stage word, then the arguments of that stage. A stage whose module is not in this Lab
-    exits 2 with "not available yet"."""
+    """`catalog.py ci <stage> ...`: the stage word, then the arguments of that stage."""
     out, err = stdout or sys.stdout, stderr or sys.stderr
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv or argv[0] in ("-h", "--help"):
@@ -255,18 +252,7 @@ def main(argv=None, stdout=None, stderr=None, **seams) -> int:
         print(f"catalog.py ci: {report.printable(stage[:40])} is not a stage.\n{usage()}", file=err)
         return 2
     name, function = STAGES[stage]
-    target = f"{__name__}.{name}"
-    try:
-        module = importlib.import_module(target)
-    except ModuleNotFoundError as error:
-        if error.name != target:   # a module it needs is missing: that is a fault to show
-            raise
-        print(f"catalog.py ci: {stage} is not available yet in this Lab.", file=err)
-        return 2
-    if not hasattr(module, function):
-        print(f"catalog.py ci: {stage} is not available yet in this Lab.", file=err)
-        return 2
-    return getattr(module, function)(rest, out, err, **seams)
+    return getattr(importlib.import_module(f"{__name__}.{name}"), function)(rest, out, err, **seams)
 
 
 def usage() -> str:
