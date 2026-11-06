@@ -282,18 +282,6 @@ class Following(Case):
         self.assertIn("../../../partner/addons/ledger/compose.yml", self.text(copy))
         self.assertEqual(layers._copy_problems(known), [])
 
-    def test_a_path_to_what_moved_on_a_line_the_lab_does_not_write_again_is_said_until_it_is_changed(self):
-        mine = ".lab/catalogs/local/playgrounds/mine/compose.yml"
-        self.write(mine, "services:\n  mine:\n    image: alpine\n    volumes: [../../../partner/addons/books/data:/data:ro]\n"
-                         "    # volumes: [../../../partner/addons/gone/data:/data:ro]\n")
-        self.assertEqual(layers._dangling_problems(), [{"file": mine, "message": "names a folder that Partner fixture no longer has "
-                                                                                  "(an item it renamed or removed): change it"}],
-                         "a list on one line is the person's: the Lab says it, by the item, and a comment names nothing")
-        renames.follow("partner", FOUND)
-        self.assertEqual(len(layers._dangling_problems()), 1)
-        self.write(mine, self.text(mine).replace("addons/books/", "addons/ledger/"))
-        self.assertEqual(layers._dangling_problems(), [], "a file that changed is read again")
-
     def test_a_file_follows_when_no_path_to_the_old_place_is_left_once_repoint_wrote_it(self):
         moved = {OLD_FILE: NEW_FILE}
         mine = ".lab/catalogs/local/addons/mine/compose.yml"

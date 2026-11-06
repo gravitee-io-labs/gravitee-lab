@@ -17,8 +17,8 @@ from ..docker import compose, envfiles, images
 from .. import paths
 from ..docker.jobs import JOBS, JobFailed, awaited
 from ..gravitee import platforms
-from ..catalogs import registry, resolve
-from . import machine, moves, versions
+from ..catalogs import resolve
+from . import machine, versions
 from .project import _control_plane, _dotenv, brought
 
 LOCKED = f"{paths.ON_FILE} has your own changes"
@@ -218,7 +218,7 @@ def current(project):
     elif broken:
         locked = f"{broken[0]} does not load"
         problems += [{"file": paths.ON_FILE, "message": f"{path} does not load: {OFF}"} for path in broken]
-    problems += _copy_problems(project) + _dangling_problems()
+    problems += _copy_problems(project)
     unset = _unset(project)
     # Where an item runs when it is not this machine: {"<kind>:<id>": the kind of platform}
     where = {f"{unit[0]}:{unit[1]}": kind for path, kind in compose.targets(paths.ON_FILE).items()
@@ -256,53 +256,6 @@ def _copy_problems(project):
                 found.append({"file": original, "message": f"what {name} runs on its platform includes "
                                                            f"{_named(project, target)}, which is not there any more: "
                                                            f"turn {name} off and on again"})
-    return found
-
-
-_UNIT_PATH = re.compile(rf"{re.escape(paths.CATALOGS_DIR)}/({paths.NS})/(addons|playgrounds)/([a-z0-9-]+)(?:/|$)")
-_dangling = {}   # (file, its modification time, its size) -> its problems: a file is read again only when it changed
-
-
-def _dangling_problems():
-    """The paths of the files of this machine that lead into the folder of an item of a catalog that the catalog no longer
-    has (it was renamed, or removed), wherever the Lab does not write them again: a bind in a list written on one line, a
-    path in a command. Compose reads such a file all the same, and the container finds nothing there: each is said under the
-    file, by the name of the item, until it no longer names it. A comment names nothing."""
-    found = []
-    for file in moves._personal_files():
-        try:
-            info = file.stat()
-        except OSError:
-            continue
-        key = (str(file), info.st_mtime_ns, info.st_size)
-        if key not in _dangling:
-            if len(_dangling) >= 1000:   # what was read of files since changed is not kept for ever
-                _dangling.clear()
-            _dangling[key] = _dangling_in(file)
-        for problem in _dangling[key]:
-            if not (paths.ROOT / problem["folder"]).is_dir():
-                catalog = registry.lock_of(problem["ns"]).get("name") or problem["ns"]
-                found.append({"file": problem["file"], "message": f"names a folder that {catalog} no longer has (an item it "
-                                                                  "renamed or removed): change it"})
-    return found
-
-
-def _dangling_in(file):
-    """The paths of one file into the folder of an item of a catalog: [{file, ns, folder}], `folder` being where it leads."""
-    try:
-        text = file.read_text(encoding="utf-8")
-    except (OSError, ValueError):
-        return []
-    rel = os.path.relpath(file, paths.ROOT).replace(os.sep, "/")
-    folder, found = os.path.dirname(rel), []
-    lines = "\n".join(compose.COMMENT.sub("", line) for line in text.splitlines())
-    for written in sorted(set(moves.UPWARD.findall(lines))):
-        target = _UNIT_PATH.match(os.path.normpath(os.path.join(folder, written)).replace(os.sep, "/"))
-        if not target or written.rstrip("/").endswith(".yml"):   # an include: the project says when its file is not there
-            continue
-        ns, kind, name = target.groups()
-        if (paths.ROOT / paths.CATALOGS_DIR / ns).is_dir():
-            found.append({"file": rel, "ns": ns, "folder": f"{paths.CATALOGS_DIR}/{ns}/{kind}/{name}"})
     return found
 
 
