@@ -20,7 +20,6 @@ from .. import Case
 
 REPOSITORY = Path(__file__).resolve().parents[3]
 TRACKED = REPOSITORY / "catalogs.default.json"
-ROOT_COMMIT = "3d12437a0c1b2a3f4e5d6c7b8a9f0e1d2c3b4a59"
 
 # Where an address of a catalog may not be written: the code, the page, the server and the command of the Lab UI, the
 # seeder's modules, the core file, the Makefile and the workflows. The documentation may link the default catalog by
@@ -76,9 +75,7 @@ class TrackedFile(Case):
     def test_the_catalog_is_the_default_one_of_the_design(self):
         (item,) = self.data["catalogs"]
         self.assertEqual((item["id"], item["name"], item["branch"]), ("gravitee", "Gravitee public", "main"))
-        # The roots are filled at the public release, when the history is final: until then the file has none
-        self.assertLessEqual({"id", "name", "description", "url", "branch"}, set(item))
-        self.assertLessEqual(set(item), {"id", "name", "description", "url", "branch", "roots"})
+        self.assertEqual({"id", "name", "description", "url", "branch"}, set(item))
         self.assertTrue(item["description"])
 
     def test_every_id_is_a_namespace_and_none_is_twice(self):
@@ -95,11 +92,6 @@ class TrackedFile(Case):
             self.assertEqual(address.url, item["url"], "written the way the grammar writes it")
             self.assertTrue(address.url.startswith("https://"))
             self.assertNotIn("@", address.url)
-
-    def test_the_roots_are_commits_when_there_are_any(self):
-        for item in self.data["catalogs"]:
-            for root in item.get("roots", []):
-                self.assertRegex(root, r"[0-9a-f]{40}")
 
     def test_the_reader_takes_the_file_as_it_is(self):
         read = defaults.read()
@@ -156,11 +148,11 @@ class Reading(Case):
         self.assertIsNone(paths.default_ns())
 
     def test_a_good_file_is_read_in_order_with_every_field(self):
-        found = self.put(listing(entry("alpha", roots=[ROOT_COMMIT.upper(), ROOT_COMMIT]),
+        found = self.put(listing(entry("alpha"),
                                  entry("beta", branch=None, description=None, name=None)))
         self.assertEqual(found, [
             {"id": "alpha", "name": "Demos", "description": "Playgrounds of the demos", "branch": "main",
-             "url": "https://example.invalid/team/alpha.git", "roots": [ROOT_COMMIT]},
+             "url": "https://example.invalid/team/alpha.git"},
             {"id": "beta", "name": "beta", "description": "", "url": "https://example.invalid/team/beta.git"}])
         self.assertEqual(paths.default_ns(), "alpha")
 
@@ -221,9 +213,7 @@ class Reading(Case):
             ("an empty address", entry(url="")),
             ("a branch as a number", entry(branch=3)), ("a branch with ..", entry(branch="a..b")),
             ("a branch with a dash first", entry(branch="-x")), ("a branch as a list", entry(branch=["main"])),
-            ("a branch with a space", entry(branch="a b")), ("roots as a text", entry(roots=ROOT_COMMIT)),
-            ("a short root", entry(roots=["abc123"])), ("a root that is not hex", entry(roots=["z" * 40])),
-            ("a root as a number", entry(roots=[1])), ("a good root and a bad one", entry(roots=[ROOT_COMMIT, "x"])),
+            ("a branch with a space", entry(branch="a b")),
             ("an entry as a text", "demos"), ("an entry as null", None), ("an entry as a list", [])]
         for label, bad in damaged:
             with self.subTest(label):
@@ -246,12 +236,6 @@ class Reading(Case):
                 (found,) = self.put(listing(entry(branch=value)))
                 self.assertNotIn("branch", found)
 
-    def test_roots_are_lower_case_once_each_and_none_when_the_list_is_empty(self):
-        (found,) = self.put(listing(entry(roots=[ROOT_COMMIT.upper(), ROOT_COMMIT, "A" * 40])))
-        self.assertEqual(found["roots"], [ROOT_COMMIT, "a" * 40])
-        (found,) = self.put(listing(entry(roots=[])))
-        self.assertNotIn("roots", found)
-
     def test_an_address_is_written_the_way_git_is_given_it(self):
         (found,) = self.put(listing(entry(url="HTTPS://Example.Invalid:8443/Team/Demos.git")))
         self.assertEqual(found["url"], gitx.parse_address("https://example.invalid:8443/Team/Demos.git").url)
@@ -273,12 +257,12 @@ class Reading(Case):
         self.assertEqual(sorted(found), ["branch", "description", "id", "name", "url"])
 
     def test_what_a_caller_changes_is_not_what_the_next_read_finds(self):
-        self.put(listing(entry(roots=[ROOT_COMMIT])))
+        self.put(listing(entry()))
         first = defaults.read()
-        first[0]["name"], first[0]["roots"] = "Changed", []
+        first[0]["name"] = "Changed"
         first.append({})
         again = defaults.read()
-        self.assertEqual((len(again), again[0]["name"], again[0]["roots"]), (1, "Demos", [ROOT_COMMIT]))
+        self.assertEqual((len(again), again[0]["name"]), (1, "Demos"))
 
     def test_the_file_is_read_again_when_it_changes_and_not_otherwise(self):
         self.put(listing(entry("one")))

@@ -110,7 +110,7 @@ class Served:
 
     def world(self, files=None, ns=None, **entry):
         """The project folder, the default file listing `ns` at the address of its remote, and the remote. `entry` sets
-        keys of the listed entry (a branch, roots)."""
+        keys of the listed entry (a branch)."""
         gitfixture.require()
         ns = ns or self.NS
         self.ns = ns
@@ -332,20 +332,6 @@ class Provision(Served, Case):
         self.assertEqual(registry.inputs()[self.ns]["state"], "wrong_catalog")
         said = firstrun.content({})
         self.assertEqual((said["key"], said["code"], said["line"]), ("failed", "wrong_catalog", caught.exception.message))
-
-    def test_roots_that_differ_from_the_ones_the_file_pins_are_wrong_catalog(self):
-        roots = sorted(self.remote.git("rev-list", "--max-parents=0", "HEAD").split())
-        self.listed(self.ns, url=self.remote.url, roots=["a" * 40])
-        self.started()
-        with self.assertRaises(CatalogError) as caught:
-            firstrun.provision(self.ns)
-        self.assertEqual(caught.exception.code, "wrong_catalog")
-        self.assertEqual((self.lock()["pin"], self.lock()["error"]), (None, "wrong_catalog"))
-        self.assertFalse((self.root / ".lab/cache/git" / f"{self.ns}.git").exists(), "another repository is not kept")
-        self.listed(self.ns, url=self.remote.url, roots=roots)
-        firstrun.reconcile()
-        firstrun.provision(self.ns)
-        self.assertEqual(self.lock()["pin"], self.remote.head(), "the roots the file pins")
 
     def test_a_repository_without_a_catalog_file_is_not_a_catalog(self):
         self.world(files={"README.md": "nothing\n"})

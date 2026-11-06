@@ -1885,15 +1885,6 @@ class Checking(Seam):
         self.assertEqual((held["pin"], held["roots"], held.get("seen")), (before["pin"], before["roots"], before.get("seen")),
                          "the identity is not taken from a history that is not the one that was added")
 
-    def test_a_rewrite_that_lands_on_the_roots_the_engine_pins_is_not_flagged(self):
-        self.list_at("partner", self.remote)
-        gitfixture.force_push_over(self.remote.bare, {"catalog.yml": meta_text(version="2.5.0"), **NEWER})
-        roots = self.remote.git("rev-list", "--max-parents=0", self.remote.head()).split()
-        fixtures.default(self, "partner", url=self.remote.url, branch="main", roots=roots)
-        self.patch(defaults, "_seen", (None, []))
-        row = service.check_now("partner")["catalog"]
-        self.assertEqual(row["state"]["key"], "update")
-
     def test_a_tip_that_needs_a_newer_lab_leaves_the_newest_readable_version_and_offers_no_update_for_it(self):
         self.remote.commit({"catalog.yml": meta_text(version="3.0.0", lab=99)}, "Needs a newer Gravitee Lab")
         row = service.check_now("partner")["catalog"]
@@ -2384,7 +2375,7 @@ class Updating(Seam):
         self.patch(install, "plan_update", watch)
         self.plan()
         self.assertEqual([one["contract"] for one in seen], [BARE])
-        self.assertEqual(sorted(seen[0]), ["contract", "moved", "on", "vouched"])
+        self.assertEqual(sorted(seen[0]), ["contract", "moved", "on"])
 
     def test_a_history_that_was_confirmed_is_what_the_next_check_compares_with_and_nothing_older_is_on_offer(self):
         service.check_now("partner")

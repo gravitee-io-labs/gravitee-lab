@@ -1570,17 +1570,6 @@ class Updating(Base):
         later = self.advance({"addons/ledger/README.md": "Changed\n"})
         self.assertFalse(install.plan_update("partner", later)["rewritten"], "the pin is on the new history now")
 
-    def test_a_rewrite_the_engine_vouches_for_is_not_flagged(self):
-        target = gitfixture.force_push_over(self.remotes["partner"].bare, {**{
-            path: (fixtures.CATALOGS / "partner" / path).read_text(encoding="utf-8")
-            for path in ("catalog.yml", "addons/ledger/compose.yml")}, "addons/ledger/README.md": "Other root\n"})
-        bare.fetch(self.address, "main", registry.store_dir("partner"))
-        roots = bare.roots(registry.store_dir("partner"), target)
-        plan = install.plan_update("partner", target, {"vouched": roots})
-        self.assertFalse(plan["rewritten"])
-        self.assertTrue(install.plan_update("partner", target, {"vouched": ["a" * 40]})["rewritten"])
-        self.assertTrue(install.plan_update("partner", target, {"vouched": []})["rewritten"])
-
     def test_a_commit_the_store_does_not_hold_is_the_damage_a_fetch_repairs(self):
         with self.assertRaises(registry.CatalogError) as raised:
             install.plan_update("partner", "a" * 40)

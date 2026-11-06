@@ -3,9 +3,9 @@ computed at every read from the file and never stored: a hand-edited .lab/catalo
 listed nor change the address of one that is.
 
 The reader is tolerant and never raises. A file that is missing, not a regular file, over 64 KB, not UTF-8 or JSON, of
-another schema or not of the shape reads as no list. An entry whose id, address, branch or roots are not what they must
-be reads as no entry, because each of them decides where a download goes or what it is checked against: a damaged one is
-never repaired into a different catalog. A damaged first entry reads as no list at all, since the first owns the bare
+another schema or not of the shape reads as no list. An entry whose id, address or branch are not what they must be
+reads as no entry, because each of them decides where a download goes: a damaged one is never repaired into a different
+catalog. A damaged first entry reads as no list at all, since the first owns the bare
 ids (paths.default_ns reads the same entry and must never be taken for the second). A name or a description that is not
 text only loses its text: it is shown until the installed catalog.yml is read, and nothing depends on it.
 
@@ -27,7 +27,6 @@ NAME_LIMIT, DESCRIPTION_LIMIT = 40, 90   # the limits of a catalog.yml: what the
 # The entries a listed id can have: its download, the folder that stands in for it, its row
 ENTRY_KINDS = ("git", "folder", "suggested")
 _ID = re.compile(paths.NS)
-_ROOT = re.compile(r"[0-9a-fA-F]{40}")
 
 _seen = (None, [])   # (what the file looked like, the entries read from it)
 
@@ -52,35 +51,22 @@ def _branch(value):
         return False, None
 
 
-def _roots(value):
-    """(True, the root commits, lower case, once each) for a list of 40-digit hex ids or no list; (False, []) for
-    anything else: an anchor that is damaged is never taken for none."""
-    if value is None:
-        return True, []
-    if not isinstance(value, list) or any(not isinstance(one, str) or not _ROOT.fullmatch(one) for one in value):
-        return False, []
-    return True, list(dict.fromkeys(one.lower() for one in value))
-
-
 def _entry(raw) -> Optional[dict]:
-    """A listed catalog as the file writes it, checked, or None. Keys: id, name, description, url, and branch and roots
-    when the file gives them."""
+    """A listed catalog as the file writes it, checked, or None. Keys: id, name, description, url, and branch when the file gives
+    one."""
     if not isinstance(raw, dict):
         return None
     uid, url = raw.get("id"), _address(raw.get("url"))
     if not (isinstance(uid, str) and _ID.fullmatch(uid) and uid != paths.LOCAL) or url is None:
         return None
     fine, branch = _branch(raw.get("branch"))
-    anchored, roots = _roots(raw.get("roots"))
-    if not (fine and anchored):
+    if not fine:
         return None
     name, description = raw.get("name"), raw.get("description")
     entry = {"id": uid, "name": (isinstance(name, str) and registry.shown(name, NAME_LIMIT)) or uid,
              "description": registry.shown(description, DESCRIPTION_LIMIT) if isinstance(description, str) else "", "url": url}
     if branch:
         entry["branch"] = branch
-    if roots:
-        entry["roots"] = roots
     return entry
 
 
@@ -108,13 +94,12 @@ def _parsed(raw: bytes) -> List[dict]:
 
 def _copied(entries: List[dict]) -> List[dict]:
     """The entries as new objects: what a caller changes is never what the next read finds."""
-    return [{key: list(value) if isinstance(value, list) else value for key, value in entry.items()}
-            for entry in entries]
+    return [dict(entry) for entry in entries]
 
 
 def read() -> List[dict]:
     """The catalogs the engine lists, in the order of the file (the order is the precedence, and the first owns the bare
-    ids): [{id, name, description, url, branch?, roots?}], each checked. [] when the file is unreadable, of an unknown
+    ids): [{id, name, description, url, branch?}], each checked. [] when the file is unreadable, of an unknown
     schema or damaged at its first entry. Read again only when the file changes (path, modified time, size, inode),
     because every state poll asks."""
     global _seen

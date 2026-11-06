@@ -308,9 +308,6 @@ def _download(ns: str, entry: Optional[dict], row: Optional[dict]) -> None:
         tip = bare.fetch(address, remote["branch"], store_path, stall=STALL, cap=CAP,
                          progress=lambda fraction: _set(ns, "fetch", fraction))
         roots = bare.roots(store_path, tip)
-        if row is not None and row.get("roots") and sorted(row["roots"]) != sorted(roots):
-            shutil.rmtree(store_path, ignore_errors=True)   # another repository: nothing of it is worth keeping
-            raise install.not_expected(address.repo or address.display)
         contract = _contract()
         offered = manifest.offer(store_path, tip, contract["contract"], contract["contract_min"], address,
                                  readable=install.readable(store_path))

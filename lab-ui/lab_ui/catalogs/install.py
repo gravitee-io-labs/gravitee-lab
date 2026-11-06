@@ -1172,7 +1172,7 @@ def plan_update(ns: str, target: str, context: Optional[dict] = None) -> dict:
     (what is new in the units it changes, adds or removes, unit by unit, as the notes of a release say it: `store.notes`,
     each subject once), ignored, kept (the files written), stage, meta (the validated catalog.yml of the candidate), context}.
     `rewritten`: the history is not the one installed (the roots differ, or the pin is not an ancestor of the target; for a
-    Go back, the two are not one history), unless the new roots are the ones in `context["vouched"]`; or `context["moved"]`,
+    Go back, the two are not one history); or `context["moved"]`,
     the release installed is a tag the owners moved to the target since, which an update does not take silently either. `context["on"]`, an iterable or a function: the units that are on or up, which the hold
     rule adds to those the on file turns on. `context["contract"]`, `{contract, contract_min}`: the level this Lab reads; a
     version written for another is refused (`lab_new`, `lab_old`) whatever `pick` made of it, and so is one whose catalog.yml
@@ -1192,7 +1192,7 @@ def plan_update(ns: str, target: str, context: Optional[dict] = None) -> dict:
         same = after == old["units"] and digests.get("@catalog") == _rec(old["files"], manifest.FILE).get("oid")
         if target == held["pin"]:
             return {"upToDate": True}
-        if same and not _rewritten(store_path, held, target, context):   # the same files on another history are still news
+        if same and not _rewritten(store_path, held, target):   # the same files on another history are still news
             return {"upToDate": True}
         op = "undo" if target == held.get("previous") else "update"
         _write_stage(registry.stage_dir(ns), store_path, kept)
@@ -1220,7 +1220,7 @@ def plan_update(ns: str, target: str, context: Optional[dict] = None) -> dict:
                  "change": sorted(path for path in set(now) & set(old["files"])
                                   if (now[path].oid, now[path].mode)
                                   != (_rec(old["files"], path).get("oid"), _rec(old["files"], path).get("mode")))}
-        rewritten = _rewritten(store_path, held, target, context, op) or (op == "update" and bool(context.get("moved")))
+        rewritten = _rewritten(store_path, held, target, op) or (op == "update" and bool(context.get("moved")))
         news = _whatsnew(store_path, held["pin"], target, updates + adds + removes + sorted(renamed) + sorted(renamed.values())) \
             if op == "update" else []
         touched = bare.changed_parts(files["add"] + files["change"] + files["remove"])
@@ -1240,14 +1240,13 @@ def _renamed_units(items, before, after) -> Dict[str, str]:
             if old in before and old not in after and new in after and new not in before}
 
 
-def _rewritten(store_path, held, target, context, op="update") -> bool:
+def _rewritten(store_path, held, target, op="update") -> bool:
     """Whether the history of `target` is not the one installed: the roots differ, or the pin is not an ancestor of the target (for a
-    Go back, the two are not one history), unless the new roots are the ones the engine lists for this catalog."""
-    roots, vouched = bare.roots(store_path, target), sorted(set(context.get("vouched") or ()))
+    Go back, the two are not one history)."""
     joined = bare.is_ancestor(store_path, held["pin"], target)
     if op == "undo":
         joined = joined or bare.is_ancestor(store_path, target, held["pin"])
-    return (not joined or roots != sorted(held.get("roots") or [])) and not (vouched and roots == vouched)
+    return not joined or bare.roots(store_path, target) != sorted(held.get("roots") or [])
 
 
 def _whatsnew(store_path, old, new, keys):

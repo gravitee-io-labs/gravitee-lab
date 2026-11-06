@@ -1000,13 +1000,6 @@ def _wake():
 # Check again, and the pass of the background checker
 # ---------------------------------------------------------------------------------------------------------------------
 
-def _vouched(entry):
-    """The root commits the tracked file pins for a listed catalog, lower case, or []: a rewrite that lands on them is
-    the engine's own and is not flagged."""
-    tracked = next((one for one in defaults.read() if one["id"] == entry["id"]), None) if entry["kind"] == "git" else None
-    return sorted(root.lower() for root in (tracked or {}).get("roots") or ())
-
-
 def _fetch_tip(ns, entry):
     """The branch is fetched into the catalog's store (`refs/lab/tip`), 60 s at most. Answers (the tip, the address)."""
     gitx.require()
@@ -1055,8 +1048,7 @@ def _ask(ns, entry):
     held = registry.lock_of(ns)   # it may have changed during the fetch
     pin = held.get("pin")
     roots = bare.roots(store_path, tip)
-    same = roots == sorted(held.get("roots") or []) and bare.is_ancestor(store_path, pin, tip)
-    if not same and not (_vouched(entry) and roots == _vouched(entry)):
+    if roots != sorted(held.get("roots") or []) or not bare.is_ancestor(store_path, pin, tip):
         registry.set_lock(ns, tip=tip, error=_failed_with(ns, "history_changed"))   # nothing else proceeds
         return
     audience = _audience(answered)
@@ -1322,7 +1314,7 @@ def _plan(ns, op):
         target, moved = _targeted(ns, op, held)
     if target is None:
         return {"upToDate": True}
-    context = {"on": _on_keys(ns), "vouched": _vouched(entry), "contract": _contract(), "moved": moved}
+    context = {"on": _on_keys(ns), "contract": _contract(), "moved": moved}
     with _changing():
         try:
             plan = install.plan_update(ns, target, context)
