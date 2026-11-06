@@ -2020,20 +2020,22 @@ class Platforms(Built):
                                              "domains": ["localhost:8090", "apim-hybrid-gateway:8082"]})
 
     def test_it_needs_a_hybrid_gateway_once_a_platform_is_registered_and_its_token_is_the_setting_it_lacks(self):
-        lacking = self.item("addon", "hybrid", missing=["hybrid"], platforms=[self.RECORD])
+        token = {"hybrid": ["HYBRID_CLOUD_TOKEN"]}
+        lacking = self.item("addon", "hybrid", missing=token, platforms=[self.RECORD])
         self.assertEqual((lacking["note"], lacking["note_tone"], lacking["note_target"], lacking["action"]["do"]),
                          ("Needs a hybrid gateway", "", {"kind": "platform", "id": None}, "start"))
         self.assertEqual((lacking["action"]["enabled"], lacking["action"]["reason"]), (False, "Needs a hybrid gateway"))
         # Without a platform it needs settings, as any add-on does
-        plain = self.item("addon", "hybrid", missing=["hybrid"])
+        plain = self.item("addon", "hybrid", missing=token)
         self.assertEqual((plain["note"], plain["note_target"]), ("Needs settings", None))
         # A platform of another kind runs no gateway here
-        other = self.item("addon", "hybrid", missing=["hybrid"], platforms=[{**self.RECORD, "kind": "apim"}])
+        other = self.item("addon", "hybrid", missing=token, platforms=[{**self.RECORD, "kind": "apim"}])
         self.assertEqual(other["note"], "Needs settings")
-        # Another setting that it requires keeps the note it had: the token may be set
+        # Another required setting that is saved changes nothing, one that is not keeps the note it had
         self.project["addons"]["hybrid"]["settings"].append(
             {"key": "OTHER", "default": None, "required": True, "comment": "", "secret": False})
-        self.assertEqual(self.note("addon", "hybrid", missing=["hybrid"], platforms=[self.RECORD]),
+        self.assertEqual(self.note("addon", "hybrid", missing=token, platforms=[self.RECORD])[0], "Needs a hybrid gateway")
+        self.assertEqual(self.note("addon", "hybrid", missing={"hybrid": ["HYBRID_CLOUD_TOKEN", "OTHER"]}, platforms=[self.RECORD]),
                          ("Needs settings", "warn"))
 
     def test_an_add_on_that_runs_no_gateway_needs_settings_whatever_is_registered(self):

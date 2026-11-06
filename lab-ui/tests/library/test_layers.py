@@ -131,11 +131,11 @@ def own(project):
 
 def on(project, explicit=(), playground=None, missing=(), locked=None, setups=()):
     """What layers.current() answers for this on file. `setups`: the ones it lists, `explicit` holding their
-    includes."""
+    includes. `missing`: the add-ons that lack settings, or {each: the names of those settings}."""
     brought = project["playgrounds"][playground]["addons"] if playground else []
     return {"playground": playground, "explicit": sorted(explicit), "setups": sorted(setups),
             "effective": sorted(layers.closure(project, [*explicit, *brought])),
-            "missing": list(missing), "problems": [], "locked": locked}
+            "missing": list(missing), "unset": missing if isinstance(missing, dict) else {}, "problems": [], "locked": locked}
 
 
 def cloud(project):

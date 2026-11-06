@@ -413,8 +413,7 @@ def _lacks_gateway(c, unit):
     registered and the token of the gateway is the one setting it lacks: it needs a hybrid gateway, which the Gravitee Cloud
     page creates and writes there. None otherwise: it needs settings."""
     gateway = unit.get("gateway")
-    required = [setting["key"] for setting in unit.get("settings", []) if setting["required"]]
-    if gateway and gateway["platform"] in c["kinds"] and required == [gateway["token"]]:
+    if gateway and gateway["platform"] in c["kinds"] and c["state"].get("unset", {}).get(unit["id"]) == [gateway["token"]]:
         return _said("Needs a hybrid gateway", target={"kind": "platform", "id": None})
     return None
 
