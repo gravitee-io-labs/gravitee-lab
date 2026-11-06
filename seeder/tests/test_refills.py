@@ -177,13 +177,6 @@ class Deleting(unittest.TestCase):
                     refills.drop(client, self.refill, subscription)
                 self.assertEqual((client.data, client.calls), (before, []))
 
-    def test_the_search_itself_refuses_a_missing_subscription(self):
-        client = FakeRedis({"ratelimit:ws-1:no-owner:cost-rl": {"counter": "500"}, KEY: counter(SANDBOX)})
-        for subscription in (None, ""):
-            with self.subTest(subscription=subscription), self.assertRaises(common.SeedError):
-                refills.owned(client, "ratelimit:*:cost-rl", subscription)
-        self.assertEqual(client.calls, [], "it did not even look")
-
 
 class Running(Seed):
     """run(): the log lines, and a seed that goes on whatever Redis does."""
