@@ -594,14 +594,6 @@ class Worker:
             self.nudge.wait(max(wait, 0.01))
             self.nudge.clear()
 
-    def end(self, timeout: float = 5.0) -> None:
-        """Stops the loop and waits for the thread (for a test, and for whoever needs the Lab to stop at once). An attempt
-        that runs ends when its git does."""
-        self.stop.set()
-        self.nudge.set()
-        if self.thread is not None and self.thread is not threading.current_thread():
-            self.thread.join(timeout)
-
 
 _worker = None
 _started = threading.Lock()
@@ -621,14 +613,6 @@ def start_worker() -> None:
         worker.thread = threading.Thread(target=worker.run, name="lab-first-run", daemon=True)
         _worker = worker
         worker.thread.start()
-
-
-def stop_worker(timeout: float = 5.0) -> None:
-    """Ends the thread `start_worker` started, if it runs."""
-    with _started:
-        worker = _worker
-    if worker is not None:
-        worker.end(timeout)
 
 
 def wake() -> None:

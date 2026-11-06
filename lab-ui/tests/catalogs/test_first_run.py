@@ -176,7 +176,7 @@ class Reconcile(Quiet):
         (self.root / ".lab/catalogs.json").write_text('{"schema": 1, "catalogs": []}', encoding="utf-8")
         firstrun.reconcile()
         firstrun.start_worker()
-        self.addCleanup(firstrun.stop_worker)
+        self.addCleanup(self.stop_worker)
         self.patch(firstrun, "provision", side_effect=AssertionError("nothing to download"))
         time.sleep(0.2)
         self.assertEqual(self.config(), {"schema": 1, "catalogs": []})

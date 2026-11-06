@@ -101,6 +101,13 @@ class Served:
 
     NS = "demos"
 
+    def stop_worker(self):
+        worker = firstrun._worker
+        if worker is not None:
+            worker.stop.set()
+            worker.nudge.set()
+            worker.thread.join(5)
+
     def world(self, files=None, ns=None, **entry):
         """The project folder, the default file listing `ns` at the address of its remote, and the remote. `entry` sets
         keys of the listed entry (a branch, roots)."""
@@ -1316,7 +1323,7 @@ class Beat(Served, Case):
 
     def thread(self):
         firstrun.start_worker()
-        self.addCleanup(firstrun.stop_worker)
+        self.addCleanup(self.stop_worker)
         return firstrun._worker
 
     def until(self, test, seconds=60.0):
@@ -1336,11 +1343,11 @@ class Beat(Served, Case):
         found = [one for one in threading.enumerate() if one.name == "lab-first-run"]
         self.assertEqual(len(found), 1)
         self.assertTrue(found[0].daemon)
-        firstrun.stop_worker()
+        self.stop_worker()
         self.assertFalse(found[0].is_alive())
         firstrun.start_worker()   # after it ended, a new one can start
         self.assertIsNot(firstrun._worker, first)
-        self.addCleanup(firstrun.stop_worker)
+        self.addCleanup(self.stop_worker)
 
     def test_the_worker_downloads_the_catalog_and_is_a_thread_apart(self):
         self.started()
@@ -1375,7 +1382,7 @@ class Beat(Served, Case):
             thread.start()
         for thread in threads:
             thread.join(10)
-        self.addCleanup(firstrun.stop_worker)
+        self.addCleanup(self.stop_worker)
         self.assertEqual(len([one for one in threading.enumerate() if one.name == "lab-first-run"]), 1)
 
     def test_a_pass_that_fails_does_not_end_the_thread(self):
