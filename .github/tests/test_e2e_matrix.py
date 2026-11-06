@@ -130,7 +130,7 @@ class WordsTest(unittest.TestCase):
         one: the items are a catalog's."""
         root = e2e_matrix.ROOT
         owned = ["lab-ui/lab_ui/e2e.py", ".github/scripts/e2e_matrix.py", ".github/scripts/image_manifests.py",
-                 ".github/workflows/e2e.yml", ".github/workflows/e2e-run.yml"]
+                 ".github/workflows/e2e.yml"]
         item = re.compile(r"\b(?:addon|setup|playground):[a-z@]|\b(?:addons|setups|playgrounds)/[a-z]")
         for name in owned:
             for number, line in enumerate((root / name).read_text(encoding="utf-8").splitlines(), 1):

@@ -572,8 +572,7 @@ JOBS_LIMIT = 256   # the most jobs one matrix of GitHub holds
 # runs nothing, and one of these runs the canary of a catalog. A folder ends in /
 ENGINE_PATHS = ("docker-compose.yml", ".env.example", "Makefile", "contract.lock", "catalogs.default.json", "seeder/",
                 "lab-ui/lab_ui/", "lab-ui/server.py", "lab-ui/catalog.py", "certs/", "lab-ui/frames/", ".github/actions/",
-                ".github/workflows/e2e.yml", ".github/workflows/e2e-run.yml", ".github/scripts/e2e_matrix.py",
-                ".github/scripts/image_manifests.py")
+                ".github/workflows/e2e.yml", ".github/scripts/e2e_matrix.py", ".github/scripts/image_manifests.py")
 # A commit or a branch, as git is asked for it: no option can start with one of these characters
 REF = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_./@^~-]{0,199}")
 
