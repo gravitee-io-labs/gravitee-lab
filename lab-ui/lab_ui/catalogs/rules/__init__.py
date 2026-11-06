@@ -87,7 +87,6 @@ class Context(NamedTuple):
     ci             the run is CI's
     repository     OWNER/REPO of this repository, when known (IM04)
     partial        the tree is a part of a catalog (the files Share staged), so the files a whole catalog has are not asked for
-    notes          a list a rule appends a sentence to for each thing it could not read (it becomes `Result.skipped`), or None
     """
     catalog: Optional[dict] = None
     standard: Optional[dict] = None
@@ -100,7 +99,6 @@ class Context(NamedTuple):
     ci: bool = False
     repository: str = ""
     partial: bool = False
-    notes: Optional[list] = None
 
     def meta(self, key: str) -> str:
         """A scalar of `catalog.yml`, or ""."""

@@ -212,86 +212,10 @@ class Anchor(unittest.TestCase):
 
 
 class Reach(unittest.TestCase):
-    """A unit is its `compose.yml` and the files of its folder that it includes or extends: Compose loads them all, and a service
-    that builds in one of them is built all the same."""
+    """A unit is its `compose.yml`: a service takes what another service of the file brings through `extends`."""
 
     ROOT = "playgrounds/shop/compose.yml"
     BUILT = compose(service("shop-web", f"{PREFIX}/shop-web:1", "./apps/web", policy=False))
-
-    def rows(self, **files):
-        listing = support.tree({"catalog.yml": CATALOG, **files})
-        notes = []
-        rows = images.services_of_tree(listing, notes)
-        return [(each.path, each.name) for each in rows if each.path.startswith("playgrounds")], notes
-
-    def test_a_service_of_an_included_file_is_judged_in_that_file(self):
-        message = "playgrounds/shop/extra.yml: shop-web builds an image but has no pull_policy. Fix: pull_policy: ${ID_PULL_POLICY:-build}."
-        for include in ("include:\n  - extra.yml\n", "include:\n  - path: extra.yml\n", "include:\n  - path:\n      - extra.yml\n",
-                        "include:\n  - path: [extra.yml]\n", "include: [extra.yml]\n", "include: [{path: extra.yml}]\n",
-                        "include:\n  - path: ./sub/../extra.yml\n    project_directory: .\n", "include:\n  - 'extra.yml'\n"):
-            with self.subTest(include=include):
-                out = found((self.ROOT, include + compose(service("shop-db", "postgres:16"))), ("playgrounds/shop/extra.yml", self.BUILT))
-                self.assertEqual([("IM01", "playgrounds/shop/extra.yml", message)], tuples(out))
-                self.assertEqual(2, out[0].line)
-
-    def test_what_an_included_file_includes_is_followed_and_a_cycle_ends(self):
-        files = {self.ROOT: "include:\n  - one.yml\n" + compose(service("shop-db", "postgres:16")),
-                 "playgrounds/shop/one.yml": "include:\n  - sub/two.yml\n  - compose.yml\n" + compose(service("shop-one", "postgres:16")),
-                 "playgrounds/shop/sub/two.yml": "include:\n  - ../one.yml\n" + self.BUILT}
-        rows, notes = self.rows(**files)
-        self.assertEqual({("playgrounds/shop/compose.yml", "shop-db"), ("playgrounds/shop/one.yml", "shop-one"),
-                          ("playgrounds/shop/sub/two.yml", "shop-web")}, set(rows))
-        self.assertEqual([], notes)
-        self.assertEqual(["IM01"], [each.code for each in found(*files.items())])
-
-    def test_a_file_outside_the_folder_of_the_unit_is_another_units_and_is_not_read(self):
-        files = {self.ROOT: "include:\n  - ../other/compose.yml\n  - ../../docker-compose.yml\n  - /etc/x.yml\n  - https://e.test/a.yml\n"
-                 + compose(service("shop-db", "postgres:16")), "playgrounds/other/compose.yml": self.BUILT}
-        rows, notes = self.rows(**files)
-        self.assertEqual({("playgrounds/shop/compose.yml", "shop-db"), ("playgrounds/other/compose.yml", "shop-web")}, set(rows))
-        self.assertEqual([], notes, "another unit is judged as a unit of its own")
-        self.assertEqual(["IM01"], [each.code for each in found(*files.items())], "once, as the unit it is in")
-
-    def test_a_file_that_cannot_be_read_is_said(self):
-        for files, why in (({self.ROOT: "include:\n  - gone.yml\n" + compose(service("shop-db", "postgres:16"))}, "gone.yml"),
-                           ({self.ROOT: "include:\n  - dir\n" + compose(service("shop-db", "postgres:16")), "playgrounds/shop/dir/x": "x"}, "dir"),
-                           ({self.ROOT: "include:\n  - ${DIR}/a.yml\n" + compose(service("shop-db", "postgres:16"))}, "${DIR}/a.yml"),
-                           ({self.ROOT: "include:\n  - big.yml\n" + compose(service("shop-db", "postgres:16")),
-                             "playgrounds/shop/big.yml": b"#" * (1024 * 1024 + 1)}, "big.yml")):
-            with self.subTest(why=why):
-                rows, notes = self.rows(**files)
-                self.assertEqual(1, len(notes), notes)
-                self.assertIn(why, notes[0])
-        listing = support.tree({"catalog.yml": CATALOG, self.ROOT: "include:\n  - gone.yml\n" + compose(service("shop-db", "postgres:16"))})
-        notes = []
-        images.check(listing, context(listing, notes=notes, **HOW))
-        self.assertEqual(1, len(notes), "a rule tells what it could not read to the caller, who puts it in the skipped checks")
-        self.assertEqual([], images.check(listing, context(listing, **HOW)), "and works with no list to tell it to")
-
-    def test_a_service_that_extends_takes_the_build_the_image_and_the_policy_it_has_not_got(self):
-        base = compose(service("web", f"{PREFIX}/shop-web:1", "./apps/web", policy=False))
-        based = compose(service("web", f"{PREFIX}/shop-web:1", "./apps/web", policy=True))
-        for extends in ("    extends:\n      file: base.yml\n      service: web\n", "    extends: {file: base.yml, service: web}\n",
-                        "    extends: {service: web, file: ./base.yml}\n"):
-            with self.subTest(extends=extends):
-                own = "services:\n  shop-web:\n" + extends
-                self.assertEqual(["IM01"], [each.code for each in found((self.ROOT, own), ("playgrounds/shop/base.yml", base))],
-                                 "the policy is nowhere: the service that Compose runs has none")
-                self.assertEqual([], found((self.ROOT, own), ("playgrounds/shop/base.yml", based)), "the policy comes with the build")
-                own = "services:\n  shop-web:\n" + extends + "    pull_policy: never\n"
-                self.assertEqual([], found((self.ROOT, own), ("playgrounds/shop/base.yml", base)), "the service adds its own policy")
-        out = found((self.ROOT, "services:\n  shop-web:\n    extends:\n      file: base.yml\n      service: web\n"),
-                    ("playgrounds/shop/base.yml", base))
-        self.assertEqual([(self.ROOT, 2)], [(each.path, each.line) for each in out], "the finding is in the file that defines the service")
-
-    def test_the_base_of_an_extends_is_judged_as_the_service_that_extends_it_and_not_as_one_of_its_own(self):
-        base = compose(service("web", "ghcr.io/other/place:1", "./apps/web"))
-        own = "services:\n  shop-web:\n    extends:\n      file: base.yml\n      service: web\n"
-        rows, notes = self.rows(**{self.ROOT: own, "playgrounds/shop/base.yml": base})
-        self.assertEqual([(self.ROOT, "shop-web")], rows)
-        out = found((self.ROOT, own), ("playgrounds/shop/base.yml", base))
-        self.assertEqual(["IM02"], [each.code for each in out])
-        self.assertTrue(out[0].message.startswith("shop-web: the image ghcr.io/other/place:1 is outside"), out[0].message)
 
     def test_a_service_that_extends_a_service_of_its_own_file_or_a_chain_of_them(self):
         own = ("services:\n  base:\n    image: ghcr.io/acme/hub/shop-web:1\n    build: ./apps/web\n  shop-web:\n    extends: base\n"
@@ -301,31 +225,12 @@ class Reach(unittest.TestCase):
         self.assertEqual({"base": (True, False, "ghcr.io/acme/hub/shop-web:1"), "shop-web": (True, False, "ghcr.io/acme/hub/shop-web:1"),
                           "shop-api": (True, True, "ghcr.io/acme/hub/shop-web:1")}, built)
 
-    def test_a_build_taken_from_another_folder_is_built_from_that_folder(self):
-        base = "services:\n  web:\n    image: ghcr.io/acme/hub/shop-web:1\n    build: ./app\n    pull_policy: never\n"
-        own = "services:\n  shop-web:\n    extends:\n      file: lib/base.yml\n      service: web\n"
-        rows = images.services_of_tree(support.tree({"playgrounds/shop/compose.yml": own, "playgrounds/shop/lib/base.yml": base}))
-        row = [each for each in rows if each.name == "shop-web"][0]
-        self.assertEqual(("playgrounds/shop/lib", "./app", True), (row.folder, row.context, row.pull_policy))
-
-    def test_an_extends_that_goes_nowhere_is_said_and_never_loops(self):
+    def test_an_extends_that_goes_nowhere_never_loops(self):
         loop = "services:\n  a:\n    extends: b\n  b:\n    extends: a\n"
-        rows, notes = self.rows(**{self.ROOT: loop})
-        self.assertEqual([(self.ROOT, "a"), (self.ROOT, "b")], rows)
-        rows, notes = self.rows(**{self.ROOT: "services:\n  a:\n    extends:\n      file: gone.yml\n      service: a\n"})
-        self.assertEqual(1, len(notes), notes)
-        rows, notes = self.rows(**{self.ROOT: "services:\n  a:\n    extends:\n      file: ../other/compose.yml\n      service: a\n"})
-        self.assertEqual(1, len(notes), notes)
+        rows = images.services_of_tree(support.tree({self.ROOT: loop}))
+        self.assertEqual([(self.ROOT, "a"), (self.ROOT, "b")], [(each.path, each.name) for each in rows if each.path == self.ROOT])
         chain = "services:\n" + "".join(f"  s{number}:\n    extends: s{number + 1}\n" for number in range(200))
-        rows, notes = self.rows(**{self.ROOT: chain})
-        self.assertEqual(200, len(rows))
-
-    def test_a_unit_that_includes_many_files_reads_a_bounded_number(self):
-        include = "include:\n" + "".join(f"  - f{number}.yml\n" for number in range(300))
-        files = {self.ROOT: include + compose(service("shop-db", "postgres:16")),
-                 **{f"playgrounds/shop/f{number}.yml": compose(service(f"s{number}", "postgres:16")) for number in range(300)}}
-        rows, notes = self.rows(**files)
-        self.assertLessEqual(len(rows), images.MAX_FILES + 1)
+        self.assertEqual(200, len([each for each in images.services_of_tree(support.tree({self.ROOT: chain})) if each.path == self.ROOT]))
 
     def test_a_compose_file_with_a_nul_byte_is_read(self):
         text = b"\0\n" + self.BUILT.encode()

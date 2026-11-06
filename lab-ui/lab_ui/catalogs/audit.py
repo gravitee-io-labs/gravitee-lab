@@ -159,13 +159,13 @@ def _fresh(root, options: Options, folder: bool, skipped: List[str]):
     return tree, history, base, lost
 
 
-def _context(tree, root, options: Options, history, notes: List[str]) -> Context:
+def _context(tree, root, options: Options, history) -> Context:
     seeders = options.seeder_images if options.seeder_images is not None else lab_seeder_images(options.lab)
     repository = options.repository or os.environ.get("GITHUB_REPOSITORY", "")
     if not repository and (options.ci or options.online) and root is not None and trees.is_repository(root):
         repository = origin_repository(root)
     return context(tree, history=history, units=options.units, seeder_images=tuple(seeders), seeder_paths=options.seeder_paths,
-                   online=options.online, ci=options.ci, repository=repository, notes=notes)
+                   online=options.online, ci=options.ci, repository=repository)
 
 
 def _run_families(tree, ctx: Context, wanted: Iterable[str]) -> List[Problem]:
@@ -247,7 +247,7 @@ def run(root, options: Optional[Options] = None) -> Result:
         tree.entries()
     except trees.TreeError as error:
         return Result([], [str(error)], base, 0, "")
-    ctx = _context(tree, root, options, history, skipped)
+    ctx = _context(tree, root, options, history)
     wanted = options.families or FAMILIES
     found = _run_families(tree, ctx, wanted)
     if (options.ci or options.online) and not ctx.repository and ctx.meta("images") and "IM" in wanted:

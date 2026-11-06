@@ -15,11 +15,11 @@ seed would fail its own standard. The caller says where the Lab's seeder is: `Co
 policy's (T18 and N01), which a unit with a seed service meets at Add.
 
 The rules judge a list of `Service` rows. They come from the Compose files of the tree, read as text (`services_of_tree`: the
-`services:` of every unit's `compose.yml` and of the files of the unit's folder that it includes, with the merge keys and the
-aliases of the file, and, for a service that `extends` another, the build, image and pull policy it takes from it), or from the
-units that the caller has already loaded with Compose (`services_of_units`: the resolved or raw JSON of each unit, which carries
-no line). A file that is included or extended and cannot be read as text is said in `Context.notes`, so that the answer is never
-"clean" by silence. Pure: it reads the tree and writes nothing, runs nothing, and `docker compose` is not needed."""
+`services:` of every unit's `compose.yml`, with the merge keys and the aliases of the file, and, for a service that `extends`
+another of the file, the build, image and pull policy it takes from it; a file a unit includes or extends and that is no unit is
+the trust policy's to refuse), or from the units that the caller has already loaded with Compose (`services_of_units`: the resolved
+or raw JSON of each unit, which carries no line). Pure: it reads the tree and writes nothing, runs nothing, and `docker compose`
+is not needed."""
 
 import posixpath
 import re
@@ -29,7 +29,6 @@ from ..report import ERROR, Problem
 from ..tree import REGULAR
 from . import COMPOSE_NAMES, TEXT_LIMIT, Context, Node, Outline, basename, merged, outline, problem, read_limit, scalar, \
     table, text_of, unit_of
-from .secrets import flow_items, flow_pairs
 
 RULES = table([
     ("IM01", ERROR, "A service that builds an image has no pull_policy (the seeder's service too)",
@@ -96,14 +95,7 @@ def _clip(text: str) -> str:
     return text if len(text) <= SHOWN else text[:SHOWN - 1] + "…"
 
 
-MAX_FILES = 16   # files one unit's Compose file reaches through `include` and `extends`
-MAX_DEPTH = 8    # and how many files deep (a chain of `extends`, a file that includes a file)
-
-
-class _File(NamedTuple):
-    path: str
-    parsed: Outline
-    services: Optional[Node]
+MAX_DEPTH = 8    # how long a chain of `extends` is followed
 
 
 def _value(parsed: Outline, node: Optional[Node]) -> str:
@@ -114,74 +106,9 @@ def _value(parsed: Outline, node: Optional[Node]) -> str:
     return scalar(text)
 
 
-def _paths_of(node: Optional[Node]) -> List[str]:
-    """The files an `include:` names: `- a.yml`, `- path: a.yml`, `- path: [a.yml, b.yml]`, `[a.yml, {path: b.yml}]`."""
-    out: List[str] = []
-    if node is None:
-        return out
-    if node.value[:1] == "[":
-        for item in flow_items(node.value[1:-1] if node.value.endswith("]") else node.value[1:]):
-            item = item.strip()
-            if item[:1] == "{":
-                out += [scalar(value) for name, value in flow_pairs(item) if name == "path" and value[:1] != "["]
-            elif item:
-                out.append(scalar(item))
-        return [each for each in out if each]
-    for child in node.children:
-        if child.key is None and child.value:
-            out.append(scalar(child.value))
-        elif child.key == "path":
-            if child.value[:1] == "[":
-                out += [scalar(each.strip()) for each in flow_items(child.value[1:-1] if child.value.endswith("]") else child.value[1:])]
-            elif child.value:
-                out.append(scalar(child.value))
-            else:
-                out += [scalar(each.value) for each in child.children if each.key is None and each.value]
-    return [each for each in out if each]
-
-
-def _extends_of(node: Optional[Node]) -> Tuple[str, str]:
-    """(file, service) of an `extends:`: `extends: web` is a service of the same file (file ""), the mapping names a file."""
-    if node is None:
-        return "", ""
-    if node.value[:1] == "{":
-        pairs = {name: scalar(value) for name, value in flow_pairs(node.value)}
-        return pairs.get("file", ""), pairs.get("service", "")
-    if node.value and not node.children:
-        return "", scalar(node.value)
-    return (scalar(node.get("file").value) if node.get("file") is not None else "",
-            scalar(node.get("service").value) if node.get("service") is not None else "")
-
-
-def _read(tree, path: str, files: Dict[str, _File], notes: Optional[list], why: str) -> Optional[_File]:
-    """The Compose file at `path` read as text, once; None (and a note) when it cannot be."""
-    if path in files:
-        return files[path]
-    entry = tree.entry(path)
-    data = tree.read(path, read_limit(path)) if entry is not None and entry.mode in REGULAR and entry.size <= read_limit(path) else None
-    if data is None:
-        if notes is not None:
-            notes.append(f"the services of {path} ({why}): the file could not be read as text")
-        return None
-    parsed = outline(text_of(data))
-    files[path] = _File(path, parsed, next((node for node in parsed.root.children if node.key == "services"), None))
-    return files[path]
-
-
-def _inside(folder: str, target: str, base: str) -> Optional[str]:
-    """The path of `target` (written in a file of `base`) when it is below `folder`, else None: the unit's own files only."""
-    where = known(target)
-    if where is None or "://" in where or posixpath.isabs(where):
-        return None
-    joined = posixpath.normpath(posixpath.join(base, where))
-    return joined if joined.startswith(folder + "/") else None
-
-
-def _facts(files: Dict[str, _File], tree, notes, folder: str, path: str, service: Node, depth: int, seen: frozenset) -> dict:
-    """What the image rules need of a service: its image, whether it builds (and from which folder, context and Dockerfile)
-    and whether it has a pull policy. A service that `extends` another takes what it has not got from it, as Compose does,
-    and a build it takes brings the folder of the file it was written in."""
-    parsed = files[path].parsed
+def _facts(parsed: Outline, services: Node, service: Node, seen: frozenset) -> dict:
+    """What the image rules need of a service: its image, whether it builds (and from which context and Dockerfile) and whether it
+    has a pull policy. A service that `extends` another of the file takes what it has not got from it, as Compose does."""
     keys = merged(service, parsed.anchors)
     build = keys.get("build")
     context_ = dockerfile = ""
@@ -190,64 +117,41 @@ def _facts(files: Dict[str, _File], tree, notes, folder: str, path: str, service
         context_ = _value(parsed, nested.get("context")) if nested else _value(parsed, build)
         dockerfile = _value(parsed, nested.get("dockerfile")) if nested else ""
     facts = {"image": _value(parsed, keys.get("image")), "built": build is not None, "context": context_,
-             "dockerfile": dockerfile, "pull": keys.get("pull_policy") is not None, "folder": posixpath.dirname(path)}
-    target, name = _extends_of(keys.get("extends"))
-    if name and depth < MAX_DEPTH and not (facts["built"] and facts["image"] and facts["pull"]):
-        where = path if not target else _inside(folder, target, posixpath.dirname(path))
-        if target and where is None and notes is not None:
-            notes.append(f"the build of {service.key} in {path}: it extends {target}, which is not a file of the unit that can be read")
-        base_file = files.get(where) or (_read(tree, where, files, notes, f"extended by {path}") if where else None)
-        base = next((child for child in base_file.services.children if child.key == name), None) \
-            if base_file is not None and base_file.services is not None else None
-        if base is not None and (where, name) not in seen:
-            inherited = _facts(files, tree, notes, folder, where, base, depth + 1, seen | {(where, name)})
+             "dockerfile": dockerfile, "pull": keys.get("pull_policy") is not None}
+    extends = keys.get("extends")
+    name = scalar(extends.value) if extends is not None and extends.value[:1] not in ("", "{") else ""
+    if name and len(seen) < MAX_DEPTH and not (facts["built"] and facts["image"] and facts["pull"]):
+        base = services.get(name)
+        if base is not None and name not in seen:
+            inherited = _facts(parsed, services, base, seen | {name})
             if not facts["built"] and inherited["built"]:
-                facts.update(built=True, context=inherited["context"], dockerfile=inherited["dockerfile"],
-                             folder=inherited["folder"])
+                facts.update(built=True, context=inherited["context"], dockerfile=inherited["dockerfile"])
             facts["image"] = facts["image"] or inherited["image"]
             facts["pull"] = facts["pull"] or inherited["pull"]
     return facts
 
 
-def services_of_tree(tree, notes: Optional[list] = None) -> List[Service]:
-    """The services of every unit's Compose file in a tree, read as text, and of the files of the unit's folder that it
-    includes. A service takes the keys of the mappings its merge keys name (`<<: *name`, where the file defines the anchor) and
-    what its `extends` brings; an alias as the value of `image`, `build` or `context` is put in when the file defines the
-    anchor. What cannot be read is a sentence in `notes`."""
+def services_of_tree(tree) -> List[Service]:
+    """The services of every unit's Compose file in a tree, read as text. A service takes the keys of the mappings its merge keys
+    name (`<<: *name`, where the file defines the anchor) and what its `extends` brings; an alias as the value of `image`, `build` or
+    `context` is put in when the file defines the anchor."""
     rows: List[Service] = []
     for entry in tree.entries():
         unit = unit_of(entry.path)
         if unit is None or unit[0] == "setup" or entry.mode not in REGULAR or entry.size > read_limit(entry.path) \
                 or basename(entry.path) not in COMPOSE_NAMES or posixpath.dirname(entry.path).count("/") != 1:
             continue
-        folder = posixpath.dirname(entry.path)
-        files: Dict[str, _File] = {}
-        if _read(tree, entry.path, files, notes, "the unit") is None:
+        data = tree.read(entry.path, read_limit(entry.path))
+        if data is None:
             continue
-        active, queue, level = [entry.path], [entry.path], 0
-        while queue and level < MAX_DEPTH and len(files) < MAX_FILES:
-            level, following = level + 1, []
-            for path in queue:
-                for target in _paths_of(files[path].parsed.root.get("include")):
-                    if known(target) is None and notes is not None:
-                        notes.append(f"the services of {target}, which {path} includes: its name depends on a setting")
-                    where = _inside(folder, target, posixpath.dirname(path))
-                    if where is None or where in active:
-                        continue
-                    if len(files) >= MAX_FILES:
-                        break
-                    if _read(tree, where, files, notes, f"included by {path}") is not None:
-                        active.append(where)
-                        following.append(where)
-            queue = following
-        for path in active:
-            services = files[path].services
-            for service in (services.children if services is not None else ()):
-                if service.key is None:
-                    continue
-                facts = _facts(files, tree, notes, folder, path, service, 0, frozenset({(path, service.key)}))
-                rows.append(Service(path, service.line, f"{unit[0]}:{unit[1]}", facts["folder"], service.key, facts["image"],
-                                    facts["built"], facts["context"], facts["dockerfile"], facts["pull"]))
+        parsed = outline(text_of(data))
+        services = parsed.root.get("services")
+        for service in (services.children if services is not None else ()):
+            if service.key is None:
+                continue
+            facts = _facts(parsed, services, service, frozenset({service.key}))
+            rows.append(Service(entry.path, service.line, f"{unit[0]}:{unit[1]}", posixpath.dirname(entry.path), service.key,
+                                facts["image"], facts["built"], facts["context"], facts["dockerfile"], facts["pull"]))
     return rows
 
 
@@ -366,5 +270,5 @@ def check_publish(tree, ctx: Context) -> List[Problem]:
 
 def check(tree, ctx: Context) -> List[Problem]:
     """IM01 to IM04: the services of the units the caller has loaded (`ctx.units`), else the Compose files of the tree."""
-    rows = services_of_units(ctx.units) if ctx.units is not None else services_of_tree(tree, ctx.notes)
+    rows = services_of_units(ctx.units) if ctx.units is not None else services_of_tree(tree)
     return evaluate(rows, ctx) + check_publish(tree, ctx)
