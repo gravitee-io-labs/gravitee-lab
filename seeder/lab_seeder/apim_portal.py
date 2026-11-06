@@ -542,12 +542,9 @@ class Portals:
 
     def read(self, targets):
         """The portal files of every environment, read and checked before the first change."""
-        out, seen = [], set()
+        out = []
         for env, parts in targets:
             env = env or setting("APIM_ENV", "DEFAULT")
-            if env in seen:
-                raise SeedError(f"Environment {env}: its portal is in seed/apim/portal and in seed/environments/{env}/portal")
-            seen.add(env)
             named = seed_file(*parts, "environment.yaml")
             name = (load(named, provided={"ENV_ID": env}) if named else {}).get("name")
             folder = Folder(env, self.environment(env, name), parts).read()

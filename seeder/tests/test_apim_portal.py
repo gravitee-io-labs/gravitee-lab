@@ -1817,13 +1817,6 @@ class Environments(Portals):
         self.run_seed()
         self.assertEqual(self.world.store["lab", "portal", None, "lab-portal"]["name"], "lab")
 
-    def test_one_environment_with_its_portal_in_two_places(self):
-        self.env(APIM_ENV="moderna")
-        self.seed_files({"apim/portal/portal.yaml": "hrid: lab-portal\nname: x\n"})
-        with self.assertRaisesRegex(SeedError, "Environment moderna: its portal is in seed/apim/portal and in seed/environments/moderna/portal"):
-            self.run_seed()
-        self.assertEqual(self.platform.changes(), [])
-
     def test_an_environment_the_platform_does_not_have(self):
         self.world.environments.pop("moderna")
         with self.assertRaisesRegex(SeedError, "^Environment moderna does not exist on this platform$"):

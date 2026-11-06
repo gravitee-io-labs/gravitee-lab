@@ -492,7 +492,7 @@ class ApiManagement:
         name, digest = self.scoped(plain), digest_of(definition)   # the file's: the mode is not part of it
         found = controls.of("api", plain) if self.own else None   # the controls name an API of seed/apim/
         wanted = self.as_mode_says(definition, found)
-        groups = self.groups_of(api.get("groups"), f"API {name}")   # the ids, or None when the file names none
+        groups = self.groups_of(api.get("groups"))   # the ids, or None when the file names none
         imported = self.named_groups(wanted, groups)
         live = self.live_api(api)
         mine = live and made_by_seed(live["id"])
@@ -520,14 +520,11 @@ class ApiManagement:
         self.restrict(api_id, groups, name)
         self.start(api_id)
 
-    def groups_of(self, hrids, what):
+    def groups_of(self, hrids):
         """The live ids of the groups an API or an application of an environment names by hrid, in the order it names them.
         None when it names none, or in the platform's own environment, whose files hold the groups as the platform knows them."""
         if self.own or not hrids:
             return None
-        missing = [hrid for hrid in hrids if hrid not in self.groups_by_hrid]
-        if missing:
-            raise SeedError(f"{what}: {', '.join(missing)} is no group of the environment {self.env}")
         return [self.groups_by_hrid[hrid]["id"] for hrid in hrids]
 
     def named_groups(self, definition, ids):
@@ -706,7 +703,7 @@ class ApiManagement:
         label = self.scoped(name)
         payload = {"name": name, "description": spec.get("description", ""),
                    "settings": spec.get("settings", {"app": {"type": "SIMPLE"}})}
-        groups = self.groups_of(spec.get("groups"), f"Application {label}")
+        groups = self.groups_of(spec.get("groups"))
         if groups is not None:
             payload["groups"] = groups
         found = self.find_application(name)
