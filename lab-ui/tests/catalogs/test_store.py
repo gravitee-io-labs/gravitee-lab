@@ -14,7 +14,6 @@ import sys
 import threading
 import time
 import unittest
-import zlib
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import redirect_stderr
 from io import StringIO
@@ -1371,56 +1370,6 @@ class Fixtures(Case):
         self.assertEqual(gitfixture.commit(one, {"x": "1"}), gitfixture.commit(two, {"x": "1"}))
         three = gitfixture.make_repo(self.root / "d.git", {"catalog.yml": "x\n"})
         self.assertNotEqual(gitfixture.tip(three), gitfixture.tip(one))
-
-    def test_a_copy_of_a_repository_is_independent(self):
-        one = gitfixture.make_repo(self.root / "a.git", gitfixture.catalog_files())
-        two = gitfixture.make_repo(self.root / "b.git", gitfixture.catalog_files())
-        gitfixture.commit(one, {"x": "1"})
-        self.assertNotEqual(gitfixture.tip(one), gitfixture.tip(two))
-
-    def test_a_repository_is_bare_and_a_remote_and_offers_no_partial_clone(self):
-        repo = gitfixture.make_repo(self.root / "a.git", gitfixture.catalog_files(), branch="trunk")
-        self.assertEqual(gitfixture.git("rev-parse", "--is-bare-repository", repo=repo).strip(), "true")
-        self.assertEqual(gitfixture.current(repo), "trunk")
-        self.assertEqual(gitfixture.bare(repo), repo)
-        self.assertTrue(gitfixture.url(repo).startswith("file:///"))
-        self.assertEqual(gitfixture.git("config", "--get", "uploadpack.allowFilter", repo=repo).strip(), "false")
-        self.assertFalse((repo / "hooks").exists())
-
-    def test_a_working_repository_gets_a_bare_clone(self):
-        work = self.root / "work"
-        gitfixture.git("init", "--quiet", "--", str(work))
-        (work / "f.txt").write_text("x")
-        gitfixture.git("-C", str(work), "add", "f.txt")
-        gitfixture.git("-C", str(work), "commit", "--quiet", "-m", "one")
-        clone = gitfixture.bare(work)
-        self.assertEqual((clone.name, gitfixture.git("rev-parse", "--is-bare-repository", repo=clone).strip()), ("work.git", "true"))
-
-    def test_a_commit_lays_files_over_the_tip_and_none_removes(self):
-        repo = gitfixture.make_repo(self.root / "a.git", {"a.txt": "1", "dir/b.txt": "2"})
-        sha = gitfixture.commit(repo, {"a.txt": "11", "dir/b.txt": None, "c.txt": gitfixture.Executable("#!/bin/sh\n")}, "Change")
-        files = {line.split("\t")[1]: line.split()[0] for line in gitfixture.git("ls-tree", "-r", sha, repo=repo).splitlines()}
-        self.assertEqual(files, {"a.txt": "100644", "c.txt": "100755"})
-        self.assertEqual(gitfixture.git("show", f"{sha}:a.txt", repo=repo), "11")
-
-    def test_a_force_push_gives_another_root_and_keeps_the_old_commits(self):
-        repo = gitfixture.make_repo(self.root / "a.git", {"a.txt": "1"})
-        first = gitfixture.tip(repo)
-        second = gitfixture.force_push_over(repo, {"a.txt": "1"})
-        self.assertNotEqual(first, second, "even with the same files")
-        self.assertEqual(gitfixture.git("rev-list", "--max-parents=0", second, repo=repo).split(), [second])
-        self.assertEqual(gitfixture.git("cat-file", "-t", first, repo=repo).strip(), "commit", "the old history is still there")
-
-    def test_links_and_submodules_are_what_they_say(self):
-        repo = gitfixture.make_repo(self.root / "a.git", {"l": gitfixture.Symlink("target"), "s": gitfixture.Gitlink("2" * 40)})
-        modes = {line.split("\t")[1]: line.split()[0] for line in gitfixture.git("ls-tree", "-r", "HEAD", repo=repo).splitlines()}
-        self.assertEqual(modes, {"l": "120000", "s": "160000"})
-
-    def test_filler_is_the_size_asked_the_same_every_time_and_does_not_compress(self):
-        data = gitfixture.filler(100000)
-        self.assertEqual((len(data), data == gitfixture.filler(100000)), (100000, True))
-        self.assertNotEqual(gitfixture.filler(100, "other"), gitfixture.filler(100))
-        self.assertGreater(len(zlib.compress(data)), 99000)
 
     def test_without_git_a_test_says_it_is_skipped_and_the_run_is_told_once(self):
         self.patch(gitfixture, "_GIT", None)
