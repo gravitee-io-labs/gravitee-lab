@@ -42,7 +42,7 @@ from ..catalogs.registry import CatalogError
 from ..catalogs.report import ERROR, WARNING, Problem
 from ..catalogs.tree import read_inside
 from ..paths import CORE_FILE, KINDS, NOUNS, ROOT
-from .project import PAGES, REACH_LIMIT, apart, brought, conflict_id, forget, loaded
+from .project import PAGES, REACH_LIMIT, TEXT_LIMIT, _read as read_project_file, apart, brought, conflict_id, forget, loaded
 
 # What x-gravitee can say, of any item: a key outside it is read by nothing, and so does nothing (a typo, or a key
 # the Lab UI does not know)
@@ -93,7 +93,6 @@ DEFAULTED = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*:?-([^}$]+)\}")   # ${NAME:-d
 RUN_BLOCK = re.compile(r"^(?:```|~~~)[ \t]*run\b", re.M)   # a guide's block that the terminal pane runs
 # Where a depth mistake in an anchor shows: a unit's folder sits five folders under the project
 SEEDER_FROM_A_UNIT, PLUGINS_FROM_A_UNIT = "../../../../../seeder", "../../../../../plugins/{}"
-BIG_FILE = 1 << 20   # the largest file of a unit that the Lab reads (T19)
 SEED_ENTRIES = understood.SEED_ENTRIES   # as many entries of a seed folder as the screen reads
 
 
@@ -1089,18 +1088,7 @@ def _anchors(products):
 
 def _read(file):
     """The text of a file that is a plain file of at most 1 MB, else None: a link or a pipe is not followed or waited for."""
-    try:
-        if not stat.S_ISREG(os.lstat(file).st_mode):
-            return None
-        descriptor = os.open(file, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
-    except OSError:
-        return None
-    with os.fdopen(descriptor, "rb") as handle:
-        data = handle.read(BIG_FILE + 1)
-    try:
-        return data.decode("utf-8") if len(data) <= BIG_FILE else None
-    except UnicodeDecodeError:
-        return None
+    return read_project_file(os.fspath(file))[0]
 
 
 def _not_read(folder, shown):
@@ -1118,7 +1106,7 @@ def _not_read(folder, shown):
             continue
         if not stat.S_ISREG(info.st_mode):
             yield f"{shown}/{rel} is a link or a pipe, not a plain file: the Lab does not read it, so the unit is refused"
-        elif info.st_size > BIG_FILE:
+        elif info.st_size > TEXT_LIMIT:
             yield f"{shown}/{rel} is over 1 MB: the Lab does not read more than that of a file, so the unit is refused"
     seed, count = base / "seed", 0
     if os.path.islink(seed):
@@ -1138,7 +1126,7 @@ def _not_read(folder, shown):
                 continue
             if stat.S_ISLNK(info.st_mode) or not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode)):
                 yield f"{rel} is a link or a pipe: the Lab does not follow it, so the unit is refused"
-            elif stat.S_ISREG(info.st_mode) and info.st_size > BIG_FILE:
+            elif stat.S_ISREG(info.st_mode) and info.st_size > TEXT_LIMIT:
                 yield f"{rel} is over 1 MB: the Lab does not read more than that of a file, so the unit is refused"
         if count > SEED_ENTRIES:
             yield f"{shown}/seed holds more than {SEED_ENTRIES} entries: the Lab does not read more, so the unit is refused"

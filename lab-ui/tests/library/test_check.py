@@ -2634,15 +2634,15 @@ class Names(unittest.TestCase):
                          ["playgrounds/x is a link: the Lab does not follow links, so the unit is refused"])
 
     def test_a_file_over_1_mb_is_told(self):
-        self.write("compose.yml", "x" * (check.BIG_FILE + 1))
-        self.write("seed/big.json", "y" * (check.BIG_FILE + 1))
+        self.write("compose.yml", "x" * (check.TEXT_LIMIT + 1))
+        self.write("seed/big.json", "y" * (check.TEXT_LIMIT + 1))
         self.assertEqual(list(check._not_read(self.root, "addons/x")), [
             "addons/x/compose.yml is over 1 MB: the Lab does not read more than that of a file, so the unit is refused",
             "addons/x/seed/big.json is over 1 MB: the Lab does not read more than that of a file, so the unit is refused"])
 
     def test_a_text_that_is_not_utf_8_or_is_too_big_is_not_read(self):
         (self.root / "a").write_bytes(b"\xff\xfe\x00")
-        self.write("b", "x" * (check.BIG_FILE + 1))
+        self.write("b", "x" * (check.TEXT_LIMIT + 1))
         os.mkfifo(self.root / "c")
         for name in "abc":
             self.assertIsNone(check._read(self.root / name), name)
@@ -2670,7 +2670,7 @@ class Names(unittest.TestCase):
         (unit / "guide.md").write_text("## 2. Two\n", encoding="utf-8")
         self.assertEqual(list(check._guide(unit)), ["guide.md: number its steps 1, 2, 3 in order, not 2"])
         big = unit / "seed/apim/apis/big.json"
-        big.write_text(" " * (check.BIG_FILE + 1), encoding="utf-8")
+        big.write_text(" " * (check.TEXT_LIMIT + 1), encoding="utf-8")
         self.assertEqual(list(check._seed(unit)), [], "a file over 1 MB is not read: the line about its size is `_not_read`'s")
 
     def test_the_words_the_screen_reads_are_found_wherever_they_are_spelled(self):
