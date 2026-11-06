@@ -77,7 +77,6 @@ SOURCE = "org.opencontainers.image.source"
 REVISION = "org.opencontainers.image.revision"
 VERSION_LABEL = "org.opencontainers.image.version"
 LICENSE_LABEL = "org.opencontainers.image.licenses"
-BUILD_TIMEOUT = build.IMAGE_TIMEOUT
 MAX_IMAGES = 500
 CONTROL = ("catalog.yml", ".github/standard.json")   # what changes the labels and the platforms of every image
 
@@ -699,23 +698,11 @@ def publish_all(images: Sequence[Image], ref: Ref, sha: str, url: str, license_:
                 continue
         cmd = publish_command(image, tags, labels_for(image, ref, sha, url, license_), platforms)
         spec = build.Spec(image.unit, image.service, image.name, cmd, image.path, image.context)
-        failure = None
-        for attempt in range(len(build.RETRIES) + 1):
-            code, output, said = run_docker(cmd, timeout=BUILD_TIMEOUT, runner=runner)
-            if code == 0:
-                failure = None
-                break
-            failure = build.classify(code, output, said)
-            if failure.kind in ("missing", "unreachable", "stopped"):
-                raise Unavailable({"missing": "Docker with buildx is not installed or not on the PATH",
-                                   "unreachable": "Docker is not running", "stopped": "the build was stopped"}[failure.kind])
-            if failure.kind != "infra" or attempt == len(build.RETRIES):
-                break
-            sleep(build.RETRIES[attempt])
-        if failure is not None:
-            problems.append(build.finding(spec, failure))
-            logs += [f"The last {len(failure.lines)} lines of the build of {report.printable(image.name)}:",
-                     report.untrusted_text("\n".join(failure.lines) + "\n").rstrip("\n")]
+        _, failed, lines = build.build_all([spec], runner, sleep)
+        if failed:
+            problems += failed
+            logs += [f"The last {len(lines[image.name])} lines of the build of {report.printable(image.name)}:",
+                     report.untrusted_text("\n".join(lines[image.name]) + "\n").rstrip("\n")]
             continue
         pushed = inspect(f"{image.name}:{tags[0]}", runner)
         if pushed is None:
