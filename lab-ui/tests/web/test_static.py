@@ -46,12 +46,6 @@ HASH = re.compile(r'^const (\w+) = "(sha384-[A-Za-z0-9+/]{64})";', re.M)   # the
 CDN = re.compile(r'^const \w+ = "(https://[^"]+)"', re.M)
 
 
-# What a package delivered ahead of the page that uses it: the exports that no module imports yet, by file, until the package that draws
-# them is merged. A name that is imported by then, or is no longer exported, fails `test_what_awaits_a_page_is_not_used_yet`: the list
-# shrinks as the pages arrive, and is empty when they all have, as it is now.
-AWAITING = {}
-
-
 def name(file):
     return file.relative_to(WEB).as_posix()
 
@@ -123,19 +117,8 @@ class Imports(Case):
         taken = {((module.parent / path).resolve(), wanted) for module in MODULES
                  for path, names in imported(module.read_text()) for wanted in names}
         for module in MODULES:
-            unused = [export for export in EXPORT.findall(module.read_text())
-                      if (module, export) not in taken and export not in AWAITING.get(name(module), ())]
+            unused = [export for export in EXPORT.findall(module.read_text()) if (module, export) not in taken]
             self.assertFalse(unused, f"{name(module)} exports what no module imports")
-
-    def test_what_awaits_a_page_is_not_used_yet(self):
-        taken = {((module.parent / path).resolve(), wanted) for module in MODULES
-                 for path, names in imported(module.read_text()) for wanted in names}
-        for file, awaited in AWAITING.items():
-            module = WEB / file
-            exported = set(EXPORT.findall(module.read_text()))
-            self.assertFalse(awaited - exported, f"{file} no longer exports {sorted(awaited - exported)}: take it off the list")
-            self.assertFalse({export for export in awaited if (module.resolve(), export) in taken},
-                             f"{file}: a page imports what the list says awaits one: take it off the list")
 
     def test_the_page_finds_its_styles_and_its_script(self):
         for path in re.findall(r'(?:href|src)="/((?:css|js)/[^"]+)"', INDEX):
@@ -255,11 +238,9 @@ class Generic(Case):
             self.assertEqual(said, [], f"{name(file)} says a version in words")
 
 
-# What the content of the catalogs says, each in one place: ui.js (contentStatus, contentLead). The page that said one of them before it
-# drew from there is listed with it until it does; a file listed that no longer says it fails `test_the_words_of_the_content_are_said_once`.
+# What the content of the catalogs says, each in one place: ui.js (contentStatus, contentLead)
 CONTENT_WORDS = ("Downloading playgrounds, setups and add-ons", "No catalog added", "No playground, setup or add-on yet", "No playground yet",
                  "No setup yet", "No add-on yet", "Browse catalogs")
-SAID_BEFORE = {}
 
 
 class Words(Case):
@@ -267,15 +248,10 @@ class Words(Case):
     def test_the_words_of_the_content_are_said_once(self):
         for words in CONTENT_WORDS:
             said = sorted(name(module) for module in MODULES if words in code(module.read_text()))
-            self.assertEqual(said, sorted({"js/components/ui.js", *SAID_BEFORE.get(words, ())}), f"{words!r} is said in one module, ui.js")
+            self.assertEqual(said, ["js/components/ui.js"], f"{words!r} is said in one module, ui.js")
             self.assertEqual(code((WEB / "js" / "components" / "ui.js").read_text()).count(words), 1, f"{words!r} is said once in ui.js")
         # The words of the button that adds the catalog the server offers are made of its name, in one place
         self.assertEqual(code((WEB / "js" / "components" / "ui.js").read_text()).count("`Add ${offer.name ?? offer.id}`"), 1)
-
-    def test_nothing_is_said_twice_that_a_page_has_to_stop_saying(self):
-        for words, files in SAID_BEFORE.items():
-            for file in files:
-                self.assertIn(words, (WEB / file).read_text(), f"{file} no longer says {words!r}: take it off the list")
 
 
 class Styles(Case):
@@ -590,10 +566,7 @@ class Policy(Case):
     def test_the_html_answer_carries_the_policy_the_page_needs(self):
         status, headers, _ = self.served("/")
         self.assertEqual(status, 200)
-        policy = headers["Content-Security-Policy"]
-        if policy == "frame-ancestors 'none'":   # today's answer, and no other: a header that has something else is held to the page's needs
-            self.skipTest("the server answers the page with frame-ancestors alone: api.py has not added the policy yet (a work package of its own)")
-        self.assertEqual(policy_problems(policy), [])
+        self.assertEqual(policy_problems(headers["Content-Security-Policy"]), [])
         self.assertEqual(headers["X-Frame-Options"], "DENY")
 
 
