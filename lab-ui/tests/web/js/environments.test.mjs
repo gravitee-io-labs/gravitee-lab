@@ -461,7 +461,7 @@ test("wherever an add-on is named for a platform, nothing holds its gateway for 
 
 test("a key that reaches the Cloud choice while nothing can run its gateway asks for nothing; with an add-on the same key goes on", async () => {
   const original = globalThis.fetch, sent = [];
-  globalThis.fetch = async (path) => { sent.push(path); return { ok: true, status: 200, headers: { get: () => "" }, json: async () => ({}) }; };
+  globalThis.fetch = async (path) => { sent.push(path); return { ok: true, status: 200, headers: { get: () => "" }, json: async () => (path === "/api/places" ? [] : {}) }; };
   try {
     for (const [cloud, content_] of [[null, content("ready")], [null, content("downloading")], [null, content("failed")], [null, content("none")]]) {
       served({ cloud }, { platforms: [PLATFORM], content: content_ });

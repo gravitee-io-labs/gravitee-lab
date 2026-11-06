@@ -63,8 +63,7 @@ ${block("Tooltip and popovers, open", row(tipHtml(`Refresh${icon("info")}`, "Rea
 ${block("Notices", noticeHtml({ tone: "warn", title: "Apply needed", text: tipHtml(`<span>8 containers differ from what is saved</span>${icon("info")}`, { ...behindWhy({ behind: BEHIND }), title: "" }, "", "8 containers differ from what is saved"), action: `<button class="btn primary">${icon("apply")}Apply</button>` })
   + noticeHtml({ tone: "calm", title: "Gravitee Platform is stopped", action: `<button class="btn primary">${icon("play")}Start</button>` })
   + noticeHtml({ tone: "warn", title: "License expires in 5 days", action: '<button class="btn">Set license</button>' })
-  + noticeHtml({ tone: "err", title: "Docker is not reachable", text: "Cannot connect to the Docker daemon" })
-  + noticeHtml({ tone: "info", title: "A hybrid gateway runs here" }))}
+  + noticeHtml({ tone: "err", title: "Docker is not reachable", text: "Cannot connect to the Docker daemon" }))}
 ${block("Buttons and controls", row(`<button class="btn primary">${icon("apply")}Apply</button><button class="btn">${icon("play")}Start</button>
   <button class="btn danger">Remove</button><button class="btn" aria-disabled="true" data-why="Needs settings: HYBRID_CLOUD_TOKEN">${icon("play")}Start</button>
   <button class="btn" data-tip="Start it with the platform from now on">Turn on</button><button class="icon-btn" aria-label="Count storage again" data-tip="Count again, counted 1 min ago">${icon("restart")}</button>

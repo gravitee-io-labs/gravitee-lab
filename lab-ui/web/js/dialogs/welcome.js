@@ -130,7 +130,7 @@ function stepOf(id) {
   return failure() ? { state: "attention", line: "Did not start" } : { state: "todo", line: "Not started yet" };
 }
 
-const TITLE = { machine: "Your machine", core: () => product(), start: "Start", guide: "How it works" };
+const TITLE = { machine: "Your machine", core: () => product(), start: "Start" };
 const title = (id) => (typeof TITLE[id] === "function" ? TITLE[id]() : TITLE[id]);
 
 function railHtml() {

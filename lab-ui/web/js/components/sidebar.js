@@ -113,7 +113,7 @@ function lab({ docker, platform, license, addons, playgrounds }) {
     || (store.state.core?.place || "machine") !== "machine");
   if (((stopped && !apart) || showing("platform", "start")) && !ownStart()) {
     // Stopped is where the lab begins, not a problem: said calmly
-    notices.push({ tone: "calm", icon: "info", title: `${esc(platform.name)}${stopped ? " is stopped" : ""}`, action: START });
+    notices.push({ tone: "calm", title: `${esc(platform.name)}${stopped ? " is stopped" : ""}`, action: START });
   }
   if (license?.problem) {
     notices.push({ tone: "warn", title: esc(license.problem), action: `<button class="btn" ${licenseForm()}>Set license</button>` });
@@ -141,11 +141,9 @@ function banner(state) {
   if (!state) return { html: "", calm: true };
   const notices = store.error ? [{ tone: "err", title: esc(store.error) }]
     : store.offline ? [{ tone: "err", title: "Lab UI offline", text: "What the page shows is what it last heard" }] : [];
-  if (state) {
-    if (state.docker.error) notices.push({ tone: "err", title: esc(state.docker.title || "Docker is not reachable"), text: esc(state.docker.error), action: MACHINE });
-    else if (!state.blind) notices.push(...lab(state));
-    notices.push(...state.problems.map(problem));
-  }
+  if (state.docker.error) notices.push({ tone: "err", title: esc(state.docker.title || "Docker is not reachable"), text: esc(state.docker.error), action: MACHINE });
+  else if (!state.blind) notices.push(...lab(state));
+  notices.push(...state.problems.map(problem));
   // Calm when it only says the platform is stopped
   return { html: notices.map(noticeHtml).join(""), calm: notices.every((one) => one.tone === "calm") };
 }
@@ -166,7 +164,7 @@ export function renderShell() {
   const job = store.offline ? null : state.job, busy = !!job && !job.done, canceled = job?.error === "Canceled";
   const activity = $("#activity");
   activity.hidden = !job || (job.done && job.ok);
-  activity.className = "activity meter" + (!job ? "" : busy ? " running" : job.ok ? " ok" : canceled ? "" : " failed");
+  activity.className = "activity meter" + (!job ? "" : busy ? " running" : job.ok || canceled ? "" : " failed");
   $("#activity-text").textContent = activity.hidden ? "" : jobTitle(job);
   if (activity.hidden) {
     delete activity.dataset.tip;

@@ -894,7 +894,7 @@ export function serviceCells(service) {
 // NOTICE: a fact about the lab as a whole, in a slim callout above the page (the banner): its icon in its tone (warn, err, info, calm),
 // its headline, a short summary (HTML: a popover may explain it), its action at the right. `title` and `text` are HTML the caller
 // escaped.
-const NOTICE_ICON = { warn: "alert", err: "alert", info: "info", calm: "info" };
+const NOTICE_ICON = { warn: "alert", err: "alert", calm: "info" };
 export const noticeHtml = ({ tone = "warn", title, text = "", action = "" }) => `<div class="notice ${tone}">${icon(NOTICE_ICON[tone]).replace("<svg", '<svg class="notice-icon"')}<p class="notice-body"><strong class="notice-title">${title}</strong>${
   text ? `<span class="notice-text">${text}</span>` : ""}</p>${action ? `<span class="notice-actions">${action}</span>` : ""}</div>`;
 
@@ -1084,21 +1084,21 @@ export function paintBusy(root = document) {
 
 // What a verb says while its action works: one word for each
 const ING = { start: "Starting", stop: "Stopping", restart: "Restarting", update: "Updating", pull: "Pulling",
-  apply: "Applying", install: "Installing", remove: "Removing", reset: "Resetting", down: "Removing",
+  apply: "Applying", remove: "Removing", reset: "Resetting", down: "Removing",
   reseed: "Seeding", deploy: "Deploying", login: "Logging in", create: "Creating", save: "Saving", share: "Sharing",
   delete: "Deleting", replace: "Replacing", refresh: "Refreshing", cancel: "Canceling", add: "Adding", connect: "Connecting",
   setup: "Setting up", repair: "Repairing", export: "Exporting", import: "Importing", move: "Moving", copy: "Copying", check: "Checking" };
 const ing = (verb) => ING[verb] || "Working";
 // What a verb says once its action is over, with its check or its error mark: the word of the button that started it
 const WORD = { start: "Start", stop: "Stop", restart: "Restart", update: "Update", pull: "Pull", apply: "Apply",
-  install: "Install", remove: "Remove", reset: "Reset", down: "Remove", reseed: "Re-seed", deploy: "Deploy", login: "Log in",
+  remove: "Remove", reset: "Reset", down: "Remove", reseed: "Re-seed", deploy: "Deploy", login: "Log in",
   create: "Create", save: "Save", share: "Share", delete: "Delete", replace: "Replace", refresh: "Refresh", cancel: "Cancel",
   add: "Add", connect: "Connect", setup: "Set up", repair: "Repair", export: "Export", import: "Import", move: "Move", copy: "Copy", check: "Check" };
 // What Turn on and Turn off change, as the tooltip of their button wherever it is (a row, a playground's head): what is on, which
 // starts with the platform, and nothing that runs now
 export const TURNS = { "Turn on": "Start it with the platform from now on", "Turn off": "No longer start it with the platform" };
 // The verbs whose job says how far it is: the others ("Saving…", "Canceling…") never show a percentage
-const MEASURED = new Set(["start", "stop", "restart", "update", "pull", "apply", "install", "remove", "reset", "down", "reseed",
+const MEASURED = new Set(["start", "stop", "restart", "update", "pull", "apply", "remove", "reset", "down", "reseed",
   "deploy"]);
 
 const FULL = 500;     // how long a measured action that got there says 100%, before its button gives its face back

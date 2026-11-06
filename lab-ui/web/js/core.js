@@ -335,8 +335,7 @@ export const store = {
     placesSought ||= !!store.platforms.length;
     if (store.platforms.length) {
       try {
-        const answer = await api("/api/places");
-        found = Array.isArray(answer) ? answer : answer.places || [];
+        found = await api("/api/places");
       } catch (err) {
         console.error(err);   // the list read last stands
         return;

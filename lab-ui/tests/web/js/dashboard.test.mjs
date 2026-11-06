@@ -39,7 +39,7 @@ const page = installDom({
       }
       return reply({ platforms: server.platforms });
     }
-    if (path === "/api/places") return reply({ places: server.places || [] });
+    if (path === "/api/places") return reply(server.places || []);
     if (path.endsWith("/plan")) return reply(server.plan || { dialog: null });
     const check = path.match(/^\/api\/platforms\/([a-z0-9-]+)\/check$/);
     if (check) {

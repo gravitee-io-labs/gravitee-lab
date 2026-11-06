@@ -984,9 +984,6 @@ test("the store keeps the platforms the state lists and the places the server an
   assert.equal(heard, 1);
   await store.refreshPlaces();
   assert.equal(heard, 1, "a list that did not change redraws nothing");
-  server.places = { places: [DEV, TEST] };
-  await store.refreshPlaces();
-  assert.deepEqual(store.places, [DEV, TEST], "a list in an object is read as well");
   store.state = plain;
   await store.refreshPlaces();
   assert.deepEqual(store.places, [], "the platforms are gone, so are their places");

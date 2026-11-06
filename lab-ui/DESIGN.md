@@ -54,7 +54,7 @@ Contrast of text, measured: `--ok` on `--ok-soft` 4.6:1 light, 8.2:1 dark; `--wa
 Each has one class and, when it is markup, one function of `web/js/components/ui.js`. Use it as it is; when a page needs more, extend the
 component here, never with a variant of its own.
 
-**Pill** (`.pill`, its tones `.ok .warn .err .info`, none for neutral). A status or a label: *Running*, *Personal*,
+**Pill** (`.pill`, its tones `.ok .warn .err`, none for neutral). A status or a label: *Running*, *Personal*,
 *Connected* (an account, in the head of its card), *Apply needed*, the license in words (*Community Edition*, *Enterprise Edition* and
 its tier, *License not saved*; never an acronym). 24 px high, 10 px at its sides, 6 px between its parts, 12 px
 medium, a 1 px line of its tone. A trailing information mark when it opens an explanation (then the pill is the button: a hover a
@@ -112,7 +112,7 @@ word (a product's Status, whose newer version it would hide) says that word as a
 and the version), and to a screen reader.
 
 **Notice** (`noticeHtml({tone, title, text, action})`, `.notice`). A fact about the lab as a whole, above the page (the banner):
-its icon in its tone (`warn`, `err`, `info`, `calm` for a fact that is no problem), its headline in strong `--text`, a short
+its icon in its tone (`warn`, `err`, `calm` for a fact that is no problem), its headline in strong `--text`, a short
 summary in `--text-2` that may open a popover (its mark follows its last word, wherever the words wrap; the summary is the start of
 its name for a screen reader, so that a voice that says it finds it), its action at the right: the platform's Start and Apply are the
 primary, as they are in the heads that have them. 44 px with its 32 px button, 14 px at its left, a 10 px radius, the soft fill and
