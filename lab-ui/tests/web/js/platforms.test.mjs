@@ -94,7 +94,7 @@ async function open(check, platforms = [PLATFORM]) {
 }
 const ok = (gateways, tokens = {}, names = NAMES) => ({ state: "ok", message: "", gateways,
   environments: names.map((name) => environment(name, tokens[name] || { state: "unset" })) });
-const VALID = { state: "valid", expires: "2027-01-31T00:00:00Z" };
+const VALID = { state: "valid", expires: "2099-01-31T00:00:00Z" };
 const cards = () => section.querySelectorAll(".plat-card");
 const card = () => cards()[0];
 const rows = () => section.querySelectorAll(".plat-row");
@@ -519,8 +519,8 @@ test("a hosted gateway is not listed, so the environment has none of its own", a
 // expire, else Can deploy once it has a Cloud Token that is valid and a gateway here, else what it lacks, the gateway or the token. The
 // rest is in the popover, the first line of which is the word.
 const DEPLOYS = [
-  ["a valid token and a gateway", { state: "valid", expires: "2027-01-31T00:00:00Z" }, {}, ["healthy", "Can deploy", ["Can deploy", `Expires ${on("2027-01-31")}`]]],
-  ["a valid token, from a claim", { state: "valid", expires: Date.parse("2027-01-31T00:00:00Z") / 1000 }, {}, ["healthy", "Can deploy", ["Can deploy", `Expires ${on("2027-01-31")}`]]],
+  ["a valid token and a gateway", { state: "valid", expires: "2099-01-31T00:00:00Z" }, {}, ["healthy", "Can deploy", ["Can deploy", `Expires ${on("2099-01-31")}`]]],
+  ["a valid token, from a claim", { state: "valid", expires: Date.parse("2099-01-31T00:00:00Z") / 1000 }, {}, ["healthy", "Can deploy", ["Can deploy", `Expires ${on("2099-01-31")}`]]],
   ["a valid token without an expiry", { state: "valid" }, {}, ["healthy", "Can deploy", []]],
   ["a valid token that expires in 5 days", { state: "valid", expires: new Date(Date.now() + 5 * 86400000 + 3600000).toISOString() }, {}, ["warn", "Expires in 5 days", null]],
   ["a valid token and no gateway of the Lab's", { state: "valid" }, { kept: false, connection: "CONNECTED" }, ["stopped", "Needs a gateway here", ["Needs a gateway here", "A deploy goes through a gateway of this environment that runs here"]]],
@@ -558,12 +558,12 @@ test("what the playgrounds deployed in an environment is its state, by name for 
   await open(ok([gateway({ here: true, connection: "CONNECTED" })], { Development: VALID }));
   assert.equal(deploysOf("Development"), "Acme Hostels API deployed");
   const status = () => rowOf("Development").querySelector(".plat-deploys .status");
-  assert.deepEqual(lines(status()), ["Acme Hostels API deployed", "Can deploy", `Expires ${on("2027-01-31")}`, "Acme Hostels API: 3 APIs"], "reachable by keyboard, with the rest of what is known");
+  assert.deepEqual(lines(status()), ["Acme Hostels API deployed", "Can deploy", `Expires ${on("2099-01-31")}`, "Acme Hostels API: 3 APIs"], "reachable by keyboard, with the rest of what is known");
   assert.equal(rowOf("Development").querySelectorAll("[title]").filter((el) => /ACME/.test(el.getAttribute("title"))).length, 0);
   store.state = state({ playgrounds: [hotels, bank] });
   platformsPage.render(store.state);
   assert.equal(deploysOf("Development"), "2 playgrounds deployed");
-  assert.deepEqual(lines(status()), ["2 playgrounds deployed", "Can deploy", `Expires ${on("2027-01-31")}`, "Acme Hostels API: 3 APIs", "Acme Bakery: 2 APIs"]);
+  assert.deepEqual(lines(status()), ["2 playgrounds deployed", "Can deploy", `Expires ${on("2099-01-31")}`, "Acme Hostels API: 3 APIs", "Acme Bakery: 2 APIs"]);
   store.state = state({ playgrounds: [{ ...hotels, deployed: [record("cloud-eu/env-test", [{ what: "APIs", count: 3 }])] }] });
   platformsPage.render(store.state);
   assert.deepEqual(used().map((r) => text(r.querySelector(".plat-env"))), ["Development", "Test"], "what was deployed there makes it an environment in use, with no token and no gateway");

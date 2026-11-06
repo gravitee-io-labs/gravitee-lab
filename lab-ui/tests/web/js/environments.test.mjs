@@ -27,7 +27,7 @@ const STOPPED = { state: { key: "stopped" }, action: { do: "start", enabled: tru
 const dayFrom = (days) => new Date(Date.now() + days * 86400000 + 3600000).toISOString();   // and an hour, which the test takes to run
 const lab = (state = {}) => { store.state = { blind: false, addons: [ADDON()], playgrounds: [], ...state }; };
 const status = (gateways = [], token, more = {}, check = {}) => environmentStatus(PLATFORM, { gateways, ...check }, { ...ENV, token: token || ENV.token, ...more });
-const VALID = { state: "valid", expires: "2027-01-31T00:00:00Z" };
+const VALID = { state: "valid", expires: "2099-01-31T00:00:00Z" };
 const brief = (found) => [found.gateway.key, found.gateway.word, found.deploy.key, found.deploy.word, found.action?.do ?? null];
 
 test("an environment the Lab does nothing with is not in use, and is offered to set up", () => {
@@ -53,7 +53,7 @@ test("a gateway that runs here, connected, with a valid token, is running and ca
   assert.equal(found.gateway.id, "g1");
   assert.deepEqual(found.gateway.tip, ["lab"], "its name: where it answers is said under the state");
   assert.equal(found.deploy.dot, "healthy");
-  assert.equal(found.deploy.expires, "2027-01-31T00:00:00Z");
+  assert.equal(found.deploy.expires, "2099-01-31T00:00:00Z");
   assert.deepEqual(found.action, { do: "stop-gateway", label: "Stop gateway", disabled: false, reason: "" });
 });
 

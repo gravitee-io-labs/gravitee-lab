@@ -2172,7 +2172,7 @@ test("when the last item goes (the default catalog removed), the pager of the ca
 });
 
 test("with no add-on to run its gateway, the row of API Management in the Cloud offers Add catalog, and that leads to the Catalogs page", async () => {
-  const environments = [{ ...environment("Development"), token: { state: "valid", expires: "2027-01-31T00:00:00Z" } }];
+  const environments = [{ ...environment("Development"), token: { state: "valid", expires: "2099-01-31T00:00:00Z" } }];
   const state = { ...lab({ core: "stopped", gateway: false, platform: { gateways: { cloud: null } }, catalogs: [FIRST()], content: content("ready") }), core: CLOUD_CORE };
   await open({ state, listed: [PLATFORM], checks: { "cloud-eu": check([], { environments }) } });
   await flush();
