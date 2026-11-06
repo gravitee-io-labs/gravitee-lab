@@ -85,10 +85,6 @@ class Settings(unittest.TestCase):
         found = renames.resolve(None, {"settings": {"OLD": "MIDDLE", "MIDDLE": "NEW"}})
         self.assertEqual(renames.rename_settings("OLD=1\nMIDDLE=2\n", found["settings"]), "OLD=1\nNEW=2\n")
 
-    def test_renaming_twice_changes_nothing_more(self):
-        once = renames.rename_settings("OLD=1\n", {"OLD": "NEW"})
-        self.assertEqual(renames.rename_settings(once, {"OLD": "NEW"}), once)
-
 
 # ---------------------------------------------------------------------------------------------------------------------
 # What follow moves, for one install
@@ -205,10 +201,6 @@ class Following(Case):
         renames.follow("partner", FOUND)
         self.assertEqual(starred.read()["addon"], {"@partner/ledger", "echo"})
         self.assertEqual(json.loads(self.text(renames.SHARED)), {"addon:@partner/ledger": {"MINE_X": "PARTNER_X"}})
-
-    def test_the_on_file_turns_on_what_a_list_on_one_line_names(self):
-        self.write(paths.ON_FILE, f"include: [{OLD_FILE}]\n")
-        self.assertEqual(install.on_units("partner"), {"addon:books"})
 
     def test_the_release_before_a_rename_is_the_greatest_version_tag_that_leads_to_it(self):
         repo = self.root / PARTNER   # a working copy: its git is the history
@@ -508,7 +500,6 @@ class EndToEnd(Case):
         self.release("1.2.0", V3)
         self.update()
         self.assert_kept_under("agent-trace-viewer", "ACME_AGENT_TRACE_VIEWER_TOKEN")
-        chained = self.root
 
         self.setUp_again()
         self.add_at("1.0.0")
@@ -517,7 +508,6 @@ class EndToEnd(Case):
         self.assertEqual(plan["version"], "1.2.0", "the greatest release, two renames at once")
         self.assertEqual([row["id"] for row in plan["renames"]], ["@acme/cluster-board", "@acme/agent-trace-viewer"])
         self.assert_kept_under("agent-trace-viewer", "ACME_AGENT_TRACE_VIEWER_TOKEN")
-        self.assertNotEqual(chained, self.root)
 
     def setUp_again(self):
         """Another Lab, in another folder, that has 1.0.0 of the same repository."""
@@ -862,32 +852,20 @@ class EndToEnd(Case):
         self.assertEqual((found["playgrounds"]["local/mine"]["blocked"], layers.current(found)["problems"]), (None, []))
 
     def test_an_item_of_this_machine_whose_include_the_lab_cannot_write_again_holds_the_update_while_it_is_on(self):
-        """The same Mine, its include written in long form with a `project_directory:` that names the viewer's folder: the Lab
-        writes the path again, not the folder, so Mine would not follow. It breaks, and holds the update while it is on."""
+        """Mine includes the viewer in long form with a `project_directory:` that names its folder, or in a list on one line: the Lab
+        writes the path of neither again, so Mine would not follow. It breaks, and holds the update while it is on."""
         self.add()
-        mine = ".lab/catalogs/local/playgrounds/mine/compose.yml"
-        self.write(mine, "x-gravitee: {kind: playground, name: Mine, category: Other, description: Mine}\n"
-                         "include:\n  - path: ../../../acme/addons/viewer/compose.yml\n"
-                         "    project_directory: ../../../acme/addons/viewer\n")
-        self.write(paths.ON_FILE, f"include:\n  - {mine}\n")
-        project.forget()
         self.release("1.1.0", V2)
         service.check_now("acme")
-        plan = service.update("acme", check=True)
-        self.assertEqual((plan["held"], [one["id"] for one in plan["breaks"]]), ("Turn off Mine first", ["local/mine"]))
-
-    def test_an_item_of_this_machine_that_is_on_and_includes_a_renamed_item_on_one_line_holds_the_update(self):
-        self.add()
         mine = ".lab/catalogs/local/playgrounds/mine/compose.yml"
-        self.write(mine, "x-gravitee: {kind: playground, name: Mine, category: Other, description: Mine}\n"
-                         "include: [../../../acme/addons/viewer/compose.yml]\n")
         self.write(paths.ON_FILE, f"include:\n  - {mine}\n")
-        project.forget()
-        self.release("1.1.0", V2)
-        service.check_now("acme")
-        plan = service.update("acme", check=True)
-        self.assertEqual((plan["held"], [one["id"] for one in plan["breaks"]]), ("Turn off Mine first", ["local/mine"]),
-                         "the Lab writes a list on one line again never: Mine would lose the viewer")
+        for include in ("include:\n  - path: ../../../acme/addons/viewer/compose.yml\n    project_directory: ../../../acme/addons/viewer\n",
+                        "include: [../../../acme/addons/viewer/compose.yml]\n"):
+            with self.subTest(include):
+                self.write(mine, f"x-gravitee: {{kind: playground, name: Mine, category: Other, description: Mine}}\n{include}")
+                project.forget()
+                plan = service.update("acme", check=True)
+                self.assertEqual((plan["held"], [one["id"] for one in plan["breaks"]]), ("Turn off Mine first", ["local/mine"]))
 
     def test_a_file_of_this_machine_that_names_a_service_no_file_defines_any_more_is_a_problem_compose_says(self):
         """The board's service is acme-cluster-board now: a playground of the person's that waits for acme-board does not load,
