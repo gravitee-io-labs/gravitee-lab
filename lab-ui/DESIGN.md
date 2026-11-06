@@ -6,9 +6,7 @@ How the Lab UI looks and behaves, and why. [AGENTS.md](AGENTS.md) has the rules 
 ## The design system
 
 Every page is built from the tokens and components below, and from nothing else. A page builder reads this part first; the
-parts after it say how each page uses them. The [gallery](tests/web/gallery/README.md) draws every component in every tone and
-state, light and dark side by side, from the page's own code: look at it at 2x zoom after any change to `web/css` or to a
-component of `ui.js`.
+parts after it say how each page uses them.
 
 ### Principles
 
@@ -282,8 +280,8 @@ version said in words ("API Management 4.12") in the strings of a module.
 Every change is measured in the DOM before it is judged by eye: `getBoundingClientRect` for heights and the left edges of first
 columns, computed styles for sizes, weights and colors, the middle of every cell against the middle of its row, `scrollWidth`
 against the window for a sideways scroll, and the contrast of each text against its background. At 1966, 1440, 900 and 375 px,
-light and dark. Then the screenshots at full size and at 2x for the details. The figures this system promises, as measured in
-the gallery and on the pages: a pill 24 px with 10 px sides; the Apply badge 120 by 24; a tooltip 28 px high, one line, 6 by 10,
+light and dark. Then the screenshots at full size and at 2x for the details. The figures this system promises, as measured
+on the pages: a pill 24 px with 10 px sides; the Apply badge 120 by 24; a tooltip 28 px high, one line, 6 by 10,
 12 px; a popover 260 to 460 px, as wide as its content, 12 by 16, 13 px, rows 8 px apart; a notice 44 px; a button, a search, a toggle chip and a
 segmented control 32 px, a segment 26; a menu's entry and a picker's option 36, a dropdown longer than its room
 ending 16 px from the window's edge (on the pages at 1440 by 900, 1440 by 600 and 375 by 700; `place` in `tests/web/js/popup.test.mjs`); a card's head 56, a table's head 32 (`.table
