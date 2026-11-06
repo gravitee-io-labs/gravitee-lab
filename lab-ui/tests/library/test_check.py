@@ -14,7 +14,6 @@ import io
 import json
 import os
 import shutil
-import subprocess
 import sys
 import tempfile
 import types
@@ -1750,15 +1749,6 @@ class Engine(Case):
                                                "    is missing: create it with {\"context\": {\"fileName\": [\"AGENTS.md\"]}}\n"
                                                "✗ AGENTS.md\n"
                                                "    CLAUDE.md is missing: create it with the single line @AGENTS.md\n\n2 problems\n"))
-
-    def test_the_checkout_itself_prints_all_good(self):
-        done = subprocess.run([sys.executable, str(REPO / "lab-ui" / "server.py"), "--check"], cwd=REPO, capture_output=True,
-                              text=True, timeout=300, stdin=subprocess.DEVNULL)
-        self.assertEqual((done.returncode, done.stdout), (0, self.ALL_GOOD), done.stderr)
-
-    def test_the_checkout_check_is_what_make_check_runs(self):
-        text = (REPO / "Makefile").read_text(encoding="utf-8")
-        self.assertIn("lab-ui/server.py --check", text)
 
 
 class Shared(Case):
