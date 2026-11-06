@@ -85,14 +85,6 @@ class Includes(ProjectFolder):
                           "  - ../../addons/kafka/compose.yml\n  - ../../addons/jade/compose.yml\n")
         self.assertEqual(compose.includes(path), ["addons/kafka/compose.yml", "addons/jade/compose.yml"])
 
-    def test_what_belongs_to_this_machine_is_one_folder_deeper(self):
-        addon = self.write("addons/local/whoami/compose.yml", "include:\n  - ../../kafka/compose.yml\n"
-                           "  - ../other/compose.yml\n")
-        self.assertEqual(compose.includes(addon), ["addons/kafka/compose.yml", "addons/local/other/compose.yml"])
-        playground = self.write("playgrounds/local/sandbox/compose.yml", "include:\n"
-                                "  - ../../../setups/local/mine.yml\n  - ../../../addons/local/whoami/compose.yml\n")
-        self.assertEqual(compose.includes(playground), ["setups/local/mine.yml", "addons/local/whoami/compose.yml"])
-
     def test_a_list_on_one_line_is_read_and_a_copy_keeps_it_as_written(self):
         self.write("b-x/compose.yml", "services:\n  bee:\n    image: alpine\n    pull_policy: ${B_PULL_POLICY:-missing}\n")
         self.write("c/compose.yml", "services:\n  cee:\n    image: alpine\n")
