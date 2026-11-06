@@ -61,8 +61,7 @@ class Console:
         return 200, self.dashboards[dashboard_id]
 
     def delete(self, call):
-        self.dashboards.pop(call.path.rsplit("/", 1)[1], None)
-        return 204
+        return 204 if self.dashboards.pop(call.path.rsplit("/", 1)[1], None) else 404
 
 
 class Dashboard(Seed):

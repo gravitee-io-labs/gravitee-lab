@@ -60,8 +60,7 @@ class OpenFga:
         return 200, {}
 
     def delete_store(self, call):
-        self.stores.pop(self.store(call), None)
-        return 204
+        return 204 if self.stores.pop(self.store(call), None) else 404
 
 
 class Case(Seed):

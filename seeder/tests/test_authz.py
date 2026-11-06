@@ -91,8 +91,7 @@ class World:
 
     def deleting(self, collection):
         def delete(call):
-            collection.pop(self.last(call), None)
-            return 204
+            return 204 if collection.pop(self.last(call), None) else 404
         return delete
 
     # Policies

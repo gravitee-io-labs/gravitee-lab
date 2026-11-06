@@ -102,7 +102,7 @@ class World:
     def delete_automation_proxy(self, call):
         proxy = self.proxies.pop(call.path.rsplit("/", 1)[1], None)
         self.apis.pop(proxy and proxy["id"], None)
-        return 204
+        return 204 if proxy else 404
 
     def put_api(self, call):
         api = self.apis[ids(call)[0]]
