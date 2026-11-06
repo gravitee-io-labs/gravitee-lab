@@ -418,11 +418,6 @@ class YamlValues(Seed):
         self.assertNotIn("S3cr3t", str(raised.exception))
         self.assertNotIn("\n", str(raised.exception))
 
-    def test_a_kubernetes_file_of_several_documents_gets_its_values_the_same_way(self):
-        self.env(PW='p"w')
-        docs = common.render_yaml("a: '${PW}'\n---\nb: ${PW}\n", "k8s.yaml", every=True)
-        self.assertEqual(docs, [{"a": 'p"w'}, {"b": 'p"w'}])
-
     def test_the_playgrounds_yaml_files_read_as_they_did_as_text(self):
         """With values YAML reads alike whichever way they are put in, a document reads as the text it used to be replaced in."""
         found = list(seeded_playgrounds())
@@ -432,8 +427,7 @@ class YamlValues(Seed):
                 text = path.read_text(encoding="utf-8")
                 values = {m.group(2): "value-" + m.group(2).lower() for m in common.VARIABLE.finditer(text) if not m.group(1)}
                 with self.subTest(file=str(path.relative_to(folder))), mock.patch.dict(os.environ, values):
-                    as_text = common.parse_yaml_all(common.render(text, path), path)
-                    self.assertEqual(common.render_yaml(text, path, every=True), as_text)
+                    self.assertEqual(common.render_yaml(text, path), common.parse_yaml(common.render(text, path), path))
 
 
 class MergeKeys(unittest.TestCase):
@@ -596,37 +590,6 @@ class Bombs(Seed):
         for text in corpus:
             with self.subTest(text=text[:60]):
                 self.assertEqual(outcome(common.parse_yaml, text), outcome(yaml.safe_load, text))
-
-    def test_a_text_of_several_documents_is_guarded_as_a_whole_and_the_loader_never_builds_a_bomb(self):
-        """Each document may ask for less than the limit and the text for more: the pairs of all of them are counted together."""
-        each = doubling(17)
-        self.assertLess(common.merged_pairs(each), common.COPIED)
-        text = "---\n".join([each] * 3)
-        self.assertGreater(common.merged_pairs(each) * 3, common.COPIED)
-        with self.refuses_to_build():
-            with self.assertRaises(common.MergeError) as raised:
-                common.parse_yaml_all(text, "k8s.yaml")
-            self.assertEqual(str(raised.exception), f"k8s.yaml: {common.MERGES}")
-            for bomb in self.BOMBS.values():
-                with self.assertRaises(common.MergeError):
-                    common.parse_yaml_all("a: 1\n---\n" + bomb)
-
-    def test_what_a_normal_text_of_several_documents_loads_is_what_safe_load_all_gives(self):
-        corpus = ["", "# only a comment\n", "a: 1\n", "a: 1\n---\nb: 2\n", "---\n---\na: 1\n...\n---\n- x\n", "a: [\n", "a: 1\n---\nb: [\n",
-                  "a: &x {b: 1}\nc: *x\n---\nd: *x\n", "base: &b {k: 1}\nuse: {<<: *b, own: 2}\n---\nuse: {<<: *b}\n",
-                  "a: !!str 12\n---\nb: !!set {x, y}\n", "a: !!python/object:os.system x\n---\nb: 1\n", chained(30) + "---\n" + doubling(8),
-                  "a: 1\n---\na: 2\n", "\ufeffa: 1\n"]
-        for text in corpus:
-            with self.subTest(text=text[:60]):
-                self.assertEqual(outcome(common.parse_yaml_all, text), outcome(lambda t: list(yaml.safe_load_all(t)), text))
-
-    def test_a_text_of_several_documents_is_composed_once_and_a_text_with_no_merge_key_is_not_counted(self):
-        counted = []
-        with mock.patch.object(common, "_copied", lambda root: counted.append(root) or 0):
-            self.assertEqual(common.parse_yaml_all("a: 1\n---\nb: 2\n"), [{"a": 1}, {"b": 2}])
-            self.assertEqual(counted, [])
-            self.assertEqual(len(common.parse_yaml_all("a: 1\n---\nb: {<<: {c: 1}}\n")), 2)
-            self.assertEqual(len(counted), 2)
 
     def test_every_yaml_file_of_the_playgrounds_loads_as_safe_load_gives_it(self):
         found = list(seeded_playgrounds())

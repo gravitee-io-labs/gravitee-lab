@@ -1,6 +1,6 @@
 """Kubernetes: the manifests of seed/k8s/*.yaml (a Namespace, a Secret, a ManagementContext...), applied in name order to
 the cluster of KUBECONFIG, which the Gravitee Kubernetes Operator watches. One manifest to a file, like the other seed
-files (a file of several is applied too):
+files:
 
     apiVersion: v1
     kind: Secret
@@ -29,8 +29,8 @@ from pathlib import Path
 
 import yaml
 
-from .common import READY_TIMEOUT, REFUSED, Api, Gone, HttpError, SeedError, excerpt, files, forget, has_seed, log, owned, pause, \
-    record, render_yaml, setting, wait_until
+from .common import READY_TIMEOUT, REFUSED, Api, Gone, HttpError, SeedError, excerpt, files, forget, has_seed, load, log, owned, pause, \
+    record, setting, wait_until
 
 SECTION = "k8s"
 # What it records
@@ -101,11 +101,11 @@ def manifests():
     """The manifests of seed/k8s, in order, with their variables replaced."""
     out = []
     for path in files("k8s", suffixes=(".yaml", ".yml")):
-        for doc in render_yaml(path.read_text(encoding="utf-8"), path, every=True):
-            if doc:
-                if not all(doc.get(k) for k in ("apiVersion", "kind")) or not doc.get("metadata", {}).get("name"):
-                    raise SeedError(f"{path.name}: a manifest needs apiVersion, kind and metadata.name")
-                out.append(doc)
+        doc = load(path)
+        if doc:
+            if not all(doc.get(k) for k in ("apiVersion", "kind")) or not doc.get("metadata", {}).get("name"):
+                raise SeedError(f"{path.name}: a manifest needs apiVersion, kind and metadata.name")
+            out.append(doc)
     return out
 
 

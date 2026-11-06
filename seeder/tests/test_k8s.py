@@ -29,12 +29,13 @@ NAMESPACE = SERVER + "/api/v1/namespaces/acme"
 SECRET = SERVER + "/api/v1/namespaces/acme/secrets/lab-credentials"
 CONTEXT = SERVER + "/apis/gravitee.io/v1alpha1/namespaces/acme/managementcontexts/lab"
 FILES = {"k8s/01-namespace.yaml": "apiVersion: v1\nkind: Namespace\nmetadata: {name: acme}\n",
-         "k8s/02-context.yaml": """
+         "k8s/02-credentials.yaml": """
 apiVersion: v1
 kind: Secret
 metadata: {name: lab-credentials, namespace: acme}
 stringData: {username: "${APIM_USERNAME}", password: "${APIM_PASSWORD}"}
----
+""",
+         "k8s/03-context.yaml": """
 apiVersion: gravitee.io/v1alpha1
 kind: ManagementContext
 metadata: {name: lab, namespace: acme}
@@ -65,6 +66,11 @@ class Manifests(Seed):
     def test_a_manifest_that_asks_the_loader_for_a_bomb_of_pairs_is_refused_before_anything_is_built(self):
         self.seed_files({"k8s/01-bomb.yaml": doubling(40)})
         with self.assertRaises(common.MergeError):
+            k8s.manifests()
+
+    def test_a_file_of_two_manifests_stops_the_seed_with_its_name_and_line(self):
+        self.seed_files({"k8s/01.yaml": "a: 1\n---\nb: 2\n"})
+        with self.assertRaisesRegex(common.SeedError, r"01\.yaml: it is not valid YAML .*\(line 2\)"):
             k8s.manifests()
 
     def test_it_does_nothing_without_manifests(self):

@@ -361,27 +361,6 @@ def parse_yaml(text, path="the text", fill=None):
         loader.dispose()
 
 
-def parse_yaml_all(text, path="the text", fill=None):
-    """`list(yaml.safe_load_all(text))`, with the guard of `parse_yaml` for a text of several documents: the pairs the loader
-    would copy for all of them are counted together, and a text that asks for more than COPIED is a MergeError before any
-    document is built. A document is composed once, and the count is of that."""
-    loader = _Loader(text)
-    try:
-        roots, total = [], 0
-        while loader.check_node():
-            root = loader.get_node()
-            if "<<" in text or "!" in text:
-                total += _copied(root)
-                if total > COPIED:
-                    raise MergeError(f"{path}: {MERGES}")
-            roots.append(root)
-        for root in roots if fill else ():
-            fill(root, loader)
-        return [loader.construct_document(root) for root in roots]
-    finally:
-        loader.dispose()
-
-
 STR = "tag:yaml.org,2002:str"
 
 
@@ -417,19 +396,17 @@ def unreadable(path, error):
     return f"{path}: it is not valid YAML once its variables are replaced" + (f" (line {mark.line + 1})" if mark else "")
 
 
-def render_yaml(text, path, provided=None, every=False):
-    """A YAML file read as a document (or the list of the documents of it, `every`), with the variables replaced in each of
-    its strings, as `render_json` does for JSON: a value with a quote, a backslash or a line break arrives as it was set and
-    leaves the file around it as it is. A file that is no YAML until its variables are replaced is replaced as text. YAML that
-    would make the loader copy millions of pairs for its merge keys is a MergeError, and a file that is no YAML says at which
-    line, never what it holds."""
-    parse = parse_yaml_all if every else parse_yaml
+def render_yaml(text, path, provided=None):
+    """A YAML file read as a document, with the variables replaced in each of its strings, as `render_json` does for JSON: a
+    value with a quote, a backslash or a line break arrives as it was set and leaves the file around it as it is. A file that
+    is no YAML until its variables are replaced is replaced as text. YAML that would make the loader copy millions of pairs for
+    its merge keys is a MergeError, and a file that is no YAML says at which line, never what it holds."""
     missing = set()
     try:
-        loaded = parse(text, path, _filler(missing, provided))
+        loaded = parse_yaml(text, path, _filler(missing, provided))
     except yaml.YAMLError:
         try:
-            return parse(render(text, path, provided=provided), path)
+            return parse_yaml(render(text, path, provided=provided), path)
         except (yaml.YAMLError, ValueError) as e:
             raise SeedError(unreadable(path, e)) from e
     except ValueError as e:   # a value that YAML reads as a date that is none
