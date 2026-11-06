@@ -12,7 +12,7 @@ from unittest import mock
 from lab_seeder import aim_agents
 from lab_seeder import common
 from lab_seeder import seed
-from lab_seeder.testkit import PERSONAL, Seed
+from lab_seeder.testkit import Seed
 
 AIM = "/gamma/organizations/DEFAULT/environments/DEFAULT/modules/aim"
 ENV = "/management/organizations/DEFAULT/environments/DEFAULT"
@@ -21,8 +21,6 @@ AGENTS = AIM + "/catalog/agents"
 APPLICATION = AGENTS + "/agent-1/application"
 IDENTITY = APPLICATION + "/identity"
 SUBSCRIPTIONS = AIM + "/mcp-proxies/studio-1/subscriptions"
-CONTRACT = PERSONAL / "agent-toolbox" / "seed" / "aim" / "agents" / "care-copilot.yaml"
-LINK_CONTRACT = PERSONAL / "agent-toolbox" / "seed" / "am" / "gamma-link.yaml"
 
 AGENT = """\
 entityId: care-copilot
@@ -827,26 +825,6 @@ class Declared(Seed):
 
     def test_it_reads_the_folder_of_the_agents_and_needs_agent_management(self):
         self.assertEqual((aim_agents.FOLDERS, aim_agents.GAMMA, aim_agents.SECTION), (("aim/agents",), ("aim",), "aim-agents"))
-
-
-@unittest.skipUnless(CONTRACT.is_file() and LINK_CONTRACT.is_file(),
-                     "the personal playground agent-toolbox is not on this machine")
-class Contract(Agents):
-    """The file of the playground, as its author wrote it."""
-
-    def setUp(self):
-        super().setUp()
-        self.seed_files({"aim/agents/care-copilot.yaml": CONTRACT.read_text(encoding="utf-8"),
-                         "am/gamma-link.yaml": LINK_CONTRACT.read_text(encoding="utf-8")})
-
-    def test_the_file_gives_the_agent_its_identity_and_its_access_and_a_second_run_changes_nothing(self):
-        aim_agents.seed()
-        self.assertEqual(self.world.applications["agent-1"]["identityId"], AM_APPLICATION_ID)
-        self.assertEqual([(s["applicationId"], s["planId"], s["status"]) for s in self.world.subscriptions],
-                         [(APPLICATION_ID, "apim-agents", "ACCEPTED")])
-        self.platform.calls.clear()
-        aim_agents.seed()
-        self.assertEqual(self.changed(), [])
 
 
 if __name__ == "__main__":

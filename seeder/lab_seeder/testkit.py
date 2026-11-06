@@ -14,11 +14,7 @@ The settings are those of SETTINGS, which a seed has by default, the gateway not
 `SEED_WAIT_GATEWAY=1`) but one request at a time (`workers` lets more go at once); the state is a temporary file, the seed
 folder is empty (`self.seed_files` fills it), nothing sleeps and the output is kept (`output`).
 
-A test that needs the files of a playground reads them under PLAYGROUNDS: the folder `LAB_PLAYGROUNDS` names, so that a
-catalog runs the engine's checks on its own playgrounds, or else the frozen sample of the engine, SAMPLES. Only the checks
-that take every playground they find (test_seed_files and test_common) run on any folder; the others name the files of the samples.
-A catalog's own tests read PLAYGROUNDS as well: its test target sets `LAB_PLAYGROUNDS`, else they would read the samples.
-This module lives in `seeder/`, beside the modules it tests, so a catalog puts that folder on `sys.path` and imports it as
+A test that needs the files of a playground reads them under PLAYGROUNDS, the frozen sample of the engine. This module lives in `seeder/`, beside the modules it tests, so a catalog puts that folder on `sys.path` and imports it as
 `testkit`.
 
 The checks of the seed files and the reading of a playground's seed service (`unset_variables`, `literal_addresses`,
@@ -59,27 +55,10 @@ SETTINGS = {"APIM_MANAGEMENT_URL": "http://apim", "APIM_USERNAME": "admin", "API
             "AM_MANAGEMENT_URL": "http://am", "AM_USERNAME": "admin", "AM_PASSWORD": "adminadmin",
             "OPENFGA_API_URL": "http://openfga", "SEED_WORKERS": "1", "SEED_WAIT_GATEWAY": "0"}
 
-# The two playgrounds the engine's tests read when no catalog is given: invented samples (a bakery and a hostel chain), so
-# that the engine holds no content of a catalog
+# The two playgrounds the engine's tests read: invented samples (a bakery and a hostel chain), so that the engine holds no
+# content of a catalog
 SAMPLES = seedlint.SAMPLES
-
-
-def playgrounds_root(environ=None):
-    """The folder of playgrounds the tests read: `LAB_PLAYGROUNDS` when it is set and not empty (a relative path is the
-    one of the folder the tests run from), else SAMPLES."""
-    return seedlint.playgrounds_root(os.environ if environ is None else environ)
-
-
-def personal_root(environ=None):
-    """The folder of the personal playgrounds of this machine, for the tests of one that is not shared yet (they are
-    skipped where it is not here): `local/` of the folder `LAB_PLAYGROUNDS` names, else the one of this clone."""
-    if (os.environ if environ is None else environ).get("LAB_PLAYGROUNDS"):
-        return playgrounds_root(environ) / "local"
-    return Path(__file__).resolve().parents[2] / "playgrounds" / "local"
-
-
-PLAYGROUNDS = playgrounds_root()
-PERSONAL = personal_root()
+PLAYGROUNDS = SAMPLES
 
 
 # --- The platform -----------------------------------------------------------------------

@@ -2632,10 +2632,6 @@ class ManyEnvironments(Estates):
                          "the settings of an environment are not the seed's to take back")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 # --- The same, with the steps that do not depend on one another made at the same time ----------
 
 class Together:
@@ -2704,3 +2700,7 @@ class UsersOfTheOrganization(Together, Estates):
                 mock.patch.object(apim.ApiManagement, "make_user", watched(make)):
             self.run_seed()
         self.assertEqual(overlapped, [])
+
+
+if __name__ == "__main__":
+    unittest.main()
