@@ -297,7 +297,7 @@ def create_playground(project, name, description, category=None, setups=None, ad
 
 
 # ---------------------------------------------------------------------------------------------------------------------
-# Sharing and deleting what is of this machine
+# Deleting what is of this machine
 # ---------------------------------------------------------------------------------------------------------------------
 
 def _own(kind, uid, done):
@@ -410,15 +410,3 @@ def _move(path, target):
     """Moves the file of a setup of this machine, then writes again the includes of it in the files that name it."""
     (paths.ROOT / path).rename(paths.ROOT / target)
     follow(path, target)
-
-
-def share(kind, uid, check_only=False):
-    """An item of this machine shared without a destination (one to a catalog is catalogs/contribute.py's share: a copy, the
-    item stays). There is no share to make, since nothing is shared into the Lab: a check answers the item's file in its own
-    catalog, the problems that keep it from being shared anywhere (none) and the other files that would change (none), for
-    the page to ask for the destinations; asked to share, it is refused."""
-    path = _own(kind, uid, "shared")
-    if not check_only:
-        raise ValueError("Choose where to share")
-    return {"file": path.split("/", 3)[3] if path.startswith(f"{paths.CATALOGS_DIR}/{paths.LOCAL}/") else path,
-            "problems": [], "changes": []}
