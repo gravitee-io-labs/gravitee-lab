@@ -460,7 +460,7 @@ Every rule that `catalog.py check` and the stages of `catalog.py ci` can print, 
 
 ### WF21
 
-*Error.* Fail closed. The rules read by indentation, so a workflow that hides what they read is refused: a flow mapping or sequence as the value of `on`, `permissions`, `secrets`, `runs-on`, `uses` or `environment`; `permissions: write-all` or `read-all`; an anchor, an alias or a tag (`&x`, `*x`, `!!x`); a quoted key.
+*Error.* Fail closed. The rules read by indentation, so a workflow that hides what they read is refused: a flow mapping or sequence as the value of `on`, `permissions`, `secrets`, `runs-on`, `uses` or `environment`; `permissions: write-all` or `read-all`; an anchor, an alias or a tag (`&x`, `*x`, `!!x`); a quoted key; a backslash in a double-quoted scalar or a flow list; a quote not closed on its line; a plain scalar that goes on to the next line.
 
 - **Message**: {file}:{line}: this is written so that the rules cannot read it. Fix: write it in block style, one key per line.
 

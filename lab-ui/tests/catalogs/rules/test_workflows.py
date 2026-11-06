@@ -1,4 +1,4 @@
-"""Catalogs/rules/workflows.py: WF01 to WF21 of the catalog repository standard. The files of tests/data/workflows are the passing set;
+"""Catalogs/rules/workflows.py: the WF rules of the catalog repository standard. The files of tests/data/workflows are the passing set;
 every rule has planted violations (a mutation test) and each violation is tried in five spellings of the same file (as it is, the
 indentation doubled, sequences at the column of their key, Windows line ends, a byte order mark), because the rules read by
 indentation and must not depend on how a file is laid out. Hostile text is the other half: a line of 1 MB and every kind of
@@ -163,18 +163,6 @@ ATTEST = "    environment: publish\n    permissions:\n      contents: read\n    
 # A backslash is made here and no escape sequence is written in this file, so that nothing that reads source text can turn
 # `<backslash>x24` into a `$` (that happened once to a table of the module itself)
 BS = chr(92)
-STYLES = ("x", "u", "U")
-LONG = " " * 5000       # the first version stopped decoding most escapes in a double-quoted scalar longer than 4096 characters
-
-
-def esc(char, style="x"):
-    """The escape of one character in a double-quoted scalar, as a hexadecimal (`x41`), a unicode (`u0041`) or a long one."""
-    return BS + {"x": "x%02x", "u": "u%04x", "U": "U%08x"}[style] % ord(char)
-
-
-def spelt(text, chars, style="x"):
-    """The text with each of the characters in `chars` written as an escape."""
-    return "".join(esc(char, style) if char in chars else char for char in text)
 
 
 MUTATIONS = {
@@ -228,20 +216,10 @@ MUTATIONS = {
     "WF04": [
         step("ci", "a title in a script", ["WF04"], 'run: echo "${{ github.event.pull_request.title }}"'),
         step("ci", "a block", ["WF04"], "run: |", "  echo one", "  echo ${{ github.head_ref }}"),
-        step("ci", "a plain scalar on two lines", ["WF04"], "run: echo one", "    ${{ github.head_ref }}"),
         step("ci", "the value on the next line", ["WF04"], "run:", "    echo ${{ github.head_ref }}"),
         step("ci", "a quoted script", ["WF04"], 'run: "echo ${{ github.head_ref }}"'),
         step("ci", "a single-quoted script", ["WF04"], "run: 'echo ${{ github.head_ref }}'"),
         step("ci", "a folded block", ["WF04"], "run: >-", "  echo ${{ github.head_ref }}"),
-        step("ci", "a brace written as a hexadecimal escape", ["WF04"], r'run: "echo $\x7B{ github.head_ref }}"'),
-        step("ci", "a brace written as a unicode escape", ["WF04"], r'run: "echo $\u007b{ github.head_ref }}"'),
-        step("ci", "a dollar written as an escape", ["WF04"], r'run: "echo \x24{{ github.head_ref }}"'),
-        step("ci", "two lines of one quoted script", ["WF04"], 'run: "echo $\\', '    {{ github.head_ref }}"'),
-        # the dollar and the braces spelt as escapes of each kind, in a short scalar and in one past 4096 characters
-        *[step("ci", "an expression spelt with %s escapes%s" % (style, " in a long scalar" if pad else ""), ["WF04"],
-               'run: "echo %s github.head_ref }}%s"' % (spelt("${{", "${", style), pad)) for style in STYLES for pad in ("", LONG)],
-        step("ci", "an expression spelt with escapes after another escape", ["WF04"],
-             'run: "echo %s%s%s github.head_ref }}%s"' % (esc("a"), esc("b"), spelt("${{", "${"), LONG)),
         step("ci", "another letter case", ["WF04", "WF21"], "Run: echo ${{ github.head_ref }}"),
         step("ci", "a script in a composite step with other keys", ["WF04"], "name: x", "shell: bash",
              "run: echo ${{ inputs.x }}"),
@@ -327,23 +305,13 @@ MUTATIONS = {
              "  key: ${{ secrets.LAB_DEPLOY_KEY }}"),
         step("ci", "the Lab key to a lab action in a folder of the content", ["WF08"], "uses: ./playgrounds/x/.github/actions/lab",
              "with:", "  key: ${{ secrets.LAB_DEPLOY_KEY }}"),
-        # GitHub reads the decoded text of a double-quoted scalar, so the rule does
-        *[step("ci", "a secret spelt with %s escapes" % style, ["WF08"], "env:", '  X: "${{ %s }}"' % spelt("secrets.FOO", "e", style),
-               "run: echo hi") for style in STYLES],
-        step("ci", "the dot of a secret spelt as an escape", ["WF08"], "env:", '  X: "${{ secrets%sFOO }}"' % esc("."), "run: echo hi"),
-        step("ci", "a secret spelt with an escape in a long scalar", ["WF08"], "env:", '  X: "${{ %s }}%s"' % (spelt("secrets.FOO", "e"), LONG),
-             "run: echo hi"),
-        step("ci", "a secret cut by an escaped line break", ["WF08"], "env:", '  X: "${{ secr' + BS, '      ets.FOO }}"', "run: echo hi"),
-        step("ci", "a secret in a double-quoted condition", ["WF08"], 'if: "${{ %s != \'\' }}"' % spelt("secrets.FOO", "c"), "run: echo hi"),
         # and in every place a value can be: the items of a list, a flow list, a condition, a name, the line of a block
         step("ci", "a secret in a list item", ["WF08"], "uses: x/y@" + "a" * 40, "with:", "  args:", "    - ${{ secrets.FOO }}"),
         step("ci", "a secret in a flow list", ["WF08"], "uses: x/y@" + "a" * 40, "with:", "  args: ['${{ secrets.FOO }}']"),
-        step("ci", "a secret in a flow list, spelt with an escape", ["WF08"], "uses: x/y@" + "a" * 40, "with:",
-             '  args: ["${{ %s }}"]' % spelt("secrets.FOO", "e")),
         step("ci", "a secret in a condition", ["WF08"], "if: secrets.FOO != ''", "run: echo hi"),
         step("ci", "a secret in a name", ["WF08"], "name: ${{ secrets.FOO }}", "run: echo hi"),
         step("ci", "a secret in the third line of a block", ["WF04", "WF08"], "run: |", "  echo one", "  echo two", "  echo ${{ secrets.FOO }}"),
-        step("ci", "a secret in an expression over two lines", ["WF08"], "env:", "  X: ${{ format('{0}',", "      secrets.FOO) }}", "run: echo hi"),
+        step("ci", "a secret in an expression over two lines of a block", ["WF08"], "env:", "  X: |", "    ${{ format('{0}',", "      secrets.FOO) }}", "run: echo hi"),
         # GitHub ends an expression at the first `}}` outside a string, so what follows a `}}` in a string is still the expression
         step("ci", "a secret after a closing brace pair in a string", ["WF08"], "env:", "  X: ${{ format('}}', secrets.FOO) }}", "run: echo hi"),
         step("ci", "a secret after a closing brace pair in a string of a condition", ["WF08"], "if: ${{ '}}' != '' && secrets.FOO != '' }}",
@@ -426,8 +394,6 @@ MUTATIONS = {
         step("ci", "the runtime token in a script", ["WF13"], 'run: echo "$ACTIONS_RUNTIME_TOKEN"'),
         step("ci", "the cache address in an env", ["WF13"], "env:", "  ACTIONS_CACHE_URL: x", "run: echo hi"),
         step("ci", "the results address", ["WF13"], "env:", "  ACTIONS_RESULTS_URL: x", "run: echo hi"),
-        step("ci", "the runtime token spelt with an escape", ["WF13"], 'run: "echo $ACTIONS_RUNTIME_%sOKEN"' % esc("T")),
-        step("ci", "the exporter spelt with an escape", ["WF13", "WF02"], 'uses: "crazy-max/ghaction-github-runtim%s@v3"' % esc("e")),
         swap("publish", "the runtime token in the publish lane", ["WF13"], "        with:\n          name: records\n          path: records.json\n",
              "        env:\n          T: ${{ env.ACTIONS_RUNTIME_TOKEN }}\n        with:\n          name: records\n          path: records.json\n"),
     ],
@@ -454,8 +420,6 @@ MUTATIONS = {
         step("ci", "cache-from as an input", ["WF17"], "uses: docker/build-push-action@" + "e" * 40, "with:", "  cache-from: foo"),
         step("ci", "type=gha", ["WF17"], 'run: docker buildx build --output type=gha .'),
         step("ci", "type = registry", ["WF17"], "run: echo type = registry"),
-        step("ci", "type=gha spelt with an escape", ["WF17"], 'run: "docker buildx build --output type=%sha ."' % esc("g")),
-        step("ci", "cache-from spelt with an escape", ["WF17"], 'run: "docker buildx build --cache-%srom x ."' % esc("f")),
         step("ci", "the cache of setup-uv", ["WF17"], "uses: astral-sh/setup-uv@" + "f" * 40, "with:", "  enable-cache: true"),
         step("ci", "setup-uv, which caches unless it is told not to", ["WF17"], "uses: astral-sh/setup-uv@" + "f" * 40),
         step("ci", "setup-go, which caches unless it is told not to", ["WF17"], "uses: actions/setup-go@" + "9" * 40),
@@ -472,10 +436,6 @@ MUTATIONS = {
         step("ci", "in Python", ["WF19"], "run: |", "  python3 -c \"import os; open(os.environ['GITHUB_ENV'], 'a').write('X=1')\""),
         step("ci", "a script with an expression", ["WF19"], "uses: " + SCRIPT, "with:", "  script: |", "    console.log('${{ github.head_ref }}')"),
         step("ci", "a one-line script with an expression", ["WF19"], "uses: " + SCRIPT, "with:", '  script: "console.log(\'${{ github.head_ref }}\')"'),
-        step("ci", "a script with an expression spelt with an escape", ["WF19"], "uses: " + SCRIPT, "with:",
-             '  script: "return \'$%s{ github.head_ref }}\'"' % esc("{")),
-        step("ci", "a script with an expression spelt with escapes in a long scalar", ["WF19"], "uses: " + SCRIPT, "with:",
-             '  script: "return \'%s github.head_ref }}\'%s"' % (spelt("${{", "${"), LONG)),
         step("ci", "exportVariable in a script", ["WF19"], "uses: " + SCRIPT, "with:",
              "  script: core.exportVariable('X', context.payload.pull_request.title)"),
         step("ci", "addPath in a script", ["WF19"], "uses: " + SCRIPT, "with:", "  script: core.addPath('/tmp/x')"),
@@ -494,10 +454,8 @@ MUTATIONS = {
         step("ci", "every secret, in a function", ["WF20"], "env:", "  X: ${{ format('{0}', secrets) }}", "run: echo hi"),
         step("ci", "every secret, parsed", ["WF20"], "env:", "  X: ${{ fromJSON(toJSON(secrets)).THING }}", "run: echo hi"),
         step("ci", "every secret, in a condition", ["WF20"], "if: toJSON(secrets) != ''", "run: echo hi"),
-        step("ci", "every secret, spelt with an escape", ["WF20"], "env:", '  X: "${{ toJSON(%s) }}"' % spelt("secrets", "e"), "run: echo hi"),
         step("ci", "every secret, in a list item", ["WF20"], "uses: x/y@" + "a" * 40, "with:", "  args:", "    - ${{ toJSON(secrets) }}"),
         step("ci", "every secret, after a closing brace pair in a string", ["WF20"], "env:", "  X: ${{ format('}}', toJSON(secrets)) }}", "run: echo hi"),
-        step("ci", "unsecure commands spelt with an escape", ["WF20"], 'run: "export ACTIONS_ALLOW_UNSECURE_%sOMMANDS=true"' % esc("C")),
     ],
     "WF21": [
         swap("ci", "a flow value of runs-on", ["WF06", "WF21"], RUNNER, "    runs-on: [ubuntu-24.04]\n    timeout-minutes: 15\n"),
@@ -526,8 +484,13 @@ MUTATIONS = {
         swap("ci", "a job twice", ["WF21"], "\njobs:\n", "\njobs:\n  static:\n    runs-on: ubuntu-24.04\n    timeout-minutes: 1\n"),
         swap("ci", "the top-level key jobs in capital letters", ["WF21"], "\njobs:\n", "\nJobs:\n"),
         swap("ci", "a key in capital letters", ["WF05", "WF21"], "    timeout-minutes: 15\n", "    Timeout-Minutes: 15\n"),
-        swap("ci", "a quote that never closes", ["WF03", "WF11", "WF21"], "name: CI", "name: 'CI"),
-        swap("ci", "a double quote that never closes", ["WF03", "WF08", "WF11", "WF21"], "name: CI", 'name: "CI'),
+        swap("ci", "a quote that is not closed on its line", ["WF21"], "name: CI", "name: 'CI"),
+        swap("ci", "a double quote that is not closed on its line", ["WF21"], "name: CI", 'name: "CI'),
+        step("ci", "a script over two lines of a quote", ["WF21"], 'run: "echo $' + BS, '    {{ github.head_ref }}"'),
+        step("ci", "a plain scalar on two lines", ["WF21"], "run: echo one", "    ${{ github.head_ref }}"),
+        step("ci", "an escape that spells a dollar", ["WF21"], 'run: "echo ' + BS + 'x24{{ github.head_ref }}"'),
+        step("ci", "an escape that spells a secret", ["WF21"], "env:", '  X: "${{ s' + BS + 'x65crets.FOO }}"', "run: echo hi"),
+        step("ci", "an escape in a flow list", ["WF21"], "uses: x/y@" + "a" * 40, "with:", '  args: ["${{ s' + BS + 'x65crets.FOO }}"]'),
         swap("ci", "text after a quoted value", ["WF21"], "name: CI", "name: 'CI' x"),
         swap("ci", "a block header the rules do not know", ["WF21"], "run: python3 -I lab/lab-ui/catalog.py index catalog --out catalog.json",
              "run: |x"),
@@ -581,8 +544,6 @@ NEAR = {
         step("ci", "an expression in a condition", [], "if: ${{ github.event_name == 'push' }}", "run: echo hi"),
         step("ci", "an expression in an input", [], "uses: " + PYTHON, "with:", "  python-version: ${{ matrix.python }}"),
         step("ci", "a variable called RUN", [], "env:", "  RUN: ${{ github.run_id }}", "run: echo hi"),
-        step("ci", "ordinary escapes in a double-quoted script", [], 'run: "echo one' + BS + 'n' + BS + 'ttwo' + BS + 'x41' + BS + '\\"'),
-        step("ci", "a script over two lines joined by a backslash", [], 'run: "echo one' + BS, '    two"'),
     ],
     "WF05": [
         swap("ci", "a call job", [], "  result:\n", "  call:\n    uses: ./.github/workflows/x.yml\n\n  result:\n"),
@@ -616,7 +577,6 @@ NEAR = {
              "run: echo hi"),
         step("ci", "a word in a string that holds a closing brace pair", [],
              "if: ${{ contains(github.event.head_commit.message, '}} secrets.FOO') }}", "run: echo hi"),
-        step("ci", "the escapes a script uses", [], 'run: "echo one' + BS + 'ntwo' + BS + 'tthree' + BS + '\\ four"'),
         swap("publish", "the job's token alone", [], "password: ${{ secrets.REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}",
              "password: ${{ secrets.GITHUB_TOKEN }}"),
         swap("publish", "the two in the other order", [], "password: ${{ secrets.REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}",
@@ -796,24 +756,6 @@ class Passing(unittest.TestCase):
                     self.assertEqual(norm(yaml.load(text, Loader=yaml.BaseLoader)), norm(expected))
 
 
-    def test_the_outline_reads_what_a_yaml_writer_writes(self):
-        """The same files written by a YAML library with other indentations and line widths: long values wrapped over lines, strings
-        quoted and escaped, sequences at the column of their key. The outline is the same."""
-        try:
-            import yaml
-        except ImportError:
-            print("skipped: PyYAML is not installed, so the outline is not compared with a YAML reader")
-            self.skipTest("PyYAML is not installed")
-        for name in FILES:
-            expected = norm(yaml.load(text_of(name), Loader=yaml.BaseLoader))
-            for indent, width in ((2, 30), (3, 60), (4, 100), (6, 1000), (8, 40)):
-                with self.subTest(file=name, indent=indent, width=width):
-                    written = yaml.dump(yaml.load(text_of(name), Loader=yaml.BaseLoader), Dumper=yaml.Dumper, indent=indent, width=width,
-                                        default_flow_style=False, allow_unicode=True, sort_keys=False)
-                    self.assertEqual(outline(written), expected)
-                    self.assertEqual(set(wf._Doc("workflow.yml", written).unreadable.values()) - {"a quoted key"}, set())
-
-
 def norm(value):
     if isinstance(value, dict):
         return {" ".join(key.split()): norm(each) for key, each in value.items()}
@@ -954,7 +896,9 @@ class Readers(unittest.TestCase):
         self.assertEqual(reason("a: !!str b\n"), ["an anchor, an alias or a tag"])
         self.assertEqual(reason("'a': b\n"), ["a quoted key"])
         self.assertEqual(reason("a: b\na: c\n"), ["a key that appears twice"])
-        self.assertEqual(reason("a: 'b\n"), ["a quote that is never closed"])
+        self.assertEqual(reason("a: 'b\n"), ["a quote that is not closed on its line"])
+        self.assertEqual(reason('a: "b' + BS + 'n"\n'), ["a backslash in a double-quoted scalar"])
+        self.assertEqual(reason("a: b\n  c\n"), ["indentation that belongs to no key"])
         self.assertEqual(reason("a: |x\n"), ["a block scalar header the rules do not know"])
         self.assertEqual(reason("a: b\n\tc: d\n"), ["a tab in the indentation"])
         self.assertEqual(reason("a: b\n---\nc: d\n"), ["a second document, or a document marker with something after it"])
@@ -1303,8 +1247,6 @@ HOSTILE = {
     "secrets and strings": step_line("run: ${{ " + "'a' && secrets.A && " * (MB // 20) + "x }}"),
     "a secret over many lines": HEAD + "      - env:\n          A: ${{ secrets.A\n" + "            x\n" * 18000 + "            }}\n",
     "escapes": step_line('run: "' + (BS + "x41") * (MB // 4) + '"'),
-    "escapes just under the limit": step_line('run: "' + (BS + "x41") * (wf.MAX_ESCAPES - 1) + '"'),
-    "escapes just over the limit": step_line('run: "' + (BS + "x41") * (wf.MAX_ESCAPES + 1) + '"'),
     "unicode escapes": step_line('run: "' + (BS + "U00000041") * (MB // 10) + '"'),
     "escapes of the braces": step_line('run: "' + (BS + "u0024" + BS + "u007b") * (MB // 12) + '"'),
     "escapes in a flow list": step_line('with: ["' + (BS + "x41") * 300 + '"]'),
@@ -1350,23 +1292,6 @@ class Hostile(unittest.TestCase):
                     self.assertLess(spent, 3.0, "%s as %s took %.2f s" % (label, path, spent))
                     self.assertIsInstance(found, list)
                     self.assertLessEqual(len(found), 21 * wf.MAX_PER_RULE)
-
-    def test_the_escapes_of_a_long_scalar_are_decoded_like_those_of_a_short_one(self):
-        """The first version decoded only the dollar and the braces past 4096 characters, with three entries of its table that
-        replaced a character by itself. Every escape is decoded now, up to MAX_ESCAPES backslashes; a scalar with more is refused."""
-        for style in STYLES:
-            for pad in ("", LONG, " " * 100000):
-                text = step_line('run: "echo %s github.head_ref }}%s"' % (spelt("${{", "${", style), pad))
-                with self.subTest(style=style, pad=len(pad)):
-                    self.assertEqual(["WF04"], codes("ci", text))
-        # something else than the braces, which a rule that reads the text must see: the letters of `secrets`
-        text = step_line("env:\n          X: \"${{ %s }}%s\"" % (spelt("secrets.FOO", "secrets", "U"), LONG))
-        self.assertEqual(["WF08"], codes("ci", text))
-        # a scalar with more backslashes than MAX_ESCAPES is refused, and its braces are still read
-        text = step_line('run: "echo %s github.head_ref }}%s"' % (spelt("${{", "${"), (BS + "x41") * (wf.MAX_ESCAPES + 1)))
-        self.assertEqual(["WF04", "WF21"], codes("ci", text))
-        self.assertIn("more than %d backslashes" % wf.MAX_ESCAPES, " ".join(wf._Doc("workflow.yml", text).unreadable.values()))
-        self.assertEqual([], codes("ci", step_line('run: "' + (BS + "x41") * wf.MAX_ESCAPES + '"')))
 
     def test_a_pipe_into_a_shell_still_found_after_wrappers_and_groups(self):
         self.assertEqual(["WF12"], codes("ci", step_line("run: curl x | " + "sudo -E " * 5 + "bash")))

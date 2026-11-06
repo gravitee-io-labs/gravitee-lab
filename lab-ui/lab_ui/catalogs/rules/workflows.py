@@ -12,21 +12,21 @@ written for the lanes of a catalog (which file may read which secret, which job 
 The reader is an outline by indentation (`_Reader`), not one regular expression per line: a rule that looks for `^      timeout`
 at six spaces is blind to a file written with four. Whatever the outline cannot read with certainty is WF21, so a workflow that
 hides what the rules look at is refused instead of passed: a flow mapping, an anchor, a tag, a quoted key, a duplicate key, a
-block scalar with a header it does not know, a control character, a line break YAML takes and a line reading would not.
+block scalar with a header it does not know, an escape, a value that a quote or a plain scalar carries on to the next line, a
+control character, a line break YAML takes and a line reading would not.
 
 A file is a workflow or an action by its folder: everything in `.github/workflows/` is a workflow for GitHub, whatever it is
 called, and so for the rules (a workflow called `action.yml` breaks WF01 like any other). The name decides only for a file
 outside both folders.
 
-What GitHub reads is what the rules read. A double-quoted scalar is decoded (`s\\x65crets` is `secrets`) before the rules that scan
-text see it; a secret is read inside `${{ }}` and in an `if:`, wherever a value can be (a key, a list item, a flow list), and a
+What GitHub reads is what the rules read: a value the rules would have to decode or fold is refused (`s\\x65crets` is `secrets`
+to GitHub), a secret is read inside `${{ }}` and in an `if:`, wherever a value can be (a key, a list item, a flow list), and a
 file called `secrets.yaml` or a sentence that holds the word is no read.
 
 Hostile input is the case this module is written for. It never executes, imports or follows anything of the tree it reads. A
 line of 1 MB, a file of 20,000 short lines and a pile of quotes or brackets each take a fraction of a second, under
 every name a file can have. Every scan moves forward: `str.find`, a regular expression with no nested repetition. What cannot be
-linear is bounded: nesting stops at MAX_DEPTH, a flow collection longer than MAX_FLOW is not read, a double-quoted scalar with more than
-MAX_ESCAPES backslashes is refused (WF21), and a rule reports at most MAX_PER_RULE findings per file. A key that is spelt with
+linear is bounded: nesting stops at MAX_DEPTH, a flow collection longer than MAX_FLOW is not read, and a rule reports at most MAX_PER_RULE findings per file. A key that is spelt with
 other letter case than the rules expect counts for what a rule forbids and not for what it asks: `Permissions:` does not make a
 token read-only, and `Continue-On-Error: true` is still found. The rules are a text check of the spellings that are met, an early
 warning and not a proof: the code owner reads the workflows too."""
@@ -45,7 +45,6 @@ MAX_KEY = 512           # characters of a key
 MAX_PER_RULE = 50       # findings of one rule in one file
 MAX_PIPES = 1000        # pipes in one pipeline that starts with a download
 MAX_FILES = 100         # workflows and actions that `check` reads in one tree; the others are WF21
-MAX_ESCAPES = 20000     # backslashes in one double-quoted scalar that are decoded; more is WF21
 FILE_LIMIT = 1024 * 1024
 
 EVENTS = ("pull_request", "push", "schedule", "workflow_dispatch", "workflow_call")
@@ -123,7 +122,8 @@ RULES = table((code, ERROR, rule, message) for code, rule, message in (
     ("WF21", "Fail closed. The rules read by indentation, so a workflow that hides what they read is refused: a "
              "flow mapping or sequence as the value of `on`, `permissions`, `secrets`, `runs-on`, `uses` or "
              "`environment`; `permissions: write-all` or `read-all`; an anchor, an alias or a tag (`&x`, `*x`, "
-             "`!!x`); a quoted key",
+             "`!!x`); a quoted key; a backslash in a double-quoted scalar or a flow list; a quote not closed on its line; a "
+             "plain scalar that goes on to the next line",
      "{file}:{line}: this is written so that the rules cannot read it. Fix: write it in block style, one key per "
      "line."),
 ))
@@ -234,7 +234,7 @@ def _flow_items(text: str) -> List[str]:
 def _unquote(text: str) -> str:
     """A flow item as a word: its quotes taken off."""
     if len(text) >= 2 and text[0] == text[-1] and text[0] in "'\"":
-        return text[1:-1].replace("''", "'") if text[0] == "'" else _decode_double([text[1:-1]])
+        return text[1:-1].replace("''", "'") if text[0] == "'" else text[1:-1]
     return text
 
 
@@ -254,49 +254,6 @@ def _flow_pairs(text: str) -> List[Tuple[str, str]]:
         else:
             pairs.append((item[:found.start()].strip(), _unquote(item[found.end():].strip())))
     return pairs
-
-
-_ESCAPES = {"0": "\0", "a": "\a", "b": "\b", "t": "\t", "\t": "\t", "n": "\n", "v": "\v", "f": "\f", "r": "\r", "e": "\x1b",
-            " ": " ", '"': '"', "/": "/", "\\": "\\", "N": "\x85", "_": "\xa0", "L": "\u2028", "P": "\u2029"}
-# One escape: `\xNN`, then the four-digit and the eight-digit forms, then any other character after a backslash. Each alternative
-# starts with a different letter, so there is one way to read a text and the scan only moves forward
-_ESCAPE = re.compile(r"\\(?:x([0-9A-Fa-f]{2})|u([0-9A-Fa-f]{4})|U([0-9A-Fa-f]{8})|(.))", re.S)
-# The escapes that spell `$` and `{`, for a scalar with more backslashes than MAX_ESCAPES (which WF21 refuses anyway). The
-# patterns are written in two halves so that no tool that decodes escapes in source text can turn them into the characters
-_DOLLAR = re.compile("\\\\(?:x24|u00" + "24|U000000" + "24)")
-_BRACE = re.compile("\\\\(?:x7[bB]|u007[bB]|U0000007[bB])")
-
-
-def _unescape(found) -> str:
-    digits = found.group(1) or found.group(2) or found.group(3)
-    if digits is not None:
-        try:
-            return chr(int(digits, 16))
-        except (ValueError, OverflowError):    # beyond the last code point
-            return found.group()
-    code = found.group(4)
-    return found.group() if code in ("x", "u", "U") else _ESCAPES.get(code, code)
-
-
-def _decode_double(pieces: List[str]) -> str:
-    """The text of a double-quoted scalar given by its lines: escapes decoded (`\\x7B` is `{`), a backslash at the end of a line
-    joins it to the next, any other line break folds to a space. A script that hides `${{` or a secret that way is found by what
-    it says. A scalar with more than MAX_ESCAPES backslashes only has the escapes that spell `$` and `{` decoded, which takes no
-    loop; such a scalar is refused (WF21) and the text is only read as far as it is cheap."""
-    if sum(piece.count("\\") for piece in pieces) > MAX_ESCAPES:
-        text = _BRACE.sub("{", _DOLLAR.sub("$", "\n".join(pieces)))
-        return re.sub(r"\\\n[ \t]*", "", text)
-    out = []
-    for number, piece in enumerate(pieces):
-        text = piece if number == 0 else piece.lstrip(" \t")
-        # a backslash that nothing escapes ends the line: the next line goes on without a space
-        joined = (len(text) - len(text.rstrip("\\"))) % 2 == 1
-        if joined:
-            text = text[:-1]
-        out.append(_ESCAPE.sub(_unescape, text) if "\\" in text else text)
-        if not joined and number < len(pieces) - 1:
-            out.append(" ")
-    return "".join(out)
 
 
 # ---------------------------------------------------------------- the outline
@@ -347,7 +304,6 @@ class _Reader(object):
         self.stack: List[_Frame] = []
         self.started = False
         self.ended = False                           # a `...` was read
-        self.dead: Dict[str, bool] = {}              # a quote that has no closing quote to the end of the file
         if text.startswith("\ufeff"):
             text = text[1:]
         self.lines = _BREAKS.split(text)
@@ -521,8 +477,8 @@ class _Reader(object):
 
     def _value(self, i: int, text: str, col: int, owner: int) -> Tuple[_Node, int, int]:
         """The scalar or flow collection that `text` starts, on lines[i]. `owner` is the column of its key or its dash: a block
-        scalar takes the lines deeper than that, and so does a plain one. Returns the node, the next line to read, and how many
-        characters of `text` are not a comment."""
+        scalar takes the lines deeper than that. Returns the node, the next line to read, and how many characters of `text` are not
+        a comment."""
         number, first = i + 1, text[0]
         if first in "|>":
             header = _BLOCK_HEADER.match(text)
@@ -538,7 +494,7 @@ class _Reader(object):
                 return found
         elif first in "&*!":
             self.flag(number, "an anchor, an alias or a tag")
-        return self._plain(i, text, col, owner)
+        return self._plain(i, text, col)
 
     def _block(self, i: int, col: int, owner: int, keep: int) -> Tuple[_Node, int, int]:
         node = _Node("scalar", i + 1, col, "block")
@@ -553,55 +509,21 @@ class _Reader(object):
         node.text = "\n".join(row for _, row in node.parts)
         return node, j, keep
 
-    def _closing(self, i: int, find, quote: str) -> Optional[int]:
-        """The line that holds the quote closing a scalar that line i opens, or None. A file that has no such quote from here
-        on is remembered, so that a pile of open quotes does not read the file again for each."""
-        if self.dead.get(quote):
-            return None
-        for j in range(i + 1, len(self.lines)):
-            if find(self.lines[j], 0) >= 0:
-                return j
-        self.dead[quote] = True
-        return None
-
     def _quoted(self, i: int, text: str, col: int) -> Tuple[_Node, int, int]:
         number, quote = i + 1, text[0]
-        find = _end_single if quote == "'" else _end_double
+        end = (_end_single if quote == "'" else _end_double)(text, 1)
+        keep = end + 1 if end >= 0 else len(text)
+        inner = text[1:end] if end >= 0 else text[1:]
         node = _Node("scalar", number, col, "single" if quote == "'" else "double")
-        end = find(text, 1)
-        keep, last = len(text), i
-        if end >= 0:
-            node.parts.append((number, text[:end + 1]))
-            pieces, tail, keep = [text[1:end]], text[end + 1:], end + 1
-        else:
-            node.parts.append((number, text))
-            pieces, tail = [text[1:]], ""
-            close = self._closing(i, find, quote)
-            if close is None:
-                self.flag(number, "a quote that is never closed")
-            else:
-                for j in range(i + 1, close):
-                    pieces.append(self.lines[j])
-                    node.parts.append((j + 1, self.lines[j]))
-                    self.content.append((j + 1, self.lines[j]))
-                row = self.lines[close]
-                end = find(row, 0)
-                pieces.append(row[:end])
-                node.parts.append((close + 1, row[:end + 1]))
-                self.content.append((close + 1, row[:end + 1]))
-                last, tail = close, row[end + 1:]
-        if tail.strip(" \t") and tail.lstrip(" \t")[:1] != "#":
-            self.flag(last + 1, "text after a quoted scalar")
-        if quote == "'":
-            node.text = " ".join(piece.strip() if k else piece for k, piece in enumerate(pieces)).replace("''", "'")
-        else:
-            node.text = _decode_double(pieces)
-            if any("\\" in piece for piece in pieces):
-                # GitHub reads the decoded text: the rules that scan the text of the file read it too, on the line the scalar starts
-                self.content.append((number, node.text))
-                if sum(piece.count("\\") for piece in pieces) > MAX_ESCAPES:
-                    self.flag(number, "a double-quoted scalar with more than %d backslashes" % MAX_ESCAPES)
-        return node, last + 1, keep
+        node.parts.append((number, text[:keep]))
+        if end < 0:
+            self.flag(number, "a quote that is not closed on its line")
+        elif text[keep:].strip(" \t") and text[keep:].lstrip(" \t")[:1] != "#":
+            self.flag(number, "text after a quoted scalar")
+        if quote == '"' and "\\" in inner:
+            self.flag(number, "a backslash in a double-quoted scalar")
+        node.text = inner.replace("''", "'") if quote == "'" else inner
+        return node, i + 1, keep
 
     def _flow(self, i: int, text: str, col: int) -> Optional[Tuple[_Node, int, int]]:
         number = i + 1
@@ -622,34 +544,19 @@ class _Reader(object):
         items = _flow_items(node.text)
         if any(item[:1] in ("&", "*", "!") for item in items):
             self.flag(number, "an anchor, an alias or a tag")
-        if "\\" in node.text and node.text[0] == "[":
-            self.content.append((number, "\n".join(_unquote(item) for item in items)))    # what GitHub reads, as in _quoted
+        if "\\" in node.text:
+            self.flag(number, "a backslash in a flow collection")
         return node, i + 1, close + 1
 
-    def _plain(self, i: int, text: str, col: int, owner: int) -> Tuple[_Node, int, int]:
+    @staticmethod
+    def _plain(i: int, text: str, col: int) -> Tuple[_Node, int, int]:
+        """One line: what goes on deeper on the next one belongs to no key, and `_place` says so."""
         node = _Node("scalar", i + 1, col, "plain")
         found = _COMMENT.search(text)
         keep = found.start() if found else len(text)
-        node.parts.append((i + 1, text[:keep].rstrip(" \t")))
-        lines, j, last = self.lines, i + 1, i + 1
-        while j < len(lines):
-            row = lines[j]
-            inner = row.lstrip(" \t")
-            if not inner:
-                j += 1
-                continue
-            if inner[0] == "#" or len(row) - len(row.lstrip(" ")) <= owner:
-                break
-            found = _COMMENT.search(inner)
-            piece = (inner[:found.start()] if found else inner).rstrip(" \t")
-            if _COLON.search(piece):
-                self.flag(j + 1, "a key under a value")
-            node.parts.append((j + 1, piece))
-            self.content.append((j + 1, piece))
-            j += 1
-            last = j
-        node.text = " ".join(piece for _, piece in node.parts)
-        return node, last, keep
+        node.text = text[:keep].rstrip(" \t")
+        node.parts.append((i + 1, node.text))
+        return node, i + 1, keep
 
 
 def _split_key(text: str) -> Optional[Tuple[str, int, bool]]:
@@ -883,13 +790,6 @@ def _run_scalars(doc: _Doc) -> Iterable[_Node]:
                 yield entry.value
 
 
-def _script_lines(node: _Node) -> List[Tuple[int, str]]:
-    """The lines of a script as the shell gets them: the lines as written, or the decoded text of a quoted scalar."""
-    if node.style in ("single", "double"):
-        return [(node.line, row) for row in node.text.split("\n")]
-    return node.parts
-
-
 @_rule("WF01", ("workflow",))
 def _wf01(doc):
     for event, line in doc.events():
@@ -936,11 +836,9 @@ def _wf03(doc):
 @_rule("WF04")
 def _wf04(doc):
     for node in _run_scalars(doc):
-        lines = [number for number, text in node.parts if "${{" in text]
-        if not lines and "${{" in node.text:
-            lines = [node.line]
-        for number in lines:
-            yield number, {}
+        for number, text in node.parts:
+            if "${{" in text:
+                yield number, {}
 
 
 @_rule("WF05", ("workflow",))
@@ -1070,16 +968,13 @@ def _reads_in(name: str, text: str) -> List[str]:
 def _secret_reads(name: str, node: _Node) -> List[Tuple[int, str]]:
     """(line, secret) of every `secrets.X` in the expressions of a value. A secret is only read inside `${{ }}` or an `if:`, so a
     path called `secrets.yaml` or a word in a sentence is no read. The line is the one that holds the expression when it is on
-    one line of the value, else the first line of the value."""
+    one line of a block, else the first line of the block."""
     found, names = [], set()
     for number, text in node.parts:
         for secret in _reads_in(name, text):
             found.append((number, secret))
             names.add(secret.lower())
-    text = _text_of(node)
-    if len(node.parts) == 1 and node.parts[0][1] == text:
-        return found          # the value is what it says: no escape, no folded line
-    for secret in _reads_in(name, text):
+    for secret in _reads_in(name, node.text) if len(node.parts) > 1 else ():
         if secret.lower() not in names:
             found.append((node.line, secret))
     return found
@@ -1201,7 +1096,7 @@ def _runs_a_shell(stage: str) -> bool:
 def _logical_lines(node: _Node) -> List[Tuple[int, str]]:
     """The lines a script runs, with a line that ends in a backslash or a pipe joined to the next one."""
     out, current, first = [], [], 0
-    for number, text in _script_lines(node):
+    for number, text in node.parts:
         stripped = text.rstrip()
         if not current:
             first = number
@@ -1397,7 +1292,7 @@ _TOOLKIT = re.compile(r"\b(?:exportVariable|addPath)\b")
 def _wf19(doc):
     seen = set()
     for node in _run_scalars(doc):
-        for number, text in _script_lines(node):
+        for number, text in node.parts:
             if _ENV_FILE.search(text) and not text.lstrip().startswith("#") and number not in seen:
                 seen.add(number)
                 yield number, {}
@@ -1406,9 +1301,7 @@ def _wf19(doc):
                 and doc.action_of(doc.holder(entry)) == "actions/github-script":
             node = entry.value
             lines = [number for number, text in node.parts if "${{" in text]
-            if not lines and "${{" in node.text:
-                lines = [node.line]       # the expression is spelt with escapes or over lines
-            for number, text in _script_lines(node):
+            for number, text in node.parts:
                 if (_ENV_FILE.search(text) or _TOOLKIT.search(text)) and not text.lstrip().startswith("//"):
                     lines.append(number)
             for number in lines:
