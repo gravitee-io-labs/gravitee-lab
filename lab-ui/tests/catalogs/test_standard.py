@@ -99,7 +99,7 @@ class Template(unittest.TestCase):
             elif each.get("tool") or each.get("license"):
                 continue
             else:
-                listed.add("seeded/" + (each.get("source") or each["path"]))
+                listed.add("seeded/" + each["path"])
                 if each.get("local"):
                     listed.add("seeded/" + each["local"])
         found = {str(path.relative_to(standard.TEMPLATE)) for path in standard.TEMPLATE.rglob("*") if path.is_file()}
@@ -239,13 +239,11 @@ class Values(unittest.TestCase):
     def test_missing_parameters_are_listed(self):
         with self.assertRaises(standard.TemplateError) as caught:
             standard.render_new({"id": "acme-hub"})
-        self.assertEqual(caught.exception.missing, ["name", "maintainers", "lab_repository", "lab_ref"])
         self.assertEqual(str(caught.exception), "Missing: name, maintainers, lab_repository, lab_ref.")
 
     def test_a_folder_catalog_needs_an_id_and_a_name_only(self):
-        with self.assertRaises(standard.TemplateError) as caught:
+        with self.assertRaisesRegex(standard.TemplateError, "^Missing: id, name.$"):
             standard.render_new({"local": True})
-        self.assertEqual(caught.exception.missing, ["id", "name"])
         self.assertTrue(standard.render_new({"local": True, "id": "mine", "name": "Mine"}))
 
     def test_an_id_is_a_namespace_that_is_not_reserved(self):
@@ -1198,9 +1196,10 @@ class Commands(Case):
     def test_an_id_and_a_name_are_asked_for(self):
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            self.assertEqual(standard.main_new([str(self.work / "x"), "--name", "X", "--maintainers", "@a"]), 2)
+            self.assertEqual(standard.main_new([str(self.work / "x"), "--name", "X", "--maintainers", "@a", "--lab-repo", "a/b",
+                                                "--lab-ref", NEWER_COMMIT]), 2)
             self.assertEqual(standard.main_new(["--id", "x"]), 2)
-        self.assertIn("--id is required", err.getvalue())
+        self.assertIn("Missing: id.", err.getvalue())
 
     def test_local_makes_a_folder_catalog_with_no_lab_and_no_owner(self):
         code, out, err = self.new("--local", lab=self.work)

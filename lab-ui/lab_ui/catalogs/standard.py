@@ -96,12 +96,8 @@ GOLDEN_MESSAGE = "The template changed. Raise level in manifest.json, add a note
 
 
 class TemplateError(Exception):
-    """The template, or what `new` was given, cannot be rendered: one line for the person. `missing` names the parameters
-    that were not given (3.4: a missing parameter stops `new` with the list of what is missing)."""
-
-    def __init__(self, message: str, missing: Iterable[str] = ()):
-        super().__init__(message)
-        self.missing = list(missing)
+    """The template, or what `new` was given, cannot be rendered: one line for the person (3.4: a missing parameter stops `new`
+    with the list of what is missing)."""
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -281,22 +277,22 @@ def _words(value, limit: int, what: str) -> str:
                             "without < > ` or a backslash.")
     text = " ".join(text.split())
     if not text:
-        raise TemplateError(f"{what} is empty.", [what])
+        raise TemplateError(f"{what} is empty.")
     if len(text) > limit:
         raise TemplateError(f"{what} is at most {limit} characters.")
     return text
 
 
-def values(params: dict, local: Optional[bool] = None) -> dict:
+def values(params: dict) -> dict:
     """The parameters of `new`, checked and in the form the template wants: every value the placeholders need, `local`, `with`,
     `platforms`, `maintainers` (a list), `lab_repository` and `lab_ref`. A TemplateError says what is wrong in one
-    line, and what is missing in `missing`."""
+    line."""
     params = dict(params or {})
-    local = bool(params.get("local")) if local is None else local
+    local = bool(params.get("local"))
     need = ("id", "name") if local else ("id", "name", "maintainers", "lab_repository", "lab_ref")
     missing = [key for key in need if not params.get(key)]
     if missing:
-        raise TemplateError("Missing: " + ", ".join(missing) + ".", missing)
+        raise TemplateError("Missing: " + ", ".join(missing) + ".")
     out: Dict[str, object] = {"local": local}
     ident = params["id"]
     if not isinstance(ident, str) or not _ID.fullmatch(ident) or (ident in paths.RESERVED_NS and ident not in _listed()):
@@ -525,7 +521,7 @@ def render_new(params: dict) -> Dict[str, bytes]:
         elif entry.get("license"):
             text = license_text(given)
         else:
-            source = entry["local"] if local and entry.get("local") else entry.get("source") or path
+            source = entry["local"] if local and entry.get("local") else path
             text = fill(_source("seeded", source), given, path)
         found[path] = text.encode("utf-8")
     return found
@@ -855,8 +851,7 @@ def _derived(tree, state: Declared, options: dict) -> dict:
             "images": meta.get("images"), "maintainers": owners,
             "lab_repository": options.get("lab_repository") or lab.get("repository"),
             "lab_ref": options.get("lab_ref") or lab.get("ref"),
-            "platforms": (state.data or {}).get("platforms") if state.data else None, "with": options.get("with") or (),
-            "security_contact": options.get("security_contact")}
+            "platforms": (state.data or {}).get("platforms") if state.data else None}
 
 
 def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
@@ -870,7 +865,7 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
         refused     "" or why nothing can be done (the plan has no files then)
         pending     whether anything would be written
 
-    `options`: lab_ref (40 hex: the new pin), adopt, with (modules), maintainers / lab_repository / security_contact (for what adopt adds),
+    `options`: lab_ref (40 hex: the new pin), adopt, with (modules), maintainers / lab_repository (for what adopt adds),
     lab (the Lab checkout: SD11 and the log of a moved pin are asked of it), legacy_lab (when the key is there, catalog.yml gets
     the lines older Gravitee Labs read, made true: `schema`, and `lab` as given, or as the file has it when None). Pure:
     it reads the tree and runs `git log` in the Lab checkout; it writes nothing."""
@@ -882,7 +877,6 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
 
     def refuse(why: str) -> dict:
         plan["refused"] = why
-        plan["files"], plan["pending"] = [], False
         return plan
 
     meta_raw = tree.read("catalog.yml", TEXT_LIMIT)
@@ -905,13 +899,12 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
     if ref_new and lab_checkout is not None and not _is_release(lab_checkout, ref_new):
         return refuse(say(RULES["SD11"].message, sha7=ref_new[:7]))
     old = (state.data or {}).get("lab", {}) if state.data else {}
-    pinned = ref_new or (old.get("ref") if isinstance(old.get("ref"), str) else "")
-    if lab_checkout is not None and _COMMIT.fullmatch(pinned or ""):
-        problem = pin_problem(lab_checkout, pinned, LEVEL)
+    ref = ref_new or old.get("ref") or ""
+    if lab_checkout is not None and _COMMIT.fullmatch(ref):
+        problem = pin_problem(lab_checkout, ref, LEVEL)
         if problem:
             return refuse(problem)
     repo = options.get("lab_repository") or old.get("repository") or ""
-    ref = ref_new or old.get("ref") or ""
     if not lab_repository_ok(repo) or not _COMMIT.fullmatch(ref):
         return refuse("The Lab address could not be read. Give --lab-repo OWNER/REPO" + (" and --lab-ref COMMIT." if not ref else "."))
     extra = tuple(options.get("with") or ())
@@ -946,7 +939,7 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
             files.append(_entry(path, UPDATE, "managed", "behind" if (state.level or LEVEL) < LEVEL else "differs",
                                 carry_pins(want, text).encode("utf-8")))
     # standard.json: the level goes up, the pin moves when asked; every other key stays as the catalog wrote it
-    new = copy.deepcopy(state.data) if state.data else {"platforms": list(options.get("platforms") or ["linux/amd64"])}
+    new = copy.deepcopy(state.data) if state.data else {"platforms": ["linux/amd64"]}
     new.update({"standard": LEVEL, "form": "inline"})
     new["lab"] = {**(new.get("lab") if isinstance(new.get("lab"), dict) else {}), "repository": repo, "ref": ref}
     if not state.present:
@@ -999,7 +992,7 @@ def _adopt(tree, state: Declared, options: dict, repo: str, ref: str, files: Lis
             if each.get("license"):
                 text = license_text(rendered)
             else:
-                text = fill(_source("seeded", each.get("source") or each["path"]), rendered, each["path"])
+                text = fill(_source("seeded", each["path"]), rendered, each["path"])
             files.append(_entry(each["path"], ADD, "seeded", "missing", text.encode("utf-8")))
     return ""
 
@@ -1256,9 +1249,6 @@ def main_new(argv: List[str], lab: Optional[Path] = None) -> int:
     template into an empty DIR. Exit 0, 2 for what is missing or wrong (nothing is rendered)."""
     try:
         args = _new_arguments(list(argv))
-        for flag, value in (("--id", args.id), ("--name", args.name)):
-            if not value:
-                raise Usage(f"catalog.py new: {flag} is required")
         lab = lab or _lab_checkout()
         repository, ref, warning = args.lab_repo or "", args.lab_ref or "", ""
         if not args.local:

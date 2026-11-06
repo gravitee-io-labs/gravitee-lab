@@ -33,8 +33,8 @@
     {"path": ".github/ISSUE_TEMPLATE/config.yml", "class": "seeded", "since": 1, "when": "always", "scope": "full"},
     {"path": ".github/ISSUE_TEMPLATE/bug_report.yml", "class": "seeded", "since": 1, "when": "always", "scope": "full"},
     {"path": ".github/ISSUE_TEMPLATE/new_item.yml", "class": "seeded", "since": 1, "when": "always", "scope": "full"},
-    {"path": "addons/hello/compose.yml", "class": "sample", "since": 1, "when": "always", "scope": "both", "source": "addons/hello/compose.yml"},
-    {"path": "addons/hello/README.md", "class": "sample", "since": 1, "when": "always", "scope": "both", "source": "addons/hello/README.md"}
+    {"path": "addons/hello/compose.yml", "class": "sample", "since": 1, "when": "always", "scope": "both"},
+    {"path": "addons/hello/README.md", "class": "sample", "since": 1, "when": "always", "scope": "both"}
   ],
   "notes": {
     "1": {
