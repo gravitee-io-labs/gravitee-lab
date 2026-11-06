@@ -233,7 +233,7 @@ class ServiceOf(Case):
         # The portals of a playground follow API Management's version: sorting before it, they must not take its name
         project = {"services": self.SERVICES}
         self.assertEqual(layers.service_of(project, "APIM_VERSION")[0], "apim-management-api")
-        self.assertEqual(layers.saved_image(project, "APIM_VERSION"), ("4", "API Management"))
+        self.assertEqual(layers.saved_setting(project, "APIM_VERSION"), ("4", "API Management"))
         self.assertEqual(layers.service_of(project, "PORTAL_VERSION")[0], "apelor-portal-beam")
         self.assertEqual(layers.service_of(project, "APIM_GATEWAY_VERSION")[0], "apim-gateway")
 
@@ -655,7 +655,7 @@ class Plans(Case):
 
     def test_three_images_that_are_too_old_are_listed_as_a_sentence(self):
         saved = {"A_VERSION": ("1", "Alpha"), "B_VERSION": ("1", "Beta"), "C_VERSION": ("1", "Gamma")}
-        self.patch(layers, "saved_image", lambda project, variable: saved[variable])
+        self.patch(layers, "saved_setting", lambda project, variable: saved[variable])
         unit = {"requires": {"images": {"A_VERSION": "2", "B_VERSION": "2", "C_VERSION": "2"}}}
         self.assertEqual(layers.too_old(self.project, unit), "Needs Alpha 2 or later, Beta 2 or later and Gamma 2 "
                                                              "or later: choose them on the Images page")

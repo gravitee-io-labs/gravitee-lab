@@ -880,8 +880,8 @@ class Deployable(AsOwn):
         API Management 4.12.21, the first one first."""
         built = self.built()
         offers = offers or platforms.capabilities(built, check(("APIM", "4.12.21")), "env")
-        return project.reasons(built["playgrounds"][uid], built, self.given["raw"], self.given["seeds"].get(uid, []),
-                               offers)
+        return project.judge(project.asks(built["playgrounds"][uid], built, self.given["raw"], self.given["seeds"].get(uid, [])),
+                             offers)
 
     def meta(self, **said):
         self.given["raw"][CLOUD]["x-gravitee"].update(said)
@@ -1337,8 +1337,8 @@ class Real(Fixture):
         """Against an environment whose gateway runs API Management at this version."""
         offers = platforms.capabilities(self.built, check(("APIM", version)), "env")
         self.assertEqual(offers["products"], {"API Management": version}, "the group of the core names the product")
-        return project.reasons(self.built["playgrounds"][uid], self.built, self.inputs["raw"],
-                               self.inputs["seeds"][uid], offers)
+        return project.judge(project.asks(self.built["playgrounds"][uid], self.built, self.inputs["raw"], self.inputs["seeds"][uid]),
+                             offers)
 
     def test_shop_needs_more_than_a_platform_offers_and_the_plugins_of_its_api_are_the_first_reason(self):
         # Its seed fills API Management and Access Management, which runs here with the deploy, so the platform is asked

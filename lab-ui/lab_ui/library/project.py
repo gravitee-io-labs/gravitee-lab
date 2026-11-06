@@ -1498,11 +1498,6 @@ def judge(asked, offers):
     return found
 
 
-def reasons(playground, project, raw, seed, offers, uses=None):
-    """Why a playground cannot be deployed to an environment that offers this (judge), from its files."""
-    return judge(asks(playground, project, raw, seed, uses), offers)
-
-
 def _deployable(playgrounds, project, inputs):
     """What each playground, add-on and setup asks of a platform (`asks`, `unit_asks`, which places.py judges against
     what each environment runs), and where it can be deployed besides this machine, judged on what does not depend on the

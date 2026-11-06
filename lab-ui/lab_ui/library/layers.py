@@ -441,13 +441,6 @@ def saved_setting(project, variable):
     return (found[1]["registry"] if variable.endswith("_REGISTRY") else found[1]["tag"]), found[1]["owner"]["name"]
 
 
-def saved_image(project, variable):
-    """The tag saved for the image a version variable sets, and the name of what it belongs to ("API Management");
-    None when no service's image uses it."""
-    found = service_of(project, variable)
-    return (found[1]["tag"], found[1]["owner"]["name"]) if found else None
-
-
 def enough(unit, variable, tag, wanted):
     """Whether an image tag meets the minimum a playground asks of it (`requires.images`): it is that version or a later one
     (at_least), or the playground lists it among the versions it was tested with, which is the playground saying it works on it
@@ -461,7 +454,7 @@ def _lacking(project, unit):
     than the one saved (`requires.images`), in the order of its `requires`."""
     found = []
     for variable, wanted in ((unit.get("requires") or {}).get("images") or {}).items():
-        saved = saved_image(project, variable)
+        saved = saved_setting(project, variable)
         if saved and not enough(unit, variable, saved[0], wanted):
             found.append((variable, saved[1], wanted))
     return found
