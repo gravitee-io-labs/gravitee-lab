@@ -4,8 +4,7 @@ a convenience for contributors, never the gate (2.1 principle 3); they are the s
 `catalog.py check` and in the pre-flight of Share.
 
 Two sets, for two kinds of file. GENERIC is what any workflow should satisfy, and the engine's own test imports it. LANES is
-written for the lanes of a catalog (which file may read which secret, which job may write, the conditions of the publish
-lane) and runs on catalogs only: the engine's `e2e.yml` and `lab-images.yml` trip it by design.
+written for the lanes of a catalog (which file may read which secret, which job may write) and runs on catalogs only: the engine's `e2e.yml` and `lab-images.yml` trip it by design.
 
     check(tree, ctx) -> [Problem]            every workflow and local action of a catalog, both sets
     problems(path, text, rules)              one file, any set of codes
@@ -24,11 +23,9 @@ text see it; a secret is read inside `${{ }}` and in an `if:`, wherever a value 
 file called `secrets.yaml` or a sentence that holds the word is no read.
 
 Hostile input is the case this module is written for. It never executes, imports or follows anything of the tree it reads. A
-line of 1 MB, a file of 20,000 short lines and a pile of quotes, brackets or `!contains(` each take a fraction of a second, under
-every name a file can have (the publish lane has rules that `ci.yml` has not). Every scan moves forward: `str.find`, a regular
-expression with no nested repetition, a stack for the parentheses of an expression. What cannot be linear is bounded: nesting
-stops at MAX_DEPTH, a flow collection longer than MAX_FLOW is not read, the parentheses of one expression are paired up to
-MAX_PARENS (the rest of an expression that turns a test over counts as turned over), a double-quoted scalar with more than
+line of 1 MB, a file of 20,000 short lines and a pile of quotes or brackets each take a fraction of a second, under
+every name a file can have. Every scan moves forward: `str.find`, a regular expression with no nested repetition. What cannot be
+linear is bounded: nesting stops at MAX_DEPTH, a flow collection longer than MAX_FLOW is not read, a double-quoted scalar with more than
 MAX_ESCAPES backslashes is refused (WF21), and a rule reports at most MAX_PER_RULE findings per file. A key that is spelt with
 other letter case than the rules expect counts for what a rule forbids and not for what it asks: `Permissions:` does not make a
 token read-only, and `Continue-On-Error: true` is still found. The rules are a text check of the spellings that are met, an early
@@ -116,11 +113,6 @@ RULES = table((code, ERROR, rule, message) for code, rule, message in (
     ("WF17", "No cache of any kind: no `actions/cache`, no `cache:` input of a `setup-*` action, no `cache-from` "
              "or `cache-to`, no `type=gha` or `type=registry`",
      "{file}:{line}: a cache lets a pull request write what main later reads. Remove it."),
-    ("WF18", "In `publish.yml` a `needs.<job>.result` is compared with `== 'success'` or "
-             '`contains(fromJSON(\'["success","skipped"]\'), ...)`, never with `!=` (a canceled or timed-out job '
-             "is neither a failure nor a success)",
-     "{file}:{line}: needs.{job}.result is tested with !=. Fix: name what you accept: "
-     'contains(fromJSON(\'["success","skipped"]\'), needs.{job}.result).'),
     ("WF19", "No write to `$GITHUB_ENV` or `$GITHUB_PATH`, and no `${{` inside the `script:` of "
              "`actions/github-script`",
      "{file}:{line}: this lets data from outside choose what runs next. Fix: pass the value through env: to the "
@@ -138,7 +130,7 @@ RULES = table((code, ERROR, rule, message) for code, rule, message in (
 ))
 
 GENERIC = frozenset(("WF01", "WF02", "WF03", "WF04", "WF05", "WF07", "WF11", "WF12", "WF14", "WF17", "WF19", "WF20", "WF21"))
-LANES = frozenset(("WF06", "WF08", "WF09", "WF10", "WF13", "WF18"))
+LANES = frozenset(("WF06", "WF08", "WF09", "WF10", "WF13"))
 ALL = GENERIC | LANES
 
 # The workflows the standard ships, by file name, and the family each belongs to. Any other name has the rights of none.
@@ -1090,7 +1082,6 @@ def _blessed(doc: _Doc) -> Tuple[Set[int], Set[int]]:
 
 
 _WORD_SECRETS = re.compile("secrets", re.I)
-_WORD_NEEDS = re.compile("needs", re.I)
 
 
 def _reads_in(name: str, text: str) -> List[str]:
@@ -1348,16 +1339,6 @@ def _wf17(doc):
         yield line, {}
 
 
-_RESULT = re.compile(r"(?<![\w.-])needs\s*\.\s*([A-Za-z0-9_-]+)\s*\.\s*result", re.I)
-_INDEX = re.compile(r"\[\s*'([A-Za-z0-9_-]+)'\s*\]")
-_PAREN = re.compile(r"[()]")
-# What turns a test over: `!` or `==` or `!=` in front of a group or of a call, such as `!(a == b)` or `!contains(...)`
-_TURNS_OVER = re.compile(r"(?:!=|==|!)\s*(?:[A-Za-z_][A-Za-z0-9_]*\s*)?\(")
-_NOT_AFTER = re.compile(r"\s*\)*\s*!=")                    # needs.x.result != y, also inside a call: toJSON(needs.x.result) != y
-_NOT_BEFORE = re.compile(r"!=\s*(?:[A-Za-z_][A-Za-z0-9_]*\s*\(\s*)*\Z")     # y != needs.x.result, also y != toJSON(needs.x.result)
-_CHAINED = re.compile(r"\s*==\s*''\s*\)*\s*(?:==|!=)")     # needs.x.result == 'failure' == false
-_NEEDS_AT = re.compile(r"needs\s*(?:\.\s*|\[\s*')([A-Za-z0-9_-]+)", re.I)
-MAX_PARENS = 20000      # parentheses of one expression that are paired; the rest of a longer one counts as turned over
 MAX_QUOTES = 4096       # quotes in one value whose strings are followed to find where an expression ends; more is read to the end
 
 
@@ -1432,82 +1413,6 @@ def _text_of(node: _Node) -> str:
 def _expressions_of(name: str, node: _Node) -> List[str]:
     """The expressions a value holds. `name` is the key that holds it, in lower case."""
     return _expressions_in(name, _text_of(node))
-
-
-def _turned_over(expression: str) -> List[Tuple[int, int]]:
-    """The stretches of an expression that an operator turns over: the inside of `!(...)`, `!contains(...)`, `== (...)`. Found
-    in one pass with a stack, and merged, so that a pile of `!contains(` costs what one costs."""
-    opens = {each.end() - 1 for each in _TURNS_OVER.finditer(expression)}
-    if not opens:
-        return []
-    spans, stack = [], []
-    for count, each in enumerate(_PAREN.finditer(expression)):
-        at = each.start()
-        if count >= MAX_PARENS:
-            spans.append((at, len(expression)))
-            stack = []
-            break
-        if each.group() == "(":
-            stack.append(at)
-        elif stack:
-            start = stack.pop()
-            if start in opens:
-                spans.append((start, at))
-    spans.extend((start, len(expression)) for start in stack if start in opens)
-    spans.sort()
-    merged: List[Tuple[int, int]] = []
-    for start, end in spans:
-        if merged and start <= merged[-1][1]:
-            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
-        else:
-            merged.append((start, end))
-    return merged
-
-
-def _negated(expression: str) -> List[str]:
-    """The jobs whose result an expression tests the wrong way round: with `!=` (also behind a call, or on the left), inside a
-    group or a call that `!`, `==` or `!=` turns over, or compared again after its own `==`. A text check of the spellings that
-    are met, not a proof: the line `if:` of a publish job is read by the code owner too."""
-    turned = _turned_over(expression)
-    starts = [span[0] for span in turned]
-    found = []
-    for each in _RESULT.finditer(expression):
-        start, end = each.start(), each.end()
-        at = bisect.bisect_right(starts, start) - 1
-        if (_NOT_AFTER.match(expression, end) or _CHAINED.match(expression, end)
-                or _NOT_BEFORE.search(expression, max(start - 96, 0), start) or (at >= 0 and start < turned[at][1])):
-            found.append(each.group(1))
-    return found
-
-
-def _first_lines(node: _Node) -> Dict[str, int]:
-    """{job in lower case: the first line of a value that names it as `needs.<job>`}."""
-    first: Dict[str, int] = {}
-    for number, text in node.parts:
-        for each in _NEEDS_AT.finditer(text):
-            first.setdefault(each.group(1).lower(), number)
-    return first
-
-
-@_rule("WF18", ("workflow",))
-def _wf18(doc):
-    if doc.family != "publish":
-        return
-    seen = set()
-    for name, node in doc.leaves:
-        jobs = []
-        for expression in _expressions_of(name, node):
-            if _WORD_NEEDS.search(expression):
-                # `needs['x']['result']` is `needs.x.result`; a string is read after that, so that a word in one is no context
-                jobs.extend(_negated(_blank_strings(_INDEX.sub(r".\1", expression))))
-        if not jobs:
-            continue
-        lines = _first_lines(node)
-        for job in jobs:
-            line = lines.get(job.lower(), node.line)
-            if (line, job.lower()) not in seen:
-                seen.add((line, job.lower()))
-                yield line, {"job": job}
 
 
 _ENV_FILE = re.compile(r"GITHUB_ENV|GITHUB_PATH|::set-env|::add-path", re.I)

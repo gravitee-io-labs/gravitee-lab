@@ -465,37 +465,6 @@ MUTATIONS = {
         step("ci", "setup-go, which caches unless it is told not to", ["WF17"], "uses: actions/setup-go@" + "9" * 40),
         step("ci", "setup-go with other inputs", ["WF17"], "uses: actions/setup-go@" + "9" * 40, "with:", "  go-version: stable"),
     ],
-    "WF18": [
-        swap("publish", "attest after images", ["WF18"], "needs.images.result == 'success'", "needs.images.result != 'failure'"),
-        swap("publish", "the release after the attest job", ["WF18"], "contains(fromJSON('[\"success\",\"skipped\"]'), needs.attest.result)",
-             "needs.attest.result != 'failure'"),
-        swap("publish", "the other order", ["WF18"], "needs.images.result == 'success'", "'failure' != needs.images.result"),
-        swap("publish", "not contains", ["WF18"], "needs.images.result == 'success'",
-             "!contains(fromJSON('[\"failure\",\"cancelled\"]'), needs.images.result)"),
-        swap("publish", "index syntax", ["WF18"], "needs.images.result == 'success'", "needs['images']['result'] != 'failure'"),
-        swap("publish", "capital letters", ["WF18"], "needs.images.result == 'success'", "NEEDS.IMAGES.RESULT != 'failure'"),
-        swap("publish", "spaces", ["WF18"], "needs.images.result == 'success'", "needs . images . result != 'failure'"),
-        swap("publish", "the plan job", ["WF18"], "contains(fromJSON('[\"success\",\"skipped\"]'), needs.guard.result)",
-             "needs.guard.result != 'failure'"),
-        swap("publish", "in an if without braces", ["WF18"], "    if: ${{ github.ref_type == 'branch' }}\n",
-             "    if: github.ref_type == 'branch' && needs.plan.result != 'failure'\n"),
-        # the same test spelt without a `!=`
-        *[swap("publish", "a test turned over: " + label, ["WF18"], "needs.images.result == 'success'", test) for label, test in (
-            ("a negated group", "!(needs.images.result == 'failure')"), ("a negated group of cancelled", "!(needs.images.result == 'cancelled')"),
-            ("a negated group over a conjunction", "!(github.ref_type == 'tag' && needs.images.result == 'failure')"),
-            ("a negated call", "!startsWith(needs.images.result, 'f')"), ("a negated contains", "!contains('failure', needs.images.result)"),
-            ("a comparison with false", "needs.images.result == 'failure' == false"),
-            ("a comparison of the group", "(needs.images.result == 'failure') == false"),
-            ("a group compared with false", "false == (needs.images.result == 'failure')"),
-            ("a group compared with !=", "true != (needs.images.result == 'failure')"),
-            ("!= behind a call", "toJSON(needs.images.result) != '\"failure\"'"), ("!= behind a function", "join(needs.images.result) != 'failure'"),
-            ("!= behind two calls", "format(toJSON(needs.images.result)) != 'x'"), ("!= on the left of a call", "'x' != toJSON(needs.images.result)"),
-            ("spaces", "!  (  needs.images.result == 'failure')"), ("a pile of negations", "!contains(!contains(" + "!(" * 30 + "needs.images.result == 'f'"))],
-        swap("publish", "two jobs, one of them tested the wrong way", ["WF18"], "needs.images.result == 'success'",
-             "needs.images.result == 'success' && needs.attest.result != 'failure'"),
-        swap("publish", "after a closing brace pair in a string", ["WF18"], "needs.images.result == 'success'",
-             "format('}}') != '' && needs.images.result != 'failure'"),
-    ],
     "WF19": [
         step("ci", "an env file", ["WF19"], 'run: echo "VERSION=$VERSION" >> $GITHUB_ENV'),
         step("ci", "a quoted env file", ["WF19"], 'run: echo "VERSION=$VERSION" >> "$GITHUB_ENV"'),
@@ -711,21 +680,6 @@ NEAR = {
         step("ci", "setup-uv with the cache off", [], "uses: astral-sh/setup-uv@" + "f" * 40, "with:", "  enable-cache: false"),
         step("ci", "setup-node, whose cache is on only when a project asks for it", [], "uses: actions/setup-node@" + "8" * 40),
     ],
-    "WF18": [
-        swap("ci", "!= outside the publish lane", [], "    needs: static\n    if: ${{ needs.static.outputs.seed == 'true' }}",
-             "    needs: static\n    if: ${{ needs.static.result != 'failure' }}"),
-        swap("publish", "a test for skipped", [], "needs.images.result == 'success'", "needs.images.result == 'skipped'"),
-        swap("publish", "the outcome of a step", [], "needs.images.result == 'success'", "steps.plan.outcome != 'failure'"),
-        swap("publish", "another property of a job", [], "needs.images.result == 'success'", "needs.images.outputs.records != ''"),
-        swap("publish", "a group", [], "needs.images.result == 'success'", "(needs.images.result == 'success')"),
-        swap("publish", "two accepted results", [], "needs.images.result == 'success'",
-             "(needs.images.result == 'success' || needs.images.result == 'skipped')"),
-        swap("publish", "the result on the right", [], "needs.images.result == 'success'", "'success' == needs.images.result"),
-        swap("publish", "a negation that is not about a result", [], "needs.images.result == 'success'",
-             "!cancelled() && !(github.ref_type == 'branch') && needs.images.result == 'success'"),
-        swap("publish", "!= on an output beside a result", [], "needs.images.result == 'success'",
-             "needs.plan.outputs.count != '0' && needs.images.result == 'success'"),
-    ],
     "WF19": [
         step("ci", "a comment that names the file", [], "run: |", "  # never write to GITHUB_ENV", "  echo hi"),
         step("ci", "the output file", [], 'run: echo "x=1" >> "$GITHUB_OUTPUT"'),
@@ -765,7 +719,7 @@ class Contract(unittest.TestCase):
     def test_the_sets_are_the_ones_of_section_6_4(self):
         self.assertEqual(wf.GENERIC, {"WF01", "WF02", "WF03", "WF04", "WF05", "WF07", "WF11", "WF12", "WF14", "WF17", "WF19",
                                       "WF20", "WF21"})
-        self.assertEqual(wf.LANES, {"WF06", "WF08", "WF09", "WF10", "WF13", "WF18"})
+        self.assertEqual(wf.LANES, {"WF06", "WF08", "WF09", "WF10", "WF13"})
         self.assertEqual(wf.ALL, wf.GENERIC | wf.LANES)
         self.assertFalse(wf.GENERIC & wf.LANES)
         self.assertEqual(sorted(wf.RULES), sorted(wf.ALL))
@@ -951,10 +905,6 @@ class Mutations(unittest.TestCase):
                                 "the report jobs of nightly.yml and versions.yml, may write.")
         self.assertEqual(message("publish", edit(text_of("publish"), IMAGES, "    permissions:\n      contents: read\n      packages: write\n    outputs:"), "WF10"),
                          ".github/workflows/publish.yml: job images writes packages without an environment. Add environment: publish.")
-        text = edit(text_of("publish"), "needs.images.result == 'success'", "needs.images.result != 'failure'")
-        self.assertEqual(message("publish", text, "WF18"),
-                         ".github/workflows/publish.yml:%d: needs.images.result is tested with !=. Fix: name what you accept: "
-                         "contains(fromJSON('[\"success\",\"skipped\"]'), needs.images.result)." % line_of(text, "!= 'failure'"))
         text = with_step(text_of("ci"), "static", "uses: " + DOWNLOAD, "with:", "  run-id: 7")
         self.assertEqual(message("ci", text, "WF20"),
                          path + ":%d: run-id on download-artifact reads an artifact of another run, which someone may have written. "
@@ -1341,7 +1291,7 @@ HOSTILE = {
         % number for number in range(3000)),
     "six thousand secrets": step_line("run: echo hi") + "        env:\n" + "".join("          K%d: ${{ secrets.S%d }}\n" % (n, n) for n in range(6000)),
     "twenty thousand tests of a result": step_line("if: ${{ " + " && ".join("needs.j%d.result != 'x'" % n for n in range(20000)) + " }}"),
-    # the publish lane reads the tests of a result; each of these was, or could be, a quadratic scan of its own
+    # calls, groups and strings in a condition, each of which was a quadratic scan once
     "calls that are never closed": step_line("if: ${{ " + "!contains(" * (MB // 10) + " }}"),
     "calls, a result at the end of each": step_line("if: ${{ " + "!contains(needs.a.result, " * (MB // 30) + " }}"),
     "groups that are never closed": step_line("if: ${{ " + "!(" * (MB // 2) + "needs.a.result == 'x' }}"),
@@ -1382,7 +1332,7 @@ PLACES = (".github/workflows/ci.yml", ".github/workflows/publish.yml", ".github/
 
 
 def shapes_for(path):
-    """Every shape under the two workflows that carry the most rules (the publish lane has WF18 and the Docker login); under the
+    """Every shape under the two workflows that carry the most rules (the publish lane has the Docker login); under the
     end-to-end file (the license) and an action, the shapes that hold secrets, escapes or very long lines, which are the ones whose
     cost depends on the family or on the kind of file."""
     if path in PLACES[:2]:
@@ -1395,9 +1345,8 @@ class Hostile(unittest.TestCase):
     the process, so that a busy machine does not fail the test), and never raises."""
 
     def test_every_rule_finishes_on_every_hostile_shape(self):
-        """Each shape under four names, because the name gives a file the rules of its family: the publish lane has WF18 and the
-        secrets of a Docker login, the end-to-end file has the license, an action has no job. The first version ran every
-        shape as ci.yml only, and a pile of `!contains(` took twenty seconds as publish.yml."""
+        """Each shape under four names, because the name gives a file the rules of its family: the publish lane has the secrets of
+        a Docker login, the end-to-end file has the license, an action has no job."""
         for path in PLACES:
             for label, text in shapes_for(path):
                 with self.subTest(label, path=path):
@@ -1409,29 +1358,6 @@ class Hostile(unittest.TestCase):
                     self.assertLess(spent, 3.0, "%s as %s took %.2f s" % (label, path, spent))
                     self.assertIsInstance(found, list)
                     self.assertLessEqual(len(found), 21 * wf.MAX_PER_RULE)
-
-    def test_a_scan_that_was_quadratic_takes_the_same_time_for_twice_the_text(self):
-        """WF18 looked for the end of each `!contains(` by scanning to the end of the expression. Twice the text now takes about
-        twice the time (the bound is generous so that a busy machine does not fail the test) and ten times the text, not a hundred."""
-        def spent(count):
-            text = step_line("if: ${{ " + "!contains(" * count + " }}")
-            start = time.process_time()
-            wf.problems(".github/workflows/publish.yml", text, wf.ALL)
-            return time.process_time() - start
-        small, big = max(spent(4000), 0.001), spent(40000)
-        self.assertLess(big, 40 * small + 0.5, "4000 calls took %.3f s, 40000 took %.3f s" % (small, big))
-        self.assertLess(big, 1.0)
-
-    def test_the_pairing_of_parentheses_is_bounded_and_fails_closed(self):
-        """An expression that turns something over and has more than MAX_PARENS parentheses is read, from there on, as turned
-        over, so that padding cannot carry a test of a result out of the stretch where it would be found. A pile of parentheses
-        in an expression that turns nothing over is nothing."""
-        pile = "(" * (wf.MAX_PARENS + 10)
-        turning = edit(text_of("publish"), "needs.images.result == 'success'",
-                       "!(github.ref_type == 'x') && %s needs.images.result == 'success'" % pile)
-        self.assertEqual(["WF18"], codes("publish", turning, {"WF18"}))
-        plain = edit(text_of("publish"), "needs.images.result == 'success'", "%s needs.images.result == 'success'" % pile)
-        self.assertEqual([], codes("publish", plain, {"WF18"}))
 
     def test_the_escapes_of_a_long_scalar_are_decoded_like_those_of_a_short_one(self):
         """The first version decoded only the dollar and the braces past 4096 characters, with three entries of its table that

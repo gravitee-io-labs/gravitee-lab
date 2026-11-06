@@ -446,12 +446,6 @@ Every rule that `catalog.py check` and the stages of `catalog.py ci` can print, 
 
 - **Message**: {file}:{line}: a cache lets a pull request write what main later reads. Remove it.
 
-### WF18
-
-*Error.* In `publish.yml` a `needs.&lt;job>.result` is compared with `== 'success'` or `contains(fromJSON('["success","skipped"]'), ...)`, never with `!=` (a canceled or timed-out job is neither a failure nor a success).
-
-- **Message**: {file}:{line}: needs.{job}.result is tested with !=. Fix: name what you accept: contains(fromJSON('["success","skipped"]'), needs.{job}.result).
-
 ### WF19
 
 *Error.* No write to `$GITHUB_ENV` or `$GITHUB_PATH`, and no `${{` inside the `script:` of `actions/github-script`.
