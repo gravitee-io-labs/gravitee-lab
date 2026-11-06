@@ -81,11 +81,6 @@ def _slug(uid):
     return uid.rsplit("/", 1)[-1]
 
 
-def _folder(kind, ns, slug):
-    """Where an item of catalog `ns` is, relative to the project: its folder, or the file of a setup."""
-    return f"{paths.CATALOGS_DIR}/{ns}/setups/{slug}.yml" if kind == "setup" else f"{paths.CATALOGS_DIR}/{ns}/{kind}s/{slug}"
-
-
 def _as_id(text):
     return re.sub(r"[^a-z0-9]+", "-", str(text).lower()).strip("-")[:24].strip("-")
 
@@ -128,8 +123,7 @@ def _gather(pid):
             raise _fail("export_clash", f"It includes two items named {_slug(uid)}, {other} and {uid}. Fix: rename one of them.",
                         409)
     ns = _free_id(unit["name"], pid)
-    moved = [(str(Path(paths.unit_file(kind, uid)).parent) if kind != "setup" else paths.unit_file(kind, uid),
-              _folder(kind, ns, _slug(uid))) for kind, uid in carried]
+    moved = [(contribute._here(kind, uid), contribute._target(kind, _slug(uid), ns)) for kind, uid in carried]
     files, problems = {}, []
     for kind, uid in carried:
         copy = contribute.collect(kind, _slug(uid), ns, paths.origin(uid), moved)
