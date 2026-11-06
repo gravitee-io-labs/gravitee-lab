@@ -1361,7 +1361,7 @@ def _lab_lines(meta, units, raw, inputs):
 # A catalog
 # ---------------------------------------------------------------------------------------------------------------------
 
-UNREADABLE = ("damaged", "downloading")   # a git install in these states has no units in the project (registry.sources)
+UNREADABLE = ("damaged", "downloading")   # a git install in these states has no units in the project (registry.units_of)
 
 
 def _present(row):

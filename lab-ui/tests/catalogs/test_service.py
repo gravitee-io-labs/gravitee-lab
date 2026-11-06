@@ -796,7 +796,7 @@ class Check(Seam):
         self.assertNotIn("partner", registry.read_lock()["catalogs"])
         self.assertEqual(sorted(path.name for path in (self.root / ".lab" / "catalogs").iterdir()), [".stage-partner", "fixture"])
         self.assertTrue((self.root / ".lab" / "cache" / "git" / f".new-{shown['ticket']}.git").is_dir())
-        self.assertEqual(registry.units("addon"), ["cluster", "echo", "echo-core", "echo-twin", "future", "gateway", "port-core"],
+        self.assertEqual(paths.ids("addon"), ["cluster", "echo", "echo-core", "echo-twin", "future", "gateway", "port-core"],
                          "the units of the stage are no units of the project")
 
     def test_the_network_steps_hold_no_lock_and_the_fetch_says_how_far_it_is_in_the_state(self):

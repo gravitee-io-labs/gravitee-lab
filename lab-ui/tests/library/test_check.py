@@ -1712,7 +1712,7 @@ class Availability(Case):
             self.assertEqual(str(raised.exception), said)
 
     def test_an_install_that_is_damaged_or_still_downloading_has_nothing_to_check(self):
-        # The Lab reads no unit of it (registry.sources): a check of it would read nothing and print All good
+        # The Lab reads no unit of it (registry.units_of): a check of it would read nothing and print All good
         def rows(state, version="1.0.0"):
             return {"fixture": {"kind": "git", "version": version, "state": state, "requires_catalogs": {}}}
         for state, said in (

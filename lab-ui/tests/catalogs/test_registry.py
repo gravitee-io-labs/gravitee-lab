@@ -304,7 +304,7 @@ class ConfigRead(Disk):
         self.lockfile(**{ns: lock_entry() for ns in ("fixture", "second", "acme-hub")})
         for ns in ("fixture", "second", "acme-hub"):
             self.install(ns, A, ("addon:kafka",))
-        self.assertEqual(registry.units("addon"), ["kafka", "@second/kafka", "@acme-hub/kafka"])
+        self.assertEqual([registry.units_of(ns)["addon"] for ns in ("fixture", "second", "acme-hub")], [["kafka"]] * 3)
 
     def test_the_allowance_of_a_listed_catalog_is_implied_and_not_read(self):
         self.default("fixture")
@@ -854,8 +854,8 @@ class Flock(Disk):
         self.config(git_entry("acme-hub"))
 
         def read():
-            registry.entries(), registry.inputs(), registry.sources(), registry.suggestions(), registry.manifest("acme-hub")
-            registry.units_of("acme-hub"), registry.units(), registry.config_problem(), registry.read_lock()
+            registry.entries(), registry.inputs(), registry.suggestions(), registry.manifest("acme-hub")
+            registry.units_of("acme-hub"), registry.config_problem(), registry.read_lock()
         with registry.flock():
             thread = threading.Thread(target=read)
             thread.start()
@@ -1292,26 +1292,6 @@ class Units(Disk):
             with self.subTest(ns):
                 self.assertEqual(registry.units_of(ns), {"addon": [], "setup": [], "playground": []})
 
-    def test_the_ids_of_every_installed_catalog_by_kind_and_precedence(self):
-        self.default("fixture")
-        self.config(git_entry("zeta"), git_entry("fixture"), folder_entry("my-catalog", self.root / ".lab/catalogs/my-catalog"))
-        self.lockfile(zeta=lock_entry(), fixture=lock_entry())
-        self.install("fixture", A, ("addon:kafka", "setup:events", "playground:bank"))
-        self.install("zeta", A, ("addon:last", "playground:bank"))
-        self.write(".lab/catalogs/my-catalog/addons/mine/compose.yml")
-        self.write(".lab/catalogs/local/addons/personal/compose.yml")
-        self.assertEqual(registry.units("addon"), ["kafka", "@zeta/last", "@my-catalog/mine"])
-        self.assertEqual(registry.units("setup"), ["events"])
-        self.assertEqual(registry.units("playground"), ["bank", "@zeta/bank"])
-        self.assertEqual(registry.units(), ["kafka", "@zeta/last", "@my-catalog/mine", "events", "bank", "@zeta/bank"])
-        self.assertEqual(registry.units(None), registry.units())
-
-    def test_no_catalog_has_no_unit_and_a_kind_that_does_not_exist_is_an_error(self):
-        self.assertEqual(registry.units(), [])
-        self.assertEqual(registry.units("addon"), [])
-        with self.assertRaises(ValueError):
-            registry.units("catalog")
-
     def test_paths_lists_only_what_the_registry_vouches_for(self):
         # The contract with paths.ids: a git install is read through units_of, so a file the manifest does not name is no unit
         self.default("fixture")
@@ -1350,8 +1330,7 @@ class Units(Disk):
         self.write(".lab/catalogs/acme-hub/playgrounds/planted/compose.yml")
         self.assertTrue(registry.is_git("acme-hub"))
         self.assertEqual(registry.units_of("acme-hub"), {"addon": [], "setup": [], "playground": []})
-        self.assertEqual((registry.units(), registry.inputs()["acme-hub"]["state"]), ([], "damaged"))
-        self.assertEqual([one["state"] for one in registry.sources() if one["id"] == "acme-hub"], ["damaged"])
+        self.assertEqual(registry.inputs()["acme-hub"]["state"], "damaged")
         # The same through paths, which lists a catalog by its folder unless it asks the registry: it must ask for a git
         # entry whether or not the manifest file is there
         self.assertEqual((paths.ids("addon"), paths.ids("playground"), paths.files()), ([], [], []))
@@ -1804,11 +1783,9 @@ class Scanner(Disk):
 
 
 class Rows(Disk):
-    """sources() and inputs(): what the resolver reads, from the disk."""
+    """inputs(): what the resolver reads, from the disk."""
 
     def test_with_nothing_there_there_is_the_personal_area(self):
-        self.assertEqual(registry.sources(), [{"id": "local", "kind": "machine", "path": ".lab/catalogs/local",
-                                               "state": "machine"}])
         found = registry.inputs()
         self.assertEqual(list(found), ["local"])
         self.assertEqual(found["local"], {
@@ -1830,10 +1807,7 @@ class Rows(Disk):
 
     def test_the_order_is_the_default_then_the_personal_area_then_the_others_as_added(self):
         self.set_up_three()
-        self.assertEqual([row["id"] for row in registry.sources()], ["fixture", "local", "acme-hub", "my-catalog"])
         self.assertEqual(list(registry.inputs()), ["fixture", "local", "acme-hub", "my-catalog"])
-        self.assertEqual(registry.sources()[2], {"id": "acme-hub", "kind": "git", "path": ".lab/catalogs/acme-hub",
-                                                 "state": "uptodate"})
 
     def test_a_row_is_exactly_the_keys_of_section_6_2_with_no_pin(self):
         self.set_up_three()
@@ -1843,7 +1817,6 @@ class Rows(Disk):
                 self.assertNotIn("pin", row)
                 self.assertNotIn("pin", json.dumps(row))
         json.dumps(registry.inputs())
-        json.dumps(registry.sources())
 
     def test_what_a_row_says(self):
         self.set_up_three()
@@ -1940,9 +1913,7 @@ class States(Disk):
     """The state key of a catalog, as far as the disk says it."""
 
     def state(self, ns="acme-hub"):
-        rows, sources = registry.inputs(), {row["id"]: row["state"] for row in registry.sources()}
-        self.assertEqual(rows[ns]["state"], sources[ns])
-        return rows[ns]["state"]
+        return registry.inputs()[ns]["state"]
 
     def git(self, lock=None, installed=True, entry=None, **fields):
         self.config(entry or git_entry("acme-hub"))
@@ -2125,7 +2096,7 @@ class ReadersWrite(Disk):
     def test_no_reader_makes_a_file_or_a_folder(self):
         self.default("fixture")
         for call in (registry.read_config, registry.config_problem, registry.entries, registry.precedence, registry.read_lock,
-                     registry.sources, registry.inputs, registry.suggestions, registry.units, registry.suggestions_file,
+                     registry.inputs, registry.suggestions, registry.suggestions_file,
                      lambda: registry.entry("fixture"), lambda: registry.lock_of("fixture"),
                      lambda: registry.manifest("fixture"), lambda: registry.units_of("fixture"),
                      lambda: registry.units_of("local"), lambda: registry.install_dir("fixture"),
@@ -2139,8 +2110,7 @@ class ReadersWrite(Disk):
         other = Path(tempfile.mkdtemp())
         other.rmdir()
         self.patch(paths, "ROOT", other)
-        self.assertEqual((registry.entries(), registry.read_config(), registry.sources()[0]["id"], list(registry.inputs())),
-                         ([], None, "local", ["local"]))
+        self.assertEqual((registry.entries(), registry.read_config(), list(registry.inputs())), ([], None, ["local"]))
 
 
 class Hostile(Disk):
@@ -2173,8 +2143,8 @@ class Hostile(Disk):
             for one in config["catalogs"]:
                 self.assertTrue(re.fullmatch(paths.NS, one["id"]))
                 self.assertIn(one["kind"], ("git", "folder"))
-            registry.config_problem(), registry.entries(), registry.precedence(), registry.sources(), registry.inputs()
-            registry.suggestions(), registry.units()
+            registry.config_problem(), registry.entries(), registry.precedence(), registry.inputs()
+            registry.suggestions()
 
     def test_a_lock_mutated_at_random(self):
         good = json.dumps({"schema": 1, "catalogs": {"acme-hub": lock_entry(via="ssh", pending={"op": "add", "from": None, "to": B})}}).encode()
@@ -2186,7 +2156,7 @@ class Hostile(Disk):
                 self.assertTrue(re.fullmatch(paths.NS, ns))
                 self.assertEqual(set(entry) >= {"pin", "roots", "audience", "pending"}, True)
                 registry._lock_entry(entry, strict=True)   # what was read is what can be written
-            registry.lock_of("acme-hub"), registry.inputs(), registry.sources(), registry.units_of("acme-hub")
+            registry.lock_of("acme-hub"), registry.inputs(), registry.units_of("acme-hub")
 
     def test_a_manifest_mutated_at_random(self):
         self.config(git_entry("acme-hub"))
@@ -2200,7 +2170,7 @@ class Hostile(Disk):
             for names in registry.units_of("acme-hub").values():
                 for name in names:
                     self.assertRegex(name, paths.NAME)
-            registry.inputs(), registry.sources()
+            registry.inputs()
 
     def test_a_catalog_yml_mutated_at_random(self):
         good = (fixtures.CATALOGS / "fixture" / "catalog.yml").read_bytes() + b"  shared_settings: [A, B]\n  canary:\n    - x\n"
@@ -2229,7 +2199,7 @@ class Hostile(Disk):
     def readers(self, ns="acme-hub"):
         """Every read of the registry, for a file that holds something hostile: none may raise."""
         for call in (registry.read_config, registry.config_problem, registry.entries, registry.precedence,
-                     registry.read_lock, registry.sources, registry.inputs, registry.suggestions, registry.units,
+                     registry.read_lock, registry.inputs, registry.suggestions,
                      lambda: registry.entry(ns), lambda: registry.lock_of(ns), lambda: registry.manifest(ns),
                      lambda: registry.read_manifest(ns), lambda: registry.units_of(ns), lambda: registry.is_git(ns)):
             call()
@@ -2378,7 +2348,7 @@ class Privacy(Disk):
             git_entry("one-hub", url=f"https://user:{secret}@example.invalid/a.git"),
             git_entry("two-hub", url=f"ssh://git:{secret}@example.invalid/b.git"), {"id": "BAD", "token": secret}]}).encode())
         self.raw(".lab/catalogs.lock", f'{{"schema": 1, "catalogs": {{"one-hub": {{"name": "{secret}"}}}}, "{secret}": 1}}'.encode())
-        everything = json.dumps([registry.read_config(), registry.entries(), registry.sources(), registry.inputs(),
+        everything = json.dumps([registry.read_config(), registry.entries(), registry.inputs(),
                                  registry.suggestions(), registry.config_problem(), registry.read_lock(),
                                  [registry.web_url(one) for one in registry.entries()],
                                  [registry.display_address(one["url"]) for one in registry.entries()]])

@@ -938,18 +938,6 @@ def units_of(ns: str) -> dict:
     return _units(ns, one, read_lock()["catalogs"].get(ns) or {})
 
 
-def units(kind: Optional[str] = None) -> list:
-    """The ids of the units of every installed catalog, of one kind or of all (kind by kind): bare for the default
-    catalog's, which is the only form of them that is an id, `@ns/name` for the others. The catalogs in the order
-    of precedence, each one's names sorted. The personal area is not a catalog and is not listed."""
-    if kind is not None and kind not in KINDS:
-        raise ValueError(f"not a kind of unit: {kind!r}")
-    default = paths.default_ns()
-    vouched = [(ns, _units(ns, one, held)) for ns, one, held in _catalogs() if ns != LOCAL]
-    return [("" if ns == default else f"@{ns}/") + name
-            for wanted in (KINDS if kind is None else (kind,)) for ns, found in vouched for name in found[wanted]]
-
-
 # ---------------------------------------------------------------- catalog.yml, read for what it says of itself
 
 def _uncomment(line):
@@ -1369,19 +1357,6 @@ def _catalogs():
     first = paths.default_ns()
     ids = ([first] if first in by_id else []) + [LOCAL] + [ns for ns in by_id if ns != first]
     return [(ns, by_id.get(ns), held.get(ns) or _blank()) for ns in ids]
-
-
-def sources() -> list:
-    """The catalogs to read, in the order they claim names: the default catalog, `local`, then the
-    others as added. Each {id, kind (git, folder or machine), path (where its units are read, relative to the project:
-    .lab/catalogs/<id>), state (the key of inputs)}. A catalog whose state is `downloading`, `missing_folder` or
-    `damaged` has nothing to read."""
-    found = []
-    for ns, one, held in _catalogs():
-        kind, manifest_found, folder_here = _facts(ns, one, held)
-        found.append({"id": ns, "kind": kind, "path": f"{paths.CATALOGS_DIR}/{ns}",
-                      "state": _state(kind, one, held, manifest_found, folder_here)})
-    return found
 
 
 def inputs() -> dict:
