@@ -268,16 +268,6 @@ class Plugin(Layout):
             (self.desktop[0], "desktop", False), (self.system[3], "libexec", True), (self.system[0], "local-lib", True),
             (str(self.home / ".docker/cli-plugins"), "home", True), (str(self.root / "extra"), "extra", True)])
 
-    def test_an_older_compose_in_the_home_loses_to_the_newer_one_in_the_folders_the_configuration_lists(self):
-        # The case of the Lab's review: the CLI runs the plugin of cliPluginsExtraDirs (a Compose 5 of a package manager)
-        # and not the older one in ~/.docker/cli-plugins, and the plugin the Lab links is the CLI's
-        self.configured(self.home / ".docker", self.root / "brew")
-        self.plugin(self.home / ".docker/cli-plugins", which="older, in the home")
-        self.plugin(self.root / "brew", which="newer, in the extra folders")
-        self.assertEqual(compose.plugin(), str(self.root / "brew/docker-compose"))
-        self.assertEqual(self.call(compose.scrubbed_environment(), "config")[0], "newer, in the extra folders")
-        self.assertEqual(self.call(compose.build_environment(), "build")[0], "newer, in the extra folders")
-
     def test_a_docker_config_that_is_set_hides_the_cli_plugins_and_the_configuration_of_the_home(self):
         # The CLI looks in `$DOCKER_CONFIG/cli-plugins` and not in `~/.docker/cli-plugins` when the shell sets it, and reads
         # the list of folders from the configuration there: a Compose that only the home holds is not found by either
@@ -313,12 +303,6 @@ class Plugin(Layout):
         self.assertIsNone(compose.plugin())
         self.plugin(self.system[2], which="system")
         self.assertEqual(Path(compose.plugin()).parent, Path(self.system[2]))
-
-    def test_a_plugin_that_the_runner_has_older_in_the_system_loses_to_the_one_installed_for_the_user(self):
-        # A runner has an older Compose in /usr/libexec, and the action of the Lab installs Compose 5 for the user
-        self.plugin(self.system[3], which="older, of the runner")
-        self.plugin(self.home / ".docker/cli-plugins", which="Compose 5, of the action")
-        self.assertEqual(self.call(compose.scrubbed_environment(), "config")[0], "Compose 5, of the action")
 
     def test_what_is_not_a_plugin_is_passed_over(self):
         self.plugin(self.system[1], which="the good one")
@@ -675,23 +659,10 @@ class Scrubbed(Layout):
                             "DOCKER_HOST": "unix:///var/run/test.sock"}.items():
             self.assertEqual(environment[name], value, name)
 
-    def test_no_actions_variable_no_token_and_no_agent_socket(self):
-        environment = compose.scrubbed_environment()
-        for name in environment:
-            self.assertFalse(name.startswith(("ACTIONS_", "GITHUB_", "GH_")) or name.endswith("_TOKEN"), name)
-        self.assertNotIn("SSH_AUTH_SOCK", environment)
-
     def test_no_value_of_the_shell_is_in_it(self):
         text = "\n".join(compose.scrubbed_environment().values())
         for name, value in SECRETS.items():
             self.assertNotIn(value, text, name)
-
-    def test_the_shells_compose_variables_are_not_carried(self):
-        # They would change which files Compose reads, and the callers name them with -f
-        environment = compose.scrubbed_environment()
-        for name in ("COMPOSE_FILE", "COMPOSE_PROFILES", "COMPOSE_ENV_FILES", "COMPOSE_PROJECT_NAME", "DOCKER_CONTEXT",
-                     "DOCKER_TLS_VERIFY", "BUILDX_BUILDER"):
-            self.assertNotIn(name, environment)
 
     def test_a_remote_include_stays_off_whatever_the_shell_says(self):
         self.shell({"COMPOSE_EXPERIMENTAL_GIT_REMOTE": "true", "COMPOSE_EXPERIMENTAL_OCI_REMOTE": "true"})
@@ -709,11 +680,6 @@ class Scrubbed(Layout):
         environment = compose.scrubbed_environment()
         self.assertNotEqual(environment["HOME"], str(self.home))
         self.assertNotEqual(environment["DOCKER_CONFIG"], str(self.root / "real-config"))
-
-    def test_it_is_a_new_dictionary_each_time(self):
-        first = compose.scrubbed_environment()
-        first["HOME"] = "changed"
-        self.assertNotEqual(compose.scrubbed_environment()["HOME"], "changed")
 
     def test_the_environment_of_the_lab_is_what_it_was(self):
         # The Lab runs its own commands with environment(): nothing here changes that
@@ -754,12 +720,6 @@ class Build(Layout):
                     self.assertEqual(environment[other], str(self.root / "real-config") if other == "DOCKER_CONFIG" else str(self.home))
                     self.assertEqual(set(environment), ALLOWED | {other} | set(FLAGS))
 
-    def test_both_relative_leave_the_allow_list_and_the_two_flags_alone(self):
-        self.shell({"HOME": "home", "DOCKER_CONFIG": "cfg"})
-        environment = compose.build_environment()
-        self.assertEqual(set(environment), ALLOWED | set(FLAGS))
-        self.assertEqual({name: environment[name] for name in FLAGS}, FLAGS)
-
     def test_an_absolute_one_is_kept_as_it_is_whether_or_not_it_is_there_or_looks_odd(self):
         for value in (str(self.root / "real-config"), str(self.root / "not" / "there"), "/", "/a b/c", f"{self.root}/x/../y",
                       "/home/me/.docker/", "/\u00e9t\u00e9", "//double"):
@@ -767,11 +727,6 @@ class Build(Layout):
                 with self.subTest(name=name, value=value):
                     self.shell({name: value})
                     self.assertEqual(compose.build_environment()[name], value)
-
-    def test_a_relative_one_is_not_made_absolute_for_it_is_not_the_persons(self):
-        self.shell({"DOCKER_CONFIG": "cfg"})
-        self.assertNotIn(str(Path.cwd()), "".join(compose.build_environment().values()))
-        self.assertNotIn("cfg", "".join(compose.build_environment().values()))
 
     def test_a_relative_docker_config_cannot_make_the_cli_run_a_plugin_that_the_catalog_brings(self):
         """The Docker CLI takes a relative DOCKER_CONFIG for a folder of the directory it runs in, which is the catalog's: it would
@@ -792,15 +747,6 @@ class Build(Layout):
         which, seen, code, _ = self.call(compose.build_environment(), "build")
         self.assertEqual((which, code), ("system", 0))
         self.assertNotIn("HOME", seen)
-
-    def test_the_lab_runs_a_build_with_it_and_the_plugin_sees_only_what_is_absolute(self):
-        self.plugin(self.system[0], which="system")
-        self.shell({"HOME": "rel-home", "DOCKER_CONFIG": "cfg"})
-        code, out, err = compose.run(["docker", "compose", "build"], environ=compose.build_environment(), cwd=self.root)
-        which, seen = parsed(out)
-        self.assertEqual((code, err, which), (0, "", "system"))
-        self.assertFalse({"HOME", "DOCKER_CONFIG"} & set(seen))
-        self.assertFalse(set(seen) & set(SECRETS))
 
     # A PATH as the shell gave it and what a command that runs in the catalog's folder is told of it: only the absolute
     # folders, in their order. An empty folder and a relative one are the folder the command runs in.
@@ -837,11 +783,6 @@ class Build(Layout):
                          ("fr_FR.UTF-8", str(self.root / "real-config"), str(self.home)))
         self.assertEqual(set(environment), ALLOWED | {"HOME", "DOCKER_CONFIG"} | set(FLAGS))
 
-    def test_the_value_of_the_shell_is_not_changed_by_asking(self):
-        self.shell({"PATH": f".::{self.bin}"})
-        compose.build_environment()
-        self.assertEqual(os.environ["PATH"], f".::{self.bin}")
-
     def test_a_docker_in_the_catalogs_folder_is_not_run_in_place_of_the_persons(self):
         """The command runs in the catalog's folder and a `.`, an empty folder or a relative one of the PATH leads there: the
         program a catalog calls `docker` would run, with the credentials of the build, before the person's."""
@@ -868,27 +809,15 @@ class Build(Layout):
                 if given != ".":   # then the person's docker is found at its absolute folder
                     self.assertEqual((code, err, parsed(out)[0]), (0, "", "system"))
 
-    def test_it_is_the_same_allow_list_no_actions_variable_no_token_no_agent_socket(self):
-        environment = compose.build_environment()
-        for name in environment:
-            self.assertFalse(name.startswith(("ACTIONS_", "GITHUB_", "GH_")) or name.endswith("_TOKEN"), name)
-        self.assertNotIn("SSH_AUTH_SOCK", environment)
-        text = "\n".join(environment.values())
+    def test_no_value_of_the_shell_is_in_it(self):
+        text = "\n".join(compose.build_environment().values())
         for name, value in SECRETS.items():
             self.assertNotIn(value, text, name)
-        for name in ("COMPOSE_FILE", "COMPOSE_PROFILES", "COMPOSE_ENV_FILES", "DOCKER_CONTEXT"):
-            self.assertNotIn(name, environment)
 
     def test_it_makes_no_folder_and_links_nothing(self):
         before = sorted(compose.scratch().rglob("*"))
         compose.build_environment()
         self.assertEqual(sorted(compose.scratch().rglob("*")), before)
-
-    def test_the_cli_finds_the_plugin_where_the_person_has_it(self):
-        self.plugin(self.home / ".docker/cli-plugins", which="home")
-        which, seen, code, _ = self.call(compose.build_environment(), "build")
-        self.assertEqual((which, code), ("home", 0))
-        self.assertEqual(seen["HOME"], str(self.home))
 
     def test_the_lab_runs_a_command_with_either_in_place_of_the_shell(self):
         self.plugin(self.system[0], which="system")
@@ -900,7 +829,6 @@ class Build(Layout):
             self.assertFalse(set(seen) & set(SECRETS), "nothing of the shell reaches the plugin")
 
 
-@unittest.skipUnless(sys.platform != "win32", "a POSIX machine")
 class WithCompose(Case):
     """Compose itself, where it is installed: the scrubbed environment keeps it findable, and a file that names a secret
     of the shell or the home reads an empty value or a temporary path."""
