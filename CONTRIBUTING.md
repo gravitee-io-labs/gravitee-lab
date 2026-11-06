@@ -29,7 +29,7 @@ The seed of a playground is a container built from `seeder/`. It creates the pla
 | `seeder/` | The engine every playground's seed runs | [seeder/AGENTS.md](seeder/AGENTS.md) |
 | `lab-ui/` | The Lab UI, its page and its tests | [lab-ui/AGENTS.md](lab-ui/AGENTS.md) |
 | `docs/` | The documentation | [Documentation](#documentation) |
-| `.github/` | CI, the workflow and script that publish the images, the templates, and `tests/` for the Makefile, the images script and the Compose conventions | [Pull requests and review](#pull-requests-and-review) |
+| `.github/` | CI, the workflow that publishes the seeder's image, the templates, and `tests/` for the Makefile, the workflows and the Compose conventions | [Pull requests and review](#pull-requests-and-review) |
 
 The `AGENTS.md` files are written for AI agents, but they are the reference for the rules too: read the one of the folder you change.
 
@@ -121,7 +121,7 @@ Maintainers review on a best-effort basis.
 
 ### What CI does
 
-Every pull request, from any fork, gets these jobs with no secret and no wait: **Lint and seeder tests**, **Compose files** (`make check` with the Compose release the lab pins and with the newest one, which is what a Linux user gets from Docker's repository, then the builds of the seeder's image, printed and not run), **Repository tests** (the tests of `.github/tests`), **Lab UI tests** (the whole suite on Python 3.15, in four parts that take about as long, from the seconds in `lab-ui/tests/durations.json`: `python3 lab-ui/tests/run.py --time` writes them again when the parts drift apart), and **Lab UI on Python 3.9**, the oldest Python the Lab UI supports and the one a Mac comes with: every module imports on it, `make check` passes, and the quicker tests run (`run.py --imports`, then `run.py --quick`). **CI result** passes when all of them did: it is the check a merge waits for. **Default catalog** checks the default catalog with your change, so that a change of the engine that breaks it shows on the pull request: it is not required, since the fix may belong to the catalog.
+Every pull request, from any fork, gets these jobs with no secret and no wait: **Lint and seeder tests**, **Compose files** (`make check` with the Compose release the lab pins and with the newest one, which is what a Linux user gets from Docker's repository), **Repository tests** (the tests of `.github/tests`), **Lab UI tests** (the whole suite on Python 3.15, in four parts that take about as long, from the seconds in `lab-ui/tests/durations.json`: `python3 lab-ui/tests/run.py --time` writes them again when the parts drift apart), and **Lab UI on Python 3.9**, the oldest Python the Lab UI supports and the one a Mac comes with: every module imports on it, `make check` passes, and the quicker tests run (`run.py --imports`, then `run.py --quick`). **CI result** passes when all of them did: it is the check a merge waits for. **Default catalog** checks the default catalog with your change, so that a change of the engine that breaks it shows on the pull request: it is not required, since the fix may belong to the catalog.
 
 The engine holds no item, so the **E2E** workflow tries the canary of the default catalog (`canary:` in its `catalog.yml`) on the engine as your change leaves it. A change that touches nothing every item shares (documentation, the page) runs nothing. Each catalog runs the same test for its own changes.
 

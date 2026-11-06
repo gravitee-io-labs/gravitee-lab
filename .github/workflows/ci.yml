@@ -48,8 +48,7 @@ jobs:
         run: .venv/bin/python -m unittest discover -s seeder/tests -t seeder
 
   # Every add-on, setup and playground, then the project as a whole, with the Compose release the lab pins and with the newest one,
-  # which is what a Linux user gets from Docker's repository. Then the builds of the lab-images workflow, printed and not run: every
-  # image still resolves from the Compose files
+  # which is what a Linux user gets from Docker's repository
   compose:
     name: Compose files
     runs-on: ubuntu-24.04
@@ -63,10 +62,6 @@ jobs:
         uses: ./.github/actions/compose
       - name: Check with the Compose the lab pins
         run: make check
-      - name: Print the image builds
-        run: python3 .github/scripts/lab_images.py --dry-run
-        env:
-          REGISTRY: ghcr.io/${{ github.repository }}
       - name: Install the newest Compose
         uses: ./.github/actions/compose
         with:
@@ -74,8 +69,7 @@ jobs:
       - name: Check with the newest Compose
         run: make check
 
-  # The Makefile's messages and helpers, install.sh and gravitee-lab, the images script, the workflows and the conventions of the
-  # Compose files
+  # The Makefile's messages and helpers, install.sh and gravitee-lab, the workflows and the conventions of the Compose files
   repository:
     name: Repository tests
     runs-on: ubuntu-24.04

@@ -8,10 +8,7 @@ on:
     paths:
       - "seeder/**"
       - "!**/*.md"
-      - "docker-compose.yml"
       - ".github/workflows/lab-images.yml"
-      - ".github/actions/compose/**"
-      - ".github/scripts/lab_images.py"
   workflow_dispatch:
 
 permissions:
@@ -45,8 +42,6 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install Compose
-        uses: ./.github/actions/compose
       - name: Set up QEMU
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
       - name: Set up Buildx
@@ -57,8 +52,10 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # The registry's names are lower case. No cache, as in the catalogs (WF17): a build is rare, and what it reads is only what main holds
       - name: Build and push
-        run: python3 .github/scripts/lab_images.py
-        env:
-          # The registry names are lower case; the script lower-cases this
-          REGISTRY: ghcr.io/${{ github.repository }}
+        run: |
+          image=$(printf 'ghcr.io/%s/seeder' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
+          docker buildx build --platform linux/amd64,linux/arm64 --push -t "$image:latest" -t "$image:sha-${GITHUB_SHA:0:7}" \
+            --label org.opencontainers.image.licenses=AGPL-3.0-only \
+            --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" seeder

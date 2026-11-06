@@ -497,6 +497,27 @@ class CiResultTest(ShellTest):
                 self.assertEqual(self.execute(text, {"RESULTS": results}).returncode, wanted)
 
 
+class LabImagesTest(ShellTest):
+    """lab-images.yml: the seeder's image, under the name units find it by."""
+
+    def test_the_seeder_is_built_for_both_platforms_with_its_tags_and_labels(self):
+        text = (ROOT / ".github" / "workflows" / "lab-images.yml").read_text(encoding="utf-8")
+        stub = self.bin / "docker"
+        stub.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$STUB_LOG"\n', encoding="utf-8")
+        stub.chmod(0o755)
+        done = self.execute(script(step_with(jobs(text)["images"], "buildx build")),
+                            {"GITHUB_REPOSITORY": "Owner/Lab", "GITHUB_SHA": "0123456789", "GITHUB_SERVER_URL": "https://git.example"})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(self.called(), ["buildx", "build", "--platform", "linux/amd64,linux/arm64", "--push",
+                                         "-t", "ghcr.io/owner/lab/seeder:latest", "-t", "ghcr.io/owner/lab/seeder:sha-0123456",
+                                         "--label", "org.opencontainers.image.licenses=AGPL-3.0-only",
+                                         "--label", "org.opencontainers.image.source=https://git.example/Owner/Lab", "seeder"])
+
+    def test_it_is_the_name_the_core_gives(self):
+        core = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+        self.assertRegex(core, r"(?m)^  seeder:\n    image: ghcr\.io/[^/\s]+/[^/\s]+/seeder\s")
+
+
 class ReleaseNotesTest(unittest.TestCase):
     """.github/release.yml: the changelog GitHub writes for a release, one section for each label. "For catalogs" is the compatibility
     matrix of the Lab: what a catalog may use from that version on."""
