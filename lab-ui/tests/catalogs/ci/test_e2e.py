@@ -382,15 +382,6 @@ class Inputs(Fixture):
         self.event = str(event)
         self.assertEqual(self.plan("--changed", sha="a" * 40), 1)
         self.assertIn("The head of pull request 345 is", self.out.getvalue())
-        self.out = io.StringIO()
-        self.assertEqual(self.plan("--changed", "--pr", "77", sha="a" * 40), 1)
-        self.assertIn("The head of pull request 77 is", self.out.getvalue())
-
-    def test_e2e03_names_the_pull_request_the_checkout_fetched(self):
-        self.clone({"addons/mock/README.md": "x\n"})
-        self.git(self.change, "update-ref", "refs/remotes/pull/9/head", self.head)
-        self.assertEqual(self.plan("--changed", sha="b" * 40), 1)
-        self.assertIn("The head of pull request 9 is", self.out.getvalue())
 
     def test_a_number_that_is_not_digits_is_never_put_in_a_message(self):
         self.clone({"addons/mock/README.md": "x\n"})
@@ -402,14 +393,11 @@ class Inputs(Fixture):
 
     def test_e2e04_a_bad_input_is_refused_and_says_which(self):
         self.clone({"addons/mock/README.md": "x\n"})
-        for kwargs, argv, which in (({"sha": "abc"}, ("--changed",), "sha"), ({"sha": "A" * 40}, ("--changed",), "sha"),
-                                    ({"sha": "g" * 40}, ("--changed",), "sha"), ({"sha": "a" * 41}, ("--changed",), "sha"),
-                                    ({}, ("--changed", "--pr", "12ab"), "pr"), ({}, ("--changed", "--pr", "12345678"), "pr"),
-                                    ({}, ("--changed", "--pr", ""), "pr"), ({}, ("--changed", "--pr", "-1"), "pr")):
-            with self.subTest(kwargs=kwargs, argv=argv):
+        for sha in ("abc", "A" * 40, "g" * 40, "a" * 41):
+            with self.subTest(sha=sha):
                 self.out = io.StringIO()
-                self.assertEqual(self.plan(*argv, **kwargs), 1)
-                self.assertIn(f"E2E04 {which} is not what it says. Fix: pr is digits only; sha is 40 hexadecimal characters; items are "
+                self.assertEqual(self.plan("--changed", sha=sha), 1)
+                self.assertIn("E2E04 sha is not what it says. Fix: pr is digits only; sha is 40 hexadecimal characters; items are "
                               "words that name an item and do not start with a dash.", self.out.getvalue())
                 self.assertEqual(self.outputs(), {})
 
@@ -553,17 +541,11 @@ class Gate(Fixture):
         moved = self.git(self.change, "rev-parse", "HEAD").strip()
         self.assertEqual(self.gate(sha=read), 1)
         self.assertIn(f"E2E03 The head of pull request ? is {moved[:7]}, not the commit you read ({read[:7]}).", self.out.getvalue())
-        self.out = io.StringIO()
-        self.assertEqual(self.gate("--pr", "42", sha=read), 1)
-        self.assertIn("The head of pull request 42 is", self.out.getvalue())
 
     def test_a_commit_that_is_not_40_hexadecimal_characters_is_e2e04(self):
         self.clone({"addons/mock/README.md": "x\n"})
         self.assertEqual(self.gate(sha="abc1234"), 1)
         self.assertIn("E2E04 sha is not what it says.", self.out.getvalue())
-        self.out = io.StringIO()
-        self.assertEqual(self.gate("--pr", "x1"), 1)
-        self.assertIn("E2E04 pr is not what it says.", self.out.getvalue())
 
     def test_a_folder_that_is_not_a_repository_has_no_head_and_is_refused(self):
         with tempfile.TemporaryDirectory() as folder:

@@ -6,11 +6,11 @@ they read. The pull request is **data**: its files are checked out into a folder
 tried from there; nothing of it is ever a workflow, a step or a permission. There is no push trigger and no branch to push a pull
 request's commit to, because a push runs every workflow of the pushed commit with the repository's secrets.
 
-    e2e-plan PATH (--all | --changed | --items -- WORDS) [--change DIR --sha SHA [--pr N]] [--github-output]
+    e2e-plan PATH (--all | --changed | --items -- WORDS) [--change DIR --sha SHA] [--github-output]
         The matrix of the module: one job for each item and each set of versions it says it was tested with (`x-gravitee.tested`), or one
         on the core's defaults. It writes two outputs, `matrix` (`{"include": [{item, tested, name}]}`, the form `e2e.jobs` makes and the
         workflow reads) and `count`, each one line, and nothing at all when a code below says no.
-    e2e-gate PATH --change DIR --sha SHA [--pr N]
+    e2e-gate PATH --change DIR --sha SHA
         E2E03 again, in the job that holds the license: the head can move between the plan and that job.
 
     E2E01  An item whose own services (`project._own`: neither the core's nor an included unit's) reference the license variable in
@@ -23,8 +23,8 @@ request's commit to, because a push runs every workflow of the pushed commit wit
            the variable at all (REVIEWING.md asks about it).
     E2E02  A pull request tried from a ref other than `main`.
     E2E03  A head that is not the commit given.
-    E2E04  A bad input: a number over 7 digits, a commit that is not 40 hexadecimal characters, an `--items` word that does not name an
-           item or starts with a dash (the words come after `--`, so an option cannot be injected).
+    E2E04  A bad input: a commit that is not 40 hexadecimal characters, an `--items` word that does not name an item or starts with a
+           dash (the words come after `--`, so an option cannot be injected).
     E2E05  A change since the merge base with `main` to `.github/`, `.catalog/`, `Makefile` or `catalog.yml`: a maintainer reads those as
            code, merges them first, and then tries the items.
 
@@ -83,13 +83,10 @@ def split_words(argv: Sequence[str]) -> Tuple[List[str], List[str]]:
     return argv, []
 
 
-def pull_request_number(given: Optional[str], change: Optional[str], environ: Optional[dict] = None) -> str:
-    """The number to put in E2E03: the one given, else the one the dispatch carries in the event of the run, else the one the
-    checkout of the pull request named its ref with; `?` when none says. Only digits are ever returned."""
-    if given and NUMBER.fullmatch(given):
-        return given
-    environ = os.environ if environ is None else environ
-    path = environ.get("GITHUB_EVENT_PATH")
+def pull_request_number() -> str:
+    """The number to put in E2E03: the one the dispatch carries in the event of the run; `?` when it says none. Only digits are ever
+    returned."""
+    path = os.environ.get("GITHUB_EVENT_PATH")
     if path:
         try:
             with open(path, "rb") as handle:
@@ -99,26 +96,14 @@ def pull_request_number(given: Optional[str], change: Optional[str], environ: Op
                 return number
         except (OSError, ValueError, RecursionError, AttributeError):
             pass
-    if change:
-        try:
-            done = gitx.run(["for-each-ref", "--format=%(refname)", "refs/remotes/pull"], cwd=os.path.realpath(change),
-                            env=trees.QUIET, timeout=30)
-            for name in done.out.decode("utf-8", "replace").split("\n") if done.code == 0 else ():
-                found = re.fullmatch(r"refs/remotes/pull/([0-9]{1,7})/head", name.strip())
-                if found:
-                    return found.group(1)
-        except (gitx.CatalogError, gitx.OutputLimit):
-            pass
     return "?"
 
 
-def check_inputs(sha: Optional[str], number: Optional[str], words: Optional[Sequence[str]]) -> List[Problem]:
+def check_inputs(sha: Optional[str], words: Optional[Sequence[str]]) -> List[Problem]:
     """E2E04 for each input that is not what it says."""
     bad: List[Problem] = []
     if sha is not None and not SHA.fullmatch(sha):
         bad.append(problem("E2E04", input="sha"))
-    if number is not None and not NUMBER.fullmatch(number):
-        bad.append(problem("E2E04", input="pr"))
     if words is not None and (not words or len(words) > MAX_WORDS or any(not WORD.fullmatch(word) for word in words)):
         bad.append(problem("E2E04", input="items"))
     return bad
@@ -269,12 +254,11 @@ def item_key(word: str, ns: str) -> Optional[str]:
     return f"{kind}:{name}" if owner in (None, ns) else None
 
 
-def make_plan(root: str, change: Optional[str], sha: Optional[str], number: Optional[str], ref: str, mode: str,
-              words: Sequence[str], seams: dict) -> Planned:
+def make_plan(root: str, change: Optional[str], sha: Optional[str], ref: str, mode: str, words: Sequence[str]) -> Planned:
     """The jobs of the module, or the codes that say no."""
     problems: List[Problem] = []
     notes: List[str] = []
-    problems += check_inputs(sha, number, words if mode == "items" else None)
+    problems += check_inputs(sha, words if mode == "items" else None)
     if change is not None and ref != MAIN:
         problems.append(problem("E2E02"))
     if problems:
@@ -284,8 +268,7 @@ def make_plan(root: str, change: Optional[str], sha: Optional[str], number: Opti
     if change is not None:
         head = head_of(change)
         if head != sha:
-            return Planned([], [head_mismatch(pull_request_number(number, change, seams.get("environ")), head or "0" * 40, sha or "")],
-                           [], notes)
+            return Planned([], [head_mismatch(pull_request_number(), head or "0" * 40, sha or "")], [], notes)
         base = merge_base(change, sha, head_of(root))
         if base is None:
             raise Unavailable("the pull request cannot be compared with main (is main fetched in its checkout?), so the plan cannot tell "
@@ -383,7 +366,6 @@ def plan_main(argv, out, err, **seams) -> int:
     what.add_argument("--items", action="store_true", help="the items named after --")
     found.add_argument("--change", default=None, help="the folder the pull request was checked out into: read as data, never run")
     found.add_argument("--sha", default=None, help="the commit of the pull request you read: 40 hexadecimal characters")
-    found.add_argument("--pr", default=None, help="the number of the pull request (for the message of E2E03)")
     found.add_argument("--github-output", action="store_true", help="write matrix and count to $GITHUB_OUTPUT")
     found.add_argument("--format", choices=report.FORMATS, default=None)
     found.add_argument("--ci", action="store_true")
@@ -398,8 +380,7 @@ def plan_main(argv, out, err, **seams) -> int:
     if args.change is not None and not os.path.isdir(args.change):
         raise Usage(f"{report.printable(args.change)} is not a folder")
     ref = os.environ.get("GITHUB_REF", "")
-    planned = make_plan(os.path.abspath(args.path), os.path.abspath(args.change) if args.change else None, args.sha, args.pr, ref, mode,
-                        words, seams)
+    planned = make_plan(os.path.abspath(args.path), os.path.abspath(args.change) if args.change else None, args.sha, ref, mode, words)
     if args.format == "json":
         out.write(json.dumps({"count": len(planned.jobs), "matrix": {"include": planned.jobs}, "notes": planned.notes,
                               "problems": [each._asdict() for each in planned.problems], "reads_license": planned.reads},
@@ -424,17 +405,15 @@ def gate_main(argv, out, err, **seams) -> int:
     found = parser("e2e-gate", "The last gate of the job that holds the license.", fmt=True, ci=True)
     found.add_argument("--change", required=True, help="the folder the pull request was checked out into")
     found.add_argument("--sha", required=True, help="the commit you read: 40 hexadecimal characters")
-    found.add_argument("--pr", default=None, help="the number of the pull request (for the message)")
     args = parsed(found, argv)
-    bad = check_inputs(args.sha, args.pr, None)
+    bad = check_inputs(args.sha, None)
     problems = list(bad)
     if not os.path.isdir(args.change):
         raise Usage(f"{report.printable(args.change)} is not a folder")
     if not bad:
         head = head_of(os.path.abspath(args.change))
         if head != args.sha:
-            problems.append(head_mismatch(pull_request_number(args.pr, os.path.abspath(args.change), seams.get("environ")),
-                                          head or "0" * 40, args.sha))
+            problems.append(head_mismatch(pull_request_number(), head or "0" * 40, args.sha))
     if args.format != "json":
         out.write("The head of the pull request is the commit that was read\n" if not problems else "")
     return conclude("e2e-gate", problems, args, out, "catalog.py ci e2e-gate", title="The change is the one that was read")
