@@ -147,20 +147,14 @@ class FolderTree(Tree):
     lists and the disk no longer has is left out. Otherwise the folder is walked with `lstat`: a link is a link, a folder that
     holds `.git` is a submodule, and a top-level `.git` is no entry. The root is resolved once; a read never leaves it."""
 
-    def __init__(self, root, untracked: bool = True):
+    def __init__(self, root):
         self.root = os.path.realpath(str(root))
-        self.untracked = untracked
         self._entries: Optional[List[Entry]] = None
-        self.source = ""   # "git" or "walk": how the entries were listed
 
     def entries(self) -> List[Entry]:
         if self._entries is None:
             found = self._listed()
-            if found is None:
-                found, self.source = self._walk(), "walk"
-            else:
-                self.source = "git"
-            self._entries = sorted(found, key=lambda each: each.path)
+            self._entries = sorted(self._walk() if found is None else found, key=lambda each: each.path)
         return list(self._entries)
 
     def read(self, path: str, limit: int = LIMIT) -> Optional[bytes]:
@@ -185,7 +179,7 @@ class FolderTree(Tree):
             return None
         try:
             tracked = self._git("ls-files", "-s", "-z")
-            extra = self._git("ls-files", "-z", "--others", "--exclude-standard") if tracked and self.untracked else None
+            extra = self._git("ls-files", "-z", "--others", "--exclude-standard") if tracked else None
         except gitx.CatalogError:
             return None
         except gitx.OutputLimit:
@@ -295,7 +289,7 @@ class GitTree(Tree):
         for name in [path] + names[start + 1:start + 1 + READ_AHEAD * 4]:
             if name in self._cache:
                 continue
-            size = self._sizes()[name]
+            size = self.entry(name).size
             if name != path and (size > AHEAD_BYTES // 8 or total + size > AHEAD_BYTES):
                 continue
             wanted.append(name)
@@ -316,12 +310,6 @@ class GitTree(Tree):
             self._cache[name] = data
             self._cached += len(data)
         return path in self._cache
-
-    def _sizes(self) -> Dict[str, int]:
-        sizes = self.__dict__.get("_size_of")
-        if sizes is None:
-            sizes = self.__dict__["_size_of"] = {each.path: each.size for each in self.entries()}
-        return sizes
 
 
 class ListTree(Tree):

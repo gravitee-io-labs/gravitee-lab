@@ -36,11 +36,6 @@ class FolderTrees(WithGit):
         self.assertNotIn(".git", found)
         self.assertEqual(sorted(found), list(found), "the entries are sorted")
 
-    def test_an_untracked_file_is_left_out_when_asked(self):
-        repo = self.work(files={"README.md": "hi\n"})
-        self.put(repo, "new.txt", "x\n")
-        self.assertEqual(["README.md"], [each.path for each in tree.FolderTree(repo, untracked=False).entries()])
-
     def test_a_file_the_index_has_and_the_disk_lost_is_not_an_entry(self):
         repo = self.work(files={"a.txt": "a\n", "b.txt": "b\n"})
         (repo / "b.txt").unlink()
