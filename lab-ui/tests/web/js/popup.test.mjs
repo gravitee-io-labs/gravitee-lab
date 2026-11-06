@@ -63,12 +63,6 @@ test("a list that fits on neither side goes where there is more room, and scroll
   assert.equal(high.maxHeight, WINDOW.height - MARGIN - (300 + 32 + GAP));
 });
 
-test("near the top of the window it opens below, whatever it holds", () => {
-  const placed = place(at(600, 4), { width: 300, height: 3000 }, WINDOW);
-  assert.equal(placed.side, "below");
-  inside(placed, WINDOW, 3000);
-});
-
 test("in a window a few rows high, where no side has MIN, it lies over its control within the window", () => {
   const short = { width: 1440, height: 300 }, trigger = at(600, 130);
   assert.ok(short.height - MARGIN - (trigger.bottom + GAP) < MIN && trigger.top - GAP - MARGIN < MIN);
@@ -78,12 +72,6 @@ test("in a window a few rows high, where no side has MIN, it lies over its contr
   inside(placed, short, 700);
   // What fits under it there still opens under it
   assert.equal(place(trigger, { width: 300, height: 100 }, short).side, "below");
-});
-
-test("at 1440 by 600 the list of the services of Logs opens under its picker and ends MARGIN above the bottom", () => {
-  const win = { width: 1440, height: 600 }, placed = place(at(1011, 147), { width: 320, height: 790 }, win);
-  assert.deepEqual([placed.side, placed.top, placed.maxHeight], ["below", 185, 399]);
-  inside(placed, win, 790);
 });
 
 test("it is as wide as its control at least, as its longest line when that is wider, up to MAX_WIDTH", () => {

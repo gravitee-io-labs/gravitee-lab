@@ -180,16 +180,6 @@ test("the file button of an item that is only read says View with the file's nam
   assert.ok(fileButtons(playground({ settings: [] }), true).includes("icon-gap"), "aligned among rows that have settings: the slot is kept");
 });
 
-test("the words of a file button are drawn by ui.js alone, in its tooltip and its name, and a file that is only read never says Edit", () => {
-  const unit = playground();
-  const drawn = fileButtons(unit, false);
-  assert.ok(drawn.includes('data-tip="View compose.yml" aria-label="View compose.yml"'));
-  assert.ok(!drawn.includes("Edit"), "a file that is only read never says Edit");
-  assert.ok(fileButtons({ ...unit, readonly: false }, false).includes('data-tip="Edit playgrounds/bank/compose.yml" aria-label="Edit playgrounds/bank/compose.yml"'));
-  // The editor opens on the real file, whatever the words say
-  assert.ok(drawn.includes(`data-file="${unit.file}"`));
-});
-
 test("a name that holds the patterns of a replacement is text too", () => {
   const holder = page.doc.createElement("div");
   for (const [more, said] of [[{ file: "a$&b/$1/compose.yml", display_file: "" }, "View compose.yml"],

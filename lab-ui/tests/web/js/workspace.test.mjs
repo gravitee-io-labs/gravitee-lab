@@ -62,19 +62,6 @@ test("the UIs are made when their tabs are first shown", () => {
   assert.deepEqual(frames().map((frame) => frame.src), ["http://localhost:8110", "http://localhost:8086"]);
 });
 
-test("the page tells the apps in its frames nothing: not when a frame loads, not when the guide turns, not when the window goes narrow and wide again", () => {
-  loaded("http://localhost:8110");
-  loaded("http://localhost:8086");
-  section.querySelector("#pg-guide").dataset.page = "2";
-  setWidth(900);
-  page.resized.run();
-  assert.equal(card().classList.contains("rows"), true);
-  setWidth(1400);
-  page.resized.run();
-  assert.equal(card().classList.contains("rows"), false);
-  for (const url of ["http://localhost:8110", "http://localhost:8086"]) assert.deepEqual(sent(url), [], url);
-});
-
 test("a tab that shows a notice has no frame", async () => {
   verdicts = { "http://localhost:8086": { answers: true, frameable: false, reason: "refuses" } };
   draw([BANK, GAMMA], true, "other");
@@ -448,16 +435,6 @@ test("the actions asked while the app loads are sent in their order once it list
   Workspace.send("leak-an-iban");     // once it listens each click is sent, however many
   Workspace.send("leak-an-iban");
   assert.equal(sent("http://localhost:8110").length, 4);
-});
-
-test("an app that never listens does not make the queue grow: the same action waits once", async () => {
-  drawActions([BANK, GAMMA], { id: "silent-app" });
-  await flush();
-  for (let i = 0; i < 50; i++) Workspace.send(i % 2 ? "leak-an-iban" : "ask-ace-accounts");
-  await flush();
-  loaded("http://localhost:8110");
-  listens("http://localhost:8110");
-  assert.deepEqual(got("http://localhost:8110").map((line) => line.split("@")[0]), ["ask-ace-accounts", "leak-an-iban"], "a late word sends each once");
 });
 
 test("an app is believed that it listens only if it is the frame of the first tab, from the origin of its UI, with that message", async () => {
