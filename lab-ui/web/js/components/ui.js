@@ -1104,8 +1104,7 @@ const FULL = 500;     // how long a measured action that got there says 100%, be
 const FLASH = 1600;   // how long the working face says how its action went, before the button gives its face back
 const UNSEEN = 4000;  // how long it waits for a button to say it: one that no button showed by then is dropped
 const MARK = { done: "check", failed: "alert" };   // its icon meanwhile, before the word
-// "<key>|<verbs>" → what its buttons show: {look, from, at}, the look, the one before it and when it changed. A button
-// drawn again goes on from there.
+// "<key>|<verbs>" → the look its buttons show. A button drawn again starts from it.
 const shown = new Map();
 // job id → {key, verb, title, seen}: the jobs a button showed or started, until it is known how they went: once they
 // end, or for one that ended well, once what it started or stopped got there. `seen`: a state said it runs, and none
@@ -1281,9 +1280,6 @@ function flashOf(key, verbs) {
   return null;
 }
 
-// Whether a look shows the working face: at work, or saying how it went
-const swapped = (look) => !!(look.act || look.flash);
-
 // One button in its look ({act, flash}): on its working face while it acts, with the verb, how far it is and
 // the fill, then, once it is over, a check or the error mark with the word of the action ("✓ Start"); else on its
 // face. A button on its working face takes no click, without the gray of a disabled one; what it was is given back
@@ -1347,52 +1343,28 @@ function unsay(b) {
 
 // Sets every button of an action under `root` (actionButton): it runs once the state is drawn (main.js), and after a
 // page draws its own buttons. A row written again replaces its button: the new one takes, without moving, the look
-// its key had, and goes on with a fade the old one had begun. So a button fades to its working face at the click and back once its
+// its key had. So a button fades to its working face at the click and back once its
 // action is over (its job ended and what it started or stopped got there), whatever the refreshes draw meanwhile, and
 // a button shown for the first time while its action works does not fade at all.
 export function paintActions(root = document) {
   settle();
-  const now = Date.now();
   const buttons = $$("[data-act-for]", root).map((b) => {
     const key = b.dataset.actFor, verbs = b.dataset.actVerb || "", working = acting(key, verbs);
     // An icon alone says no percentage: rather than 100% for a moment, it says at once how its action went
     const act = working?.full && b.matches(".icon-btn") ? null : working;
     return { b, id: `${key}|${verbs}`, look: { act, flash: act ? null : flashOf(key, verbs) } };
   });
-  // A new button: where its key was, or where its fade began when the replaced one was fading (`gone` ms ago)
-  let swap;
-  const fresh = buttons.filter(({ b }) => !b._painted).map(({ b, id, look }) => {
-    const was = shown.get(id) || { look, from: look, at: 0 }, gone = now - was.at;
-    const fading = swapped(was.from) !== swapped(was.look) && gone < 2000
-      && gone < (swap ??= parseFloat(getComputedStyle(b).getPropertyValue("--swap")) * 1000);
+  const fresh = buttons.filter(({ b }) => !b._painted);
+  for (const { b, id, look } of fresh) {
     b._painted = true;
     b.classList.add("still");
-    paint(b, fading ? was.from : was.look);
-    return { b, was, gone: fading ? gone : null };
-  });
-  if (!fresh.length) return paintAll(buttons, root, now);
-  void document.body.offsetWidth;   // the browser takes these looks as the ones they move from
-  const going = fresh.filter(({ gone }) => gone !== null);
-  for (const { b, was, gone } of fresh) {
-    b.classList.remove("still");
-    if (gone === null) continue;
-    for (const part of b.firstElementChild.children) part.style.transitionDelay = `${-gone}ms`;
-    paint(b, was.look);
+    paint(b, shown.get(id) || look);
   }
-  if (going.length) {
-    void document.body.offsetWidth;   // their fades begin, already `gone` along
-    going.forEach(({ b }) => { for (const part of b.firstElementChild.children) part.style.transitionDelay = ""; });
-  }
-  paintAll(buttons, root, now);
-}
-
-// Every button in its look now, and what its key shows kept
-function paintAll(buttons, root, now) {
+  if (fresh.length) void document.body.offsetWidth;   // the browser takes these looks as the ones they move from
   for (const { b, id, look } of buttons) {
+    b.classList.remove("still");
     paint(b, look);
-    const was = shown.get(id);
-    shown.set(id, !was ? { look, from: look, at: 0 }
-      : swapped(was.look) === swapped(look) ? { ...was, look } : { look, from: was.look, at: now });
+    shown.set(id, look);
   }
   // Painted whole, the page tells which keys are still drawn: one that comes back later starts from what it is then
   if (root === document) for (const id of [...shown.keys()]) if (!buttons.some((x) => x.id === id)) shown.delete(id);

@@ -385,7 +385,7 @@ body.nav-collapsed .nav-dot { position: absolute; top: 5px; left: calc(50% + 3px
 /* The place of a button written again as what it says changes (Images, Plugins, the editor, the create dialog): it is
    laid out as if it stood there alone */
 .act-slot { display: contents; }
-.pbtn { --fill: var(--warn); --swap: 0s; }   /* --swap: how long the faces fade, which paintActions reads too */
+.pbtn { --fill: var(--warn); --swap: 0s; }   /* --swap: how long the faces fade, which paint reads too */
 .pbtn:is(.primary, .danger) { --fill: var(--btn-color); }
 .pbtn.busy { cursor: progress; }
 .pbtn.said { cursor: default; }
