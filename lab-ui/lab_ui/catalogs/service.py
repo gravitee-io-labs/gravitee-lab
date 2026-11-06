@@ -756,11 +756,6 @@ def _listed_ids_at(display):
     return [one["id"] for one in defaults.read() if registry.display_address(one["url"]) == display]
 
 
-def _shorthand(text):
-    """Whether the text is the short form owner/repo, which means GitHub and may be tried over ssh."""
-    return bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}", text))
-
-
 def _reached(text, address, branch):
     """(the address that answered, what the remote has): ls-remote with the 20 s limit. The short form owner/repo that
     https refuses (`no_access`, `not_found`) is tried again as git@github.com:owner/repo.git, and the address that answered
@@ -768,7 +763,7 @@ def _reached(text, address, branch):
     try:
         return address, gitx.ls_remote(address, branch)
     except CatalogError as first:
-        again = gitx.ssh_form(address) if first.code in ("no_access", "not_found") and _shorthand(text) else None
+        again = gitx.ssh_form(address) if first.code in ("no_access", "not_found") and gitx.SHORTHAND.fullmatch(text) else None
         if again is None:
             raise
         try:

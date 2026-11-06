@@ -141,7 +141,7 @@ _USER = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,31}")   # never a dash first: 
 _SEGMENT = re.compile(r"[A-Za-z0-9._~+-]+")
 _SCHEME = re.compile(r"([A-Za-z][A-Za-z0-9+.-]*)://(.*)", re.S)
 _SCP = re.compile(r"([^@:/\s]+)@([^:/@\s]+):(.+)", re.S)
-_SHORTHAND = re.compile(r"([A-Za-z0-9][A-Za-z0-9-]{0,38})/([A-Za-z0-9._-]{1,100})")
+SHORTHAND = re.compile(r"([A-Za-z0-9][A-Za-z0-9-]{0,38})/([A-Za-z0-9._-]{1,100})")
 _BRANCH = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+/-]{0,199}")
 LOOPBACK = ("localhost",)
 
@@ -320,7 +320,7 @@ def parse_address(text: str) -> Address:
     scp = _SCP.fullmatch(raw)
     if scp:
         return _scp_address(scp)
-    short = _SHORTHAND.fullmatch(raw)
+    short = SHORTHAND.fullmatch(raw)
     if short and short.group(2) not in (".", "..", ".git"):
         owner, repo = short.groups()
         repo = _named(repo)
