@@ -1198,10 +1198,11 @@ _OWED = {"timeout": 1}
 _PATH = r"(?:/(?:[A-Za-z0-9_.-]+/)*)?"      # a command called by an absolute path: /usr/bin/curl (not ./curl, not a URL)
 _DOWNLOAD = re.compile(r"(?<![A-Za-z0-9_./:-])%s(?i:%s)(?![A-Za-z0-9_-])" % (_PATH, "|".join(_DOWNLOADERS)))
 _SUBSTITUTION = re.compile(r"(?:<\(|\$\(|`)[ \t]*%s(?i:%s)(?![A-Za-z0-9_-])" % (_PATH, "|".join(_DOWNLOADERS)))
-_SHELL_WORD = re.compile(r"(?<![A-Za-z0-9_./-])(?i:eval|source|(?:%s)[0-9.]*)(?![A-Za-z0-9_-])" % "|".join(_INTERPRETERS))
+_SHELL_WORD = re.compile(r"(?<![A-Za-z0-9_.-])(?i:eval|source|(?:%s)[0-9.]*)(?![A-Za-z0-9_-])" % "|".join(_INTERPRETERS))
 _SHELL_VARIABLE = re.compile(r"\$\{?(?:SHELL|BASH)\}?\Z")
 _PIPE = re.compile(r"\|&?")
 _PIECES = re.compile(r";|&&|\|\||\n")
+_QUOTED = re.compile(r"\"[^\"]{0,2000}\"|'[^']{0,2000}'")    # a `;` inside quotes is a letter of a word, and ends no pipeline
 _GROUP_END = re.compile(r"[^|]*[})][^|]*\|")     # a group closes before the first pipe
 _ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
 _VERSION = re.compile(r"[0-9][0-9.]*\Z")
@@ -1219,7 +1220,7 @@ def _runs_a_shell(stage: str) -> bool:
         elif word.startswith("-"):
             skip = word in takes         # `-u root` takes the next word, `-I{}` and `--user=root` are whole
         else:
-            word = word.strip("(){}")
+            word = word.strip("(){}[]")
             if not word or _ASSIGNMENT.match(word):
                 continue
             if owed:
@@ -1252,12 +1253,12 @@ def _logical_lines(node: _Node) -> List[Tuple[int, str]]:
     return out
 
 
-def _downloads_into_a_shell(line: str) -> bool:
-    """Whether a command line pipes a download into an interpreter, or hands one a download by substitution."""
-    if _DOWNLOAD.search(line) is None:
+def downloads_into_a_shell(text: str) -> bool:
+    """Whether a command, or the lines of a script, pipes a download into an interpreter, or hands one a download by substitution."""
+    if _DOWNLOAD.search(text) is None:
         return False
     downloaded = False
-    for piece in _PIECES.split(line):
+    for piece in _PIECES.split(_QUOTED.sub(lambda found: _PIECES.sub(" ", found.group()), text)):
         found = _DOWNLOAD.search(piece)
         if found is None:
             # `{ curl x; } | sh` and `(curl x; echo) | sh`: the pipe is after the `;` that ends the download
@@ -1278,7 +1279,7 @@ def _downloads_into_a_shell(line: str) -> bool:
 def _wf12(doc):
     for node in _run_scalars(doc):
         for number, line in _logical_lines(node):
-            if _downloads_into_a_shell(line):
+            if downloads_into_a_shell(line):
                 yield number, {}
 
 

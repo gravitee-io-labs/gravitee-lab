@@ -88,7 +88,7 @@ class Errors(unittest.TestCase):
                      "curl x | sudo -E env FOO=1 bash", "curl x | busybox sh", "curl x 2>&1 | /bin/sh -s -- -y", "curl -fsSL x | nice -n 5 sh",
                      "wget -qO- x | /usr/local/bin/python3.11 -", "curl x | tee a | tee b | gunzip | zsh", 'curl "http://x/?a=1;b=2" | sh',
                      'eval "$(curl -fsSL http://x)"', "eval $(wget -qO- x)", "source <(curl http://x)", ". <(curl http://x)",
-                     "/bin/sh -c \"$(curl -fsSL x)\"", "/usr/bin/env bash <(curl x)", "bash -c `wget -qO- x`"):
+                     "/bin/sh -c \"$(curl -fsSL x)\"", "/usr/bin/env bash <(curl x)", "bash -c `wget -qO- x`", "curl u | sudo -u root bash", '["sh", "-c", "curl x | sh"]'):
             with self.subTest(run=run_):
                 only(self, "DF03", 2, message, f"FROM {PIN}\nRUN {run_}\nUSER app\n", "error")
         for run_ in ("curl x | tee f | sha256sum", "curl x; sh run.sh", "curl x && echo y | sh", "curl x || echo y | sh", "curl x | grep -c sh",

@@ -7,7 +7,7 @@ from an image that is not a stage of the file.
 The file is read as text: lines continued with the escape character are one instruction, the parser directives at the top are
 read, a here-document belongs to the instruction that opens it, `ONBUILD` is looked through, and a base image or the source of
 an `ADD` written with an `ARG` or an `ENV` of the file is resolved from its default. Nothing is executed or fetched. Every
-pattern is bounded or linear, and a pipe is looked at from the pipe, so a line of a megabyte takes a fraction of a second.
+pattern is bounded or linear, so a line of a megabyte takes a fraction of a second.
 
 Which files are Dockerfiles. Compose accepts any name for `build.dockerfile`, so a name is not enough: a file is judged when it is
 named like one (`Dockerfile`, `Dockerfile.dev`, `app.Dockerfile`), when a build of the unit names it (`build.docker`,
@@ -16,7 +16,6 @@ named like one (`Dockerfile`, `Dockerfile.dev`, `app.Dockerfile`), when a build 
 Calibration: the 13 Dockerfiles of the first demo catalog held no error, DF22 14 times and DF23 12 times, which is why they are
 warnings: a demo image that runs on a laptop and is not pinned or runs as root is a choice to look at, not a fault."""
 
-import bisect
 import posixpath
 import re
 from typing import Dict, List, NamedTuple, Optional, Set, Tuple
@@ -26,6 +25,7 @@ from ..tree import REGULAR
 from . import PER_FILE, Context, basename, problem, read_limit, table, text_of, unit_of
 from .images import known, services_of_tree, services_of_units
 from .secrets import names_a_secret
+from .workflows import downloads_into_a_shell
 
 RULES = table([
     ("DF01", ERROR, "# syntax= names something other than docker/dockerfile[:tag]",
@@ -55,19 +55,6 @@ _DIRECTIVE = re.compile(r"#\s{0,8}([A-Za-z]{1,16})\s{0,8}=\s{0,8}(\S.{0,512})\Z"
 # At the start of a word, where the builder looks: `<<<` and `$((1<<X))` open nothing
 _HEREDOC = re.compile(r"(?<!\S)[0-9]{0,9}<<(-?)\s{0,4}([\"']?)([A-Za-z_][A-Za-z0-9_]{0,64})\2")
 _SOURCE_URL = re.compile(r"(?:https?://|git@|git://|ssh://)|\.git(?:#|\Z)", re.I)
-# A program that runs what follows it (`sudo -E bash`, `env FOO=1 sh`, `xargs sh`), then the interpreter, with the folders of its
-# path in front (`/bin/sh`, `/usr/bin/env python3`)
-_WRAP = (r"(?:(?:[\w.+/-]{1,100}/)?(?:sudo|doas|env|exec|xargs|busybox|command|nice|nohup|time|timeout|stdbuf|setsid)"
-         r"(?:\s{1,8}-[A-Za-z0-9=.:_-]{1,40}|\s{1,8}[A-Za-z_][A-Za-z0-9_]{0,32}=\S{0,64}|\s{1,8}[0-9.]{1,10}[smhd]?){0,6}\s{1,8}){0,3}")
-_SHELL = (r"\s{0,8}" + _WRAP + r"(?:[\w.+/-]{1,100}/)?"
-          r"(?:(?:ba|z|da|k|a|c|tc|fi)?sh\b|python[0-9.]{0,4}\b|perl\b|ruby\b|node\b|php\b|lua\b)")
-_PIPE_SHELL = re.compile(r"(?<!\|)\|(?!\|)" + _SHELL)
-_DOWNLOAD = re.compile(r"\b(?:curl|wget)\b")
-# What ends a pipeline: the download and the shell are the two ends of one only if none of these is between them
-_SEPARATOR = re.compile(r";|&&|\|\||\n")
-_QUOTED = re.compile(r"\"[^\"]{0,2000}\"|'[^']{0,2000}'")
-_SUBSTITUTION = re.compile(r"(?:(?<![\w.-])(?:(?:ba|z|da|k|a|c|tc|fi)?sh|python[0-9.]{0,4}|perl|ruby|node|eval|source)(?![\w.-])"
-                           r"|(?<![\w./-])\.(?=\s))[^|;&\n]{0,200}?(?:\$\(|<\(|`)\s{0,8}(?:curl|wget)\b")
 _ARG_USE = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]{0,64})(?::?-([^}${]{0,256}))?\}|([A-Za-z_][A-Za-z0-9_]{0,64}))")
 _PAIR = re.compile(r"(?<![A-Za-z0-9_])([A-Za-z_][A-Za-z0-9_]{0,255})=(\"[^\"]*\"|'[^']*'|\S+)")
 _ROOT = ("root", "0")
@@ -161,36 +148,6 @@ def flags(rest: str) -> Tuple[List[Tuple[str, str]], str]:
         name, _, value = word[2:].partition("=")
         given.append((name.lower(), value))
     return given, rest[at:]
-
-
-def downloads_to_shell(text: str) -> List[int]:
-    """The offsets in a text of a download that is run as it arrives: `curl ... | sh`, `curl ... | gunzip | /bin/sh`, `wget ... |
-    sudo bash`, `bash -c "$(curl ...)"`, `eval "$(curl ...)"`, `sh <(wget ...)` and `. <(curl ...)`. The pipes that go to a shell
-    are found first and each is looked at backward, for the last download within 2000 characters with no `;`, `&&`, `||` or line
-    between, so the search never starts again from every `curl`."""
-    found: List[int] = []
-    starts = [each.start() for each in _DOWNLOAD.finditer(text)]
-    if starts:
-        for pipe in _PIPE_SHELL.finditer(text):
-            at = pipe.start()
-            index = bisect.bisect_right(starts, at) - 1
-            if index >= 0 and at - starts[index] <= 2000:
-                # filters in between (`| tee f | gunzip |`) are the same pipeline; a `;` inside quotes is a letter of a word
-                if not _SEPARATOR.search(_QUOTED.sub("", text[starts[index]:at])):
-                    found.append(starts[index])
-                    if len(found) >= 100:
-                        return sorted(set(found))
-    tried = 0
-    for marker in ("$(", "<(", "`"):
-        at = text.find(marker)
-        while at != -1 and tried < 2000:
-            tail = text[at + len(marker):at + len(marker) + 12].lstrip()
-            if tail.startswith(("curl", "wget")):
-                tried += 1
-                if _SUBSTITUTION.search(text[max(0, at - 240):at + len(marker) + 12]):
-                    found.append(at)
-            at = text.find(marker, at + 1)
-    return sorted(set(found))
 
 
 def _resolve(image: str, args: Dict[str, str]) -> Optional[str]:
@@ -289,7 +246,7 @@ def check_text(path: str, text: str) -> List[Problem]:
             if any((name == "security" and value == "insecure") or (name == "network" and value == "host")
                    or (name == "mount" and re.search(r"(?:\A|,)type=(?:ssh|secret)(?:,|\Z)", value)) for name, value in given):
                 add("DF04", line)
-            if downloads_to_shell(body):
+            if downloads_into_a_shell(body):
                 add("DF03", line)
         elif keyword in ("ENV", "ARG"):
             pairs = _PAIR.findall(rest)
