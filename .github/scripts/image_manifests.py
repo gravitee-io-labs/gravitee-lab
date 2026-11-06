@@ -79,7 +79,7 @@ class Redirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         target = urlsplit(newurl)
         host = target.netloc.rpartition("@")[2]
-        if target.scheme != "https" or not target.hostname or local(host) or not public(host):
+        if target.scheme != "https" or not target.hostname or not public(host):
             return None
         new = super().redirect_request(req, fp, code, msg, headers, newurl)
         if new is not None and target.netloc != urlsplit(req.full_url).netloc:
@@ -147,7 +147,7 @@ def token(challenge, opener=guarded):
     found = dict(BEARER.findall(challenge or ""))
     realm = urlsplit(found.get("realm", ""))
     host = realm.netloc.rpartition("@")[2]
-    if realm.scheme != "https" or not realm.hostname or local(host) or not public(host):   # where a registry sends us is its word
+    if realm.scheme != "https" or not realm.hostname or not public(host):   # where a registry sends us is its word
         return None
     query = "&".join(f"{key}={value}" for key, value in found.items() if key in ("service", "scope"))
     request = urllib.request.Request(f"{found['realm']}?{query}")
@@ -160,20 +160,6 @@ def token(challenge, opener=guarded):
     except (OSError, ValueError):
         return None
     return body.get("token") or body.get("access_token") if isinstance(body, dict) else None
-
-
-def local(host):
-    """Whether a registry host is this machine or its own network: a name with no dot, `localhost`, `.local`, `.internal`, or an
-    address that is not public. An image names it in a file anyone wrote, and the runner that asks is inside that network."""
-    if host.startswith("["):   # [address]:port
-        name = host[1:host.find("]")] if "]" in host else host
-    else:
-        name = host.split(":")[0] if host.count(":") == 1 else host
-    try:
-        address = ipaddress.ip_address(name)
-    except ValueError:
-        return "." not in name or name.endswith((".localhost", ".local", ".internal", ".lan", ".home.arpa"))
-    return not address.is_global
 
 
 def _addresses(name, port):
@@ -191,21 +177,24 @@ def public(host):
     """Whether every address a registry host names is on the public network, by what the resolver says: `127.1`, `0x7f.1`, `10.1`,
     `localhost.`, `user@127.0.0.1` and a name that resolves to loopback (`127.0.0.1.nip.io`) are not written as an address, and the
     connection reaches this machine or its network all the same. False for a host that does not resolve and for what is no host:
-    there is nothing to ask. `local` is the cheap first look; this is the one that counts, and the connection itself checks again,
-    on the answer it connects to (`Pinned`): the name is not asked twice and believed once."""
+    there is nothing to ask. False for a name of a private network whatever the resolver says, since behind a proxy it is the proxy
+    that resolves it. The connection itself checks again, on the answer it connects to (`Pinned`): the name is not asked twice and
+    believed once."""
     try:
         parts = urlsplit(f"//{host}")
         name, port = parts.hostname, parts.port or 443
     except ValueError:
         return False
-    return bool(name) and _addresses(name, port) is not None
+    if not name or ("." not in name and ":" not in name) or name.endswith((".localhost", ".local", ".internal", ".lan", ".home.arpa")):
+        return False
+    return _addresses(name, port) is not None
 
 
 def exists(image, opener=guarded):
     """Whether the registry has the image: True, False, or None when it cannot be told (no answer, a refusal that is no 404, a
     registry of this machine's own network, which is not asked)."""
     host, name, tag = reference(image)
-    if local(host) or not public(host):
+    if not public(host):
         return None
     url = f"https://{host}/v2/{name}/manifests/{tag}"
     headers = {"Accept": ACCEPT}

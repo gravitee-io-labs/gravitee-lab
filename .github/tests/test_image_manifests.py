@@ -152,13 +152,12 @@ class ExistsTest(Offline):
                 self.assertEqual(opener.asked, [], "nothing was sent")
 
     def test_which_hosts_are_the_network_of_the_machine(self):
-        for host in ("localhost", "localhost:5000", "127.0.0.1:5000", "10.1.2.3", "172.16.0.1", "[::1]:5000", "[fd00::1]", "::1", "nas",
-                     "x.internal", "x.local", "x.lan", "169.254.169.254"):
-            with self.subTest(host=host):
-                self.assertTrue(image_manifests.local(host))
-        for host in ("registry-1.docker.io", "ghcr.io", "docker.elastic.co", "graviteeio.azurecr.io:443", "8.8.8.8", "[2606:4700::1111]"):
-            with self.subTest(host=host):
-                self.assertFalse(image_manifests.local(host))
+        """By the name too, where the resolver answers a public address: behind a proxy it is the proxy that resolves the name."""
+        names = dict.fromkeys(("localhost", "nas", "x.internal", "x.local", "x.lan", "x.localhost", "x.home.arpa"), "44.0.0.1")
+        with mock.patch.object(image_manifests, "RESOLVE", resolver(names)):
+            for host in (*names, "localhost:5000", "127.0.0.1:5000", "10.1.2.3", "172.16.0.1", "[::1]:5000", "[fd00::1]", "::1", "169.254.169.254"):
+                with self.subTest(host=host):
+                    self.assertFalse(image_manifests.public(host))
 
     # The ways to write an address of this machine or its network that `ipaddress` does not read as one, and that a connection does
     HIDDEN = ("127.1", "0x7f.1", "10.1", "192.168.1", "169.254.43518", "0177.0.0.1", "localhost.", "127.0.0.1.nip.io",
@@ -185,7 +184,7 @@ class ExistsTest(Offline):
                 self.assertFalse(image_manifests.public("registry.example.com"))
 
     def test_a_registry_whose_name_leads_to_this_network_is_not_asked(self):
-        """`local` reads the name only; the machine connects by what the resolver says."""
+        """The machine connects by what the resolver says, however the name reads."""
         for host in self.HIDDEN:
             with self.subTest(host=host):
                 opener = registry({})
