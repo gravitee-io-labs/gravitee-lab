@@ -63,27 +63,9 @@ def steps(body):
     return ["      - " + part for part in parts[1:]]
 
 
-def children(text, *path):
-    """{key: its lines} of the keys that stand directly under a path of keys (`on`, `workflow_call`, `inputs`): the structure of a
-    workflow where the rules look for a name and not for a word."""
-    lines, start = text.splitlines(), 0
-    for depth, key in enumerate(path):
-        found = re.compile(rf"^ {{{2 * depth}}}{re.escape(key)}:\s*(?:#.*)?$")
-        at = next((i for i in range(start, len(lines)) if found.match(lines[i])), None)
-        if at is None:
-            raise KeyError("/".join(path))
-        start = at + 1
-    child, found, current = 2 * len(path), {}, None
-    for line in lines[start:]:
-        if line.strip() and not line.lstrip().startswith("#") and indent(line) < child:
-            break
-        match = re.match(rf"^ {{{child}}}([\w-]+):", line)
-        if match:
-            current = match.group(1)
-            found[current] = []
-        elif current is not None:
-            found[current].append(line)
-    return found
+def events(text):
+    """What starts a workflow: the keys directly under `on:`, where the rules look for a name and not for a word."""
+    return re.findall(r"(?m)^  ([\w-]+):", re.search(r"(?ms)^on:\n(.*?)^\S", text).group(1))
 
 
 def script(step):
@@ -140,7 +122,7 @@ class E2ETest(unittest.TestCase):
         self.jobs = jobs(self.text)
 
     def test_a_pull_request_the_night_and_a_maintainer_start_it_and_a_push_never_does(self):
-        self.assertEqual(sorted(children(self.text, "on")), ["pull_request", "schedule", "workflow_dispatch"])
+        self.assertEqual(sorted(events(self.text)), ["pull_request", "schedule", "workflow_dispatch"])
 
     def test_no_branch_of_this_repository_is_how_a_foreign_commit_gets_the_license(self):
         # A push runs every workflow of the pushed commit with the secrets: the commit of a fork is a pull request, tried from main
@@ -553,7 +535,7 @@ class ReleaseTest(unittest.TestCase):
         self.body = self.jobs["release"]
 
     def test_a_push_to_main_starts_it_and_nothing_else(self):
-        self.assertEqual(list(children(self.text, "on")), ["push"])
+        self.assertEqual(events(self.text), ["push"])
         self.assertIn("    branches: [main]", self.text)
         self.assertIn("cancel-in-progress: false", self.text, "a release that is running is never canceled")
 
@@ -656,13 +638,8 @@ class ReaderTest(unittest.TestCase):
         self.assertEqual(script(found[1]), "echo one\n\necho two\n")
         self.assertEqual(step_with(body, "name: x"), found[1])
 
-    def test_the_keys_under_a_path(self):
-        text = "on:\n  workflow_call:\n    inputs:\n      a:\n        type: string\n      b-c:\n        required: true\n    secrets:\n      T:\n        x: y\njobs:\n  j:\n"
-        self.assertEqual(list(children(text, "on", "workflow_call", "inputs")), ["a", "b-c"])
-        self.assertEqual(children(text, "on", "workflow_call", "secrets"), {"T": ["        x: y"]})
-        self.assertEqual(list(children(text, "on")), ["workflow_call"])
-        with self.assertRaises(KeyError):
-            children(text, "on", "push")
+    def test_the_events_of_a_workflow(self):
+        self.assertEqual(events("on:\n  push:\n    branches: [main]\n  workflow-x:\n\njobs:\n  j:\n"), ["push", "workflow-x"])
 
 
 class ComposeTest(unittest.TestCase):
