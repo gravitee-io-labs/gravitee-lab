@@ -46,7 +46,7 @@ _COPY_MODE = 0o700   # what a copy of a folder is made with, until it is renamed
 
 class Refused(Exception):
     """A move the Lab will not make: a path is empty, the source is the project folder or one above it, git tracks the
-    source, a path is inside itself, or an id is not one."""
+    source, or a path is inside itself."""
 
 
 def _step(label):
@@ -534,8 +534,8 @@ def _relative(target, start):
 def repoint(text: str, was: str, now: str, table: list) -> str:
     """A compose file's text with the paths that leave its folder written again. The file went from the folder `was` to
     the folder `now` (the same when it did not move), and `table` lists what moved, as [(old path, new path)] relative
-    to the project: a file, a folder, or a whole kind (`addons` to `.lab/catalogs/ns/addons`); the longest old path that
-    holds a target wins, whatever the order. A path that stays in the folder is left as written: what it names moves
+    to the project: a file or a folder; the longest old path that holds a target wins, whatever the order. A path that
+    stays in the folder is left as written: what it names moves
     with the file. So is, in a file that did not move, every path but the ones to what moved. Only values on path keys
     and in lists of paths are touched (`_naming_files`): a command or a variable's value that holds `..` is read in the
     container and stays."""
