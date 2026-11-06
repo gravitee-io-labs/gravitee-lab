@@ -3,7 +3,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-
 import { installDom } from "./dom-stub.mjs";
 
 installDom();

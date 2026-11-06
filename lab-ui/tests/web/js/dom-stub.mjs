@@ -344,7 +344,7 @@ export function installDom({ stored = {}, fetch = async () => { throw new Error(
   /* The elements the modules look up by id exist from the start (the page's markup is not parsed here): a test fills them. */
   const made = {};
   for (const id of PAGE_IDS) { const el = doc.createElement('div'); el.id = id; body.append(el); made[id] = el; }
-  if (made['combo-pop']) made['combo-pop'].innerHTML = '<div class="combo-search"><input id="combo-input"></div><div id="combo-bar"></div><div id="combo-list"></div><div id="combo-foot"></div>';
+  made['combo-pop'].innerHTML ='<div class="combo-search"><input id="combo-input"></div><div id="combo-bar"></div><div id="combo-list"></div><div id="combo-foot"></div>';
 
   const queries = new Map();
   const matchMedia = (query) => {

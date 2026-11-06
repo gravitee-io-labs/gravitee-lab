@@ -36,7 +36,7 @@ stylesheet is a token; a literal is a fault, but for a one-off geometry (a chart
 | Text | `--text`, `--text-2`, `--muted`, `--accent-ink` | Primary, secondary, muted (4.7:1 on `--surface-3` light, 4.9:1 dark), the accent as text (a link hovered, a choice: 5.4:1 light, 5.0:1 dark) |
 | Accent | `--accent`, `--accent-soft`, `--accent-fill`, `--accent-fill-2` | The brand, for icons and soft fills; the two ends of the primary button's gradient, on which white is 5.5:1 and 4.5:1 |
 | Highlight | `--hl`, `--hl-text` | What a search found in a log line |
-| Status | `--ok`, `--warn`, `--err`, `--info`, each with `-soft` and `-line` | Foreground, background, line. Neutral is `--text-2` on `--surface-2` with `--border-strong` |
+| Status | `--ok`, `--warn`, `--err`, each with `-soft` and `-line`; `--info` with `-soft` | Foreground, background, line. Neutral is `--text-2` on `--surface-2` with `--border-strong` |
 | Radii | `--radius` 14, `--r-pop` 10, `--r-control` 8, `--r-inner` 6, `--r-pill` 999 | A card; a popover, a menu, a notice; a control; a choice inside a control, a tooltip; a pill |
 | Elevation | `--shadow-sm`, `--shadow`, `--shadow-md`, `--shadow-lg` | A control, a card, a popover or a menu, a dialog |
 | Heights | `--h-control` 32, `--h-inner` 26, `--h-pill` 24, `--h-option` 36, `--h-head` 32, `--h-row` 56, `--h-row-2` 48, `--h-row-3` 40 | A control; a choice in one, a row's icon; a pill; an option of a list that opens (a picker's option, a menu's entry); a table's head; its rows by kind |
