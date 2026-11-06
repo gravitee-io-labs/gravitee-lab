@@ -20,7 +20,7 @@ from lab_ui.docker import envfiles
 from lab_ui import paths
 from lab_ui.catalogs import trust
 
-from .. import Case, fake_cloud
+from .. import Case, fake_cloud, fixtures
 
 from . import test_platforms
 from .test_platforms import ACCOUNT, ADDON_ENV, DEV, GATEWAY, PROJECT, TEST
@@ -846,8 +846,12 @@ class Gateways(Places):
 class Records(Places):
     """What a playground deployed to the places, read from its own folder."""
 
-    RECORD = "playgrounds/hotels/.state/{}/{}/created.json"
-    META = "playgrounds/hotels/.state/{}/{}/meta.json"
+    RECORD = ".lab/catalogs/fixture/playgrounds/hotels/.state/{}/{}/created.json"
+    META = ".lab/catalogs/fixture/playgrounds/hotels/.state/{}/{}/meta.json"
+
+    def setUp(self):
+        super().setUp()
+        fixtures.default(self)
 
     def record(self, platform, environment, name="Development", labels=("API", "API", "Application")):
         self.write(self.RECORD.format(platform, environment), json.dumps([{"label": label} for label in labels]))
@@ -857,7 +861,7 @@ class Records(Places):
     @staticmethod
     def created(pid, place):
         """What playgrounds.created reads from a place's record: [{what, count}]."""
-        file = paths.ROOT / "playgrounds" / pid / ".state" / place / "created.json"
+        file = paths.ROOT / paths.unit_folder("playground", pid) / ".state" / place / "created.json"
         try:
             items = json.loads(file.read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -871,11 +875,12 @@ class Records(Places):
         self.record("my-account", DEV)
         self.record("my-account", TEST, "Test")
         self.record("client-lab", "fake-client-test", "Test")
-        self.write("playgrounds/hotels/.state/created.json", "[]")   # This machine's: not a place
-        self.write("playgrounds/hotels/.state/my-account/fake-env-prod/other.json", "[]")   # no record
-        self.write("playgrounds/hotels/.state/.hidden/x/created.json", "[]")
-        self.write("playgrounds/hotels/.state/my-account/..x/created.json", "[]")
-        self.write("playgrounds/hotels/.state/under_score/x/created.json", "[]")
+        state = ".lab/catalogs/fixture/playgrounds/hotels/.state"
+        self.write(f"{state}/created.json", "[]")   # This machine's: not a place
+        self.write(f"{state}/my-account/fake-env-prod/other.json", "[]")   # no record
+        self.write(f"{state}/.hidden/x/created.json", "[]")
+        self.write(f"{state}/my-account/..x/created.json", "[]")
+        self.write(f"{state}/under_score/x/created.json", "[]")
         self.assertEqual(places.recorded("hotels"), ["client-lab/fake-client-test", f"my-account/{DEV}",
                                                      f"my-account/{TEST}"])
         self.assertEqual(places.recorded("nothing"), [])

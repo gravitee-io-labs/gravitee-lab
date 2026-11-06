@@ -678,7 +678,7 @@ class Running(Case):
     """run(): the steps in order, the exit code, the machine left as it was found."""
 
     def setUp(self):
-        self.folder(paths)
+        self.folder(paths, files={paths.DEFAULT_FILE: json.dumps({"schema": 1, "catalogs": [{"id": "base"}]})})
         self.said = []
         self.built = {"playgrounds": {"shop": {"name": "Shop", "tested": [{"APIM_VERSION": "4.13.0"}]}}, "addons": {}, "setups": {}}
         self.patch(project, "load", lambda: self.built)

@@ -37,15 +37,17 @@ def _service(name, owner, oneshot=False, role=None, console=None):
 
 def _addon(uid, name, services, needs=(), conflicts=None, restarts=(), required=(), requires=None):
     settings = [{"key": key, "default": None, "required": True, "comment": "", "secret": True} for key in required]
+    folder = f".lab/catalogs/local/addons/{uid[6:]}" if paths.personal(uid) else f".lab/catalogs/fixture/addons/{uid}"
     return {"id": uid, "kind": "addon", "name": name, "personal": paths.personal(uid), "category": "Other",
             "description": "", "requires": requires or {}, "conflicts": conflicts or {}, "needs": list(needs),
             "services": list(services), "restarts": list(restarts),
-            "file": f"addons/{uid}/compose.yml", "env_file": f"addons/{uid}/.env", "settings": settings}
+            "file": f"{folder}/compose.yml", "env_file": f"{folder}/.env", "settings": settings}
 
 
 def _setup(uid, name, includes, members):
     return {"id": uid, "kind": "setup", "name": name, "personal": paths.personal(uid), "category": "",
-            "description": "", "includes": includes, "members": members, "file": f"setups/{uid}.yml"}
+            "description": "", "includes": includes, "members": members,
+            "file": f".lab/catalogs/local/setups/{uid[6:]}.yml" if paths.personal(uid) else f".lab/catalogs/fixture/setups/{uid}.yml"}
 
 
 def lab():
@@ -65,7 +67,7 @@ def lab():
                 "requires": {"license": ["feature-1"]}, "accounts": [], "setups": [],
                 "includes": ["agent-lens"], "addons": ["agent-lens"],
                 "services": ["hello-app", "seed"], "apps": ["hello-app"], "seed": "seed",
-                "restarts": ["apim-gateway"], "file": "playgrounds/welcome/compose.yml", "guide": "0123456789ab",
+                "restarts": ["apim-gateway"], "file": ".lab/catalogs/fixture/playgrounds/welcome/compose.yml", "guide": "0123456789ab",
                 "chapters": []}
     groups = {"API Management": ["apim-gateway", "apim-management-api"], "Databases": ["mongodb"]}
     services = {name: _service(name, {"kind": "platform", "id": paths.slug(group), "name": group})
@@ -100,7 +102,7 @@ def second(project):
     project["playgrounds"]["demo"] = {**project["playgrounds"]["welcome"], "id": "demo", "name": "Demo",
                                       "addons": ["kiosk"], "restarts": [], "services": ["demo-app", "demo-seed"],
                                       "apps": ["demo-app"], "seed": "demo-seed",
-                                      "file": "playgrounds/demo/compose.yml"}
+                                      "file": ".lab/catalogs/fixture/playgrounds/demo/compose.yml"}
     owner = {"kind": "playground", "id": "demo", "name": "Demo"}
     project["services"].update({"demo-app": _service("demo-app", owner),
                                 "demo-seed": _service("demo-seed", owner, oneshot=True, role="seed")})
@@ -124,7 +126,7 @@ def own(project):
     project["playgrounds"]["local/sandbox"] = {**project["playgrounds"]["welcome"], "id": "local/sandbox",
                                                "name": "Sandbox", "personal": True, "addons": ["local/whoami"],
                                                "services": [], "apps": [], "seed": None, "restarts": [],
-                                               "file": "playgrounds/local/sandbox/compose.yml"}
+                                               "file": ".lab/catalogs/local/playgrounds/sandbox/compose.yml"}
 
 
 def on(project, explicit=(), playground=None, missing=(), locked=None, setups=()):
@@ -152,7 +154,7 @@ def cloud(project):
                                         "deploys_to": ["cloud"], "requires": {}, "includes": [], "addons": [],
                                         "restarts": [], "services": ["hotels-api", "hotels-seed"],
                                         "apps": ["hotels-api"], "seed": "hotels-seed",
-                                        "file": "playgrounds/hotels/compose.yml"}
+                                        "file": ".lab/catalogs/fixture/playgrounds/hotels/compose.yml"}
     owner = {"kind": "playground", "id": "hotels", "name": "Hotels"}
     project["services"].update({"hotels-api": _service("hotels-api", owner),
                                 "hotels-seed": {**_service("hotels-seed", owner, oneshot=True, role="seed"),
@@ -1114,8 +1116,8 @@ class Plans(Case):
 
 # The plans of this project on main, before a place existed, and whether each asks, in the situations of snapshot(); since
 # then each also says where what a start brings runs (`targets`) and the on file it was made from (`stamp`), and nothing else
-MAIN_PLANS = {"off": "be42335431bb", "platform": "4602edbf8477", "busy": "28d8a4a69ec3", "stopped": "a64013a1d0ba",
-              "behind": "5b52bd1b8319"}
+MAIN_PLANS = {"off": "a642bc3a9afc", "platform": "b12fc3051b48", "busy": "1d4af90d4ba8", "stopped": "94417cab3ba0",
+              "behind": "4a43429f0c1a"}
 
 
 def snapshot(**extra):
@@ -1576,13 +1578,14 @@ class Files(Case):
     """The on file and the job, in a project folder that holds only what a test writes."""
 
     def setUp(self):
-        self.folder(paths, compose, envfiles)
+        self.folder(paths, compose, envfiles, projects)
+        fixtures.default(self)
         self.project = lab()
         units = [*self.project["addons"].values(), *self.project["setups"].values(),
                  *self.project["playgrounds"].values()]
         for unit in units:
             self.write(unit["file"])
-        self.write("addons/hybrid/.env", "HYBRID_CLOUD_TOKEN=token\n")
+        self.write(".lab/catalogs/fixture/addons/hybrid/.env", "HYBRID_CLOUD_TOKEN=token\n")
 
     def on_file(self, text):
         self.write(paths.ON_FILE, text)
@@ -1600,12 +1603,12 @@ class Files(Case):
     NAMES = {"cloud": {"apim-gateway": "apim-hybrid-gateway"}}
 
     def test_an_item_that_runs_on_another_platform_is_its_copy_for_it(self):
-        self.write("addons/kafka/compose.yml", self.KAFKA)
-        layers.write("welcome", ["kafka", "kiosk"], {"addons/kafka/compose.yml": "cloud"}, self.NAMES)
-        copy = ".lab/targets/cloud/addons__kafka__compose.yml"
+        self.write(".lab/catalogs/fixture/addons/kafka/compose.yml", self.KAFKA)
+        layers.write("welcome", ["kafka", "kiosk"], {".lab/catalogs/fixture/addons/kafka/compose.yml": "cloud"}, self.NAMES)
+        copy = ".lab/targets/cloud/.lab__catalogs__fixture__addons__kafka__compose.yml"
         self.assertEqual((self.root / paths.ON_FILE).read_text(encoding="utf-8"),
-                         "include:\n  - playgrounds/welcome/compose.yml\n"
-                         f'  - {{path: "{copy}", project_directory: "addons/kafka"}}\n  - addons/kiosk/compose.yml\n')
+                         "include:\n  - .lab/catalogs/fixture/playgrounds/welcome/compose.yml\n"
+                         f'  - {{path: "{copy}", project_directory: ".lab/catalogs/fixture/addons/kafka"}}\n  - .lab/catalogs/fixture/addons/kiosk/compose.yml\n')
         made = (self.root / copy).read_text(encoding="utf-8")
         # The service, what depends on it and the host that names it are the platform's; a container name is not
         self.assertIn("  apim-hybrid-gateway:\n    environment:", made)
@@ -1619,35 +1622,35 @@ class Files(Case):
                          (["kafka", "kiosk"], {"addon:kafka": "cloud"}, None, []))
 
     def test_where_an_item_runs_is_kept_until_it_is_said_again_and_its_copy_follows_its_file(self):
-        self.write("addons/kafka/compose.yml", self.KAFKA)
-        layers.write(None, ["kafka"], {"addons/kafka/compose.yml": "cloud"}, self.NAMES)
-        self.write("addons/kafka/compose.yml", self.KAFKA + "      MORE: yes\n")
+        self.write(".lab/catalogs/fixture/addons/kafka/compose.yml", self.KAFKA)
+        layers.write(None, ["kafka"], {".lab/catalogs/fixture/addons/kafka/compose.yml": "cloud"}, self.NAMES)
+        self.write(".lab/catalogs/fixture/addons/kafka/compose.yml", self.KAFKA + "      MORE: yes\n")
         layers.write(None, ["kafka", "kiosk"])   # another item turned on, nothing said of the kafka
         self.assertEqual(layers.current(self.project)["targets"], {"addon:kafka": "cloud"})
-        self.assertIn("MORE: yes", (self.root / ".lab/targets/cloud/addons__kafka__compose.yml").read_text(encoding="utf-8"))
-        self.assertIn("apim-hybrid-gateway", (self.root / ".lab/targets/cloud/addons__kafka__compose.yml").read_text(encoding="utf-8"))
+        self.assertIn("MORE: yes", (self.root / ".lab/targets/cloud/.lab__catalogs__fixture__addons__kafka__compose.yml").read_text(encoding="utf-8"))
+        self.assertIn("apim-hybrid-gateway", (self.root / ".lab/targets/cloud/.lab__catalogs__fixture__addons__kafka__compose.yml").read_text(encoding="utf-8"))
         layers.write(None, ["kiosk"])   # turned off: it is no more where it was
         self.assertEqual(layers.current(self.project)["targets"], {})
         layers.write(None, ["kafka"])   # turned on again: on this machine
         self.assertEqual(layers.current(self.project)["targets"], {})
-        self.assertIn("  - addons/kafka/compose.yml", (self.root / paths.ON_FILE).read_text(encoding="utf-8"))
-        layers.write(None, ["kafka"], {"addons/kafka/compose.yml": "cloud"}, self.NAMES)
-        layers.write(None, ["kafka"], {"addons/kafka/compose.yml": None})   # brought back to this machine
+        self.assertIn("  - .lab/catalogs/fixture/addons/kafka/compose.yml", (self.root / paths.ON_FILE).read_text(encoding="utf-8"))
+        layers.write(None, ["kafka"], {".lab/catalogs/fixture/addons/kafka/compose.yml": "cloud"}, self.NAMES)
+        layers.write(None, ["kafka"], {".lab/catalogs/fixture/addons/kafka/compose.yml": None})   # brought back to this machine
         self.assertEqual(layers.current(self.project)["targets"], {})
 
     def test_a_start_on_this_machine_brings_back_here_what_ran_on_a_platform(self):
         # Kafka was deployed (its copy for the platform's gateway), then its containers stopped while it stayed on: its Start
         # on This machine runs it here, written for this machine's gateway, whatever else runs where it runs
-        self.write("addons/kafka/compose.yml", self.KAFKA)
-        layers.write(None, ["kafka", "kiosk"], {"addons/kafka/compose.yml": "cloud", "addons/kiosk/compose.yml": "cloud"},
+        self.write(".lab/catalogs/fixture/addons/kafka/compose.yml", self.KAFKA)
+        layers.write(None, ["kafka", "kiosk"], {".lab/catalogs/fixture/addons/kafka/compose.yml": "cloud", ".lab/catalogs/fixture/addons/kiosk/compose.yml": "cloud"},
                      self.NAMES)
         state = layers.current(self.project)
         plan = layers.plan(self.project, state, up(), "addon", "kafka", "start")
-        self.assertEqual(plan["targets"], {"addons/kafka/compose.yml": None})
+        self.assertEqual(plan["targets"], {".lab/catalogs/fixture/addons/kafka/compose.yml": None})
         _, (_, write, *_), _ = self.applied(plan)
         write(mock.Mock(lines=[]))
         self.assertEqual(layers.current(self.project)["targets"], {"addon:kiosk": "cloud"})
-        self.assertIn("  - addons/kafka/compose.yml\n", (self.root / paths.ON_FILE).read_text(encoding="utf-8"))
+        self.assertIn("  - .lab/catalogs/fixture/addons/kafka/compose.yml\n", (self.root / paths.ON_FILE).read_text(encoding="utf-8"))
         # A stop leaves every item where it runs
         stop = layers.plan(self.project, layers.current(self.project), up(), "addon", "kafka", "stop")
         self.assertEqual(stop["targets"], {})
@@ -1655,41 +1658,41 @@ class Files(Case):
     def test_a_start_back_on_this_machine_makes_again_what_its_plain_file_changes(self):
         # Kafka was deployed (its copy sets gravitee_kafka_enabled on apim-hybrid-gateway), then its containers stopped
         # while it stayed on. Its Start on This machine writes the plain file, which sets it on apim-gateway, which runs
-        self.write("addons/kafka/compose.yml", self.KAFKA)
-        layers.write(None, ["kafka"], {"addons/kafka/compose.yml": "cloud"}, self.NAMES)
+        self.write(".lab/catalogs/fixture/addons/kafka/compose.yml", self.KAFKA)
+        layers.write(None, ["kafka"], {".lab/catalogs/fixture/addons/kafka/compose.yml": "cloud"}, self.NAMES)
         plan = layers.plan(self.project, layers.current(self.project), up(), "addon", "kafka", "start")
-        self.assertEqual(plan["targets"], {"addons/kafka/compose.yml": None})
+        self.assertEqual(plan["targets"], {".lab/catalogs/fixture/addons/kafka/compose.yml": None})
         _, (_, write, command), _ = self.applied(plan)
         write(mock.Mock(lines=[]))
-        self.assertIn("  - addons/kafka/compose.yml\n", (self.root / paths.ON_FILE).read_text(encoding="utf-8"))
+        self.assertIn("  - .lab/catalogs/fixture/addons/kafka/compose.yml\n", (self.root / paths.ON_FILE).read_text(encoding="utf-8"))
         # As the Start of Kafka while it is off does, the gateway it configures is made again, and the dialog says so
         self.assertIn("apim-gateway", command)
         self.assertEqual(plan["restarts"], [GATEWAY])
 
     def test_a_playground_started_back_on_this_machine_makes_its_gateway_again(self):
         cloud(self.project)
-        self.write("playgrounds/welcome/compose.yml", "services:\n  apim-gateway:\n    environment:\n      WELCOME: \"on\"\n"
+        self.write(".lab/catalogs/fixture/playgrounds/welcome/compose.yml", "services:\n  apim-gateway:\n    environment:\n      WELCOME: \"on\"\n"
                    "  hello-app:\n    image: busybox\n")
-        layers.write("welcome", ["hybrid"], {"playgrounds/welcome/compose.yml": "cloud"}, self.NAMES)   # deployed to Cloud
+        layers.write("welcome", ["hybrid"], {".lab/catalogs/fixture/playgrounds/welcome/compose.yml": "cloud"}, self.NAMES)   # deployed to Cloud
         state = layers.current(self.project)
         self.assertEqual(state["targets"], {"playground:welcome": "cloud"})
         # Its app was stopped from Containers; the core and the hybrid gateway run. Start on This machine
         plan = layers.plan(self.project, state, up("hybrid", project=self.project), "playground", "welcome", "start")
         _, (_, write, command), _ = self.applied(plan)
         write(mock.Mock(lines=[]))
-        self.assertIn("  - playgrounds/welcome/compose.yml\n", (self.root / paths.ON_FILE).read_text(encoding="utf-8"))
+        self.assertIn("  - .lab/catalogs/fixture/playgrounds/welcome/compose.yml\n", (self.root / paths.ON_FILE).read_text(encoding="utf-8"))
         self.assertIn("apim-gateway", command)   # its `apim-gateway:` override is this machine's gateway's now
         self.assertIn("apim-hybrid-gateway", command, "and no longer the hybrid gateway's")
 
     def test_what_a_start_brings_back_on_this_machine_is_made_again(self):
         # Kafka runs on its Cloud copy (HOST http://apim-hybrid-gateway:8082); Kafka Desk, which needs it, starts here
-        self.write("addons/kafka/compose.yml", self.KAFKA)
-        layers.write(None, ["kafka"], {"addons/kafka/compose.yml": "cloud"}, self.NAMES)
+        self.write(".lab/catalogs/fixture/addons/kafka/compose.yml", self.KAFKA)
+        layers.write(None, ["kafka"], {".lab/catalogs/fixture/addons/kafka/compose.yml": "cloud"}, self.NAMES)
         plan = layers.plan(self.project, layers.current(self.project), up("kafka"), "addon", "kafka-desk", "start")
-        self.assertEqual(plan["targets"], {"addons/kafka-desk/compose.yml": None, "addons/kafka/compose.yml": None})
+        self.assertEqual(plan["targets"], {".lab/catalogs/fixture/addons/kafka-desk/compose.yml": None, ".lab/catalogs/fixture/addons/kafka/compose.yml": None})
         _, (_, write, command), _ = self.applied(plan)
         write(mock.Mock(lines=[]))
-        self.assertIn("  - addons/kafka/compose.yml\n", (self.root / paths.ON_FILE).read_text(encoding="utf-8"))
+        self.assertIn("  - .lab/catalogs/fixture/addons/kafka/compose.yml\n", (self.root / paths.ON_FILE).read_text(encoding="utf-8"))
         self.assertIn("kafka", command)          # written for this machine now, still running as written for Cloud
         self.assertIn("apim-gateway", command)   # which Kafka's plain file configures
         # Kafka Desk started where Kafka already ran here only starts
@@ -1700,8 +1703,8 @@ class Files(Case):
     def test_write_then_read(self):
         layers.write("welcome", ["kiosk", "kafka-desk"])
         self.assertEqual((self.root / paths.ON_FILE).read_text(encoding="utf-8"),
-                         "include:\n  - playgrounds/welcome/compose.yml\n  - addons/kafka-desk/compose.yml\n"
-                         "  - addons/kiosk/compose.yml\n")
+                         "include:\n  - .lab/catalogs/fixture/playgrounds/welcome/compose.yml\n  - .lab/catalogs/fixture/addons/kafka-desk/compose.yml\n"
+                         "  - .lab/catalogs/fixture/addons/kiosk/compose.yml\n")
         state = layers.current(self.project)
         self.assertEqual((state["playground"], state["explicit"]), ("welcome", ["kafka-desk", "kiosk"]))
         self.assertEqual(state["effective"], ["agent-lens", "kafka", "kafka-desk", "kiosk"])
@@ -1728,11 +1731,11 @@ class Files(Case):
 
     def test_what_belongs_to_this_machine_is_turned_on_like_the_rest(self):
         own(self.project)
-        for path in ("addons/local/whoami/compose.yml", "playgrounds/local/sandbox/compose.yml"):
+        for path in (".lab/catalogs/local/addons/whoami/compose.yml", ".lab/catalogs/local/playgrounds/sandbox/compose.yml"):
             self.write(path)
         layers.write("local/sandbox", ["kiosk"])
         self.assertEqual((self.root / paths.ON_FILE).read_text(encoding="utf-8"),
-                         "include:\n  - playgrounds/local/sandbox/compose.yml\n  - addons/kiosk/compose.yml\n")
+                         "include:\n  - .lab/catalogs/local/playgrounds/sandbox/compose.yml\n  - .lab/catalogs/fixture/addons/kiosk/compose.yml\n")
         state = layers.current(self.project)
         self.assertEqual((state["playground"], state["explicit"], state["effective"], state["locked"]),
                          ("local/sandbox", ["kiosk"], ["kiosk", "local/whoami"], None))
@@ -1740,34 +1743,34 @@ class Files(Case):
         self.assertEqual(layers.current(self.project)["explicit"], ["local/whoami"])
 
     def test_setup_entry_is_its_includes(self):
-        state = self.on_file("# mine\ninclude:\n  - setups/events.yml\n  - addons/kiosk/compose.yml\n")
+        state = self.on_file("# mine\ninclude:\n  - .lab/catalogs/fixture/setups/events.yml\n  - .lab/catalogs/fixture/addons/kiosk/compose.yml\n")
         self.assertEqual((state["explicit"], state["setups"]), (["kafka-desk", "kiosk"], ["events"]))
         self.assertIsNone(state["locked"])
 
     def test_entry_whose_file_is_gone(self):
-        (self.root / "addons/jade/compose.yml").unlink()
-        state = self.on_file("include:\n  - addons/jade/compose.yml\n  - addons/kiosk/compose.yml\n")
+        (self.root / ".lab/catalogs/fixture/addons/jade/compose.yml").unlink()
+        state = self.on_file("include:\n  - .lab/catalogs/fixture/addons/jade/compose.yml\n  - .lab/catalogs/fixture/addons/kiosk/compose.yml\n")
         self.assertEqual(state["explicit"], ["kiosk"])
         self.assertEqual(state["problems"], [{"file": ".lab/on.yml",
-                                              "message": "addons/jade/compose.yml does not exist"}])
+                                              "message": ".lab/catalogs/fixture/addons/jade/compose.yml does not exist"}])
         self.assertIsNone(state["locked"])
         # Compose fails on it whatever it is asked: the state waits on it (model._wait)
-        self.assertEqual(state["unread"], "addons/jade/compose.yml does not exist")
+        self.assertEqual(state["unread"], ".lab/catalogs/fixture/addons/jade/compose.yml does not exist")
 
     def test_entry_whose_file_does_not_load_locks_the_file(self):
         # Written by the Lab UI, it is not the user's change: a rewrite would drop it, the file says why
         del self.project["addons"]["jade"]
-        state = self.on_file("include:\n  - addons/kiosk/compose.yml\n  - addons/jade/compose.yml\n")
-        self.assertEqual((state["explicit"], state["locked"]), (["kiosk"], "addons/jade/compose.yml does not load"))
-        message = "addons/jade/compose.yml does not load: the catalog's Start and Stop are off"
+        state = self.on_file("include:\n  - .lab/catalogs/fixture/addons/kiosk/compose.yml\n  - .lab/catalogs/fixture/addons/jade/compose.yml\n")
+        self.assertEqual((state["explicit"], state["locked"]), (["kiosk"], ".lab/catalogs/fixture/addons/jade/compose.yml does not load"))
+        message = ".lab/catalogs/fixture/addons/jade/compose.yml does not load: the catalog's Start and Stop are off"
         self.assertEqual(state["problems"], [{"file": ".lab/on.yml", "message": message}])
-        self.assertEqual(state["unread"], "addons/jade/compose.yml does not load")
+        self.assertEqual(state["unread"], ".lab/catalogs/fixture/addons/jade/compose.yml does not load")
 
     def test_own_changes_lock_the_file(self):
         self.write("mine.yml")
-        for text in ("include:\n  - addons/kiosk/compose.yml\nservices:\n  redis:\n    ports: !reset []\n",
-                     "include:\n  - addons/kiosk/compose.yml\n  - mine.yml\n",
-                     "include:\n  - path: addons/kiosk/compose.yml\n    env_file: mine.env\n"):
+        for text in ("include:\n  - .lab/catalogs/fixture/addons/kiosk/compose.yml\nservices:\n  redis:\n    ports: !reset []\n",
+                     "include:\n  - .lab/catalogs/fixture/addons/kiosk/compose.yml\n  - mine.yml\n",
+                     "include:\n  - path: .lab/catalogs/fixture/addons/kiosk/compose.yml\n    env_file: mine.env\n"):
             state = self.on_file(text)
             self.assertEqual(state["locked"], ".lab/on.yml has your own changes", text)
             self.assertEqual(state["explicit"], ["kiosk"])
@@ -1777,20 +1780,20 @@ class Files(Case):
                                                   "has your own changes: the catalog's Start and Stop are off"}])
 
     def test_own_changes_on_one_line_lock_the_file(self):
-        for text in ("include: [addons/kiosk/compose.yml]\n", "name: mine\n", "services: {}\n"):
+        for text in ("include: [.lab/catalogs/fixture/addons/kiosk/compose.yml]\n", "name: mine\n", "services: {}\n"):
             self.assertEqual(self.on_file(text)["locked"], ".lab/on.yml has your own changes", text)
 
     def test_two_playgrounds_lock_the_file(self):
         second(self.project)
-        self.write("playgrounds/demo/compose.yml")
-        state = self.on_file("include:\n  - playgrounds/welcome/compose.yml\n  - playgrounds/demo/compose.yml\n")
+        self.write(".lab/catalogs/fixture/playgrounds/demo/compose.yml")
+        state = self.on_file("include:\n  - .lab/catalogs/fixture/playgrounds/welcome/compose.yml\n  - .lab/catalogs/fixture/playgrounds/demo/compose.yml\n")
         self.assertEqual((state["playground"], state["locked"]), ("welcome", layers.LOCKED))
 
     def test_missing_settings_are_read_from_the_add_on_env(self):
         self.assertEqual(layers.current(self.project)["missing"], [])
-        (self.root / "addons/hybrid/.env").write_text("HYBRID_CLOUD_TOKEN=\n", encoding="utf-8")   # a required setting without a value
+        (self.root / ".lab/catalogs/fixture/addons/hybrid/.env").write_text("HYBRID_CLOUD_TOKEN=\n", encoding="utf-8")   # a required setting without a value
         self.assertEqual(layers.current(self.project)["missing"], ["hybrid"])
-        (self.root / "addons/hybrid/.env").unlink()
+        (self.root / ".lab/catalogs/fixture/addons/hybrid/.env").unlink()
         self.assertEqual(layers.current(self.project)["missing"], ["hybrid"])
 
     def applied(self, plan):
@@ -1864,7 +1867,7 @@ class Files(Case):
 
     def test_what_goes_is_removed_before_the_on_file_says_it_is_off(self):
         # The removal fails, or is canceled, or the Lab UI ends there: Kafka is still on, stopped, never off and still running
-        self.write(paths.ON_FILE, "include:\n  - addons/kafka/compose.yml\n")
+        self.write(paths.ON_FILE, "include:\n  - .lab/catalogs/fixture/addons/kafka/compose.yml\n")
         state = layers.current(self.project)
         plan = layers.plan(self.project, state, up("kafka"), "addon", "kafka", "stop")
         title, steps, more = self.applied(plan)
@@ -1887,7 +1890,7 @@ class Files(Case):
     def test_a_job_does_not_write_the_on_file_over_what_another_job_wrote_since_its_plan(self):
         # Kiosk and Redpanda are on; two plans are made from that, then the first job turns Kiosk off: the second, made
         # before, would turn Kiosk on again by writing what it read
-        self.write(paths.ON_FILE, "include:\n  - addons/kiosk/compose.yml\n  - addons/redpanda/compose.yml\n")
+        self.write(paths.ON_FILE, "include:\n  - .lab/catalogs/fixture/addons/kiosk/compose.yml\n  - .lab/catalogs/fixture/addons/redpanda/compose.yml\n")
         state = layers.current(self.project)
         first, second = (layers.plan(self.project, state, up(), "addon", uid, "stop") for uid in ("kiosk", "redpanda"))
         for plan in (first, second):
@@ -1910,8 +1913,8 @@ class Files(Case):
         # the same on file; the Kiosk job, with no command, runs first. Demo's job is refused before it removes anything
         # of Welcome
         second(self.project)
-        self.write("playgrounds/demo/compose.yml")
-        self.write(paths.ON_FILE, "include:\n  - playgrounds/welcome/compose.yml\n  - addons/kiosk/compose.yml\n")
+        self.write(".lab/catalogs/fixture/playgrounds/demo/compose.yml")
+        self.write(paths.ON_FILE, "include:\n  - .lab/catalogs/fixture/playgrounds/welcome/compose.yml\n  - .lab/catalogs/fixture/addons/kiosk/compose.yml\n")
         state = layers.current(self.project)
         running = up("agent-lens", playgrounds=["welcome"])
         demo = layers.plan(self.project, state, running, "playground", "demo", "start")
@@ -2000,7 +2003,7 @@ def twins(project, uid="kiosk"):
     """Kiosk of the first catalog and Kiosk of this machine, the same item: each says the other. Another add-on by its id."""
     kiosk = project["addons"][uid]
     project["addons"][f"local/{uid}"] = {**kiosk, "id": f"local/{uid}", "personal": True,
-                                         "file": f"addons/local/{uid}/compose.yml", "env_file": f"addons/local/{uid}/.env",
+                                         "file": f".lab/catalogs/local/addons/{uid}/compose.yml", "env_file": f".lab/catalogs/local/addons/{uid}/.env",
                                          "catalog": "local", "twin": {"id": uid, "name": "Fixture catalog"}}
     kiosk["twin"] = {"id": f"local/{uid}", "name": "Personal"}
 
@@ -2455,9 +2458,9 @@ class Entries(Case):
         self.assertEqual((state["explicit"], state["locked"]), ([], layers.LOCKED))
 
     def test_a_write_keeps_what_it_is_given_and_nothing_else(self):
-        self.write(paths.ON_FILE, 'include:\n  - addons/kafka/compose.yml\n  - .lab/catalogs/local/addons/whoami/compose.yml\n'
-                   '  - {path: ".lab/targets/cloud/addons__hybrid__compose.yml", project_directory: "addons/hybrid"}\n'
-                   "  - setups/events.yml\n")
+        self.write(paths.ON_FILE, 'include:\n  - .lab/catalogs/fixture/addons/kafka/compose.yml\n  - .lab/catalogs/local/addons/whoami/compose.yml\n'
+                   '  - {path: ".lab/targets/cloud/addons__hybrid__compose.yml", project_directory: ".lab/catalogs/fixture/addons/hybrid"}\n'
+                   "  - .lab/catalogs/fixture/setups/events.yml\n")
         layers.write(None, ["kiosk"])
         self.assertEqual((self.root / paths.ON_FILE).read_text(encoding="utf-8"),
                          "include:\n  - .lab/catalogs/fixture/addons/kiosk/compose.yml\n")

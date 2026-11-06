@@ -20,66 +20,6 @@ from lab_ui.catalogs import registry
 from . import Case
 
 
-class Units(Case):
-    """No default file: the layout before catalogs, the one every other suite still writes."""
-
-    def setUp(self):
-        self.folder(paths)   # never the checkout, which will have a default file
-        self.patch(paths, "_default", (None, None))
-
-    def test_the_folder_decides_what_a_file_is(self):
-        for path, unit in (("addons/kafka/compose.yml", ("addon", "kafka")),
-                           ("addons/local/whoami/compose.yml", ("addon", "local/whoami")),
-                           ("setups/events.yml", ("setup", "events")),
-                           ("setups/local/mine.yml", ("setup", "local/mine")),
-                           ("playgrounds/welcome/compose.yml", ("playground", "welcome")),
-                           ("playgrounds/local/sandbox/compose.yml", ("playground", "local/sandbox")),
-                           ("addons/local/local/compose.yml", ("addon", "local/local")),
-                           ("addons/kafka/.env", None), ("addons/My_Addon/compose.yml", None),
-                           ("addons/local/whoami/more/compose.yml", None), ("addons/local/../kafka/compose.yml", None),
-                           ("setups/local/mine/more.yml", None), ("playgrounds/_scratch/compose.yml", None),
-                           ("docker-compose.yml", None)):
-            with self.subTest(path=path):
-                self.assertEqual(paths.unit_of(path), unit)
-                if unit:
-                    self.assertEqual(paths.unit_file(*unit), path)
-
-    def test_local_is_the_folder_of_this_machine_not_an_add_on_or_a_playground(self):
-        self.assertIsNone(paths.unit_of("addons/local/compose.yml"))
-        self.assertIsNone(paths.unit_of("playgrounds/local/compose.yml"))
-        # A file, not a folder: it is a setup, whose name `make check` refuses
-        self.assertEqual(paths.unit_of("setups/local.yml"), ("setup", "local"))
-
-    def test_what_belongs_to_this_machine(self):
-        self.assertEqual([paths.personal(uid) for uid in ("local/whoami", "whoami", "local", "localhost")],
-                         [True, False, False, False])
-        self.assertEqual(paths.unit_env("addon", "local/whoami"), "addons/local/whoami/.env")
-        self.assertEqual(paths.unit_env("addon", "kafka"), "addons/kafka/.env")
-        self.assertEqual(paths.unit_env("playground", "local/sandbox"), "playgrounds/local/sandbox/.env")
-        self.assertIsNone(paths.unit_env("setup", "local/mine"))
-
-    def test_a_unit_folder_holds_its_files(self):
-        self.assertEqual([paths.unit_folder(kind, uid) for kind, uid in (
-            ("addon", "kafka"), ("playground", "local/sandbox"), ("setup", "events"))],
-            ["addons/kafka", "playgrounds/local/sandbox", None])
-        self.assertEqual(paths.unit_guide("playground", "local/sandbox"), "playgrounds/local/sandbox/guide.md")
-        self.assertIsNone(paths.unit_guide("addon", "kafka"))
-
-    def test_the_ids_found_on_disk(self):
-        for file in ("addons/kafka/compose.yml", "addons/local/whoami/compose.yml", "addons/local/compose.yml",
-                     "addons/local/.hidden/compose.yml", "addons/jade/notes.md", "setups/events.yml",
-                     "setups/local/mine.yml", "setups/AGENTS.md", "playgrounds/welcome/compose.yml",
-                     "playgrounds/_scratch/compose.yml", "playgrounds/local/sandbox/compose.yml",
-                     "playgrounds/local/sandbox/guide.md"):
-            self.write(file)
-        self.assertEqual({kind: paths.unit_ids(kind) for kind in paths.KINDS},
-                         {"addon": ["kafka", "local/whoami"], "setup": ["events", "local/mine"],
-                          "playground": ["local/sandbox", "welcome"]})
-        self.assertEqual(paths.unit_files(), [
-            "addons/kafka/compose.yml", "addons/local/whoami/compose.yml", "setups/events.yml",
-            "setups/local/mine.yml", "playgrounds/local/sandbox/compose.yml", "playgrounds/welcome/compose.yml"])
-
-
 class SeedApis(Case):
 
     def found(self, root):
@@ -235,8 +175,8 @@ class Grammar(OnDisk):
         "", " kafka", "kafka ", "Kafka", "LOCAL/x", "local/X", "local//x", "local/x/y", "/kafka", "kafka/", "//", "@",
         "@acme-hub", "@@acme-hub/x", "@acme-hub//x", "@acme-hub/X", "@-ab/x", "@ab-/x", "@1ab/x", f"@{'a' * 25}/x",
         "@acmé/x", "kafkä", "ｋafka", "../kafka", "kafka/..", "@acme-hub/..", "@acme-hub/.", ".kafka",
-        "kafka.yml", "kafka\\x", "a b", "a\tb", "~", "${HOME}", "%2e%2e", None, 5, b"kafka", ["kafka"])
-    GLOBS = ("*", "@acme-hub/*", "local/*")   # not ids, but what unit_file turns into the listing of a catalog
+        "kafka.yml", "kafka\\x", "a b", "a\tb", "~", "${HOME}", "%2e%2e", None, 5, b"kafka", ["kafka"],
+        "*", "@acme-hub/*", "local/*", "[!.]*", "local/[!.]*")
 
     def test_an_id_is_bare_personal_or_of_a_catalog(self):
         for uid in ("kafka", "a", "-", "0", "mock-bank", "local", "local/whoami", "local/local", "local/a-b",
@@ -248,7 +188,7 @@ class Grammar(OnDisk):
     def test_every_adversarial_id_is_refused(self):
         for default in (("gravitee",), ("demos",)):
             self.default(*default)
-            for uid in self.ADVERSARIAL + self.GLOBS:
+            for uid in self.ADVERSARIAL:
                 with self.subTest(default=default, uid=uid):
                     self.assertFalse(paths.is_id(uid))
                     self.assertFalse(paths.is_id(paths.canonical(uid)))
@@ -271,12 +211,6 @@ class Grammar(OnDisk):
         self.assertTrue(paths.is_id("@acme-hub/bank"))
         self.assertFalse(paths.is_id("@acme-hub/../bank"))
 
-    def test_a_bare_id_is_still_an_id_before_catalogs(self):
-        # The transition: the layout before catalogs serves a bare id until there is no such layout
-        os.remove(self.root / paths.DEFAULT_FILE)
-        self.assertTrue(paths.is_id("kafka"))
-        self.assertTrue(paths.is_id("local/whoami"))
-
     def test_the_pattern_of_a_route_has_one_group(self):
         self.assertEqual(re.compile(paths.ID).groups, 1)
         self.assertEqual(paths.ID, "(local/[a-z0-9-]+|@[a-z][a-z0-9-]{0,22}[a-z0-9]/[a-z0-9-]+"
@@ -293,14 +227,6 @@ class Grammar(OnDisk):
                      "/api/addons/@acme-hub/x\n/start"):
             with self.subTest(path=path):
                 self.assertIsNone(route.fullmatch(path))
-
-    def test_the_old_patterns_are_unchanged(self):
-        # The layout before catalogs reads files with the id of before: no @ in them
-        self.assertEqual({kind: pattern.pattern for kind, (_, pattern) in paths.UNITS.items()}, {
-            "addon": r"addons/(local/[a-z0-9-]+|(?!local/)[a-z0-9-]+)/compose\.yml",
-            "setup": r"setups/(local/[a-z0-9-]+|(?!local/)[a-z0-9-]+)\.yml",
-            "playground": r"playgrounds/(local/[a-z0-9-]+|(?!local/)[a-z0-9-]+)/compose\.yml"})
-        self.assertEqual(paths.KINDS, ("addon", "setup", "playground"))
 
 
 class DefaultNamespace(OnDisk):
@@ -434,6 +360,7 @@ class InCatalogs(OnDisk):
         # kind, id, file, folder
         ("addon", "kafka", ".lab/catalogs/gravitee/addons/kafka/compose.yml", ".lab/catalogs/gravitee/addons/kafka"),
         ("addon", "local/whoami", ".lab/catalogs/local/addons/whoami/compose.yml", ".lab/catalogs/local/addons/whoami"),
+        ("addon", "local/local", ".lab/catalogs/local/addons/local/compose.yml", ".lab/catalogs/local/addons/local"),
         ("addon", "@acme-hub/mock-bank", ".lab/catalogs/acme-hub/addons/mock-bank/compose.yml",
          ".lab/catalogs/acme-hub/addons/mock-bank"),
         ("setup", "kubernetes-flow", ".lab/catalogs/gravitee/setups/kubernetes-flow.yml", None),
@@ -451,12 +378,7 @@ class InCatalogs(OnDisk):
             with self.subTest(kind=kind, uid=uid):
                 self.assertEqual(paths.unit_file(kind, uid), file)
                 self.assertEqual(paths.unit_folder(kind, uid), folder)
-
-    def test_a_file_gives_back_its_id(self):
-        for kind, uid, file, _ in self.TABLE:
-            with self.subTest(kind=kind, uid=uid):
                 self.assertEqual(paths.unit_of(file), (kind, uid))
-                self.assertEqual(paths.unit_of(paths.unit_file(kind, uid)), (kind, uid))
 
     def test_the_default_namespace_is_read_when_asked(self):
         self.default("demos")
@@ -464,31 +386,8 @@ class InCatalogs(OnDisk):
         self.assertEqual(paths.unit_of(".lab/catalogs/demos/addons/kafka/compose.yml"), ("addon", "kafka"))
         self.assertIsNone(paths.unit_of(".lab/catalogs/gravitee/addons/kafka/compose.yml"))   # reserved: no id
 
-    def test_the_folder_decides_what_a_file_is(self):
-        # The table of today's ids and files, in the folders of a catalog
-        for path, unit in (
-                (".lab/catalogs/gravitee/addons/kafka/compose.yml", ("addon", "kafka")),
-                (".lab/catalogs/local/addons/whoami/compose.yml", ("addon", "local/whoami")),
-                (".lab/catalogs/gravitee/setups/events.yml", ("setup", "events")),
-                (".lab/catalogs/local/setups/mine.yml", ("setup", "local/mine")),
-                (".lab/catalogs/gravitee/playgrounds/welcome/compose.yml", ("playground", "welcome")),
-                (".lab/catalogs/local/playgrounds/sandbox/compose.yml", ("playground", "local/sandbox")),
-                (".lab/catalogs/local/addons/local/compose.yml", ("addon", "local/local")),
-                (".lab/catalogs/gravitee/addons/kafka/.env", None),
-                (".lab/catalogs/gravitee/addons/My_Addon/compose.yml", None),
-                (".lab/catalogs/local/addons/whoami/more/compose.yml", None),
-                (".lab/catalogs/local/addons/../kafka/compose.yml", None),
-                (".lab/catalogs/local/setups/mine/more.yml", None),
-                (".lab/catalogs/gravitee/playgrounds/_scratch/compose.yml", None),
-                ("docker-compose.yml", None)):
-            with self.subTest(path=path):
-                self.assertEqual(paths.unit_of(path), unit)
-                if unit:
-                    self.assertEqual(paths.unit_file(*unit), path)
-
     def test_the_name_of_this_machines_folder_is_a_name_in_a_catalog(self):
-        # In the folders of before, local was the folder of this machine and could not name a unit; here the folder of
-        # this machine is a catalog, and a unit called local is one like any
+        # The folder of this machine is a catalog, and a unit called local is one like any
         self.assertEqual(paths.unit_of(".lab/catalogs/gravitee/addons/local/compose.yml"), ("addon", "local"))
         self.assertEqual(paths.unit_of(".lab/catalogs/gravitee/setups/local.yml"), ("setup", "local"))
         self.assertEqual(paths.unit_of(".lab/catalogs/acme-hub/playgrounds/local/compose.yml"),
@@ -501,6 +400,10 @@ class InCatalogs(OnDisk):
                 "addons/@x/y/compose.yml", "addons/@xx/y/compose.yml", "addons/x/compose.yml",
                 "addons/local/x/compose.yml",
                 "setups/x.yml", "playgrounds/x/compose.yml", "addons/kafka/compose.yml",
+                ".lab/catalogs/gravitee/addons/kafka/.env", ".lab/catalogs/gravitee/addons/My_Addon/compose.yml",
+                ".lab/catalogs/local/addons/whoami/more/compose.yml", ".lab/catalogs/local/addons/../kafka/compose.yml",
+                ".lab/catalogs/local/setups/mine/more.yml", ".lab/catalogs/gravitee/playgrounds/_scratch/compose.yml",
+                "docker-compose.yml",
                 ".lab/catalogs/ns/addons/x/certs/compose.yml", ".lab/catalogs/acme-hub/addons/x/certs/compose.yml",
                 ".lab/catalogs/.stage-acme-hub/addons/x/compose.yml", ".lab/catalogs/.shadow-acme-hub.json",
                 ".lab/catalogs/.removed-acme-hub-20261001/addons/x/compose.yml",
@@ -540,35 +443,13 @@ class InCatalogs(OnDisk):
                     with self.assertRaises(paths.NotFound):
                         paths.unit_file(kind, uid)
 
-    def test_a_wildcard_is_the_listing_of_a_catalog_not_a_name(self):
-        # What unit_ids lists with: every unit of the default catalog, every unit of this machine
-        self.assertEqual(paths.unit_file("addon", "*"), ".lab/catalogs/gravitee/addons/*/compose.yml")
-        self.assertEqual(paths.unit_file("setup", "local/*"), ".lab/catalogs/local/setups/*.yml")
-        self.assertEqual(paths.unit_file("playground", "@acme-hub/*"),
-                         ".lab/catalogs/acme-hub/playgrounds/*/compose.yml")
-        for uid in ("a*", "*a", "**", "@gravitee/*", "@local/*", "x/*", "@acme-hub*", "local*", "*/x"):
-            with self.subTest(uid=uid):
-                with self.assertRaises(paths.NotFound):
-                    paths.unit_file("addon", uid)
-
-    def test_the_names_that_are_no_dot_file_are_a_listing_too(self):
-        # What `make check` lists to find the names the Lab UI does not see
-        self.assertEqual(paths.unit_file("addon", "[!.]*"), ".lab/catalogs/gravitee/addons/[!.]*/compose.yml")
-        self.assertEqual(paths.unit_file("setup", "local/[!.]*"), ".lab/catalogs/local/setups/[!.]*.yml")
-        self.assertEqual(paths.unit_file("playground", "@acme-hub/[!.]*"),
-                         ".lab/catalogs/acme-hub/playgrounds/[!.]*/compose.yml")
-        for uid in ("a[!.]*", "[!.]*a", "[!.]*[!.]*", "[!.]", "[!.]**", "*[!.]*", "@gravitee/[!.]*", "@local/[!.]*",
-                    "x/[!.]*", "[!a]*", "[.]*", "[!.]*\n", "local/[!.]*\0", "\n[!.]*"):
-            with self.subTest(uid=uid):
-                with self.assertRaises(paths.NotFound):
-                    paths.unit_file("addon", uid)
-
     def test_a_bare_name_has_no_place_without_a_default_catalog(self):
-        # The guard inside unit_file's reach: it checks the default itself, but a place is never made of None
-        for uid in ("kafka", "*", "[!.]*", "local/x", "@acme-hub/x"):
+        # A place is never made of None; this machine's and another catalog's need no default file
+        for uid in ("kafka", "*", "[!.]*"):
             with self.subTest(uid=uid):
                 with self.assertRaises(paths.NotFound):
                     paths._place(uid, None)
+        self.assertEqual((paths._place("local/x", None), paths._place("@acme-hub/x", None)), (("local", "x"), ("acme-hub", "x")))
 
     def test_a_kind_that_does_not_exist_is_a_key_error(self):
         with self.assertRaises(KeyError):
@@ -581,6 +462,7 @@ class InCatalogs(OnDisk):
             "addon": ".lab/catalogs/{ns}/addons/{name}/compose.yml",
             "setup": ".lab/catalogs/{ns}/setups/{name}.yml",
             "playground": ".lab/catalogs/{ns}/playgrounds/{name}/compose.yml"})
+        self.assertEqual(paths.KINDS, ("addon", "setup", "playground"))
 
     def test_what_belongs_to_this_machine(self):
         ids = ("local/whoami", "whoami", "local", "localhost", "@acme-hub/x")
@@ -645,8 +527,6 @@ class Names(OnDisk):
                 ("a bare id's file", lambda: paths.unit_file("addon", "kafka")),
                 ("a personal id's file", lambda: paths.unit_file("addon", "local/x")),
                 ("a catalog id's file", lambda: paths.unit_file("addon", "@acme-hub/x")),
-                ("a listing", lambda: paths.unit_file("addon", "*")),
-                ("a listing of the names that are no dot file", lambda: paths.unit_file("setup", "@acme-hub/[!.]*")),
                 ("a unit's folder", lambda: paths.unit_folder("playground", "kafka")),
                 ("a unit's env", lambda: paths.unit_env("addon", "@acme-hub/x")),
                 ("the unit of a path", lambda: paths.unit_of(".lab/catalogs/gravitee/addons/x/compose.yml")),
@@ -769,9 +649,9 @@ class Found(OnDisk):
             "acme-hub/catalog.yml", "acme-hub.partial", "catalogs.json", "gravitee/addons/compose.yml",
             "gravitee/addons/shadow/compose.yml/inside", "local/addons/compose.yml", "local/addons/.hidden/compose.yml")
         os.makedirs(self.root / ".lab/catalogs/acme-hub/setups/dir.yml")
-        self.write("addons/legacy/compose.yml")   # the folders of before are not read
-        self.write("setups/legacy.yml")
-        self.write("playgrounds/legacy/compose.yml")
+        self.write("addons/root/compose.yml")   # the project's own folders are not read
+        self.write("setups/root.yml")
+        self.write("playgrounds/root/compose.yml")
         self.assertEqual({kind: paths.ids(kind) for kind in paths.KINDS}, {
             "addon": ["jade", "kafka", "local/whoami", "@a-b/first", "@acme-hub/mock-bank", "@zeta/last"],
             "setup": ["events", "local/mine", "@acme-hub/bank-stack"],
@@ -812,38 +692,11 @@ class Found(OnDisk):
         self.assertEqual([paths.ids(kind) for kind in paths.KINDS], [[], [], []])
         self.assertEqual(paths.files(), [])
 
-    def test_the_names_of_before_list_the_default_catalog_and_this_machine_through_the_new_files(self):
-        # unit_ids and unit_files stay as they were until their callers have moved: with a default file their code
-        # reads the same two places through unit_file, and not the other catalogs
-        self.assertEqual({kind: paths.unit_ids(kind) for kind in paths.KINDS}, {
-            "addon": ["jade", "kafka", "local/whoami"], "setup": ["events", "local/mine"],
-            "playground": ["acme-bakery", "local/sandbox", "welcome"]})
-        self.assertEqual(paths.unit_files(), [
-            ".lab/catalogs/gravitee/addons/jade/compose.yml", ".lab/catalogs/gravitee/addons/kafka/compose.yml",
-            ".lab/catalogs/local/addons/whoami/compose.yml", ".lab/catalogs/gravitee/setups/events.yml",
-            ".lab/catalogs/local/setups/mine.yml", ".lab/catalogs/gravitee/playgrounds/acme-bakery/compose.yml",
-            ".lab/catalogs/local/playgrounds/sandbox/compose.yml",
-            ".lab/catalogs/gravitee/playgrounds/welcome/compose.yml"])
-
-    def test_the_ids_found_on_disk(self):
-        # The table of today's ids and files, in the folders of a catalog
-        self.folder(paths)
-        self.default("gravitee")
-        self.put(*[f"{folder}/{file}" for folder, file in (
-            ("gravitee", "addons/kafka/compose.yml"), ("local", "addons/whoami/compose.yml"),
-            ("local", "addons/compose.yml"), ("local", "addons/.hidden/compose.yml"),
-            ("gravitee", "addons/jade/notes.md"),
-            ("gravitee", "setups/events.yml"), ("local", "setups/mine.yml"), ("gravitee", "setups/AGENTS.md"),
-            ("gravitee", "playgrounds/welcome/compose.yml"), ("gravitee", "playgrounds/_scratch/compose.yml"),
-            ("local", "playgrounds/sandbox/compose.yml"), ("local", "playgrounds/sandbox/guide.md"))])
-        self.assertEqual({kind: paths.ids(kind) for kind in paths.KINDS},
-                         {"addon": ["kafka", "local/whoami"], "setup": ["events", "local/mine"],
-                          "playground": ["welcome", "local/sandbox"]})
-        self.assertEqual(paths.files(), [
-            ".lab/catalogs/gravitee/addons/kafka/compose.yml", ".lab/catalogs/local/addons/whoami/compose.yml",
-            ".lab/catalogs/gravitee/setups/events.yml", ".lab/catalogs/local/setups/mine.yml",
-            ".lab/catalogs/gravitee/playgrounds/welcome/compose.yml",
-            ".lab/catalogs/local/playgrounds/sandbox/compose.yml"])
+    def test_without_a_default_file_this_machine_and_the_other_catalogs_stay(self):
+        os.remove(self.root / paths.DEFAULT_FILE)
+        self.assertEqual(paths.ids("setup"), ["local/mine", "@acme-hub/bank-stack"])
+        self.assertEqual(paths.files()[-2:], [".lab/catalogs/local/playgrounds/sandbox/compose.yml",
+                                              ".lab/catalogs/acme-hub/playgrounds/bank/compose.yml"])
 
 
 class Vouched(OnDisk):
@@ -933,12 +786,6 @@ class Vouched(OnDisk):
         self.assertEqual(paths.ids("setup"), ["local/mine", "@acme-hub/unlisted"])
         self.assertEqual(paths.ids("playground"), [])
 
-    def test_before_catalogs_nobody_is_asked(self):
-        os.remove(self.root / paths.DEFAULT_FILE)
-        paths.ids("addon")
-        paths.files()
-        self.asked.assert_not_called()
-
 
 class RegistryNotWritten(OnDisk):
     """The registry as shipped before it is written: it vouches for no install."""
@@ -947,64 +794,6 @@ class RegistryNotWritten(OnDisk):
         self.put("acme-hub/.installed.json", "acme-hub/addons/x/compose.yml", "gravitee/addons/kafka/compose.yml",
                  "local/addons/mine/compose.yml", "plain/addons/loose/compose.yml")
         self.assertEqual(paths.ids("addon"), ["kafka", "local/mine", "@plain/loose"])
-
-
-class BeforeCatalogs(Case):
-    """No default file: ids and files are the layout of before, whatever the new functions are asked."""
-
-    def setUp(self):
-        self.folder(paths, files=dict.fromkeys((
-            "addons/kafka/compose.yml", "addons/local/whoami/compose.yml", "setups/events.yml", "setups/local/mine.yml",
-            "playgrounds/welcome/compose.yml", "playgrounds/local/sandbox/compose.yml",
-            ".lab/catalogs/gravitee/addons/not-here/compose.yml", ".lab/catalogs/local/addons/not-here/compose.yml",
-            ".lab/catalogs/acme-hub/addons/not-here/compose.yml"), ""))
-        self.patch(paths, "_default", (None, None))
-
-    def test_the_ids_and_files_are_those_of_before(self):
-        self.assertIsNone(paths.default_ns())
-        self.assertEqual({kind: paths.ids(kind) for kind in paths.KINDS}, {
-            "addon": ["kafka", "local/whoami"], "setup": ["events", "local/mine"],
-            "playground": ["local/sandbox", "welcome"]})
-        self.assertEqual(paths.files(), paths.unit_files())
-        self.assertEqual(paths.files(), [
-            "addons/kafka/compose.yml", "addons/local/whoami/compose.yml", "setups/events.yml", "setups/local/mine.yml",
-            "playgrounds/local/sandbox/compose.yml", "playgrounds/welcome/compose.yml"])
-
-    def test_a_file_gives_its_id_and_an_id_its_file(self):
-        for kind, uid, file in (("addon", "kafka", "addons/kafka/compose.yml"),
-                                ("addon", "local/whoami", "addons/local/whoami/compose.yml"),
-                                ("setup", "events", "setups/events.yml"),
-                                ("setup", "local/mine", "setups/local/mine.yml"),
-                                ("playground", "welcome", "playgrounds/welcome/compose.yml"),
-                                ("playground", "local/sandbox", "playgrounds/local/sandbox/compose.yml")):
-            with self.subTest(file=file):
-                self.assertEqual(paths.unit_file(kind, uid), file)
-                self.assertEqual(paths.unit_of(file), (kind, uid))
-                self.assertEqual(paths.unit_folder(kind, uid), file.rsplit("/", 1)[0] if kind != "setup" else None)
-
-    def test_the_folders_of_the_catalogs_are_not_read(self):
-        for path in (".lab/catalogs/gravitee/addons/not-here/compose.yml",
-                     ".lab/catalogs/local/addons/not-here/compose.yml",
-                     ".lab/catalogs/acme-hub/addons/not-here/compose.yml"):
-            with self.subTest(path=path):
-                self.assertIsNone(paths.unit_of(path))
-
-    def test_there_is_no_id_of_a_catalog_before_catalogs(self):
-        for kind in paths.KINDS:
-            with self.assertRaises(paths.NotFound):
-                paths.unit_file(kind, "@acme-hub/bank")
-        for path in ("addons/@acme-hub/bank/compose.yml", "addons/@xx/y/compose.yml", "setups/@acme-hub/x.yml"):
-            with self.subTest(path=path):
-                self.assertIsNone(paths.unit_of(path))
-
-    def test_an_id_is_a_file_name_as_it_always_was(self):
-        self.assertEqual(paths.unit_file("addon", "anything goes"), "addons/anything goes/compose.yml")
-        self.assertEqual(paths.unit_file("addon", "*"), "addons/*/compose.yml")
-        self.assertEqual(paths.unit_file("setup", "local/*"), "setups/local/*.yml")
-
-    def test_the_new_questions_about_a_name_answer_for_the_bare_one(self):
-        self.assertEqual((paths.origin("local/x"), paths.is_default("x")), ("local", True))
-        self.assertEqual(paths.split_ref("kafka"), (None, "kafka"))
 
 
 class Contained(Case):

@@ -22,7 +22,7 @@ from lab_ui.catalogs import registry
 from .. import Case, fixtures
 from ..library.test_layers import lab, on, own
 
-KAFKA, FEDERATION = "addons/kafka/compose.yml", "addons/federation/compose.yml"
+KAFKA, FEDERATION = ".lab/catalogs/local/addons/kafka/compose.yml", ".lab/catalogs/local/addons/federation/compose.yml"
 PROJECT = {"addons": {"kafka": {"kind": "addon", "file": KAFKA, "needs": []},
                       "federation": {"kind": "addon", "file": FEDERATION, "needs": []}}, "playgrounds": {}}
 WARNING = 'time="2026-01-01T10:00:00Z" level=warning msg="The \\"FEDERATION_ALPHA_APIM_TOKEN\\" variable is not set."'
@@ -43,6 +43,7 @@ class Sections(Case):
         # On disk: the project's add-ons, setups and playgrounds, and an add-on whose file does not load. A guide is
         # listed when the project folder holds one: an empty folder here, whatever the real project holds.
         self.folder(paths, files)
+        fixtures.default(self)
         for kind in paths.KINDS:
             for uid in self.project[f"{kind}s"]:
                 self.found(kind, uid)
@@ -73,54 +74,54 @@ class Sections(Case):
             self.assertEqual(self.sections(path), [])
             # The playground, then the add-ons in effect by name; a .env only for settings of its own
             self.assertEqual(self.sections(path, ["kafka-desk", "hybrid"], "welcome"), [
-                ("Welcome", True, ["playgrounds/welcome/compose.yml"]),
-                ("AI Agent Lens", True, ["addons/agent-lens/compose.yml"]),
-                ("Hybrid gateway", True, ["addons/hybrid/compose.yml", "addons/hybrid/.env"]),
-                ("Kafka", True, ["addons/kafka/compose.yml"]),
-                ("Kafka Desk", True, ["addons/kafka-desk/compose.yml"])])
+                ("Welcome", True, [".lab/catalogs/fixture/playgrounds/welcome/compose.yml"]),
+                ("AI Agent Lens", True, [".lab/catalogs/fixture/addons/agent-lens/compose.yml"]),
+                ("Hybrid gateway", True, [".lab/catalogs/fixture/addons/hybrid/compose.yml", ".lab/catalogs/fixture/addons/hybrid/.env"]),
+                ("Kafka", True, [".lab/catalogs/fixture/addons/kafka/compose.yml"]),
+                ("Kafka Desk", True, [".lab/catalogs/fixture/addons/kafka-desk/compose.yml"])])
 
     def test_a_unit_shows_itself_then_the_add_ons_it_brings(self):
-        kafka = ("Kafka", False, ["addons/kafka/compose.yml"])
-        self.assertEqual(self.sections("addons/kafka-desk/compose.yml"),
-                         [("Kafka Desk", False, ["addons/kafka-desk/compose.yml"]), kafka])
-        self.assertEqual(self.sections("setups/events.yml"), [
-            ("Events", False, ["setups/events.yml"]), kafka,
-            ("Kafka Desk", False, ["addons/kafka-desk/compose.yml"])])
-        self.assertEqual(self.sections("playgrounds/welcome/compose.yml", ["jade"]), [
-            ("Welcome", False, ["playgrounds/welcome/compose.yml"]),
-            ("AI Agent Lens", False, ["addons/agent-lens/compose.yml"])])
+        kafka = ("Kafka", False, [".lab/catalogs/fixture/addons/kafka/compose.yml"])
+        self.assertEqual(self.sections(".lab/catalogs/fixture/addons/kafka-desk/compose.yml"),
+                         [("Kafka Desk", False, [".lab/catalogs/fixture/addons/kafka-desk/compose.yml"]), kafka])
+        self.assertEqual(self.sections(".lab/catalogs/fixture/setups/events.yml"), [
+            ("Events", False, [".lab/catalogs/fixture/setups/events.yml"]), kafka,
+            ("Kafka Desk", False, [".lab/catalogs/fixture/addons/kafka-desk/compose.yml"])])
+        self.assertEqual(self.sections(".lab/catalogs/fixture/playgrounds/welcome/compose.yml", ["jade"]), [
+            ("Welcome", False, [".lab/catalogs/fixture/playgrounds/welcome/compose.yml"]),
+            ("AI Agent Lens", False, [".lab/catalogs/fixture/addons/agent-lens/compose.yml"])])
         # A playground shows the setups it includes before the add-ons brought
         self.project["playgrounds"]["welcome"].update(setups=["events"],
                                                        addons=["agent-lens", "kafka", "kafka-desk"])
-        self.assertEqual([title for title, _, _ in self.sections("playgrounds/welcome/compose.yml")],
+        self.assertEqual([title for title, _, _ in self.sections(".lab/catalogs/fixture/playgrounds/welcome/compose.yml")],
                          ["Welcome", "Events", "AI Agent Lens", "Kafka", "Kafka Desk"])
         self.assertEqual([title for title, _, _ in self.sections(".env", playground="welcome")][:2],
                          ["Welcome", "Events"])
         self.project["playgrounds"]["welcome"].update(setups=[], addons=["agent-lens"])
         # Each says whether it runs now, whatever else is on
-        self.assertEqual([(title, is_on) for title, is_on, _ in self.sections("setups/events.yml", ["kafka"])],
+        self.assertEqual([(title, is_on) for title, is_on, _ in self.sections(".lab/catalogs/fixture/setups/events.yml", ["kafka"])],
                          [("Events", False), ("Kafka", True), ("Kafka Desk", False)])
-        self.assertEqual([is_on for _, is_on, _ in self.sections("setups/events.yml", ["kafka-desk", "jade"])],
+        self.assertEqual([is_on for _, is_on, _ in self.sections(".lab/catalogs/fixture/setups/events.yml", ["kafka-desk", "jade"])],
                          [True, True, True])
 
     def test_each_says_whether_something_of_it_runs(self):
         # Only then does applying it recreate anything: the editor offers Save & apply then
         self.running.update({"kafka": {"state": "running"}, "agent-lens": {"state": "running"}})
-        self.assertEqual(self.runs("setups/events.yml", ["kafka-desk"]),
+        self.assertEqual(self.runs(".lab/catalogs/fixture/setups/events.yml", ["kafka-desk"]),
                          {"Core": True, "Events": False, "Kafka": True, "Kafka Desk": False})
-        self.assertEqual(self.runs("playgrounds/welcome/compose.yml", playground="welcome"),
+        self.assertEqual(self.runs(".lab/catalogs/fixture/playgrounds/welcome/compose.yml", playground="welcome"),
                          {"Core": True, "Welcome": False, "AI Agent Lens": True})
         # A setup's file never runs, even with all of it running: the on file names its add-ons
         self.running["kafka-desk"] = {"state": "running"}
-        self.assertFalse(self.runs("setups/events.yml", ["kafka-desk"])["Events"])
+        self.assertFalse(self.runs(".lab/catalogs/fixture/setups/events.yml", ["kafka-desk"])["Events"])
         # Kafka runs without being on: an apply would leave it as it is, its file is saved only
-        self.assertEqual(self.runs("addons/kafka/compose.yml"), {"Core": True, "Kafka": False})
+        self.assertEqual(self.runs(".lab/catalogs/fixture/addons/kafka/compose.yml"), {"Core": True, "Kafka": False})
         # A playground without a service of its own runs while it is on and what it brings runs
         own(self.project)
         self.found("playground", "local/sandbox")
         self.running["whoami"] = {"state": "running"}
-        self.assertTrue(self.runs("playgrounds/local/sandbox/compose.yml", playground="local/sandbox")["Sandbox"])
-        self.assertFalse(self.runs("playgrounds/local/sandbox/compose.yml")["Sandbox"])
+        self.assertTrue(self.runs(".lab/catalogs/local/playgrounds/sandbox/compose.yml", playground="local/sandbox")["Sandbox"])
+        self.assertFalse(self.runs(".lab/catalogs/local/playgrounds/sandbox/compose.yml")["Sandbox"])
         # The core, while a service of the platform runs; nothing without Docker
         self.running = {name: found for name, found in self.running.items() if name not in self.project["services"]
                         or self.project["services"][name]["owner"]["kind"] != "platform"}
@@ -133,53 +134,53 @@ class Sections(Case):
         self.state = on(self.project, ["kafka"])
         self.assertEqual(files.sections(self.project, ".lab/on.yml")[1:],
                          files.sections(self.project, "docker-compose.yml")[1:])
-        self.write(".lab/on.yml", "include:\n  - addons/kafka/compose.yml\n")
+        self.write(".lab/on.yml", "include:\n  - .lab/catalogs/fixture/addons/kafka/compose.yml\n")
         for path in (".lab/on.yml", "docker-compose.yml", ".env"):
             found = files.sections(self.project, path)
             self.assertEqual((found[1], [section["title"] for section in found[2:]]), (ON_SECTION, ["Kafka"]), path)
-        self.assertNotIn(ON_SECTION, files.sections(self.project, "addons/kafka/compose.yml"))
+        self.assertNotIn(ON_SECTION, files.sections(self.project, ".lab/catalogs/fixture/addons/kafka/compose.yml"))
         self.assertEqual(files.read(".lab/on.yml")["content"],
-                         "include:\n  - addons/kafka/compose.yml\n")
+                         "include:\n  - .lab/catalogs/fixture/addons/kafka/compose.yml\n")
 
     def test_a_env_file_shows_what_its_add_on_shows(self):
-        hybrid = [("Hybrid gateway", False, ["addons/hybrid/compose.yml", "addons/hybrid/.env"])]
-        self.assertEqual(self.sections("addons/hybrid/.env"), hybrid)
-        self.assertEqual(self.sections("addons/hybrid/compose.yml"), hybrid)
-        self.assertEqual(files.sections(self.project, "addons/hybrid/.env")[1]["files"][1],
-                         {"path": "addons/hybrid/.env", "name": ".env", "kind": "env"})
+        hybrid = [("Hybrid gateway", False, [".lab/catalogs/fixture/addons/hybrid/compose.yml", ".lab/catalogs/fixture/addons/hybrid/.env"])]
+        self.assertEqual(self.sections(".lab/catalogs/fixture/addons/hybrid/.env"), hybrid)
+        self.assertEqual(self.sections(".lab/catalogs/fixture/addons/hybrid/compose.yml"), hybrid)
+        self.assertEqual(files.sections(self.project, ".lab/catalogs/fixture/addons/hybrid/.env")[1]["files"][1],
+                         {"path": ".lab/catalogs/fixture/addons/hybrid/.env", "name": ".env", "kind": "env"})
 
     def test_what_belongs_to_this_machine_shows_like_the_rest(self):
         own(self.project)
         self.found("addon", "local/whoami")
         self.found("playground", "local/sandbox")
         self.project["addons"]["local/whoami"]["settings"] = self.project["addons"]["hybrid"]["settings"]
-        whoami = ("Whoami", True, ["addons/local/whoami/compose.yml", "addons/local/whoami/.env"])
-        self.assertEqual(self.sections("playgrounds/local/sandbox/compose.yml", playground="local/sandbox"),
-                         [("Sandbox", True, ["playgrounds/local/sandbox/compose.yml"]), whoami])
-        self.assertEqual(self.sections("addons/local/whoami/.env", ["local/whoami"]), [whoami])
-        self.assertEqual(files._variables(self.project, "addons/local/whoami/.env")[0]["key"], "HYBRID_CLOUD_TOKEN")
+        whoami = ("Whoami", True, [".lab/catalogs/local/addons/whoami/compose.yml", ".lab/catalogs/local/addons/whoami/.env"])
+        self.assertEqual(self.sections(".lab/catalogs/local/playgrounds/sandbox/compose.yml", playground="local/sandbox"),
+                         [("Sandbox", True, [".lab/catalogs/local/playgrounds/sandbox/compose.yml"]), whoami])
+        self.assertEqual(self.sections(".lab/catalogs/local/addons/whoami/.env", ["local/whoami"]), [whoami])
+        self.assertEqual(files._variables(self.project, ".lab/catalogs/local/addons/whoami/.env")[0]["key"], "HYBRID_CLOUD_TOKEN")
 
     def test_a_playground_shows_its_guide_next_to_its_compose_file(self):
-        guide = self.root / self.write("playgrounds/welcome/guide.md", "# Welcome\n")
-        welcome = [("Welcome", False, ["playgrounds/welcome/compose.yml", "playgrounds/welcome/guide.md"]),
-                    ("AI Agent Lens", False, ["addons/agent-lens/compose.yml"])]
-        self.assertEqual(self.sections("playgrounds/welcome/compose.yml"), welcome)
+        guide = self.root / self.write(".lab/catalogs/fixture/playgrounds/welcome/guide.md", "# Welcome\n")
+        welcome = [("Welcome", False, [".lab/catalogs/fixture/playgrounds/welcome/compose.yml", ".lab/catalogs/fixture/playgrounds/welcome/guide.md"]),
+                    ("AI Agent Lens", False, [".lab/catalogs/fixture/addons/agent-lens/compose.yml"])]
+        self.assertEqual(self.sections(".lab/catalogs/fixture/playgrounds/welcome/compose.yml"), welcome)
         # Opened itself, it shows the same
-        self.assertEqual(self.sections("playgrounds/welcome/guide.md"), welcome)
-        self.assertEqual(files.sections(self.project, "playgrounds/welcome/guide.md")[1]["files"][1],
-                         {"path": "playgrounds/welcome/guide.md", "name": "guide.md", "kind": "guide"})
+        self.assertEqual(self.sections(".lab/catalogs/fixture/playgrounds/welcome/guide.md"), welcome)
+        self.assertEqual(files.sections(self.project, ".lab/catalogs/fixture/playgrounds/welcome/guide.md")[1]["files"][1],
+                         {"path": ".lab/catalogs/fixture/playgrounds/welcome/guide.md", "name": "guide.md", "kind": "guide"})
         # Without one on disk, nothing is listed
         guide.unlink()
-        self.assertEqual(self.sections("playgrounds/welcome/compose.yml")[0][2], ["playgrounds/welcome/compose.yml"])
+        self.assertEqual(self.sections(".lab/catalogs/fixture/playgrounds/welcome/compose.yml")[0][2], [".lab/catalogs/fixture/playgrounds/welcome/compose.yml"])
 
     def test_a_file_that_does_not_load_is_still_shown(self):
         # Under its id, so that it can be repaired
-        self.assertEqual(self.sections("addons/broken/compose.yml"),
-                         [("broken", False, ["addons/broken/compose.yml"])])
+        self.assertEqual(self.sections(".lab/catalogs/fixture/addons/broken/compose.yml"),
+                         [("broken", False, [".lab/catalogs/fixture/addons/broken/compose.yml"])])
 
     def test_what_is_not_a_file_of_the_project_is_refused(self):
         self.state = on(self.project)
-        for path in ("addons/nothing/compose.yml", "setups/events.env", "setups/.env", "../.env", "",
+        for path in (".lab/catalogs/fixture/addons/nothing/compose.yml", ".lab/catalogs/fixture/setups/events.env", "setups/.env", "../.env", "",
                      None):
             with self.subTest(path=path), self.assertRaisesRegex(ValueError, "Not a file of this project"):
                 files.sections(self.project, path)
@@ -193,7 +194,7 @@ class Checked(Case):
         self.patch(compose, "scratch", lambda: self.root / "generated")
         for path in ("docker-compose.yml", KAFKA, FEDERATION):
             self.write(path, "services: {}\n")
-        self.copy = self.root / "addons/kafka/.compose.yml.check.yml"
+        self.copy = self.root / ".lab/catalogs/local/addons/kafka/.compose.yml.check.yml"
 
     def validate(self, code, errors, project=PROJECT):
         """What validate() answers when Compose prints these lines, and what Compose was given."""
@@ -216,17 +217,17 @@ class Checked(Case):
     def test_what_includes_the_file_is_left_out(self):
         # Kafka Desk and the welcome bring Kafka as it is on disk: Compose would merge it with the edited text
         project = {"addons": {**PROJECT["addons"],
-                              "kafka-desk": {"kind": "addon", "file": "addons/kafka-desk/compose.yml",
-                                                "needs": ["kafka"]}},
-                   "playgrounds": {"welcome": {"kind": "playground", "file": "playgrounds/welcome/compose.yml",
-                                                "addons": ["kafka", "kafka-desk"], "setups": []}}}
+                              "kafka-desk": {"kind": "addon", "file": ".lab/catalogs/local/addons/kafka-desk/compose.yml",
+                                                "needs": ["local/kafka"]}},
+                   "playgrounds": {"welcome": {"kind": "playground", "file": ".lab/catalogs/local/playgrounds/welcome/compose.yml",
+                                                "addons": ["local/kafka", "local/kafka-desk"], "setups": []}}}
         _, given = self.validate(0, "", project)
         self.assertEqual(given["include"], f'include:\n  - "{self.copy}"\n  - "{self.root / FEDERATION}"\n')
         # A setup is brought by the playgrounds that include it
-        self.assertEqual(files._including(project, "setups/events.yml"), set())
-        project["playgrounds"]["welcome"]["setups"] = ["events"]
-        self.assertEqual(files._including(project, "setups/events.yml"), {"playgrounds/welcome/compose.yml"})
-        self.assertEqual(files._including(project, "playgrounds/welcome/compose.yml"), set())
+        self.assertEqual(files._including(project, ".lab/catalogs/local/setups/events.yml"), set())
+        project["playgrounds"]["welcome"]["setups"] = ["local/events"]
+        self.assertEqual(files._including(project, ".lab/catalogs/local/setups/events.yml"), {".lab/catalogs/local/playgrounds/welcome/compose.yml"})
+        self.assertEqual(files._including(project, ".lab/catalogs/local/playgrounds/welcome/compose.yml"), set())
 
     def test_checking_again_leaves_one_generated_file(self):
         self.validate(0, "")
@@ -297,14 +298,14 @@ class Checked(Case):
         self.assertEqual((self.root / KAFKA).read_text(encoding="utf-8"), "services: {}\n")
 
     def test_a_guide_is_saved_without_compose(self):
-        guide = self.write("playgrounds/welcome/guide.md", "# Welcome\n")
-        self.write("playgrounds/welcome/compose.yml", "services: {}\n")
+        guide = self.write(".lab/catalogs/local/playgrounds/welcome/guide.md", "# Welcome\n")
+        self.write(".lab/catalogs/local/playgrounds/welcome/compose.yml", "services: {}\n")
         with mock.patch.object(compose, "run", side_effect=AssertionError("Compose was called")):
             self.assertEqual(files.validate(PROJECT, guide, "not: [yaml"), {"valid": True, "problems": []})
             saved = files.save(PROJECT, guide, "# Welcome\n\nStep one\n", files._version(guide))
             # The guide of a playground that is not found is no file of the project
             with self.assertRaisesRegex(ValueError, "Not a compose file"):
-                files.read("playgrounds/other/guide.md")
+                files.read(".lab/catalogs/local/playgrounds/other/guide.md")
         self.assertEqual((self.root / guide).read_text(encoding="utf-8"), "# Welcome\n\nStep one\n")
         self.assertEqual(saved["content"], "# Welcome\n\nStep one\n")
 
@@ -359,11 +360,11 @@ class Checked(Case):
         self.assertEqual(before, files._version(".env"))
         envfiles.write(".env", {"APIM_VERSION": "4.13.0"})
         self.assertNotEqual(before, files._version(".env"))
-        self.assertEqual(files._version("addons/hybrid/.env"), files._version("addons/none/.env"))
+        self.assertEqual(files._version(".lab/catalogs/local/addons/hybrid/.env"), files._version(".lab/catalogs/local/addons/none/.env"))
 
     def test_the_on_file_is_checked_as_compose_reads_it(self):
         # On the core, as the second file: it may hold more than an include list
-        self.write(".lab/on.yml", "include:\n  - addons/kafka/compose.yml\n")
+        self.write(".lab/on.yml", "include:\n  - .lab/catalogs/local/addons/kafka/compose.yml\n")
         given = {}
 
         def run(cmd, timeout):
@@ -378,16 +379,16 @@ class Checked(Case):
         self.assertFalse((self.root / ".lab/.on.yml.check.yml").exists())
 
     def test_settings_form(self):
-        project = {"core_variables": [], "addons": {"kafka": {"env_file": "addons/kafka/.env", "settings": [
+        project = {"core_variables": [], "addons": {"kafka": {"env_file": ".lab/catalogs/local/addons/kafka/.env", "settings": [
             {"key": "KAFKA_TOKEN", "default": None, "required": True, "comment": "Access token", "secret": True},
             {"key": "KAFKA_THEME", "default": "dark", "required": False, "comment": "Theme", "secret": False}]}}}
-        (self.root / "addons/kafka/.env").write_text("KAFKA_TOKEN=abc\n", encoding="utf-8")
-        form = files.settings(project, "addons/kafka/.env")
+        (self.root / ".lab/catalogs/local/addons/kafka/.env").write_text("KAFKA_TOKEN=abc\n", encoding="utf-8")
+        form = files.settings(project, ".lab/catalogs/local/addons/kafka/.env")
         self.assertEqual(sorted(form), ["sections", "version"])
         self.assertEqual([(s["title"], s["groups"][0]["vars"][0]["value"]) for s in form["sections"]],
                          [("Secrets", "abc"), ("Settings", "")])
         # Only a .env of the project is a form: without a file, it is not the core's
-        for file in ("addons/other/.env", "", None):
+        for file in (".lab/catalogs/local/addons/other/.env", "", None):
             with self.subTest(file=file), self.assertRaisesRegex(ValueError, "Not an env file of this project"):
                 files.settings(project, file)
         self.assertEqual(files.settings(project, ".env"), {"sections": [], "version": files._version(".env")})
@@ -398,14 +399,15 @@ class Drafts(Case):
 
     def setUp(self):
         self.folder(compose, envfiles, files, paths)
+        fixtures.default(self)
         (self.root / "generated").mkdir()
         self.patch(compose, "scratch", lambda: self.root / "generated")
         self.project, self.state = lab(), None
         self.patch(layers, "current", lambda project: self.state or on(project))
-        for path, text in (("docker-compose.yml", "services: {}\n"), ("addons/kafka/compose.yml", "services: {}\n"),
-                           ("addons/kafka-desk/compose.yml", "include:\n  - ../kafka/compose.yml\n"),
-                           ("addons/jade/compose.yml", "services: {}\n"), ("addons/hybrid/compose.yml", ""),
-                           ("playgrounds/welcome/compose.yml",
+        for path, text in (("docker-compose.yml", "services: {}\n"), (".lab/catalogs/local/addons/kafka/compose.yml", "services: {}\n"),
+                           (".lab/catalogs/local/addons/kafka-desk/compose.yml", "include:\n  - ../kafka/compose.yml\n"),
+                           (".lab/catalogs/local/addons/jade/compose.yml", "services: {}\n"), (".lab/catalogs/local/addons/hybrid/compose.yml", ""),
+                           (".lab/catalogs/local/playgrounds/welcome/compose.yml",
                             "include:\n  - ../../addons/kafka-desk/compose.yml\n")):
             self.write(path, text)
         self.read = []   # what Compose was given: (its -f arguments, the copies there were, the values it was given)
@@ -421,7 +423,7 @@ class Drafts(Case):
         self.write(".lab/on.yml", "include:\n" + "".join(f"  - {entry}\n" for entry in entries))
 
     def test_a_file_of_the_core(self):
-        self.on_file("addons/jade/compose.yml")
+        self.on_file(".lab/catalogs/local/addons/jade/compose.yml")
         self.assertEqual(files.draft_hashes(self.project, "docker-compose.yml", "edited"), ({"kafka": "new"}, True))
         args, copies, _ = self.read[-1]
         self.assertEqual(args, ["-f", ".docker-compose.yml.effects.yml", "-f", ".lab/on.yml"])
@@ -437,41 +439,41 @@ class Drafts(Case):
         # check reads
         ignored = [line.strip() for line in (paths.LAB_UI_DIR.parent / ".gitignore").read_text(encoding="utf-8").splitlines()
                    if line.strip() and not line.startswith("#")]
-        for copy in (files._copy("addons/kafka/compose.yml"), "addons/kafka/.compose.yml.check.yml"):
+        for copy in (files._copy(".lab/catalogs/local/addons/kafka/compose.yml"), ".lab/catalogs/local/addons/kafka/.compose.yml.check.yml"):
             name = copy.split("/")[-1]
             self.assertTrue(any(fnmatch.fnmatch(name, pattern) for pattern in ignored), name)
 
     def test_a_file_the_on_file_includes_through_others(self):
         # The welcome includes Kafka Desk, which includes Kafka: each on the way is a copy that includes the next
-        self.on_file("playgrounds/welcome/compose.yml", "addons/jade/compose.yml")
-        self.assertEqual(files.draft_hashes(self.project, "addons/kafka/compose.yml", "edited"),
+        self.on_file(".lab/catalogs/local/playgrounds/welcome/compose.yml", ".lab/catalogs/local/addons/jade/compose.yml")
+        self.assertEqual(files.draft_hashes(self.project, ".lab/catalogs/local/addons/kafka/compose.yml", "edited"),
                          ({"kafka": "new"}, True))
         args, copies, _ = self.read[-1]
         self.assertEqual(copies, {
-            "addons/kafka/.compose.yml.effects.yml": "edited",
-            "addons/kafka-desk/.compose.yml.effects.yml": "include:\n  - ../kafka/.compose.yml.effects.yml\n",
-            "playgrounds/welcome/.compose.yml.effects.yml":
+            ".lab/catalogs/local/addons/kafka/.compose.yml.effects.yml": "edited",
+            ".lab/catalogs/local/addons/kafka-desk/.compose.yml.effects.yml": "include:\n  - ../kafka/.compose.yml.effects.yml\n",
+            ".lab/catalogs/local/playgrounds/welcome/.compose.yml.effects.yml":
                 "include:\n  - ../../addons/kafka-desk/.compose.yml.effects.yml\n"})
         generated = (self.root / args[-1]).read_text(encoding="utf-8")
-        self.assertEqual(generated, f'include:\n  - "{self.root}/playgrounds/welcome/.compose.yml.effects.yml"\n'
-                                    f'  - "{self.root}/addons/jade/compose.yml"\n')
+        self.assertEqual(generated, f'include:\n  - "{self.root}/.lab/catalogs/local/playgrounds/welcome/.compose.yml.effects.yml"\n'
+                                    f'  - "{self.root}/.lab/catalogs/local/addons/jade/compose.yml"\n')
         self.assertEqual(args[:2], ["-f", "docker-compose.yml"])
 
     def test_a_file_nothing_on_includes_changes_nothing(self):
-        self.on_file("addons/jade/compose.yml")
-        self.assertEqual(files.draft_hashes(self.project, "addons/kafka/compose.yml", "edited"), (None, True))
+        self.on_file(".lab/catalogs/local/addons/jade/compose.yml")
+        self.assertEqual(files.draft_hashes(self.project, ".lab/catalogs/local/addons/kafka/compose.yml", "edited"), (None, True))
         (self.root / ".lab/on.yml").unlink()
-        self.assertEqual(files.draft_hashes(self.project, "addons/kafka/compose.yml", "edited"), (None, True))
+        self.assertEqual(files.draft_hashes(self.project, ".lab/catalogs/local/addons/kafka/compose.yml", "edited"), (None, True))
         self.assertEqual(self.read, [])
 
     def test_what_cannot_be_known(self):
         # An on file with the user's own changes; a text that does not load
-        self.on_file("addons/kafka/compose.yml")
+        self.on_file(".lab/catalogs/local/addons/kafka/compose.yml")
         self.state = on(self.project, ["kafka"], locked=layers.LOCKED)
-        self.assertEqual(files.draft_hashes(self.project, "addons/kafka/compose.yml", "edited"), (None, False))
+        self.assertEqual(files.draft_hashes(self.project, ".lab/catalogs/local/addons/kafka/compose.yml", "edited"), (None, False))
         self.state = None
         self.patch(compose, "config_hashes", lambda files_=(), env=None, dotenv=None: None)
-        self.assertEqual(files.draft_hashes(self.project, "addons/kafka/compose.yml", "broken"), (None, False))
+        self.assertEqual(files.draft_hashes(self.project, ".lab/catalogs/local/addons/kafka/compose.yml", "broken"), (None, False))
 
     def test_values_of_a_settings_form(self):
         # The core's .env: a private copy with the values as a save writes them; Compose reads it in place
@@ -503,21 +505,23 @@ class Drafts(Case):
         given = []
         self.patch(compose, "config_hashes", lambda files_=(), env=None, dotenv=None: given.append(env) or {"x": "y"})
         hybrid = self.project["addons"]["hybrid"]["env_file"]
-        self.write("addons/hybrid/compose.yml", "services:\n  hybrid-gateway:\n    environment:\n"
+        self.write(".lab/catalogs/fixture/addons/hybrid/compose.yml", "services:\n  hybrid-gateway:\n    environment:\n"
                                                 "      TOKEN: ${HYBRID_CLOUD_TOKEN}\n")
         self.assertEqual(files.env_hashes(self.project, hybrid, {"HYBRID_CLOUD_TOKEN": "t"}), ({"x": "y"}, True))
-        self.write("addons/jade/compose.yml", "services:\n  jade:\n    environment:\n      T: ${HYBRID_CLOUD_TOKEN:-}\n")
+        self.write(".lab/catalogs/fixture/addons/jade/compose.yml", "services:\n  jade:\n    environment:\n      T: ${HYBRID_CLOUD_TOKEN:-}\n")
         self.assertEqual(files.env_hashes(self.project, hybrid, {"HYBRID_CLOUD_TOKEN": "t"}), (None, False))
-        self.write("addons/jade/compose.yml", "services: {}\n")
+        self.write(".lab/catalogs/fixture/addons/jade/compose.yml", "services: {}\n")
         self.write(".env", "HYBRID_CLOUD_TOKEN=core\n")
         self.assertEqual(files.env_hashes(self.project, hybrid, {"HYBRID_CLOUD_TOKEN": "t"}), (None, False))
         self.assertEqual(given, [{"HYBRID_CLOUD_TOKEN": "t"}])
 
     def test_what_a_change_may_recreate_when_it_cannot_be_known(self):
+        self.write(self.project["addons"]["kafka"]["file"])
+        self.write(self.project["addons"]["hybrid"]["file"])
         self.state = on(self.project, ["kafka"])
-        self.assertEqual(files.affected(self.project, "addons/kafka/compose.yml"),
+        self.assertEqual(files.affected(self.project, ".lab/catalogs/fixture/addons/kafka/compose.yml"),
                          ["kafka", "kafka-ui", "apim-gateway"])
-        self.assertEqual(files.affected(self.project, "addons/hybrid/.env"), ["hybrid-gateway"])
+        self.assertEqual(files.affected(self.project, ".lab/catalogs/fixture/addons/hybrid/.env"), ["hybrid-gateway"])
         self.assertEqual(sorted(files.affected(self.project, ".env")),
                          ["apim-gateway", "apim-management-api", "kafka", "kafka-ui", "mongodb"])
 
@@ -690,10 +694,9 @@ class Held(Git, Case):
 
     def test_a_project_with_no_catalog_has_nothing_held(self):
         self.folder(paths, compose, envfiles, files)
-        self.write("addons/kafka/compose.yml", "services: {}\n")
+        self.write(KAFKA, "services: {}\n")
         self.patch(compose, "run", return_value=(0, "", ""))
-        saved = files.save(PROJECT, "addons/kafka/compose.yml", "services: {kafka: {}}\n",
-                           files._version("addons/kafka/compose.yml"))
+        saved = files.save(PROJECT, KAFKA, "services: {kafka: {}}\n", files._version(KAFKA))
         self.assertEqual(saved["content"], "services: {kafka: {}}\n")
         self.inputs.assert_not_called()
 
@@ -932,8 +935,7 @@ class Shapes(Case):
                  SHOP.replace("compose.yml", ".env"): ("playground", "shop"), mine: ("addon", "local/scratch"),
                  mine.replace("compose.yml", ".env"): ("addon", "local/scratch")}
         listing = AssertionError("a folder was listed")
-        names = [(paths, "unit_ids"), (paths, "unit_files"), (paths, "ids"), (paths, "files"), (Path, "glob"),
-                 (Path, "rglob"), (os, "listdir"), (os, "scandir")]
+        names = [(paths, "ids"), (paths, "files"), (Path, "glob"), (Path, "rglob"), (os, "listdir"), (os, "scandir")]
         with contextlib.ExitStack() as stack:
             for where, name in names:
                 stack.enter_context(mock.patch.object(where, name, side_effect=listing))

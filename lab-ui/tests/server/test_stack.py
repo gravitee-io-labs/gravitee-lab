@@ -249,7 +249,7 @@ class StackActions(Case):
                                                     "since": None})
 
     def test_a_cloud_cores_start_all_does_not_write_the_on_file_over_what_another_job_wrote_since_its_plan(self):
-        self.folder(paths, compose, envfiles)
+        self.folder(paths, compose, envfiles, files={paths.DEFAULT_FILE: json.dumps({"schema": 1, "catalogs": [{"id": "fixture"}]})})
         swap = self.patch(stack.platforms, "swap_gateway")
         self.patch(stack.places, "invalidate")
         self.write(paths.ON_FILE, "include:\n  - playgrounds/welcome/compose.yml\n  - addons/kafka/compose.yml\n")

@@ -19,7 +19,7 @@ from .. import Case, fixtures, fake_cloud
 from .test_cloud import Scripted, serving
 from ..library.test_project import read
 
-ADDON_ENV = "addons/hybrid/.env"
+ADDON_ENV = ".lab/catalogs/fixture/addons/hybrid/.env"
 ACCOUNT = fake_cloud.ACCOUNT["id"]   # the Account ID a person copies from Cloud
 SECOND = fake_cloud.SECOND_ACCOUNT["id"]
 KEY = "PLATFORM_GRAVITEE_CLOUD_TOKEN"
@@ -29,7 +29,7 @@ FORM = {"key": "HYBRID_CLOUD_TOKEN", "default": None, "required": True, "secret"
 GATEWAY = {"platform": "cloud", "service": "apim-hybrid-gateway", "token": "HYBRID_CLOUD_TOKEN",
            "domains": ["localhost:8090", "apim-hybrid-gateway:8082"]}
 PROJECT = {"addons": {"hybrid": {"id": "hybrid", "env_file": ADDON_ENV, "settings": [FORM], "gateway": GATEWAY},
-                      "kafka": {"id": "kafka", "env_file": "addons/kafka/.env", "settings": [], "gateway": None}},
+                      "kafka": {"id": "kafka", "env_file": ".lab/catalogs/fixture/addons/kafka/.env", "settings": [], "gateway": None}},
            "playgrounds": {}, "core_variables": []}
 
 
@@ -43,7 +43,7 @@ class Platforms(Case):
 
     def setUp(self):
         self.folder(paths, envfiles, files, files={".env": "GRAVITEE_LICENSE=keep-me\n",
-                                                   "addons/hybrid/compose.yml": ""})
+                                                   ".lab/catalogs/fixture/addons/hybrid/compose.yml": ""})
         self.patch(platforms, "_refused", set())
         self.patch(platforms, "_kept", {})
         self.fake = fake_cloud.serve(connect_after=0)
@@ -1090,13 +1090,13 @@ class Gateways(Platforms):
         self.assertEqual(self.fake.state.gateways, {})
 
     def test_the_add_on_is_found_by_the_platform_it_says_and_not_by_its_name(self):
-        project = {**PROJECT, "addons": {"zz-other": {**PROJECT["addons"]["hybrid"], "env_file": "addons/zz/.env",
+        project = {**PROJECT, "addons": {"zz-other": {**PROJECT["addons"]["hybrid"], "env_file": ".lab/catalogs/fixture/addons/zz/.env",
                                                       "gateway": {**GATEWAY, "token": "ZZ_TOKEN"}},
                                          "hybrid": {"env_file": ADDON_ENV, "settings": [], "gateway": None}}}
-        self.write("addons/zz/compose.yml")
+        self.write(".lab/catalogs/fixture/addons/zz/compose.yml")
         self.create(project=project)
         (issued,) = self.fake.state.tokens.values()
-        self.assertEqual(envfiles.read("addons/zz/.env"), {"ZZ_TOKEN": issued})
+        self.assertEqual(envfiles.read(".lab/catalogs/fixture/addons/zz/.env"), {"ZZ_TOKEN": issued})
         self.assertFalse((self.root / ADDON_ENV).exists())
 
     def test_a_token_that_cannot_be_kept_removes_the_gateway_again(self):
@@ -1410,62 +1410,6 @@ class RunsHere(Platforms):
         self.assertEqual(self.held(), fake_cloud.GATEWAY_TOKEN)
 
 
-class Records(Platforms):
-    """What the playgrounds recorded of what they deployed to a platform goes with it, and only that."""
-
-    def setUp(self):
-        super().setUp()
-        self.add()
-        self.add("Gravitee Cloud 2", token=fake_cloud.SECOND_TOKEN, account=SECOND)
-        for pid in ("hotels", "local/mine"):
-            self.write(f"playgrounds/{pid}/compose.yml")
-            for platform in ("gravitee-cloud", "gravitee-cloud-2"):
-                self.write(f"playgrounds/{pid}/.state/{platform}/{DEV}/created.json", "[]")
-                self.write(f"playgrounds/{pid}/.state/{platform}/{DEV}/meta.json", "{}")
-            self.write(f"playgrounds/{pid}/.state/created.json", "[]")   # This machine's
-
-    def left(self, pid):
-        return sorted(path.relative_to(self.root / "playgrounds" / pid / ".state").as_posix()
-                      for path in (self.root / "playgrounds" / pid / ".state").rglob("*") if path.is_file())
-
-    def test_the_folder_of_the_platform_goes_from_every_playground_and_nothing_else(self):
-        platforms.remove("gravitee-cloud")
-        for pid in ("hotels", "local/mine"):
-            with self.subTest(pid=pid):
-                self.assertEqual(self.left(pid), ["created.json", f"gravitee-cloud-2/{DEV}/created.json",
-                                                  f"gravitee-cloud-2/{DEV}/meta.json"])
-
-    def test_a_link_is_not_followed(self):
-        outside = self.root / "elsewhere"
-        outside.mkdir()
-        (outside / "keep").write_text("x")
-        folder = self.root / "playgrounds/hotels/.state/gravitee-cloud"
-        for path in folder.rglob("*"):
-            if path.is_file():
-                path.unlink()
-        for path in sorted(folder.rglob("*"), reverse=True):
-            path.rmdir()
-        folder.rmdir()
-        folder.symlink_to(outside, target_is_directory=True)
-        platforms.remove("gravitee-cloud")
-        self.assertTrue((outside / "keep").exists())
-
-    def test_a_folder_that_cannot_be_deleted_is_said_after_the_platform_is_forgotten(self):
-        failing = self.patch(platforms.shutil, "rmtree", side_effect=OSError(13, "Permission denied"))
-        with self.assertRaises(RuntimeError) as caught:
-            platforms.remove("gravitee-cloud")
-        self.assertEqual(failing.call_count, 2)
-        self.assertRegex(str(caught.exception), r"^The platform was forgotten, but what the playgrounds recorded of it "
-                                                r"could not be deleted, delete these yourself: playgrounds/.*Permission denied")
-        self.assertEqual([record["id"] for record in platforms.read()], ["gravitee-cloud-2"])
-        self.assertEqual(envfiles.read(".env").get(KEY), None)
-
-    def test_a_playground_that_never_deployed_there_has_nothing_to_delete(self):
-        self.write("playgrounds/other/compose.yml")
-        platforms.remove("gravitee-cloud")
-        self.assertFalse((self.root / "playgrounds/other/.state").exists())
-
-
 class TwoAccounts(Platforms):
     def test_each_platform_keeps_its_own_tokens_and_asks_its_own_account(self):
         self.add()
@@ -1534,6 +1478,22 @@ class CatalogRecords(Platforms):
         self.assertTrue((outside / "gravitee-cloud" / "keep").exists())
         self.assertEqual(self.left("hotels"), ["created.json", f"gravitee-cloud-2/{DEV}/created.json"])
         self.assertEqual([record["id"] for record in platforms.read()], ["gravitee-cloud-2"])
+
+    def test_a_folder_that_cannot_be_deleted_is_said_after_the_platform_is_forgotten(self):
+        failing = self.patch(platforms.shutil, "rmtree", side_effect=OSError(13, "Permission denied"))
+        with self.assertRaises(RuntimeError) as caught:
+            platforms.remove("gravitee-cloud")
+        self.assertEqual(failing.call_count, len(self.IDS))
+        self.assertRegex(str(caught.exception), r"^The platform was forgotten, but what the playgrounds recorded of it "
+                                                r"could not be deleted, delete these yourself: .lab/catalogs/.*Permission denied")
+        self.assertEqual([record["id"] for record in platforms.read()], ["gravitee-cloud-2"])
+        self.assertEqual(envfiles.read(".env").get(KEY), None)
+
+    def test_a_playground_that_never_deployed_there_has_nothing_to_delete(self):
+        other = paths.unit_folder("playground", "other")
+        self.write(f"{other}/compose.yml")
+        platforms.remove("gravitee-cloud")
+        self.assertFalse((self.root / other / ".state").exists())
 
     def test_a_folder_of_a_place_that_is_a_link_to_another_folder_of_the_playground_is_not_followed(self):
         state = self.root / paths.unit_folder("playground", "hotels") / ".state"

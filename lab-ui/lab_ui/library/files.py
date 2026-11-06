@@ -128,8 +128,8 @@ def _refuse(path):
 
 def _in_catalog(path):
     """Whether a path is a unit file of a catalog's folder, git or folder, not of this machine's own items nor of the
-    project (the core, the on file, the layout before catalogs): the files that are checked from a copy in the scratch
-    folder, never from one beside them."""
+    project (the core, the on file): the files that are checked from a copy in the scratch folder, never from one beside
+    them."""
     unit = paths.unit_of(path) if isinstance(path, str) else None
     try:
         return unit is not None and paths.origin(unit[1]) not in (None, paths.LOCAL)

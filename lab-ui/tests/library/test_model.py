@@ -225,7 +225,7 @@ class Built(Case):
     """The state of the small project of test_layers, built by model.build() from what a test gives."""
 
     def setUp(self):
-        self.patch(paths, "default_ns", return_value=None)   # the units of the small project sit where they did before catalogs
+        self.patch(paths, "default_ns", return_value="fixture")
         self.project = lab()
         self.start(mock.patch.dict(license._known, packs=None))   # no license model: a feature is said by its id
         self.same = self.patch(compose, "same_image", return_value=False)   # another image id is another image
@@ -1127,7 +1127,7 @@ class State(Built):
             {"label": "Kafka", "url": "http://localhost/kafka", "port": None, "up": True, "service": "kafka"},
             {"label": "Kafka", "url": "http://localhost/kafka-ui", "port": None, "up": True, "service": "kafka-ui"}])
         self.assertEqual((addons["hybrid"]["env_file"], addons["hybrid"]["settings"]),
-                         ("addons/hybrid/.env", ["HYBRID_CLOUD_TOKEN"]))
+                         (".lab/catalogs/fixture/addons/hybrid/.env", ["HYBRID_CLOUD_TOKEN"]))
         setup = next(item for item in body["setups"] if item["id"] == "observability")
         # A setup with one add-on turned on is partly on: off, it says which
         self.assertEqual((setup["on"], setup["up"], setup["state"]["key"], setup["note"], setup["note_title"]),
@@ -1279,11 +1279,11 @@ class State(Built):
         self.assertEqual(problem["message"], "open .lab/catalogs/local/addons/x/.env: permission denied")
 
     def test_body(self):
-        self.project["problems"] = [{"file": "addons/x/compose.yml", "message": "broken"},
+        self.project["problems"] = [{"file": ".lab/catalogs/fixture/addons/x/compose.yml", "message": "broken"},
                                     {"file": "docker-compose.yml", "message": "x-gravitee must be a mapping"},
-                                    {"file": "setups/local/mine.yml", "message": "broken"},
-                                    {"file": "addons/local/x/compose.yml", "message": "broken"},
-                                    {"file": "playgrounds/local/x/compose.yml", "message": "broken"}]
+                                    {"file": ".lab/catalogs/local/setups/mine.yml", "message": "broken"},
+                                    {"file": ".lab/catalogs/local/addons/x/compose.yml", "message": "broken"},
+                                    {"file": ".lab/catalogs/local/playgrounds/x/compose.yml", "message": "broken"}]
         state = on(self.project, ["kafka"])
         state["problems"] = [{"file": ".lab/on.yml", "message": "addons/y no longer exists"}]
         containers = {**CORE, "kafka": container(status="Up 2 hours (healthy)"), "apim-gateway": exited(1),
@@ -1594,7 +1594,7 @@ class Catalogs(Built):
     def test_an_item_of_nowhere_says_nothing_of_a_place(self):
         item = self.item("addon", "kafka")
         self.assertEqual({key: item[key] for key in ROW}, {
-            "origin": None, "readonly": False, "display_file": "addons/kafka/compose.yml", "blocked": None,
+            "origin": None, "readonly": False, "display_file": ".lab/catalogs/fixture/addons/kafka/compose.yml", "blocked": None,
             "needs_catalogs": [], "compat": "ok", "twin": None, "uses_machine": []})
 
     def test_an_item_of_a_catalog_says_where_it_comes_from_and_what_it_uses_of_this_machine(self):
@@ -1767,7 +1767,6 @@ class Catalogs(Built):
         self.assertEqual(model.git_state(None), {"available": False, "version": None})
 
     def test_a_problem_of_a_file_of_a_git_catalog_is_not_one_the_editor_opens(self):
-        self.patch(paths, "default_ns", return_value="fixture")
         self.catalogs(partner={"kind": "git"}, shared={"kind": "folder"})
         self.project["problems"] = [{"file": ".lab/catalogs/partner/addons/x/compose.yml", "message": "broken"},
                                     {"file": ".lab/catalogs/shared/addons/x/compose.yml", "message": "broken"},

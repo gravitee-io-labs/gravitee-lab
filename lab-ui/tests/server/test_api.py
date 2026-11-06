@@ -35,7 +35,7 @@ from lab_ui.catalogs import gitx, trust
 from lab_ui.catalogs.registry import CatalogError
 from lab_ui.docker.jobs import Job, JobFailed, Jobs, awaited
 
-from .. import Case, fake_cloud, gitfixture
+from .. import Case, fake_cloud, fixtures, gitfixture
 
 from ..library import test_layers
 from ..gravitee.test_cloud import serving
@@ -1353,6 +1353,7 @@ class PlatformPlaces(PlatformFlow):
 
     def test_the_state_of_the_lab_never_asks_a_platform(self):
         """It is read from this machine's files: a platform is not asked for it, not even in the background."""
+        self.patch(paths, "default_ns", return_value="fixture")
         self.register()
         places.invalidate("my-account")
         self.patch(places, "TTL", 0)   # whatever it holds is old: a call that asks would read it again
@@ -1654,6 +1655,7 @@ class GatewayOnFile(GatewayCase):
     def setUp(self):
         super().setUp()
         self.folder(paths, compose, envfiles)
+        fixtures.default(self)
         self.patch(compose, "project_name", return_value="gravitee")
         self.write.side_effect = self.WRITE
 
@@ -1676,7 +1678,7 @@ class GatewayOnFile(GatewayCase):
 
     def test_a_gateway_s_job_does_not_write_the_on_file_over_what_another_job_wrote_since_its_plan(self):
         # Kiosk is on; the start is planned from that, then another tab turns Kiosk off (a job with no command)
-        self.on_file("include:\n  - addons/kiosk/compose.yml\n")
+        self.on_file("include:\n  - .lab/catalogs/fixture/addons/kiosk/compose.yml\n")
         self.state = {**test_layers.on(self.project, ["kiosk"]), "stamp": layers.stamp()}
         self.assertEqual(self.request("POST", f"{self.GATEWAY}/start", {})[0], 200)
         self.WRITE(None, [])
@@ -1687,7 +1689,7 @@ class GatewayOnFile(GatewayCase):
     def test_a_gateway_s_job_removes_what_goes_before_the_on_file_says_it_is_off(self):
         # Redpanda, on and running, says it cannot run with the gateway: the start stops it. The removal fails
         self.project["addons"]["redpanda"]["conflicts"]["hybrid"] = "same ports"
-        self.on_file("include:\n  - addons/redpanda/compose.yml\n")
+        self.on_file("include:\n  - .lab/catalogs/fixture/addons/redpanda/compose.yml\n")
         self.state = {**test_layers.on(self.project, ["redpanda"]), "stamp": layers.stamp()}
         self.running = test_layers.up("redpanda", project=self.project)
         accept = [layers.key("addon", "redpanda")]
@@ -1695,14 +1697,14 @@ class GatewayOnFile(GatewayCase):
         self.assertEqual(status, 200, body)
         job, ran = self.job(fails="rm")
         self.assertEqual((job.ok, ran[0][-5:]), (False, ["rm", "--stop", "--force", "-v", "redpanda"]))
-        self.assertIn("addons/redpanda/compose.yml", (self.root / paths.ON_FILE).read_text(),
+        self.assertIn(".lab/catalogs/fixture/addons/redpanda/compose.yml", (self.root / paths.ON_FILE).read_text(),
                       "Redpanda still runs: it is still on, never off and running")
 
     def test_a_gateway_s_job_whose_removal_fails_leaves_the_token_the_add_on_holds(self):
         # The add-on holds the token of the gateway of Test (here false) and is off; Redpanda, on and running, cannot run
         # with it: the start stops it, and the removal fails, before anything changed
         self.project["addons"]["redpanda"]["conflicts"]["hybrid"] = "same ports"
-        self.on_file("include:\n  - addons/redpanda/compose.yml\n")
+        self.on_file("include:\n  - .lab/catalogs/fixture/addons/redpanda/compose.yml\n")
         self.state = {**test_layers.on(self.project, ["redpanda"]), "stamp": layers.stamp()}
         self.running = test_layers.up("redpanda", project=self.project)
         self.where = {**self.where, "here": False, "serving": {"id": "client-lab/test", "name": "Test (Client lab)"}}
@@ -1711,12 +1713,12 @@ class GatewayOnFile(GatewayCase):
         self.assertEqual(status, 200, body)
         job, ran = self.job(fails="rm")
         self.assertEqual((job.ok, ran[0][-5:]), (False, ["rm", "--stop", "--force", "-v", "redpanda"]))
-        self.assertIn("addons/redpanda/compose.yml", (self.root / paths.ON_FILE).read_text())
+        self.assertIn(".lab/catalogs/fixture/addons/redpanda/compose.yml", (self.root / paths.ON_FILE).read_text())
         self.swap.assert_not_called()   # the job changed nothing: the add-on still holds the token of Test
 
     def test_a_gateway_s_job_swaps_the_token_once_what_goes_is_removed_and_before_the_on_file_is_written(self):
         self.project["addons"]["redpanda"]["conflicts"]["hybrid"] = "same ports"
-        self.on_file("include:\n  - addons/redpanda/compose.yml\n")
+        self.on_file("include:\n  - .lab/catalogs/fixture/addons/redpanda/compose.yml\n")
         self.state = {**test_layers.on(self.project, ["redpanda"]), "stamp": layers.stamp()}
         self.running = test_layers.up("redpanda", project=self.project)
         self.where = {**self.where, "here": False, "serving": {"id": "client-lab/test", "name": "Test (Client lab)"}}
@@ -1730,7 +1732,7 @@ class GatewayOnFile(GatewayCase):
         job.run()
         self.assertTrue(job.ok, job.error())
         self.assertEqual(order[:2], [("run", ["rm", "--stop", "--force", "-v", "redpanda"]),
-                                     ("swap", "include:\n  - addons/redpanda/compose.yml\n")])
+                                     ("swap", "include:\n  - .lab/catalogs/fixture/addons/redpanda/compose.yml\n")])
         self.assertNotIn("redpanda", (self.root / paths.ON_FILE).read_text())
 
 
@@ -2489,7 +2491,6 @@ class StateOfCatalogs(LabUI):
     """/api/state for a project with no catalog carries git, catalogs and content, and nothing is run to say them."""
 
     def test_a_project_with_no_catalog_has_the_three_keys_and_today_s_fields_and_asks_no_git_no_network(self):
-        from .. import fixtures
         fixtures.need_compose()
         self.folder(paths, api.project, compose, envfiles)
         fixtures.core(self)
@@ -2513,7 +2514,6 @@ class StateOfCatalogs(LabUI):
         self.assertEqual(state["problems"], [], "nothing is wrong with the files that record the catalogs")
 
     def test_the_files_that_record_the_catalogs_unreadable_are_a_problem_of_the_state_for_the_banner(self):
-        from .. import fixtures
         fixtures.need_compose()
         self.folder(paths, api.project, compose, envfiles)
         fixtures.core(self)

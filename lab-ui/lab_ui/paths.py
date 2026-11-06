@@ -33,7 +33,7 @@ CATALOGS_DIR = f"{LAB_DIR}/catalogs"
 IMPORTS_DIR = f"{LAB_DIR}/imports"   # where the Lab keeps the playgrounds imported as catalogs of their own, one folder each
 LOCAL = "local"
 # The catalogs this Lab is configured with, tracked at the root. The first owns the bare ids; without the file there is
-# no default catalog (default_ns) and the units are where they were before catalogs (_LEGACY_ID, below)
+# no default catalog (default_ns)
 DEFAULT_FILE = "catalogs.default.json"
 # What the Lab writes in a git install, and so the list of what is content in it: a file is, and only if it is listed
 MANIFEST = ".installed.json"
@@ -58,17 +58,7 @@ _IN_CATALOG = {kind: re.compile(template.replace(".", r"\.").format(ns=f"({NS})"
                for kind, template in CATALOG_FILES.items()}
 _FOLDER = {kind: template.split("/{ns}/")[1].split("/")[0] for kind, template in CATALOG_FILES.items()}
 
-# Before catalogs, which is while no default file exists: the units sit in the project's own folders, the personal ones
-# in the local/ folder of their kind, out of git, with the id local/<name>: that folder is not an add-on or a
-# playground itself. The suites that have not moved to catalogs still write this layout.
-_LEGACY_ID = "(local/[a-z0-9-]+|(?!local/)[a-z0-9-]+)"
-# kind: (the file of an id, the files that are of this kind)
-UNITS = {
-    "addon": ("addons/{}/compose.yml", re.compile(rf"addons/{_LEGACY_ID}/compose\.yml")),
-    "setup": ("setups/{}.yml", re.compile(rf"setups/{_LEGACY_ID}\.yml")),
-    "playground": ("playgrounds/{}/compose.yml", re.compile(rf"playgrounds/{_LEGACY_ID}/compose\.yml")),
-}
-KINDS = tuple(UNITS)
+KINDS = tuple(CATALOG_FILES)
 NOUNS = {"addon": "add-on", "setup": "setup", "playground": "playground"}   # a kind, in a sentence
 SKILL_FILE = ".agents/skills/{}/SKILL.md"   # what tells an AI agent how to do one thing in this project
 # In a playground's folder: the API definitions its seed imports, those of the platform's own environment (seed/apim)
@@ -134,8 +124,7 @@ def _is_id(uid, default):
 def is_id(uid):
     """Whether `uid` is the id of a unit: bare, local/<name> or @<namespace>/<name>. Not `@<default namespace>/<name>`,
     which is the bare id of that item, nor a reserved namespace (@local/x would be a second spelling of local/x). Only
-    the form is judged, never whether the unit exists. While no default file exists a bare id is still an id, because
-    the layout before catalogs serves it. A bare `local` is one too, as the grammar has it, though it shares its
+    the form is judged, never whether the unit exists. A bare `local` is one too, as the grammar has it, though it shares its
     address with the items of this machine (#/playgrounds/local/x is local/x, never `local` at a step x): the checks of
     `make check` refuse a shared unit of that name, so that none exists."""
     return _is_id(uid, default_ns() if isinstance(uid, str) and uid.startswith("@") else None)
@@ -183,32 +172,19 @@ def is_default(uid):
     return isinstance(uid, str) and _NAME.fullmatch(uid) is not None
 
 
-# The only wildcards unit_file turns an id into: every unit of a catalog, and those whose name is no dot file
-_GLOBS = ("*", "[!.]*")
-
-
 def _place(uid, default):
-    """(namespace, name) a path is made of, for an id that is one, under the default namespace `default`. The name may
-    be one of the wildcards of _GLOBS, which is how a caller lists the units of a catalog. NotFound otherwise, for the
-    second spelling of an id, and for a bare id with no default catalog."""
-    glob = next((g for g in _GLOBS if isinstance(uid, str) and (uid == g or uid.endswith(f"/{g}"))), None)
-    probe = uid[:-len(glob)] + "x" if glob else uid
-    if default is None or not _is_id(probe, default):
+    """(namespace, name) a path is made of, for an id that is one, under the default namespace `default`. NotFound otherwise,
+    for the second spelling of an id, and for a bare id with no default catalog."""
+    ns, name = _split(uid, default) if _is_id(uid, default) else (None, None)
+    if ns is None:
         raise NotFound("Not an id")
-    ns, name = _split(probe, default)
-    return ns, (name[:-1] + glob if glob else name)
+    return ns, name
 
 
 def unit_file(kind, uid):
     """The compose file of an add-on, setup or playground, relative to the project: in the folder of its catalog,
-    .lab/catalogs/<namespace>/. NotFound for what is not an id. While no default file exists, the layout before
-    catalogs: addons/<name>/compose.yml, with no @<namespace>/ id."""
-    default = default_ns()
-    if default is None:   # before catalogs
-        if isinstance(uid, str) and uid.startswith("@"):
-            raise NotFound("Not an id")
-        return UNITS[kind][0].format(uid)
-    ns, name = _place(uid, default)
+    .lab/catalogs/<namespace>/. NotFound for what is not an id."""
+    ns, name = _place(uid, default_ns())
     return CATALOG_FILES[kind].format(ns=ns, name=name)
 
 
@@ -216,14 +192,8 @@ def unit_of(path):
     """(kind, id) of a project-relative path, or None when it is not an add-on, setup or playground file: only
     .lab/catalogs/<namespace>/addons/<name>/compose.yml, setups/<name>.yml and playgrounds/<name>/compose.yml, nothing
     deeper, nothing in a staging folder (it starts with a dot, which a namespace cannot), nothing in a folder of the
-    project itself. While no default file exists, the layout before catalogs."""
+    project itself."""
     default = default_ns()
-    if default is None:   # before catalogs
-        for kind, (_, pattern) in UNITS.items():
-            m = pattern.fullmatch(path)
-            if m:
-                return kind, m.group(1)
-        return None
     for kind, pattern in _IN_CATALOG.items():
         m = pattern.fullmatch(path)
         if m:
@@ -288,7 +258,7 @@ def _found(kinds, default):
     """{kind: [ids]} on disk for these kinds: the default catalog's, this machine's, then each other catalog's by
     namespace, each group sorted. One pass, so that the registry is asked once per git install."""
     found = {kind: [] for kind in kinds}
-    for ns in [default, LOCAL, *_catalogs(default)]:
+    for ns in filter(None, [default, LOCAL, *_catalogs(default)]):
         listed = {kind: names(ns, kind) for kind in kinds}
         if not any(listed.values()):
             continue
@@ -304,33 +274,16 @@ def ids(kind):
     each other catalog's (@<namespace>/) by namespace, each group sorted. It is the set of units, not who wins a name:
     that is the precedence of registry.sources(), in the order catalogs were added. A git install lists the units its
     manifest vouches for, as registry.units_of says it, and only those; a folder catalog, a link and this machine's own
-    folder are listed as they are. While no default file exists, the layout before catalogs (unit_ids)."""
-    default = default_ns()
-    if default is None:   # before catalogs
-        return unit_ids(kind)
-    return _found((kind,), default)[kind]
+    folder are listed as they are."""
+    return _found((kind,), default_ns())[kind]
 
 
 def files():
     """The file of every add-on, setup and playground found on disk, kind by kind, in the order of ids."""
     default = default_ns()
-    if default is None:   # before catalogs
-        return unit_files()
     found = _found(KINDS, default)
     return [CATALOG_FILES[kind].format(ns=ns, name=name) for kind in KINDS
             for ns, name in (_place(uid, default) for uid in found[kind])]
-
-
-def unit_ids(kind):
-    """The ids found on disk, sorted. A name outside [a-z0-9-] is not a unit: dot files."""
-    patterns = [unit_file(kind, "*"), unit_file(kind, "local/*")]
-    found = (unit_of(f.relative_to(ROOT).as_posix()) for pattern in patterns for f in ROOT.glob(pattern))
-    return sorted(unit[1] for unit in found if unit)
-
-
-def unit_files():
-    """The file of every add-on, setup and playground found on disk."""
-    return [unit_file(kind, uid) for kind in KINDS for uid in unit_ids(kind)]
 
 
 def personal(uid):

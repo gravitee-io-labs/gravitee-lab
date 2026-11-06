@@ -22,7 +22,7 @@ from lab_ui import paths
 from lab_ui.catalogs import trust
 from lab_ui.docker.jobs import Job, JobFailed, awaited
 
-from .. import Case, fake_cloud
+from .. import Case, fake_cloud, fixtures
 
 from ..gravitee import test_places
 
@@ -71,7 +71,8 @@ class Playgrounds(Case):
 
     def setUp(self):
         self.folder(playgrounds, paths, playgrounds.projects)
-        (self.root / "playgrounds/welcome").mkdir(parents=True)
+        fixtures.default(self)
+        (self.root / ".lab/catalogs/fixture/playgrounds/welcome").mkdir(parents=True)
         self.project = lab()
         self.project["playgrounds"]["welcome"]["requires"]["plugins"] = {"apim": ["gravitee-policy-x"]}
         self.state, self.containers, self.written = on(self.project), running(*CORE), []
@@ -105,7 +106,7 @@ class Playgrounds(Case):
                          {"http-proxy", "llm-proxy", "cache-redis", "rate-limit", "api-key"})
 
     def test_a_playground_of_this_machine_has_its_guide_and_its_record(self):
-        folder = self.root / "playgrounds/local/sandbox"
+        folder = self.root / ".lab/catalogs/local/playgrounds/sandbox"
         (folder / ".state").mkdir(parents=True)
         (folder / "compose.yml").write_text("", encoding="utf-8")
         (folder / "guide.md").write_text("# Sandbox\n", encoding="utf-8")
@@ -117,7 +118,7 @@ class Playgrounds(Case):
 
     def test_created_is_what_the_seed_recorded_under_the_names_it_gives(self):
         self.assertEqual(playgrounds.created("welcome"), [])
-        record = self.root / "playgrounds/welcome/.state/created.json"
+        record = self.root / ".lab/catalogs/fixture/playgrounds/welcome/.state/created.json"
         record.parent.mkdir()
         record.write_text(json.dumps([{"kind": "api", "label": "APIs"}, {"kind": "api", "label": "APIs"},
                                       {"kind": "store", "label": "OpenFGA stores"}]), encoding="utf-8")
@@ -127,7 +128,7 @@ class Playgrounds(Case):
         self.assertEqual(playgrounds.created("welcome"), [])
 
     def test_a_record_that_stands_for_many_objects_counts_them_all(self):
-        record = self.root / "playgrounds/welcome/.state/created.json"
+        record = self.root / ".lab/catalogs/fixture/playgrounds/welcome/.state/created.json"
         record.parent.mkdir()
         record.write_text(json.dumps([{"kind": "entities", "label": "Customer entities", "count": 8},
                                       {"kind": "entities", "label": "Order entities", "count": 13},
@@ -137,7 +138,7 @@ class Playgrounds(Case):
                                                            {"what": "APIs", "count": 1}])
 
     def test_a_guide_is_read_as_a_catalogs_file_is(self):
-        folder = self.root / "playgrounds/local/sandbox"
+        folder = self.root / ".lab/catalogs/local/playgrounds/sandbox"
         folder.mkdir(parents=True)
         (folder / "compose.yml").write_text("", encoding="utf-8")
         self.assertEqual(playgrounds.guide("local/sandbox"), "", "none")
@@ -256,7 +257,7 @@ class Playgrounds(Case):
         for name, text in {"apim/apis/own.json": {"api": {"name": "Own", "listeners": [{"entrypoints": [{"type": "sse"}]}]}},
                            "environments/novo-nordisk/apis/batch-status.json": feed,
                            "environments/moderna/apis/batch-status.json": feed}.items():
-            self.write(f"playgrounds/welcome/seed/{name}", json.dumps(text))
+            self.write(f".lab/catalogs/fixture/playgrounds/welcome/seed/{name}", json.dumps(text))
         installed = {"feature_by_id": {"sse": "apim-en-entrypoint-sse"}}
         self.project["products"] = {"API Management": {}}
         self.patch(plugins, "installed", lambda project, product: installed)
@@ -275,10 +276,10 @@ class Playgrounds(Case):
         welcome = self.project["playgrounds"]["welcome"]
         welcome["requires"] = {}
         sse = json.dumps({"api": {"name": "Own", "listeners": [{"entrypoints": [{"type": "sse"}]}]}})
-        self.write("playgrounds/welcome/seed/apim/apis/own.json", sse)
+        self.write(".lab/catalogs/fixture/playgrounds/welcome/seed/apim/apis/own.json", sse)
         outside = self.root / "outside.json"
         outside.write_text(sse, encoding="utf-8")
-        apis = self.root / "playgrounds/welcome/seed/apim/apis"
+        apis = self.root / ".lab/catalogs/fixture/playgrounds/welcome/seed/apim/apis"
         os.symlink(outside, apis / "linked.json")
         os.mkfifo(apis / "piped.json")
         (apis / "huge.json").write_text(" " * (1 << 20) + sse, encoding="utf-8")
@@ -292,11 +293,11 @@ class Playgrounds(Case):
         # A list, a trailing comma, an `api` that is a text: each is named, and what the other APIs use is still counted
         welcome = self.project["playgrounds"]["welcome"]
         welcome["requires"] = {}
-        self.write("playgrounds/welcome/seed/apim/apis/own.json",
+        self.write(".lab/catalogs/fixture/playgrounds/welcome/seed/apim/apis/own.json",
                    json.dumps({"api": {"name": "Own", "listeners": [{"entrypoints": [{"type": "sse"}]}]}}))
-        self.write("playgrounds/welcome/seed/apim/apis/list.json", json.dumps([{"api": {"name": "Listed"}}]))
-        self.write("playgrounds/welcome/seed/apim/apis/comma.json", '{"api": {"name": "Comma",}}')
-        self.write("playgrounds/welcome/seed/apim/apis/text.json", json.dumps({"api": "text", "plans": [{"security": {"type": "JWT"}}]}))
+        self.write(".lab/catalogs/fixture/playgrounds/welcome/seed/apim/apis/list.json", json.dumps([{"api": {"name": "Listed"}}]))
+        self.write(".lab/catalogs/fixture/playgrounds/welcome/seed/apim/apis/comma.json", '{"api": {"name": "Comma",}}')
+        self.write(".lab/catalogs/fixture/playgrounds/welcome/seed/apim/apis/text.json", json.dumps({"api": "text", "plans": [{"security": {"type": "JWT"}}]}))
         self.patch(plugins, "installed", lambda project, product: {"feature_by_id": {"sse": "apim-en-entrypoint-sse",
                                                                                      "jwt": "apim-en-plan-jwt"}})
         self.project["products"] = {"API Management": {}}
@@ -525,7 +526,7 @@ class Playgrounds(Case):
         hybrid = {"kind": "addon", "id": "hybrid"}
         self.assertEqual(playgrounds._addon_checks(self.project, welcome)[1:3], [
             {"name": "Hybrid gateway", "state": "warn", "detail": "Needs settings", "target": hybrid,
-             "file": "addons/hybrid/.env"},
+             "file": ".lab/catalogs/fixture/addons/hybrid/.env"},
             {"name": "AI Agent Lens", "state": "auto", "detail": "Turned on at start",
              "target": {"kind": "addon", "id": "agent-lens"}}])
         self.state = on(self.project, ["hybrid"])
@@ -582,7 +583,7 @@ class Playgrounds(Case):
         self.assertEqual([line for line in job.lines if not line.startswith("▸")],
                          ["Plugins of apim: gravitee-policy-x", "Add-ons: AI Agent Lens", "Starts: Welcome apps, AI Agent Lens",
                           "Stops: Jade", "Restarts: Gateway"])
-        self.assertTrue((self.root / "playgrounds/welcome/.state").is_dir())   # where the seed records
+        self.assertTrue((self.root / ".lab/catalogs/fixture/playgrounds/welcome/.state").is_dir())   # where the seed records
         kept.assert_called_once_with(self.project, "welcome")   # once all of it ended well: the versions it worked on
 
     def test_what_a_start_that_failed_was_on_is_not_kept(self):
@@ -871,7 +872,7 @@ class Playgrounds(Case):
 
         def meanwhile():
             (self.root / paths.ON_FILE).parent.mkdir(exist_ok=True)
-            (self.root / paths.ON_FILE).write_text("include:\n  - addons/kiosk/compose.yml\n", encoding="utf-8")
+            (self.root / paths.ON_FILE).write_text("include:\n  - .lab/catalogs/fixture/addons/kiosk/compose.yml\n", encoding="utf-8")
             return self.project
         self.patch(playgrounds.projects, "load", side_effect=meanwhile)
         playgrounds.start(self.project, "welcome", ["version:KIOSK"])
@@ -890,7 +891,7 @@ class Playgrounds(Case):
 
         def meanwhile():
             (self.root / paths.ON_FILE).parent.mkdir(exist_ok=True)
-            (self.root / paths.ON_FILE).write_text("include:\n  - addons/kiosk/compose.yml\n", encoding="utf-8")
+            (self.root / paths.ON_FILE).write_text("include:\n  - .lab/catalogs/fixture/addons/kiosk/compose.yml\n", encoding="utf-8")
             return self.project
         self.patch(playgrounds.projects, "load", side_effect=meanwhile)
         playgrounds.start(self.project, "welcome", ["version:KIOSK"])
@@ -947,7 +948,7 @@ class Playgrounds(Case):
 
     def record(self, *labels):
         """What the playground's seed recorded as created."""
-        record = self.root / "playgrounds/welcome" / playgrounds.CREATED_FILE
+        record = self.root / ".lab/catalogs/fixture/playgrounds/welcome" / playgrounds.CREATED_FILE
         record.parent.mkdir(exist_ok=True)
         record.write_text(json.dumps([{"kind": "api", "label": label} for label in labels]), encoding="utf-8")
         return record
@@ -1197,7 +1198,7 @@ class Playgrounds(Case):
 
     def test_a_start_that_stops_a_playground_deletes_what_it_created_when_asked_and_keeps_it_otherwise(self):
         with_cloud(self.project)   # a second playground, Hotels
-        (self.root / "playgrounds/hotels").mkdir(parents=True)
+        (self.root / ".lab/catalogs/fixture/playgrounds/hotels").mkdir(parents=True)
         self.on_and_running(*CORE)
         self.patch(playgrounds, "created", lambda pid, place=None: [{"what": "APIs", "count": 1}] if pid == "welcome" else [])
         accept = ["playground:welcome", "addon:agent-lens"]
@@ -1268,8 +1269,8 @@ class Playgrounds(Case):
         playgrounds.start(self.project, "welcome", [])
         _, steps, _ = self.started(self.jobs)
         ran(steps)
-        write.assert_called_once_with("welcome", [], {"playgrounds/welcome/compose.yml": None, "addons/agent-lens/compose.yml": None},
-                                      {}, blocked={"addons/jade/compose.yml": "Mounts the Docker socket"}, since=None)
+        write.assert_called_once_with("welcome", [], {".lab/catalogs/fixture/playgrounds/welcome/compose.yml": None, ".lab/catalogs/fixture/addons/agent-lens/compose.yml": None},
+                                      {}, blocked={".lab/catalogs/fixture/addons/jade/compose.yml": "Mounts the Docker socket"}, since=None)
         binds.assert_called_once()
         self.assertEqual(binds.call_args.args[1]["id"], "welcome")
 
@@ -1477,7 +1478,7 @@ VARIABLES = ["AIM_AUTOMATION_URL", "AIM_GAMMA_URL", "APIM_ENV", "APIM_GATEWAY_UR
              "STATE_DIR"]   # what places.seed_env gives a seed, by name
 UP = [*COMPOSE, "up", "-d", "--no-deps", "apim-hybrid-gateway", "hotels-api", "hybrid-redis"]
 ENVIRONMENT = row("environment", PLACE, DEVELOPMENT)
-STATE_FOLDER = "playgrounds/hotels/.state"
+STATE_FOLDER = ".lab/catalogs/fixture/playgrounds/hotels/.state"
 
 
 def seed(*more):
@@ -1494,6 +1495,7 @@ class Deploys(test_places.Places):
     def setUp(self):
         super().setUp()
         self.patch(playgrounds, "ROOT", self.root)
+        fixtures.default(self)
         self.project = lab()
         licensed(self.project, True)
         own(self.project)
@@ -1538,7 +1540,7 @@ class Deploys(test_places.Places):
 
     def record(self, place, *labels, pid="hotels"):
         """What the seed recorded as created, on This machine (no place) or in a place: its file."""
-        file = self.root / "playgrounds" / pid / ".state" / (place or "") / "created.json"
+        file = self.root / paths.unit_folder("playground", pid) / ".state" / (place or "") / "created.json"
         file.parent.mkdir(parents=True, exist_ok=True)
         file.write_text(json.dumps([{"kind": "api", "label": label} for label in labels]), encoding="utf-8")
         return file
@@ -1698,7 +1700,7 @@ class PlaceChecks(Deploys):
         self.state = on(self.project, missing=["agent-lens"])
         self.assertEqual(self.checks()["checks"][3:], [
             {"name": "AI Agent Lens", "state": "warn", "detail": "Needs settings",
-             "target": {"kind": "addon", "id": "agent-lens"}, "file": "addons/agent-lens/.env"},
+             "target": {"kind": "addon", "id": "agent-lens"}, "file": ".lab/catalogs/fixture/addons/agent-lens/.env"},
             {"name": "Ollama", "state": "warn", "detail": "Not reachable (refused)", "help": "Start it"}])
 
     def test_what_a_start_stops_is_said(self):
@@ -1888,7 +1890,7 @@ class Deploying(Deploys):
         self.execute()
         self.assertEqual(write.call_args.kwargs, {"blocked": {}, "since": None})
         # Written for the platform's gateway: the playground and what it brings, not the add-on that runs that gateway
-        self.assertEqual(write.call_args.args[2:], ({"playgrounds/hotels/compose.yml": "cloud"},
+        self.assertEqual(write.call_args.args[2:], ({".lab/catalogs/fixture/playgrounds/hotels/compose.yml": "cloud"},
                                                     {"cloud": platforms.retarget_names(self.project, "cloud")}))
         binds.assert_called_once()
 
@@ -2367,7 +2369,7 @@ class Deleting(Deploys):
     def test_a_stop_that_deletes_from_a_place_is_refused_while_an_entry_of_the_on_file_is_gone(self):
         # A personal add-on that is on had its folder deleted outside the Lab (unread). The seed run apart on a place names
         # no file: Compose reads the core and the on file, and would fail on the gone entry
-        gone = "addons/local/x/compose.yml does not exist"
+        gone = ".lab/catalogs/local/addons/x/compose.yml does not exist"
         self.ready()
         self.record(None, "APIs")
         self.record(PLACE, "APIs")

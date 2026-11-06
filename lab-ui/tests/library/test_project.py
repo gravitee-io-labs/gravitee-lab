@@ -1,5 +1,5 @@
 """project.build() on inputs shaped like what docker compose prints: no disk, no Docker. Then what tells that a file
-the project is read from changed, in a temporary folder. The first classes read the layout before catalogs (Legacy); the
+the project is read from changed, in a temporary folder. The first classes read units as the person's own (AsOwn); the
 last read the fixture catalogs (tests/data), as the Lab UI reads a machine with catalogs: from the fixtures with the real
 core (Compose renders the files, no daemon; a skip that shows without Compose 5) and from inputs made by hand."""
 
@@ -22,28 +22,28 @@ from lab_ui.catalogs import trust
 
 from .. import Case, fixtures
 
-CORE, KAFKA, CONSOLE = "docker-compose.yml", "addons/kafka/compose.yml", "addons/kafka-desk/compose.yml"
-JADE, OPENFGA = "addons/jade/compose.yml", "addons/openfga/compose.yml"
-INSPECTOR = "addons/agent-lens/compose.yml"
-EVENTS, MINE, WELCOME = "setups/event-streams.yml", "setups/local/mine.yml", "playgrounds/welcome/compose.yml"
-WHOAMI, SANDBOX = "addons/local/whoami/compose.yml", "playgrounds/local/sandbox/compose.yml"
-HYBRID, CLOUD = "addons/hybrid/compose.yml", "playgrounds/cloud/compose.yml"
+CORE, KAFKA, CONSOLE = "docker-compose.yml", ".lab/catalogs/fixture/addons/kafka/compose.yml", ".lab/catalogs/fixture/addons/kafka-desk/compose.yml"
+JADE, OPENFGA = ".lab/catalogs/fixture/addons/jade/compose.yml", ".lab/catalogs/fixture/addons/openfga/compose.yml"
+INSPECTOR = ".lab/catalogs/fixture/addons/agent-lens/compose.yml"
+EVENTS, MINE, WELCOME = ".lab/catalogs/fixture/setups/event-streams.yml", ".lab/catalogs/local/setups/mine.yml", ".lab/catalogs/fixture/playgrounds/welcome/compose.yml"
+WHOAMI, SANDBOX = ".lab/catalogs/local/addons/whoami/compose.yml", ".lab/catalogs/local/playgrounds/sandbox/compose.yml"
+HYBRID, CLOUD = ".lab/catalogs/fixture/addons/hybrid/compose.yml", ".lab/catalogs/fixture/playgrounds/cloud/compose.yml"
 
 
 HOST_SHAPE = "a list of checks, each with a name and a check URL, its expect and help in text"
 
 
-class Legacy(Case):
-    """A project as it was before catalogs: with no catalogs.default.json the units sit in addons/, setups/ and playgrounds/,
-    each kind with its personal ones in a folder `local`, and the units are read and shown together as they always were.
-    The repository has a default file now, so these cases ask for that layout: what they say must hold while it is served."""
+class AsOwn(Case):
+    """Units of the default catalog read as the person's own are: what is built from them, with no verdict of a catalog."""
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        patcher = mock.patch.object(paths, "default_ns", return_value=None)
-        patcher.start()
-        cls.addClassCleanup(patcher.stop)
+        for target, name, how in ((paths, "default_ns", {"return_value": "fixture"}), (project, "_tier", {"return_value": "local"}),
+                                  (project, "_apart", {"side_effect": lambda problems, default, given: (problems, {})})):
+            patcher = mock.patch.object(target, name, **how)
+            patcher.start()
+            cls.addClassCleanup(patcher.stop)
 
 
 def port(published, target=None, host_ip="127.0.0.1"):
@@ -233,7 +233,7 @@ def inputs():
         "guides": {"welcome": "# Welcome\n\n## 1. Semantic caching\ntext\n\n## 2.  Rate limiting \n\n"
                                "## Not numbered\n"},
         "seeds": {},   # what the seed folder of each playground holds, by name
-        "problems": [{"file": "addons/broken/compose.yml", "message": "yaml: line 3: did not find expected key"}],
+        "problems": [{"file": ".lab/catalogs/fixture/addons/broken/compose.yml", "message": "yaml: line 3: did not find expected key"}],
     })
 
 
@@ -284,7 +284,7 @@ def with_cloud():
     return given
 
 
-class Build(Legacy):
+class Build(AsOwn):
 
     @classmethod
     def setUpClass(cls):
@@ -353,7 +353,7 @@ class Build(Legacy):
 
     def test_a_core_service_that_two_includes_change_is_theirs(self):
         # Merged, the gateway is neither Kafka's nor Jade's: what each of them sets is still not the file's
-        given, demo = inputs(), "playgrounds/demo/compose.yml"
+        given, demo = inputs(), ".lab/catalogs/fixture/playgrounds/demo/compose.yml"
         gateway = {"ports": [port(9092)], "environment": {"gravitee_kafka_enabled": "true",
                                                           "gravitee_services_opentelemetry_enabled": "true"}}
         given["raw"][demo] = {"x-gravitee": {"kind": "playground", "name": "Demo"},
@@ -367,7 +367,7 @@ class Build(Legacy):
         addon = self.project["addons"]["agent-lens"]
         self.assertEqual({k: addon[k] for k in ("id", "kind", "name", "category", "description", "file", "env_file")},
                          {"id": "agent-lens", "kind": "addon", "name": "AI Agent Lens", "category": "AI",
-                          "description": "Live diagram", "file": INSPECTOR, "env_file": "addons/agent-lens/.env"})
+                          "description": "Live diagram", "file": INSPECTOR, "env_file": ".lab/catalogs/fixture/addons/agent-lens/.env"})
         self.assertEqual(addon["conflicts"], {"jade": "both take the gateway's OpenTelemetry exporter"})
         self.assertEqual(addon["requires"], {"license": ["apim-reporter-tcp"]})
         self.assertEqual(self.project["addons"]["jade"]["conflicts"], {})
@@ -409,7 +409,7 @@ class Build(Legacy):
         built = project.build(given)
         addon, playground = built["addons"]["local/whoami"], built["playgrounds"]["local/sandbox"]
         self.assertEqual((addon["file"], addon["env_file"], addon["services"]),
-                         (WHOAMI, "addons/local/whoami/.env", ["whoami"]))
+                         (WHOAMI, ".lab/catalogs/local/addons/whoami/.env", ["whoami"]))
         self.assertEqual([setting["key"] for setting in addon["settings"]], ["WHOAMI_NAME"])
         self.assertEqual((playground["file"], playground["setups"], playground["addons"], playground["services"]),
                          (SANDBOX, ["local/mine"], ["jade", "kafka", "kafka-desk", "local/whoami"], []))
@@ -556,11 +556,11 @@ class Build(Legacy):
 
     def test_problems_are_kept(self):
         self.assertEqual(self.project["problems"],
-                         [{"file": "addons/broken/compose.yml", "message": "yaml: line 3: did not find expected key"}])
+                         [{"file": ".lab/catalogs/fixture/addons/broken/compose.yml", "message": "yaml: line 3: did not find expected key"}])
         self.assertNotIn("broken", self.project["addons"])
 
 
-class Degraded(Legacy):
+class Degraded(AsOwn):
     """What does not load, or is not declared as it should be, is reported and the rest still builds."""
 
     def test_a_file_that_does_not_load_says_why_without_its_full_path(self):
@@ -731,7 +731,7 @@ class Degraded(Legacy):
         self.assertEqual(playground["apps"], playground["services"])
 
 
-class Platforms(Legacy):
+class Platforms(AsOwn):
     """What an add-on says of the gateway it runs."""
 
     def built(self, change=None):
@@ -837,7 +837,7 @@ class Platforms(Legacy):
                                   "name", "personal", "requires", "restarts", "seed", "services", "settings", "setups",
                                   "source", "tags", "terminal", "tested"}}
         platform = {"asks", "deploys_to", "cannot"}   # what a platform makes of each, from its files
-        # Where it comes from and whether it can start: none of a unit read before catalogs says anything of them
+        # Where it comes from and whether it can start: none of a unit of this machine says anything of them
         placed = {"catalog", "origin", "readonly", "display_file", "blocked", "needs_catalogs", "compat", "unknown", "twin",
                   "uses_machine", "verdict"}
         new = {"addons": {"gateway"} | platform | placed, "setups": platform | placed, "playgrounds": platform | placed}
@@ -863,7 +863,7 @@ def check(*gateways, environment="env"):
                           "version": version, "domains": []} for number, (scope, version) in enumerate(gateways)]}
 
 
-class Deployable(Legacy):
+class Deployable(AsOwn):
     """Where a playground can be deployed: judged from what it is and from what an environment runs, as its gateways
     say, never declared. The playground of with_cloud() is one that can go to an environment whose gateway runs API
     Management 4.12, once something of it is changed: one reason at a time, and each reason with a playground that does
@@ -1289,7 +1289,7 @@ class Deployable(Legacy):
         self.assertEqual((welcome["deploys_to"], welcome["cannot"]), ([], {"cloud": NOTHING}))
 
     def test_an_add_on_that_does_not_load_is_left_out(self):
-        self.given["includes"][CLOUD] = ["addons/broken/compose.yml"]   # its file is not among those that load
+        self.given["includes"][CLOUD] = [".lab/catalogs/fixture/addons/broken/compose.yml"]   # its file is not among those that load
         self.assertEqual(self.why(), [])
 
 
@@ -1521,12 +1521,12 @@ class Catalogs(Fixture):
         self.assertTrue(set(inputs["configs"]) >= {".lab/catalogs/fixture/addons/echo/compose.yml"})
 
 
-class Accounts(Legacy):
+class Accounts(AsOwn):
     """The accounts of a playground show the settings in them as they are now: the Lab UI's environment first, then the
     root .env, then the playground's own, else the default the value gives. Compose reads them so: the root .env wins
     over the .env of an included file, which only applies where the root sets nothing."""
 
-    OWN, CORE_ENV, OTHER = "playgrounds/welcome/.env", ".env", "addons/kafka/.env"
+    OWN, CORE_ENV, OTHER = ".lab/catalogs/fixture/playgrounds/welcome/.env", ".env", ".lab/catalogs/fixture/addons/kafka/.env"
 
     def password(self, text="${WELCOME_PASSWORD:-doe}", environ=None, **files):
         """The password of the playground's account, written `text`, with these variables in the environment and in
@@ -1560,7 +1560,7 @@ class Accounts(Legacy):
 
     def test_the_env_of_another_item_is_not_read(self):
         self.assertEqual(self.password(**{self.OTHER: {"WELCOME_PASSWORD": "kafka"},
-                                          "playgrounds/other/.env": {"WELCOME_PASSWORD": "other"}}), "doe")
+                                          ".lab/catalogs/fixture/playgrounds/other/.env": {"WELCOME_PASSWORD": "other"}}), "doe")
 
     def test_an_empty_value_is_no_value_for_a_default_with_a_colon(self):
         self.assertEqual(self.password(**{self.OWN: {"WELCOME_PASSWORD": ""}}), "doe")
@@ -1618,16 +1618,16 @@ class Accounts(Legacy):
         self.assertEqual(project.build(given)["playgrounds"]["welcome"]["accounts"], [])
 
 
-class Gathered(Legacy):
+class Gathered(AsOwn):
     """The variables the accounts are read with come from the disk and the process, and a change shows."""
 
     def test_the_env_files_of_the_core_and_of_each_add_on_and_playground_are_read(self):
         self.folder(paths, project, envfiles, files={
-            CORE: "", KAFKA: "", WELCOME: "", EVENTS: "", ".env": "A=1\n", "addons/kafka/.env": "B='two words'\n",
-            "playgrounds/welcome/.env": "WELCOME_PASSWORD=\"mine\"\n# comment\nEMPTY=\n"})
+            CORE: "", KAFKA: "", WELCOME: "", EVENTS: "", ".env": "A=1\n", ".lab/catalogs/fixture/addons/kafka/.env": "B='two words'\n",
+            ".lab/catalogs/fixture/playgrounds/welcome/.env": "WELCOME_PASSWORD=\"mine\"\n# comment\nEMPTY=\n"})
         self.assertEqual(project._env_values(), {
-            ".env": {"A": "1"}, "addons/kafka/.env": {"B": "two words"},
-            "playgrounds/welcome/.env": {"WELCOME_PASSWORD": "mine", "EMPTY": ""}})
+            ".env": {"A": "1"}, ".lab/catalogs/fixture/addons/kafka/.env": {"B": "two words"},
+            ".lab/catalogs/fixture/playgrounds/welcome/.env": {"WELCOME_PASSWORD": "mine", "EMPTY": ""}})
 
     def test_an_account_shows_a_change_of_an_env_file_the_next_time_the_project_is_loaded(self):
         self.folder(paths, project, envfiles, files=dict.fromkeys((CORE, WELCOME), ""))
@@ -1637,9 +1637,9 @@ class Gathered(Legacy):
         def shown():
             return project.load()["playgrounds"]["welcome"]["accounts"][0]["password"]
         self.assertEqual(shown(), "doe")
-        self.write("playgrounds/welcome/.env", "WELCOME_PASSWORD=first\n")
+        self.write(".lab/catalogs/fixture/playgrounds/welcome/.env", "WELCOME_PASSWORD=first\n")
         self.assertEqual(shown(), "first")
-        self.write("playgrounds/welcome/.env", "WELCOME_PASSWORD=second\n")
+        self.write(".lab/catalogs/fixture/playgrounds/welcome/.env", "WELCOME_PASSWORD=second\n")
         self.assertEqual(shown(), "second")
         self.write(".env", "WELCOME_PASSWORD=core\n")
         self.assertEqual(shown(), "core")   # the root one comes first
@@ -1648,10 +1648,10 @@ class Gathered(Legacy):
 
     def test_the_seed_folder_of_each_playground_is_read_by_name(self):
         self.folder(paths, project, files={
-            "playgrounds/welcome/seed/apim/apis/one.json": "{}", "playgrounds/welcome/seed/am/domain.yaml": "",
-            "playgrounds/welcome/seed/controls.yaml": "", "playgrounds/welcome/seed/.DS_Store": "",
-            "playgrounds/local/sandbox/seed/aim/agents/one.yaml": "", "playgrounds/empty/seed/.gitkeep": "",
-            "playgrounds/none/compose.yml": "", "playgrounds/file/seed": "not a folder"})
+            ".lab/catalogs/fixture/playgrounds/welcome/seed/apim/apis/one.json": "{}", ".lab/catalogs/fixture/playgrounds/welcome/seed/am/domain.yaml": "",
+            ".lab/catalogs/fixture/playgrounds/welcome/seed/controls.yaml": "", ".lab/catalogs/fixture/playgrounds/welcome/seed/.DS_Store": "",
+            ".lab/catalogs/local/playgrounds/sandbox/seed/aim/agents/one.yaml": "", ".lab/catalogs/fixture/playgrounds/empty/seed/.gitkeep": "",
+            ".lab/catalogs/fixture/playgrounds/none/compose.yml": "", ".lab/catalogs/fixture/playgrounds/file/seed": "not a folder"})
         self.assertEqual([project._seed_names(uid) for uid in ("welcome", "local/sandbox", "empty", "none", "file")],
                          [["am", "apim", "controls.yaml"], ["aim"], [], [], []])
 
@@ -1660,14 +1660,14 @@ class Gathered(Legacy):
             groups = [{"type": endpoint, "endpoints": [{"type": endpoint}]}] if endpoint else []
             return json.dumps({"api": {"listeners": [{"entrypoints": [{"type": entrypoint}]}], "endpointGroups": groups}})
         self.folder(paths, project, files={
-            "playgrounds/welcome/seed/apim/apis/one.json": api("http-proxy", "http-proxy"),
-            "playgrounds/welcome/seed/environments/novo-nordisk/apis/feed.json": api("sse", "solace"),
-            "playgrounds/welcome/seed/environments/beam/apis/feed.json": api("webhook", "solace"),
-            "playgrounds/welcome/seed/environments/beam/apis/broken.json": "not json",
-            "playgrounds/welcome/seed/environments/beam/apis/list.json": "[]",
-            "playgrounds/welcome/seed/environments/beam/apis/text.json": '{"api": "text", "plans": 3}',
-            "playgrounds/local/sandbox/seed/environments/moderna/apis/feed.json": api("websocket"),
-            "playgrounds/none/compose.yml": ""})
+            ".lab/catalogs/fixture/playgrounds/welcome/seed/apim/apis/one.json": api("http-proxy", "http-proxy"),
+            ".lab/catalogs/fixture/playgrounds/welcome/seed/environments/novo-nordisk/apis/feed.json": api("sse", "solace"),
+            ".lab/catalogs/fixture/playgrounds/welcome/seed/environments/beam/apis/feed.json": api("webhook", "solace"),
+            ".lab/catalogs/fixture/playgrounds/welcome/seed/environments/beam/apis/broken.json": "not json",
+            ".lab/catalogs/fixture/playgrounds/welcome/seed/environments/beam/apis/list.json": "[]",
+            ".lab/catalogs/fixture/playgrounds/welcome/seed/environments/beam/apis/text.json": '{"api": "text", "plans": 3}',
+            ".lab/catalogs/local/playgrounds/sandbox/seed/environments/moderna/apis/feed.json": api("websocket"),
+            ".lab/catalogs/fixture/playgrounds/none/compose.yml": ""})
         self.assertEqual(project._seed_uses("welcome"), {
             "entrypoint": ["http-proxy", "sse", "webhook"], "endpoint": ["http-proxy", "solace"], "policy": [],
             "resource": []})
@@ -1680,8 +1680,8 @@ class Gathered(Legacy):
 
     def test_the_seed_folders_are_gathered_with_the_playgrounds(self):
         self.folder(paths, project, envfiles, files={
-            CORE: "", WELCOME: "", "playgrounds/welcome/seed/apim/apis/one.json": "{}", "playgrounds/welcome/seed/am/x": "",
-            SANDBOX: "", "addons/kafka/seed/apim/x": ""})
+            CORE: "", WELCOME: "", ".lab/catalogs/fixture/playgrounds/welcome/seed/apim/apis/one.json": "{}", ".lab/catalogs/fixture/playgrounds/welcome/seed/am/x": "",
+            SANDBOX: "", ".lab/catalogs/fixture/addons/kafka/seed/apim/x": ""})
         self.patch(project, "_resolved", return_value={})
         self.patch(project, "_raw", lambda path: ({"services": {}}, None))
         self.patch(compose, "includes", return_value=[])
@@ -1698,7 +1698,7 @@ class Gathered(Legacy):
             self.assertEqual(project.gather()["environ"]["WELCOME_PASSWORD"], "shell")
 
 
-class License(Legacy):
+class License(AsOwn):
     """Whether the license of the core's .env lets the services that need one start, gathered with the other inputs and
     seen again by the next project once it is saved."""
 
@@ -1765,22 +1765,22 @@ class License(Legacy):
             self.assertEqual(gathered.call_count, 1)
 
 
-class Order(Legacy):
+class Order(AsOwn):
 
     def test_a_file_gives_its_services_as_it_writes_them_not_as_compose_sorts_them(self):
-        self.folder(project, files={"playgrounds/bank/compose.yml": (
+        self.folder(project, files={".lab/catalogs/fixture/playgrounds/bank/compose.yml": (
             "name: bank\n\nx-gravitee:\n  kind: playground\n\nservices:\n  bakery-web:   # the screen\n    image: web\n"
             "    labels:\n      a: b\n\n  # comment\n  bakery-api:\n    image: api\n  bakery-agent:\n    image: agent\n"
             "\nnetworks:\n  internal:\n    name: n\n")})
-        self.assertEqual(project._written("playgrounds/bank/compose.yml"), ["bakery-web", "bakery-api", "bakery-agent"])
-        self.assertEqual(project._written("playgrounds/missing/compose.yml"), [])
+        self.assertEqual(project._written(".lab/catalogs/fixture/playgrounds/bank/compose.yml"), ["bakery-web", "bakery-api", "bakery-agent"])
+        self.assertEqual(project._written(".lab/catalogs/fixture/playgrounds/missing/compose.yml"), [])
         config = {"services": {"bakery-agent": {}, "bakery-api": {}, "bakery-web": {}, "extra": {}, "core": {}}}
         # In the file's order, what it does not name after them, the core's services out
-        self.assertEqual(project._own("playgrounds/bank/compose.yml", config, [], {"core"}),
+        self.assertEqual(project._own(".lab/catalogs/fixture/playgrounds/bank/compose.yml", config, [], {"core"}),
                          ["bakery-web", "bakery-api", "bakery-agent", "extra"])
 
 
-class Tag(Legacy):
+class Tag(AsOwn):
 
     def test_the_tag_an_image_names(self):
         self.assertEqual([project.tag(image) for image in ("graviteeio/apim-gateway:4.12.20", "redis:8.0", "localhost:5000/team/app:1.2",
@@ -1793,17 +1793,17 @@ class Tag(Legacy):
             self.assertEqual(project.tag(image), "", image)
 
 
-class Fingerprint(Legacy):
+class Fingerprint(AsOwn):
 
     def test_changes_when_a_file_it_reads_changes_appears_or_goes(self):
         root = self.folder(paths, project, files=dict.fromkeys((CORE, KAFKA, WELCOME), ""))
-        env, guide = root / "addons/kafka/.env", root / "playgrounds/welcome/guide.md"
+        env, guide = root / ".lab/catalogs/fixture/addons/kafka/.env", root / ".lab/catalogs/fixture/playgrounds/welcome/guide.md"
         seen = [project.fingerprint()]
         for change in (lambda: env.write_text("A=1\n", encoding="utf-8"), lambda: guide.write_text("# Welcome\n", encoding="utf-8"),
                        lambda: env.write_text("A=22\n", encoding="utf-8"), guide.unlink):
             change()
             seen.append(project.fingerprint())
-        self.write("addons/kafka/notes.md", "Not read")
+        self.write(".lab/catalogs/fixture/addons/kafka/notes.md", "Not read")
         seen.append(project.fingerprint())
         self.assertEqual(len(set(seen)), len(seen) - 1)
         self.assertEqual(seen[-1], seen[-2])
@@ -1811,7 +1811,7 @@ class Fingerprint(Legacy):
 
     def test_a_seed_folder_decides_where_a_playground_goes_so_its_entries_are_part_of_it(self):
         root = self.folder(paths, project, files=dict.fromkeys((CORE, WELCOME), ""))
-        seed, seen = root / "playgrounds/welcome/seed", [project.fingerprint()]
+        seed, seen = root / ".lab/catalogs/fixture/playgrounds/welcome/seed", [project.fingerprint()]
         for at, change in enumerate((seed.mkdir, (seed / "apim").mkdir, (seed / "am").mkdir, (seed / "am").rmdir), 1):
             change()
             os.utime(seed, ns=(at * 10**9, at * 10**9))   # a filesystem may not tell two changes a moment apart
@@ -1819,7 +1819,7 @@ class Fingerprint(Legacy):
         self.assertEqual(len(set(seen)), len(seen))
 
 
-class Saved(Legacy):
+class Saved(AsOwn):
     """What each service of what is on is, as saved: the hashes Compose makes them from, the images their tags name."""
 
     def setUp(self):
@@ -1841,7 +1841,7 @@ class Saved(Legacy):
         project.saved(self.project)
         project.saved(self.project)
         self.assertEqual(self.hashes.call_count, 1)
-        self.write(".lab/on.yml", "include:\n  - addons/kafka/compose.yml\n")   # what is on changed
+        self.write(".lab/on.yml", "include:\n  - .lab/catalogs/fixture/addons/kafka/compose.yml\n")   # what is on changed
         project.saved(self.project)
         self.write(KAFKA, "services: {}\n")
         project.saved(self.project)
@@ -2942,25 +2942,16 @@ class Fresh(Case):
         self.assertEqual(built["platform"], {"gateways": {"cloud": None}})
 
     @unittest.skipUnless(fixtures.have_compose(), "the Docker CLI with Compose 5 or later is not installed")
-    def test_with_no_default_file_the_project_is_what_it_was(self):
-        # Before catalogs the units sit in the folders of their kind and are read together, none of them judged
+    def test_with_no_default_file_the_units_of_this_machine_stay_and_no_other_folder_is_read(self):
+        unit = "x-gravitee: {kind: addon, name: Kafka}\nservices:\n  kafka:\n    image: busybox\n"
         self.folder(paths, project, compose, envfiles, files={
             CORE: "name: lab\nx-gravitee: {name: Lab, groups: [Core]}\nservices:\n  core:\n    image: busybox\n    labels: "
                   "{io.gravitee.group: Core}\n",
-            KAFKA: "x-gravitee: {kind: addon, name: Kafka}\nservices:\n  kafka:\n    image: busybox\n"})
+            "addons/kafka/compose.yml": unit, ".lab/catalogs/local/addons/kafka/compose.yml": unit})
         self.assertIsNone(paths.default_ns())
-        with mock.patch.object(compose, "resolved", wraps=compose.resolved) as resolved, \
-                mock.patch.object(project, "_alone") as alone:
-            inputs = project.gather()
-        built = project.build(inputs)
-        resolved.assert_called_once_with(compose.all_files([KAFKA]))
-        alone.assert_not_called()
-        self.assertEqual((inputs["default"], inputs["screened"], inputs["configs"], inputs["catalog_problems"]), (None, {}, {}, {}))
-        kafka = built["addons"]["kafka"]
-        self.assertEqual((kafka["origin"], kafka["blocked"], kafka["verdict"], kafka["catalog"], kafka["needs_catalogs"]),
-                         (None, None, None, None, []))
-        self.assertEqual((built["catalogs"], built["catalog_problems"], built["problems"]), ({}, {}, []))
-        self.assertEqual(built["platform"], {"gateways": {"cloud": None}})
+        built = project.build(project.gather())
+        self.assertEqual(list(built["addons"]), ["local/kafka"])
+        self.assertIsNone(built["addons"]["local/kafka"]["blocked"])
 
 
 class Fingerprints(Case):
@@ -3207,10 +3198,7 @@ class Catalog(Case):
                                  ("addons", "@first/two"): "addons/two/compose.yml", ("addons", "one"): "addons/one/compose.yml"})
         self.assertEqual(built["addons"]["local/mine"]["file"], ".lab/catalogs/local/addons/mine/compose.yml", "the file is its own")
 
-    def test_a_unit_of_the_layout_before_catalogs_says_its_file(self):
-        for file in ("addons/kafka/compose.yml", "addons/local/whoami/compose.yml", "setups/local/mine.yml"):
-            with self.subTest(file=file):
-                self.assertEqual(project._placed("x", file, {"default": None})["display_file"], file)
+    def test_a_unit_of_this_machine_says_its_file_in_its_catalog(self):
         self.assertEqual(project._placed("local/x", ".lab/catalogs/local/addons/x/compose.yml", {"default": "fixture"})["display_file"],
                          "addons/x/compose.yml")
 
@@ -3816,6 +3804,7 @@ class Reading(Case):
         with mock.patch.object(project, "_read", wraps=project._read) as read:
             self.assertEqual(project._seed_scan("unit/seed"), ([], ["Reads files outside its folder"]))
         read.assert_not_called()
+        self.patch(paths, "default_ns", return_value="fixture")
         self.assertEqual(project._seed_names("unit", safe=True), [])
 
     def test_a_catalog_file_that_includes_something_is_not_read_for_the_names_its_units_share(self):
