@@ -27,14 +27,6 @@ An add-on is one capability on top of the core platform: a folder with its `comp
    |---|---|
    | Personal | `.lab/catalogs/local/addons/<id>/` |
    | In a folder catalog | `<the folder of the catalog>/addons/<id>/` |
-
-   | It includes | Written as |
-   |---|---|
-   | An add-on of the same catalog | `../kafka/compose.yml` |
-   | An add-on of the default catalog, from any other place | `../../../<default catalog id>/addons/kafka/compose.yml` |
-
-   An item of a catalog includes the add-ons of its own catalog and of the catalogs it declares in `requires.catalogs`
-   of its `catalog.yml`, never one of this machine. A personal item includes what it wants.
 4. Write every password, secret, token and key as a setting, never a literal: `${NAME:-default}` with a public demo
    value as the default, or `${NAME}` when the person must provide it. The check refuses a literal in the item of a
    catalog. Put the real values in `.env`, in its folder, never in `compose.yml`. A setting is never written into a
