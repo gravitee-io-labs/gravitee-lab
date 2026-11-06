@@ -1227,7 +1227,7 @@ def _refetch(ns, entry):
     bare.fetch(gitx.parse_address(url), branch, registry.store_dir(ns), stall=30, cap=CHECK_CAP)
 
 
-def _targeted(ns, op, held, entry):
+def _targeted(ns, op, held):
     """(the commit an Update or a Go back moves to, moved): the one `_offered` gives from the tip the store holds, or
     `lock.previous`. None when there is nothing to move to. `moved`: the release installed was moved to it."""
     if op == "undo":
@@ -1235,10 +1235,6 @@ def _targeted(ns, op, held, entry):
             raise CatalogError("no_previous", NO_PREVIOUS, 409)
         return held["previous"], False
     store_path, contract = registry.store_dir(ns), _contract()
-    if store_path.is_dir() and not bare.releases_read(store_path):
-        # A store fetched before this Lab read releases does not say whether the catalog makes some: an Update reads them first,
-        # rather than move to the newest commit of a catalog that offers releases
-        _refetch(ns, entry)
     tip = bare.resolve(store_path, "tip") if store_path.is_dir() else None
     if tip is None:
         tip = held.get("tip")
@@ -1338,10 +1334,10 @@ def _plan(ns, op):
     if not held.get("pin"):
         raise ValueError(f"{_called(ns)} has nothing installed yet")
     try:
-        target, moved = _targeted(ns, op, held, entry)
+        target, moved = _targeted(ns, op, held)
     except bare.MissingObject:
         _refetch(ns, entry)
-        target, moved = _targeted(ns, op, held, entry)
+        target, moved = _targeted(ns, op, held)
     if target is None:
         return {"upToDate": True}
     context = {"on": _on_keys(ns), "vouched": _vouched(entry), "contract": _contract(), "moved": moved}

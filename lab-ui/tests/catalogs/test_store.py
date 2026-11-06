@@ -798,15 +798,9 @@ class Stores(Remote):
 
     def test_references_commits_and_objects(self):
         tip = self.fetched()
-        self.assertIsNone(store.resolve(self.store, "refs/lab/pin"))
-        store.set_ref(self.store, "refs/lab/pin", tip)
-        self.assertEqual(store.resolve(self.store, "refs/lab/pin"), tip)
+        self.assertIsNone(store.resolve(self.store, "refs/lab/none"))
+        self.assertEqual(store.resolve(self.store, "refs/lab/tip"), tip)
         self.assertEqual(store.resolve(self.store, tip), tip)
-        store.set_ref(self.store, "refs/lab/pin", tip)   # twice
-        store.set_ref(self.store, "refs/lab/previous", tip)
-        store.set_ref(self.store, "refs/lab/previous", None)
-        store.set_ref(self.store, "refs/lab/previous", None)   # and deleting what is not there
-        self.assertIsNone(store.resolve(self.store, "refs/lab/previous"))
         self.assertTrue(store.has(self.store, tip))
         self.assertFalse(store.has(self.store, "1" * 40))
         self.assertIsNone(store.resolve(self.store, "1" * 40))
@@ -819,30 +813,21 @@ class Stores(Remote):
             with self.assertRaises(ValueError, msg=name):
                 store.resolve(self.store, name)
 
-    def test_a_reference_to_a_commit_the_store_lacks_is_an_error(self):
-        self.fetched()
-        with self.assertRaises(gitx.CatalogError):
-            store.set_ref(self.store, "refs/lab/pin", "1" * 40)
-        self.assertIsNone(store.resolve(self.store, "refs/lab/pin"))
-
     def test_only_the_references_and_ids_the_lab_names_are_accepted(self):
         tip = self.fetched()
         for name in ("refs/heads/main", "refs/lab/", "refs/lab/Tip", "refs/lab/a/b", "--delete", "refs/lab/../heads/x", "HEAD", ""):
             with self.assertRaises(ValueError, msg=name):
-                store.set_ref(self.store, name, tip)
+                store.resolve(self.store, name)
         for value in ("--upload-pack=x", "HEAD", "main", "refs/heads/main", tip[:10], tip + "0", tip.upper(), "", None, 7,
                       tip + "^{tree}", f"{tip}..{tip}", "refs/lab/tip^{commit}"):
             for call in (store.resolve, store.roots, store.listing, store.has):
                 with self.assertRaises(ValueError, msg=(call.__name__, value)):
                     call(self.store, value)
         with self.assertRaises(ValueError):
-            store.set_ref(self.store, "refs/lab/pin", "--no-verify")
-        with self.assertRaises(ValueError):
             store.is_ancestor(self.store, tip, "--output=x")
 
     def test_roots_ancestry_and_the_history_after_a_force_push(self):
         first = self.fetched()
-        store.set_ref(self.store, "refs/lab/pin", first)
         root = store.roots(self.store, first)
         self.assertEqual(root, [first], "one commit, its own root")
         second = gitfixture.commit(self.repo, {"addons/echo/README.md": "Echo 2\n"}, "Second")
@@ -850,14 +835,14 @@ class Stores(Remote):
         self.assertEqual(self.fetched(), third)
         self.assertEqual(store.roots(self.store, "refs/lab/tip"), root, "the same root over a longer history")
         self.assertTrue(store.is_ancestor(self.store, first, third))
-        self.assertTrue(store.is_ancestor(self.store, "refs/lab/pin", "refs/lab/tip"))
+        self.assertTrue(store.is_ancestor(self.store, first, "refs/lab/tip"))
         self.assertTrue(store.is_ancestor(self.store, third, third), "a commit is its own ancestor")
         self.assertFalse(store.is_ancestor(self.store, third, first))
         rewritten = gitfixture.force_push_over(self.repo, {"catalog.yml": "x\n"})
         self.assertEqual(self.fetched(), rewritten, "a force push is followed")
         self.assertNotEqual(store.roots(self.store, "refs/lab/tip"), root, "another history has another root")
         self.assertFalse(store.is_ancestor(self.store, first, rewritten))
-        self.assertFalse(store.is_ancestor(self.store, "refs/lab/pin", "refs/lab/tip"))
+        self.assertFalse(store.is_ancestor(self.store, first, "refs/lab/tip"))
         self.assertTrue(store.has(self.store, first), "the pinned commit and its objects are kept")
         self.assertTrue(store.has(self.store, second))
 
@@ -887,7 +872,7 @@ class Stores(Remote):
         for target in (inside, outer / "cache" / "none.git"):
             with self.subTest(str(target.name)):
                 for call in (lambda: store.roots(target, sha), lambda: store.listing(target, sha),
-                             lambda: store.set_ref(target, "refs/lab/pin", sha), lambda: store.size(target),
+                             lambda: store.size(target),
                              lambda: store.is_ancestor(target, sha, sha), lambda: list(store.blobs(target, [sha])),
                              lambda: store.log(target, None, sha, []), lambda: store.diff(target, sha, sha, "x")):
                     with self.assertRaises(gitx.CatalogError):
@@ -961,13 +946,11 @@ class Fetching(Remote):
 
     def test_a_fetch_follows_new_commits_and_force_pushes_and_keeps_what_was_pinned(self):
         first = self.fetched()
-        store.set_ref(self.store, "refs/lab/pin", first)
         second = gitfixture.commit(self.repo, {"addons/echo/README.md": "newer\n"})
         self.assertEqual(store.fetch(self.address, "main", self.store), second)
         rewritten = gitfixture.force_push_over(self.repo, {"catalog.yml": "other\n"})
         self.assertEqual(store.fetch(self.address, "main", self.store), rewritten)
         self.assertTrue(store.has(self.store, first))
-        self.assertEqual(store.resolve(self.store, "refs/lab/pin"), first)
 
     def test_tags_are_not_tags_of_the_store_and_those_that_may_be_releases_are_kept_apart(self):
         gitfixture.git("tag", "v1", gitfixture.tip(self.repo), repo=self.repo)
@@ -981,13 +964,6 @@ class Fetching(Remote):
         gitfixture.git("tag", "v1.0.0", gitfixture.tip(self.repo), repo=self.repo)
         store.fetch(self.address, "main", self.store, releases=False)
         self.assertEqual(gitfixture.git("for-each-ref", "refs/lab/releases/", repo=self.store).strip(), "")
-
-    def test_a_store_says_whether_a_fetch_read_the_releases(self):
-        tip = store.fetch(self.address, "main", self.store, releases=False)
-        self.assertFalse(store.releases_read(self.store), "a fetch without the tags does not say whether there are releases")
-        self.assertEqual(store.fetch(self.address, "main", self.store), tip)
-        self.assertTrue(store.releases_read(self.store))
-        self.assertEqual(gitfixture.git("for-each-ref", "refs/lab/releases/", repo=self.store).strip(), "", "the mark is no release")
 
     def test_the_command_is_the_one_of_section_9(self):
         log = self.root / "args"
@@ -1287,22 +1263,21 @@ class Reading(Remote):
             self.assertRegex(e.oid, r"^[0-9a-f]{40}$")
 
     def test_what_was_pinned_is_read_beside_a_history_that_was_replaced(self):
-        store.set_ref(self.store, "refs/lab/pin", self.tip)
         rewritten = gitfixture.force_push_over(self.repo, {"catalog.yml": "other\n", "addons/new/compose.yml": "services: {}\n"},
                                                "A new beginning")
         gitfixture.commit(self.repo, {"addons/new/README.md": "new\n"}, "Describe the new add-on")
         tip = self.fetched()
-        self.assertNotEqual(store.roots(self.store, tip), store.roots(self.store, "refs/lab/pin"))
+        self.assertNotEqual(store.roots(self.store, tip), store.roots(self.store, self.tip))
         self.assertEqual([e.path for e in store.listing(self.store, tip)], ["addons/new/README.md", "addons/new/compose.yml", "catalog.yml"])
-        self.assertEqual(len(store.listing(self.store, "refs/lab/pin")), len(repo_files()))
-        oid = next(e.oid for e in store.listing(self.store, "refs/lab/pin") if e.path == "catalog.yml")
+        self.assertEqual(len(store.listing(self.store, self.tip)), len(repo_files()))
+        oid = next(e.oid for e in store.listing(self.store, self.tip) if e.path == "catalog.yml")
         self.assertEqual(list(store.blobs(self.store, [oid])), [(oid, gitfixture.catalog_files()["catalog.yml"].encode())])
-        self.assertEqual(store.log(self.store, "refs/lab/pin", tip, ["addons/new"]), ["Describe the new add-on", "A new beginning"])
-        self.assertIn("-  name: Acme Hub", store.diff(self.store, "refs/lab/pin", tip, "catalog.yml"))
-        self.assertIn("+other", store.diff(self.store, "refs/lab/pin", tip, "catalog.yml"))
+        self.assertEqual(store.log(self.store, self.tip, tip, ["addons/new"]), ["Describe the new add-on", "A new beginning"])
+        self.assertIn("-  name: Acme Hub", store.diff(self.store, self.tip, tip, "catalog.yml"))
+        self.assertIn("+other", store.diff(self.store, self.tip, tip, "catalog.yml"))
         self.assertEqual(store.touching(self.store, tip, "catalog.yml"), [rewritten])
-        self.assertEqual(store.read(self.store, "refs/lab/pin", "catalog.yml"), gitfixture.catalog_files()["catalog.yml"].encode())
-        self.assertFalse(store.is_ancestor(self.store, "refs/lab/pin", "refs/lab/tip"))
+        self.assertEqual(store.read(self.store, self.tip, "catalog.yml"), gitfixture.catalog_files()["catalog.yml"].encode())
+        self.assertFalse(store.is_ancestor(self.store, self.tip, "refs/lab/tip"))
 
     def test_a_name_with_a_newline_or_quotes_comes_back_as_it_is(self):
         gitfixture.commit(self.repo, {"addons/echo/a\nb": "x", 'addons/echo/q"t': "y", "addons/echo/tab\there": "z",
