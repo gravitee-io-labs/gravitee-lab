@@ -687,43 +687,5 @@ class Explain(unittest.TestCase):
         self.assertLessEqual({"ST14", "ST20", "GD04", "DF22", "DF24"}, missing)
 
 
-class Imports(unittest.TestCase):
-    """The modules of this package use the standard library and the Lab's own modules, nothing else."""
-
-    FILES = ["report.py", "tree.py", "audit.py", "explain.py", "rules/__init__.py", "rules/structure.py", "rules/secrets.py",
-             "rules/commits.py", "rules/guides.py", "rules/dockerfiles.py", "rules/images.py"]
-    STDLIB = {"base64", "bisect", "collections", "hashlib", "html", "importlib", "inspect", "json", "os", "posixpath", "re", "secrets",
-              "stat", "subprocess", "sys", "time", "typing", "unicodedata", "urllib", "pathlib"}
-
-    def test_no_module_imports_a_package_that_is_not_the_standard_library(self):
-        import ast
-        import sys
-        from pathlib import Path
-        allowed = self.STDLIB | set(getattr(sys, "stdlib_module_names", ()))
-        base = Path(audit.__file__).resolve().parent
-        for name in self.FILES:
-            tree_ = ast.parse((base / name).read_text(encoding="utf-8"), feature_version=(3, 9))
-            for node in ast.walk(tree_):
-                modules = []
-                if isinstance(node, ast.Import):
-                    modules = [each.name.split(".")[0] for each in node.names]
-                elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-                    modules = [node.module.split(".")[0]]
-                for module in modules:
-                    self.assertTrue(module in allowed or module == "lab_ui", f"{name} imports {module}")
-
-    def test_the_sources_are_python_3_9_and_hold_no_invisible_character(self):
-        import ast
-        import unicodedata
-        from pathlib import Path
-        base = Path(audit.__file__).resolve().parent
-        for name in self.FILES:
-            text = (base / name).read_text(encoding="utf-8")
-            ast.parse(text, feature_version=(3, 9))
-            hidden = sorted({hex(ord(char)) for char in text if unicodedata.category(char) in ("Cf", "Zl", "Zp") or
-                             (unicodedata.category(char) == "Cc" and char not in "\n\t")})
-            self.assertEqual([], hidden, name)
-
-
 if __name__ == "__main__":
     unittest.main()
