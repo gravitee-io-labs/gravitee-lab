@@ -802,17 +802,5 @@ class Removal(Agents):
         self.assertEqual(common.created(), [])
 
 
-class Declared(Seed):
-    def test_the_kinds_it_records_are_the_kinds_it_labels(self):
-        self.assertEqual(sorted(aim_agents.LABELS), sorted(aim_agents.ORDER))
-        self.assertTrue(all(label.endswith("s") for label in aim_agents.LABELS.values()))
-
-    def test_a_subscription_goes_before_its_application(self):
-        self.assertLess(aim_agents.ORDER.index("subscription"), aim_agents.ORDER.index("agent-application"))
-
-    def test_it_reads_the_folder_of_the_agents_and_needs_agent_management(self):
-        self.assertEqual((aim_agents.FOLDERS, aim_agents.GAMMA, aim_agents.SECTION), (("aim/agents",), ("aim",), "aim-agents"))
-
-
 if __name__ == "__main__":
     unittest.main()

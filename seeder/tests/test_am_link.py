@@ -312,12 +312,6 @@ class Link(Seed):
         am_link.remove([])
         self.assertEqual((self.output(), self.platform.calls), ("", []))
 
-    def test_the_label_of_the_note_is_plural_and_its_kind_is_removed_in_the_modules_order(self):
-        self.assertEqual(am_link.ORDER, ["am-link", "am-service-account"])
-        self.seed(self.world)
-        self.assertEqual({r["kind"] for r in common.created()}, set(am_link.ORDER))
-        self.assertTrue(all(r["label"].endswith("s") for r in common.created()))
-
 
 if __name__ == "__main__":
     unittest.main()

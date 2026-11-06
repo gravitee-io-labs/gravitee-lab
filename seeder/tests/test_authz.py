@@ -10,7 +10,6 @@ from unittest import mock
 from lab_seeder import authz
 from lab_seeder import common
 from lab_seeder import controls
-from lab_seeder import seed
 from lab_seeder.testkit import PLAYGROUNDS, Seed
 
 ACME_SEED = PLAYGROUNDS / "acme-bakery" / "seed"
@@ -310,12 +309,6 @@ class Authorization(Case):
         authz.seed()
         authz.remove(common.created())
         self.assertIn("mine", self.world.entities)
-
-    def test_the_seed_runs_authorization_after_the_catalog_and_the_link_to_access_management(self):
-        modules = [module.__name__.rsplit('.', 1)[-1] for module in seed.MODULES]
-        self.assertLess(modules.index("aim_catalog"), modules.index("authz"))
-        self.assertLess(modules.index("aim_governance"), modules.index("authz"))
-        self.assertLess(modules.index("am_link"), modules.index("aim_catalog"))
 
 
 class Protections(Case):

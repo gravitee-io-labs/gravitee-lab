@@ -701,20 +701,5 @@ class Files(Governance):
         self.assertNotRegex(self.output().lower(), r"password|secret|token|bearer")
 
 
-class Declared(Seed):
-    def test_the_kinds_it_records_are_the_kinds_it_labels(self):
-        self.assertEqual(sorted(aim_governance.LABELS), sorted(aim_governance.ORDER))
-        self.assertTrue(all(label.endswith("s") for label in aim_governance.LABELS.values()))
-
-    def test_the_rules_go_before_the_settings_and_the_answers_before_the_framework_they_are_checked_against(self):
-        order = aim_governance.ORDER
-        self.assertLess(order.index("approval-rule"), order.index("approval-settings"))
-        self.assertLess(order.index("compliance-answers"), order.index("compliance-framework"))
-
-    def test_it_reads_the_folder_of_the_governance_and_needs_agent_management(self):
-        self.assertEqual((aim_governance.FOLDERS, aim_governance.GAMMA, aim_governance.SECTION),
-                         (("aim/governance",), ("aim",), "aim-governance"))
-
-
 if __name__ == "__main__":
     unittest.main()

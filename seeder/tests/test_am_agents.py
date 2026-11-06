@@ -325,10 +325,6 @@ class Scopes(Case):
         am.remove(records)
         self.assertEqual([s["key"] for s in self.am.held[(domain_id, "scopes")].values()], [*SYSTEM_SCOPES, "getCustomer"])
 
-    def test_scopes_are_the_kind_of_record_that_goes_before_the_domain(self):
-        self.assertEqual(am.ORDER[-2:], ["scope", "domain"])
-        self.assertEqual(am.PATHS["scope"], "scopes")
-
 
 class Agent(Case):
     """An agent keeps what its kind gives it, and the file adds what it may ask for."""

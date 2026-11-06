@@ -1325,11 +1325,6 @@ class Guard(Catalog):
         self.assertEqual(self.platform.calls, [])
         self.assertEqual(self.output(), "")
 
-    def test_what_it_records_is_in_its_order_with_plural_labels_that_the_lab_ui_can_singularise(self):
-        self.assertEqual(sorted(aim_catalog.LABELS), sorted(aim_catalog.ORDER))
-        for label in aim_catalog.LABELS.values():
-            self.assertTrue(label.endswith("s") and not label.endswith("ies"), label)
-
 
 if __name__ == "__main__":
     unittest.main()

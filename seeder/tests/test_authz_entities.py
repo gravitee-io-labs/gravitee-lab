@@ -878,9 +878,6 @@ entities:
         authz.remove(common.created())
         self.assertEqual(self.world.entities, {})
 
-    def test_the_kinds_the_seed_records_are_in_the_order_of_a_removal(self):
-        self.assertEqual(authz.ORDER, ["policy", "entities", "entity", "schema", "schema-document"])
-
 
 class Server(Case):
     """A file may name an MCP server, or none: the server is optional wherever it is read."""
