@@ -52,9 +52,6 @@ KEY_OF = {"gateway": "addon", "tested": "playground", "terminal": "playground"} 
 PARTS = {"consoles": ("console", "as")}   # the keys of an entry of a list written as a mapping: a persona's console
 # How long a guide takes or a first start takes, as the page says it: "35 min", "1 h", "1 h 30 min"
 DURATION = re.compile(r"(?:\d+ h(?: \d{1,2} min)?|\d+ min)")
-# The keys that were read once and are not any more, and why: a file that still has one is told so, not just that the
-# key is unknown
-GONE = understood.GONE
 # What x-gravitee.requires can ask for: add-ons and setups are included instead
 REQUIRES = {"plugins", "license", "host", "images", "lab"}
 LOOPBACK = "127.0.0.1"   # the only address a shared file publishes a port on
@@ -159,10 +156,7 @@ def _metadata(kind, meta, categories):
     """What the x-gravitee block must say, and nothing it says is ignored. Every item has a category: the catalogs group
     by it."""
     for key in sorted(set(meta) - META):
-        if key in GONE:
-            yield f"x-gravitee.{key} is no longer a key: {GONE[key]}"
-        else:
-            yield f"x-gravitee.{key} is not a key of x-gravitee: {', '.join(sorted(META))}"
+        yield f"x-gravitee.{key} is not a key of x-gravitee: {', '.join(sorted(META))}"
     for key, owner in sorted(KEY_OF.items()):
         if key in meta and owner != kind:
             yield f"x-gravitee.{key} is a key of {NOUNS[owner]}s only"

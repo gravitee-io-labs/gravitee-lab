@@ -1384,8 +1384,7 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
   machine's core changes. An environment with no gateway is not set up: nothing is compared, and the place's reason is
   *Set up a gateway in <place> first*. The state carries `deploys_to`, the kinds a playground's files let it go to
   (what does not depend on an environment); each place carries `capabilities` and `cannot`, the first reason of each
-  playground that cannot go there, which the picker and the server's refusal use. A compose file that still carries `deploys_to` is told
-  *x-gravitee.deploys_to is no longer a key: compatibility with a platform is computed*. The reasons, the first that
+  playground that cannot go there, which the picker and the server's refusal use. The reasons, the first that
   applies, are exact strings:
 
   | Reason | When |

@@ -342,19 +342,6 @@ class Items(Machine):
                 self.assertEqual(list(check._metadata(kind, meta, ["AI"])),
                                  [] if kind == "addon" else ["x-gravitee.gateway is a key of add-ons only"])
 
-    def test_where_a_playground_can_be_deployed_is_computed_so_a_file_that_declares_it_is_told(self):
-        said = "x-gravitee.deploys_to is no longer a key: compatibility with a platform is computed"
-        known = ", ".join(sorted(check.META))
-        self.assertNotIn("deploys_to", check.META)
-        for kind in ("addon", "setup", "playground"):
-            meta = {"kind": kind, "name": "x", "description": "x", "category": "AI", "deploys_to": ["cloud"]}
-            with self.subTest(kind=kind):
-                self.assertEqual(list(check._metadata(kind, meta, ["AI"])), [said])
-        # Whatever it holds, and once: it is no more a key than a typo is, and says why
-        meta = {"kind": "playground", "name": "x", "description": "x", "category": "AI", "deploys_to": None, "deploy": "cloud"}
-        self.assertEqual(list(check._metadata("playground", meta, [])),
-                         [f"x-gravitee.deploy is not a key of x-gravitee: {known}", said])
-
     def test_every_item_has_a_category(self):
         for kind in ("addon", "setup", "playground"):
             meta = {"kind": kind, "name": "x", "description": "x"}
