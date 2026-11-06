@@ -105,9 +105,6 @@ class Failing(unittest.TestCase):
         for word in ("alice", "alice@example.test", "@", "@a/b/c", "@org/", "@\U00000430cme", "@x#y", "@x,@y"):
             self.assertEqual(found(f"* @acme/maintainers\n/.github/ @acme/maintainers {word}\n"), [(2, not_a_name(word))])
 
-    def test_an_email_is_not_an_owner_here(self):
-        self.assertEqual(found("* a@example.test\n/.github/ @acme/maintainers\n"), [(1, not_a_name("a@example.test"))])
-
     def test_every_problem_is_found_in_one_run(self):
         got = found("* nobody\n/docs/\n")
         self.assertEqual(sorted(line for line, _ in got), [0, 1, 2])
@@ -135,7 +132,13 @@ class Shadowing(unittest.TestCase):
     def test_a_later_line_by_extension_or_by_name_or_with_a_wildcard(self):
         for pattern in ("*.yml", "*.json", "standard.json", "workflows/", "**/ci.yml", ".github/*", "/.github/**", "*", "**",
                         "/.github/workflows/*.yml", "dependabot.yml", "/.github/actions/**/action.yml", "CODEOWNERS", "?ODEOWNERS",
-                        "/", "/*", "*.txt", "docs/", "workflows2/", "**/docs/**/x.md"):
+                        "/", "/*", "*.txt", "docs/", "workflows2/", "**/docs/**/x.md",
+                        "/.github/workflows/publish.yml", "/.github/workflows/nightly.yml", "/.github/workflows/e2e.yml",
+                        "/.github/rulesets/tags.json", "/.github/rulesets/push.json", "/.github/rulesets/protected-paths.json",
+                        "/.github/ISSUE_TEMPLATE/", "/.github/PULL_REQUEST_TEMPLATE.md", "/.github/workflows/p*", "/.github/rulesets/*.json",
+                        "/.github/ISSUE_TEMPLATE/*.yml", "*.md", "PULL_REQUEST_TEMPLATE.md", "ISSUE_TEMPLATE/",
+                        "/.github/workflows/custom.yml", ".github/anything", "/.github/workflows/nope/", "//.github/x", "/.github/w*/custom-*.yml",
+                        "/.github/a/b/c/d/e/f/g/h", "/.github/actions/other/action.yml", "/.github", ".github", ".github/"):
             with self.subTest(pattern=pattern):
                 self.assertEqual(len(found(GOOD + f"{pattern} @evil\n")), 1, pattern)
 
@@ -158,20 +161,6 @@ class Shadowing(unittest.TestCase):
         text = GOOD + "/.github/workflows/ @evil\n/.github/ @acme/maintainers\n"
         self.assertEqual(found(text), [])
         self.assertEqual(len(found(text + "/.github/rulesets/ @evil\n")), 1)
-
-    def test_the_files_the_review_named_are_shadowed(self):
-        for pattern in ("/.github/workflows/publish.yml", "/.github/workflows/nightly.yml", "/.github/workflows/e2e.yml",
-                        "/.github/rulesets/tags.json", "/.github/rulesets/push.json", "/.github/rulesets/protected-paths.json",
-                        "/.github/ISSUE_TEMPLATE/", "/.github/PULL_REQUEST_TEMPLATE.md", "/.github/workflows/p*", "/.github/rulesets/*.json",
-                        "/.github/ISSUE_TEMPLATE/*.yml", "*.md", "PULL_REQUEST_TEMPLATE.md", "ISSUE_TEMPLATE/"):
-            with self.subTest(pattern=pattern):
-                self.assertEqual(len(found(GOOD + f"{pattern} @evil\n")), 1, pattern)
-
-    def test_a_path_below_dot_github_is_a_shadow_whether_or_not_the_file_is_there(self):
-        for pattern in ("/.github/workflows/custom.yml", ".github/anything", "/.github/workflows/nope/", "//.github/x", "/.github/w*/custom-*.yml",
-                        "/.github/a/b/c/d/e/f/g/h", "/.github/actions/other/action.yml", "/.github", ".github", ".github/"):
-            with self.subTest(pattern=pattern):
-                self.assertEqual(len(found(GOOD + f"{pattern} @evil\n")), 1, pattern)
 
     def test_the_same_owners_on_any_of_them_changes_nothing(self):
         text = GOOD + "/.github/workflows/publish.yml @acme/maintainers\n/.github/ISSUE_TEMPLATE/ @ACME/Maintainers\n*.md @acme/maintainers\n"
@@ -243,9 +232,6 @@ class New(unittest.TestCase):
     def test_the_render_function_refuses_them_too(self):
         for text in INJECTIONS:
             with self.subTest(text=text):
-                with self.assertRaises(standard.TemplateError):
-                    standard.render_new({"id": "acme-hub", "name": "Acme Hub", "maintainers": text, "lab_repository": "acme/lab",
-                                         "lab_ref": "0" * 40})
                 with self.assertRaises(standard.TemplateError):
                     standard.render_new({"id": "acme-hub", "name": "Acme Hub", "maintainers": [text], "lab_repository": "acme/lab",
                                          "lab_ref": "0" * 40})

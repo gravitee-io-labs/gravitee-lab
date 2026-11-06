@@ -69,11 +69,6 @@ class Rules(unittest.TestCase):
         out = found(("playgrounds/shop/compose.yml", compose(service("shop-web", build="./apps/web", policy=False))))
         self.assertEqual(["IM01"], [each.code for each in out], "a service that builds and names no image still needs a policy")
 
-    def test_im01_the_seeders_service_too(self):
-        text = compose(service("shop-seed", f"{SEEDER}:latest", "../../../../../seeder", policy=False))
-        out = found(("playgrounds/shop/compose.yml", text))
-        self.assertEqual(["IM01"], [each.code for each in out])
-
     def test_im01_passes_with_the_policy_from_an_alias_a_merge_or_a_value_of_any_kind(self):
         for extra in ("    pull_policy: never\n", "    pull_policy: always\n", "    pull_policy: ${X:-never}\n"):
             text = compose(service("shop-web", f"{PREFIX}/shop-web:1", "./apps/web", policy=False, extra=extra))

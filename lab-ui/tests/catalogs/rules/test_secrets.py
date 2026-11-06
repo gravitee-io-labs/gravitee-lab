@@ -335,9 +335,6 @@ class History(unittest.TestCase):
         added = self.lines(*rows)
 
         class Fake:
-            def commits(self):
-                return []
-
             def added(self):
                 return iter(added)
 

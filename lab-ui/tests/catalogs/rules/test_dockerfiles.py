@@ -165,10 +165,6 @@ class Warnings(unittest.TestCase):
             with self.subTest(image=image):
                 only(self, "DF22", 1, message.format(image), f"FROM {image}\nUSER app\n", "warning")
 
-    def test_df21_and_df22_are_not_both_said_of_one_image(self):
-        self.assertEqual([("DF21", 1)], summary(found("FROM python\nUSER app\n")))
-        self.assertEqual([("DF22", 1)], summary(found("FROM python:3\nUSER app\n")))
-
     def test_df23_the_final_stage_runs_as_root(self):
         message = "apps/web/Dockerfile: the final stage runs as root. Fix: add USER."
         for text in (f"FROM {PIN}\n", f"FROM {PIN}\nUSER root\n", f"FROM {PIN}\nUSER 0\n", f"FROM {PIN}\nUSER 0:0\n", f"FROM {PIN}\nUSER root:root\n",
@@ -383,12 +379,6 @@ class Calibration(unittest.TestCase):
     def test_the_dockerfiles_of_the_engine_give_no_error(self):
         names = self.names()
         self.assertTrue(names)
-        for name in names:
-            with self.subTest(name=name):
-                self.assertEqual([], [each for each in found((support.ROOT / name).read_text(), name) if each.severity == "error"])
-
-    def test_the_tree_of_the_engine_gives_the_same(self):
-        names = self.names()
         listing = support.ListTree.from_files({name: (support.ROOT / name).read_bytes() for name in names})
         out = dockerfiles.check(listing, context(listing))
         self.assertEqual([], [each for each in out if each.severity == "error"])

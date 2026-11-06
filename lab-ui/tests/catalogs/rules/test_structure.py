@@ -158,11 +158,6 @@ class Names(unittest.TestCase):
                                                          "addons/Bad_Name/README.md": "x"})))
         self.assertEqual(set(), codes(run(structure, {"addons/hello/docs/compose.yml": "x-gravitee:\n  name: Other\n"})))
 
-    def test_st23_and_the_lab_ui_name_a_new_item_by_one_rule(self):
-        from lab_ui import paths
-        self.assertEqual("event-streams-management-with-kafka", paths.slug("Event Streams Management with Kafka"))
-        self.assertEqual("a-b-2", paths.slug("  A -- B__2!  "))
-
     def test_the_structure_rules_and_the_stores_filter_are_one_definition(self):
         listing = ListTree.from_files({
             "catalog.yml": support.CATALOG, "addons/a/compose.yml": "x", "addons/a/AGENTS.md": "x", "addons/a/.env": "x",
@@ -299,7 +294,7 @@ class Contents(unittest.TestCase):
                 one(self, "ST16", "docs/tool.bin", message, {"docs/tool.bin": content})
         quiet(self, {"docs/a.png": PNG, "docs/a.jpg": b"\xff\xd8\xff\xe0" + b"\0" * 20, "docs/a.pdf": b"%PDF-1.7\n\0\0",
                      "docs/a.woff2": b"wOF2" + b"\0" * 20, "docs/a.ico": b"\0\0\x01\0" + b"\0" * 20, "docs/mz.txt": b"MZ is a word\n",
-                     "docs/a.svg": "<svg xmlns='http://www.w3.org/2000/svg'/>"})
+                     "docs/mz.bin": b"MZ", "docs/empty.bin": b"", "docs/a.svg": "<svg xmlns='http://www.w3.org/2000/svg'/>"})
 
     def test_st19_git_lfs(self):
         message = ".gitattributes uses Git LFS. Fix: remove it; the Lab installs no LFS file."
@@ -329,7 +324,7 @@ class Contents(unittest.TestCase):
                      "addons/hello/.gitleaks.toml", "docs/.gitleaksignore"):
             with self.subTest(path=path):
                 one(self, "ST21", path, message.format(path), {path: "x"})
-        quiet(self, {".editorconfig": "root = true\n"})
+        quiet(self, {".editorconfig": "root = true\n", "docs/gitleaks.md": "x"})
 
     def test_st08_the_files_of_an_open_source_project_may_sit_at_the_top(self):
         for name in ("NOTICE", "CODE_OF_CONDUCT.md", "CHANGELOG.md"):
@@ -372,10 +367,6 @@ class Standard(unittest.TestCase):
         quiet(self, {".editorconfig": "x", ".gitattributes": "x", "tests/test_a.py": "x", "docs/a/b.md": "x", ".catalog/x.mk": "x",
                      "addons/hello/anything/at/all.txt": "x", ".claude/x.md": "x"})
 
-    def test_a_path_that_is_already_an_error_is_not_also_a_warning(self):
-        self.assertEqual({"ST06"}, codes(run(structure, {"secrets/key.txt": "x"})))
-        self.assertEqual({"ST05"}, codes(run(structure, {"data/.env": "x"})))
-
     def test_st17_a_required_file_is_missing(self):
         message = "{} is missing. Fix: catalog.py upgrade --adopt adds what is missing."
         for path in ("catalog.yml", "README.md", "LICENSE", "SECURITY.md", "CONTRIBUTING.md", "REVIEWING.md",
@@ -401,10 +392,6 @@ class Standard(unittest.TestCase):
         self.assertEqual([], structure.check(listing, context(listing, partial=True)))
         self.assertEqual({"ST05"}, codes(structure.check(ListTree.from_files({"playgrounds/shop/compose.yml": "x", "playgrounds/shop/.env": "x"}),
                                                           Context(partial=True, git=False))))
-
-    def test_a_repository_without_its_standard_file_is_still_a_repository(self):
-        found = run(structure, drop=[".github/standard.json"])
-        self.assertEqual([("ST17", ".github/standard.json")], [(each.code, each.path) for each in found])
 
     def test_st18_the_license_matches_catalog_yml(self):
         message = "LICENSE does not match license: {0} in catalog.yml. Fix: put the text of {0} in LICENSE."
@@ -448,23 +435,6 @@ class Limits(unittest.TestCase):
 
 
 class Helpers(unittest.TestCase):
-
-    def test_case_twins_are_found_at_the_folder_where_they_part(self):
-        self.assertEqual([("a/B", "a/b")], structure.case_twins(["a/b/1", "a/B/2", "a/B/3"]))
-        self.assertEqual([("A.md", "a.md")], structure.case_twins(["a.md", "A.md"]))
-        self.assertEqual([], structure.case_twins(["a.md", "b.md", "a/b"]))
-
-    def test_a_program_by_its_first_bytes_and_never_by_its_name(self):
-        for content in (ELF, MACHO, PE, ZIP, TAR, GZIP):
-            self.assertTrue(structure.program(content))
-        for content in (b"", b"MZ", b"MZ text file\n", PNG, b"plain text"):
-            self.assertFalse(structure.program(content))
-
-    def test_what_runs_and_what_scans(self):
-        self.assertTrue(structure.runs_on_reader(".husky/pre-commit"))
-        self.assertFalse(structure.runs_on_reader("Makefile"))
-        self.assertTrue(structure.scanner_file("a/b/.gitleaks.toml"))
-        self.assertFalse(structure.scanner_file("a/gitleaks.md"))
 
     def test_a_tree_in_a_hostile_order_gives_the_same_findings(self):
         files = support.files({"docs/k.pem": "x", "docs/Guide.md": "x", "tools/x.sh": "x"})

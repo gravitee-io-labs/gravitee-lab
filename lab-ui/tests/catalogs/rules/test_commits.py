@@ -29,9 +29,6 @@ class Fake:
     def commits(self):
         return list(self.found)
 
-    def added(self):
-        return iter(())
-
 
 def check(*found, **how):
     listing = support.tree()
