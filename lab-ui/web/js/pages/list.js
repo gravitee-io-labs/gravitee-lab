@@ -4,7 +4,7 @@
 // catalog when there is more than one to tell apart, each row then naming its catalog in a column of its own on a wide card. While the
 // catalogs download or are missing, the list says so in place of its rows.
 
-import { $, $$, esc, icon, setHTML, loading, api, store, router, recall, remember, ID_PATTERN, splitKey } from "../core.js";
+import { $, $$, esc, icon, setHTML, loading, api, store, router, recall, remember, ID_PATTERN, splitKey, catalogRows } from "../core.js";
 import { toast, effectsDialog, openMenu, GAP, openButton, Pager, emptyHtml, paintActions, contentStatus, originLink,
   actionButton, keyed, dockerDown, stateDot, serviceCells, serviceOpen, noteHtml, noteBadge, blockerButton, itemLink, unopened, starButton,
   toggleStar, statusHtml, progressBar, TURNS, fileButtons } from "../components/ui.js";
@@ -244,7 +244,7 @@ function drawRows(ul, items, html) {
 // --- Where the items come from ------------------------------------------------------
 
 // The catalogs the state lists that hold items: those added, git or folder, in the order the server gives
-const added = () => (Array.isArray(store.state?.catalogs) ? store.state.catalogs : []).filter((c) => ["git", "folder"].includes(c.kind));
+const added = () => catalogRows().filter((c) => ["git", "folder"].includes(c.kind));
 const LOCAL = "local";   // the source of this machine's items: the id of its row
 // The first catalog is the one whose items have bare ids, and so no origin: the first of those listed, which the picker lists first
 const firstId = () => added().find((c) => c.listed)?.id ?? "@first";
@@ -372,7 +372,7 @@ function list(kind, title, noun) {
     $("[data-starred]", section).checked = filters.starred;
     // With no item at all there is nothing to filter, and the catalogs' content says why (it says "No setup yet" itself when it is all there)
     $(".list-tools", section).hidden = !all.length;
-    paintContent(contentStatus(state.content ? state : { content: { key: "ready" } }, { kind, items: all.length }));
+    paintContent(contentStatus(state, { kind, items: all.length }));
     emptyEl.hidden = shown.length > 0 || !all.length;
     setHTML(emptyEl, emptyHtml({ filtered: true, starred: filters.starred && !all.some((x) => x.starred),
       running: filters.running && !all.some(alive) }));

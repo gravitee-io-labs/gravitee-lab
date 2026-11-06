@@ -307,14 +307,13 @@ function controlOf(el) {
 function draw(state) {
   if (!section) return;
   const at = document.activeElement, again = at && section.contains(at) ? controlOf(at) : "";
-  const readable = Array.isArray(state?.catalogs), rows = readable ? grouped(state.catalogs.filter(shown)) : [];
+  const rows = grouped(state.catalogs.filter(shown));
   holdOff($("[data-add-catalog]", section), noGit(), NO_GIT);
   const status = $("[data-status]", section), list = $(".list-rows", section);
   $(".list-head", section).hidden = !rows.length;
   list.hidden = !rows.length;
-  // Nothing to list: the content says there is no catalog (and offers the one the server names); a state that cannot be read says so, with Try again
-  setHTML(status, !readable ? '<div class="empty"><span>Catalogs cannot be read</span><button type="button" class="btn" data-reload>Try again</button></div>'
-    : rows.length ? "" : contentStatus(state, { kind: "catalog" }) || contentStatus({ ...state, content: { ...state.content, key: "none" } }, { kind: "catalog" }));
+  // Nothing to list: the content says there is no catalog (and offers the one the server names)
+  setHTML(status, rows.length ? "" : contentStatus(state, { kind: "catalog" }) || contentStatus({ ...state, content: { ...state.content, key: "none" } }, { kind: "catalog" }));
   drawRows(list, rows);
   paintActions(section);
   if (again && !at.isConnected) $(again, section)?.focus({ preventScroll: true });
@@ -368,7 +367,6 @@ function init(el) {
     const member = row?.members?.find((m) => m.id === button.closest("[data-member]")?.dataset.member);
     if ("new" in data) openNew();
     else if ("addCatalog" in data) openAdd();
-    else if ("reload" in data) store.refresh();
     else if (!row) return;
     else if ("update" in data) openUpdate(row);
     else if ("retry" in data) tryAgain(row.id);

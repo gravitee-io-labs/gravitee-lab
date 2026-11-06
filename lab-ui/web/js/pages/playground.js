@@ -3,7 +3,7 @@
 // environment of the platform, a place chosen in its head. A playground of a catalog says which in its head, and what it lacks of the
 // catalogs and of this Lab before it can start; one of this machine has a More, with its Share and its Delete.
 
-import { $, $$, esc, icon, setHTML, loading, api, store, router, recall, remember, hrefOf, ID_PATTERN, splitKey, credHtml } from "../core.js";
+import { $, $$, esc, icon, setHTML, loading, api, store, router, recall, remember, hrefOf, ID_PATTERN, splitKey, credHtml, catalogRows } from "../core.js";
 import { effectsDialog, paintLinks, platformLinks, progressBar, dockerDown, stateDot, toast, openMenu, originLink, catalogNeed,
   actionButton, paintActions, planRows, accepted, itemLink, openButton, noteHtml, licenseForm, starButton, toggleStar, pluginWords,
   GAP, applyBadge, TURNS, fileButtons } from "../components/ui.js";
@@ -521,7 +521,7 @@ async function renderGuide(item, el) {
 // row to update it). The button of each is `button`: `data-need` says what it does, which the page answers with the Catalogs page's own
 // actions (dialogs/catalog.js).
 function catalogLine(need) {
-  const { line, button } = catalogNeed(need), row = (Array.isArray(store.state?.catalogs) ? store.state.catalogs : []).find((c) => c.id === need.id);
+  const { line, button } = catalogNeed(need), row = catalogRows().find((c) => c.id === need.id);
   const why = need.reason === "failed" ? [row?.state?.reason, row?.state?.next].filter(Boolean).join(" ") : "";
   let mend = "";
   if (button?.act === "update") mend = `<a class="btn" href="${esc(hrefOf({ kind: "catalog", id: need.id }))}">${esc(button.label)}</a>`;

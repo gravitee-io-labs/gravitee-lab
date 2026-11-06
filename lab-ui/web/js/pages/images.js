@@ -383,9 +383,9 @@ function refocusField(c, field) {
 
 // A component that is on takes its images from Azure, the draft's registry included: a login is needed to pull them.
 // The server names the registry for any Azure one in the files, a default or what is off too. What is saved is the
-// server's to say (`azure_in_use`) when it does; a draft is only known here.
+// server's to say (`azure_in_use`); a draft is only known here.
 const AZURE = /\.azurecr\.io$/;
-const azureInUse = () => (!dirty() && typeof images.azure_in_use === "boolean" ? images.azure_in_use
+const azureInUse = () => (!dirty() ? images.azure_in_use
   : images.components.some((c) => c.enabled && AZURE.test((regOf(c) || "").split("/")[0])));
 
 // The registry that asks for a login, with its state and its button; nothing while no component that is on uses it

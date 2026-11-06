@@ -10,7 +10,7 @@
 // the load of the containers only while it is on screen. The load is drawn as a chart that slides: its path is moved by an animation
 // frame from the clock, not redrawn by the sample. No link has an effect on the page it opens, and a click on a name acts on nothing.
 
-import { $, $$, esc, icon, setHTML, loading, ago, api, store, router, hrefOf, recall, remember, splitKey } from "../core.js";
+import { $, $$, esc, icon, setHTML, loading, ago, api, store, router, hrefOf, recall, remember, splitKey, catalogRows } from "../core.js";
 import { busy } from "../activity/jobs.js";
 import { actionButton, paintActions, paintBusy, paintProgress, stateDot, noteHtml, noteBadge, dockerDown, onKnown, keyed,
   showing, starButton, toggleStar, openMenu, Pager, emptyHtml, tipHtml, cardHtml, tipAttrs, statusHtml, refocus, safeHref, applyBadge,
@@ -158,8 +158,8 @@ function toolsBody({ platform }) {
 }
 
 // How many catalogs the Lab has, and the page that lists them and holds their actions. Without any, the page is where one is added.
-function catalogsBody({ catalogs }) {
-  const count = (Array.isArray(catalogs) ? catalogs : []).filter((c) => ["git", "folder"].includes(c.kind)).length;
+function catalogsBody(state) {
+  const count = catalogRows(state).filter((c) => ["git", "folder"].includes(c.kind)).length;
   return `<a class="btn" href="#/catalogs"${count ? ` aria-label="Catalogs, ${count}"` : ""}>Catalogs${count ? `<span class="muted">${count}</span>` : ""}</a>`;
 }
 
@@ -396,7 +396,7 @@ function noMatch(state) {
 function catalogBody(state) {
   const total = state.playgrounds.length + state.setups.length + state.addons.length;
   $(".list-tools", page).hidden = !total;
-  const said = contentStatus(state.content ? state : { content: { key: "ready" } }, { kind: "", items: total });
+  const said = contentStatus(state, { kind: "", items: total });
   const status = said ? [{ key: "content", cls: "", html: said }] : [];
   if (!total) {
     pager.slice([]);   // the pages of what was there are gone with it: the pager must not keep their buttons
@@ -486,7 +486,7 @@ function memoryBody() {
 
 // Storage's button counts what Docker stores again (`docker system df`, and Docker's versions with it); its tooltip says how old the count is
 function refreshButton(kept) {
-  const age = kept?.read_at ? ago(typeof kept.read_at === "number" ? kept.read_at * 1000 : kept.read_at) : "";
+  const age = kept?.read_at ? ago(kept.read_at * 1000) : "";
   return actionButton({ key: "dashboard", verb: "refresh", icon: "restart", cls: "icon-btn",
     attrs: `data-refresh data-tip="Count again${age ? `, counted ${age} ago` : ""}" aria-label="Count storage again"` });
 }

@@ -955,9 +955,6 @@ test("once the catalogs are there and hold none of its kind, each list says so i
   assert.deepEqual(all.map((name) => line(status(name)[0])), ["No playground yet", "No setup yet", "No add-on yet"]);
   assert.deepEqual(all.map(tools), [true, true, true]);
   assert.deepEqual(all.map((name) => line(sections[name].querySelector("[data-new]"))), ["New playground", "New setup", "New add-on"]);
-  // A server that does not say the content: the lists say what they say when it is all there
-  draw(lab({ playgrounds: [], setups: [], addons: [] }));
-  assert.deepEqual(all.map((name) => line(status(name)[0])), ["No playground yet", "No setup yet", "No add-on yet"]);
   alone();
   assert.deepEqual(all.map((name) => [status(name).length, tools(name)]), [[0, false], [0, false], [0, false]], "gone once there are items");
 });

@@ -410,21 +410,6 @@ test("with no catalog the page says so in the block of the content status, offer
   assert.equal(section.querySelector(".list-head").hidden, false);
 });
 
-test("a state that cannot be read says so with a plain Try again that reads it again", async () => {
-  store.state = lab();
-  delete store.state.catalogs;
-  catalogsPage.render(store.state);
-  const block = status().querySelector(".empty");
-  assert.equal(text(block.querySelector("span")), "Catalogs cannot be read");
-  const again = block.querySelector("button");
-  assert.deepEqual([text(again), again.getAttribute("class")], ["Try again", "btn"]);
-  const before = server.states;
-  click(again);
-  await flush();
-  assert.equal(server.states, before + 1);
-  assert.equal(items().length, 0);
-});
-
 // --- A row that opens -----------------------------------------------------------------------------------------------------------
 
 const DAYS = (n) => new Date(Date.now() - n * 86400000).toISOString();
