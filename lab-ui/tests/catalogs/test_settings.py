@@ -4,6 +4,7 @@ private repository of the standard's, `public-standard` and `org-private` are re
 standard, built from the documented shapes), served by a transport that records every call. The rulesets the module applies
 are the Lab's template; the test data holds a copy of the four managed files (the template is written by another package)."""
 
+import contextlib
 import copy
 import io
 import json
@@ -2153,10 +2154,10 @@ class Command(Case):
 
     def test_the_help(self):
         for argv in (["--help"], ["acme/lab-hub", "-h"]):
-            run = Run(argv, Scene("user-private-free"))
+            with contextlib.redirect_stdout(io.StringIO()) as shown:
+                run = Run(argv, Scene("user-private-free"))
             self.assertEqual((0, ""), (run.code, run.error))
-            self.assertTrue(run.text.startswith("catalog.py repo-settings [OWNER/REPO or FOLDER]"))
-            self.assertIn("Exit 0 when nothing failed", run.text)
+            self.assertTrue(shown.getvalue().startswith("usage: catalog.py repo-settings"))
 
     def test_a_request_that_github_refuses_is_a_failure_of_the_command(self):
         scene = Scene("user-private-free", refuse={("PUT", "/topics"): Reply(403, {"message": "Must have admin rights to Repository."})})

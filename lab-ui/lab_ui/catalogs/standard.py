@@ -1182,7 +1182,7 @@ def _parser(prog: str):
     class Parser(argparse.ArgumentParser):
         def error(self, message):   # one line and exit 2, where argparse prints its usage and exits on its own
             raise Usage(f"{prog}: {message}")
-    return Parser(prog=prog, add_help=False)
+    return Parser(prog=prog)
 
 
 def _say(text: str = "", out=None) -> None:

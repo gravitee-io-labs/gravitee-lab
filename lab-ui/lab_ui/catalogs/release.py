@@ -285,7 +285,7 @@ def main(argv: Optional[List[str]] = None, gh: Optional[Callable] = None) -> int
     class Parser(argparse.ArgumentParser):
         def error(self, message):
             raise ReleaseError(f"catalog.py release: {message}")
-    parser = Parser(prog="catalog.py release", add_help=False)
+    parser = Parser(prog="catalog.py release")
     parser.add_argument("version")
     parser.add_argument("--tag", action="store_true")
     parser.add_argument("--pr", action="store_true")

@@ -445,7 +445,7 @@ def main(argv: Optional[List[str]] = None, runner: Optional[Callable] = None, st
     of the Lab (SD11), a command line that makes no sense. `seams` are those of `upgrade_fleet`."""
     out, err = stdout or sys.stdout, stderr or sys.stderr
     try:
-        parser = settings.Parser(prog="catalog.py upgrade", add_help=False)
+        parser = settings.Parser(prog="catalog.py upgrade")
         parser.add_argument("--fleet", required=True, metavar="OWNER")
         parser.add_argument("--lab-ref", required=True, metavar="COMMIT")
         parser.add_argument("--format", choices=("text", "json", "github"), default="text")

@@ -976,8 +976,6 @@ class Delegated(Tool):
         for command, module_name, function in self.COMMANDS:
             for rest, answer in (([], 0), (["x", "--y", "z"], 1), (["--help"], 2), (["-h"], 0), (["--format", "json", "dir"], 1),
                                  (["--fleet-not", "--base=1"], 0), (["a b", "--maintainers", "@a,@b"], 1)):
-                if command in catalog.HELP and ("--help" in rest or "-h" in rest):
-                    continue   # the dispatcher answers a help word for a command whose module has none (Help, below)
                 with self.subTest(command=command, rest=rest):
                     (code, out, err), seen = self.run_with(command, module_name, function, *rest, answer=answer)
                     self.assertEqual((code, out, err), (answer, "", ""))
@@ -1033,49 +1031,8 @@ class Delegated(Tool):
     def test_repo_settings_is_the_real_module_with_its_own_help_and_its_own_usage_errors(self):
         code, out, err = self.run_tool("repo-settings", "--help")
         self.assertEqual((code, err), (0, ""))
-        self.assertIn("catalog.py repo-settings [OWNER/REPO or FOLDER]", out)
+        self.assertIn("usage: catalog.py repo-settings", out)
         self.assertEqual(self.run_tool("repo-settings", "--yes"), (2, "", "--yes goes with --apply.\n"))
-
-
-class Help(Tool):
-    """`catalog.py COMMAND --help`: the modules that run new, upgrade and release have no help (their parsers stop at the first word
-    they do not know), so the dispatcher says what the command does and how it is called; repo-settings and ci have their own."""
-
-    def test_the_commands_whose_module_has_no_help_say_what_they_do_and_how_to_call_them(self):
-        modules = {"lab_ui.catalogs.standard": None, "lab_ui.catalogs.release": None}   # not even needed for it
-        for command in ("new", "upgrade", "release"):
-            for words in (("--help",), ("-h",), ("somewhere", "--help"), ("--id", "x", "-h")):
-                with self.subTest(command=command, words=words), mock.patch.dict(sys.modules, modules):
-                    code, out, err = self.run_tool(command, *words)
-                    self.assertEqual((code, err), (0, ""))
-                    self.assertTrue(out.startswith(catalog.HELP[command][0] + "\n\nusage: catalog.py " + command), out)
-        self.assertIn("--maintainers", self.run_tool("new", "--help")[1])
-        self.assertIn("--lab-ref COMMIT|latest", self.run_tool("upgrade", "--help")[1])
-        self.assertIn("catalog.py upgrade --fleet OWNER", self.run_tool("upgrade", "-h")[1])
-        self.assertIn("[--tag] [--pr]", self.run_tool("release", "--help")[1])
-
-    def test_a_command_that_is_not_asking_for_help_still_goes_to_its_module(self):
-        seen = []
-        stub = module(main_new=lambda rest, **more: seen.append(rest) or 0)
-        with mock.patch.dict(sys.modules, {"lab_ui.catalogs.standard": stub}):
-            self.assertEqual(self.run_tool("new", "dir", "--id", "x"), (0, "", ""))
-        self.assertEqual(seen, [["dir", "--id", "x"]])
-
-    def test_the_loop_over_an_owner_and_the_two_modules_with_a_help_of_their_own_keep_it(self):
-        for command, module_name, function, rest in (("upgrade", "fleet", "main", ["--fleet", "acme", "--help"]),
-                                                      ("repo-settings", "settings", "main", ["--help"]), ("ci", "ci", "main", ["--help"])):
-            seen = []
-            with self.subTest(command=command), mock.patch.dict(sys.modules, {
-                    f"lab_ui.catalogs.{module_name}": module(**{function: lambda argv, **more: seen.append(argv) or 0})}):
-                self.assertEqual(self.run_tool(command, *rest), (0, "", ""))
-            self.assertEqual(seen, [rest])
-        self.assertNotIn("repo-settings", catalog.HELP)
-        self.assertNotIn("ci", catalog.HELP)
-
-    def test_every_command_the_help_is_for_is_delegated(self):
-        self.assertEqual(sorted(set(catalog.HELP) - set(catalog.DELEGATED)), [])
-        for text, usage in catalog.HELP.values():
-            self.assertTrue(text and usage.startswith("catalog.py "))
 
 
 MANAGED = REPO / "lab-ui" / "templates" / "catalog" / "managed"
@@ -1133,12 +1090,18 @@ class Managed(Tool):
                 else:
                     self.assertIn(words[0], catalog.DELEGATED, where)
 
-    def test_every_option_of_a_command_that_has_a_usage_here_is_in_it(self):
+    def test_every_option_a_managed_file_gives_a_delegated_command_is_in_its_help(self):
+        helps = {}
+        for command in ("new", "upgrade", "release"):
+            with contextlib.redirect_stdout(io.StringIO()) as shown, self.assertRaises(SystemExit) as stop:
+                catalog.main([command, "--help"])
+            self.assertEqual(stop.exception.code, 0, command)
+            helps[command] = shown.getvalue()
         for file, number, words in managed_calls():
-            if words[0] in catalog.HELP:
+            if words[0] in helps:
                 for option in (word for word in words[1:] if word.startswith("--")):
                     with self.subTest(file=file, line=number, option=option):
-                        self.assertIn(option, catalog.HELP[words[0]][1])
+                        self.assertIn(option, helps[words[0]])
 
     def test_every_stage_is_one_the_dispatcher_of_ci_has(self):
         from lab_ui.catalogs import ci

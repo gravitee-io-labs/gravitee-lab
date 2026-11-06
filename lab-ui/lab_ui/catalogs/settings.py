@@ -1523,17 +1523,9 @@ class Parser(argparse.ArgumentParser):
         raise Usage(text)
 
 
-USAGE = """catalog.py repo-settings [OWNER/REPO or FOLDER] [--apply [--yes]] [--effective-only]
-                         [--strict] [--as public or private or internal]
-                         [--fleet OWNER] [--format text or json or github]
-
-Audits the repository standard of a catalog on GitHub, through the gh command of the maintainer. --apply lists the
-requests that bring the repository to the standard, --yes makes them. Exit 0 when nothing failed, 1 when a rule failed
-(with --strict also a warning or a plan that cannot enforce a rule), 2 when it cannot be done."""
-
-
 def parser() -> argparse.ArgumentParser:
-    p = Parser(prog="catalog.py repo-settings", add_help=False)
+    p = Parser(prog="catalog.py repo-settings", description="Audits the repository standard of a catalog on GitHub, through the gh "
+               "command of the maintainer. --apply lists the requests that bring the repository to the standard, --yes makes them.")
     p.add_argument("target", nargs="?", help="OWNER/REPO or a folder (default: this folder)")
     p.add_argument("--apply", action="store_true")
     p.add_argument("--yes", action="store_true")
@@ -1551,9 +1543,6 @@ def main(argv: Optional[List[str]] = None, runner: Optional[Callable] = None, gi
     with --apply --yes, when GitHub refused a request), 2 when it cannot be done: no `gh`, no sign-in, a repository that is
     not on GitHub, a command line that makes no sense. Every exit 2 is one line on standard error."""
     out, err = stdout or sys.stdout, stderr or sys.stderr
-    if argv is not None and any(word in ("-h", "--help") for word in argv):
-        print(USAGE, file=out)
-        return 0
     try:
         args = parser().parse_args(argv)
         if args.yes and not args.apply:

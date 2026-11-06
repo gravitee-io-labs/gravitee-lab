@@ -22,8 +22,7 @@ catalog from the template and keep it in step with the Lab's standard. `python3 
     reset [--empty]                   start over: the next start is a first run, or has no catalog at all
     index [PATH or ID] [--out FILE]   the generated catalog.json, of a folder as it is or of an added catalog
 
-The five commands marked with a module are run by it: everything after their name is handed over as it is. Of those,
-`new`, `upgrade` and `release` answer `--help` here (HELP): their modules have none, and `repo-settings` and `ci` have their own.
+The five commands marked with a module are run by it: everything after their name is handed over as it is, `--help` too.
 
 Exit 0 when it worked, 1 when it found a problem or an upgrade is pending or it was refused, 2 for a usage or environment error
 (not a catalog, a tool missing) or a fault of the tool (a crash is never
@@ -980,43 +979,16 @@ DELEGATED = {"new": ("standard", "main_new"), "upgrade": ("standard", "main_upgr
              "repo-settings": ("settings", "main"), "ci": ("ci", "main")}
 
 
-# What `catalog.py COMMAND --help` says for the commands whose module answers no help of its own (their parsers stop at the first
-# word they do not know, so the dispatcher says it): the words of the command and its usage line. `repo-settings` and `ci` are not
-# here: their modules list their options and their stages.
-HELP = {
-    "new": ("a catalog from the template of the standard, rendered into an empty folder",
-            "catalog.py new DIR --id ID --name NAME --maintainers @A[,@B or @ORG/TEAM] [--license SPDX] [--images PREFIX]\n"
-            "                [--description TEXT] [--security-contact ADDRESS] [--lab-repo OWNER/REPO] [--lab-ref COMMIT]\n"
-            "                [--platforms LIST] [--with e2e] [--local]"),
-    "upgrade": ("bring the managed files of a catalog to the level of this Lab, or of every catalog of an owner",
-                "catalog.py upgrade [DIR] [--write] [--lab-ref COMMIT|latest] [--adopt]\n"
-                "                   [--with e2e] [--maintainers @A] [--lab-repo OWNER/REPO]\n"
-                "catalog.py upgrade --fleet OWNER --lab-ref COMMIT [--format text|json|github]"),
-    "release": ("prepare a release of a catalog, then tag it",
-                "catalog.py release VERSION [--tag] [--pr] [--dir DIR]"),
-}
-
-
 def _fleet(rest):
     """Whether the words after `upgrade` are the loop over the catalogs of an owner (`--fleet OWNER`)."""
     return any(word == "--fleet" or word.startswith("--fleet=") for word in rest)
 
 
-def _help(command):
-    """The help of a delegated command that has none of its own: what it does and its usage line, on standard output."""
-    text, usage = HELP[command]
-    say(f"{text}\n\nusage: {usage}")
-    return 0
-
-
 def delegate(args):
     module, function = DELEGATED[args.command]
     rest = list(args.rest)
-    fleet = args.command == "upgrade" and _fleet(rest)
-    if fleet:
+    if args.command == "upgrade" and _fleet(rest):
         module, function = "fleet", "main"
-    elif args.command in HELP and any(word in ("-h", "--help") for word in rest):
-        return _help(args.command)
     return getattr(_lab(module), function)(rest)
 
 
@@ -1085,9 +1057,7 @@ def parser():
                        ("release", "prepare a release, then tag it (catalog.py release VERSION [--tag] [--pr])"),
                        ("repo-settings", "audit and apply the repository standard on GitHub (catalog.py repo-settings --help)"),
                        ("ci", "the stages the managed workflows call: plan, gitleaks, manifests, build, test, smoke, run, ...")):
-        sub = one(name, delegate, text)
-        sub.set_defaults(command=name)
-        sub.add_argument("rest", nargs=argparse.REMAINDER)
+        one(name, delegate, text)
     return top
 
 
