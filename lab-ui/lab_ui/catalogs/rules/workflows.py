@@ -9,7 +9,6 @@ lane) and runs on catalogs only: the engine's `e2e.yml` and `lab-images.yml` tri
 
     check(tree, ctx) -> [Problem]            every workflow and local action of a catalog, both sets
     problems(path, text, rules)              one file, any set of codes
-    run_blocks(text), jobs(text), triggers(text)   the readers of the engine's test, now over the outline below
 
 The reader is an outline by indentation (`_Reader`), not one regular expression per line: a rule that looks for `^      timeout`
 at six spaces is blind to a file written with four. Whatever the outline cannot read with certainty is WF21, so a workflow that
@@ -702,8 +701,6 @@ class _Doc(object):
 
     def __init__(self, path: str, text: str, is_action: bool = False) -> None:
         reader = _Reader(text)
-        self.path = path
-        self.lines = reader.lines
         self.root: _Node = reader.root
         self.kind = "action" if is_action else "workflow"
         self.name = path.rsplit("/", 1)[-1]
@@ -1579,11 +1576,6 @@ def _wf21(doc):
 
 # ---------------------------------------------------------------- entry points
 
-def unreadable(text: str) -> Dict[int, str]:
-    """Why each line the outline cannot read for certain is refused (WF21): {line: reason}. For tests and for `explain`."""
-    return dict(_Doc("workflow.yml", text).unreadable)
-
-
 def _is_action(path: str) -> bool:
     """Whether a file is a composite action and not a workflow. The folder decides, and the name only where the folder says
     nothing: a file of `.github/workflows/` is a workflow whatever it is called (`action.yml` too), because GitHub runs it as one."""
@@ -1634,31 +1626,3 @@ def check(tree, ctx=None) -> List[Problem]:
             continue
         found.extend(_problems(path, text, ALL, _ACTION_FILE.match(path) is not None))    # the place decides, as above
     return found
-
-
-# ---------------------------------------------------------------- the readers of the engine's test
-
-def run_blocks(text: str) -> List[Tuple[int, str]]:
-    """(line number, line) of every line a `run:` runs: its value on the line itself, or the block under it."""
-    found = []
-    for node in _run_scalars(_Doc("workflow.yml", text)):
-        found.extend(node.parts)
-    return sorted(found)
-
-
-def jobs(text: str) -> Dict[str, str]:
-    """{job name: its text} of a workflow: the keys of `jobs:`, read by indentation whatever the indentation is."""
-    doc = _Doc("workflow.yml", text)
-    if not doc.jobs:
-        return {}
-    after = [entry.line for entry in doc.root.entries if entry.line > doc.jobs[-1].line]
-    found = {}
-    for number, job in enumerate(doc.jobs):
-        end = doc.jobs[number + 1].line - 1 if number + 1 < len(doc.jobs) else (min(after) - 1 if after else len(doc.lines))
-        found[job.name] = "\n".join(doc.lines[job.line:end])
-    return found
-
-
-def triggers(text: str) -> Set[str]:
-    """The events of `on:`, in the spellings a workflow may use."""
-    return {event for event, _ in _Doc("workflow.yml", text).events()}

@@ -864,7 +864,7 @@ class Passing(unittest.TestCase):
                     written = yaml.dump(yaml.load(text_of(name), Loader=yaml.BaseLoader), Dumper=yaml.Dumper, indent=indent, width=width,
                                         default_flow_style=False, allow_unicode=True, sort_keys=False)
                     self.assertEqual(outline(written), expected)
-                    self.assertEqual({reason for reason in wf.unreadable(written).values()} - {"a quoted key"}, set())
+                    self.assertEqual(set(wf._Doc("workflow.yml", written).unreadable.values()) - {"a quoted key"}, set())
 
 
 def norm(value):
@@ -987,28 +987,6 @@ class Mutations(unittest.TestCase):
 class Readers(unittest.TestCase):
     """What the module reads, and what it refuses to guess."""
 
-    def test_a_run_is_its_line_or_its_block(self):
-        text = "steps:\n  - run: echo ${{ a }}\n  - name: x\n    run: |\n      echo one\n      echo ${{ b }}\n  - run: ok\n"
-        self.assertEqual([line.strip() for _, line in wf.run_blocks(text)], ["echo ${{ a }}", "echo one", "echo ${{ b }}", "ok"])
-        self.assertEqual([number for number, _ in wf.run_blocks(text)], [2, 5, 6, 7])
-
-    def test_the_jobs_of_a_workflow_by_name_whatever_the_indentation(self):
-        text = "name: x\njobs:\n  one:\n    runs-on: a\n  two-b:\n    runs-on: b\n"
-        self.assertEqual(list(wf.jobs(text)), ["one", "two-b"])
-        self.assertEqual(wf.jobs(text)["two-b"].strip(), "runs-on: b")
-        self.assertEqual(list(wf.jobs(doubled(text))), ["one", "two-b"])
-        self.assertEqual(wf.jobs("name: x\n"), {})
-        self.assertEqual(list(wf.jobs(text + "other: 1\n")), ["one", "two-b"])
-        self.assertEqual(wf.jobs(text + "other: 1\n")["two-b"].strip(), "runs-on: b")
-
-    def test_the_events_in_the_spellings_a_workflow_may_use(self):
-        self.assertEqual(wf.triggers("on: push\n"), {"push"})
-        self.assertEqual(wf.triggers("on: [push, pull_request]\n"), {"push", "pull_request"})
-        self.assertEqual(wf.triggers("on:\n  pull_request:\n  push:\n    branches: [main]\npermissions:\n"), {"pull_request", "push"})
-        self.assertEqual(wf.triggers("on:\n  - push\n  - schedule\n"), {"push", "schedule"})
-        self.assertEqual(wf.triggers("on: {push: {branches: [main]}, 'pull_request_target': {}}\n"), {"push", "pull_request_target"})
-        self.assertEqual(wf.triggers("name: x\n"), set())
-
     def test_whatever_the_indentation_the_jobs_are_read(self):
         """The reader that looked for six spaces saw no job in a file written with four."""
         text = doubled(edit(text_of("ci"), "timeout-minutes: 15", "timeout-minutes: soon"))
@@ -1021,7 +999,7 @@ class Readers(unittest.TestCase):
 
     def test_the_reasons_a_file_is_refused(self):
         def reason(text):
-            return sorted(wf.unreadable(text).values())
+            return sorted(wf._Doc("workflow.yml", text).unreadable.values())
         self.assertEqual(reason("a: b\n"), [])
         self.assertEqual(reason("a: [b]\n"), [])
         self.assertEqual(reason("on: [b]\n"), ["a flow collection as the value of on"])
@@ -1106,9 +1084,11 @@ class Aggregator(unittest.TestCase):
             self.skipTest("bash is not installed")
 
     def script(self, name, job="result"):
-        lines = wf.run_blocks(wf.jobs(text_of(name))[job])
+        doc = wf._Doc(path_of(name), text_of(name))
+        steps = doc.get(next(each.node for each in doc.jobs if each.name == job), "steps").value.items
+        lines = [line for step in steps if doc.get(step, "run") for _, line in doc.get(step, "run").value.parts]
         self.assertTrue(lines, "the job %s has a script" % job)
-        return textwrap.dedent("\n".join(line for _, line in lines)) + "\n"
+        return textwrap.dedent("\n".join(lines)) + "\n"
 
     def run_it(self, name, **env):
         done = subprocess.run([self.bash, "-c", self.script(name)], env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LC_ALL": "C", **env},
@@ -1452,15 +1432,6 @@ class Hostile(unittest.TestCase):
         plain = edit(text_of("publish"), "needs.images.result == 'success'", "%s needs.images.result == 'success'" % pile)
         self.assertEqual([], codes("publish", plain, {"WF18"}))
 
-    def test_the_readers_finish_too(self):
-        for label in ("a script of 1 MB", "a pile of single quotes", "lines", "a key that never closes"):
-            with self.subTest(label):
-                start = time.process_time()
-                wf.run_blocks(HOSTILE[label])
-                wf.jobs(HOSTILE[label])
-                wf.triggers(HOSTILE[label])
-                self.assertLess(time.process_time() - start, 2.0)
-
     def test_the_escapes_of_a_long_scalar_are_decoded_like_those_of_a_short_one(self):
         """The first version decoded only the dollar and the braces past 4096 characters, with three entries of its table that
         replaced a character by itself. Every escape is decoded now, up to MAX_ESCAPES backslashes; a scalar with more is refused."""
@@ -1475,7 +1446,7 @@ class Hostile(unittest.TestCase):
         # a scalar with more backslashes than MAX_ESCAPES is refused, and its braces are still read
         text = step_line('run: "echo %s github.head_ref }}%s"' % (spelt("${{", "${"), (BS + "x41") * (wf.MAX_ESCAPES + 1)))
         self.assertEqual(["WF04", "WF21"], codes("ci", text))
-        self.assertIn("more than %d backslashes" % wf.MAX_ESCAPES, " ".join(wf.unreadable(text).values()))
+        self.assertIn("more than %d backslashes" % wf.MAX_ESCAPES, " ".join(wf._Doc("workflow.yml", text).unreadable.values()))
         self.assertEqual([], codes("ci", step_line('run: "' + (BS + "x41") * wf.MAX_ESCAPES + '"')))
 
     def test_a_pipe_into_a_shell_still_found_after_wrappers_and_groups(self):
@@ -1517,9 +1488,6 @@ class Hostile(unittest.TestCase):
             with self.subTest(number=number, file=name):
                 start = time.process_time()
                 found = wf.problems(path_of(name), text, wf.ALL)
-                wf.run_blocks(text)
-                wf.jobs(text)
-                wf.triggers(text)
                 self.assertLess(time.process_time() - start, 1.0)
                 self.assertTrue(all(isinstance(each, wf.Problem) and each.code in wf.ALL and each.line >= 0 for each in found))
 
