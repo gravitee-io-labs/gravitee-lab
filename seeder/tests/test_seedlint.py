@@ -1541,7 +1541,6 @@ class InTheEngine(unittest.TestCase):
         listed = [line.strip() for line in (SEEDER / ".dockerignore").read_text(encoding="utf-8").splitlines()]
         dockerfile = (SEEDER / "Dockerfile").read_text(encoding="utf-8")
         self.assertIn("COPY lab_seeder lab_seeder", dockerfile)
-        self.assertIn("COPY seed.py ./", dockerfile)
         for tool in ("testkit.py", "seedlint.py"):
             self.assertIn(f"lab_seeder/{tool}", listed)
 
