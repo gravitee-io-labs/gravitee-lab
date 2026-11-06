@@ -24,7 +24,7 @@ LAB_UI = Path(__file__).resolve().parents[2]
 WEB = LAB_UI / "web"
 MODULES = sorted((WEB / "js").rglob("*.js"))
 INDEX = (WEB / "index.html").read_text()
-PYTHON = [LAB_UI / "server.py", *sorted((LAB_UI / "lab_ui").glob("*.py")), *sorted((LAB_UI / "tests").glob("*.py"))]
+PYTHON = [LAB_UI / "server.py", *sorted((LAB_UI / "lab_ui").rglob("*.py")), *sorted((LAB_UI / "tests").rglob("*.py"))]
 
 IMPORT = re.compile(r'^import\s+(?:\{([^}]*)\}\s+from\s+)?"([^"]+)";', re.M)
 LAZY_IMPORT = re.compile(r'\bimport\("([^"]+)"\)')
