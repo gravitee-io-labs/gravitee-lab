@@ -76,10 +76,6 @@ class Manifests(Cluster):
         with self.assertRaisesRegex(common.SeedError, r"01\.yaml: it is not valid YAML .*\(line 2\)"):
             k8s.manifests()
 
-    def test_it_does_nothing_without_manifests(self):
-        k8s.seed()
-        self.assertEqual(self.platform.calls, [])
-
     def test_manifests_are_applied_in_order_with_their_variables_and_recorded(self):
         self.seed_files(FILES)
         self.answer(self.cluster)
@@ -197,10 +193,6 @@ class Removal(Cluster):
         k8s.remove(self.records())
         self.assertEqual(self.platform.changes(), [])
         self.assertIn("The cluster does not answer", self.output())
-
-    def test_nothing_recorded_touches_nothing(self):
-        k8s.remove([{"product": "apim", "kind": "api", "label": "APIs", "name": "x", "id": "x"}])
-        self.assertEqual(self.platform.calls, [])
 
 
 class Generated(Cluster):

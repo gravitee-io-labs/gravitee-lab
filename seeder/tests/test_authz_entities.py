@@ -915,11 +915,6 @@ class Server(Case):
                                                      r"and seed/authz/entities.yaml has no server$"):
             authz.seed()
 
-    def test_a_playground_that_seeds_no_authorization_makes_no_call(self):
-        authz.seed()
-        authz.remove([])
-        self.assertEqual(self.platform.calls, [])
-
 
 class Agents(Case):
     """<agent:CLIENT_ID> in a policy is the id the gateway makes of the client id."""

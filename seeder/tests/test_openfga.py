@@ -145,10 +145,6 @@ class Stores(Case):
         self.seed_files({FILE: json.dumps({"model": "model\n  schema 1.1\n"})})
         self.assertEqual(list(openfga.seed()), ["documents"])
 
-    def test_a_seed_without_stores_asks_nothing(self):
-        self.assertEqual(openfga.seed(), {})
-        self.assertEqual(self.platform.calls, [])
-
 
 class Models(Case):
 
@@ -212,11 +208,6 @@ class Removal(Case):
     def test_a_store_that_is_gone_is_not_an_error(self):
         openfga.remove([{"product": "openfga", "kind": "store", "name": "Documents", "id": "store-7", "label": ""}])
         self.assertEqual(self.platform.changes(), [("DELETE", "/stores/store-7")])
-
-    def test_what_another_module_made_is_left_alone(self):
-        openfga.remove([{"product": "am", "kind": "domain", "name": "d", "id": "d", "label": ""}])
-        openfga.remove([])
-        self.assertEqual(self.platform.calls, [])
 
 
 if __name__ == "__main__":

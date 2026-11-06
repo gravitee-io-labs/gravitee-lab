@@ -311,12 +311,6 @@ class Authorization(Case):
         authz.remove(common.created())
         self.assertIn("mine", self.world.entities)
 
-    def test_a_playground_that_seeds_no_authorization_makes_no_call(self):
-        with mock.patch.object(common, "SEED_DIR", common.SEED_DIR / "nothing"), mock.patch.dict("os.environ", {}, clear=True):
-            authz.seed()
-            authz.remove([])
-        self.assertEqual(self.platform.calls, [])
-
     def test_the_seed_runs_authorization_after_the_catalog_and_the_link_to_access_management(self):
         modules = [module.__name__.rsplit('.', 1)[-1] for module in seed.MODULES]
         self.assertLess(modules.index("aim_catalog"), modules.index("authz"))

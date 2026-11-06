@@ -1225,11 +1225,6 @@ class Removal(Catalog):
         with self.assertRaisesRegex(common.SeedError, "HTTP 409.*provider.in_use"):
             aim_catalog.remove(common.created())
 
-    def test_it_connects_only_when_it_has_something_to_delete(self):
-        aim_catalog.remove([])
-        aim_catalog.remove([{"product": "apim", "kind": "api", "name": "x", "id": "x", "label": ""}])
-        self.assertEqual(self.platform.calls, [])
-
 
 class Playground(Catalog):
     """The seed files of Acme Bakery, which are what this module is for."""

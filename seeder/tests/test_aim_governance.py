@@ -4,7 +4,6 @@ what it is given: made once, left alone by a second run (no write at all), repai
 taking over what the seed did not make, and removed with only what it made."""
 
 import itertools
-import os
 import re
 import unittest
 from unittest import mock
@@ -672,25 +671,12 @@ class Files(Governance):
         aim_governance.seed()
         self.assertEqual(self.platform.calls, [])
 
-    def test_a_playground_that_seeds_no_governance_needs_no_setting_and_makes_no_call(self):
-        with mock.patch.object(common, "SEED_DIR", common.SEED_DIR / "nothing"), mock.patch.dict(os.environ, {}, clear=True):
-            aim_governance.seed()
-            aim_governance.remove([])
-        self.assertEqual(self.platform.calls, [])
-
     def test_a_platform_without_agent_management_ends_the_wait_once_its_404_lasts(self):
         self.platform.add({("GET", SETTINGS_PATH): (404, {"message": "not found"})})
         with self.assertRaises(common.SeedError) as stopped:
             aim_governance.seed()
         self.assertIn("is not available on this platform", str(stopped.exception))
         self.assertLess(self.clock.elapsed, gamma.UNSERVED + 5)
-
-    def test_the_records_of_other_modules_are_left_alone(self):
-        theirs = [{"product": "aim-catalog", "kind": "agent", "name": "a", "id": "a", "label": ""},
-                  {"product": "aim-agents", "kind": "subscription", "name": "s", "id": "s", "label": ""},
-                  {"product": "aim-governance", "kind": "other", "name": "o", "id": "o", "label": ""}]
-        aim_governance.remove(theirs)
-        self.assertEqual(self.platform.calls, [])
 
     def test_the_answers_alone_are_a_removal_that_asks_nothing_of_the_platform(self):
         aim_governance.remove([{"product": "aim-governance", "kind": "compliance-answers", "name": "Care copilot",

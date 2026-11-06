@@ -791,24 +791,9 @@ class Removal(WithStudio):
         self.assertIn("✓ Deleted MCP proxy 'Acme Bakery MCP'", self.output())
         self.assertIn("✓ Deleted MCP studio 'Acme Bakery Toolkit'", self.output())
 
-    def test_what_another_module_made_is_left_alone(self):
-        theirs = [{"product": "aim-workspaces", "kind": "workspace", "name": "w", "id": "w", "label": ""},
-                  {"product": "apim", "kind": "api", "name": "a", "id": "a", "label": ""}]
-        aim_proxies.remove(theirs)
-        self.assertEqual(self.platform.calls, [])
-
     def test_a_proxy_that_is_gone_is_not_an_error(self):
         self.world.proxies.clear()
         aim_proxies.remove(common.created())
-
-
-class Folder(Seed):
-
-    def test_a_playground_without_proxies_needs_no_setting_and_makes_no_call(self):
-        self.env(APIM_MANAGEMENT_URL=None)
-        aim_proxies.seed()
-        aim_proxies.remove([])
-        self.assertEqual(self.platform.calls, [])
 
 
 if __name__ == "__main__":

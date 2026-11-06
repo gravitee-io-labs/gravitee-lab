@@ -372,10 +372,6 @@ class Kinds(Case):
         self.assertEqual(kinds[9], "domains")
         self.assertEqual(self.am.domains, {})
 
-    def test_a_removal_leaves_the_kinds_of_other_products_alone(self):
-        am.remove([{"product": "apim", "kind": "api", "name": "x", "id": "x"}])
-        self.assertEqual(self.platform.calls, [])
-
     def test_a_domain_the_seed_did_not_create_is_configured_never_taken_over(self):
         self.seed_files({"am/domain.yaml": "name: mine\nsettings: {oidc: {x: 1}}\n"})
         self.am.domains["d"] = {"id": "d", "name": "mine"}

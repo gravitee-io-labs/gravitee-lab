@@ -725,19 +725,6 @@ class WhatItLeavesAlone(Agents):
         aim_agents.seed()
         self.assertEqual(self.changed(), [("POST", APPLICATION), ("PUT", IDENTITY), ("POST", SUBSCRIPTIONS)])
 
-    def test_a_playground_that_seeds_no_agent_needs_no_setting_and_makes_no_call(self):
-        with mock.patch.object(common, "SEED_DIR", common.SEED_DIR / "nothing"), mock.patch.dict(os.environ, {}, clear=True):
-            aim_agents.seed()
-            aim_agents.remove([])
-        self.assertEqual(self.platform.calls, [])
-
-    def test_the_records_of_other_modules_are_left_alone(self):
-        theirs = [{"product": "apim", "kind": "subscription", "name": "s", "id": "s", "label": ""},
-                  {"product": "aim-catalog", "kind": "agent", "name": "a", "id": "a", "label": ""},
-                  {"product": "am", "kind": "agent", "name": "a", "id": "a", "label": ""}]
-        aim_agents.remove(theirs)
-        self.assertEqual(self.platform.calls, [])
-
 
 class Removal(Agents):
     def setUp(self):

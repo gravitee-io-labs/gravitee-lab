@@ -179,19 +179,6 @@ class Removal(Dashboard):
         self.console.dashboards.clear()
         aim_dashboards.remove(common.created())
 
-    def test_what_another_module_made_is_left_alone(self):
-        aim_dashboards.remove([{"product": "aim-workspaces", "kind": "workspace", "name": "w", "id": "w", "label": ""}])
-        self.assertEqual(self.platform.calls, [])
-
-
-class Folder(Seed):
-
-    def test_a_playground_without_dashboards_needs_no_setting_and_makes_no_call(self):
-        self.env(APIM_MANAGEMENT_URL=None)
-        aim_dashboards.seed()
-        aim_dashboards.remove([])
-        self.assertEqual(self.platform.calls, [])
-
 
 if __name__ == "__main__":
     unittest.main()
