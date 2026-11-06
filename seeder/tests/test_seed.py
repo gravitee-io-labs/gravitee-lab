@@ -19,7 +19,7 @@ from lab_seeder import apim
 from lab_seeder import common
 from lab_seeder import openfga
 from lab_seeder import seed
-from lab_seeder.testkit import Platform, Response, Seed
+from lab_seeder.testkit import Seed
 
 V2 = "/management/v2/organizations/DEFAULT/environments/DEFAULT"
 ENGINES = "/domain/authorization-engines"
@@ -425,8 +425,8 @@ class Fakes(Seed):
 
     def test_a_route_that_starts_with_http_is_matched_against_the_whole_url(self):
         self.answer({("GET", "http://bakery-agent:8000/card"): (200, "agent"), ("GET", "/card"): (200, "other")})
-        self.assertEqual(requests.get("http://bakery-agent:8000/card").text, "agent")
-        self.assertEqual(requests.get("http://elsewhere/card").text, "other")
+        self.assertEqual(common.Api("http://bakery-agent:8000").get("/card").text, "agent")
+        self.assertEqual(common.Api("http://elsewhere").get("/card").text, "other")
 
     def test_a_list_answers_one_item_per_call_and_the_last_one_for_the_rest(self):
         self.answer({("GET", "/a"): [503, 503, (200, "up")]})
@@ -475,13 +475,6 @@ class Fakes(Seed):
         self.assertEqual(self.platform.changes(), [("PUT", "/a"), ("PUT", "/b/1")])
         self.assertEqual(len(self.platform.sent("PUT", re.compile(r"/[ab].*"))), 2)
 
-    def test_the_requests_functions_and_sessions_all_reach_the_platform(self):
-        self.answer({("GET", "/a"): 200, ("POST", "/b"): 200})
-        with requests.Session() as session:
-            session.get("http://x/a")
-        requests.post("http://x/b", json={})
-        self.assertEqual([call.path for call in self.platform.calls], ["/a", "/b"])
-
     def test_nothing_sleeps_and_time_moves_when_something_does(self):
         before = time.time()
         time.sleep(100)
@@ -494,12 +487,6 @@ class Fakes(Seed):
         self.seed_files({"apim/applications/a.yaml": "name: A\n"})
         self.assertEqual([p.name for p in common.files("apim", "applications")], ["a.yaml"])
         self.assertEqual(common.load(common.files("apim", "applications")[0]), {"name": "A"})
-
-    def test_a_response_says_whether_it_is_an_error(self):
-        with self.assertRaises(requests.HTTPError):
-            Response(500).raise_for_status()
-        Response(204).raise_for_status()
-        self.assertEqual(Platform({("GET", "/a"): 200}).routes, {("GET", "/a"): 200})
 
 
 if __name__ == "__main__":

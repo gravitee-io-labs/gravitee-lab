@@ -76,10 +76,6 @@ class Response:
             raise requests.exceptions.JSONDecodeError("not JSON", self.text, 0)
         return self.body
 
-    def raise_for_status(self):
-        if not self.ok:
-            raise requests.HTTPError(f"HTTP {self.status_code}", response=self)
-
 
 # What the platform was asked: `url` whole, `path` without its query, `params` from the URL and the call, `headers` as
 # sent (the session's and the call's, without those the call removes with None), `auth` from the call or its session.
@@ -170,30 +166,6 @@ class Session:
                     files, sent, auth or self.auth, timeout)
         return self.platform.handle(call)
 
-    def get(self, url, **kwargs):
-        return self.request("GET", url, **kwargs)
-
-    def post(self, url, **kwargs):
-        return self.request("POST", url, **kwargs)
-
-    def put(self, url, **kwargs):
-        return self.request("PUT", url, **kwargs)
-
-    def patch(self, url, **kwargs):
-        return self.request("PATCH", url, **kwargs)
-
-    def delete(self, url, **kwargs):
-        return self.request("DELETE", url, **kwargs)
-
-    def close(self):
-        pass
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exception):
-        self.close()
-
 
 class FakeRedis:
     """The part of redis-py a refill uses, over the hashes of a dict, {key: {field: value}}: scan_iter with a glob, a
@@ -254,7 +226,7 @@ class Clock:
 
     def __init__(self):
         self.sleeps, self.elapsed = [], 0.0
-        self._time, self._monotonic = time.time, time.monotonic
+        self._time = time.time
 
     def sleep(self, seconds):
         self.sleeps.append(seconds)
@@ -262,9 +234,6 @@ class Clock:
 
     def time(self):
         return self._time() + self.elapsed
-
-    def monotonic(self):
-        return self._monotonic() + self.elapsed
 
 
 class Seed(unittest.TestCase):
@@ -279,9 +248,8 @@ class Seed(unittest.TestCase):
         patches = [mock.patch.object(common, "STATE_FILE", self.state),
                    mock.patch.object(common, "SEED_DIR", Path(folder.name) / "seed"),
                    mock.patch.object(requests, "Session", self.platform.session),
-                   mock.patch.object(requests.sessions, "Session", self.platform.session),
                    mock.patch.dict(os.environ, SETTINGS, clear=True), mock.patch("sys.stdout", self.stdout)]
-        patches += [mock.patch.object(time, name, getattr(self.clock, name)) for name in ("sleep", "time", "monotonic")]
+        patches += [mock.patch.object(time, name, getattr(self.clock, name)) for name in ("sleep", "time")]
         for patch in patches:
             patch.start()
             self.addCleanup(patch.stop)
