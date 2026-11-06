@@ -499,21 +499,17 @@ def _port(port):
     return found
 
 
-# A pull_policy line: what leads to its value, the value, then the comment that may follow
-POLICY = re.compile(r"(\s*pull_policy:[ \t]*)([^#]*?)([ \t]*(?:#.*)?)")
-
-
 def _policies_written(text):
     """A compose file's text with each `pull_policy` that names a variable written as the default of that variable
     (`missing`, Compose's own, when it has none). Compose 5.5.1 and later refuse `${VAR:-never}` there when they do not
     interpolate, which is how raw() reads a file."""
     def written(line):
-        found = POLICY.fullmatch(line)
-        if not (found and "$" in found.group(2)):
+        lead, key, rest = line.partition("pull_policy:")
+        value = rest.partition("#")[0].strip(" \t")
+        if lead.strip() or not key or "$" not in value:
             return line
-        defaults = [default.strip("\"' ") for _, default, _ in references(found.group(2))
-                    if default and "$" not in default]
-        return f"{found.group(1)}{defaults[-1] if defaults else 'missing'}{found.group(3)}"
+        defaults = [default.strip("\"' ") for _, default, _ in references(value) if default and "$" not in default]
+        return lead + key + rest.replace(value, defaults[-1] if defaults else "missing", 1)
     return "\n".join(written(line) for line in text.split("\n"))
 
 

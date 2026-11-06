@@ -380,6 +380,15 @@ class PullPolicyVariables(Copies):
                 "      note: pull_policy ${X:-never}\n")
         self.assertEqual(compose._policies_written(text), text)
 
+    def test_a_long_line_is_read_in_one_pass(self):
+        # What a catalog's file holds is not bounded, and a regex that goes back over it holds every thread of the Lab UI
+        blanks = " " * 64000
+        for written, wanted in (("a%sb", "a%sb"), ("${A:-never}%s# why", "never%s# why")):
+            text = "    pull_policy: " + written % blanks + "\n"
+            started = time.process_time()
+            self.assertEqual(compose._policies_written(text), "    pull_policy: " + wanted % blanks + "\n")
+            self.assertLess(time.process_time() - started, 1)
+
     def test_a_file_without_a_variable_policy_is_read_as_it_is(self):
         self.write("addons/tool/compose.yml", self.COPIED)
         seen = self.read("addons/tool/compose.yml")
