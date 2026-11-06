@@ -903,7 +903,7 @@ def _check_folder(asked):
 
 def _understood(meta, judged=None, mine=()):
     """Refuses a version of a published catalog that uses what this Lab does not read (`lab_new`: it needs a newer Gravitee
-    Lab): a key of its catalog.yml, or what a unit uses, as the judgement found it (`unknown`). `pick` passes such a version
+    Lab): a key of its catalog.yml, or what a unit uses, as the judgement found it (`unknown`). `searched` passes such a version
     over when it reads it first, so this is the gate for one it could not read: a Lab never runs a file it half understands."""
     found = manifest.unread(meta)
     for kind, uid in mine:
@@ -1300,7 +1300,7 @@ def _changes_of(plan, ns, judged, verdicts, old_verdicts):
 
 
 def _plan(ns, op):
-    """The plan of moving a catalog to the commit `pick` chose, or back to the
+    """The plan of moving a catalog to the commit `searched` chose, or back to the
     previous one. Under the catalogs lock it stages the candidate, judges it against everything installed and tells what
     changes, what that breaks, what grows in power, and what holds it back. Answers the Plan of 13.2 with a ticket, or
     {"upToDate": true}."""
@@ -1524,7 +1524,7 @@ def _apply(ns, ticket, confirm_history, op):
 
 def _settled(ns, plan, before):
     """What the lock remembers of the last check after the pin moved. An Update moved to the newest version the store holds
-    (the plan's target is what `pick` chose from the tip it has), so nothing newer is on offer, whatever the last check said
+    (the plan's target is what `searched` chose from the tip it has), so nothing newer is on offer, whatever the last check said
     (it may have named a commit of the history that was just replaced). A Go back leaves the version it left as the newer one,
     so the row says "Update available" again and the action toggles, and going forward again leaves nothing newer."""
     seen = {key: value for key, value in _seen(registry.lock_of(ns)).items() if key != "searched"}   # the next check reads again

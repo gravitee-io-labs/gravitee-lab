@@ -1077,7 +1077,7 @@ def _need(ns, commit):
 
 def _unreadable(meta, contract, entry) -> Optional[CatalogError]:
     """The refusal (`lab_new`, `lab_old`) when the version staged is written for a level this Lab does not read, by the strict
-    reading of its catalog.yml: `pick` chooses a commit from a tolerant reading that may be unsure of the level (an anchor,
+    reading of its catalog.yml: `searched` chooses a commit from a tolerant reading that may be unsure of the level (an anchor,
     a number spelled another way) and takes such a version for one this Lab may read, so this is where it is known. None
     for a Lab whose level the caller did not give."""
     if not isinstance(contract, dict):
@@ -1149,7 +1149,7 @@ def unknown_at(store_path, commit) -> Optional[list]:
 
 
 def readable(store_path):
-    """What `manifest.pick` asks of a version of the catalog in the store: whether this Lab reads all it uses (`unknown_at`).
+    """What `manifest.searched` asks of a version of the catalog in the store: whether this Lab reads all it uses (`unknown_at`).
     A version it could not tell of stops the choice: an older one is no answer, and that one is not one that needs a newer
     Gravitee Lab. It raises `docker_missing` while Docker Compose cannot read here (not installed, not started yet, older
     than 5), else `unread`."""
@@ -1175,7 +1175,7 @@ def plan_update(ns: str, target: str, context: Optional[dict] = None) -> dict:
     Go back, the two are not one history); or `context["moved"]`,
     the release installed is a tag the owners moved to the target since, which an update does not take silently either. `context["on"]`, an iterable or a function: the units that are on or up, which the hold
     rule adds to those the on file turns on. `context["contract"]`, `{contract, contract_min}`: the level this Lab reads; a
-    version written for another is refused (`lab_new`, `lab_old`) whatever `pick` made of it, and so is one whose catalog.yml
+    version written for another is refused (`lab_new`, `lab_old`) whatever `searched` made of it, and so is one whose catalog.yml
     has a key this Lab does not read (`lab_new`: it needs a newer Gravitee Lab), the staged folder cleared. The
     plan is applied by `apply_update`, which asks again."""
     context = dict(context or {})

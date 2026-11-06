@@ -42,6 +42,10 @@ def problems(**changes):
     return manifest.validate_catalog(meta)
 
 
+def pick(*args, **how):
+    return manifest.searched(*args, **how)[:2]
+
+
 class Levels(Case):
     """compat over the table of 4.4."""
 
@@ -73,25 +77,25 @@ class Picking(Case):
     """Pick returns the newest readable commit on every case of the table."""
 
     def test_a_readable_tip_is_the_pin(self):
-        self.assertEqual(manifest.pick([("t", 2), ("a", 1)], 3, 1), ("t", "ok"))
-        self.assertEqual(manifest.pick([("t", 1)], 1, 1), ("t", "ok"))
+        self.assertEqual(pick([("t", 2), ("a", 1)], 3, 1), ("t", "ok"))
+        self.assertEqual(pick([("t", 1)], 1, 1), ("t", "ok"))
 
     def test_a_tip_that_needs_a_newer_lab_gives_the_newest_older_version_that_is_read(self):
-        self.assertEqual(manifest.pick([("t", 3), ("a", 2), ("b", 1)], 2, 1), ("a", "new"))
-        self.assertEqual(manifest.pick([("t", 9), ("a", 8), ("b", 2), ("c", 1)], 2, 1), ("b", "new"))
+        self.assertEqual(pick([("t", 3), ("a", 2), ("b", 1)], 2, 1), ("a", "new"))
+        self.assertEqual(pick([("t", 9), ("a", 8), ("b", 2), ("c", 1)], 2, 1), ("b", "new"))
 
     def test_when_no_version_is_read_there_is_no_commit_and_the_tip_says_why(self):
-        self.assertEqual(manifest.pick([("t", 5), ("a", 4)], 3, 1), (None, "new"))
-        self.assertEqual(manifest.pick([("t", 1), ("a", 0)], 3, 2), (None, "old"))
+        self.assertEqual(pick([("t", 5), ("a", 4)], 3, 1), (None, "new"))
+        self.assertEqual(pick([("t", 1), ("a", 0)], 3, 2), (None, "old"))
 
     def test_a_tip_that_is_too_old_has_no_readable_version_and_is_old(self):
-        self.assertEqual(manifest.pick([("t", 1)], 4, 3), (None, "old"))
+        self.assertEqual(pick([("t", 1)], 4, 3), (None, "old"))
 
     def test_a_revert_to_an_older_level_is_one_more_version_not_a_loop(self):
         levels = [("t", 3), ("r", 1), ("o", 2)]   # the newest changed to 3, before it was 1 (a revert of 2), before 2
-        self.assertEqual(manifest.pick(levels, 2, 1), ("r", "new"))
-        self.assertEqual(manifest.pick(levels, 1, 1), ("r", "new"))
-        self.assertEqual(manifest.pick([("t", 1), ("r", 2), ("o", 1)], 1, 1), ("t", "ok"))
+        self.assertEqual(pick(levels, 2, 1), ("r", "new"))
+        self.assertEqual(pick(levels, 1, 1), ("r", "new"))
+        self.assertEqual(pick([("t", 1), ("r", 2), ("o", 1)], 1, 1), ("t", "ok"))
 
     def test_a_version_it_could_not_tell_of_stops_the_search_and_no_older_one_is_taken(self):
         def reads(commit):
@@ -99,26 +103,26 @@ class Picking(Case):
                 raise CatalogError("unread", "This Lab could not read the catalog. Try again.", 503)
             return commit == "b"
         with self.assertRaises(CatalogError):
-            manifest.pick([("t", None), ("a", None), ("b", None)], 2, 1, readable=reads)
+            pick([("t", None), ("a", None), ("b", None)], 2, 1, readable=reads)
 
     def test_the_newest_is_taken_even_when_older_ones_are_read_too(self):
-        self.assertEqual(manifest.pick([("t", 2), ("a", 2), ("b", 1)], 2, 1), ("t", "ok"))
+        self.assertEqual(pick([("t", 2), ("a", 2), ("b", 1)], 2, 1), ("t", "ok"))
 
     def test_a_version_below_the_floor_is_skipped_for_the_one_above_it(self):
-        self.assertEqual(manifest.pick([("t", 4), ("a", 1), ("b", 2)], 3, 2), ("b", "new"))
+        self.assertEqual(pick([("t", 4), ("a", 1), ("b", 2)], 3, 2), ("b", "new"))
 
     def test_nothing_to_choose_from_is_no_commit(self):
-        self.assertEqual(manifest.pick([], 3, 1), (None, "old"))
+        self.assertEqual(pick([], 3, 1), (None, "old"))
 
     def test_a_version_the_reader_was_not_sure_of_is_one_the_strict_reading_decides(self):
         """A `lab` of None is "cannot say" (`levels`), which is neither a level this Lab reads nor one it does not: the version
         is a candidate, and the tip is "ok" until the strict reading of the file, at Add and at Update, says otherwise."""
-        self.assertEqual(manifest.pick([("t", None), ("a", 1)], 3, 2), ("t", "ok"))
-        self.assertEqual(manifest.pick([("t", None)], 4, 3), ("t", "ok"))
-        self.assertEqual(manifest.pick([("t", 5), ("a", None), ("b", 3)], 3, 2), ("a", "new"), "the newest that may be read")
-        self.assertEqual(manifest.pick([("t", 5), ("a", 1), ("b", None)], 3, 2), ("b", "new"))
-        self.assertEqual(manifest.pick([("t", 5), ("a", 4)], 3, 2), (None, "new"), "without one, as before")
-        self.assertEqual(manifest.pick([("t", 1), ("a", 0)], 3, 2), (None, "old"), "a level it does not state is still old")
+        self.assertEqual(pick([("t", None), ("a", 1)], 3, 2), ("t", "ok"))
+        self.assertEqual(pick([("t", None)], 4, 3), ("t", "ok"))
+        self.assertEqual(pick([("t", 5), ("a", None), ("b", 3)], 3, 2), ("a", "new"), "the newest that may be read")
+        self.assertEqual(pick([("t", 5), ("a", 1), ("b", None)], 3, 2), ("b", "new"))
+        self.assertEqual(pick([("t", 5), ("a", 4)], 3, 2), (None, "new"), "without one, as before")
+        self.assertEqual(pick([("t", 1), ("a", 0)], 3, 2), (None, "old"), "a level it does not state is still old")
 
     def test_a_readable_version_six_back_is_found_and_one_past_the_budget_is_said_truly(self):
         def readable_at(index):
@@ -152,9 +156,9 @@ class Picking(Case):
     def test_a_version_that_states_no_lab_is_read_by_its_files(self):
         """The form a catalog has now: no `lab`, so `readable` reads the files of the version, newest first."""
         understood = {"a"}
-        self.assertEqual(manifest.pick([("t", None), ("a", None)], 1, 1, lambda commit: commit in understood), ("a", "new"))
-        self.assertEqual(manifest.pick([("t", None), ("a", None)], 1, 1, lambda commit: True), ("t", "ok"))
-        self.assertEqual(manifest.pick([("t", None), ("a", None)], 1, 1, lambda commit: False), (None, "new"))
+        self.assertEqual(pick([("t", None), ("a", None)], 1, 1, lambda commit: commit in understood), ("a", "new"))
+        self.assertEqual(pick([("t", None), ("a", None)], 1, 1, lambda commit: True), ("t", "ok"))
+        self.assertEqual(pick([("t", None), ("a", None)], 1, 1, lambda commit: False), (None, "new"))
 
     def test_a_legacy_lab_is_a_fast_hint_and_a_version_it_lets_through_is_still_read(self):
         asked = []
@@ -162,7 +166,7 @@ class Picking(Case):
         def readable(commit):
             asked.append(commit)
             return commit != "t"
-        self.assertEqual(manifest.pick([("x", 9), ("t", 1), ("a", 1)], 1, 1, readable), ("a", "new"))
+        self.assertEqual(pick([("x", 9), ("t", 1), ("a", 1)], 1, 1, readable), ("a", "new"))
         self.assertEqual(asked, ["t", "a"], "a lab this Lab does not read is passed over unread; one it reads is read")
 
     def test_at_most_a_few_versions_are_read(self):
@@ -172,9 +176,9 @@ class Picking(Case):
             asked.append(commit)
             return False
         levels = [(str(number), None) for number in range(20)]
-        self.assertEqual(manifest.pick(levels, 1, 1, readable), (None, "new"))
+        self.assertEqual(pick(levels, 1, 1, readable), (None, "new"))
         self.assertEqual(len(asked), manifest.READS)
-        self.assertEqual(manifest.pick(levels, 1, 1, lambda commit: commit == "3", reads=3), (None, "new"),
+        self.assertEqual(pick(levels, 1, 1, lambda commit: commit == "3", reads=3), (None, "new"),
                          "past the reads none is taken")
 
     def test_the_case_table_of_9_2(self):
@@ -192,7 +196,7 @@ class Picking(Case):
         ]
         for name, levels, answer, refusal in table:
             with self.subTest(name):
-                self.assertEqual(manifest.pick(levels, *this), answer)
+                self.assertEqual(pick(levels, *this), answer)
                 if refusal:
                     self.assertEqual(manifest.no_commit(levels, *this).code, refusal)
 
@@ -201,7 +205,7 @@ class Picking(Case):
         before = list(levels)
         with mock.patch("subprocess.Popen", side_effect=AssertionError("pick ran a command")), \
                 mock.patch("builtins.open", side_effect=AssertionError("pick opened a file")):
-            self.assertEqual(manifest.pick(levels, 2, 1), ("a", "new"))
+            self.assertEqual(pick(levels, 2, 1), ("a", "new"))
         self.assertEqual(levels, before)
 
 
@@ -873,7 +877,7 @@ class WithCompose(Case):
                 self.assertEqual(found["lab"], level)
                 refusal = manifest.compat_error(found["lab"], 3, 1)
                 self.assertEqual(refusal.code if refusal else None, "lab_new" if level > 3 else None)
-        self.assertEqual(manifest.pick([("t", None)], 3, 1), ("t", "ok"))
+        self.assertEqual(pick([("t", None)], 3, 1), ("t", "ok"))
 
     def test_a_version_written_as_a_number_is_not_a_version(self):
         name = self.put("x-gravitee-catalog:\n  schema: 1\n  id: acme-hub\n  name: A\n  description: B\n  version: 1.4\n  lab: 1\n")
@@ -1003,9 +1007,9 @@ class History(Case):
         self.push({"README.md": "x\n"})
         c = self.commits
         found = self.levels()
-        self.assertEqual(manifest.pick(found, 1, 1), (c[0], "new"))
-        self.assertEqual(manifest.pick(found, 2, 1), (c[2], "ok"))
-        self.assertEqual(manifest.pick(found, 3, 3), (None, "old"))
+        self.assertEqual(pick(found, 1, 1), (c[0], "new"))
+        self.assertEqual(pick(found, 2, 1), (c[2], "ok"))
+        self.assertEqual(pick(found, 3, 3), (None, "old"))
 
     def test_a_revert_is_one_more_version(self):
         self.push({"catalog.yml": catalog_yml(2, "2.0.0")})           # 1
@@ -1013,15 +1017,15 @@ class History(Case):
         self.push({"README.md": "x\n"})                      # 3
         c = self.commits
         self.assertEqual(self.levels(), [(c[3], 1), (c[1], 2), (c[0], 1)])
-        self.assertEqual(manifest.pick(self.levels(), 1, 1), (c[3], "ok"))
+        self.assertEqual(pick(self.levels(), 1, 1), (c[3], "ok"))
 
     def test_a_file_that_does_not_state_a_level_is_read_by_its_files(self):
         """The form a catalog.yml has now: no `lab`. The version is None, and what decides is what its files use."""
         self.push({"catalog.yml": "x-gravitee-catalog:\n  id: history\n"})
         c = self.commits
         self.assertEqual(self.levels(), [(c[1], None), (c[0], 1)])
-        self.assertEqual(manifest.pick(self.levels(), 1, 1), (c[1], "ok"))
-        self.assertEqual(manifest.pick(self.levels(), 1, 1, lambda commit: commit != c[1]), (c[0], "new"))
+        self.assertEqual(pick(self.levels(), 1, 1), (c[1], "ok"))
+        self.assertEqual(pick(self.levels(), 1, 1, lambda commit: commit != c[1]), (c[0], "new"))
 
     def test_a_form_without_lab_is_a_version_for_each_change_of_its_units(self):
         """Without `lab` nothing in catalog.yml changes when a unit starts to use what an older Lab does not read: each commit
@@ -1032,9 +1036,9 @@ class History(Case):
         self.push({"playgrounds/p/compose.yml": "services: {}\n"})                   # 4: another unit: the tip
         c = self.commits
         self.assertEqual(self.levels(), [(c[4], None), (c[3], None), (c[1], None), (c[0], 1)])
-        newest_read = manifest.pick(self.levels(), 1, 1, lambda commit: commit not in (c[4],))
+        newest_read = pick(self.levels(), 1, 1, lambda commit: commit not in (c[4],))
         self.assertEqual(newest_read, (c[3], "new"), "the newest commit before the unit this Lab does not read")
-        self.assertEqual(manifest.pick(self.levels(), 1, 1, lambda commit: commit in (c[0], c[1])), (c[1], "new"))
+        self.assertEqual(pick(self.levels(), 1, 1, lambda commit: commit in (c[0], c[1])), (c[1], "new"))
 
     def test_a_form_that_states_its_lab_is_a_version_for_each_change_of_its_units_too(self):
         """The `lab` a published catalog keeps for older Labs says nothing of a key its units started to use: the files do."""
@@ -1042,8 +1046,8 @@ class History(Case):
         self.push({"addons/a/compose.yml": "services: {b: {image: busybox}}\n"})
         c = self.commits
         self.assertEqual(self.levels(), [(c[2], 1), (c[1], 1), (c[0], 1)])
-        self.assertEqual(manifest.pick(self.levels(), 1, 1, lambda commit: commit != c[2]), (c[1], "new"))
-        self.assertEqual(manifest.pick(self.levels(), 2, 2, lambda commit: True), (None, "old"), "a hint is read first")
+        self.assertEqual(pick(self.levels(), 1, 1, lambda commit: commit != c[2]), (c[1], "new"))
+        self.assertEqual(pick(self.levels(), 2, 2, lambda commit: True), (None, "old"), "a hint is read first")
 
     def test_a_form_the_reader_cannot_be_sure_of_is_a_level_it_does_not_invent(self):
         """An anchor, a number spelled another way, a scalar on two lines: the tolerant reader leaves them out and says so
@@ -1054,8 +1058,8 @@ class History(Case):
                 self.push({"catalog.yml": catalog_yml(written, f"2.{len(self.commits)}.0")})
                 c, found = self.commits, self.levels()
                 self.assertEqual((found[0], found[-1]), ((c[-1], None), (c[0], 1)))
-                self.assertEqual(manifest.pick(found, 2, 1), (c[-1], "ok"), "the tip may be read: it is the pin")
-                self.assertEqual(manifest.pick(found, 1, 1), (c[-1], "ok"), "and the strict reading refuses it at Add")
+                self.assertEqual(pick(found, 2, 1), (c[-1], "ok"), "the tip may be read: it is the pin")
+                self.assertEqual(pick(found, 1, 1), (c[-1], "ok"), "and the strict reading refuses it at Add")
 
     def test_a_catalog_that_does_not_state_its_level_is_not_one_that_cannot_be_read(self):
         """An unusual word, or a file that is no catalog, is a level no Lab reads (0); a file with no `lab` and a form the

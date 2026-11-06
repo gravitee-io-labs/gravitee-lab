@@ -2174,7 +2174,7 @@ def staged_unknown(ns):
     """What the units of the staged tree of `ns` use that this Lab does not read (`understood`), sorted: each unit read as
     `gather` reads a catalog's (its text screened, then its file as written, with what it includes merged in, the includes
     that are not there left out, the time a unit has), and only as far as the screen lets it: a unit it refuses, or one that
-    includes what it refuses, says nothing here, and its judgement says it cannot be read. What `pick` reads of a version of a
+    includes what it refuses, says nothing here, and its judgement says it cannot be read. What `searched` reads of a version of a
     published catalog to know whether this Lab understands it, without the judgement of each unit against the core. None when
     Docker did not answer for a unit (a time limit, a docker that did not run): this Lab cannot tell."""
     held = understood.lock()

@@ -1,7 +1,7 @@
 """What this Lab understands of a catalog: the items of the contract (`contract.lock`, at the root of the engine) that the files of
 a catalog use, and those among them that this Lab does not list. A Lab uses what it understands, and says when it needs a newer
 version: a published catalog (a git catalog the person added) that uses anything this Lab does not list is not used, and shown
-as needing a newer Gravitee Lab (`project._judge_units`, `manifest.pick`), while `catalog.py check` names each such item as a
+as needing a newer Gravitee Lab (`project._judge_units`, `manifest.searched`), while `catalog.py check` names each such item as a
 mistake of its author ([the contract](../../../docs/contract.md)).
 
 What the lock lists of each kind is closed, so a name that is not there is something this Lab does not read: a key of

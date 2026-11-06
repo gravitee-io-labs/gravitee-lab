@@ -2,7 +2,7 @@
 compatible pin that picks the newest commit this Lab reads, and the generated index.
 
 A Lab uses what it understands: a version of a published catalog is read when every item of the contract it uses is one this
-Lab lists (`understood`), which `pick` learns by reading that version's files (`readable`). `schema` and `lab` are the legacy
+Lab lists (`understood`), which `searched` learns by reading that version's files (`readable`). `schema` and `lab` are the legacy
 fields that older Gravitee Labs read: a catalog.yml does not need them, a `lab` that is there is a fast hint (a version
 whose `lab` this Lab does not read is passed over without reading its files), and `with_legacy` keeps them true where
 `catalog.py` writes the file.
@@ -14,7 +14,7 @@ check` and the template's tests use it. It does not judge a namespace against th
 person has (`registry.check_namespace`) nor a name against the address that serves it: the listed names are `borrowed`,
 and the caller that knows the address says which.
 
-`compat` and `pick` are pure and tested over tables. `levels` is the git half of `pick`:
+`compat` and `searched` are pure and tested over tables. `levels` is the git half of `searched`:
 the versions of `catalog.yml` in the first-parent history of the tip, read from the bare store, newest first, and each version of
 the units within each of them. `releases` is the other half, for a catalog that makes releases: its release tags that lead to the
 tip and that its catalog.yml agrees with. `offer` says which of the two a catalog follows, and the commit it offers
@@ -36,7 +36,7 @@ from .registry import CatalogError
 
 SCHEMA = 1   # the format of catalog.yml and of the layout that this Lab reads
 LEGACY_NOTE = "# For older Gravitee Labs: written by catalog.py"   # the comment of their lines in a file catalog.py writes
-# The versions of a catalog whose files `pick` reads to find one this Lab understands, and the seconds it spends on them: a real
+# The versions of a catalog whose files `searched` reads to find one this Lab understands, and the seconds it spends on them: a real
 # history has its newest readable version among the first few, and a catalog this Lab cannot read is said once the budget is spent
 READS, READ_SECONDS = 20, 10.0
 UNITS = ("addons", "setups", "playgrounds")   # what holds the units: a version of them is a version of the catalog
@@ -100,12 +100,12 @@ def compat(level: int, contract: int, contract_min: int) -> str:
     return "new" if level > high else "old" if level < low else "ok"
 
 
-def pick(levels: list, contract: int, contract_min: int, readable=None, reads: Optional[int] = None,
-         seconds: Optional[float] = None) -> tuple:
+def searched(levels: list, contract: int, contract_min: int, readable=None, reads: Optional[int] = None,
+             seconds: Optional[float] = None) -> tuple:
     """The compatible pin. `levels` is [(commit, lab)], newest first (`levels()`, or a catalog's releases): `levels[0]` is the
     tip with the `lab` its catalog.yml states. Answers (the first commit this Lab reads, or None; how the tip stands: "ok",
-    "new" when it needs a newer Gravitee Lab, "old"). With nothing to choose from there is no commit and the tip is "old".
-    `searched` gives the number of versions read as well, when the budget ran out before one was found.
+    "new" when it needs a newer Gravitee Lab, "old"; the number of versions read when the budget ran out with none found, else
+    0). With nothing to choose from there is no commit and the tip is "old".
 
     A `lab` is a fast hint: a version whose `lab` this Lab does not read (`compat`) is passed over, its files unread. Any other
     version is read when `readable` is given, `readable(commit)` saying whether this Lab understands every item of the contract
@@ -114,13 +114,6 @@ def pick(levels: list, contract: int, contract_min: int, readable=None, reads: O
     budget is about that long; past it none is taken. Without `readable` (a caller that reads the version it stages) a
     `lab` of None, the form with no `lab` and the form the tolerant reader could not be sure of, is taken for a version this Lab
     may read, and the strict reading of the staged file decides. Pure but for `readable` and the clock."""
-    commit, state, _ = searched(levels, contract, contract_min, readable, reads, seconds)
-    return commit, state
-
-
-def searched(levels: list, contract: int, contract_min: int, readable=None, reads: Optional[int] = None,
-             seconds: Optional[float] = None) -> tuple:
-    """`pick`, with a third answer: the number of versions read when the budget ran out with none found, else 0."""
     reads = READS if reads is None else reads
     seconds = READ_SECONDS if seconds is None else seconds
     if not levels:
@@ -183,15 +176,15 @@ def not_understood(found: Iterable) -> CatalogError:
 
 
 def no_commit(levels: list, contract: int, contract_min: int, listed: bool = False, searched: int = 0) -> CatalogError:
-    """The refusal when `pick` found no commit (the one rule): `no_readable_version` when the tip needs a newer Lab, by its
+    """The refusal when `searched` found no commit (the one rule): `no_readable_version` when the tip needs a newer Lab, by its
     legacy `lab` or by what its files use (so does every version), `lab_old` when the catalog is older than this Lab reads,
     or there is nothing to choose from. `listed` words `lab_old` for a catalog the engine lists. `searched`: the versions read
-    when the budget of `pick` ran out, so that the line says what was looked at and no more."""
+    when the budget of `searched` ran out, so that the line says what was looked at and no more."""
     if searched:
         return CatalogError("no_readable_version", f"This Lab found no version of this catalog it reads among the newest {searched}. "
                             "Fix: update Gravitee Lab (make update), then add it again.", 400)
     level = levels[0][1] if levels else 0
-    if level is None or compat(level, contract, contract_min) != "old":   # None: its files need a newer Lab (`pick`)
+    if level is None or compat(level, contract, contract_min) != "old":   # None: its files need a newer Lab (`searched`)
         return CatalogError("no_readable_version",
                             "Every version of this catalog needs a newer Gravitee Lab. Run make update, then add it again.", 400)
     return compat_error(level, contract, contract_min, listed)
@@ -604,19 +597,19 @@ def _lab_of(data) -> Optional[int]:
     """The `lab` a catalog.yml states, from its bytes, read the way the registry reads the file of an install; 0 (a
     level no Lab reads) for a file that is missing or damaged. None when it states none, the form a catalog has now, and
     when it states one the reader does not read (a word, an anchor, a number spelled another way): the files of that version
-    say whether this Lab reads it (`pick` with `readable`), and the strict reading of a catalog (`read_catalog`, at Add and
+    say whether this Lab reads it (`searched` with `readable`), and the strict reading of a catalog (`read_catalog`, at Add and
     at Update) has the last word, so a level is never invented here."""
     found = registry.scan(data) if data else {}
     return found.get("lab") if found else 0
 
 
 def levels(store: Path, tip: str, limit: int = 50, address: Optional[gitx.Address] = None) -> list:
-    """The versions of this catalog that `pick` chooses among: [(commit, lab)], newest first, at most `limit`.
+    """The versions of this catalog that `searched` chooses among: [(commit, lab)], newest first, at most `limit`.
     `levels[0]` is `tip` with the `lab` its `catalog.yml` states; for each older form of that file there is one more,
     the newest commit that still has it, which is the first parent of the commit that changed the file next. Since it is
     the files that say whether this Lab reads a version, each form is also a version for each change of its units: the
     first parent of each commit that changed `addons/`, `setups/` or `playgrounds/` since the form appeared, with the `lab`
-    of the form, which `pick` reads as a hint. One `git log --first-parent` for the commits that touched the file, one for
+    of the form, which `searched` reads as a hint. One `git log --first-parent` for the commits that touched the file, one for
     the changes of the units of each form, and one read of the file for each form. A form that states no `lab` the reader
     reads is None (`_lab_of`), one that is damaged is `lab` 0, which no Lab reads, and a form that was deleted is left out. A tip with no `catalog.yml` is `not_catalog` (`address` names the repository in the line); a tip
     the store does not hold is `fsck`."""
@@ -665,7 +658,7 @@ def releases(store: Path, tip: str) -> list:
 
 class Offer(NamedTuple):
     """What a catalog offers this Lab: `commit`, the version to install (None when it has none this Lab reads); `tip`, how
-    the newest version stands with this Lab (`pick`'s second answer: "ok", "new" or "old"); `release`, the version of the
+    the newest version stands with this Lab (`searched`'s second answer: "ok", "new" or "old"); `release`, the version of the
     release `commit` is, or None for a catalog that has no release, which is followed commit by commit; `levels`, what
     `no_commit` reads when there is no commit; `searched`, the versions read when the budget ran out with none found."""
     commit: Optional[str]
@@ -680,7 +673,7 @@ def offer(store: Path, tip: str, contract: int, contract_min: int, address: Opti
     """The version of a catalog this Lab installs, from what the store holds of the branch it follows (`tip`). A catalog
     with a release on that branch is offered its greatest release this Lab reads, and the commits made since are not offered
     until they are released; one with none is offered the newest commit this Lab reads (`levels`), as it always was. A tip
-    with no catalog.yml is `not_catalog`, released or not. `readable` is what `pick` asks of each version, released or not:
+    with no catalog.yml is `not_catalog`, released or not. `readable` is what `searched` asks of each version, released or not:
     whether this Lab reads all that its files use (`install.readable`, which every caller of a published catalog gives)."""
     found = releases(store, tip)
     if not found:
