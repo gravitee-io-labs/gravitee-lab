@@ -57,7 +57,7 @@ def refused(*bad):
 
 
 class Filter(Case):
-    """`selected`: every hostile entry class is refused and counted, and the rest is kept as given."""
+    """`selected`: what it keeps and does not count. Rejections holds what it refuses."""
 
     def test_a_good_catalog_is_kept_whole_in_the_order_given(self):
         kept, ignored = store.selected(GOOD)
@@ -71,139 +71,6 @@ class Filter(Case):
                                       "docs/.env", "docs/secrets/token", "catalog.json")]
         outside.append(entry("docs/link", mode="120000"))
         self.assertEqual(store.selected(outside), ([], 0))
-
-    def test_a_top_level_name_that_is_not_a_name_is_counted(self):
-        for path in ("weird name/x", "../x", "./x", "/abs/x", "a\x00b/x", "back\\slash/x", "ü/x"):
-            self.assertEqual(store.selected([entry(path)]), ([], 1), repr(path))
-
-    def test_the_catalog_file_is_installed_only_as_a_regular_file_of_a_size_a_file_may_have(self):
-        self.assertEqual(store.selected([entry("catalog.yml")])[0], [entry("catalog.yml")])
-        for bad in (entry("catalog.yml", mode="120000"), entry("catalog.yml", mode="160000"),
-                    entry("catalog.yml", size=MIB + 1)):
-            self.assertEqual(store.selected([bad]), ([], 1), bad)
-
-    def test_every_hostile_class_is_refused_and_counted_and_the_rest_is_untouched(self):
-        classes = {
-            "a link": [entry("addons/echo/link", mode="120000"), entry("addons/echo/data/link.yml", mode="120000")],
-            "a submodule": [entry("addons/echo/sub", mode="160000", size=0)],
-            "another mode": [entry("addons/echo/x.yml", mode="100664"), entry("addons/echo/y.yml", mode="100600"),
-                             entry("addons/echo/z.yml", mode="040000"), entry("addons/echo/w.yml", mode="100777")],
-            "settings": [entry(p) for p in (
-                "addons/echo/.env", "addons/echo/.env.local", "addons/echo/.env.production", "playgrounds/shop/.env",
-                "addons/echo/.ENV", "addons/echo/.Env.Local", "addons/echo/.env/x", "addons/echo/.env.d/x",
-                "addons/echo/data/.env", "addons/echo/.env.example/x")],
-            "secrets and state": [entry(p) for p in (
-                "addons/echo/secrets/token", "addons/echo/SECRETS/x", "addons/echo/secrets", "playgrounds/shop/.state/created.json",
-                "playgrounds/shop/a/.state/x", "playgrounds/shop/.STATE/x")],
-            "git": [entry(p) for p in ("addons/echo/.git/config", "addons/echo/.GIT/x", "addons/echo/.git")],
-            "keys and certificates": [entry(f"addons/echo/data/x{suffix}") for suffix in (
-                ".key", ".pem", ".p12", ".jks", ".crt", ".csr", ".srl", ".KEY", ".Pem", ".CRT")],
-            "instructions of agents": [entry(p) for p in (
-                "addons/echo/AGENTS.md", "addons/echo/agents.md", "addons/echo/CLAUDE.md", "addons/echo/GEMINI.md",
-                "playgrounds/shop/.claude/settings.json", "playgrounds/shop/.agents/skills/x/SKILL.md",
-                "playgrounds/shop/.gemini/settings.json", "playgrounds/shop/.cursorrules",
-                "playgrounds/shop/.cursor/rules/x.mdc", "playgrounds/shop/.windsurfrules", "playgrounds/shop/.windsurf/x",
-                "playgrounds/shop/.github/copilot-instructions.md", "playgrounds/shop/.GITHUB/Copilot-Instructions.md")],
-            "a segment that is not a name": [entry(p) for p in (
-                "addons/echo/bad name.yml", "addons/echo/back\\slash.yml", "addons/echo/a*b.yml", "addons/echo/ü.md",
-                "addons/echo/../x.yml", "addons/echo/./x.yml", "addons/echo//x.yml", "addons/echo/", "addons/echo/a\nb",
-                "addons/echo/a\tb", "addons/echo/a\x00b", "addons/echo/a%20b", "addons/echo/a:b", "addons/echo/a;b",
-                "addons/echo/$(id)", "addons/echo/`id`", "addons/echo/a'b", "addons/echo/‮x.yml")],
-            "too deep or too long": [entry("playgrounds/shop/a/b/c/d/e/f/g.yml"),
-                                     entry("addons/echo/" + "d/" * 6 + "x.yml"),
-                                     entry("addons/echo/" + "a" * 185 + ".yml")],
-            "a unit that is not named as a unit": [entry(p) for p in (
-                "addons/Upper/compose.yml", "addons/under_score/compose.yml", "addons/dot.name/compose.yml",
-                "playgrounds/Shop/compose.yml", "setups/Pair.yml", "setups/under_score.yml", "addons/a b/compose.yml")],
-            "a file that is not in a unit": [entry(p) for p in (
-                "addons/NOTES.md", "playgrounds/notes.txt", "setups/pair.yaml", "setups/sub/x.yml", "setups/readme.md",
-                "setups/pair.yml.bak", "addons", "playgrounds", "setups/x")],
-            "too large": [entry("addons/echo/big.json", size=MIB + 1), entry("addons/echo/big.yml", size=MIB + 1),
-                          entry("addons/echo/big.yaml", size=MIB + 1), entry("addons/echo/big.md", size=MIB + 1),
-                          entry("addons/echo/big.bin", size=2 * MIB + 1), entry("addons/echo/big.png", size=2 * MIB + 1)],
-        }
-        for name, bad in classes.items():
-            with self.subTest(name):
-                kept, ignored = refused(*bad)
-                self.assertEqual((kept, ignored), (KEPT, len(bad)), [e.path for e in kept if e not in KEPT])
-
-    def test_each_hostile_entry_is_refused_alone_not_by_company(self):
-        """One bad entry beside a valid unit, so that the table above cannot pass by one entry hiding another."""
-        unit = [entry("addons/e/compose.yml")]
-        for bad in (entry("addons/e/l", mode="120000"), entry("addons/e/s", mode="160000", size=0), entry("addons/e/.env"),
-                    entry("addons/e/secrets/x"), entry("addons/e/.state/x"), entry("addons/e/x.pem"),
-                    entry("addons/e/AGENTS.md"), entry("addons/e/../f"), entry("addons/e/a b"), entry("addons/e/\\f"),
-                    entry("addons/e/big.bin", size=2 * MIB + 1), entry("addons/e/" + "d/" * 7 + "f")):
-            self.assertEqual(store.selected(unit + [bad]), (unit, 1), bad.path)
-
-    def test_what_is_just_allowed_is_kept(self):
-        allowed = [entry(p) for p in (
-            "playgrounds/shop/.ENV.EXAMPLE", "addons/echo/.envrc", "addons/echo/x.pem.txt",
-            "addons/echo/keys.md", "addons/echo/AGENTS.md.txt", "addons/echo/my-claude.md", "addons/echo/.gitignore",
-            "addons/echo/.gitkeep", "addons/echo/a+b_c.d-e.yml", "addons/echo/UPPER.TXT", "addons/echo/.hidden",
-            "addons/echo/state/x", "addons/echo/not-secrets/x", "addons/echo/secret/x", "addons/echo/cursor/x",
-            # Copilot's file is `.github/copilot-instructions.md`: a folder that only ends with it is a folder like any other
-            "addons/echo/my.github/copilot-instructions.md", "addons/echo/github/copilot-instructions.md",
-            "addons/echo/.github/sub/copilot-instructions.md", "addons/echo/.github/copilot-instructions.md.txt")]
-        allowed += [entry("addons/echo/exact.json", size=MIB), entry("addons/echo/exact.md", size=MIB),
-                    entry("addons/echo/exact.bin", size=2 * MIB), entry("addons/echo/exec.sh", mode="100755"),
-                    entry("addons/echo/" + "d/" * 5 + "x.yml"),   # 8 components
-                    entry("addons/echo/" + "a" * 184 + ".yml")]   # 200 characters
-        self.assertEqual(len(allowed[-2].path.split("/")), 8)
-        self.assertEqual(len(allowed[-1].path), 200)
-        kept, ignored = refused(*allowed)
-        self.assertEqual((kept, ignored), (KEPT + allowed, 0))
-
-    def test_the_listing_tables_of_a_catalog_are_not_a_refusal_worth_counting(self):
-        tables = [entry(p) for p in ("addons/README.md", "setups/README.md", "playgrounds/README.md")]
-        self.assertEqual(refused(*tables), (KEPT, 0), "documents of the catalog, never installed")
-        notes = [entry("addons/NOTES.md"), entry("setups/readme.md"), entry("playgrounds/README.txt"), entry("addons/sub/README.md")]
-        self.assertEqual(refused(*notes), (KEPT, 4), "any other file of a folder of units is counted")
-        link = entry("addons/README.md", mode="120000")
-        self.assertEqual(refused(link), (KEPT, 1), "a link is a link, whatever it is called")
-        self.patch(store, "LISTINGS", ())
-        self.assertEqual(refused(*tables), (KEPT, 3), "rule 6 to the letter, when the list is empty")
-
-    def test_a_unit_without_its_compose_file_is_not_a_unit(self):
-        orphan = [entry("addons/orphan/README.md"), entry("addons/orphan/data/x.json"),
-                  entry("playgrounds/ghost/guide.md"), entry("playgrounds/ghost/seed/a.yaml")]
-        self.assertEqual(refused(*orphan), (KEPT, 4))
-        deep = [entry("addons/deep/sub/compose.yml"), entry("addons/deep/README.md")]
-        self.assertEqual(refused(*deep), (KEPT, 2), "the compose file is at the root of the unit")
-
-    def test_a_unit_whose_compose_file_is_refused_goes_with_it(self):
-        bad = [entry("addons/dead/compose.yml", mode="120000"), entry("addons/dead/README.md"), entry("addons/dead/data.json")]
-        self.assertEqual(refused(*bad), (KEPT, 3))
-
-    def test_files_that_differ_only_by_case_are_all_refused(self):
-        twins = [entry("addons/echo/readme.md"), entry("playgrounds/shop/Guide.md")]   # README.md and guide.md exist
-        kept, ignored = refused(*twins)
-        self.assertEqual(ignored, 4)
-        self.assertNotIn("addons/echo/README.md", [e.path for e in kept])
-        self.assertNotIn("playgrounds/shop/guide.md", [e.path for e in kept])
-        self.assertIn("addons/echo/compose.yml", [e.path for e in kept])
-
-    def test_a_compose_file_in_two_cases_leaves_no_unit(self):
-        kept, ignored = refused(entry("addons/echo/Compose.yml"))
-        self.assertEqual(ignored, 5, "both spellings, and the three other files of a unit that has no compose.yml left")
-        self.assertFalse([e for e in kept if e.path.startswith("addons/echo/")])
-        self.assertIn("playgrounds/shop/compose.yml", [e.path for e in kept])
-
-    def test_a_folder_that_differs_only_by_case_takes_everything_below_it(self):
-        """A Mac would merge the two folders, or fail to write a folder where a file is: it is not only whole paths."""
-        compose = entry("addons/x/compose.yml")
-        for twins, gone in (
-                ([entry("addons/x/data"), entry("addons/x/DATA/y")], ["addons/x/data", "addons/x/DATA/y"]),
-                ([entry("addons/x/Dir/a"), entry("addons/x/dir/b")], ["addons/x/Dir/a", "addons/x/dir/b"]),
-                ([entry("addons/x/Dir/sub/a.md"), entry("addons/x/dir/sub/b.md"), entry("addons/x/Dir/c.md")],
-                 ["addons/x/Dir/sub/a.md", "addons/x/dir/sub/b.md", "addons/x/Dir/c.md"]),
-                ([entry("addons/x/a/B/c.md"), entry("addons/x/a/b/d.md"), entry("addons/x/other.md")],
-                 ["addons/x/a/B/c.md", "addons/x/a/b/d.md"]),
-                ([entry("addons/x/a.md"), entry("addons/x/a.md")], ["addons/x/a.md", "addons/x/a.md"])):
-            with self.subTest([e.path for e in twins]):
-                kept, ignored = store.selected([compose, *twins])
-                self.assertEqual(ignored, len(gone))
-                self.assertEqual([e.path for e in kept if e.path not in ("addons/x/other.md",)], ["addons/x/compose.yml"])
 
     def test_names_that_differ_by_case_in_different_places_are_not_twins(self):
         paths = ["addons/x/compose.yml", "addons/x/Data/a.md", "addons/y/compose.yml", "addons/y/data/b.md",
@@ -324,7 +191,8 @@ class Rejections(Case):
     ALONE = {
         "ST01": [entry("addons/echo/link", mode="120000"), entry("addons/echo/data/link.yml", mode="120000"),
                  entry("addons/echo/x.yml", mode="100664"), entry("addons/echo/y.yml", mode="100600"),
-                 entry("addons/echo/z.yml", mode="040000"), entry("playgrounds/shop/odd", mode=""),
+                 entry("addons/echo/z.yml", mode="040000"), entry("addons/echo/w.yml", mode="100777"),
+                 entry("playgrounds/shop/odd", mode=""),
                  entry("catalog.yml", mode="120000"), entry("addons/README.md", mode="120000"),
                  entry("setups/CLAUDE.md", mode="120000")],
         "ST02": [entry("addons/echo/sub", mode="160000", size=0), entry("catalog.yml", mode="160000", size=0),
@@ -333,6 +201,7 @@ class Rejections(Case):
             "addons/echo/bad name.yml", "addons/echo/back\\slash.yml", "addons/echo/\u00fc.md", "addons/echo/../x.yml",
             "addons/echo/./x.yml", "addons/echo//x.yml", "addons/echo/", "addons/echo/a\nb", "addons/echo/a\tb",
             "addons/echo/a\x00b", "addons/echo/a%20b", "addons/echo/\u202ex.yml", "addons/a b/compose.yml",
+            "addons/echo/a*b.yml", "addons/echo/a:b", "addons/echo/a;b", "addons/echo/$(id)", "addons/echo/`id`", "addons/echo/a'b",
             "weird name/x", "../x", "./x", "/abs/x", "\u00fc/x", "back\\slash/x", "a\x00b/x")],
         "ST04": [entry("playgrounds/shop/a/b/c/d/e/f/g.yml"), entry("addons/echo/" + "d/" * 6 + "x.yml"),
                  entry("addons/echo/" + "a" * 185 + ".yml")],
@@ -393,6 +262,7 @@ class Rejections(Case):
         allowed += [entry("addons/echo/exact.json", size=MIB), entry("addons/echo/exact.md", size=MIB),
                     entry("addons/echo/exact.bin", size=2 * MIB), entry("addons/echo/exec2.sh", mode="100755"),
                     entry("addons/echo/" + "d/" * 5 + "x.yml"), entry("addons/echo/" + "a" * 184 + ".yml")]
+        self.assertEqual((len(allowed[-2].path.split("/")), len(allowed[-1].path)), (8, 200), "just within the limits")
         self.assertEqual(coded(*allowed), [])
         self.assertEqual(refused(*allowed), (KEPT + allowed, 0))
 
@@ -402,6 +272,7 @@ class Rejections(Case):
             ("addons/echo/README.md", "ST13"), ("playgrounds/shop/guide.md", "ST13"), ("addons/echo/readme.md", "ST13"),
             ("playgrounds/shop/Guide.md", "ST13")])
         for twins in ([entry("addons/x/data"), entry("addons/x/DATA/y")], [entry("addons/x/Dir/a"), entry("addons/x/dir/b")],
+                      [entry("addons/x/Dir/sub/a.md"), entry("addons/x/dir/sub/b.md"), entry("addons/x/Dir/c.md")],
                       [entry("addons/x/a/B/c.md"), entry("addons/x/a/b/d.md")], [entry("addons/x/a.md"), entry("addons/x/a.md")]):
             with self.subTest([e.path for e in twins]):
                 pairs = store.rejections([entry("addons/x/compose.yml"), *twins, entry("addons/x/other.md")])
