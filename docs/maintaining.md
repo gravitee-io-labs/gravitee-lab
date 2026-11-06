@@ -84,17 +84,10 @@ choose `e2e`, approve. **Read what you approve first**: the items, their Dockerf
 the `Makefile`, `seeder/` and `lab-ui/`. The workflow file a run uses is the one of the pull request, so a change to it is a change to
 what runs with the license. Approving all the waiting jobs of a run takes one click.
 
-A fork's pull request gets the jobs that need no secret. For the rest, after you have read it, push its commit to a branch of this
-repository: the same jobs run on that commit, and their checks, `E2E result` included, show on the pull request.
-
-```bash
-git fetch origin pull/<number>/head
-git push origin FETCH_HEAD:refs/heads/e2e/<number>
-```
-
-Delete the branch when the run ends (`git push origin --delete e2e/<number>`), and do it again, after reading them, for any commit the author
-pushes later. To run by hand, for the main branch or another of this repository: Actions > E2E > *Run workflow*, with `canary` or
-items as `kind:id` separated by spaces.
+A fork's pull request gets the jobs that need no secret. For the rest, after you have read it: Actions > E2E > *Run workflow* on `main`,
+with its number and the commit you read, and again, after reading them, for any commit the author pushes later. Never push a fork's commit
+to a branch of this repository: a push runs every workflow in it with the secrets. To try `main` or another branch of this repository, run
+it there and leave the number empty. *Items* is `canary`, or items as `kind:id` separated by spaces.
 
 ### Reading a result
 
