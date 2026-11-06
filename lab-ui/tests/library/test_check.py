@@ -28,6 +28,7 @@ from lab_ui import paths
 from lab_ui.catalogs import manifest, registry
 
 from .. import Case, fixtures
+from ..catalogs.test_cli import snapshot
 from .test_project import catalog_inputs, member, port, service, variable
 
 REPO = fixtures.CORE.parent   # the engine's own tree: the contract.lock that the check reads
@@ -84,9 +85,6 @@ class Machine(Case):
                 if found[0] != "setup":
                     self.write(f"{paths.unit_folder(*found)}/README.md", "# It")
         return self.built
-
-    def context(self, ns="fixture", declared=()):
-        return {"catalog": ns, "declared": list(declared), "products": ()}
 
     def lines(self, kind, uid, **context):
         """What is wrong with a unit of the machine."""
@@ -1779,18 +1777,6 @@ class Shared(Case):
         return [line for _, line in self.found(ns, file)]
 
 
-def snapshot(root):
-    """Everything under a folder, as it is: path, kind, size, modification time, and where a link leads."""
-    found = []
-    for top, folders, names in os.walk(root):
-        for name in sorted(names) + sorted(folders):
-            where = os.path.join(top, name)
-            info = os.lstat(where)
-            found.append((os.path.relpath(where, root), oct(info.st_mode), info.st_size, info.st_mtime_ns,
-                          os.readlink(where) if os.path.islink(where) else None))
-    return sorted(found)
-
-
 def _odd_ledger():
     """The partner's ledger with a key of x-gravitee and a label that no Lab reads yet."""
     text = (fixtures.CATALOGS / "partner" / "addons/ledger/compose.yml").read_text(encoding="utf-8")
@@ -2241,18 +2227,11 @@ class Closure(unittest.TestCase):
         self.assertTrue(said[0].startswith("an include is a list under include: of plain file names, one on each line"))
 
 
-class Names(unittest.TestCase):
+class Names(Case):
     """What a folder holds that the Lab refuses to read, found without following a link."""
 
     def setUp(self):
-        holder = tempfile.TemporaryDirectory()
-        self.addCleanup(holder.cleanup)
-        self.root = Path(holder.name).resolve()
-
-    def write(self, path, text="x"):
-        file = self.root / path
-        file.parent.mkdir(parents=True, exist_ok=True)
-        file.write_text(text, encoding="utf-8")
+        self.folder()
 
     def test_a_folder_of_plain_files_is_read(self):
         self.write("compose.yml")
