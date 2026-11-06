@@ -2969,16 +2969,6 @@ class Repairing(Seam):
         with self.assertRaises(ValueError):
             service.repair("hostile")
 
-    def test_unlinking_a_working_copy_fetches_again_from_the_address_the_entry_remembers(self):
-        shadow = fixtures.install(self, "lab-old", kind="folder", store=True)
-        shutil.rmtree(registry.store_dir("lab-old"))
-        service.unshadow("lab-old")
-        self.assertEqual(registry.entry("lab-old")["kind"], "git")
-        self.assertEqual(registry.entry("lab-old")["url"], shadow.remote.url)
-        self.assertTrue(registry.store_dir("lab-old").is_dir())
-        with self.assertRaises(ValueError):
-            service.unshadow("partner")
-
 
 class Allowing(Seam):
     """The allowance of items that use this machine, and the choice to check by itself."""

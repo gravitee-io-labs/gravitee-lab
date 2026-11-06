@@ -1683,24 +1683,6 @@ def repair(ns):
     return {"catalog": _row_of(ns)}
 
 
-def unshadow(ns):
-    """Stops a working copy standing in for a git catalog: the install is made again from the store, which is fetched
-    again first when the cache was cleared meanwhile (), from the address the entry remembers. Answers what
-    `install.unshadow` does."""
-    entry = _entry(ns)
-    if entry["kind"] != "folder" or not entry.get("shadows"):
-        raise ValueError(f"{_called(ns)} is not a catalog that a working copy stands in for")
-    try:
-        with _changing():
-            done = install.unshadow(ns)
-    except bare.MissingObject:
-        _refetch(ns, entry)
-        with _changing():
-            done = install.unshadow(ns)
-    project.forget()
-    return done
-
-
 # ---------------------------------------------------------------------------------------------------------------------
 # The gate at Start, a catalog from the template, and the start of the Lab
 # ---------------------------------------------------------------------------------------------------------------------
