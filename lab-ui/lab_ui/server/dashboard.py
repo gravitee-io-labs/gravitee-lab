@@ -1,6 +1,6 @@
 """What the Dashboard reads that the state does not hold: the Gravitee products here against the latest version of
-their channel in the registry, the gateway a platform of the Cloud runs here against the latest stable one, Docker and
-this machine. What runs and what is on is the state's (`/api/state`), which the page draws live. What Docker says of
+their channel in the registry, the gateway a platform of the Cloud runs here against the latest stable one, and Docker.
+What runs and what is on is the state's (`/api/state`), which the page draws live. What Docker says of
 itself and of its Compose is what the state reads (compose.docker_info, compose_version), what it holds is kept for a
 minute and the registry's answers for an hour; the load of the containers comes from one `docker stats` that every page
 following it shares."""
@@ -8,15 +8,12 @@ following it shares."""
 import http.client
 import json
 import os
-import platform
 import re
-import shutil
 import subprocess
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import TimeoutError as Slow
-from pathlib import Path
 
 from ..docker import compose, images
 from ..library import project as projects
@@ -29,7 +26,6 @@ RETRY = 60            # seconds before a registry that did not answer is asked a
 STALE = 3             # seconds without a sample of `docker stats` after which no container is taken to run
 RESTART = 2           # seconds before `docker stats` is started again when it ended on its own
 NAMES_TTL = 10        # seconds the names of the lab's containers are kept
-MEMINFO = Path("/proc/meminfo")
 TYPES = ("images", "containers", "volumes", "cache")   # what `docker system df` counts, in the order it lists them
 # Docker writes sizes in powers of 1000 (`system df`: 58.89GB) or of 1024 (`stats`: 731.8MiB)
 UNITS = {"B": 1,
@@ -144,51 +140,6 @@ def cores():
 
 
 # ---------------------------------------------------------------------------------------------------------------------
-# This machine
-# ---------------------------------------------------------------------------------------------------------------------
-
-def parse_meminfo(text):
-    """(total, available) bytes from /proc/meminfo, which counts in kB; None for what it lacks."""
-    found = {name: int(kb) * 1024 for name, kb in re.findall(r"^(MemTotal|MemAvailable):\s+(\d+) kB", text, re.M)}
-    return found.get("MemTotal"), found.get("MemAvailable")
-
-
-def _memory_mac():
-    """macOS: the memory sysctl says, and what a program can have without swapping: the free, inactive and speculative
-    pages vm_stat counts."""
-    rc, out, _ = compose.run(["sysctl", "-n", "hw.memsize"], timeout=5)
-    total = int(out) if rc == 0 else None
-    rc, out, _ = compose.run(["vm_stat"], timeout=5)
-    page = re.search(r"page size of (\d+) bytes", out)
-    pages = re.findall(r"^Pages (?:free|inactive|speculative):\s+(\d+)\.", out, re.M)
-    if rc != 0 or not page or len(pages) != 3:
-        return total, None
-    return total, sum(int(count) for count in pages) * int(page.group(1))
-
-
-def _memory():
-    """(total, available) bytes of this machine's memory: macOS from sysctl and vm_stat, Linux and WSL 2 from
-    /proc/meminfo; None for what cannot be read."""
-    try:
-        if platform.system() == "Darwin":
-            return _memory_mac()
-        if platform.system() == "Linux":
-            return parse_meminfo(MEMINFO.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        pass
-    return None, None
-
-
-def machine():
-    """This machine, read in a few milliseconds: {cpus, memory_total, memory_available, disk_total, disk_free}. The
-    disk is the one that holds the home folder."""
-    total, available = _memory()
-    disk = shutil.disk_usage(Path.home())
-    return {"cpus": os.cpu_count(), "memory_total": total, "memory_available": available,
-            "disk_total": disk.total, "disk_free": disk.free}
-
-
-# ---------------------------------------------------------------------------------------------------------------------
 # Products
 # ---------------------------------------------------------------------------------------------------------------------
 
@@ -266,10 +217,10 @@ def products(project, containers):
 # ---------------------------------------------------------------------------------------------------------------------
 
 def read(project, refresh=False):
-    """What the page reads besides the state: {docker, machine, data, products, pending}. Docker is asked at
+    """What the page reads besides the state: {docker, data, products, pending}. Docker is asked at
     once for what it says of itself and its Compose (as the state keeps them: compose.docker_info, compose_version),
     what it holds (the slow one, about two seconds, kept DOCKER_TTL seconds) and what runs; `refresh` reads them again.
-    Docker not answering is `docker.error`, with the rest: the machine and the products as configured. What Docker holds
+    Docker not answering is `docker.error`, with the rest: the products as configured. What Docker holds
     is waited for until the read has lasted DF_WAIT seconds, as long as it takes for a `refresh`: past that `data` is None
     and the answer is `pending`, and the next read has it. `pending`: versions or data are still being read, ask again."""
     began = time.monotonic()
@@ -290,7 +241,7 @@ def read(project, refresh=False):
     if down or why:
         docker["error"] = down or why
     rows, pending = products(project, containers)
-    return {"docker": docker, "machine": machine(), "data": data, "products": rows, "pending": pending or slow}
+    return {"docker": docker, "data": data, "products": rows, "pending": pending or slow}
 
 
 # ---------------------------------------------------------------------------------------------------------------------

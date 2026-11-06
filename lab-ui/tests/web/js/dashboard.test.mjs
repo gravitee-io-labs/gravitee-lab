@@ -177,10 +177,9 @@ const DF = (more = {}) => {
   const total = (field) => ["images", "containers", "volumes", "cache"].reduce((sum, kind) => sum + found[kind][field], 0);
   return { ...found, total: { size: total("size"), reclaimable: total("reclaimable") }, read_at: 1791734641 };
 };
-// A full answer: two products of the platform (one behind, one that runs a pre-release), Docker and the machine
+// A full answer: two products of the platform (one behind, one that runs a pre-release) and Docker
 const dashboard = (more = {}) => ({
   docker: { engine: "29.7.2", compose: "5.4.0", os: "Docker Desktop", cpus: 6, memory: 8320028672 },
-  machine: { cpus: 11, memory_total: 38654705664, memory_available: 11066654720, disk_total: 494384795648, disk_free: 96660758528 },
   data: DF(),
   products: [
     product("api-management", "API Management"),
@@ -1483,9 +1482,6 @@ test("CPU and memory say in their figure what it is a share of, and their label 
   assert.deepEqual([block("cpu"), block("memory")].map((cell) => cell.querySelector(".dash-of").getAttribute("class")), ["dash-of muted", "dash-of muted"]);
   stream().send({ cpu_percent: 4.1, memory_used: 4.9 * 2 ** 30, containers: 12, at: 5 });
   assert.deepEqual(cells().slice(0, 2).map(tileSaid), ["CPU 4.1% of 6 cores", "Memory 4.9 GB of 7.7 GB"]);
-  // A Docker that does not say how many cores or how much memory it has: the machine's own
-  await open({ body: dashboard({ docker: { engine: "29.7.2", compose: "5.4.0", os: null, cpus: null, memory: null } }) });
-  assert.deepEqual(cells().slice(0, 2).map(tileSaid), ["CPU — of 11 cores", "Memory — of 36 GB"]);
   dashboardPage.hide();
 });
 
@@ -1557,7 +1553,7 @@ test("volumes that no container uses say they can hold data, and what is unused 
 });
 
 test("what Docker stores is a line of words with no bar, and does not depend on the disk: Docker's data may be on another one", async () => {
-  await open({ body: dashboard({ machine: { ...dashboard().machine, disk_free: 2100000000 } }) });
+  await open();
   assert.equal(section.querySelectorAll(".dash-bar, .dash-part, .dash-disk").length, 0);
   assert.doesNotMatch(said(section) + unseen(), /disk|free/i);
   assert.equal(text(cells()[2].querySelector(".dash-value")), "85.7 GB");

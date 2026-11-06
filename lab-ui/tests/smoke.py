@@ -187,13 +187,12 @@ def images(lab_ui):
 
 
 def dashboard(lab_ui):
-    """The Dashboard's data: a row per product with its channel and its latest version, Docker and the machine. What runs
+    """The Dashboard's data: a row per product with its channel and its latest version, and Docker. What runs
     and what is on is the state's: each group of the platform counts its own containers, and they add up to the
     platform's."""
     body = lab_ui.json("/api/dashboard")
-    has(body, {"docker", "machine", "data", "products", "pending"}, "the dashboard")
+    has(body, {"docker", "data", "products", "pending"}, "the dashboard")
     has(body["docker"], {"engine", "compose", "os", "cpus", "memory"}, "what the dashboard says of Docker")
-    has(body["machine"], {"cpus", "memory_total", "memory_available", "disk_total", "disk_free"}, "the machine")
     assert body["products"], "no product is listed"
     for product in body["products"]:
         has(product, PRODUCT, f"product {product.get('id')}")

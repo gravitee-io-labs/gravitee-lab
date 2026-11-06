@@ -964,14 +964,12 @@ its catalog have the Start or Stop of their item, as the lists' rows have.
     asked for while it is dead.
   - `cpu_percent` is the sum of the containers' CPU divided by the cores Docker has, from 0 to 100. Docker's screen escapes
     are stripped from its output.
-- **The machine's own numbers** are cheap local readings with the standard library: `sysctl` and `vm_stat` on macOS,
-  `/proc/meminfo` on Linux and WSL 2, `os.cpu_count`, `shutil.disk_usage`. No `psutil`.
 - **What Docker holds** is `data` of `GET /api/dashboard`, parsed from `docker system df --format '{{json .}}'`
   (`dashboard.parse_df`): for `images`, `containers`, `volumes` and `cache` a `count`, a `size` and the `reclaimable` size (what
   no container uses, never above `size`), the `running` containers, and a `total` with the sum of the four sizes and of the four
   unused sizes. Docker writes sizes in powers of 1000 (`58.9GB`), and the page does the same. The page says "unused" for what
   the answer calls `reclaimable`.
-- **When it reads.** `GET /api/dashboard` (`docker`, `machine`, `data`, `products`, `pending`) when the page
+- **When it reads.** `GET /api/dashboard` (`docker`, `data`, `products`, `pending`) when the page
   opens, when what the versions depend on moves (Docker answering, the state of each group, the tag each container runs:
   `signature` in `dashboard.js`, checked at each draw, one read at a time) and by *Count storage again*. `docker system df` (about 2
   seconds) is cached for 60 seconds; `docker info` and `docker compose version` are the Lab's one reading of each, which the state and

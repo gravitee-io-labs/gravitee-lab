@@ -268,7 +268,6 @@ resources run across the page under them, one line that you unfold.
 | The versions of Docker and Compose, the cores and memory Docker has | `docker info` and `docker compose version` | The page opens |
 | What Docker stores and what is unused: images, containers, volumes and build cache | `docker system df`, which takes about 2 seconds | The page opens, and *Count storage again* |
 | The load and memory of the containers | One `docker stats` process | While the page is in view, folded or not |
-| The memory and cores of the machine, the disk | The system itself, with no Docker | The page opens |
 
 - **Docker's answers are kept.** What Docker stores is kept for a minute, its Compose's version too; what Docker says of itself
   until it restarts (at most 10 minutes), the same answer every page and the first step of *Welcome to Gravitee Lab* read. Going to
@@ -284,7 +283,7 @@ resources run across the page under them, one line that you unfold.
 - **Without Docker**, the banner says why, once, and the menu's chip says it is not reachable. The figures that need it,
   CPU, Memory and Storage, are dashes and the charts are gone. No dot is colored, no count is said, the buttons wait and say
   why, and there is nothing to open. The page still shows what needs no Docker: the versions configured for the products, the
-  Cloud, what is on, and the disk.
+  Cloud and what is on.
 
 ## Containers
 

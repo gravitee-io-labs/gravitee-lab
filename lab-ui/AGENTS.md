@@ -69,7 +69,7 @@ The module docstring (Python) or the header comment (JavaScript) of a file is th
 | Module | What it holds |
 |---|---|
 | `api.py` | The HTTP handler, route table, event streams, static files, the command line |
-| `dashboard.py` | What the Dashboard reads besides the state: the products' versions against the latest of their channel, the gateway of a platform against the latest stable one, Docker and the machine, the live load of the lab's containers |
+| `dashboard.py` | What the Dashboard reads besides the state: the products' versions against the latest of their channel, the gateway of a platform against the latest stable one, Docker, the live load of the lab's containers |
 | `stack.py` | The Containers page's actions on containers |
 
 `lab_ui/catalogs/`: the catalogs, how they are installed, checked and kept ([Catalogs](../docs/catalogs.md)). `cli.py` is the command of the catalogs (`catalog.py` is its entry script), and `explain.py` writes `docs/catalog-rules.md`

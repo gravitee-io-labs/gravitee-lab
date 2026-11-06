@@ -1,5 +1,4 @@
-"""dashboard: Docker's sizes and answers as `docker info`, `system df` and `stats` print them, the host's memory and
-disk, the channels of a version, the products and the gateway of a platform against the versions a registry lists, the
+"""dashboard: Docker's sizes and answers as `docker info`, `system df` and `stats` print them, the channels of a version, the products and the gateway of a platform against the versions a registry lists, the
 whole answer with its caches, and the life of the one `docker stats` process. No Docker, no registry: what they would
 answer is given."""
 
@@ -8,7 +7,6 @@ import queue
 import threading
 import time
 import unittest
-from collections import namedtuple
 from urllib.error import URLError
 
 from lab_ui.docker import compose
@@ -30,15 +28,6 @@ USAGE = {"images": {"count": 122, "size": 58_890_000_000, "reclaimable": 42_700_
          "volumes": {"count": 73, "size": 5_944_000_000, "reclaimable": 5_479_000_000},
          "cache": {"count": 1630, "size": 18_620_000_000, "reclaimable": 9_709_000_000},
          "total": {"size": 85_697_000_000, "reclaimable": 57_888_131_100}}
-VM_STAT = """Mach Virtual Memory Statistics: (page size of 16384 bytes)
-Pages free:                                6620.
-Pages active:                            699376.
-Pages inactive:                          697572.
-Pages speculative:                          833.
-Pages throttled:                              0.
-Pages wired down:                        237073.
-"""
-MEMINFO = "MemTotal:       16384000 kB\nMemFree:          100000 kB\nMemAvailable:    8192000 kB\nBuffers: 1 kB\n"
 # What `docker stats --format '{{json .}}'` prints: the first screen sends the cursor home, the next ones erase before
 # that, every line may end with an erase to the end of the line, and a blank line ends the screen
 FIRST = ('\x1b[H{"CPUPerc":"1.50%","ID":"6f2efa4c29cd","MemUsage":"195.8MiB / 7.749GiB","Name":"backend"}\x1b[K\n',
@@ -151,48 +140,6 @@ class Docker(Case):
         self.assertEqual(dashboard.cores(), 11)   # the machine's when Docker does not say
         self.patch(dashboard.os, "cpu_count", return_value=None)
         self.assertEqual(dashboard.cores(), 1)
-
-
-class Machine(Case):
-    def test_macos_from_sysctl_and_vm_stat(self):
-        self.patch(dashboard.platform, "system", return_value="Darwin")
-        run = self.patch(dashboard.compose, "run", side_effect=lambda command, **more: {
-            "sysctl": (0, "38654705664\n", ""), "vm_stat": (0, VM_STAT, "")}[command[0]])
-        # Free, inactive and speculative pages: what a program can have without swapping
-        self.assertEqual(dashboard._memory(), (38654705664, (6620 + 697572 + 833) * 16384))
-        self.assertEqual([call.args[0] for call in run.call_args_list], [["sysctl", "-n", "hw.memsize"], ["vm_stat"]])
-
-    def test_macos_that_does_not_say(self):
-        self.patch(dashboard.platform, "system", return_value="Darwin")
-        self.patch(dashboard.compose, "run", side_effect=lambda command, **more: {
-            "sysctl": (0, "38654705664\n", ""), "vm_stat": (127, "", "not found")}[command[0]])
-        self.assertEqual(dashboard._memory(), (38654705664, None))
-        self.patch(dashboard.compose, "run", return_value=(0, "not a number", ""))
-        self.assertEqual(dashboard._memory(), (None, None))
-
-    def test_linux_and_wsl_from_proc_meminfo(self):
-        self.patch(dashboard.platform, "system", return_value="Linux")
-        self.folder()
-        self.patch(dashboard, "MEMINFO", self.root / self.write("meminfo", MEMINFO))
-        self.assertEqual(dashboard._memory(), (16384000 * 1024, 8192000 * 1024))
-        self.assertEqual(dashboard.parse_meminfo("MemTotal: 5 kB\n"), (5 * 1024, None))
-        self.patch(dashboard, "MEMINFO", self.root / "missing")
-        self.assertEqual(dashboard._memory(), (None, None))
-
-    def test_another_system_is_not_read(self):
-        self.patch(dashboard.platform, "system", return_value="Windows")
-        run = self.patch(dashboard.compose, "run")
-        self.assertEqual(dashboard._memory(), (None, None))
-        run.assert_not_called()
-
-    def test_the_machine(self):
-        Usage = namedtuple("Usage", "total used free")
-        self.patch(dashboard, "_memory", return_value=(100, 40))
-        self.patch(dashboard.os, "cpu_count", return_value=11)
-        disk = self.patch(dashboard.shutil, "disk_usage", return_value=Usage(1000, 700, 300))
-        self.assertEqual(dashboard.machine(), {"cpus": 11, "memory_total": 100, "memory_available": 40,
-                                              "disk_total": 1000, "disk_free": 300})
-        self.assertEqual(disk.call_args.args[0], dashboard.Path.home())   # the disk that holds the home folder
 
 
 APIM = {"kind": "platform", "id": "api-management", "name": "API Management"}
@@ -382,7 +329,6 @@ class Read(Case):
         self.containers = self.patch(dashboard.compose, "containers", return_value=(running(**{
             "apim-management-api": "4.12.21", "alert-engine": "3.0.2"}), None))
         self.patch(dashboard.images, "tags", side_effect=lambda p, component, registry=None: [{"name": "4.12.21"}])
-        self.patch(dashboard, "machine", return_value={"cpus": 11})
 
     def asked(self, word):
         return sum(word in call.args[0] for call in self.run.call_args_list)
@@ -390,12 +336,11 @@ class Read(Case):
     def test_the_answer(self):
         found = dashboard.read(self.project)
         # What runs and what is on is the state's, which the page draws live: none of it is read here
-        self.assertEqual(set(found), {"docker", "machine", "data", "products", "pending"})
+        self.assertEqual(set(found), {"docker", "data", "products", "pending"})
         self.assertEqual(found["docker"], {"engine": "29.7.2", "compose": "5.4.0", "os": "Docker Desktop", "cpus": 6,
                                            "memory": 8320028672})
         self.assertEqual({key: found["data"][key] for key in USAGE}, USAGE)
         self.assertIsInstance(found["data"]["read_at"], int)
-        self.assertEqual(found["machine"], {"cpus": 11})
         self.assertEqual([row["id"] for row in found["products"]], ["api-management", "access-management",
                                                                     "alert-engine"])
         self.assertTrue(found["pending"])   # the registry is being read: nothing waited for it
@@ -464,7 +409,6 @@ class Read(Case):
         self.assertEqual(found["docker"], {"engine": None, "compose": "5.4.0", "os": None, "cpus": None,
                                            "memory": None, "error": "Cannot connect to the Docker daemon"})
         self.assertIsNone(found["data"])
-        self.assertEqual(found["machine"], {"cpus": 11})
         self.assertEqual({row["deployed_state"] for row in found["products"]}, {"configured"})
 
     def test_what_docker_info_says_is_the_error_when_nothing_else_does(self):
