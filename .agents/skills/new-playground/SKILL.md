@@ -29,8 +29,7 @@ The rules are in `docs/units.md`, and the authoring reference in `docs/playgroun
      lesson at a time".
    - **Where it is kept**: Personal, on this machine only, or a catalog that is a folder of the person's (a folder
      catalog: the Lab UI's New catalog, or the `new-catalog` skill). Personal unless the person names a catalog.
-3. Write its folder where it belongs. A personal item and a catalog item sit at the same depth, so the same paths work in
-   both:
+3. Write its folder where it belongs:
 
    | Kept | Folder |
    |---|---|

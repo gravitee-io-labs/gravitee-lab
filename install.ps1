@@ -367,8 +367,8 @@
     }
     Passed $distro "user $(Linux 'id -un')" $since
 
-    # A Docker that answers in the distribution: the one there (Docker Desktop, Docker Engine in it...) is used as it is,
-    # and install.sh says so; else Docker Desktop, installed, started and serving it
+    # A Docker that answers in the distribution: the one there (Docker Desktop, Docker Engine in it...) is used as it is;
+    # else Docker Desktop, installed, started and serving it
     if (-not (LinuxDocker)) {
         $since = Get-Date
         $cli = DesktopCli

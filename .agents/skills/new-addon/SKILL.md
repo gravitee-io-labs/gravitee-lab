@@ -21,7 +21,7 @@ An add-on is one capability on top of the core platform: a folder with its `comp
      adds, such as "Browser for what the gateway sends to Acme".
    - **Where it is kept**: Personal, on this machine only, or a catalog that is a folder of the person's (a folder
      catalog: the Lab UI's New catalog, or the `new-catalog` skill). Personal unless the person names a catalog.
-3. Write it where it belongs. A personal item and a catalog item sit at the same depth, so the same paths work in both:
+3. Write it where it belongs:
 
    | Kept | Folder |
    |---|---|
