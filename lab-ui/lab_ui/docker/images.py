@@ -190,12 +190,6 @@ def registry_label(registry):
     return "Docker Hub" if host is None else "Azure" if AZURE.fullmatch(host) else host
 
 
-def local_images():
-    """The images Docker holds, as repository:tag (compose.image_ids); None when Docker does not answer."""
-    held = compose.image_ids()
-    return None if held is None else set(held)
-
-
 def state(project, is_on, outside):
     """What the Images page shows: every component with the value its .env holds (or its default), the image that
     value gives, what runs and what is pulled (None when Docker does not answer); the registries in use; and
@@ -203,7 +197,7 @@ def state(project, is_on, outside):
     login. What is on is the caller's to say: `is_on(owner)`, whether the owner of a component runs with it, and
     `outside`, the note of a component that runs without its owner being on (layers.is_on, layers.outside)."""
     services, found = project["services"], components(project)
-    local = local_images()
+    local = compose.image_ids()
     containers, _ = compose.containers()   # none when Docker does not answer: the versions still show
     targets = {c["id"]: _env_files(services, c) for c in found}
     envs = {path: envfiles.read(path) for written in targets.values() for path in written}

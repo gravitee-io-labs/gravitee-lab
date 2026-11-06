@@ -167,7 +167,7 @@ class Images(Case):
                             layers.outside())
 
     def test_state(self):
-        self.patch(images, "local_images", return_value={"mongo:8.0.29", "bitnamilegacy/kafka:3.9"})
+        self.patch(compose, "image_ids", return_value={"mongo:8.0.29": "a", "bitnamilegacy/kafka:3.9": "b"})
         self.patch(compose, "project_name", return_value="lab")
         self.patch(compose, "ps", return_value={"mongodb": {"state": "running", "image": "mongo:7"},
                                                 "kafka": {"state": "exited", "image": "x"}})
@@ -196,7 +196,7 @@ class Images(Case):
                                             "note_title": "Not from the Lab UI, so the platform does not start it."})
 
     def test_whether_a_component_that_is_on_takes_its_images_from_azure(self):
-        self.patch(images, "local_images", return_value=set())
+        self.patch(compose, "image_ids", return_value={})
         self.patch(compose, "containers", return_value=({}, None))
         self.patch(envfiles, "read", return_value={})
         # The platform is always on: its images come from the Azure registry its .env names (resolved here)
@@ -211,7 +211,7 @@ class Images(Case):
         self.assertTrue(self.state(["tools"])["azure_in_use"])
 
     def test_an_image_written_with_docker_hubs_own_prefixes_is_pulled_as_docker_lists_it(self):
-        self.patch(images, "local_images", return_value={"mongo:8.0.29"})
+        self.patch(compose, "image_ids", return_value={"mongo:8.0.29": "a"})
         self.patch(compose, "containers", return_value=({}, None))
         self.patch(envfiles, "read", return_value={})
         for written in ("library/mongo:8.0.29", "docker.io/library/mongo:8.0.29"):
@@ -222,7 +222,6 @@ class Images(Case):
         compose.CACHE.drop("local:image-ids")
         self.addCleanup(compose.CACHE.drop, "local:image-ids")
         self.patch(compose, "run", return_value=(1, "", "Cannot connect to the Docker daemon"))
-        self.assertIsNone(images.local_images())
         self.patch(compose, "containers", return_value=({}, "Cannot connect to the Docker daemon"))
         self.patch(envfiles, "read", return_value={})
         self.assertEqual({c["pulled"] for c in self.state()["components"]}, {None})
@@ -560,7 +559,7 @@ class Shared(Case):
 
     def test_a_link_saved_to_a_variable_that_does_not_reach_reads_as_compose_reads_it(self):
         # Saved by an earlier Lab: Compose reads it empty, so the image is the default's. The page says what runs
-        self.patch(images, "local_images", return_value=set())
+        self.patch(compose, "image_ids", return_value={})
         self.patch(compose, "containers", return_value=({}, None))
         self.env[paths.unit_env("playground", "shop")] = {"SHOP_OPENSSL_VERSION": "${KAFKA_CERTS_VERSION}"}
         listed = {c["id"]: c for c in images.state(self.project, lambda owner: True, None)["components"]}

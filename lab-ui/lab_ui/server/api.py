@@ -740,7 +740,7 @@ ROUTES = [(method, re.compile(pattern), handler) for method, pattern, handler in
     ("GET", "/api/images", lambda r: images_state(project.load())),
     ("GET", "/api/tags", lambda r: {"tags": images.tags(project.load(), r.query.get("component"),
                                                         r.query.get("registry")),
-                                    "local": sorted(images.local_images() or [])}),
+                                    "local": sorted(compose.image_ids() or [])}),
     ("GET", "/api/registry", lambda r: images.registry_status(project.load())),
     ("GET", "/api/files", lambda r: {"sections": files.sections(project.load(), r.query.get("path"))}),
     ("GET", "/api/files/content", lambda r: files.read(r.query.get("path"))),
