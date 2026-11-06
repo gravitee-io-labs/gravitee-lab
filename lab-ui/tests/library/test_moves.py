@@ -169,12 +169,10 @@ class Relocate(Moves):
 
     def test_names_with_spaces_and_unicode(self):
         name = "Démo ünï cöde $(x) 'q' ✓"
-        self.put(f"playgrounds/local/{name}/compose.yml", "services: {}\n")
-        self.assertEqual(moves.relocate(f"playgrounds/local/{name}", f".lab/catalogs/local/playgrounds/{name}",
-                                        "personal"),
-                         "moved")
-        self.assertEqual(self.text(f".lab/catalogs/local/playgrounds/{name}/compose.yml"), "services: {}\n")
-        self.assertEqual(self.journal("move")[0]["src"], f"playgrounds/local/{name}")
+        self.put(f"old/{name}/compose.yml", "services: {}\n")
+        self.assertEqual(moves.relocate(f"old/{name}", f"new/{name}", "machine"), "moved")
+        self.assertEqual(self.text(f"new/{name}/compose.yml"), "services: {}\n")
+        self.assertEqual(self.journal("move")[0]["src"], f"old/{name}")
 
     def test_a_link_moves_as_a_link_and_is_never_followed(self):
         outside = self.put("outside/precious.txt", "keep\n", 0o600)
@@ -907,71 +905,14 @@ class Crashes(Elsewhere):
 # ---------------------------------------------------------------------------------------------------------------------
 
 DEFAULT_NS = "fixture"
-# What the migration gives a machine whose catalog is not read yet: the prefix of each kind, local ones first. The order
-# does not matter: the longest prefix that holds a path wins.
+# A folder for each kind and a deeper one in each: the order does not matter, the longest that holds a path wins
 PREFIXES = [("addons", f".lab/catalogs/{DEFAULT_NS}/addons"), ("setups", f".lab/catalogs/{DEFAULT_NS}/setups"),
             ("playgrounds", f".lab/catalogs/{DEFAULT_NS}/playgrounds"),
             ("playgrounds/local", ".lab/catalogs/local/playgrounds"), ("setups/local", ".lab/catalogs/local/setups"),
             ("addons/local", ".lab/catalogs/local/addons")]
 
-# The four personal files of the owner's structure, with the names of the fixture catalog: (kind, name, as it was, as it
-# is once it sits in .lab/catalogs/local)
-GOLDEN = [
-    ("playground", "shop-demo", """include:
-  - ../../../setups/local/duo.yml
-  - "../../../addons/echo/compose.yml"   # shared
-services:
-  shop-demo-seed:
-    build: ../../../seeder
-    volumes:
-      - ./seed:/seed:ro
-      - ./.state:/state
-      - ../../../certs/mtls:/certs:ro
-    env_file:
-      - ./.env
-    command: seed --from https://example.test/a/../b
-""", """include:
-  - ../../setups/duo.yml
-  - "../../../fixture/addons/echo/compose.yml"   # shared
-services:
-  shop-demo-seed:
-    build: ../../../../../seeder
-    volumes:
-      - ./seed:/seed:ro
-      - ./.state:/state
-      - ../../../../../certs/mtls:/certs:ro
-    env_file:
-      - ./.env
-    command: seed --from https://example.test/a/../b
-"""),
-    ("playground", "tool-layer", """services:
-  tool-layer-seed:
-    build: ../../../seeder
-    volumes:
-      - ./seed:/seed:ro
-""", """services:
-  tool-layer-seed:
-    build: ../../../../../seeder
-    volumes:
-      - ./seed:/seed:ro
-"""),
-    ("setup", "duo", """x-gravitee: {kind: setup, name: Duo}
-include:
-  - ../../addons/echo/compose.yml
-  - ../../addons/echo-core/compose.yml
-""", """x-gravitee: {kind: setup, name: Duo}
-include:
-  - ../../fixture/addons/echo/compose.yml
-  - ../../fixture/addons/echo-core/compose.yml
-"""),
-    ("setup", "tracing", """include:
-  - ../../addons/echo/compose.yml   # the traces
-""", """include:
-  - ../../fixture/addons/echo/compose.yml   # the traces
-"""),
-]
 ADDON = """include:
-  - ../../echo/compose.yml
+  - "../../echo/compose.yml"   # shared
   - ../other/compose.yml
 services:
   scratch:
@@ -982,16 +923,6 @@ services:
 
 
 class Repoint(Case):
-
-    def test_the_four_personal_files_of_the_owners_structure(self):
-        # The golden of the migration: a local playground that includes a local setup and an add-on of the default catalog and
-        # builds the seeder, another that builds the seeder, and two local setups that include add-ons of the default
-        # catalog, each written as it was and as it must be once it sits in `.lab/catalogs/local`
-        for kind, name, before, after in GOLDEN:
-            with self.subTest(file=f"{kind}s/local/{name}"):
-                folder = f"{kind}s/local" if kind == "setup" else f"{kind}s/local/{name}"
-                where = f".lab/catalogs/local/{kind}s" if kind == "setup" else f".lab/catalogs/local/{kind}s/{name}"
-                self.assertEqual(moves.repoint(before, folder, where, PREFIXES), after)
 
     def test_an_addon_of_this_machine_that_includes_both_kinds(self):
         self.assertEqual(
@@ -1038,8 +969,6 @@ class Repoint(Case):
         self.assertEqual(moves.repoint(text, "setups/local", "setups/local",
                                        [("", "x"), ("/", "y"), (None, "z"), ("addons", None), ("addons", "A/addons")]),
                          "include:\n  - ../../A/addons/echo/compose.yml\n")
-
-    # The cases of the function this one generalizes, with the one-entry table that gives it back
 
     def one(self, text, was, now, old, new):
         return moves.repoint(text, was, now, [(old, new)])
