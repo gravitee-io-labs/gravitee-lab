@@ -50,9 +50,6 @@ STANDARD = ".github/standard.json"
 STANDARD_LIMIT = 4096                  # the size SD04 allows `.github/standard.json`
 TEXT_LIMIT = 1024 * 1024               # the most of a file that is read to compare it
 PLATFORMS = ("linux/amd64", "linux/arm64")
-WHENS = ("always", "images", "module:e2e")
-CLASSES = ("managed", "seeded", "sample")
-SCOPES = ("full", "local", "both")
 MODULES = ("e2e",)
 LICENSES = {"agpl-3.0-only": "AGPL-3.0-only", "apache-2.0": "Apache-2.0", "mit": "MIT"}
 SHOWN = 80                             # characters of a stranger's word that a message shows
@@ -111,62 +108,15 @@ class TemplateError(Exception):
 # The template: manifest, levels, files
 # ---------------------------------------------------------------------------------------------------------------------
 
-_CACHE: Dict[str, tuple] = {}
-
-
 def _clean(path) -> bool:
     return isinstance(path, str) and bool(path) and all(part not in ("", ".", "..") for part in path.split("/")) \
         and "\\" not in path and "\0" not in path and not path.startswith("/")
 
 
-def _checked(data) -> dict:
-    """The manifest, or a TemplateError that says which part is wrong. The template is the engine's own, so this guards a
-    mistake of whoever edits it, not an attack."""
-    def need(ok, what):
-        if not ok:
-            raise TemplateError(f"manifest.json: {what}.")
-    need(isinstance(data, dict), "it is not an object")
-    need(isinstance(data.get("level"), int) and not isinstance(data["level"], bool) and data["level"] >= 1, "level is a whole "
-         "number of at least 1")
-    seen = set()
-    top = 0
-    need(isinstance(data.get("files"), list) and data["files"], "files is a list")
-    for each in data["files"]:
-        need(isinstance(each, dict) and _clean(each.get("path")), "a file has no clean path")
-        path = each["path"]
-        need(path not in seen, f"{path} is listed twice")
-        seen.add(path)
-        need(each.get("class") in CLASSES, f"{path} has a class that is none of {', '.join(CLASSES)}")
-        need(isinstance(each.get("since"), int) and not isinstance(each["since"], bool) and 1 <= each["since"] <= 99,
-             f"{path} has no level to arrive with")
-        need(each.get("when") in WHENS, f"{path} has a condition that is none of {', '.join(WHENS)}")
-        need(each.get("scope") in SCOPES, f"{path} has a scope that is none of {', '.join(SCOPES)}")
-        top = max(top, each["since"])
-    # A level brings files, or changes those that are there: the levels that exist are the highest of both
-    top = max(top, data["level"])
-    notes = data.get("notes")
-    need(isinstance(notes, dict), "notes is an object")
-    for number in range(1, top + 1):
-        note = notes.get(str(number))
-        need(isinstance(note, dict) and isinstance(note.get("summary"), str) and isinstance(note.get("manual"), list)
-             and isinstance(note.get("settings"), list), f"level {number} has no note (summary, manual, settings)")
-    return data
-
-
-def manifest(folder=None) -> dict:
+def manifest() -> dict:
     """The template's `manifest.json` as a dict: `level`; `files`, each {path, class, since, when, scope} (and `local` for the
-    source a folder catalog uses, `tool`, `license`); `notes`, one for each level.
-    A copy: the caller may change it."""
-    path = Path(folder or TEMPLATE) / "manifest.json"
-    try:
-        info = path.stat()
-        key = str(path)
-        stamp = (info.st_mtime_ns, info.st_size)
-        if _CACHE.get(key, (None,))[0] != stamp:
-            _CACHE[key] = (stamp, _checked(json.loads(path.read_text(encoding="utf-8"))))
-        return copy.deepcopy(_CACHE[key][1])
-    except (OSError, ValueError) as error:
-        raise TemplateError(f"The template of the standard cannot be read ({type(error).__name__}).") from None
+    source a folder catalog uses, `tool`, `license`); `notes`, one for each level."""
+    return json.loads((TEMPLATE / "manifest.json").read_text(encoding="utf-8"))
 
 
 LEVEL = manifest()["level"]

@@ -89,10 +89,6 @@ class Template(unittest.TestCase):
         self.assertEqual(sorted(standard.manifest()["notes"]), ["1", "2", "3", "4", "5", "6", "7", "8", "9"])
         self.assertEqual(max(each["since"] for each in standard.manifest()["files"]), 7)
 
-    def test_the_manifest_is_a_copy(self):
-        standard.manifest()["files"].clear()
-        self.assertTrue(standard.manifest()["files"])
-
     def test_every_file_of_the_template_is_listed_and_every_listed_file_is_there(self):
         data = standard.manifest()
         listed = {"licenses/AGPL-3.0-only.txt", "licenses/Apache-2.0.txt", "licenses/MIT.txt", "licenses/other.txt", "manifest.json",
