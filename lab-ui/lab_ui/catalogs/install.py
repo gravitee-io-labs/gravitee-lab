@@ -633,15 +633,9 @@ def _manifest_in(root, ns) -> Optional[dict]:
     commit it is for, or None: a folder can be an install, a staging folder or a `.removed-<ns>-*` folder, and each says
     what it holds in its own file."""
     try:
-        data = _read(os.path.join(root, paths.MANIFEST), MANIFEST_LIMIT)
-        found = json.loads(data.decode("utf-8-sig"))
-    except (Unsafe, ValueError, RecursionError):
+        return registry._load_manifest(ns)(_read(os.path.join(root, paths.MANIFEST), MANIFEST_LIMIT))
+    except Unsafe:
         return None
-    if not (isinstance(found, dict) and found.get("schema") == 1 and found.get("catalog") == ns
-            and isinstance(found.get("commit"), str) and isinstance(found.get("files"), dict)
-            and isinstance(found.get("units"), dict)):
-        return None
-    return found
 
 
 def _listed(ns, root) -> Optional[Set[str]]:
