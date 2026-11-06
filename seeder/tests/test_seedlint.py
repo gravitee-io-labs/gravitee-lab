@@ -5,9 +5,7 @@ Playgrounds are made in a temporary folder. The folder is a stranger's pull requ
 size and any name, lines of a megabyte, and YAML that makes the loader copy millions of pairs, none of which may make the
 lint read outside the folder, run anything, write anything or take more than seconds of CPU. test_seed_files.py tests the
 checks on files made for them (the 30 tests that used to carry the code); this file tests what the command adds: the problems
-of a playground with their path and line, the addresses a file writes in escapes (in a default, in a JSON text inside a string,
-with a user in front of the host; the names that resolve nowhere are allowed there, and a file whose strings cannot be read is
-named), the annotations, the folders it is given, and what it does with hostile input. The count of the pairs
+of a playground with their path and line, the annotations, the folders it is given, and what it does with hostile input. The count of the pairs
 that YAML merge keys make the loader copy, and the refusal of a file that asks for too many, are common.py's and are tested in
 test_common.py; the lint names such a file and does not load it. What would take minutes or the memory of the machine when it
 goes wrong is run in a process of its own (`probed`), with a limit on both."""
@@ -28,7 +26,6 @@ import time
 import unittest
 from pathlib import Path
 from unittest import mock
-from urllib.parse import urlsplit
 
 import yaml
 
@@ -225,6 +222,8 @@ class Problems(Made):
         for text in ("u: HTTP://evil:8080", "u: Http://evil", "u: hTTps://evil/x"):
             self.assertEqual(len(seedlint.literal_addresses(text)), 1, text)
         self.assertEqual(seedlint.literal_addresses("a: HTTPS://Docs.Gravitee.IO/x\nb: Http://${HOST}/y"), set())
+        self.assertEqual(seedlint.literal_addresses('u: "${H:-https://evil.com}"'), {"https://evil.com"}, "a default is read too")
+        self.assertEqual(seedlint.literal_addresses("u: http://x.example http://docs.a.test\n"), {"http://x.example", "http://docs.a.test"})
         self.assertEqual(self.found(self.playground({"seed/a.yaml": "a: 1\nu: HTTP://evil:8080\n"})), [("address", "seed/a.yaml", 2)])
 
     def test_merge_keys_in_reasonable_use_are_nothing_to_say(self):
@@ -257,23 +256,6 @@ class Problems(Made):
             self.assertEqual(os.environ.get("SEEDLINT_A"), "x")
             self.assertNotIn("SEEDLINT_TEST_KEPT", os.environ)
         self.assertEqual(dict(os.environ), before)
-
-
-# --- What a file writes in escapes ------------------------------------------------------
-
-FIX = "Fix: an address is a ${VARIABLE} set by the seed service."
-
-
-def escaped(host, path="/x"):
-    """`https://host/x` as a double-quoted scalar of YAML or a string of JSON writes it: each slash is an escape, so that the
-    text of the file shows no `://`."""
-    return "https:\\u002f\\u002f" + host + path
-
-
-def written(value):
-    """A string as a double-quoted scalar of YAML and a string of JSON write it, both: each `://` is in escapes, so that the text
-    shows none for the first rule to find, and a quote, a backslash or a control character is escaped too."""
-    return json.dumps(value).replace("://", ":\\u002f\\u002f")
 
 
 STUDIO = ("name: Desk\ncontextPath: /mcp/desk\nsupportedProtocolVersions: ['2025-11-25']\nfga: false\n"
@@ -333,391 +315,34 @@ class Studios(Made):
         self.assertEqual(seedlint.problems(folder), [])
 
 
-class Escapes(Made):
-    """A YAML or JSON file can write `https://host` with escapes, and the text shows no `://` for the first rule to find. The
-    strings of the parsed document are read too, and an address under a name that nothing resolves (RFC 2606 and 6761: .test,
-    .example, .invalid, example.com, .org and .net) is allowed there, as a documentation URL cannot reach a service."""
+class Addresses(Made):
 
-    SPELLINGS = {
-        "a unicode escape": '"https:\\u002f\\u002fevil.com/x"',
-        "a hexadecimal escape": '"https:\\x2f\\x2fevil.com/x"',
-        "a long unicode escape": '"https:\\U0000002f\\U0000002fevil.com/x"',
-        "an escaped slash": '"https:\\/\\/evil.com/x"',
-        "a letter of the scheme": '"h\\x74tps://evil.com/x"',
-        "the colon": '"https\\x3a//evil.com/x"',
-        "a line that goes on": '"https://\\\n    evil.com/x"',
-    }
-    ALLOWED = ("docs.apelor.test", "a.b.c.test", "x.example", "x.invalid", "example.com", "www.example.org", "a.b.example.net",
-               "DOCS.Example.ORG", "docs.apelor.test.", "x.test:8080", "example.com:443", "x_y.test", "a-b.example")
-    NOT_ALLOWED = ("evil.com", "test", "example", "invalid", "localhost", "notexample.com", "myexample.org", "example.com.evil.io",
-                   "example.org.evil.com", "evil.test.io", "x.testing", "example.co", "examplecom", "x.examples", "test.com",
-                   "test.evil", "127.0.0.1", "docs.gravitee.io.evil.com", ".test", "x..test", "-.test!", "ex ample.com")
+    def test_each_address_is_told_at_its_first_use(self):
+        text = "a: http://evil.com\nb:\n  - http://evil.com\n  - http://other\n"
+        self.assertEqual([p.line for p in seedlint.problems(self.playground({"seed/a.yaml": text}))], [1, 4])
 
-    def addresses(self, text, name="a.yaml"):
-        return seedlint.escaped_addresses(name, text)
-
-    def test_an_address_written_in_escapes_is_found_in_every_spelling_of_the_escape(self):
-        for what, scalar in self.SPELLINGS.items():
-            for name in ("a.yaml", "a.yml"):
-                with self.subTest(what=what, file=name):
-                    self.assertEqual(self.addresses("u: " + scalar + "\n", name), {"https://evil.com"})
-                    self.assertEqual(seedlint.literal_addresses("u: " + scalar + "\n"), set(), "the text shows none")
-
-    def test_an_escape_that_ends_the_name_the_first_rule_reads_is_found(self):
-        """The first rule reads the host up to a backslash: `https://docs.gravitee.io` is a public name, and `\\u002eevil.com`
-        after it makes the host another."""
-        for text in ('u: "https://docs.gravitee.io\\u002eevil.com/x"\n', 'u: "https://www.w3.org\\x2eevil.com/x"\n'):
-            with self.subTest(text=text):
-                self.assertEqual(seedlint.literal_addresses(text), set())
-                self.assertEqual(len(self.addresses(text)), 1)
-
-    def test_an_address_written_in_escapes_in_json_is_found(self):
-        for what, string in {"a unicode escape": '"https:\\u002f\\u002fevil.com/x"', "an escaped slash": '"https:\\/\\/evil.com/x"',
-                             "a letter of the scheme": '"\\u0068ttps://evil.com/x"'}.items():
-            with self.subTest(what=what):
-                self.assertEqual(self.addresses('{"u": ' + string + ', "n": 1}', "a.json"), {"https://evil.com"})
-
-    def test_it_is_found_as_a_problem_with_its_line_and_it_says_that_it_is_written_in_escapes(self):
-        files = {"seed/a.yaml": "x: 1\ny:\n  - " + self.SPELLINGS["a unicode escape"] + "\n", "seed/b.json": '{\n"u": "http:\\/\\/bakery-mcp:8000"\n}'}
-        folder = self.playground(files)
-        self.assertEqual(seedlint.problems(folder), [
-            Problem("address", str(folder / "seed/a.yaml"), 3, f"https://evil.com is written out in escapes. {FIX}"),
-            Problem("address", str(folder / "seed/b.json"), 0, f"http://bakery-mcp is written out in escapes. {FIX}")])
-
-    def test_it_reaches_the_command_as_an_annotation_of_the_file_and_the_line(self):
-        self.playground({"seed/a.yaml": "x: 1\nu: " + self.SPELLINGS["the colon"] + "\n"})
-        code, out, _ = run(str(self.root), "--format", "github")
-        self.assertEqual(code, 1)
-        self.assertRegex(out.splitlines()[0], r"^::error file=.*a\.yaml,line=2,title=Seed address::https://evil\.com is written out in escapes\.")
-
-    def test_a_key_is_a_string_too(self):
-        self.assertEqual(self.addresses('"http:\\x2f\\x2fevil.com": 1\n'), {"http://evil.com"})
-        self.assertEqual(self.addresses('{"http:\\u002f\\u002fevil.com": 1}', "a.json"), {"http://evil.com"})
-
-    def test_the_names_that_resolve_nowhere_are_allowed(self):
-        for host in self.ALLOWED:
-            for name, text in (("a.yaml", f'u: "{escaped(host)}"\n'), ("a.json", f'{{"u": "{escaped(host)}"}}')):
-                with self.subTest(host=host, file=name):
-                    self.assertEqual(self.addresses(text, name), set())
-
-    def test_the_allowance_stops_where_the_name_does(self):
-        """A name that only ends like one, a bare `test` (a service of a Compose network may be named so), a real host that
-        starts like one, or a name that is no host: found."""
-        for host in self.NOT_ALLOWED:
-            for name, text in (("a.yaml", f'u: "{escaped(host)}"\n'), ("a.json", f'{{"u": "{escaped(host)}"}}')):
-                with self.subTest(host=host, file=name):
-                    self.assertNotEqual(self.addresses(text, name), set())
-
-    def test_a_user_in_front_of_the_name_does_not_make_it_the_host(self):
-        """`https://example.com:x@elsewhere/` goes to `elsewhere`: only a port may follow the colon."""
-        for host in ("example.com:pw@evil.com", "example.com@evil.com", "docs.test:x@evil.com", "docs.test:@evil.com",
-                     "example.com:123456@evil.com", "example.com:80x@evil.com"):
-            with self.subTest(host=host):
-                self.assertNotEqual(self.addresses(f'u: "{escaped(host)}"\n'), set())
-        for host in ("example.com:80", "example.com:", "docs.test:8443"):
-            with self.subTest(host=host):
-                self.assertEqual(self.addresses(f'u: "{escaped(host)}"\n'), set())
-
-    # What a parser takes for the user in front of a host, whatever pattern read the name before it
-    JOINERS = ("'", '"', "}", " ", "\t", "\n", "\x0b", "\xa0", "\\", ",", ";", "<")
-
-    def both(self, value):
-        """The same string as a YAML file and as a JSON file: [(text, file name)]."""
-        return [(f"u: {written(value)}\n", "a.yaml"), (f'{{"u": {written(value)}}}', "a.json")]
-
-    def test_a_character_that_does_not_end_the_authority_joins_the_user_in_front_of_the_host(self):
-        """A parser ends the authority of an address at `/`, `?` or `#` and at nothing else: the quote, the space, the tab or the
-        backslash after a documentation host are part of the user, and the host is the name after the `@`, which is the address."""
-        for name in ("example.com", "docs.apelor.test", "www.example.org", "a.b.example.net", "x.invalid", "x.example",
-                     "docs.gravitee.io", "www.w3.org"):
-            for joiner in self.JOINERS:
-                value = f"https://{name}{joiner}@evil.com/x"
-                with self.subTest(name=name, joiner=repr(joiner)):
-                    self.assertEqual(urlsplit(value).hostname, "evil.com", "the attack is a real one: a parser connects to evil.com")
-                    for text, file in self.both(value):
-                        self.assertEqual(self.addresses(text, file), {"https://evil.com"})
-        text = f"u: {written('https://example.com' + chr(39) + '@evil.com/x')}\n"
-        self.assertEqual(self.found(self.playground({"seed/a.yaml": text})), [("address", "seed/a.yaml", 1)])
-
-    def test_an_at_sign_after_the_authority_is_in_front_of_nothing(self):
-        """The path, the query and the fragment may hold one. Prose that puts an address of its own between a name and the first
-        slash is read as a parser would read it: the host is the name after the `@`."""
-        for value in ("https://example.com/a@b", "https://docs.apelor.test/pd/x@y.pdf", "https://docs.gravitee.io/a@b",
-                      "https://example.com:8080/x@y", "see https://docs.apelor.test/x and mail me@x.org",
-                      "write to https://docs.apelor.test or support@apelor.test"):
-            for text, file in self.both(value):
-                with self.subTest(value=value, file=file):
-                    self.assertEqual(self.addresses(text, file), set())
-        for text, file in self.both("write to https://docs.apelor.test or me@evil.org"):
-            self.assertEqual(self.addresses(text, file), {"https://evil.org"})
-
-    def test_a_user_in_front_of_a_variable_or_a_public_host_does_not_make_it_the_host(self):
-        """The exemption of a name that starts with a variable and the one of a public name hold when the name is the host, and
-        not when `@` makes it the user of another: the address told is the host."""
-        for value in ("https://${KEY}@evil.com/x", "https://${@evil.com/x", "https://${KEY}:${KEY}@evil.com:8080/x",
-                      "https://${KEY}'@evil.com/x", "https://${KEY} @evil.com/x"):
-            for text, file in self.both(value):
-                with self.subTest(value=value, file=file):
-                    self.assertEqual(self.addresses(text, file), {"https://evil.com"})
-        for host in ("docs.gravitee.io", "www.w3.org", "json-schema.org", "huggingface.co"):
-            for value in (f"https://{host}'@evil.com/x", f"https://{host}:x@evil.com/x", f"https://{host} @evil.com/x"):
-                for text, file in self.both(value):
-                    with self.subTest(value=value, file=file):
-                        self.assertEqual(self.addresses(text, file), {"https://evil.com"})
-        for value in ("https://${U}:${P}@${HOST}/x", "https://${U}:${P}@${HOST}:8080", "https://${U}@docs.gravitee.io/x", "https://${KEY}/x",
-                      "https://${KEY}:8080/x", "https://docs.gravitee.io:8443/x", "https://docs.gravitee.io/a@b",
-                      "https://user:pw@docs.apelor.test/x", "https://${U}:${P}@docs.apelor.test:8443/x"):
-            for text, file in self.both(value):
-                with self.subTest(value=value, file=file):
-                    self.assertEqual(self.addresses(text, file), set())
-
-    def test_the_allowance_and_the_user_rule_are_two_switches_of_one_function(self):
-        """The strings of a document get both. The first rule, on the text as it is, gets neither (): the day it gets one, it
-        is a word at the call."""
-        text = "u: https://docs.apelor.test/x https://docs.gravitee.io'@evil.com/x https://${KEY}@evil.com/x"
-
-        def told(**switches):
-            return [address for address, _ in seedlint._addresses(text, **switches)]
-
-        self.assertEqual(told(), ["https://docs.apelor.test"])
-        self.assertEqual(told(reserved=True), [])
-        self.assertEqual(told(strict=True), ["https://docs.apelor.test", "https://evil.com"])
-        self.assertEqual(told(reserved=True, strict=True), ["https://evil.com"])
-        self.assertEqual(sorted(seedlint.literal_addresses(text)), ["https://docs.apelor.test"])
-
-    def test_a_default_is_read_as_the_text_it_becomes(self):
-        """The seeder puts the default in the text before YAML reads it, and in a string after JSON has read it: an address that
-        a default writes in escapes is an address."""
-        cases = {"in YAML": ("a.yaml", 'u: "${H:-https:\\x2f\\x2fevil.com}"\n'),
-                 "in YAML, with other text": ("a.yaml", 'u: "x ${H:-https:\\u002f\\u002fevil.com/x} ${K:-y}" # ${Z:-z}\n'),
-                 "in JSON": ("a.json", '{"u": "${H:-https:\\u002f\\u002fevil.com}"}')}
-        for number, (what, (file, text)) in enumerate(cases.items()):
-            with self.subTest(what=what):
-                self.assertEqual(self.addresses(text, file), {"https://evil.com"})
-                folder = self.playground({f"seed/{file}": text}, name=f"p{number}")
-                with mock.patch.dict(os.environ, {}, clear=True):
-                    self.assertIn("https://evil.com", json.dumps(common.load(folder / "seed" / file)), "the seeder gets it")
-                self.assertEqual([p.check for p in seedlint.problems(folder)], ["address"])
-        self.assertEqual(seedlint.literal_addresses('u: "${H:-https://evil.com}"'), {"https://evil.com"}, "and in the clear")
-
-    def test_a_default_the_parser_cannot_take_in_the_place_of_the_variable_does_not_hide_the_file(self):
-        """`a: b` in a plain scalar is no YAML where the variable stands, though it is the text the seeder gets: the variable is
-        read as a character that stands for it, and the strings of the file are read all the same."""
-        text = 'u: ${H:-a: b}\nv: "https:\\x2f\\x2fevil.com"\n'
-        with self.assertRaises(yaml.YAMLError):
-            yaml.safe_load(text.replace("${H:-a: b}", "a: b"))
-        self.assertEqual(self.addresses(text), {"https://evil.com"})
-        self.assertEqual(seedlint._decoded(Path("a.yaml"), text)[1], True)
-
-    def test_a_default_in_json_that_is_no_document_yet_keeps_its_backslashes_as_the_seeder_gives_it(self):
-        """A bare variable makes the seeder replace the text of the file, and a default goes into it escaped for JSON: its
-        backslashes arrive as backslashes."""
-        text = '{"n": ${N:-1}, "u": "${H:-https:\\u002f\\u002fevil.com}"}'
-        folder = self.playground({"seed/a.json": text})
-        with mock.patch.dict(os.environ, {}, clear=True):
-            self.assertEqual(common.load(folder / "seed" / "a.json"), {"n": 1, "u": "https:\\u002f\\u002fevil.com"})
-        self.assertEqual(self.addresses(text, "a.json"), set())
-        self.assertEqual(seedlint.problems(folder), [])
-
-    def test_a_default_that_is_a_variable_or_starts_the_host_is_no_address(self):
-        for text in ('u: "https:\\x2f\\x2f${H:-${KEY}}/x"\n', 'u: "https:\\x2f\\x2f${H:-evil.com}/x"\n', 'u: "https:\\x2f\\x2f${H}/x"\n'):
-            with self.subTest(text=text):
-                self.assertEqual(self.addresses(text), set())
-
-    def test_strings_the_lint_cannot_read_to_the_end_are_named_and_not_passed(self):
-        """A variable where YAML wants a name makes the text of the lint's copy no document, while the seeder's text parses: the
-        file is named, as the parse rule has nothing to say about it."""
-        service = SERVICE + "      ANCH: a1\n      TAG: str\n      A: '2'\n"
-        cases = {"an anchor": 'x: &${ANCH} 1\nu: "https:\\x2f\\x2fevil.com"\ny: *${ANCH}\n',
-                 "an alias": 'x: &a1 1\ny: *${ANCH}\nu: "https:\\x2f\\x2fevil.com"\n',
-                 "a tag": 'x: !!${TAG} 1\nu: "https:\\x2f\\x2fevil.com"\n',
-                 "an escape that a variable completes": 'u: "https:\\x${A}f\\x${A}fevil.com"\n'}
-        for number, (what, text) in enumerate(cases.items()):
-            with self.subTest(what=what):
-                folder = self.playground({"seed/a.yaml": text}, compose=service, name=f"p{number}")
-                with mock.patch.dict(os.environ, {"ANCH": "a1", "TAG": "str", "A": "2"}, clear=True):
-                    self.assertEqual(common.load(folder / "seed" / "a.yaml")["u"], "https://evil.com", "the seeder reads the file")
-                self.assertEqual(seedlint.problems(folder), [Problem("read", str(folder / "seed/a.yaml"), 0, seedlint.UNREAD)])
-                self.assertEqual(seedlint._decoded(Path("a.yaml"), text)[1], False)
-        control = self.playground({"seed/a.yaml": 'x: &a1 1\nu: "https:\\x2f\\x2fevil.com"\ny: *a1\n'}, compose=service, name="control")
-        self.assertEqual(self.found(control), [("address", "seed/a.yaml", 2)])
-        self.assertIn("Fix:", seedlint.UNREAD)
-
-    def test_a_file_that_is_named_for_another_reason_is_not_named_for_this_one_too(self):
-        service = SERVICE + "      ANCH: a1\n"
-        for what, text, checks in (("an unset variable", 'x: &${NOBODY} 1\nu: "https:\\x2f\\x2fevil.com"\n', ["variable"]),
-                                   ("a file that does not parse", 'x: &${ANCH} [\nu: "https:\\x2f\\x2fevil.com"\n', ["parse"])):
-            with self.subTest(what=what):
-                folder = self.playground({"seed/a.yaml": text}, compose=service, name=what.split()[-1])
-                self.assertEqual([p.check for p in seedlint.problems(folder)], checks)
-
-    def test_a_json_text_inside_a_string_is_read_too(self):
-        """The `sharedConfiguration` of an endpoint is a string that holds JSON, which the platform parses again: the escapes of
-        that text hide an address as well."""
-        inner = '{"target": "https:\\u002f\\u002fevil.com"}'
-        cases = {"in JSON": ("a.json", json.dumps({"sharedConfiguration": inner})),
-                 "in a single-quoted scalar": ("a.yaml", "sharedConfiguration: '" + inner + "'\n"),
-                 "in a block scalar": ("a.yaml", "sharedConfiguration: |\n  " + inner + "\n"),
-                 "in a list": ("a.json", json.dumps({"c": '[{"u": "https:\\u002f\\u002fevil.com"}]'})),
-                 "as a key": ("a.json", json.dumps({"c": '{"https:\\u002f\\u002fevil.com": 1}'})),
-                 "in a text in a text": ("a.json", json.dumps({"c": json.dumps({"d": inner})})),
-                 "in a text in a text in a text": ("a.json", json.dumps({"c": json.dumps({"d": json.dumps({"e": inner})})}))}
-        for number, (what, (file, text)) in enumerate(cases.items()):
-            with self.subTest(what=what):
-                self.assertEqual(self.addresses(text, file), {"https://evil.com"})
-                self.assertEqual([(p.check, p.message[:17]) for p in seedlint.problems(self.playground({f"seed/{file}": text}, name=f"p{number}"))],
-                                 [("address", "https://evil.com ")])
-        text = "c: '" + inner.replace("evil.com", "docs.apelor.test") + "'\n"
-        self.assertEqual(self.addresses(text), set(), "and the names that resolve nowhere are allowed there too")
-        self.assertEqual(self.addresses("c: '{not json, \"https:\\u002f\\u002fevil.com\"'\n"), set(), "what is no JSON is a text like another")
-
-    def test_json_texts_nested_deeper_than_the_lint_reads_are_named(self):
-        """`nested(count, "x")` is a JSON file with `count - 1` JSON texts, one in the string of the other."""
-        self.assertEqual(seedlint.NESTED, 3)
-        self.assertEqual(seedlint.problems(self.playground({"seed/a.json": nested(4, "x")})), [], "three texts are read")
-        folder = self.playground({"seed/a.json": nested(5, "x")}, name="deep")
-        self.assertEqual(seedlint.problems(folder), [Problem("read", str(folder / "seed/a.json"), 0, seedlint.UNREAD)])
+    def test_twenty_are_told_and_the_others_counted(self):
+        text = "".join(f"u{n}: http://h{n}\n" for n in range(35))
+        found = seedlint.problems(self.playground({"seed/a.yaml": text}))
+        self.assertEqual(len(found), seedlint.MANY + 1)
+        self.assertEqual([p.message for p in found if p.line == 0], ["15 more addresses are written out."])
 
     def test_a_number_is_not_read_for_its_digits(self):
         """Only the strings of a document are read: a number of many digits costs the square of them on a Python without a limit."""
         text = "[" + "9" * 100_000 + "]"
         self.assertEqual(seedlint._parsed(text), [0])
         self.assertEqual(seedlint._parsed('{"a": 1.5, "b": ["x", 2]}'), {"a": 0, "b": ["x", 0]})
-        self.assertEqual(self.addresses(f"c: '{text}'\n"), set())
-        self.assertEqual(self.addresses(json.dumps({"c": "[1, 2.5, \"https:\\u002f\\u002fevil.com\"]"}), "a.json"), {"https://evil.com"})
 
-    def test_the_first_rule_is_what_it_was_and_has_no_allowance(self):
-        """The text as it is: a documentation URL written in the clear is still an address written out."""
-        text = "u: https://docs.apelor.test/coa/x.pdf\n"
-        self.assertEqual(seedlint.literal_addresses(text), {"https://docs.apelor.test"})
-        self.assertEqual(self.addresses(text), set(), "and it is not told twice")
-        self.assertEqual([p.check for p in seedlint.problems(self.playground({"seed/a.yaml": text}))], ["address"])
-        self.assertEqual(seedlint.literal_addresses("u: http://x.example http://www.example.org\n"), {"http://x.example", "http://www.example.org"})
-
-    def test_the_documentation_urls_of_the_apelor_files_stay_legal(self):
-        """Five files of one playground write the URL of a document of a company that does not exist, with an escape for each
-        slash so that the first rule leaves it alone. They have to stay legal when the strings are read."""
-        document = ("openapi: 3.0.3\ninfo: {title: Batch release}\npaths:\n  /batches/{id}:\n    get:\n      responses:\n        '200':\n"
-                    "          content:\n            application/json:\n              example:\n"
-                    "                certificates:\n"
-                    '                  - "https:\\u002f\\u002fdocs.apelor.test/coa/COA-26-2401-01.pdf"\n'
-                    '                documentUrl: "https:\\u002f\\u002fdocs.apelor.test/coa/COA-26-2401-01.pdf"\n')
-        files = {"seed/environments/novo/environment.yaml": "id: novo\nname: Novo\n",
-                 "seed/environments/novo/portal/api-docs/batch-release.yaml": document}
-        self.assertEqual(seedlint.problems(self.playground(files)), [])
-        self.assertEqual(run(str(self.root))[0], 0)
-
-    def test_a_variable_is_no_address_in_escapes_either(self):
-        for host in ("${KEY}", "${APIM_URL}.example", "${NOBODY:-fallback}"):
-            with self.subTest(host=host):
-                self.assertEqual(self.addresses(f'u: "{escaped(host)}"\n'), set())
-        self.assertEqual(self.found(self.playground({"seed/a.yaml": f'u: "{escaped("${NOBODY}")}"\n'})), [("variable", "seed/a.yaml", 1)])
-
-    def test_a_variable_where_the_format_has_no_room_for_one_does_not_hide_the_file(self):
-        """`[${KEY}]` is no YAML until the variable is replaced, a bare `${PORT}` is no JSON: the file is still read."""
-        yaml_text = f'x: [${{KEY}}, "{escaped("evil.com")}"]\n'
-        json_text = f'{{"port": ${{PORT}}, "u": "{escaped("evil.com")}", "v": "{escaped("${KEY}")}"}}'
-        with self.assertRaises(Exception):
-            yaml.safe_load(yaml_text)
-        with self.assertRaises(ValueError):
-            json.loads(json_text)
-        compose = SERVICE + "      PORT: 8080\n"
-        folder = self.playground({"seed/a.yaml": yaml_text, "seed/b.json": json_text}, compose=compose)
-        self.assertEqual([(p.check, Path(p.path).name, p.line) for p in seedlint.problems(folder)],
-                         [("address", "a.yaml", 1), ("address", "b.json", 1)])
-        self.assertEqual(self.addresses(yaml_text), {"https://evil.com"})
-        self.assertEqual(self.addresses(json_text, "a.json"), {"https://evil.com"})
-
-    def test_a_character_of_the_file_is_not_taken_for_a_variable(self):
-        """A variable is parsed as a character that the text does not use, and put back after: a text that uses the first one
-        gets the next, and a host that starts with that character is a host."""
-        private = chr(0xE000)
-        text = f'x: [${{KEY}}, "{private}", "https:\\x2f\\x2f{private}evil.com"]\n'
-        self.assertEqual(self.addresses(text), {f"https://{private}evil.com"})
-
-    def test_an_address_in_the_clear_and_in_escapes_is_told_once(self):
-        folder = self.playground({"seed/a.yaml": 'a: http://evil.com\nb: "http:\\x2f\\x2fevil.com"\nc: "http:\\x2f\\x2fother"\n'})
-        found = seedlint.problems(folder)
-        self.assertEqual([(p.line, p.message.split(" is written out")[0]) for p in found], [(1, "http://evil.com"), (3, "http://other")])
-        self.assertNotIn("escapes", found[0].message)
-
-    def test_each_address_is_told_at_its_first_use(self):
-        text = 'a: "http:\\x2f\\x2fevil.com"\nb:\n  - "http:\\x2f\\x2fevil.com"\n  - "http:\\x2f\\x2fother"\n'
-        self.assertEqual([p.line for p in seedlint.problems(self.playground({"seed/a.yaml": text}))], [1, 4])
-
-    def test_twenty_are_told_and_the_others_counted_whichever_way_they_are_written(self):
-        text = "".join(f"u{n}: http://h{n}\n" for n in range(10)) + "".join(f'e{n}: "http:\\x2f\\x2fe{n}"\n' for n in range(25))
-        found = seedlint.problems(self.playground({"seed/a.yaml": text}))
-        self.assertEqual(len(found), seedlint.MANY + 1)
-        self.assertEqual([p.message for p in found if p.line == 0], ["15 more addresses are written out."])
-        self.assertEqual(sum("in escapes" in p.message for p in found), 10)
-
-    def test_only_a_file_that_has_a_backslash_is_read_again(self):
-        """Nothing is written in escapes without one: the others cost nothing more than before."""
-        files = {**GOOD, "seed/b.json": '{"u": "http://${KEY}", "n": 1}', "seed/c.yaml": "a: 'http://${KEY}'\nb: [1, 2]\n"}
-        folder = self.playground(files)
-        with mock.patch.object(seedlint, "_scalars", side_effect=AssertionError("read again")), \
-                mock.patch.object(seedlint, "_masked", side_effect=AssertionError("read again")):
-            self.assertEqual(seedlint.problems(folder), [])
-            self.assertEqual(seedlint._decoded(Path("a.yaml"), "a: 1\n"), ([], True))
-            self.assertEqual(seedlint._decoded(Path("a.json"), '{"a": 1}'), ([], True))
-
-    def test_a_file_read_as_text_is_not_decoded(self):
-        """A page, a policy or a note is handed to the seed as text, and a backslash in it is a backslash."""
-        text = escaped("evil.com")
-        folder = self.playground({"seed/aim/page.md": text, "seed/x.txt": text, "seed/p.cedar": text, "seed/q.gapl": text})
-        with mock.patch.object(seedlint, "_scalars", side_effect=AssertionError("decoded")):
-            self.assertEqual(seedlint.problems(folder), [])
-        for name in ("a.md", "a.txt", "a.cedar", "a.gapl", "a"):
-            self.assertEqual(self.addresses(text, name), set(), name)
-
-    def test_a_plain_or_single_quoted_scalar_has_no_escapes_and_is_no_address(self):
-        """`\\u002f` is four characters there, as the seed reads it: it makes no `://`."""
-        self.assertEqual(self.addresses("a: https:\\u002f\\u002fevil.com\nb: 'https:\\u002f\\u002fevil.com'\n"), set())
-
-    def test_what_does_not_parse_is_the_parse_rule_s_to_say_and_what_came_before_it_is_read(self):
-        text = 'a: "http:\\x2f\\x2fevil.com"\n---\nb: [\n'
-        self.assertEqual(self.addresses(text), {"http://evil.com"})
-        self.assertEqual(self.addresses('x: [\n"http:\\x2f\\x2fevil.com"\n'), set())
-        folder = self.playground({"seed/a.yaml": text})
-        self.assertEqual(sorted(p.check for p in seedlint.problems(folder)), ["address", "parse"])
-
-    def test_a_variable_is_replaced_by_the_stand_in_and_the_escaped_dollar_is_left(self):
-        self.assertEqual(seedlint._masked("a ${A} b $${C} ${D:-x} ${E", "#"), "a # b $${C} # ${E")
-        self.assertEqual(seedlint._masked("a ${A} b $${C} ${D:-x} ${E", "#", defaults=True), "a # b $${C} #x ${E", "a default stays")
-        self.assertEqual(seedlint._masked("no variable", "#"), "no variable")
-
-    def test_a_file_that_uses_every_character_of_the_private_use_area_is_still_read(self):
-        """The stand-in is a character the text does not use; when there is none, the text is read as it is."""
-        used = "".join(chr(code) for code in range(0xE000, 0xF900))
-        text = f'x: "{used}"\ny: "https:\\x2f\\x2fevil.com"\nz: "https:\\x2f\\x2f${{KEY}}"\n'
-        self.assertEqual(self.addresses(text), {"https://evil.com"})
-
-    def test_a_document_nested_too_deep_for_the_parser_ends_the_list_and_not_the_run(self):
+    def test_a_document_nested_too_deep_for_the_parser_is_a_finding_and_not_the_end_of_the_run(self):
         text = "[" * 3000 + '"\\x41"' + "]" * 3000 + "\n"
-        self.assertEqual(self.addresses(text), set())
-        self.assertEqual(self.addresses(text.strip(), "a.json"), set())
         found = seedlint.problems(self.playground({"seed/a.yaml": text, "seed/b.json": text}))
         self.assertEqual(sorted(Path(p.path).name for p in found), ["a.yaml", "b.json"])
 
     def test_a_document_that_repeats_itself_through_aliases_is_read_once(self):
         levels = "".join(f"a{n}: &a{n} [{', '.join(f'*a{n - 1}' for _ in range(9))}]\n" for n in range(1, 13))
-        text = 'a0: &a0 ["http:\\x2f\\x2fevil.com"]\n' + levels
-        found, seconds = within(30, lambda: self.addresses(text))
-        self.assertEqual(found, {"http://evil.com"})
+        found, seconds = within(30, lambda: seedlint.problems(self.playground({"seed/a.yaml": "a0: &a0 [x]\n" + levels})))
+        self.assertEqual(found, [])
         self.assertLess(seconds, WHOLE_SECONDS)
-
-    def test_a_long_scalar_with_many_addresses_in_it_is_told_twenty_at_a_time(self):
-        text = 'k: "' + "".join(f"http:\\x2f\\x2fh{n} " for n in range(5000)) + '"\n'
-        found = seedlint.problems(self.playground({"seed/a.yaml": text}))
-        self.assertEqual(len(found), seedlint.MANY + 1)
-        self.assertEqual([p.message for p in found if p.line == 0], [f"{5000 - seedlint.MANY} more addresses are written out."])
-
-    def test_the_path_says_which_files_are_read_so(self):
-        text = 'u: "' + escaped("evil.com") + '"\n'
-        self.assertEqual(self.addresses(text, "x/seed/a.yaml"), {"https://evil.com"})
-        self.assertEqual(self.addresses(text, Path("x/seed/a.yml")), {"https://evil.com"})
-        self.assertEqual(self.addresses(text, "a.YAML"), set(), "the seed reads the suffixes in lower case")
 
 
 # --- The command ------------------------------------------------------------------------
@@ -1187,7 +812,7 @@ SHAPES = {
     "spaces": "k: a" + " " * ONE_MEGABYTE + "b",
     "merge keys": "{a: &a {x: 1}, " + "<<: *a, " * 60_000 + "}",   # the slowest to compose: half a megabyte of pairs
     "exclamation marks": "!" * ONE_MEGABYTE,
-    # What the scan of the strings has to read: a file that has a backslash is composed again
+    # Escapes and backslashes, in the strings the loader reads
     "escapes": 'k: "' + "\\x41" * 250_000 + '"',
     "backslashes": 'k: "' + "\\\\" * 500_000 + '"',
     "backslashes in a plain scalar": "k: " + "\\" * ONE_MEGABYTE,
@@ -1195,11 +820,11 @@ SHAPES = {
     "escaped addresses": 'k: "' + "".join(f"http:\\x2f\\x2fh{n};" for n in range(50_000)) + '"',
     "one escaped host": 'k: "http:\\x2f\\x2f' + "a" * ONE_MEGABYTE + '"',
     "variables and a backslash": "\\" + "${KEY}" * 160_000,
-    # A string that is JSON text is parsed again: its escapes, its depth and its size
+    # A string that is JSON text: its escapes, its depth and its size
     "a json text with escapes": "k: '{\"a\": \"" + "".join(f"http:\\u002f\\u002fh{n};" for n in range(30_000)) + "\"}'",
     "json texts inside one another": "k: '" + nested(5, "".join(f"http:\\u002f\\u002fh{n};" for n in range(8_000))) + "'",
     "a json text that is one string of a megabyte": "k: '{\"a\": \"" + "\\u002f" * 150_000 + "\"}'",
-    # What the lint reads again when the first reading fails: a variable where YAML wants a name
+    # A variable where YAML wants a name
     "variables in anchors": "x: &${A} 1\n" * 60_000 + "\\",
 }
 # Files of many lines: the parser of YAML is Python, and takes seconds for them, so they are measured as a whole
@@ -1265,9 +890,7 @@ def probe():
                        "literal_addresses": seconds(lambda: seedlint.literal_addresses(text)),
                        "compose_value": seconds(lambda: seedlint.compose_value(text)),
                        "_slow": seconds(lambda: seedlint._slow("a.yaml", text)),
-                       "_slow of JSON": seconds(lambda: seedlint._slow("a.json", as_json)),
-                       "escaped_addresses": seconds(lambda: seedlint.escaped_addresses("a.yaml", text)),
-                       "escaped_addresses of JSON": seconds(lambda: seedlint.escaped_addresses("a.json", as_json))}
+                       "_slow of JSON": seconds(lambda: seedlint._slow("a.json", as_json))}
     with tempfile.TemporaryDirectory() as folder:
         for number, (name, text) in enumerate(SHAPES.items()):
             for suffix in (".yaml", ".json", ".md"):
@@ -1515,7 +1138,7 @@ class InTheEngine(unittest.TestCase):
         names |= {node.module.split(".")[0] for node in ast.walk(self.tree()) if isinstance(node, ast.ImportFrom) and node.module}
         names |= {alias.name for node in ast.walk(self.tree()) if isinstance(node, ast.ImportFrom) and node.level and not node.module
                   for alias in node.names}   # `from . import common`: a sibling of the package
-        self.assertEqual(names, {"argparse", "collections", "contextlib", "json", "os", "pathlib", "re", "stat", "sys", "yaml", "common"})
+        self.assertEqual(names, {"argparse", "collections", "contextlib", "json", "os", "pathlib", "re", "stat", "sys", "common"})
         requirements = (SEEDER / "requirements.txt").read_text(encoding="utf-8")
         self.assertRegex(requirements, r"(?m)^pyyaml==")
 
