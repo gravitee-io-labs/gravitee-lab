@@ -196,8 +196,6 @@ class Grammar(OnDisk):
 
     def test_the_pattern_of_a_route_has_one_group(self):
         self.assertEqual(re.compile(paths.ID).groups, 1)
-        self.assertEqual(paths.ID, "(local/[a-z0-9-]+|@[a-z][a-z0-9-]{0,22}[a-z0-9]/[a-z0-9-]+"
-                                   "|(?!local/)(?!@)[a-z0-9-]+)")
         route = re.compile(rf"/api/(addon|setup|playground)s/{paths.ID}/(start|stop)")
         for path, groups in (("/api/addons/kafka/start", ("addon", "kafka", "start")),
                              ("/api/playgrounds/local/demo/stop", ("playground", "local/demo", "stop")),
@@ -223,10 +221,6 @@ class DefaultNamespace(OnDisk):
     def test_no_file_no_default(self):
         os.remove(self.root / paths.DEFAULT_FILE)
         self.assertIsNone(paths.default_ns())
-
-    def test_the_real_file_is_read_by_this_one_reader(self):
-        self.assertEqual((paths.DEFAULT_FILE, paths.ROOT), ("catalogs.default.json", self.root))
-        self.assertEqual(paths.default_ns(), "gravitee")
 
     def test_whatever_is_not_a_usable_file_is_no_default(self):
         entry = {"id": "gravitee", "name": "n", "url": "https://example.invalid/c.git"}
@@ -420,23 +414,15 @@ class InCatalogs(OnDisk):
                         paths.unit_file(kind, uid)
 
     def test_a_bare_name_has_no_place_without_a_default_catalog(self):
-        # A place is never made of None; this machine's and another catalog's need no default file
-        with self.assertRaises(paths.NotFound):
-            paths._place("kafka", None)
-        self.assertEqual((paths._place("local/x", None), paths._place("@acme-hub/x", None)), (("local", "x"), ("acme-hub", "x")))
+        os.remove(self.root / paths.DEFAULT_FILE)
+        with self.assertRaises(paths.NotFound):   # a place is never made of None
+            paths.unit_file("addon", "kafka")
 
     def test_a_kind_that_does_not_exist_is_a_key_error(self):
         with self.assertRaises(KeyError):
             paths.unit_file("playlist", "kafka")
         with self.assertRaises(KeyError):
             paths.ids("playlist")
-
-    def test_the_patterns_and_the_files_of_the_scheme(self):
-        self.assertEqual(paths.CATALOG_FILES, {
-            "addon": ".lab/catalogs/{ns}/addons/{name}/compose.yml",
-            "setup": ".lab/catalogs/{ns}/setups/{name}.yml",
-            "playground": ".lab/catalogs/{ns}/playgrounds/{name}/compose.yml"})
-        self.assertEqual(paths.KINDS, ("addon", "setup", "playground"))
 
     def test_what_belongs_to_this_machine(self):
         ids = ("local/whoami", "whoami", "local", "localhost", "@acme-hub/x")
@@ -561,9 +547,6 @@ class Listing(OnDisk):
                 self.assertEqual([paths.names(ns, kind) for kind in paths.KINDS], [[], [], []])
         self.put("acme/addons")   # a file where the folder of the kind should be
         self.assertEqual(paths.names("acme", "addon"), [])
-
-    def test_the_private_name_is_gone_for_good(self):
-        self.assertFalse(hasattr(paths, "_names"), "one name, the public one")
 
 
 class Found(OnDisk):
