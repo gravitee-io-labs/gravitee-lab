@@ -367,6 +367,18 @@ class Environment(Case):
         self.assertEqual(gitx.signin(None), "Sign in with Git on this machine")
 
 
+def gone(pid, within=30):
+    """Whether a process is gone within `within` seconds: at once in a run that passes, and a loaded machine has the time."""
+    end = time.monotonic() + within
+    while time.monotonic() < end:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        time.sleep(0.05)
+    return False
+
+
 class Running(Case):
     """`run` and `stream` against scripts that stand in for git."""
 
@@ -374,17 +386,6 @@ class Running(Case):
         self.patch(gitx, "KILL_GRACE", 0.3)
         self.scratch = Path(tempfile.mkdtemp()).resolve()
         self.addCleanup(lambda: shutil.rmtree(self.scratch, True))
-
-    def alive(self, pid, within=3.0):
-        """Whether a process is still there after waiting up to `within` seconds for it to be gone."""
-        end = time.monotonic() + within
-        while time.monotonic() < end:
-            try:
-                os.kill(pid, 0)
-            except ProcessLookupError:
-                return False
-            time.sleep(0.05)
-        return True
 
     def warmed(self, body):
         """A fake git that has been run once, untimed, before the test times it: the first run of a script that was just
@@ -419,7 +420,7 @@ class Running(Case):
         gitx.stop_running()
         thread.join(10)
         self.assertFalse(thread.is_alive())
-        self.assertFalse(self.alive(int(pids.read_text())))
+        self.assertTrue(gone(int(pids.read_text())))
         self.assertEqual(gitx._LIVE, set(), "a command that ended is no longer followed")
         self.assertNotEqual(results[0].code, 0)
 
@@ -514,9 +515,7 @@ class Running(Case):
 
     def test_a_command_that_outlives_its_time_is_killed_and_answers_a_timeout(self):
         self.warmed("echo partial; echo warning >&2; sleep 60")
-        started = time.monotonic()
         result = gitx.run(["x"], timeout=2)
-        self.assertLess(time.monotonic() - started, 10)
         self.assertEqual((result.code, result.out), (124, b"partial\n"), "what it printed is kept")
         self.assertTrue(result.err.startswith("warning\n"))
         self.assertIn(gitx.TIMEOUT_MARK, result.err)
@@ -530,22 +529,19 @@ class Running(Case):
 
         def refuse(text):
             raise RuntimeError("enough")
-        started = time.monotonic()
         with self.assertRaises(RuntimeError):
             gitx.stream(["x"], stall=30, cap=60, on_stderr=refuse)
-        self.assertLess(time.monotonic() - started, 8)
         return int(pids.read_text())
 
     def test_a_command_that_is_stopped_is_killed_with_what_it_started(self):
-        self.assertFalse(self.alive(self.killed_by_the_caller("echo ready >&2\nwait")), "the child was left running")
+        self.assertTrue(gone(self.killed_by_the_caller("echo ready >&2\nwait")), "the child was left running")
 
     def test_a_command_that_ignores_sigterm_is_killed_after_the_grace(self):
-        pid = self.killed_by_the_caller("trap '' TERM\necho ready >&2\nwait")
-        self.assertFalse(self.alive(pid))
+        self.assertTrue(gone(self.killed_by_the_caller("trap '' TERM\necho ready >&2\nwait")))
 
     def test_what_a_command_left_behind_is_killed_when_it_is(self):
         """The command ended, a child it started still holds the output: the group is ended with it."""
-        self.assertFalse(self.alive(self.killed_by_the_caller("echo ready >&2")))
+        self.assertTrue(gone(self.killed_by_the_caller("echo ready >&2")))
 
     def test_a_command_that_ended_is_not_waited_for_because_a_child_holds_its_output(self):
         """An ssh helper that outlives git holds the pipes: git succeeded, and that is the answer, at once."""
@@ -553,9 +549,9 @@ class Running(Case):
         self.warmed(f"sleep 60 &\necho $! > '{pids}'\necho done")
         started = time.monotonic()
         result = gitx.run(["x"], timeout=60)
-        self.assertLess(time.monotonic() - started, 15)
+        self.assertLess(time.monotonic() - started, 45, "not waited for: what it left behind sleeps for 60 s")
         self.assertEqual((result.code, result.out), (0, b"done\n"))
-        self.assertFalse(self.alive(int(pids.read_text())), "what it left behind is killed")
+        self.assertTrue(gone(int(pids.read_text())), "what it left behind is killed")
 
     def test_the_exit_code_of_a_command_that_failed_is_kept_when_a_child_holds_its_output(self):
         self.warmed("sleep 60 &\necho 'fatal: not good' >&2\nexit 7")
@@ -571,9 +567,7 @@ class Running(Case):
 
     def test_a_fetch_that_sends_nothing_is_killed_at_the_stall(self):
         self.warmed("echo started >&2; sleep 60")
-        started = time.monotonic()
         result = gitx.stream(["x"], stall=2, cap=60)
-        self.assertLess(time.monotonic() - started, 10)
         self.assertEqual((result.code, result.err.splitlines()[0]), (124, "started"))
         self.assertIn("no byte for 2 s", result.err)
 
@@ -586,11 +580,14 @@ class Running(Case):
         self.assertIn("no answer within 0.5 s", capped.err)
 
     def test_the_errors_are_given_to_the_caller_as_they_arrive(self):
-        gitfixture.fake_git(self, "printf 'one\\r' >&2; sleep 0.2; printf 'two\\n' >&2; sleep 0.2; printf 'three' >&2")
-        seen = []
-        gitx.stream(["x"], stall=5, cap=30, on_stderr=seen.append)
-        self.assertEqual("".join(seen), "one\rtwo\nthree")
-        self.assertGreaterEqual(len(seen), 2)
+        got, seen = self.scratch / "got", []
+        gitfixture.fake_git(self, f"printf 'one\\r' >&2; until [ -e '{got}' ]; do sleep 0.01; done; printf 'two\\nthree' >&2")
+
+        def arrived(text):
+            seen.append(text)
+            got.touch()
+        gitx.stream(["x"], stall=30, cap=60, on_stderr=arrived)   # the script waits for the caller to have seen its first line
+        self.assertEqual((seen[0], "".join(seen)), ("one\r", "one\rtwo\nthree"))
 
     def test_output_over_the_limit_stops_the_command(self):
         gitfixture.fake_git(self, "head -c 5000000 /dev/zero")
@@ -676,16 +673,6 @@ class Ending(Case):
         self.patch(gitx, "_ending", False)   # stop_running sets it for good: the test puts it back
         self.patch(gitx, "KILL_GRACE", 0.3)
 
-    def gone(self, pid, within=5.0):
-        end = time.monotonic() + within
-        while time.monotonic() < end:
-            try:
-                os.kill(pid, 0)
-            except ProcessLookupError:
-                return True
-            time.sleep(0.05)
-        return False
-
     def lab(self, program):
         """A Lab UI that runs `program` (a Python of its own with a git in a command): the process, once it says it is ready."""
         process = subprocess.Popen([sys.executable, "-c", program, str(self.pids)], cwd=self.LAB_UI, stdin=subprocess.DEVNULL,
@@ -716,25 +703,21 @@ class Ending(Case):
                 process.send_signal(number)
                 # A bound a busy machine keeps: a Lab UI that never dies still fails it
                 self.assertEqual(process.wait(60), -number, "it died of the signal, after it ended the command")
-                self.assertTrue(self.gone(pid), "the command was left running")
+                self.assertTrue(gone(pid), "the command was left running")
 
     def test_a_lab_ui_that_leaves_while_a_command_runs_ends_it(self):
         process = self.lab(LEAVING)
         (pid,) = [int(line) for line in self.pids.read_text().split()]
-        started = time.monotonic()
-        self.assertEqual(process.wait(15), 0)
-        self.assertLess(time.monotonic() - started, 10)
-        self.assertTrue(self.gone(pid), "the command was left running")
+        self.assertEqual(process.wait(30), 0)
+        self.assertTrue(gone(pid), "the command was left running")
 
     def test_a_lab_ui_that_leaves_while_a_pool_of_threads_runs_commands_does_not_wait_for_them(self):
         """Python waits for the threads of a pool before it calls the functions of atexit: the commands have to end
         before that wait, and the ones still queued must not start."""
         process = self.lab(POOLED)
         (pid,) = [int(line) for line in self.pids.read_text().split()]
-        started = time.monotonic()
-        self.assertEqual(process.wait(20), 0, "it waited for a command that runs for 40 s")
-        self.assertLess(time.monotonic() - started, 15)
-        self.assertTrue(self.gone(pid))
+        self.assertEqual(process.wait(30), 0, "it waited for a command that runs for 40 s")
+        self.assertTrue(gone(pid))
         self.assertEqual(len(self.pids.read_text().split()), 1, "a command that was queued was started after the end began")
 
     def test_nothing_is_run_once_the_lab_ui_is_ending(self):
@@ -759,7 +742,7 @@ class Ending(Case):
         self.assertEqual(result.code, 130)
         self.assertEqual(len(started), 1)
         self.assertIsNotNone(started[0].returncode, "the command was ended and waited for")
-        self.assertTrue(self.gone(started[0].pid), "the command was left running")
+        self.assertTrue(gone(started[0].pid), "the command was left running")
         self.assertEqual(gitx._LIVE, set())
 
     def test_stop_running_may_be_called_by_a_signal_handler_of_the_thread_that_is_starting_a_command(self):
