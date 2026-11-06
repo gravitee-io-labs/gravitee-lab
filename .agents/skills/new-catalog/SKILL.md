@@ -24,7 +24,7 @@ page does the same from one field, the name. The rules of the format are in `doc
 3. Render it from the Lab's folder, then write the description in the `catalog.yml` of the new folder:
 
    ```sh
-   python3 -I lab-ui/catalog.py new <folder> --id <id> --name "<Name>" --license <SPDX>
+   python3 -I lab-ui/catalog.py new <folder> --id <id> --name "<Name>" --license <SPDX> --local
    ```
 
    Link it, so that the Lab shows it on the Catalogs page and offers it where an item is created and shared:
