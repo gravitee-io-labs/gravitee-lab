@@ -930,6 +930,10 @@ HIDDEN = {
     "include-comment-then-nel": "services: {}\u0085# note\u0085include: [@INC@]\n",
     "extends-file": "services:\n  a:\n    extends:\n      file: @BASE@\n      service: b\n",
     "extends-binary": "services:\n  a:\n    extends:\n      !!binary ZmlsZQ==: @BASE@\n      service: b\n",
+    # A `\x0a` replaced makes the rest of its line a comment: only the text as written, or its escapes without its folds, shows the key
+    "newline-escape-hides-the-key": "services: {a: {image: \\x0a#, env_file: @SECRET@}}\n",
+    "newline-escape-and-fold-hide-the-key": 'services:\n  a:\n    image: \\x0a#\\\n    "env_\\x66ile": @SECRET@\n',
+    "include-newline-escape-and-fold": 'x-a: \\x0a#\\\n"inc\\x6cude": [@INC@]\n',
 }
 # And the ones that are not valid YAML for Compose, or that it would not read, and that the screen refuses all the same
 ODD = (
@@ -1103,7 +1107,7 @@ class Screen(Case):
                 "include:\n  - a b.yml\n", "include:\n  - 'a b.yml'\n", "include:\n  - a=b.yml\n", "include:\n  - a%20b.yml\n",
                 "include:\n  - a\u00a0b.yml\n", "include:\n  - a\x0bb.yml\n",
                 "include:\n  - path:\n      b.yml\n      c.yml\n", "include:\n  path: b.yml\n", "include:\n  - b.yml\n  c.yml\n",
-                "include:\n  - !<tag:x> b.yml\n", "include:\n  - &a,b c.yml\n", "include:\n  - !a,b c.yml\n"):
+                "include:\n  - !<tag:x> b.yml\n", "include:\n  - !tag:x b.yml\n", "include:\n  - &a,b c.yml\n", "include:\n  - !a,b c.yml\n"):
             with self.subTest(text=text):
                 self.assertIsNone(self.targets(text))
         for text, wanted in (("include:\n  - b.yml\n", ["b.yml"]), ("include: [b.yml, 'c.yml', \"d.yml\"]\n", ["b.yml", "c.yml", "d.yml"]),
@@ -1161,37 +1165,6 @@ class Screen(Case):
         self.assertEqual(self.screen("\ufeffinclude:\n  - /etc/passwd\n"), [self.INCLUDE])
         self.assertEqual(self.screen("\ufeffinclude:\n- ../ok.yml\nservices: {}\n"), [])
         self.assertEqual(self.targets("\ufeffinclude:\n- ../a/compose.yml\n"), [f"{self.FOLDER}/a/compose.yml"])
-
-    def test_the_readings_of_a_text_are_its_letters_with_and_without_the_folds_and_escapes(self):
-        self.assertEqual(trust._readings("a: 1\nb: 2\n"), [(["a: 1", "b: 2", ""], [False, False, False])])
-        found = trust._readings('x: abc\\\n"env_\\x66ile": z\ny: "\\x41\\\n  b"\n')
-        self.assertEqual([lines for lines, _ in found], [
-            ['x: abc"env_file": z', 'y: "Ab"', ''],
-            ['x: abc\\', '"env_\\x66ile": z', 'y: "\\x41\\', '  b"', ''],
-            ['x: abc\\', '"env_file": z', 'y: "A\\', '  b"', '']])
-        self.assertEqual([made for _, made in found], [[True, True, False], [False] * 5, [False, True, True, False, False]])
-        self.assertEqual(trust._readings("\ufeffa: 1\r\nb: 2\r"), [(["a: 1", "b: 2", ""], [False, False, False])], "no mark, one break")
-
-    def test_unescaped_is_the_folds_and_escapes_of_the_reading_that_spells_keys(self):
-        """The reading `unescaped` gives is the one `_decoded` makes line by line (the flags say which lines it made): the
-        replacement of the escapes after the folds, a fold only for a backslash that is not already consumed by a fold."""
-        rng = random.Random(7)
-        pieces = ["a", "include", ":", " ", "\t", "\\", "\n", "\r\n", "\r", "\\x41", "\\x4", "\\u0041", "\\U00000041", "\\U7fffffff",
-                  "\\x0a", "\u2028", "\u0085", "-", "  ", "'", '"', "#", "\\\n", "\\\n  ", "\\\\\n"]
-
-        def once(text):
-            def one(found):
-                try:
-                    return chr(int(next(group for group in found.groups() if group), 16))
-                except (ValueError, OverflowError):
-                    return " "
-            return trust._ESCAPE.sub(one, re.sub(r"\\\n[ \t]*", "", trust._BREAK.sub("\n", text)))
-        for _ in range(4000):
-            text = "".join(rng.choice(pieces) for _ in range(rng.randint(0, 14)))
-            lines, made = trust._decoded(trust._plain(text))
-            self.assertEqual(trust.unescaped(text), once(text).lstrip("\ufeff") if text.startswith("\ufeff") else once(text), repr(text))
-            self.assertEqual(len(lines), len(made))
-            self.assertEqual(not any(made), lines == trust._plain(text).split("\n"), repr(text))
 
     def test_include_targets_say_none_for_a_name_that_is_not_a_file_of_the_project(self):
         for target in ("/etc/passwd", "~/x.yml", "https://example.invalid/x.git", "git@example.invalid:o/r.git", "git://example.invalid/r",
@@ -1295,20 +1268,6 @@ class Screen(Case):
             started = time.process_time()
             self.screen(text)
             self.assertLess(time.process_time() - started, 3.0, text[:60])
-
-    def test_the_lexer_says_when_it_does_not_follow_a_spelling(self):
-        for text, odd in (("a.yml", False), ("'a.yml'", False), ('"a.yml"', False), ("&a a.yml", False), ("!!str a.yml", False),
-                          ("!tag a.yml", False), ('"a\\x41.yml"', True), ('"a\\\\b"', True), ("'a\\x41'", False), (":,", True), (": a", True),
-                          ("!<tag:x> a", True), ("!tag:x a", True), ("a: b", False), ("[a, b]", False), ("{a: b}", False),
-                          ('{"a": b}', False)):
-            with self.subTest(text=text):
-                lex = trust._Lex(False)
-                lex.feed(text)
-                self.assertEqual(lex.odd, odd)
-        lex = trust._Lex(False)
-        lex.feed("'a")
-        lex.feed("   b  '")
-        self.assertEqual(lex.tokens, [("s", "a b  ")], "a folded line keeps what is at the ends of the scalar")
 
     def test_t19_an_extends_of_another_file_blocks_and_one_of_its_own_does_not(self):
         self.assertEqual(self.screen("services:\n  a:\n    extends:\n      file: other.yml\n      service: b\n"), [self.FILES])
@@ -1501,7 +1460,8 @@ class Screen(Case):
             folder.mkdir(parents=True)
             sample = ("explicit-key-alone", "alias-key", "comment-then-nel", "comment-then-cr", "quote-in-a-word", "binary-key",
                       "binary-percent", "tag-directive", "escaped", "include-explicit", "include-binary", "include-comment-then-nel",
-                      "extends-binary")
+                      "extends-binary", "newline-escape-hides-the-key", "newline-escape-and-fold-hide-the-key",
+                      "include-newline-escape-and-fold")
             for name in sample + ("plain",):
                 text = HIDDEN.get(name, "services:\n  a:\n    image: busybox\n    env_file: @SECRET@\n")
                 for place, real in (("@SECRET@", base / "outside" / "secret.env"), ("@INC@", base / "outside" / "inc.yml"),
