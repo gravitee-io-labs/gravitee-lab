@@ -2198,8 +2198,7 @@ class CommandLine(LabUI):
 
 
 class Listing(Case):
-    """`server.py --list`: what is on and its consoles, in text. Like `--check`, it moves nothing, and refuses a folder that
-    still needs the move."""
+    """`server.py --list`: what is on and its consoles, in text."""
 
     def setUp(self):
         self.project = test_layers.lab()
@@ -2219,21 +2218,6 @@ class Listing(Case):
         self.assertIn("Hello", self.printed())
         self.state = test_layers.on(self.project)
         self.assertEqual(self.printed().splitlines()[0], "On top of the platform: nothing")
-
-    def test_a_folder_that_still_needs_the_move_is_refused_with_the_words_of_the_makefile_and_nothing_moves(self):
-        self.patch(api, "requirement", return_value="")
-        self.patch(api.layers, "prepare")
-        pending = self.patch(api.layout, "pending", return_value=True)
-        moved = self.patch(api.layout, "run", side_effect=AssertionError("--list and --check move nothing"))
-        listed, checked = self.patch(api, "listing"), self.patch(api.check, "run", return_value=0)
-        for flag in ("--list", "--check"):
-            with self.subTest(flag=flag), self.assertRaises(SystemExit) as caught:
-                api.main([flag])
-            self.assertEqual(caught.exception.code, "This Lab was updated: run make update to move your settings.")
-        (listed.assert_not_called(), checked.assert_not_called(), moved.assert_not_called())
-        pending.return_value = False
-        api.main(["--list"])
-        listed.assert_called_once_with()
 
 
 class Port(Case):
@@ -2522,7 +2506,6 @@ class StateOfCatalogs(LabUI):
         self.assertEqual(status, 200, state)
         self.assertEqual(state["git"], {"available": True, "version": "2.43.2"})
         self.assertEqual(state["catalogs"], [])
-        self.assertNotIn("layout", state, "the move of an old layout is made before the Lab serves: the state never says it")
         self.assertIn(state["content"]["key"], ("ready", "downloading", "failed", "none"), "what the first start says")
         self.assertIsNone(state["content"]["offer"], "nothing is listed to offer")
         for key in ("docker", "wait", "license", "platform", "playgrounds", "setups", "addons", "services", "links", "problems"):
@@ -2554,9 +2537,9 @@ WARM_UP = api.warm_up   # the real one: the cases of Startup replace it
 
 
 class Startup(Case):
-    """Bind the port first; only once it is bound, move a folder of the layout before catalogs (or say why it cannot be, and
-    serve nothing), then finish what a stop left (in the installs of the Lab and in the folders of the catalogs that are
-    linked), write the intent of the first run and start the one background thread. A second `make ui` touches nothing;
+    """Bind the port first; only once it is bound, finish what a stop left (in the installs of the Lab and in the folders of
+    the catalogs that are linked), write the intent of the first run and start the one background thread. A second `make ui`
+    touches nothing;
     `--check`, `--list` and `--e2e` run none of it."""
 
     STEPS = (("service", "recover"), ("contribute", "sweep"), ("firstrun", "reconcile"), ("firstrun", "start_worker"))
@@ -2577,11 +2560,7 @@ class Startup(Case):
                 events.append(("serve",))
                 raise KeyboardInterrupt
 
-            def server_close(self):
-                events.append(("close",))
-
         self.patch(api, "ThreadingHTTPServer", Server)
-        self.moved = self.patch(api.layout, "run", side_effect=lambda: events.append(("layout", "run")) or True)
         for module, name in self.STEPS:
             self.patch(getattr(api, module), name, side_effect=lambda module=module, name=name: events.append((module, name)))
         self.patch(api.compose, "stop_on_signals", side_effect=lambda *others: events.append(("signals",)))
@@ -2595,10 +2574,9 @@ class Startup(Case):
             api.serve(9000, browser)
         return printed.getvalue()
 
-    def test_the_port_is_bound_first_then_the_old_layout_moved_then_the_four_steps_in_order_and_then_the_page_is_served(self):
-        # The signals are taken over before the move: its download runs git, which a closed terminal ends too
+    def test_the_port_is_bound_first_then_the_four_steps_in_order_and_then_the_page_is_served(self):
         said = self.serve()
-        self.assertEqual(self.events, [("bind", ("127.0.0.1", 9000)), ("signals",), ("layout", "run"), ("service", "recover"),
+        self.assertEqual(self.events, [("bind", ("127.0.0.1", 9000)), ("signals",), ("service", "recover"),
                                        ("contribute", "sweep"), ("firstrun", "reconcile"), ("firstrun", "start_worker"),
                                        ("warm up",), ("serve",)])
         self.assertEqual(said, "\n  >  Lab UI   http://localhost:9000\n     Keep this terminal open: Ctrl+C stops the Lab UI, "
@@ -2627,19 +2605,7 @@ class Startup(Case):
         api.warm_up().join(5)
         read.assert_called_once_with()
 
-    def test_a_folder_whose_move_could_not_be_made_is_not_served_and_nothing_else_runs(self):
-        # layout.run said why; the Lab does not work half moved, and the next start tries again
-        self.moved.side_effect = lambda: self.events.append(("layout", "run")) or False
-        printed = io.StringIO()
-        with contextlib.redirect_stdout(printed), self.assertRaises(SystemExit) as caught:
-            api.serve(9000, True)
-        self.assertEqual(caught.exception.code, 1)
-        self.assertEqual(self.events, [("bind", ("127.0.0.1", 9000)), ("signals",), ("layout", "run"), ("close",)])
-        self.assertEqual(printed.getvalue(), "", "no address: nothing is served")
-        self.timer.assert_not_called()
-
     def test_a_lab_that_serves_already_is_left_alone_not_one_of_the_steps_runs(self):
-        self.moved.side_effect = AssertionError("the layout was moved on the already running branch")
         for module, name in self.STEPS:
             self.patch(getattr(api, module), name, side_effect=AssertionError(f"{module}.{name} ran on the already running branch"))
         self.patch(api.compose, "stop_on_signals", side_effect=AssertionError("signals were taken over"))
@@ -2650,7 +2616,6 @@ class Startup(Case):
         self.opened.assert_called_once_with("http://localhost:9000")
 
     def test_another_program_or_lab_ui_on_the_port_is_an_exit_and_touches_nothing(self):
-        self.moved.side_effect = AssertionError("the layout was moved")
         for module, name in self.STEPS:
             self.patch(getattr(api, module), name, side_effect=AssertionError(f"{module}.{name} ran"))
         self.patch(api, "ThreadingHTTPServer", side_effect=OSError(errno.EADDRINUSE, "Address already in use"))
@@ -2684,7 +2649,7 @@ class Startup(Case):
         self.assertEqual(said.getvalue().splitlines(),
                          ["Gravitee Lab UI: sweeping what a share left failed (OSError: read-only file system)"])
         self.assertEqual([event for event in self.events if event[0] != "bind" and event != ("signals",)],
-                         [("layout", "run"), ("service", "recover"), ("firstrun", "reconcile"), ("firstrun", "start_worker"),
+                         [("service", "recover"), ("firstrun", "reconcile"), ("firstrun", "start_worker"),
                           ("warm up",), ("serve",)])
 
     def test_the_command_line_runs_requirement_and_prepare_for_every_command_and_the_steps_for_serve_only(self):
@@ -2727,8 +2692,7 @@ class Startup(Case):
         self.assertEqual(said.getvalue(), "")
 
 
-# A Lab UI of its own, for Signals: argv[1] is the file the fake git writes its process id to, argv[2] the port, argv[3] when
-# git runs: "move" (in layout.run, as the download of the default catalog does, in the main thread) or "serve" (once it serves)
+# A Lab UI of its own, for Signals: argv[1] is the file the fake git writes its process id to, argv[2] the port
 SIGNALED_LAB = """
 import os, sys, threading, time
 from lab_ui.catalogs import gitx
@@ -2741,16 +2705,10 @@ def started():
     time.sleep(0.2)
     print("ready", flush=True)
 
-def moving():
-    threading.Thread(target=started, daemon=True).start()
-    gitx.run(["fetch"], timeout=120)
-    return True
-
 def starting():
     threading.Thread(target=gitx.run, args=(["fetch"],), kwargs={"timeout": 120}, daemon=True).start()
     threading.Thread(target=started, daemon=True).start()
 
-api.layout.run = moving if sys.argv[3] == "move" else (lambda: True)
 api.start_up = starting
 api.address = lambda url, then: None
 api._serve(int(sys.argv[2]), False)
@@ -2758,20 +2716,19 @@ api._serve(int(sys.argv[2]), False)
 
 
 class Signals(Case):
-    """A Lab UI that is hung up (its terminal closed) or terminated ends the git it runs, also while it moves a folder of the
-    layout before catalogs, before it serves: that move downloads the default catalog."""
+    """A Lab UI that is hung up (its terminal closed) or terminated ends the git it runs."""
 
     def setUp(self):
         self.pids = self.folder() / "pids"
         gitfixture.fake_git(self, f"echo $$ >> '{self.pids}'\nexec sleep 40")
 
-    def lab(self, when):
+    def lab(self):
         with socket.socket() as probe:
             probe.bind(("127.0.0.1", 0))
             port = probe.getsockname()[1]
         if self.pids.exists():
             self.pids.unlink()
-        process = subprocess.Popen([sys.executable, "-c", SIGNALED_LAB, str(self.pids), str(port), when],
+        process = subprocess.Popen([sys.executable, "-c", SIGNALED_LAB, str(self.pids), str(port)],
                                    cwd=Path(__file__).resolve().parents[2], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE)
         self.addCleanup(process.communicate)
@@ -2790,17 +2747,16 @@ class Signals(Case):
         except ProcessLookupError:
             return False
 
-    def test_a_hang_up_or_a_termination_while_the_old_layout_moves_ends_the_git_of_the_download(self):
-        for when in ("serve", "move"):
-            for number in (signal.SIGHUP, signal.SIGTERM):
-                with self.subTest(when=when, signal=number.name):
-                    process, pid = self.lab(when)
-                    process.send_signal(number)
-                    self.assertEqual(process.wait(30), -number)
-                    end = time.monotonic() + 5
-                    while self.signaled(pid, 0) and time.monotonic() < end:
-                        time.sleep(0.05)
-                    self.assertFalse(self.signaled(pid, 0), f"git was left running after {number.name} during {when}")
+    def test_a_hang_up_or_a_termination_ends_the_git_of_the_download(self):
+        for number in (signal.SIGHUP, signal.SIGTERM):
+            with self.subTest(signal=number.name):
+                process, pid = self.lab()
+                process.send_signal(number)
+                self.assertEqual(process.wait(30), -number)
+                end = time.monotonic() + 5
+                while self.signaled(pid, 0) and time.monotonic() < end:
+                    time.sleep(0.05)
+                self.assertFalse(self.signaled(pid, 0), f"git was left running after {number.name}")
 
 
 class DockerDown(Case):

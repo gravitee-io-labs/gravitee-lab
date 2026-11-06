@@ -21,7 +21,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import URLError
 from urllib.parse import parse_qs, urlparse
 
-from ..library import check, drift, files, layers, layout, machine, model, personal, playgrounds, plugins, project, starred, updates
+from ..library import check, drift, files, layers, machine, model, personal, playgrounds, plugins, project, starred, updates
 from ..docker import compose, images, terminal
 from ..gravitee import core, license, places, platforms, probe
 from . import dashboard, personas, stack
@@ -1128,11 +1128,8 @@ def _serve(port, browser):
                      "again. One lab runs at a time")
         sys.exit(f"Port {port} is used by another program. Free it, or use another port: UI_PORT={port + 1} "
                  f"{command()} (the UIs of a playground do not show next to the guide on another port)")
-    # Once, from the main thread, before the move's download and before it serves: a closed terminal ends what runs
+    # Once, from the main thread, before it serves: a closed terminal ends what runs
     compose.stop_on_signals(gitx.stop_running)
-    if not layout.run():   # a folder of the layout before catalogs is moved before anything is served, or said why not
-        server.server_close()
-        sys.exit(1)
     server.daemon_threads = True   # an open log stream does not keep the Lab UI from stopping
     address(url, "Keep this terminal open: Ctrl+C stops the Lab UI, and the containers keep running.")
     start_up()
@@ -1195,8 +1192,6 @@ def main(argv=None):
     missing = requirement()
     if missing and (args.check or args.list or args.e2e):
         sys.exit(missing)
-    if (args.check or args.list) and layout.pending():   # they read the lab and move nothing: the Makefile's words
-        sys.exit(layout.GUARD)
     layers.prepare()
     if args.check:
         sys.exit(check.run())

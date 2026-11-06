@@ -21,7 +21,6 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from lab_ui import paths
 from lab_ui.docker import compose
 
 from .. import Case
@@ -1172,14 +1171,6 @@ class Environment(Case):
             answer = compose.run(["sh", "-c", 'printf "%s %s" "$COMPOSE_EXPERIMENTAL_GIT_REMOTE" '
                                               '"$COMPOSE_EXPERIMENTAL_OCI_REMOTE"'])
         self.assertEqual(answer, (0, "false false", ""))
-
-    def test_a_folder_of_the_layout_before_catalogs_changes_nothing_of_it(self):
-        # The engine knows one layout: such a folder is moved before the Lab works on it (layout.run), never read as one here
-        self.folder(compose, paths, files={paths.DEFAULT_FILE: '{"schema": 1, "catalogs": [{"id": "fixture"}]}\n',
-                                           paths.ON_FILE: "include:\n  - addons/kafka/compose.yml\n",
-                                           "addons/kafka/.env": "A=1\n"})
-        with mock.patch.dict(os.environ, {"COMPOSE_FILE": "other.yml"}):
-            self.assertEqual(compose.run(["sh", "-c", 'printf "%s" "$COMPOSE_FILE"']), (0, compose.COMPOSE_FILE, ""))
 
     def test_a_command_gets_the_environment_it_is_given_in_place_of_the_shells(self):
         # scrubbed_environment() and build_environment() are given whole: nothing of the shell stays under them

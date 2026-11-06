@@ -74,14 +74,7 @@ openssl-ok:
 ui: python-ok init ## Open the Lab UI on http://localhost:9000
 	@PYTHONCOERCECLOCALE=0 $(PYTHON) lab-ui/server.py
 
-# A machine that was updated from the layout before catalogs still names add-ons by their old paths in .lab/on.yml, which Compose
-# cannot open any more: those targets stop and say what to do. The ones that use the project name and no files (stop, down,
-# reset) and the ones that move the settings (ui, init, catalogs, update) never stop here.
-legacy-ok: $(on)
-	@if grep -qE '^[[:space:]]*-[[:space:]]*"?(addons|setups|playgrounds)/' $(on) 2>/dev/null; then \
-		echo "This Lab was updated: run make update to move your settings."; exit 1; fi
-
-all: docker-up legacy-ok init ## Create and start the core and what is on
+all: docker-up init ## Create and start the core and what is on
 	docker compose up -d --remove-orphans
 
 # The plugin folders are made here, writable by all: Docker would make them as root, and the containers unpack plugins
@@ -98,20 +91,20 @@ $(on):
 	@mkdir -p .lab
 	@touch $@
 
-start: docker-up legacy-ok $(on) ## Start stopped containers
+start: docker-up $(on) ## Start stopped containers
 	docker compose start
 
 stop: docker-up $(on) ## Stop all containers (keeps data)
 	docker compose -p $(project) stop
 
-restart: docker-up legacy-ok $(on) ## Restart containers (SVC=name for one service)
+restart: docker-up $(on) ## Restart containers (SVC=name for one service)
 	docker compose restart $(SVC)
 
 down: docker-up $(on) ## Remove all containers and networks (keeps data volumes)
 	docker compose -p $(project) rm --stop --force -v
 	docker compose -p $(project) down
 
-catalogs: python-ok ## Download the catalogs that have no copy yet, then move what an update left behind
+catalogs: python-ok ## Download the catalogs that have no copy yet
 	@$(PYTHON) lab-ui/catalog.py provision
 
 update: python-ok ## Pull the Lab (fast-forward only), then run make catalogs
@@ -121,25 +114,25 @@ update: python-ok ## Pull the Lab (fast-forward only), then run make catalogs
 reset: docker-up $(on) ## DANGER: remove containers AND data (volumes, what seeds created); asks first
 	@printf "This deletes all the data: the core's and every add-on's. Type 'yes': "; read answer; [ "$$answer" = "yes" ]
 	docker compose -p $(project) down -v
-	@for record in playgrounds/*/.state/created.json .lab/catalogs/*/playgrounds/*/.state/created.json; do \
+	@for record in .lab/catalogs/*/playgrounds/*/.state/created.json; do \
 		[ -f "$$record" ] || continue; \
 		echo '[]' > "$$record" 2>/dev/null || echo "Could not empty $$record: delete it (sudo may be needed)"; \
 	done
 
-ps: docker-up legacy-ok $(on) ## Show container status and health
+ps: docker-up $(on) ## Show container status and health
 	docker compose ps -a --orphans
 
-logs: docker-up legacy-ok $(on) ## Follow logs (SVC=name for one service)
+logs: docker-up $(on) ## Follow logs (SVC=name for one service)
 	docker compose logs -f --tail=100 $(SVC)
 
-config: compose-ok legacy-ok $(on) ## Validate the core and what is on; SVC=name prints that service's final config
+config: compose-ok $(on) ## Validate the core and what is on; SVC=name prints that service's final config
 	@docker compose config -q && echo "compose OK"
 	@if [ -n "$(SVC)" ]; then docker compose config $(SVC); fi
 
-pull: docker-up legacy-ok $(on) ## Pull the images in use (refreshes moving tags like latest)
+pull: docker-up $(on) ## Pull the images in use (refreshes moving tags like latest)
 	docker compose pull
 
-mongo: docker-up legacy-ok $(on) ## Open a mongosh shell
+mongo: docker-up $(on) ## Open a mongosh shell
 	docker compose exec mongodb mongosh
 
 certs: openssl-ok ## Regenerate the TLS / mTLS demo certificates (certs/mtls/)
@@ -192,5 +185,5 @@ smoke: python-ok ## Check the Lab UI against the running stack (read-only)
 	@$(PYTHON) lab-ui/tests/smoke.py
 
 .DEFAULT_GOAL := help
-.PHONY: help docker-cli compose-ok docker-running docker-up python-ok openssl-ok init ui all legacy-ok catalogs update start stop restart down \
+.PHONY: help docker-cli compose-ok docker-running docker-up python-ok openssl-ok init ui all catalogs update start stop restart down \
 	reset ps logs config pull mongo certs urls setup check lint test e2e smoke

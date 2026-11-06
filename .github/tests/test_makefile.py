@@ -135,41 +135,6 @@ class MakefileTest(unittest.TestCase):
         self.assertEqual([], sorted((self.folder / "addons" / "federation-alpha").iterdir()))
         self.assertEqual([], sorted(path.name for path in (self.folder / "addons" / "kafka").iterdir() if path.name != "certs.sh"))
 
-    # an update from the layout before catalogs: the guard of E3.10
-
-    GUARDED = ("start", "restart", "ps", "logs", "config", "pull", "mongo", "all")
-    NOT_GUARDED = ("stop", "down", "init", "catalogs")
-    GUARD = "This Lab was updated: run make update to move your settings."
-
-    def legacy(self, line="  - addons/kafka/compose.yml"):
-        (self.folder / ".lab").mkdir(exist_ok=True)
-        (self.folder / ".lab" / "on.yml").write_text(f"include:\n{line}\n")
-
-    def test_the_targets_that_read_the_on_file_stop_when_it_names_the_old_folders(self):
-        for line in ("  - addons/kafka/compose.yml", '  - "setups/events.yml"', "- playgrounds/shop/compose.yml"):
-            self.legacy(line)
-            for target in self.GUARDED:
-                with self.subTest(target=target, line=line):
-                    code, out = self.make(target)
-                    self.assertNotEqual(0, code, out)
-                    self.assertIn(self.GUARD, out)
-                    self.assertEqual([], [call for call in self.docker_calls() if "compose" in call and target in call.split()])
-
-    def test_the_targets_that_use_the_project_name_or_move_the_settings_do_not_stop_there(self):
-        self.legacy()
-        (self.folder / ".env.example").write_text("GRAVITEE_LICENSE=\n")
-        for target in self.NOT_GUARDED:
-            with self.subTest(target=target):
-                _, out = self.make(target)
-                self.assertNotIn(self.GUARD, out)
-
-    def test_an_on_file_that_names_catalog_items_or_nothing_is_no_legacy(self):
-        for text in ("include:\n  - .lab/catalogs/hub/addons/kafka/compose.yml\n", "", "include:\n  - docker-compose.yml\n"):
-            (self.folder / ".lab").mkdir(exist_ok=True)
-            (self.folder / ".lab" / "on.yml").write_text(text)
-            with self.subTest(text=text):
-                self.assertEqual((0, ""), self.make("legacy-ok"))
-
     def test_update_pulls_fast_forward_only_and_then_downloads_the_catalogs(self):
         code, out = self.make("-n", "update")
         self.assertEqual(0, code, out)

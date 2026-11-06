@@ -62,8 +62,7 @@ The module docstring (Python) or the header comment (JavaScript) of a file is th
 | `starred.py` | What is starred on this machine (`.lab/starred.json`) |
 | `tested.py` | What a playground started on here: the image versions that worked, kept in `.lab/tested.json`, so that starting it again on them is no warning |
 | `playgrounds.py` | A playground's checks, guide, start, re-seed and stop, on This machine or on a place: its deploy, its delete from one place and its records |
-| `layout.py` | The move of a folder that ran the Lab before the catalogs to their layout, once, by itself: before the Lab UI serves and from `make update`. No other module reads it, and the guard of `--list` and `--check` on a folder that still needs it |
-| `moves.py` | What moves things on this machine, shared by the migration, the working copy of a catalog, Share and the adoption of held settings: it never overwrites |
+| `moves.py` | What moves things on this machine, shared by the working copy of a catalog, Share and the adoption of held settings: it never overwrites |
 
 `lab_ui/server/`: The pages of the Lab UI.
 

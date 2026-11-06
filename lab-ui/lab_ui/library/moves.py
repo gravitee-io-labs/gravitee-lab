@@ -1,16 +1,14 @@
-"""The primitives that move things on this machine, shared by the migration of an old layout, the shadow link of a
-working copy, Share and the adoption of held settings: `relocate` moves a file or a folder
-and never overwrites, `repoint` writes again the paths of a compose file that moved, `rekey` follows an item to its new
+"""The primitives that move things on this machine, shared by the shadow link of a working copy, Share and the adoption of
+held settings: `relocate` moves a file or a folder and never overwrites, `repoint` writes again the paths of a compose file that moved, `rekey` follows an item to its new
 id in the stars and the tested sets, `adopt_held` gives an item the settings that waited for it.
 
 State based and idempotent: every function reads the disk and does what is left to do, so a run that crashed is run
 again, never undone. Every move is written to the journal (`.lab/migration/journal.jsonl`: paths, never a content)
-before it is made, so a crash between the two never hides a move from `undo_script`, which turns the journal into the
-shell script that puts everything back. Nothing here runs Docker, git or the network: whether git tracks a file is
-read from the index itself. `STEP` is the hook a test sets to crash a run between two steps.
+before it is made. Nothing here runs Docker, git or the network: whether git tracks a file is read from the index itself.
+`STEP` is the hook a test sets to crash a run between two steps.
 
 Two folders of `.lab` are only for the person (0700, and so is whatever is made in them): `migration/`, with the
-journal, the backup, what was kept aside and the undo script, and `held/<kind>s/<name>/`, where the machine files of an
+journal and what was kept aside, and `held/<kind>s/<name>/`, where the machine files of an
 item that is in no installed catalog wait, at the same relative path they had in its folder, for the catalog that gets
 the item."""
 
@@ -22,7 +20,6 @@ import json
 import os
 import posixpath
 import re
-import shlex
 import shutil
 import stat
 import struct
@@ -38,10 +35,8 @@ from .. import paths
 # and :repoint, and <why>:entry for each entry `merge` moves (adopt:entry when a held folder is merged)
 STEP = None
 
-MIGRATION = f"{paths.LAB_DIR}/migration"   # the journal, the backup, what was kept aside and the undo script
+MIGRATION = f"{paths.LAB_DIR}/migration"   # the journal, and what was kept aside
 JOURNAL = f"{MIGRATION}/journal.jsonl"
-UNDO = f"{MIGRATION}/undo.sh"
-MARKER = f"{paths.LAB_DIR}/layout.json"   # the commit point of the migration, written last: layout.MARKER is this
 HELD = f"{paths.LAB_DIR}/held"   # the settings of an item that is in no installed catalog, by kind and name
 PRIVATE = (MIGRATION, HELD)   # folders only the person reads: whatever is made inside them is 0700
 STARRED = f"{paths.LAB_DIR}/starred.json"
@@ -457,8 +452,7 @@ def _across_devices(source, target, why):
 
 
 def _stayed(source, target, why):
-    """The move announced in the journal was not made: a line says so, for whoever reads the journal for what happened.
-    `undo_script` ignores it."""
+    """The move announced in the journal was not made: a line says so, for whoever reads the journal for what happened."""
     journal("stayed", src=_rel(source), dst=_rel(target), why=why)
     return "stayed"
 
@@ -870,156 +864,3 @@ def adopt_held(ns: str, kind: str, name: str, repoint_from: Optional[str] = None
         if origin and origin != ns:
             _repoint_personal(_where(origin, kind, name), _where(ns, kind, name))
     return found
-
-
-# ---------------------------------------------------------------------------------------------------------------------
-# Going back
-# ---------------------------------------------------------------------------------------------------------------------
-
-# The shell that decides, for a file the backup is about to be put over, whether to keep what is there. It is defined once and
-# evaluated by the script, and handed to the `sh` that `find` starts to look at a folder file by file, so it holds no single quote.
-# `counts` says what "written since the update" means (see `_written_since`): `newer` a file newer than the script itself, `any`
-# every file that differs from the backup, `none` no file (a migration that did not finish: what is there is its own work).
-_HELPERS = """
-present() { [ -e "$1" ] || [ -L "$1" ]; }
-written() {
-  case "$counts" in
-    any) return 0 ;;
-    none) return 1 ;;
-  esac
-  [ -e "$ref" ] || return 0
-  case "$1" in -*) set -- "./$1" ;; esac
-  [ -n "$(find "$1" -newer "$ref" 2>/dev/null)" ]
-}
-aside() {
-  present "$2" || return 0
-  cmp -s -- "$1" "$2" 2>/dev/null && return 0
-  written "$2" || return 0
-  if [ -L "$2" ] || [ ! -f "$2" ]; then
-    printf "Left %s: it is not a file\\n" "$2" >&2
-    return 1
-  fi
-  ending=.after-update
-  count=1
-  while present "$2$ending" || present "$1$ending"; do
-    count=$((count + 1))
-    ending=.after-update.$count
-  done
-  kept=$2$ending
-  if cp -p -- "$2" "$kept"; then
-    printf "Kept %s as %s\\n" "$2" "$kept" >&2
-  else
-    printf "Could not keep %s\\n" "$2" >&2
-    return 1
-  fi
-}
-"""
-
-SCRIPT = """#!/bin/sh
-# Puts back what the Lab moved when it updated this folder to the layout of the catalogs. Run it with:
-#   sh .lab/migration/undo.sh
-# Each file and folder goes back to where it was, in the reverse order, and never over something that is there. The on file, the
-# stars, the tested sets, the platform copies and the compose texts come back from the backup; one that was written since the update
-# is kept beside it first, as NAME.after-update. What was made in the new places after the update, and is not in the journal, stays
-# where it is.
-cd "$(dirname "$0")/../.." || exit 1
-failed=0
-marker=@MARKER@
-ref=@UNDO@
-counts=any
-HELPERS='@HELPERS@'
-eval "$HELPERS"
-back() {
-  if present "$2"; then
-    if present "$1"; then
-      printf 'Left %s: %s is there\\n' "$2" "$1" >&2
-    else
-      mkdir -p -- "$(dirname -- "$1")" && mv -- "$2" "$1" || { printf 'Could not move %s back\\n' "$2" >&2; failed=1; }
-    fi
-  fi
-}
-keep_tree() {
-  case "$1" in -*) set -- "./$1" "$2" ;; esac
-  find "$1" ! -type d -exec sh -c "$HELPERS"'
-    from=$1 to=$2 counts=$3 ref=$4
-    shift 4
-    bad=0
-    for file; do
-      aside "$file" "$to${file#"$from"}" || bad=1
-    done
-    exit $bad' sh "$1" "$2" "$counts" "$ref" {} +
-}
-restore() {
-  if [ -d "$1" ]; then
-    mkdir -p -- "$2" && keep_tree "$1" "$2" && cp -pR -- "$1/." "$2/" || { printf 'Could not restore %s\\n' "$2" >&2; failed=1; }
-  elif [ -f "$1" ]; then
-    mkdir -p -- "$(dirname -- "$2")" && aside "$1" "$2" && cp -p -- "$1" "$2" || { printf 'Could not restore %s\\n' "$2" >&2; failed=1; }
-  else
-    printf 'No copy of %s\\n' "$2" >&2
-  fi
-}
-drop() { rm -f -- "$1" || failed=1; }
-""".replace("@MARKER@", shlex.quote(MARKER)).replace("@UNDO@", shlex.quote(UNDO)).replace("@HELPERS@", _HELPERS)
-
-
-def _writable(*names):
-    """Whether names can be written to a script, which is UTF-8: a name that is not cannot be quoted in it."""
-    try:
-        for name in names:
-            name.encode("utf-8")
-    except UnicodeEncodeError:
-        return False
-    return True
-
-
-def _written_since(removes) -> str:
-    """The line of the script that says what "written since the update" means for the files it puts back over (`counts`, in
-    `_HELPERS`). The migration is over when its marker is there. A file that differs from the backup is then its own work
-    unless it is newer than the script, which the migration writes last (and writes again when it translates a line a stale
-    Lab brought back): nothing it writes comes after.
-    With no marker, but with something the migration left that the script removes (its witness, its plan), it stopped: what is
-    there is its own half work and goes back as the backup has it. With nothing of either, the update is already undone:
-    whatever differs from the backup was written after it."""
-    witnesses = [shlex.quote(path) for path in removes if path != MARKER and _writable(path)]
-    middle = f"elif {' || '.join(f'present {one}' for one in witnesses)}; then counts=none; " if witnesses else ""
-    return f'if present "$marker"; then counts=newer; {middle}else counts=any; fi'
-
-
-def undo_script(entries=None, restores=(), removes=()) -> str:
-    """The text of the POSIX shell script that undoes the moves of the journal. For each move, the last first, it
-    calls `back` with where the item was and where it is, and puts it back only when the place it went to is there and
-    the one it came from is free. Then it calls `restore` for each pair of `restores` (a file or a folder of the backup
-    copied back over its path: the on file, the stars, the compose texts) and `drop` for each of `removes` (the marker
-    of the layout). A restore never loses what was written since the update: a file it would put over that differs from the
-    backup and is newer than the script is first copied beside itself as NAME.after-update (NAME.after-update.2
-    when that is taken), and one it cannot copy, or that is a link or a folder where a file goes, is left and said (see
-    `_written_since` for what "since" is). Every name goes through `shlex.quote`, so a file called `a b$(touch x)` is a name,
-    not a command. A move that was repeated after a crash is written once, where it was made; one made again after it was
-    undone (a shadow link taken off and put back) is written each time; a name that cannot be written in UTF-8 is left out and
-    the script says so. `entries` is the journal when none is given. The script exits 0 when all it could do was done."""
-    entries = read_journal() if entries is None else entries
-    moves, last = [], {}   # the moves in the order they were made; where each pair was last written
-    for entry in entries:
-        pair = (entry.get("src"), entry.get("dst"))
-        if entry.get("op") == "move" and all(isinstance(part, str) and part for part in pair):
-            before = last.get(pair)
-            if before is not None and last.get(pair[::-1], -1) < before:   # nothing moved it back since: a repeat
-                moves[before] = None   # the rename was made by the later line
-            last[pair] = len(moves)
-            moves.append(pair)
-    lines, skipped = [_written_since(removes)], 0
-    for src, dst in filter(None, reversed(moves)):
-        if _writable(src, dst):
-            lines.append(f"back {shlex.quote(src)} {shlex.quote(dst)}")
-        else:
-            skipped += 1
-    for copy, path in restores:
-        if _writable(copy, path):
-            lines.append(f"restore {shlex.quote(copy)} {shlex.quote(path)}")
-    for path in removes:
-        if _writable(path):
-            lines.append(f"drop {shlex.quote(path)}")
-    if skipped:
-        lines.append(f"# {skipped} moved name{'s' if skipped > 1 else ''} not valid UTF-8: put back by hand "
-                     f"from {JOURNAL}")
-    return SCRIPT + "".join(f"{line}\n" for line in lines) + "exit $failed\n"

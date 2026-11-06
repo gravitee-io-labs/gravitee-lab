@@ -21,7 +21,6 @@ from unittest import mock
 
 from lab_ui.server import api
 from lab_ui.docker import compose, envfiles
-from lab_ui.library import layout
 from lab_ui import paths
 from lab_ui.catalogs import defaults, firstrun, gitx, install, registry, service
 from lab_ui.catalogs.registry import CatalogError
@@ -495,7 +494,6 @@ class Early(Case):
     def setUp(self):
         self.steps = [self.patch(firstrun, "reconcile", side_effect=AssertionError("reconcile ran")),
                       self.patch(firstrun, "start_worker", side_effect=AssertionError("the worker started")),
-                      self.patch(layout, "run", side_effect=AssertionError("the layout was moved")),
                       self.patch(service, "recover", side_effect=AssertionError("the sweeper ran"))]
         self.patch(api, "requirement", return_value="")
         self.patch(api.layers, "prepare")
@@ -518,7 +516,7 @@ class Early(Case):
         with mock.patch("builtins.print"):
             api.serve(9000, True)
         opened.assert_called_once_with("http://localhost:9000")
-        self.assertEqual([step.call_count for step in self.steps], [0, 0, 0, 0])
+        self.assertEqual([step.call_count for step in self.steps], [0, 0, 0])
 
     def test_importing_the_module_starts_no_thread(self):
         code = ("import sys, threading; sys.path.insert(0, sys.argv[1]); from lab_ui.catalogs import firstrun; "
@@ -640,7 +638,6 @@ class State(Served, Case):
         (row,) = [one for one in first["catalogs"] if one["kind"] == "git"]
         self.assertEqual((row["id"], row["state"]["key"], row["progress"]), (self.ns, "downloading", 0.02))
         self.assertEqual((first["addons"], first["setups"], first["playgrounds"]), ([], [], []), "and no list yet")
-        self.assertNotIn("layout", first)
         # The attempt fails: the state says it, in place, and an automatic retry leaves it so
         real = gitx.ls_remote
         self.patch(gitx, "ls_remote", side_effect=gitx.fail("unreachable", gitx.parse_address(self.remote.url)))

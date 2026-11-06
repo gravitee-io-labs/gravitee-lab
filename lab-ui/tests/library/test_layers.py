@@ -2449,8 +2449,7 @@ class Entries(Case):
         state = self.on_file("include:\n  - .lab/catalogs/partner/addons/ledger/compose.yml\n")
         self.assertEqual(state["locked"], ".lab/catalogs/partner/addons/ledger/compose.yml does not load")
 
-    def test_a_line_of_the_old_layout_is_a_line_like_any_other_and_locks_the_file(self):
-        # The engine knows one layout: the move of the old one is made before the Lab works on the folder (layout.run)
+    def test_a_line_outside_the_catalogs_locks_the_file(self):
         self.write("addons/kiosk/compose.yml")
         state = self.on_file("include:\n  - addons/kiosk/compose.yml\n")
         self.assertEqual((state["explicit"], state["locked"]), ([], layers.LOCKED))

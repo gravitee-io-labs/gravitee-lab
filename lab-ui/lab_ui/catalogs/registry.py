@@ -506,12 +506,6 @@ def config_problem() -> Optional[str]:
     return " ".join(lines) or None
 
 
-def damage() -> list:
-    """[(file, what is wrong)] of catalogs.json and catalogs.lock, each file from the project folder, for a command that
-    stops on them and names the file to fix (layout.run), where config_problem() says what the Catalogs page does."""
-    return [(CONFIG_FILE, what) for _, what in _load_config()[1]] + [(LOCK_FILE, what) for _, what in _load_lock()[1]]
-
-
 def _dump(document):
     """The text of a document of the Lab: indented JSON, in UTF-8 as it is, or with every character escaped when it
     holds a lone surrogate that a newer Lab's key kept (UTF-8 has no bytes for it). A ValueError for what no read would

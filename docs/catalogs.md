@@ -13,8 +13,7 @@ Gravitee public, and you can add others.
 7. [Private catalogs](#private-catalogs)
 8. [Your own items](#your-own-items)
 9. [Offline, privacy and starting over](#offline-privacy-and-starting-over)
-10. [Updating a Lab from before catalogs](#updating-a-lab-from-before-catalogs)
-11. [Errors and what to do](#errors-and-what-to-do)
+10. [Errors and what to do](#errors-and-what-to-do)
 
 ## What a catalog is
 
@@ -283,33 +282,6 @@ The Lab's first start contacts the default catalog's address, once, and the Lab 
 every few hours, each at its own address, with Git. Nothing about you is sent beyond what Git sends. To turn the background
 check off for one catalog: its menu, **Stop checking automatically**. To start over, as if the Lab had just been installed:
 `python3 lab-ui/catalog.py reset` (and `reset --empty` to have no catalog at all, which is a Lab with the platform only).
-
-## Updating a Lab from before catalogs
-
-An update moves nothing by surprise. Stop the platform, pull, and run the one command:
-
-```bash
-make stop
-```
-
-```bash
-make update
-```
-
-`make update` is `git pull --ff-only` then `make catalogs`: it downloads the default catalog and moves your settings,
-your stars and what you had in the old folders to the new layout. Starting the Lab UI does the same, once, before it opens:
-a Lab that was pulled some other way is moved all the same. Your own add-ons, setups and playgrounds (the ones under
-`local/`) become Personal. Both then say in the terminal what you may want to look at: what the catalog does not have is now
-Personal, anything you changed inside a shared item is kept aside in `.lab/migration/kept`, what needs a catalog you do not
-have is turned off, and files that could not be moved stay where they were. When the move cannot be made (the catalog does
-not download, `.lab/catalogs.json` or `.lab/catalogs.lock` does not read, a disk error), they say why, and what to do with a
-file that does not read, nothing is deleted, and the Lab UI does not start until it is fixed: start it again to finish the
-move. `.lab/migration/undo.sh` puts the previous layout back;
-a file that changed since is kept beside the restored one with the suffix `.after-update`.
-
-Until the move is made, `make start`, `make ps`, `make urls`, `make check` and the other targets that read what is on say
-`This Lab was updated: run make update to move your settings.` and stop. `make stop`, `make down` and `make reset` keep
-working.
 
 ## Errors and what to do
 

@@ -1514,7 +1514,6 @@ class Catalogs(Fixture):
         inputs = self.inputs
         self.assertEqual(inputs["default"], "fixture")
         self.assertEqual(inputs["contract"], {"contract": 5, "contract_min": 1, "seeder_image": fixtures.seeder_image(self.holder)})
-        self.assertNotIn("layout", inputs, "the move of an old layout is made before the project is read: it is no input")
         self.assertEqual(list(inputs["catalogs"]), ["fixture", "local", "partner", "lab-new", "lab-old"])
         self.assertEqual(inputs["screened"], {})
         self.assertIsNotNone(inputs["core_config"])

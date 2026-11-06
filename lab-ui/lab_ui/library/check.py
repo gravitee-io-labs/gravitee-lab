@@ -1674,7 +1674,7 @@ def catalog_problems(ns, project=None, inputs=None, audited=False):
 NO_COMPOSE = "Docker Compose 5 not found"   # what a check that could not read the units says it did not do ("Not checked: ...")
 # What the temporary copy of the Lab's project holds of the Lab itself: the files the project reads as text, and the places a unit
 # names (the seeder, the plugin folder of each product) as empty folders, because a unit only names them. Not the `.env` (the
-# settings of this machine: a fresh clone has none), not `.lab/` (made again below), not the folders of the old layout, and
+# settings of this machine: a fresh clone has none), not `.lab/` (made again below), and
 # not the personal area, which a check of someone else's catalog has no use for. So nothing of the Lab is linked into it
 COPIED = (CORE_FILE, paths.DEFAULT_FILE, LOCK_FILE)
 ANCHORS = ("seeder", "plugins")   # the folders of the project that a unit names and that stand, in the copy, for the Lab's own

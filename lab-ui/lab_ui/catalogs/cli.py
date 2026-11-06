@@ -14,7 +14,7 @@ catalog from the template and keep it in step with the Lab's standard. `python3 
     link PATH [--allow-machine]       a folder as a catalog (a working copy takes the place of an installed one)
     unlink ID                         the way back; the folder is never touched
     add ADDRESS [--branch B] [--yes]  the preview, and with --yes the Add
-    provision                         the first start, from a terminal: download what has no copy yet, then migrate
+    provision                         the first start, from a terminal: download what has no copy yet
     list                              the catalogs and their state
     update ID [--yes [--confirm-history]]  undo ID [--yes]   the plan, and with --yes the change
     remove ID [--delete-settings]
@@ -66,6 +66,9 @@ FORMATS = ("text", "github", "json")
 SUGGEST_LIMIT = 50   # as many entries as the Lab reads of the suggestions file
 POLL = 0.2   # seconds between two looks at where a download is
 # The phases of a download (firstrun.PHASES) as the terminal says them; one that is not here is not said
+# Why, when the download needs Docker that does not answer: the Makefile's words, since nothing runs to download later
+NO_DOCKER = ("Docker is not ready. Start it, or install it with Compose 5.0 or later (see Prerequisites in README.md), then "
+             "start the Lab again.")
 PHASE_WORDS = {"probe": "Checking the address", "fetch": "Downloading the files", "stage": "Installing"}
 LAB = paths.ROOT   # the Lab checkout this command runs from: the folder that holds lab-ui
 FULL_COMMIT = re.compile(r"[0-9a-f]{40}")
@@ -399,11 +402,9 @@ def _progress(firstrun, ns, stop):
 
 def provision(args):
     """The first start from a terminal, in the foreground (`make catalogs`, and `make update` after its pull). The intent is
-    written when catalogs.json does not exist, every git entry that has no copy is downloaded, and a folder of the layout
-    before catalogs is moved to theirs (layout.run, which downloads nothing more). Exit 1, with the line of the error, when
-    something fails. A closed terminal ends the download and the move it runs, as it ends the Lab UI's."""
+    written when catalogs.json does not exist, and every git entry that has no copy is downloaded. Exit 1, with the line of
+    the error, when something fails. A closed terminal ends the download it runs, as it ends the Lab UI's."""
     firstrun = _lab("firstrun")
-    layout = importlib.import_module("lab_ui.library.layout")
     compose.stop_on_signals(gitx.stop_running)
     firstrun.reconcile()
     failed = 0
@@ -422,13 +423,11 @@ def provision(args):
                 raise CatalogError(str(problem), str((row.get("state") or {}).get("reason") or problem), 400)
             say(f"Installed {(row or {}).get('name') or ns}")
         except CatalogError as error:   # the first start's line for Docker says it downloads later: nothing here does
-            complain(f"{ns}: {layout.NO_DOCKER if error.code == 'docker_missing' else error.message}")
+            complain(f"{ns}: {NO_DOCKER if error.code == 'docker_missing' else error.message}")
             failed += 1
         finally:
             stop.set()
             watcher.join()
-    if not layout.run(say, complain, download=False):   # the default catalog was tried above: once is enough
-        failed += 1
     return 1 if failed else 0
 
 
@@ -1161,7 +1160,7 @@ def parser():
     sub.add_argument("address")
     sub.add_argument("--branch")
     sub.add_argument("--yes", action="store_true", help="add it, after the preview")
-    one("provision", provision, "download what has no copy yet and move a folder of the layout before catalogs")
+    one("provision", provision, "download what has no copy yet")
     one("list", list_catalogs, "the catalogs and their state")
     for name, function, text in (("update", update, "update a catalog"), ("undo", undo, "go back to the previous version")):
         sub = one(name, function, text)
