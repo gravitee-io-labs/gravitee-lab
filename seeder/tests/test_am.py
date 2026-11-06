@@ -158,11 +158,8 @@ class AccessManagement:
 
     # Users
     def create_user(self, call):
-        held = self.kept(call, "users")
-        if any(user["username"] == call.json["username"] for user in held.values()):
-            return 400, {"message": "User already exists"}
         user = {"id": self.new("user"), **call.json}
-        held[user["id"]] = user
+        self.kept(call, "users")[user["id"]] = user
         return 201, user
 
     def put_user(self, call):
@@ -501,13 +498,12 @@ class Kinds(Case):
         self.assertEqual(common.created(), [{"product": "am", "kind": "domain", "label": "domains", "name": "bank", "id": "domain-1"}],
                          "one record, written when the domain was made and holding nothing about its settings")
 
-    def test_a_user_without_a_profile_is_posted_as_the_file_says_and_found_again_by_the_refusal(self):
+    def test_a_user_without_a_profile_is_posted_as_the_file_says_and_found_again(self):
         self.seed_files({"am/domain.yaml": "name: bank\nusers: [{username: john, email: j@x.test, firstName: J, lastName: D, password: p}]\n"})
         self.seed()
         self.seed()
-        posts = self.platform.sent("POST", re.compile(DOMAINS + "/[^/]+/users"))
-        self.assertEqual(len(posts), 2, "a user without a profile is not looked for: the platform refuses it the second time")
-        self.assertEqual(posts[0].json, {"forceResetPassword": False, "preRegistration": False, "username": "john",
+        [post] = self.platform.sent("POST", re.compile(DOMAINS + "/[^/]+/users"))
+        self.assertEqual(post.json, {"forceResetPassword": False, "preRegistration": False, "username": "john",
                                          "email": "j@x.test", "firstName": "J", "lastName": "D", "password": "p"})
         self.assertEqual([x["name"] for x in common.created() if x["kind"] == "user"], ["john"])
 
