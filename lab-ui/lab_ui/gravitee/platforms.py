@@ -343,10 +343,7 @@ def _installed(record, environment, env):
     token = env.get(_key(record["id"], "ENV", environment["id"]), "")
     if not token:
         return None
-    try:
-        claims = cloud.claims(token)
-    except (cloud.CloudError, ValueError):
-        return None
+    claims = cloud.claims(token)
     if claims["expiry"] is not None and claims["expiry"] <= time.time() or (record["id"], environment["id"]) in _refused:
         return None
     organization = environment.get("organizationId") or claims["organization"]
