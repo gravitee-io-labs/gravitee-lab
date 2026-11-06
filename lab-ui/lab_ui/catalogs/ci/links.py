@@ -355,4 +355,4 @@ def main(argv, out, err, **seams) -> int:
     if args.format != "json":
         out.write(f"Links: {total['addresses']} addresses in {len({link.path for link in links})} files, "
                   f"{total['broken']} that do not answer\n")
-    return conclude("links", problems, args, out, "catalog.py ci links", skipped, title="The links of the guides answer")
+    return conclude(problems, args, out, "catalog.py ci links", skipped, title="The links of the guides answer")

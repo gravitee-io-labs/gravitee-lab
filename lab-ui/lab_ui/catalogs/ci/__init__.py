@@ -320,22 +320,21 @@ def cell(text) -> str:
     return re.sub(r"[^A-Za-z0-9._-]", "?", str(text))[:80]
 
 
-def tail(text: str, count: int = 15, width: int = LINE_WIDTH) -> List[str]:
-    """The last `count` lines of a log that have anything in them, each cut to `width` characters (a minified bundle or a program
+def tail(text: str, count: int = 15) -> List[str]:
+    """The last `count` lines of a log that have anything in them, each cut to LINE_WIDTH characters (a minified bundle or a program
     that prints without end has lines of megabytes: 15 of them are no summary, and no message)."""
     kept = [line for line in text.splitlines() if line.strip()][-count:]
-    return [line if len(line) <= width else line[:width] + " [...]" for line in kept]
+    return [line if len(line) <= LINE_WIDTH else line[:LINE_WIDTH] + " [...]" for line in kept]
 
 
-def conclude(stage: str, problems: List[Problem], args, out, command: str, skipped: Sequence[str] = (), extra: str = "",
-             title: str = "") -> int:
+def conclude(problems: List[Problem], args, out, command: str, skipped: Sequence[str] = (), extra: str = "", title: str = "") -> int:
     """The end of a stage: the findings in the format asked for, the summary with `--ci`, and the exit code (1 for an error).
     `extra` is Markdown that goes before the findings in the summary (a table of images)."""
     ordered = report.ordered(problems)
     rendered = report.render(ordered, args.format, skipped=list(skipped))
     out.write(rendered)
     if getattr(args, "ci", False):
-        write_summary((extra + "\n" if extra else "") + report.summary(ordered, command, list(skipped), title or f"ci {stage}"))
+        write_summary((extra + "\n" if extra else "") + report.summary(ordered, command, list(skipped), title))
     return 1 if any(each.severity == ERROR for each in ordered) else 0
 
 
@@ -518,12 +517,11 @@ STRUCTURE = {"ST01": "is a symbolic link", "ST02": "is a submodule", "ST03": "ha
              "ST04": "is too deep or too long"}
 
 
-def structure(root: str, names: Optional[Sequence[Tuple[str, str]]] = None) -> Dict[Tuple[str, str], Tuple[str, str]]:
-    """{(kind, name): (code, path)} for the units among `names` (every unit of the catalog when None) that hold a file the
-    structure rules refuse as unreadable (ST01 to ST04): the first such file of each. Read from the names of the files alone
-    (git's listing, or a walk that never follows a link), nothing is opened."""
+def structure(root: str) -> Dict[Tuple[str, str], Tuple[str, str]]:
+    """{(kind, name): (code, path)} for the units of the catalog that hold a file the structure rules refuse as unreadable (ST01 to
+    ST04): the first such file of each. Read from the names of the files alone (git's listing, or a walk that never follows a link),
+    nothing is opened."""
     from .plan import unit_of
-    wanted = None if names is None else set(names)
     found: Dict[Tuple[str, str], Tuple[str, str]] = {}
     try:
         entries = trees.FolderTree(root).entries()
@@ -532,7 +530,7 @@ def structure(root: str, names: Optional[Sequence[Tuple[str, str]]] = None) -> D
     for each in entries:
         code = store.refusal(each)
         unit = unit_of(each.path) if code in STRUCTURE else None
-        if unit is not None and (wanted is None or (unit.kind, unit.name) in wanted):
+        if unit is not None:
             found.setdefault((unit.kind, unit.name), (code, each.path))
     return found
 

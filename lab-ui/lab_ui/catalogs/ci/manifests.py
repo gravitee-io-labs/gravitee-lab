@@ -136,4 +136,4 @@ def main(argv, out, err, **seams) -> int:
         skipped += notes
         if args.format != "json":
             out.write("\n".join(lines(results)) + "\n" if results else "")
-    return conclude("manifests", problems, args, out, "make ci", skipped, title="Every image exists in its registry")
+    return conclude(problems, args, out, "make ci", skipped, title="Every image exists in its registry")

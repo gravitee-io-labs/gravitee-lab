@@ -162,7 +162,7 @@ def failures(output: str, js: bool = False) -> int:
     return max(count, 1)
 
 
-def ran_none(code: int, output: str) -> bool:
+def ran_none(output: str) -> bool:
     """Whether a run of unittest found no test at all: 'Ran 0 tests' (exit 5 from Python 3.12 on), or no `tests` folder in the
     image to start from. Read from the end of the output, where unittest says it: a test that prints such a line itself, or runs
     a unittest of its own, is not the run (the last `Ran N tests` is the run's, and the other cause is the last line)."""
@@ -179,23 +179,23 @@ def stopped(run: Runner, name: str) -> None:
     run(["docker", "rm", "-f", name], 60, None)
 
 
-def run_python(image: str, run: Runner, guide: Optional[str] = None, namer: Callable[[], str] = container_name) -> Tuple[str, int, str]:
+def run_python(image: str, run: Runner, guide: Optional[str] = None) -> Tuple[str, int, str]:
     """(passed or failed or none, how many failed, the output) of the Python tests of an image."""
-    name = namer()
+    name = container_name()
     code, out, err = run(python_command(image, guide, name), PYTHON_TIMEOUT, None)
     if code == 124:
         stopped(run, name)
     text = (out or "") + (err or "")
-    if code == 0 and not ran_none(code, text):
+    if code == 0 and not ran_none(text):
         return "passed", 0, text
-    if ran_none(code, text):
+    if ran_none(text):
         return "none", 0, text
     return "failed", failures(text), text
 
 
-def run_js(app: str, node: str, run: Runner, namer: Callable[[], str] = container_name) -> Tuple[str, int, str]:
+def run_js(app: str, node: str, run: Runner) -> Tuple[str, int, str]:
     """(passed or failed, how many failed, the output) of the JavaScript tests of an app, in the Node image."""
-    name = namer()
+    name = container_name()
     code, out, err = run(node_command(app, node, name), NODE_TIMEOUT, None)
     if code == 124:
         stopped(run, name)
@@ -223,17 +223,17 @@ def ensure_node(node: str, run: Runner, sleep: Callable[[float], None] = time.sl
 
 
 def run_app(app: str, image: str, run: Runner, node: Optional[str] = None, guide: Optional[str] = None,
-            tests: Optional[Tests] = None, namer: Callable[[], str] = container_name) -> Outcome:
+            tests: Optional[Tests] = None) -> Outcome:
     """Runs the tests of one app in its image: Python tests in the image, JavaScript tests in the Node image. An app with no
     tests is `none`. `node` is the Node image, which an app with JavaScript tests needs."""
     found = tests or has_tests(app)
     python = js = "none"
     failed, output = 0, ""
     if found.python:
-        python, count, text = run_python(image, run, guide, namer)
+        python, count, text = run_python(image, run, guide)
         failed, output = failed + (count if python == "failed" else 0), output + text
     if found.js:
-        js, count, text = run_js(app, node, run, namer)
+        js, count, text = run_js(app, node, run)
         failed, output = failed + (count if js == "failed" else 0), output + text
     if "failed" in (python, js):
         return Outcome("failed", failed, python, js, output)

@@ -165,26 +165,26 @@ class Counting(unittest.TestCase):
     def test_a_run_with_no_test_in_it(self):
         for text in ("Ran 0 tests in 0.000s\n\nNO TESTS RAN\n", "ImportError: Start directory is not importable: 'tests'\n",
                      "python: can't open file '/x': [Errno 2]"):
-            self.assertTrue(apptests.ran_none(5, text), text)
-        self.assertFalse(apptests.ran_none(0, "Ran 7 tests in 0.1s\n\nOK\n"))
+            self.assertTrue(apptests.ran_none(text), text)
+        self.assertFalse(apptests.ran_none("Ran 7 tests in 0.1s\n\nOK\n"))
 
     def test_a_line_a_test_printed_does_not_make_a_failing_run_one_with_no_test(self):
         # A test that runs a unittest of its own, or prints such a line: the run is the last `Ran N tests` and the last line
         nested = ("Ran 0 tests in 0.000s\n\nNO TESTS RAN\n.F\n" + UNITTEST_FAILED)
-        self.assertFalse(apptests.ran_none(1, nested))
+        self.assertFalse(apptests.ran_none(nested))
         self.assertEqual(apptests.run_python("img", lambda argv, timeout, cwd: (1, "", nested))[0], "failed")
         for text in ("ImportError: Start directory is not importable: 'tests'\nRan 3 tests in 0.1s\n\nFAILED (failures=1)\n",
                      "python: can't open file '/x': [Errno 2]\nRan 3 tests in 0.1s\n\nFAILED (failures=1)\n"):
             with self.subTest(text=text[:30]):
-                self.assertFalse(apptests.ran_none(1, text))
-        self.assertTrue(apptests.ran_none(5, "Ran 3 tests in 0.1s\n\nOK\nRan 0 tests in 0.000s\n\nNO TESTS RAN\n"))
+                self.assertFalse(apptests.ran_none(text))
+        self.assertTrue(apptests.ran_none("Ran 3 tests in 0.1s\n\nOK\nRan 0 tests in 0.000s\n\nNO TESTS RAN\n"))
 
     def test_the_line_of_a_megabyte_that_looks_like_the_other_cause_is_read_in_a_second(self):
         import time
         for text in ("python " * 150000 + "can't open file", "ImportError: Start directory is not importable" * 20000,
                      "python" * 170000 + ": can't open file"):
             start = time.process_time()
-            apptests.ran_none(1, text)
+            apptests.ran_none(text)
             self.assertLess(time.process_time() - start, 1.0)
 
     def test_a_megabyte_of_output_is_read_in_a_second(self):
@@ -193,7 +193,7 @@ class Counting(unittest.TestCase):
             start = time.process_time()
             apptests.failures(text)
             apptests.failures(text, True)
-            apptests.ran_none(1, text)
+            apptests.ran_none(text)
             self.assertLess(time.process_time() - start, 1.5)
 
 

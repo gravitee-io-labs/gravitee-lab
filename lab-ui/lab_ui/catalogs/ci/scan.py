@@ -265,7 +265,7 @@ def main(argv, out, err, **seams) -> int:
     if not prefix:
         if args.format != "json":
             out.write("Published images: catalog.yml names no registry in images, so nothing is published and nothing is scanned\n")
-        return conclude("scan-published", [], args, out, "catalog.py ci scan-published", [],
+        return conclude([], args, out, "catalog.py ci scan-published", [],
                         title="The published images have no flaw to fix")
     if not prefix.startswith(HOST + "/") or not REPOSITORY.fullmatch(prefix[len(HOST) + 1:]):
         raise Usage(f"catalog.yml images is {report.printable(prefix)[:80]}, which is not {HOST}/<owner>/<repository>")
@@ -284,7 +284,7 @@ def main(argv, out, err, **seams) -> int:
             out.write(f"Published images: {len(references) - len(missing)} scanned, {_to_fix(flaws)} flaws to fix\n")
     elif args.format != "json":
         out.write("Published images: this catalog builds no image under its prefix, so nothing is scanned\n")
-    return conclude("scan-published", problems, args, out, "catalog.py ci scan-published", skipped,
+    return conclude(problems, args, out, "catalog.py ci scan-published", skipped,
                     title="The published images have no flaw to fix")
 
 
@@ -312,4 +312,4 @@ def built_main(argv, out, err, **seams) -> int:
             out.write(f"Built images: {len(references) - len(missing)} scanned, {_to_fix(flaws)} flaws to fix\n")
     elif args.format != "json":
         out.write("Built images: the change builds no image, so nothing is scanned\n")
-    return conclude("scan-built", problems, args, out, "make ci", skipped, title="The images built have no flaw to fix")
+    return conclude(problems, args, out, "make ci", skipped, title="The images built have no flaw to fix")

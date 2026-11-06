@@ -326,7 +326,6 @@ class PlanResult(NamedTuple):
     images: List[str]
     problems: List[Problem]
     notes: List[str]
-    attest: bool
 
 
 def platforms_of(tree) -> Tuple[List[str], List[Problem]]:
@@ -335,7 +334,7 @@ def platforms_of(tree) -> Tuple[List[str], List[Problem]]:
     return [each["platform"] for each in (grid or {}).get("include", ())], problems
 
 
-def tag_gates(root: str, meta: dict, ref: Ref, sha: str, repository: str) -> List[Problem]:
+def tag_gates(root: str, meta: dict, ref: Ref, sha: str) -> List[Problem]:
     """PB01, PB02 and PB05 for a tag: what needs no network."""
     problems: List[Problem] = []
     have = meta.get("version", "")
@@ -354,7 +353,7 @@ def prefix_gate(meta: dict, repository: str) -> List[Problem]:
     return [] if have == wanted else [problem("PB05", "catalog.yml", x=report.printable(have or "none"), y=wanted)]
 
 
-def make_plan(root: str, ref: Ref, sha: str, repository: str, private: bool, event: str, seams: dict, out) -> PlanResult:
+def make_plan(root: str, ref: Ref, sha: str, repository: str, event: str, seams: dict, out) -> PlanResult:
     """The gates and the images of one run."""
     tree = trees.FolderTree(root)
     meta = catalog_meta(tree.text("catalog.yml") or "")
@@ -366,40 +365,40 @@ def make_plan(root: str, ref: Ref, sha: str, repository: str, private: bool, eve
     previous: Optional[str] = None
     why = ""
     if ref.kind == "tag":
-        problems += tag_gates(root, meta, ref, sha, repository)
+        problems += tag_gates(root, meta, ref, sha)
         if prefix:
             problems += prefix_gate(meta, repository)
         if problems:
-            return PlanResult([], problems, notes, not private)
+            return PlanResult([], problems, notes)
     else:
         if not prefix:
-            return PlanResult([], [], ["catalog.yml names no registry in images, so nothing is published"], not private)
+            return PlanResult([], [], ["catalog.yml names no registry in images, so nothing is published"])
         problems += prefix_gate(meta, repository)
         commit = head_commit(root, sha)
         if commit is not None and carries_tool_credit(commit):
             problems.append(problem("PB08", sha7=sha[:7]))
         if problems:
-            return PlanResult([], problems, notes, not private)
+            return PlanResult([], problems, notes)
         previous, why = last_successful_run(repository, call)
         if previous is not None and previous != sha and is_ancestor(root, sha, previous) is True:
             # A re-run of an old run, or a run that waited behind newer ones: what a run that came after it published includes this
             # commit, and publishing it again would move `latest` back to an old build
             return PlanResult([], [], [f"a run that succeeded after {sha[:7]} ({previous[:7]}) has published it: nothing is published "
-                                       "again"], not private)
+                                       "again"])
     if not wait_for_check(repository, sha, call, sleep, clock, out, seams.get("interval", POLL), seams.get("limit", LIMIT)):
-        return PlanResult([], [problem("PB03", sha7=sha[:7])], notes, not private)
+        return PlanResult([], [problem("PB03", sha7=sha[:7])], notes)
     if not prefix:   # (a tag of a catalog that publishes no image still has its release)
-        return PlanResult([], [], ["catalog.yml names no registry in images, so no image is published"], not private)
+        return PlanResult([], [], ["catalog.yml names no registry in images, so no image is published"])
     collected = collect(root, prefix, seams.get("lab"))
     problems += collected.problems
     notes += collected.notes
     names = [each.name for each in collected.images]
     if problems:
-        return PlanResult([], problems, notes, not private)
+        return PlanResult([], problems, notes)
     if ref.kind == "tag":
-        return PlanResult(names, [], notes + ["a tag publishes every image"], not private)
+        return PlanResult(names, [], notes + ["a tag publishes every image"])
     if event == "workflow_dispatch":
-        return PlanResult(names, [], notes + ["a manual run publishes every image"], not private)
+        return PlanResult(names, [], notes + ["a manual run publishes every image"])
     base = None
     if previous is not None:
         if is_ancestor(root, previous, sha) is True:
@@ -407,17 +406,17 @@ def make_plan(root: str, ref: Ref, sha: str, repository: str, private: bool, eve
         else:
             why = f"the last successful run ({previous[:7]}) is not an ancestor of {sha[:7]}"
     if base is None:
-        return PlanResult(names, [], notes + [f"{why}: every image is built"], not private)
+        return PlanResult(names, [], notes + [f"{why}: every image is built"])
     changed = planning.changed_files(root, base, sha)
     if changed is None:
-        return PlanResult(names, [], notes + [f"git could not say what changed since {base[:7]}: every image is built"], not private)
+        return PlanResult(names, [], notes + [f"git could not say what changed since {base[:7]}: every image is built"])
     if any(path in CONTROL for path in changed):
         return PlanResult(names, [], notes + [f"{', '.join(path for path in changed if path in CONTROL)} changed since "
-                                              f"{base[:7]}: every image is built"], not private)
+                                              f"{base[:7]}: every image is built"])
     places = touched_places(changed)
     chosen = [each.name for each in collected.images if affected(each, changed, places)]
     return PlanResult(chosen, [], notes + [f"{len(chosen)} of {len(names)} images have build files that changed since the last "
-                                           f"successful run ({base[:7]})"], not private)
+                                           f"successful run ({base[:7]})"])
 
 
 def booleans(text: str) -> bool:
@@ -442,12 +441,12 @@ def plan_main(argv, out, err, **seams) -> int:
         raise Unavailable("--github-output needs $GITHUB_OUTPUT, which only a workflow step has")
     root = os.path.abspath(args.path)
     try:
-        result = make_plan(root, ref, sha, repository, private, event, seams, err if args.format == "json" else out)
+        result = make_plan(root, ref, sha, repository, event, seams, err if args.format == "json" else out)
     except (gitx.CatalogError, gitx.OutputLimit) as error:
         raise Unavailable("git could not be run: " + report.printable(getattr(error, "message", None) or str(error))) from None
     failed = [each for each in result.problems if each.severity == ERROR]
     if args.format == "json":
-        out.write(json.dumps({"images": result.images, "count": len(result.images), "attest": result.attest,
+        out.write(json.dumps({"images": result.images, "count": len(result.images), "attest": not private,
                               "problems": [each._asdict() for each in result.problems], "notes": result.notes},
                              indent=2, sort_keys=True, ensure_ascii=True) + "\n")
     else:
@@ -464,7 +463,7 @@ def plan_main(argv, out, err, **seams) -> int:
         return 1
     if args.github_output:
         write_outputs({"images": json_line(result.images), "count": str(len(result.images)),
-                       "attest": "true" if result.attest else "false"})
+                       "attest": "false" if private else "true"})
     return 0
 
 
@@ -617,7 +616,7 @@ def main(argv, out, err, **seams) -> int:
     platforms, standard = platforms_of(tree)
     problems += standard
     if problems:
-        return finish(problems, [], args, out, err, "")
+        return finish(problems, [], args, out)
     collected = collect(root, prefix, seams.get("lab")) if wanted else Collected([], [], [])
     problems += collected.problems
     by_name = {each.name: each for each in collected.images}
@@ -629,7 +628,7 @@ def main(argv, out, err, **seams) -> int:
         if image.remote and any(each.partition("=")[0] == LICENSE_LABEL for each in image.labels):
             problems.append(problem("PB06", image.path, image=image.name))
     if problems:
-        return finish(problems, [], args, out, err, "")
+        return finish(problems, [], args, out)
     url = f"https://github.com/{owner}"
     license_ = meta.get("license", "")
     license_ = license_ if LICENSE.fullmatch(license_) else ""
@@ -645,7 +644,7 @@ def main(argv, out, err, **seams) -> int:
     if args.github_output:
         write_outputs({"records": json_line([{"digest": each.digest, "name": each.name} for each in
                                              sorted(records, key=lambda one: one.name)])})
-    return finish(outcome.problems, records, args, out, err, root, logs=outcome.logs)
+    return finish(outcome.problems, records, args, out, logs=outcome.logs)
 
 
 class Done(NamedTuple):
@@ -703,11 +702,11 @@ def publish_all(images: Sequence[Image], ref: Ref, sha: str, url: str, license_:
     return Done(problems, logs, records)
 
 
-def finish(problems: List[Problem], records: Sequence[Record], args, out, err, root: str, logs: Sequence[str] = ()) -> int:
+def finish(problems: List[Problem], records: Sequence[Record], args, out, logs: Sequence[str] = ()) -> int:
     for line in logs:
         out.write(line + "\n")
     extra = ""
     if getattr(args, "ci", False) and records:
         extra = "### Published\n\n" + "\n".join(f"- `{each.name.replace('`', '')}` {each.digest} ({', '.join(each.tags)})"
                                                   for each in records) + "\n"
-    return conclude("publish", problems, args, out, "make ci", title="Publish the images", extra=extra)
+    return conclude(problems, args, out, "make ci", title="Publish the images", extra=extra)

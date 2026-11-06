@@ -194,4 +194,4 @@ def main(argv, out, err, **seams) -> int:
     problems = scan(args.path, args.base, seams.get("runner"))
     out.write(("Secrets: no commit of the range holds one\n" if not problems else
                f"Secrets: {len(problems)} found in the commits of the range\n") if args.format == "text" else "")
-    return conclude("gitleaks", problems, args, out, "make ci", title="Secrets in every commit")
+    return conclude(problems, args, out, "make ci", title="Secrets in every commit")

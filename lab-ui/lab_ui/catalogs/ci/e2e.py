@@ -400,4 +400,4 @@ def gate_main(argv, out, err, **seams) -> int:
             problems.append(head_mismatch(pull_request_number(), head or "0" * 40, args.sha))
     if args.format != "json":
         out.write("The head of the pull request is the commit that was read\n" if not problems else "")
-    return conclude("e2e-gate", problems, args, out, "catalog.py ci e2e-gate", title="The change is the one that was read")
+    return conclude(problems, args, out, "catalog.py ci e2e-gate", title="The change is the one that was read")

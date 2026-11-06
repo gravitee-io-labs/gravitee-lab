@@ -162,4 +162,4 @@ def main(argv, out, err, **seams) -> int:
         for each in results:
             if each.outcome.status == "failed":
                 extra += f"\nThe last {TAIL} lines of the tests of `{cell(each.app)}`:\n\n" + fence(tail(each.outcome.output, TAIL))
-    return conclude("test", problems, args, out, "make ci", title="Test the apps", extra=extra)
+    return conclude(problems, args, out, "make ci", title="Test the apps", extra=extra)

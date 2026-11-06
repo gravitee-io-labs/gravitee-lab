@@ -401,4 +401,4 @@ def main(argv, out, err, **seams) -> int:
         extra = f"### Images built for {platform}\n\n" + (table(rows) if rows else "No image to build.\n")
         for image, lines in logs.items():
             extra += f"\nThe last {len(lines)} lines of the build of `{cell(image)}`:\n\n" + fence(lines)
-    return conclude("build", problems, args, out, "make ci", title="Build the apps", extra=extra)
+    return conclude(problems, args, out, "make ci", title="Build the apps", extra=extra)

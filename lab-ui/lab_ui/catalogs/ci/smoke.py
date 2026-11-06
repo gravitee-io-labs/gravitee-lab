@@ -527,4 +527,4 @@ def main(argv, out, err, **seams) -> int:
         extra = "### Units started\n\n" + (table(outcomes) if outcomes else "No unit to start.\n")
         for label, lines in logs.items():
             extra += f"\nThe last {len(lines)} lines of the log of `{label.replace('`', '')}`:\n\n" + fence(lines)
-    return conclude("smoke", problems, args, out, "make ci", title="Start what does not need the platform", extra=extra)
+    return conclude(problems, args, out, "make ci", title="Start what does not need the platform", extra=extra)
