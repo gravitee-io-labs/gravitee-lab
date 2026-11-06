@@ -2034,51 +2034,6 @@ class Fixtures(Shared):
             check.run()
         self.assertEqual(snapshot(self.root), before)
 
-    def test_the_report_is_text_annotations_or_a_list(self):
-        found, files = self.found("fixture"), check.catalog_files("fixture")
-        text = check.render(found, files)
-        self.assertIn("✓ addons/echo/compose.yml\n", text)
-        self.assertIn("✗ addons/port-core/compose.yml\n    publishes port 8082, like docker-compose.yml\n", text)
-        self.assertTrue(text.endswith("\n3 problems\n"))
-        annotations = check.render(found, files, "github")
-        self.assertIn("::error file=addons/port-core/compose.yml::publishes port 8082, like docker-compose.yml\n", annotations)
-        self.assertEqual(len(annotations.splitlines()), 3)
-        listed = json.loads(check.render(found, files, "json"))
-        self.assertEqual(listed, [{"file": where, "message": line} for where, line in found])
-        self.assertEqual(json.loads(check.render([], files, "json")), [])
-        self.assertEqual(check.render([], files, "github"), "")
-        self.assertEqual(check.render([], ["catalog.yml"]), "✓ catalog.yml\n\nAll good\n")
-
-
-class Annotations(unittest.TestCase):
-
-    def test_what_an_author_names_cannot_write_to_the_screen_that_shows_it(self):
-        found = [("addons/x\x1b[2Jy/compose.yml", "includes a\x1b]0;title\x07 file\x00")]
-        text = check.render(found, [])
-        self.assertNotIn("\x1b", text)
-        self.assertNotIn("\x07", text)
-        self.assertEqual(text, "✗ addons/x [2Jy/compose.yml\n    includes a ]0;title  file \n\n1 problem\n")
-        self.assertNotIn("\x1b", check.render(found, [], "github"))
-        self.assertEqual(json.loads(check.render(found, [], "json")), [{"file": found[0][0], "message": found[0][1]}],
-                         "JSON says every character it holds, escaped")
-
-    def test_a_name_that_is_no_utf_8_is_a_report_in_every_format_not_a_crash(self):
-        found = [("addons/\udcff/compose.yml", "includes a file that is \udcfe")]   # what listdir gives for bytes that are no UTF-8
-        for how in ("text", "github", "json"):
-            with self.subTest(how=how):
-                check.render(found, [], how).encode("utf-8")
-        self.assertEqual(len(json.loads(check.render(found, [], "json"))), 1)
-
-    def test_what_the_command_line_prints_keeps_its_lines_and_loses_what_moves_the_cursor(self):
-        self.assertEqual(check.printable("one\r\ntwo\x1b[2K\nthree\rfour\x07"), "one\ntwo [2K\nthree four ")
-        self.assertEqual(check.printable(""), "")
-        self.assertEqual(check.printable(None), "None")
-        self.assertEqual(check.printable("\u009b2J \u202e"), " 2J  ", "a C1 control and a direction override are spaces too")
-
-    def test_a_message_that_has_a_line_break_or_a_percent_sign_stays_one_annotation(self):
-        text = check.render([("a, b: c.yml", "50% of it\r\nis wrong")], [], "github")
-        self.assertEqual(text, "::error file=a%2C b%3A c.yml::50%25 of it%0D%0Ais wrong\n")
-
 
 class Hostile(Shared):
     """The hostile catalog (one unit for each rule of the trust policy), read through the project: what the policy gives for

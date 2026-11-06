@@ -39,7 +39,7 @@ from .. import paths
 from ..catalogs import defaults, gitx, manifest, registry, trust, understood
 from ..catalogs import store as bare
 from ..catalogs.registry import CatalogError
-from ..catalogs.report import ERROR, WARNING, Problem
+from ..catalogs.report import ERROR, WARNING, Problem, render
 from ..catalogs.rules import secrets
 from ..catalogs.tree import ListTree, read_inside
 from ..paths import CORE_FILE, KINDS, NOUNS, ROOT
@@ -1780,58 +1780,8 @@ def problems(sharing=None):
     return [*_noticed(project, raw, found, {CORE_FILE, sharing}), *found, *extra, *_skills(), *_agents(), *_gemini()]
 
 
-# ---------------------------------------------------------------------------------------------------------------------
-# Saying it
-# ---------------------------------------------------------------------------------------------------------------------
-
-def _data(text):
-    return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-
-
-def _property(text):
-    return _data(text).replace(":", "%3A").replace(",", "%2C")
-
-
-def _printable(text):
-    """A line for a terminal: what an author's file name or a message holds that is not printable (a control character, an
-    escape sequence) is a space, so that no name can write to the screen of the person who reads the report."""
-    return "".join(c if c.isprintable() else " " for c in str(text))
-
-
-def printable(text):
-    """A text for a terminal, line by line: what an author's file, name or message holds that is not printable (a control
-    character, an escape sequence, a carriage return) is a space, the line breaks kept. Everything the command line prints
-    goes through it, so that no catalog can write to the screen of the person who reads."""
-    return "\n".join(_printable(line) for line in str(text).replace("\r\n", "\n").split("\n"))
-
-
-def render(found, files, how="text"):
-    """The report of a check, as the text to print. `found` is [(file, what is wrong)], `files` the files to list even when
-    they are fine. `text`: a line for each file with a mark, its problems under it, then the verdict (what `make check`
-    prints); `github`: one `::error file=...::message` line for each problem, which a CI shows on the file; `json`: the list
-    of {file, message}."""
-    if how == "json":
-        return json.dumps([{"file": where, "message": message} for where, message in found], indent=2) + "\n"   # ASCII: a name that is no UTF-8 stays printable
-    found = [(_printable(where), _printable(message) if how == "text" else _printable_keeping_breaks(message))
-             for where, message in found]
-    if how == "github":
-        return "".join(f"::error file={_property(where)}::{_data(message)}\n" for where, message in found)
-    lines = []
-    for path in files + sorted({where for where, _ in found} - set(files)):
-        mine = [message for where, message in found if where == path]
-        lines.append(f"{'✗' if mine else '✓'} {path}")
-        lines += [f"    {message}" for message in mine]
-    lines.append(f"\n{len(found)} problem{'s' if len(found) != 1 else ''}" if found else "\nAll good")
-    return "\n".join(lines) + "\n"
-
-
-def _printable_keeping_breaks(text):
-    """As _printable, the line breaks of a message kept: an annotation of GitHub says them itself."""
-    return "".join(c if c.isprintable() or c in "\r\n" else " " for c in str(text))
-
-
 def run():
     """Prints the files with their problems, then the verdict. Returns the exit code: 1 when something is wrong."""
     found = problems()
-    print(render(found, [CORE_FILE]), end="")
+    print(render([Problem("", ERROR, where, 0, message) for where, message in found], checked=[CORE_FILE]), end="")
     return 1 if found else 0

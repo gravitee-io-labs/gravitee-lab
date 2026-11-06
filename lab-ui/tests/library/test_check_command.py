@@ -537,15 +537,6 @@ class Options(Folder):
         self.assertEqual(sorted(asjson[0]), ["code", "line", "message", "path", "severity"])
         self.assertEqual(self.check(folder, "--format", "json")[1], self.check(folder, "--format", "json")[1], "the same bytes")
 
-    def test_a_finding_with_no_code_is_an_annotation_with_no_title_and_one_with_a_code_has_it(self):
-        given = ("::error file=a.yml,title=::no code\n::error file=b.yml,line=3,title=ST05::coded\n::warning title=::no file\n"
-                 "::notice title=check::kept\n::error file=a%2Ctitle=::x,title=::message that says ,title=:: and  title=:: itself\n"
-                 "::error file=c.yml,title=::so does this ,title=:: one\n")
-        self.assertEqual(catalog._untitled(given),
-                         "::error file=a.yml::no code\n::error file=b.yml,line=3,title=ST05::coded\n::warning::no file\n"
-                         "::notice title=check::kept\n::error file=a%2Ctitle=::x,title=::message that says ,title=:: and  title=:: itself\n"
-                         "::error file=c.yml::so does this ,title=:: one\n")
-
     def test_ci_is_github_annotations_and_a_summary_in_the_file_the_runner_names(self):
         folder = self.catalog(files={".env": "A=1\n"})
         summary = self.work / "summary.md"
@@ -1045,7 +1036,6 @@ class Hostile(Folder):
         self.quick(check._hidden, "/tmp/x/" * (self.MEGABYTE // 7), folders)
         for text in (line, "Reads settings that are not its own: " + line, "Same name as " + line, "Needs " + line + ", which is blocked"):
             self.quick(check._blocked, text, ["T20", "T21", "T25", "T26"], "hub", "a.yml")
-        self.quick(catalog._tidy, line + "\n" + "     " + line + "\n" + line, [])
         self.quick(catalog._codes, [line])
         self.quick(catalog._codes, [",".join(["ST05"] * 100000)])
         self.quick(catalog._pull_number, "1" * self.MEGABYTE, "https://github.com/a/b.git")

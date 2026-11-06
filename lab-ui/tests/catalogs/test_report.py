@@ -155,6 +155,20 @@ class Renderings(unittest.TestCase):
         with self.assertRaises(ValueError):
             report.render([ERROR], "xml")
 
+    def test_a_finding_with_no_code_has_no_title_and_sends_to_no_explanation(self):
+        self.assertEqual("::error file=a.yml::no code", report.annotation(Problem("", "error", "a.yml", 0, "no code")))
+        self.assertEqual("::warning::no file", report.annotation(Problem("", "warning", "", 0, "no file")))
+        self.assertEqual("::error file=c.yml::says ,title=:: itself", report.annotation(Problem("", "error", "c.yml", 0, "says ,title=:: itself")))
+        bare = Problem("", "error", "a, b: c.yml", 0, "50% of it\r\nis wrong")
+        self.assertEqual("::error file=a%2C b%3A c.yml::50%25 of it%0D%0Ais wrong\n", report.render([bare], "github"))
+        self.assertEqual("✗ a, b: c.yml\n    50% of it  is wrong\n\n1 problem\n", report.render([bare], "text"))
+        self.assertEqual("1 problem, 1 warning. Run make explain CODE=DF22 for more.", report.verdict([bare, WARNING]))
+
+    def test_what_the_command_line_prints_keeps_its_lines_and_loses_what_moves_the_cursor(self):
+        self.assertEqual("one \ntwo [2K\nthree four ", report.printable("one\r\ntwo\x1b[2K\nthree\rfour\x07", "\n"))
+        self.assertEqual("None", report.printable(None))
+        self.assertEqual(" 2J  ", report.printable("\u009b2J \u202e"), "a C1 control and a direction override are spaces too")
+
     def test_a_finding_that_cannot_be_printed_is_printable(self):
         text = report.render([Problem("ST03", "error", "bad\udcffname", 0, "bad\udcffname has a name the Lab cannot install.")], "text")
         text.encode("utf-8")
