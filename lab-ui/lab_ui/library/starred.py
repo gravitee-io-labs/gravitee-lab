@@ -6,7 +6,7 @@ import json
 from . import moves
 from .. import paths
 
-FILE = ".lab/starred.json"   # {kind: [ids]}, relative to the project
+FILE = moves.STARRED   # {kind: [ids]}, relative to the project
 
 
 def read():

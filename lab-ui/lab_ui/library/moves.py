@@ -46,7 +46,7 @@ HELD = f"{paths.LAB_DIR}/held"   # the settings of an item that is in no install
 PRIVATE = (MIGRATION, HELD)   # folders only the person reads: whatever is made inside them is 0700
 STARRED = f"{paths.LAB_DIR}/starred.json"
 TESTED = f"{paths.LAB_DIR}/tested.json"
-TESTED_KEPT = 20   # per playground, as tested.KEPT: the latest sets
+TESTED_KEPT = 20   # per playground: the latest sets
 # What a whole entry is at the top of a held folder: a folder of seed records or of credential files moves in one piece
 # and is never merged into another, since records are not meant to be mixed. Any other folder is a container.
 WHOLE = (".state", "secrets")
@@ -137,11 +137,6 @@ def _discard(path):
             else:
                 os.rmdir(full)
     os.rmdir(path)
-
-
-# The three helpers other modules of the Lab share with this one (the migration calls them), under names that are not private.
-# The private names work as they always did: they are the same functions.
-step, parents, discard = _step, _parents, _discard
 
 
 # ---------------------------------------------------------------------------------------------------------------------

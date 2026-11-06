@@ -11,8 +11,8 @@ from ..docker import compose
 from . import layers, moves
 from .. import paths
 
-FILE = f"{paths.LAB_DIR}/tested.json"   # relative to the project
-KEPT = 20   # per playground: the latest ones
+FILE = moves.TESTED   # relative to the project
+KEPT = moves.TESTED_KEPT
 
 
 def read():

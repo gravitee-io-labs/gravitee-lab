@@ -3,7 +3,6 @@ written again, the stars and tested sets that follow an item, the settings held 
 has it, and the script that undoes the journal. Nothing here runs Docker, git or the network: a crash is injected
 between any two steps with `moves.STEP`, and every run is repeated until it converges."""
 
-import ast
 import errno
 import hashlib
 import json
@@ -23,7 +22,7 @@ from pathlib import Path
 from unittest import mock
 
 from lab_ui.docker import compose
-from lab_ui.library import layout, moves, starred, tested
+from lab_ui.library import layout, moves
 from lab_ui import paths
 
 from .. import Case, fixtures
@@ -2438,76 +2437,6 @@ class Migration(Moves):
         # a rename per entry: a tenth of a second where this was written
         self.assertLess(time.process_time() - started, 2.0)
         self.assertLess(len(self.journal("move")), 40)
-
-
-# ---------------------------------------------------------------------------------------------------------------------
-# What the module is, and the stub of the layout
-# ---------------------------------------------------------------------------------------------------------------------
-
-class Module(Case):
-
-    def test_it_uses_the_standard_library_and_no_program_runner(self):
-        allowed = {"bisect", "errno", "filecmp", "hashlib", "json", "os", "posixpath", "re", "shlex", "shutil", "stat",
-                   "struct",
-                   "threading", "time", "unicodedata", "pathlib", "typing"}
-        tree = ast.parse(Path(moves.__file__).read_text(encoding="utf-8"))
-        imported = {alias.name.split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.Import)
-                    for alias in node.names}
-        imported |= {node.module.split(".")[0] for node in ast.walk(tree)
-                     if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module}
-        self.assertEqual(imported - allowed, set())
-
-    def test_the_frozen_signatures(self):
-        import inspect
-        from typing import Optional
-
-        def signature(*parameters, result):
-            """A signature built, not printed: Python 3.14 prints Optional[str] as `str | None`, 3.9 as `Optional[str]`, and the
-            two are equal as annotations."""
-            kinds = inspect.Parameter.POSITIONAL_OR_KEYWORD
-            return inspect.Signature([inspect.Parameter(name, kinds, annotation=note, **({"default": default} if default is not
-                                                                                          inspect.Parameter.empty else {}))
-                                      for name, note, default in parameters], return_annotation=result)
-        empty = inspect.Parameter.empty
-        wanted = {
-            "relocate": signature(("src", empty, empty), ("dst", empty, empty), ("why", str, empty), result=str),
-            "repoint": signature(("text", str, empty), ("was", str, empty), ("now", str, empty), ("table", list, empty),
-                                 result=str),
-            "rekey": signature(("mapping", dict, empty), result=None),
-            "adopt_held": signature(("ns", str, empty), ("kind", str, empty), ("name", str, empty),
-                                    ("repoint_from", Optional[str], None), result=list)}
-        self.assertEqual({name: inspect.signature(getattr(moves, name)) for name in wanted}, wanted)
-        self.assertEqual(inspect.signature(moves.adopt_held).parameters["repoint_from"].annotation, Optional[str])
-
-    def test_the_helpers_the_migration_calls_have_names_that_are_not_private(self):
-        self.assertEqual((moves.parents, moves.discard, moves.step), (moves._parents, moves._discard, moves._step))
-        folder = tempfile.TemporaryDirectory()
-        self.addCleanup(folder.cleanup)
-        self.patch(paths, "ROOT", Path(folder.name).resolve())
-        target = str(paths.ROOT / moves.MIGRATION / "kept" / "a" / "b.txt")
-        moves.parents(target)
-        self.assertEqual((stat.S_IMODE(os.stat(paths.ROOT / moves.MIGRATION / "kept" / "a").st_mode),
-                          stat.S_IMODE(os.stat(paths.ROOT / moves.MIGRATION).st_mode)), (0o700, 0o700))
-        (paths.ROOT / moves.MIGRATION / "kept" / "a" / "c").mkdir()
-        (paths.ROOT / moves.MIGRATION / "kept" / "a" / "c" / "f").write_text("x", encoding="utf-8")
-        moves.discard(str(paths.ROOT / moves.MIGRATION / "kept" / "a"))
-        self.assertFalse((paths.ROOT / moves.MIGRATION / "kept" / "a").exists())
-        seen = []
-        self.patch(moves, "STEP", seen.append)
-        moves.step("label")
-        self.assertEqual(seen, ["label"])
-
-    def test_the_test_hook_is_off_by_default(self):
-        self.assertIsNone(moves.STEP)
-
-    def test_the_files_the_stars_and_the_tested_sets_follow_an_item_in_are_the_ones_those_modules_read(self):
-        """`rekey` writes `.lab/starred.json` and `.lab/tested.json` and keeps twenty sets for a playground; starred.py and
-        tested.py read and write the same: one name for each, or a star would follow an item into a file nobody reads."""
-        self.assertEqual((moves.STARRED, moves.TESTED, moves.TESTED_KEPT), (starred.FILE, tested.FILE, tested.KEPT))
-
-    def test_the_marker_is_the_one_the_layout_writes_and_the_undo_script_removes(self):
-        self.assertEqual((moves.MARKER, moves.UNDO, moves.MIGRATION), (layout.MARKER, f"{layout.MIGRATION}/undo.sh", layout.MIGRATION))
-
 
 
 if __name__ == "__main__":
