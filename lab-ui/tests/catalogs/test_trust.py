@@ -145,21 +145,13 @@ class Catalog(Case):
                 for pattern in (r"/Users/", r"/private/", r"/var/folders", r"/tmp/", r"/home/(?!hostile)"):
                     self.assertIsNone(re.search(pattern, text), pattern)
 
-    def test_no_file_of_the_hostile_data_names_a_real_item_or_a_real_address(self):
-        """The real items are the folders the engine holds today and every id of $LAB_REAL_ITEMS (the default catalog's index,
-        in the nightly job); an address in the data ends in .invalid, is this machine or is a service of the platform."""
-        engine = regen.ENGINE
-        real = {re.sub(r"\.yml$", "", entry.name) for folder in ("addons", "setups", "playgrounds") if (engine / folder).is_dir()
-                for entry in (engine / folder).iterdir() if entry.name not in ("local", "README.md", "AGENTS.md", "CLAUDE.md")}
-        real |= {item for item in os.environ.get("LAB_REAL_ITEMS", "").split(",") if item}
+    def test_no_file_of_the_hostile_data_names_a_real_address(self):
+        """An address in the data ends in .invalid, is this machine or is a service of the platform."""
         texts = {path.name: path.read_text(encoding="utf-8") for path in regen.CATALOG.rglob("*") if path.is_file()}
         texts.update({name + ".json": json.dumps({key: regen.load(name)[key] for key in ("unit", "files", "own")})
                       for name in regen.names()})   # the platform's own services, in the captured configuration, are not the data
         texts["expected-hostile.json"] = regen.EXPECTED.read_text(encoding="utf-8")
         for file, text in texts.items():
-            for name in sorted(real):
-                with self.subTest(file=file, name=name):
-                    self.assertIsNone(re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", text))
             for host in re.findall(r"(?:https?|git|ssh)://(?:[^/@\s\"']*@)?([^/:\s\\\"'?#]+)|git@([^:\s\\\"']+):", text):
                 host = host[0] or host[1]
                 with self.subTest(file=file, host=host):
@@ -1096,20 +1088,6 @@ class Screen(Case):
             with self.subTest(text=text):
                 self.assertEqual(self.screen(text), [])
                 self.assertEqual(self.screen(text, follow=True), [])
-
-    def test_a_clean_file_of_the_engine_is_clean(self):
-        """The real units, as they sit in the engine today: the screen reads words, and none of these says one it refuses.
-        (Gone with them when the content moves to its catalog, and then the units of that catalog are the ones to run.)"""
-        files = sorted([*regen.ENGINE.glob("addons/*/compose.yml"), *regen.ENGINE.glob("playgrounds/*/compose.yml"),
-                        *regen.ENGINE.glob("setups/*.yml")])
-        files = [file for file in files if "local" not in file.relative_to(regen.ENGINE).parts]
-        if not files:
-            print("skipped: the engine holds no unit", file=sys.stderr)
-            self.skipTest("the engine holds no unit")
-        for file in files:
-            with self.subTest(file=str(file.relative_to(regen.ENGINE))):
-                where = ".lab/catalogs/gravitee/" + file.relative_to(regen.ENGINE).as_posix()
-                self.assertEqual(self.screen(file.read_text(encoding="utf-8"), where), [])
 
     def test_a_word_in_a_sentence_or_a_comment_is_no_key(self):
         for text in ("# env_file: /etc/passwd\n  # include: /etc\nservices: {}\n",

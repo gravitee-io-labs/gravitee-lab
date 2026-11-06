@@ -1,7 +1,6 @@
 """DF, Dockerfiles. For each code one failing fixture in which only that code fires, and one that passes; the message
 equals. The file is read as text: continued lines, here-documents, parser directives, `ONBUILD`, the `ARG` of a base
-image and the stages of the file. The 13 Dockerfiles of the engine give no error, 14 DF22 and 12 DF23 (the calibration of the
-standard). A line of a megabyte finishes in under a second."""
+image and the stages of the file. A line of a megabyte finishes in under a second."""
 
 import subprocess
 import unittest
