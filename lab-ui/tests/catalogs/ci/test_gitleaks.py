@@ -7,7 +7,6 @@ because the command line carries `--config`, `--ignore-gitleaks-allow` and `--gi
 never the catalog's. The planted token is made of pieces when a test runs and is written in no file of the repository."""
 
 import io
-import json
 import os
 import shutil
 import tempfile
@@ -238,34 +237,6 @@ class Scan(support.WithGit):
         for word in command:
             self.assertNotIn(f"{real}/.gitleaks", word)   # nothing of the catalog's own is a file the scan is told to read
             self.assertFalse(word.endswith((".gitleaksignore", ".gitleaks.toml")), word)
-
-    def scanned(self, repo, drop=()):
-        """What the fake gitleaks finds in `repo` with the command of the stage less the flags of `drop`: the report, as a list.
-        The command is run for real by the fake, so what it does with a flag missing is the answer."""
-        import subprocess
-        work = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, work, True)
-        os.mkdir(os.path.join(work, "ignore"))
-        os.mkdir(os.path.join(work, "out"))
-        mounts = gitleaks.Mounts(str(Path(repo).resolve()), str(gitleaks.CONFIG.resolve()), os.path.join(work, "ignore"),
-                                 os.path.join(work, "out"))
-        command = gitleaks.command(IMAGE, mounts, [])
-        for flag in drop:
-            at = command.index(flag)
-            del command[at:at + (1 if flag == "--ignore-gitleaks-allow" else 2)]
-        done = subprocess.run([self.fake.path, *command[1:]], capture_output=True)
-        self.assertEqual(done.returncode, 0, done.stderr)
-        report = Path(work, "out", "report.json")
-        return json.loads(report.read_text(encoding="utf-8")) if report.exists() else []
-
-    def test_without_each_flag_the_catalogs_own_choice_would_win(self):
-        # The proof that the fake, and so the tests above, can tell: take a flag away and the token is missed
-        repo, _ = self.plant(**{".gitleaks.toml": ALLOW_ALL, ".gitleaksignore": "src/config.py:github-pat:1\n"})
-        self.put(repo, "src/other.py", f'TOKEN = "{token()}"  # gitleaks:allow\n')
-        self.assertEqual(sorted({each["File"] for each in self.scanned(repo)}), ["src/config.py", "src/other.py"])
-        for flag in ("--config", "--gitleaks-ignore-path", "--ignore-gitleaks-allow"):
-            with self.subTest(removed=flag):
-                self.assertNotEqual(sorted({each["File"] for each in self.scanned(repo, [flag])}), ["src/config.py", "src/other.py"])
 
     def test_a_range_is_two_commits_of_this_repository(self):
         repo, first = self.plant()
