@@ -222,15 +222,14 @@ class Clock:
     """Time that moves only when something sleeps: a seed that waits for a platform that never answers ends at once."""
 
     def __init__(self):
-        self.sleeps, self.elapsed = [], 0.0
-        self._time = time.time
+        self.sleeps, self.elapsed, self.started = [], 0.0, time.time()
 
     def sleep(self, seconds):
         self.sleeps.append(seconds)
         self.elapsed += seconds
 
     def time(self):
-        return self._time() + self.elapsed
+        return self.started + self.elapsed
 
 
 class Seed(unittest.TestCase):

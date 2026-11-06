@@ -1116,8 +1116,7 @@ class Waiting(Playground):
         with self.assertRaisesRegex(common.SeedError, r"^ACME LLM does not answer on the gateway: its AI models are downloaded "
                                                       r"from huggingface.co at the first deployment$"):
             apim.seed()
-        # the deadline is the real time plus the fake one: a slow machine ends it a look sooner, never a look later
-        self.assertTrue(30 - apim.LOOK_AGAIN <= self.clock.elapsed <= 30 + apim.LOOK_AGAIN, self.clock.elapsed)
+        self.assertTrue(30 <= self.clock.elapsed <= 30 + apim.LOOK_AGAIN, self.clock.elapsed)
 
     def test_another_api_that_never_answers_says_no_more_than_that(self):
         self.gateway(open=NO_API)
@@ -1174,8 +1173,7 @@ class Waiting(Playground):
         self.chat((401, {"message": "Invalid ApiKey"}))
         with self.assertRaisesRegex(common.SeedError, "ACME LLM does not answer a chat with LLM_PROBE_KEY: HTTP 401 .*Invalid ApiKey"):
             apim.seed()
-        # the deadline is the real time plus the fake one: a slow machine ends it a look sooner, never a look later
-        self.assertTrue(30 - apim.LOOK_AGAIN <= self.clock.elapsed <= 30 + apim.LOOK_AGAIN, self.clock.elapsed)
+        self.assertTrue(30 <= self.clock.elapsed <= 30 + apim.LOOK_AGAIN, self.clock.elapsed)
 
     def test_a_cache_that_never_answers_ends_the_seed_with_what_to_check(self):
         self.env(LLM_PROBE_KEY="dev-key-0001")
@@ -2233,8 +2231,7 @@ class ManyEnvironments(Estates):
                            ("GET", GATEWAY + "/events/novo/batch-status/"): NO_API})
         with self.assertRaisesRegex(common.SeedError, r"^Batch status \[novo\] does not answer on the gateway$"):
             apim.seed()
-        # the deadline is the real time plus the fake one: a slow machine ends it a look sooner, never a look later
-        self.assertTrue(30 - apim.LOOK_AGAIN <= self.clock.elapsed <= 30 + apim.LOOK_AGAIN, self.clock.elapsed)
+        self.assertTrue(30 <= self.clock.elapsed <= 30 + apim.LOOK_AGAIN, self.clock.elapsed)
 
     def test_a_removal_leaves_alone_what_an_environment_that_is_gone_held_and_still_deletes_the_users(self):
         self.run_seed()
