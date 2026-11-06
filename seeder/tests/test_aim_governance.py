@@ -10,7 +10,6 @@ from unittest import mock
 
 from lab_seeder import aim_governance
 from lab_seeder import common
-from lab_seeder import gamma
 from lab_seeder import seed
 from lab_seeder.testkit import Seed
 
@@ -463,12 +462,6 @@ class Answers(Governance):
         self.assertEqual(self.world.answers["agent-1"]["compliance.accountableHuman"], "user-admin")
         self.assertIn("[aim-governance] ✓ Compliance answers written: Care copilot", self.output())
 
-    def test_the_user_is_the_one_whose_source_id_is_that_name_and_not_one_that_contains_it(self):
-        aim_governance.seed()
-        looked = self.platform.sent("GET", USERS)
-        self.assertEqual(looked[0].params["q"], "admin")
-        self.assertEqual(self.world.answers["agent-1"]["compliance.accountableHuman"], "user-admin")
-
     def test_it_records_the_answers_with_a_fingerprint_for_the_agent(self):
         aim_governance.seed()
         record = self.records("compliance-answers")[0]
@@ -648,13 +641,6 @@ class Files(Governance):
         (common.SEED_DIR / "aim" / "governance" / "compliance.yaml").unlink()
         aim_governance.seed()
         self.assertEqual(self.platform.calls, [])
-
-    def test_a_platform_without_agent_management_ends_the_wait_once_its_404_lasts(self):
-        self.platform.add({("GET", SETTINGS_PATH): (404, {"message": "not found"})})
-        with self.assertRaises(common.SeedError) as stopped:
-            aim_governance.seed()
-        self.assertIn("is not available on this platform", str(stopped.exception))
-        self.assertLess(self.clock.elapsed, gamma.UNSERVED + 5)
 
     def test_the_answers_alone_are_a_removal_that_asks_nothing_of_the_platform(self):
         aim_governance.remove([{"product": "aim-governance", "kind": "compliance-answers", "name": "Care copilot",

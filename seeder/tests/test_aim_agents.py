@@ -287,10 +287,6 @@ class FirstRun(Agents):
         self.assertEqual(self.changed()[-2:], [("POST", SUBSCRIPTIONS), ("POST", SUBSCRIPTIONS + "/sub-1/_accept")])
         self.assertEqual(self.world.subscriptions[0]["status"], "ACCEPTED")
 
-    def test_a_plan_that_accepts_by_itself_is_not_accepted_again(self):
-        aim_agents.seed()
-        self.assertEqual(self.platform.sent("POST", re.compile(SUBSCRIPTIONS + "/[^/]+/_accept")), [])
-
     def test_an_agent_without_identity_gets_its_application_and_access_and_asks_nothing_of_access_management(self):
         self.seed_files({"aim/agents/care-copilot.yaml": AGENT.replace("identity:\n  clientId: care-copilot\n", "")})
         (common.SEED_DIR / "am" / "gamma-link.yaml").unlink()

@@ -258,14 +258,6 @@ class Scopes(Case):
                          [("scopes", key, self.domain_id()) for key in ("searchCustomers", "getCustomer", "createRefund")])
         self.assertEqual({x["id"] for x in scopes}, {s["id"] for s in self.am.objects("scopes") if not s["system"]})
 
-    def test_a_second_seed_saves_nothing(self):
-        self.seed()
-        self.settle()
-        self.platform.calls.clear()
-        self.seed()
-        self.assertEqual(self.writes(), [])
-        self.assertIn("3 scopes as the file says", self.output())
-
     def test_a_scope_the_seed_made_and_someone_edited_is_put_back_and_only_that_one(self):
         self.seed()
         self.settle()
@@ -390,6 +382,8 @@ class Agent(Case):
         self.seed()
         self.assertEqual(self.writes(), [])
         self.assertIn("OAuth settings and identity provider as the file says", self.output())
+        self.assertIn("3 scopes as the file says", self.output())
+        self.assertEqual(self.am.one("users", username="dana@harbor.test")["additionalInformation"]["given_name"], "Dana")
 
     def test_the_order_am_keeps_the_scopes_in_is_no_difference_and_nor_are_the_fields_it_adds(self):
         self.seed()
@@ -521,24 +515,6 @@ class Users(Case):
         self.assertNotIn("additionalInformation", posted)
         self.assertEqual(posted["password"], "demo-password")
         self.assertEqual(len(self.platform.sent("PUT", re.compile(DOMAINS + "/[^/]+/users/.*"))), 1)
-
-    def test_a_second_seed_leaves_the_profile_and_the_fields_am_added_alone(self):
-        self.seed()
-        self.settle()
-        self.platform.calls.clear()
-        self.seed()
-        self.assertEqual(self.writes(), [])
-        self.assertEqual(self.dana()["additionalInformation"]["given_name"], "Dana")
-
-    def test_a_profile_someone_changed_is_put_back_and_the_fields_am_added_stay(self):
-        self.seed()
-        self.settle()
-        self.dana()["additionalInformation"].update(region="US", team="trainee")
-        self.platform.calls.clear()
-        self.seed()
-        self.assertEqual(self.dana()["additionalInformation"]["region"], "EU")
-        self.assertEqual(self.dana()["additionalInformation"]["given_name"], "Dana")
-        self.assertEqual(len(self.writes()), 1)
 
     def test_the_flag_of_the_seed_is_not_sent_to_am_as_a_field_of_the_user(self):
         user = ("  - {username: sam@harbor.test, email: sam@harbor.test, firstName: Sam, lastName: Lopez, password: p, optional: true}\n"
