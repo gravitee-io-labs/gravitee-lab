@@ -32,6 +32,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, NamedTuple, Optional, Tuple
 from urllib.parse import quote
 
+from .standard import LEVEL
+
 ACTIONS_APP_ID = 15368            # the integration id of GitHub Actions: only a workflow can pass the required check
 REQUIRED_CHECK = "Catalog CI result"
 TOPIC = "gravitee-lab-catalog"
@@ -48,11 +50,9 @@ DOCKER_PATTERNS = ("docker/*",)
 # The Lab's own copy of the rulesets: the managed files of the template, applied as they are
 RULESETS = Path(__file__).resolve().parents[2] / "templates" / "catalog" / "managed" / ".github" / "rulesets"
 PUSH_RULE_TYPES = ("file_path_restriction", "file_extension_restriction", "max_file_size", "max_file_path_length")
-COMPANIONS = {"main": "history", "tags": "tag_history"}
-OPTIONAL_RULESETS = ("history", "tag_history")   # standard 7 brought them: a template of an older standard has none   # the ruleset that keeps the history of what the first one guards
+COMPANIONS = {"main": "history", "tags": "tag_history"}   # the ruleset that keeps the history of what the first one guards
 RULESET_FILES = {"main": "default-branch.json", "tags": "tags.json", "push": "push.json", "paths": "protected-paths.json",
                  "history": "history.json", "tag_history": "tag-history.json"}
-RULESET_LIMIT = 64 * 1024
 
 OK, FAIL, WARN, NA, MANUAL = "ok", "fail", "warn", "n.a.", "manual"
 STATUSES = (FAIL, WARN, OK, NA, MANUAL)
@@ -184,7 +184,7 @@ class Finding(NamedTuple):
 
 class Findings(list):
     """The findings of one audit, in the order of the table of 7.5. `repo` is the repository, `about` how it is described
-    (`private, user-owned`), `level` the standard it is audited against (None when the Lab has no template here),
+    (`private, user-owned`), `level` the standard it is audited against,
     `inapplicable` the ids whose `n.a.` says the rule does not apply to this repository, which is not a plan that falls short
     of the standard, and `optional` the ids whose `warn` is about something the plan sells and the standard does not ask
     for there (secret scanning on a private repository): `--strict` leaves both alone."""
@@ -376,44 +376,15 @@ def _in_githubs_form(body: dict) -> None:
                                                     for each in params["restricted_file_extensions"]]
 
 
-def load_rulesets(folder: Optional[Path] = None) -> Tuple[Dict[str, dict], str]:
-    """({key: ruleset}, "") from the Lab's template with `_managed` taken off, or ({}, why not). Only the four files of the
-    template are read, and a link that leads out of the folder is not followed."""
-    folder = Path(RULESETS if folder is None else folder)
+def load_rulesets() -> Dict[str, dict]:
+    """{key: ruleset} from the Lab's own template, with `_managed` taken off."""
     found = {}
-    try:
-        root = os.path.realpath(folder)
-        for key, name in RULESET_FILES.items():
-            if key in OPTIONAL_RULESETS and not os.path.lexists(folder / name):
-                continue   # a template before standard 7
-            real = os.path.realpath(folder / name)
-            if os.path.dirname(real) != root:
-                return {}, f"{name} is not in the template's folder"
-            with open(real, "rb") as handle:
-                raw = handle.read(RULESET_LIMIT + 1)
-            if len(raw) > RULESET_LIMIT:
-                return {}, f"{name} is over {RULESET_LIMIT // 1024} KB"
-            body = json.loads(raw.decode("utf-8"))
-            if not isinstance(body, dict) or not isinstance(body.get("name"), str) or \
-                    body.get("target") not in ("branch", "tag", "push") or not isinstance(body.get("rules"), list):
-                return {}, f"{name} is not a ruleset"
-            body.pop("_managed", None)
-            _in_githubs_form(body)
-            found[key] = body
-    except (OSError, ValueError) as error:
-        return {}, f"the rulesets of the template could not be read ({type(error).__name__})"
-    return found, ""
-
-
-def template_level(folder: Optional[Path] = None) -> Optional[int]:
-    """The standard that the rulesets of the template say they are managed by (the number in their `_managed` line)."""
-    try:
-        with open(Path(RULESETS if folder is None else folder) / RULESET_FILES["main"], "rb") as handle:
-            body = json.loads(handle.read(RULESET_LIMIT).decode("utf-8"))
-    except (OSError, ValueError):
-        return None
-    found = re.search(r"standard (\d+)", str(as_dict(body).get("_managed")))
-    return int(found.group(1)) if found else None
+    for key, name in RULESET_FILES.items():
+        body = json.loads((RULESETS / name).read_text(encoding="utf-8"))
+        body.pop("_managed", None)
+        _in_githubs_form(body)
+        found[key] = body
+    return found
 
 
 def parse_standard(data) -> Standard:
@@ -513,7 +484,7 @@ class _Audit:
         self.protected_paths_ok = False
         self.secret_state = ""
         self.listing_reply = Reply(200, None)
-        self._templates = None
+        self.templates = load_rulesets()
         self._listing = None
         self._standard = False
 
@@ -554,7 +525,7 @@ class _Audit:
         branch = meta.get("default_branch")
         self.default = branch if isinstance(branch, str) and BRANCH_NAME.fullmatch(branch) else None
         self.found.repo = self.repo
-        self.found.level = template_level()
+        self.found.level = LEVEL
         self.found.about = f"{self.visibility}, {'organization' if self.org else 'user'}-owned" + \
             (f", audited as {self.profile}" if asked and asked != self.visibility else "")
 
@@ -582,17 +553,10 @@ class _Audit:
         except (ValueError, binascii.Error, RecursionError):      # a contributor's file: brackets nested deeper than Python reads
             return Standard(None, None, "it is not JSON")
 
-    def templates(self) -> Tuple[Dict[str, dict], str]:
-        if self._templates is None:
-            self._templates = load_rulesets()
-        return self._templates
-
-    def ruleset(self, key: str, solo: Optional[bool] = None) -> Optional[dict]:
+    def ruleset(self, key: str, solo: Optional[bool] = None) -> dict:
         """The template's ruleset `key` as it is applied here: `main` with the administrator bypass under --solo and with
         the checks the caller named."""
-        body = copy.deepcopy(self.templates()[0].get(key))
-        if body is None:
-            return None
+        body = copy.deepcopy(self.templates[key])
         if key == "main":
             keys = [dict(DEPLOY_KEY)] if DEPLOY_KEY in body.get("bypass_actors", []) else []
             if self.solo if solo is None else solo:
@@ -608,17 +572,19 @@ class _Audit:
 
     def ruleset_fix(self, key: str, solo: Optional[bool] = None):
         """The request that makes the template's ruleset `key` the one in force: the replacement of the ruleset of its name
-        when there is one, else its creation (`apply` asks again before it sends). Words when the template cannot be read. The
-        rulesets of main and of the tags come with their history (COMPANIONS): a deploy key passes the first, never the second."""
-        body = self.ruleset(key, solo)
-        if body is None:
-            return f"The Lab's rulesets are not here: {self.templates()[1] or 'update the Lab'}."
-        found = [self._ruleset_request(body)]
-        companion = self.ruleset(COMPANIONS[key]) if key in COMPANIONS else None
-        if companion is not None and not any(item["name"] == companion["name"] and item["target"] == companion["target"]
-                                             and item["source"] == "Repository" for item in self.rulesets()):
-            found.append(self._ruleset_request(companion))
+        when there is one, else its creation (`apply` asks again before it sends). The rulesets of main and of the tags come with
+        their history (COMPANIONS): a deploy key passes the first, never the second."""
+        found = [self._ruleset_request(self.ruleset(key, solo))]
+        if key in COMPANIONS:
+            found += self._companion(key)
         return found
+
+    def _companion(self, key: str) -> list:
+        """The request that creates the history ruleset of `key`, when the repository does not have it."""
+        body = self.ruleset(COMPANIONS[key])
+        have = any(item["name"] == body["name"] and item["target"] == body["target"] and item["source"] == "Repository"
+                   for item in self.rulesets())
+        return [] if have else [self._ruleset_request(body)]
 
     def _ruleset_request(self, body):
         for item in self.rulesets():
@@ -1070,9 +1036,7 @@ class _Audit:
                 self.add(id, OK)
             else:
                 self.add(id, FAIL, now="missing", fix=fix)
-        template = as_dict(self.templates()[0].get("main"))
-        want = {rule["type"]: as_dict(rule.get("parameters")) for rule in as_list(template.get("rules"))
-                if isinstance(rule, dict) and isinstance(rule.get("type"), str)}
+        want = {rule["type"]: rule.get("parameters", {}) for rule in self.templates["main"]["rules"]}
         self.pull_request(by_type, want, fix)
         self.checks(by_type, want, fix)
         if not self.effective_only:
@@ -1082,8 +1046,6 @@ class _Audit:
             self.push_rules()
 
     def pull_request(self, by_type, want, fix):
-        if "pull_request" not in want:
-            return self.add("rules.pull_request", MANUAL, now=self.templates()[1] or "the template has no pull_request rule")
         if "pull_request" not in by_type:
             return self.add("rules.pull_request", FAIL, now="missing", fix=fix)
         unmet = _unmet("pull_request", want["pull_request"], by_type["pull_request"])
@@ -1092,10 +1054,7 @@ class _Audit:
         self.add("rules.pull_request", OK)
 
     def checks(self, by_type, want, fix):
-        params = as_dict(want.get("required_status_checks"))
-        if not params:
-            return self.add("rules.checks", MANUAL,
-                            now=self.templates()[1] or "the template has no required_status_checks rule")
+        params = want["required_status_checks"]
         in_template = [c["context"] for c in map(as_dict, as_list(params.get("required_status_checks")))
                        if isinstance(c.get("context"), str)]
         names = self.options["required_checks"] or in_template
@@ -1209,8 +1168,7 @@ class _Audit:
                 for item, body in details.values())
             if not guarded:
                 problems.append(f"nothing keeps a deploy key from deleting or rewriting {'main' if target == 'branch' else 'a tag'}")
-                fix = self.ruleset_fix(key)
-                fixes += fix if isinstance(fix, list) else []
+                fixes += self.ruleset_fix(key)
         reply, keys = self.reads.pages(f"repos/{self.repo}/keys")
         if reply.code != 200 and not problems:
             return self.add("rules.deploy_key", MANUAL, now=f"the deploy keys cannot be read ({refusal(reply)})",
@@ -1226,23 +1184,17 @@ class _Audit:
     def deploy_key_fixes(self, details) -> list:
         """The requests that let the deploy key of versions.yml through the rulesets of main and of the tags, as the template of
         this standard does: the key added to their bypass, nothing else changed (an administrator who bypasses keeps it), and
-        the rulesets that keep it from deleting or rewriting main and the tags created when they are not there. None when the
-        template lets no deploy key through (a standard before 7)."""
+        the rulesets that keep it from deleting or rewriting main and the tags created when they are not there."""
         requests = []
         for key in ("main", "tags"):
             template = self.ruleset(key)
-            if template is None or DEPLOY_KEY not in as_list(template.get("bypass_actors")):
-                return []
             for item, body in details.values():
                 if item["name"] == template["name"] and item["target"] == template["target"] \
                         and DEPLOY_KEY not in as_list(body.get("bypass_actors")):
                     kept = {field: body[field] for field in ("name", "target", "enforcement", "conditions", "rules") if field in body}
                     kept["bypass_actors"] = [*as_list(body.get("bypass_actors")), dict(DEPLOY_KEY)]
                     requests.append(request("PUT", f"repos/{self.repo}/rulesets/{item['id']}", kept, ruleset=item["name"]))
-            companion = self.ruleset(COMPANIONS[key])
-            if companion is not None and not any(item["name"] == companion["name"] and item["target"] == companion["target"]
-                                                 and item["source"] == "Repository" for item in self.rulesets()):
-                requests.append(self._ruleset_request(companion))
+            requests += self._companion(key)
         return requests
 
     def reaches_main(self, conditions) -> bool:
@@ -1261,9 +1213,7 @@ class _Audit:
                 self.push_rule(key, id)
 
     def push_rule(self, key, id):
-        template = self.templates()[0].get(key)
-        if template is None:
-            return self.add(id, MANUAL, now=self.templates()[1])
+        template = self.templates[key]
         listing = self.rulesets()
         if not listing and self.listing_reply.code != 200:
             return self.refused_or(id, self.listing_reply, NO_RULES)

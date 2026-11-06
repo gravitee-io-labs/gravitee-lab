@@ -17,7 +17,7 @@ from lab_ui.catalogs import fleet, gitx, settings, standard
 from lab_ui.catalogs.settings import FAIL, Reply
 
 from .. import Case, gitfixture
-from .test_settings import TEMPLATE, load, normalize
+from .test_settings import load, normalize
 
 OLD, NEW = "a" * 40, "b" * 40
 TOPIC = "gravitee-lab-catalog"
@@ -102,12 +102,7 @@ def files(ref=OLD):
     }
 
 
-class Fleet(Case):
-    def setUp(self):
-        self.patch(settings, "RULESETS", TEMPLATE)
-
-
-class Audit(Fleet):
+class Audit(Case):
     """audit_fleet: every catalog of an owner, as one table."""
 
     def hub(self, repos, edit=None):
@@ -232,7 +227,7 @@ class Audit(Fleet):
         self.assertEqual("Not signed in to GitHub. Run gh auth login, then run this again.\n", err.getvalue())
 
 
-class Upgrade(Fleet):
+class Upgrade(Case):
     """upgrade_fleet: one pull request for each repository, from a clone that is removed."""
 
     def setUp(self):
@@ -752,7 +747,7 @@ class Upgrade(Fleet):
                           "::notice title=upgrade::acme/lab-internal: opened https://github.com/acme/lab-internal/pull/42"], out.getvalue().splitlines())
 
 
-class Reading(Fleet):
+class Reading(Case):
     """`.github/standard.json` of a clone is whatever the catalog merged: it is read once, small, in the clone, as JSON."""
 
     def test_the_standard_of_a_clone(self):

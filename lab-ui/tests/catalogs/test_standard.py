@@ -149,9 +149,7 @@ class Template(unittest.TestCase):
 
     def test_the_rulesets_are_what_repo_settings_sends(self):
         from lab_ui.catalogs import settings
-        loaded, why = settings.load_rulesets()
-        self.assertEqual((sorted(loaded), why), (["history", "main", "paths", "push", "tag_history", "tags"], ""))
-        self.assertEqual(settings.template_level(), standard.LEVEL)
+        self.assertEqual(sorted(settings.load_rulesets()), ["history", "main", "paths", "push", "tag_history", "tags"])
 
     def test_the_fleet_may_change_only_the_folders_of_the_managed_files(self):
         from lab_ui.catalogs import fleet
