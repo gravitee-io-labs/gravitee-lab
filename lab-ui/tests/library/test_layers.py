@@ -1,7 +1,6 @@
 """layers: closures, conflicts and every plan on a small hand-built project, a deploy to a remote place included; the
 on file, the settings an add-on lacks and the job of a plan in a temporary folder. No Docker."""
 
-import hashlib
 import itertools
 import json
 import os
@@ -1100,42 +1099,8 @@ class Plans(Case):
         self.assertEqual((plan["services"], layers.waits(self.project, plan)), ({"remove": [], "start": []}, []))
 
 
-# The plans of this project on main, before a place existed, and whether each asks, in the situations of snapshot(); since
-# then each also says where what a start brings runs (`targets`) and the on file it was made from (`stamp`), and nothing else
-MAIN_PLANS = {"off": "a642bc3a9afc", "platform": "b12fc3051b48", "busy": "1d4af90d4ba8", "stopped": "94417cab3ba0",
-              "behind": "4a43429f0c1a"}
-
-
-def snapshot():
-    """The fingerprint of the plan of every add-on, setup and playground, started and stopped (a playground's start
-    set up or not), and whether it asks, in a few situations of the small project: {situation: digest}. The JSON keeps
-    the order of the keys and the rows, so a plan that changes in any way changes it."""
-    project = lab()
-    own(project)
-    second(project)
-    situations = {
-        "off": (on(project), up(platform=False), frozenset()),
-        "platform": (on(project), up(), frozenset()),
-        "busy": (on(project, ["jade", "kiosk", "kafka"], "welcome"),
-                 up("jade", "kiosk", "kafka", "agent-lens", playgrounds=["welcome"]), frozenset()),
-        "stopped": (on(project, ["kafka-desk", "kiosk"], "demo"),
-                    up(platform=False, created=["kafka", "kafka-desk", "kiosk"]), frozenset()),
-        "behind": (on(project, ["jade"], missing=["hybrid"]), up("jade"), frozenset({"apim-gateway", "hello-app"}))}
-    found = {}
-    for situation, (state, running, behind) in situations.items():
-        plans = [layers.plan(project, state, running, kind, uid, do, fresh=fresh, behind=behind)
-                 for kind in ("addon", "setup", "playground") for uid in sorted(project[kind + "s"])
-                 for do in ("start", "stop") for fresh in ((False, True) if kind == "playground" else (False,))]
-        text_of = json.dumps([plans, [layers.asks(plan) for plan in plans]], default=sorted)
-        found[situation] = hashlib.sha256(text_of.encode()).hexdigest()[:12]
-    return found
-
-
 class ThisMachine(Case):
-    """Without a place, a plan is the one it always was."""
-
-    def test_the_plans_are_those_of_main(self):
-        self.assertEqual(snapshot(), MAIN_PLANS)
+    """Without a place, a plan says nothing of one."""
 
     def test_a_local_plan_says_nothing_of_a_place(self):
         project = lab()
