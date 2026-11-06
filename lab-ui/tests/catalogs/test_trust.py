@@ -2100,81 +2100,14 @@ class Includes(Golden):
                          [line("T28", service="hostile-b, hostile-c, hostile-d and 1 more")])
 
 
-class Audience(Golden):
-    """T24 from an audience that the caller measured (the command line, with `--online`): judge takes it as an argument and
-    measures nothing. The Lab's own pipeline adds T24 with `add_reason` and passes neither key."""
+class Added(Golden):
+    """T24 and T21, which judge cannot know: the pipeline adds them to a verdict."""
 
-    def test_a_public_unit_that_reaches_a_private_catalog_is_blocked_with_the_line_of_t24(self):
-        verdict = self.judge(CLEAN, audience="public", closure_audiences=["private"])
-        self.assertEqual((verdict["state"], verdict["reasons"], verdict["codes"]), ("blocked", [line("T24")], ["T24"]))
-
-    def test_every_other_pair_passes(self):
-        for audience, theirs in (("public", ["public"]), ("public", []), ("private", ["private"]), ("private", ["public"]),
-                                 ("private", ["public", "private"]), ("public", ["public", "public"])):
-            with self.subTest(audience=audience, theirs=theirs):
-                self.assertEqual(self.judge(CLEAN, audience=audience, closure_audiences=theirs)["state"], "ok")
-
-    def test_one_private_catalog_among_public_ones_is_enough(self):
-        for theirs in (["public", "private"], ["private", "public"], ("public", "private"), {"private"}, frozenset({"public", "private"})):
-            with self.subTest(theirs=theirs):
-                self.assertEqual(self.judge(CLEAN, audience="public", closure_audiences=theirs)["codes"], ["T24"])
-
-    def test_nothing_is_said_of_an_audience_that_was_not_measured(self):
-        """Offline, the command line gives neither key: T24 is not guessed."""
-        for more in ({}, {"audience": "public"}, {"closure_audiences": ["private"]}):
-            with self.subTest(more=more):
-                self.assertEqual(self.judge(CLEAN, **more)["state"], "ok")
-
-    def test_a_doubt_is_private(self):
-        for audience, theirs, state in (("public", [None], "blocked"), ("public", ["internal"], "blocked"), ("public", [3], "blocked"),
-                                        ("public", "private", "blocked"), ("public", None, "blocked"), ("public", 1, "blocked"),
-                                        (None, ["private"], "ok"), ("whatever", ["private"], "ok"), (["public"], ["private"], "ok"),
-                                        ({"public": 1}, ["public"], "ok"), ("PUBLIC", ["public"], "ok"), ("Public", ["private"], "ok")):
-            with self.subTest(audience=audience, theirs=theirs):
-                self.assertEqual(self.judge(CLEAN, audience=audience, closure_audiences=theirs)["state"], state)
-
-    def test_the_reason_goes_with_the_others_in_the_order_of_the_rules(self):
-        newer = regen.LEVELS[0] + 1   # a level this Lab does not read yet
-
-        def edit(arguments):
-            arguments["unit"]["references"] = ["HOME"]
-            arguments["context"].update(audience="public", closure_audiences=["private"], level=newer)
-        verdict = self.changed(CLEAN, edit)
-        self.assertEqual(verdict["codes"], ["T20", "T24", "T26"])
-        self.assertEqual(verdict["reasons"], [line("T20", names="HOME"), line("T24"),
-                                              line("T26", 0, level=newer, min=regen.LEVELS[1], max=regen.LEVELS[0])])
-
-    def test_a_unit_that_compose_could_not_read_is_still_judged_on_its_audience(self):
-        verdict = self.judge("t23-include-outside", audience="public", closure_audiences=["private"])
-        self.assertEqual(verdict["codes"], ["T23", "T24", "T27"])
-
-    def test_a_unit_of_this_machine_is_not_blocked_by_it(self):
-        verdict = self.judge(CLEAN, local=True, audience="public", closure_audiences=["private"])
-        self.assertEqual((verdict["state"], verdict["reasons"]), ("ok", []))
-
-    def test_the_line_the_pipeline_adds_is_not_said_twice(self):
-        by_judge = self.judge(CLEAN, audience="public", closure_audiences=["private"])
-        self.assertEqual(trust.add_reason(by_judge, "T24", line("T24")), by_judge)
-        by_pipeline = trust.add_reason(self.judge(CLEAN), "T24", line("T24"))
-        self.assertEqual((by_pipeline["reasons"], by_pipeline["codes"]), (by_judge["reasons"], by_judge["codes"]))
-
-    def test_a_combined_closure_carries_it(self):
-        mine = self.judge(CLEAN, audience="public", closure_audiences=["private"])
-        self.assertEqual(trust.combine([mine, self.judge(CLEAN)])["reasons"], [line("T24")])
-
-    def test_it_is_the_rule_of_the_resolver(self):
-        for audience in ("public", "private", None):
-            for other in ("public", "private", None):
-                with self.subTest(audience=audience, other=other):
-                    wanted = resolve.audience_blocked(resolve.rank(audience), resolve.rank(other))
-                    self.assertEqual("T24" in self.judge(CLEAN, audience=audience or "?", closure_audiences=[other])["codes"],
-                                     wanted)
-
-    def test_the_arguments_are_left_as_they_were(self):
-        arguments = self.args(CLEAN, audience="public", closure_audiences=["private", "public"])
-        before = copy.deepcopy(arguments)
-        trust.judge(**arguments)
-        self.assertEqual(arguments, before)
+    def test_a_reason_added_blocks_is_not_said_twice_and_a_combined_closure_carries_it(self):
+        once = trust.add_reason(self.judge(CLEAN), "T24", line("T24"))
+        self.assertEqual((once["state"], once["reasons"], once["codes"]), ("blocked", [line("T24")], ["T24"]))
+        self.assertEqual(trust.add_reason(once, "T24", line("T24")), once)
+        self.assertEqual(trust.combine([once, self.judge(CLEAN)])["reasons"], [line("T24")])
 
 
 class Collisions(Golden):
@@ -3019,15 +2952,6 @@ class Pure(Golden):
             resolve.collisions([], {}, {})
             resolve.closure({}, "addon", "x")
             resolve.catalog_needs({"ns": "a", "includes": []}, {}, [])
-
-    def test_judge_with_the_audiences_of_a_caller_touches_nothing_either(self):
-        arguments = self.args(CLEAN, realpath=None, audience="public", closure_audiences=["private", "public"])
-        before = trust.judge(**copy.deepcopy(arguments))
-        resolve.rank("x")
-        with self.untouched():
-            after = trust.judge(**arguments)
-        self.assertEqual(after, before)
-        self.assertEqual(after["codes"], ["T24"])
 
     def test_judge_leaves_what_it_is_handed_as_it_was(self):
         for name in regen.names():

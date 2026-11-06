@@ -23,9 +23,8 @@ What judge reads:
 - `context`: {host_ok (the catalog is listed, or its entry says host: true), listed, local, ns, requires (the namespaces its
   catalog declares), shared_settings, core_variables, license_variable, closure_names, closure_services, seeder_images, home,
   level, contract, contract_min, unknown (what of the contract a published unit uses that this Lab does not read), realpath,
-  screened (the text screen's reasons), error (why Compose could not read it), audience (the catalog's: "public" or "private") and closure_audiences (the audience of each catalog the unit's closure
-  reaches)}. The last two are how a caller that has measured the audiences, the command line with `--online` for one, gets T24
-  from judge itself; the Lab's own pipeline adds T24 with `add_reason` and gives neither. Judge measures nothing.
+  screened (the text screen's reasons), error (why Compose could not read it)}. Judge measures nothing: the caller adds T24 with
+  `add_reason`.
 Every key is optional and absent means the narrowest reading: nothing allowed, no host access. The one exception is `realpath`:
 absent, the paths are compared as written, so the caller that reads a disk must always hand it in.
 
@@ -43,7 +42,7 @@ its own files, because the reader of a catalog never has them."""
 import posixpath
 import re
 
-from .resolve import audience_blocked, rank, shown as _clean, target_of
+from .resolve import shown as _clean, target_of
 
 # The service keys the policy checks or that cannot hurt: the keys the units use, and the harmless Compose keys. A key
 # outside this set and HOST_KEYS blocks (T01). `x-` keys are extensions Compose ignores. Absent on purpose: volumes_from,
@@ -1508,21 +1507,6 @@ class _Run:
                 self.say("T23")
                 return
 
-    def audience(self):
-        """T24 from the audiences a caller measured (`audience` of the unit's catalog, `closure_audiences` of the catalogs its
-        closure reaches): a public unit depends on public units only. Nothing is said without both, which is how the Lab's own
-        pipeline calls it (it adds T24 once every unit is judged), and how the command line calls it offline: an audience
-        that was not measured is not guessed. What is given is read as 6.4 reads it: a word that is not "public" is private,
-        and so is a list of audiences that is not a list."""
-        context = self.context
-        if "audience" not in context or "closure_audiences" not in context:
-            return
-        theirs = context["closure_audiences"]
-        theirs = theirs if isinstance(theirs, (list, tuple, set, frozenset)) else ["private"]   # a doubt is private
-        mine = rank(context["audience"] if isinstance(context["audience"], str) else None)
-        if any(audience_blocked(mine, rank(one if isinstance(one, str) else None)) for one in theirs):
-            self.say("T24")
-
     def compat(self):
         """T26: what the unit uses that this Lab does not read (`context["unknown"]`, the items `understood` named, given for
         the unit of a published catalog), else the legacy level it states against what this Lab reads."""
@@ -1659,7 +1643,6 @@ class _Run:
             self.host()
         self.settings()
         self.includes()
-        self.audience()
         self.compat()
         self.copy()
         if self.config is None:
