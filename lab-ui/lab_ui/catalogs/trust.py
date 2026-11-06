@@ -45,7 +45,7 @@ from .resolve import shown as _clean, target_of
 
 # The service keys the policy checks or that cannot hurt: the keys the units use, and the harmless Compose keys. A key
 # outside this set and HOST_KEYS blocks (T01). `x-` keys are extensions Compose ignores. Absent on purpose: volumes_from,
-# models, post_start, pre_stop, develop (and extends, which Compose consumes: the text screen reads it).
+# models, post_start, pre_stop, develop (and extends, env_file and label_file, which the text screen refuses).
 SERVICE_KEYS = frozenset("""
 annotations attach blkio_config build cap_drop cgroup command configs container_name cpu_count cpu_percent cpu_period
 cpu_quota cpu_rt_period cpu_rt_runtime cpu_shares cpus cpuset credential_spec depends_on deploy dns dns_opt dns_search
@@ -58,10 +58,6 @@ userns_mode uts volumes working_dir""".split())
 # uses one is told what it takes ("Runs with full privileges"), not that a key is unknown
 HOST_KEYS = frozenset(("privileged", "use_api_socket", "provider", "devices", "device_cgroup_rules", "gpus", "cap_add",
                        "sysctls", "runtime", "cgroup_parent"))
-# The keys that name a file Compose reads into the environment. Compose merges that content into `environment` before the
-# JSON exists, so they are in the JSON only when it was asked not to (`config --no-env-resolution`), and then they are judged
-# there (T19), the paths by their real place: a link in the unit's folder that leads out of it shows only here.
-FILE_KEYS = ("env_file", "label_file")
 TOP_KEYS = frozenset(("name", "services", "volumes", "networks", "secrets", "configs"))   # and `x-*` (T02)
 # What a unit's file may add to a service of the core or of a unit it includes (T22)
 OVERLAY_KEYS = ("environment", "extra_hosts", "depends_on", "labels", "volumes", "ports")
@@ -1180,7 +1176,7 @@ def terminal_ok(unit, own, closure_services):
 # ---------------------------------------------------------------------------------------------------------------------
 
 def _unknown(key):
-    return key not in SERVICE_KEYS and key not in HOST_KEYS and key not in FILE_KEYS and not str(key).startswith("x-")
+    return key not in SERVICE_KEYS and key not in HOST_KEYS and not str(key).startswith("x-")
 
 
 def _bad_volume(name, definition, project):
@@ -1265,7 +1261,6 @@ class _Run:
             for code, variant in _hits(self.services[name], self.members):
                 self.hit(name, code, variant)
             self.mounts(name, self.services[name])
-            self.read_files(self.services[name])
             self.attachments(self.services[name])
             self.ports(self.services[name])
             self.build(self.services[name])
@@ -1307,16 +1302,6 @@ class _Run:
                         _inside(path, roots["unit"]) and not (_inside(path, roots["state"]) or _inside(path, roots["secrets"]))
                         or any(_inside(path, folder) for folder in roots["closure"])):
                     self.say("T12")
-
-    def read_files(self, service):
-        """T19 on the files a service reads into its environment, when the JSON still names them: each must be inside the unit's
-        folder once its links are followed."""
-        for key in FILE_KEYS:
-            entries = service.get(key)
-            for entry in entries if isinstance(entries, list) else [entries] if entries else []:
-                path = entry.get("path") if isinstance(entry, dict) else entry
-                if not isinstance(path, str) or not _inside(self.resolve(path, self.roots["unit"]), self.roots["unit"]):
-                    self.say("T19", 1)
 
     def attachments(self, service):
         """T15 on the networks a service joins, and on the network of a service of the platform that it takes as its own."""

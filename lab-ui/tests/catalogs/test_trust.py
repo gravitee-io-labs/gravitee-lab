@@ -381,33 +381,14 @@ class Keys(Golden):
         for absent in ("volumes_from", "models", "post_start", "pre_stop", "develop", "extends", "env_file", "label_file"):
             self.assertNotIn(absent, trust.SERVICE_KEYS)
             self.assertNotIn(absent, trust.HOST_KEYS)
-        self.assertEqual(trust.FILE_KEYS, ("env_file", "label_file"))
         self.assertFalse(trust.SERVICE_KEYS & trust.HOST_KEYS)
 
-    def test_t19_the_files_the_json_still_names_are_judged_by_their_real_place(self):
-        """With `config --no-env-resolution` an env_file is a path in the JSON, not yet merged into the environment, and a link in
-        the unit's folder that leads out of it can be seen there and nowhere else."""
-        folder = self.root / ".lab/catalogs/hostile/addons/p-clean-addon"
-        folder.mkdir(parents=True)
-        outside = self.root / "outside.env"
-        outside.write_text("X=1\n")
-        os.symlink(outside, folder / "linked.env")
-        (folder / "own.env").write_text("X=1\n")
-        unit = str(folder)
-        for entries, state in (([unit + "/own.env"], "ok"), ([{"path": unit + "/own.env", "required": False}], "ok"), ("own.env", "ok"),
-                               ([unit + "/own.env", unit + "/linked.env"], "blocked"), ([{"path": unit + "/linked.env"}], "blocked"),
-                               ([str(outside)], "blocked"), ([unit + "/../x.env"], "blocked"), ([{"required": False}], "blocked"),
-                               ([None], "blocked"), ([7], "blocked"), ("/etc/passwd", "blocked"), ([], "ok"), (None, "ok")):
-            for key in trust.FILE_KEYS:
-                def edit(arguments, entries=entries, key=key):
-                    arguments["unit_config"]["services"]["hostile-clean"][key] = entries
-                with self.subTest(entries=entries, key=key):
-                    verdict = self.changed(CLEAN, edit)
-                    self.assertEqual(verdict["state"], state, verdict["reasons"])
-                    self.assertEqual(verdict["reasons"], [] if state == "ok" else [line("T19", 1)])
-        def not_followed(arguments):
-            arguments["unit_config"]["services"]["hostile-clean"]["env_file"] = [unit + "/linked.env"]
-        self.assertEqual(self.changed(CLEAN, not_followed, realpath=None)["state"], "ok")   # as written, a link passes: the caller hands in realpath
+    def test_t01_a_file_the_screen_missed_and_the_json_still_names_blocks(self):
+        """With `config --no-env-resolution` an env_file is a path in the JSON, whatever the screen read of the text."""
+        for key in ("env_file", "label_file"):
+            def edit(arguments, key=key):
+                arguments["unit_config"]["services"]["hostile-clean"][key] = ["own.env"]
+            self.assertEqual(self.changed(CLEAN, edit)["reasons"], [line("T01", key=key)])
 
     def test_t01_a_key_on_what_it_overlays_is_judged_too(self):
         def edit(arguments):
