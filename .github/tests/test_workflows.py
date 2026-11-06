@@ -157,6 +157,9 @@ class E2ETest(unittest.TestCase):
                             self.assertRegex(line, r"^\s+ssh-key: \$\{\{ secrets\.\w+_DEPLOY_KEY \}\}$")
         self.assertEqual(taken, 3, "the key in each of the three jobs that check the catalog out")
 
+    def test_the_catalog_is_given_no_allowance_to_use_this_machine(self):
+        self.assertNotIn("--allow-machine", self.text)
+
     def test_the_license_reaches_the_step_that_writes_it_and_no_other(self):
         self.assertEqual(len([step for step in steps(self.jobs["e2e"]) if "secrets.GRAVITEE_LICENSE" in step]), 1)
         self.assertEqual(len(re.findall(r"secrets\.GRAVITEE_LICENSE", self.text)), 1)
@@ -225,6 +228,9 @@ class E2ETest(unittest.TestCase):
         self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", body, "none for a fork, as for the e2e job")
         self.assertNotIn("environment:", body)
         self.assertNotIn("secrets.", body)
+        self.assertEqual(sorted(re.findall(r"\$\{\{ (needs\.[\w.]+) \}\}", body)),
+                         ["needs.e2e.result", "needs.manifests.result", "needs.plan.outputs.count", "needs.plan.result",
+                          "needs.prepare.outputs.skip", "needs.prepare.result"])
 
 
 # The shell of the workflows, run with the inputs a hostile person would type. GitHub runs it with `bash -e`.
