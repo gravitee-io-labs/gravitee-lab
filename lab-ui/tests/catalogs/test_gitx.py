@@ -656,7 +656,7 @@ class Running(Case):
         self.assertEqual((done.code, done.err), (0, "x" * 10), "a second long, a gap of a tenth: not a stall")
         capped = gitx.stream(["x"], stall=2, cap=0.5)
         self.assertEqual(capped.code, 124)
-        self.assertIn("still running after 0.5 s", capped.err)
+        self.assertIn("no answer within 0.5 s", capped.err)
 
     def test_the_errors_are_given_to_the_caller_as_they_arrive(self):
         gitfixture.fake_git(self, "printf 'one\\r' >&2; sleep 0.2; printf 'two\\n' >&2; sleep 0.2; printf 'three' >&2")
@@ -814,7 +814,7 @@ class Ending(Case):
         gitx.stop_running()
         with mock.patch.object(gitx.subprocess, "Popen", side_effect=AssertionError("ran")):
             for call in (lambda: gitx.run(["status"]), lambda: gitx.stream(["fetch"]),
-                         lambda: gitx._execute(["git"], None, {}, None, 5, None, None, 100, None)):
+                         lambda: gitx._execute(["git"], None, {}, None, 5, None, 100, None)):
                 self.assertEqual(call(), gitx.Result(130, b"", "git was not run: the Lab UI is ending"))
         self.assertFalse(self.pids.exists())
 

@@ -534,10 +534,9 @@ def _close(*pipes):
                 pass
 
 
-def _execute(argv, cwd, env, data, timeout, stall, cap, limit, on_stderr):
+def _execute(argv, cwd, env, data, timeout, stall, limit, on_stderr):
     """Runs `argv` and answers a Result. The command gets `data` on its input (or none), runs in a session of its own
-    and is killed with its group when: `timeout` seconds passed, `cap` seconds passed, `stall` seconds passed with no
-    byte on either output, its output went over `limit` (OutputLimit), or the caller was interrupted or `on_stderr`
+    and is killed with its group when: `timeout` seconds passed, `stall` seconds passed with no byte on either output, its output went over `limit` (OutputLimit), or the caller was interrupted or `on_stderr`
     raised. `on_stderr(text)` is given what arrives on stderr as it arrives. A command that ended while something it
     started still holds its output is not waited for: after EXIT_GRACE seconds with no byte its own exit code is the
     answer, and what it left behind is killed. While the Lab UI exits it is not run (code 130)."""
@@ -566,8 +565,6 @@ def _execute(argv, cwd, env, data, timeout, stall, cap, limit, on_stderr):
             """The seconds before the first deadline, and what that deadline is."""
             now = time.monotonic()
             due = [(started + timeout - now, f"no answer within {timeout:g} s")] if timeout else []
-            if cap:
-                due.append((started + cap - now, f"still running after {cap:g} s"))
             if stall:
                 due.append((last + stall - now, f"no byte for {stall:g} s"))
             return min(due) if due else (None, None)
@@ -642,14 +639,14 @@ def _execute(argv, cwd, env, data, timeout, stall, cap, limit, on_stderr):
     return Result(process.returncode, bytes(out), err)
 
 
-def _go(args, cwd, env, data, timeout, stall, cap, limit, on_stderr):
+def _go(args, cwd, env, data, timeout, stall, limit, on_stderr):
     exe = executable()
     if exe is None:
         raise fail("git_missing")
     argv, cwd, env = _prepare(exe, args, cwd, env)
     if isinstance(data, str):
         data = data.encode("utf-8")
-    return _execute(argv, cwd, env, data, timeout, stall, cap, OUTPUT_LIMIT if limit is None else limit, on_stderr)
+    return _execute(argv, cwd, env, data, timeout, stall, OUTPUT_LIMIT if limit is None else limit, on_stderr)
 
 
 def run(args: List[str], cwd=None, timeout: float = 60, input=None, env: Optional[Dict[str, str]] = None,
@@ -659,14 +656,14 @@ def run(args: List[str], cwd=None, timeout: float = 60, input=None, env: Optiona
     on a store names it with `--git-dir`. Killed with its group after `timeout` seconds (exit code 124 and
     TIMEOUT_MARK in the errors). Raises CatalogError git_missing when there is no usable git, OutputLimit when the
     output is over `limit` bytes (default OUTPUT_LIMIT)."""
-    return _go(args, cwd, env, input, timeout, None, None, limit, None)
+    return _go(args, cwd, env, input, timeout, None, limit, None)
 
 
 def stream(args: List[str], cwd=None, env: Optional[Dict[str, str]] = None, stall: float = 30, cap: float = 600,
            on_stderr: Optional[Callable[[str], None]] = None, limit: Optional[int] = None) -> Result:
     """Like `run` for a command that talks to a network and reports progress: it is killed after `stall` seconds without
     a byte on either output, or `cap` seconds in all, and `on_stderr(text)` is given the errors as they arrive."""
-    return _go(args, cwd, env, None, None, stall, cap, limit, on_stderr)
+    return _go(args, cwd, env, None, cap, stall, limit, on_stderr)
 
 
 def require_ok(result: Result, address: Optional[Address] = None) -> Result:
