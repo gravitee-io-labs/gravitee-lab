@@ -31,6 +31,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import stat
 import sys
 import tempfile
@@ -682,10 +683,6 @@ def golden_now() -> dict:
             "local": {path: _sha(data) for path, data in sorted(local.items())}}
 
 
-def golden_file() -> Path:
-    return TEMPLATE / "golden.json"
-
-
 def _differences(before, now) -> List[str]:
     """The paths whose hash is not the recorded one, in either direction, sorted."""
     before, now = before if isinstance(before, dict) else {}, now if isinstance(now, dict) else {}
@@ -696,7 +693,7 @@ def golden_problems() -> List[str]:
     """The sentences that say the template changed without a bump: empty when `golden.json` is what the template renders, else
     the message of 3.4 as it is, followed by the files that differ, indented."""
     try:
-        recorded = json.loads(golden_file().read_text(encoding="utf-8"))
+        recorded = json.loads((TEMPLATE / "golden.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return [GOLDEN_MESSAGE, "  golden.json cannot be read"]
     if not isinstance(recorded, dict):
@@ -712,7 +709,7 @@ def golden_problems() -> List[str]:
 
 def write_golden() -> Path:
     """Refreshes `golden.json` from the template: what a maintainer runs after raising the level."""
-    target = golden_file()
+    target = TEMPLATE / "golden.json"
     target.write_text(json.dumps(golden_now(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return target
 
@@ -794,11 +791,6 @@ def pin_problem(lab, ref: str, level: int, git=None) -> str:
         return (f"The Lab release {ref[:7]} has standard {have}; this writes standard {level}. Fix: pin the latest release "
                 "(catalog.py upgrade --lab-ref latest).")
     return NOT_RELEASED.format(n=level)
-
-
-def _is_release(lab, ref: str) -> bool:
-    """Whether `ref` is a release of the Lab checkout `lab` (SD11, `release_state`)."""
-    return release_state(lab, ref) == "yes"
 
 
 def latest_release(lab, git=None) -> str:
@@ -896,7 +888,7 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
     if ref_new and not _COMMIT.fullmatch(ref_new):
         return refuse("--lab-ref takes the full commit of the Lab: 40 hexadecimal characters.")
     lab_checkout = options.get("lab")
-    if ref_new and lab_checkout is not None and not _is_release(lab_checkout, ref_new):
+    if ref_new and lab_checkout is not None and release_state(lab_checkout, ref_new) != "yes":
         return refuse(say(RULES["SD11"].message, sha7=ref_new[:7]))
     old = (state.data or {}).get("lab", {}) if state.data else {}
     ref = ref_new or old.get("ref") or ""
@@ -1041,10 +1033,6 @@ def _snapshot(target: str) -> tuple:
     return ("file", target, Path(target).read_bytes(), info.st_mode & 0o777)
 
 
-def _write(target: Path, text: str, mode: int) -> None:
-    paths.write_atomic(target, text, mode)
-
-
 def _put_back(record: tuple) -> None:
     kind, target = record[0], record[1]
     if kind == "none":
@@ -1090,7 +1078,7 @@ def upgrade_apply(root, plan: dict) -> List[str]:
             before = _snapshot(target)
             mode = 0o755 if before[0] == "file" and before[3] & 0o111 else 0o644
             done.append(before)
-            _write(Path(target), each["content"].decode("utf-8"), mode)
+            paths.write_atomic(Path(target), each["content"].decode("utf-8"), mode)
             out.append(each["path"])
     except BaseException:
         rollback(done)
@@ -1186,10 +1174,6 @@ def _complain(text: str) -> None:
     print(printable(text, keep=("\n",)), file=sys.stderr, flush=True)
 
 
-def _lab_checkout() -> Path:
-    return Path(paths.ROOT)
-
-
 def _lab_head(lab: Path) -> str:
     """The commit the Lab checkout is at, or ''."""
     try:
@@ -1249,7 +1233,7 @@ def main_new(argv: List[str], lab: Optional[Path] = None) -> int:
     template into an empty DIR. Exit 0, 2 for what is missing or wrong (nothing is rendered)."""
     try:
         args = _new_arguments(list(argv))
-        lab = lab or _lab_checkout()
+        lab = lab or Path(paths.ROOT)
         repository, ref, warning = args.lab_repo or "", args.lab_ref or "", ""
         if not args.local:
             if not args.maintainers:
@@ -1271,16 +1255,13 @@ def main_new(argv: List[str], lab: Optional[Path] = None) -> int:
                   "lab_ref": ref, "platforms": args.platforms, "with": args.with_, "local": args.local}
         written = create(args.dir, params)
         given = values(params)
-    except Usage as error:
-        _complain(str(error))
-        return 2
-    except TemplateError as error:
+    except (Usage, TemplateError) as error:
         _complain(str(error))
         return 2
     except OSError as error:
         _complain(f"catalog.py new: {error.strerror or error}")
         return 2
-    steps = _next_steps(args, shlex_quote(args.dir), os.path.basename(os.path.abspath(args.dir)))
+    steps = _next_steps(args, shlex.quote(args.dir), os.path.basename(os.path.abspath(args.dir)))
     kind = "a folder catalog" if args.local else f"standard {LEVEL}"
     _say(f"Created {given['name']} in {args.dir} ({kind}, {len(written)} files)")
     if warning:
@@ -1290,11 +1271,6 @@ def main_new(argv: List[str], lab: Optional[Path] = None) -> int:
     for line in steps:
         _say(line)
     return 0
-
-
-def shlex_quote(text: str) -> str:
-    import shlex
-    return shlex.quote(text)
 
 
 def _upgrade_arguments(argv: List[str]):
@@ -1344,13 +1320,13 @@ def apply_command(args) -> str:
     was given (it is run in the catalog and takes `LAB_REF`), else `catalog.py`'s own with all of them."""
     plain = not (args.adopt or args.with_ or args.maintainers or args.lab_repo)
     if plain and args.dir == ".":
-        return "make upgrade WRITE=1" + (f" LAB_REF={shlex_quote(args.lab_ref)}" if args.lab_ref else "")
-    words = ["catalog.py", "upgrade"] + ([] if args.dir == "." else [shlex_quote(args.dir)])
+        return "make upgrade WRITE=1" + (f" LAB_REF={shlex.quote(args.lab_ref)}" if args.lab_ref else "")
+    words = ["catalog.py", "upgrade"] + ([] if args.dir == "." else [shlex.quote(args.dir)])
     for flag, value in (("--lab-ref", args.lab_ref), ("--maintainers", args.maintainers), ("--lab-repo", args.lab_repo)):
-        words += [flag, shlex_quote(value)] if value else []
+        words += [flag, shlex.quote(value)] if value else []
     words += ["--adopt"] if args.adopt else []
     for word in args.with_:
-        words += ["--with", shlex_quote(word)]
+        words += ["--with", shlex.quote(word)]
     return " ".join(words + ["--write"])
 
 
@@ -1369,7 +1345,7 @@ def main_upgrade(argv: List[str], lab: Optional[Path] = None) -> int:
     [--with e2e]`. Without `--write` it prints the plan and writes nothing (exit 1 when anything is pending, 0 when nothing is)."""
     try:
         args = _upgrade_arguments(list(argv))
-        lab = lab or _lab_checkout()
+        lab = lab or Path(paths.ROOT)
         root = Path(args.dir)
         if not root.is_dir():
             raise Usage(f"{printable(args.dir)[:200]} is not a folder.")

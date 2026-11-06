@@ -1515,7 +1515,7 @@ class Upgrading(Case):
         extra = {"path": ".github/zz.txt", "action": "add", "class": "managed", "why": "", "content": b"x\n"}
         plan = {**plan, "files": plan["files"] + [extra, {**extra, "path": ".github/zy.txt"}]}
         before = {path: (repo.root / path).read_bytes() for path in render() if (repo.root / path).is_file()}
-        real = standard._write
+        real = standard.paths.write_atomic
         calls = []
 
         def fail_after_three(target, text, mode):
@@ -1523,7 +1523,7 @@ class Upgrading(Case):
             if len(calls) == 4:
                 raise OSError(5, "Input/output error")
             return real(target, text, mode)
-        self.patch(standard, "_write", fail_after_three)
+        self.patch(standard.paths, "write_atomic", fail_after_three)
         with self.assertRaises(OSError):
             standard.upgrade_apply(repo.root, plan)
         self.assertEqual(len(calls), 4)
@@ -1640,7 +1640,7 @@ class Upgrading(Case):
         os.symlink("/etc/hostname", target)
         plan = self.plan(repo)
         plan["files"] = plan["files"] + [{"path": ".github/zz.yml", "action": "add", "class": "managed", "why": "", "content": b"x\n"}]
-        real = standard._write
+        real = standard.paths.write_atomic
         calls = []
 
         def fail_on_the_second(path, text, mode):
@@ -1648,7 +1648,7 @@ class Upgrading(Case):
             if len(calls) == 2:
                 raise OSError(5, "Input/output error")
             return real(path, text, mode)
-        self.patch(standard, "_write", fail_on_the_second)
+        self.patch(standard.paths, "write_atomic", fail_on_the_second)
         with self.assertRaises(OSError):
             standard.upgrade_apply(repo.root, plan)
         self.assertTrue(target.is_symlink())
