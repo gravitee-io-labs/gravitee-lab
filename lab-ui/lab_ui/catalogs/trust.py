@@ -13,7 +13,7 @@ container does): an H finding is allowed only when the catalog is listed or allo
 
 What judge reads:
 - `unit`: {kind, id, name, meta (its x-gravitee block), references (the names its compose files read with ${NAME}, and the
-  environment names they pass through: reads(); the files that env_files() names are read the same way), seed_references (the names its seed/** files read), includes (the
+  environment names they pass through: reads()), seed_references (the names its seed/** files read), includes (the
   project-relative targets its own file includes, None for one that leaves the project), seed (its seed service)}.
 - `unit_config`, `core_config`: the unit with the core, and the core alone, as `docker compose config --format json` gives
   them. `own`: the services the unit defines that neither the core nor an included unit defines. `overlaid`: {service: {key:
@@ -30,10 +30,9 @@ absent, the paths are compared as written, so the caller that reads a disk must 
 
 What a caller builds around it: `build_roots` (the roots, the one function that reads the disk), `overlays` (the overlaid
 services from compose.raw), `reads` and `seed_reads` (the settings a unit reads), `host_ok` (the one place that decides
-`context["host_ok"]`), `prescreen`, `env_files` and `include_targets` (T19, before Compose is asked: what a text refuses, the
-files it reads into the environment, which `reads` reads for T20, and the files it includes, which the closure follows;
-`unescaped` is the text as they read its letters), then `add_reason` for T21 and T24 and `combine` for T25 once the units of
-a project are judged.
+`context["host_ok"]`), `prescreen` and `include_targets` (T19, before Compose is asked: what a text refuses, and the files it
+includes, which the closure follows; `unescaped` is the text as they read its letters), then `add_reason` for T21 and T24 and
+`combine` for T25 once the units of a project are judged.
 
 What a caller says to a person: the reason lines are the Lab's (`RULES`, `line`) and are all a popover shows. The command line
 and CI add the fix (`FIXES`, `fix`) after the reason, so a message is "reason. Fix: fix"; no fix names a place the Lab keeps
@@ -485,7 +484,7 @@ class _Lex:
 
     def __init__(self, flow):
         self.tokens, self.depth, self.quote, self.pieces = [], 0, "", []
-        self.flow, self.bad, self.json, self.last, self.cost = flow, False, False, None, 0
+        self.flow, self.bad, self.json, self.last = flow, False, False, None
         self.odd, self.end = False, 0
 
     def alias(self):
@@ -587,10 +586,9 @@ class _Lex:
         return found
 
 
-def _bad_place(value, folder, files):
-    """Whether a path or an address names a place that the unit has no business reading: absolute, home, remote, a variable
-    or, for an include, one that leaves the project (`files` False) and, for the files a service reads, one that leaves the
-    unit's own folder (`files` True)."""
+def _bad_place(value, folder):
+    """Whether an include names a place that the unit has no business reading: absolute, home, remote, a variable or one that
+    leaves the project."""
     value = value.strip()
     if not value:
         return False
@@ -598,8 +596,6 @@ def _bad_place(value, folder, files):
             or "://" in value or value.startswith(_REMOTE):
         return True
     target = posixpath.normpath(posixpath.join(folder or ".", value))
-    if files and folder:
-        return not _inside(target, folder)
     return target == ".." or target.startswith("../")
 
 
@@ -638,21 +634,20 @@ def _value(lines, number, start, end, spent, flow):
     return lex, lex.whole() and spent[0] <= SCREEN_CHARS
 
 
-def _scan(text, file, follow):
-    """The T19 lines that hold, and the project-relative paths of the files named by `env_file` and `label_file` that stay in
-    the unit's folder: ({lines}, [paths]). See prescreen. The text is read every way `_readings` says, and a file is held to
-    each: on a line that an escape or a fold made, a word that is no key where it stands (a fold glued it to the line before)
-    is refused, since nothing says where its value is."""
+def _scan(text, file):
+    """The T19 lines that hold. See prescreen. The text is read every way `_readings` says, and a file is held to each: on a
+    line that an escape or a fold made, a word that is no key where it stands (a fold glued it to the line before) is refused,
+    since nothing says where its value is."""
     include, files = RULES["T19"]["lines"]
     text = text if isinstance(text, str) else ""
     name = str(file or "")
     if len(text.encode("utf-8", "replace")) > MAX_FILE:
-        return {files}, []
+        return {files}
     if SEED_FOLDER.search(name) or not name.endswith((".yml", ".yaml")):
-        return set(), []
+        return set()
     if _NOT_TEXT.search(text):
-        return {files}, []
-    found, paths, spent, folder = set(), [], [0], posixpath.dirname(name)
+        return {files}
+    found, spent, folder = set(), [0], posixpath.dirname(name)
     for read, made in _readings(text):
         if _blind("\n".join(read)):
             found.add(files)
@@ -664,54 +659,32 @@ def _scan(text, file, follow):
                 wanted = include if key == "include" else files
                 if wanted in found:
                     continue
-                if made[number] and match.start() not in at:   # a fold glued it to the line before: where is its value?
-                    found.add(wanted)
-                    continue
-                if key in ("env_file", "label_file") and not follow:
-                    found.add(files)
+                if key in ("env_file", "label_file") or made[number] and match.start() not in at:
+                    found.add(wanted)   # refused whatever it names; a key a fold glued to the line before has no value to read
                     continue
                 readings = [_value(lines, number, match.start(), match.end(), spent, flow) for flow in (False, True)]
                 if spent[0] > SCREEN_CHARS:
                     found.add(files)
-                    return found, []
+                    return found
                 names = [value for lex, _ in readings for kind, value in lex.tokens if kind in ("s", "k")]
                 if not all(whole for _, whole in readings) or any(lex.alias() for lex, _ in readings) \
                         or key == "extends" and any(("k", "file") in lex.tokens for lex, _ in readings):
                     found.add(wanted)
-                elif key == "include":
-                    if any(_bad_place(value, folder, False) for value in names):
-                        found.add(include)
-                elif key != "extends":
-                    if readings[0][0].tokens != readings[1][0].tokens \
-                            or any(_bad_place(value, folder, True) for value in names):
-                        found.add(files)
-                    else:
-                        paths += [posixpath.normpath(posixpath.join(folder or ".", value))
-                                  for value in readings[0][0].paths() if value.strip()]
-    return found, sorted(set(paths))
+                elif key == "include" and any(_bad_place(value, folder) for value in names):
+                    found.add(include)
+    return found
 
 
-def prescreen(text, file, follow=False):
+def prescreen(text, file):
     """The reasons (T19) for what a compose file's text gives away, before Compose reads it: an `include` that is absolute,
-    `~`, remote, a variable or leaves the project; an `extends` of another file; an `env_file` or a `label_file` (any, unless
-    `follow`); a file over 1 MB; a construct the screen cannot read (an alias in those places, a key spelled without its
+    `~`, remote, a variable or leaves the project; an `extends` of another file; an `env_file` or a `label_file`, whatever it
+    names, because Compose reads that file into the environment of the service, `${NAME}` included, and this screen cannot
+    see into it; a file over 1 MB; a construct the screen cannot read (an alias in those places, a key spelled without its
     letters, a file that is not UTF-8, a file that takes too long to read). `file` is the project-relative path; seed data,
-    which Compose never reads, is only held to the size. [] when clean.
-
-    A file that an `env_file` or a `label_file` names is read by Compose into the environment of the service, `${NAME}`
-    included, and this screen cannot see into it. So these two keys are refused outright, until the caller says it looks:
-    with `follow=True` the keys are held to the unit's folder (an absolute, `~`, remote or variable name, or one that leaves
-    the folder, is refused), and the caller must then put the text of every file `env_files()` names through `reads()` (T20)
-    and read each at its real path, which must stay in the folder (a link in a folder catalog is the one thing no text shows)."""
+    which Compose never reads, is only held to the size. [] when clean."""
     include, files = RULES["T19"]["lines"]
-    found = _scan(text, file, follow)[0]
+    found = _scan(text, file)
     return [line for line in (include, files) if line in found]
-
-
-def env_files(text, file):
-    """The project-relative paths of the files that the `env_file` and `label_file` of a compose file name and that stay in
-    the unit's folder, sorted: what `prescreen(..., follow=True)` asks its caller to read. [] for a file that is not screened."""
-    return _scan(text, file, True)[1]
 
 
 def _block_list(lines, number, match, readings):
@@ -782,7 +755,7 @@ def include_targets(text, file):
             if not _block_list(lines, number, match, readings):
                 return None
             for value in readings[0][0].paths():
-                if value and (not _NAME.fullmatch(value) or _bad_place(value, folder, False)):
+                if value and (not _NAME.fullmatch(value) or _bad_place(value, folder)):
                     return None
                 target = posixpath.normpath(posixpath.join(folder or ".", value)) if value else None
                 if target and target not in found:

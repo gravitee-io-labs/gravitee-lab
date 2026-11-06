@@ -1129,8 +1129,8 @@ class Screen(Case):
     FILE = ".lab/catalogs/ns/addons/x/compose.yml"
     INCLUDE, FILES = trust.RULES["T19"]["lines"]
 
-    def screen(self, text, file=None, **how):
-        return trust.prescreen(text, file or self.FILE, **how)
+    def screen(self, text, file=None):
+        return trust.prescreen(text, file or self.FILE)
 
     def test_a_clean_file_has_no_reason(self):
         for text in ("services:\n  a:\n    image: busybox\n", "", "include:\n  - ../../addons/a/compose.yml\nservices: {}\n",
@@ -1141,7 +1141,6 @@ class Screen(Case):
                      "      test: [\"CMD-SHELL\", \"curl -sf x | grep -Eq '\\\"healthy\\\" *: *true'\"]\n"):
             with self.subTest(text=text):
                 self.assertEqual(self.screen(text), [])
-                self.assertEqual(self.screen(text, follow=True), [])
 
     def test_a_clean_file_of_the_engine_is_clean(self):
         """The real units, as they sit in the engine today: the screen reads words, and none of these says one it refuses.
@@ -1195,42 +1194,17 @@ class Screen(Case):
             for text in (f"services:{brk}  a:{brk}    env_file:{brk}      - /outside/x{brk}", f"services:{brk}  a:{brk}    env_file:{brk}      - ok.env{brk}"
                          f"      - path: /outside/x{brk}", f"services:{brk}  a:{brk}    env_file: [{brk}ok.env,{brk}/outside/x]{brk}"):
                 with self.subTest(text=text):
-                    self.assertEqual(self.screen(text, follow=True), [self.FILES])
+                    self.assertEqual(self.screen(text), [self.FILES])
             clean = f"include:{brk}  - ../ok.yml{brk}services: {{}}{brk}"
             self.assertEqual(self.screen(clean), [])
 
-    def test_t19_a_file_a_service_reads_is_refused_until_the_caller_reads_it(self):
+    def test_t19_a_file_a_service_reads_is_refused(self):
         """Compose reads an env_file into the environment, ${NAME} and all, and nothing in the resolved JSON shows it."""
         for key in ("env_file", "label_file"):
             for text in (f"services:\n  a:\n    {key}: ./a.env\n", f"services:\n  a:\n    {key}:\n      - ./a.env\n",
                          f"services:\n  a:\n    {key}: [a.env]\n", f'services: {{a: {{"{key}": "a.env"}}}}\n'):
                 with self.subTest(text=text):
                     self.assertEqual(self.screen(text), [self.FILES])
-                    self.assertEqual(self.screen(text, follow=True), [])
-        # a plain name in a one-line flow is read two ways (`a.env}}` in a block), and the readings must agree
-        self.assertEqual(self.screen("services: {a: {env_file: a.env}}\n", follow=True), [self.FILES])
-
-    def test_t19_a_file_a_service_reads_stays_in_its_folder(self):
-        for key in ("env_file", "label_file"):
-            for target in ("/dev/zero", "~/.aws/credentials", "${HOME}/x", "../../b.env", "https://example.invalid/e", "../b.env"):
-                with self.subTest(key=key, target=target):
-                    for text in (f"services:\n  a:\n    {key}: {target}\n", f"services:\n  a:\n    {key}:\n      - ok.env\n      - {target}\n",
-                                 f"services:\n  a:\n    {key}:\n    - {target}\n", f"services:\n  a:\n    {key}:\n      - path: {target}\n",
-                                 f"services:\n  a:\n    {key}: [{target}]\n", f'services:\n  a:\n    {key}: "{target}"\n'):
-                        self.assertEqual(self.screen(text, follow=True), [self.FILES], text)
-        self.assertEqual(self.screen("services:\n  a:\n    env_file: sub/../ok.env\n", follow=True), [])
-        self.assertEqual(self.screen("services:\n  a:\n    env_file:\n      - ./a.env\n      - path: b.env\n        required: false\n",
-                                     follow=True), [])
-
-    def test_t19_the_files_a_unit_names_are_the_ones_the_caller_reads(self):
-        text = ("services:\n  a:\n    env_file:\n      - ./a.env\n      - path: sub/b.env\n        required: false\n"
-                "  b:\n    env_file: [a.env, 'c.env']\n    label_file: \"d.env\"\n")
-        folder = ".lab/catalogs/ns/addons/x"
-        self.assertEqual(trust.env_files(text, self.FILE), [f"{folder}/a.env", f"{folder}/c.env", f"{folder}/d.env", f"{folder}/sub/b.env"])
-        self.assertEqual(trust.env_files("services: {}\n", self.FILE), [])
-        self.assertEqual(trust.env_files("env_file: /dev/zero\n", self.FILE), [])
-        self.assertEqual(trust.env_files(text, ".lab/catalogs/ns/playgrounds/x/seed/a.yaml"), [])
-        self.assertEqual(trust.env_files(None, self.FILE), [])
 
     FOLDER = ".lab/catalogs/ns/addons"   # where `../a/compose.yml` leads from the folder of FILE
 
@@ -1505,17 +1479,6 @@ class Screen(Case):
             self.screen(text)
             self.assertLess(time.process_time() - started, 3.0, text[:60])
 
-    def test_t19_a_quoted_file_name_is_read_with_its_spaces_and_a_name_seen_two_ways_is_both(self):
-        """A quoted name is the name between the quotes: the file a service reads is `a.env ` with its space. A key an escape
-        spells and a key on the line after a backslash are read from the text as each reading has it, and the files either
-        names are the ones to read."""
-        folder = ".lab/catalogs/ns/addons/x"
-        self.assertEqual(trust.env_files('services:\n  a:\n    env_file: "a.env "\n', self.FILE), [f"{folder}/a.env "])
-        self.assertEqual(trust.env_files("services:\n  a:\n    env_file: [' a.env', b.env]\n", self.FILE),
-                         [f"{folder}/ a.env", f"{folder}/b.env"])
-        self.assertEqual(trust.env_files("x: abc\\\nservices:\n  a:\n    env_file: a.env\n", self.FILE), [f"{folder}/a.env"])
-        self.assertEqual(trust.env_files('x: abc\\\nservices:\n  a:\n    "env_\\x66ile": a.env\n', self.FILE), [f"{folder}/a.env"])
-
     def test_the_lexer_says_when_it_does_not_follow_a_spelling(self):
         for text, odd in (("a.yml", False), ("'a.yml'", False), ('"a.yml"', False), ("&a a.yml", False), ("!!str a.yml", False),
                           ("!tag a.yml", False), ('"a\\x41.yml"', True), ('"a\\\\b"', True), ("'a\\x41'", False), (":,", True), (": a", True),
@@ -1529,11 +1492,6 @@ class Screen(Case):
         lex.feed("'a")
         lex.feed("   b  '")
         self.assertEqual(lex.tokens, [("s", "a b  ")], "a folded line keeps what is at the ends of the scalar")
-
-    def test_t19_what_the_files_it_names_read_is_t20(self):
-        """The contract with the caller: put these texts through reads(), or `${NAME}` in an env file reads the shell and the
-        .env files with no reason given (T20)."""
-        self.assertEqual(trust.reads(["LEAK=${SOME_HOST_SECRET}\nOTHER=$MORE\nPLAIN=1\n"]), ["MORE", "SOME_HOST_SECRET"])
 
     def test_t19_an_extends_of_another_file_blocks_and_one_of_its_own_does_not(self):
         self.assertEqual(self.screen("services:\n  a:\n    extends:\n      file: other.yml\n      service: b\n"), [self.FILES])
@@ -1562,7 +1520,6 @@ class Screen(Case):
                      "\ufeffservices:\n  a:\n    env_file: /dev/zero\n", "services:\r\n  a:\r\n    env_file: /dev/zero\r\n"):
             with self.subTest(text=text):
                 self.assertEqual(self.screen(text), [self.FILES])
-                self.assertEqual(self.screen(text, follow=True), [self.FILES])
         self.assertEqual(self.screen("x: &z /etc/passwd\ninclude:\n  - *z\n"), [self.INCLUDE])
 
     def test_t19_what_a_line_by_line_reading_misses_is_refused(self):
@@ -1572,12 +1529,11 @@ class Screen(Case):
             text = template
             for place, written in PLACES.items():
                 text = text.replace(place, written)
-            for follow in (False, True):
-                with self.subTest(spelling=name, follow=follow):
-                    self.assertTrue(self.screen(text, follow=follow), repr(text))
+            with self.subTest(spelling=name):
+                self.assertTrue(self.screen(text), repr(text))
         for text in ODD:
             with self.subTest(text=text):
-                self.assertTrue(self.screen(text, follow=True), repr(text))
+                self.assertTrue(self.screen(text), repr(text))
 
     def test_t19_a_key_with_every_spelling_in_every_place_is_refused(self):
         """The cross product of how a key is spelled, what follows it and where it sits, run against the bad value."""
@@ -1597,7 +1553,7 @@ class Screen(Case):
                     for place in places:
                         text = place.format(entry=entry, flow=flow)
                         made += 1
-                        self.assertEqual(self.screen(text, follow=True), [self.FILES], repr(text))
+                        self.assertEqual(self.screen(text), [self.FILES], repr(text))
         self.assertGreater(made, 800)
         for spelling in ("{k}", '"{k}"', "'{k}'", "&a {k}", "!!str {k}", '"inc\\x6cude"'):
             for value in ("/outside/x", '"/outside/x"', "[/outside/x]", "\n  - /outside/x", "\n  - path: /outside/x",
@@ -1621,7 +1577,7 @@ class Screen(Case):
 
     def test_t19_a_flow_collection_that_never_ends_is_not_read(self):
         self.assertEqual(self.screen("services:\n  a:\n    env_file: [\n" + "  ok.env,\n" * 500 + "]\n"), [self.FILES])
-        self.assertEqual(self.screen("services:\n  a:\n    env_file: [ok.env\n", follow=True), [self.FILES])
+        self.assertEqual(self.screen("services:\n  a:\n    env_file: [ok.env\n"), [self.FILES])
         self.assertEqual(self.screen("include: [\n" + "  ../ok.yml,\n" * 500 + "]\n"), [self.INCLUDE])
         self.assertEqual(self.screen("include: [\n" + "  ../ok.yml,\n" * 50 + "]\n"), [])
         self.assertEqual(self.screen("include: '\n" + "a\n" * 500 + "'\n"), [self.INCLUDE])
@@ -1683,10 +1639,6 @@ class Screen(Case):
                    "".join(" " * (number % 400) + "include:\n" for number in range(3000)),
                    ("include:\n" + "  - a.yml\n" * 200) * 150, "include: " + "[" * 50000 + "]" * 50000)
         for text in attacks:
-            started = time.process_time()
-            self.screen(text, follow=True)
-            self.assertLess(time.process_time() - started, 3.0, text[:60])
-        for text in attacks[:3]:
             started = time.process_time()
             self.screen(text)
             self.assertLess(time.process_time() - started, 3.0, text[:60])
@@ -2936,8 +2888,6 @@ class Pure(Golden):
         arguments = self.args(PLAYGROUND, realpath=None)
         with self.untouched():
             trust.prescreen("include:\n  - ../a.yml\n", ".lab/catalogs/ns/addons/x/compose.yml")
-            trust.prescreen("services:\n  a:\n    env_file: [a.env, \"b.env\"]\n", ".lab/catalogs/ns/addons/x/compose.yml", follow=True)
-            trust.env_files("services:\n  a:\n    env_file: a.env\n", ".lab/catalogs/ns/addons/x/compose.yml")
             trust.reads(["A=${B}"], {"services": {"a": {"environment": {"C": None}}}})
             resolve.shown("a name", 3)
             resolve.owned_names(arguments["unit_config"], arguments["core_config"], arguments["own"])
