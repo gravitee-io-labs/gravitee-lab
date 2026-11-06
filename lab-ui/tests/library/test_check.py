@@ -520,23 +520,6 @@ class Items(Machine):
             "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)",
             "seed/environments/moderna/apis/list.json must hold a JSON object"])
 
-    def test_what_an_add_on_or_a_playground_builds_says_how_it_comes(self):
-        # Built here or pulled, as its pull policy says: the Lab UI never forces a build
-        built = self.machine([member("fixture", "playground", "welcome", ["acme-website"])])
-        service_ = built["services"]["acme-website"]
-        service_.update(built=True, pull_policy=None)
-        self.assertEqual(list(check._pull_policy(built["playgrounds"]["welcome"], built)), [
-            "acme-website builds its image: say how it comes with pull_policy (build or never, or always to pull it)"])
-        service_["pull_policy"] = "build"
-        self.assertEqual(list(check._pull_policy(built["playgrounds"]["welcome"], built)), [])
-
-    def test_a_catalog_that_was_audited_leaves_the_pull_policy_to_im01(self):
-        said = "acme-website builds its image: say how it comes with pull_policy (build or never, or always to pull it)"
-        built = self.machine([member("fixture", "playground", "welcome", ["acme-website"])])
-        built["services"]["acme-website"].update(built=True, pull_policy=None)
-        self.assertIn(said, self.lines("playground", "welcome", catalog="fixture"))
-        self.assertNotIn(said, self.lines("playground", "welcome", catalog="fixture", audited=True))
-
 
 PORTAL_COMMAND = ["/bin/sh", "-c", "sed -i -e '/X-Frame-Options/d' -e \"s|self|& {pages}|\" x; sh /run.sh"]
 

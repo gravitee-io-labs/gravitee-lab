@@ -508,15 +508,6 @@ def _seed(folder):
             yield f"{name} must hold a JSON object"
 
 
-def _pull_policy(unit, project):
-    """What an add-on or a playground builds says whether it is built here or pulled: the Lab UI leaves it to that,
-    never forcing a build."""
-    for name in unit.get("services", []):
-        service = project["services"].get(name) or {}
-        if service.get("built") and not service.get("pull_policy"):
-            yield f"{name} builds its image: say how it comes with pull_policy (build or never, or always to pull it)"
-
-
 def _frameable(service):
     """Whether the Lab UI's pages may frame a console of the platform: its command lets them (x-ui-frames) and drops
     X-Frame-Options, which would refuse every page but its own, or a setting of its own names them as the pages that may."""
@@ -612,8 +603,6 @@ def _unit(kind, uid, project, raw, context=None):
     yield from _restart(raw[path], unit.get("services", []))
     yield from _labeled(raw[path], unit.get("services", []))
     yield from _loopback(_own_ports(raw, path, _included(unit)))
-    if not inert and not context.get("audited"):   # a catalog that was audited has IM01 for it
-        yield from _pull_policy(unit, project)
     if kind == "addon":
         yield from _conflicts(unit)
         yield from _license(unit["requires"])
@@ -1382,12 +1371,11 @@ def catalog_files(ns):
     return [manifest.FILE, *(unit["file"][len(base):] for _, _, unit in catalog_units(ns, project))]
 
 
-def catalog_problems(ns, project=None, inputs=None, audited=False):
+def catalog_problems(ns, project=None, inputs=None):
     """Every problem found in catalog `ns`, as (file, what is wrong), the file relative to the catalog: what its
     catalog.yml says; for each unit the rules of every item (`_unit`), the names it gives, where its paths lead, what the
     screen and the policy say of it (a Blocked reason is an error: "Blocked: ..."); then the README tables the catalog
-    keeps, the ports its units publish, and whether its declarations of other catalogs and its `lab` are true. The images it builds are the audit's (IM01 to IM04, `audit_units`): `audited` is for a
-    caller that runs `catalogs.audit` on the same catalog, and leaves out the line about `pull_policy` that IM01 says. It loads
+    keeps, the ports its units publish, and whether its declarations of other catalogs and its `lab` are true. The images it builds are the audit's (IM01 to IM04, `audit_units`). It loads
     the project as the Lab does, with the catalog installed or linked in this engine, and never writes. Unavailable when it, or
     a catalog it includes from, is not here."""
     if project is None or inputs is None:
@@ -1407,7 +1395,7 @@ def catalog_problems(ns, project=None, inputs=None, audited=False):
     found += [(manifest.FILE, line) for line in said]
     units = catalog_units(ns, project)
     declared = sorted(((meta or {}).get("requires") or {}).get("catalogs") or {})
-    context = {"catalog": ns, "declared": declared, "products": products, "audited": audited}
+    context = {"catalog": ns, "declared": declared, "products": products}
     listed = bool((inputs["catalogs"].get(ns) or {}).get("listed"))
     stubs = {*(inputs.get("screened") or {}), *(inputs.get("unreadable") or {})}
     for kind, uid, unit in units:

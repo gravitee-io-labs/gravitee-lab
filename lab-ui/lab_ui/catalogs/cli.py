@@ -639,7 +639,7 @@ def _items(target, folder, summary, args, notes):
         with check.scrubbed():
             built, inputs = check.loaded()
             try:
-                found = check.catalog_problems(target.ns, built, inputs, audited=True)
+                found = check.catalog_problems(target.ns, built, inputs)
             except check.ComposeGone:
                 return Items([], [], None, [check.NO_COMPOSE])
             return Items(check.as_problems(found, built, target.ns, (paths.ROOT, target.path)), check.catalog_files(target.ns),
@@ -656,7 +656,7 @@ def _items(target, folder, summary, args, notes):
     with check.temporary_link(folder, ns, needs, audiences) as linked, check.scrubbed():
         built, inputs = check.loaded()
         try:
-            found = check.catalog_problems(ns, built, inputs, audited=True)
+            found = check.catalog_problems(ns, built, inputs)
         except check.ComposeGone:
             return Items([], [], None, [check.NO_COMPOSE])
         hide = (linked.root / paths.CATALOGS_DIR / ns, linked.root, linked.lab, linked.folder)
