@@ -144,11 +144,10 @@ class Register(Platforms):
         self.assertEqual(self.add(url=self.url + "/management/")["url"], self.url)
 
     def test_the_address_defaults_to_the_eu_cloud(self):
-        with self.assertRaises(cloud.CloudError) as caught:   # nothing listens there in a test: only what is asked
-            account = self.patch(cloud.Cloud, "account", side_effect=cloud.CloudError("stop"))
+        account = self.patch(cloud.Cloud, "account", autospec=True, side_effect=cloud.CloudError("stop"))
+        with self.assertRaisesRegex(cloud.CloudError, "^stop$"):   # nothing listens there in a test: only what is asked
             platforms.add("", fake_cloud.TOKEN, ACCOUNT)
-        self.assertEqual(str(caught.exception), "stop")
-        account.assert_called_once_with(ACCOUNT)
+        self.assertEqual(account.call_args.args[0].url, "https://eu.cloud.gravitee.io")
 
     def test_the_id_follows_the_name_and_stays_unique(self):
         names = ("Gravitee Cloud", "Gravitee  Cloud!", "Other", "gravitee-cloud")
