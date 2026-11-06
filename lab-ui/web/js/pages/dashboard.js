@@ -10,7 +10,7 @@
 // the load of the containers only while it is on screen. The load is drawn as a chart that slides: its path is moved by an animation
 // frame from the clock, not redrawn by the sample. No link has an effect on the page it opens, and a click on a name acts on nothing.
 
-import { $, $$, esc, icon, setHTML, loading, ago, api, store, router, hrefOf, recall, remember, splitKey, catalogRows } from "../core.js";
+import { $, $$, esc, icon, setHTML, loading, ago, api, store, hrefOf, recall, remember, splitKey, catalogRows } from "../core.js";
 import { busy } from "../activity/jobs.js";
 import { actionButton, paintActions, paintBusy, paintProgress, stateDot, noteHtml, noteBadge, dockerDown, onKnown, keyed,
   showing, starButton, toggleStar, openMenu, Pager, emptyHtml, tipHtml, cardHtml, tipAttrs, statusHtml, refocus, safeHref, applyBadge,
@@ -979,8 +979,7 @@ function init(section) {
     else if (on("[data-core-do]")) {
       const what = on("[data-core-do]").dataset.coreDo, core = coreOf(), p = platforms?.find((found) => found.id === core.platform.id);
       const env = p && checks.get(p.id)?.environments?.find((found) => found.id === core.environment.id);
-      if (what === "add-catalog") router.go("#/catalogs");   // no add-on runs its gateway: a catalog is where one comes from
-      else if (env) perform(p, () => checks.get(p.id), env, what, () => check(p.id));
+      if (env) perform(p, () => checks.get(p.id), env, what, () => check(p.id));
     }
     else if (on("[data-star]")) toggleStar(rowOf(on("[data-star]"))).then(() => refocus("#page-dashboard [data-filter]"));   // a row that left took the focus
     else if (on("[data-reload]")) loadPlatforms();
