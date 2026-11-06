@@ -288,10 +288,6 @@ a.pill { text-decoration: none; transition: background var(--dur-1) var(--ease);
 .pop-line > .pop-what:first-child { grid-column: 1 / -1; }   /* a line about nobody in particular has both columns, and its chips wrap in them */
 .pop-line > .pop-what:first-child:has(> .chip + .chip) { flex-direction: column; flex-wrap: nowrap; align-items: flex-start; }   /* a list of names only is one to a line: the card is as wide as the longest */
 .pop-lead { color: var(--muted); }
-/* The parts that read as one: the arrow, the word and the version it leads to never break apart */
-.pop-pair { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-.pop-arrow { display: inline-grid; place-items: center; color: var(--muted); }
-.pop-arrow svg { width: 12px; height: 12px; }
 .pop-foot { padding-top: var(--sp-2); border-top: 1px solid var(--border); color: var(--muted); }
 /* The one button a card may end with (its `action`) keeps its own width */
 .pop-body > .btn { justify-self: start; }

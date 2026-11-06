@@ -474,7 +474,7 @@ export const licenseForm = () => 'data-license="form"';
 // - A TOOLTIP is a label or one short line (LINE characters at most): a dark bubble, 12 px, on one line that never wraps.
 // - A POPOVER explains anything longer: several lines, one long line, or a card {title, text, rows, foot}. A card of the surface, 260 to 460
 //   px at most: a title, a sentence (`text`), then rows under a hairline (a row is {subject, lines}, a line a list of parts: a word,
-//   {who} for whom it is about, {code} for a version or a setting's name, ARROW, {pair: parts} for parts that stay on one line,
+//   {who} for whom it is about, {code} for a version or a setting's name,
 //   {versions: {running, saved, older}} for a version that runs and the one saved), then a foot (what the action will do). Of several
 //   lines the first is the title (a term, a state, a part of the disk), unless `title` is false: a list of equals; a title and one
 //   sentence are a title over its sentence.
@@ -486,16 +486,11 @@ export const licenseForm = () => 'data-license="form"';
 // Escape closes it while the pointer or the focus stays, until both have left (WCAG 1.4.13); a tap elsewhere, a scroll or a resize
 // closes it.
 const LINE = 40;   // the longest line a tooltip says: what is longer is a popover
-const ARROW = { arrow: true };
 const COLUMNS = ["Running", "Saved"];
 const chipHtml = (code, older = false) => `<code class="chip${older ? " older" : ""}">${esc(code)}</code>${older ? '<span class="sr-only"> (older)</span>' : ""}`;
-const partHtml = (part) => (part?.arrow ? `<span class="pop-arrow" aria-hidden="true">${icon("arrow-right")}</span>`
-  : typeof part === "string" ? `<span>${esc(part)}</span>`
-  : part.pair ? `<span class="pop-pair">${part.pair.map(partHtml).join(" ")}</span>`
-  : chipHtml(part.code, part.older));
-const partSaid = (parts, columns = COLUMNS) => parts.flatMap((part) => part?.pair || [part]).map((part) => (part?.arrow ? ","
-  : typeof part === "string" ? part : part.lead || (part.versions ? `${columns[0]} ${part.versions.running}, ${columns[1].toLowerCase()} ${part.versions.saved}${part.versions.older ? " (older)" : ""}`
-  : part.who || `${part.code}${part.older ? " (older)" : ""}`))).join(" ").replace(/ ,/g, ",");
+const partHtml = (part) => (typeof part === "string" ? `<span>${esc(part)}</span>` : chipHtml(part.code));
+const partSaid = (parts, columns = COLUMNS) => parts.map((part) => (typeof part === "string" ? part : part.lead
+  || (part.versions ? `${columns[0]} ${part.versions.running}, ${columns[1].toLowerCase()} ${part.versions.saved}${part.versions.older ? " (older)" : ""}` : part.who || part.code))).join(" ");
 // A line: whom it is about (or the subject of its row, `subject`), then what it says: two versions in their columns, or its words and
 // chips across them. Words that lead it (`{lead}`: "Settings changed", "Uses") stand muted in a column of their own, and the parts after
 // them wrap under their first one (`.pop-chips`), never under the leading words (under them, after whom the line is about, where the
