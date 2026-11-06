@@ -54,7 +54,7 @@ from typing import Callable, Dict, Iterable, List, NamedTuple, Optional, Sequenc
 from ...library import check
 from ...docker import compose
 from ... import paths
-from .. import explain, report, store, tree as trees, trust
+from .. import explain, report, standard, store, tree as trees, trust
 from ..report import ERROR, Problem
 from ..rules import say
 
@@ -120,7 +120,7 @@ PLATFORMS = {
 SEEDER_DIR = "seeder"
 
 # The messages of the stages word for word: (severity, message), from the table `explain` prints
-MESSAGES = {code: (severity, message) for code, severity, _, message in (*explain.STAGES, *explain.SD)}
+MESSAGES = {code: (severity, message) for code, severity, _, message in (*explain.STAGES, *standard.RULES.values())}
 # The one case 6.11 has no sentence for: the build failed and Docker did not say at which step (a failure before the first, a
 # frontend that answered otherwise). The same words, without the step
 BD01_PLAIN = "{image}: the build failed (exit {code}). Fix: run make ci to see it on your machine; the last 15 lines are in the " \
