@@ -14,9 +14,6 @@ const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filt
 const page = installDom({ ids });
 page.el("combo-pop").innerHTML = '<div class="combo-search"><input id="combo-input"></div><div id="combo-bar"></div><div id="combo-list"></div><div id="combo-foot"></div>';
 globalThis.EventSource = class { close() {} addEventListener() {} };
-// The stub's selectors do not know :checked, which the page asks of its levels
-const all = page.doc.querySelectorAll;
-page.doc.querySelectorAll = (selector) => all(selector.replace(":checked", ""));
 
 const { store } = await import("../../../web/js/core.js");
 const { Combo } = await import("../../../web/js/components/combo.js");

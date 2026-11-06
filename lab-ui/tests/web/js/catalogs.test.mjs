@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { El, Ev, bubble, flush, installDom, reply, isOff, offWhy, text } from "./dom-stub.mjs";
+import { Ev, bubble, flush, installDom, reply, isOff, offWhy, text } from "./dom-stub.mjs";
 import { ADDRESS, FIRST, FOLDER, HOSTILE, HOSTILE_QUOTED, NOT_ADDED, PERSONAL, STATES, catalog, content, item, lab, origin } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
@@ -39,18 +39,6 @@ const page = installDom({
 });
 globalThis.innerHeight = 800;
 globalThis.getComputedStyle = () => ({ position: "static", getPropertyValue: () => "0" });
-// Selectors the page asks and the small DOM does not know: a menu opened with the keyboard (:focus-visible), a button at work (:is)
-const { matches, closest } = El.prototype;
-El.prototype.matches = function (selector) { return selector === ":focus-visible" ? false : matches.call(this, selector); };
-El.prototype.closest = function (selector) { return closest.call(this, selector.replace(":is(.busy, .said)", ".busy")); };
-// The page stops a click on a control that waits where the document hears it: the stub's events have no such call
-Ev.prototype.stopImmediatePropagation = function () { this.cancelBubble = true; };
-// A radio is checked as its markup says, until a test chooses another
-Object.defineProperty(El.prototype, "checked", {
-  get() { return this._checked ?? this.hasAttribute("checked"); },
-  set(value) { this._checked = !!value; },
-  configurable: true,
-});
 
 const { store, router, ago } = await import("../../../web/js/core.js");
 const { catalogsPage } = await import("../../../web/js/pages/catalogs.js");
@@ -1766,8 +1754,6 @@ test("an update that makes items need this machine has the row and the choice of
 
 // The dialog of ui.js `effectsDialog`: the browser tells it which choice is checked, which the stub does not
 const choice = page.ids.choice, picks = page.ids["choice-list"];
-picks.querySelector = (selector) => (selector === "input:checked" ? picks.querySelectorAll("input").find((i) => i.checked) ?? picks.querySelectorAll("input")[0]
-  : El.prototype.querySelector.call(picks, selector));
 const effects = () => ({ title: text(page.ids["choice-title"]), action: text(page.ids["choice-ok"]), danger: page.ids["choice-ok"].classList.contains("danger"),
   steps: picks.querySelectorAll(".step").map((s) => [text(s.querySelector("strong")), s.querySelectorAll(".step-items li").map(text), s.querySelector(".step-head .muted") ? text(s.querySelector(".step-head .muted")) : ""]),
   notes: picks.querySelectorAll(".choice-row").map((n) => [text(n.querySelector(".choice-row-label")), n.querySelectorAll(".pill").map(text), n.querySelector(".choice-items > .muted") ? text(n.querySelector(".choice-items > .muted")) : ""]),

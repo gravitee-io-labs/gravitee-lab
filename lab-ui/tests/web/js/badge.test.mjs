@@ -12,10 +12,9 @@ const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "
 const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
 const page = installDom({ ids, stored: { expanded: JSON.stringify({ "group:databases": true }) }, fetch: async () => ({ ok: true, status: 200, json: async () => ({}) }) });
 globalThis.innerHeight = 800;
-const { matches, closest } = El.prototype;
-// ... and the keys of a segmented control, whose selector it does not know either: no node of its own is under the keys of a test
-El.prototype.matches = function (selector) { return selector === ":focus-visible" || selector.startsWith(":is([role") ? false : matches.call(this, selector); };
-El.prototype.closest = function (selector) { return selector.includes(":is([role") ? null : closest.call(this, selector.replace(":is(.busy, .said)", ".busy")); };
+// The keys of a segmented control, whose selector the small DOM does not know: no node of its own is under the keys of a test
+const { closest } = El.prototype;
+El.prototype.closest = function (selector) { return selector.includes(":is([role") ? null : closest.call(this, selector); };
 const { store } = await import("../../../web/js/core.js");
 const { actionButton, applyBadge, behindWhy, catalogNeed, flash, noteBadge, noteCard, noteHtml, originLink, paintActions, tipHtml } = await import("../../../web/js/components/ui.js");
 const { stackPage } = await import("../../../web/js/pages/stack.js");

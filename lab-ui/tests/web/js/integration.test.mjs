@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { El, Ev, flush, installDom, isOff, offWhy, text } from "./dom-stub.mjs";
+import { Ev, flush, installDom, isOff, offWhy, text } from "./dom-stub.mjs";
 import { FIRST, PERSONAL, catalog, content, lab } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
@@ -15,15 +15,6 @@ const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "
 const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
 const page = installDom({ ids, fetch: async () => ({ ok: true, status: 200, json: async () => ({}) }) });
 globalThis.innerHeight = 800;
-// Two selectors the page asks and the small DOM does not know: a button at work (:is)
-const { closest } = El.prototype;
-El.prototype.closest = function (selector) { return closest.call(this, selector.replace(":is(.busy, .said)", ".busy")); };
-// A radio is checked as its markup says, until a test chooses another
-Object.defineProperty(El.prototype, "checked", {
-  get() { return this._checked ?? this.hasAttribute("checked"); },
-  set(value) { this._checked = !!value; },
-  configurable: true,
-});
 
 const { api, store, router, catalogRows } = await import("../../../web/js/core.js");
 const ui = await import("../../../web/js/components/ui.js");
@@ -349,7 +340,6 @@ test("a dialog opened again goes to the top; one that is open already keeps its 
 
 const choice = page.ids.choice, picks = page.ids["choice-list"], ok = page.ids["choice-ok"];
 const radios = () => picks.querySelectorAll("input");
-picks.querySelector = (selector) => (selector === "input:checked" ? radios().find((radio) => radio.checked) : El.prototype.querySelector.call(picks, selector));
 const pick = (index) => {
   radios().forEach((radio, i) => { radio.checked = i === index; });
   picks.onchange();

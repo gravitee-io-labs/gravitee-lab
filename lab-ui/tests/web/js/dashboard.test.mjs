@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { El, Ev, bubble, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
+import { Ev, bubble, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
 import { FIRST, HOSTILE, catalog as catalogRow, content, origin } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
@@ -84,7 +84,6 @@ Combo.init();
 
 // The dialog of what an action does (ui.js `effectsDialog`): the browser tells it which choice is checked, which the stub does not
 const choice = page.ids.choice, picks = page.ids["choice-list"];
-picks.querySelector = (selector) => (selector === "input:checked" ? picks.querySelectorAll("input")[0] : El.prototype.querySelector.call(picks, selector));
 const answer = async (confirmed) => {
   choice.returnValue = confirmed ? "ok" : "";
   choice.onclose();

@@ -17,10 +17,10 @@ class Text {
 const camel = (name) => name.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 const dashed = (name) => name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
 
-/* ---- selectors: tag#id.class[attr][attr=value][attr^=value]:not(...):first-child:last-child:disabled:hover:focus-within:focus-visible, with " " and ">" ------------------- */
+/* ---- selectors: tag#id.class[attr][attr=value][attr^=value]:not(...):first-child:last-child:disabled:checked:hover:focus-within:focus-visible, with " " and ">" ------------------- */
 function compound(source) {
   const parts = [];
-  const pattern = /(\*|[a-zA-Z][\w-]*)|#([\w-]+)|\.([\w-]+)|\[([\w-]+)(?:([\^$*]?=)(?:"([^"]*)"|'([^']*)'|([^\]]*)))?\]|:not\(([^)]*)\)|:(first-child|last-child|disabled|hover|focus-within|focus-visible)/y;
+  const pattern = /(\*|[a-zA-Z][\w-]*)|#([\w-]+)|\.([\w-]+)|\[([\w-]+)(?:([\^$*]?=)(?:"([^"]*)"|'([^']*)'|([^\]]*)))?\]|:not\(([^)]*)\)|:(first-child|last-child|disabled|checked|hover|focus-within|focus-visible)/y;
   pattern.lastIndex = 0;
   while (pattern.lastIndex < source.length) {
     const found = pattern.exec(source);
@@ -41,6 +41,7 @@ function compound(source) {
     else if (pseudo === 'first-child') parts.push((el) => el.parent && el.parent.children.find((c) => c instanceof El) === el);
     else if (pseudo === 'last-child') parts.push((el) => el.parent && [...el.parent.children].reverse().find((c) => c instanceof El) === el);
     else if (pseudo === 'disabled') parts.push((el) => el.disabled);
+    else if (pseudo === 'checked') parts.push((el) => el.checked);
     // What only a pointer or the keyboard knows: false, unless a test says it of an element (`el.states = new Set(["hover"])`)
     else if (pseudo) parts.push((el) => !!el.states?.has(pseudo));
   }
@@ -144,6 +145,8 @@ export class El extends Target {
   set hidden(value) { if (value) this.attrs.set('hidden', ''); else this.attrs.delete('hidden'); }
   get disabled() { return this.attrs.has('disabled'); }
   set disabled(value) { if (value) this.attrs.set('disabled', ''); else this.attrs.delete('disabled'); }
+  get checked() { return this._checked ?? this.attrs.has('checked'); }             // as its markup says, until a test chooses another
+  set checked(value) { this._checked = !!value; }
   get tabIndex() { return this.attrs.has('tabindex') ? Number(this.attrs.get('tabindex')) : VOID_FOCUSABLE.has(this.tag) ? 0 : -1; }
   set tabIndex(value) { this.attrs.set('tabindex', String(value)); }
   get value() { return this.attrs.get('value') ?? this._value ?? ''; }
@@ -301,6 +304,7 @@ export class Ev {
   constructor(type, extra = {}) { this.type = type; this.defaultPrevented = false; Object.assign(this, extra); }
   preventDefault() { this.defaultPrevented = true; }
   stopPropagation() { this.cancelBubble = true; }
+  stopImmediatePropagation() { this.cancelBubble = true; }
 }
 
 /* The window of a frame: what the page posts to it is kept, and so are the addresses it is sent to (`assigned`: a new entry of its history, `replaced`: in place of the page it holds). */

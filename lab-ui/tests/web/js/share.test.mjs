@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { El, Ev, bubble, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
+import { Ev, bubble, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
 import { FIRST, FOLDER, HOSTILE, catalog, content, item, lab, origin } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
@@ -51,7 +51,6 @@ const DONE = { branch: "lab/bank-20261016", commit: "9f1c2ab", repository: "acme
 const choice = page.ids.choice, picks = page.ids["choice-list"], ok = page.ids["choice-ok"];
 const radios = () => picks.querySelectorAll("input");
 const on = (radio) => (radio.checked === undefined ? radio.hasAttribute("checked") : radio.checked);
-picks.querySelector = (selector) => (selector === "input:checked" ? radios().find(on) : El.prototype.querySelector.call(picks, selector));
 const rowOf = (row) => [text(row.querySelector(".choice-row-label")), row.querySelectorAll(".pill").map(text), row.querySelectorAll(".muted").map(text)];
 const options = () => picks.querySelectorAll(".choice").map((label) => ({ name: text(label.querySelector("strong")), hint: label.querySelector(".sub") ? text(label.querySelector(".sub")) : "",
   disabled: label.classList.contains("disabled"), rows: label.querySelectorAll(".choice-row").map(rowOf) }));

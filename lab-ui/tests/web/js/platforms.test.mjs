@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { El, Ev, bubble, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
+import { Ev, bubble, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
 const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
@@ -65,11 +65,6 @@ const endJobs = () => {
 globalThis.innerHeight = 800;   // a menu opens under its button, or above it when the window ends first
 // A button that fades back to its face reads how long it takes from the stylesheet: no fade here
 globalThis.getComputedStyle = () => ({ position: "static", getPropertyValue: () => "0" });
-// Two selectors that the page asks and the small DOM does not know: a menu opened with the keyboard focuses its first entry
-// (:focus-visible, which a click never has), and a button at work takes no click (:is)
-const { matches, closest } = El.prototype;
-El.prototype.matches = function (selector) { return selector === ":focus-visible" ? false : matches.call(this, selector); };
-El.prototype.closest = function (selector) { return closest.call(this, selector.replace(":is(.busy, .said)", ".busy")); };
 const { store } = await import("../../../web/js/core.js");
 const { platformsPage, accountState } = await import("../../../web/js/pages/platforms.js");
 const { logsPage } = await import("../../../web/js/pages/logs.js");
@@ -149,7 +144,6 @@ const accountMore = () => section.querySelector("[data-account-more]");
 
 // The dialog of what an action does (ui.js `effectsDialog`): the browser tells it which choice is checked, which the stub does not
 const choice = page.ids.choice, picks = page.ids["choice-list"];
-picks.querySelector = (selector) => (selector === "input:checked" ? picks.querySelectorAll("input")[0] : El.prototype.querySelector.call(picks, selector));
 const effects = () => ({ title: text(page.ids["choice-title"]), action: text(page.ids["choice-ok"]),
   steps: picks.querySelectorAll(".step").map((s) => [text(s.querySelector("strong")), s.querySelectorAll(".step-items li").map(said),
     s.querySelector(".step-head .muted") ? text(s.querySelector(".step-head .muted")) : ""]),
@@ -2100,15 +2094,11 @@ test("Replace Account Token says where to create it, in the popover of its label
 
 // Last: the logs page, once drawn, keeps timers of its own that the clock of the other tests would run
 test("Logs lead to the logs of the gateway's service", async () => {
-  // The stub's selectors do not know :checked, which the logs page asks of its levels
-  const all = page.doc.querySelectorAll;
-  page.doc.querySelectorAll = (selector) => all(selector.replace(":checked", ""));
   const logs = page.doc.createElement("section");
   page.doc.body.append(logs);
   logsPage.init(logs);
   await open(ok([gateway({ here: true, connection: "CONNECTED" })], { Development: VALID }));
   menu(envMore("Development"));
   await choose("Show logs");
-  page.doc.querySelectorAll = all;
   assert.equal(page.session.entries[page.session.at].hash, "#/logs");
 });

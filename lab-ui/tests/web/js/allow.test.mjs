@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { El, Ev, bubble, flush, installDom, reply, isOff, offWhy, text } from "./dom-stub.mjs";
+import { Ev, bubble, flush, installDom, reply, isOff, offWhy, text } from "./dom-stub.mjs";
 import { FIRST, catalog, content, gains, item, lab, origin } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
@@ -71,15 +71,6 @@ const page = installDom({
 });
 globalThis.innerHeight = 800;
 globalThis.getComputedStyle = () => ({ position: "static", getPropertyValue: () => "0" });
-const { matches, closest } = El.prototype;
-El.prototype.matches = function (selector) { return selector === ":focus-visible" ? false : matches.call(this, selector); };
-El.prototype.closest = function (selector) { return closest.call(this, selector.replace(":is(.busy, .said)", ".busy")); };
-Ev.prototype.stopImmediatePropagation = function () { this.cancelBubble = true; };
-Object.defineProperty(El.prototype, "checked", {
-  get() { return this._checked ?? this.hasAttribute("checked"); },
-  set(value) { this._checked = !!value; },
-  configurable: true,
-});
 
 const { store, router } = await import("../../../web/js/core.js");
 const { catalogsPage } = await import("../../../web/js/pages/catalogs.js");
@@ -143,8 +134,6 @@ const about = () => catalogRow().querySelectorAll(".panel-fact").map((fact) => [
 
 // The dialog of ui.js `effectsDialog`: the browser tells it which choice is checked, which the stub does not
 const choice = page.ids.choice, picks = page.ids["choice-list"], ok = page.ids["choice-ok"];
-picks.querySelector = (selector) => (selector === "input:checked" ? picks.querySelectorAll("input").find((i) => i.checked) ?? picks.querySelectorAll("input")[0]
-  : El.prototype.querySelector.call(picks, selector));
 const effects = () => ({ title: text(page.ids["choice-title"]), action: text(ok), danger: ok.classList.contains("danger"),
   steps: picks.querySelectorAll(".step").map((s) => [text(s.querySelector("strong")), s.querySelectorAll(".step-items li").map(text), s.querySelector(".step-head .muted") ? text(s.querySelector(".step-head .muted")) : ""]),
   notes: picks.querySelectorAll(".choice-row").map((n) => [text(n.querySelector(".choice-row-label")), n.querySelectorAll(".pill").map(text), n.querySelector(".choice-items > .muted") ? text(n.querySelector(".choice-items > .muted")) : ""]) });
