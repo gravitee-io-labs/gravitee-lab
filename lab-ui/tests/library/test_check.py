@@ -93,9 +93,9 @@ class Machine(Case):
     def context(self, ns="fixture", declared=()):
         return {"catalog": ns, "declared": list(declared), "products": ()}
 
-    def lines(self, kind, uid, shared=True, **context):
+    def lines(self, kind, uid, **context):
         """What is wrong with a unit of the machine."""
-        return list(check._unit(kind, uid, self.built, self.given["raw"], shared, context or None))
+        return list(check._unit(kind, uid, self.built, self.given["raw"], context or None))
 
 
 class Misnamed(Case):
@@ -232,12 +232,12 @@ class Includes(Case):
         self.folder(check, paths, compose)
         fixtures.default(self, "fixture")
 
-    def found(self, kind, included, shared=True, catalog="fixture", declared=(), name="it"):
+    def found(self, kind, included, catalog="fixture", declared=(), name="it"):
         """What is wrong with a file of this kind that includes these, all of them on disk."""
         for path in included:
             self.write(path, "")
         with mock.patch.object(compose, "includes", return_value=included):
-            return list(check._includes(kind, unit("fixture", kind, name), shared, catalog, declared))
+            return list(check._includes(kind, unit("fixture", kind, name), catalog, declared))
 
     def test_a_playground_includes_add_ons_and_setups(self):
         self.assertEqual(self.found("playground", [KAFKA, EVENTS]), [])
@@ -249,10 +249,6 @@ class Includes(Case):
         self.assertEqual(self.found("playground", own, catalog=None),
                          [f"includes {path}: {PERSONAL}" for path in own])
         self.assertEqual(self.found("setup", [WHOAMI], catalog=None), [f"includes {WHOAMI}: {PERSONAL}"])
-        # What is of this machine includes what it wants, of the kinds a file may include
-        self.assertEqual(self.found("playground", own, shared=False, catalog=None), [])
-        self.assertEqual(self.found("addon", own, shared=False, catalog=None),
-                         [f"includes {MINE}: only add-ons can be included"])
 
     def test_an_add_on_and_a_setup_include_add_ons_only(self):
         for kind in ("addon", "setup"):
@@ -260,18 +256,18 @@ class Includes(Case):
 
     def test_what_is_included_is_there_and_the_line_says_where_the_unit_would_be(self):
         with mock.patch.object(compose, "includes", return_value=[KAFKA, EVENTS, ".lab/addons/kafka/compose.yml"]):
-            self.assertEqual(list(check._includes("playground", unit("fixture", "playground", "it"), True, "fixture")), [
+            self.assertEqual(list(check._includes("playground", unit("fixture", "playground", "it"), "fixture")), [
                 "includes addons/kafka/compose.yml, which does not exist: from here a unit of this catalog is "
                 "../../addons/kafka/compose.yml",
                 "includes setups/events.yml, which does not exist: from here a unit of this catalog is ../../setups/events.yml",
                 "includes .lab/addons/kafka/compose.yml, which does not exist: from here a unit of this catalog is "
                 "../../addons/kafka/compose.yml"])
-            self.assertEqual(list(check._includes("setup", unit("fixture", "setup", "it"), True, "fixture"))[0],
+            self.assertEqual(list(check._includes("setup", unit("fixture", "setup", "it"), "fixture"))[0],
                              "includes addons/kafka/compose.yml, which does not exist: from here a unit of this catalog is "
                              "../addons/kafka/compose.yml")
         # Outside a catalog (an item about to be shared) the line is the file as written, and no advice
         with mock.patch.object(compose, "includes", return_value=[KAFKA]):
-            self.assertEqual(list(check._includes("setup", "setups/events.yml", True)),
+            self.assertEqual(list(check._includes("setup", "setups/events.yml")),
                              [f"includes {KAFKA}, which does not exist"])
 
     def test_what_comes_from_a_catalog_is_not_shared_into_another(self):
@@ -327,22 +323,23 @@ class Items(Machine):
 
     def test_a_key_that_x_gravitee_does_not_know_is_said_not_ignored(self):
         # A key of another version, or a typo, does nothing: the person is told, whatever the key was called
-        meta = {"kind": "playground", "name": "Welcome", "description": "x", "consoles": [], "start": "http://localhost:8110", "console": []}
+        meta = {"kind": "playground", "name": "Welcome", "description": "x", "category": "AI", "consoles": [],
+                "start": "http://localhost:8110", "console": []}
         known = ", ".join(sorted(check.META))
-        self.assertEqual(list(check._metadata("playground", meta, [], False)), [
+        self.assertEqual(list(check._metadata("playground", meta, [])), [
             f"x-gravitee.console is not a key of x-gravitee: {known}",
             f"x-gravitee.start is not a key of x-gravitee: {known}"])
         # Every key the project reads is known: the files of the project say nothing more
         every = {key: None for key in check.META if check.KEY_OF.get(key, "playground") == "playground"}
-        self.assertEqual(list(check._metadata("playground", every | {"kind": "playground", "name": "x",
-                                                                      "description": "x"}, [], False)), [])
+        self.assertEqual(list(check._metadata("playground", every | {"kind": "playground", "name": "x", "description": "x",
+                                                                      "category": "AI"}, [])), [])
 
     def test_a_key_that_only_one_kind_reads_is_said_of_the_others(self):
         # A gateway is an add-on's
         for kind in ("addon", "setup", "playground"):
             meta = {"kind": kind, "name": "x", "description": "x", "category": "AI", "gateway": {}}
             with self.subTest(kind=kind):
-                self.assertEqual(list(check._metadata(kind, meta, ["AI"], False)),
+                self.assertEqual(list(check._metadata(kind, meta, ["AI"])),
                                  [] if kind == "addon" else ["x-gravitee.gateway is a key of add-ons only"])
 
     def test_where_a_playground_can_be_deployed_is_computed_so_a_file_that_declares_it_is_told(self):
@@ -352,23 +349,20 @@ class Items(Machine):
         for kind in ("addon", "setup", "playground"):
             meta = {"kind": kind, "name": "x", "description": "x", "category": "AI", "deploys_to": ["cloud"]}
             with self.subTest(kind=kind):
-                self.assertEqual(list(check._metadata(kind, meta, ["AI"], False)), [said])
+                self.assertEqual(list(check._metadata(kind, meta, ["AI"])), [said])
         # Whatever it holds, and once: it is no more a key than a typo is, and says why
-        meta = {"kind": "playground", "name": "x", "description": "x", "deploys_to": None, "deploy": "cloud"}
-        self.assertEqual(list(check._metadata("playground", meta, [], False)),
+        meta = {"kind": "playground", "name": "x", "description": "x", "category": "AI", "deploys_to": None, "deploy": "cloud"}
+        self.assertEqual(list(check._metadata("playground", meta, [])),
                          [f"x-gravitee.deploy is not a key of x-gravitee: {known}", said])
 
-    def test_what_is_shared_has_a_category_like_an_add_on(self):
-        for kind in ("setup", "playground"):
+    def test_every_item_has_a_category(self):
+        for kind in ("addon", "setup", "playground"):
             meta = {"kind": kind, "name": "x", "description": "x"}
             with self.subTest(kind=kind):
-                self.assertEqual(list(check._metadata(kind, meta, ["AI"], False)), [])
-                self.assertEqual(list(check._metadata(kind, meta, ["AI"], True)), ["x-gravitee.category is missing"])
-                self.assertEqual(list(check._metadata(kind, {**meta, "category": "AI"}, ["AI"], True)), [])
-                self.assertEqual(list(check._metadata(kind, {**meta, "category": "Mine"}, ["AI"], True)),
+                self.assertEqual(list(check._metadata(kind, meta, ["AI"])), ["x-gravitee.category is missing"])
+                self.assertEqual(list(check._metadata(kind, {**meta, "category": "AI"}, ["AI"])), [])
+                self.assertEqual(list(check._metadata(kind, {**meta, "category": "Mine"}, ["AI"])),
                                  ["x-gravitee.category must be one of: AI"])
-        meta = {"kind": "addon", "name": "x", "description": "x"}   # an add-on's, whether it is shared or not
-        self.assertEqual(list(check._metadata("addon", meta, ["AI"], False)), ["x-gravitee.category is missing"])
 
     def test_a_port_with_a_variable_says_how_to_write_it_on_127_0_0_1(self):
         ports = [compose._port(written) for written in (

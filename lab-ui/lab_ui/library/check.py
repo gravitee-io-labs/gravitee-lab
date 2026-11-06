@@ -111,9 +111,9 @@ class ComposeGone(Unavailable):
     the catalog's. `catalog.py check` says it did not check them."""
 
 
-def _includes(kind, path, shared, catalog=None, declared=()):
-    """A file includes add-ons, a playground setups too, and they are there. What is shared with the project stands
-    alone: it includes nothing of this machine. In a catalog, `catalog` is the namespace the file sits in and `declared`
+def _includes(kind, path, catalog=None, declared=()):
+    """A file includes add-ons, a playground setups too, and they are there. It stands alone: it includes nothing of this
+    machine. In a catalog, `catalog` is the namespace the file sits in and `declared`
     those its catalog.yml declares: what comes from a catalog that is neither is not shared into this one, and an
     include that is not there says where the unit it means is from here."""
     allowed, nouns = (("addon", "setup"), "add-ons and setups") if kind == "playground" else (("addon",), "add-ons")
@@ -124,7 +124,7 @@ def _includes(kind, path, shared, catalog=None, declared=()):
             yield f"includes {shown}, which does not exist" + (_depth(kind, included) if catalog else "")
         elif unit[0] not in allowed:
             yield f"includes {shown}: only {nouns} can be included"
-        elif shared and paths.personal(unit[1]):
+        elif paths.personal(unit[1]):
             yield f"includes {shown}: what belongs to this machine is not shared with the project"
         elif catalog is not None and _namespace(included) not in (catalog, *declared):
             yield f"includes {shown}: what comes from a catalog is not shared into another"
@@ -156,9 +156,9 @@ def _shown(path, catalog):
     return path[len(base) + len(catalog) + 1:] if path.startswith(f"{base}{catalog}/") else path[len(base):]
 
 
-def _metadata(kind, meta, categories, shared):
-    """What the x-gravitee block must say, and nothing it says is ignored. An add-on, and whatever is shared with the
-    project, has a category: the catalogs group by it."""
+def _metadata(kind, meta, categories):
+    """What the x-gravitee block must say, and nothing it says is ignored. Every item has a category: the catalogs group
+    by it."""
     for key in sorted(set(meta) - META):
         if key in GONE:
             yield f"x-gravitee.{key} is no longer a key: {GONE[key]}"
@@ -174,9 +174,9 @@ def _metadata(kind, meta, categories, shared):
     if kind != "setup" and not meta.get("description"):
         yield "x-gravitee.description is missing"
     category = meta.get("category")
-    if (kind == "addon" or shared) and not category:
+    if not category:
         yield "x-gravitee.category is missing"
-    elif category and categories and category not in categories:   # no categories: the core file cannot be read
+    elif categories and category not in categories:   # no categories: the core file cannot be read
         yield f"x-gravitee.category must be one of: {', '.join(categories)}"
 
 
@@ -710,13 +710,13 @@ def _playground(playground, project, inert=False):
     yield from _seed(folder)
 
 
-def _unit(kind, uid, project, raw, shared, context=None):
-    """What is wrong with one add-on, setup or playground. `shared`: it is part of the project, or about to be. `context`
-    is the catalog's, when one is checked: {catalog (its namespace), declared (the namespaces its catalog.yml declares),
+def _unit(kind, uid, project, raw, context=None):
+    """What is wrong with one add-on, setup or playground, part of a catalog or about to be. `context` is the catalog's,
+    when one is checked: {catalog (its namespace), declared (the namespaces its catalog.yml declares),
     products (the plugin folders)}."""
     context = context or {}
     path = paths.unit_file(kind, uid)
-    yield from _includes(kind, path, shared, context.get("catalog"), context.get("declared") or ())
+    yield from _includes(kind, path, context.get("catalog"), context.get("declared") or ())
     if path not in raw:
         return   # Compose could not read it
     meta = _meta(raw[path])   # not a mapping: the project says so, and nothing of it is read
@@ -724,22 +724,21 @@ def _unit(kind, uid, project, raw, shared, context=None):
     inert = bool(unit.get("blocked"))   # it cannot start: it has no services in the project, and what it writes is read here
     if inert and not unit.get("services"):
         unit = {**unit, "services": _written(unit, raw)}
-    yield from _metadata(kind, meta, project["categories"], shared)
+    yield from _metadata(kind, meta, project["categories"])
     yield from _level(meta.get("requires"))
     if not inert:
         yield from _together(project, _brings(unit))
     yield from _images(raw[path], unit.get("services", []))
-    if shared:
-        if kind != "setup":
-            yield from _readme(kind, uid)
-            yield from _host_access(meta, raw, path, _included(unit), unit.get("services", []),
-                                    context.get("products") or ())
-        if kind == "playground":
-            yield from _listing(meta)
-        yield from _restart(raw[path], unit.get("services", []))
-        yield from _labeled(raw[path], unit.get("services", []))
-        yield from _loopback(_own_ports(raw, path, _included(unit)))
-        yield from _literals(raw, path, _included(unit))
+    if kind != "setup":
+        yield from _readme(kind, uid)
+        yield from _host_access(meta, raw, path, _included(unit), unit.get("services", []),
+                                context.get("products") or ())
+    if kind == "playground":
+        yield from _listing(meta)
+    yield from _restart(raw[path], unit.get("services", []))
+    yield from _labeled(raw[path], unit.get("services", []))
+    yield from _loopback(_own_ports(raw, path, _included(unit)))
+    yield from _literals(raw, path, _included(unit))
     if not inert and not context.get("audited"):   # a catalog that was audited has IM01 for it
         yield from _pull_policy(unit, project)
     if kind == "addon":
@@ -1610,7 +1609,7 @@ def catalog_problems(ns, project=None, inputs=None, audited=False):
             here += _not_read(ROOT / paths.unit_folder(kind, uid), shown(paths.unit_folder(kind, uid)))
         if file not in stubs:
             try:
-                here += list(_unit(kind, uid, project, raw, True, context))
+                here += list(_unit(kind, uid, project, raw, context))
                 here += list(_not_understood(kind, uid, raw.get(file),
                                              bool(((inputs.get("reach") or {}).get(file) or {}).get("missing"))))
             except RecursionError:   # a file nested deeper than anyone writes one: it is said, not left to stop the check
@@ -1896,7 +1895,7 @@ def problems(sharing=None):
         kind, uid = paths.unit_of(sharing) or (None, None)
         if kind:
             context = {"products": _anchored(inputs.get("products") or ())}   # a bind of a plugin folder is an anchor, as in a catalog
-            found += [(sharing, message) for message in _unit(kind, uid, project, raw, True, context)]
+            found += [(sharing, message) for message in _unit(kind, uid, project, raw, context)]
             if kind == "playground":
                 found += [(sharing, message) for message in _alone(project["playgrounds"][uid])]
             extra = list(_ports(project, raw, sharing))
