@@ -76,8 +76,6 @@ class Shared(Case):
             source = Path(manifest.__file__).with_name(f"{name}.py").read_text(encoding="utf-8")
             with self.subTest(module=name):
                 self.assertEqual(re.findall(r"\bregistry\._\w+", source), [])
-        self.assertIs(registry._scan, registry.scan)
-        self.assertIs(registry._shown, registry.shown)
 
 
 class Levels(Case):
@@ -354,7 +352,7 @@ class Fields(Case):
     def test_a_name_that_is_a_seal_the_lab_never_gives_is_refused(self):
         for name in ("official", "Official", "OFFICIAL", "verified", "Verified", "personal", "this machine", "This  Machine",
                      "ＯＦＦＩＣＩＡＬ", "Offi​cial", "official\x00"):
-            self.assertEqual(problems(name=name), [f"name cannot be {registry._shown(name, 40)}"], repr(name))
+            self.assertEqual(problems(name=name), [f"name cannot be {registry.shown(name, 40)}"], repr(name))
 
     def test_a_name_that_only_contains_the_word_is_fine(self):
         for name in ("Official demos", "Not official", "Personal stack", "Machine"):

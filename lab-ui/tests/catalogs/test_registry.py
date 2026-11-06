@@ -1591,7 +1591,7 @@ class Scanner(Disk):
     """What a catalog.yml says of the catalog, read for display and dependencies (not the strict reading of Add)."""
 
     def scan(self, text):
-        return registry._scan(text.encode("utf-8") if isinstance(text, str) else text)
+        return registry.scan(text.encode("utf-8") if isinstance(text, str) else text)
 
     def test_host_access_is_read_only_when_it_is_true(self):
         block = "x-gravitee-catalog:\n  schema: 1\n  id: acme-hub\n  name: Acme Hub\n  description: d\n  version: 1.0.0\n  lab: 1\n"
@@ -1715,9 +1715,7 @@ class Scanner(Disk):
             with self.subTest(label):
                 self.assertIsInstance(self.scan(text), dict)
 
-    def test_the_names_the_first_modules_import_are_the_public_ones(self):
-        self.assertIs(registry._scan, registry.scan)
-        self.assertIs(registry._shown, registry.shown)
+    def test_shown_is_normalized_and_collapsed(self):
         self.assertEqual(registry.shown("  Ｈｕｂ\u202e\n  one  ", 40), "Hub one")
 
     def test_the_block_on_one_line_quoted_keys_and_flows_inside_flows(self):
@@ -2207,7 +2205,7 @@ class Hostile(Disk):
     def test_a_catalog_yml_mutated_at_random(self):
         good = (fixtures.CATALOGS / "fixture" / "catalog.yml").read_bytes() + b"  shared_settings: [A, B]\n  canary:\n    - x\n"
         for data in self.mutations(4, good, 400):
-            found = registry._scan(data)
+            found = registry.scan(data)
             self.assertIsInstance(found, dict)
             for need in found.get("requires_catalogs", {}).values():
                 self.assertEqual(set(need), {"name", "url", "min"})

@@ -295,9 +295,6 @@ def shown(text, limit):
     return text if len(text) <= limit else text[:limit - 1].rstrip() + "…"
 
 
-_shown = shown   # the name the first modules of the package import
-
-
 def _plain(text, limit=4096):
     """Whether `text` is a text a path or an address can be: not empty, not long, no control, format or surrogate
     character (a lone surrogate is no text: no file stores it as UTF-8)."""
@@ -1179,11 +1176,8 @@ def scan(data):
     return found
 
 
-_scan = scan   # the name the first modules of the package import
-
-
 def _summary(ns):
-    """_scan of the catalog.yml of the install of `ns` (read only, cached); {} when it cannot be read. The file must be
+    """`scan` of the catalog.yml of the install of `ns` (read only, cached); {} when it cannot be read. The file must be
     a regular file: a link in its place leads anywhere."""
     return _cached(_root(paths.CATALOGS_DIR, ns, CATALOG_FILE), scan, SUMMARY_LIMIT) or {}
 
