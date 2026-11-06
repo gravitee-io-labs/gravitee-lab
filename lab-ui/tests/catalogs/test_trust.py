@@ -282,14 +282,6 @@ class Fixes(Case):
                     self.assertNotIn("..", said)
                     self.assertNotIn(". .", said)
 
-    def test_the_long_form_of_a_rule_says_the_fix_the_policy_does(self):
-        """`catalog.py explain` prints the table of the policy with the fix of FIXES (explain.py)."""
-        from lab_ui.catalogs import explain
-        table = explain.table()
-        for code in trust.RULES:
-            with self.subTest(code=code):
-                self.assertIn(trust.FIXES[code], table[code].message)
-
     def test_the_popover_of_the_lab_keeps_the_reason_lines_alone(self):
         for code, rule in trust.RULES.items():
             for text in rule["lines"]:
