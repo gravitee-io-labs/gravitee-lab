@@ -351,10 +351,7 @@ class McpServer:
             self.headers["Mcp-Session-Id"] = answer.headers["Mcp-Session-Id"]
         if notification:
             return None
-        if "json" in answer.headers.get("Content-Type", ""):
-            payload = answer.json()
-        else:   # an event stream: the answer is its data line
-            payload = next((json.loads(line[5:]) for line in answer.text.splitlines() if line.startswith("data:")), None)
+        payload = aim_proxies.jsonrpc(answer)
         if not payload or "result" not in payload:
             raise SeedError(f"MCP {method} at {self.url}: no result in {str(payload or answer.text)[:200]}")
         return payload["result"]

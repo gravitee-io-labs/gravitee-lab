@@ -499,6 +499,15 @@ class Gateway(Proxies):
                                                        r"alice@acme-bakery.test: 0 tools offered, 7 expected"):
             self.seed()
 
+    def test_an_answer_that_holds_no_tools_is_a_proxy_that_is_not_ready(self):
+        self.env(GATEWAY_READY_TIMEOUT="20")
+        for answer in ((200, {"jsonrpc": "2.0", "id": 1, "error": {"code": -32601, "message": "No such method"}}),
+                       (200, "event: ping\n\n", {"Content-Type": "text/event-stream"})):
+            with self.subTest(answer=answer):
+                self.platform.add({("POST", "http://gateway/acme-bakery/mcp"): answer})
+                with self.assertRaisesRegex(common.SeedError, "not ready after 20 s: alice@acme-bakery.test: 0 tools offered, 7 expected"):
+                    self.seed()
+
     def test_a_refused_sign_in_stops_the_seed_with_one_line_naming_the_person_and_the_endpoint(self):
         """The Lab UI shows the last line of what the seed printed: an error body must not spread over many."""
         self.platform.add({("POST", TOKEN_URL): (400, '{\n  "error" : "invalid_grant",\n  "error_description" : "The credentials entered are invalid"\n}')})

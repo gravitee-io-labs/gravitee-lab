@@ -120,10 +120,10 @@ def slugify(text):
 
 
 def jsonrpc(answer):
-    """The message of a JSON-RPC answer, plain or as the data line of an event stream."""
-    if "event-stream" in answer.headers.get("Content-Type", ""):
-        return json.loads(next(line[5:] for line in answer.text.splitlines() if line.startswith("data:")))
-    return answer.json()
+    """The message of a JSON-RPC answer, plain or as the data line of an event stream: None when it has no such line."""
+    if "json" in answer.headers.get("Content-Type", ""):
+        return answer.json()
+    return next((json.loads(line[5:]) for line in answer.text.splitlines() if line.startswith("data:")), None)
 
 
 def digest(body):
@@ -421,7 +421,7 @@ class McpProxies:
             headers = {"Authorization": f"Bearer {access}", "Accept": "application/json, text/event-stream"}
             answer = Api(gateway).post(path, json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
                                        headers=headers, timeout=15)
-            tools, wanted = jsonrpc(answer)["result"]["tools"], user["tools"]
+            tools, wanted = ((jsonrpc(answer) or {}).get("result") or {}).get("tools", []), user["tools"]
             if isinstance(wanted, dict):
                 wanted = wanted["protected" if controls.protected() else "unprotected"]
             if len(tools) != wanted:
