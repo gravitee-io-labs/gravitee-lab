@@ -656,10 +656,9 @@ def _item(c, unit, state, on, is_up, services):
         blocked = _license_block(c, unit)
     members_on = kind == "setup" and any(aid in c["state"]["effective"] for aid in unit["members"])
     offers = do == "start" and (on or is_up or members_on)
-    # Why what is of this machine cannot be shared or deleted now: its menu says it before the click
-    held = {what: personal.held(c["project"], c["state"], kind, uid, deleting=what == "delete", running=is_up,
-                                deployed=c["deployed"].get(uid, []) if kind == "playground" else ())
-            for what in ("share", "delete")} if unit["personal"] else None
+    # Why what is of this machine cannot be deleted now: its menu says it before the click
+    held = {"delete": personal.held(c["project"], c["state"], kind, uid, running=is_up,
+                                    deployed=c["deployed"].get(uid, []) if kind == "playground" else ())} if unit["personal"] else None
     return {"kind": kind, "id": uid, "name": unit["name"], "personal": unit["personal"], "held": held,
             "category": unit["category"], "description": unit["description"],
             "file": unit["file"], "env_file": unit.get("env_file"),

@@ -519,7 +519,7 @@ test("a button of Holds goes to its list, filtered to the catalog", async () => 
   const lists = page.doc.createElement("section");
   page.doc.body.append(lists);
   setupsPage.init(lists);
-  const more = { members: [], includes: [], links: [], held: { share: "", delete: "" }, action: { do: "start", label: "Start", enabled: true, reason: null, dialog: null }, secondary: null };
+  const more = { members: [], includes: [], links: [], held: { delete: "" }, action: { do: "start", label: "Start", enabled: true, reason: null, dialog: null }, secondary: null };
   const setups = [item("setup", "plain", "Plain setup", more), item("setup", "@acme-hub/ledger", "Ledger setup", { ...more, origin: origin() })];
   show([FIRST(), FULL()], { setups });
   open(row("Acme Hub"));

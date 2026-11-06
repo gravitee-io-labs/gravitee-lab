@@ -549,7 +549,7 @@ const made = (kind, id, name, more) => (kind === "playground" ? playground(id, n
   : item(kind, id, name, kind === "setup" ? { members: [], includes: [], ...more } : { ...BLANK, ...more }));
 const inHub = (kind, id, name, more = {}) => made(kind, `@acme-hub/${id}`, name, { origin: origin(), readonly: true, display_file: `${kind}s/${id}/compose.yml`,
   needs_catalogs: [], compat: "ok", twin: null, uses_machine: [], ...more });
-const ofMine = (kind, id, name, more = {}) => made(kind, `local/${id}`, name, { personal: true, held: { share: "", delete: "" }, ...more });
+const ofMine = (kind, id, name, more = {}) => made(kind, `local/${id}`, name, { personal: true, held: { delete: "" }, ...more });
 const base = lab();
 // The lab with another catalog added and this machine's items: what the lists tell apart
 function world({ playgrounds = [], setups = [], addons = [], ...more } = {}) {

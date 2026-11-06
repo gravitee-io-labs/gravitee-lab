@@ -69,7 +69,7 @@ function held(why) {
   const wait = store.wait(), offline = store.offline ? wait : "";
   return { disabled: !!(offline || why), reason: offline || why };
 }
-export const shareEntry = (x) => ({ label: "Share", ...held(x.held?.share), onSelect: () => share(x) });
+export const shareEntry = (x) => ({ label: "Share", ...held(""), onSelect: () => share(x) });
 
 // A playground in a file, which another Lab imports from its Playgrounds page: one of this machine, or of a catalog that not every Lab
 // has. One of the default catalog (a bare id) comes with every Lab, and has nothing to export.

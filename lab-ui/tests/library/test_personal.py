@@ -500,9 +500,9 @@ class Deleted(Folder):
             personal.delete(self.project, "addon", "local/whoami")
         self.assertEqual(self.tree(), before)
         on = {"playground": None, "effective": [], "setups": []}
-        self.assertEqual(personal.held(self.project, on, "addon", "local/whoami", deleting=True, running=True), "Stop it first")
+        self.assertEqual(personal.held(self.project, on, "addon", "local/whoami", running=True), "Stop it first")
         # A setup owns no container: what of its add-ons runs is theirs
-        self.assertEqual(personal.held(self.project, on, "setup", "local/mine", deleting=True, running=True), "")
+        self.assertEqual(personal.held(self.project, on, "setup", "local/mine", running=True), "")
         # What it brings runs for something else: an item that is off is only its own services
         self.containers.return_value = ({"kiosk": {"state": "running"}}, None)
         with self.assertRaisesRegex(RuntimeError, "^Used by Sandbox$"):
@@ -523,24 +523,22 @@ class Deleted(Folder):
         self.assertTrue(state.is_dir())
         on = {"playground": None, "effective": [], "setups": []}
         deployed = [{"place": "my-account/dev-env", "environment": "Development", "created": [{"what": "APIs", "count": 1}]}]
-        self.assertEqual(personal.held(self.project, on, "playground", "local/sandbox", deleting=True, deployed=deployed),
+        self.assertEqual(personal.held(self.project, on, "playground", "local/sandbox", deployed=deployed),
                          "Delete what it created in Development first")
         # Deleted there, its record is empty: it goes
         (state / "created.json").write_text("[]", encoding="utf-8")
-        self.assertEqual(personal.held(self.project, on, "playground", "local/sandbox", deleting=True,
+        self.assertEqual(personal.held(self.project, on, "playground", "local/sandbox",
                                        deployed=[{**deployed[0], "created": []}]), "")
         delete()
         self.assertFalse((self.root / SANDBOX).exists())
         self.assertNotEqual(self.tree(), before)
 
-    def test_what_the_menu_says_of_a_share_and_of_a_delete(self):
+    def test_what_the_menu_says_of_a_delete(self):
         on = {"playground": None, "effective": [], "setups": []}
-        self.assertEqual(personal.held(self.project, on, "addon", "local/whoami"), "", "a share is a copy: nothing holds it")
-        self.assertEqual(personal.held(self.project, on, "addon", "local/whoami", deleting=True), "Used by Sandbox")
+        self.assertEqual(personal.held(self.project, on, "addon", "local/whoami"), "Used by Sandbox")
         on = {"playground": "local/sandbox", "effective": ["local/whoami"], "setups": []}
-        self.assertEqual(personal.held(self.project, on, "addon", "local/whoami"), "", "not even while it is on")
-        self.assertEqual(personal.held(self.project, on, "addon", "local/whoami", deleting=True), "Turn it off first")
-        self.assertEqual(personal.held(self.project, on, "addon", "local/whoami", deleting=True, running=True), "Stop it first")
+        self.assertEqual(personal.held(self.project, on, "addon", "local/whoami"), "Turn it off first")
+        self.assertEqual(personal.held(self.project, on, "addon", "local/whoami", running=True), "Stop it first")
 
 
 class Sharing(Folder):

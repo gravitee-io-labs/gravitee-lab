@@ -1248,17 +1248,17 @@ class State(Built):
 
         def held(kind, uid, **scenario):
             return self.item(kind, uid, **scenario)["held"]
-        # What the playground includes is shared, the playground following; it is not deleted
-        used = {"share": "", "delete": "Used by Sandbox"}
+        # What the playground includes is not deleted
+        used = {"delete": "Used by Sandbox"}
         self.assertEqual((held("addon", "local/whoami"), held("setup", "local/mine")), (used, used))
-        self.assertEqual(held("playground", "local/sandbox"), {"share": "", "delete": ""})
+        self.assertEqual(held("playground", "local/sandbox"), {"delete": ""})
         # On, the playground and the add-on it brings stay where they are; a setup only when the on file names it. Deleting is
-        # turned off first while nothing of it runs, stopped first while it runs; sharing is never held: a share is a copy
-        off = {"share": "", "delete": "Turn it off first"}
+        # turned off first while nothing of it runs, stopped first while it runs
+        off = {"delete": "Turn it off first"}
         running = {"playground": "local/sandbox", "explicit": ["kiosk"]}
         self.assertEqual((held("playground", "local/sandbox", **running), held("addon", "local/whoami", **running)),
                          (off, off))
-        stop = {"share": "", "delete": "Stop it first"}
+        stop = {"delete": "Stop it first"}
         running["containers"] = {**CORE, **healthy("whoami", "kiosk")}
         self.assertEqual((held("playground", "local/sandbox", **running), held("addon", "local/whoami", **running)),
                          (stop, stop))
