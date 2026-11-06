@@ -84,15 +84,6 @@ def passed(planned, results, err):
     return found
 
 
-def _follow(built):
-    """The version variables of Gravitee's images (compat.plan's `follow`); None for a project that lists no services."""
-    if "services" not in built:
-        return None
-    from ...docker import images
-    return {component["id"] for component in images.components(built)
-            if component.get("registry_key") and "graviteeio" in str(component.get("registry_default") or "")}
-
-
 def _plain(sets):
     return [{str(key): str(value) for key, value in found.items()} for found in sets or [] if found]
 
@@ -111,7 +102,7 @@ def record_main(argv, out, err, **seams) -> int:
     except (OSError, ValueError, KeyError, TypeError):
         raise Usage("--plan is the matrix the plan wrote: {\"include\": [...]}") from None
     built = seams.get("project") or _project()
-    follow = _follow(built)
+    follow = compat.followed(built)
     results = sorted(Path(args.results).rglob("*.json")) if Path(args.results).is_dir() else []
     written, said, meant, left_out = {}, [], {}, 0
     try:

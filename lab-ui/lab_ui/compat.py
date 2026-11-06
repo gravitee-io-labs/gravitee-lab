@@ -15,9 +15,11 @@ once a release of its line is there. A set of a build that is no version (amp-de
 Hub's, are the playground's own: never tried here, never touched. The sets are written with the builds first, then the
 pre-releases, then the releases oldest first: the last set is the one a Start offers to switch to (`layers.untested`), a release."""
 
+import json
 import re
 
 from . import paths
+from .docker import images
 from .library.versions import at_least, order, parse, written
 
 MINORS = 5   # the minor versions of Gravitee a playground keeps up with: the newest five
@@ -159,18 +161,22 @@ def candidates(unit, tags, follow=None):
     return sets
 
 
+def followed(built):
+    """The version variables of Gravitee's images (`follow`); None for a project that lists no services."""
+    if "services" not in built:
+        return None
+    return {component["id"] for component in images.components(built)
+            if component.get("registry_key") and "graviteeio" in str(component.get("registry_default") or "")}
+
+
 def plan(built, ns=None, tags=None, warn=None, night=0):
     """The jobs of a night: [{item, versions (a JSON object as text), name}] for each shared playground of the catalog `ns`
     (every catalog when None) and each set it is to be tried on, MAX_JOBS at most: the playgrounds are taken in turn from the
     one `night` (a day's number) points at, so that one whose sets keep failing never takes the place of the others for good.
     `tags(built, variable, registry)` lists the tags of an image. A playground whose tags cannot be read is said to
     `warn(sentence)` and left for the next night."""
-    import json
-    from .docker import images
     tags = tags or (lambda project, key, registry: [tag["name"] for tag in images.tags(project, key, registry)])
-    follow = {component["id"] for component in images.components(built)
-              if component.get("registry_key") and "graviteeio" in str(component.get("registry_default") or "")} \
-        if "services" in built else None
+    follow = followed(built)
     jobs = []
     shared = [(uid, unit) for uid, unit in sorted(built["playgrounds"].items())
               if not paths.personal(uid) and (ns is None or unit.get("catalog") == ns)]
