@@ -46,9 +46,6 @@ from ..rules.images import repository
 from . import (BD01_PLAIN, DOCKER_DOWN, IMAGE_NAME, Loaded, Unavailable, cell, conclude, docker_ready, entry, fence, load, megabytes,
                parse_units, parsed, parser, platform_of, problem, refusals, run_docker, seeder_anchor, seconds, tail)
 
-# The five keys a build may carry (T18, default-deny). trust names its own list when it has one; this one is the most it may be
-KEYS = ("context", "dockerfile", "args", "target", "labels")
-KEY_NAMES = ("BUILD_KEYS", "BUILD_ALLOWED", "T18_KEYS", "ALLOWED_BUILD")
 TARGET = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 ARG_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]{0,127}")
 LABEL_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,255}")
@@ -91,17 +88,6 @@ class Row(NamedTuple):
     seconds: float = 0.0
     size: int = 0
     note: str = ""
-
-
-def allowed() -> frozenset:
-    """The build keys that are accepted: the T18 list of the trust policy when it names one, and never more than the five of the
-    standard. A list that cannot be read is the five."""
-    named = next((getattr(trust, name) for name in KEY_NAMES if getattr(trust, name, None)), None)
-    try:
-        listed = frozenset(str(each) for each in named) if named else frozenset(KEYS)
-    except TypeError:
-        listed = frozenset(KEYS)
-    return listed & frozenset(KEYS)
 
 
 def t18(path: str, service: str, variant: int = 0) -> Problem:
@@ -155,7 +141,7 @@ def local_tag(unit: str, service: str) -> str:
 
 
 def one(unit: Loaded, name: str, service: dict, platform: str, root: str, seeders: Tuple[Tuple[str, ...], str],
-        keys: frozenset, known: Dict[str, str], local: bool = False) -> Tuple[Optional[Spec], List[Problem], Optional[Row]]:
+        known: Dict[str, str], local: bool = False) -> Tuple[Optional[Spec], List[Problem], Optional[Row]]:
     """(the spec, the findings, the row of what was left out) of a service of a unit that has a `build`. `local`: a service with no
     image is built under `local_tag`."""
     where = unit.file
@@ -173,7 +159,7 @@ def one(unit: Loaded, name: str, service: dict, platform: str, root: str, seeder
     if os.path.isabs(context) and os.path.realpath(context) == seeder_dir \
             and ((isinstance(image, str) and repository(image) in seeder_images) or (local and nameless)):
         return None, [], Row(unit.key, name, image if isinstance(image, str) else "", "skipped", note=SEEDER)   # the Lab's own code
-    found: List[Problem] = [problem("BD02", where, 0, service=name, key=key) for key in sorted(build) if key not in keys]
+    found: List[Problem] = [problem("BD02", where, 0, service=name, key=key) for key in sorted(build) if key not in trust.BUILD_KEYS]
     if found:
         return None, found, Row(unit.key, name, str(image or ""), "refused", note="a build key that is not accepted")
     if local and nameless:
@@ -226,7 +212,7 @@ def specs_of(units: Sequence[Loaded], platform: str, root: str, lab=None, only: 
     Pure: it reads the resolved JSON and the disk to find the context, and runs nothing. `only` is the name of an app (the
     folder of its context): the others are not built. `local`: a service that builds and has no image is built under a name
     of the stage's own (`ci build` and `ci test` say so; `publish` has no image to push for it)."""
-    keys, seeders, real = allowed(), seeder_anchor(lab), os.path.realpath(root)
+    seeders, real = seeder_anchor(lab), os.path.realpath(root)
     found: List[Spec] = []
     problems: List[Problem] = []
     rows: List[Row] = []
@@ -237,7 +223,7 @@ def specs_of(units: Sequence[Loaded], platform: str, root: str, lab=None, only: 
             service = (services or {}).get(name)
             if not isinstance(service, dict) or not service.get("build"):
                 continue
-            spec, more, row = one(unit, name, service, platform, real, seeders, keys, known, local)
+            spec, more, row = one(unit, name, service, platform, real, seeders, known, local)
             problems += more
             if row is not None:
                 rows.append(row)

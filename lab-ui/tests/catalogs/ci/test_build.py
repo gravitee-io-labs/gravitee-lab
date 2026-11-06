@@ -228,17 +228,11 @@ class Refusals(Disk):
         specs, problems, _ = self.specs({"bakery-web": self.service(ssh=["default"], network="host", cache_to=["x"])})
         self.assertEqual([each.message.split("build.")[1].split(" ")[0] for each in problems], ["cache_to", "network", "ssh"])
 
-    def test_the_list_is_the_trust_policys_when_it_names_one_and_never_wider_than_the_standards(self):
+    def test_the_list_is_the_trust_policys(self):
         service = self.service(labels={"a": "b"}, target="t")
-        with mock.patch.object(trust, "BUILD_KEYS", ("context", "dockerfile", "args"), create=True):
+        with mock.patch.object(trust, "BUILD_KEYS", ("context", "dockerfile", "args")):
             specs, problems, _ = self.specs({"bakery-web": service})
         self.assertEqual((specs, sorted(each.message.split("build.")[1].split(" ")[0] for each in problems)), ([], ["labels", "target"]))
-        with mock.patch.object(trust, "BUILD_KEYS", ("context", "dockerfile", "args", "target", "labels", "ssh", "network"), create=True):
-            specs, problems, _ = self.specs({"bakery-web": self.service(ssh=["default"])})
-        self.assertEqual((specs, [each.code for each in problems]), ([], ["BD02"]))
-
-    def test_the_standard_five_when_trust_names_none(self):
-        self.assertEqual(build.allowed(), frozenset(("context", "dockerfile", "args", "target", "labels")))
 
     def test_a_context_outside_the_catalog_is_t18_with_the_labs_words(self):
         outside = self.make("elsewhere")
