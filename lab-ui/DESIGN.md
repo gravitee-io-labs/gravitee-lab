@@ -518,7 +518,7 @@ What the person sees is in [docs/lab-ui.md](../docs/lab-ui.md#the-guide-and-the-
   on screen: the one read last, which comes up when it names none, is written into it.
 - **An action in a guide** (the syntax and the contract are in
   [docs/playgrounds.md](../docs/playgrounds.md#actions-in-a-guide)).
-  - `markdown.js` draws the link. The sanitizer keeps no other `action:` and no `data-action` or form of a guide's own.
+  - `markdown.js` draws the link. The sanitizer keeps no other `action:` and no `data-*` attribute or form of a guide's own.
     `make check` says an id that is none before it is shared.
   - A click is `Workspace.send`: it shows the first console and posts the action at that UI's own origin, never `*`,
     at once when the app has said that it listens, else queued, in order, once each.

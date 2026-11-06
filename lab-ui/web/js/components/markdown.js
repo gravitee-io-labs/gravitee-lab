@@ -22,8 +22,8 @@ const MERMAID = "https://cdnjs.cloudflare.com/ajax/libs/mermaid/11.15.0/mermaid.
 const MERMAID_HASH = "sha384-yQ4mmBBT+vhTAwjFH0toJXNYJ6O4usWnt6EPIdWwrRvx2V/n5lXuDZQwQFeSFydF";
 
 // What a guide cannot carry besides what DOMPurify removes already: a form (it could send what is typed in it anywhere), a style
-// (it could cover the page), and the `data-action` that only an action link, once sanitized, is given (withActions)
-const SANITIZE = { FORBID_TAGS: ["form"], FORBID_ATTR: ["data-action", "style", "formaction"] };
+// (it could cover the page), and any data-* attribute: the page's own handlers answer them, so a guide's could press its controls
+const SANITIZE = { FORBID_TAGS: ["form"], FORBID_ATTR: ["style", "formaction"], ALLOW_DATA_ATTR: false };
 
 let libs = null;      // the two libraries, loaded once
 let diagrams = null;  // Mermaid, loaded once a text has a diagram
