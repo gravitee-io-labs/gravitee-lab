@@ -844,34 +844,17 @@ def _default_branch(address, head, timeout, options, env):
     return sorted(names)[0]
 
 
-def push_probe(address: Address, commit: str, store=None, timeout: float = 20) -> str:
+def push_probe(address: Address, commit: str, store, timeout: float = 20) -> str:
     """Whether the person can push to the remote: "yes", "no" (the remote refused the sign-in or the permission) or
-    "unknown" (the network, a certificate, a timeout: the question was not answered). A dry run of a push of `commit`
-    to a branch that does not exist (nothing is sent). `store` is the bare repository that holds `commit`; without it,
-    or when it lacks the commit, an empty commit made in a throwaway repository is pushed instead."""
-    if address.kind != "git":
-        return "unknown"
+    "unknown" (the network, a certificate, a timeout: the question was not answered; or the bare repository `store` lacks the
+    commit, a cache that was cleared, and it cannot be asked). A dry run of a push of `commit` to a branch that does not exist
+    (nothing is sent)."""
     checked(address)
+    if not _SHA.fullmatch(commit or "") or run(["--git-dir", str(store), "cat-file", "-e", f"{commit}^{{commit}}"]).code != 0:
+        return "unknown"
     target = f"refs/heads/lab/probe-{secrets.token_hex(4)}"
-    with tempfile.TemporaryDirectory(prefix="gravitee-lab-probe-") as scratch:
-        git_dir, commit = _probe_commit(store, commit, scratch)
-        result = run(["--git-dir", git_dir, "push", "--dry-run", "--", address.url, f"{commit}:{target}"],
-                     timeout=timeout, env=address_env(address))
+    result = run(["--git-dir", str(store), "push", "--dry-run", "--", address.url, f"{commit}:{target}"],
+                 timeout=timeout, env=address_env(address))
     if result.code == 0:
         return "yes"
     return "no" if classify(result.err, address).code in ("no_access", "ssh_denied", "not_found") else "unknown"
-
-
-def _probe_commit(store, commit, scratch):
-    """(repository, commit) a probe pushes: the given one when the store holds it, else an empty commit of a repository
-    made in `scratch`."""
-    if store is not None and _SHA.fullmatch(commit or "") and \
-            run(["--git-dir", str(store), "cat-file", "-e", f"{commit}^{{commit}}"]).code == 0:
-        return str(store), commit
-    git_dir = os.path.join(scratch, "probe.git")
-    require_ok(run(["init", "--bare", "--quiet", "--template=", "--", git_dir]))
-    tree = require_ok(run(["--git-dir", git_dir, "hash-object", "-t", "tree", "-w", "--stdin"], input=b"")).out
-    identity = {"GIT_AUTHOR_NAME": "lab", "GIT_AUTHOR_EMAIL": "lab@example.invalid",
-                "GIT_COMMITTER_NAME": "lab", "GIT_COMMITTER_EMAIL": "lab@example.invalid"}
-    made = require_ok(run(["--git-dir", git_dir, "commit-tree", tree.decode().strip(), "-m", "probe"], env=identity))
-    return git_dir, made.out.decode().strip()

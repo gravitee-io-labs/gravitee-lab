@@ -1355,7 +1355,7 @@ class Remote(Case):
                         "http://example.test/a/b", "https://user:pw@github.com/a/b", ""):
                 forged = gitx.Address("git", url, "", "github.com/a/b", "github.com", "a/b")
                 for call in (lambda: gitx.ls_remote(forged), lambda: gitx.ls_remote(forged, anonymous=True),
-                             lambda: gitx.push_probe(forged, "a" * 40), lambda: gitx.checked(forged)):
+                             lambda: gitx.push_probe(forged, "a" * 40, self.root), lambda: gitx.checked(forged)):
                     with self.assertRaises(gitx.CatalogError, msg=url) as raised:
                         call()
                     self.assertIn(raised.exception.code, ("bad_address", "bad_address_secret"))
@@ -1529,12 +1529,10 @@ class PushProbe(Case):
         self.assertEqual(gitx.push_probe(self.address, gitfixture.tip(self.store), store=self.store), "yes")
         self.assertEqual(self.refs(self.repo), before)
 
-    def test_without_a_store_an_empty_commit_is_pushed_instead(self):
-        before = self.refs(self.repo)
-        self.assertEqual(gitx.push_probe(self.address, "0" * 40), "yes")
-        self.assertEqual(gitx.push_probe(self.address, gitfixture.tip(self.store)), "yes", "a store that is not named")
-        self.assertEqual(gitx.push_probe(self.address, gitfixture.tip(self.store), store=self.root / "none.git"), "yes")
-        self.assertEqual(self.refs(self.repo), before)
+    def test_a_store_that_lacks_the_commit_cannot_ask(self):
+        self.assertEqual(gitx.push_probe(self.address, "0" * 40, self.store), "unknown")
+        self.assertEqual(gitx.push_probe(self.address, "", self.store), "unknown")
+        self.assertEqual(gitx.push_probe(self.address, gitfixture.tip(self.store), self.root / "none.git"), "unknown")
 
     def test_the_branch_pushed_is_one_that_does_not_exist(self):
         seen = []
@@ -1551,7 +1549,7 @@ class PushProbe(Case):
         self.assertRegex(push[-1], r"^[0-9a-f]{40}:refs/heads/lab/probe-[0-9a-f]{8}$")
 
     def answer(self, code, err):
-        return mock.patch.object(gitx, "run", return_value=gitx.Result(code, b"", err))
+        return mock.patch.object(gitx, "run", lambda args, **how: gitx.Result(0 if "cat-file" in args else code, b"", err))
 
     def test_a_remote_that_refuses_the_sign_in_or_the_permission_answers_no(self):
         for err in ("fatal: unable to access 'https://x/': The requested URL returned error: 403",
@@ -1563,8 +1561,7 @@ class PushProbe(Case):
                     self.assertEqual(self.probe(), "no")
 
     def probe(self):
-        with mock.patch.object(gitx, "_probe_commit", return_value=("/x", "a" * 40)):
-            return gitx.push_probe(gitx.parse_address("https://git.example.test/team/hub.git"), "a" * 40)
+        return gitx.push_probe(gitx.parse_address("https://git.example.test/team/hub.git"), "a" * 40, "/x")
 
     def test_a_question_that_was_not_answered_is_unknown(self):
         for err in ("fatal: Could not resolve host: x", "git timed out (no answer within 20 s)",
@@ -1572,16 +1569,6 @@ class PushProbe(Case):
             with self.subTest(err):
                 with self.answer(1, err):
                     self.assertEqual(self.probe(), "unknown")
-
-    def test_a_folder_cannot_be_pushed_to(self):
-        self.assertEqual(gitx.push_probe(gitx.Address("folder", "", "/h/x", "~/x", "", ""), "a" * 40), "unknown")
-
-    def test_the_probe_works_in_a_folder_it_removes(self):
-        private = self.root / "tmp"
-        private.mkdir()
-        self.patch(tempfile, "tempdir", str(private))
-        gitx.push_probe(self.address, "0" * 40)
-        self.assertEqual(os.listdir(private), [])
 
 
 if __name__ == "__main__":
