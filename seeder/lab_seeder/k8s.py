@@ -56,7 +56,6 @@ class Cluster(Api):
         except (KeyError, IndexError, TypeError) as e:
             raise SeedError(f"{kubeconfig} is not a kubeconfig with a cluster and a user") from e
         super().__init__(cluster["server"], SECTION)
-        self.server = self.base_url
         self.dir = tempfile.mkdtemp(prefix="kube-")
         ca = self.file("ca.crt", cluster.get("certificate-authority-data"))
         self.session.verify = ca if ca else not cluster.get("insecure-skip-tls-verify", False)
@@ -119,11 +118,6 @@ def label(doc):
     return f"{kind} {namespace + '/' if namespace else ''}{name}"
 
 
-def refused(status, text):
-    """What a retry cannot fix: the cluster or the operator's webhook said no (a 5xx is a webhook that is not up yet)."""
-    return status < 500 and status != 429
-
-
 def generated(cluster, doc):
     """The manifest of a Secret with its generated keys filled: the value the cluster already holds, else a new one."""
     meta = doc["metadata"]
@@ -142,8 +136,7 @@ def generated(cluster, doc):
 
 def apply(cluster, doc):
     api_version, kind, namespace, name = identity(doc)
-    plural, namespaced = cluster.resource(api_version, kind)
-    if namespaced and not namespace:
+    if cluster.resource(api_version, kind)[1] and not namespace:   # namespaced
         raise SeedError(f"{label(doc)}: a {kind} needs metadata.namespace")
     path = cluster.path(api_version, kind, namespace, name)
     made = cluster.call("GET", path, expect=(200, 404)).status_code == 404
@@ -153,7 +146,7 @@ def apply(cluster, doc):
             cluster.call("PATCH", path, params={"fieldManager": FIELD_MANAGER, "force": "true"},
                          data=yaml.safe_dump(doc), headers={"Content-Type": "application/apply-patch+yaml"})
         except HttpError as e:
-            if refused(e.status, e.body):
+            if e.status < 500 and e.status != 429:   # the cluster or the operator's webhook said no; a 5xx is a webhook that is not up yet
                 raise Gone(f"{label(doc)}: {e}") from e
             raise
 
@@ -181,10 +174,6 @@ def wait_accepted(cluster, doc):
             raise SeedError(f"{accepted.get('reason')}: {excerpt(accepted.get('message'), 300)}")
 
     wait_until(SECTION, f"{label(doc)} to be accepted by the operator", check)
-
-
-def namespaces_of(records):
-    return [x["name"] for x in records if x["kind"] == "namespace"]
 
 
 def seed():
@@ -263,13 +252,13 @@ def remove(records):
         forget(*mine)
         return
     deleted = set()
-    for namespace in namespaces_of(mine):
+    for namespace in (x["name"] for x in mine if x["kind"] == "namespace"):
         found = []
         for api_version, kind, plural in operator_kinds(cluster):
             base = ("/apis/" + api_version) + f"/namespaces/{namespace}/{plural}"
             for item in cluster.call("GET", base, expect=(200, 404)).json().get("items") or []:
-                found.append((rank(kind), api_version, kind, f"{base}/{item['metadata']['name']}", item["metadata"]["name"]))
-        for _, api_version, kind, path, name in sorted(found, key=lambda x: x[0]):
+                found.append((rank(kind), kind, f"{base}/{item['metadata']['name']}", item["metadata"]["name"]))
+        for _, kind, path, name in sorted(found, key=lambda x: x[0]):
             delete_retrying(cluster, path, f"{kind} {namespace}/{name}")
             deleted.add(path)
     resources = [x for x in mine if x["kind"] == "resource"]
