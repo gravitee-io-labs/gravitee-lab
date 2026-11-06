@@ -444,9 +444,24 @@ def _last_line(err):
     return lines[-1] if lines else "docker compose failed"
 
 
+def _read(asked, **how):
+    """What Compose answers to a read of files, as run() gives it: the plugin (plugin()) on its own answers as `docker compose`
+    does, without the Docker CLI that starts it first, in half the time. A refusal or a plugin that cannot run is asked again
+    of `docker compose`, so that it is said as `docker compose` says it: the callers read those words. So is a time limit,
+    which is not waited for twice: the second would run the same plugin."""
+    found = plugin()
+    if found:
+        code, out, err = run([found, *COMPOSE[2:], *asked], **how)
+        if code == 0:
+            return code, out, err
+        if code == 124:
+            return code, out, err.replace(found, COMPOSE[0])
+    return run([*COMPOSE, *asked], **how)
+
+
 def _config(file_args, *options, timeout=120, environ=None):
     more = {} if environ is None else {"environ": environ}
-    rc, out, err = run([*COMPOSE, *file_args, "config", "--format", "json", *options], timeout=timeout, **more)
+    rc, out, err = _read([*file_args, "config", "--format", "json", *options], timeout=timeout, **more)
     if rc != 0:
         if environ is not None and missing(err):
             # A Docker without the plugin answers the Lab's own command line with a usage text whose last line says
@@ -697,12 +712,12 @@ def x_gravitee(text, folder, fresh=False, name="compose.yml"):
     asked = ["config", "--format", "json", "--no-interpolate", "--no-consistency", "--no-env-resolution"]
     quiet = {"timeout": ALONE_TIMEOUT, "environ": scrubbed_environment()}
     if rel is None:   # not a folder of the project: nothing there is the Lab's to include
-        rc, out, err = run([*COMPOSE, "--project-directory", str(folder), "--env-file", str(_empty_env()), "-f", "-", *asked],
-                           cwd=folder if folder.is_dir() else None, given=_policies_written(text), **quiet)
+        rc, out, err = _read(["--project-directory", str(folder), "--env-file", str(_empty_env()), "-f", "-", *asked],
+                             cwd=folder if folder.is_dir() else None, given=_policies_written(text), **quiet)
     else:
         path = f"{rel}/{name}" if rel != "." else name
         with _readable(path, left_out(text, path), text) as (arguments, originals):
-            rc, out, err = run([*COMPOSE, "--env-file", str(_empty_env()), *arguments, *asked], **quiet)
+            rc, out, err = _read(["--env-file", str(_empty_env()), *arguments, *asked], **quiet)
             for written, original in originals.items():   # Compose names the copy it read: the file is the original
                 err = err.replace(written, original)
     if rc != 0:
