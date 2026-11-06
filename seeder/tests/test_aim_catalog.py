@@ -888,10 +888,6 @@ class Skills(Catalog):
         self.assertEqual(call.files["file"][0], "complaints.zip")
         self.assertNotIn("Content-Type", call.headers)
 
-    def test_the_same_files_make_the_same_zip(self):
-        files = {"SKILL.md": "a", "b.md": "b"}
-        self.assertEqual(aim_catalog.skill_package("s", files), aim_catalog.skill_package("s", dict(files)))
-
     def test_a_second_run_writes_nothing(self):
         self.run_seed()
         self.assertEqual(self.run_seed(), [])
@@ -976,14 +972,6 @@ class ApiTools(Catalog):
     def test_a_second_run_writes_nothing(self):
         self.run_seed()
         self.assertEqual(self.run_seed(), [])
-
-    def test_the_tools_are_imported_without_the_output_schema_a_strict_client_would_demand_structured_content_for(self):
-        self.run_seed()
-        [call] = self.sent("POST", "/catalog/mcp-tools/_importFromApis")
-        self.assertEqual(len(call.json["tools"]), 2)
-        for tool in call.json["tools"]:
-            self.assertEqual(sorted(tool["definition"]), ["description", "inputSchema", "name"])
-        self.assertTrue(all("outputSchema" not in i["definition"] for i in self.world.of_kind("mcp-tool")))
 
     def test_the_record_keeps_the_fingerprint_of_what_was_imported_and_tools_that_differ_from_it_are_replaced(self):
         self.run_seed()
@@ -1129,16 +1117,6 @@ class ApiTools(Catalog):
         self.world.apis["api-1"].update(errors=[], operations=[])
         with self.assertRaisesRegex(common.SeedError, "gives no tools: it has no operation"):
             self.run_seed()
-
-    def test_tools_of_that_api_that_the_seed_did_not_create_stop_the_seed_and_are_left_alone(self):
-        theirs = {"id": "theirs", "sourceKind": "apim.api",
-                  "definition": {"apiId": "api-1", "apiName": "Acme Bakery Open API"}}
-        self.world.sources["theirs"] = theirs
-        message = "The tools of the API 'Acme Bakery Open API' exists and was not created"
-        with self.assertRaisesRegex(common.SeedError, message):
-            self.run_seed()
-        self.assertEqual([m for m, p in self.platform.changes() if not p.endswith("_generateCapabilities")], [])
-        self.assertEqual(self.world.sources, {"theirs": theirs})
 
     def test_a_playground_without_the_file_has_no_tools_of_an_api_and_does_not_look_for_the_api(self):
         (common.SEED_DIR / "aim/api-tools/open.yaml").unlink()

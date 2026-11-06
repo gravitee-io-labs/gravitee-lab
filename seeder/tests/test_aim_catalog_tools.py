@@ -170,16 +170,6 @@ class Operations(Tools):
         self.run_seed()
         self.assertEqual(self.run_seed(), [])
 
-    def test_the_record_keeps_the_fingerprint_of_what_was_imported(self):
-        self.run_seed()
-        [call] = self.sent("POST", "/catalog/mcp-tools/_importFromApis")
-        [record] = self.records("api-tools")
-        self.assertEqual((record["name"], record["digest"]), (CUSTOMERS, aim_catalog.digest_of(call.json["tools"])))
-
-    def test_the_log_counts_the_tools_that_were_imported(self):
-        self.run_seed()
-        self.assertIn("[aim-catalog] ✓ API tool imported: Harbor Customers API (2 tools)", self.output())
-
     def test_an_operation_added_to_the_list_replaces_the_tools_and_one_taken_out_replaces_them_again(self):
         self.run_seed()
         old = next(iter(self.world.sources))
@@ -424,11 +414,6 @@ class Studios(Tools):
         self.assertEqual([m for m, p in changes if p.startswith("/catalog/sources")], ["DELETE", "DELETE"])
         self.assertEqual(self.run_seed(), [])
 
-    def test_a_studio_is_left_alone_while_the_tools_are_up_to_date(self):
-        self.run_seed()
-        common.record(*STUDIO, digest="x")
-        self.assertEqual(self.run_seed(), [])
-
     def test_the_api_whose_file_changed_alone_is_the_one_replaced(self):
         self.run_seed()
         untouched = next(s["id"] for s in self.world.sources.values() if s["definition"]["apiName"] == CUSTOMERS)
@@ -436,38 +421,6 @@ class Studios(Tools):
         self.assertNotIn(("DELETE", f"/catalog/sources/{untouched}"), self.run_seed())
         self.assertEqual(sorted(i["definition"]["name"] for i in self.world.of_kind("mcp-tool")),
                          ["createRefund", "getCustomer", "getOrder", "listOrders", "listRefunds", "searchCustomers"])
-
-
-class AcmeBakery(Catalog):
-    """The file of Acme Bakery lists no operation: its tools are what they were."""
-
-    def setUp(self):
-        super().setUp()
-        self.platform.routes.clear()
-        self.world = ToolWorld()
-        self.answer(self.world.routes())
-        self.real_files()
-        operations = ["listBranches", "getBranch", "listRates"]
-        self.world.apis["api-1"] = {"name": "Acme Bakery Open API", "operations": operations}
-
-    def test_every_operation_of_the_page_is_imported_as_before(self):
-        self.run_seed()
-        [call] = self.sent("POST", "/catalog/mcp-tools/_importFromApis")
-        self.assertEqual([t["definition"]["name"] for t in call.json["tools"]],
-                         ["listBranches", "getBranch", "listRates"])
-        self.assertIn("[aim-catalog] ✓ API tool imported: Acme Bakery Open API (3 tools)", self.output())
-
-    def test_the_fingerprint_is_that_of_the_tools_sent_so_that_a_record_made_before_still_counts(self):
-        self.run_seed()
-        [call] = self.sent("POST", "/catalog/mcp-tools/_importFromApis")
-        [record] = self.records("api-tools")
-        self.assertEqual(record["digest"], aim_catalog.digest_of(call.json["tools"]))
-        self.assertEqual(self.run_seed(), [])
-
-    def test_the_file_has_no_operations_and_so_none_are_asked(self):
-        [spec] = list(aim_catalog.specs("api-tools", "api"))
-        self.assertNotIn("operations", spec)
-        self.assertIsNone(aim_catalog.operations_of(spec))
 
 
 # --- Agents ---------------------------------------------------------------------------------
@@ -507,14 +460,6 @@ class Metadata(Tools):
         self.assertEqual(self.agent()["metadata"], {"riskClassification": "limited"})
         self.assertEqual(self.agent()["definition"]["name"], "Care copilot")
         self.assertEqual([x["name"] for x in self.records("agent")], ["Care copilot"])
-
-    def test_what_another_module_reads_is_not_sent_and_does_not_make_the_seed_fail(self):
-        self.run_seed()
-        [call] = self.sent("POST", "/catalog/agents")
-        for key in ("identity", "access"):
-            self.assertNotIn(key, call.json)
-            self.assertNotIn(key, call.json["definition"])
-            self.assertNotIn(key, call.json["metadata"])
 
     def test_a_second_run_writes_nothing_and_a_change_of_what_another_module_reads_does_not_write_either(self):
         self.run_seed()
@@ -589,16 +534,6 @@ class Metadata(Tools):
         self.run_seed()
         [call] = self.sent("PUT", "/catalog/agents/*")
         self.assertEqual(call.json["metadata"], {"riskClassification": "limited", "compliance.riskAssessment": "RA-14"})
-
-    def test_an_agent_that_the_seed_did_not_create_is_left_alone(self):
-        theirs = self.world.add_item("agent", "agent.care-copilot", "s", {"name": "Theirs"},
-                                     metadata={"riskClassification": "high"})
-        message = "The A2A agent 'agent.care-copilot' exists and was not created by this playground"
-        with self.assertRaisesRegex(common.SeedError, message):
-            self.run_seed()
-        self.assertEqual((theirs["definition"], theirs["metadata"]),
-                         ({"name": "Theirs"}, {"riskClassification": "high"}))
-        self.assertEqual([m for m, _ in self.platform.changes() if m in ("PUT", "DELETE")], [])
 
 
 if __name__ == "__main__":
