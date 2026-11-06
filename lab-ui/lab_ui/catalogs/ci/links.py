@@ -41,7 +41,7 @@ from urllib.parse import urljoin, urlsplit
 
 from .. import report, tree as trees
 from ..report import Problem
-from ..rules import guides, newlines, read_limit
+from ..rules import guides, line_of, newlines, read_limit
 from . import Unavailable, conclude, entry, parsed, parser, problem
 
 TIMEOUT = 15            # seconds a host has to answer
@@ -231,7 +231,7 @@ def links_of(path: str, text: str) -> List[Link]:
         url = clean(match.group())
         if not wanted(url):
             continue
-        line = _line_of(offsets, match.start())
+        line = line_of(offsets, match.start())
         if (line, url) in seen:
             continue
         seen.add((line, url))
@@ -239,18 +239,6 @@ def links_of(path: str, text: str) -> List[Link]:
         if len(found) >= MAX_PER_FILE:
             break
     return found
-
-
-def _line_of(offsets: Sequence[int], position: int) -> int:
-    """The line (from 1) of an offset, given the offsets of the line feeds."""
-    low, high = 0, len(offsets)
-    while low < high:
-        middle = (low + high) // 2
-        if offsets[middle] < position:
-            low = middle + 1
-        else:
-            high = middle
-    return low + 1
 
 
 def markdown_links(tree) -> List[Link]:
