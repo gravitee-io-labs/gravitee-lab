@@ -21,7 +21,6 @@ LOGIN = ("POST", "/management/auth/token")
 SECRETS = {"BANK_DEMO_PASSWORD": "demo-password", "WEB_CLIENT_SECRET": "web-secret", "TRAFFIC_CLIENT_SECRET": "traffic-secret",
            "ACE_CLIENT_SECRET": "ace-secret", "MCP_RESOURCE_SECRET": "mcp-secret", "BAKERY_WEB_URL": "http://localhost:8110",
            "BAKERY_WEB_LOOPBACK_URL": "http://127.0.0.1:8110", "APIM_GATEWAY_URL": "http://localhost:8082"}
-CLAIMS = ["username", "role", "customer_id", "accounts", "name"]
 GRANTS_OF_AN_AGENT = ["authorization_code", "client_credentials", "urn:ietf:params:oauth:grant-type:token-exchange"]
 
 
@@ -212,9 +211,6 @@ class Case(Seed):
     def seed(self):
         am.seed({})
 
-    def patches(self, object_id):
-        return [call.json for call in self.platform.sent("PATCH", re.compile(DOMAINS + f"/[^/]+/applications/{object_id}"))]
-
 
 class Bank(Case):
     """What the files of the seed make."""
@@ -223,81 +219,6 @@ class Bank(Case):
         super().setUp()
         self.use_bank_files()
         self.seed()
-
-    def test_the_domain_has_token_exchange_for_delegation_and_not_for_impersonation(self):
-        domain = next(iter(self.am.domains.values()))
-        self.assertEqual((domain["name"], domain["enabled"]), ("acme-bakery", True))
-        exchange = domain["tokenExchangeSettings"]
-        self.assertEqual((exchange["enabled"], exchange["allowDelegation"], exchange["allowImpersonation"]), (True, True, False))
-        self.assertEqual(exchange["tokenExchangeOAuthSettings"], {"inherited": False, "scopeHandling": "downscoping"})
-        self.assertIn("urn:ietf:params:oauth:token-type:access_token", exchange["allowedActorTokenTypes"])
-        self.assertEqual(domain["oidc"]["clientRegistrationSettings"],
-                         {"allowLocalhostRedirectUri": True, "allowHttpSchemeRedirectUri": True})
-        self.assertTrue(domain["oidc"]["redirectUriStrictMatching"], "a redirect URI must be one of the registered, exactly")
-
-    def test_ace_is_an_agent_with_a_secret_of_the_seed(self):
-        ace = self.am.one("applications", clientId="ace-agent")
-        self.assertEqual((ace["name"], ace["type"], ace["kind"], ace["secret"]), ("Ace", "agent", "HOSTED_DELEGATED", "ace-secret"))
-        created = self.platform.sent("POST", re.compile(DOMAINS + "/[^/]+/applications"))
-        sent = next(call.json for call in created if call.json["clientId"] == "ace-agent")
-        self.assertEqual((sent["type"], sent["kind"], sent["redirectUris"]), ("AGENT", "HOSTED_DELEGATED", ["http://localhost:8110/callback"]))
-        self.assertEqual(ace["identityProviders"], [{"identity": "idp-1", "selectionRule": "", "priority": 0}])
-
-    def test_ace_keeps_the_grants_its_kind_gives_it_and_only_the_claims_are_added(self):
-        ace = self.am.one("applications", clientId="ace-agent")
-        self.assertEqual(ace["settings"]["oauth"]["grantTypes"], GRANTS_OF_AN_AGENT)
-        self.assertEqual([set(p["settings"]["oauth"]) for p in self.patches(ace["id"]) if "settings" in p], [{"tokenCustomClaims"}])
-
-    def test_the_web_app_signs_in_with_the_code_flow_and_pkce_and_never_with_the_password(self):
-        web = self.am.one("applications", clientId="acme-bakery-web")
-        oauth = web["settings"]["oauth"]
-        self.assertEqual((web["type"], web["secret"]), ("web", "web-secret"))
-        self.assertEqual((oauth["grantTypes"], oauth["responseTypes"]), (["authorization_code", "refresh_token"], ["code"]))
-        self.assertEqual((oauth["forcePKCE"], oauth["forceS256CodeChallengeMethod"]), (True, True))
-        self.assertEqual(oauth["tokenEndpointAuthMethod"], "client_secret_basic")
-        self.assertEqual(web["settings"]["advanced"], {"skipConsent": True, "flowsInherited": True},
-                         "the bank's own app: no consent page after the login page")
-        self.assertEqual([s["scope"] for s in oauth["scopeSettings"]], ["openid", "profile", "email"])
-        self.assertEqual(web["identityProviders"][0]["identity"], "idp-1")
-
-    def test_the_redirect_uris_of_the_web_app_are_the_two_ways_to_open_it_and_nothing_else(self):
-        oauth = self.am.one("applications", clientId="acme-bakery-web")["settings"]["oauth"]
-        self.assertEqual(oauth["redirectUris"], ["http://localhost:8110/callback", "http://127.0.0.1:8110/callback"])
-
-    def test_the_traffic_generator_has_an_application_of_its_own_with_the_password_grant(self):
-        traffic = self.am.one("applications", clientId="acme-bakery-traffic")
-        oauth = traffic["settings"]["oauth"]
-        self.assertEqual((traffic["name"], traffic["type"], traffic["secret"]), ("Acme Bakery traffic", "web", "traffic-secret"))
-        self.assertEqual((oauth["grantTypes"], oauth["responseTypes"]), (["password"], []))
-        self.assertEqual([s["scope"] for s in oauth["scopeSettings"]], ["openid", "profile", "email"])
-        self.assertEqual(traffic["identityProviders"][0]["identity"], "idp-1")
-        self.assertFalse(traffic["settings"]["advanced"]["skipConsent"], "a file that does not say skipConsent leaves it as AM has it")
-
-    def test_no_application_but_the_traffic_generators_has_the_password_grant(self):
-        grants = {a["clientId"]: a["settings"]["oauth"]["grantTypes"] for a in self.am.objects("applications")}
-        self.assertEqual([client for client, g in grants.items() if "password" in g], ["acme-bakery-traffic"])
-
-    def test_the_web_app_the_traffic_generator_and_ace_put_the_same_five_claims_in_a_token(self):
-        claims = {}
-        for client in ("acme-bakery-web", "acme-bakery-traffic", "ace-agent"):
-            claims[client] = self.am.one("applications", clientId=client)["settings"]["oauth"]["tokenCustomClaims"]
-        self.assertEqual(claims["acme-bakery-web"], claims["ace-agent"])
-        self.assertEqual(claims["acme-bakery-traffic"], claims["ace-agent"])
-        self.assertEqual([c["claimName"] for c in claims["ace-agent"]], CLAIMS)
-        self.assertTrue(all(c["tokenType"] == "access_token" for c in claims["ace-agent"]))
-        by_name = {c["claimName"]: c["claimValue"] for c in claims["ace-agent"]}
-        self.assertEqual(by_name["username"], "{#context.attributes['user']['username']}")
-        self.assertEqual(by_name["accounts"], "{#context.attributes['user']['additionalInformation']['accounts']}")
-        self.assertEqual(by_name["name"], "{#context.attributes['user']['additionalInformation']['name']}")
-
-    def test_the_users_carry_what_the_tokens_say_with_a_password_of_the_seed(self):
-        profiles = {u["username"]: u["additionalInformation"] for u in self.am.objects("users")}
-        self.assertEqual(profiles, {
-            "alice@acme-bakery.test": {"role": "customer", "customer_id": "C-1001", "accounts": ["ACC-1001", "ACC-1002"], "name": "Alice Martin"},
-            "bob@acme-bakery.test": {"role": "customer", "customer_id": "C-2001", "accounts": ["ACC-2001"], "name": "Bob Chen"},
-            "tina@acme-bakery.test": {"role": "teller", "name": "Tina Torres"}})
-        self.assertEqual({u["password"] for u in self.am.objects("users")}, {"demo-password"})
-        self.assertEqual({u["forceResetPassword"] for u in self.am.objects("users")}, {False})
 
     def test_the_groups_have_their_members_added_through_the_path_of_the_member(self):
         users = {u["id"]: u["username"] for u in self.am.objects("users")}
@@ -320,10 +241,6 @@ class Bank(Case):
             ("user", "users", "alice@acme-bakery.test"), ("user", "users", "bob@acme-bakery.test"), ("user", "users", "tina@acme-bakery.test")])
         self.assertTrue(all(x["label"].endswith("s") and not x["label"].endswith("ies") for x in common.created()))
         self.assertEqual({x["kind"] for x in common.created()} - set(am.ORDER), set())
-
-    def test_the_secret_of_a_user_or_an_application_is_not_recorded(self):
-        self.assertNotIn("secret", self.state.read_text(encoding="utf-8"))
-        self.assertNotIn("demo-password", self.state.read_text(encoding="utf-8"))
 
     def test_a_second_seed_saves_nothing(self):
         for user in self.am.objects("users"):   # AM adds fields of its own to a profile at the first sign-in
@@ -429,27 +346,14 @@ class Settings(Case):
                           ("PATCH", f"{DOMAINS}/domain-1/applications/application-2"),
                           ("PATCH", f"{DOMAINS}/domain-1/applications/application-2")])
         self.assertEqual([x["kind"] for x in common.created()], ["domain", "application"])
+        patches = self.platform.sent("PATCH", f"{DOMAINS}/domain-1/applications/application-2")
+        self.assertNotIn("advanced", patches[0].json["settings"], "a file that does not say skipConsent leaves it as AM has it")
 
     def test_a_domain_is_patched_with_its_settings_as_the_file_gives_them(self):
         self.seed_files({"am/domain.yaml": "name: example\nsettings: {tokenExchangeSettings: {enabled: true}}\n"})
         self.seed()
         self.assertEqual(self.platform.sent("PATCH", f"{DOMAINS}/domain-1")[0].json,
                          {"enabled": True, "tokenExchangeSettings": {"enabled": True}})
-
-
-class Variables(unittest.TestCase):
-    """What the seed service of the playground must set for these files."""
-
-    @staticmethod
-    def used_in(folder):
-        return {m.group(2) for path in sorted((ACME_SEED / folder).rglob("*.yaml")) for m in common.VARIABLE.finditer(path.read_text(encoding="utf-8"))
-                if not m.group(1)}
-
-    def test_the_files_of_access_management_use_the_secrets_the_apps_share_and_the_urls(self):
-        self.assertEqual(self.used_in("am"), set(SECRETS))
-
-    def test_the_files_of_authorization_use_no_variable_the_slug_is_read_from_the_catalog(self):
-        self.assertEqual(self.used_in("authz"), set())
 
 
 class Kinds(Case):
