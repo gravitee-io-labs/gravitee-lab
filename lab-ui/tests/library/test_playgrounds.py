@@ -28,13 +28,16 @@ from ..gravitee import test_places
 
 from ..gravitee import test_platforms
 from ..docker.test_jobs import Docker, container, progress, replay
-from .test_layers import (API, APPS, GATEWAY, HEALTH_CHECKED, HOTELS, HYBRID, cloud as with_cloud, lab, licensed, on,
+from .test_layers import (API, APPS, GATEWAY, HOTELS, HYBRID, cloud as with_cloud, lab, licensed, on,
                           own, row, second)
 from ..gravitee.test_places import DEV_KEY, KEY
 from ..gravitee.test_platforms import ADDON_ENV, DEV, TEST
 
 COMPOSE = compose.COMPOSE
 CORE = ("apim-gateway", "apim-management-api", "mongodb")
+# The services Docker checks the health of (test_jobs.Docker): ready once healthy, the others once they run
+HEALTH_CHECKED = {"apim-gateway", "apim-management-api", "mongodb", "kafka", "jade", "redpanda", "openfga",
+                  "hybrid-gateway"}
 STARTED = "2026-10-03T12:00:00.000000000Z"   # when the seed's container last started, as Docker says it
 SEED_LOGS = ["docker", "logs", "-f", "--since", STARTED, "lab-seed"]   # its output since then, followed
 

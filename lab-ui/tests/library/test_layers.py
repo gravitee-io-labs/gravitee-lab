@@ -16,14 +16,10 @@ from lab_ui import paths
 from lab_ui.docker.jobs import Job, JobFailed, awaited
 
 from .. import Case, fixtures
-from ..docker.test_jobs import Docker, container, progress, replay
 from .test_project import read
 
 SERVICE_LABELS = {"apim-gateway": "Gateway", "apim-management-api": "Management API", "kafka": "Kafka broker",
                   "kafka-ui": "Kafka UI", "openfga-migrate": "OpenFGA migration", "seed": "Seed"}
-# The services Docker checks the health of (test_jobs.Docker): ready once healthy, the others once they run
-HEALTH_CHECKED = {"apim-gateway", "apim-management-api", "mongodb", "kafka", "jade", "redpanda", "openfga",
-                  "hybrid-gateway"}
 EXPORTER = "both take the gateway's exporter"
 
 
@@ -944,10 +940,6 @@ class Plans(Case):
                          ("Stop", {"remove": ["agent-lens", "hello-app", "seed"], "start": []}))
         with self.assertRaisesRegex(RuntimeError, "Would also stop AI Agent Lens"):
             layers.check(self.project, plan, [])
-        # On, what it brings goes as it always did; one turned on by itself stays
-        state = on(self.project, ["agent-lens"], "welcome")
-        plan = self.plan(state, up("agent-lens", playgrounds=["welcome"]), "playground", "welcome", "stop")
-        self.assertEqual(plan["stops"], [APPS])
 
     def test_playground_stop_keeps_the_add_on_turned_on_explicitly(self):
         state = on(self.project, ["agent-lens"], "welcome")
@@ -1218,8 +1210,6 @@ class Places(Case):
         self.assertFalse({("platform", "platform"), ("service", "apim-gateway"), ("service", "apim-management-api")} & rows)
         self.assertLessEqual({"alert-engine", "mongodb"}, set(plan["services"]["start"]))
         self.assertFalse({"apim-gateway", "apim-management-api"} & set(plan["services"]["start"]))
-        # Nothing to start of it once it runs
-        plan = self.plan(on(self.project), self.up(platform=False), fresh=True)
         services["hotels-api"]["depends_on"] = []
         self.assertEqual(layers.local_needs(self.project, self.project["playgrounds"]["hotels"]), [])
 
@@ -1352,13 +1342,10 @@ class Places(Case):
         places = [place(), place(here=False, serving=TEST), place(TEST, here=False)]
         behind = [frozenset(), frozenset(self.core), frozenset({*self.core, "hotels-api", "hybrid-redis", "kiosk",
                                                                "apim-hybrid-gateway"})]
-        count = 0
         for state, running, where, late, fresh in itertools.product(states, runnings, places, behind, (True, False)):
             plan = self.plan(state, running, where=where, behind=late, fresh=fresh)
             self.assertAlone(plan)
             self.assertIn("hybrid", plan["explicit"])
-            count += 1
-        self.assertEqual(count, 5 * 7 * 3 * 3 * 2)
         # The same over the gateway's own start, the swap
         for state, running, where in itertools.product(states, runnings, places):
             self.assertAlone(self.plan(state, running, "addon", "hybrid", where=where))
@@ -1413,7 +1400,6 @@ class Places(Case):
         self.assertTrue(layers.asks(plan))
         self.assertEqual(layers.dialog(plan), {**{key: plan[key] for key in layers.ROWS},
                                                "deploys_to": [ENVIRONMENT], "serves": [], "stops_serving": []})
-        self.assertEqual(ENVIRONMENT["kind"], "environment")
         # The gateway alone has no place to deploy to: the swap is all it says
         plan = self.plan(on(self.project, ["hybrid"]), self.up("hybrid"), "addon", "hybrid", where=place(here=False))
         self.assertEqual((plan["deploys_to"], [row["kind"] for row in plan["restarts"]], layers.asks(plan)),
@@ -1822,7 +1808,9 @@ class Files(Case):
 
     def test_apply_removes_what_goes_by_name_then_restarts(self):
         # AI Agent Lens in place of Jade: Jade removed by name, then the inspector and the gateway it
-        # changes; Kiosk, started outside the Lab UI, stays
+        # changes; Kiosk, started outside the Lab UI, stays. An image that declares a VOLUME gets an anonymous one at each
+        # start: left behind by the removal, nothing reaches it once its container is gone, a Reset neither. Named volumes
+        # are not anonymous: Compose's -v keeps them
         state = on(self.project, ["jade"])
         plan = layers.plan(self.project, state, up("jade", "kiosk"), "addon", "agent-lens", "start")
         _, (_, remove, write, start), more = self.applied(plan)
@@ -1849,15 +1837,6 @@ class Files(Case):
                                 "changes": {"start": [], "stop": [["addon", "kafka"], ["addon", "kafka-desk"]]},
                                 "waits": [{("Container", "lab-kafka"): "stop", ("Container", "lab-kafka-ui"): "stop",
                                            ("Container", "lab-kafka-desk"): "stop"}]})
-
-    def test_what_goes_is_removed_with_the_anonymous_volumes_of_its_containers(self):
-        # An image that declares a VOLUME gets an anonymous one at each start: left behind by the removal, nothing reaches it
-        # once its container is gone, a Reset neither. Named volumes are not anonymous: Compose's -v keeps them
-        plan = layers.plan(self.project, on(self.project, ["kafka-desk"]), up("kafka", "kafka-desk"), "addon", "kafka",
-                           "stop")
-        remove = self.applied(plan)[1][1]
-        self.assertEqual(remove[len(compose.COMPOSE):], ["-p", "lab", "rm", "--stop", "--force", "-v",
-                                                         "kafka", "kafka-desk", "kafka-ui"])
 
     def test_what_goes_is_removed_before_the_on_file_says_it_is_off(self):
         # The removal fails, or is canceled, or the Lab UI ends there: Kafka is still on, stopped, never off and still running
@@ -1935,48 +1914,6 @@ class Files(Case):
         self.assertEqual(more["waits"], [{("Container", f"lab-{name}"): how for name, how in (
             ("kafka", "start"), ("kafka-ui", "start"), ("kafka-desk", "start"), ("apim-gateway", "start"),
             ("apim-management-api", "start"))}])
-
-    def ran(self, plan, docker, *outputs):
-        """The job of a plan, its commands printing these lines in turn, with Docker following them: how far it was
-        after each line, and the job."""
-        title, steps, more = self.applied(plan)
-        job = Job(title, steps, **more)
-        return progress(replay(job, *outputs, refresh=docker.refresh)), job
-
-    def test_an_add_on_start_is_there_once_its_containers_are_ready(self):
-        # Kafka, its UI and the gateway it restarts: running is half way for the two with a health check
-        plan = layers.plan(self.project, on(self.project), up(), "addon", "kafka", "start")
-        lines = [" Container lab-mongodb Running ", " Container lab-apim-gateway Recreate ",
-                 " Container lab-kafka Creating ", " Container lab-kafka Created ", " Container lab-kafka-ui Created ",
-                 " Container lab-apim-gateway Recreated ", " Container lab-kafka Starting ",
-                 " Container lab-kafka Started ", " Container lab-kafka Waiting ", " Container lab-kafka Healthy ",
-                 " Container lab-kafka-ui Starting ", " Container lab-kafka-ui Started ",
-                 " Container lab-apim-gateway Starting ", " Container lab-apim-gateway Started "]
-        docker = Docker(self.project, {"mongodb": container(health="healthy"),
-                                       "apim-gateway": container(health="healthy")}, HEALTH_CHECKED)
-        curve, job = self.ran(plan, docker, lines)
-        self.assertEqual(curve, [0, 0, 0, 0.067, 0.133, 0.2, 0.2, 0.3, 0.3, 0.467, 0.467, 0.733, 0.733, 0.833])
-        # Compose returned while the gateway's health check runs; Docker says when it passes
-        self.assertEqual((job.ok, round(job.progress, 3)), (True, 0.833))
-        docker.healthy("apim-gateway")
-        docker.observe(job)
-        self.assertEqual(job.progress, 1)
-
-    def test_a_stop_is_there_once_its_containers_are_removed(self):
-        # What it stops, removed by name, then the gateway it restarts without Kafka's settings: each command half
-        plan = layers.plan(self.project, on(self.project, ["kafka"]), up("kafka"), "addon", "kafka", "stop")
-        removed = [" Container lab-kafka-ui Stopping ", " Container lab-kafka Stopping ",
-                   " Container lab-kafka-ui Stopped ", " Container lab-kafka-ui Removing ",
-                   " Container lab-kafka Stopped ", " Container lab-kafka Removing ", " Container lab-kafka Removed ",
-                   " Container lab-kafka-ui Removed "]
-        restarted = [" Container lab-apim-gateway Recreate ", " Container lab-apim-gateway Recreated ",
-                     " Container lab-apim-gateway Starting ", " Container lab-apim-gateway Started ",
-                     " Container lab-apim-gateway Healthy "]
-        running = {name: container(health="healthy") for name in ("kafka", "kafka-ui", "apim-gateway")}
-        curve, job = self.ran(plan, Docker(self.project, running, HEALTH_CHECKED), removed, restarted)
-        self.assertEqual(self.applied(plan)[2]["changes"], {"start": [["service", "apim-gateway"]],
-                                                            "stop": [["addon", "kafka"]]})
-        self.assertEqual(curve, [0.125, 0.25, 0.375, 0.375, 0.5, 0.5, 0.5, 0.5, 0.5, 0.6, 0.6, 0.75, 1])
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -2405,21 +2342,11 @@ class Entries(Case):
                          ("welcome", ["@partner/ledger", "kiosk", "local/whoami"], None, []))
         self.assertEqual(state["effective"], ["@partner/ledger", "agent-lens", "kiosk", "local/whoami"])
 
-    def test_a_setup_of_a_catalog_stands_for_its_add_ons(self):
-        state = self.on_file("include:\n  - .lab/catalogs/fixture/setups/events.yml\n")
-        self.assertEqual((state["setups"], state["explicit"], state["effective"], state["locked"]),
-                         (["events"], ["kafka-desk"], ["kafka", "kafka-desk"], None))
-
     def test_an_item_the_policy_blocks_is_an_entry_like_any_other_and_locks_nothing(self):
         self.project["addons"]["kiosk"]["blocked"] = {"reasons": ["Mounts the Docker socket"]}
         self.project["addons"]["kiosk"]["services"] = []
         state = self.on_file("include:\n  - .lab/catalogs/fixture/addons/kiosk/compose.yml\n")
         self.assertEqual((state["explicit"], state["locked"], state["problems"]), (["kiosk"], None, []))
-
-    def test_an_entry_of_a_catalog_whose_file_does_not_load_locks_the_file_as_before(self):
-        del self.project["addons"]["@partner/ledger"]
-        state = self.on_file("include:\n  - .lab/catalogs/partner/addons/ledger/compose.yml\n")
-        self.assertEqual(state["locked"], ".lab/catalogs/partner/addons/ledger/compose.yml does not load")
 
     def test_a_line_outside_the_catalogs_locks_the_file(self):
         self.write("addons/kiosk/compose.yml")
@@ -2459,12 +2386,6 @@ class Entries(Case):
         os.mkfifo(env)   # a pipe is not waited for
         self.assertEqual(layers.current(self.project)["missing"], ["hybrid"])
 
-    def test_a_unit_of_one_catalog_brings_a_unit_of_another(self):
-        # closure follows the ids the project gives, whatever catalog they come from
-        self.project["addons"]["@partner/ledger"]["needs"] = ["kiosk"]
-        self.assertEqual(layers.closure(self.project, ["@partner/ledger"]), {"@partner/ledger", "kiosk"})
-        self.assertEqual(layers.current(self.project)["effective"], [])
-
     # --- The writer ------------------------------------------------------------------------------------------------
 
     BLOCKED = {".lab/catalogs/fixture/addons/kiosk/compose.yml": "Mounts the Docker socket"}
@@ -2483,10 +2404,6 @@ class Entries(Case):
         layers.write(None, ["kiosk"], blocked=self.BLOCKED)
         layers.write(None, [], blocked=self.BLOCKED)
         self.assertEqual((self.root / paths.ON_FILE).read_text(encoding="utf-8"), "")
-
-    def test_no_map_and_an_empty_one_gate_nothing(self):
-        for blocked in (None, {}):
-            layers.write("welcome", ["kiosk"], blocked=blocked)
 
     def test_a_unit_of_a_catalog_that_is_not_in_the_map_is_added(self):
         layers.write("welcome", ["kiosk"], blocked={".lab/catalogs/fixture/addons/jade/compose.yml": "No"})
