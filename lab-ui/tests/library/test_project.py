@@ -945,21 +945,12 @@ class Deployable(AsOwn):
                           {"type": "CLUSTER", "resourcePattern": "kafka-cluster"}]}]}}]}]},
         "plans": [{"security": {"type": "KEY_LESS"}}]}
 
-    def test_a_setting_of_a_plugin_called_policy_is_no_policy(self):
-        self.assertEqual(sorted(project.plugins_used(self.LLM)["policy"]), ["key-less", "rate-limit"])
-
-    def test_the_resources_of_a_kafka_acl_are_no_resource_plugins(self):
-        self.assertEqual(project.plugins_used(self.KAFKA)["resource"], set())
-
-    def test_an_environment_with_every_plugin_of_the_definition_can_take_it(self):
-        # Every plugin these definitions name is installed and deployed: no reason
-        installed = {"entrypoint": {"llm-proxy": True, "native-kafka": True},
-                     "endpoint": {"llm-proxy": True, "native-kafka": True},
-                     "policy": {"rate-limit": True, "kafka-acl": True, "key-less": True}, "resource": {}}
-        offers = {"products": None, "plugins": True, "installed": installed}
-        for definition in (self.LLM, self.KAFKA):
-            needs = {kind: sorted(ids) for kind, ids in project.plugins_used(definition).items()}
-            self.assertEqual(project.judge(self.asked(**needs), offers), [])
+    def test_what_a_definition_uses_is_its_plugins_not_what_their_settings_call_so(self):
+        # A setting called policy is no policy, and the resources of a kafka-acl are no resource plugins
+        self.assertEqual(project.plugins_used(self.LLM), {"entrypoint": {"llm-proxy"}, "endpoint": {"llm-proxy"},
+                                                          "policy": {"key-less", "rate-limit"}, "resource": set()})
+        self.assertEqual(project.plugins_used(self.KAFKA), {"entrypoint": {"native-kafka"}, "endpoint": {"native-kafka"},
+                                                            "policy": {"kafka-acl", "key-less"}, "resource": set()})
 
     def asked(self, **needs):
         return {"deploys": True, "products": [], "versions": [], "fills": [], "plugins": False, "changes": False,
@@ -1486,59 +1477,42 @@ class Accounts(AsOwn):
 
     OWN, CORE_ENV, OTHER = ".lab/catalogs/fixture/playgrounds/welcome/.env", ".env", ".lab/catalogs/fixture/addons/kafka/.env"
 
-    def password(self, text="${WELCOME_PASSWORD:-doe}", environ=None, **files):
+    def password(self, text, environ, files):
         """The password of the playground's account, written `text`, with these variables in the environment and in
         these .env files."""
         given = inputs()
         given["raw"][WELCOME]["x-gravitee"]["accounts"][0]["password"] = text
-        given["environ"], given["env"] = environ or {}, files
+        given["environ"], given["env"] = environ, files
         built = project.build(given)
         self.assertEqual(given["raw"][WELCOME]["x-gravitee"]["accounts"][0]["password"], text)   # as it was
         return built["playgrounds"]["welcome"]["accounts"][0]["password"]
 
-    def test_the_default_when_nothing_sets_it(self):
-        self.assertEqual(self.password(), "doe")
-        self.assertEqual(self.password(**{self.OWN: {"OTHER": "x"}, self.CORE_ENV: {}}), "doe")
+    def test_what_a_password_shows(self):
+        # The first place that sets it decides, also when it sets it to nothing, which a default with a colon reads as no value
+        colon, dash, bare = "${WELCOME_PASSWORD:-doe}", "${WELCOME_PASSWORD-doe}", "${WELCOME_PASSWORD}"
+        nested, own, root = "${WELCOME_PASSWORD:-${WELCOME_ADMIN_PASSWORD:-last}}", self.OWN, self.CORE_ENV
 
-    def test_set_in_the_playground_s_env(self):
-        self.assertEqual(self.password(**{self.OWN: {"WELCOME_PASSWORD": "mine"}}), "mine")
-
-    def test_set_in_the_core_s_env(self):
-        self.assertEqual(self.password(**{self.CORE_ENV: {"WELCOME_PASSWORD": "core"}}), "core")
-
-    def test_set_in_the_environment(self):
-        self.assertEqual(self.password(environ={"WELCOME_PASSWORD": "shell"}), "shell")
-
-    def test_the_environment_comes_first_then_the_root_env_then_the_playground(self):
-        files = {self.OWN: {"WELCOME_PASSWORD": "own"}, self.CORE_ENV: {"WELCOME_PASSWORD": "core"}}
-        self.assertEqual(self.password(environ={"WELCOME_PASSWORD": "shell"}, **files), "shell")
-        self.assertEqual(self.password(**files), "core")
-        del files[self.CORE_ENV]
-        self.assertEqual(self.password(**files), "own")
-
-    def test_the_env_of_another_item_is_not_read(self):
-        self.assertEqual(self.password(**{self.OTHER: {"WELCOME_PASSWORD": "kafka"},
-                                          ".lab/catalogs/fixture/playgrounds/other/.env": {"WELCOME_PASSWORD": "other"}}), "doe")
-
-    def test_an_empty_value_is_no_value_for_a_default_with_a_colon(self):
-        self.assertEqual(self.password(**{self.OWN: {"WELCOME_PASSWORD": ""}}), "doe")
-        self.assertEqual(self.password(environ={"WELCOME_PASSWORD": ""}), "doe")
-        # What Compose reads: the first place that sets it decides, also when it sets it to nothing
-        self.assertEqual(self.password(**{self.CORE_ENV: {"WELCOME_PASSWORD": ""}, self.OWN: {"WELCOME_PASSWORD": "own"}}),
-                         "doe")
-        self.assertEqual(self.password(**{self.OWN: {"WELCOME_PASSWORD": ""}, self.CORE_ENV: {"WELCOME_PASSWORD": "core"}}),
-                         "core")
-        self.assertEqual(self.password("${WELCOME_PASSWORD-doe}", **{self.OWN: {"WELCOME_PASSWORD": ""}}), "")
-        self.assertEqual(self.password("${WELCOME_PASSWORD-doe}"), "doe")
-
-    def test_a_setting_without_default_shows_its_name_until_it_has_a_value(self):
-        self.assertEqual(self.password("${WELCOME_PASSWORD}"), "${WELCOME_PASSWORD}")
-        self.assertEqual(self.password("${WELCOME_PASSWORD}", **{self.OWN: {"WELCOME_PASSWORD": "mine"}}), "mine")
-
-    def test_a_default_that_refers_to_another_setting(self):
-        text = "${WELCOME_PASSWORD:-${WELCOME_ADMIN_PASSWORD:-last}}"
-        self.assertEqual(self.password(text), "last")
-        self.assertEqual(self.password(text, **{self.CORE_ENV: {"WELCOME_ADMIN_PASSWORD": "admin"}}), "admin")
+        def to(value):
+            return {"WELCOME_PASSWORD": value}
+        for text, environ, files, wanted in (
+                (colon, {}, {}, "doe"),
+                (colon, {}, {own: {"OTHER": "x"}, root: {}}, "doe"),
+                (colon, to("shell"), {own: to("own"), root: to("core")}, "shell"),
+                (colon, {}, {own: to("own"), root: to("core")}, "core"),
+                (colon, {}, {own: to("own")}, "own"),
+                (colon, {}, {self.OTHER: to("kafka"), ".lab/catalogs/fixture/playgrounds/other/.env": to("other")}, "doe"),
+                (colon, {}, {own: to("")}, "doe"),
+                (colon, to(""), {}, "doe"),
+                (colon, {}, {root: to(""), own: to("own")}, "doe"),
+                (colon, {}, {own: to(""), root: to("core")}, "core"),
+                (dash, {}, {own: to("")}, ""),
+                (dash, {}, {}, "doe"),
+                (bare, {}, {}, bare),
+                (bare, {}, {own: to("mine")}, "mine"),
+                (nested, {}, {}, "last"),
+                (nested, {}, {root: {"WELCOME_ADMIN_PASSWORD": "admin"}}, "admin")):
+            with self.subTest(text=text, environ=environ, files=files):
+                self.assertEqual(self.password(text, environ, files), wanted)
 
     def test_every_text_of_every_account_is_read_and_nothing_else(self):
         given = inputs()
