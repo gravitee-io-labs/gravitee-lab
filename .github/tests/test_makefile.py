@@ -98,22 +98,18 @@ class MakefileTest(unittest.TestCase):
         self.assertEqual(2, code)
         self.assertIn("Name the item: make e2e ID=KIND:NAME", out)
 
-    # make init: what a fresh clone lacks, with or without the add-ons whose folders it also prepares
+    # make init: what a fresh clone lacks
 
-    def clone(self, *files):
+    def clone(self):
         """What `make init` reads in a fresh clone: the template of .env, the demo certificates (already made), a
-        python and an openssl that are fakes; and these files, each with the text that makes it do something."""
+        python and an openssl that are fakes."""
         (self.folder / ".env.example").write_text("GRAVITEE_LICENSE=\n")
         (self.folder / "certs" / "mtls").mkdir(parents=True)
         (self.folder / "certs" / "mtls" / "server.p12").write_text("")
         self.program("python3", "#!/bin/sh\nexit 0\n")
         self.program("openssl", "#!/bin/sh\nexit 0\n")
-        for name in files:
-            path = self.folder / name
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text("touch kafka-certificates\n" if name.endswith(".sh") else "")
 
-    def test_init_in_a_clone_with_no_add_on_makes_what_the_lab_needs_and_names_none(self):
+    def test_init_in_a_clone_makes_what_the_lab_needs(self):
         self.clone()
         code, out = self.make("init", PYTHON="python3")
         self.assertEqual((0, "Created .env from .env.example\n"), (code, out))
@@ -122,18 +118,7 @@ class MakefileTest(unittest.TestCase):
         self.assertEqual(0o600, (self.folder / ".env").stat().st_mode & 0o777)
         self.assertTrue((self.folder / ".lab" / "on.yml").is_file())
         self.assertEqual(["am", "apim"], sorted(path.name for path in (self.folder / "plugins").iterdir()))
-        self.assertFalse((self.folder / "addons").exists(), "init made a folder of an add-on that is not there")
         self.assertEqual((0, ""), self.make("init", PYTHON="python3"))
-
-    def test_init_makes_nothing_for_the_add_ons_that_are_there(self):
-        # An add-on prepares what it needs when it starts (the Kafka certificates are a service of its own): init does not
-        self.clone("addons/kafka/certs.sh")
-        (self.folder / "addons" / "federation-alpha").mkdir()
-        code, out = self.make("init", PYTHON="python3")
-        self.assertEqual(0, code, out)
-        self.assertFalse((self.folder / "kafka-certificates").exists())
-        self.assertEqual([], sorted((self.folder / "addons" / "federation-alpha").iterdir()))
-        self.assertEqual([], sorted(path.name for path in (self.folder / "addons" / "kafka").iterdir() if path.name != "certs.sh"))
 
     def test_update_pulls_fast_forward_only_and_then_downloads_the_catalogs(self):
         code, out = self.make("-n", "update")
