@@ -361,14 +361,8 @@ class Inputs(Fixture):
                 self.assertEqual(self.outputs(), {})
         self.assertEqual(self.plan("--changed", ref="refs/heads/main"), 0)
 
-    def test_the_ref_may_be_given_and_main_alone_is_not_asked_for_it(self):
+    def test_main_alone_is_not_asked_for_it(self):
         self.assertEqual(self.plan("--all", change=False, ref="refs/heads/anything"), 0)
-        self.clone({"addons/mock/README.md": "x\n"})
-        with mock.patch.dict(os.environ, {"GITHUB_REF": "refs/heads/feature", "GITHUB_OUTPUT": str(self.output)}), \
-                mock.patch.object(ci, "LOADER", self.loader()), mock.patch.object(paths, "default_ns", return_value="acme-hub"):
-            code = e2e.plan_main([str(self.repo), "--changed", "--change", str(self.change), "--sha", self.head, "--ref", MAIN,
-                                  "--github-output"], self.out, self.err)
-        self.assertEqual(code, 0)
 
     def test_e2e03_a_head_that_moved_is_not_the_commit_that_was_read(self):
         self.clone({"addons/mock/README.md": "x\n"})

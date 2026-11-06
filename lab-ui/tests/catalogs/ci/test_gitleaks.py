@@ -170,7 +170,7 @@ class History(support.WithGit):
 
     def test_with_the_options_of_the_scan_every_added_line_is_printed(self):
         repo, base, head = self.planted()
-        flag, words = gitleaks.revisions(str(repo), base, head)
+        flag, words = gitleaks.revisions(str(repo), base)
         self.assertEqual(flag, "--log-opts")
         printed = self.printed(repo, words)
         self.assertIn(f"+token = {token()}", printed)
@@ -181,7 +181,7 @@ class History(support.WithGit):
         repo, _, _ = self.planted()
         for base in ("", "0" * 40, "f" * 40):
             with self.subTest(base=base):
-                flag, words = gitleaks.revisions(str(repo), base, "")
+                flag, words = gitleaks.revisions(str(repo), base)
                 printed = self.printed(repo, words)
                 self.assertIn(f"+token = {token()}", printed)
                 self.assertIn("+# Hub", printed)   # (the first commit is in it)
@@ -189,10 +189,10 @@ class History(support.WithGit):
     def test_a_textconv_or_an_external_diff_cannot_change_what_is_printed(self):
         repo, base, head = self.planted()
         self.put(repo, ".gitattributes", "*.txt diff=hide\n")
-        head = self.commit(repo, "Driver")
+        self.commit(repo, "Driver")
         self.git(repo, "config", "diff.hide.textconv", "echo hidden")
         self.git(repo, "config", "diff.external", "echo external")
-        _, words = gitleaks.revisions(str(repo), base, head)
+        _, words = gitleaks.revisions(str(repo), base)
         self.assertIn(f"+token = {token()}", self.printed(repo, words))
 
 
@@ -294,7 +294,7 @@ class Scan(support.WithGit):
         repo, first = self.plant()
         self.put(repo, "src/more.py", f'TOKEN = "{token()}"\n')
         head = self.commit(repo, "More")
-        self.stage(repo, "--base", first, "--head", head)
+        self.stage(repo, "--base", first)
         self.assertEqual(option(self.run_command(), "--log-opts"), f"--text --no-textconv --no-ext-diff {first}..{head}")
 
     def test_without_a_base_or_with_zeros_or_with_a_commit_git_does_not_know_the_whole_history_is_read(self):
@@ -308,17 +308,10 @@ class Scan(support.WithGit):
 
     def test_a_base_that_is_an_option_of_git_is_no_commit(self):
         repo, _ = self.plant()
-        self.stage(repo, "--base=--output=/tmp/evil", "--head=--all")
+        self.stage(repo, "--base=--output=/tmp/evil")
         command = self.run_command()
         self.assertEqual(option(command, "--log-opts"), "--text --no-textconv --no-ext-diff --full-history --all")
         self.assertNotIn("--output=/tmp/evil", " ".join(command))
-        self.assertNotIn("--all", command)   # (no word of the command is the head that was given)
-
-    def test_a_head_that_is_no_commit_is_not_scanned_at_all(self):
-        repo, first = self.plant()
-        code = self.stage(repo, "--base", first, "--head", "no-such-branch")
-        self.assertEqual(code, 2)
-        self.assertEqual(self.fake.commands("run"), [])
 
     def test_a_history_with_no_token_is_all_good(self):
         repo = self.work(files=FILES)

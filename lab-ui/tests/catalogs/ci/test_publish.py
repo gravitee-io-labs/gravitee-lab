@@ -12,7 +12,6 @@ import io
 import json
 import os
 import re
-import shlex
 import unittest
 from unittest import mock
 
@@ -560,13 +559,10 @@ class Gates(Fixture):
         for kwargs, words in (({"sha": "abc"}, "--sha is the commit"), ({"sha": "g" * 40}, "--sha is the commit"),
                               ({"repository": "acme"}, "--repository is OWNER/REPO"),
                               ({"repository": "acme/../x"}, "--repository is OWNER/REPO"),
-                              ({"private": "yes"}, "--private is true or false"), ({"private": ""}, "--private is true or false"),
-                              ({"event": None, "extra": ("--event", "Push;")}, "--event is the name of a GitHub event")):
+                              ({"private": "yes"}, "--private is true or false"), ({"private": ""}, "--private is true or false")):
             with self.subTest(kwargs=kwargs):
-                extra = kwargs.pop("extra", ())
-                kwargs.pop("event", None)
                 self.err = io.StringIO()
-                self.assertEqual(self.plan(*extra, **kwargs), 2)
+                self.assertEqual(self.plan(**kwargs), 2)
                 self.assertIn(words, self.err.getvalue())
 
     def test_the_attestation_is_asked_for_a_public_repository_only(self):
@@ -947,27 +943,6 @@ class Publishing(Fixture):
             return 127, "", "[Errno 2] No such file or directory: 'docker'"
         self.assertEqual(self.publish([f"{PREFIX}/bakery-web"], runner=none), 2)
         self.assertIn("Docker is not installed", self.err.getvalue())
-
-    def test_the_dry_run_prints_the_commands_and_runs_nothing(self):
-        sha = self.head()
-        code = self.publish([f"{PREFIX}/bakery-web", f"{PREFIX}/mock-api"], "--dry-run")
-        self.assertEqual(code, 0, self.err.getvalue())
-        self.assertEqual(self.registry.calls, [])
-        self.assertFalse(self.records.exists())
-        lines_ = self.out.getvalue().splitlines()
-        self.assertEqual(lines_[0], f"== {PREFIX}/bakery-web")
-        command = shlex.split(lines_[1])
-        self.assertEqual(command[:3], ["docker", "buildx", "build"])
-        self.assertIn("--push", command)
-        self.assertEqual(options(command, "--tag"), [f"{PREFIX}/bakery-web:sha-{sha[:7]}", f"{PREFIX}/bakery-web:latest"])
-        self.assertEqual(lines_[2], f"== {PREFIX}/mock-api")
-
-    def test_the_dry_run_of_a_tag_says_it_would_look_at_the_version_first(self):
-        self.tag("v1.2.0")
-        self.publish([f"{PREFIX}/bakery-web"], "--dry-run", ref="refs/tags/v1.2.0")
-        self.assertIn(f"# first asked whether it exists: docker buildx imagetools inspect --format '{{{{json .}}}}' {PREFIX}/bakery-web:1.2.0",
-                      self.out.getvalue())
-        self.assertEqual(self.registry.calls, [])
 
     def test_no_secret_is_on_a_command_line_or_in_the_environment_of_a_command(self):
         secrets_ = {"GH_TOKEN": "gho_" + "A" * 36, "GITHUB_TOKEN": "ghs_" + "B" * 36, "REGISTRY_TOKEN": "tok_" + "C" * 30,

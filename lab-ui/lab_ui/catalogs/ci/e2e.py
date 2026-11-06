@@ -6,7 +6,7 @@ they read. The pull request is **data**: its files are checked out into a folder
 tried from there; nothing of it is ever a workflow, a step or a permission. There is no push trigger and no branch to push a pull
 request's commit to, because a push runs every workflow of the pushed commit with the repository's secrets.
 
-    e2e-plan PATH (--all | --changed | --items -- WORDS) [--change DIR --sha SHA [--pr N] [--ref REF]] [--github-output]
+    e2e-plan PATH (--all | --changed | --items -- WORDS) [--change DIR --sha SHA [--pr N]] [--github-output]
         The matrix of the module: one job for each item and each set of versions it says it was tested with (`x-gravitee.tested`), or one
         on the core's defaults. It writes two outputs, `matrix` (`{"include": [{item, tested, name}]}`, the form `e2e.jobs` makes and the
         workflow reads) and `count`, each one line, and nothing at all when a code below says no.
@@ -384,7 +384,6 @@ def plan_main(argv, out, err, **seams) -> int:
     found.add_argument("--change", default=None, help="the folder the pull request was checked out into: read as data, never run")
     found.add_argument("--sha", default=None, help="the commit of the pull request you read: 40 hexadecimal characters")
     found.add_argument("--pr", default=None, help="the number of the pull request (for the message of E2E03)")
-    found.add_argument("--ref", default=None, help="the ref the workflow runs on (default: $GITHUB_REF)")
     found.add_argument("--github-output", action="store_true", help="write matrix and count to $GITHUB_OUTPUT")
     found.add_argument("--format", choices=report.FORMATS, default=None)
     found.add_argument("--ci", action="store_true")
@@ -398,7 +397,7 @@ def plan_main(argv, out, err, **seams) -> int:
         raise Unavailable("--github-output needs $GITHUB_OUTPUT, which only a workflow step has")
     if args.change is not None and not os.path.isdir(args.change):
         raise Usage(f"{report.printable(args.change)} is not a folder")
-    ref = args.ref if args.ref is not None else os.environ.get("GITHUB_REF", "")
+    ref = os.environ.get("GITHUB_REF", "")
     planned = make_plan(os.path.abspath(args.path), os.path.abspath(args.change) if args.change else None, args.sha, args.pr, ref, mode,
                         words, seams)
     if args.format == "json":

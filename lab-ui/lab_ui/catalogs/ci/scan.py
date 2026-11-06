@@ -2,7 +2,7 @@
 stages share the scanner, its hardening and this policy:
 
     scan-built PATH --units JSON [--app NAME] [--ci]   the images `ci build` just built for a change, on this machine
-    scan-published PATH [--tag T]                      the images the catalog published, at `:latest` by default
+    scan-published PATH                                the images the catalog published, at `:latest`
 
     SC01  {image}: {id} in {package} {version}, fixed in {fixed}. Fix: update the package or the base image.     an error
     SC02  {image}: {n} more flaws that fail nothing: {which}. Fix: update the base image or the packages once a fix is out.   a warning
@@ -258,10 +258,7 @@ def _to_fix(problems: Sequence[Problem]) -> int:
 def main(argv, out, err, **seams) -> int:
     """`ci scan-published`."""
     found = parser("scan-published", "The published images have no critical flaw that has a fix.")
-    found.add_argument("--tag", default=TAG, help="the tag of each image to scan (default: latest, the tip of main)")
     args = parsed(found, argv)
-    if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,127}", args.tag):
-        raise Usage("--tag is a tag of an image: letters, digits and . _ -")
     root = os.path.abspath(args.path)
     meta = catalog_meta(trees.FolderTree(root).text("catalog.yml") or "")
     prefix = meta.get("images", "")
@@ -275,7 +272,7 @@ def main(argv, out, err, **seams) -> int:
     scanner = pinned_image(seams.get("dockerfile"), TOOL)
     collected = collect(root, prefix, seams.get("lab"))
     problems = list(collected.problems)
-    references = [f"{each.name}:{args.tag}" for each in collected.images]
+    references = [f"{each.name}:{TAG}" for each in collected.images]
     skipped: List[str] = list(collected.notes)
     if references:
         docker_ready(seams.get("runner"))

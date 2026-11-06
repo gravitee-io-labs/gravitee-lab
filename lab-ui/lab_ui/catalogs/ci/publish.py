@@ -5,7 +5,7 @@ reaches it. Level 3 of the standard, rendered when `catalog.yml` sets `images`.
     publish-plan PATH --ref R --sha S --repository OWNER/REPO --private BOOL [--github-output]
         The gates, and what to build. It writes three outputs, each one line: `images` (a JSON list of image names, no tag), `count`
         and `attest`. It runs with `GH_TOKEN` alone (`checks: read`, `actions: read`) and builds nothing.
-    publish PATH --images JSON --ref R --sha S --records FILE [--github-output] [--dry-run]
+    publish PATH --images JSON --ref R --sha S --records FILE [--github-output]
         Builds and pushes the images the plan named, and writes the records. It re-reads the tree: what the plan gives it is a list
         of names, never a path, a command or a tag.
 
@@ -47,7 +47,6 @@ Python 3.9 and later, standard library only."""
 import json
 import os
 import re
-import shlex
 import time
 from pathlib import Path
 from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Set, Tuple
@@ -473,13 +472,10 @@ def plan_main(argv, out, err, **seams) -> int:
     found.add_argument("--sha", required=True, help="the commit: 40 hexadecimal characters")
     found.add_argument("--repository", required=True, help="OWNER/REPO")
     found.add_argument("--private", required=True, help="true or false: whether the repository is private")
-    found.add_argument("--event", default=None, help="the event of the run (default: $GITHUB_EVENT_NAME, else push)")
     found.add_argument("--github-output", action="store_true", help="write images, count and attest to $GITHUB_OUTPUT")
     args = parsed(found, argv)
     ref, sha, repository, private = parse_ref(args.ref), check_sha(args.sha), check_repository(args.repository), booleans(args.private)
-    event = args.event or os.environ.get("GITHUB_EVENT_NAME") or "push"
-    if not re.fullmatch(r"[a-z_]{1,40}", event):
-        raise Usage("--event is the name of a GitHub event")
+    event = os.environ.get("GITHUB_EVENT_NAME") or "push"
     if args.github_output and not os.environ.get("GITHUB_OUTPUT"):
         raise Unavailable("--github-output needs $GITHUB_OUTPUT, which only a workflow step has")
     root = os.path.abspath(args.path)
@@ -637,12 +633,10 @@ def main(argv, out, err, **seams) -> int:
     found.add_argument("--ref", required=True, help="refs/heads/main or refs/tags/vX.Y.Z")
     found.add_argument("--sha", required=True, help="the commit: 40 hexadecimal characters")
     found.add_argument("--records", required=True, help="the file the records are written to")
-    found.add_argument("--repository", default=None, help="OWNER/REPO (default: the prefix of images in catalog.yml)")
     found.add_argument("--github-output", action="store_true", help="write records to $GITHUB_OUTPUT")
-    found.add_argument("--dry-run", action="store_true", help="print the commands instead of running them")
     args = parsed(found, argv)
     ref, sha = parse_ref(args.ref), check_sha(args.sha)
-    if args.github_output and not os.environ.get("GITHUB_OUTPUT") and not args.dry_run:
+    if args.github_output and not os.environ.get("GITHUB_OUTPUT"):
         raise Unavailable("--github-output needs $GITHUB_OUTPUT, which only a workflow step has")
     root = os.path.abspath(args.path)
     wanted = named(args.images)
@@ -651,7 +645,7 @@ def main(argv, out, err, **seams) -> int:
     prefix = meta.get("images", "")
     if not prefix and wanted:
         raise Usage("catalog.yml names no registry in images, so there is nothing to publish to")
-    owner = args.repository or (prefix[len(HOST) + 1:] if prefix.startswith(HOST + "/") else "")
+    owner = prefix[len(HOST) + 1:] if prefix.startswith(HOST + "/") else ""
     problems: List[Problem] = []
     if prefix and (not prefix.startswith(HOST + "/") or not REPOSITORY.fullmatch(prefix[len(HOST) + 1:])):
         problems.append(problem("PB05", "catalog.yml", x=report.printable(prefix), y=f"{HOST}/<owner>/<repository>"))
@@ -680,15 +674,6 @@ def main(argv, out, err, **seams) -> int:
     runner = seams.get("runner")
     records: List[Record] = []
     outcome = Done([], [])
-    if args.dry_run:
-        for image in chosen:
-            tags = tags_for(ref, sha)
-            out.write(f"== {report.printable(image.name)}\n")
-            if ref.kind == "tag":
-                out.write("# first asked whether it exists: " + shlex.join(
-                    ["docker", "buildx", "imagetools", "inspect", "--format", "{{json .}}", f"{image.name}:{ref.version}"]) + "\n")
-            out.write(shlex.join(publish_command(image, tags, labels_for(image, ref, sha, url, license_), platforms)) + "\n")
-        return 0
     if chosen:
         docker_ready(runner)
         outcome = publish_all(chosen, ref, sha, url, license_, platforms, runner, seams.get("sleep") or time.sleep,

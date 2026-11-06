@@ -1,4 +1,4 @@
-"""`catalog.py ci gitleaks PATH --base B [--head H]` (SE03): the broad net for secrets. The Python scanner of `check` (SE01,
+"""`catalog.py ci gitleaks PATH --base B` (SE03): the broad net for secrets. The Python scanner of `check` (SE01,
 SE02, SE04, SE05, SE07) already read every line the change added; this runs `gitleaks` v8 as a container over `B..HEAD`
 (the whole history when B is empty or zeros), pinned by digest in `tools/Dockerfile`:
 
@@ -90,18 +90,18 @@ def image(dockerfile: Optional[Path] = None, name: str = TOOL) -> str:
     raise Unavailable(f"the Lab has no {name} image to run: tools/Dockerfile has no FROM line named {name}")
 
 
-def revisions(root: str, base: str, head: str) -> List[str]:
+def revisions(root: str, base: str) -> List[str]:
     """The `--log-opts` of the scan: `BASE..HEAD` with both resolved to commits of this repository (git is asked, the text is
     never given to the container), or the whole history when there is no base (or one git does not know). Always with LOG_TEXT:
     git prints no line for a file it takes for binary, and a scan that cannot see a file is not a scan of it."""
     if not base or ZEROS.fullmatch(base):
         return ["--log-opts", f"{LOG_TEXT} {LOG_ALL}"]
     first = trees.resolve(root, base)
-    last = trees.resolve(root, head or "HEAD")
+    last = trees.resolve(root, "HEAD")
     if first is None:
         return ["--log-opts", f"{LOG_TEXT} {LOG_ALL}"]   # a base git does not know: everything is read rather than a part of it
     if last is None:
-        raise Unavailable(f"{report.printable(head)[:60]} is not a commit of this repository, so its secrets cannot be scanned")
+        raise Unavailable("HEAD is not a commit of this repository, so its secrets cannot be scanned")
     return ["--log-opts", f"{LOG_TEXT} {first}..{last}"]
 
 
@@ -160,13 +160,13 @@ def read_report(folder: str) -> List[Problem]:
         raise Unavailable("the report of the scan is not JSON") from None
 
 
-def scan(root: str, base: str, head: str = "", runner: Optional[Callable] = None, dockerfile: Optional[Path] = None,
+def scan(root: str, base: str, runner: Optional[Callable] = None, dockerfile: Optional[Path] = None,
          config: Optional[Path] = None) -> List[Problem]:
     """The SE03 findings of the history of the repository at `root`. Raises Unavailable when the scan could not run."""
     root = os.path.realpath(root)
     reference = image(dockerfile)
     git = trees.is_repository(root)
-    log_opts = revisions(root, base, head) if git else []
+    log_opts = revisions(root, base) if git else []
     docker_ready(runner)
     code, _, _ = run_docker(["docker", "image", "inspect", reference], timeout=60, runner=runner)
     if code != 0:
@@ -195,9 +195,8 @@ def main(argv, out, err, **seams) -> int:
     """`ci gitleaks`. Exit 1 for a finding, 2 when the scan could not run."""
     found = parser("gitleaks", "The secrets of every commit of BASE..HEAD, with the Lab's own configuration.")
     found.add_argument("--base", default="", help="the commit the change is measured from (empty or zeros: the whole history)")
-    found.add_argument("--head", default="", help="the last commit to read (default: HEAD)")
     args = parsed(found, argv)
-    problems = scan(args.path, args.base, args.head, seams.get("runner"))
+    problems = scan(args.path, args.base, seams.get("runner"))
     out.write(("Secrets: no commit of the range holds one\n" if not problems else
                f"Secrets: {len(problems)} found in the commits of the range\n") if args.format == "text" else "")
     return conclude("gitleaks", problems, args, out, "make ci", title="Secrets in every commit")

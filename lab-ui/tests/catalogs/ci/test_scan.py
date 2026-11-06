@@ -163,14 +163,6 @@ class Scanning(Fixture):
         self.run_stage()
         self.assertFalse([call for call in self.docker.calls if any("seeder" in word for word in call)])
 
-    def test_the_tag_is_latest_unless_another_is_asked(self):
-        self.docker.pullable = {f"{PREFIX}/bakery-web:1.2.0", f"{PREFIX}/bakery-api:1.2.0"}
-        self.assertEqual(self.run_stage("--tag", "1.2.0"), 0)
-        self.assertIn(f"Scanned {PREFIX}/bakery-web:1.2.0", self.out.getvalue())
-        for bad in ("a b", "-x", "x;y", ""):
-            self.err = io.StringIO()
-            self.assertEqual(self.run_stage("--tag", bad), 2)
-
     def test_an_image_that_is_not_published_yet_is_said_and_is_no_fault(self):
         self.docker.pullable = {f"{PREFIX}/bakery-web:latest"}
         self.assertEqual(self.run_stage(), 0)
