@@ -275,14 +275,11 @@ def document() -> str:
         lines += [f"## {FAMILY_NAMES.get(family, family)}", ""]
         for code in found:
             entry = entries[code]
-            fix = entry.message.partition("Fix:")[2].strip()
             rule = entry.rule if entry.rule.endswith((".", ":", "?")) else entry.rule + "."
             lines += [f"### {code}", "", f"*{entry.severity.capitalize()}.* {_text(rule[0].upper() + rule[1:])}", "", f"- **Message**: {_text(entry.message)}"]
             lines += [f"  {_text(more)}" for more in entry.more]
             if entry.why:
                 lines.append(f"- **Why**: {_text(entry.why)}")
-            if fix:
-                lines.append(f"- **Fix**: {_text(fix)}")
             if entry.lab:
                 lines.append(f"- **At Add**: {_text(entry.lab)}")
             lines.append("")
