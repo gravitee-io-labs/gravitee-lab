@@ -24,10 +24,6 @@ from tests.data.rules import support
 PUBLIC = "93.184.216.34"
 
 
-def lines(text):
-    return text.split("\n")
-
-
 class Server:
     """A web server on this machine with the answers it is told to give: {path: (status, headers, delay)} for HEAD and GET, or a
     list of such answers for a path asked several times (the last one repeats). It records every request."""
