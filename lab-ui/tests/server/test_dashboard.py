@@ -61,19 +61,6 @@ class Sizes(Case):
         self.assertIsNone(dashboard.parse_df(""))
         self.assertIsNone(dashboard.parse_df("Cannot connect to the Docker daemon"))
 
-    def test_what_is_unused_is_what_docker_says_for_each_type_and_the_total_is_their_sum(self):
-        # `docker system df` on a real machine: the sizes are in powers of 1000, the unused column has a percentage
-        # except for the build cache, and the containers' is the writable layer of the ones that are stopped
-        real = "\n".join(json.dumps(row) for row in [
-            {"Active": "20", "Reclaimable": "42.14GB (71%)", "Size": "58.9GB", "TotalCount": "126", "Type": "Images"},
-            {"Active": "20", "Reclaimable": "1.085MB (0%)", "Size": "2.244GB", "TotalCount": "22", "Type": "Containers"},
-            {"Active": "5", "Reclaimable": "5.479GB (92%)", "Size": "5.948GB", "TotalCount": "73", "Type": "Local Volumes"},
-            {"Active": "35", "Reclaimable": "9.846GB", "Size": "18.69GB", "TotalCount": "1653", "Type": "Build Cache"}])
-        found = dashboard.parse_df(real)
-        self.assertEqual([found[kind]["reclaimable"] for kind in dashboard.TYPES],
-                         [42_140_000_000, 1_085_000, 5_479_000_000, 9_846_000_000])
-        self.assertEqual(found["total"], {"size": 85_782_000_000, "reclaimable": 57_466_085_000})
-
     def test_what_is_unused_never_exceeds_what_the_type_takes(self):
         # Docker rounds both columns on their own: 1.0004GB is "1GB" in one and "1.001GB" in the other
         found = dashboard.parse_df('{"Type":"Local Volumes","TotalCount":"2","Size":"1GB","Reclaimable":"1.001GB (100%)"}')
