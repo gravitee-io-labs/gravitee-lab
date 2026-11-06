@@ -1688,9 +1688,7 @@ class Availability(Case):
             check.available("fixture")
         self.assertEqual(str(said.exception), "fixture includes from partner, which is neither installed nor linked here: "
                                               "check them together, after catalog.py link PATH or catalog.py add ADDRESS --yes")
-        self.assertEqual(check.missing("fixture"), ["partner"])
         fixtures.install(self, "partner")
-        self.assertEqual(check.missing("fixture"), [])
         self.assertIn("partner", check.available("fixture"))
 
     def test_a_catalog_that_is_not_here_cannot_be_checked(self):
@@ -1715,7 +1713,6 @@ class Availability(Case):
             self.assertIn("fixture", check.available("fixture", rows(state)), state)
         catalogs = {"fixture": {"kind": "folder", "version": "1.0.0", "state": "linked", "requires_catalogs": {"partner": {}}},
                     "partner": {"kind": "git", "version": "2.0.0", "state": "damaged", "requires_catalogs": {}}}
-        self.assertEqual(check.missing("fixture", catalogs), ["partner"], "a damaged install does not count as present")
         with self.assertRaises(check.Unavailable) as raised:
             check.available("fixture", catalogs)
         self.assertEqual(str(raised.exception), "fixture includes from partner, which is damaged: repair it from the menu of "
@@ -1723,12 +1720,14 @@ class Availability(Case):
 
     def test_a_declared_catalog_that_is_only_downloading_is_not_here(self):
         fixtures.declare(self, "partner")
-        self.assertEqual(check.missing("fixture"), ["partner"])
+        with self.assertRaises(check.Unavailable):
+            check.available("fixture")
         fixtures.install(self, "partner", link=True)
-        self.assertEqual(check.missing("fixture"), [])
+        self.assertIn("partner", check.available("fixture"))
         (self.root / ".lab/catalogs/partner").unlink()
         (self.root / ".lab/catalogs/partner").symlink_to(self.root / "gone")
-        self.assertEqual(check.missing("fixture"), ["partner"], "a link to nothing is not a catalog")
+        with self.assertRaises(check.Unavailable, msg="a link to nothing is not a catalog"):
+            check.available("fixture")
 
 
 class Needs(Case):

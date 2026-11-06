@@ -98,7 +98,6 @@ RUN_BLOCK = re.compile(r"^(?:```|~~~)[ \t]*run\b", re.M)   # a guide's block tha
 SEEDER_FROM_A_UNIT, PLUGINS_FROM_A_UNIT = "../../../../../seeder", "../../../../../plugins/{}"
 BIG_FILE = 1 << 20   # the largest file of a unit that the Lab reads (T19)
 SEED_ENTRIES = understood.SEED_ENTRIES   # as many entries of a seed folder as the screen reads
-SHOWN = understood.SHOWN   # the items a line spells out before it counts the rest
 
 
 class Unavailable(Exception):
@@ -1274,18 +1273,12 @@ def needed_lab(units, raw, inputs, meta=None):
 
 
 def folder_lab(folder):
-    """The `lab` that older Gravitee Labs need in the catalog.yml of a folder (`needed_lab`), for `catalog.py` to write.
-    While every item of the lock appeared at the first level, that level is the answer and nothing is read; otherwise the folder
-    is read where it is, as `catalog.py check` reads it (`temporary_link`, the scrubbed environment). None when it cannot be
-    said here: no lock, a catalog.yml without an id, no Compose, a catalog it includes from that is not here."""
-    locked = _lock()
-    if locked is None:
-        return None
-    if max(locked[2].values(), default=1) <= 1:
-        return 1
+    """The `lab` that older Gravitee Labs need in the catalog.yml of a folder (`needed_lab`), for `catalog.py` to write. The
+    folder is read where it is, as `catalog.py check` reads it (`temporary_link`, the scrubbed environment). None when it cannot
+    be said here: no lock, a catalog.yml without an id, no Compose, a catalog it includes from that is not here."""
     summary = folder_summary(folder)
     ns = summary.get("id")
-    if not ns or compose_missing():
+    if _lock() is None or not ns or compose_missing():
         return None
     needs = sorted(summary.get("requires_catalogs") or {})
     try:
@@ -1354,14 +1347,6 @@ def _unread(row):
     if state == "downloading":
         return "is still downloading: check it once it is installed (catalog.py provision waits for the downloads)"
     return None
-
-
-def missing(ns, catalogs=None):
-    """The catalogs that `ns` declares in requires.catalogs and that are neither installed nor linked here, [id]; read from
-    the catalog.yml of `ns` through the registry (a file that cannot be read declares none: the check says it)."""
-    catalogs = registry.inputs() if catalogs is None else catalogs
-    return sorted(dep for dep in ((catalogs.get(ns) or {}).get("requires_catalogs") or {})
-                  if not _present(catalogs.get(dep)))
 
 
 def available(ns, catalogs=None):
