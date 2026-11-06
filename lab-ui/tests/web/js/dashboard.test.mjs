@@ -1278,6 +1278,23 @@ test("the platforms are read in parallel, none holds up the rest, and the row sa
   dashboardPage.hide();
 });
 
+test("an account the state lists after the page is shown, as the first state of a page that just loaded, is read at once", async () => {
+  await open();
+  store.cloud.checks.delete("cloud-eu");
+  Object.assign(server, { checks: { "cloud-eu": check([gateway()]) }, calls: [] });
+  await move({ ...lab(), platforms: [PLATFORM] });
+  assert.deepEqual(requests().filter((call) => call.endsWith("/check")), ["POST /api/platforms/cloud-eu/check"]);
+  assert.equal(said(cloudRow()), "Gravitee Cloud 1 gateway");
+  dashboardPage.hide();
+});
+
+test("API Management in the Cloud on an account that stops answering says so, not what the account said last", async () => {
+  await open({ state: { ...lab({ core: "stopped" }), core: CLOUD_CORE }, listed: [PLATFORM], checks: { "cloud-eu": check([], { state: "unreachable", message: "No answer" }) } });
+  assert.match(text(part(products()[0], "upd")), /Unreachable/);
+  assert.equal(products()[0].querySelectorAll("[data-core-do]").length, 0, "nothing to do on an environment that is not known now");
+  dashboardPage.hide();
+});
+
 test("what the Gravitee Cloud page read or changed is what the Dashboard says when it is seen again: one record of the checks for both", async () => {
   await open({ state: lab({ gateway: "up" }), listed: [PLATFORM], checks: { "cloud-eu": check([gateway({ here: true })]) } });
   assert.equal(said(cloudRow()), "Gravitee Cloud 1 gateway");
