@@ -274,14 +274,6 @@ class Gh:
         return Reply(code, parsed if parsed is not None else {"message": err.splitlines()[0][:300] if err else ""})
 
 
-def as_reply(value) -> Reply:
-    if isinstance(value, Reply):
-        return value
-    if isinstance(value, (tuple, list)) and len(value) == 2 and isinstance(value[0], int):
-        return Reply(value[0], value[1])
-    raise TypeError("a runner answers a Reply(code, body)")
-
-
 class Reads:
     """The GET requests of one audit, each asked once."""
 
@@ -290,7 +282,7 @@ class Reads:
 
     def get(self, path: str) -> Reply:
         if path not in self.cache:
-            self.cache[path] = as_reply(self.runner("GET", path))
+            self.cache[path] = self.runner("GET", path)
         return self.cache[path]
 
     def pages(self, path: str, key: Optional[str] = None, limit: int = 5) -> Tuple[Reply, list]:
@@ -527,11 +519,10 @@ class _Audit:
             (f", audited as {self.profile}" if asked and asked != self.visibility else "")
 
     def standard(self) -> Optional[Standard]:
-        """The standard of the repository: the one given in the options, else the one read from `.github/standard.json` on
-        the default branch. None when the file is not there, which is a repository that is not a catalog yet."""
+        """The standard of the repository, read from `.github/standard.json` on the default branch. None when the file is not
+        there, which is a repository that is not a catalog yet."""
         if self._standard is False:
-            given = self.options.get("standard")
-            self._standard = parse_standard(given) if given is not None else self.read_standard()
+            self._standard = self.read_standard()
         return self._standard
 
     def read_standard(self) -> Optional[Standard]:
@@ -737,7 +728,7 @@ class _Audit:
                                 f"{', '.join(patterns)}")
         self.add("actions.listed", FAIL, now=now, fix=[
             request("PUT", f"repos/{repo}/actions/permissions",
-                    {"enabled": True, "allowed_actions": "selected", "sha_pinning_required": True}, enables_list=True),
+                    {"enabled": True, "allowed_actions": "selected", "sha_pinning_required": True}),
             request("PUT", f"repos/{repo}/actions/permissions/selected-actions",
                     {"github_owned_allowed": True, "verified_allowed": False, "patterns_allowed": patterns})])
 
@@ -1301,7 +1292,7 @@ class _Audit:
 
 def audit(repo: str, runner: Callable, options: Optional[dict] = None) -> Findings:
     """The findings for `repo` ("OWNER/REPO"), read through `runner`. `options`: `as` (public, private or internal: the
-    visibility the repository is audited against, else its own), `effective_only`, `standard` (the parsed `.github/standard.json`, else it is read from the repository). Writes nothing.
+    visibility the repository is audited against, else its own), `effective_only`. Writes nothing.
     Raises Unusable for a repository that cannot be read and for a sign-in that is missing."""
     if not isinstance(repo, str) or not REPO_NAME.fullmatch(repo) or repo.endswith(".git") \
             or repo.split("/")[1] in (".", ".."):
@@ -1365,16 +1356,12 @@ def apply(repo: str, runner: Callable, findings: list, yes: bool) -> List[Applie
     for key, _, ids in steps:
         for id in ids:
             chain.setdefault(id, []).append(key)
-    lists_patterns = any(req["path"].endswith("/actions/permissions/selected-actions")
-                         and as_list(as_dict(req.get("body")).get("patterns_allowed")) for _, req, _ in steps)
     out, stopped = [], set()
     for key, req, ids in steps:
         method, path, body = req["method"], req["path"], req.get("body")
         reason = None
         if not allowed(repo, method, path, body):
             reason = "this is not a request repo-settings makes"
-        elif req.get("enables_list") and not lists_patterns:
-            reason = "an allow-list is not enabled without its patterns"
         elif any(earlier in stopped for id in ids for earlier in chain[id][:chain[id].index(key)]):
             reason = "an earlier request of the same fix was not made"
         elif "ruleset" in req:
@@ -1387,7 +1374,7 @@ def apply(repo: str, runner: Callable, findings: list, yes: bool) -> List[Applie
         elif not yes:
             out.append(Applied(method, path, body, "planned", ""))
         else:
-            reply = as_reply(runner(method, path, body))
+            reply = runner(method, path, body)
             if 200 <= reply.code < 300:
                 out.append(Applied(method, path, body, "done", ""))
             else:
@@ -1469,10 +1456,8 @@ def render(findings, fmt: str = "text") -> str:
     return "\n".join(lines)
 
 
-def render_applied(applied: List[Applied], fmt: str = "text") -> str:
+def render_applied(applied: List[Applied]) -> str:
     """The requests of `apply`: the `gh api` commands of a dry run, else what became of each."""
-    if fmt == "json":
-        return json.dumps([item._asdict() for item in applied], indent=2, sort_keys=True)
     if not applied:
         return "Nothing to change"
     lines = []

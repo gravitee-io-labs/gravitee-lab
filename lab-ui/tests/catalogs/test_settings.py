@@ -627,13 +627,15 @@ class Audit(Case):
         needs = {"standard": 1, "form": "inline", "lab": {"repository": "acme-labs/lab", "ref": "a" * 40}, "platforms": ["linux/amd64"],
                  "needs": {"hub": {"repository": "acme/hub", "ref": "b" * 40}}}
         scene = Scene("org-private")
-        found = scene.finding("actions.secrets", standard=needs)
+        scene.sets_standard(**needs)
+        found = scene.finding("actions.secrets")
         self.assertEqual(WARN, found.status)
         self.assertIn("NEEDS_DEPLOY_KEY is not in the Actions store", found.now)
         both = {"secrets": [{"name": "LAB_DEPLOY_KEY"}, {"name": "NEEDS_DEPLOY_KEY"}]}
         scene.set("/actions/secrets", both)
         scene.set("/dependabot/secrets", both)
-        self.assertEqual(OK, scene.finding("actions.secrets", standard=needs).status)
+        self.assertEqual(OK, scene.finding("actions.secrets").status)
+        scene.sets_standard(needs={})
         self.assertEqual(WARN, scene.finding("actions.secrets").status, "without a need, the second key is one secret too many")
 
     def test_a_public_lab_needs_no_key_and_the_go_public_gate_fails_on_it(self):
@@ -723,8 +725,9 @@ class Audit(Case):
         scene = Scene("public-standard")
         scene.set("/contents/.github/standard.json?ref=main", {"message": "Not Found"}, 403)
         self.assertEqual(MANUAL, scene.finding("actions.nightly").status)
-        self.assertEqual(NA, Scene("public-standard").finding("actions.nightly", standard={"standard": 1}).status)
-        self.assertEqual(MANUAL, Scene("public-standard").finding("actions.nightly", standard={"form": "inline"}).status)
+        scene = Scene("public-standard")
+        scene.sets_standard(standard="one")
+        self.assertEqual(MANUAL, scene.finding("actions.nightly").status)
 
     # ------------------------------------------------------------------ lab.*, environments.*, packages.*
 
@@ -1964,19 +1967,6 @@ class Apply(Case):
             self.assertEqual(["skipped"], [item.outcome for item in done], req)
             self.assertEqual("this is not a request repo-settings makes", done[0].detail)
         self.assertEqual([], scene.hub.writes())
-
-    def test_an_allow_list_is_never_enabled_without_its_patterns(self):
-        base = "repos/acme/lab-hub"
-        scene = Scene("user-private-free")
-        enable = settings.request("PUT", base + "/actions/permissions", {"enabled": True, "allowed_actions": "selected"}, enables_list=True)
-        for patterns in (None, []):
-            plan = [enable] + ([settings.request("PUT", base + "/actions/permissions/selected-actions", {"patterns_allowed": patterns})]
-                               if patterns is not None else [])
-            done = settings.apply(scene.repo, scene.hub, crafted(*plan), True)
-            self.assertEqual("an allow-list is not enabled without its patterns", done[0].detail)
-            self.assertEqual(0, len([w for w in scene.hub.writes() if w[1].endswith("/actions/permissions")]))
-        full = [enable, settings.request("PUT", base + "/actions/permissions/selected-actions", {"patterns_allowed": ["docker/*"]})]
-        self.assertEqual(["done", "done"], [i.outcome for i in settings.apply(scene.repo, scene.hub, crafted(*full), True)])
 
     def test_when_a_request_is_refused_the_rest_of_its_fix_is_not_sent(self):
         scene = Scene("org-private", refuse={("PUT", "/actions/permissions"): Reply(422, {"message": "Validation Failed"})})

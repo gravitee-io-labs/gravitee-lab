@@ -335,8 +335,8 @@ def _upgrade(work: _Work, repo: str, branch: str, folder: Path) -> Upgraded:
     if not now or now[0] != base:
         return Upgraded(repo, "moved", f"{branch} moved while the upgrade ran; run it again", owned)
     work.run(["push", "--quiet", "--", url, f"HEAD:refs/heads/{name}"], cwd=str(folder))
-    reply = settings.as_reply(work.runner("POST", f"repos/{repo}/pulls", {
-        "title": subject, "head": name, "base": branch, "body": "\n\n".join(lines + ([log] if log else []))}))
+    reply = work.runner("POST", f"repos/{repo}/pulls", {
+        "title": subject, "head": name, "base": branch, "body": "\n\n".join(lines + ([log] if log else []))})
     link = as_dict(reply.body).get("html_url")
     if not 200 <= reply.code < 300 or not isinstance(link, str):
         why = "the plan does not allow it" if plan_limit(reply) else refusal(reply)
