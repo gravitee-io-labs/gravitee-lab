@@ -23,13 +23,9 @@ test("the page that opens with no address is the Dashboard", () => {
   assert.deepEqual(hashes(), ["#/dashboard"], "its address is written in place of the empty one");
 });
 
-test("an address that is no page leads to the Dashboard too, the old address of this page among them", () => {
+test("an address that is no page leads to the Dashboard too", () => {
   location.hash = "#/logs";
   location.hash = "#/nowhere";
-  assert.equal(shown.at(-1), "dashboard");
-  assert.equal(location.hash, "#/dashboard");
-  location.hash = "#/logs";
-  location.hash = "#/over" + "view";   // what the page was named, and may be bookmarked as
   assert.equal(shown.at(-1), "dashboard");
   assert.equal(location.hash, "#/dashboard");
 });

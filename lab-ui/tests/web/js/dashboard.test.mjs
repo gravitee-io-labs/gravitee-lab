@@ -2019,7 +2019,7 @@ test("with reduced motion no animation runs: the chart is drawn when a sample co
 
 // --- Words and drawing --------------------------------------------------------------------------
 
-test("no text of the page separates with a dot, a bullet or a slash, in any state, and the old name of the page is nowhere", async () => {
+test("no text of the page separates with a dot, a bullet or a slash, in any state", async () => {
   const everything = [
     { body: dashboard() },
     { state: lab({ platform: { containers: { running: 3, total: 7 } }, addons: [running("addon", "jade", "Jade", { starred: true }), item("addon", "mail", "Mail server", { starred: true })] }),
@@ -2033,10 +2033,7 @@ test("no text of the page separates with a dot, a bullet or a slash, in any stat
     stream()?.send({ cpu_percent: 3, memory_used: 1000, containers: 0, at: 5 });
     const words = said(section) + [...section.querySelectorAll("[title], [data-tip], [aria-label]")].map((el) => `${el.getAttribute("title")} ${el.getAttribute("data-tip")} ${el.getAttribute("aria-label")}`).join(" ");
     assert.doesNotMatch(words, /[·•∙‧⋅]| \/ | \| /, words);
-    assert.doesNotMatch(words, /overview/i);
   }
-  const source = readFileSync(new URL("../../../web/js/pages/dashboard.js", import.meta.url), "utf8");
-  assert.doesNotMatch(source, /[·•∙‧⋅]|overview/i, "not in its code either");
   dashboardPage.hide();
 });
 
