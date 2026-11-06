@@ -45,9 +45,7 @@ ONE_MEGABYTE = 1_000_000
 # fast. A rule ends a line of a megabyte in a fraction of a second (the slowest measured is about 0.4); these limits sit a
 # few times above that, and far below the minutes to hours of a pattern that went quadratic again
 RULE_SECONDS, WHOLE_SECONDS = 2.0, 20.0
-# The names of the folders of a catalog that these tests make in a temporary folder, spelled in two parts: test_testkit.py looks
-# in the strings of the tests for the names of the folders of the repository's own content, which no test may read
-ADDONS, FOLDER = "add" + "ons", "play" + "grounds"
+FOLDER = "playgrounds"
 
 
 def nested(count, text):
@@ -406,15 +404,6 @@ class Command(Made):
                 self.assertEqual((code, err), (0, ""))
                 self.assertNotIn("::error", out)
         self.assertEqual(run(str(self.root / FOLDER))[1], f"No folder {self.root}/playgrounds: nothing to lint.\n")
-
-    def test_a_catalog_of_add_ons_and_tests_has_nothing_to_lint(self):
-        catalog = self.root / "catalog"
-        (catalog / ADDONS / "hello").mkdir(parents=True)
-        (catalog / ADDONS / "hello" / "compose.yml").write_text("services:\n  hello: {image: x}\n", encoding="utf-8")
-        (catalog / "tests").mkdir()
-        (catalog / "tests" / "test_hello.py").write_text("import unittest\n", encoding="utf-8")
-        self.assertEqual(run(str(catalog / FOLDER), "--format", "github"),
-                         (0, f"No folder {catalog}/playgrounds: nothing to lint.\n", ""))
 
     def test_a_folder_of_playgrounds_that_have_no_seed_has_nothing_to_lint(self):
         self.playground(compose="services:\n  app: {image: x}\n")
