@@ -786,24 +786,6 @@ def _restore(ns, root) -> List[str]:
     return moved
 
 
-def _collides(root, kept, going) -> bool:
-    """Whether a file of `kept` would land on something that is not a file of the old install (`going`): a machine file
-    where a content file goes, a file or a link where a folder must be, a folder where a file goes."""
-    for entry in kept:
-        parts, here = entry.path.split("/"), os.fspath(root)
-        for number, part in enumerate(parts):
-            here = os.path.join(here, part)
-            info = _lstat(here)
-            if info is None:
-                break
-            if number < len(parts) - 1:
-                if not stat.S_ISDIR(info.st_mode):
-                    return True
-            elif stat.S_ISDIR(info.st_mode) or entry.path not in going:
-                return True
-    return False
-
-
 def _target(ns, kept) -> str:
     """What the install folder of `ns` allows for a new install, after making it so: "rename" when nothing is there (the
     stage is renamed to it) and "merge" when a folder is there that holds only the machine's files and what the previous
@@ -822,7 +804,7 @@ def _target(ns, kept) -> str:
     content = _scan(root, listed)[0]
     known = _manifest_in(root, ns)
     going = set(known["files"]) if known else set()
-    if (listed is None and content) or _collides(root, kept, going):
+    if (listed is None and content) or any(_in_the_way(root, entry.path, going, going) for entry in kept):
         _aside(ns, root)
         return "rename"
     _vacate(ns, root)
