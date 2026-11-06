@@ -4,6 +4,7 @@ the platform held by another program; Git missing; in WSL, Docker Desktop for Wi
 distribution, and a lab on a disk of Windows. A fix runs here on a Mac and in WSL; a link or a command to copy otherwise."""
 
 import json
+import socket
 from pathlib import Path
 from unittest import mock
 
@@ -23,6 +24,22 @@ HEALTHY = {
     ("pgrep", "-f"): (1, "", ""),   # the app that runs Docker is not open
 }
 DESKTOP = "/mnt/c/Program Files/Docker/Docker/resources/bin/docker.exe"   # Docker Desktop's command for Windows, seen from WSL
+
+
+class Taken(Case):
+    """The look at a port, with a real listener: the tests of the checks below patch it."""
+
+    def test_a_program_that_listens_on_the_loopback_or_on_every_address_holds_the_port(self):
+        for family, address in ((socket.AF_INET, "127.0.0.1"), (socket.AF_INET, "0.0.0.0"), (socket.AF_INET6, "::")):
+            with self.subTest(address=address), socket.socket(family, socket.SOCK_STREAM) as listener:
+                if family == socket.AF_INET6:
+                    listener.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+                listener.bind((address, 0))
+                listener.listen(1)
+                port = listener.getsockname()[1]
+                self.assertTrue(machine._taken(port))
+                listener.close()
+                self.assertFalse(machine._taken(port))
 
 
 class Machine(Case):

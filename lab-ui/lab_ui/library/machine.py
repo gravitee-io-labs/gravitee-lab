@@ -283,14 +283,11 @@ def _lab_ports():
 
 
 def _taken(port):
-    """Whether another program listens on this port of 127.0.0.1"""
+    """Whether another program listens on this port of 127.0.0.1, on that address or on every address: it answers. A bind
+    would pass beside one that listens on every address on a Mac, whose SO_REUSEADDR allows that."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            probe.bind(("127.0.0.1", port))
-        except OSError:
-            return True
-    return False
+        probe.settimeout(1)
+        return probe.connect_ex(("127.0.0.1", port)) == 0
 
 
 def _windows_ports():
