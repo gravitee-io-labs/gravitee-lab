@@ -1383,7 +1383,7 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
   the version of the oldest), `platforms.plugins` from the mounts of the gateway add-on's service, and nothing of this
   machine's core changes. An environment with no gateway is not set up: nothing is compared, and the place's reason is
   *Set up a gateway in <place> first*. The state carries `deploys_to`, the kinds a playground's files let it go to
-  (what does not depend on an environment); each place carries `capabilities` and `cannot`, the first reason of each
+  (what does not depend on an environment); each place carries `cannot`, the first reason of each
   playground that cannot go there, which the picker and the server's refusal use. The reasons, the first that
   applies, are exact strings:
 

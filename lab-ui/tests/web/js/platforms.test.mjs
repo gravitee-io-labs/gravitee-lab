@@ -50,7 +50,7 @@ const page = installDom({
     if (method === "POST" && server.refusal) return reply({ error: server.refusal }, 400);
     if (path === "/api/platforms") return method === "POST" ? reply(PLATFORM) : server.failing ? reply({ error: server.failing }, 500) : reply({ platforms: server.platforms });
     if (path.endsWith("/plan")) return reply(server.plan);
-    if (method === "POST" && path.endsWith("/gateways")) return reply({ gateway: { id: server.made }, tokenSaved: true });
+    if (method === "POST" && path.endsWith("/gateways")) return reply({ gateway: { id: server.made } });
     if (/\/(start|stop)$/.test(path)) return reply({ ...JOB, id: `job-${server.calls.length}` });   // a job of its own: never one a test set in the state
     return reply({});
   },

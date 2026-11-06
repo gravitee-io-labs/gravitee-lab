@@ -1128,7 +1128,7 @@ class PlatformRoutes(LabUI):
         record = {"id": "gravitee-cloud"}
         for function, answer in (("add", record), ("check", {"state": "ok"}), ("replace_account_token", record),
                                  ("set_cloud_token", {}), ("delete_cloud_token", {}),
-                                 ("create_gateway", {"gateway": {}, "tokenSaved": True}),
+                                 ("create_gateway", {"gateway": {}}),
                                  ("delete_gateway", {}), ("remove", {})):
             self.patch(api.platforms, function, return_value=answer)
         for path, sent in (("/api/platforms", {"name": "x"}), ("/api/platforms/gravitee-cloud/check", {}),
@@ -1177,7 +1177,7 @@ class PlatformRoutes(LabUI):
             self.assertEqual(self.request("GET", f"/api/platforms/p/gateways/{path}/plan")[0], 404, path)
 
     def test_gateways_are_created_and_deleted_in_a_platform(self):
-        create = self.patch(api.platforms, "create_gateway", return_value={"gateway": {}, "tokenSaved": True})
+        create = self.patch(api.platforms, "create_gateway", return_value={"gateway": {}})
         delete = self.patch(api.platforms, "delete_gateway", return_value={})
         sent = {"environmentId": "env", "name": "lab"}
         status, _, body = self.request("POST", "/api/platforms/gravitee-cloud/gateways", sent)
@@ -1269,8 +1269,7 @@ class PlatformFlow(LabUI):
                          ("ok", ["Development", "Test", "Production"], []))
         made = self.ask("POST", "/api/platforms/gravitee-cloud/gateways",
                         {"environmentId": "fake-env-dev", "name": "lab"})
-        self.assertEqual((made["tokenSaved"], made["gateway"]["domains"]),
-                         (True, ["localhost:8090", "apim-hybrid-gateway:8082"]))
+        self.assertEqual(made["gateway"]["domains"], ["localhost:8090", "apim-hybrid-gateway:8082"])
         (issued,) = self.fake.state.tokens.values()
         self.assertEqual(envfiles.read("addons/hybrid/.env"), {"HYBRID_CLOUD_TOKEN": issued})
         found = self.ask("POST", "/api/platforms/gravitee-cloud/check", {})
@@ -1883,8 +1882,8 @@ class StartsAreVerified(GatewayCase):
             self.patch(module, "JOBS", self.jobs)
         self.place_found = {
             "id": self.PLACE, "name": "Development (My Account)", "state": "ready", "missing": None, "reason": "",
-            "platform": {"id": "my-account", "name": "My Account", "kind": "cloud"}, "capabilities": None, "cannot": {},
-            "environment": {"id": "fake-env-dev", "name": "Development", "organization": "org"}, "token": {"state": "valid"},
+            "platform": {"id": "my-account", "name": "My Account", "kind": "cloud"}, "cannot": {},
+            "environment": {"id": "fake-env-dev", "name": "Development"}, "token": {"state": "valid"},
             "gateway": {"id": "gw-1", "name": "lab", "state": "STARTED", "here": True, "kept": True, "connection": "CONNECTED"}}
         self.patch(api.places, "verify", side_effect=lambda project, place: self.place_found)
         self.patch(api.places, "serving", return_value=None)

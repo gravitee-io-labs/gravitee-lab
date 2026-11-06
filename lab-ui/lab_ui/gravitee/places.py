@@ -147,14 +147,12 @@ def _place(record, environment, found, project):
         (NO_GATEWAY[0], NO_GATEWAY[2] if offers else NO_GATEWAY[1])
     return {"id": f"{record['id']}/{environment['id']}", "name": name,
             "platform": {key: record[key] for key in ("id", "name", "kind")},
-            "environment": {"id": environment["id"], "name": environment["name"],
-                            "organization": environment["organizationId"]},
+            "environment": {"id": environment["id"], "name": environment["name"]},
             "state": "missing" if missing else "ready", "missing": missing[0] if missing else None,
             "reason": missing[1].format(name) if missing else "", "token": environment["token"],
             "gateway": None if not gateway else {
                 "id": gateway["id"], "name": gateway["name"], "state": gateway["status"], "here": gateway["here"],
                 "kept": gateway["kept"], "connection": gateway["connection"]},
-            "capabilities": offers,
             "cannot": _cannot(project, offers, record["kind"])}
 
 
@@ -164,20 +162,16 @@ def _places(record, found, project):
         return [{"id": record["id"], "name": record["name"],
                  "platform": {key: record[key] for key in ("id", "name", "kind")}, "environment": None,
                  "state": "unusable", "missing": None, "reason": WORDS.get(found["state"], "Loading"), "token": None,
-                 "gateway": None, "capabilities": None,
-                 "cannot": _cannot(project, None, record["kind"])}]
+                 "gateway": None, "cannot": _cannot(project, None, record["kind"])}]
     return [_place(record, environment, found, project) for environment in found["environments"]]
 
 
 def places(project):
     """The places of every platform, by platform name and the account's order of environments, from what each platform
-    last said (nothing is waited for). [{id, name, platform {id, name, kind}, environment {id, name, organization},
-    state, missing, reason, token {state, expires?}, gateway {id, name, state, here, kept, connection}, capabilities,
-    cannot}]. `state` is ready, missing (`missing` says the first thing, `reason` the sentence for a disabled button) or
+    last said (nothing is waited for). [{id, name, platform {id, name, kind}, environment {id, name}, state, missing,
+    reason, token {state, expires?}, gateway {id, name, state, here, kept, connection}, cannot}]. `state` is ready, missing (`missing` says the first thing, `reason` the sentence for a disabled button) or
     unusable: its platform is loading, refuses the Account Token or does not answer, and `reason` says which. That
-    platform is then one place without environment, token and gateway, and its own id. `capabilities` is what the
-    environment runs (platforms.capabilities), None when that is not known: no gateway there, or a platform that
-    cannot be used. `cannot` is {playground id: the first reason it cannot be deployed there}."""
+    platform is then one place without environment, token and gateway, and its own id. `cannot` is {playground id: the first reason it cannot be deployed there}."""
     return [found for record in sorted(platforms.read(), key=lambda record: (record["name"].casefold(), record["id"]))
             for found in _places(record, _read(record), project)]
 

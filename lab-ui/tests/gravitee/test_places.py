@@ -132,8 +132,7 @@ class Reading(Places):
         self.assertLess(time.monotonic() - started, 2, "the call waited for the platform")
         self.assertEqual(found, [{"id": "my-account", "name": NAME, "platform": {
             "id": "my-account", "name": NAME, "kind": "cloud"}, "environment": None, "state": "unusable",
-            "missing": None, "reason": "Loading", "token": None, "gateway": None, "capabilities": None,
-            "cannot": {}}])
+            "missing": None, "reason": "Loading", "token": None, "gateway": None, "cannot": {}}])
         self.assertEqual(places.place(PROJECT, f"my-account/{DEV}")["reason"], "Loading")
         self.assertEqual(places.serving(PROJECT), None)
         release.set()
@@ -235,24 +234,21 @@ class States(Places):
             ("my-account/fake-env-prod", f"Production ({NAME})")])
         self.assertEqual(found[0]["platform"], {"id": "my-account", "name": NAME, "kind": "cloud"})
         self.assertEqual(found[0]["environment"],
-                         {"id": DEV, "name": "Development", "organization": "fake-organization"})
+                         {"id": DEV, "name": "Development"})
         self.assertHidden(found)
 
     def test_nothing_in_an_environment_lacks_a_hybrid_gateway_first(self):
         # With no gateway at all it is not set up: what it runs is not known
         found = self.place()
-        self.assertEqual((found["state"], found["missing"], found["reason"], found["token"], found["gateway"],
-                          found["capabilities"]), ("missing", "No hybrid gateway",
-                                                   f"Set up a gateway in {DEVELOPMENT} first", {"state": "unset"}, None,
-                                                   None))
+        self.assertEqual((found["state"], found["missing"], found["reason"], found["token"], found["gateway"]),
+                         ("missing", "No hybrid gateway", f"Set up a gateway in {DEVELOPMENT} first", {"state": "unset"}, None))
 
     def test_one_that_has_only_gateways_the_lab_cannot_run_lacks_one_of_its_own(self):
         made = self.create(DEV, "lab", platform="my-account")["gateway"]
         envfiles.write(".env", {test_platforms.gateway_key(made["id"], "MY_ACCOUNT"): None})   # as if made in the console
         envfiles.write(ADDON_ENV, {"HYBRID_CLOUD_TOKEN": None})
         found = self.place()
-        self.assertEqual((found["missing"], found["reason"], found["capabilities"]["products"]),
-                         ("No hybrid gateway", f"Create a hybrid gateway for {DEVELOPMENT}", {"APIM": "4.12.20"}))
+        self.assertEqual((found["missing"], found["reason"]), ("No hybrid gateway", f"Create a hybrid gateway for {DEVELOPMENT}"))
 
     def test_then_a_cloud_token(self):
         self.create(DEV, "lab", platform="my-account")
@@ -338,8 +334,8 @@ class States(Places):
     def test_the_things_a_picker_needs_are_all_there(self):
         self.ready()
         for found in self.read():
-            self.assertEqual(sorted(found), ["cannot", "capabilities", "environment", "gateway", "id", "missing", "name",
-                                             "platform", "reason", "state", "token"])
+            self.assertEqual(sorted(found), ["cannot", "environment", "gateway", "id", "missing", "name", "platform", "reason",
+                                             "state", "token"])
             self.assertIn(found["state"], ("ready", "missing"))
 
 
@@ -368,10 +364,7 @@ class Compatibility(Places):
 
     def test_an_environment_whose_gateway_runs_api_management(self):
         self.create(DEV, "lab", platform="my-account")
-        found = self.at()
-        self.assertEqual(found["capabilities"], {"products": {"API Management": "4.12.20"}, "plugins": False,
-                                                 "installed": None, "license": None})
-        self.assertEqual(found["cannot"], {"bank": "Needs Access Management", "later": "Needs API Management 4.13"})
+        self.assertEqual(self.at()["cannot"], {"bank": "Needs Access Management", "later": "Needs API Management 4.13"})
 
     def test_a_seed_of_its_own_is_off_for_every_place_and_says_so_first(self):
         # Hotels brings its own seed code, Later reads a token in its seed data, Bank would also need Access Management
@@ -395,15 +388,13 @@ class Compatibility(Places):
         # What does not depend on the environment is all that is said; the place says to set up a gateway
         self.create(TEST, "lab", platform="my-account")
         found = self.at(DEV)
-        self.assertEqual((found["capabilities"], found["cannot"], found["reason"]),
-                         (None, {"bank": CHANGES}, f"Set up a gateway in {DEVELOPMENT} first"))
+        self.assertEqual((found["cannot"], found["reason"]), ({"bank": CHANGES}, f"Set up a gateway in {DEVELOPMENT} first"))
 
     def test_a_platform_that_cannot_be_read_keeps_its_own_state(self):
         self.create(DEV, "lab", platform="my-account")
         envfiles.write(".env", {KEY: "rotated-since"})
         found = self.at()
-        self.assertEqual((found["state"], found["reason"], found["capabilities"], found["cannot"]),
-                         ("unusable", "Invalid token", None, {"bank": CHANGES}))
+        self.assertEqual((found["state"], found["reason"], found["cannot"]), ("unusable", "Invalid token", {"bank": CHANGES}))
 
     def test_the_places_are_judged_from_what_was_read(self):
         self.create(DEV, "lab", platform="my-account")
@@ -424,7 +415,7 @@ class Unusable(Places):
         self.assertEqual(self.only(), {
             "id": "my-account", "name": NAME, "platform": {"id": "my-account", "name": NAME, "kind": "cloud"},
             "environment": None, "state": "unusable", "missing": None, "reason": "Invalid token", "token": None,
-            "gateway": None, "capabilities": None, "cannot": {}})
+            "gateway": None, "cannot": {}})
 
     def test_a_platform_that_does_not_answer(self):
         self.fake.shutdown()
@@ -476,7 +467,7 @@ class Serving(Places):
         self.read()
         self.assertEqual(places.serving(PROJECT), {
             "platform": {"id": "my-account", "name": NAME, "kind": "cloud"},
-            "environment": {"id": TEST, "name": "Test", "organization": "fake-organization"},
+            "environment": {"id": TEST, "name": "Test"},
             "gateway": {"id": gateway["id"], "name": "lab"}})
 
     def test_it_follows_the_swap(self):

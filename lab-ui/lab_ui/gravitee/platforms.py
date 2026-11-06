@@ -277,8 +277,7 @@ def remove(uid, project=None):
 # ---------------------------------------------------------------------------------------------------------------------
 
 def _environment(found):
-    return {"id": found["id"], "hrid": str(found.get("hrid") or ""), "name": str(found.get("name") or ""),
-            "organizationId": str(found.get("organizationId") or "")}
+    return {"id": found["id"], "name": str(found.get("name") or ""), "organizationId": str(found.get("organizationId") or "")}
 
 
 def _gateway(found):
@@ -619,7 +618,7 @@ def delete_cloud_token(uid, environment):
 
 def create_gateway(project, uid, environment, name):
     """Creates a hybrid gateway of API Management in an environment of a platform and keeps its token, which the Cloud
-    shows once: {gateway, tokenSaved}. The token is kept as the setting of the gateway, and also as the add-on's when
+    shows once: {gateway}. The token is kept as the setting of the gateway, and also as the add-on's when
     the add-on holds none, so that the first gateway is the one that runs here; a gateway made while another runs does
     not take its place (swap_gateway does). The domains and the setting come from the add-on that runs the gateway. A
     gateway whose token could not be kept is removed again."""
@@ -654,7 +653,7 @@ def create_gateway(project, uid, environment, name):
         except Exception:  # noqa: BLE001 - a setting nobody reads is all that is left
             pass
         raise RuntimeError(f"The gateway's token could not be saved ({_why(error)}): {left}") from None
-    return {"gateway": {**_gateway(gateway), "here": here, "kept": True}, "tokenSaved": True}
+    return {"gateway": {**_gateway(gateway), "here": here, "kept": True}}
 
 
 def swap_gateway(project, uid, gateway):

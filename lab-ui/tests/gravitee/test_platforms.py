@@ -516,12 +516,9 @@ class Check(Platforms):
         found = platforms.check("gravitee-cloud")
         unset = {"state": "unset"}
         self.assertEqual(found, {"state": "ok", "message": "", "gateways": [], "orphan": None, "environments": [
-            {"id": "fake-env-dev", "hrid": "", "name": "Development", "organizationId": "fake-organization",
-             "token": unset, "installed": None},
-            {"id": "fake-env-test", "hrid": "", "name": "Test", "organizationId": "fake-organization", "token": unset,
-             "installed": None},
-            {"id": "fake-env-prod", "hrid": "", "name": "Production", "organizationId": "fake-organization",
-             "token": unset, "installed": None}],
+            {"id": "fake-env-dev", "name": "Development", "organizationId": "fake-organization", "token": unset, "installed": None},
+            {"id": "fake-env-test", "name": "Test", "organizationId": "fake-organization", "token": unset, "installed": None},
+            {"id": "fake-env-prod", "name": "Production", "organizationId": "fake-organization", "token": unset, "installed": None}],
             "entitled": {"plan": {"gamma": False}, "organizations": {"fake-organization": {"scopes": ["APIM"]}}}})
         self.assertHidden(found)
 
@@ -993,8 +990,7 @@ class Gateways(Platforms):
 
     def test_a_hybrid_gateway_is_created_with_the_domains_of_the_add_on_and_its_token_kept(self):
         answer = self.create()
-        self.assertEqual(set(answer), {"gateway", "tokenSaved"})
-        self.assertTrue(answer["tokenSaved"])
+        self.assertEqual(set(answer), {"gateway"})
         both = ["localhost:8090", "apim-hybrid-gateway:8082"]
         self.assertEqual(answer["gateway"], {"id": answer["gateway"]["id"], "name": "lab", "type": "HYBRID",
                                              "scope": "APIM", "environmentId": "fake-env-dev", "status": "DEPLOYED",

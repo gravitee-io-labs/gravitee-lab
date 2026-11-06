@@ -185,20 +185,19 @@ const SENTENCE = { "No hybrid gateway": (name) => `Set up a gateway in ${name} f
 // A place as GET /api/places says it
 const place = (platform, id, name, more = {}) => {
   const found = { id: `${platform.id}/${id}`, name: `${name} (${platform.name})`, platform: { id: platform.id, name: platform.name, kind: platform.kind },
-    environment: { id, name, organization: "org-1" }, state: "ready", missing: null, reason: "", token: { state: "valid" },
-    gateway: { id: "g1", name: "Gravitee Lab", state: "healthy", here: false, kept: true, connection: "CONNECTED" },
-    capabilities: { products: { "API Management": "4.12.21" }, plugins: false, detail: "" }, cannot: {}, ...more };
+    environment: { id, name }, state: "ready", missing: null, reason: "", token: { state: "valid" },
+    gateway: { id: "g1", name: "Gravitee Lab", state: "healthy", here: false, kept: true, connection: "CONNECTED" }, cannot: {}, ...more };
   return found.missing ? { ...found, state: "missing", reason: SENTENCE[found.missing](found.name) } : found;
 };
 const DEV = place(ACCOUNT, "env-dev", "Development");
-const TEST = place(ACCOUNT, "env-test", "Test", { missing: "No hybrid gateway", gateway: null, capabilities: null });
+const TEST = place(ACCOUNT, "env-test", "Test", { missing: "No hybrid gateway", gateway: null });
 const OTHER = place(CLIENT, "env-test", "Test", { missing: "No Cloud Token", token: { state: "unset" } });
 // A platform that cannot be read has no environment to list, token or gateway: it is one place, by its name
 const SLOW = { ...place({ id: "slow-lab", name: "Slow lab", kind: "cloud" }, "env-dev", "Development"), id: "slow-lab", name: "Slow lab", environment: null,
-  state: "unusable", reason: "Unreachable", token: null, gateway: null, capabilities: null };
+  state: "unusable", reason: "Unreachable", token: null, gateway: null };
 const PLACES = [DEV, TEST, OTHER, SLOW];
 // Development before anything is made there: no gateway, no Cloud Token
-const BARE = place(ACCOUNT, "env-dev", "Development", { missing: "No hybrid gateway", gateway: null, token: { state: "unset" }, capabilities: null });
+const BARE = place(ACCOUNT, "env-dev", "Development", { missing: "No hybrid gateway", gateway: null, token: { state: "unset" } });
 const HOTELS_DEV = { place: DEV.id, environment: "Development", created: [{ what: "APIs", count: 3 }, { what: "Applications", count: 1 }] };
 
 // Acme Hostels: it deploys to Cloud too. Its seed recorded 12 APIs on This machine. Why a playground cannot go to a place is in the
@@ -314,7 +313,7 @@ test("a place kept for the playground is not known before the places are read: n
 // What places.py answers for a platform it has not read yet (the first call after the Lab UI starts), or cannot read: one entry, by the
 // platform's own id, with no environment, token or gateway
 const UNREAD = (reason) => ({ id: "my-account", name: "My Account", platform: { id: "my-account", name: "My Account", kind: "cloud" }, environment: null,
-  state: "unusable", missing: null, reason, token: null, gateway: null, capabilities: null, cannot: {} });
+  state: "unusable", missing: null, reason, token: null, gateway: null, cannot: {} });
 
 test("a place kept for a platform that is still being read, or cannot be used, is not This machine: nothing deploys and the reason is the button's title", async () => {
   for (const reason of ["Loading", "Invalid token", "Unreachable"]) {
@@ -384,7 +383,7 @@ test("a playground that cannot go to a platform has the picker too: This machine
 });
 
 test("a place whose environment does not run what the playground needs is listed disabled with its reason, the others open", async () => {
-  const LATER = place(CLIENT, "env-dev", "Development", { capabilities: { products: { "API Management": "4.13.2" }, plugins: false, detail: "" } });
+  const LATER = place(CLIENT, "env-dev", "Development");
   await visit({ ...off }, { places: [{ ...DEV, cannot: { hotels: "Needs API Management 4.13" } }, LATER] });
   assert.deepEqual(await opened(), [["This machine", "", false], ["Development (Client lab)", "", false], ["Development (My Account)", "Needs API Management 4.13", true]]);
   Combo.close();
