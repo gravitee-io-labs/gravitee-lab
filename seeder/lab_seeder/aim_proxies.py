@@ -76,7 +76,7 @@ V4_PLAN_READ_ONLY = ("id", "apiId", "createdAt", "updatedAt", "publishedAt", "cl
 # The flows the platform writes when the switches of a studio are turned on, and the policies a flow edit looks for
 FGA_FLOW, APPROVAL_FLOW = "FGA Authorization", "Human approval"
 PEP, ASSIGN, APPROVAL = "authz-pep", "policy-assign-attributes", "human-approval"
-KINDS = {"subscription": "subscription to an MCP studio", "mcp-proxy": "MCP proxy", "studio": "MCP studio"}
+KINDS = {"mcp-proxy": "MCP proxy", "studio": "MCP studio"}
 # What a platform answers for a write of a studio's tools it does not offer: the studio is made again instead
 UNSUPPORTED = (404, 405, 501)
 # The keys of a studio's file that give its protocol versions, one of the two: which one depends on the build
@@ -164,10 +164,6 @@ def flow_of(api, name, studio):
     return flow
 
 
-def position(steps, step):
-    return next(i for i, s in enumerate(steps) if s is step)
-
-
 def authorization_flow(api, authorization, studio):
     """The 'FGA Authorization' flow made to read the call: an assign-attributes step before the check puts the call's
     arguments where the check can read them, and the check is given the attributes of the person and the context it
@@ -185,16 +181,16 @@ def authorization_flow(api, authorization, studio):
         if step is None:
             step = {"name": "Call arguments", "description": "Makes the arguments of the call readable by the authorization check",
                     "enabled": True, "policy": ASSIGN, "configuration": wanted}
-            steps.insert(position(steps, check), step)
+            steps.insert(steps.index(check), step)
             changed = True
         else:
             if not contains(step.get("configuration"), wanted) or not step.get("enabled", True):
                 step["configuration"] = {**(step.get("configuration") or {}), **wanted}
                 step["enabled"] = True
                 changed = True
-            if position(steps, step) > position(steps, check):
+            if steps.index(step) > steps.index(check):
                 steps.remove(step)
-                steps.insert(position(steps, check), step)
+                steps.insert(steps.index(check), step)
                 changed = True
     configuration = check.setdefault("configuration", {})
     for key, entries in (("subjectPropertiesExpr", pairs(authorization.get("subject"))),
@@ -257,7 +253,6 @@ def read_authorization(spec, studio):
     resolution = (authorization or {}).get("agentIdentityResolution")
     if resolution is not None and not isinstance(resolution, bool):
         raise SeedError(f"MCP studio {studio}: authorization.agentIdentityResolution is true or false")
-    return authorization
 
 
 def of_studio(api_id):
@@ -647,13 +642,13 @@ class McpProxies:
             log(SECTION, f"✓ MCP studio created: {name}")
             changed = True
         api_id = found["id"]
-        changed = self.access(api_id, name, access) or changed
+        changed = self.access(api_id, access) or changed
         changed = self.checks(api_id, name, spec) or changed   # after the tools: writing them may rebuild the check's flow
         self.deploy(api_id, changed)
         self.subscribe(api_id, name, subscriptions)
         self.wait_served(spec)
 
-    def access(self, api_id, studio, access):
+    def access(self, api_id, access):
         """The plan of the agents is published, then the registration plan is closed. The registration plan is what the
         platform needs to register the studio in Access Management, and it lets in any token and attributes the call to no
         one: once the plan of the agents holds, it only lets an unknown caller through. Closed already is nothing to do."""
