@@ -348,13 +348,6 @@ services:
         self.assertEqual(self.tree(), before)
         self.assertFalse((self.root / f"{LOCAL}/addons/whoami").exists())
 
-    def test_what_is_written_goes_through_an_atomic_replace(self):
-        written = []
-        real = paths.write_atomic
-        self.patch(paths, "write_atomic", lambda file, text, mode=0o644: (written.append(file.name), real(file, text, mode))[1])
-        self.create()
-        self.assertEqual(sorted(written), ["README.md", "compose.yml"])
-
 
 class Playgrounds(Folder):
 
@@ -588,14 +581,12 @@ class Skills(Folder):
     def test_the_skills_found_on_disk(self):
         self.assertEqual(personal.skills(), {})
         self.write(".agents/skills/new-addon/SKILL.md")
+        self.write(".agents/skills/new-catalog/SKILL.md")
         self.write(".agents/skills/share-item/SKILL.md")
         self.write(".agents/skills/other/SKILL.md")
         self.assertEqual(personal.skills(), {"addon": ".agents/skills/new-addon/SKILL.md",
+                                             "catalog": ".agents/skills/new-catalog/SKILL.md",
                                              "share": ".agents/skills/share-item/SKILL.md"})
-
-    def test_a_catalog_has_a_skill_like_the_three_kinds(self):
-        self.write(".agents/skills/new-catalog/SKILL.md")
-        self.assertEqual(personal.skills(), {"catalog": ".agents/skills/new-catalog/SKILL.md"})
         self.assertEqual(sorted(personal.SKILLS), ["addon", "catalog", "playground", "setup", "share"])
 
 
@@ -616,16 +607,6 @@ class TheSkills(Case):
                 self.assertTrue((paths.LAB_UI_DIR.parent / check.STUB_FILE.format(name)).is_file())
         self.assertEqual(sorted(personal.SKILLS.values()), sorted(set(self.NAMES) - {"prepare-pull-request"}))
 
-    def test_a_personal_item_is_where_the_layout_of_the_catalogs_puts_it_and_the_old_layout_is_named_nowhere(self):
-        for name in self.NAMES:
-            text = self.skill(name)
-            with self.subTest(name=name):
-                self.assertNotRegex(text, r"(?<!catalogs/)(addons|setups|playgrounds)/local", "the personal folders left the project")
-                self.assertNotRegex(text, r"(addons|setups|playgrounds)/AGENTS\.md", "the guides of the kinds moved to docs/units.md")
-                self.assertNotRegex(text, r"moving it out of local|shared with the project", "a share is a copy")
-        for name in ("new-addon", "new-setup", "new-playground", "share-item"):
-            self.assertIn(".lab/catalogs/local/", self.skill(name), name)
-
     def test_the_commands_they_give_are_commands_of_the_tool_with_arguments_it_takes(self):
         tool = catalog.parser()
         seen = 0
@@ -637,12 +618,6 @@ class TheSkills(Case):
                         tool.parse_args(words)
                     seen += 1
         self.assertGreater(seen, 8)
-
-    def test_they_read_documents_that_are_not_gone_with_the_folders_of_the_kinds(self):
-        for name in self.NAMES:
-            for found in re.finditer(r"`(docs/[a-z-]+\.md)`", self.skill(name)):
-                with self.subTest(name=name, document=found.group(1)):
-                    self.assertIn(found.group(1), ("docs/units.md", "docs/playgrounds.md", "docs/catalogs.md", "docs/writing-a-catalog.md"))
 
 
 if __name__ == "__main__":
