@@ -235,8 +235,8 @@ def _shared(carried, units, ns):
 
 def _catalog_yml(text, gathered):
     """The template's catalog.yml with the playground's description, the version of an export, and the catalogs it needs."""
-    description = (gathered["unit"].get("description") or f"{gathered['name']}, exported from Gravitee Lab").replace('"', "'")
-    text = re.sub(r'(?m)^(  description: ).*$', lambda m: f'{m.group(1)}"{description}"', text)
+    description = json.dumps(gathered["unit"].get("description") or f"{gathered['name']}, exported from Gravitee Lab", ensure_ascii=False)
+    text = re.sub(r'(?m)^(  description: ).*$', lambda m: m.group(1) + description, text)
     text = re.sub(r"(?m)^(  version: ).*$", lambda m: m.group(1) + VERSION, text)
     rows = project.loaded()[1].get("catalogs") or {}
     needed = []
@@ -371,7 +371,10 @@ def _made(pid):
     scratch = Path(tempfile.mkdtemp(prefix=".export-", dir=paths.ROOT / paths.LAB_DIR))
     try:
         root = scratch / gathered["ns"]
-        _write(root, gathered)
+        try:
+            _write(root, gathered)
+        except standard.TemplateError as error:   # a name the template refuses: said as it is
+            raise _fail("export_name", str(error)) from None
         try:
             preview = _judge(root)
         except CatalogError as error:   # the archive's own catalog is refused as a whole: said as the import would say it

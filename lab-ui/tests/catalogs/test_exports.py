@@ -224,6 +224,25 @@ class RoundTrip(Case):
         self.assertEqual([one["id"] for one in plan["needs"]], ["fixture"])
         self.assertEqual((plan["file"], plan["blocked"], plan["problems"]), ("sandbox.zip", [], []))
 
+    def test_a_description_goes_in_the_catalog_as_it_is_written(self):
+        file = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "playgrounds/sandbox/compose.yml"
+        said = 'Finds \\d in "a" name'
+        file.write_text(re.sub(r'description: "[^"]*"', lambda _: "description: " + json.dumps(said), file.read_text(encoding="utf-8"), count=1), encoding="utf-8")
+        project.forget()
+        made = exports.archive("local/sandbox")
+        self.assertEqual(made["blocked"], [])
+        with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
+            self.assertEqual(registry.scan(archive.read("sandbox/catalog.yml"))["description"], said)
+
+    def test_a_name_the_template_of_a_catalog_refuses_is_said_in_one_line(self):
+        file = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "playgrounds/sandbox/compose.yml"
+        file.write_text(file.read_text(encoding="utf-8").replace("name: Sandbox", "name: 'Bank\\Pro: demo'", 1), encoding="utf-8")
+        project.forget()
+        with self.assertRaises(CatalogError) as caught:
+            exports.plan("local/sandbox")
+        self.assertEqual(caught.exception.code, "export_name")
+        self.assertIn("without < > ` or a backslash", caught.exception.message)
+
     def test_the_archive_is_a_folder_catalog_whose_includes_follow_the_items(self):
         made = exports.archive("local/sandbox")
         with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
