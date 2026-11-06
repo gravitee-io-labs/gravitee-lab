@@ -30,7 +30,8 @@ class Split(Case):
     def test_every_js_test_of_the_page(self):
         files = sorted(str(file) for file in JS.glob("*.test.mjs"))
         self.assertTrue(files)
-        run = subprocess.run(["node", "--test", *files], capture_output=True, text=True)
+        # The limit is for what never ends: a failed assert.equal of two elements of the small DOM has node walk the whole tree, for minutes
+        run = subprocess.run(["node", "--test", *files], capture_output=True, text=True, timeout=600)
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
 
 
