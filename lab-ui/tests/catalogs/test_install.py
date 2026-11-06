@@ -75,8 +75,7 @@ def stop_at(label):
 
 def parsed(path, address=None, borrowed=(), published=False):
     """manifest.read_catalog without Compose: the scalars of the file, the way the fixtures read them."""
-    text = (Path(paths.ROOT) / path).read_text(encoding="utf-8")
-    meta = fixtures._meta_of(text)
+    meta = fixtures._meta_of((Path(paths.ROOT) / path).read_text(encoding="utf-8"))
     return {"schema": 1, "id": meta["id"], "name": meta["name"], "description": meta.get("description", ""),
             "version": meta["version"], "lab": meta["lab"], "license": meta.get("license"), "images": None,
             "contribute": "pull-request", "shared_settings": [], "moved_from": [], "canary": [],
@@ -85,11 +84,7 @@ def parsed(path, address=None, borrowed=(), published=False):
 
 def meta_of(ns, **more):
     """The validated catalog.yml a fixture catalog has, as commit_add takes it."""
-    meta = fixtures.catalog_meta(ns)
-    return {"schema": 1, "id": meta["id"], "name": meta["name"], "description": meta.get("description", ""),
-            "version": meta["version"], "lab": meta["lab"], "license": meta.get("license"), "images": None,
-            "contribute": "pull-request", "shared_settings": [], "moved_from": [], "canary": [],
-            "requires": {"catalogs": {}}, "unknown": [], **more}
+    return {**parsed(fixtures.CATALOGS / ns / "catalog.yml"), **more}
 
 
 class Watch:
@@ -150,6 +145,14 @@ class Base(Case):
         if ns not in self.remotes:
             self.remotes[ns] = fixtures.remote(self, ns, **patch)
         return self.remotes[ns]
+
+    def listed(self, ns="partner"):
+        """The tracked file lists `ns` at the address of its remote, the entry exists, nothing is downloaded."""
+        remote = self.remote(ns)
+        fixtures.default(self, ns, url=remote.url)
+        registry.write_config({"schema": 1, "catalogs": [{"id": ns, "kind": "git", "url": remote.url, "branch": "main",
+                                                           "auto": True, "added": "2026-10-16T09:00:00Z"}]})
+        registry.set_lock(ns, audience="public")
 
     def prepare(self, ns="partner", store_ns=None, **patch):
         """The address, a fetch into a new store, the listing, the stage under its namespace. Answers
@@ -1143,11 +1146,8 @@ class Unvouched(Base):
         self.assertFalse((self.base / "addons/ledger/data").exists(), "nothing is taken out of a folder that is not marked")
 
     def test_a_download_that_is_undone_leaves_the_files_it_cannot_vouch_for(self):
-        remote = self.remote("partner")
-        fixtures.default(self, "partner", url=remote.url)
-        registry.write_config({"schema": 1, "catalogs": [{"id": "partner", "kind": "git", "url": remote.url, "branch": "main",
-                                                           "auto": True, "added": "2026-10-16T09:00:00Z"}]})
-        registry.set_lock("partner", audience="public", pending={"op": "add", "from": None, "to": remote.head()})
+        self.listed("partner")
+        registry.set_lock("partner", pending={"op": "add", "from": None, "to": self.remote("partner").head()})
         self.odd(self.base)
         (self.base / "addons/ledger/compose.yml").write_text("half\n", encoding="utf-8")
         install.recover()
@@ -1178,14 +1178,6 @@ class Unvouched(Base):
 
 class Downloading(Base):
     """The first download of a listed catalog: its entry exists already, so the lock is the commit point."""
-
-    def listed(self, ns="partner"):
-        """The tracked file lists `ns` at the address of its remote, the entry exists, nothing is downloaded."""
-        remote = self.remote(ns)
-        fixtures.default(self, ns, url=remote.url)
-        registry.write_config({"schema": 1, "catalogs": [{"id": ns, "kind": "git", "url": remote.url, "branch": "main",
-                                                           "auto": True, "added": "2026-10-16T09:00:00Z"}]})
-        registry.set_lock(ns, audience="public")
 
     def test_the_entry_is_kept_and_the_lock_commits(self):
         self.listed("partner")
@@ -1475,10 +1467,7 @@ class Updating(Base):
         self.assertEqual(now["addons/ledger/compose.yml"][1], (fixtures.CATALOGS / "partner" / LEDGER / "compose.yml").read_bytes())
 
     def test_a_rewritten_history_is_not_applied_unless_confirmed(self):
-        target = gitfixture.force_push_over(self.remotes["partner"].bare, {
-            **{path: (fixtures.CATALOGS / "partner" / path).read_text(encoding="utf-8")
-               for path in ("catalog.yml", "addons/ledger/compose.yml")}, "addons/ledger/README.md": "Other root\n"})
-        bare.fetch(self.address, "main", registry.store_dir("partner"))
+        target = self.rewrite()
         plan = install.plan_update("partner", target)
         self.assertTrue(plan["rewritten"])
         with self.assertRaises(registry.CatalogError) as raised:
@@ -2443,11 +2432,7 @@ class Stops(Base):
         places = [(self.root, base / "root"), (self.home, base / "home")]
         places += [(remote.bare, base / f"remote-{ns}") for ns, remote in self.remotes.items()]
         for target, saved in places:
-            for child in list(Path(target).iterdir()):
-                if child.is_dir() and not child.is_symlink():
-                    shutil.rmtree(child)
-                else:
-                    child.unlink()
+            _wipe(target)
             shutil.copytree(saved, target, symlinks=True, dirs_exist_ok=True)
 
     def runs(self, build, operate, check, ns="partner", reader=True):
@@ -2913,11 +2898,7 @@ class WithoutGit(Base):
         self.assertEqual(self.tree("partner")["addons/ledger/README.md"][1], b"Changed\n")
 
     def test_a_download_under_way_is_not_given_up_on_either(self):
-        remote = self.remote("partner")
-        fixtures.default(self, "partner", url=remote.url)
-        registry.write_config({"schema": 1, "catalogs": [{"id": "partner", "kind": "git", "url": remote.url, "branch": "main",
-                                                           "auto": True, "added": "2026-10-16T09:00:00Z"}]})
-        registry.set_lock("partner", audience="public")
+        self.listed("partner")
         staged, address, roots = self.prepare("partner")
         self.patch(install, "STEP", stop_at("add:placed"))
         with self.assertRaises(Crash):

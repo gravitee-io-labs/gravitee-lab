@@ -27,21 +27,10 @@ from lab_ui.catalogs import store as bare
 from lab_ui.catalogs.registry import CatalogError
 
 from .. import Case, fixtures, gitfixture
+from .test_install import Crash, stop_at
 
 CONTRACT = {"contract": 1, "contract_min": 1}
 OPEN = "No access to example/demos. Run gh auth login in a terminal, then try again."
-
-
-class Crash(BaseException):
-    """The process died here. A BaseException, so that no handler of the code under test cleans up."""
-
-
-def stop_at(label):
-    """A hook for `install.STEP` that stops the run at the first step with this label."""
-    def hook(step):
-        if step == label:
-            raise Crash(label)
-    return hook
 
 
 def read_catalog(path, address=None, borrowed=(), published=False):
