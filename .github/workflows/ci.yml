@@ -44,7 +44,7 @@ jobs:
       # Straight to the seeder's tests: make test runs the Lab UI's first, which its own job already runs, and stops at
       # the first failure
       - name: Run the seeder's tests
-        if: ${{ always() }}
+        if: ${{ !cancelled() }}
         run: .venv/bin/python -m unittest discover -s seeder/tests -t seeder
 
   # Every add-on, setup and playground, then the project as a whole, with the Compose release the lab pins and with the newest one,
