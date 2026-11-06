@@ -359,7 +359,7 @@ class PublicNames(unittest.TestCase):
         self.assertEqual(set(self.reaches(service.__file__)), self.ALLOWED)
 
     def test_the_names_it_took_are_public_where_they_are(self):
-        for module, names in ((project, ("staged_units", "judge_staged", "judge_inputs", "held_reasons", "held_why", "conflict_id")),
+        for module, names in ((project, ("staged_units", "judge_staged", "judge_inputs", "held_reasons", "conflict_id")),
                               (paths, ("names",)), (registry, ("busy",)), (install, ("not_expected", "taken", "unit_key"))):
             for name in names:
                 with self.subTest(module=module.__name__, name=name):

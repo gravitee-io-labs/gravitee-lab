@@ -3636,8 +3636,7 @@ class Reading(Case):
         self.write(a, "include:\n  - ../../../core/addons/z/compose.yml\n")
         self.assertEqual(project._reach(a, set(), set())["unsafe"], [reserved])
 
-    def test_why_a_unit_is_held_says_which_file_and_which_kind_so_that_an_author_is_told_what_to_change(self):
-        # The line a person reads is the policy's (T19, T25); the kind is for whoever tells an author which spelling to change
+    def test_what_holds_a_unit_is_said_in_the_line_of_the_policy(self):
         a, b, c = (self.UNIT.format(name) for name in ("a", "b", "c"))
         self.patch(paths, "default_ns", return_value="fixture")
         spellings = {"a long form with required": "include:\n  - path: ../b/compose.yml\n    required: false\n",
@@ -3649,17 +3648,15 @@ class Reading(Case):
                 self.write(a, text)
                 self.write(b, "services: {}\n")
                 found = project._reach(a, set(), {a, b})
-                self.assertEqual((found["files"], found["unsafe"], found.get("unnamed")), ([], [a], [a]),
+                self.assertEqual((found["files"], found["unsafe"]), ([], [a]),
                                  "the unit itself, which the screen found clean, is held: nothing it names is followed")
-        self.assertNotIn("unnamed", project._reach(self.UNIT.format("none"), set(), set()), "a unit that is not there names none")
         self.write(a, "include:\n  - ../b/compose.yml\n")
         self.write(b, "include:\n  - path: ../c/compose.yml\n    required: false\n")
         self.write(c, "services: {}\n")
         found = project._reach(a, set(), {a, b, c})
-        self.assertEqual((found["files"], found["unsafe"], found["unnamed"]), ([a], [b], [b]))
-        self.assertEqual(project.held_why(found, set()), [(b, "unnamed")])
+        self.assertEqual((found["files"], found["unsafe"]), ([a], [b]))
         self.assertEqual(project.held_reasons(found, set()), ["Includes content from outside the catalog"])
-        # The others, each with its own kind
+        # A refused unit, a link and a file that is no unit, each with its own line
         self.write(a, "include:\n  - ../b/compose.yml\n  - ../c/compose.yml\n  - ../d/compose.yml\n  - ../e/compose.yml\n")
         d, e = self.UNIT.format("d"), self.UNIT.format("e")
         self.write(b, "services: {}\n")
@@ -3668,10 +3665,10 @@ class Reading(Case):
         os.symlink(self.root / "plain.yml", self.root / d)
         self.write(e, "services: {}\n")
         found = project._reach(a, {c}, {a, b})
-        self.assertEqual(project.held_why(found, {c}), [(c, "refused"), (d, "special"), (e, "outside")])
+        self.assertEqual(project.held_reasons(found, {c}), ["Needs c, which is blocked", "Reads files outside its folder",
+                                                            "Includes content from outside the catalog"])
         with mock.patch.object(project, "REACH_LIMIT", 1):
             found = project._reach(a, set(), {a, b, c, e})
-        self.assertEqual([kind for _, kind in project.held_why(found, set())], ["bomb"])
         self.assertEqual(project.held_reasons(found, set()), ["Includes content from outside the catalog"])
 
     def test_what_a_unit_of_this_machine_includes_is_followed_but_for_the_files_of_a_catalog_that_are_no_unit(self):

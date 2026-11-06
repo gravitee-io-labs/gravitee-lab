@@ -437,8 +437,6 @@ def _reach(start, bad, clean=()):
             targets = None if why else trust.include_targets(text, file)
             if targets is None:
                 found["unsafe"].append(file)
-                if not why:   # read, and the screen cannot say what it includes: a spelling it does not read (see trust.include_targets)
-                    found.setdefault("unnamed", []).append(file)
                 continue
         found["files"].append(file)
         targets = _includes(file) if targets is None else targets
@@ -450,36 +448,17 @@ def _reach(start, bad, clean=()):
     return found
 
 
-def held_why(found, bad):
-    """[(file, kind)] for each file the closure of a unit reached that must not be given to Compose (`_reach`'s `unsafe`), with
-    what keeps it from being read: `refused` (a unit the screen refused), `special` (a link or a special file), `unnamed`
-    (a file whose includes the screen cannot name: it is written in a spelling the Lab does not read, see trust.include_targets),
-    `bomb` (a closure too big), `outside` (a file that is no unit of the catalog)."""
-    why = []
-    for file in found["unsafe"]:
-        if file in bad and paths.unit_of(file):
-            kind = "refused"
-        elif file != found.get("bomb") and _plain_file(file) is False:
-            kind = "special"
-        elif file in found.get("unnamed", ()):
-            kind = "unnamed"
-        else:
-            kind = "bomb" if file == found.get("bomb") else "outside"
-        why.append((file, kind))
-    return why
-
-
 def held_reasons(found, bad):
-    """The lines that keep a unit from being read at all, when its closure reaches what must not be given to Compose (`held_why`
-    says which kind): "Needs {name}, which is blocked" for a unit that was refused, the line of T19 for a link or a special file
-    (it reads files outside its folder), and for anything else, a file that is no unit, one that hides an include or a closure
+    """The lines that keep a unit from being read at all, when its closure reaches what must not be given to Compose (`_reach`'s
+    `unsafe`): "Needs {name}, which is blocked" for a unit that was refused, the line of T19 for a link or a special file (it
+    reads files outside its folder), and for anything else, a file that is no unit, one that hides an include or a closure
     too big (it includes content from outside the catalog)."""
     lines = []
-    for file, kind in held_why(found, bad):
-        if kind == "refused":
+    for file in found["unsafe"]:
+        if file in bad and paths.unit_of(file):
             lines.append(trust.line("T25", name=paths.unit_of(file)[1].rsplit("/", 1)[-1]))
         else:
-            lines.append(trust.line("T19", 1 if kind == "special" else 0))
+            lines.append(trust.line("T19", 1 if file != found.get("bomb") and _plain_file(file) is False else 0))
     return list(dict.fromkeys(lines))
 
 
