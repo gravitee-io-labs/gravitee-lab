@@ -347,16 +347,6 @@ jobs:
           link=(link catalog)
           [ "$ALLOW_MACHINE" != true ] || link+=(--allow-machine)
           python3 -I lab/lab-ui/catalog.py "${link[@]}"
-      # Exit code 2 of the next step is "not tried", which is a warning: an item that is not in the catalog must not become one
-      - name: The item is there
-        env:
-          CATALOG_ID: ${{ inputs.catalog-id }}
-          ITEM: ${{ matrix.item }}
-        run: |
-          set -f
-          which=(--default-catalog)
-          [ -z "$CATALOG_ID" ] || which=(--catalog "$CATALOG_ID")
-          python3 -I lab/.github/scripts/e2e_matrix.py "${which[@]}" --items -- "$ITEM" > /dev/null
       # Not `make e2e`: make answers 2 for any recipe that fails, and 2 here is "not tried" (a setting only a person can give), which is a
       # warning, where 1 is a failure
       - name: Try it

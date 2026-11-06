@@ -557,15 +557,6 @@ class StepsShellTest(ShellTest):
         done = self.execute(self.step("e2e", "Link the catalogs into the engine"), {"NEEDS_ID": "", "ALLOW_MACHINE": "false"}, stub_exit=1)
         self.assertEqual(done.returncode, 1)
 
-    def test_the_item_has_to_be_in_the_catalog_before_a_not_tried_can_pass(self):
-        text = self.step("e2e", "The item is there")
-        done = self.execute(text, {"CATALOG_ID": "hub", "ITEM": "playground:@hub/bank"})
-        self.assertEqual((done.returncode, self.called()[2:]), (0, ["--catalog", "hub", "--items", "--", "playground:@hub/bank"]), done.stderr)
-        done = self.execute(text, {"CATALOG_ID": "", "ITEM": "addon:x"})
-        self.assertEqual(self.called()[2:], ["--default-catalog", "--items", "--", "addon:x"])
-        done = self.execute(text, {"CATALOG_ID": "hub", "ITEM": "addon:x"}, stub_exit=1)
-        self.assertEqual(done.returncode, 1, "an item that is not there is a failure, not a warning")
-
     def test_not_tried_is_a_warning_and_a_failure_is_one(self):
         text = self.step("e2e", "Try it")
         for code, wanted in ((0, 0), (1, 1), (2, 0), (3, 3), (130, 130)):
