@@ -495,15 +495,12 @@ def _extra_products(project, found, organization):
 
 def capabilities(project, found, environment, kind="cloud"):
     """What an environment of a platform runs, from a read of the platform (fetch or annotate), which is all the Lab
-    knows of it: {products: {name: version}, plugins, installed, license, detail}. A product is the scope of the
+    knows of it: {products: {name: version}, plugins, installed, license}. A product is the scope of the
     environment's gateways, named as the project names it, at the oldest version they run, or one the account is
-    entitled to without a gateway (Gamma, Access Management); `detail` says when they run several. `plugins`: whether the
+    entitled to without a gateway (Gamma, Access Management). `plugins`: whether the
     gateway that runs here mounts a plugins folder. `installed`: the plugins the environment's Management API has, by kind,
     each with whether the license of the organization deploys it, None while no Cloud Token of the environment tells;
-    `license`: that license, {tier, packs, features}. None when nothing can be said: the read failed (its `state` says
-    why), or the environment has no gateway, which is not set up."""
-    if found.get("state") != "ok":
-        return None
+    `license`: that license, {tier, packs, features}. None when the environment has no gateway, which is not set up."""
     mine = [gateway for gateway in found.get("gateways") or [] if gateway.get("environmentId") == environment]
     if not mine:
         return None
@@ -511,18 +508,16 @@ def capabilities(project, found, environment, kind="cloud"):
     for gateway in mine:
         if gateway.get("scope"):
             versions.setdefault(product_name(project, gateway["scope"]), set()).add(gateway.get("version") or "")
-    products, detail = {}, []
+    products = {}
     for name, said in versions.items():
         known = sorted((version for version in said if _release(version)), key=_release)
         products[name] = known[0] if known else ""
-        if len(known) > 1:
-            detail.append(f"{name}: the gateways run {', '.join(known)}, the oldest counts")
     here = next((item for item in found.get("environments") or [] if item["id"] == environment), {})
     for name, version in _extra_products(project, found, here.get("organizationId")).items():
         products.setdefault(name, version)
     live = here.get("installed") or {}
-    return {"products": products, "plugins": plugins(project, kind), "detail": "; ".join(detail),
-            "installed": live.get("plugins"), "license": live.get("license")}
+    return {"products": products, "plugins": plugins(project, kind), "installed": live.get("plugins"),
+            "license": live.get("license")}
 
 
 # ---------------------------------------------------------------------------------------------------------------------

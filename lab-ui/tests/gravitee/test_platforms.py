@@ -703,17 +703,15 @@ class Capabilities(Platforms):
 
     def test_one_gateway_says_the_product_and_its_version(self):
         self.create()
-        self.assertEqual(self.runs(), {"products": {"API Management": "4.12.20"}, "plugins": False, "detail": "",
+        self.assertEqual(self.runs(), {"products": {"API Management": "4.12.20"}, "plugins": False,
                                        "installed": None, "license": None})
 
-    def test_the_oldest_of_several_gateways_counts_and_the_detail_says_so(self):
+    def test_the_oldest_of_several_gateways_counts(self):
         self.create()
         self.fake.state.version = "4.13.1"
         self.create(name="later")
         self.hosted("APIM", "4.12.9")
-        found = self.runs()
-        self.assertEqual(found["products"], {"API Management": "4.12.9"})
-        self.assertEqual(found["detail"], "API Management: the gateways run 4.12.9, 4.12.20, 4.13.1, the oldest counts")
+        self.assertEqual(self.runs()["products"], {"API Management": "4.12.9"})
 
     def test_a_gateway_of_access_management_is_that_product(self):
         self.hosted("AM", "4.10.3")
@@ -726,15 +724,6 @@ class Capabilities(Platforms):
         self.create(TEST)
         self.assertIsNone(self.runs(DEV), "the gateway of another environment says nothing of this one")
         self.assertIsNotNone(self.runs(TEST))
-
-    def test_a_read_that_fails_says_nothing_and_keeps_its_state(self):
-        self.create()
-        envfiles.write(".env", {KEY: "rotated-since"})
-        found = platforms.check("gravitee-cloud", self.NAMED)
-        self.assertEqual(found["state"], "invalid")
-        self.assertIsNone(platforms.capabilities(self.NAMED, found, DEV))
-        unreachable = {"state": "unreachable", "message": "Unreachable", "environments": [], "gateways": []}
-        self.assertIsNone(platforms.capabilities(self.NAMED, unreachable, DEV))
 
     def test_plugins_are_what_the_gateway_of_the_add_on_mounts(self):
         self.create()

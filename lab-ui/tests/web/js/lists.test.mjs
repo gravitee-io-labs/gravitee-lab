@@ -113,7 +113,7 @@ function lab({ away = false, core = "stopped", hotels = {}, ...more } = {}) {
 const place = (more = {}) => ({ id: "acme/development", name: "Development (My Account)", platform: { id: "acme", name: "My Account", kind: "cloud" },
   environment: { id: "development", name: "Development", organization: "o1" }, state: "ready", missing: null, reason: "", token: { state: "valid" },
   gateway: { id: "g1", name: "lab", state: "connected", here: true, kept: true, connection: "CONNECTED" },
-  capabilities: { products: { "API Management": "4.12.21" }, plugins: false, detail: "" }, cannot: CANNOT, ...more });
+  capabilities: { products: { "API Management": "4.12.21" }, plugins: false }, cannot: CANNOT, ...more });
 const lacks = (missing, reason, token) => place({ state: "missing", missing, reason, token: { state: token }, gateway: null, capabilities: null });
 // A platform that cannot be used is one place of its own id, without environment, token or gateway
 const unusable = (reason) => place({ id: "acme", name: "My Account", environment: null, state: "unusable", reason, token: null, gateway: null,

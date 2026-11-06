@@ -370,7 +370,7 @@ class Compatibility(Places):
         self.create(DEV, "lab", platform="my-account")
         found = self.at()
         self.assertEqual(found["capabilities"], {"products": {"API Management": "4.12.20"}, "plugins": False,
-                                                 "detail": "", "installed": None, "license": None})
+                                                 "installed": None, "license": None})
         self.assertEqual(found["cannot"], {"bank": "Needs Access Management", "later": "Needs API Management 4.13"})
 
     def test_a_seed_of_its_own_is_off_for_every_place_and_says_so_first(self):
