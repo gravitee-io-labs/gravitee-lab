@@ -37,6 +37,7 @@ from typing import Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
 
 from ..report import ERROR, Problem
 from . import say, table
+from .secrets import flow_items
 
 MAX_LINES = 20000       # a workflow longer than this is not read: WF21
 MAX_DEPTH = 40          # levels of nesting
@@ -156,7 +157,6 @@ _BREAKS = re.compile(r"\r\n|\r|\n")
 _ODD = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\x85\u2028\u2029\ufeff]")
 _BLOCK_HEADER = re.compile(r"[|>](?:[1-9][+-]?|[+-][1-9]?)?")
 _FLOW_TOKEN = re.compile(r"""[\[\]{}'"]""")
-_FLOW_SPLIT = re.compile(r"""[\[\]{}'",]""")
 _COLON = re.compile(r":(?=[ \t]|\Z)")
 _COMMENT = re.compile(r"[ \t]#")
 
@@ -202,58 +202,6 @@ def _flow_scan(text: str) -> Tuple[int, int]:
                 return -1, deepest
             at = end
         pos = at + 1
-
-
-def _flow_items(text: str) -> List[str]:
-    """The items of a flow collection with its brackets, split at the commas of its own level, quotes respected."""
-    inner = text[1:-1]
-    items, start, depth, pos = [], 0, 0, 0
-    while True:
-        found = _FLOW_SPLIT.search(inner, pos)
-        if found is None:
-            break
-        char, at = found.group(), found.start()
-        if char in "[{":
-            depth += 1
-        elif char in "]}":
-            depth -= 1
-        elif char == ",":
-            if depth == 0:
-                items.append(inner[start:at].strip())
-                start = at + 1
-        else:
-            end = (_end_single if char == "'" else _end_double)(inner, at + 1)
-            if end < 0:
-                break
-            at = end
-        pos = at + 1
-    items.append(inner[start:].strip())
-    return [item for item in items if item]
-
-
-def _unquote(text: str) -> str:
-    """A flow item as a word: its quotes taken off."""
-    if len(text) >= 2 and text[0] == text[-1] and text[0] in "'\"":
-        return text[1:-1].replace("''", "'") if text[0] == "'" else text[1:-1]
-    return text
-
-
-def _flow_pairs(text: str) -> List[Tuple[str, str]]:
-    """(key, value) of each item of a flow mapping, quotes taken off; an item with no colon has an empty value."""
-    pairs = []
-    for item in _flow_items(text):
-        if item[:1] in ("'", '"'):
-            end = (_end_single if item[0] == "'" else _end_double)(item, 1)
-            if end > 0:
-                rest = item[end + 1:].lstrip(" \t")
-                pairs.append((_unquote(item[:end + 1]), _unquote(rest[1:].strip()) if rest[:1] == ":" else ""))
-                continue
-        found = _COLON.search(item)
-        if found is None:
-            pairs.append((item, ""))
-        else:
-            pairs.append((item[:found.start()].strip(), _unquote(item[found.end():].strip())))
-    return pairs
 
 
 # ---------------------------------------------------------------- the outline
@@ -541,8 +489,7 @@ class _Reader(object):
             self.flag(number, "a flow collection inside a flow collection")
         elif node.text[0] == "{" and node.text[1:-1].strip():
             self.flag(number, "a flow mapping")
-        items = _flow_items(node.text)
-        if any(item[:1] in ("&", "*", "!") for item in items):
+        if any(item.strip()[:1] in ("&", "*", "!") for item in flow_items(node.text[1:-1])):
             self.flag(number, "an anchor, an alias or a tag")
         if "\\" in node.text:
             self.flag(number, "a backslash in a flow collection")
@@ -676,8 +623,8 @@ class _Doc(object):
         return self.get(self.root, name)
 
     def events(self) -> List[Tuple[str, int]]:
-        """(event, line) of every event `on:` names, in the spellings a workflow may use. The key is read in any letter case:
-        an event hidden under `On:` is still an event."""
+        """(event, line) of every event `on:` names, in block style (a flow collection there is WF21). The key is read in any
+        letter case: an event hidden under `On:` is still an event."""
         found = []
         for entry in self.named(self.root, "on"):
             node = entry.value
@@ -687,10 +634,6 @@ class _Doc(object):
                 found.extend((each.name, each.line) for each in node.entries)
             elif node.kind == "seq":
                 found.extend((item.text, item.line) for item in node.items if item.kind == "scalar")
-            elif node.kind == "flow" and node.text.startswith("{"):
-                found.extend((key, entry.line) for key, _ in _flow_pairs(node.text))
-            elif node.kind == "flow":
-                found.extend((_unquote(item), entry.line) for item in _flow_items(node.text))
         return found
 
     def blob(self) -> Tuple[str, List[int]]:
@@ -765,15 +708,14 @@ def _shown(node: _Node) -> str:
 
 
 def _permissions(doc: _Doc, node: _Node) -> List[Tuple[str, str, int]]:
-    """(scope, its value in lower case, line) of every `permissions:` of a mapping, in any letter case and either style."""
+    """(scope, its value in lower case, line) of every `permissions:` of a mapping, in any letter case, in block style (a flow
+    collection there is WF21)."""
     found = []
     for entry in doc.named(node, "permissions"):
         value = entry.value
         if value.kind == "map":
             found.extend((each.name, each.value.text.strip().lower(), each.line) for each in value.entries
                          if each.value.kind == "scalar")
-        elif value.kind == "flow" and value.text.startswith("{"):
-            found.extend((key, each.lower(), entry.line) for key, each in _flow_pairs(value.text))
     return found
 
 
@@ -854,19 +796,6 @@ def _wf05(doc):
 _PLAN = re.compile(r"\$\{\{ (?i:fromjson)\(needs\.([A-Za-z0-9_-]+)\.outputs\.matrix\) \}\}\Z")
 
 
-def _label(node: _Node) -> str:
-    """What a `runs-on` says, for a message."""
-    if node.kind == "scalar":
-        return node.text
-    if node.kind == "flow":
-        return ", ".join(_unquote(item) for item in _flow_items(node.text)) if node.text[0] == "[" else node.text
-    if node.kind == "seq":
-        return ", ".join(item.text for item in node.items if item.kind == "scalar")
-    if node.kind == "map":
-        return ", ".join("%s: %s" % (entry.name, _label(entry.value)) for entry in node.entries)
-    return ""
-
-
 @_rule("WF06", ("workflow",))
 def _wf06(doc):
     names = {job.name for job in doc.jobs}
@@ -874,7 +803,7 @@ def _wf06(doc):
         if doc.get(job.node, "uses") is not None:
             continue
         for entry in doc.named(job.node, "runs-on"):
-            node, label = entry.value, _label(entry.value)
+            node, label = entry.value, _shown(entry.value)
             if node.kind == "scalar" and label.strip() in RUNNERS:
                 continue
             if node.kind == "scalar" and entry.name == "runs-on" and label.strip() == "${{ matrix.runner }}":
@@ -931,19 +860,19 @@ def _blessed(doc: _Doc) -> Tuple[Set[int], Set[int]]:
             if uses is not None and uses.value.kind == "scalar" and _LAB_ACTION.match(uses.value.text.strip()):
                 allowed.add(entry.line)
         elif entry.name == "NEEDS_DEPLOY_KEY" and text == _NEEDS_KEY and name == "env" and doc.get(step, "run") is not None \
-                and "catalog.py ci needs" in _text_of(doc.get(step, "run").value):
+                and "catalog.py ci needs" in doc.get(step, "run").value.text:
             allowed.add(entry.line)
         elif entry.name == "password" and name == "with" and doc.family == "publish" \
                 and doc.action_of(step) == "docker/login-action" and _PASSWORD.match(text):
             allowed.add(entry.line)
         elif entry.name == "VERSIONS_DEPLOY_KEY" and text == _VERSIONS_KEY and name == "env" and doc.family == "versions" \
-                and doc.get(step, "run") is not None and _VERSIONS_PUSH.search(_text_of(doc.get(step, "run").value)) \
-                and "catalog.py" not in _text_of(doc.get(step, "run").value):
+                and doc.get(step, "run") is not None and _VERSIONS_PUSH.search(doc.get(step, "run").value.text) \
+                and "catalog.py" not in doc.get(step, "run").value.text:
             allowed.add(entry.line)
         elif entry.name in ("REGISTRY_USERNAME", "REGISTRY_PASSWORD") and text == _REGISTRY.get(f"GRAVITEE_{entry.name}") \
                 and name == "env" and doc.family in ("e2e", "versions") and doc.get(step, "run") is not None \
-                and _REGISTRY_LOGIN.search(_text_of(doc.get(step, "run").value)) \
-                and not re.search(r"catalog\.py|server\.py|\bmake\b", _text_of(doc.get(step, "run").value)):
+                and _REGISTRY_LOGIN.search(doc.get(step, "run").value.text) \
+                and not re.search(r"catalog\.py|server\.py|\bmake\b", doc.get(step, "run").value.text):
             allowed.add(entry.line)
         elif entry.name == "GRAVITEE_LICENSE" and text == _LICENSE and name == "env" and doc.family in ("e2e", "versions") \
                 and (doc.get(step, "run") is not None or doc.get(step, "uses") is not None):
@@ -1271,16 +1200,9 @@ def _expressions_in(name: str, text: str) -> List[str]:
     return _expressions(text) if "${{" in text else ([text] if name == "if" else [])
 
 
-def _text_of(node: _Node) -> str:
-    """What GitHub reads in a value: a flow list has its quotes taken off and its escapes decoded."""
-    if node.kind == "flow" and node.text[:1] == "[":
-        return "\n".join(_unquote(item) for item in _flow_items(node.text))
-    return node.text
-
-
 def _expressions_of(name: str, node: _Node) -> List[str]:
     """The expressions a value holds. `name` is the key that holds it, in lower case."""
-    return _expressions_in(name, _text_of(node))
+    return _expressions_in(name, node.text)
 
 
 _ENV_FILE = re.compile(r"GITHUB_ENV|GITHUB_PATH|::set-env|::add-path", re.I)
