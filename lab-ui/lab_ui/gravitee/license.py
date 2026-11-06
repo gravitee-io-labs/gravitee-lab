@@ -265,11 +265,6 @@ def unapplied(project, containers, digest):
             and containers[name]["variable"] != digest]
 
 
-def applied(project, containers, digest):
-    """Whether every service that reads the license and runs, runs the one saved: unapplied() is empty."""
-    return not unapplied(project, containers, digest)
-
-
 def allowed(result):
     """The features a license allows, from what info() answered: none without a license that is genuine and current,
     None when they are not known (no product image to read the license model from)."""
