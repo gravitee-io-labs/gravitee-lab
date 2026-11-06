@@ -946,7 +946,7 @@ def _publish(ns, catalog, name, kind, slug, address, branch, who, copy, also=(),
     pushed. The tip may have the item by now, or one of what goes with it (`also`): `share_exists`. The legacy `lab` of the
     catalog is raised in the same commit when the item needs more (`needed`), so that an older Lab refuses it cleanly."""
     store = registry.store_dir(ns)
-    base = bare.fetch(address, branch, store, stall=30, cap=FETCH_CAP, releases=False)
+    base = bare.fetch(address, branch, store, stall=30, cap=FETCH_CAP)
     for k, s in [(kind, slug), *also]:
         if bare.read(store, base, _place(k, s, ns)[2]) is not None:
             raise _refusal("share_exists", name=name if (k, s) == (kind, slug) else s, catalog=catalog)

@@ -270,9 +270,9 @@ def _exclusive(store, wait, address=None):
 
 
 def fetch(address: gitx.Address, branch: Optional[str], store, stall: float = 30, cap: float = 600,
-          progress: Optional[Callable[[float], None]] = None, releases: bool = True) -> str:
+          progress: Optional[Callable[[float], None]] = None) -> str:
     """Fetches `branch` (the remote's HEAD when None, or an empty text: `gitx.asked_branch`) into the store as
-    `refs/lab/tip` and answers the sha of the tip. With `releases`, the remote's tags that start with `v` come too, as
+    `refs/lab/tip` and answers the sha of the tip. The remote's tags that start with `v` come too, as
     `refs/lab/releases/<tag>`: forced, so a tag the owners moved is the remote's again (the caller compares it with the commit
     it remembers, `release_commit`), and pruned, so a deleted tag goes. They never become tags of the store (`--no-tags`): a
     tag is a name the remote may move, and the Lab installs commits. Every object is checked (fsck); submodules and hooks are
@@ -286,10 +286,10 @@ def fetch(address: gitx.Address, branch: Optional[str], store, stall: float = 30
     source = "HEAD" if branch is None else f"refs/heads/{branch}"
     store = Path(_dir(store))
     with _exclusive(store, cap + stall, address):
-        return _fetch(address, source, store, stall, cap, progress, releases)
+        return _fetch(address, source, store, stall, cap, progress)
 
 
-def _fetch(address, source, store, stall, cap, progress, releases=True):
+def _fetch(address, source, store, stall, cap, progress):
     fresh = not (store / "HEAD").exists()
     if fresh:
         init(store)
@@ -299,7 +299,7 @@ def _fetch(address, source, store, stall, cap, progress, releases=True):
     args = ["--git-dir", str(store), "-c", "transfer.fsckObjects=true", "-c", "fetch.fsckObjects=true",
             "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false",
             "fetch", "--progress", "--no-tags", "--prune", "--no-recurse-submodules", "--",
-            address.url, f"+{source}:refs/lab/tip"] + ([f"+refs/tags/v*:{RELEASES}v*"] if releases else [])
+            address.url, f"+{source}:refs/lab/tip", f"+refs/tags/v*:{RELEASES}v*"]
     try:
         result = gitx.stream(args, env=gitx.address_env(address), stall=stall, cap=cap, on_stderr=download.feed)
         if result.code != 0:

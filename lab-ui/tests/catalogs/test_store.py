@@ -957,11 +957,6 @@ class Fetching(Remote):
         self.assertEqual(gitfixture.git("for-each-ref", "--format=%(refname)", "refs/lab/releases/", repo=self.store).split(),
                          ["refs/lab/releases/v1"], "a tag that starts with v, and no other")
 
-    def test_a_fetch_without_releases_brings_no_tag(self):
-        gitfixture.git("tag", "v1.0.0", gitfixture.tip(self.repo), repo=self.repo)
-        store.fetch(self.address, "main", self.store, releases=False)
-        self.assertEqual(gitfixture.git("for-each-ref", "refs/lab/releases/", repo=self.store).strip(), "")
-
     def test_the_command_is_the_one_of_section_9(self):
         log = self.root / "args"
         gitfixture.fake_git(self, f"for a in \"$@\"; do if [ \"$a\" = fetch ]; then printf '%s\\n' \"$@\" > '{log}'; fi; done\n"
