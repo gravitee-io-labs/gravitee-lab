@@ -586,15 +586,6 @@ def _read_raw(file, reach):
 OWN_KINDS = re.compile(r"/(?:addons|playgrounds)/")   # the units of this machine that are judged for their notes: not a setup
 
 
-def _read_own(file, reach):
-    """What the pool reads of a unit of this machine besides its file: {own_config}, the unit with the core as Compose runs it
-    (None when Compose cannot), for the notes of the policy (N01 to N03, N05: what it restricts), which it judges and never
-    blocks. It is not the unit's `config`, which is what a catalog's unit is run as: the person's own are run as the aggregate
-    (`resolved`) says. Kept as long as the files it was read from stay as they are, and not when Compose did not answer
-    (`_answered`)."""
-    return {"own_config": _with_core(file, {"files": reach["files"], "missing": reach.get("missing") or ()})["config"]}
-
-
 def _own_seeds(files):
     """{file: the settings its seed reads} for the playgrounds of this machine among these unit files, for N02: a seed that reads
     a token is not handed the Cloud Token of a place, whoever wrote it. The folder is read as a catalog's is (`_seed_scan`) and
@@ -737,7 +728,7 @@ def gather():
             return file, _read_unit(file, screen[file][0], reach[file])
         found = _read_raw(file, reach[file])
         if found["raw"] is not None and not reach[file]["missing"] and tiers.get(file) == "local" and OWN_KINDS.search(file):
-            found.update(_read_own(file, reach[file]))
+            found["own_config"] = _with_core(file, reach[file])["config"]
         return file, found
 
     with ThreadPoolExecutor(max_workers=8) as pool:

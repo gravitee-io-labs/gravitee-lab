@@ -1120,7 +1120,7 @@ MAIN_PLANS = {"off": "a642bc3a9afc", "platform": "b12fc3051b48", "busy": "1d4af9
               "behind": "4a43429f0c1a"}
 
 
-def snapshot(**extra):
+def snapshot():
     """The fingerprint of the plan of every add-on, setup and playground, started and stopped (a playground's start
     set up or not), and whether it asks, in a few situations of the small project: {situation: digest}. The JSON keeps
     the order of the keys and the rows, so a plan that changes in any way changes it."""
@@ -1137,7 +1137,7 @@ def snapshot(**extra):
         "behind": (on(project, ["jade"], missing=["hybrid"]), up("jade"), frozenset({"apim-gateway", "hello-app"}))}
     found = {}
     for situation, (state, running, behind) in situations.items():
-        plans = [layers.plan(project, state, running, kind, uid, do, fresh=fresh, behind=behind, **extra)
+        plans = [layers.plan(project, state, running, kind, uid, do, fresh=fresh, behind=behind)
                  for kind in ("addon", "setup", "playground") for uid in sorted(project[kind + "s"])
                  for do in ("start", "stop") for fresh in ((False, True) if kind == "playground" else (False,))]
         text_of = json.dumps([plans, [layers.asks(plan) for plan in plans]], default=sorted)
@@ -1146,15 +1146,10 @@ def snapshot(**extra):
 
 
 class ThisMachine(Case):
-    """Without a place, or with This machine, a plan is the one it always was."""
+    """Without a place, a plan is the one it always was."""
 
     def test_the_plans_are_those_of_main(self):
         self.assertEqual(snapshot(), MAIN_PLANS)
-
-    def test_this_machine_is_no_place(self):
-        for place in (None, layers.MACHINE, {"id": layers.MACHINE, "name": "This machine"}):
-            with self.subTest(place=place):
-                self.assertEqual(snapshot(place=place), MAIN_PLANS)
 
     def test_a_local_plan_says_nothing_of_a_place(self):
         project = lab()

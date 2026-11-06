@@ -1029,11 +1029,6 @@ def _switch_parts(project, to):
     return {**({"versions": forward} if forward else {}), **({"goes_back": back} if back else {}), "switch": to}
 
 
-def _remote(place):
-    """Whether a place is a remote one: anything but None and This machine, given by its id or as a place."""
-    return bool(place) and (place if isinstance(place, str) else place["id"]) != MACHINE
-
-
 def local_needs(project, unit):
     """The services of this machine's platform that a deploy to another platform starts for a playground, an add-on or a
     setup: those its apps, its seed and the services of what it brings depend on, and what they depend on in turn, but the
@@ -1116,10 +1111,10 @@ def plan(project, state, up, kind, uid, do, fresh=False, behind=frozenset(), pla
     versions it was tested with (switch); it goes there anyway when the saved ones are older than it asks, and what runs
     on an image the switch changes restarts with it (images.changing).
 
-    `place`: where a start deploys. None, or This machine (MACHINE, by its id or as a place), is the plan above, as it
-    always was, and so is every stop. A remote place, {id, name, gateway, here, serving}, makes the plan of a lab
-    without the core (_remote_view): the platform never starts, no core service starts, restarts or goes, and the seed
-    is not among what `up` names, because it runs apart (`fresh`, given per place, says whether it runs). `gateway` is
+    `place`: where a start deploys. None is the plan above, and so is every stop. A remote place, {id, name, gateway, here,
+    serving}, makes the plan of a lab without the core (_remote_view): the platform never starts, no core service starts,
+    restarts or goes, and the seed is not among what `up` names, because it runs apart (`fresh`, given per place, says
+    whether it runs). `gateway` is
     the id of the add-on that runs the gateway of that kind of platform: the plan turns it on like an explicit add-on,
     so it outlives the playground's stop. It starts when it does not run. It restarts, with the rows `serves` and
     `stops_serving`, when it runs and is not this place's (`here` false); `serving` is {id, name} of the place it
@@ -1131,7 +1126,7 @@ def plan(project, state, up, kind, uid, do, fresh=False, behind=frozenset(), pla
     and makes again what of it runs behind what is saved, and what it brings back here from a platform (_brought_back);
     a stop removes what goes by name and restarts the core services it changed. What was stopped on purpose, or started
     outside the Lab UI, is left as it is."""
-    remote, given = do == "start" and _remote(place), project
+    remote, given = do == "start" and bool(place), project
     if remote:
         project = _remote_view(project, kind, uid, place["gateway"])
     else:
