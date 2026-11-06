@@ -207,7 +207,6 @@ class Applied(NamedTuple):
 class Standard(NamedTuple):
     """What `.github/standard.json` says that the audit needs. `error` is empty when the file was read."""
     level: Optional[int]
-    form: Optional[str]
     lab: Optional[str]
     error: str
     needs: Tuple[str, ...] = ()   # the catalogs it requires (`needs` of standard.json): each is read with NEEDS_SECRET
@@ -420,9 +419,9 @@ def template_level(folder: Optional[Path] = None) -> Optional[int]:
 def parse_standard(data) -> Standard:
     """The facts of a `standard.json` that the audit reads, each checked. The rest of the file is not looked at."""
     if not isinstance(data, dict):
-        return Standard(None, None, None, "it is not a JSON object")
-    level, form, lab = data.get("standard"), data.get("form"), as_dict(data.get("lab")).get("repository")
-    return Standard(level if is_int(level) and level >= 1 else None, form if form in ("inline", "reusable") else None,
+        return Standard(None, None, "it is not a JSON object")
+    level, lab = data.get("standard"), as_dict(data.get("lab")).get("repository")
+    return Standard(level if is_int(level) and level >= 1 else None,
                     lab if isinstance(lab, str) and REPO_NAME.fullmatch(lab) and ".." not in lab else None, "",
                     tuple(sorted(str(name) for name in as_dict(data.get("needs")))))
 
@@ -577,11 +576,11 @@ class _Audit:
         size = body.get("size", 0)
         if reply.code != 200 or body.get("encoding") != "base64" or not isinstance(body.get("content"), str) or \
                 not is_int(size) or size > STANDARD_LIMIT or len(body["content"]) > 2 * STANDARD_LIMIT:
-            return Standard(None, None, None, refusal(reply) if reply.code != 200 else "it cannot be read")
+            return Standard(None, None, refusal(reply) if reply.code != 200 else "it cannot be read")
         try:
             return parse_standard(json.loads(base64.b64decode(body["content"]).decode("utf-8")))
         except (ValueError, binascii.Error, RecursionError):      # a contributor's file: brackets nested deeper than Python reads
-            return Standard(None, None, None, "it is not JSON")
+            return Standard(None, None, "it is not JSON")
 
     def templates(self) -> Tuple[Dict[str, dict], str]:
         if self._templates is None:
@@ -767,9 +766,7 @@ class _Audit:
         self.list_of_actions(body)
 
     def list_of_actions(self, body):
-        repo, standard = self.repo, self.standard()
-        reusable = standard is not None and standard.form == "reusable"
-        allowed = set(DOCKER_PATTERNS) | ({standard.lab + "/*"} if reusable and standard.lab else set())
+        repo = self.repo
         sel = None
         if body.get("allowed_actions") == "selected":
             sel = self.reads.get(f"repos/{repo}/actions/permissions/selected-actions")
@@ -778,16 +775,13 @@ class _Audit:
         patterns_now = as_list(as_dict(sel.body).get("patterns_allowed")) if sel is not None else []
         good = sel is not None and body.get("enabled") is True and as_dict(sel.body).get("github_owned_allowed") is True \
             and as_dict(sel.body).get("verified_allowed") is not True \
-            and all(within(pattern, allowed) for pattern in patterns_now)
+            and all(within(pattern, DOCKER_PATTERNS) for pattern in patterns_now)
         if good:
             return self.add("actions.listed", OK)
         now = shows(body, ("enabled", "allowed_actions")) + (
             ", " + shows(sel.body, ("github_owned_allowed", "verified_allowed", "patterns_allowed"))
             if sel is not None else "")
-        if reusable and not standard.lab:
-            return self.add("actions.listed", MANUAL, now="the standard says reusable but names no Lab repository, so the "
-                                                         "list of actions cannot be made")
-        patterns = sorted(allowed)
+        patterns = sorted(DOCKER_PATTERNS)
         if self.personal:
             # The pattern list may apply to public repositories only (V3): a list half in place is worse than none
             return self.add("actions.listed", WARN, now=now,

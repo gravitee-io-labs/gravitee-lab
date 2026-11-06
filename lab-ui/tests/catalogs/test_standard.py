@@ -364,8 +364,7 @@ class Values(unittest.TestCase):
         for bad in ("main", "v1.0.0", "0123456", LAB_COMMIT.upper(), LAB_COMMIT + "0", LAB_COMMIT[:39] + "g", LAB_COMMIT + "\n"):
             self.assertIn("full commit", self.refused(lab_ref=bad), bad)
 
-    def test_form_with_and_platforms(self):
-        self.assertIn("--form is inline or reusable", self.refused(form="sideways"))
+    def test_with_and_platforms(self):
         self.assertIn("--with takes e2e", self.refused(**{"with": ["gold"]}))
         self.assertIn("--platforms", self.refused(platforms=["linux/riscv64"]))
         self.assertIn("--platforms", self.refused(platforms=["linux/amd64", "linux/amd64"]))
@@ -382,7 +381,7 @@ class Values(unittest.TestCase):
         self.assertLess(time.process_time() - start, 1.0)
 
     def test_a_folder_catalog_has_no_workflows_to_choose(self):
-        with self.assertRaisesRegex(standard.TemplateError, "--local takes neither"):
+        with self.assertRaisesRegex(standard.TemplateError, "--local takes no --with"):
             standard.values({"local": True, "id": "mine", "name": "Mine", "with": ["e2e"]})
 
     def test_the_security_contact_is_the_first_maintainer_until_one_is_given(self):
@@ -429,14 +428,9 @@ class Rendering(unittest.TestCase):
         self.assertIn(".github/workflows/e2e.yml", both)
         self.assertNotIn(".github/workflows/e2e.yml", standard.render_files(params(images="ghcr.io/acme/lab-hub"), 3))
 
-    def test_the_e2e_module_and_the_reusable_form_arrive_with_standard_three(self):
-        for more in ({"with": ["e2e"]}, {"form": "reusable"}):
-            with self.assertRaisesRegex(standard.TemplateError, r"arrive with standard 3; this Lab has standard 2"):
-                standard.render_files(params(**more), 2)
-
-    def test_the_reusable_form_is_not_in_this_lab_yet(self):
-        with self.assertRaisesRegex(standard.TemplateError, "The reusable form is not available yet in this Lab"):
-            standard.render_new(params(form="reusable"))
+    def test_the_e2e_module_arrives_with_standard_three(self):
+        with self.assertRaisesRegex(standard.TemplateError, r"arrives with standard 3; this Lab has standard 2"):
+            standard.render_files(params(**{"with": ["e2e"]}), 2)
 
     def test_every_level_renders_and_its_marker_says_which(self):
         for level in (1, 2, 3):
@@ -570,26 +564,6 @@ class Rendering(unittest.TestCase):
             recipes = [line for line in text.split("\n") if line.startswith(("\t", "    @"))]
             self.assertTrue(recipes)
             self.assertTrue(all(line.startswith("\t@") for line in recipes), recipes)
-
-    def test_the_reusable_form_asks_workflows_for_each_caller(self):
-        calls = []
-        fake = mock.MagicMock()
-        fake.caller.side_effect = lambda text, repository, ref: calls.append((text.split("\n")[1][:20], repository, ref)) or "# caller\n"
-        import lab_ui.catalogs as package
-        with mock.patch.dict(sys.modules, {"lab_ui.catalogs.workflows": fake}), mock.patch.object(package, "workflows", fake,
-                                                                                                  create=True):
-            files = standard.render_files(params(form="reusable", **EVERYTHING), 3)
-        self.assertEqual(sorted(path for path, data in files.items() if data == b"# caller\n"),
-                         [".github/workflows/ci.yml", ".github/workflows/e2e.yml", ".github/workflows/nightly.yml",
-                          ".github/workflows/publish.yml"])
-        self.assertEqual({(repo, ref) for _, repo, ref in calls}, {("acme/gravitee-lab", LAB_COMMIT)})
-        self.assertIn('"form": "reusable"', files[".github/standard.json"].decode())
-        self.assertNotEqual(files[".github/actions/lab/action.yml"], b"# caller\n")
-
-    def test_the_reusable_form_without_the_module_is_said(self):
-        with mock.patch.dict(sys.modules, {"lab_ui.catalogs.workflows": None}):
-            with self.assertRaisesRegex(standard.TemplateError, "reusable form is not available yet"):
-                standard.render_files(params(form="reusable"), 3)
 
     def test_every_json_file_is_json_and_every_yaml_file_is_yaml(self):
         for level in (1, 3):
@@ -946,7 +920,7 @@ class Drift(Case):
         base = json.loads(render()[".github/standard.json"])
         bad = {
             "standard": ("standard is a whole number from 1: the level of the managed files in this repository", [0, -1, "1", True, 1.5, 1000]),
-            "form": ("form is inline or reusable", ["sideways", 1, None]),
+            "form": ("form is inline", ["sideways", "reusable", 1, None]),
             "platforms": ("platforms is a list of linux/amd64, linux/arm64 or both", [[], ["linux/riscv64"], "linux/amd64", ["linux/amd64"] * 2]),
             "strict": ("strict is a list of rule codes such as DF22", ["DF22", ["df22"], [5], ["DF22!"], ["X" * 5]]),
             "needs": ("needs is a map of catalog ids to {repository: OWNER/NAME, ref: a full commit}",
@@ -1011,22 +985,6 @@ class Drift(Case):
         found = self.check(huge)
         self.assertLess(time.process_time() - start, 3.0)
         self.assertEqual(where(found, "SD02"), [".github/workflows/ci.yml"])
-
-    def test_the_reusable_form_is_compared_with_the_caller_the_lab_would_write(self):
-        fake = mock.MagicMock()
-        fake.caller.side_effect = lambda text, repository, ref: f"# Managed by the Lab catalog standard 3: change it with catalog.py " \
-            f"upgrade, in a pull request a maintainer reads.\nuses: {repository}/.github/workflows/x.yml@{ref}\n"
-        import lab_ui.catalogs as package
-        files = at(3)
-        files[".github/standard.json"] = files[".github/standard.json"].replace(b'"inline"', b'"reusable"')
-        with mock.patch.dict(sys.modules, {"lab_ui.catalogs.workflows": fake}), mock.patch.object(package, "workflows", fake, create=True):
-            found = self.check(files, 3)
-        self.assertEqual(sorted(each.path for each in found if each.code == "SD02"), [".github/workflows/ci.yml", ".github/workflows/e2e.yml",
-                                                                                       ".github/workflows/nightly.yml",
-                                                                                       ".github/workflows/publish.yml"])
-        with mock.patch.dict(sys.modules, {"lab_ui.catalogs.workflows": None}):
-            found = self.check(files, 3)
-        self.assertEqual(sorted(set(each.code for each in found)), ["SD04"])
 
     def test_the_rules_table_is_the_text_of_section_6(self):
         from lab_ui.catalogs import explain
@@ -1324,7 +1282,7 @@ class Commands(Case):
         self.assertEqual(self.new("--maintainers", "@a", "--lab-repo", "acme/lab", "--lab-ref", NEWER_COMMIT)[0], 0)
 
     def test_a_parameter_that_is_wrong_ends_in_one_line_and_nothing_is_made(self):
-        for more in (("--license", "Apache 2.0"), ("--images", "GHCR.io/x"), ("--form", "x"), ("--with", "gold"), ("--platforms", "arm")):
+        for more in (("--license", "Apache 2.0"), ("--images", "GHCR.io/x"), ("--with", "gold"), ("--platforms", "arm")):
             code, out, err = self.new("--maintainers", "@a", "--lab-repo", "acme/lab", "--lab-ref", NEWER_COMMIT, *more)
             self.assertEqual((code, out), (2, ""), more)
             self.assertEqual(len(err.splitlines()), 1, err)
@@ -1636,9 +1594,9 @@ class Upgrading(Case):
         self.assertEqual(line("a hub", "--lab-ref", "latest"), "catalog.py upgrade 'a hub' --lab-ref latest --write")
         self.assertEqual(line("--adopt", "--maintainers", "@acme/maintainers", "--lab-repo", "acme/lab"),
                          "catalog.py upgrade --maintainers @acme/maintainers --lab-repo acme/lab --adopt --write")
-        self.assertEqual(line("--form", "reusable", "--with", "e2e", "--with", "x"), "catalog.py upgrade --form reusable --with e2e --with x --write")
+        self.assertEqual(line("--with", "e2e", "--with", "x"), "catalog.py upgrade --with e2e --with x --write")
         self.assertEqual(line("--lab-ref", "a b;rm -rf x"), "make upgrade WRITE=1 LAB_REF='a b;rm -rf x'")      # quoted for the shell
-        self.assertEqual(line("a;b", "--form", "x y"), "catalog.py upgrade 'a;b' --form 'x y' --write")
+        self.assertEqual(line("a;b", "--maintainers", "x y"), "catalog.py upgrade 'a;b' --maintainers 'x y' --write")
 
     def test_the_hint_after_a_plan_does_what_the_options_asked(self):
         repo = self.repo(files=edited(render(), ".github/workflows/ci.yml", lambda text: text + "# x\n"))
@@ -1796,26 +1754,9 @@ class Upgrading(Case):
         self.assertEqual(os.readlink(target), "/etc/hostname")
         self.assertFalse((repo.root / ".github/zz.yml").exists())
 
-    def test_switching_to_the_reusable_form_rewrites_the_four_workflows_and_the_form_only(self):
-        repo = self.repo(files=at(3))
-        fake = mock.MagicMock()
-        fake.caller.side_effect = lambda text, repository, ref: f"{standard.marker(3)}\ncaller {repository} {ref}\n"
-        import lab_ui.catalogs as package
-        with mock.patch.dict(sys.modules, {"lab_ui.catalogs.workflows": fake}), mock.patch.object(package, "workflows", fake, create=True):
-            plan = standard.upgrade_plan(FolderTree(repo.root), {"level": 3, "form": "reusable"})
-            written = standard.upgrade_apply(repo.root, plan)
-            found = standard.drift(FolderTree(repo.root), 3)
-        self.assertEqual(written, [".github/standard.json", ".github/workflows/ci.yml", ".github/workflows/e2e.yml",
-                                   ".github/workflows/nightly.yml", ".github/workflows/publish.yml"])
-        self.assertEqual(json.loads((repo.root / ".github/standard.json").read_text())["form"], "reusable")
-        self.assertIn(f"caller acme/gravitee-lab {LAB_COMMIT}", (repo.root / ".github/workflows/ci.yml").read_text())
-        self.assertEqual(found, [])
-
-    def test_the_reusable_form_and_the_e2e_module_are_refused_below_standard_three(self):
+    def test_the_e2e_module_is_refused_below_standard_three(self):
         repo = self.repo(files=at(1))
-        for more in ({"form": "reusable"}, {"with": ["e2e"]}):
-            self.assertIn("arrive with standard 3", self.plan(repo, level=2, **more)["refused"])
-        self.assertEqual(self.plan(repo, form="reusable")["refused"], "The reusable form is not available yet in this Lab.")
+        self.assertIn("arrives with standard 3", self.plan(repo, level=2, **{"with": ["e2e"]})["refused"])
 
     def test_the_e2e_module_is_added_on_request_at_standard_three(self):
         repo = self.repo(files=standard.render_files(params(images="ghcr.io/acme/lab-hub"), 3))
@@ -2096,7 +2037,7 @@ class DayOne(Case):
 
 
 class Rules(unittest.TestCase):
-    """The workflow rules WF01 to WF21 on every managed file, at every level and in the inline form."""
+    """The workflow rules WF01 to WF21 on every managed file, at every level."""
 
     def test_every_managed_workflow_and_action_passes_every_rule(self):
         for level in (1, 2, 3):

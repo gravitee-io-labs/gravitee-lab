@@ -50,7 +50,6 @@ STANDARD = ".github/standard.json"
 STANDARD_LIMIT = 4096                  # the size SD04 allows `.github/standard.json`
 TEXT_LIMIT = 1024 * 1024               # the most of a file that is read to compare it
 PLATFORMS = ("linux/amd64", "linux/arm64")
-FORMS = ("inline", "reusable")
 WHENS = ("always", "images", "module:e2e")
 CLASSES = ("managed", "seeded", "sample")
 SCOPES = ("full", "local", "both")
@@ -396,7 +395,7 @@ def _words(value, limit: int, what: str) -> str:
 
 def values(params: dict, local: Optional[bool] = None) -> dict:
     """The parameters of `new`, checked and in the form the template wants: every value the placeholders need, `local`, `with`,
-    `form`, `platforms`, `maintainers` (a list), `lab_repository` and `lab_ref`. A TemplateError says what is wrong in one
+    `platforms`, `maintainers` (a list), `lab_repository` and `lab_ref`. A TemplateError says what is wrong in one
     line, and what is missing in `missing`."""
     params = dict(params or {})
     local = bool(params.get("local")) if local is None else local
@@ -425,10 +424,6 @@ def values(params: dict, local: Optional[bool] = None) -> dict:
         raise TemplateError(f"{printable(str(images))[:SHOWN]} is not a registry prefix: write host/path, in lower case, with no "
                             "tag, for example ghcr.io/acme/lab-hub.")
     out["images"] = images
-    form = params.get("form") or "inline"
-    if form not in FORMS:
-        raise TemplateError(f"--form is inline or reusable, not {printable(str(form))[:SHOWN]}.")
-    out["form"] = form
     extra = params.get("with") or ()
     if isinstance(extra, str):
         extra = [extra]
@@ -436,8 +431,8 @@ def values(params: dict, local: Optional[bool] = None) -> dict:
         if word not in MODULES:
             raise TemplateError(f"--with takes {', '.join(MODULES)}, not {printable(str(word))[:SHOWN]}.")
     out["with"] = tuple(dict.fromkeys(extra))
-    if local and (out["with"] or form != "inline"):
-        raise TemplateError("A folder catalog has no workflows: --local takes neither --with nor --form.")
+    if local and out["with"]:
+        raise TemplateError("A folder catalog has no workflows: --local takes no --with.")
     platforms = params.get("platforms") or ["linux/amd64"]
     if isinstance(platforms, str):
         platforms = [part for part in platforms.split(",") if part]
@@ -511,7 +506,7 @@ def dump_standard(data: dict) -> str:
 
 
 def standard_for(given: dict, level: int) -> dict:
-    return {"form": given["form"], "lab": {"ref": given["lab_ref"], "repository": given["lab_repository"]},
+    return {"form": "inline", "lab": {"ref": given["lab_ref"], "repository": given["lab_repository"]},
             "platforms": list(given["platforms"]), "standard": level}
 
 
@@ -550,8 +545,8 @@ def parse_standard(raw: bytes) -> Tuple[Optional[dict], List[Tuple[str, str]]]:
     level = data.get("standard")
     if not isinstance(level, int) or isinstance(level, bool) or not 1 <= level <= 999:
         found.append((ERROR, "standard is a whole number from 1: the level of the managed files in this repository"))
-    if data.get("form") not in FORMS:
-        found.append((ERROR, "form is inline or reusable"))
+    if data.get("form") != "inline":
+        found.append((ERROR, "form is inline"))
     lab = data.get("lab")
     if not isinstance(lab, dict):
         found.append((ERROR, "lab is an object with repository and ref"))
@@ -609,18 +604,6 @@ def declared(tree) -> Declared:
 # Rendering a new catalog
 # ---------------------------------------------------------------------------------------------------------------------
 
-def _reusable(text: str, path: str, given: dict) -> str:
-    """The workflow as a short caller of the Lab's reusable workflow (level 3). It is generated from the inline text by
-    `workflows.py`, which ships with that level."""
-    try:
-        from . import workflows
-    except ImportError as error:   # `from . import name` says ImportError, not ModuleNotFoundError, of a module that is not there
-        if error.name not in (f"{__package__}.workflows", __package__):
-            raise
-        raise TemplateError("The reusable form is not available yet in this Lab.") from None
-    return workflows.caller(text, given["lab_repository"], given["lab_ref"])
-
-
 def wanted(entry: dict, given: dict, level: int) -> bool:
     """Whether a file of the manifest belongs to a catalog with these parameters at this level."""
     if entry["since"] > level:
@@ -638,8 +621,8 @@ def render_files(params: dict, level: Optional[int] = None) -> Dict[str, bytes]:
     level = LEVEL if level is None else level
     given = values(params)
     local = given["local"]
-    if ("e2e" in given["with"] or given["form"] == "reusable") and level < 3:
-        raise TemplateError("The e2e module and the reusable form arrive with standard 3; this Lab has standard %d." % level)
+    if "e2e" in given["with"] and level < 3:
+        raise TemplateError("The e2e module arrives with standard 3; this Lab has standard %d." % level)
     found: Dict[str, bytes] = {}
     for entry in entries(local):
         if not wanted(entry, given, level):
@@ -647,8 +630,6 @@ def render_files(params: dict, level: Optional[int] = None) -> Dict[str, bytes]:
         path, kind = entry["path"], entry["class"]
         if kind == "managed":
             text = managed_text(path, level)
-            if given["form"] == "reusable" and path.startswith(".github/workflows/"):
-                text = _reusable(text, path, given)
         elif entry.get("tool") == "standard.json":
             text = dump_standard(standard_for(given, level))
         elif entry.get("license"):
@@ -736,17 +717,6 @@ def _issue(code: str, path: str, line: int = 0, **fields) -> Problem:
     return Problem(code, rule.severity, path, line, say(rule.message, path=path, **fields))
 
 
-def _want(path: str, level: int, form: str, repo: str, ref: str) -> Optional[str]:
-    """The text a managed file has at `level` in this form, or None when it cannot be made (the reusable form is not here)."""
-    text = managed_text(path, level)
-    if form == "reusable" and path.startswith(".github/workflows/"):
-        try:
-            return _reusable(text, path, {"lab_repository": repo, "lab_ref": ref})
-        except TemplateError:
-            return None
-    return text
-
-
 def drift(tree, level: int) -> List[Problem]:
     """SD01 to SD05 and SD08 to SD10 of the repository in `tree`, against the Lab's render at `level`: the files are compared
     as `comparable` makes them, so a Dependabot bump of a pin and the number of the marker are no difference. Pure: it reads the tree
@@ -757,14 +727,9 @@ def drift(tree, level: int) -> List[Problem]:
         rule = RULES["SD04"]
         found.append(Problem("SD04", severity, STANDARD, 0, say(rule.message, problem=problem)))
     have = state.level
-    fatal = any(severity == ERROR for severity, _ in state.problems)
     if have is not None and have > level:
         found.append(_issue("SD05", STANDARD, n=have, m=level))
         return found + _owned_checks(tree)
-    form, repo, ref = "inline", "", ""
-    if state.data and not fatal:
-        form = state.data["form"]
-        repo, ref = state.data["lab"]["repository"], state.data["lab"]["ref"]
     asked = have if have is not None else level
     for entry in entries():
         if entry["class"] != "managed" or entry["since"] > level:
@@ -784,12 +749,7 @@ def drift(tree, level: int) -> List[Problem]:
         if marker_level(text, path) is None:
             found.append(_issue("SD08", path))
             continue
-        want = _want(path, level, form, repo, ref)
-        if want is None:
-            found.append(Problem("SD04", ERROR, STANDARD, 0, say(RULES["SD04"].message, problem="form is reusable, and this Lab has "
-                                                                  "no reusable workflows to compare with")))
-            continue
-        if comparable(text) == comparable(want):
+        if comparable(text) == comparable(managed_text(path, level)):
             continue
         if asked >= level:
             found.append(_issue("SD02", path))
@@ -1022,7 +982,7 @@ def _derived(tree, state: Declared, options: dict) -> dict:
     return {"id": meta.get("id"), "name": meta.get("name"), "description": meta.get("description"), "license": meta.get("license"),
             "images": meta.get("images"), "maintainers": owners,
             "lab_repository": options.get("lab_repository") or lab.get("repository"),
-            "lab_ref": options.get("lab_ref") or lab.get("ref"), "form": options.get("form") or (state.data or {}).get("form"),
+            "lab_ref": options.get("lab_ref") or lab.get("ref"),
             "platforms": (state.data or {}).get("platforms") if state.data else None, "with": options.get("with") or (),
             "security_contact": options.get("security_contact")}
 
@@ -1038,7 +998,7 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
         refused     "" or why nothing can be done (the plan has no files then)
         pending     whether anything would be written
 
-    `options`: lab_ref (40 hex: the new pin), adopt, form, with (modules), maintainers / lab_repository / security_contact (for what adopt adds), level (default LEVEL),
+    `options`: lab_ref (40 hex: the new pin), adopt, with (modules), maintainers / lab_repository / security_contact (for what adopt adds), level (default LEVEL),
     lab (the Lab checkout: SD11 and the log of a moved pin are asked of it), legacy_lab (when the key is there, catalog.yml gets
     the lines older Gravitee Labs read, made true: `schema`, and `lab` as given, or as the file has it when None). Pure:
     it reads the tree and runs `git log` in the Lab checkout; it writes nothing."""
@@ -1083,14 +1043,11 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
     ref = ref_new or old.get("ref") or ""
     if not lab_repository_ok(repo) or not _COMMIT.fullmatch(ref):
         return refuse("The Lab address could not be read. Give --lab-repo OWNER/REPO" + (" and --lab-ref COMMIT." if not ref else "."))
-    form = options.get("form") or (state.data or {}).get("form") or "inline"
-    if form not in FORMS:
-        return refuse(f"--form is inline or reusable, not {printable(str(form))[:SHOWN]}.")
     extra = tuple(options.get("with") or ())
     if any(word not in MODULES for word in extra):
         return refuse(f"--with takes {', '.join(MODULES)}.")
-    if (form == "reusable" or extra) and level < 3:
-        return refuse("The e2e module and the reusable form arrive with standard 3; this Lab has standard %d." % level)
+    if extra and level < 3:
+        return refuse("The e2e module arrives with standard 3; this Lab has standard %d." % level)
     images = bool(meta.get("images"))
     data = manifest()
     # A module the catalog has, by any of its files: a file the new standard adds to that module comes with the upgrade
@@ -1106,9 +1063,7 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
             continue
         if entry["when"] == "module:e2e" and kind == "missing" and "e2e" not in extra:
             continue
-        want = _want(path, level, form, repo, ref)
-        if want is None:
-            return refuse("The reusable form is not available yet in this Lab.")
+        want = managed_text(path, level)
         if kind == "missing":
             files.append(_entry(path, ADD, "managed", "missing", want.encode("utf-8")))
         elif kind == "odd":
@@ -1123,7 +1078,7 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
                                 carry_pins(want, text).encode("utf-8")))
     # standard.json: the level goes up, the pin moves when asked; every other key stays as the catalog wrote it
     new = copy.deepcopy(state.data) if state.data else {"platforms": list(options.get("platforms") or ["linux/amd64"])}
-    new.update({"standard": level, "form": form})
+    new.update({"standard": level, "form": "inline"})
     new["lab"] = {**(new.get("lab") if isinstance(new.get("lab"), dict) else {}), "repository": repo, "ref": ref}
     if not state.present:
         files.append(_entry(STANDARD, ADD, "seeded", "missing", dump_standard(new).encode("utf-8")))
@@ -1408,7 +1363,6 @@ def _new_arguments(argv: List[str]):
     parser.add_argument("--lab-repo", dest="lab_repo")
     parser.add_argument("--lab-ref", dest="lab_ref")
     parser.add_argument("--platforms")
-    parser.add_argument("--form", default="inline")
     parser.add_argument("--with", dest="with_", action="append", default=[])
     parser.add_argument("--local", action="store_true")
     return parser.parse_args(argv)
@@ -1430,7 +1384,7 @@ def _next_steps(args, folder: str, base: str) -> List[str]:
 
 def main_new(argv: List[str], lab: Optional[Path] = None) -> int:
     """`catalog.py new DIR --id ID --name NAME --maintainers @A[,@B or @ORG/TEAM] [--license SPDX] [--images PREFIX]
-    [--lab-repo OWNER/REPO] [--lab-ref COMMIT] [--form inline or reusable] [--with e2e] [--local]`: renders the
+    [--lab-repo OWNER/REPO] [--lab-ref COMMIT] [--with e2e] [--local]`: renders the
     template into an empty DIR. Exit 0, 2 for what is missing or wrong (nothing is rendered)."""
     try:
         args = _new_arguments(list(argv))
@@ -1456,7 +1410,7 @@ def main_new(argv: List[str], lab: Optional[Path] = None) -> int:
                     raise Usage(pin_problem(lab, ref, LEVEL))
         params = {"id": args.id, "name": args.name, "maintainers": args.maintainers, "license": args.license, "images": args.images,
                   "description": args.description, "security_contact": args.security_contact, "lab_repository": repository,
-                  "lab_ref": ref, "platforms": args.platforms, "form": args.form, "with": args.with_, "local": args.local}
+                  "lab_ref": ref, "platforms": args.platforms, "with": args.with_, "local": args.local}
         written = create(args.dir, params)
         given = values(params)
     except Usage as error:
@@ -1491,7 +1445,6 @@ def _upgrade_arguments(argv: List[str]):
     parser.add_argument("--write", action="store_true")
     parser.add_argument("--lab-ref", dest="lab_ref")
     parser.add_argument("--adopt", action="store_true")
-    parser.add_argument("--form")
     parser.add_argument("--with", dest="with_", action="append", default=[])
     parser.add_argument("--maintainers")
     parser.add_argument("--lab-repo", dest="lab_repo")
@@ -1531,12 +1484,11 @@ def describe(plan: dict) -> str:
 def apply_command(args) -> str:
     """The command that makes what the plan says, as the person would type it: the Makefile's when it carries every option that
     was given (it is run in the catalog and takes `LAB_REF`), else `catalog.py`'s own with all of them."""
-    plain = not (args.adopt or args.form or args.with_ or args.maintainers or args.lab_repo)
+    plain = not (args.adopt or args.with_ or args.maintainers or args.lab_repo)
     if plain and args.dir == ".":
         return "make upgrade WRITE=1" + (f" LAB_REF={shlex_quote(args.lab_ref)}" if args.lab_ref else "")
     words = ["catalog.py", "upgrade"] + ([] if args.dir == "." else [shlex_quote(args.dir)])
-    for flag, value in (("--lab-ref", args.lab_ref), ("--form", args.form), ("--maintainers", args.maintainers),
-                        ("--lab-repo", args.lab_repo)):
+    for flag, value in (("--lab-ref", args.lab_ref), ("--maintainers", args.maintainers), ("--lab-repo", args.lab_repo)):
         words += [flag, shlex_quote(value)] if value else []
     words += ["--adopt"] if args.adopt else []
     for word in args.with_:
@@ -1555,7 +1507,7 @@ def legacy_lab(root) -> Optional[int]:
 
 
 def main_upgrade(argv: List[str], lab: Optional[Path] = None) -> int:
-    """`catalog.py upgrade [DIR] [--write] [--lab-ref COMMIT or latest] [--adopt] [--form F]
+    """`catalog.py upgrade [DIR] [--write] [--lab-ref COMMIT or latest] [--adopt]
     [--with e2e]`. Without `--write` it prints the plan and writes nothing (exit 1 when anything is pending, 0 when nothing is)."""
     try:
         args = _upgrade_arguments(list(argv))
@@ -1573,7 +1525,7 @@ def main_upgrade(argv: List[str], lab: Optional[Path] = None) -> int:
         if args.adopt and not ref and tree.entry(STANDARD) is None:
             # a repository made by hand has no pin yet: it gets the latest release of the Lab this command runs from
             ref = latest_release(lab) or _lab_head(lab)
-        plan = upgrade_plan(tree, {"lab_ref": ref, "adopt": args.adopt, "form": args.form, "with": args.with_,
+        plan = upgrade_plan(tree, {"lab_ref": ref, "adopt": args.adopt, "with": args.with_,
                                    "maintainers": args.maintainers,
                                    "lab_repository": args.lab_repo or (_lab_origin(lab) if args.adopt else ""),
                                    "lab": lab, "legacy_lab": legacy_lab(root)})

@@ -559,27 +559,10 @@ class Audit(Base):
         scene.set("/actions/permissions/selected-actions", {"message": "Not Found"}, 404)
         self.assertEqual(MANUAL, scene.finding("actions.listed").status)
 
-    def test_the_list_of_actions_names_the_lab_in_the_reusable_form(self):
+    def test_the_list_of_actions_does_not_name_the_lab(self):
         scene = Scene("org-private")
-        scene.sets_standard(form="reusable")
-        scene.edit("/actions/permissions", allowed_actions="all")
-        self.assertEqual(["acme-labs/lab/*", "docker/*"], requests_of(scene.finding("actions.listed"))[1][2]["patterns_allowed"])
-        # The Lab's own workflows at a commit are within `acme-labs/lab/*`; the owner's other repositories are not
-        scene = Scene("org-private")
-        scene.sets_standard(form="reusable")
-        scene.edit("/actions/permissions/selected-actions", patterns_allowed=["acme-labs/lab/.github/workflows/ci.yml@" + "a" * 40])
-        self.assertEqual(OK, scene.finding("actions.listed").status)
-        scene.edit("/actions/permissions/selected-actions", patterns_allowed=["acme-labs/other/*"])
-        self.assertEqual(FAIL, scene.finding("actions.listed").status)
-        scene = Scene("org-private")                                    # and in the inline form the Lab is not listed at all
         scene.edit("/actions/permissions/selected-actions", patterns_allowed=["acme-labs/lab/*"])
         self.assertEqual(FAIL, scene.finding("actions.listed").status)
-        scene = Scene("org-private")
-        scene.sets_standard(form="reusable", lab=None)          # the Lab is not named: the list cannot be made
-        scene.edit("/actions/permissions", allowed_actions="all")
-        found = scene.finding("actions.listed")
-        self.assertEqual(MANUAL, found.status)
-        self.assertIsNone(found.fix)
 
     @covers("actions.token")
     def test_actions_token(self):
