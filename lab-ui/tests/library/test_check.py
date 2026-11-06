@@ -416,11 +416,6 @@ class Items(Machine):
             theirs = {"catalog": "acme-hub", "conflicts": {"kafka": "x", "jade": "", "ledger": "x", "nothing": "x"}}
             self.assertEqual(list(check._conflicts(theirs)), [
                 "conflicts with jade: say why", "conflicts with nothing, which is not an add-on"])
-            self.assertEqual(check._conflict_id("kafka", "acme-hub", set(known)), "@acme-hub/kafka")
-            self.assertEqual(check._conflict_id("jade", "acme-hub", set(known)), "jade")
-            self.assertEqual(check._conflict_id("@fixture/kafka", "acme-hub", set(known)), "kafka", "qualified is that catalog's")
-            self.assertEqual(check._conflict_id("@acme-hub/kafka", "fixture", set(known)), "@acme-hub/kafka")
-            self.assertIsNone(check._conflict_id("ledger", "fixture", set(known)))
 
     def test_two_add_ons_of_a_catalog_that_is_not_the_first_conflict_by_the_bare_id_they_name(self):
         # `conflicts: {echo: why}` in a unit of @acme-hub names @acme-hub/echo: the ports they share are no clash, and a playground

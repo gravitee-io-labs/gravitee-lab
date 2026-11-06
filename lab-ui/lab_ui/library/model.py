@@ -418,14 +418,6 @@ def _lacks_gateway(c, unit):
     return None
 
 
-def _unusable(unit):
-    """Why a unit cannot start, in one line: the first reason it is blocked, else the first catalog it lacks. None when
-    nothing is against it."""
-    reasons = (unit.get("blocked") or {}).get("reasons") or []
-    needs = unit.get("needs_catalogs") or []
-    return str(reasons[0]) if reasons else layers.need_line(needs[0]) if needs else None
-
-
 def _blocked_note(c, unit):
     """The note of a unit the policy blocks: Blocked, in the error tone, and in `note_causes` the reasons and who to ask
     (the owner of its catalog, or the person for a folder catalog); None for a unit that is not."""
@@ -658,7 +650,7 @@ def _item(c, unit, state, on, is_up, services):
     note = _note(c, unit, state, on, is_up, None if lacking else plan, failure, services, offer)
     unset, gateway = c["state"].get("unset", {}).get(uid, []), lacking and _lacks_gateway(c, unit)
     # Why a start waits, in the order of the note: the policy, a catalog that is not here, the settings, the license
-    blocked = _unusable(unit) if do == "start" else None
+    blocked = layers.why_not(unit) if do == "start" else None
     if blocked is None and lacking and do == "start":
         blocked = gateway["note"] if gateway else f"{SETTINGS}: {', '.join(unset)}" if unset else SETTINGS
     if blocked is None and do == "start":   # what would not work without the license is not started

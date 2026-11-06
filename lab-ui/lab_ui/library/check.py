@@ -42,7 +42,7 @@ from ..catalogs.registry import CatalogError
 from ..catalogs.report import ERROR, WARNING, Problem
 from ..catalogs.tree import read_inside
 from ..paths import CORE_FILE, KINDS, NOUNS, ROOT
-from .project import PAGES, REACH_LIMIT, apart, brought, forget, loaded
+from .project import PAGES, REACH_LIMIT, apart, brought, conflict_id, forget, loaded
 
 # What x-gravitee can say, of any item: a key outside it is read by nothing, and so does nothing (a typo, or a key
 # the Lab UI does not know)
@@ -453,42 +453,18 @@ def _brings(unit):
     return [unit["id"], *brought(unit)] if unit["kind"] == "addon" else brought(unit)
 
 
-def _settled(project):
-    """The project with the keys of every add-on's `conflicts` settled as ids: a bare id names the add-on of the same
-    catalog if there is one, else the default catalog's, so that two add-ons of a catalog that is not the first one are
-    known to conflict whichever way their file says it. Nothing else of the project changes."""
-    known = set(project["addons"])
-    addons = {uid: {**addon, "conflicts": {(_conflict_id(other, addon.get("catalog"), known) or other): why
-                                           for other, why in addon["conflicts"].items()}}
-              for uid, addon in project["addons"].items()}
-    return {**project, "addons": addons}
-
-
 def _together(project, addon_ids):
     """The add-ons a file brings can run together."""
-    project = _settled(project)
     for clash in layers.conflicts(project, layers.closure(project, addon_ids)):
         why = f": {clash['reason']}" if clash["reason"] else ""
         yield f"brings {clash['a']} and {clash['b']}, which cannot run together{why}"
-
-
-def _conflict_id(other, catalog, known):
-    """The id of the add-on that a `conflicts` key names: a bare id is the add-on of the same catalog if there is one,
-    else the one of the first default catalog; `@ns/id` and `local/id` name one of that catalog, and so does
-    `@<default>/id`. None when nothing has that id."""
-    if not isinstance(other, str):
-        return None
-    candidates = [paths.canonical(other)]
-    if paths.is_default(other) and catalog not in (None, paths.default_ns()):
-        candidates.insert(0, f"{paths.LOCAL}/{other}" if catalog == paths.LOCAL else f"@{catalog}/{other}")
-    return next((one for one in candidates if one in known), None)
 
 
 def _conflicts(addon):
     """Conflicts name add-ons and say why. The list form is among the project's problems, and leaves none here."""
     known = set(paths.ids("addon"))
     for other, reason in addon["conflicts"].items():
-        if _conflict_id(other, addon.get("catalog"), known) is None:
+        if conflict_id(other, addon.get("catalog"), known) is None:
             yield f"conflicts with {other}, which is not an add-on"
         elif not reason:
             yield f"conflicts with {other}: say why"
@@ -837,7 +813,6 @@ def _ports(project, raw, sharing=None, only=None, order=None):
     unless the add-ons they bring conflict. Two playgrounds never run together. `only`: the namespace of a catalog, whose
     units are the ones told (the later of two is the one with the problem)."""
     rows = list(_publishers(project, raw, sharing, order))
-    project = _settled(project)
     belongs = {unit["file"]: unit.get("catalog") for unit in [*project["addons"].values(), *project["playgrounds"].values()]}
     for i, (file, kind, brings, ports) in enumerate(rows):
         for other, other_kind, other_brings, other_ports in rows[i + 1:]:
