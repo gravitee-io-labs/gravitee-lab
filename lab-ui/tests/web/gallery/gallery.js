@@ -43,7 +43,7 @@ ${block("Type", `<div class="gal-type"><span style="font-size: var(--fs-5); line
 ${block("Pill", row(`<span class="pill">Personal</span><span class="pill ok">Running</span><span class="pill warn">Will change</span>
   <span class="pill err">Failed</span><span class="pill ok">Connected</span><span class="pill warn">License not saved</span><span class="state ok">Platform running</span>
   <span class="state warn busy">Platform starting</span><span class="state err">Platform issue</span><span class="pill icon-pill">${icon("cloud")}</span>`))}
-${block("Apply needed: the badge", row(applyBadge(BEHIND[0].reason, "pill warn", [TAG])))}
+${block("Apply needed: the badge", row(applyBadge(BEHIND[0].reason, [TAG])))}
 ${block("Note badges", row(noteBadge({ note: "Needs a license", note_tone: "warn", note_title: "No license saved", note_file: ".env" })
   + noteBadge({ note: "via Kafka Desk", note_target: { kind: "addon", id: "kafka-desk" } })
   + noteBadge({ note: "Started by hand", note_title: "Not from the Lab UI, so the platform does not start it." })
@@ -58,8 +58,8 @@ ${block("Tooltip and popovers, open", row(tipHtml(`Refresh${icon("info")}`, "Rea
   + tipHtml(`Images${icon("info")}`, ["Images", "58.9 GB, 42.7 GB unused"], "", "Images")
   + tipHtml(`57.5 GB unused${icon("info")}`, UNUSED)
   + tipHtml("Update available", { title: "Update available", columns: ["Running", "Latest pre-release"], rows: [{ lines: [[{ versions: { running: "4.13.0-alpha.4", saved: "4.13.0-alpha.9" } }]] }], foot: "Choose it on the Images page." })
-  + applyBadge(BEHIND[0].reason, "pill warn", [TAG]) + applyBadge("x", "pill warn", [SETTINGS])
-  + applyBadge(BEHIND.map((one) => one.reason), "pill warn", behindWhy({ behind: BEHIND }))), "gal-open")}
+  + applyBadge(BEHIND[0].reason, [TAG]) + applyBadge("x", [SETTINGS])
+  + applyBadge(BEHIND.map((one) => one.reason), behindWhy({ behind: BEHIND }))), "gal-open")}
 ${block("Notices", noticeHtml({ tone: "warn", title: "Apply needed", text: tipHtml(`<span>8 containers differ from what is saved</span>${icon("info")}`, { ...behindWhy({ behind: BEHIND }), title: "" }, "", "8 containers differ from what is saved"), action: `<button class="btn primary">${icon("apply")}Apply</button>` })
   + noticeHtml({ tone: "calm", title: "Gravitee Platform is stopped", action: `<button class="btn primary">${icon("play")}Start</button>` })
   + noticeHtml({ tone: "warn", title: "License expires in 5 days", action: '<button class="btn">Set license</button>' })
@@ -79,7 +79,7 @@ ${block("Buttons and controls", row(`<button class="btn primary">${icon("apply")
 ${block("Table: the platform's card and a Gravitee Cloud card, one grid", `<div class="gal-stack"><div class="card dash-card gal-card"><div class="card-head"><h2>Gravitee Platform</h2><span class="dash-license"><button type="button" class="pill warn"><span>License not saved</span>${icon("arrow-right")}</button></span><span class="dash-tools"><a class="btn">Containers<span class="muted">12</span></a><a class="btn">Change versions</a></span></div>
   <div class="dash-heads"><span>Product</span><span>Version</span><span>Status</span><span></span></div>
   <div class="dash-row dash-product"><span class="dash-name"><span class="dash-dot"><span class="dot-status running"></span></span><strong class="list-name">API Management</strong></span>
-    <span class="dash-ver"><span class="s-version">4.13.0-alpha.4</span></span><span class="dash-upd">${applyBadge("x", "pill warn", [TAG])}</span>
+    <span class="dash-ver"><span class="s-version">4.13.0-alpha.4</span></span><span class="dash-upd">${applyBadge("x", [TAG])}</span>
     <span class="dash-open"><span class="dash-compact"><button class="btn">Open${icon("chevron")}</button></span></span></div>
   <div class="dash-row dash-product"><span class="dash-name"><span class="dash-dot"><span class="dot-status running"></span></span><strong class="list-name">Access Management</strong></span>
     <span class="dash-ver"><span class="s-version">4.13.0-alpha.7</span></span><span class="dash-upd">${statusHtml("done", "Up to date", { quiet: true })}</span>
@@ -110,7 +110,7 @@ ${block("Containers: its head, the core's band, a group, a container", `<div cla
   <ul class="groups"><li class="stack-sep core-sep cols"><span class="core-name">Gravitee Platform<button type="button" class="pill warn"><span>License not saved</span>${icon("arrow-right")}</button></span>
     <span class="row-icons"><span class="icon-gap"></span><button class="icon-btn" aria-label="Edit">${icon("file")}</button><button class="icon-btn" aria-label="Settings">${icon("key")}</button><span class="icon-gap"></span><span class="icon-gap"></span><span class="icon-gap"></span></span></li>
   <li class="group open"><div class="group-row cols opens"><button type="button" class="s-toggle" aria-expanded="true" aria-label="API Management">${icon("chevron")}</button>
-    <span class="s-name"><span class="g-name">API Management</span>${applyBadge("x", "pill warn", [TAG])}</span><span class="s-state">${statusHtml("running", "Running")}</span>
+    <span class="s-name"><span class="g-name">API Management</span>${applyBadge("x", [TAG])}</span><span class="s-state">${statusHtml("running", "Running")}</span>
     <span class="s-version">4.13.0-alpha.4</span><span class="s-ports"><span>8082</span><span>+5</span></span><span class="s-uptime">34 h</span>
     <span class="row-icons"><button class="icon-btn" aria-label="Plugins">${icon("plug")}</button><span class="icon-gap"></span><span class="icon-gap"></span><button class="icon-btn" aria-label="Logs">${icon("logs")}</button><button class="icon-btn" aria-label="Restart">${icon("restart")}</button><button class="icon-btn" aria-label="Stop">${icon("stop")}</button></span></div>
     <ul class="containers"><li class="container cols"><span></span><span class="s-name"><span class="c-name">Gateway</span><span class="c-id">apim-gateway</span></span><span class="s-state">${statusHtml("healthy", "Healthy")}</span>

@@ -169,7 +169,7 @@ function status(c) {
   else {
     // What runs behind, also a container that keeps restarting on the image it runs: the badge says which tag runs, so that
     // what follows it keeps only what it does not say
-    html = (behind(c) ? applyBadge(reasonOf(c), "pill warn", causesOf(c)) : !c.running.length ? statusHtml("stopped", "Stopped", { quiet: true })
+    html = (behind(c) ? applyBadge(reasonOf(c), causesOf(c)) : !c.running.length ? statusHtml("stopped", "Stopped", { quiet: true })
       : statusHtml("running", "Running")) + (c.outside ? noteBadge(c.outside) : "");
   }
   return `<div class="list-state">${html}</div>`;

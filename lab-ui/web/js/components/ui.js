@@ -482,7 +482,7 @@ export const licenseForm = () => 'data-license="form"';
 //   what (a leading word muted over its chips, which wrap, or the version that runs and the one saved, each after its caption: `columns`,
 //   "Running" and "Saved" by default). A row's subject (a product) is a heading over both columns, between hairlines.
 // `inner` is the button's HTML, `cls` its look (a pill, nothing for a word), `label` what it is called when it is not the
-// explanation's first words. `tab: false`: a bubble for the pointer only, whose words a stop of the keyboard says elsewhere.
+// explanation's first words.
 // Escape closes it while the pointer or the focus stays, until both have left (WCAG 1.4.13); a tap elsewhere, a scroll or a resize
 // closes it.
 const LINE = 40;   // the longest line a tooltip says: what is longer is a popover
@@ -543,7 +543,7 @@ const popover = (lines) => lines.length > 1 || String(lines[0] ?? "").length > L
 
 // `short`: the button is named by its label alone and the explanation is its description (a column's head, which every cell of
 // the column would otherwise repeat).
-export function tipHtml(inner, line, cls = "", label = "", { title = true, tab = true, said = "", short = false } = {}) {
+export function tipHtml(inner, line, cls = "", label = "", { title = true, said = "", short = false } = {}) {
   const lines = typeof line === "object" && !Array.isArray(line) ? null : [].concat(line);
   const card = lines ? (popover(lines) ? cardOf(lines, title) : null) : line;
   // A card titled with the name of its control is said once: the name, then the rest of the card
@@ -553,7 +553,7 @@ export function tipHtml(inner, line, cls = "", label = "", { title = true, tab =
   const bubble = card ? `<span class="tip-card" role="tooltip"${card.action ? "" : ' aria-hidden="true"'}>${cardHtml(card)}</span>`
     : `<span class="tip-text" role="tooltip" aria-hidden="true"><span>${esc(lines[0])}</span></span>`;
   const names = short ? `aria-label="${esc(label)}" aria-description="${esc(words)}"` : `aria-label="${esc(label ? `${label}: ${words}` : words)}"`;
-  return `<span class="tip"><button type="button" class="tip-btn ${cls}"${tab ? "" : ' tabindex="-1"'} ${names}>${inner}</button>${bubble}</span>`;
+  return `<span class="tip"><button type="button" class="tip-btn ${cls}" ${names}>${inner}</button>${bubble}</span>`;
 }
 
 // The attributes of a control that acts on a click and is explained by the one bubble of the page (`data-tip`): a line, or a card
@@ -652,15 +652,15 @@ function behindCard(behind) {
 }
 
 // What runs behind what is saved, as a badge: an amber pill, "Apply needed" and an information mark, its explanation the popover of
-// its causes when the server gives them (`causes`, or a card), else its reason as a tooltip. `cls` is its look: a row's pill, or the
-// head's state chip. Its name for a screen reader is the reason, in the words of a sentence. `more`: lines the card says after its
-// causes, of what the badge stands in front of (a newer version of a product, which its Status would say otherwise).
-export function applyBadge(reason, cls = "pill warn", causes = null, more = []) {
+// its causes when the server gives them (`causes`, or a card), else its reason as a tooltip. Its name for a screen reader is the reason,
+// in the words of a sentence. `more`: lines the card says after its causes, of what the badge stands in front of (a newer version of a
+// product, which its Status would say otherwise).
+export function applyBadge(reason, causes = null, more = []) {
   const found = Array.isArray(causes) && causes.length ? rowCard(causes) : causes && !Array.isArray(causes) ? causes : null;
   const card = found && more.length ? { ...found, rows: [...found.rows, { lines: more }] } : found;
   const reasons = [...[].concat(reason).filter(Boolean), ...(card ? more.map((line) => partSaid(line)) : [])];
   const said = reasons.map((one, i, all) => (i < all.length - 1 ? one.replace(/\.$/, "") : one)).join(". ");
-  return tipHtml(`Apply needed${icon("info")}`, card || (reasons.length ? reasons : "Differs from what is saved"), cls, "Apply needed", { said, title: false });
+  return tipHtml(`Apply needed${icon("info")}`, card || (reasons.length ? reasons : "Differs from what is saved"), "pill warn", "Apply needed", { said, title: false });
 }
 
 // What the platform says runs behind what is saved, as the popover of the head and the notice, when the server gives the causes
@@ -816,12 +816,12 @@ router.onLeave(() => {
 // What the server says of a row (an item, a group, a container), in its tone, its tooltip the reason when it has one
 // ("Failed": the job's last line). One that names an item links to it ("via Kafka Desk"); one that settings answer
 // opens them: the license's notes are the ones with a file, they open the form that takes a new license. What runs behind
-// what is saved (`note_apply`) is the badge, its tooltip the reason. `cls` adds the classes of where it sits.
-export function noteHtml(x, cls = "") {
+// what is saved (`note_apply`) is the badge, its tooltip the reason.
+export function noteHtml(x) {
   if (!x.note) return "";
-  if (x.note_apply) return applyBadge(x.note_title || x.note, "pill warn", x.note_causes);
+  if (x.note_apply) return applyBadge(x.note_title || x.note, x.note_causes);
   // Its tooltip: the reason when it says more than its words, else its words when they are cut
-  const look = `list-note ${x.note_tone || ""} ${cls}`, title = x.note_title && x.note_title !== x.note
+  const look = `list-note ${x.note_tone || ""}`, title = x.note_title && x.note_title !== x.note
     ? `data-tip="${esc(x.note_title)}"` : `data-tip="${esc(x.note)}" data-tip-cut`;
   if (x.note_target) return `<a class="${esc(look)} text-link" href="${esc(hrefOf(x.note_target))}" ${title}>${esc(x.note)}</a>`;
   if (x.note_file) return `<button class="${esc(look)} text-link" ${licenseForm()} ${title}>${esc(x.note)}</button>`;
@@ -829,12 +829,12 @@ export function noteHtml(x, cls = "") {
 }
 
 // NOTE BADGE: what the server says of a catalog row, as a badge after its name, never in its description. A pill in the note's tone
-// (neutral, warn, err). One that leads to its fix (the item it names, the license form, the form a place lacks: `fix`) is a quiet
+// (neutral, warn, err). One that leads to its fix (the item it names, the license form) is a quiet
 // pill-button with an arrow, its explanation a tooltip; one with more to say opens it with an information mark; Apply needed is its
 // badge, with the popover of its causes.
-export function noteBadge(x, fix = "") {
+export function noteBadge(x) {
   if (!x.note) return "";
-  if (x.note_apply) return applyBadge(x.note_title || x.note, "pill warn", x.note_causes);
+  if (x.note_apply) return applyBadge(x.note_title || x.note, x.note_causes);
   const look = `pill note ${x.note_tone || ""}`.trim(), more = x.note_title && x.note_title !== x.note ? x.note_title : "";
   // What it says beyond its label: a card of its causes (the versions it needs, the settings it lacks), a sentence under its label
   // when it is long, else one line
@@ -844,7 +844,6 @@ export function noteBadge(x, fix = "") {
   if (x.note_file) return `<button type="button" class="${look}" ${licenseForm()}${tip}>${go}</button>`;
   // Settings without a value: its own settings take them
   if (x.note_causes?.[0]?.kind === "unset") return `<button type="button" class="${look}" data-settings="${esc(`${x.kind}:${x.id}`)}"${tip}>${go}</button>`;
-  if (fix) return `<button type="button" class="${look}" data-fix="${esc(fix)}"${tip}>${go}</button>`;
   // A card without a sentence of the server's says its lines, not its title again: the note is the label already
   return more || card ? tipHtml(`${words}${icon("info")}`, card || more, look, x.note, { said: more || cardSaid({ ...card, title: "" }) }) : `<span class="${look}">${words}</span>`;
 }

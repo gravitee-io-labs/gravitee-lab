@@ -101,7 +101,7 @@ is about takes a line of its own. Taller than the window allows, its body scroll
 placing, hover bridge and Escape as the tooltip; a tap toggles it, a tap elsewhere, a scroll of the page, a resize or leaving the
 page closes it.
 
-**Apply needed** (`applyBadge(reason, cls, causes)`, `behindWhy(platform)`). An amber pill with an information mark; its
+**Apply needed** (`applyBadge(reason, causes)`, `behindWhy(platform)`). An amber pill with an information mark; its
 name for a screen reader is the server's sentence (`note_title`, `reason`), its popover is drawn from the server's causes
 (`note_causes`, `platform.behind[].causes`): *Differs from what is saved*, a line for each cause (the versions under *Running* and
 *Saved*), *Apply restarts it with what is saved.* (*them* when the causes are about several services; *, older versions included*
@@ -154,7 +154,7 @@ that scale beside it (`.dash-axis`: the top, written as it changes, and 0, in 12
 Cells of a chart are 330 px at least so that a line has room to be read. Narrower than 1260 px of page: the two charts share a line, as wide as
 it lets them, with Storage and Docker under; under 640 px a cell over the other. A browser keeps the choice (`dash-resources`); folded, the strip draws no chart.
 
-**List row and note badges** (`list.js`, `noteBadge(x, fix)`, `itemState(x)`, `itemButton(x)`). A catalog row: its toggle (the
+**List row and note badges** (`list.js`, `noteBadge(x)`, `itemState(x)`, `itemButton(x)`). A catalog row: its toggle (the
 chevron, a button named for the item, which the keyboard reaches and which says whether the detail is open; the row itself is no
 button, so that its controls are controls of their own, and a click anywhere on it but its controls opens it too), its name
 (13.5 strong), its star right after it (a hollow one shows under the pointer, in its place: nothing moves), then what it is
@@ -384,8 +384,7 @@ Every page and dialog does the same thing the same way. Before adding a piece, f
     of a dialog is the label that was clicked, without a question mark; its button is the verb.
 - **An explanation** is a tooltip (one line) or a popover (several lines, or a card of causes), one implementation in `ui.js`
   ([Tooltip, Popover](#components)): `tipHtml` makes its button, which keeps the look of what it sits in and carries the whole
-  explanation as its name for a screen reader; `data-tip` explains a control that acts on a click. A bubble for the pointer
-  alone (`tab: false`) is on a button that is no stop of the keyboard: the part of a bar, whose key says the same.
+  explanation as its name for a screen reader; `data-tip` explains a control that acts on a click.
 - **What cannot be used says why**, on hover, on keyboard focus and on a tap: the control is `aria-disabled` with its reason as
   its tooltip ("<name> is not running"; `setOff`), so that the keyboard reaches it and a screen reader hears why. What
   waits for Docker, for the running job or for the Lab UI is marked `data-busy`: `paintBusy` makes it wait with the

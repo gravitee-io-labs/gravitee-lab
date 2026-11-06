@@ -179,7 +179,7 @@ function statusOf(unit, product, asking) {
   if (partly) return partly;
   if (unit.note_apply && unit.note) {
     const newer = product?.status === "newer" && product.latest ? [[{ lead: "Update available" }, { code: product.latest }]] : [];
-    return applyBadge(unit.note_title || unit.note, "pill warn", unit.note_causes, newer);
+    return applyBadge(unit.note_title || unit.note, unit.note_causes, newer);
   }
   return updateCell(product, asking);
 }
