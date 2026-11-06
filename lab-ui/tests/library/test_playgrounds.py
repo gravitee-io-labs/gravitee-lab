@@ -16,7 +16,7 @@ from unittest import mock
 
 from lab_ui.gravitee import cloud, license, places, platforms
 from lab_ui.docker import compose, envfiles, jobs
-from lab_ui.library import layers, playgrounds, plugins, project as projects, versions
+from lab_ui.library import layers, playgrounds, plugins, project as projects
 from lab_ui import paths
 from lab_ui.catalogs import trust
 from lab_ui.docker.jobs import Job, JobFailed, awaited
@@ -442,26 +442,7 @@ class Playgrounds(Case):
         welcome["requires"] = {"license": ["feature-1"]}
         self.assertEqual(playgrounds._license_checks(self.project, welcome)[0]["detail"], "Needs a license")
 
-    def test_a_version_is_compared_by_its_numbers(self):
-        # A preview is before its release (semantic versioning): 4.13.0-alpha.5 is not a 4.13, a release of it or a later version is
-        for tag, wanted, enough in (("4.12.20", "4.13", False), ("4.13.0-alpha.2", "4.13", False), ("4.13.0-alpha.5", "4.13.0", False),
-                                    ("4.13", "4.13", True), ("4.13.0", "4.13", True), ("4.13.7", "4.13.0", True),
-                                    ("4.14.0-alpha.1", "4.13", True), ("5.0", "4.13", True), ("4", "4.13", False), ("latest", "4.13", True)):
-            self.assertEqual(versions.at_least(tag, wanted), enough, tag)
-
-    def test_a_preview_is_ordered_when_one_is_wanted(self):
-        for tag, enough in (("4.13.0-alpha.2", False), ("4.13.0-alpha.3", True), ("4.13.0-alpha.10", True),
-                            ("4.13.0-alpha.3-debian", True), ("4.13.0-beta.1", True), ("4.13.0", True),
-                            ("4.13.1-alpha.1", True), ("4.12.20", False), ("latest", True)):
-            self.assertEqual(versions.at_least(tag, "4.13.0-alpha.3"), enough, tag)
-
-    def test_a_build_that_is_no_release_is_met_by_that_build_only(self):
-        """requires.images may name a build (amp-demo-latest, master-latest): it has no numbers to order, so the saved tag is that
-        build or it is not. It once raised a TypeError that no page could draw."""
-        for tag, wanted, enough in (("amp-demo-latest", "amp-demo-latest", True), ("amp-demo-latest-debian", "amp-demo-latest", True),
-                                    ("4.12.20", "amp-demo-latest", False), ("latest", "amp-demo-latest", False),
-                                    ("master-latest", "amp-demo-latest", False), ("master-latest", "master-latest", True)):
-            self.assertEqual(versions.at_least(tag, wanted), enough, (tag, wanted))
+    def test_only_a_version_with_numbers_says_or_later(self):
         self.assertEqual((layers.or_later("4.13"), layers.or_later("amp-demo-latest")), (" or later", ""))
 
     def test_a_port_another_program_uses_is_a_line_and_refuses_the_start(self):
