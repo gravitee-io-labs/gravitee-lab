@@ -10,7 +10,7 @@ import shutil
 import unittest
 from unittest import mock
 
-from lab_ui.catalogs import cli as catalog
+from lab_ui.catalogs import cli as catalog, standard
 
 from lab_ui.gravitee import places
 from lab_ui.library import check, files, moves, personal, playgrounds
@@ -672,7 +672,10 @@ class TheSkills(Case):
                 with self.subTest(name=name, command=found.group(1)):
                     words = shlex.split(re.sub(r"<[^>]+>", "x", found.group(1)))
                     with mock.patch("sys.stderr"), mock.patch("sys.stdout"):
-                        tool.parse_args(words)
+                        if words[0] == "new":   # its arguments are its module's
+                            standard._new_arguments(words[1:])
+                        else:
+                            tool.parse_args(words)
                     seen += 1
         self.assertGreater(seen, 8)
 
