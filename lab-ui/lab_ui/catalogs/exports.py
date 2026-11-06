@@ -453,17 +453,7 @@ def _members(archive):
 
 def _name_of(archive, top):
     """The name catalog.yml gives, for the words of a refusal; the id when it says none."""
-    try:
-        text = archive.read(f"{top}/catalog.yml")[:65536].decode("utf-8", "replace")
-    except KeyError:
-        return top
-    return _catalog_title(text, top)
-
-
-def _catalog_title(text, fallback):
-    """The name a catalog.yml gives its catalog, which is the playground's an export made; `fallback` when it says none."""
-    said = re.search(r'(?m)^  name:\s*"?([^"\n]+?)"?\s*$', text)
-    return said.group(1) if said else fallback
+    return registry.scan(archive.read(f"{top}/catalog.yml")[:65536]).get("name") or top
 
 
 MACHINE_FILES, KEPT_DIR = kept.MACHINE_FILES, kept.KEPT_DIR
@@ -937,7 +927,7 @@ def _keep_settings(folder: Path, ns, content):
         with contextlib.suppress(OSError):
             names[rel] = _named((folder / rel / "compose.yml").read_text(encoding="utf-8", errors="replace"), rel.rsplit("/", 1)[-1])
     try:
-        title = _catalog_title((folder / "catalog.yml").read_text(encoding="utf-8", errors="replace")[:65536], ns)
+        title = registry.scan((folder / "catalog.yml").read_bytes()[:65536]).get("name") or ns
     except OSError:
         title = ns
     _, failed = kept.keep(ns, content, [(folder / rel / name, f"{rel}/{name}") for rel, name in settings], names, title)
