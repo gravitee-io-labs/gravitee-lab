@@ -896,19 +896,6 @@ class Audit(Case):
         scene = Scene("public-standard")
         scene.set("/rules/branches/main", [r for r in scene.get("/rules/branches/main").body if r["type"] != "required_status_checks"])
         self.assertEqual((FAIL, "missing"), (scene.finding("rules.checks").status, scene.finding("rules.checks").now))
-        # --required-check: the engine audits its own check
-        scene = Scene("public-standard")
-        self.assertEqual("E2E result is not required", scene.finding("rules.checks", required_checks=["E2E result"]).now)
-        self.assertEqual("The checks CI result and E2E result, run by GitHub Actions, pass first, on an up to date branch",
-                         scene.finding("rules.checks", required_checks=["CI result", "E2E result"]).title, "the title names them")
-        self.assertIn("Catalog CI result", scene.finding("rules.checks").title)
-        self.weaken(scene, "required_status_checks", required_status_checks=[
-            {"context": "Catalog CI result", "integration_id": 15368}, {"context": "E2E result", "integration_id": 15368}])
-        self.assertEqual(OK, scene.finding("rules.checks", required_checks=["E2E result", "Catalog CI result"]).status)
-        scene.set("/rules/branches/main", [r for r in scene.get("/rules/branches/main").body if r["type"] != "required_status_checks"])
-        body = requests_of(scene.finding("rules.checks", required_checks=["E2E result", "build"]))[0][2]
-        checks = [r for r in body["rules"] if r["type"] == "required_status_checks"][0]["parameters"]["required_status_checks"]
-        self.assertEqual([{"context": "E2E result", "integration_id": 15368}, {"context": "build", "integration_id": 15368}], checks)
 
     @covers("rules.bypass")
     def test_rules_bypass(self):
@@ -1569,8 +1556,7 @@ class Whole(Case):
         for repo in ("a b/c", "../x/y", "x", "a/b/c", "a/.git", "a/b.git", "a/..", "", "-x/y", "a/b\n", None, 3):
             with self.assertRaises(settings.Usage):
                 settings.audit(repo, scene.hub, {})
-        for options in ({"required_checks": [""]}, {"required_checks": ["a\nb"]}, {"required_checks": [3]}, {"required_checks": ["x" * 101]},
-                        {"allow_org_secrets": [""]}, {"allow_org_secrets": ["a\nb"]}):
+        for options in ({"allow_org_secrets": [""]}, {"allow_org_secrets": ["a\nb"]}):
             with self.assertRaises(settings.Usage):
                 settings.audit(scene.repo, scene.hub, options)
         self.assertEqual([], scene.hub.calls)
@@ -1932,14 +1918,6 @@ class Apply(Case):
             self.assertNotIn("_managed", sent[body["name"]])
         self.assertEqual([{"actor_id": None, "actor_type": "DeployKey", "bypass_mode": "always"}], sent["catalog-main"]["bypass_actors"])
 
-    def test_the_checks_asked_for_are_in_the_ruleset(self):
-        scene = self.broken()
-        done = settings.apply(scene.repo, scene.hub, scene.audit(required_checks=["E2E result"]), True)
-        body = [item.body for item in done if item.path.endswith("/rulesets") and item.body["name"] == "catalog-main"][0]
-        checks = [r for r in body["rules"] if r["type"] == "required_status_checks"][0]["parameters"]["required_status_checks"]
-        self.assertEqual([{"context": "E2E result", "integration_id": 15368}], checks)
-        self.assertEqual([], settings.apply(scene.repo, scene.hub, scene.audit(required_checks=["E2E result"]), True))
-
     def test_nothing_is_ever_removed(self):
         scene = self.broken()
         settings.apply(scene.repo, scene.hub, scene.audit(), True, warnings=True)
@@ -2225,9 +2203,6 @@ class Command(Case):
         self.assertEqual(0, Run(["acme-labs/lab-internal", "--allow-org-secret", "MINE"], scene).code)
         run = Run(["acme-labs/lab-internal", "--as", "public"], Scene("org-private"))
         self.assertIn("(private, organization-owned, audited as public)", run.text)
-        run = Run(["acme-labs/lab-internal", "--required-check", "E2E result", "--required-check", "build"], Scene("org-private"))
-        self.assertIn("E2E result is not required", run.text)
-        self.assertEqual(1, run.code)
         run = Run(["acme-labs/lab-internal", "--effective-only"], Scene("org-private"))
         self.assertNotIn("repo.merge", run.text)
         self.assertEqual(0, run.code)
@@ -2236,7 +2211,7 @@ class Command(Case):
         scene = Scene("org-private")
         for argv in (["acme-labs/lab-internal", "--yes"], ["acme-labs/lab-internal", "--warnings"], ["--bogus"],
                      ["acme-labs/lab-internal", "--as", "secret"], ["acme-labs/lab-internal", "--format", "xml"],
-                     ["acme-labs/lab-internal", "--required-check", ""], ["acme-labs/lab-internal", "--fleet", "acme-labs"],
+                     ["acme-labs/lab-internal", "--allow-org-secret", ""], ["acme-labs/lab-internal", "--fleet", "acme-labs"],
                      ["--fleet", "acme-labs", "--apply"], ["a/b", "c/d"], ["--as", "private", "acme-labs/lab-hub"], ["not a repository"]):
             run = Run(argv, Scene("public-standard") if "lab-hub" in " ".join(argv) else scene)
             self.assertEqual(2, run.code, argv)

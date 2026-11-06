@@ -550,28 +550,18 @@ class _Audit:
         except (ValueError, binascii.Error, RecursionError):      # a contributor's file: brackets nested deeper than Python reads
             return Standard(None, None, "it is not JSON")
 
-    def ruleset(self, key: str) -> dict:
-        """The template's ruleset `key` as it is applied here: `main` with the checks the caller named."""
-        body = copy.deepcopy(self.templates[key])
-        if key == "main" and self.options["required_checks"]:
-            for rule in body["rules"]:
-                if isinstance(rule, dict) and rule.get("type") == "required_status_checks":
-                    rule.setdefault("parameters", {})["required_status_checks"] = [
-                        {"context": name, "integration_id": ACTIONS_APP_ID} for name in self.options["required_checks"]]
-        return body
-
     def ruleset_fix(self, key: str):
         """The request that makes the template's ruleset `key` the one in force: the replacement of the ruleset of its name
         when there is one, else its creation (`apply` asks again before it sends). The rulesets of main and of the tags come with
         their history (COMPANIONS): a deploy key passes the first, never the second."""
-        found = [self._ruleset_request(self.ruleset(key))]
+        found = [self._ruleset_request(self.templates[key])]
         if key in COMPANIONS:
             found += self._companion(key)
         return found
 
     def _companion(self, key: str) -> list:
         """The request that creates the history ruleset of `key`, when the repository does not have it."""
-        body = self.ruleset(COMPANIONS[key])
+        body = self.templates[COMPANIONS[key]]
         have = any(item["name"] == body["name"] and item["target"] == body["target"] and item["source"] == "Repository"
                    for item in self.rulesets())
         return [] if have else [self._ruleset_request(body)]
@@ -1045,16 +1035,10 @@ class _Audit:
 
     def checks(self, by_type, want, fix):
         params = want["required_status_checks"]
-        in_template = [c["context"] for c in map(as_dict, as_list(params.get("required_status_checks")))
-                       if isinstance(c.get("context"), str)]
-        names = self.options["required_checks"] or in_template
-        # The rule's title names the checks it asks for: those given (--required-check) rather than the template's
-        title = None if names == in_template else (
-            f"The check{'s' if len(names) > 1 else ''} {' and '.join(clean(name, 100) for name in names)}, run by GitHub Actions, "
-            f"pass{'' if len(names) > 1 else 'es'} first, on an up to date branch")
+        names = [check["context"] for check in params["required_status_checks"]]
         instances = by_type.get("required_status_checks", [])
         if not instances:
-            return self.add("rules.checks", FAIL, title, now="missing", fix=fix)
+            return self.add("rules.checks", FAIL, now="missing", fix=fix)
         bound = {(plain(as_dict(c).get("context")), plain(as_dict(c).get("integration_id"))) for item in instances
                  for c in as_list(item.get("required_status_checks"))}
         problems = []
@@ -1065,8 +1049,8 @@ class _Audit:
         flags = {key: value for key, value in params.items() if key != "required_status_checks"}
         problems += _unmet("required_status_checks", flags, instances)
         if problems:
-            return self.add("rules.checks", FAIL, title, now="; ".join(problems), fix=fix)
-        self.add("rules.checks", OK, title)
+            return self.add("rules.checks", FAIL, now="; ".join(problems), fix=fix)
+        self.add("rules.checks", OK)
 
     def bypass(self, effective):
         # GitHub lists the rules of push rulesets among those of the branch; who may push past them is no way to merge a pull
@@ -1171,7 +1155,7 @@ class _Audit:
         the rulesets that keep it from deleting or rewriting main and the tags created when they are not there."""
         requests = []
         for key in ("main", "tags"):
-            template = self.ruleset(key)
+            template = self.templates[key]
             for item, body in details.values():
                 if item["name"] == template["name"] and item["target"] == template["target"] \
                         and DEPLOY_KEY not in as_list(body.get("bypass_actors")):
@@ -1323,8 +1307,7 @@ def _options(options) -> dict:
     if asked not in (None, "public", "private", "internal"):
         raise Usage("--as takes public, private or internal.")
     out = {}
-    for key, what in (("required_checks", "--required-check takes the name of a check."),
-                      ("allow_org_secrets", "--allow-org-secret takes a name.")):
+    for key, what in (("allow_org_secrets", "--allow-org-secret takes a name."),):
         names = list(as_list(given.get(key)))
         if not all(isinstance(name, str) and 1 <= len(name) <= 100 and name.isprintable() for name in names):
             raise Usage(what)
@@ -1335,8 +1318,7 @@ def _options(options) -> dict:
 
 def audit(repo: str, runner: Callable, options: Optional[dict] = None) -> Findings:
     """The findings for `repo` ("OWNER/REPO"), read through `runner`. `options`: `as` (public, private or internal: the
-    visibility the repository is audited against, else its own), `effective_only`, `required_checks` (names that
-    replace "Catalog CI result"), `allow_org_secrets` (the names of the organization secrets and variables that are the
+    visibility the repository is audited against, else its own), `effective_only`, `allow_org_secrets` (the names of the organization secrets and variables that are the
     maintainers' own), `standard` (the parsed `.github/standard.json`, else it is read from the repository). Writes nothing.
     Raises Unusable for a repository that cannot be read and for a sign-in that is missing."""
     if not isinstance(repo, str) or not REPO_NAME.fullmatch(repo) or repo.endswith(".git") \
@@ -1582,7 +1564,7 @@ def _name(text: str) -> str:
 
 
 USAGE = """catalog.py repo-settings [OWNER/REPO or FOLDER] [--apply [--yes] [--warnings]] [--effective-only]
-                         [--strict] [--as public or private or internal] [--required-check NAME]
+                         [--strict] [--as public or private or internal]
                          [--allow-org-secret NAME] [--fleet OWNER] [--format text or json or github]
 
 Audits the repository standard of a catalog on GitHub, through the gh command of the maintainer. --apply lists the
@@ -1599,7 +1581,6 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--effective-only", action="store_true")
     p.add_argument("--strict", action="store_true")
     p.add_argument("--as", dest="visibility", choices=("public", "private", "internal"))
-    p.add_argument("--required-check", action="append", default=[], type=_name)
     p.add_argument("--allow-org-secret", action="append", default=[], type=_name)
     p.add_argument("--fleet", metavar="OWNER")
     p.add_argument("--format", choices=("text", "json", "github"), default="text")
@@ -1622,7 +1603,7 @@ def main(argv: Optional[List[str]] = None, runner: Optional[Callable] = None, gi
         if args.fleet is not None and (args.target or args.apply):
             raise Usage("--fleet audits every catalog of an owner: it takes no repository and no --apply.")
         options = {"as": args.visibility, "effective_only": args.effective_only,
-                   "required_checks": args.required_check, "allow_org_secrets": args.allow_org_secret}
+                   "allow_org_secrets": args.allow_org_secret}
         runner = runner or Gh()
         if args.fleet is not None:
             from . import fleet
