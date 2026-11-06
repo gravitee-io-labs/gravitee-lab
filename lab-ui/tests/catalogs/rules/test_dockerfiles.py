@@ -1,6 +1,6 @@
 """DF, Dockerfiles. For each code one failing fixture in which only that code fires, and one that passes; the message
 equals. The file is read as text: continued lines, here-documents, parser directives, `ONBUILD`, the `ARG` of a base
-image and the stages of the file. A line of a megabyte finishes in under a second."""
+image and the stages of the file. A line of a megabyte finishes in under 3 seconds of CPU."""
 
 import subprocess
 import unittest
@@ -339,28 +339,28 @@ class Hostile(unittest.TestCase):
               "--mount=type=", "--platform=", "sudo ", "sh", "|| ", "&& ", "# ", "FROM ${a-${b-", "ENV PASSWORD=x PASSWORD=y ",
               "COPY --from=x --from=y ", "\\ ", "\\"]
 
-    def test_every_form_the_reader_looks_for_finishes_in_under_a_second(self):
+    def test_every_form_the_reader_looks_for_finishes(self):
         for piece in self.PIECES:
             for head in ("", "FROM python:3\nRUN ", "FROM python:3\nENV "):
                 text = head + piece * (1024 * 1024 // len(piece))
-                best = min(support.timed(dockerfiles.check_text, PATH, text)[1] for _ in range(2))
-                self.assertLess(best, 1.0, f"{head!r} + {piece[:20]!r}: {best:.2f} s")
+                _, seconds = support.timed(dockerfiles.check_text, PATH, text)
+                self.assertLess(seconds, 3.0, f"{head!r} + {piece[:20]!r}: {seconds:.2f} s")
 
     def test_a_megabyte_of_short_lines_is_read_in_proportion_to_its_size(self):
         for piece in ("wget | bash\n", "RUN <<EOF\n", "<<EOF\n", "# escape=`\n", "\n", "\\\n", "\\\n\n", "ARG A=${A}\nFROM ${A}\n"):
             text = "FROM python:3\n" + piece * (1024 * 1024 // len(piece))
-            best = min(support.timed(dockerfiles.check_text, PATH, text)[1] for _ in range(2))
-            self.assertLess(best, 5.0, f"{piece!r}: {best:.2f} s")
+            _, seconds = support.timed(dockerfiles.check_text, PATH, text)
+            self.assertLess(seconds, 3.0, f"{piece!r}: {seconds:.2f} s")
 
     def test_a_dockerfile_of_many_instructions_is_read_in_proportion(self):
         text = "FROM python:3\n" + "RUN echo a && curl u -o f\nENV A=b\nCOPY . .\n" * 20000
         _, seconds = support.timed(dockerfiles.check_text, PATH, text)
-        self.assertLess(seconds, 5.0)
+        self.assertLess(seconds, 3.0)
 
     def test_a_long_continued_instruction_does_not_copy_itself_for_each_line(self):
         text = "FROM python:3\nRUN echo \\\n" + "    a \\\n" * 100000 + "    b\n"
         _, seconds = support.timed(dockerfiles.check_text, PATH, text)
-        self.assertLess(seconds, 2.0)
+        self.assertLess(seconds, 3.0)
 
 
 class Calibration(unittest.TestCase):

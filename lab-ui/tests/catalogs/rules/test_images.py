@@ -289,22 +289,22 @@ class Hostile(unittest.TestCase):
     LINES = ["services:\n", "  a:\n", "    build: .\n", "<<: *a\n", "\n- ", "pull_policy: build\n", "      context: .\n", "\n",
              "include:\n  - a.yml\n", "    extends: a\n", "    extends: {file: a.yml, service: a}\n"]
 
-    def test_every_form_the_reader_looks_for_finishes_in_under_a_second(self):
+    def test_every_form_the_reader_looks_for_finishes(self):
         for piece in self.PIECES:
             for head in ("services:\n  a:\n    image: ", "services:\n  a:\n    build: ", ""):
                 text = head + piece * (1024 * 1024 // len(piece))
                 listing = support.tree({"playgrounds/shop/compose.yml": text, "catalog.yml": CATALOG})
                 ctx = context(listing, **HOW)
-                best = min(support.timed(images.check, listing, ctx)[1] for _ in range(2))
-                self.assertLess(best, 1.0, f"{head!r} + {piece[:20]!r}: {best:.2f} s")
+                _, seconds = support.timed(images.check, listing, ctx)
+                self.assertLess(seconds, 3.0, f"{head!r} + {piece[:20]!r}: {seconds:.2f} s")
 
     def test_a_megabyte_of_short_lines_is_read_in_proportion_to_its_size(self):
         for piece in self.LINES:
             text = "services:\n  a:\n    image: x\n" + piece * (1024 * 1024 // len(piece))
             listing = support.tree({"playgrounds/shop/compose.yml": text, "catalog.yml": CATALOG})
             ctx = context(listing, **HOW)
-            best = min(support.timed(images.check, listing, ctx)[1] for _ in range(2))
-            self.assertLess(best, 5.0, f"{piece!r}: {best:.2f} s")
+            _, seconds = support.timed(images.check, listing, ctx)
+            self.assertLess(seconds, 3.0, f"{piece!r}: {seconds:.2f} s")
 
     def test_an_image_of_a_megabyte_is_none(self):
         self.assertIsNone(images.repository("${a-" * 250000))

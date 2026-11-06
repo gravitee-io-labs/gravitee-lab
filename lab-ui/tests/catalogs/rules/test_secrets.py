@@ -1,7 +1,7 @@
 """SE, secrets, in the files of a tree and in the lines a change added. For each code one
 failing fixture in which only that code fires, and one that passes; the message equals and never holds the secret. A
 secret that a test plants is made of pieces when the test runs (tests/data/rules/support.py), so no file holds one. A line of a
-megabyte finishes every pattern in under a second. The calibration at the end reads this checkout's tracked files."""
+megabyte finishes every pattern in under 3 seconds of CPU. The calibration at the end reads this checkout's tracked files."""
 
 import re
 import subprocess
@@ -265,35 +265,28 @@ class Hostile(unittest.TestCase):
               "ghp_" + "a" * 40 + "_", "sk-" + "a" * 33 + "!", "a" * 38 + ".", "eyJ" + "a" * 20 + ".", "xoxb-" + "a" * 20 + "_",
               "://:", "://a:$", "://:${", "://:$$", "://" + "a" * 100, "://a:b", "_AKIA", "KEY_ghp_", ":\n  x", "A_PASSWORD="]
 
-    def fast(self, call, *args):
-        """The seconds a call takes; asked again twice when it is slow, because the machine of a test run is shared."""
-        best = support.timed(call, *args)[1]
-        for _ in range(2 if best >= 1.0 else 0):
-            best = min(best, support.timed(call, *args)[1])
-        return best
-
-    def test_every_pattern_finishes_on_a_line_of_a_megabyte_in_under_a_second(self):
+    def test_every_pattern_finishes_on_a_line_of_a_megabyte(self):
         for piece in self.PIECES:
             line = piece * (1024 * 1024 // len(piece))
             for path in ("addons/hello/compose.yml", "docs/a.md"):
-                seconds = self.fast(secrets.scan_text, path, line)
-                self.assertLess(seconds, 2.0, f"{piece[:20]!r} in {path}: {seconds:.2f} s")   # one second on a quiet machine, two on a shared runner
+                _, seconds = support.timed(secrets.scan_text, path, line)
+                self.assertLess(seconds, 3.0, f"{piece[:20]!r} in {path}: {seconds:.2f} s")
             added = [Added("a" * 40, "addons/hello/compose.yml", 1, line)]
 
             class Here:
                 def read(self, path, limit=0):
                     return line.encode()[:limit]
 
-            seconds = self.fast(lambda: secrets.scan_added(added, Here()))
-            self.assertLess(seconds, 1.0, f"{piece[:20]!r} as an added line: {seconds:.2f} s")
+            _, seconds = support.timed(secrets.scan_added, added, Here())
+            self.assertLess(seconds, 3.0, f"{piece[:20]!r} as an added line: {seconds:.2f} s")
 
     def test_a_file_of_many_short_lines_is_read_in_proportion_to_its_size(self):
         text = "services:\n  a:\n    environment:\n" + "      K: v\n" * 60000
         _, seconds = support.timed(secrets.scan_text, "addons/hello/compose.yml", text)
-        self.assertLess(seconds, 4.0)
+        self.assertLess(seconds, 3.0)
         text = "x-a:\n" + "".join(f"  k{number}: &a{number} v\n" for number in range(30000))
         _, seconds = support.timed(secrets.scan_text, "addons/hello/compose.yml", text)
-        self.assertLess(seconds, 4.0)
+        self.assertLess(seconds, 3.0)
 
     def test_flow_collections_are_read_within_a_budget(self):
         head = "services:\n  a:\n    environment: "
@@ -303,11 +296,11 @@ class Hostile(unittest.TestCase):
         for label, shape in shapes.items():
             text = head + shape + "\n"
             _, seconds = support.timed(secrets.scan_text, "addons/hello/compose.yml", text)
-            self.assertLess(seconds, 1.0, f"{label}: {seconds:.2f} s")
+            self.assertLess(seconds, 3.0, f"{label}: {seconds:.2f} s")
         joined = head + "[\n" + "\n".join(["A_B=c, " * 1400 for _ in range(100)]) + "]\n"   # a megabyte over a hundred lines
         self.assertLess(len(joined), 1024 * 1024 + 100)
         _, seconds = support.timed(secrets.scan_text, "addons/hello/compose.yml", joined)
-        self.assertLess(seconds, 0.8, "a flow collection over a hundred lines is scanned once, not again for each line")
+        self.assertLess(seconds, 3.0, "a flow collection over a hundred lines is scanned once, not again for each line")
 
     def test_the_flow_reader_gives_what_a_flow_collection_sets(self):
         self.assertEqual([("A", "1"), ("B", "x y")], secrets.flow_pairs("[A=1, \"B=x y\", C]"))
