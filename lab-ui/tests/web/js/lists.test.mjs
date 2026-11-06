@@ -305,13 +305,15 @@ test("a Start that switches the versions keeps its warning beside it, never in t
   assert.equal(noted(), null, "nothing in the State");
   assert.equal(blockedBy(), "Needs newer versions", "the warning beside the Start");
   assert.ok(!isOff(startOf()), "and the Start starts");
-  const card = () => text(blockerOf().parentElement.querySelector(".tip-card"));
+  const tip = () => blockerOf().parentElement.querySelector(".tip-card"), card = () => text(tip());
+  const captions = () => ["pop-run", "pop-saved"].map((cell) => tip().querySelector(`.${cell}`).getAttribute("data-cap"));
   // Each image as it is and as it was tested, in the same columns whether the Start goes there or only offers to
-  assert.match(card(), /Current.*Tested.*API Management.*4\.12\.20.*4\.13\.0-alpha\.3/);
+  assert.deepEqual(captions(), ["Current", "Tested"]);
+  assert.match(card(), /API Management.*4\.12\.20.*4\.13\.0-alpha\.3/);
   assert.match(card(), /Start goes to the versions it was tested with/);
   draw(lab({ hotels: { ...switching, note: "Not tested with these versions", action: { ...ACTION("start"), warns: true, offer: { versions: [] } } } }));
   assert.equal(blockedBy(), "Not tested with these versions");
-  assert.match(card(), /Current.*Tested.*API Management/);
+  assert.deepEqual(captions(), ["Current", "Tested"]);
   assert.match(card(), /Start offers the versions it was tested with/);
   // Without a version to go to it cannot start: the same warning, and the Images page is the way
   const needs = { ...switching, note_causes: [{ kind: "needs", name: "API Management", version: "4.13.0-alpha.3" }] };
