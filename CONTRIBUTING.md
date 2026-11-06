@@ -109,7 +109,7 @@ Write in American English, with sentence case headings, imperative sentences and
 
 ## Use an AI agent
 
-`AGENTS.md` is the contract for any agent. Codex, Copilot and Cursor read it as it is, Claude Code through `CLAUDE.md`, and Gemini CLI through `.gemini/settings.json`. The skills `new-addon`, `new-setup`, `new-playground`, `new-catalog`, `share-item` and `prepare-pull-request` live in `.agents/skills/`, with a stub for each in `.claude/skills/`; `make check` enforces that wiring.
+`AGENTS.md` is the contract for any agent. Codex, Copilot and Cursor read it as it is, Claude Code through `CLAUDE.md`, and Gemini CLI through `.gemini/settings.json`. The skills `new-addon`, `new-setup`, `new-playground`, `new-catalog`, `share-item` and `prepare-pull-request` live in `.agents/skills/`, with a stub for each in `.claude/skills/`; `make check` asks for each stub and each `CLAUDE.md`.
 
 You stay the author: read every line the agent writes, run the checks yourself, and do not submit what you do not understand.
 
