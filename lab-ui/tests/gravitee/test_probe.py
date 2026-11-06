@@ -140,8 +140,6 @@ class Probe(Case):
 
     def setUp(self):
         Ui.hits = []
-        probe.KEPT.clear()
-        self.addCleanup(probe.KEPT.clear)
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Ui)
         self.server.daemon_threads = True
         threading.Thread(target=self.server.serve_forever, args=(0.01,), daemon=True).start()
@@ -230,39 +228,15 @@ class Probe(Case):
         self.assertEqual(probe.look("ftp://localhost/", PAGE)["answers"], False)
 
 
-class Kept(Probe):
-    """The look of a tab, which the page asks for again and again while it shows a notice."""
-
-    def project(self, path="/deny"):
-        url = self.base + path
-        return {"links": [link("Console", url, "ui")], "addons": {}, "services": {"ui": {}},
-                "playgrounds": {"p": {"services": ["ui"], "addons": [], "consoles": ["ui"]}}}, url
-
-    def test_it_is_asked_once_in_a_few_seconds(self):
-        p, url = self.project()
-        first = probe.probe(p, "p", url, PAGE)
-        self.assertEqual(probe.probe(p, "p", url, PAGE), first)
-        self.assertEqual(Ui.hits, ["/deny"])
-
-    def test_it_is_asked_again_once_kept_long_enough(self):
-        p, url = self.project()
-        clock = self.patch(probe.time, "monotonic", return_value=100.0)
-        probe.probe(p, "p", url, PAGE)
-        clock.return_value = 100.0 + probe.TTL - 0.1
-        probe.probe(p, "p", url, PAGE)
-        self.assertEqual(Ui.hits, ["/deny"])
-        clock.return_value = 100.0 + probe.TTL
-        probe.probe(p, "p", url, PAGE)
-        self.assertEqual(Ui.hits, ["/deny", "/deny"])
-        self.assertEqual(len(probe.KEPT), 1)
-
-    def test_each_page_has_its_own_look(self):
-        p, url = self.project("/policy")
-        self.assertTrue(probe.probe(p, "p", url, "http://localhost:9000")["frameable"])
-        self.assertFalse(probe.probe(p, "p", url, "http://localhost:9999")["frameable"])
+class Declared(Probe):
+    """The look of a tab: the one address the page may have asked for."""
 
     def test_an_address_the_playground_does_not_declare_is_never_asked(self):
-        p, url = self.project()
+        url = self.base + "/deny"
+        p = {"links": [link("Console", url, "ui")], "addons": {}, "services": {"ui": {}},
+             "playgrounds": {"p": {"services": ["ui"], "addons": [], "consoles": ["ui"]}}}
+        self.assertEqual(probe.probe(p, "p", url, PAGE)["reason"], "X-Frame-Options: DENY")
+        Ui.hits.clear()
         for asked in (self.base + "/open", self.base, "http://127.0.0.1:1/", None):
             with self.assertRaisesRegex(ValueError, "Not a UI of this playground"):
                 probe.probe(p, "p", asked, PAGE)

@@ -6,13 +6,10 @@ are ever asked for."""
 import http.client
 import socket
 import ssl
-import threading
-import time
 from urllib.parse import urljoin, urlsplit
 
 from . import frames
 
-TTL = 4            # seconds an answer is kept: the page asks again while a notice shows
 TIMEOUT = 3        # seconds a UI has to answer
 REDIRECTS = 2      # a UI that sends the page further than this does not answer
 MOVED = (301, 302, 303, 307, 308)
@@ -20,8 +17,6 @@ NOT_ANSWERING = (502, 503, 504)   # what a proxy says while what is behind it is
 # What a look says of a UI that does not answer, besides the words of the network (_why)
 TOO_FAR, NOWHERE = "Too many redirects", "Sends the page to what is no web address"
 UNTRUSTED = "Its certificate is not trusted"
-LOCK = threading.Lock()
-KEPT = {}          # (address, page) -> (when, answer)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -139,18 +134,9 @@ def look(url, page):
 
 
 def probe(p, pid, url, page):
-    """The look of a tab's address, kept for TTL seconds. Only an address the playground declares is asked: anything
-    else is a ValueError, which the page is told as a bad request."""
+    """The look of a tab's address. Only an address the playground declares is asked: anything else is a ValueError, which
+    the page is told as a bad request."""
     declared_url = frames.allowed(p, pid, url)
     if declared_url is None:
         raise ValueError("Not a UI of this playground")
-    key, now = (declared_url, page), time.monotonic()
-    with LOCK:
-        for old in [old for old, (when, _) in KEPT.items() if now - when >= TTL]:
-            del KEPT[old]
-        if key in KEPT:
-            return KEPT[key][1]
-    answer = look(declared_url, page)
-    with LOCK:
-        KEPT[key] = (time.monotonic(), answer)
-    return answer
+    return look(declared_url, page)

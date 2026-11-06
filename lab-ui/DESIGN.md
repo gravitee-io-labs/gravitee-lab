@@ -703,7 +703,7 @@ place gone with its platform, or a place not read yet.
     ordered the current before the `legacy` ones, then by name (`project._consoles`).
   - Nothing else is a UI: there is no other key, no address of its own, no flag on a link.
   - Whether a UI answers and the page may frame it is a look of the Lab UI's server
-    (`GET /api/playgrounds/<id>/frame?url=`, `probe.py`, kept 4 s), asked only for these addresses, judged against the
+    (`GET /api/playgrounds/<id>/frame?url=`, `probe.py`), asked only for these addresses, judged against the
     origin the page was opened with: `frame-ancestors` first, then X-Frame-Options, as a browser does. One whose certificate
     this machine does not trust answers and is not framed. Why one does not answer is said in words in the tooltip of
     *Does not answer* (Not listening yet, No answer within 3 s, Not ready yet for a proxy's 502 to 504), and not at all

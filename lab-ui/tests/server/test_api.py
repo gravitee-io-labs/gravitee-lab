@@ -538,7 +538,6 @@ class Frame(LabUI):
         playground = {"services": [], "addons": [], "consoles": ["gamma-ui"]}
         self.patch(api.project, "load", return_value={**PROJECT, "links": [link],
                                                       "playgrounds": {"welcome": playground, "local/mine": playground}})
-        self.patch(probe, "KEPT", {})
 
     def ask(self, path, **headers):
         status, _, body = self.request("GET", path, headers={"Host": "localhost:9000", **headers})
