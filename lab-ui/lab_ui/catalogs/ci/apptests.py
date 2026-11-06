@@ -220,7 +220,6 @@ def ensure_node(node: str, run: Runner, sleep: Callable[[float], None] = time.sl
         if attempt == len(PULL_RETRIES) or not INFRA.search(text):
             return said
         sleep(PULL_RETRIES[attempt])
-    return "docker pull failed"   # (not reached)
 
 
 def run_app(app: str, image: str, run: Runner, node: Optional[str] = None, guide: Optional[str] = None,

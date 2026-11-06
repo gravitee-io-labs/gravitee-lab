@@ -296,7 +296,6 @@ def make_plan(root: str, change: Optional[str], sha: Optional[str], ref: str, mo
     problems += refusals([each for each in loading.refused if not needs_settings(each)], "tried")
     units = {unit.key: unit for unit in loading.units}
     reads: List[str] = []
-    jobs: List[dict] = []
     from ... import e2e as engine
 
     def sets(item: str) -> int:
@@ -324,8 +323,7 @@ def make_plan(root: str, change: Optional[str], sha: Optional[str], ref: str, mo
         items.append(item)
     if problems:
         return Planned([], problems, reads, notes)
-    count = {item: sets(item) for item in items}
-    jobs = engine.jobs(items, lambda item: count[item])
+    jobs = engine.jobs(items, sets)
     if len(jobs) > engine.JOBS_LIMIT:
         raise Usage(f"The plan has {len(jobs)} jobs and a matrix of GitHub runs {engine.JOBS_LIMIT} at most: try the items a part at "
                     "a time")

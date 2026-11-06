@@ -56,7 +56,6 @@ WAIT = 240          # seconds `up --wait` gives the services of a wave to become
 SETTLE = 5          # seconds a started wave is given before it is looked at again
 UP_TIMEOUT = 900    # seconds for one `up`: the wait, and what is pulled before it
 LOG_LINES = 60      # lines of the log of a container that is not up
-LOG_WIDTH = 2000    # characters of such a line that are kept
 SEED = "seed"
 ROLE = "io.gravitee.role"
 LICENSE_LABEL = "io.gravitee.license"
@@ -333,11 +332,6 @@ def up_words(services: Sequence[str]) -> List[str]:
     return ["up", "-d", "--wait", "--wait-timeout", str(WAIT), "--no-build", "--pull", "missing", "--no-deps", *services]
 
 
-def up_command(project: str, files: Sequence[str], services: Sequence[str]) -> List[str]:
-    """The whole `docker compose up` of 5.6 for one wave, as an argument list."""
-    return [*compose.COMPOSE, "-p", project, *files, *up_words(services)]
-
-
 def ps_rows(text: str) -> List[dict]:
     """The containers `docker compose ps --all --format json` lists: one JSON object a line."""
     rows = []
@@ -382,7 +376,7 @@ class Docker:
 
     def logs(self, unit: Loaded, service: str) -> List[str]:
         code, out, said = self.compose(unit, "logs", "--no-color", "--tail", str(LOG_LINES), service, timeout=60)
-        return [line[:LOG_WIDTH] for line in tail(out + ("\n" + said if said and code != 0 else ""), LOG_LINES)]
+        return tail(out + ("\n" + said if said and code != 0 else ""), LOG_LINES)
 
     def down(self, unit: Loaded) -> str:
         """Removes the project with its volumes and orphans. Answers "" or why it could not."""

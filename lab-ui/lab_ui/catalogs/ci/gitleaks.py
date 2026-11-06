@@ -54,7 +54,6 @@ PIN = re.compile(r"[a-z0-9]+(?:[._/-][a-z0-9]+)*(?::[\w][\w.-]{0,127})?@sha256:[
 FROM = re.compile(r"^FROM\s+(\S+)\s+AS\s+(\S+)\s*$", re.I | re.M)
 RULE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}")
 ZEROS = re.compile(r"0{40}")
-SHA = re.compile(r"[0-9a-f]{40}")
 FINDINGS = 1000   # the most findings read: past it the report is a flood
 REPORT_LIMIT = 32 * 1024 * 1024
 SCAN_TIMEOUT = 900

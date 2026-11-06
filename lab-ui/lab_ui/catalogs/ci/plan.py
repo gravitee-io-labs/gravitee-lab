@@ -280,16 +280,14 @@ def main(argv, out, err, **seams) -> int:
     if args.github_output and not os.environ.get("GITHUB_OUTPUT"):
         raise Unavailable("--github-output needs $GITHUB_OUTPUT, which only a workflow step has")
     tree = trees.FolderTree(root)
-    base, reason = args.base, ""
+    base = args.base
     if args.event not in EVERYTHING:
         if not base and not args.head and trees.is_repository(root):
             base = trees.default_base(root) or ""
         changed = None if (not base or ZEROS.fullmatch(base)) else changed_files(root, base, args.head or None)
-        if changed is None and base and not ZEROS.fullmatch(base):
-            reason = "git could not say what changed"
     else:
         changed = None
-    plan = compute(tree, args.event, changed, base, reason=reason)
+    plan = compute(tree, args.event, changed, base)
     failed = [each for each in plan.problems if each.severity == ERROR]
     if args.format == "json":
         document = {"units": plan.units, "seed": plan.seed, "compile": plan.compile, "matrix": plan.matrix,
