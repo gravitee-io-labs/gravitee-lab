@@ -633,31 +633,12 @@ class FromCatalogs(Case):
         self.assertEqual((raised.exception.code, raised.exception.message),
                          ("lock_unread", "Gravitee Lab cannot read its contract.lock. Fix: make update."))
 
-    LAYOUTS = {
-        "two spaces": "x-gravitee-catalog:\n  schema: 1\n  id: partner\n  name: Partner fixture\n  description: d\n  version: 2.0.0\n"
-                      "  lab: 1\n  license: AGPL-3.0-only\n",
-        "four spaces": "x-gravitee-catalog:\n    schema: 1\n    id: partner\n    name: Partner fixture\n    description: d\n"
-                       "    version: 2.0.0\n    lab: 1\n    license: AGPL-3.0-only\n",
-        "comment": "# the catalog\nx-gravitee-catalog:\n  schema: 1\n  id: partner\n  name: Partner fixture\n  description: d\n"
-                   "  version: 2.0.0\n  lab: 1   # the level\n  license: AGPL-3.0-only\n",
-        "crlf": ("x-gravitee-catalog:\n  schema: 1\n  id: partner\n  name: Partner fixture\n  description: d\n  version: 2.0.0\n"
-                 "  lab: 1\n  license: AGPL-3.0-only\n").replace("\n", "\r\n"),
-        "tab after the colon": "x-gravitee-catalog:\n  schema: 1\n  id: partner\n  name: Partner fixture\n  description: d\n"
-                               "  version: 2.0.0\n  lab:\t1\n  license: AGPL-3.0-only\n",
-        "bom": "\ufeffx-gravitee-catalog:\n  schema: 1\n  id: partner\n  name: Partner fixture\n  description: d\n  version: 2.0.0\n"
-               "  lab: 1\n  license: AGPL-3.0-only\n",
-    }
-
     def test_comments_and_blank_lines_around_lab_stay_where_they_are(self):
         doc = (Path(__file__).resolve().parents[3] / "docs" / "writing-a-catalog.md").read_text(encoding="utf-8")
         example = re.search(r"```yaml\n(x-gravitee-catalog:\n.*?)```", doc, re.S).group(1)   # the guide's, as an author copies it
-        two = self.LAYOUTS["two spaces"]
-        cases = {"a comment line under it": two.replace("  lab: 1\n", "  lab: 1\n  # the level it needs\n"),
-                 "a comment line over it": two.replace("  lab: 1\n", "  # the level it needs\n  lab: 1\n"),
-                 "blank lines around it": two.replace("  lab: 1\n", "\n  lab: 1\n\n"),
-                 "a comment far under it": two.replace("  lab: 1\n", "  lab: 1\n                      # more\n")}
-        for name, text in cases.items():
+        for name in ("comment after", "comment line under", "comment line over", "blank lines around", "comment far under"):
             with self.subTest(name):
+                text = RAISED_LAYOUTS[name][0]
                 raised = contribute._raised(text, 2)
                 self.assertEqual(raised, text.replace("lab: 1", "lab: 2", 1))
                 self.assertEqual(contribute._strict(raised)["lab"], 2)
@@ -683,6 +664,8 @@ class FromCatalogs(Case):
                 self.assertTrue(contribute._same_but_lab(before, after), "nothing else of what the file says changes")
                 self.assertIsNone(contribute._raised(raised, 2), "once")
         self.assertIsNone(contribute._raised(RAISED_LAYOUTS["plain"][0].replace("lab: 1", "lab: 3"), 2), "never lowered")
+        with self.assertRaises(contribute.NotRaised):
+            contribute._raised("x-gravitee-catalog: [not, a, block]\n", 2)
 
     def test_a_copy_of_an_item_whose_include_is_not_text_or_cannot_be_opened_is_a_clean_refusal(self):
         text = open("tests/data/catalogs/partner/addons/ledger/compose.yml").read()

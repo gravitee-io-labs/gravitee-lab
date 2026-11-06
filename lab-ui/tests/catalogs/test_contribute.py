@@ -2194,33 +2194,5 @@ class Real(Base):
         self.assertEqual(lines_of(raised.exception), ("held", 409, "Turn off Plain first."))
 
 
-class LegacyLab(unittest.TestCase):
-    """A share keeps the `lab` that older Gravitee Labs read true: it raises one the shared item needs more than, in the
-    same commit or copy, writes the lines where they are missing, and never lowers them. What it writes is read back as
-    `catalog.py check` reads it (Compose), else the share is refused."""
-
-    TEXT = ("x-gravitee-catalog:\n  schema: 1\n  id: hub\n  name: Hub\n  description: d\n  version: 1.0.0\n  lab: 1   # older Labs\n"
-            "  license: AGPL-3.0-only\n")
-
-    def setUp(self):
-        fixtures.need_compose()
-
-    def test_a_lab_lower_than_the_item_needs_is_raised_alone(self):
-        self.assertEqual(contribute._raised(self.TEXT, 3), self.TEXT.replace("lab: 1", "lab: 3"))
-
-    def test_a_lab_that_is_enough_is_left_as_it_is_and_missing_lines_are_written(self):
-        text = self.TEXT.replace("lab: 1   # older Labs", "lab: 4")
-        self.assertIsNone(contribute._raised(text, 3))
-        self.assertIsNone(contribute._raised(text, 4))
-        written = contribute._raised(self.TEXT.replace("  lab: 1   # older Labs\n", ""), 3)
-        self.assertEqual(contribute._strict(written)["lab"], 3, "without the lines, older Labs would take what it holds")
-
-    def test_a_block_neither_writer_can_change_is_refused_never_left_lower(self):
-        with self.assertRaises(contribute.NotRaised):
-            contribute._raised(self.TEXT.replace("  lab: 1   # older Labs\n", "  lab:\n    1\n"), 2)
-        with self.assertRaises(contribute.NotRaised):
-            contribute._raised("x-gravitee-catalog: [not, a, block]\n", 2)
-
-
 if __name__ == "__main__":
     unittest.main()
