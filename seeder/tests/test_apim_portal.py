@@ -1469,9 +1469,49 @@ class Refused(Portals):
                 else:
                     self.file(name, text)
 
-    def test_a_theme_that_names_no_file(self):
-        self.refused(r"portal/theme\.yaml: \.\./assets/missing\.svg is not a file",
-                     {"portal/theme.yaml": THEME.replace("logo.svg", "missing.svg")})
+    def test_what_a_file_says_that_cannot_be_right(self):
+        for message, files in (
+                (r"portal/theme\.yaml: \.\./assets/missing\.svg is not a file", {"portal/theme.yaml": THEME.replace("logo.svg", "missing.svg")}),
+                (r"logo\.txt is not an image of", {"assets/logo.txt": "x", "portal/theme.yaml": THEME.replace("logo.svg", "logo.txt")}),
+                (r"assets\.banner is not an image of a theme", {"portal/theme.yaml": THEME + "  banner: ../assets/logo.svg\n"}),
+                (r"it is outside the seed", {"portal/theme.yaml": THEME.replace("../assets/logo.svg", "../../../../../../etc/hosts")}),
+                (r"portal\.yaml: activeThemeHrid other-theme is no theme of this folder", {"portal/portal.yaml": PORTAL.replace("moderna-theme", "other-theme")}),
+                (r"portal/portal-2\.yaml: a second portal: there is one portal for an environment", {"portal/portal-2.yaml": PORTAL.replace("moderna-portal", "second-portal")}),
+                (r"portal/notes\.yaml: a portal folder has theme\.yaml", {"portal/notes.yaml": "a: 1\n"}),
+                (r"portal/notes\.md: a portal folder has theme\.yaml, portal\.yaml, api-overview\.md, api-details\.md, pages/, content/, links/, listings/ and api-docs/", {"portal/notes.md": "x"}),
+                (r"portal/api-overviews\.md: a portal folder has", {"portal/api-overviews.md": "# $${api.name}\n"}),
+                (r"portal/api-overview\.md: it is empty", {"portal/api-overview.md": "  \n\n"}),
+                (r"portal/api-overview\.md: UNSET_URL not set", {"portal/api-overview.md": "# $${api.name}\n${UNSET_URL}\n"}),
+                (r"pages/guide\.yaml: location 'Support' is no path of portal\.yaml", {"portal/pages/guide.yaml": GUIDE.replace("location: Guides", "location: Support")}),
+                (r"links/broker\.yaml: location 'Nowhere' is no path of portal\.yaml", {"portal/links/broker.yaml": LINK.replace("Guides", "Nowhere")}),
+                (r"listings/feeds\.yaml: location 'Event feeds/Other' is no path of portal\.yaml", {"portal/listings/feeds.yaml": LISTING.replace("Process development", "Other")}),
+                (r"listings/feeds\.yaml: moderna-ghost is the crossId of no API in the apis/ of this environment", {"portal/listings/feeds.yaml": LISTING.replace("moderna-telemetry", "moderna-ghost")}),
+                (r"listings/feeds\.yaml: apis is missing or empty", {"portal/listings/feeds.yaml": "hrid: moderna-feeds\napis: []\n"}),
+                (r"pages: a portal has one homepage", {"portal/pages/second.yaml": HOME.replace("moderna-home", "moderna-home-2")}),
+                (r"pages/guide\.yaml: hrid 'a' is missing or has a character the platform refuses", {"portal/pages/guide.yaml": GUIDE.replace("moderna-guide", "a")}),
+                (r"pages/home\.yaml: the hrid moderna-home is also environments/moderna/portal/pages/guide\.yaml's", {"portal/pages/guide.yaml": GUIDE.replace("moderna-guide", "moderna-home")}),
+                (r"it has file or content, one of the two", {"portal/pages/guide.yaml": GUIDE + "content: x\n"}),
+                (r"it has file or content, one of the two", {"portal/pages/guide.yaml": GUIDE.replace("file: ../content/guide.md\n", "")}),
+                (r"guide\.yaml: \.\./content/none\.md is not a file", {"portal/pages/guide.yaml": GUIDE.replace("guide.md", "none.md")}),
+                (r"portal/theme\.yaml: favicons is not a key of this file", {"portal/theme.yaml": THEME + "favicons: x\n"}),
+                (r"pages/guide\.yaml: loaction is not a key of this file", {"portal/pages/guide.yaml": GUIDE + "loaction: Guides\n"}),
+                (r"a path of structure\.topNavbar has path, displayName and visibility", {"portal/portal.yaml": PORTAL + "    - {path: Support, order: 3}\n"}),
+                (r"type is GRAVITEE_MARKDOWN, OPENAPI, ASYNCAPI", {"portal/pages/guide.yaml": GUIDE.replace("GRAVITEE_MARKDOWN", "WIKI")}),
+                (r"type is GRAVITEE_MARKDOWN, OPENAPI, ASYNCAPI and area TOP_NAVBAR or HOMEPAGE", {"portal/pages/guide.yaml": GUIDE + "area: SIDEBAR\n"}),
+                (r"visibility is SECRET, PUBLIC or PRIVATE", {"portal/links/broker.yaml": LINK + "visibility: SECRET\n"}),
+                (r"links/broker\.yaml: UNSET_URL not set", {"portal/links/broker.yaml": LINK.replace("MANAGER_URL", "UNSET_URL")}),
+                (r"content/guide\.md: api not set", {"portal/content/guide.md": "Name: ${api}\n"}),   # an expression that is not escaped
+                (r"the path Event Feeds is there twice", {"portal/portal.yaml": PORTAL + "    - {path: Event Feeds}\n"}),
+                (r"a path of structure\.topNavbar is missing or has a segment with no letter or digit", {"portal/portal.yaml": PORTAL + "    - {path: Event feeds/--}\n"}),
+                (r"^environments/moderna/portal/links/broker\.yaml: it is not valid YAML once its variables are replaced \(line \d+\)$", {"portal/links/broker.yaml": "name: [unclosed\nhref: {\n"}),
+                (r"links/broker\.yaml: it is not a mapping", {"portal/links/broker.yaml": "- a\n- b\n"}),
+                (r"apis/batch-status\.json: it is not an API export", {"apis/batch-status.json": "[1]"})):
+            with self.subTest(message=message):
+                self.refused(message, files)
+
+    def test_a_hidden_file_is_no_file_of_a_portal_folder(self):
+        self.file("portal/.keep", "")
+        self.run_seed()
 
     def test_an_image_over_256_kb(self):
         self.seed_files({f"{MODERNA}/assets/logo.svg": "x" * (300 * 1024)})
@@ -1484,33 +1524,6 @@ class Refused(Portals):
         self.run_seed()
         self.assertIn(("PUT", f"{AUTO}/moderna/portal-themes"), self.platform.changes())
 
-    def test_a_file_that_is_no_image(self):
-        self.refused(r"logo\.txt is not an image of", {"assets/logo.txt": "x", "portal/theme.yaml": THEME.replace("logo.svg", "logo.txt")})
-
-    def test_an_asset_that_is_no_image_of_a_theme(self):
-        self.refused(r"assets\.banner is not an image of a theme", {"portal/theme.yaml": THEME + "  banner: ../assets/logo.svg\n"})
-
-    def test_a_file_outside_the_seed(self):
-        self.refused(r"it is outside the seed", {"portal/theme.yaml": THEME.replace("../assets/logo.svg", "../../../../../../etc/hosts")})
-
-    def test_a_portal_that_shows_a_theme_the_folder_does_not_have(self):
-        self.refused(r"portal\.yaml: activeThemeHrid other-theme is no theme of this folder",
-                     {"portal/portal.yaml": PORTAL.replace("moderna-theme", "other-theme")})
-
-    def test_a_second_portal_file(self):
-        self.refused(r"portal/portal-2\.yaml: a second portal: there is one portal for an environment",
-                     {"portal/portal-2.yaml": PORTAL.replace("moderna-portal", "second-portal")})
-
-    def test_a_file_a_portal_folder_does_not_have(self):
-        self.refused(r"portal/notes\.yaml: a portal folder has theme\.yaml", {"portal/notes.yaml": "a: 1\n"})
-
-    def test_a_text_that_is_not_api_overview_is_no_file_of_a_portal_folder_and_a_hidden_file_is_none(self):
-        self.refused(r"portal/notes\.md: a portal folder has theme\.yaml, portal\.yaml, api-overview\.md, api-details\.md, pages/, content/, "
-                     r"links/, listings/ and api-docs/", {"portal/notes.md": "x"})
-        self.refused(r"portal/api-overviews\.md: a portal folder has", {"portal/api-overviews.md": "# $${api.name}\n"})
-        self.file("portal/.keep", "")
-        self.run_seed()
-
     def test_api_overview_for_a_portal_that_lists_no_api(self):
         os.remove(common.SEED_DIR / MODERNA / "portal" / "listings" / "feeds.yaml")
         self.file("portal/api-overview.md", "# $${api.name}\n")
@@ -1518,12 +1531,6 @@ class Refused(Portals):
                                                r"and this portal has no listing$"):
             self.run_seed()
         self.assertEqual(self.platform.changes(), [])
-
-    def test_an_api_overview_with_nothing_in_it(self):
-        self.refused(r"portal/api-overview\.md: it is empty", {"portal/api-overview.md": "  \n\n"})
-
-    def test_a_variable_of_api_overview_that_no_seed_service_sets(self):
-        self.refused(r"portal/api-overview\.md: UNSET_URL not set", {"portal/api-overview.md": "# $${api.name}\n${UNSET_URL}\n"})
 
     def test_api_overview_with_no_portal_file_is_said_and_not_ignored(self):
         shutil.rmtree(common.SEED_DIR / MODERNA / "portal")
@@ -1537,77 +1544,11 @@ class Refused(Portals):
             self.run_seed()
         self.assertEqual(self.platform.changes(), [])
 
-    def test_a_location_that_is_no_path_of_the_portal(self):
-        self.refused(r"pages/guide\.yaml: location 'Support' is no path of portal\.yaml",
-                     {"portal/pages/guide.yaml": GUIDE.replace("location: Guides", "location: Support")})
-        self.refused(r"links/broker\.yaml: location 'Nowhere' is no path of portal\.yaml",
-                     {"portal/links/broker.yaml": LINK.replace("Guides", "Nowhere")})
-        self.refused(r"listings/feeds\.yaml: location 'Event feeds/Other' is no path of portal\.yaml",
-                     {"portal/listings/feeds.yaml": LISTING.replace("Process development", "Other")})
-
     def test_a_folder_a_path_goes_through_is_a_location_too(self):
         self.file("portal/portal.yaml", PORTAL + "    - {path: Support/Tickets/Open}\n")
         self.file("portal/pages/guide.yaml", GUIDE.replace("location: Guides", "location: Support/Tickets"))
         self.run_seed()
         self.assertEqual(self.sent("PUT", "/documentations")[0]["location"], "/support/tickets")
-
-    def test_a_listing_that_names_no_cross_id_of_the_environment(self):
-        self.refused(r"listings/feeds\.yaml: moderna-ghost is the crossId of no API in the apis/ of this environment",
-                     {"portal/listings/feeds.yaml": LISTING.replace("moderna-telemetry", "moderna-ghost")})
-
-    def test_a_listing_with_no_apis(self):
-        self.refused(r"listings/feeds\.yaml: apis is missing or empty", {"portal/listings/feeds.yaml": "hrid: moderna-feeds\napis: []\n"})
-
-    def test_two_homepages(self):
-        self.refused(r"pages: a portal has one homepage", {"portal/pages/second.yaml": HOME.replace("moderna-home", "moderna-home-2")})
-
-    def test_a_hrid_the_platform_refuses_or_that_is_there_twice(self):
-        self.refused(r"pages/guide\.yaml: hrid 'a' is missing or has a character the platform refuses",
-                     {"portal/pages/guide.yaml": GUIDE.replace("moderna-guide", "a")})
-        self.refused(r"pages/home\.yaml: the hrid moderna-home is also environments/moderna/portal/pages/guide\.yaml's",
-                     {"portal/pages/guide.yaml": GUIDE.replace("moderna-guide", "moderna-home")})
-
-    def test_a_page_with_its_text_in_a_file_and_in_the_page_or_in_neither(self):
-        self.refused(r"it has file or content, one of the two", {"portal/pages/guide.yaml": GUIDE + "content: x\n"})
-        self.refused(r"it has file or content, one of the two", {"portal/pages/guide.yaml": GUIDE.replace("file: ../content/guide.md\n", "")})
-
-    def test_a_page_that_names_no_file(self):
-        self.refused(r"guide\.yaml: \.\./content/none\.md is not a file", {"portal/pages/guide.yaml": GUIDE.replace("guide.md", "none.md")})
-
-    def test_a_key_the_platform_would_drop_silently(self):
-        self.refused(r"portal/theme\.yaml: favicons is not a key of this file", {"portal/theme.yaml": THEME + "favicons: x\n"})
-        self.refused(r"pages/guide\.yaml: loaction is not a key of this file", {"portal/pages/guide.yaml": GUIDE + "loaction: Guides\n"})
-        self.refused(r"a path of structure\.topNavbar has path, displayName and visibility",
-                     {"portal/portal.yaml": PORTAL + "    - {path: Support, order: 3}\n"})
-
-    def test_a_type_a_visibility_or_an_area_the_platform_does_not_have(self):
-        self.refused(r"type is GRAVITEE_MARKDOWN, OPENAPI, ASYNCAPI", {"portal/pages/guide.yaml": GUIDE.replace("GRAVITEE_MARKDOWN", "WIKI")})
-        self.refused(r"type is GRAVITEE_MARKDOWN, OPENAPI, ASYNCAPI and area TOP_NAVBAR or HOMEPAGE",
-                     {"portal/pages/guide.yaml": GUIDE + "area: SIDEBAR\n"})
-        self.refused(r"visibility is SECRET, PUBLIC or PRIVATE", {"portal/links/broker.yaml": LINK + "visibility: SECRET\n"})
-
-    def test_a_variable_no_seed_service_sets(self):
-        self.refused(r"links/broker\.yaml: UNSET_URL not set", {"portal/links/broker.yaml": LINK.replace("MANAGER_URL", "UNSET_URL")})
-
-    def test_a_page_with_an_expression_that_is_not_escaped_is_a_variable_nobody_sets(self):
-        self.refused(r"content/guide\.md: api not set", {"portal/content/guide.md": "Name: ${api}\n"})
-
-    def test_two_paths_that_are_one(self):
-        self.refused(r"the path Event Feeds is there twice", {"portal/portal.yaml": PORTAL + "    - {path: Event Feeds}\n"})
-
-    def test_a_path_with_nothing_to_read_in_a_segment(self):
-        self.refused(r"a path of structure\.topNavbar is missing or has a segment with no letter or digit",
-                     {"portal/portal.yaml": PORTAL + "    - {path: Event feeds/--}\n"})
-
-    def test_a_file_that_is_not_yaml_is_said_on_one_line(self):
-        self.refused(r"^environments/moderna/portal/links/broker\.yaml: it is not valid YAML once its variables are replaced \(line \d+\)$",
-                     {"portal/links/broker.yaml": "name: [unclosed\nhref: {\n"})
-
-    def test_a_file_that_is_not_a_mapping(self):
-        self.refused(r"links/broker\.yaml: it is not a mapping", {"portal/links/broker.yaml": "- a\n- b\n"})
-
-    def test_an_api_export_that_is_no_json_object(self):
-        self.refused(r"apis/batch-status\.json: it is not an API export", {"apis/batch-status.json": "[1]"})
 
     def test_every_file_is_checked_before_any_environment_changes(self):
         self.seed_files({"environments/beam/environment.yaml": "id: beam\nname: Beam\n",
@@ -1623,23 +1564,24 @@ class Documented(Portals):
 
     refused = Refused.refused
 
-    def test_a_file_for_no_api_that_a_listing_shows(self):
-        self.refused(r"^environments/moderna/portal/api-docs/ghost\.yaml: moderna-ghost is no API that a listing of this portal shows$",
-                     {"portal/api-docs/ghost.yaml": DOC})
+    def test_what_a_document_or_the_details_say_that_cannot_be_right(self):
+        for message, files in (
+                (r"^environments/moderna/portal/api-docs/ghost\.yaml: moderna-ghost is no API that a listing of this portal shows$", {"portal/api-docs/ghost.yaml": DOC}),
+                (r"api-docs/moderna-batch-status\.yaml: moderna-moderna-batch-status is no API", {"portal/api-docs/moderna-batch-status.yaml": DOC}),   # named for the feed, not for the crossId
+                (r"api-docs/batch-status\.yml: moderna-batch-status has its document in environments/moderna/portal/api-docs/batch-status\.yaml already",
+                 {"portal/api-docs/batch-status.yaml": DOC, "portal/api-docs/batch-status.yml": DOC}),
+                (r"api-docs/notes\.txt: api-docs/ holds the AsyncAPI document of an API, <feed>\.yaml", {"portal/api-docs/notes.txt": "x"}),
+                (r"api-docs/batch-status\.yaml: UNSET_URL not set", {"portal/api-docs/batch-status.yaml": DOC + "# ${UNSET_URL}\n"}),
+                (r"portal/api-details\.md: UNSET_URL not set", {"portal/api-details.md": "${UNSET_URL}\n"}),
+                (r"^environments/moderna/portal/api-docs/batch-status\.yaml: it is not valid YAML once its variables are replaced \(line \d+\)$", {"portal/api-docs/batch-status.yaml": "asyncapi: [unclosed\nx: {\n"}),
+                (r"batch-status\.yaml: it is not valid YAML", {"portal/api-docs/batch-status.yaml": "x: 2026-13-45\n"}),
+                (r"batch-status\.yaml: merges mappings with << keys", {"portal/api-docs/batch-status.yaml": doubling(22)})):
+            with self.subTest(message=message):
+                self.refused(message, files)
 
     def test_a_file_named_for_an_api_of_the_folder_that_no_listing_shows(self):
         self.seed_files({f"{MODERNA}/apis/ghost.json": json.dumps({"api": {"name": "Ghost", "crossId": "moderna-ghost"}})})
         self.refused(r"api-docs/ghost\.yaml: moderna-ghost is no API that a listing of this portal shows", {"portal/api-docs/ghost.yaml": DOC})
-
-    def test_the_file_is_named_for_the_feed_and_not_for_the_cross_id(self):
-        self.refused(r"api-docs/moderna-batch-status\.yaml: moderna-moderna-batch-status is no API", {"portal/api-docs/moderna-batch-status.yaml": DOC})
-
-    def test_two_files_for_one_api(self):
-        self.refused(r"api-docs/batch-status\.yml: moderna-batch-status has its document in environments/moderna/portal/api-docs/"
-                     r"batch-status\.yaml already", {"portal/api-docs/batch-status.yaml": DOC, "portal/api-docs/batch-status.yml": DOC})
-
-    def test_a_file_that_is_no_document_of_an_api(self):
-        self.refused(r"api-docs/notes\.txt: api-docs/ holds the AsyncAPI document of an API, <feed>\.yaml", {"portal/api-docs/notes.txt": "x"})
 
     def test_a_hidden_file_and_a_folder_in_api_docs_are_none(self):
         self.seed_files({f"{MODERNA}/portal/api-docs/.keep": "", f"{MODERNA}/portal/api-docs/old/x.yaml": "a: 1\n"})
@@ -1661,18 +1603,6 @@ class Documented(Portals):
         os.remove(common.SEED_DIR / MODERNA / "portal" / "listings" / "feeds.yaml")
         self.refused(r"^environments/moderna/portal/api-details\.md: it is the Details tab of the APIs a listing shows, and this portal has no listing$",
                      {"portal/api-details.md": DETAILS})
-
-    def test_a_variable_of_a_document_or_of_the_details_that_no_seed_service_sets(self):
-        self.refused(r"api-docs/batch-status\.yaml: UNSET_URL not set", {"portal/api-docs/batch-status.yaml": DOC + "# ${UNSET_URL}\n"})
-        self.refused(r"portal/api-details\.md: UNSET_URL not set", {"portal/api-details.md": "${UNSET_URL}\n"})
-
-    def test_a_document_that_is_not_yaml_is_said_on_one_line(self):
-        self.refused(r"^environments/moderna/portal/api-docs/batch-status\.yaml: it is not valid YAML once its variables are replaced \(line \d+\)$",
-                     {"portal/api-docs/batch-status.yaml": "asyncapi: [unclosed\nx: {\n"})
-        self.refused(r"batch-status\.yaml: it is not valid YAML", {"portal/api-docs/batch-status.yaml": "x: 2026-13-45\n"})
-
-    def test_a_document_that_asks_the_loader_for_a_bomb_of_pairs_is_refused(self):
-        self.refused(r"batch-status\.yaml: merges mappings with << keys", {"portal/api-docs/batch-status.yaml": doubling(22)})
 
     def test_a_file_that_is_no_asyncapi_document(self):
         for text in ("- a\n- b\n", "hello: world\n", "asyncapi:\ninfo: {title: t, version: '1'}\n", ""):
