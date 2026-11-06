@@ -376,24 +376,9 @@ def license_text(given: dict) -> str:
 # standard.json
 # ---------------------------------------------------------------------------------------------------------------------
 
-def _dump(value, indent: int = 0) -> str:
-    """JSON with sorted keys, two-space indent and a list of scalars on one line, as 3.2 shows the file."""
-    pad = "  " * (indent + 1)
-    if isinstance(value, dict):
-        if not value:
-            return "{}"
-        rows = [f"{pad}{json.dumps(key)}: {_dump(value[key], indent + 1)}" for key in sorted(value)]
-        return "{\n" + ",\n".join(rows) + "\n" + "  " * indent + "}"
-    if isinstance(value, list):
-        if all(not isinstance(each, (dict, list)) for each in value):
-            return "[" + ", ".join(json.dumps(each) for each in value) + "]"
-        return "[\n" + ",\n".join(pad + _dump(each, indent + 1) for each in value) + "\n" + "  " * indent + "]"
-    return json.dumps(value)
-
-
 def dump_standard(data: dict) -> str:
     """`.github/standard.json` as text: sorted keys, 2-space indent, LF, one final newline."""
-    return _dump(data) + "\n"
+    return json.dumps(data, indent=2, sort_keys=True) + "\n"
 
 
 def standard_for(given: dict) -> dict:
