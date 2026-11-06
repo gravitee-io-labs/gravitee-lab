@@ -619,17 +619,11 @@ def _github_login(gh):
         if rc == 0:
             rc, token, err = compose.run([gh, "auth", "token", "--hostname", GITHUB], timeout=30)
         if rc != 0:
-            raise JobFailed(_last(err) or "The GitHub CLI has no session")
+            raise JobFailed(compose._last_line(err, "The GitHub CLI has no session"))
         cmd = ["docker", "login", GHCR, "--username", user.strip(), "--password-stdin"]
         job.lines.append(f"$ {' '.join(cmd)}")
         rc, out, err = compose.run(cmd, timeout=60, given=token.strip())
         job.lines.extend(line for line in (out + err).splitlines() if line.strip())
         if rc != 0:
-            raise JobFailed(_last(err) or f"docker login failed with exit code {rc}")
+            raise JobFailed(compose._last_line(err, f"docker login failed with exit code {rc}"))
     return step
-
-
-def _last(text):
-    """The last line a command printed, without its blanks."""
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    return lines[-1] if lines else ""

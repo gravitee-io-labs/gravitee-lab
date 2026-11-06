@@ -425,9 +425,9 @@ def end(process):
     timer.start()
 
 
-def _last_line(err):
+def _last_line(err, empty="docker compose failed"):
     lines = [line.strip() for line in err.splitlines() if line.strip()]
-    return lines[-1] if lines else "docker compose failed"
+    return lines[-1] if lines else empty
 
 
 def _read(asked, **how):
