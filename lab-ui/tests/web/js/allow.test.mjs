@@ -70,7 +70,6 @@ const page = installDom({
   },
 });
 globalThis.innerHeight = 800;
-globalThis.getComputedStyle = () => ({ position: "static", getPropertyValue: () => "0" });
 
 const { store, router } = await import("../../../web/js/core.js");
 const { catalogsPage } = await import("../../../web/js/pages/catalogs.js");

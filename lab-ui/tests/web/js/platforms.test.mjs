@@ -63,8 +63,6 @@ const endJobs = () => {
   page.doc.body.hidden = false;   // the drawer's output hides its parent, which in this small DOM is the body
 };
 globalThis.innerHeight = 800;   // a menu opens under its button, or above it when the window ends first
-// A button that fades back to its face reads how long it takes from the stylesheet: no fade here
-globalThis.getComputedStyle = () => ({ position: "static", getPropertyValue: () => "0" });
 const { store } = await import("../../../web/js/core.js");
 const { platformsPage, accountState } = await import("../../../web/js/pages/platforms.js");
 const { logsPage } = await import("../../../web/js/pages/logs.js");

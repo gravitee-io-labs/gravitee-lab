@@ -26,7 +26,6 @@ const page = installDom({ ids, fetch: async (path, options = {}) => {
   server.calls.push({ path, method: options.method || "GET" });
   return reply(path.startsWith("/api/machine") ? server.machine : {});
 } });
-globalThis.getComputedStyle = () => ({ position: "static", getPropertyValue: () => "0" });
 const { machine, machineBlocked, machineToFix, machineRowsHtml, machineSummary, refreshMachine, watchMachine, unwatchMachine } =
   await import("../../../web/js/dialogs/machine.js");
 const settle = async () => { for (let i = 0; i < 4; i += 1) await flush(); };

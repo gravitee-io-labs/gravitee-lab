@@ -42,7 +42,6 @@ const page = installDom({
   },
 });
 globalThis.EventSource = class { close() {} addEventListener() {} };   // a job's output, which the drawer follows
-globalThis.getComputedStyle = () => ({ position: "static", getPropertyValue: () => "0" });   // a button gives its face back at once
 // The two libraries a guide is rendered with are loaded from a CDN by the page: stand-ins here, and a script loads at once
 globalThis.marked = { parse: (markdown) => `<p>${markdown.replace(/\n+/g, " ")}</p>` };
 globalThis.DOMPurify = { addHook() {}, sanitize: (html) => html };

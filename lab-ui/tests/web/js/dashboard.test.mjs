@@ -57,7 +57,6 @@ globalThis.EventSource = class {
   send(sample) { this.onmessage({ data: JSON.stringify(sample) }); }
   addEventListener() {}
 };
-// A button that fades back to its face reads how long it takes from the stylesheet: no fade here
 // The clock the charts are read against, and the animation frames, which a test runs by hand at the time it chooses
 let clock = Date.now();
 Date.now = () => clock;
@@ -71,7 +70,6 @@ const frame = (seconds) => {
   queued.clear();
   due.forEach((fn) => fn());
 };
-globalThis.getComputedStyle = () => ({ position: "static", getPropertyValue: () => "0" });
 page.ids.health.append(page.doc.createElement("span"));   // the spinner that the status dot replaces
 globalThis.innerHeight = 800;   // a menu opens under its button, or above it when the window ends first
 const { store, router } = await import("../../../web/js/core.js");

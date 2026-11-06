@@ -25,7 +25,6 @@ const page = installDom({ ids, fetch: async (path) => {
   if (route === "/api/files") return reply({ sections: [{ title: "Unit", on: false, runs: false, files: [{ path: file, name: file.split("/").pop(), kind: "compose" }] }] });
   return reply({});
 } });
-globalThis.getComputedStyle = () => ({ position: "static", getPropertyValue: () => "" });
 
 // What the popup asks of Monaco: a model for each file, an editor with options it is given when it is created and again when they change
 const options = [];

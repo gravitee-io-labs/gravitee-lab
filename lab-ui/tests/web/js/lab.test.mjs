@@ -44,7 +44,6 @@ const page = installDom({
 let reloads = 0;
 location.reload = () => { reloads += 1; };
 globalThis.EventSource = class { close() {} addEventListener() {} };
-globalThis.getComputedStyle = () => ({ position: "static", getPropertyValue: () => "0" });
 const { store } = await import("../../../web/js/core.js");
 const { openLab, followLab, paintLab } = await import("../../../web/js/dialogs/lab.js");
 const dialog = page.doc.querySelector(".lab-dialog");

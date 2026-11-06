@@ -31,7 +31,6 @@ const page = installDom({ ids, fetch: async (path, options = {}) => {
   if (server.refuse) return reply({ error: server.refuse }, 400);
   return reply(server.done[body.to]);
 } });
-globalThis.getComputedStyle = () => ({ position: "static", getPropertyValue: () => "0" });
 const { store } = await import("../../../web/js/core.js");
 const { share, openCreate } = await import("../../../web/js/dialogs/create.js");
 for (const form of page.doc.querySelectorAll("dialog form")) form.checkValidity = () => true;   // a browser tells whether the required fields are filled

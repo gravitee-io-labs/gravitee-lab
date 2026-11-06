@@ -43,8 +43,6 @@ const page = installDom({ ids, stored, fetch: async (path, options = {}) => {
 } });
 globalThis.EventSource = class { close() {} addEventListener() {} };   // the output of a job, which the drawer follows
 page.ids.health.append(page.doc.createElement("span"));   // the spinner that the status dot replaces
-// A button that fades back to its face reads how long it takes from the stylesheet: no fade here
-globalThis.getComputedStyle = () => ({ position: "static", getPropertyValue: () => "0" });
 
 // What the registered platforms and the places of the cache say, which a test sets
 const registry = { platforms: [], places: [] };

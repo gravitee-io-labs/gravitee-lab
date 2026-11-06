@@ -39,7 +39,6 @@ const page = installDom({ ids, fetch: async (path, options = {}) => {
 } });
 // Monaco does not come: a plain text area is the editor, as it is without the internet
 page.doc.head.append = (script) => { queueMicrotask(() => script.onerror()); };
-globalThis.getComputedStyle = () => ({ position: "static", getPropertyValue: () => "" });
 const { store } = await import("../../../web/js/core.js");
 const { openFile } = await import("../../../web/js/dialogs/editor.js");
 const { fileButtons } = await import("../../../web/js/components/ui.js");
