@@ -82,6 +82,11 @@ class Client(Case):
         """A call that asks the Cloud at this address for an account."""
         return lambda: cloud.Cloud(address, token).account(account)
 
+    @staticmethod
+    def reads(address, token=fake_cloud.CLOUD_TOKEN):
+        """A call that asks Cloud Gate at this address for the first API of an environment."""
+        return lambda: cloud.Gate(address, token).read(ORGANIZATION, DEVELOPMENT)
+
     def assertHidden(self, *things, more=()):
         """No token (those of the tests, and `more`) is in these answers or messages. It does not say which one is."""
         text = json.dumps(things, default=str)
@@ -185,10 +190,10 @@ class Claims(Case):
             with self.subTest(region=region):
                 self.assertIsNone(cloud.claims(fake_cloud.jwt({"scopes": ["automation"], "cpg": region}))["cpg"])
 
-    def test_a_token_for_another_audience_than_cloud_gate_is_an_account_token(self):
+    def test_a_jwt_that_is_neither_a_cloud_token_nor_a_gateway_s_is_unknown(self):
         found = cloud.claims(fake_cloud.ACCOUNT_JWT)
         self.assertEqual((found["kind"], found["organization"], found["environment"], found["gateway"]),
-                         ("account", None, None, None))
+                         ("unknown", None, None, None))
         self.assertIsInstance(found["expiry"], int)
 
     def test_what_is_no_jwt_is_unknown(self):
@@ -364,12 +369,11 @@ class Fake(Client):
 
 
 class GateFake(Client):
-    """Cloud Gate of the fake Cloud, and the client that proves a Cloud Token against it."""
+    """Cloud Gate of the fake Cloud, and the client that reads it with a Cloud Token."""
 
     def setUp(self):
         self.fake = fake_cloud.serve(connect_after=0)
         self.url = self.served(self.fake)
-        self.gate = cloud.Gate(self.url, fake_cloud.CLOUD_TOKEN)
         self.read = f"/apim/rest/v2/organizations/{ORGANIZATION}/environments/{DEVELOPMENT}/apis"
 
     def asked(self):
@@ -388,16 +392,9 @@ class GateFake(Client):
             with error:
                 return error.code, json.loads(error.read() or b"null")
 
-    def test_a_cloud_token_is_proven_by_one_read_and_names_its_environment(self):
-        found = self.gate.check()
-        self.assertEqual((found["kind"], found["organization"], found["environment"]),
-                         ("cloud", ORGANIZATION, DEVELOPMENT))
-        self.assertEqual(self.asked(), [("GET", self.read)])   # one question
-        self.assertHidden(found, self.asked())
-
     def test_the_read_is_the_first_api_of_the_environment_with_the_token_as_bearer(self):
         address, server = self.scripted(lambda *asked: (200, '{"data": [], "pagination": {}}', None))
-        cloud.Gate(address, fake_cloud.CLOUD_TOKEN).check()
+        self.reads(address)()
         method, path, headers, _ = server.asked[0]
         self.assertEqual((method, path), ("GET", self.read + "?perPage=1"))
         self.assertEqual(headers["Authorization"], f"Bearer {fake_cloud.CLOUD_TOKEN}")
@@ -412,54 +409,26 @@ class GateFake(Client):
                             ("for another organization", fake_cloud.SECOND_CLOUD_TOKEN)]:
             with self.subTest(token=name):
                 error = self.raises("invalid", "Gravitee Cloud refuses this token",
-                                    lambda: cloud.Gate(self.url, token).read(ORGANIZATION, DEVELOPMENT))
+                                    self.reads(self.url, token))
                 self.assertEqual(error.status, 401)
 
     def test_a_revoked_token_is_found_out_by_the_read(self):
         token = fake_cloud.cloud_token(DEVELOPMENT)
-        gate = cloud.Gate(self.url, token)
-        self.assertEqual(gate.check()["environment"], DEVELOPMENT)
+        self.assertIsNone(self.reads(self.url, token)())
         self.fake.state.revoked.add(token)
-        error = self.raises("invalid", "Gravitee Cloud refuses this token", gate.check)
+        error = self.raises("invalid", "Gravitee Cloud refuses this token", self.reads(self.url, token))
         self.assertEqual(error.status, 401)
-        self.assertEqual(self.gate.check()["environment"], DEVELOPMENT)   # not the other tokens of the environment
+        self.assertIsNone(self.reads(self.url)())   # not the other tokens of the environment
 
-    def test_an_expired_token_is_refused_before_anything_is_asked(self):
-        gate = cloud.Gate(self.url, fake_cloud.CLOUD_TOKEN_EXPIRED)
-        error = self.raises("invalid", "This Cloud Token has expired", gate.check)
-        self.assertIsNone(error.status)   # known here, not told by the Cloud
-        self.assertEqual(self.asked(), [])
-
-    def test_a_token_that_expires_now_has_expired(self):
-        gate = cloud.Gate(self.url, fake_cloud.cloud_token(DEVELOPMENT, expires=0))
-        self.raises("invalid", "has expired", gate.check)
-        self.assertEqual(self.asked(), [])
-
-    def test_a_token_of_another_environment_names_it_and_opens_no_other(self):
-        gate = cloud.Gate(self.url, fake_cloud.CLOUD_TOKEN_TEST)
-        self.assertEqual(gate.check()["environment"], TEST)   # the match with the one chosen is for the caller
-        error = self.raises("invalid", "refuses this token", lambda: gate.read(ORGANIZATION, DEVELOPMENT))
+    def test_a_token_of_another_environment_opens_no_other(self):
+        error = self.raises("invalid", "refuses this token", self.reads(self.url, fake_cloud.CLOUD_TOKEN_TEST))
         self.assertEqual(error.status, 401)
         other = cloud.Gate(self.url, fake_cloud.SECOND_CLOUD_TOKEN)
-        self.assertEqual(other.check()["organization"], "fake-second-organization")
         self.raises("invalid", "refuses this token", lambda: other.read(ORGANIZATION, "fake-client-test"))
-
-    def test_what_is_no_cloud_token_is_refused_without_asking(self):
-        no_envs = fake_cloud.jwt({"org": ORGANIZATION, "scopes": ["automation"], "aud": "CloudGate"})
-        no_org = fake_cloud.jwt({"envs": [DEVELOPMENT], "scopes": ["automation"], "aud": "CloudGate"})
-        nothing = "This is not a Cloud Token"
-        for token, words in [(fake_cloud.GATEWAY_TOKEN, "This is a gateway token, not a Cloud Token"),
-                             (fake_cloud.ACCOUNT_JWT, "This is an Account Token, not a Cloud Token"),
-                             (fake_cloud.TOKEN, nothing), ("e30.e30.e30", nothing), (no_envs, nothing),
-                             (no_org, nothing)]:
-            with self.subTest(words=words):
-                self.raises("invalid", words, cloud.Gate(self.url, token).check)
-        self.assertEqual(self.asked(), [])
 
     def test_a_forbidden_read_is_a_token_that_cannot_read_api_management(self):
         address, _ = self.scripted(lambda *asked: (403, '{"message": "Forbidden"}', None))
-        error = self.raises("invalid", "This Cloud Token cannot read API Management",
-                            cloud.Gate(address, fake_cloud.CLOUD_TOKEN).check)
+        error = self.raises("invalid", "This Cloud Token cannot read API Management", self.reads(address))
         self.assertEqual(error.status, 403)
 
     def test_an_id_is_one_segment_of_the_path(self):
@@ -472,8 +441,6 @@ class GateFake(Client):
                 gate.read(bad, "env")
             with self.subTest(env=bad), self.assertRaisesRegex(ValueError, "Not an id"):
                 gate.read("org", bad)
-        walking = fake_cloud.jwt({"org": "..", "envs": ["e"], "scopes": ["automation"], "aud": "CloudGate"})
-        self.raises("invalid", "Not an id of Gravitee Cloud", cloud.Gate(address, walking).check)
         self.assertEqual(len(server.asked), 1)   # nothing else was sent
 
     def test_a_seed_puts_an_api_in_the_environment_and_nobody_else_sees_it(self):
@@ -533,15 +500,14 @@ class GateFake(Client):
                          202)
 
     def test_nothing_in_the_requests_holds_a_token(self):
-        self.gate.check()
+        self.reads(self.url)()
         self.assertHidden(self.asked())
 
     def test_a_gate_that_is_not_there(self):
         with socket.socket() as free:
             free.bind(("127.0.0.1", 0))
             port = free.getsockname()[1]
-        self.raises("unreachable", "refuses the connection", cloud.Gate(f"http://127.0.0.1:{port}",
-                                                                        fake_cloud.CLOUD_TOKEN).check)
+        self.raises("unreachable", "refuses the connection", self.reads(f"http://127.0.0.1:{port}"))
 
 
 class Wrong(Client):
@@ -644,18 +610,16 @@ class Wrong(Client):
                 self.assertEqual(len(server.asked), 1)
 
     def test_the_gate_says_no_in_its_own_words(self):
-        def gate(address):
-            return cloud.Gate(address, fake_cloud.CLOUD_TOKEN).check
         for code, kind, words in [(401, "invalid", "refuses this token"),
                                   (403, "invalid", "cannot read API Management"), (404, "invalid", "Not found"),
                                   (500, "unreachable", "answered an error (HTTP 500)")]:
             address, _ = self.scripted(lambda *asked, code=code: (code, "{}", None))
             with self.subTest(code=code):
-                self.raises(kind, words, gate(address))
+                self.raises(kind, words, self.reads(address))
         for text in ("<html><body>Welcome</body></html>", "[]", "null", "", "[1]", '"text"'):
             address, _ = self.scripted(lambda *asked, text=text: (200, text, None))
             with self.subTest(text=text):
-                self.raises("unreachable", "does not answer like Gravitee Cloud", gate(address))
+                self.raises("unreachable", "does not answer like Gravitee Cloud", self.reads(address))
 
     def test_a_gate_that_is_too_slow(self):
         def slow(*asked):
@@ -663,18 +627,18 @@ class Wrong(Client):
             return 200, "{}", None
         self.patch(cloud, "TIMEOUT", 0.2)
         address, _ = self.scripted(slow)
-        self.raises("unreachable", "does not answer in time", cloud.Gate(address, fake_cloud.CLOUD_TOKEN).check)
+        self.raises("unreachable", "does not answer in time", self.reads(address))
 
     def test_a_gate_that_redirects_does_not_get_the_cloud_token_elsewhere(self):
         elsewhere, other = self.scripted(lambda *asked: (200, "{}", None))
         address, _ = self.scripted(lambda *asked: (302, "", {"Location": f"{elsewhere}/apim/rest"}))
-        self.raises("unreachable", "to another address", cloud.Gate(address, fake_cloud.CLOUD_TOKEN).check)
+        self.raises("unreachable", "to another address", self.reads(address))
         self.assertEqual(other.asked, [])
 
     def test_what_the_gate_says_never_carries_the_cloud_token(self):
         address, _ = self.scripted(lambda *asked: (400, f'{{"message": "bad {fake_cloud.CLOUD_TOKEN} here"}}', None))
         with self.assertRaises(cloud.CloudError) as caught:
-            cloud.Gate(address, fake_cloud.CLOUD_TOKEN).check()
+            self.reads(address)()
         self.assertEqual(str(caught.exception), "Gravitee Cloud refuses it: bad … here")
 
 

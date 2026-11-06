@@ -11,7 +11,6 @@ import json
 import re
 import socket
 import ssl
-import time
 import urllib.error
 import urllib.request
 from urllib.parse import quote, urlsplit
@@ -76,8 +75,7 @@ def _text(value):
 def claims(token):
     """What a token says about itself, read without being checked: {kind, organization, environment, expiry, gateway,
     cpg}. `kind` is "cloud" (a Cloud Token: scopes automation and rest), "gateway" (the token of a hybrid gateway:
-    scopes reports and sync, and `gateway` is its id), "account" (a JWT of none of those, made for another audience
-    than Cloud Gate, which is how an Account Token is taken) or "unknown" (not a JWT). `expiry` is seconds since the
+    scopes reports and sync, and `gateway` is its id) or "unknown" (anything else). `expiry` is seconds since the
     epoch. `environment` is the one of the token, None when it names none or several. `cpg` is the region of the Cloud
     that issued it ("eu"), which names where Cloud Gate is: only one label of a host name is taken, so that no claim
     can send a token to another address. A claim that is missing or of another type is None. It never raises, and
@@ -103,7 +101,7 @@ def claims(token):
     elif any(scope in ("automation", "rest") for scope in scopes):
         kind = "cloud"
     else:
-        kind = "account" if _text(payload.get("aud")) not in (None, "CloudGate") else "unknown"
+        kind = "unknown"
     return {"kind": kind, **found}
 
 
@@ -293,20 +291,4 @@ class Gate(_Client):
         found = self._call("GET", f"{GATE}/v2/organizations/{_id(organization)}/license")
         if not isinstance(found, dict):
             raise CloudError(f"{self.host} does not answer like Gravitee Cloud")
-        return found
-
-    def check(self):
-        """Proves a Cloud Token and answers its claims, which name its organization and its environment: one read of
-        that environment. A token that is no Cloud Token, or has expired, is refused without asking. Whether it is for
-        the environment a person chose is for the caller to compare."""
-        found = claims(self._token)
-        if found["kind"] == "gateway":
-            raise CloudError("This is a gateway token, not a Cloud Token", "invalid")
-        if found["kind"] == "account":
-            raise CloudError("This is an Account Token, not a Cloud Token", "invalid")
-        if found["kind"] != "cloud" or not (found["organization"] and found["environment"]):
-            raise CloudError("This is not a Cloud Token", "invalid")
-        if found["expiry"] is not None and found["expiry"] <= time.time():
-            raise CloudError("This Cloud Token has expired", "invalid")
-        self.read(found["organization"], found["environment"])
         return found
