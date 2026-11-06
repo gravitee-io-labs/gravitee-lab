@@ -300,20 +300,9 @@ class Fixes(Case):
 
 
 class Allowance(Case):
-    """host_ok: milestone M1 counts the list alone, M2 the allowance of the person too."""
+    """host_ok: the list, or the allowance of the person."""
 
-    def test_m1_only_a_listed_catalog_may_use_this_machine(self):
-        with mock.patch.object(trust, "ALLOWANCE", False):
-            self.assertTrue(trust.host_ok(True))
-            self.assertTrue(trust.host_ok(True, {"host": False}))
-            self.assertFalse(trust.host_ok(False))
-            self.assertFalse(trust.host_ok(False, {"host": True}))
-            self.assertFalse(trust.host_ok(None, None))
-
-    def test_the_allowance_is_on(self):
-        self.assertTrue(trust.ALLOWANCE)
-
-    def test_m2_the_allowance_of_the_person_is_honored_when_it_is_exactly_true(self):
+    def test_the_allowance_of_the_person_is_honored_when_it_is_exactly_true(self):
         self.assertTrue(trust.host_ok(False, {"host": True}))
         self.assertTrue(trust.host_ok(True))
         for entry in (None, {}, {"host": False}, {"host": "true"}, {"host": 1}, {"host": None}, "host", ["host"]):

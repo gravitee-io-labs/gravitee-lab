@@ -1112,14 +1112,10 @@ def seeder_ok(unit_config, roots, engine_seeder_images, realpath=None):
                if _dict(_dict(service).get("labels")).get("io.gravitee.role") == "seed")
 
 
-ALLOWANCE = True   # milestone M2: the allowance a person gives a catalog (host: true) is honored
-
-
 def host_ok(listed, entry=None):
-    """Whether the class H items of a catalog may use this machine: it is listed, or, once M2 ships, the person allowed
-    it (`host: true` in its entry of catalogs.json, exactly). Until then only listing counts, and a class H item of any other
-    catalog stays Blocked: the absence of the feature fails safe. The one place that decides `context["host_ok"]`."""
-    return bool(listed) or ALLOWANCE and isinstance(entry, dict) and entry.get("host") is True
+    """Whether the class H items of a catalog may use this machine: it is listed, or the person allowed it (`host: true` in
+    its entry of catalogs.json, exactly). The one place that decides `context["host_ok"]`."""
+    return bool(listed) or isinstance(entry, dict) and entry.get("host") is True
 
 
 def declared_ok(context):

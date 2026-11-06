@@ -2486,8 +2486,6 @@ class Allowed(Case):
         found = self.partner(host=True)["addons"]["@partner/cluster"]
         self.assertIsNone(found["blocked"])
         self.assertEqual(found["uses_machine"][0]["service"], "partner-cluster")
-        with mock.patch.object(trust, "ALLOWANCE", False):   # without the milestone, whatever the entry says
-            self.assertTrue(self.partner(host=True)["addons"]["@partner/cluster"]["blocked"])
 
     def test_a_gateway_declared_by_a_catalog_that_is_not_trusted_with_one_is_cleared_before_any_reader_sees_it(self):
         built = self.partner()

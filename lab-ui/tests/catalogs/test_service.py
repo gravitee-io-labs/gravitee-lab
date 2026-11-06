@@ -25,7 +25,7 @@ from lab_ui.docker import compose, envfiles, jobs
 from lab_ui.library import layers, project
 from lab_ui.gravitee import license
 from lab_ui import paths
-from lab_ui.catalogs import defaults, firstrun, gitx, install, manifest, registry, service, standard, trust
+from lab_ui.catalogs import defaults, firstrun, gitx, install, manifest, registry, service, standard
 from lab_ui.catalogs import store as bare
 from lab_ui.catalogs.registry import CatalogError
 
@@ -1337,7 +1337,6 @@ class Judging(Real):
         self.assertEqual(rows["needs"], [], "partner is added")
 
     def test_a_catalog_that_is_not_listed_shows_what_it_asks_of_this_machine_and_the_items_it_cannot_run_anyway(self):
-        self.patch(trust, "ALLOWANCE", True)   # milestone M2: the allowance of a person is honored
         install.remove("fixture", keep_settings=False)
         fixtures.install(self, "partner", kind="folder")
         fixtures.default(self, "partner")
@@ -1381,18 +1380,7 @@ class Judging(Real):
         self.assertNotIn("@hostile/p-clean-addon", blocked)
         self.assertEqual([cmd for cmd in ran if any("t19-env-file-dev-zero" in part for part in cmd)], [])
 
-    def test_without_the_allowance_milestone_an_item_that_uses_the_machine_is_simply_blocked(self):
-        self.patch(trust, "ALLOWANCE", False)   # the policy before the milestone ships; the test does not depend on the flag
-        install.remove("fixture", keep_settings=False)
-        fixtures.install(self, "partner", kind="folder")
-        fixtures.default(self, "partner")
-        project.forget()
-        shown = service.check_address(fixtures.remote(self, "fixture").url)
-        self.assertEqual(shown["rows"]["uses_machine"], [], "nothing to allow: the page does not offer the choice")
-        self.assertIn("@fixture/cluster", [one["id"] for one in shown["blocked"]])
-
     def test_the_preview_and_the_project_after_the_add_say_the_same_of_what_cannot_run(self):
-        self.patch(trust, "ALLOWANCE", True)
         shown = service.check_address(fixtures.remote(self, "hostile").url)
         service.add(shown["ticket"], host=True)   # allowed: the preview is judged as if it were
         built = project.loaded()[0]
@@ -2942,7 +2930,6 @@ class Allowing(Seam):
     def setUp(self):
         super().setUp()
         self.installed("partner")
-        self.patch(trust, "ALLOWANCE", True)
 
     def test_the_allowance_is_stored_in_the_entry_and_the_row_says_it(self):
         row = service.allow_host("partner", True)["catalog"]
@@ -3193,7 +3180,6 @@ class Reading2(Real):
     """What an update says of the growth of power, read with Compose from the installed version and the new one."""
 
     def test_a_new_port_and_a_new_privilege_are_lines_of_the_plan_and_the_dialog_can_say_what_the_item_now_does(self):
-        self.patch(trust, "ALLOWANCE", True)
         remote = self.remote("partner")
         service.add(service.check_address(remote.url)["ticket"])
         grown = ("x-gravitee: {kind: addon, name: Ledger, category: Other, description: Keeps the entries of a partner, "
@@ -3210,7 +3196,6 @@ class Reading2(Real):
         self.assertEqual(plan["blocked"], [])
 
     def test_an_update_never_raises_power_silently_the_item_that_now_needs_it_is_blocked_while_the_catalog_is_not_allowed(self):
-        self.patch(trust, "ALLOWANCE", True)
         remote = self.remote("partner")
         service.add(service.check_address(remote.url)["ticket"])
         grown = ("x-gravitee: {kind: addon, name: Ledger, category: Other, description: Keeps the entries of a partner, "
