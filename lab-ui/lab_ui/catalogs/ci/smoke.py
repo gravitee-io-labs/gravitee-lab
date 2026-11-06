@@ -47,16 +47,11 @@ from ...library import check
 from ...docker import compose
 from ... import paths
 from .. import report, tree as trees
-from ..report import ERROR, WARNING, Problem
-from ..rules import outline, say
-from . import (Loaded, Refused, Unavailable, conclude, docker_ready, entry, fence, load, parse_units, parsed, parser,
+from ..report import Problem
+from ..rules import outline
+from . import (Loaded, Refused, Unavailable, conclude, docker_ready, entry, fence, load, parse_units, parsed, parser, problem,
                refusals, run_docker, seconds, tail)
 
-MESSAGES = {
-    "SM01": (ERROR, "{service} was not healthy after 240 s"),
-    "SM02": (ERROR, "{service} exited with {code}"),
-    "SM03": (WARNING, "{unit} was not tried: it needs settings or a license."),
-}
 WAIT = 240          # seconds `up --wait` gives the services of a wave to become healthy
 SETTLE = 5          # seconds a started wave is given before it is looked at again
 UP_TIMEOUT = 900    # seconds for one `up`: the wait, and what is pulled before it
@@ -78,12 +73,6 @@ NEEDS_SETTING = re.compile(r"Cannot be read: error while interpolating \S{1,300}
 # What `up` says when an image is neither here nor to be had: the machine's registry access, not the unit's health
 NO_IMAGE = re.compile(r"pull access denied|manifest unknown|no matching manifest|toomanyrequests|failed to resolve reference|"
                       r"repository does not exist|image .{1,200} not found|No such image|failed to pull|error pulling image", re.I)
-
-
-def finding(which: str, path: str = "", **fields) -> Problem:
-    """The Problem of a code of this stage (`which`: SM01...), its message the words of 6.11 with the fields put in."""
-    severity, message = MESSAGES[which]
-    return Problem(which, severity, path, 0, say(message, **fields))
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -459,9 +448,9 @@ def start_unit(unit: Loaded, selection: Selection, docker: Docker, sleep: Callab
         for name in bad:
             state, _, exit_code = states[name]
             if state in ("exited", "dead"):
-                problems.append(finding("SM02", unit.file, service=report.printable(name), code=exit_code))
+                problems.append(problem("SM02", unit.file, service=report.printable(name), code=exit_code))
             else:
-                problems.append(finding("SM01", unit.file, service=report.printable(name)))
+                problems.append(problem("SM01", unit.file, service=report.printable(name)))
             logs[name] = docker.logs(unit, name)
         return Found(problems, logs, started + [name for name in wave if name not in bad])
     return Found(problems, logs, started)
@@ -513,7 +502,7 @@ def main(argv, out, err, **seams) -> int:
     outcomes: List[Outcome] = []
     for each in loading.refused:
         if needs_settings(each):
-            problems.append(finding("SM03", each.file, unit=f"{each.kind}:{each.name}"))
+            problems.append(problem("SM03", each.file, unit=f"{each.kind}:{each.name}"))
             outcomes.append(Outcome(f"{each.kind}:{each.name}", each.file, "not_tried", (), 0.0, "it needs settings or a license"))
         else:
             problems += refusals([each], "tried")
@@ -527,7 +516,7 @@ def main(argv, out, err, **seams) -> int:
         selection = select(unit)
         text = tree.text(unit.file)
         if requires_license(text) or runs_remote_gateway(text):
-            problems.append(finding("SM03", unit.file, unit=unit.key))
+            problems.append(problem("SM03", unit.file, unit=unit.key))
             outcomes.append(Outcome(unit.key, unit.file, "not_tried", (), 0.0, "it needs settings or a license"))
             continue
         if not selection.waves:

@@ -16,7 +16,7 @@ import shlex
 import unittest
 from unittest import mock
 
-from lab_ui.catalogs import ci, explain, settings
+from lab_ui.catalogs import ci, settings
 from lab_ui.catalogs.ci import main as ci_main
 from lab_ui.catalogs.ci import publish
 from tests.data.rules import support
@@ -673,21 +673,6 @@ class Tag(Fixture):
 
 
 class Messages(unittest.TestCase):
-
-    def test_the_messages_are_the_words_of_the_standard(self):
-        self.assertEqual(publish.finding("PB01", a="1.4.0", b="1.5.0").message,
-                         "The version in catalog.yml (1.4.0) is not the tag (1.5.0). Fix: bump the version, then tag again.")
-        self.assertEqual(publish.finding("PB02", tag="v1.4.0").message, "The tag v1.4.0 is not on main.")
-        self.assertEqual(publish.finding("PB03", sha7="abc1234").message,
-                         "Catalog CI result has not passed on abc1234. Fix: wait for it, or fix what failed.")
-        self.assertEqual(publish.finding("PB04", image="ghcr.io/o/r/x", version="1.4.0").message,
-                         "ghcr.io/o/r/x:1.4.0 was published from another commit. Fix: bump the version.")
-        self.assertEqual(publish.finding("PB05", x="a", y="b").message, "catalog.yml images is a; this repository publishes to b.")
-        self.assertEqual(publish.finding("PB06", image="ghcr.io/o/r/x").message,
-                         "ghcr.io/o/r/x carries a license label but is built from another project's source.")
-        table = {code: (severity, message) for code, severity, _, message in explain.STAGES if code.startswith("PB")}
-        for code, (severity, message) in publish.MESSAGES.items():
-            self.assertEqual((severity, message), table[code], code)
 
     def test_the_stage_words_reach_the_modules(self):
         self.assertEqual(ci.STAGES["publish-plan"], ("publish", "plan_main"))

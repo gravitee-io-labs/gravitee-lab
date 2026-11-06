@@ -16,7 +16,7 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
-from lab_ui.catalogs import ci, explain, tree as trees
+from lab_ui.catalogs import ci, tree as trees
 from lab_ui.catalogs.ci import links
 from lab_ui.catalogs.ci import main as ci_main
 from tests import Case
@@ -197,8 +197,6 @@ class Addresses(unittest.TestCase):
                                {"https://docs.acme.org/gone": links.Answer(404)})
         self.assertEqual([(each.code, each.severity, each.path, each.line, each.message) for each in found], [
             ("LK01", "warning", "docs/guide.md", 12, "docs/guide.md:12: the link https://docs.acme.org/gone answers 404.")])
-        row = next(row for row in explain.STAGES if row[0] == "LK01")
-        self.assertEqual((row[1], row[3]), (found[0].severity, links.MESSAGE))
 
     def test_a_long_address_is_shown_cut(self):
         url = "https://docs.acme.org/" + "a" * 400

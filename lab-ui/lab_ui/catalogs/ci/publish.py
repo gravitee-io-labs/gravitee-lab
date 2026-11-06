@@ -56,20 +56,10 @@ from ... import paths
 from .. import gitx, report, settings, tree as trees
 from ..report import ERROR, Problem
 from ..rules import catalog_meta, commits, images as image_rules, say
-from . import (Unavailable, Usage, build, conclude, docker_ready, entry, json_line, load, parsed, parser, plan as planning,
+from . import (Unavailable, Usage, build, conclude, docker_ready, entry, json_line, load, parsed, parser, plan as planning, problem,
                refusals, run_docker, tail, write_outputs, write_summary)
 from .smoke import needs_settings
 
-MESSAGES = {
-    "PB01": (ERROR, "The version in catalog.yml ({a}) is not the tag ({b}). Fix: bump the version, then tag again."),
-    "PB02": (ERROR, "The tag {tag} is not on main."),
-    "PB03": (ERROR, "Catalog CI result has not passed on {sha7}. Fix: wait for it, or fix what failed."),
-    "PB04": (ERROR, "{image}:{version} was published from another commit. Fix: bump the version."),
-    "PB05": (ERROR, "catalog.yml images is {x}; this repository publishes to {y}."),
-    "PB06": (ERROR, "{image} carries a license label but is built from another project's source."),
-    "PB08": (ERROR, "The commit {sha7} carries a tool credit in its message or its author. main is never rewritten. Fix: find how it "
-                    "got there (the merge settings, V18) and write the next title without it."),
-}
 CHECK = settings.REQUIRED_CHECK      # Catalog CI result
 CHECK_APP = settings.ACTIONS_APP_ID  # the integration id of GitHub Actions: a check run of another app does not count
 WORKFLOW = "publish.yml"
@@ -91,12 +81,6 @@ LICENSE_LABEL = "org.opencontainers.image.licenses"
 BUILD_TIMEOUT = build.IMAGE_TIMEOUT
 MAX_IMAGES = 500
 CONTROL = ("catalog.yml", ".github/standard.json")   # what changes the labels and the platforms of every image
-
-
-def finding(which: str, path: str = "", **fields) -> Problem:
-    """The Problem of a code of this stage (`which`: PB01...), its message the words of 6.11 with the fields put in."""
-    severity, message = MESSAGES[which]
-    return Problem(which, severity, path, 0, say(message, **fields))
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -390,10 +374,10 @@ def tag_gates(root: str, meta: dict, ref: Ref, sha: str, repository: str) -> Lis
     problems: List[Problem] = []
     have = meta.get("version", "")
     if have != ref.version or not VERSION.fullmatch(ref.version):
-        problems.append(finding("PB01", "catalog.yml", a=report.printable(have or "none"), b=report.printable(ref.version)))
+        problems.append(problem("PB01", "catalog.yml", a=report.printable(have or "none"), b=report.printable(ref.version)))
     on_main = is_ancestor(root, sha, "origin/main")
     if on_main is not True:
-        problems.append(finding("PB02", tag=report.printable(ref.ref.rsplit("/", 1)[-1])))
+        problems.append(problem("PB02", tag=report.printable(ref.ref.rsplit("/", 1)[-1])))
     return problems
 
 
@@ -401,7 +385,7 @@ def prefix_gate(meta: dict, repository: str) -> List[Problem]:
     """PB05: `images` is `ghcr.io/<repository>` in lower case."""
     wanted = f"{HOST}/{repository.lower()}"
     have = meta.get("images", "")
-    return [] if have == wanted else [finding("PB05", "catalog.yml", x=report.printable(have or "none"), y=wanted)]
+    return [] if have == wanted else [problem("PB05", "catalog.yml", x=report.printable(have or "none"), y=wanted)]
 
 
 def make_plan(root: str, ref: Ref, sha: str, repository: str, private: bool, event: str, seams: dict, out) -> PlanResult:
@@ -432,7 +416,7 @@ def make_plan(root: str, ref: Ref, sha: str, repository: str, private: bool, eve
         problems += prefix_gate(meta, repository)
         commit = head_commit(root, sha)
         if commit is not None and carries_tool_credit(commit):
-            problems.append(finding("PB08", sha7=sha[:7]))
+            problems.append(problem("PB08", sha7=sha[:7]))
         if problems:
             return PlanResult([], problems, notes, not private)
         previous, why = last_successful_run(repository, gh())
@@ -442,7 +426,7 @@ def make_plan(root: str, ref: Ref, sha: str, repository: str, private: bool, eve
             return PlanResult([], [], [f"a run that succeeded after {sha[:7]} ({previous[:7]}) has published it: nothing is published "
                                        "again"], not private)
     if not wait_for_check(repository, sha, gh(), sleep, clock, out, seams.get("interval", POLL), seams.get("limit", LIMIT)):
-        return PlanResult([], [finding("PB03", sha7=sha[:7])], notes, not private)
+        return PlanResult([], [problem("PB03", sha7=sha[:7])], notes, not private)
     if not prefix:   # (a tag of a catalog that publishes no image still has its release)
         return PlanResult([], [], ["catalog.yml names no registry in images, so no image is published"], not private)
     collected = collect(root, prefix, seams.get("lab"))
@@ -674,7 +658,7 @@ def main(argv, out, err, **seams) -> int:
     owner = args.repository or (prefix[len(HOST) + 1:] if prefix.startswith(HOST + "/") else "")
     problems: List[Problem] = []
     if prefix and (not prefix.startswith(HOST + "/") or not REPOSITORY.fullmatch(prefix[len(HOST) + 1:])):
-        problems.append(finding("PB05", "catalog.yml", x=report.printable(prefix), y=f"{HOST}/<owner>/<repository>"))
+        problems.append(problem("PB05", "catalog.yml", x=report.printable(prefix), y=f"{HOST}/<owner>/<repository>"))
     if ref.kind == "tag":
         if not VERSION.fullmatch(ref.version):
             raise Usage(f"{report.printable(ref.ref)} is not a version tag: vX.Y.Z")
@@ -691,7 +675,7 @@ def main(argv, out, err, **seams) -> int:
     chosen = [by_name[name] for name in wanted]
     for image in chosen:
         if image.remote and any(each.partition("=")[0] == LICENSE_LABEL for each in image.labels):
-            problems.append(finding("PB06", image.path, image=image.name))
+            problems.append(problem("PB06", image.path, image=image.name))
     if problems:
         return finish(problems, [], args, out, err, "")
     url = f"https://github.com/{owner}"
@@ -758,7 +742,7 @@ def publish_all(images: Sequence[Image], ref: Ref, sha: str, url: str, license_:
                     records.append(Record(image.name, existing.digest, tuple(tags), tuple(platforms)))
                     print(f"{image.name}:{ref.version} is there already, from this commit: not built again", file=out)
                 else:
-                    problems.append(finding("PB04", image.path, image=image.name, version=ref.version))
+                    problems.append(problem("PB04", image.path, image=image.name, version=ref.version))
                 continue
         cmd = publish_command(image, tags, labels_for(image, ref, sha, url, license_), platforms)
         spec = build.Spec(image.unit, image.service, image.name, cmd, image.path, image.context)

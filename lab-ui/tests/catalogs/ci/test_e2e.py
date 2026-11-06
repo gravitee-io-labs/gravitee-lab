@@ -17,7 +17,7 @@ from pathlib import Path
 from unittest import mock
 
 from lab_ui import paths
-from lab_ui.catalogs import ci, explain
+from lab_ui.catalogs import ci
 from lab_ui.catalogs.ci import e2e
 from lab_ui.catalogs.ci import main as ci_main
 from tests import Case
@@ -535,11 +535,6 @@ class Inputs(Fixture):
         self.assertNotIn("::error::", self.out.getvalue())
 
     def test_the_messages_are_the_words_of_the_standard(self):
-        table = {code: (severity, message) for code, severity, _, message in explain.STAGES if code.startswith("E2E")}
-        for code, (severity, message) in e2e.MESSAGES.items():
-            self.assertEqual((severity, message), table[code], code)
-        self.assertEqual(e2e.finding("E2E01", item="addon:x", service="s").message,
-                         "addon:x: s reads GRAVITEE_LICENSE. Fix: only an overlay on a core service may read it.")
         self.assertEqual(e2e.head_mismatch("12", "a" * 40, "b" * 40).message,
                          "The head of pull request 12 is aaaaaaa, not the commit you read (bbbbbbb). Fix: read the new commits, then run "
                          "again with the new one.")

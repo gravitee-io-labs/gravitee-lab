@@ -56,7 +56,7 @@ from ...library import check
 from ...docker import compose
 from ... import paths
 from .. import explain, report, store, tree as trees, trust
-from ..report import ERROR, WARNING, Problem
+from ..report import ERROR, Problem
 from ..rules import say
 
 # The stage word, then the module of this package and the function that answers it. A package that writes a stage names its
@@ -122,25 +122,8 @@ PLATFORMS = {
 # The Lab's core file names the seeder; a service built from it is the Lab's own code
 SEEDER_DIR = "seeder"
 
-# The messages of the stages word for word: (severity, message). A test keeps them equal to the document and to
-# the table of `explain`
-MESSAGES = {
-    "BD01": (ERROR, "{image}: the build failed at step {n}/{m}, {instruction} (exit {code}). Fix: run make ci to see it on your "
-                    "machine; the last 15 lines are in the summary."),
-    "BD02": (ERROR, "{service}: build.{key} is not accepted. Fix: use context, dockerfile, args, target and labels only."),
-    "BD04": (ERROR, "{image}: the build took over 10 minutes and was stopped."),
-    "BD05": (ERROR, "Docker Hub refused the pull (rate limit). This is not your change: run the job again in a few minutes."),
-    "BD06": (ERROR, "Split this pull request: it changes {n} apps, the limit is 20."),
-    "MF01": (ERROR, "{image}: the registry has no tag {tag}. Fix: use a tag that exists, or an earlier version."),
-    "MF02": (WARNING, "{registry} did not answer: {image} was not checked."),
-    "TS01": (ERROR, "{app}: {n} tests failed. Fix: run make ci APP={app} to see them."),
-    "TS02": (WARNING, "{app} has no tests. Fix: COPY tests ./tests in the Dockerfile and add some."),
-    "SD04": (ERROR, ".github/standard.json: {problem}."),
-    "ND01": (ERROR, "{ids}: this catalog needs these catalogs and the secret NEEDS_DEPLOY_KEY is not set. Fix: give the repository a "
-                    "read-only deploy key of theirs: make settings prints the commands."),
-    "ND02": (ERROR, "{name} ({repository}) could not be fetched or linked: {why}. Fix: NEEDS_DEPLOY_KEY must be a deploy key of that "
-                    "repository, and ref a commit of it."),
-}
+# The messages of the stages word for word: (severity, message), from the table `explain` prints
+MESSAGES = {code: (severity, message) for code, severity, _, message in (*explain.STAGES, *explain.SD)}
 # The one case 6.11 has no sentence for: the build failed and Docker did not say at which step (a failure before the first, a
 # frontend that answered otherwise). The same words, without the step
 BD01_PLAIN = "{image}: the build failed (exit {code}). Fix: run make ci to see it on your machine; the last 15 lines are in the " \
@@ -168,11 +151,11 @@ class Unavailable(Exception):
     says what to do. Never taken for a verdict on the catalog."""
 
 
-def problem(which: str, path: str = "", line: int = 0, severity: Optional[str] = None, **fields) -> Problem:
+def problem(which: str, path: str = "", line: int = 0, /, **fields) -> Problem:
     """The Problem of a stage code (`which`: BD01...), its message made from the table above with `fields` (a stranger's text in
     a field is never read for places of its own)."""
-    wanted, message = MESSAGES[which]
-    return Problem(which, severity or wanted, path, int(line or 0), say(message, **fields))
+    severity, message = MESSAGES[which]
+    return Problem(which, severity, path, int(line or 0), say(message, **fields))
 
 
 # ---------------------------------------------------------------------------------------------------------------------

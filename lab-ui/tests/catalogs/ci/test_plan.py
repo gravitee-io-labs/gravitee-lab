@@ -572,35 +572,6 @@ class Kit(unittest.TestCase):
             with self.subTest(text=text[:30]), self.assertRaises(ci.Usage):
                 ci.parse_units(text)
 
-    def test_the_messages_of_the_stages_are_the_standards_word_for_word(self):
-        spec = {
-            "BD01": "{image}: the build failed at step {n}/{m}, {instruction} (exit {code}). Fix: run make ci to see it on your "
-                    "machine; the last 15 lines are in the summary.",
-            "BD02": "{service}: build.{key} is not accepted. Fix: use context, dockerfile, args, target and labels only.",
-            "BD04": "{image}: the build took over 10 minutes and was stopped.",
-            "BD05": "Docker Hub refused the pull (rate limit). This is not your change: run the job again in a few minutes.",
-            "BD06": "Split this pull request: it changes {n} apps, the limit is 20.",
-            "MF01": "{image}: the registry has no tag {tag}. Fix: use a tag that exists, or an earlier version.",
-            "MF02": "{registry} did not answer: {image} was not checked.",
-            "TS01": "{app}: {n} tests failed. Fix: run make ci APP={app} to see them.",
-            "TS02": "{app} has no tests. Fix: COPY tests ./tests in the Dockerfile and add some.",
-            "SD04": ".github/standard.json: {problem}.",
-            "ND01": "{ids}: this catalog needs these catalogs and the secret NEEDS_DEPLOY_KEY is not set. Fix: give the repository a "
-                    "read-only deploy key of theirs: make settings prints the commands.",
-            "ND02": "{name} ({repository}) could not be fetched or linked: {why}. Fix: NEEDS_DEPLOY_KEY must be a deploy key of that "
-                    "repository, and ref a commit of it.",
-        }
-        self.assertEqual({code: message for code, (_, message) in ci.MESSAGES.items()}, spec)
-        self.assertEqual({code: severity for code, (severity, _) in ci.MESSAGES.items()},
-                         {"BD01": "error", "BD02": "error", "BD04": "error", "BD05": "error", "BD06": "error", "MF01": "error",
-                          "MF02": "warning", "TS01": "error", "TS02": "warning", "SD04": "error", "ND01": "error", "ND02": "error"})
-
-    def test_they_are_the_table_the_explain_command_prints(self):
-        from lab_ui.catalogs import explain
-        table = {code: (severity, message) for code, severity, _, message in (*explain.STAGES, *explain.SD)}
-        for code, row in ci.MESSAGES.items():
-            self.assertEqual(table[code], row, code)
-
     def test_a_place_in_a_message_is_not_read_again_in_what_fills_it(self):
         found = ci.problem("MF01", "p", 0, image="ghcr.io/x/{tag}", tag="{image}")
         self.assertEqual(found.message, "ghcr.io/x/{tag}: the registry has no tag {image}. Fix: use a tag that exists, or an earlier version.")

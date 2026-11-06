@@ -46,18 +46,14 @@ from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple
 
 from ...docker import compose
 from .. import report, tree as trees
-from ..report import ERROR, Problem
-from ..rules import catalog_meta, say
-from ..report import WARNING
-from . import (Unavailable, Usage, conclude, docker_ready, entry, host_platform, load, parse_units, parsed, parser, refusals,
+from ..report import Problem
+from ..rules import catalog_meta
+from . import (Unavailable, Usage, conclude, docker_ready, entry, host_platform, load, parse_units, parsed, parser, problem, refusals,
                run_limited, tail)
 from .build import specs_of
 from .gitleaks import BAD_PATH, image as pinned_image
 from .publish import HOST, REPOSITORY, collect
 
-MESSAGES = {"SC01": (ERROR, "{image}: {id} in {package} {version}, fixed in {fixed}. Fix: update the package or the base image."),
-            "SC02": (WARNING, "{image}: {n} more flaws that fail nothing: {which}. Fix: update the base image or the packages once a "
-                              "fix is out.")}
 SEVERITIES = "CRITICAL,HIGH"   # what the scanner is asked for: SC01 is the critical ones with a fix, SC02 counts the rest
 NAMED = 5   # the identifiers an SC02 names, the first in order
 TOOL = "trivy"
@@ -72,11 +68,6 @@ ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,63}")
 NOT_THERE = re.compile(r"not found|manifest unknown|name unknown|no such manifest|404", re.I)
 HARDENED = ["--rm", "--read-only", "--tmpfs", "/tmp:rw,nosuid,nodev,size=2g", "--cap-drop", "ALL", "--security-opt",
             "no-new-privileges", "--pids-limit", "256", "--memory", "6g", "-e", "HOME=/tmp"]
-
-
-def finding(code: str = "SC01", **fields) -> Problem:
-    severity, message = MESSAGES[code]
-    return Problem(code, severity, "", 0, say(message, **fields))
 
 
 class Folders(NamedTuple):
@@ -156,7 +147,7 @@ def findings_of(image: str, document) -> List[Problem]:
     """SC01 for each critical flaw with a fix in a Trivy report, then one SC02 that counts the rest: the high flaws and the critical
     ones with no fix yet."""
     flaws = _flaws(document)
-    found = [finding(image=report.printable(image), id=identity, package=report.printable(package)[:100],
+    found = [problem("SC01", image=report.printable(image), id=identity, package=report.printable(package)[:100],
                      version=report.printable(version)[:60], fixed=report.printable(fixed)[:100])
              for identity, package, version, fixed, severity in flaws if severity == "CRITICAL" and fixed][:FINDINGS]
     rest = [each for each in flaws if not (each[4] == "CRITICAL" and each[3])]
@@ -166,7 +157,7 @@ def findings_of(image: str, document) -> List[Problem]:
         parts = ([f"{high} high"] if high else []) + ([f"{unfixed} critical with no fix yet"] if unfixed else [])
         names = sorted({each[0] for each in rest})
         shown = ", ".join(names[:NAMED]) + (f" and {len(names) - NAMED} more" if len(names) > NAMED else "")
-        found.append(finding("SC02", image=report.printable(image), n=len(rest), which=f"{' and '.join(parts)} ({shown})"))
+        found.append(problem("SC02", image=report.printable(image), n=len(rest), which=f"{' and '.join(parts)} ({shown})"))
     return found
 
 

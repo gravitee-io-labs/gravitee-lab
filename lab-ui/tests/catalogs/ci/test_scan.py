@@ -17,7 +17,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from lab_ui.catalogs import ci, explain
+from lab_ui.catalogs import ci
 from lab_ui.catalogs.ci import main as ci_main
 from lab_ui.catalogs.ci import scan
 from tests import Case
@@ -158,11 +158,6 @@ class Scanning(Fixture):
         self.assertTrue(text.endswith("All good\n"))
         self.assertEqual(sorted(call[-1] for call in self.docker.calls if call[:3] == ["docker", "pull", "--quiet"]),
                          [f"{PREFIX}/bakery-api:latest", f"{PREFIX}/bakery-web:latest"])
-
-    def test_the_messages_are_the_words_of_the_standard(self):
-        for code in ("SC01", "SC02"):
-            row = next(row for row in explain.STAGES if row[0] == code)
-            self.assertEqual((row[1], row[3]), scan.MESSAGES[code])
 
     def test_the_seeder_is_the_labs_and_is_not_scanned(self):
         self.run_stage()

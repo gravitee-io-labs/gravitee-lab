@@ -19,7 +19,7 @@ from unittest import mock
 from lab_ui.library import check, project
 from lab_ui.docker import compose, envfiles
 from lab_ui import paths
-from lab_ui.catalogs import ci, explain, registry
+from lab_ui.catalogs import ci, registry
 from lab_ui.catalogs.ci import main as ci_main
 from lab_ui.catalogs.ci import run, smoke
 from tests import Case
@@ -227,17 +227,6 @@ class Reading(unittest.TestCase):
                 self.assertEqual(found, {"a": ("running", "", 0), "b": ("exited", "", 3), "c": ("missing", "", 0)})
         self.assertEqual(smoke.ps_rows(""), [])
         self.assertEqual(smoke.ps_rows("[1, 2, {\"Service\": \"a\"}]"), [{"Service": "a"}])
-
-    def test_the_messages_are_the_words_of_the_standard(self):
-        self.assertEqual(smoke.finding("SM01", "p", service="bakery-mcp").message, "bakery-mcp was not healthy after 240 s")
-        self.assertEqual(smoke.finding("SM02", "p", service="bakery-mcp", code=3).message, "bakery-mcp exited with 3")
-        sm03 = smoke.finding("SM03", "p", unit="addon:hybrid")
-        self.assertEqual(sm03.message, "addon:hybrid was not tried: it needs settings or a license.")
-        self.assertEqual([smoke.finding(code, "p", service="s", code=1, unit="u").severity for code in ("SM01", "SM02", "SM03")],
-                         ["error", "error", "warning"])
-        table = {code: (severity, message) for code, severity, _, message in explain.STAGES if code.startswith("SM")}
-        for code, (severity, message) in smoke.MESSAGES.items():
-            self.assertEqual((severity, message), table[code])
 
 
 class Stage(Case):

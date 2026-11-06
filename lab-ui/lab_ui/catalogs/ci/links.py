@@ -40,11 +40,10 @@ from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple
 from urllib.parse import urljoin, urlsplit
 
 from .. import report, tree as trees
-from ..report import WARNING, Problem
-from ..rules import guides, newlines, read_limit, say
-from . import Unavailable, Usage, conclude, entry, parsed, parser
+from ..report import Problem
+from ..rules import guides, newlines, read_limit
+from . import Unavailable, Usage, conclude, entry, parsed, parser, problem
 
-MESSAGE = "{path}:{line}: the link {url} answers {status}."
 TIMEOUT = 15            # seconds a host has to answer
 HOPS = 5                # redirects followed
 MAX_LINKS = 2000        # addresses asked, whatever the catalog holds
@@ -322,8 +321,7 @@ def findings(links: Sequence[Link], answers: Dict[str, Optional[Answer]]) -> Lis
         if said is None:
             continue
         shown = report.printable(link.url if len(link.url) <= SHOWN else link.url[:SHOWN - 1] + "…")
-        found.append(Problem("LK01", WARNING, link.path, link.line,
-                             say(MESSAGE, path=report.printable(link.path), line=link.line, url=shown, status=said)))
+        found.append(problem("LK01", link.path, link.line, path=report.printable(link.path), line=link.line, url=shown, status=said))
     return found
 
 

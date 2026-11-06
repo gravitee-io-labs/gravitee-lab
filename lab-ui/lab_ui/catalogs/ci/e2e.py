@@ -43,22 +43,12 @@ import secrets
 from typing import List, NamedTuple, Optional, Sequence, Tuple
 
 from .. import gitx, report, tree as trees
-from ..report import ERROR, Problem
-from ..rules import catalog_meta, say
-from . import (Parser, Unavailable, Usage, conclude, entry, json_line, load, parsed, parser, plan as planning, refusals, write_outputs,
-               write_summary)
+from ..report import Problem
+from ..rules import catalog_meta
+from . import (MESSAGES, Parser, Unavailable, Usage, conclude, entry, json_line, load, parsed, parser, plan as planning, problem, refusals,
+               write_outputs, write_summary)
 from .smoke import needs_settings
 
-MESSAGES = {
-    "E2E01": (ERROR, "{item}: {service} reads GRAVITEE_LICENSE. Fix: only an overlay on a core service may read it."),
-    "E2E02": (ERROR, "A pull request is tried from the workflow of main. Fix: run this workflow on main."),
-    "E2E03": (ERROR, "The head of pull request {n} is {sha7}, not the commit you read ({sha7}). Fix: read the new commits, then run "
-                     "again with the new one."),
-    "E2E04": (ERROR, "{input} is not what it says. Fix: pr is digits only; sha is 40 hexadecimal characters; items are words that name "
-                     "an item and do not start with a dash."),
-    "E2E05": (ERROR, "The change touches {paths}, which this workflow does not try. Fix: merge it first, a maintainer reads it as code, "
-                     "then try the items."),
-}
 LICENSE_VARIABLE = "GRAVITEE_LICENSE"
 MAIN = "refs/heads/main"
 SHA = re.compile(r"[0-9a-f]{40}")
@@ -70,12 +60,6 @@ SHOWN_PATHS = 5
 MAX_WORDS = 256
 TEXT_LIMIT = 1024 * 1024
 FILES_LIMIT = 500
-
-
-def finding(which: str, path: str = "", **fields) -> Problem:
-    """The Problem of a code of this stage (`which`: E2E01...), its message the words of 6.11 with the fields put in."""
-    severity, message = MESSAGES[which]
-    return Problem(which, severity, path, 0, say(message, **fields))
 
 
 def head_mismatch(number: str, head: str, given: str) -> Problem:
@@ -132,11 +116,11 @@ def check_inputs(sha: Optional[str], number: Optional[str], words: Optional[Sequ
     """E2E04 for each input that is not what it says."""
     bad: List[Problem] = []
     if sha is not None and not SHA.fullmatch(sha):
-        bad.append(finding("E2E04", input="sha"))
+        bad.append(problem("E2E04", input="sha"))
     if number is not None and not NUMBER.fullmatch(number):
-        bad.append(finding("E2E04", input="pr"))
+        bad.append(problem("E2E04", input="pr"))
     if words is not None and (not words or len(words) > MAX_WORDS or any(not WORD.fullmatch(word) for word in words)):
-        bad.append(finding("E2E04", input="items"))
+        bad.append(problem("E2E04", input="items"))
     return bad
 
 
@@ -292,7 +276,7 @@ def make_plan(root: str, change: Optional[str], sha: Optional[str], number: Opti
     notes: List[str] = []
     problems += check_inputs(sha, number, words if mode == "items" else None)
     if change is not None and ref != MAIN:
-        problems.append(finding("E2E02"))
+        problems.append(problem("E2E02"))
     if problems:
         return Planned([], problems, [], notes)
     where = root
@@ -310,7 +294,7 @@ def make_plan(root: str, change: Optional[str], sha: Optional[str], number: Opti
         if touched is None:
             raise Unavailable("git could not say what the pull request changes")
         if touched:
-            return Planned([], [finding("E2E05", paths=paths_text(touched))], [], notes)
+            return Planned([], [problem("E2E05", paths=paths_text(touched))], [], notes)
         where = change
         if mode == "changed":
             changed = planning.changed_files(change, base, sha)
@@ -327,7 +311,7 @@ def make_plan(root: str, change: Optional[str], sha: Optional[str], number: Opti
     if mode == "items":
         keys = [item_key(word, ns) for word in words]
         if any(key is None or key not in existing for key in keys):
-            return Planned([], [finding("E2E04", input="items")], [], notes)
+            return Planned([], [problem("E2E04", input="items")], [], notes)
         selected = sorted(dict.fromkeys(keys))
     elif mode == "changed":
         selected = sorted({unit.key for unit in {planning.unit_of(path) for path in changed or ()} - {None}} & set(existing))
@@ -365,7 +349,7 @@ def make_plan(root: str, change: Optional[str], sha: Optional[str], number: Opti
             continue
         surface = license_surface(unit, where, tree)
         for service in surface.own:
-            problems.append(finding("E2E01", unit.file, item=item, service=report.printable(service)))
+            problems.append(problem("E2E01", unit.file, item=item, service=report.printable(service)))
         if surface.reads:
             reads.append(item)
         items.append(item)
