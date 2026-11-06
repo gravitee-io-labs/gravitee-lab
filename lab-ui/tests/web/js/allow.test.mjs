@@ -5,7 +5,6 @@
 // then Blocked again); stopping the allowance is held while the item is on, by the page and by the server; allowing is the one consent that
 // Enter never gives. A listed catalog has the allowance by being listed, and none of this is drawn for it.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
 import { Ev, bubble, flush, installDom, reply, isOff, offWhy, text } from "./dom-stub.mjs";
@@ -16,8 +15,6 @@ mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
   const set = globalThis.setTimeout;
   globalThis.setTimeout = (fn, delay = 0, ...rest) => set(fn, delay, ...rest);
 }
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
 
 // --- The server: a catalog that is not listed, with one item that runs privileged ---------------------------------------------------------------
 
@@ -49,7 +46,6 @@ const k3s = () => {
 const stateNow = () => lab({ catalogs: world.added ? [FIRST(), row()] : [FIRST()], addons: world.added ? [k3s()] : [], content: content("ready") });
 
 const page = installDom({
-  ids,
   fetch: async (path, options = {}) => {
     if (path === "/api/state") return reply(stateNow());
     const body = options.body ? JSON.parse(options.body) : undefined;
@@ -76,7 +72,6 @@ const { catalogsPage } = await import("../../../web/js/pages/catalogs.js");
 const { addonsPage } = await import("../../../web/js/pages/list.js");
 const { openAdd } = await import("../../../web/js/dialogs/catalog.js");
 const { paintActions } = await import("../../../web/js/components/ui.js");
-page.ids["combo-pop"].innerHTML = '<div class="combo-search"><input id="combo-input"></div><div id="combo-bar"></div><div id="combo-list"></div><div id="combo-foot"></div>';
 const { Combo } = await import("../../../web/js/components/combo.js");
 Combo.init();
 

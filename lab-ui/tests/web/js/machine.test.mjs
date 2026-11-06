@@ -2,14 +2,11 @@
 // answers: each line says its state, what it is and its fix (a link, a command to copy, or one the Lab UI runs here); the whole says in one line
 // whether the platform can start; asked again on a timer while it is watched, and no longer once it is not.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
 import { flush, installDom, reply, text } from "./dom-stub.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
 
 const row = (id, state, detail, actions = []) => ({ id, state, title: id[0].toUpperCase() + id.slice(1), detail, actions });
 const READY = { ready: true, problems: 0, checks: [row("docker", "ok", "Docker Desktop 29.8.2, Compose 5.6.0"), row("git", "ok", "Git 2.43.2")] };
@@ -22,7 +19,7 @@ const DOWN = { ready: false, problems: 3, checks: [
 ] };
 
 const server = { machine: READY, calls: [] };
-const page = installDom({ ids, fetch: async (path, options = {}) => {
+const page = installDom({ fetch: async (path, options = {}) => {
   server.calls.push({ path, method: options.method || "GET" });
   return reply(path.startsWith("/api/machine") ? server.machine : {});
 } });

@@ -3,20 +3,17 @@
 // in the two: the text area has `readOnly`, Monaco takes it as an option of its editor, set each time a file is shown. One editor to a process
 // (the popup starts it once), hence a file of its own.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
 import { flush, installDom, reply, isOff, offWhy } from "./dom-stub.mjs";
 import { FIRST, catalog, item, lab, origin } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
 
 const HUB = ".lab/catalogs/acme-hub/playgrounds/bank";
 const MINE = ".lab/catalogs/local/addons/mine";
 
-const page = installDom({ ids, fetch: async (path) => {
+const page = installDom({ fetch: async (path) => {
   const [route, query = ""] = path.split("?");
   const file = decodeURIComponent((query.match(/(?:path|file)=([^&]*)/) || [])[1] || "");
   if (route === "/api/state") return reply(store.state);

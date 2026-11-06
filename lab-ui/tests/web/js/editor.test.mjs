@@ -4,15 +4,12 @@
 // are the person's and open as ever, and so does any file of a folder catalog or of this machine. The file buttons of an item read View for
 // a file that is only read.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
 import { Ev, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
 import { FIRST, catalog, gains, item, lab, origin } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
 
 const HUB = ".lab/catalogs/acme-hub/playgrounds/bank";
 const FIRSTS = ".lab/catalogs/gravitee/addons/kafka";
@@ -21,7 +18,7 @@ const FOLDER = ".lab/catalogs/my-catalog/addons/own";
 
 // What the server answers, and every call made
 const server = { calls: [], files: {} };
-const page = installDom({ ids, fetch: async (path, options = {}) => {
+const page = installDom({ fetch: async (path, options = {}) => {
   const [route, query = ""] = path.split("?");
   server.calls.push({ method: options.method || "GET", path, body: options.body ? JSON.parse(options.body) : undefined });
   const file = decodeURIComponent((query.match(/(?:path|file)=([^&]*)/) || [])[1] || "");

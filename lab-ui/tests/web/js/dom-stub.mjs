@@ -4,7 +4,12 @@
    matchMedia, ResizeObserver, location and history with entries of their own). It is not a browser: layout, scrolling and styles are not here (a test gives an element its width). What a test
    asks of the page is read from the tree it builds (text, attributes) and from what the frames were sent. */
 
+import { readFileSync } from 'node:fs';
+
 const VOID_FOCUSABLE = new Set(['a', 'button', 'input', 'textarea', 'select', 'summary']);
+// The elements of the page's markup that the modules look up by id, those of the combo's popup being made inside it
+const PAGE_IDS = [...readFileSync(new URL('../../../web/index.html', import.meta.url), 'utf8').matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1])
+  .filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
 
 class Text {
   constructor(text) { this.data = String(text); this.parent = null; }
@@ -316,7 +321,7 @@ function frameWindow() {
   return frame;
 }
 
-export function installDom({ ids = [], stored = {}, fetch = async () => { throw new Error('no fetch'); } } = {}) {
+export function installDom({ stored = {}, fetch = async () => { throw new Error('no fetch'); } } = {}) {
   const define = (name, value) => Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
   const doc = Object.assign(new Target(), { activeElement: null, visibilityState: 'visible', title: 'Acme Bakery' });
   Object.defineProperty(doc, 'hidden', { get: () => doc.visibilityState === 'hidden' });
@@ -338,7 +343,8 @@ export function installDom({ ids = [], stored = {}, fetch = async () => { throw 
   doc.getElementById = (id) => root.querySelector(`#${id}`);
   /* The elements the modules look up by id exist from the start (the page's markup is not parsed here): a test fills them. */
   const made = {};
-  for (const id of ids) { const el = doc.createElement('div'); el.id = id; body.append(el); made[id] = el; }
+  for (const id of PAGE_IDS) { const el = doc.createElement('div'); el.id = id; body.append(el); made[id] = el; }
+  if (made['combo-pop']) made['combo-pop'].innerHTML = '<div class="combo-search"><input id="combo-input"></div><div id="combo-bar"></div><div id="combo-list"></div><div id="combo-foot"></div>';
 
   const queries = new Map();
   const matchMedia = (query) => {

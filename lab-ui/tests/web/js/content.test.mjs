@@ -12,8 +12,7 @@ import { ADDRESS, FIRST, HOSTILE, HOSTILE_QUOTED, catalog, content, lab } from "
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
 const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
-const page = installDom({ ids, fetch: async () => ({ ok: true, status: 200, json: async () => ({}) }) });
+const page = installDom({ fetch: async () => ({ ok: true, status: 200, json: async () => ({}) }) });
 globalThis.innerHeight = 800;
 const { store } = await import("../../../web/js/core.js");
 const { contentStatus, contentLead, paintMenuDot, paintProgress } = await import("../../../web/js/components/ui.js");

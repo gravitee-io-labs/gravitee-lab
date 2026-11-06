@@ -14,8 +14,6 @@ import { Ev, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mj
 import { FIRST, catalog, content, lab as labState } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$/.test(id));
 const calls = [];
 const row = (id, state, detail, actions = []) => ({ id, state, title: id[0].toUpperCase() + id.slice(1), detail, actions });
 const READY = { ready: true, problems: 0, checks: [row("docker", "ok", "Docker Desktop 29.8.2, Compose 5.6.0"), row("git", "ok", "Git 2.43.2")] };
@@ -24,7 +22,7 @@ const DOWN = { ready: false, problems: 1, checks: [
   row("git", "ok", "Git 2.43.2"),
 ] };
 const server = { machine: DOWN };
-const page = installDom({ ids, fetch: async (path, options = {}) => {
+const page = installDom({ fetch: async (path, options = {}) => {
   calls.push({ path, body: options.body ? JSON.parse(options.body) : undefined });
   if (path.startsWith("/api/machine")) return reply(server.machine);
   return reply(path === "/api/state" ? store.state : {});

@@ -8,20 +8,16 @@
 // is seen, moves its charts from the clock and not from the samples, reads the Cloud in parallel without holding up the rest, and
 // separates nothing with a dot, a bullet or a slash.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
 import { Ev, bubble, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
 import { FIRST, HOSTILE, catalog as catalogRow, content, origin } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
 
 // What the server answers, and every request it was asked
 const server = { dashboard: null, platforms: [], checks: {}, calls: [], refusal: "" };
 const page = installDom({
-  ids,
   fetch: async (path, options = {}) => {
     const method = options.method || "GET", body = options.body ? JSON.parse(options.body) : undefined;
     server.calls.push({ method, path, body });
@@ -76,7 +72,6 @@ const { store, router } = await import("../../../web/js/core.js");
 const { dashboardPage } = await import("../../../web/js/pages/dashboard.js");
 const { stackPage } = await import("../../../web/js/pages/stack.js");
 const { renderShell } = await import("../../../web/js/components/sidebar.js");
-page.ids["combo-pop"].innerHTML = '<div class="combo-search"><input id="combo-input"></div><div id="combo-bar"></div><div id="combo-list"></div><div id="combo-foot"></div>';
 const { Combo } = await import("../../../web/js/components/combo.js");
 Combo.init();
 

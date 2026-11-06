@@ -5,14 +5,11 @@
 // what the page promises. A gateway that has not connected is read again every 5 seconds for a minute, then less often, and while a gateway
 // job runs; no longer once the page is left.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
 import { Ev, bubble, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
 
 const PLATFORM = { id: "cloud-eu", name: "My Account", kind: "cloud", url: "https://eu.cloud.gravitee.io",
   account: { id: "4b2f6a1e-8c3d-4e57-9a10-7d5c2b8e3f46", hrid: "my-account", name: "My Account" }, tokenSet: true };
@@ -32,7 +29,6 @@ const JOB = { id: "ab12cd34", for: "addon:hybrid", verb: "start", title: "Start 
 // in answer to a POST when a test sets one; the plan of a gateway's start
 const server = { platforms: [PLATFORM], check: null, checks: 0, states: 0, calls: [], refusal: null, refuse: null, plan: { dialog: null }, hold: null, made: "g-made" };
 const page = installDom({
-  ids,
   fetch: async (path, options = {}) => {
     const method = options.method || "GET", body = options.body ? JSON.parse(options.body) : undefined;
     if (path === "/api/state") {

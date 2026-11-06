@@ -4,16 +4,13 @@
 // item comes from in a plan, the picker that counts catalogs from two, the entries of `state.catalogs` that are no row, Add catalog leading to
 // the Catalogs page, and Start all in the Cloud held while no add-on can run its gateway. Run for real over a small DOM.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
 import { Ev, flush, installDom, isOff, offWhy, text } from "./dom-stub.mjs";
 import { FIRST, PERSONAL, catalog, content, lab } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
-const page = installDom({ ids, fetch: async () => ({ ok: true, status: 200, json: async () => ({}) }) });
+const page = installDom({ fetch: async () => ({ ok: true, status: 200, json: async () => ({}) }) });
 globalThis.innerHeight = 800;
 
 const { api, store, router, catalogRows } = await import("../../../web/js/core.js");

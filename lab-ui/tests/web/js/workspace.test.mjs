@@ -11,7 +11,6 @@ import { Ev, flush, installDom, isOff, offWhy } from "./dom-stub.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });   // a tab that shows a notice looks again every few seconds: not in this test
 const page = installDom({
-  ids: ["confirm-cancel", "choice-cancel", "confirm", "choice", "toasts", "confirm-title", "confirm-text", "confirm-ok", "confirm-input"],
   fetch: async (path) => asked(path),
 });
 const HEALTHY = { key: "healthy", label: "Healthy", running: true };

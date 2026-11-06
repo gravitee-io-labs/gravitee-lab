@@ -3,7 +3,6 @@
 // picker that filters a list by one of its facts (web/js/components/combo.js, CategoryFilter), run over a small DOM: the categories of a list as it
 // always drew them, and the catalogs an item comes from, with the same component.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
 import { flush, installDom, text } from "./dom-stub.mjs";
@@ -145,10 +144,7 @@ test("lines wider than the room a list can have are drawn in two: wider than MAX
 // --- The picker of a list ----------------------------------------------------------------------------------------------------
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
-const page = installDom({ ids });
-page.el("combo-pop").innerHTML = '<div class="combo-search"><input id="combo-input"></div><div id="combo-bar"></div><div id="combo-list"></div><div id="combo-foot"></div>';
+const page = installDom();
 const { Combo, CategoryFilter } = await import("../../../web/js/components/combo.js");
 Combo.init();
 

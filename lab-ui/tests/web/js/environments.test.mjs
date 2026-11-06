@@ -4,15 +4,12 @@
 // add-on that runs a gateway is chosen by the server (`state.platform.gateways`); with none, the cell says that there is no add-on (the Cloud
 // controls with it), or, while the catalogs are not there, why, in the words of the lists.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { bubble, installDom, text } from "./dom-stub.mjs";
 import { FIRST, catalog, content } from "./fixtures.mjs";
 
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
-const dom = installDom({ ids });
+const dom = installDom();
 const { store } = await import("../../../web/js/core.js");
 const { environmentStatus, splitEnvironments, gatewayList, gatewayCount, addonOf, gatewayGap, gatewayCell, hybrid, runs, stopOf, TERMS } = await import("../../../web/js/platform/environments.js");
 const { gatewayWhy, runsControl, chooseCore } = await import("../../../web/js/platform/core-choice.js");

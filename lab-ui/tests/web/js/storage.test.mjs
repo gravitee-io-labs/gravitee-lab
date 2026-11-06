@@ -9,8 +9,7 @@ import { test } from "node:test";
 import { installDom } from "./dom-stub.mjs";
 
 const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$/.test(id));
-const page = installDom({ ids });
+const page = installDom();
 const { recallObject } = await import("../../../web/js/core.js");
 
 const FOREIGN = ["system", "Dark", " dark", "dark ", "auto", "", "0", "null", "undefined", "__proto__", "constructor", "toString", "<b>", "light dark"];

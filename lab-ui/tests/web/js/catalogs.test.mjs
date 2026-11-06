@@ -4,7 +4,6 @@
 // second screen at once from a known address), Update and Go back, Remove, Allow and New catalog, and the actions of the content status.
 // Every name that comes from a server is hostile on purpose somewhere: none becomes markup.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
 import { Ev, bubble, flush, installDom, reply, isOff, offWhy, text } from "./dom-stub.mjs";
@@ -17,14 +16,10 @@ mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
   const set = globalThis.setTimeout;
   globalThis.setTimeout = (fn, delay = 0, ...rest) => set(fn, delay, ...rest);
 }
-const source = (file) => readFileSync(new URL(`../../../web/${file}`, import.meta.url), "utf8");
-const html = source("index.html");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
 
 // What the server answers: the calls the page made, in order, the answer to each route (a value, or a function of the body), and a refusal
 const server = { calls: [], answers: {}, refuse: {}, states: 0 };
 const page = installDom({
-  ids,
   fetch: async (path, options = {}) => {
     const method = options.method || "GET", body = options.body ? JSON.parse(options.body) : undefined;
     if (path === "/api/state") {

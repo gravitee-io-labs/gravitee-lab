@@ -1,16 +1,13 @@
 // The badge of what runs behind what is saved (web/js/components/ui.js): its markup, how a row's note becomes one, and how it opens: by a tap, closed by a tap elsewhere, a second
 // badge or Escape. Then where the Containers page uses it: the group and the line of a service that runs behind.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
 import { Ev, El, bubble, installDom, text } from "./dom-stub.mjs";
 import { BLOCKED, HOSTILE, HOSTILE_QUOTED, NEEDS, gains, item, origin } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
-const page = installDom({ ids, stored: { expanded: JSON.stringify({ "group:databases": true }) }, fetch: async () => ({ ok: true, status: 200, json: async () => ({}) }) });
+const page = installDom({ stored: { expanded: JSON.stringify({ "group:databases": true }) }, fetch: async () => ({ ok: true, status: 200, json: async () => ({}) }) });
 globalThis.innerHeight = 800;
 // The keys of a segmented control, whose selector the small DOM does not know: no node of its own is under the keys of a test
 const { closest } = El.prototype;

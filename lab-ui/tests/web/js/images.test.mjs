@@ -2,14 +2,11 @@
 // other images take is chosen among the plain tags, so that no choice makes a tag that does not exist for them (the
 // gateway's is the version and "-debian"); the tags of a component that stands alone come in their variants.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
 import { flush, installDom, text } from "./dom-stub.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
 
 // A component as /api/images lists it: `configured` are the images its services run, `follows` what its version is made of
 function component(id, label, configured, { follows = [], kind = "gravitee" } = {}) {
@@ -36,7 +33,6 @@ const PLAIN = ["4.12.21", "4.13.0-alpha.4", "8.10.2", "9.5.3", "latest"];
 
 const listings = [];   // the lists of tags the page asked for
 const page = installDom({
-  ids,
   stored: { thirdPartyOpen: "1" },   // the third-party section is unfolded
   fetch: async (path) => {
     if (path.startsWith("/api/tags")) listings.push(path);
@@ -45,7 +41,6 @@ const page = installDom({
     return { ok: true, status: 200, json: async () => body };
   },
 });
-page.el("combo-pop").innerHTML = '<div class="combo-search"><input id="combo-input"></div><div id="combo-bar"></div><div id="combo-list"></div><div id="combo-foot"></div>';
 const { store } = await import("../../../web/js/core.js");
 const { imagesPage } = await import("../../../web/js/pages/images.js");
 store.state = { blind: false, wait: "", docker: { error: null }, services: {}, platform: { name: "Gravitee Platform", groups: [], apply: { needed: false } }, playgrounds: [], addons: [], setups: [] };

@@ -3,16 +3,12 @@
 // `gateway.group`, which the server tells from the images): the Hybrid gateway and its Redis are listed in API Management, after its
 // own services, the gateway first, and in no section of their own; another add-on keeps its own.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
 import { flush, installDom, text } from "./dom-stub.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
-const page = installDom({ ids });
-page.el("combo-pop").innerHTML = '<div class="combo-search"><input id="combo-input"></div><div id="combo-bar"></div><div id="combo-list"></div><div id="combo-foot"></div>';
+const page = installDom();
 globalThis.EventSource = class { close() {} addEventListener() {} };
 
 const { store } = await import("../../../web/js/core.js");

@@ -23,8 +23,6 @@ mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: Date.now(
 // A timer set with no delay (the menu's, in ui.js) is NaN for the mock, which then loses the timers that follow it
 const setTimer = globalThis.setTimeout;
 globalThis.setTimeout = (fn, ms, ...rest) => setTimer(fn, ms ?? 0, ...rest);
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
 const MAIN = new URL("./lists.main.txt", import.meta.url), EMPTY = new URL("./lists.empty.txt", import.meta.url), CATALOGS = new URL("./lists.catalogs.txt", import.meta.url);
 const ENVIRONMENTS = [{ id: "development", name: "Development" }, { id: "test", name: "Test" }];
 const CANNOT = { "acme-bakery": "Needs Access Management" };   // what a place says Acme Bakery cannot go there for
@@ -33,7 +31,7 @@ const server = { calls: [], dialog: null };
 const JOB = { id: "ab12cd34", for: "playground:acme-hostels", verb: "start", title: "Start Acme Hostels", done: false, ok: null, progress: null, phases: [], started: 0 };
 // The groups of the Stack the page remembers open, and the place that was last chosen to deploy to (the default of every playground)
 const stored = { expanded: JSON.stringify({ "group:api-management": true, "addon:kafka": true }), deploy: "acme/development" };
-const page = installDom({ ids, stored, fetch: async (path, options = {}) => {
+const page = installDom({ stored, fetch: async (path, options = {}) => {
   const call = { method: options.method || "GET", path, body: options.body ? JSON.parse(options.body) : undefined };
   if (path !== "/api/state") server.calls.push(call);
   if (path === "/api/state") return reply(store.state);
@@ -55,7 +53,6 @@ store.refreshPlaces = () => { reads += 1; };
 const { renderShell } = await import("../../../web/js/components/sidebar.js");
 const { playgroundsPage, setupsPage, addonsPage, selectCatalog } = await import("../../../web/js/pages/list.js");
 const { stackPage } = await import("../../../web/js/pages/stack.js");
-page.ids["combo-pop"].innerHTML = '<div class="combo-search"><input id="combo-input"></div><div id="combo-bar"></div><div id="combo-list"></div><div id="combo-foot"></div>';
 const { Combo } = await import("../../../web/js/components/combo.js");
 Combo.init();
 await import("../../../web/js/dialogs/catalog.js");   // answers the buttons of the content, which the lists draw (Try again, Add the listed catalog)

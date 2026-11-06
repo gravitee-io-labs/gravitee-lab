@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { installDom } from "./dom-stub.mjs";
 import { catalog, content, lab } from "./fixtures.mjs";
 
-const page = installDom({});
+const page = installDom();
 const { ID_PATTERN, compareVersions, hrefOf, router, splitKey, store } = await import("../../../web/js/core.js");
 
 const shown = [];   // the pages the router showed, in order

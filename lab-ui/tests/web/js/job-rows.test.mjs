@@ -2,15 +2,12 @@
 // A row drawn again would start its spinner over at every byte that arrives, and the spinner would never turn. The job comes the way
 // the page gets one that runs: in the state, followed by its stream of lines and of downloads.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
 import { flush, installDom } from "./dom-stub.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
-const page = installDom({ ids });
+const page = installDom();
 
 const streams = [];
 globalThis.EventSource = class {

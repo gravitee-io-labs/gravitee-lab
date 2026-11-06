@@ -6,19 +6,16 @@
 // the item says why. What a catalog that is a repository gets is a branch (with a pull request to open when its host has one), a folder gets
 // a copy. A problem that every destination finds is a notice of what to fix first, with the prompt that has an agent fix it.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
 import { Ev, bubble, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
 import { FIRST, FOLDER, HOSTILE, catalog, content, item, lab, origin } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
 
 // What the server answers: the destinations, and what sharing to each would do or did; every call is kept
 const server = { calls: [], destinations: [], checks: {}, done: {}, refuse: "", rejects: {} };
-const page = installDom({ ids, fetch: async (path, options = {}) => {
+const page = installDom({ fetch: async (path, options = {}) => {
   const body = options.body ? JSON.parse(options.body) : undefined;
   if (path === "/api/state") return reply(store.state);
   server.calls.push({ path, body });
