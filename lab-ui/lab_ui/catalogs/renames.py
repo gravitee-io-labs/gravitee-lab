@@ -27,7 +27,6 @@ import json
 import os
 import posixpath
 import re
-import stat
 import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -43,7 +42,7 @@ PARTS = manifest.PARTS["renamed"]
 NONE = {part: {} for part in PARTS}
 KEPT = f"{moves.MIGRATION}/kept"   # where an entry whose place was taken is kept, by catalog, kind and old name
 SHARED = f"{paths.LAB_DIR}/renames.json"   # contribute.RENAMES: what a share renamed, by the item as the catalog holds it
-# A setting's line in a .env, as `contribute._rename_settings` reads it: the name, after `export` and spaces
+# A setting's line in a .env: the name, after `export` and spaces
 _LINE = r"(?m)^(\s*(?:export\s+)?){}(?==)"
 _COPY_OF = r"""(copy_of:\s*)(["']?){}\2(?=\s*(?:[,}}#]|$))"""
 
@@ -55,28 +54,20 @@ _read = {}   # (the reader, the bytes of a catalog.yml) -> its declarations: a f
 # ---------------------------------------------------------------------------------------------------------------------
 
 def _end(mapping, name):
-    """Where `name` ends when it is renamed again and again; a cycle (which the check refuses) ends where it would repeat."""
+    """(where `name` ends when it is renamed again and again, how many renames that takes); a cycle (which the check refuses)
+    ends where it would repeat."""
     seen = set()
     while name in mapping and name not in seen:
         seen.add(name)
         name = mapping[name]
-    return name
-
-
-def _steps(mapping, name):
-    """How many renames `name` goes through to the end of its chain."""
-    seen = set()
-    while name in mapping and name not in seen:
-        seen.add(name)
-        name = mapping[name]
-    return len(seen)
+    return name, len(seen)
 
 
 def _resolved(mapping):
     """{old: the name it ends at} of a part, the pairs that end where they start left out, the names nearest the end first: a
     .env that holds two names of one chain gives the last name the value of the newer one (`rename_settings`)."""
-    olds = sorted((old for old in mapping if isinstance(old, str)), key=lambda old: _steps(mapping, old))
-    return {old: _end(mapping, old) for old in olds if _end(mapping, old) != old}
+    ends = {old: _end(mapping, old) for old in mapping if isinstance(old, str)}
+    return {old: ends[old][0] for old in sorted(ends, key=lambda old: ends[old][1]) if ends[old][0] != old}
 
 
 def part(earlier: dict, later: dict, back: bool = False) -> Dict[str, str]:
@@ -235,11 +226,6 @@ def stuck(kind, home):
     return CatalogError("rename_stuck", STUCK.format(name="a renamed item"), 409, units=[f"{kind}:{home}"])
 
 
-def _write(path: Path, text: str):
-    """A file of this machine replaced whole with the mode it has."""
-    paths.write_atomic(path, text, mode=stat.S_IMODE(path.stat().st_mode))
-
-
 def _on_file(old_file, new_file, step):
     """The line of the on file that turns the item on names its new file; a line that runs it on a platform names a copy written
     for the new file, and the old copy goes once nothing names it. Every other line is the person's and stays."""
@@ -266,7 +252,7 @@ def _on_file(old_file, new_file, step):
     written = "".join(lines)
     if written != text:
         step("rename:on")
-        _write(file, written)
+        moves._replaced(file, written)
         moves.journal("repoint", path=paths.ON_FILE, old=old_file, new=new_file)
     for copy in gone:
         if copy not in written and os.path.lexists(paths.ROOT / copy):
@@ -303,7 +289,7 @@ def _includes(old, new, step):
         written = moves.repoint(text, folder, folder, [(old, new)])
         if written != text:
             step("rename:include")
-            _write(file, written)
+            moves._replaced(file, written)
             moves.journal("repoint", path=rel, old=old, new=new)
             written_files.append(rel)
     return written_files
@@ -337,7 +323,7 @@ def _copies(old_uid, new_uid, step):
         written = pattern.sub(lambda hit: f"{hit.group(1)}{hit.group(2)}{new_uid}{hit.group(2)}", text)
         if written != text:
             step("rename:copy")
-            _write(file, written)
+            moves._replaced(file, written)
             moves.journal("copy_of", path=os.path.relpath(file, paths.ROOT), old=old_uid, new=new_uid)
 
 
@@ -351,7 +337,7 @@ def _shared(kind, old_uid, new_uid):
     if not isinstance(kept, dict) or f"{kind}:{old_uid}" not in kept:
         return
     kept.setdefault(f"{kind}:{new_uid}", kept.pop(f"{kind}:{old_uid}"))
-    _write(file, json.dumps(kept, indent=2, sort_keys=True) + "\n")
+    moves._replaced(file, json.dumps(kept, indent=2, sort_keys=True) + "\n")
 
 
 def rename_settings(text: str, settings: Dict[str, str]) -> str:
@@ -380,7 +366,7 @@ def _settings(ns, units, settings, step):
             written = rename_settings(text, settings)
             if written != text:
                 step("rename:settings")
-                _write(file, written)
+                moves._replaced(file, written)
                 moves.journal("rename_settings", path=os.path.relpath(file, paths.ROOT),
                               names=sorted(old for old in settings if old in text))
 
