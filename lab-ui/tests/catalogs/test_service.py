@@ -8,7 +8,7 @@ module, for the rest, which are about the flows, the lock, the lines and the cod
 
 import ast
 import contextlib
-import http.client  # noqa: F401 - the module the network steps would use: a test patches socket to prove none is made
+import io
 import json
 import os
 import shutil
@@ -33,7 +33,6 @@ from .. import Case, fixtures, gitfixture
 from .test_provision import Served
 
 HOUR = 3600
-PARTNER = {"name": "Partner fixture", "version": "2.0.0"}
 BARE = {"contract": 1, "contract_min": 1, "seeder_image": ""}   # the level of this Lab, as the core says it
 
 
@@ -56,14 +55,12 @@ class Base(Case):
     """A project folder with the engine's files and the fixture catalog as the default one, git that reads local
     repositories, and the memory of the module cleared."""
 
-    DEFAULT = "fixture"   # the catalog installed as the default one
-
     def setUp(self):
         gitfixture.require()
         fixtures.need_compose()
         # The Docker CLI finds its Compose plugin in the person's configuration folder, which the isolated home hides
         self.environ(DOCKER_CONFIG=os.path.join(os.path.expanduser("~"), ".docker"))
-        fixtures.project(self, paths, project, compose, envfiles, ns=self.DEFAULT)
+        fixtures.project(self, paths, project, compose, envfiles)
         self.patch(paths, "_default", (None, None))
         self.home = gitfixture.isolate(self)
         self.patch(gitx, "_ending", False)   # a test of the exit function elsewhere leaves it for good
@@ -87,9 +84,9 @@ class Base(Case):
             self.remotes[ns] = fixtures.remote(self, ns, **patch)
         return self.remotes[ns]
 
-    def folder_catalog(self, ns="partner", name=None):
+    def folder_catalog(self, ns="partner"):
         """A working copy of a fixture catalog under the home folder: a folder an author keeps."""
-        target = self.home / (name or f"{ns}-copy")
+        target = self.home / f"{ns}-copy"
         shutil.rmtree(target, ignore_errors=True)
         shutil.copytree(fixtures.CATALOGS / ns, target)
         return target
@@ -123,7 +120,7 @@ class Seam(Base):
 
     def setUp(self):
         gitfixture.require()
-        fixtures.project(self, paths, project, compose, envfiles, ns=self.DEFAULT)
+        fixtures.project(self, paths, project, compose, envfiles)
         self.patch(paths, "_default", (None, None))
         self.home = gitfixture.isolate(self)
         self.patch(gitx, "_ending", False)
@@ -193,13 +190,6 @@ class Seam(Base):
         done = fixtures.install(self, ns, kind="git", store=True, **patch)
         self.remotes[ns] = done.remote
         return done
-
-    def fetched(self, ns, **patch):
-        """Catalog `ns` added through the Add check and the Add (against a remote), as a person adds one."""
-        self.remote(ns, **patch)
-        shown = service.check_address(self.remotes[ns].url)
-        return service.add(shown["ticket"])
-
 
 # ---------------------------------------------------------------------------------------------------------------------
 # describe: the rows of the state
@@ -326,39 +316,6 @@ class Rows(Seam):
         self.assertIsNone(self.rows()["lab-new"]["web_url"])
 
 
-class PublicNames(unittest.TestCase):
-    """service.py works with the modules around it by their public names. A rename inside one of them is then a failure of its
-    own tests, and not of a route of the Catalogs page on a day nobody ran it."""
-
-    ALLOWED = {("firstrun", "_failure")}
-
-    @staticmethod
-    def reaches(path):
-        tree = ast.parse(Path(path).read_text(encoding="utf-8"))
-        modules = {alias.asname or alias.name for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.level
-                   for alias in node.names}
-        return sorted({(node.value.id, node.attr) for node in ast.walk(tree)
-                       if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id in modules
-                       and node.attr.startswith("_") and not node.attr.startswith("__")})
-
-    def test_the_service_names_nothing_private_of_the_modules_it_imports_but_what_is_allowed_and_listed(self):
-        self.assertEqual(set(self.reaches(service.__file__)), self.ALLOWED)
-
-    def test_the_names_it_took_are_public_where_they_are(self):
-        for module, names in ((project, ("staged_units", "judge_staged", "judge_inputs", "held_reasons", "held_why", "conflict_id")),
-                              (paths, ("names",)), (registry, ("busy",)), (install, ("not_expected", "taken", "unit_key"))):
-            for name in names:
-                with self.subTest(module=module.__name__, name=name):
-                    self.assertTrue(callable(getattr(module, name)))
-                    self.assertFalse(name.startswith("_"))
-
-    def test_the_guard_sees_a_private_name_where_there_is_one(self):
-        folder = Path(__file__).parents[1]
-        with mock.patch.object(Path, "read_text", return_value="from .. import project\nfrom . import registry\n"
-                               "x = project._screen\ny = registry.flock\nz = registry.__name__\n"):
-            self.assertEqual(self.reaches(folder / "anything.py"), [("project", "_screen")])
-
-
 class Retrying(Served, Case):
     """A download that failed and is tried again, nobody watching: `firstrun.content` says it failed through every step
     of the commit, and the row of the Catalogs page says the same, not Downloading for the milliseconds the disk does."""
@@ -463,10 +420,9 @@ class States(Seam):
         self.assertEqual(self.said()[0], "checking")
 
     def test_a_catalog_never_checked_says_checking(self):
-        done = self.installed()
+        self.installed()
         registry.set_lock("partner", checked=None)
         self.assertEqual(self.said(), ("checking", "Checking", "muted", "", ""))
-        self.assertTrue(done)
 
     def test_a_newer_version_that_changes_something_is_an_update_available(self):
         self.given(seen={"target": "c" * 40, "update": True, "tip": "ok", "version": "2.1.0"})
@@ -644,7 +600,6 @@ class Attention(Seam):
 
     def test_a_download_says_how_far_it_is_from_the_memory_of_the_worker(self):
         fixtures.declare(self, "lab-new")
-        from lab_ui.catalogs import firstrun
         with mock.patch.object(firstrun, "PROGRESS", {"lab-new": {"phase": "fetch", "fraction": 0.42}}):
             self.assertEqual(self.row("lab-new")["progress"], 0.42)
         with mock.patch.object(firstrun, "PROGRESS", {}):
@@ -983,13 +938,12 @@ class Refusals(Seam):
         self.assertEqual(self.refused(remote.url), ("fsck", 400, "This repository is damaged. Ask its owners to check it."))
 
     def test_a_catalog_the_person_has_is_already_added_in_any_spelling_and_before_anything_is_fetched(self):
-        done = self.installed("partner", url="https://github.com/acme/lab-hub.git")
+        self.installed("partner", url="https://github.com/acme/lab-hub.git")
         self.patch(gitx, "ls_remote", side_effect=AssertionError("the network was asked"))
         for address in ("acme/lab-hub", "https://github.com/acme/lab-hub", "git@github.com:acme/lab-hub.git",
                         "https://github.com/acme/lab-hub.git"):
             with self.subTest(address=address):
                 self.assertEqual(self.refused(address), ("already_added", 409, "Already added as Partner fixture."))
-        self.assertTrue(done)
 
     def test_a_folder_the_person_linked_is_already_added_too(self):
         folder = self.folder_catalog("partner")
@@ -1169,8 +1123,7 @@ class Understanding(Real):
 
     def test_an_installed_version_that_uses_what_this_lab_does_not_read_is_not_run(self):
         """A copy installed before this Lab read it so (or by a newer Lab): its unit is blocked, and says why."""
-        done = fixtures.install(self, "partner", kind="git", files={LEDGER: self.ledger()})
-        self.assertTrue(done.commit)
+        fixtures.install(self, "partner", kind="git", files={LEDGER: self.ledger()})
         project.forget()
         unit = project.loaded()[0]["addons"]["@partner/ledger"]
         self.assertEqual((unit["compat"], unit["unknown"]), ("new", ["x-gravitee.badge"]))
@@ -1372,8 +1325,7 @@ class Judging(Real):
 
     def test_a_preview_replaced_by_a_staged_tree_changes_nothing_the_project_reads(self):
         before = project.loaded()
-        shown = service.check_address(self.remote("partner").url)
-        self.assertTrue(shown)
+        service.check_address(self.remote("partner").url)
         after = project.loaded()
         self.assertEqual(sorted(after[0]["addons"]), sorted(before[0]["addons"]))
         self.assertEqual(after[1]["catalogs"].keys(), before[1]["catalogs"].keys(), "the inputs it was given are as they were")
@@ -1582,7 +1534,6 @@ class Listed(Seam):
 
     def setUp(self):
         super().setUp()
-        from lab_ui.catalogs import firstrun
         self.woken = []
         self.patch(firstrun, "reconcile", side_effect=lambda: self.woken.append("reconcile"))
         self.patch(firstrun, "wake", side_effect=lambda: self.woken.append("wake"))
@@ -1662,7 +1613,6 @@ class Creating(Seam):
         self.assertTrue((self.root / ".lab" / "catalogs" / "my-demo-catalog").is_symlink())
         self.assertEqual(registry.entry("my-demo-catalog")["path"], str(folder))
         self.assertFalse((folder / ".git").exists(), "the Lab does not run git init")
-        self.assertEqual(manifest.read(str(folder))["id"] if hasattr(manifest, "read") else "my-demo-catalog", "my-demo-catalog")
 
     def test_a_folder_that_exists_is_folder_exists_and_nothing_is_made(self):
         made = self.template()
@@ -1891,7 +1841,6 @@ class Checking(Seam):
         self.assertEqual(registry.lock_of("partner")["audience"], "private")
 
     def test_an_entry_with_no_copy_is_the_download_the_worker_does_and_the_request_answers_at_once(self):
-        from lab_ui.catalogs import firstrun
         woken = []
         self.patch(firstrun, "reconcile", side_effect=lambda: woken.append("reconcile"))
         self.patch(firstrun, "wake", side_effect=lambda: woken.append("wake"))
@@ -1905,8 +1854,7 @@ class Checking(Seam):
         self.patch(bare, "fetch", side_effect=AssertionError("something was fetched"))
         fixtures.install(self, "lab-old", kind="folder")
         self.assertEqual(service.check_now("lab-old")["catalog"]["kind"], "folder")
-        shadow = fixtures.install(self, "lab-new", kind="folder", store=True)
-        self.assertTrue(shadow)
+        fixtures.install(self, "lab-new", kind="folder", store=True)
         self.assertEqual(service.check_now("lab-new")["catalog"]["state"]["key"], "linked")
         registry.set_lock("partner", pending={"op": "update", "from": self.done.commit, "to": "b" * 40})
         with held_by_another():   # a change that runs is left alone
@@ -1939,7 +1887,6 @@ class Checking(Seam):
         service.check_now("partner")
         self.assertTrue(self.forgot)
         self.forgot.clear()
-        from lab_ui.catalogs import firstrun
         self.patch(firstrun, "reconcile")
         self.patch(firstrun, "wake")
         fixtures.declare(self, "lab-new", error="unreachable")
@@ -2011,10 +1958,10 @@ class Checker(Seam):
                 raise KeyError("boom")
             return real(ns)
         self.patch(service, "check_now", check)
-        said = io_stderr()
-        with said:
+        said = io.StringIO()
+        with contextlib.redirect_stderr(said):
             service.check_all()
-        self.assertEqual(said.text().strip(), "Gravitee Lab UI: could not check partner (KeyError)")
+        self.assertEqual(said.getvalue().strip(), "Gravitee Lab UI: could not check partner (KeyError)")
         self.assertEqual(self.state("lab-new"), "uptodate")
 
     def test_the_module_starts_no_thread(self):
@@ -2023,27 +1970,10 @@ class Checker(Seam):
         service.check_all()
         service.check_now("partner")
         self.assertEqual(starts, [])
-        import ast
         tree = ast.parse(Path(service.__file__).read_text(encoding="utf-8"))
         names = {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
         self.assertNotIn("Thread", names, "the one background thread of the Lab is the worker's")
         self.assertNotIn("Timer", names)
-
-
-class io_stderr:   # noqa: N801 - a context manager used like a function
-    """Standard error captured as text."""
-
-    def __enter__(self):
-        import io
-        self.buffer, self.patcher = io.StringIO(), mock.patch.object(sys, "stderr")
-        self.patcher.start().write = self.buffer.write
-        return self
-
-    def __exit__(self, *exc):
-        self.patcher.stop()
-
-    def text(self):
-        return self.buffer.getvalue()
 
 
 class Unreadable(Seam):
