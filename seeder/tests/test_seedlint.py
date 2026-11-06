@@ -1536,8 +1536,7 @@ class InTheEngine(unittest.TestCase):
 
     def test_the_image_leaves_it_out_as_it_leaves_out_the_testkit(self):
         """The seeder's Dockerfile copies the package that seeder/.dockerignore does not leave out. This module is a tool of tests and of
-        a catalog's CI, run from the checkout of the Lab, as the testkit is: both are listed, with the files that stand for them at
-        the root."""
+        a catalog's CI, run from the checkout of the Lab, and the testkit a tool of tests: both are listed."""
         listed = [line.strip() for line in (SEEDER / ".dockerignore").read_text(encoding="utf-8").splitlines()]
         dockerfile = (SEEDER / "Dockerfile").read_text(encoding="utf-8")
         self.assertIn("COPY lab_seeder lab_seeder", dockerfile)

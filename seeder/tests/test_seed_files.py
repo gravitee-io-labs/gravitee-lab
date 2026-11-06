@@ -20,7 +20,6 @@ import yaml
 from lab_seeder import apim
 from lab_seeder import apim_portal
 from lab_seeder import common
-from lab_seeder import testkit
 from lab_seeder.seedlint import (SMALL, compose_value, environment_problems, literal_addresses, provided_to, seed_environment,
                       seed_paths, seed_service, seeded_playgrounds, unset_variables)
 from lab_seeder.testkit import PLAYGROUNDS
@@ -150,8 +149,6 @@ class Preflight(unittest.TestCase):
                     (root / name / "seed").mkdir()
             self.assertEqual([(p.name, env) for p, env in seeded_playgrounds(root)], [("with-both", {"A": "x"})])
             self.assertEqual(list(seeded_playgrounds(root / "none")), [])
-            with mock.patch.object(testkit, "PLAYGROUNDS", root):   # the folder the tests read, when none is given
-                self.assertEqual([p.name for p, _ in testkit.seeded_playgrounds()], ["with-both"])
 
 
 class EnvironmentChecks(unittest.TestCase):

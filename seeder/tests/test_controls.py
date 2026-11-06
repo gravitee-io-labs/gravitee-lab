@@ -13,7 +13,8 @@ import yaml
 from lab_seeder import common
 from lab_seeder import controls
 from lab_seeder import seed
-from lab_seeder.testkit import PLAYGROUNDS, Seed, compose_value, seed_environment, seed_service
+from lab_seeder.seedlint import compose_value, seed_environment, seed_service
+from lab_seeder.testkit import PLAYGROUNDS, Seed
 
 ACME_BAKERY = PLAYGROUNDS / "acme-bakery"
 ACME_SEED = ACME_BAKERY / "seed"

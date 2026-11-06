@@ -18,7 +18,7 @@ on *Re-seed*, and runs `seed.py --remove` for *Delete what it created*. The serv
 | Where | What |
 |---|---|
 | `lab_seeder/` | The seeder: one module for each thing it seeds, the helpers they share (`common.py`, `controls.py`, `refills.py`, `gamma.py`), the lint of seed files (`seedlint.py`) and the kit of the tests (`testkit.py`) |
-| `seedlint.py`, `testkit.py` | The paths a catalog reads the lint and the kit at (`python lab/seeder/seedlint.py`, `from testkit import Seed`): each one hands over to the module of the package |
+| `seedlint.py` | The path a catalog runs the lint at (`python lab/seeder/seedlint.py`): it hands over to the module of the package |
 | `tests/` | The tests, and the invented samples they read (`fixtures/samples/`) |
 | `Dockerfile`, `requirements.txt` | The image |
 | `README.md`, `AGENTS.md` | This page, and the guide of an agent that works here |

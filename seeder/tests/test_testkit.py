@@ -1,7 +1,5 @@
-"""The part of testkit that says which files a test reads: the folder of playgrounds (a catalog's, or the sample of the
-engine), the personal folder of this machine, the sample itself, and the guard that keeps the engine's tests off the
-content of the repository; and the checks of the seed files and the reading of the seed
-service, which are seedlint's and have no copy here."""
+"""The files a test reads: the sample of the engine, and the guard that keeps the engine's tests off the content of the
+repository; and the reading of the seed service, which is seedlint's."""
 
 import ast
 import inspect
@@ -18,7 +16,8 @@ import yaml
 from lab_seeder import common
 from lab_seeder import seedlint
 from lab_seeder import testkit
-from lab_seeder.testkit import SAMPLES, Seed, seeded_playgrounds
+from lab_seeder.seedlint import seeded_playgrounds
+from lab_seeder.testkit import SAMPLES, Seed
 
 from . import chained, doubling
 
@@ -61,47 +60,10 @@ class Sample(unittest.TestCase):
         self.assertEqual([path.name for path in SAMPLES.iterdir() if not path.is_dir()], [])
 
 
-# What testkit names and seedlint holds: the checks of the seed files and the reading of a playground's seed service
-SHARED = ("TEXT", "LITERAL_URL", "PUBLIC", "SAMPLES", "seed_paths", "unset_variables", "provided_to", "literal_addresses",
-          "escaped_addresses", "as_mapping", "compose_value", "seed_service", "seed_environment")
 CHECKS = "service: {labels: {io.gravitee.role: seed}, environment: {A: x}}"
 
 
 class OneSetOfChecks(unittest.TestCase):
-    """The tests of the engine and the tests of a catalog import the checks from the kit, and the catalog's CI runs them on the
-    command line: they are one set, so that they never disagree about a file."""
-
-    def test_every_name_the_kit_shares_is_the_object_of_seedlint(self):
-        for name in SHARED:
-            with self.subTest(name=name):
-                self.assertIs(getattr(testkit, name), getattr(seedlint, name))
-
-    def test_the_kit_holds_no_copy_of_what_it_names(self):
-        """It defines none of them: a name is an alias of a seedlint object, or a function that calls one."""
-        tree = ast.parse(Path(testkit.__file__).read_text(encoding="utf-8"))
-        own = {node.name for node in tree.body if isinstance(node, ast.FunctionDef)}
-        self.assertEqual(own & set(SHARED), set())
-        for node in tree.body:
-            if isinstance(node, ast.Assign):
-                names = [name.id for target in node.targets for name in ast.walk(target) if isinstance(name, ast.Name)]
-                shared = [name for name in names if name in SHARED]
-                if shared:
-                    values = node.value.elts if isinstance(node.value, ast.Tuple) else [node.value]
-                    for value in values:
-                        with self.subTest(names=shared):
-                            self.assertTrue(isinstance(value, ast.Attribute) and isinstance(value.value, ast.Name)
-                                            and value.value.id == "seedlint", ast.unparse(node))
-        self.assertTrue(all(name not in vars(testkit) for name in ("re", "yaml")), "it parses and matches nothing itself")
-
-    def test_the_playgrounds_without_a_root_are_those_the_tests_read(self):
-        with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder)
-            (root / "acme" / "seed").mkdir(parents=True)
-            (root / "acme" / "compose.yml").write_text("services:\n  " + CHECKS + "\n", encoding="utf-8")
-            with mock.patch.object(testkit, "PLAYGROUNDS", root):
-                self.assertEqual(list(seeded_playgrounds()), [(root / "acme", {"A": "x"})])
-            self.assertEqual(list(seeded_playgrounds(root)), [(root / "acme", {"A": "x"})])
-            self.assertEqual(list(seeded_playgrounds(root / "none")), [])
 
     def test_the_sample_is_read_whole_with_nothing_to_say(self):
         report = seedlint.lint(SAMPLES)
@@ -117,15 +79,15 @@ class OneSetOfChecks(unittest.TestCase):
             started = time.process_time()
             with mock.patch.object(yaml.SafeLoader, "construct_document", side_effect=AssertionError("the loader ran on a bomb")):
                 with self.assertRaisesRegex(common.SeedError, "merges mappings with << keys"):
-                    testkit.seed_service(bomb)
+                    seedlint.seed_service(bomb)
                 bomb.write_text("x-bomb:\n" + chained(3000, "  "), encoding="utf-8")
                 with self.assertRaisesRegex(common.SeedError, "merges mappings with << keys"):
-                    testkit.seed_service(bomb)
+                    seedlint.seed_service(bomb)
             self.assertLess(time.process_time() - started, 10.0)
             binary = root / "binary.yml"
             binary.write_bytes(b"services: \xff\xfe\n")
             with self.assertRaisesRegex(common.SeedError, "not UTF-8"):
-                testkit.seed_service(binary)
+                seedlint.seed_service(binary)
 
     def test_a_compose_file_that_is_a_link_is_not_followed(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -135,16 +97,16 @@ class OneSetOfChecks(unittest.TestCase):
                 os.symlink(root / "real.yml", root / "linked.yml")
             except (OSError, NotImplementedError, AttributeError) as e:
                 self.skipTest(f"this machine cannot make a link: {e}")
-            self.assertIsNotNone(testkit.seed_service(root / "real.yml"))
+            self.assertIsNotNone(seedlint.seed_service(root / "real.yml"))
             with self.assertRaisesRegex(common.SeedError, "is a link"):
-                testkit.seed_service(root / "linked.yml")
+                seedlint.seed_service(root / "linked.yml")
 
     def test_a_service_and_its_settings_are_read_whichever_way_they_are_written(self):
         with tempfile.TemporaryDirectory() as folder:
             compose = Path(folder) / "compose.yml"
             compose.write_text("services:\n  init:\n    labels: [io.gravitee.role=seed]\n    environment:\n      - URL=${URL:-http://apim}\n"
                                "      - BARE\n", encoding="utf-8")
-            self.assertEqual(testkit.seed_environment(testkit.seed_service(compose)), {"URL": "http://apim", "BARE": ""})
+            self.assertEqual(seedlint.seed_environment(seedlint.seed_service(compose)), {"URL": "http://apim", "BARE": ""})
 
 
 class NoContent(unittest.TestCase):

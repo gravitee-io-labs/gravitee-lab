@@ -17,7 +17,8 @@ from urllib3.exceptions import MaxRetryError, NewConnectionError
 from yaml.constructor import SafeConstructor
 
 from lab_seeder import common
-from lab_seeder.testkit import Seed, seeded_playgrounds
+from lab_seeder.seedlint import seeded_playgrounds
+from lab_seeder.testkit import PLAYGROUNDS, Seed
 
 from . import chained, doubling, fanned, flowing
 
@@ -339,7 +340,7 @@ class JsonInJson(Seed):
             common.render_json("{", "f.json")
 
     def test_the_playgrounds_json_files_read_as_they_did_as_text(self):
-        for folder, environment in seeded_playgrounds():
+        for folder, environment in seeded_playgrounds(PLAYGROUNDS):
             with mock.patch.dict(os.environ, environment, clear=True):
                 for path in sorted((folder / "seed").rglob("*.json")):
                     provided = dict.fromkeys(common.PROVIDED, "x") if path.relative_to(folder / "seed").parts[:1] == ("environments",) else None
@@ -409,7 +410,7 @@ class YamlValues(Seed):
 
     def test_the_playgrounds_yaml_files_read_as_they_did_as_text(self):
         """With values YAML reads alike whichever way they are put in, a document reads as the text it used to be replaced in."""
-        found = list(seeded_playgrounds())
+        found = list(seeded_playgrounds(PLAYGROUNDS))
         self.assertTrue(found)
         for folder, _ in found:
             for path in sorted((folder / "seed").rglob("*.y*ml")):
@@ -485,7 +486,7 @@ class MergeKeys(unittest.TestCase):
         """What the compose files and the seed of the playgrounds need is a few hundred pairs; the limit is thousands of times
         that."""
         self.assertLess(common.merged_pairs(fanned(100, 100)), common.COPIED // 10)
-        found = list(seeded_playgrounds())
+        found = list(seeded_playgrounds(PLAYGROUNDS))
         self.assertTrue(found)
         for folder, _ in found:
             for path in [folder / "compose.yml", *sorted((folder / "seed").rglob("*.y*ml"))]:
@@ -581,7 +582,7 @@ class Bombs(Seed):
                 self.assertEqual(outcome(common.parse_yaml, text), outcome(yaml.safe_load, text))
 
     def test_every_yaml_file_of_the_playgrounds_loads_as_safe_load_gives_it(self):
-        found = list(seeded_playgrounds())
+        found = list(seeded_playgrounds(PLAYGROUNDS))
         self.assertTrue(found)
         for folder, _ in found:
             for path in [folder / "compose.yml", *sorted((folder / "seed").rglob("*.y*ml"))]:

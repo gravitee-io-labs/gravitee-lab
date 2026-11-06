@@ -16,8 +16,8 @@ annotation for each problem, on the file as the diff of the repository names it,
 command of its own.
 
 `problems(playground_folder)` is the same check for one playground, and the functions the seeder's tests use on their own
-(`unset_variables`, `literal_addresses`, `provided_to`, `environment_problems`) live here, so that the engine's tests, the
-harness a catalog's tests import (testkit.py, which has no copy of them) and a catalog's CI run one set of checks.
+(`unset_variables`, `literal_addresses`, `provided_to`, `environment_problems`) live here, so that the engine's tests and a
+catalog's CI run one set of checks.
 
 An address is looked for twice. `literal_addresses(text)` reads the text of a file as it is. A YAML or JSON file that has a
 backslash may also write an address in escapes (`"https:\\u002f\\u002fhost"` is `https://host` once the file is parsed, and
@@ -47,8 +47,7 @@ of the seed (the contract of the engine scans the seeder's modules for the setti
 
 It reads the seed with the seeder's own loader (`common`), so it needs the seeder's requirements (pip install -r
 seeder/requirements.txt, Python 3.10 or later) and nothing else. It is a tool of tests and of a catalog's CI, not of a seed
-run: it stays out of the image (seeder/.dockerignore lists it, as it lists testkit.py), and a catalog's CI runs it from the
-checkout of the Lab.
+run: it stays out of the image (seeder/.dockerignore lists it), and a catalog's CI runs it from the checkout of the Lab.
 """
 
 import argparse

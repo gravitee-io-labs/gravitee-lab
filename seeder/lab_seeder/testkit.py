@@ -1,5 +1,5 @@
-"""What the seeder's tests share, in the engine and in a catalog: a platform that answers from a table of routes, a seed
-to run against it, and the seed services of playgrounds. A module is tested in its own file, `tests/test_<module>.py`:
+"""What the seeder's tests share: a platform that answers from a table of routes, and a seed to run against it. A module is
+tested in its own file, `tests/test_<module>.py`:
 
     from .testkit import Seed
 
@@ -14,15 +14,7 @@ The settings are those of SETTINGS, which a seed has by default, the gateway not
 `SEED_WAIT_GATEWAY=1`) but one request at a time (`workers` lets more go at once); the state is a temporary file, the seed
 folder is empty (`self.seed_files` fills it), nothing sleeps and the output is kept (`output`).
 
-A test that needs the files of a playground reads them under PLAYGROUNDS, the frozen sample of the engine. This module lives in `seeder/`, beside the modules it tests, so a catalog puts that folder on `sys.path` and imports it as
-`testkit`.
-
-The checks of the seed files and the reading of a playground's seed service (`unset_variables`, `literal_addresses`,
-`escaped_addresses`, `seed_service`, `seeded_playgrounds` and the rest of the last section) are those of seedlint.py, which a
-catalog's CI runs on the command line: this module names them and holds no copy, so that the tests and the CI never disagree,
-and a compose file is read with the guards of the lint (a link, a large file or a bomb of YAML is refused, not loaded). A test
-of a catalog that looks for the addresses its seed files write out calls both `literal_addresses(text)` and
-`escaped_addresses(path, text)`: the second finds what a YAML or JSON file writes in escapes.
+A test that needs the files of a playground reads them under PLAYGROUNDS, the frozen sample of the engine.
 """
 
 import fnmatch
@@ -330,20 +322,3 @@ class Seed(unittest.TestCase):
         """seed.main() as the container runs it, with these arguments ("--remove"); its exit code."""
         with mock.patch("sys.argv", ["seed.py", *arguments]):
             return seed.main()
-
-
-# --- The playgrounds' seed services and the checks of their seed files -----------------------
-# seedlint.py holds them, and what they answer is what the command answers
-
-TEXT, LITERAL_URL, PUBLIC = seedlint.TEXT, seedlint.LITERAL_URL, seedlint.PUBLIC
-as_mapping, compose_value = seedlint.as_mapping, seedlint.compose_value
-seed_service, seed_environment = seedlint.seed_service, seedlint.seed_environment
-seed_paths, provided_to = seedlint.seed_paths, seedlint.provided_to
-unset_variables, literal_addresses = seedlint.unset_variables, seedlint.literal_addresses
-escaped_addresses = seedlint.escaped_addresses
-
-
-def seeded_playgrounds(root=None):
-    """(folder, environment of its seed service) of each shared playground of `root` (PLAYGROUNDS) that has a seed
-    folder and a seed service."""
-    return seedlint.seeded_playgrounds(PLAYGROUNDS if root is None else root)

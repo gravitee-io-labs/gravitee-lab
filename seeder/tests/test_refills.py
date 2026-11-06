@@ -12,7 +12,8 @@ from lab_seeder import common
 from lab_seeder import refills
 from lab_seeder import seed
 from lab_seeder import testkit
-from lab_seeder.testkit import PLAYGROUNDS, FakeRedis, Seed, seed_environment, seed_service
+from lab_seeder.seedlint import seed_environment, seed_service
+from lab_seeder.testkit import PLAYGROUNDS, FakeRedis, Seed
 
 ACME_BAKERY = PLAYGROUNDS / "acme-bakery"
 ACME_SEED = ACME_BAKERY / "seed"
