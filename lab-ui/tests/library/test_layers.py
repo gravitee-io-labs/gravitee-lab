@@ -382,11 +382,31 @@ class Plans(Case):
         self.check(plan, starts=[INSPECTOR], turns_off=[JADE], playground=None, explicit=["agent-lens"])
         self.assertEqual(plan["services"], {"remove": ["jade"], "start": ["agent-lens"]})
 
-    def test_start_stops_what_needs_the_add_on_in_conflict(self):
-        state = on(self.project, ["kafka-desk"])
-        plan = self.plan(state, up("kafka", "kafka-desk"), "addon", "redpanda", "start")
-        self.check(plan, starts=[REDPANDA], stops=[KAFKA, CONSOLE], restarts=[GATEWAY, API], playground=None,
-                   explicit=["redpanda"])
+    def test_what_a_plan_stops_keeps_and_leaves_alone(self):
+        second(self.project)
+        for why, state, running, kind, uid, do, expected in (
+                ("a start stops what needs the add-on in conflict", on(self.project, ["kafka-desk"]), up("kafka", "kafka-desk"),
+                 "addon", "redpanda", "start",
+                 {"starts": [REDPANDA], "stops": [KAFKA, CONSOLE], "restarts": [GATEWAY, API], "explicit": ["redpanda"]}),
+                ("a start leaves the running playground alone", on(self.project, playground="welcome"),
+                 up("agent-lens", playgrounds=["welcome"]), "addon", "kafka", "start",
+                 {"starts": [KAFKA], "restarts": [GATEWAY], "playground": "welcome", "explicit": ["kafka"]}),
+                ("an add-on's start leaves the apps of the playground as they are", on(self.project, playground="welcome"),
+                 up("agent-lens", playgrounds=["demo"]), "addon", "kafka", "start",
+                 {"starts": [KAFKA], "restarts": [GATEWAY], "playground": "welcome", "explicit": ["kafka"]}),
+                ("a stop takes what needs it", on(self.project, ["kafka-desk", "kiosk"]), up("kafka", "kafka-desk", "kiosk"),
+                 "addon", "kafka", "stop",
+                 {"stops": [KAFKA, CONSOLE], "restarts": [GATEWAY, API], "explicit": ["kiosk"]}),
+                ("a stop takes the playground that needs it", on(self.project, ["kiosk"], "welcome"),
+                 up("agent-lens", "kiosk", playgrounds=["welcome"]), "addon", "agent-lens", "stop",
+                 {"stops": [APPS, INSPECTOR], "keeps": [DATA], "restarts": [GATEWAY], "explicit": ["kiosk"]}),
+                ("a stop starts nothing: Kiosk is on and does not run", on(self.project, ["jade", "kiosk"]), up("jade"),
+                 "addon", "jade", "stop", {"stops": [JADE], "restarts": [GATEWAY], "explicit": ["kiosk"]}),
+                ("a playground's stop keeps the add-on turned on by itself", on(self.project, ["agent-lens"], "welcome"),
+                 up("agent-lens", playgrounds=["welcome"]), "playground", "welcome", "stop",
+                 {"stops": [APPS], "keeps": [DATA], "restarts": [GATEWAY], "explicit": ["agent-lens"]})):
+            with self.subTest(why):
+                self.check(self.plan(state, running, kind, uid, do), **{"playground": None, **expected})
 
     def test_start_stops_the_playground_in_conflict(self):
         state = on(self.project, ["kiosk"], "welcome")
@@ -403,11 +423,6 @@ class Plans(Case):
         plan = self.plan(state, up("agent-lens", playgrounds=["welcome"]), "setup", "observability", "start")
         self.check(plan, starts=[JADE, KIOSK], stops=[APPS, INSPECTOR], keeps=[DATA], restarts=[GATEWAY],
                    playground=None, explicit=["jade", "kiosk"])
-
-    def test_start_leaves_the_running_playground_alone(self):
-        state = on(self.project, playground="welcome")
-        plan = self.plan(state, up("agent-lens", playgrounds=["welcome"]), "addon", "kafka", "start")
-        self.check(plan, starts=[KAFKA], restarts=[GATEWAY], playground="welcome", explicit=["kafka"])
 
     def test_start_again_restarts_what_a_start_that_failed_left_behind(self):
         # Kafka's start turned it on, then failed before the gateway was made again: on, Kafka no longer comes, yet
@@ -754,18 +769,6 @@ class Plans(Case):
         # Its container removed, then the gateway made again without its settings
         self.assertEqual((plan["label"], plan["services"]), ("Stop", {"remove": ["jade"], "start": ["apim-gateway"]}))
 
-    def test_stop_takes_what_needs_it(self):
-        state = on(self.project, ["kafka-desk", "kiosk"])
-        plan = self.plan(state, up("kafka", "kafka-desk", "kiosk"), "addon", "kafka", "stop")
-        self.check(plan, stops=[KAFKA, CONSOLE], restarts=[GATEWAY, API], playground=None, explicit=["kiosk"])
-
-    def test_stop_takes_the_playground_that_needs_it(self):
-        state = on(self.project, ["kiosk"], "welcome")
-        running = up("agent-lens", "kiosk", playgrounds=["welcome"])
-        plan = self.plan(state, running, "addon", "agent-lens", "stop")
-        self.check(plan, stops=[APPS, INSPECTOR], keeps=[DATA], restarts=[GATEWAY], playground=None,
-                   explicit=["kiosk"])
-
     def test_turn_off_what_is_on_and_does_not_run(self):
         # The platform stopped from the Stack, Kafka Desk on: its stop turns it off with Kafka, removing their
         # stopped containers; nothing restarts, nothing starts
@@ -775,12 +778,6 @@ class Plans(Case):
         self.check(plan, turns_off=[KAFKA, CONSOLE], playground=None, explicit=[])
         self.assertEqual((plan["label"], plan["services"]),
                          ("Turn off", {"remove": ["kafka", "kafka-desk", "kafka-ui"], "start": []}))
-
-    def test_a_stop_starts_nothing(self):
-        # Kiosk is on and does not run: Jade's stop leaves it as it is
-        state = on(self.project, ["jade", "kiosk"])
-        plan = self.plan(state, up("jade"), "addon", "jade", "stop")
-        self.check(plan, stops=[JADE], restarts=[GATEWAY], playground=None, explicit=["kiosk"])
 
     def test_a_stop_takes_the_item_that_runs_without_being_on(self):
         # A stop of Kafka failed once the on file was written: off, it still runs. Its stop again removes it
@@ -940,12 +937,6 @@ class Plans(Case):
         with self.assertRaisesRegex(RuntimeError, "Would also stop AI Agent Lens"):
             layers.check(self.project, plan, [])
 
-    def test_playground_stop_keeps_the_add_on_turned_on_explicitly(self):
-        state = on(self.project, ["agent-lens"], "welcome")
-        plan = self.plan(state, up("agent-lens", playgrounds=["welcome"]), "playground", "welcome", "stop")
-        self.check(plan, stops=[APPS], keeps=[DATA], restarts=[GATEWAY], playground=None,
-                   explicit=["agent-lens"])
-
     def test_apps_and_data_only_of_a_playground_that_has_them(self):
         own(self.project)   # Sandbox: neither apps nor a seed
         state = on(self.project, playground="local/sandbox")
@@ -957,12 +948,6 @@ class Plans(Case):
         # What it brings runs no more: it is turned off
         plan = self.plan(state, up(), "playground", "local/sandbox", "stop")
         self.check(plan, turns_off=[itself, whoami], playground=None, explicit=[])
-
-    def test_an_add_on_s_start_leaves_the_apps_of_the_playground_as_they_are(self):
-        second(self.project)
-        state = on(self.project, playground="welcome")
-        plan = self.plan(state, up("agent-lens", playgrounds=["demo"]), "addon", "kafka", "start")
-        self.check(plan, starts=[KAFKA], restarts=[GATEWAY], playground="welcome", explicit=["kafka"])
 
     def test_platform_not_up(self):
         # An add-on starts alone: the platform is not what it depends on. A stop removes it, and starts nothing
