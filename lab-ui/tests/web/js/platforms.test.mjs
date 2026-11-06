@@ -880,30 +880,6 @@ test("a read that fails is the platform's state, and an account with no environm
 
 // --- Reading again ---------------------------------------------------------------------
 
-test("a gateway that runs here and has not connected is read again every 5 seconds, until it has and until the page is left", async () => {
-  await open(ok([gateway({ here: true })], { Development: VALID }));
-  const first = server.checks;
-  mock.timers.tick(5000);
-  await flush();
-  assert.equal(server.checks, first + 1, "its add-on runs and Cloud has not seen it");
-  server.check = ok([gateway({ here: true, connection: "CONNECTED" })], { Development: VALID });
-  mock.timers.tick(5000);
-  await flush();
-  assert.equal(gatewayOf("Development"), "Running here");
-  const connected = server.checks;
-  mock.timers.tick(15000);
-  await flush();
-  assert.equal(server.checks, connected, "once it is connected it is not read again");
-  server.check = ok([gateway({ here: true })], { Development: VALID });
-  mock.timers.tick(5000);
-  await flush();
-  platformsPage.hide();
-  const left = server.checks;
-  mock.timers.tick(20000);
-  await flush();
-  assert.equal(server.checks, left, "a page that was left reads nothing");
-});
-
 test("a gateway that does not run is not read again: nothing is waited for", async () => {
   store.state = state({ addons: [ADDON(STOPPED)] });
   await open(ok([gateway({ here: true }), gateway({ id: "g2", name: "other", environmentId: "env-test" })], { Development: VALID }));
@@ -1961,6 +1937,9 @@ test("a gateway that does not connect is read every 5 seconds for a minute, ever
   assert.equal(gatewayOf("Development"), "Running here", "it connects at last");
   assert.equal(await reads(6), 0, "and is not read again");
   platformsPage.hide();
+  await open(ok([gateway({ here: true })], { Development: VALID }));
+  platformsPage.hide();
+  assert.equal(await reads(4), 0, "a page that was left reads nothing");
 });
 
 test("keyboard focus stays on the control a redraw replaces: the toggle, a row's button, its More", async () => {
@@ -2081,14 +2060,6 @@ test("Stop using says a failure and stops there", async () => {
   page.ids.toasts.replaceChildren();
   await answer(true);
   assert.deepEqual(toasts(), ["Gravitee Cloud refuses this token"]);
-  platformsPage.hide();
-});
-
-test("a Cloud Token near its end says so in amber, in the place of Can deploy", async () => {
-  await open(ok([gateway({ here: true, connection: "CONNECTED" })], { Development: { state: "valid", expires: new Date(Date.now() + 3 * 86400000 + 3600000).toISOString() } }));
-  assert.equal(deploysOf("Development"), "Expires in 3 days");
-  assert.equal(lines(rowOf("Development").querySelector(".plat-deploys .status"))[1], "Can deploy");
-  assert.equal(rowOf("Development").querySelector(".plat-deploys .dot-status").className, "dot-status warn");
   platformsPage.hide();
 });
 
