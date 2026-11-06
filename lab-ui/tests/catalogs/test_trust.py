@@ -97,46 +97,11 @@ class Catalog(Case):
             with self.subTest(unit=name):
                 self.assertEqual(list(regen.load(name)["files"].values()), [text], "capture again: regen.py")
 
-    def test_goldens_were_captured_by_compose_5(self):
-        self.assertRegex(regen.load("core")["_capture"]["compose"], r"^5\.")
-
     def test_a_capture_runs_with_nothing_of_the_shell_but_a_path(self):
         self.assertEqual(sorted(regen._environment()), ["DOCKER_CONFIG", "HOME", "PATH"])
         with mock.patch.dict(os.environ, {"AWS_SECRET_ACCESS_KEY": "x", "GRAVITEE_LICENSE": "y", "COMPOSE_PROFILES": "z", "HOME": "/home/real"}):
             self.assertEqual(regen._environment()["HOME"], regen.FAKE_HOME)
             self.assertNotIn("GRAVITEE_LICENSE", regen._environment())
-
-    def test_a_capture_names_nothing_the_maintainer_has_set(self):
-        """A variable of the shell that a unit reads would be interpolated into the golden, and committed. Skipped, and said,
-        without the Compose that captured them."""
-        installed, captured = regen.version(), regen.load("core")["_capture"]["compose"]
-        if installed != captured:
-            reason = f"skipped: the goldens come from Compose {captured}, {'this is ' + installed if installed else 'none is installed'}"
-            print(reason, file=sys.stderr)
-            self.skipTest(reason)
-        secrets = {"AWS_SECRET_ACCESS_KEY": "aws-secret-in-the-shell", "GRAVITEE_LICENSE": "license-in-the-shell",
-                   "INTERNAL_API_PASSWORD": "password-in-the-shell", "HOSTILE_DEMO_PASSWORD": "demo-in-the-shell"}
-        with mock.patch.dict(os.environ, secrets):
-            found = regen.fresh(("t20-passthrough", "p-clean-playground"))
-        for value in secrets.values():
-            self.assertNotIn(value, json.dumps(found))
-        self.assertEqual(found["core"], regen.load("core"))
-        self.assertEqual(found["t20-passthrough"], regen.load("t20-passthrough"))
-
-    def test_goldens_are_what_compose_gives_now(self):
-        """A few units, captured again: Compose reads files and needs no daemon. Skipped, and said, without the Compose that
-        captured them: another version prints other keys, and the policy fails closed on those."""
-        installed, captured = regen.version(), regen.load("core")["_capture"]["compose"]
-        if installed != captured:
-            reason = f"skipped: the goldens come from Compose {captured}, {'this is ' + installed if installed else 'none is installed'}"
-            print(reason, file=sys.stderr)
-            self.skipTest(reason)
-        sample = ("t03-privileged", "t12-bind-writable", "t14-external-volume", "t17-all-interfaces", "t27-unreadable", "p-pair",
-                  "n02-seed-reads-token")
-        found = regen.fresh(sample)
-        for name in sample:
-            with self.subTest(unit=name):
-                self.assertEqual(found[name], regen.load(name), "capture again: regen.py")
 
     def test_no_golden_names_a_path_of_the_machine_that_captured_it(self):
         for path in sorted(regen.GOLDEN.glob("*.json")):

@@ -228,8 +228,8 @@ def _capture(unit, root, base, core):
     return gold
 
 
-def fresh(only=None):
-    """The goldens as Compose gives them now: {name: golden, "core": the core's}. `only`: the units to capture, else all."""
+def fresh():
+    """The goldens as Compose gives them now: {name: golden, "core": the core's}."""
     found = {}
     with tempfile.TemporaryDirectory() as holder:
         base = Path(holder)
@@ -238,8 +238,7 @@ def fresh(only=None):
         core_gold, core = _capture_core(root, base)
         found["core"] = _clean(core_gold, root)
         for unit in _units():
-            if only is None or unit[1] in only:
-                found[unit[1]] = _clean(_capture(unit, root, base, core), root)
+            found[unit[1]] = _clean(_capture(unit, root, base, core), root)
     return found
 
 
