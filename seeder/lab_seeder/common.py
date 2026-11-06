@@ -551,6 +551,15 @@ def items(data):
     return data or []
 
 
+def contains(live, wanted):
+    """Whether `live` holds everything `wanted` says: the platform adds defaults, ids and stamps of its own, which are not a change."""
+    if isinstance(wanted, dict):
+        return isinstance(live, dict) and all(contains(live.get(key), value) for key, value in wanted.items())
+    if isinstance(wanted, list):
+        return isinstance(live, list) and len(live) == len(wanted) and all(contains(a, b) for a, b in zip(live, wanted))
+    return live == wanted
+
+
 # --- What the seed created ---------------------------------------------------------------
 # Only what it created, never what already existed: removing a playground deletes exactly this list. It is read and written
 # by one step at a time in this process (`_state`) and by one process at a time (a lock beside it: a removal may run while a

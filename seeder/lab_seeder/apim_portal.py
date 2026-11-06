@@ -66,7 +66,7 @@ from pathlib import Path
 import yaml
 
 from . import common
-from .common import (OK, REFUSED, Api, HttpError, SeedError, adopted, claimed, created, excerpt, files, items, load, log, making, owned,
+from .common import (OK, REFUSED, Api, HttpError, SeedError, adopted, claimed, contains, created, excerpt, files, items, load, log, making, owned,
                      parallel, record, recorded, seed_file, setting, text, unmade, wait_until)
 
 SECTION = "apim-portal"
@@ -119,15 +119,6 @@ def prefixes(path):
     """The path and each folder above it: the platform makes the folders a path goes through."""
     names = path.strip("/").split("/")
     return ["/" + "/".join(names[:i]) for i in range(1, len(names) + 1)]
-
-
-def covers(live, wanted):
-    """Whether `live` holds everything `wanted` says: the platform adds what it defaults and the ids it computes."""
-    if isinstance(wanted, dict):
-        return isinstance(live, dict) and all(covers(live.get(key), value) for key, value in wanted.items())
-    if isinstance(wanted, list):
-        return isinstance(live, list) and len(live) == len(wanted) and all(covers(a, b) for a, b in zip(live, wanted))
-    return live == wanted
 
 
 def shown(path):
@@ -624,7 +615,7 @@ class Portals:
             if not recorded(SECTION, kind, found.json().get("id")) and not adopted(SECTION, kind, f"{env}: {hrid}", found.json().get("id"),
                                                                                   env=env, hrid=hrid, **extra):
                 raise SeedError(f"{what}: the hrid is taken by one the seed did not create")
-            if covers(found.json(), body):
+            if contains(found.json(), body):
                 log(SECTION, f"{one.capitalize()} exists: {env}: {hrid}")
                 return
             verb = "updated"

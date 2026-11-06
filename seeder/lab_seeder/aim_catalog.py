@@ -52,7 +52,7 @@ import yaml
 
 from . import aim_proxies
 from . import common
-from .common import Api, SeedError, excerpt, files, has_seed, load, log, owned, parallel, record, trouble, wait_until
+from .common import Api, SeedError, contains, excerpt, files, has_seed, load, log, owned, parallel, record, trouble, wait_until
 from .gamma import CATALOG, WORKSPACES, Gamma
 
 SECTION = "aim-catalog"
@@ -135,13 +135,6 @@ def own(kind, rows, what, name):
     if found is None:
         raise SeedError(f"{what} exists and was not created by this playground: rename or delete it, the seed leaves it alone")
     return found, ours[found["id"]]
-
-
-def contains(actual, wanted):
-    """Whether `actual` has everything `wanted` says: the platform adds its own fields and stamps to what it stores."""
-    if isinstance(wanted, dict):
-        return isinstance(actual, dict) and all(k in actual and contains(actual[k], v) for k, v in wanted.items())
-    return actual == wanted
 
 
 # --- Credentials ----------------------------------------------------------------------------

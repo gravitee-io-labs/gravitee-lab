@@ -50,9 +50,8 @@ import requests
 
 from . import controls
 from . import gamma
-from .aim_workspaces import subset
 from .apim import ENDED, accept, find_application, held_subscription, merge, subscribe
-from .common import (OK, Api, SeedError, adopted, created, files, forget, has_seed, load, log, making, owned, record, recorded,
+from .common import (OK, Api, SeedError, adopted, contains, created, files, forget, has_seed, load, log, making, owned, record, recorded,
                      setting, trouble, wait_until, waits_for_gateway)
 
 SECTION = "aim-proxies"
@@ -189,7 +188,7 @@ def authorization_flow(api, authorization, studio):
             steps.insert(position(steps, check), step)
             changed = True
         else:
-            if not subset(wanted, step.get("configuration")) or not step.get("enabled", True):
+            if not contains(step.get("configuration"), wanted) or not step.get("enabled", True):
                 step["configuration"] = {**(step.get("configuration") or {}), **wanted}
                 step["enabled"] = True
                 changed = True
@@ -367,7 +366,7 @@ class McpProxies:
                 found = self.g.automation.put("/aim/mcp-proxies", json=automation).json()
                 record(SECTION, "mcp-proxy", "MCP proxy APIs", name, found["id"], hrid=hrid)
             log(SECTION, f"✓ MCP proxy created: {name}")
-        elif not subset(public(automation), found):
+        elif not contains(found, public(automation)):
             found = self.g.automation.put("/aim/mcp-proxies", json=automation).json()
             log(SECTION, f"✓ MCP proxy updated: {name}")
         api_id = found["id"]
@@ -385,7 +384,7 @@ class McpProxies:
             plan = next((p for p in live if p["name"] == name and p["status"] == "PUBLISHED"), None)
             if plan is None:
                 raise SeedError(f"MCP proxy {api_id}: the plan {name} is not published")
-            if not subset(keys, plan["security"]["configuration"]):
+            if not contains(plan["security"]["configuration"], keys):
                 plan["security"]["configuration"].update(keys)
                 self.g.v2.put(f"/apis/{api_id}/plans/{plan['id']}", json={k: v for k, v in plan.items() if k not in PLAN_READ_ONLY})
                 changed = True
@@ -400,8 +399,8 @@ class McpProxies:
         def waits(group):
             return ((group.get("sharedConfiguration") or {}).get("http") or {}).get("readTimeout") == timeout
 
-        if (subset(templates, api.get("responseTemplates") or {}) and all(waits(g) for g in api["endpointGroups"])
-                and subset(analytics, api.get("analytics") or {})):
+        if (contains(api.get("responseTemplates") or {}, templates) and all(waits(g) for g in api["endpointGroups"])
+                and contains(api.get("analytics") or {}, analytics)):
             return False
         api["responseTemplates"] = {**(api.get("responseTemplates") or {}), **templates}
         api["analytics"] = merge(api.get("analytics") or {}, analytics)
@@ -413,7 +412,7 @@ class McpProxies:
 
     def versions(self, api_id, spec):
         wanted = {key: spec[key] for key in ("supportedProtocolVersions", "endpointProtocolVersions")}
-        if subset(wanted, self.g.aim.get(f"/mcp-proxies/{api_id}").json()):
+        if contains(self.g.aim.get(f"/mcp-proxies/{api_id}").json(), wanted):
             return False
         self.g.aim.put(f"/mcp-proxies/{api_id}/protocol-versions", json=wanted)
         return True
@@ -671,7 +670,7 @@ class McpProxies:
             self.g.v2.post(f"/apis/{api_id}/plans/{plan['id']}/_publish")
             log(SECTION, f"  ✓ Plan '{agents['name']}' published")
             changed = True
-        elif plan["security"]["type"] != "JWT" or not subset(security["configuration"], plan["security"]["configuration"]):
+        elif plan["security"]["type"] != "JWT" or not contains(plan["security"]["configuration"], security["configuration"]):
             body = {k: v for k, v in plan.items() if k not in V4_PLAN_READ_ONLY}
             body["security"] = {"type": "JWT", "configuration": {**plan["security"]["configuration"], **security["configuration"]}}
             self.g.v2.put(f"/apis/{api_id}/plans/{plan['id']}", json=body)

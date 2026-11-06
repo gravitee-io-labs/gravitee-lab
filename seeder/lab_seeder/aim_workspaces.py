@@ -25,7 +25,7 @@ from urllib.parse import quote
 from . import controls
 from . import gamma
 from . import refills
-from .common import (Api, HttpError, SeedError, adopted, excerpt, files, forget, has_seed, load, log, making, owned, pause, record,
+from .common import (Api, HttpError, SeedError, adopted, contains, excerpt, files, forget, has_seed, load, log, making, owned, pause, record,
                      recorded, setting, wait_until, waits_for_gateway)
 
 SECTION = "aim-workspaces"
@@ -35,15 +35,6 @@ FOLDERS = ("aim/workspaces",)
 GAMMA = ("aim",)
 # What it records, dependents first
 ORDER = ["workspace", "workspace-user"]
-
-
-def subset(wanted, current):
-    """Whether everything in `wanted` is in `current`: the platform adds defaults, which are not a change."""
-    if isinstance(wanted, dict):
-        return isinstance(current, dict) and all(k in current and subset(v, current[k]) for k, v in wanted.items())
-    if isinstance(wanted, list):
-        return isinstance(current, list) and len(wanted) == len(current) and all(subset(w, c) for w, c in zip(wanted, current))
-    return wanted == current
 
 
 def budget_body(spec):
@@ -187,7 +178,7 @@ class AiWorkspaces:
                   "modelGovernance": {"aliasOnly": False, "modelPattern": "",
                                       "prefixPolicy": {"policy": spec.get("prefixPolicy", "PREFIXED_BOTH")}}}
         found = next((c for c in live if c.get("kind") == "inline" and c.get("name") == spec["name"]), None)
-        if found is not None and subset(wanted, found):
+        if found is not None and contains(found, wanted):
             return
         if found is not None:
             self.aim.delete(f"{base}/models/{quote(spec['name'], safe='')}")
@@ -206,7 +197,7 @@ class AiWorkspaces:
         for name in sorted(have.keys() - want.keys()):
             self.aim.delete(f"{base}/models/{key}/{quote(name, safe='')}")
         settings = (any(have[name] != want[name] for name in have.keys() & want.keys())
-                    or not subset(wanted["modelGovernance"], found.get("modelGovernance") or {}))
+                    or not contains(found.get("modelGovernance") or {}, wanted["modelGovernance"]))
         if settings:
             self.aim.put(f"{base}/models/{key}", json=wanted)
         return bool(added or have.keys() - want.keys() or settings)
@@ -219,7 +210,7 @@ class AiWorkspaces:
         wanted = {"request": [step(s) for s in spec.get("request", [])], "response": [step(s) for s in spec.get("response", [])]}
         controls.align_router(wanted, found)
         current = self.aim.get(f"{base}/router").json()
-        if not all(subset(parsed(wanted[side]), parsed(current.get(side, []))) for side in wanted):
+        if not all(contains(parsed(current.get(side, [])), parsed(wanted[side])) for side in wanted):
             self.aim.put(f"{base}/router", json=wanted)
             self.touched()
             log(SECTION, f"  ✓ Router: {len(wanted['request'])} request steps, {len(wanted['response'])} response steps")
@@ -227,7 +218,7 @@ class AiWorkspaces:
             log(SECTION, f"  Router controls are {'on' if controls.protected() else 'off'}: {controls.named(found)}")
 
     def analytics(self, base, wanted):
-        if not subset(wanted, self.aim.get(f"{base}/analytics").json()["analytics"]):
+        if not contains(self.aim.get(f"{base}/analytics").json()["analytics"], wanted):
             self.aim.put(f"{base}/analytics", json={"analytics": wanted})
             self.touched()
             log(SECTION, "  ✓ Reporter settings")

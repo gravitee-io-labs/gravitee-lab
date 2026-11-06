@@ -25,7 +25,7 @@ file's: it is never generated, read back or logged.
 import json
 import os
 
-from .common import (REFUSED, Api, SeedError, adopted, excerpt, files, forget, items, load, log, making, owned, pending, record, recorded,
+from .common import (REFUSED, Api, SeedError, adopted, contains, excerpt, files, forget, items, load, log, making, owned, pending, record, recorded,
                      seed_file, setting, unmade, wait_until)
 
 SECTION = "am"
@@ -39,15 +39,6 @@ SCOPE_APPROVAL_SECONDS = 300
 # The kinds of agent that AM starts with `private_key_jwt`; a file that gives one a secret has it sign in with it
 KEYED_KINDS = ("HOSTED_DELEGATED", "AUTONOMOUS")
 SCOPES_PER_PAGE = 50   # AM answers no more, whatever the request asks
-
-
-def contains(actual, wanted):
-    """Whether `actual` holds everything `wanted` says: the platform adds defaults and ids of its own."""
-    if isinstance(wanted, dict):
-        return isinstance(actual, dict) and all(k in actual and contains(actual[k], v) for k, v in wanted.items())
-    if isinstance(wanted, list):
-        return isinstance(actual, list) and len(actual) == len(wanted) and all(contains(a, w) for a, w in zip(actual, wanted))
-    return actual == wanted
 
 
 def same_scopes(actual, wanted):

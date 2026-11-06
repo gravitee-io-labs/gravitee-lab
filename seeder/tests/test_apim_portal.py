@@ -2003,7 +2003,7 @@ class Helpers(unittest.TestCase):
         self.assertEqual(apim_portal.prefixes("/a/b/c"), ["/a", "/a/b", "/a/b/c"])
 
     def test_what_a_state_covers(self):
-        covers = apim_portal.covers
+        covers = common.contains
         self.assertTrue(covers({"a": 1, "b": {"c": 2, "d": 3}}, {"b": {"c": 2}}))
         self.assertFalse(covers({"a": 1}, {"a": 2}))
         self.assertFalse(covers({}, {"a": 1}))
