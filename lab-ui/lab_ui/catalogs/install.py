@@ -127,10 +127,7 @@ class Unsafe(CatalogError):
 
 def _called(ns):
     """The name a person knows catalog `ns` by: what the lock cached of its catalog.yml, else its namespace."""
-    try:
-        return registry.lock_of(ns).get("name") or ns
-    except ValueError:
-        return ns
+    return registry.lock_of(ns).get("name") or ns
 
 
 def _utc():
@@ -148,14 +145,11 @@ def _guard():
         yield
 
 
-@contextlib.contextmanager
 def _exclusive():
     """The project lock, for the steps that change what a reader reads. Taken after the catalogs lock, never before.
     Nothing inside may ask the project for anything: `project.loaded()` holds the same lock."""
     from ..library import project   # here and not above: the project reads this package
-    held = getattr(project, "exclusive", None)
-    with (held() if held else contextlib.nullcontext()):
-        yield
+    return project.exclusive()
 
 
 # ---------------------------------------------------------------- the disk, without following a link
@@ -1065,14 +1059,12 @@ def _turn_off(keys):
 # ---------------------------------------------------------------- updating and going back
 
 def _git_entry(ns):
-    """The entry and the lock entry of a git catalog that is installed and not linked; `linked` for a folder, `damaged`
-    for a git catalog whose install does not read."""
+    """Refuses a catalog that is not a git catalog installed and not linked: `linked` for a folder or a working copy."""
     entry = registry.entry(ns)
     if entry is None:
         raise ValueError(f"{ns} is not a catalog of this machine")
     if entry["kind"] != "git" or registry.lock_of(ns).get("shadowed"):
         raise CatalogError("linked", LINKED, 409)
-    return entry, registry.lock_of(ns)
 
 
 def _need(ns, commit):
@@ -1491,7 +1483,7 @@ def repair(ns: str) -> None:
             raise ValueError(f"{ns} is not a catalog of this machine")
         if entry["kind"] == "folder" and not registry.lock_of(ns).get("shadowed"):
             return
-        entry, held = _git_entry(ns)
+        _git_entry(ns)
         _settle(ns)
         held = registry.lock_of(ns)
         if not held.get("pin"):

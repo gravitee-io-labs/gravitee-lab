@@ -529,7 +529,7 @@ def _remembered(ns, found, held):
     from . import firstrun
     if ns in firstrun.PROGRESS:
         return None
-    return (getattr(firstrun, "failure", None) or firstrun._failure)(ns, {ns: held})
+    return firstrun._failure(ns, {ns: held})
 
 
 def _git_row(ns, found, summary, project_, entry, contract, asked=frozenset(), on=frozenset()):
