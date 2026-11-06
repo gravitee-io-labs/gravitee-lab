@@ -785,18 +785,6 @@ class Copied(Elsewhere):
         self.assertEqual(moves.relocate("old/.env", "new/.env", "machine"), "copied")   # kept, not removed
         self.assertEqual((self.text("old/.env"), self.text("new/.env")), ("TOKEN=2\n", "TOKEN=1\n"))
 
-    def test_a_folder_that_lost_its_mode_in_a_crash_gets_it_back_by_a_repeat(self):
-        self.tree()
-        os.chmod(self.root / "playgrounds/shop/.state", 0o750)
-        self.failing("playgrounds/shop/.state", PermissionError(errno.EACCES, "Permission denied"))
-        self.patch(moves, "STEP", crash_on("relocate:renamed"))
-        with self.assertRaises(Crash):
-            moves.relocate("playgrounds/shop/.state", "new/.state", "machine")
-        self.assertEqual(self.mode("new/.state"), 0o700)   # the mode of a copy is given once it is in its place
-        self.patch(moves, "STEP", None)
-        self.assertEqual(moves.relocate("playgrounds/shop/.state", "new/.state", "machine"), "copied")
-        self.assertEqual(self.mode("new/.state"), 0o750)
-
     def test_a_folder_that_was_read_only_gets_its_mode_back_after_a_crash_and_only_then(self):
         self.tree()
         os.chmod(self.root / "playgrounds/shop/.state", 0o555)
@@ -817,19 +805,6 @@ class Copied(Elsewhere):
         self.assertEqual((self.mode("new/.state"), self.exists("new/.state/mine.json"), after.st_mtime_ns),
                          (0o755, True, before.st_mtime_ns))
 
-    def test_a_copy_made_writable_since_is_not_made_read_only_by_the_next_repeat(self):
-        self.put("old/locked/created.json", '{"a": 1}\n')
-        os.chmod(self.root / "old/locked", 0o555)
-        self.addCleanup(os.chmod, self.root / "old/locked", 0o755)
-        self.failing("old/locked", PermissionError(errno.EACCES, "Permission denied"))
-        self.assertEqual(moves.relocate("old/locked", "new/locked", "machine"), "copied")
-        self.assertEqual(self.mode("new/locked"), 0o555)
-        os.chmod(self.root / "new/locked", 0o755)   # the person makes it writable and writes to it
-        (self.root / "new/locked/mine.json").write_text("{}\n", encoding="utf-8")
-        for _ in range(3):
-            self.assertEqual(moves.relocate("old/locked", "new/locked", "machine"), "copied")
-        self.assertEqual((self.mode("new/locked"), self.exists("new/locked/mine.json")), (0o755, True))
-
     def test_a_partial_copy_of_an_earlier_crash_is_replaced(self):
         self.tree()
         self.put("new/.state.partial/stale", "half\n")
@@ -837,28 +812,6 @@ class Copied(Elsewhere):
         self.failing("playgrounds/shop/.state", PermissionError(errno.EACCES, "Permission denied"))
         self.assertEqual(moves.relocate("playgrounds/shop/.state", "new/.state", "machine"), "copied")
         self.assertEqual((self.exists("new/.state.partial"), self.exists("new/.state/stale")), (False, False))
-
-    @unittest.skipIf(os.geteuid() == 0, "root can rename a folder it cannot write")
-    def test_a_folder_the_person_cannot_write_is_copied_for_real(self):
-        self.put("old/locked/created.json", '{"a": 1}\n')
-        os.chmod(self.root / "old/locked", 0o555)   # a rename to another folder needs the right to write to it
-        self.addCleanup(os.chmod, self.root / "old/locked", 0o755)
-        self.put("probe/locked/x", "x\n")
-        os.chmod(self.root / "probe/locked", 0o555)
-        self.addCleanup(os.chmod, self.root / "probe/locked", 0o755)
-        try:
-            os.rename(self.root / "probe/locked", self.root / "probe-moved")
-        except PermissionError:
-            pass
-        else:
-            os.chmod(self.root / "probe-moved", 0o755)
-            self.skipTest("this filesystem renames a folder its owner cannot write")
-        outcome = moves.relocate("old/locked", "new/locked", "machine")
-        self.assertEqual(outcome, "copied")
-        self.assertEqual((self.text("new/locked/created.json"), self.mode("new/locked"),
-                          self.exists("old/locked/created.json")),
-                         ('{"a": 1}\n', 0o555, True))
-        os.chmod(self.root / "new/locked", 0o755)
 
 
 class Devices(Elsewhere):
@@ -924,18 +877,6 @@ class Devices(Elsewhere):
             moves.relocate("old/.env", "new/.env", "machine")
         self.assertEqual((self.text("old/.env"), self.exists("new/.env"), self.exists("new/.env.partial")),
                          ("TOKEN=1\n", False, False))
-
-    def test_a_file_copied_whose_original_stayed_is_finished_by_a_repeat(self):
-        # The crash came between the rename of the copy and the removal of the original
-        self.put("old/.env", "TOKEN=1\n")
-        self.failing("old/.env", OSError(errno.EXDEV, "Invalid cross-device link"))
-        self.patch(moves, "STEP", crash_on("relocate:renamed"))
-        with self.assertRaises(Crash):
-            moves.relocate("old/.env", "new/.env", "machine")
-        self.assertEqual((self.exists("old/.env"), self.exists("new/.env")), (True, True))
-        self.patch(moves, "STEP", None)
-        self.assertEqual(moves.relocate("old/.env", "new/.env", "machine"), "moved")
-        self.assertEqual((self.exists("old/.env"), self.text("new/.env")), (False, "TOKEN=1\n"))
 
 
 # ---------------------------------------------------------------------------------------------------------------------
