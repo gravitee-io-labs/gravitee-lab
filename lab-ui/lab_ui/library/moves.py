@@ -10,7 +10,6 @@ before it is made. Nothing here runs Docker, git or the network: whether git tra
 One folder of `.lab` is only for the person (0700, and so is whatever is made in it): `migration/`, with the journal and
 what was kept aside."""
 
-import bisect
 import errno
 import filecmp
 import hashlib
@@ -180,10 +179,6 @@ def _copied_before(source, target):
 # What git tracks, read from its index
 # ---------------------------------------------------------------------------------------------------------------------
 
-_INDEXES = {}   # index file -> (its stat, what it lists)
-_INDEXES_LOCK = threading.Lock()
-
-
 def _key(name):
     """A path as compared with the index: Unicode composed and case folded, since a Mac volume may answer for either."""
     return unicodedata.normalize("NFC", name).casefold()
@@ -268,41 +263,24 @@ def _parse_index(data):
 
 
 def _listed(index):
-    """(sorted keys, set of keys, sparse folders) of an index file, None when it cannot be read; nothing when there is
-    none yet (a repository where nothing was added)."""
-    try:
-        info = os.stat(index)
-    except FileNotFoundError:
-        return [], frozenset(), ()
-    except OSError:
-        return None
-    seen = (info.st_mtime_ns, info.st_size, info.st_ino)
-    with _INDEXES_LOCK:
-        cached = _INDEXES.get(index)
-    if cached and cached[0] == seen:
-        return cached[1]
+    """The keys of what an index file lists, None when it cannot be read; nothing when there is none yet (a repository where
+    nothing was added). A sparse index lists a folder whole, with a slash at the end."""
     try:
         with open(index, "rb") as f:
             names = _parse_index(f.read())
+    except FileNotFoundError:
+        return []
     except OSError:
-        names = None
-    found = None
-    if names is not None:
-        keys = [_key(name.decode("utf-8", "surrogateescape")) for name in names]
-        # A sparse index lists a folder whole, with a slash at the end
-        found = (sorted(key for key in keys if not key.endswith("/")),
-                 frozenset(key for key in keys if not key.endswith("/")),
-                 tuple(key for key in keys if key.endswith("/")))
-    with _INDEXES_LOCK:
-        _INDEXES[index] = (seen, found)
-    return found
+        return None
+    return None if names is None else [_key(name.decode("utf-8", "surrogateescape")) for name in names]
 
 
 def tracked(path):
     """Whether git tracks a file, or anything below a folder, in the checkout that holds it. It is the answer of
-    `git ls-files`, read from the index file, so no git runs. The checkout is the nearest folder above that has a
-    `.git`, found from the real place of the parent (a catalog linked in place is judged in its own checkout). True when
-    it cannot tell: a checkout whose index is not readable is treated as tracked. False outside any checkout."""
+    `git ls-files`, read from the index file and not asked of git: a move may start in a folder a container wrote, and the
+    configuration of a `.git` it planted there can make even `ls-files` run a command. The checkout is the nearest folder above
+    that has a `.git`, found from the real place of the parent (a catalog linked in place is judged in its own checkout). True
+    when it cannot tell: a checkout whose index is not readable is treated as tracked. False outside any checkout."""
     absolute = _abs(path).rstrip(os.sep) or os.sep
     parent, name = os.path.split(absolute)
     real = os.path.realpath(parent)
@@ -310,17 +288,11 @@ def tracked(path):
     if top is None:
         return False
     git = _git_dir(top)
-    found = _listed(os.path.join(git, "index")) if git else None
-    if found is None:
+    keys = _listed(os.path.join(git, "index")) if git else None
+    if keys is None:
         return True
-    keys, listed, sparse = found
     key = _key(os.path.relpath(os.path.join(real, name), top))
-    if key in listed:
-        return True
-    where = bisect.bisect_left(keys, key + "/")
-    if where < len(keys) and keys[where].startswith(key + "/"):
-        return True
-    return any((key + "/").startswith(folder) or folder.startswith(key + "/") for folder in sparse)
+    return any(one == key or one.startswith(key + "/") or (one.endswith("/") and key.startswith(one)) for one in keys)
 
 
 # ---------------------------------------------------------------------------------------------------------------------

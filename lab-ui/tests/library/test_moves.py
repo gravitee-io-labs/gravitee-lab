@@ -86,8 +86,6 @@ class Moves(Case):
 
     def setUp(self):
         self.folder(paths)
-        moves._INDEXES.clear()
-        self.addCleanup(moves._INDEXES.clear)
 
     def put(self, path, text="", mode=None):
         self.write(path, text)
@@ -489,7 +487,6 @@ class Tracked(Moves):
             listed = {one for one in listed if not any(other.startswith(one + "/") for other in listed)}
             version = picker.choice([2, 3, 4])
             repo = self.checkout(sorted(listed), version=version, extended=version == 3)
-            moves._INDEXES.clear()
             keys = {moves._key(one) for one in listed}
             for _ in range(20):
                 asked = name()
@@ -517,7 +514,6 @@ class Tracked(Moves):
                 repo = self.root / "repo"
                 (repo / ".git").mkdir(parents=True, exist_ok=True)
                 (repo / ".git/index").write_bytes(data)
-                moves._INDEXES.clear()
                 self.assertTrue(moves.tracked(repo / "anything"))
 
     def test_an_index_with_no_checksum_written_reads(self):
@@ -557,14 +553,6 @@ class Tracked(Moves):
                                ("a", True), ("a/c.txt", False), ("setups", False)):
             with self.subTest(path=path):
                 self.assertEqual(moves.tracked(repo / path), expected)
-
-    def test_the_index_is_read_again_when_git_replaces_it(self):
-        repo = self.checkout(["a.txt"])
-        self.assertEqual((moves.tracked(repo / "a.txt"), moves.tracked(repo / "b.txt")), (True, False))
-        fresh = repo / ".git/index.lock"
-        fresh.write_bytes(index_file(["a.txt", "b.txt"]))
-        os.replace(fresh, repo / ".git/index")   # git writes a lock file and renames it: a new inode
-        self.assertEqual(moves.tracked(repo / "b.txt"), True)
 
     def test_a_checkout_is_found_from_the_real_place_of_the_parent(self):
         # A catalog linked in place is judged in its own checkout, not in the one the link sits in
