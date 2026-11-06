@@ -18,7 +18,6 @@ Settings, from the environment of the seed:
 """
 
 import os
-import re
 import time
 
 from .common import REFUSED, Api, Gone, HttpError, SeedError, setting, wait_until
@@ -32,16 +31,15 @@ NEEDS = "this playground needs the Gamma modules of API Management 4.13 or later
 
 class Paging:
     """Where a list starts and how many rows a page may hold: both depend on the endpoint, and a page size over its
-    maximum is a 400."""
+    maximum is a 400. A list counts from 0 or from 1, depending on the list and the build, and `first` is where the seed
+    starts: `ManagementApi.rows` reads a list from the other start when its answers show that this one is wrong."""
 
     def __init__(self, first, size):
         self.first, self.size = first, size
 
 
-# What a platform whose lists start elsewhere than the seed expected says: they have not all started at the same page in every build
-PAGE_FLOOR = re.compile(r"page param must be >= (\d+)")
 WORKSPACES = Paging(first=0, size=100)   # AI workspaces and the MCP proxies
-BUDGETS = Paging(first=0, size=100)      # budgets of a workspace: the amp-demo build counts from 0, 4.13.1 says its floor and is asked again
+BUDGETS = Paging(first=0, size=100)      # budgets of a workspace
 LISTS = Paging(first=1, size=100)        # workspace members, access entities and policies, dashboards
 CATALOG = Paging(first=1, size=200)      # the catalog, providers and credentials
 
@@ -71,22 +69,31 @@ class ManagementApi(Api):
 
     def rows(self, path, paging, **params):
         """Every row of a paged list, whatever its shape: {"content": [...], "totalElements": n}, {"data": [...],
-        "pagination": {"totalCount": n}}, {"data": [...], "total": n} or {"items": [...], "total": n}."""
-        out, page = [], paging.first
+        "pagination": {"totalCount": n}}, {"data": [...], "total": n} or {"items": [...], "total": n}. A list asked from
+        page 0 that refuses it (a 400) is read from page 1, and what page 1 answers is the answer: its refusal, if any, is
+        the one that is not about where the list starts. A list asked from page 1 that counts from 0 takes it without a word:
+        the rows it announces and the pages do not hold say so, and it is read from page 0."""
+        def ask(number):
+            return self.get(path, params={**params, "page": number, "perPage": paging.size}).json()
+
+        page = paging.first
+        try:
+            body = ask(page)
+        except HttpError as refused:
+            if page != 0 or refused.status != 400:
+                raise
+            page = 1
+            body = ask(page)
+        out = []
         while True:
-            try:
-                body = self.get(path, params={**params, "page": page, "perPage": paging.size}).json()
-            except HttpError as e:
-                floor = PAGE_FLOOR.search(e.body or "") if e.status == 400 else None
-                if not floor or int(floor.group(1)) == page:   # not about where the list starts
-                    raise
-                out, page = [], int(floor.group(1))   # this platform's list starts there: asked again from its first page
-                continue
             found, total = page_of(body, path)
             out += found
+            if not found and paging.first == 1 and len(out) < (total or 0):
+                return self.rows(path, Paging(0, paging.size), **params)
             if not found or (len(out) >= total if total is not None else len(found) < paging.size):
                 return out
             page += 1
+            body = ask(page)
 
 
 class Gamma:
