@@ -1,5 +1,4 @@
-// The router (web/js/core.js): the page that opens with no address, or one that is none, is the Dashboard; the old address of the Containers
-// (#/stack) leads to them, in place of its own entry of the history, so that Back does not come back to it. The ids that an address holds (the
+// The router (web/js/core.js): the page that opens with no address, or one that is none, is the Dashboard. The ids that an address holds (the
 // first catalog's bare, this machine's `local/<name>`, any other catalog's `@<namespace>/<name>`), the keys the page splits at their first colon,
 // and what the store knows of a catalog.
 import assert from "node:assert/strict";
@@ -22,13 +21,6 @@ test("the page that opens with no address is the Dashboard", () => {
   router.start();
   assert.deepEqual(shown, ["dashboard"]);
   assert.deepEqual(hashes(), ["#/dashboard"], "its address is written in place of the empty one");
-});
-
-test("the old address of the Containers leads to them, in place of its own entry", () => {
-  location.hash = "#/stack";
-  assert.deepEqual(shown, ["dashboard", "stack"]);
-  assert.deepEqual(hashes(), ["#/dashboard", "#/containers"]);
-  assert.equal(location.hash, "#/containers");
 });
 
 test("an address that is no page leads to the Dashboard too, the old address of this page among them", () => {

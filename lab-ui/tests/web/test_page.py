@@ -298,8 +298,7 @@ class Agreements(Case):
 
     def test_the_dashboard_opens_the_lab_and_what_was_the_stack_is_named_containers_where_a_person_reads_it(self):
         """The Dashboard is the first item of the menu, alone above its sections, and the page that opens with no address; the Stack is
-        the Containers in the menu, in the title of its page and in the dialog that says how the Lab works, and its old address leads
-        to them."""
+        the Containers in the menu, in the title of its page and in the dialog that says how the Lab works."""
         index = (WEB / "index.html").read_text()
         nav = re.search(r'<nav class="nav"[^>]*>(.*?)</nav>', index, re.S).group(1)
         self.assertEqual(re.findall(r'<a class="nav-item" href="(#/[a-z]+)"', nav)[0], "#/dashboard", "the first item of the menu")
@@ -314,11 +313,7 @@ class Agreements(Case):
         for file in [WEB / "index.html", *MODULES]:
             source = re.sub(r"<!--.*?-->|/\*.*?\*/|\s//[^\n]*", "", file.read_text(), flags=re.S)
             self.assertNotRegex(source, r"""["'`>]Stack\b""", f"{file.name} names the Containers the Stack")
-            if file.name != "core.js":   # where its old address leads to them
-                self.assertNotIn("#/stack", source, file.name)
-        core = (WEB / "js" / "core.js").read_text()
-        self.assertIn('const MOVED = { "#/stack": "#/containers", "#/platforms": "#/cloud" };', core)
-        self.assertIn('if (!page) return router.replace("#/dashboard");', core)
+        self.assertIn('if (!page) return router.replace("#/dashboard");', (WEB / "js" / "core.js").read_text())
 
     def test_the_library_holds_the_lists_and_the_catalogs_they_come_from_and_the_last_one_has_a_dot_for_what_needs_pressing(self):
         """The group of the menu is the Library: Playgrounds, Setups, Add-ons, then Catalogs, which is always there (it is how a person finds
@@ -352,9 +347,9 @@ class Agreements(Case):
         self.assertRegex(styles, r"(?m)^\.nav-item:has\(> \.nav-dot\) \{ position: relative; \}")
         self.assertIn("[hidden] { display: none !important; }", (WEB / "css" / "base.css").read_text(), "hidden stays hidden")
 
-    def test_the_cloud_section_is_named_gravitee_cloud_and_its_old_address_leads_there(self):
-        """The page of the Gravitee Cloud accounts is Gravitee Cloud in the menu, its title and its address; the old
-        #/platforms and every address under it lead there. The local stack keeps its word: the platform."""
+    def test_the_cloud_section_is_named_gravitee_cloud(self):
+        """The page of the Gravitee Cloud accounts is Gravitee Cloud in the menu, its title and its address. The local stack keeps its
+        word: the platform."""
         index = (WEB / "index.html").read_text()
         configure = re.search(r'<span class="nav-label">Configure</span>(.*?)</nav>', index, re.S).group(1)
         self.assertIn('<a class="nav-item" href="#/cloud" data-nav="cloud" aria-label="Gravitee Cloud" data-tip="Gravitee Cloud" data-tip-collapsed><svg aria-hidden="true" focusable="false"><use href="#i-cloud"/></svg><span>Gravitee Cloud</span></a>', configure)
@@ -365,8 +360,6 @@ class Agreements(Case):
         for file in [WEB / "index.html", *MODULES]:
             source = re.sub(r"<!--.*?-->|/\*.*?\*/|\s//[^\n]*", "", file.read_text(), flags=re.S)
             self.assertNotRegex(source, r"""["'`>]Platforms\b""", f"{file.name} names the Gravitee Cloud page Platforms")
-            if file.name != "core.js":
-                self.assertNotIn("#/platforms", source, file.name)
         # What the page was called is named nowhere in it: not in its menu, its pages, its styles or its address
         for file in [WEB / "index.html", *MODULES, *(WEB / "css").glob("*.css")]:
             self.assertNotRegex(file.read_text(), r"(?i)overview", file.name)

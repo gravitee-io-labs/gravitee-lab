@@ -404,13 +404,8 @@ function draw() {
   try { page.render?.(store.state); } catch (err) { console.error(err); }
 }
 
-// A page that was named otherwise: its old address, and every address under it, leads to where it is now, in place of the entry
-const MOVED = { "#/stack": "#/containers", "#/platforms": "#/cloud" };
-
 function route() {
   const hash = location.hash;
-  const old = Object.keys(MOVED).find((from) => hash === from || hash.startsWith(`${from}/`));
-  if (old) return router.replace(MOVED[old] + hash.slice(old.length));
   let match = null;
   const page = pages.find((p) => (match = hash.match(p.pattern)));
   if (!page) return router.replace("#/dashboard");

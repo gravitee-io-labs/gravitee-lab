@@ -983,7 +983,6 @@ its catalog have the Start or Stop of their item, as the lists' rows have.
   them ask.
 - Each block is written again only when its own text changed (`setHTML`), a row of a card on its own (`keyed`), and a cell of
   Resources is a block of its own: the chart's figure and path are written apart, so a sample never draws a cell.
-- `#/stack` still works and leads to Containers.
 
 ### Containers
 
@@ -1165,7 +1164,7 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
   check runs, rows of bars stand where the table will be. `#/cloud/<id>` brings a card into view, focused. The page before any card
   is the one empty block of every page (`.empty`): *No account connected* and its action, *Connect account*, a plain button (the
   primary of a page is the banner's Start or Apply). The page's
-  address is `#/cloud`; `#/platforms` and `#/platforms/<id>` lead to it (`MOVED` in `js/core.js`).
+  address is `#/cloud`.
 - **The table** is one grid for its heads and every row (`.plat-grid`), four tracks: the environment (up to 260 px), the gateway, the
   deploys and the actions (248 px, the same in every row), so that states line up from one row to the next. It is the table of
   the Dashboard's Gravitee Cloud cards, drawn by the same cells (`gatewayCell`, `deployCell`): the heads *Environment*, *Gateway* and *Deploys* are drawn as the products' (12 px medium,
@@ -1604,7 +1603,7 @@ The server orders what the page lists: add-ons, setups and playgrounds by name (
 Tests do not see the page. After a change, with the platform running, click through the lines that cover it, in light and
 dark, at 1440 and 900 px wide.
 
-1. **Dashboard.** The Lab UI opens on it with no hash, `#/stack` leads to Containers and an address that is no page leads
+1. **Dashboard.** The Lab UI opens on it with no hash and an address that is no page leads
    here. The menu has it first, alone above Catalog, collapsed too. At 1440 px the platform's card (its products, the Cloud's row under
    them) and the catalog's card are side by side,
    about three to two, on the same top line, each ending where its content does with nothing blank under it; at 1100 and 900 px they are one
