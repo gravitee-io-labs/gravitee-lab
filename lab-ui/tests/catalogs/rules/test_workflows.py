@@ -1,4 +1,4 @@
-"""Catalogs/rules/workflows.py: the WF rules of the catalog repository standard. The files of tests/data/workflows are the passing set;
+"""Catalogs/rules/workflows.py: the WF rules of the catalog repository standard. The managed files of the template are the passing set;
 every rule has planted violations (a mutation test) and each violation is tried in five spellings of the same file (as it is, the
 indentation doubled, sequences at the column of their key, Windows line ends, a byte order mark), because the rules read by
 indentation and must not depend on how a file is laid out. Hostile text is the other half: a line of 1 MB and every kind of
@@ -21,7 +21,7 @@ from typing import NamedTuple
 from lab_ui.catalogs.rules import workflows as wf
 
 HERE = Path(__file__).resolve().parents[2]
-DATA = HERE / "data" / "workflows"
+MANAGED = HERE.parent / "templates" / "catalog" / "managed"
 ROOT = HERE.parents[1]
 CHECKOUT = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
 PYTHON = "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97"
@@ -29,20 +29,16 @@ LOGIN = "docker/login-action@dbcb813823bdd20940b903addbd779551569679f"
 SCRIPT = "actions/github-script@" + "a" * 40
 DOWNLOAD = "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333"
 
-# The files of, by the short name the tests use
-FILES = {
-    "ci": ("inline", ".github/workflows/ci.yml"), "publish": ("inline", ".github/workflows/publish.yml"),
-    "nightly": ("inline", ".github/workflows/nightly.yml"), "e2e": ("inline", ".github/workflows/e2e.yml"),
-    "lab": ("inline", ".github/actions/lab/action.yml"),
-}
+# The managed files, by the short name the tests use
+FILES = {"ci": ".github/workflows/ci.yml", "publish": ".github/workflows/publish.yml", "nightly": ".github/workflows/nightly.yml",
+         "e2e": ".github/workflows/e2e.yml", "versions": ".github/workflows/versions.yml", "lab": ".github/actions/lab/action.yml"}
 
 def text_of(name):
-    variant, path = FILES[name]
-    return (DATA / variant / path).read_text(encoding="utf-8")
+    return (MANAGED / FILES[name]).read_text(encoding="utf-8")
 
 
 def path_of(name):
-    return FILES[name][1]
+    return FILES[name]
 
 
 def codes(name, text, rules=wf.ALL):
@@ -333,8 +329,8 @@ MUTATIONS = {
              "    environment: publish\n    permissions:\n      contents: write\n      packages: write\n    outputs:"),
         swap("publish", "the attest job writes issues", ["WF09"], ATTEST, ATTEST + "\n      issues: write"),
         swap("nightly", "a job of the nightly run other than report", ["WF09"],
-             "  verify-latest:\n    if: ${{ !github.event.repository.fork }}\n    runs-on: ubuntu-24.04\n    timeout-minutes: 15\n    permissions:\n      contents: read\n",
-             "  verify-latest:\n    if: ${{ !github.event.repository.fork }}\n    runs-on: ubuntu-24.04\n    timeout-minutes: 15\n    permissions:\n      contents: read\n      issues: write\n"),
+             "    timeout-minutes: 15\n    permissions:\n      contents: read\n",
+             "    timeout-minutes: 15\n    permissions:\n      contents: read\n      issues: write\n"),
         swap("nightly", "the report job writes contents", ["WF09"], "    permissions:\n      issues: write\n",
              "    permissions:\n      issues: write\n      contents: write\n"),
     ],
@@ -478,8 +474,7 @@ MUTATIONS = {
         swap("ci", "an anchor in a flow list", ["WF21"], "branches: [main]", "branches: [&a main]"),
         swap("ci", "a quoted key", ["WF21"], "  cancel-in-progress:", '  "cancel-in-progress":'),
         swap("ci", "a single-quoted key", ["WF21"], "name: CI", "'name': CI"),
-        swap("ci", "a quoted key named uses", ["WF21"], "      - uses: " + CHECKOUT + " # v7.0.1\n        with:\n          path: catalog\n          fetch-depth: 0",
-             "      - 'uses': " + CHECKOUT + " # v7.0.1\n        with:\n          path: catalog\n          fetch-depth: 0"),
+        swap("ci", "a quoted key named uses", ["WF21"], "        uses: " + CHECKOUT, "        'uses': " + CHECKOUT),
         swap("ci", "a key twice", ["WF21"], "  cancel-in-progress:", "  group: other\n  cancel-in-progress:"),
         swap("ci", "a job twice", ["WF21"], "\njobs:\n", "\njobs:\n  static:\n    runs-on: ubuntu-24.04\n    timeout-minutes: 1\n"),
         swap("ci", "the top-level key jobs in capital letters", ["WF21"], "\njobs:\n", "\nJobs:\n"),
@@ -508,7 +503,7 @@ MUTATIONS = {
         swap("ci", "a directive", ["WF21"], "name: CI", "%YAML 1.2\nname: CI"),
         swap("ci", "a sequence at the top", ["WF03", "WF11", "WF21"], "name: CI\n", "- name\n"),
         swap("ci", "indentation that belongs to no key", ["WF21"], "name: CI\n", "name: CI\n    deeper: x\n"),
-        swap("ci", "a line to the left", ["WF21"], "      - uses: " + CHECKOUT, "  - uses: " + CHECKOUT),
+        swap("ci", "a line to the left", ["WF07", "WF21"], "        uses: " + CHECKOUT, "  uses: " + CHECKOUT),
         swap("ci", "a key under a value", ["WF21"], "name: CI\n", "name: CI\n  other: x\n"),
         swap("ci", "a line that is not an entry", ["WF21"], "name: CI\n", "name: CI\njust some words\n"),
         swap("ci", "a complex key", ["WF21"], "name: CI\n", "name: CI\n? x\n"),
@@ -729,8 +724,8 @@ class Passing(unittest.TestCase):
         self.assertNotEqual([], wf.problems("publish.yaml", text_of("publish"), wf.ALL))
 
     def test_a_catalog_tree_is_checked_by_the_function_the_audit_calls(self):
-        self.assertEqual([], wf.check(tree_of("inline")))
-        self.assertEqual([], wf.check(tree_of("inline"), object()))
+        self.assertEqual([], wf.check(tree_of()))
+        self.assertEqual([], wf.check(tree_of(), object()))
 
     def test_each_rule_passes_what_is_close_to_its_violations(self):
         """One or more passing fixtures for each rule: the spellings that look like a violation and are not."""
@@ -1063,7 +1058,7 @@ class Aggregator(unittest.TestCase):
                 self.assertEqual(code, 1, output)
 
     def test_the_script_found_is_the_script_of_the_workflow(self):
-        self.assertIn('fail "The plan gave no answer: open the job static"', self.script("ci"))
+        self.assertIn('fail "The plan gave no answer: open the job Checks"', self.script("ci"))
         self.assertIn('[ "$STATIC" = success ]', self.script("ci"))
 
 
@@ -1071,27 +1066,27 @@ class Trees(unittest.TestCase):
     """`check(tree, ctx)`: which files are read, what is not followed, and what cannot be read."""
 
     def tree(self, **changes):
-        files = dict(files_of("inline"))
+        files = dict(files_of())
         for path, value in changes.items():
             files[path.replace("__", "/")] = value
         return Tree(files)
 
     def test_only_workflows_and_local_actions_are_read(self):
         bad = "on: pull_request_target\n"
-        tree = Tree({**files_of("inline"), "docs/ci.yml": bad, ".github/workflows/sub/ci.yml": bad, ".github/workflows/notes.txt": bad,
+        tree = Tree({**files_of(), "docs/ci.yml": bad, ".github/workflows/sub/ci.yml": bad, ".github/workflows/notes.txt": bad,
                      ".github/workflows/ci.yml.bak": bad, "playgrounds/x/.github/workflows/ci.yml": bad, ".github/actions/lab/readme.yml": bad})
         self.assertEqual(wf.check(tree), [])
-        self.assertEqual(set(tree.reads), {path for path in files_of("inline") if path.endswith((".yml",))})
+        self.assertEqual(set(tree.reads), set(FILES.values()))
 
     def test_yaml_and_deeper_actions_are_read_too(self):
         bad = "name: x\non: pull_request_target\n"
-        tree = Tree({**files_of("inline"), ".github/workflows/extra.yaml": bad, ".github/actions/a/b/action.yaml": "name: a\nruns:\n  using: composite\n  steps:\n    - run: echo ${{ x }}\n"})
+        tree = Tree({**files_of(), ".github/workflows/extra.yaml": bad, ".github/actions/a/b/action.yaml": "name: a\nruns:\n  using: composite\n  steps:\n    - run: echo ${{ x }}\n"})
         found = wf.check(tree)
         self.assertIn(("WF01", ".github/workflows/extra.yaml"), [(each.code, each.path) for each in found])
         self.assertIn(("WF04", ".github/actions/a/b/action.yaml"), [(each.code, each.path) for each in found])
 
     def test_a_workflow_is_a_workflow_by_its_place_and_not_by_what_it_says(self):
-        tree = Tree({**files_of("inline"), ".github/workflows/x.yml": "name: x\n"})
+        tree = Tree({**files_of(), ".github/workflows/x.yml": "name: x\n"})
         found = [(each.code, each.path) for each in wf.check(tree)]
         self.assertEqual(sorted(found), [("WF03", ".github/workflows/x.yml"), ("WF11", ".github/workflows/x.yml")])
 
@@ -1107,7 +1102,7 @@ class Trees(unittest.TestCase):
             with self.subTest(name=name):
                 if "/" not in name:
                     self.assertEqual(sorted({each.code for each in wf.problems(path, bad)}), want)
-                found = wf.check(Tree({**files_of("inline"), path: bad}))
+                found = wf.check(Tree({**files_of(), path: bad}))
                 if "/" in name:
                     self.assertEqual([each for each in found if each.path == path], [])    # not at the root of the folder: not read
                 else:
@@ -1122,11 +1117,11 @@ class Trees(unittest.TestCase):
         for path in (".github/workflows/ci.yml", ".github/workflows/x/action.yml", "ci.yml"):
             with self.subTest(path=path):
                 self.assertIn("WF01", [each.code for each in wf.problems(path, bad)])
-        found = wf.check(Tree({**files_of("inline"), ".github/actions/x/action.yml": bad}))
+        found = wf.check(Tree({**files_of(), ".github/actions/x/action.yml": bad}))
         self.assertEqual([each for each in found if each.path == ".github/actions/x/action.yml"], [])
 
     def test_a_link_a_submodule_and_a_file_too_big_are_not_read(self):
-        tree = Tree({**files_of("inline"), ".github/workflows/link.yml": b"../../elsewhere.yml", ".github/workflows/sub.yml": b"",
+        tree = Tree({**files_of(), ".github/workflows/link.yml": b"../../elsewhere.yml", ".github/workflows/sub.yml": b"",
                      ".github/workflows/big.yml": b"x" * (wf.FILE_LIMIT + 1)},
                     modes={".github/workflows/link.yml": "120000", ".github/workflows/sub.yml": "160000"})
         found = wf.check(tree)
@@ -1150,7 +1145,7 @@ class Trees(unittest.TestCase):
         for label, data in {"latin-1": "name: caf\xe9\n".encode("latin-1"), "utf-16": "name: x\n".encode("utf-16"),
                             "a null": b"name: x\x00\n"}.items():
             with self.subTest(label):
-                found = wf.check(Tree({**files_of("inline"), ".github/workflows/odd.yml": data}))
+                found = wf.check(Tree({**files_of(), ".github/workflows/odd.yml": data}))
                 self.assertIn("WF21", [each.code for each in found if each.path == ".github/workflows/odd.yml"])
 
     def test_a_tree_that_cannot_give_a_file_answers_unreadable(self):
@@ -1161,7 +1156,7 @@ class Trees(unittest.TestCase):
         self.assertEqual([(each.code, each.line) for each in found], [("WF21", 1)])
 
     def test_the_problems_are_sorted_and_the_same_twice(self):
-        files = dict(files_of("inline"))
+        files = dict(files_of())
         files[".github/workflows/ci.yml"] = edit(edit(files[".github/workflows/ci.yml"], "timeout-minutes: 15", "timeout-minutes: soon"),
                                                  "  pull_request:", "  issue_comment:")
         first, second = wf.check(Tree(files)), wf.check(Tree(dict(reversed(list(files.items())))))
@@ -1171,7 +1166,7 @@ class Trees(unittest.TestCase):
     def test_with_the_real_tree_of_the_audit(self):
         from lab_ui.catalogs import tree as real
         with tempfile.TemporaryDirectory() as holder:
-            shutil.copytree(DATA / "inline", Path(holder) / "catalog")
+            shutil.copytree(MANAGED, Path(holder) / "catalog")
             self.assertEqual(wf.check(real.FolderTree(Path(holder) / "catalog")), [])
 
 
@@ -1363,13 +1358,12 @@ class Tree(object):
         return data if len(data) <= limit else None
 
 
-def files_of(variant):
-    base = DATA / variant
-    return {file.relative_to(base).as_posix(): file.read_text(encoding="utf-8") for file in sorted(base.rglob("*")) if file.is_file()}
+def files_of():
+    return {file.relative_to(MANAGED).as_posix(): file.read_text(encoding="utf-8") for file in sorted(MANAGED.rglob("*")) if file.is_file()}
 
 
-def tree_of(variant):
-    return Tree(files_of(variant))
+def tree_of():
+    return Tree(files_of())
 
 
 if __name__ == "__main__":
