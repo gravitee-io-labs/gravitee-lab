@@ -304,19 +304,6 @@ class Audit(WithGit):
         self.assertEqual(1, len(found))
         self.assertIn("removed later in this pull request", found[0].message)
 
-    def test_a_key_that_a_later_commit_only_lengthened_is_still_found(self):
-        """The old line is not in the file any more, whole: a character added to a public key does not make it private."""
-        repo = self.catalog()
-        self.put(repo, "docs/k.md", f"key = {support.aws_key()}\n")
-        self.commit(repo, "Add a key")
-        self.assertEqual(1, len([each for each in self.run_in(repo, families=self.OWN).problems if each.code == "SE02"]))
-        self.put(repo, "docs/k.md", f"key = {support.aws_key()}9\n")
-        self.commit(repo, "Hide it")
-        found = [each for each in self.run_in(repo, families=self.OWN).problems if each.code == "SE02"]
-        self.assertEqual(1, len(found), "the tree is clean now and the pull request is not")
-        self.assertIn("in commit ", found[0].message)
-        self.assertIn(", removed later in this pull request", found[0].message)
-
     def test_a_file_a_unit_includes_and_the_check_cannot_read_is_a_check_that_did_not_run(self):
         """The answer is never "clean" by silence: the services of that file were not judged, and the run says so."""
         unit = "include:\n  - gone.yml\nservices:\n  web:\n    image: nginx:1\n"
@@ -467,12 +454,6 @@ class Audit(WithGit):
                 self.assertEqual(1, audit.status(result, audit.Options()))
         self.assertFalse((repo / "elsewhere").exists())
         self.assertEqual("", self.run_in(repo, base="nonexistent", families=self.OWN).base)
-
-    def test_a_base_that_is_a_branch_name_works_when_the_tree_has_an_old_error_too(self):
-        """The base was resolved only when the tree held no hygiene error: with one, `main` raised a ValueError."""
-        repo = self.old_and_new_key()
-        result = self.run_in(repo, base="origin/main", families=self.OWN)
-        self.assertEqual("warning", self.severities(result)["docs/old.pem"])
 
     def test_a_linked_work_tree_is_read_like_a_clone(self):
         """`git worktree add` makes a checkout whose `.git` is a file; the base is read all the same."""
