@@ -210,17 +210,6 @@ class Anchor(unittest.TestCase):
         self.assertEqual(["IM02"], [each.code for each in found(("playgrounds/shop/compose.yml", text))])
         self.assertEqual([], found(("playgrounds/shop/compose.yml", text), seeder_paths=("seeder",)))
 
-    def test_a_caller_that_knows_the_real_folders_decides_for_itself(self):
-        text = compose(service("shop-seed", f"{SEEDER}:latest", "./anywhere"))
-        calls = []
-
-        def decides(folder, context_):
-            calls.append((folder, context_))
-            return context_ == "./anywhere"
-
-        self.assertEqual([], found(("playgrounds/shop/compose.yml", text), is_seeder=decides))
-        self.assertEqual([("playgrounds/shop", "./anywhere")], calls)
-
 
 class Reach(unittest.TestCase):
     """A unit is its `compose.yml` and the files of its folder that it includes or extends: Compose loads them all, and a service
@@ -353,13 +342,9 @@ class Units(unittest.TestCase):
     def test_the_same_rules_over_the_resolved_services(self):
         listing = support.tree({"catalog.yml": CATALOG})
         services = {"shop-web": {"image": f"{PREFIX}/shop-web:1", "build": {"context": "/abs/playgrounds/shop/apps/web"}},
-                    "shop-seed": {"image": f"{SEEDER}:latest", "build": {"context": "/lab/seeder"}, "pull_policy": "build"},
+                    "shop-seed": {"image": f"{SEEDER}:latest", "build": {"context": "../../../../../seeder"}, "pull_policy": "build"},
                     "shop-db": {"image": "postgres:16"}}
-
-        def at_the_lab(folder, context_):
-            return context_ == "/lab/seeder"
-
-        ctx = context(listing, units=self.units(services), is_seeder=at_the_lab, **HOW)
+        ctx = context(listing, units=self.units(services), **HOW)
         out = images.check(listing, ctx)
         self.assertEqual(["IM01"], [each.code for each in out], "the web service has no pull_policy")
         self.assertEqual("playgrounds/shop/compose.yml: shop-web builds an image but has no pull_policy. Fix: pull_policy: ${ID_PULL_POLICY:-build}.",

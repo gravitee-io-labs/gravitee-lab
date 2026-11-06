@@ -873,7 +873,7 @@ def run_check(args):
         has_seeder = pulled.has_seeder if pulled else os.path.lexists(Path(target.path) / "seeder")
         base, history = _base_asked(args)
         how = dict(base=base, soft=args.soft, error=error, strict=args.strict, online=args.online, history=history,
-                   verbose=args.verbose, ci=args.ci, units=items.units, lab=Path(paths.ROOT),
+                   ci=args.ci, units=items.units, lab=Path(paths.ROOT),
                    seeder_paths=("../../../seeder",) if has_seeder else ("../../../seeder", "seeder"))
         how.update(pulled.options if pulled else {})
         options = audit.Options(**how)

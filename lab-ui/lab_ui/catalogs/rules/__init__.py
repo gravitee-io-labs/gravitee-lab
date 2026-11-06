@@ -18,7 +18,7 @@ This file holds what the families share:
 import bisect
 import json
 import re
-from typing import Callable, Dict, Iterable, Iterator, List, NamedTuple, Optional, Tuple
+from typing import Dict, Iterable, Iterator, List, NamedTuple, Optional, Tuple
 
 from ..report import Problem
 
@@ -83,11 +83,9 @@ class Context(NamedTuple):
     units          the resolved units of the project (`images.units_of`), when the caller has loaded them with Compose
     seeder_images  the repositories (no tag) of `x-gravitee.seeder.image` of the Lab's core file
     seeder_paths   where the Lab's seeder is from the root of a catalog (an installed catalog is three folders below the Lab)
-    is_seeder      `f(unit_folder, context) -> bool` instead of seeder_paths, for a caller that knows the Lab's real folders
     online         the checks that need GitHub were asked for
     ci             the run is CI's
     repository     OWNER/REPO of this repository, when known (IM04)
-    base           the commit the change is measured from, or ""
     partial        the tree is a part of a catalog (the files Share staged), so the files a whole catalog has are not asked for
     notes          a list a rule appends a sentence to for each thing it could not read (it becomes `Result.skipped`), or None
     """
@@ -98,11 +96,9 @@ class Context(NamedTuple):
     units: Optional[list] = None
     seeder_images: Tuple[str, ...] = ()
     seeder_paths: Tuple[str, ...] = ("../../../seeder",)
-    is_seeder: Optional[Callable] = None
     online: bool = False
     ci: bool = False
     repository: str = ""
-    base: str = ""
     partial: bool = False
     notes: Optional[list] = None
 

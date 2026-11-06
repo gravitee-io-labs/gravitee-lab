@@ -11,8 +11,7 @@ The Lab's seeder is the one named anchor: a built service whose image is `x-grav
 and whose build context is the Lab's seeder is the Lab's own image. IM02 and IM03 do not count it, it is not checked against the
 prefix and it is never published, but it still needs its `pull_policy` (IM01). Without that exemption every playground with a
 seed would fail its own standard. The caller says where the Lab's seeder is: `Context.seeder_images` and `seeder_paths`
-(where it is from the top of a catalog), or `Context.is_seeder(folder, context)` when it knows the real folders. Only the image,
-the context and the Dockerfile are compared: the other keys of a build (`args`, `target`, `additional_contexts`) are the trust
+(where it is from the top of a catalog). Only the image, the context and the Dockerfile are compared: the other keys of a build (`args`, `target`, `additional_contexts`) are the trust
 policy's (T18 and N01), which a unit with a seed service meets at Add.
 
 The rules judge a list of `Service` rows. They come from the Compose files of the tree, read as text (`services_of_tree`: the
@@ -283,8 +282,6 @@ def _seeds(row: Service, ctx: Context) -> bool:
     repo = repository(row.image) if row.image else None
     if not repo or repo not in {each.lower().split(":", 1)[0] for each in ctx.seeder_images}:
         return False
-    if ctx.is_seeder is not None:
-        return bool(ctx.is_seeder(row.folder, row.context))
     if not row.context or _REMOTE.match(row.context) or row.dockerfile not in ("", "Dockerfile"):
         return False
     where = posixpath.normpath(posixpath.join(row.folder, known(row.context) or row.context))

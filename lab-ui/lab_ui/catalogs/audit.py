@@ -27,7 +27,7 @@ import os
 import re
 from collections import Counter
 from pathlib import Path
-from typing import Callable, Iterable, List, NamedTuple, Optional, Tuple
+from typing import Iterable, List, NamedTuple, Optional, Tuple
 
 from .. import paths
 from . import gitx, tree as trees
@@ -51,7 +51,6 @@ class Options(NamedTuple):
     strict         the exit code is 1 for a warning too
     online         the checks that compare with GitHub are asked for
     history        read every commit of the history, not only those since the base
-    verbose        the information too (a rendering option; `run` always returns it)
     ci             the run is CI's: IM04 is asked for, and a skipped check is exit 2
     tree           a Tree to read instead of the folder (`GitTree`, for `check --pr`)
     base_tree      the tree of the base commit, when `tree` is not a folder of a repository
@@ -60,7 +59,6 @@ class Options(NamedTuple):
     units          the units that the caller loaded with Compose (IM reads their services instead of the files)
     seeder_images  the repositories of the Lab's seeder; None reads `x-gravitee.seeder.image` of the Lab's core file
     seeder_paths   where the Lab's seeder is from the top of a catalog
-    is_seeder      `f(unit_folder, context) -> bool`, for a caller that knows the real folders
     lab            the Lab checkout (its core file names the seeder); default the one this code is in
     repository     OWNER/REPO of this repository (IM04); default $GITHUB_REPOSITORY, else the `origin` remote
     """
@@ -70,7 +68,6 @@ class Options(NamedTuple):
     strict: bool = False
     online: bool = False
     history: bool = False
-    verbose: bool = False
     ci: bool = False
     tree: Optional[object] = None
     base_tree: Optional[object] = None
@@ -79,7 +76,6 @@ class Options(NamedTuple):
     units: Optional[list] = None
     seeder_images: Optional[Tuple[str, ...]] = None
     seeder_paths: Tuple[str, ...] = ("../../../seeder",)
-    is_seeder: Optional[Callable] = None
     lab: Optional[Path] = None
     repository: str = ""
 
@@ -163,17 +159,16 @@ def _fresh(root, options: Options, folder: bool, skipped: List[str]):
     return tree, history, base, lost
 
 
-def _context(tree, root, options: Options, history, base: str, notes: List[str]) -> Context:
+def _context(tree, root, options: Options, history, notes: List[str]) -> Context:
     seeders = options.seeder_images if options.seeder_images is not None else lab_seeder_images(options.lab)
     repository = options.repository or os.environ.get("GITHUB_REPOSITORY", "")
     if not repository and (options.ci or options.online) and root is not None and trees.is_repository(root):
         repository = origin_repository(root)
     return context(tree, history=history, units=options.units, seeder_images=tuple(seeders), seeder_paths=options.seeder_paths,
-                   is_seeder=options.is_seeder, online=options.online, ci=options.ci,
-                   repository=repository, base=base, notes=notes)
+                   online=options.online, ci=options.ci, repository=repository, notes=notes)
 
 
-def _run_families(tree, ctx: Context, wanted: Iterable[str], skipped: List[str]) -> List[Problem]:
+def _run_families(tree, ctx: Context, wanted: Iterable[str]) -> List[Problem]:
     found: List[Problem] = []
     for code in FAMILIES:
         if code not in wanted:
@@ -252,9 +247,9 @@ def run(root, options: Optional[Options] = None) -> Result:
         tree.entries()
     except trees.TreeError as error:
         return Result([], [str(error)], base, 0, "")
-    ctx = _context(tree, root, options, history, base, skipped)
+    ctx = _context(tree, root, options, history, skipped)
     wanted = options.families or FAMILIES
-    found = _run_families(tree, ctx, wanted, skipped)
+    found = _run_families(tree, ctx, wanted)
     if (options.ci or options.online) and not ctx.repository and ctx.meta("images") and "IM" in wanted:
         skipped.append("IM04: the address of this repository is not known")
     commits = 0
@@ -297,6 +292,6 @@ def _against_base(found: List[Problem], tree, root, options: Options, base: str,
         skipped.append("which errors were already there at the base: the files of the base could not be read, so they stay errors")
         return found
     quiet = context(before, units=None, seeder_images=ctx.seeder_images, seeder_paths=ctx.seeder_paths,
-                    is_seeder=ctx.is_seeder, repository=ctx.repository, ci=ctx.ci, online=ctx.online)
-    earlier = _run_families(before, quiet, [code for code in FAMILIES if code in HYGIENE], [])
+                    repository=ctx.repository, ci=ctx.ci, online=ctx.online)
+    earlier = _run_families(before, quiet, [code for code in FAMILIES if code in HYGIENE])
     return subtract(found, promote(earlier, ctx.standard, options.error))
