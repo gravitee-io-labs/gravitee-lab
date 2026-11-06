@@ -45,13 +45,11 @@ import json
 import os
 import re
 
-import requests
-
 from . import controls
 from . import gamma
 from .apim import ENDED, UNSUPPORTED, accept, find_application, held_subscription, merge, subscribe
 from .common import (OK, Api, SeedError, adopted, contains, created, excerpt, files, forget, has_seed, load, log, making, owned, record,
-                     recorded, setting, trouble, wait_until, waits_for_gateway)
+                     recorded, setting, wait_until, waits_for_gateway)
 
 SECTION = "aim-proxies"
 # The folders of the seed it owns
@@ -705,11 +703,7 @@ class McpProxies:
             "protocolVersion": str(spec.get("protocolVersion") or spec["supportedProtocolVersions"][0]), "capabilities": {}, "clientInfo": {"name": "gravitee-lab-seed", "version": "1.0"}}}
 
         def check():
-            try:
-                answer = Api(gateway).send("POST", path, json=hello, timeout=15,
-                                           headers={"Accept": "application/json, text/event-stream"})
-            except requests.RequestException as e:
-                raise SeedError(trouble(e, 15)) from None
+            answer = Api(gateway).send("POST", path, json=hello, timeout=15, headers={"Accept": "application/json, text/event-stream"})
             if answer.status_code != 401:
                 raise SeedError(f"HTTP {answer.status_code} without a token, 401 expected")
 
