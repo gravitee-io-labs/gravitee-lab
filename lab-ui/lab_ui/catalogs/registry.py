@@ -361,14 +361,14 @@ def _effective(entry):
 def _entry(raw, listed):
     """(entry, None, cleaned) for an entry of catalogs.json read as the Lab uses it, or (None, why, False) for one that
     cannot be: not an object, no valid id, a reserved or personal id (reserved ones are for the listed catalogs only),
-    no address. `listed` is a function that answers the set of listed ids, called only when it matters. `cleaned` says a
+    no address. `listed` is the set of listed ids. `cleaned` says a
     user name was taken out of the address. Unknown keys are kept: a newer Lab's keys survive a round trip."""
     if not isinstance(raw, dict):
         return None, "an entry is not an object", False
     ns = raw.get("id")
     if not _namespace(ns):
         return None, "an entry has no valid id", False
-    if ns == LOCAL or (ns in paths.RESERVED_NS and ns not in listed()):
+    if ns == LOCAL or (ns in paths.RESERVED_NS and ns not in listed):
         return None, f"{ns} is a reserved name", False
     kind = raw.get("kind")
     if kind not in ("git", "folder"):
@@ -390,7 +390,7 @@ def _entry(raw, listed):
         entry["branch"] = raw["branch"]
     if isinstance(raw.get("auto"), bool):
         entry["auto"] = raw["auto"]
-    if raw.get("host") is True and ns not in listed():   # a listed catalog's allowance is implied, and dropped
+    if raw.get("host") is True and ns not in listed:   # a listed catalog's allowance is implied, and dropped
         entry["host"] = True
     if isinstance(raw.get("added"), str) and _plain(raw["added"], 40):
         entry["added"] = raw["added"]
@@ -404,17 +404,6 @@ def _entry(raw, listed):
                 entry["shadows"][key] = shadows[key]
     entry.update((key, value) for key, value in raw.items() if key not in ENTRY_KEYS)
     return entry, None, cleaned
-
-
-def _lazy(function):
-    """`function` called once, when first asked."""
-    box = []
-
-    def asked():
-        if not box:
-            box.append(function())
-        return box[0]
-    return asked
 
 
 def _load_config():
@@ -441,7 +430,7 @@ def _load_config():
         return blank, [(LISTING_PROBLEM.format(why=why), f"could not be read ({why})")]
     config = {"schema": SCHEMA, **{key: item for key, item in value.items() if key not in ("schema", "catalogs")},
               "catalogs": []}
-    listed = _lazy(lambda: _tracked()[1])
+    listed = _tracked()[1]
     seen, dropped = set(), []
     for number, raw in enumerate(value["catalogs"]):
         entry, reason, _ = _entry(raw, listed) if number < ENTRIES_LIMIT else (None, "there are too many", False)
@@ -559,7 +548,7 @@ def _checked_config(config):
         raise ValueError('a catalog configuration is {"schema": 1, "catalogs": [...]}')
     if len(config["catalogs"]) > ENTRIES_LIMIT:
         raise ValueError(f"at most {ENTRIES_LIMIT} catalogs")
-    listed = _lazy(lambda: _tracked()[1])
+    listed = _tracked()[1]
     document = {"schema": SCHEMA, **{key: item for key, item in config.items() if key not in ("schema", "catalogs")},
                 "catalogs": []}
     for raw in config["catalogs"]:
