@@ -71,7 +71,6 @@ PATHS = {"api-tools": "/catalog/sources", "agent": "/catalog/agents", "skill": "
 MANUAL = ("agent", "knowledge", "model")   # the kinds a manual source holds
 # Where a credential may be used from: Gamma asks for at least one and only records them, so the seed allows them all
 USAGE_SURFACES = ["LLM_PROXY", "AI_WORKSPACE", "AGENT", "MCP_PROXY", "WORKFLOW_TOOL"]
-STRATEGIES = {"api-key": "API_KEY", "bearer": "BEARER", "basic": "BASIC", "oauth2": "OAUTH2", "service-account": "SERVICE_ACCOUNT"}
 SLUG = re.compile(r"[a-z0-9_-]+")
 MCP_VERSION = "2025-11-25"   # asked at the start: the server answers with the version it speaks
 CARD_PATH = "/.well-known/agent-card.json"
@@ -157,7 +156,7 @@ def seed_credentials(aim):
             record(SECTION, "credential", LABELS["credential"], name, found["id"], digest=digest)
             say("credential", "updated", name)
             continue
-        body = {"name": name, "strategy": STRATEGIES[secret["type"]], "credentials": secret,
+        body = {"name": name, "strategy": str(secret.get("type")).upper().replace("-", "_"), "credentials": secret,
                 "allowedUsageSurfaces": USAGE_SURFACES, **service}
         with common.making(SECTION, "credential", LABELS["credential"], name, missing=True):
             created = aim.post(PATHS["credential"], json=body).json()
@@ -338,7 +337,7 @@ class McpServer:
             return None
         payload = aim_proxies.jsonrpc(answer)
         if not payload or "result" not in payload:
-            raise SeedError(f"MCP {method} at {self.url}: no result in {str(payload or answer.text)[:200]}")
+            raise SeedError(f"MCP {method} at {self.url}: no result in {excerpt(payload or answer.text, 200)}")
         return payload["result"]
 
     def listing(self, key):
@@ -533,7 +532,7 @@ def tools_of(name, api_id, generated, operations):
     """What the import takes for an API, in the order of the file: {apiId, gatewayMapping, definition}, the definition
     without its output schema. An operation with something written for it carries it as `tailoring`, which the import
     does not take."""
-    problems = "; ".join(e["message"] for e in generated["errors"])
+    problems = excerpt("; ".join(e["message"] for e in generated["errors"]))
     names = [t["toolDefinition"]["name"] for t in generated["tools"]]
     if operations is None:
         if generated["errors"] or not generated["tools"]:

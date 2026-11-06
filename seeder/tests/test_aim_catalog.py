@@ -409,6 +409,13 @@ class Credentials(Catalog):
         self.assertEqual([(x["kind"], x["label"], x["name"]) for x in self.records()],
                          [("credential", "credentials", "Gemini key")])
 
+    def test_a_credential_type_is_sent_as_the_strategy_the_platform_names_it(self):
+        for kind, strategy in (("service-account", "SERVICE_ACCOUNT"), ("oauth2", "OAUTH2"), ("api_key", "API_KEY")):
+            with self.subTest(kind=kind):
+                self.seed_files({"aim/credentials/gemini.yaml": f"name: {kind}\ncredentials: {{type: {kind}}}\n"})
+                self.run_seed()
+                self.assertEqual(self.sent("POST", "/auth-profiles")[-1].json["strategy"], strategy)
+
     def test_a_file_that_needs_a_setting_is_skipped_while_it_is_empty(self):
         self.seed_files({"aim/credentials/gemini.yaml": "needs: GEMINI_KEY\n" + CREDENTIAL})
         self.assertEqual(self.run_seed(), [])
@@ -771,6 +778,12 @@ class Discovery(Catalog):
         with self.assertRaisesRegex(common.SeedError, "^MCP initialize at http://bakery-mcp:8000: the connection was cut$"):
             self.run_seed()
 
+    def test_a_page_in_place_of_a_result_stops_the_seed_in_one_line(self):
+        self.platform.add({("POST", MCP): (200, "<html>\n<body>Sign in</body>\n</html>", {"Content-Type": "text/html"})})
+        with self.assertRaises(common.SeedError) as stopped:
+            self.run_seed()
+        self.assertEqual(str(stopped.exception), f"MCP initialize at {MCP}: no result in <html> <body>Sign in</body> </html>")
+
     def test_an_answer_without_a_result_stops_the_seed(self):
         error = {"jsonrpc": "2.0", "id": 1, "error": {"code": -32600, "message": "bad"}}
         self.platform.add({("POST", MCP): (200, error)})
@@ -1119,7 +1132,7 @@ class ApiTools(Catalog):
         self.assertEqual(len(self.world.of_kind("mcp-tool")), 2)
 
     def test_an_openapi_page_that_gives_errors_or_no_operation_stops_the_seed(self):
-        self.world.apis["api-1"]["errors"] = ["no servers"]
+        self.world.apis["api-1"]["errors"] = ["no\nservers"]
         with self.assertRaisesRegex(common.SeedError, "gives no tools: no servers"):
             self.run_seed()
         self.world.apis["api-1"].update(errors=[], operations=[])
