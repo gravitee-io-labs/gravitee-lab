@@ -258,12 +258,6 @@ function sourceOrder(entries) {
   return entries.sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0]));
 }
 
-// Whether the list tells the sources of its items apart, from the items it has: not while one catalog (or this machine) holds them all;
-// else with a picker of the catalogs, this machine's items among them as Personal
-const scopeOf = (all) => (new Set(all.map(sourceOf)).size < 2 ? "" : "picker");
-
-const PICKER = '<button class="combo-btn" data-catalogs aria-haspopup="dialog"><span class="sr-only">Catalog: </span><span class="value"></span>';
-
 // `noun` names what a row is, as the header of its first column
 function list(kind, title, noun) {
   // Starred or not is chosen once for each list: it is the same at the next visit
@@ -276,9 +270,9 @@ function list(kind, title, noun) {
   // returns to the list as it was. `target`: the row to bring into view and focus once it is drawn.
   const routed = new Set();
   let section, pager, categories, target = null;
-  // The control that tells the catalogs apart, drawn from the items there are (scope): none, or the picker; the block of
+  // The control that tells the catalogs apart, drawn from the items there are: none, or the picker; the block of
   // the content of the catalogs, and the places both go in
-  let scopeEl = null, scopeKind = "", catalogs = null, wanted = null;
+  let scopeEl = null, catalogs = null, wanted = null;
   let rowsEl, emptyEl, contentEl = null, contentHtml = "";
   // The list as it was before an address showed one of its rows, which may clear its filters and turn its page: its
   // filters, its search, its categories, its catalogs and its page, given back by the list's own address. What is changed by hand
@@ -327,16 +321,15 @@ function list(kind, title, noun) {
   // The control that tells the catalogs apart, mounted when the items need one and taken off when they no longer do: it is drawn from the
   // items, never from the page's markup, and what was chosen with it is not kept. A catalog asked for from outside (selectCatalog) is chosen.
   function mountScope(all) {
-    const want = scopeOf(all);
-    if (want !== scopeKind) {
+    const want = new Set(all.map(sourceOf)).size > 1;   // not while one catalog (or this machine) holds them all; Personal is one of the choices
+    if (want !== !!catalogs) {
       scopeEl?.remove();
       catalogs?.clear();
       scopeEl = catalogs = null;
-      scopeKind = want;
-      $(".list-card", section).classList.toggle("by-catalog", !!want);   // its rows name their catalog where the card has the room
+      $(".list-card", section).classList.toggle("by-catalog", want);   // its rows name their catalog where the card has the room
       if (want) {
         const holder = document.createElement("div");
-        holder.innerHTML = `${PICKER}${icon("chevron")}</button>`;
+        holder.innerHTML = `<button class="combo-btn" data-catalogs aria-haspopup="dialog"><span class="sr-only">Catalog: </span><span class="value"></span>${icon("chevron")}</button>`;
         scopeEl = holder.firstElementChild;
         $(".list-filters", section).append(scopeEl);
         catalogs = CategoryFilter(scopeEl, () => store.state?.[`${kind}s`] || [], () => filter({}), sourceName,
