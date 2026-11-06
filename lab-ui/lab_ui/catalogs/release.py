@@ -29,6 +29,7 @@ from .report import printable
 
 CATALOG = "catalog.yml"
 VERSION = re.compile(r"(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})")
+TAG = re.compile("v" + VERSION.pattern)
 BLOCK = re.compile(r"x-gravitee-catalog:[ \t]*(?:#.*)?\r?")
 LINE = re.compile(r"(?P<head>[ \t]+version:[ \t]*)(?P<quote>[\"']?)(?P<number>[0-9]+\.[0-9]+\.[0-9]+)(?P=quote)(?P<tail>[ \t]*(?:#.*)?\r?)")
 SHOWN = 200
@@ -107,7 +108,7 @@ def _fetch(root) -> None:
 def latest_tag(root) -> Optional[str]:
     """The highest tag of the form vX.Y.Z, or None."""
     result = _run(root, "tag", "--list", "v[0-9]*.[0-9]*.[0-9]*")
-    tags = [line for line in _out(result).splitlines() if line.startswith("v") and VERSION.fullmatch(line[1:])]
+    tags = [line for line in _out(result).splitlines() if TAG.fullmatch(line)]
     return max(tags, key=lambda each: numbers(each[1:])) if tags else None
 
 
