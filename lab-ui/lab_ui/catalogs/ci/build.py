@@ -77,6 +77,10 @@ class Spec(NamedTuple):
     command: List[str]
     path: str   # the compose file of the unit, relative to the catalog (where a finding is placed)
     context: str
+    dockerfile: str = ""
+    args: Dict[str, str] = {}
+    target: str = ""
+    labels: Dict[str, str] = {}
 
 
 class Row(NamedTuple):
@@ -203,7 +207,8 @@ def one(unit: Loaded, name: str, service: dict, platform: str, root: str, seeder
     if image in known:
         return None, [], Row(unit.key, name, image, "skipped", note="it is built once, for another service")
     known[image] = context
-    return Spec(unit.key, name, image, command_of(image, platform, dockerfile, context, args, target, labels), where, context), [], None
+    command = command_of(image, platform, dockerfile, context, args, target, labels)
+    return Spec(unit.key, name, image, command, where, context, dockerfile, args, target, labels), [], None
 
 
 def specs_of(units: Sequence[Loaded], platform: str, root: str, lab=None, only: Optional[str] = None,

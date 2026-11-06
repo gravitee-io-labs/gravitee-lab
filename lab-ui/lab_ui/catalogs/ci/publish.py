@@ -250,45 +250,18 @@ class Collected(NamedTuple):
     notes: List[str]
 
 
-def parts_of(command: Sequence[str]) -> dict:
-    """The pieces of the `docker buildx build` that `ci build` makes for a service (`build.command_of`): its tag, Dockerfile, build
-    arguments, target, labels and context. Read from the command because that is the one place the build keys were judged
-    (T18's allow-list, the contexts inside the catalog), so what is published is built exactly from what `ci build` built."""
-    found = {"tag": "", "file": "", "args": [], "target": "", "labels": [], "context": command[-1] if command else ""}
-    words = list(command[3:-1])
-    at = 0
-    while at < len(words):
-        word = words[at]
-        at += 1
-        if word == "--load":
-            continue
-        value = words[at] if at < len(words) else ""
-        at += 1
-        if word == "--tag":
-            found["tag"] = value
-        elif word == "--file":
-            found["file"] = value
-        elif word == "--build-arg":
-            found["args"].append(value)
-        elif word == "--label":
-            found["labels"].append(value)
-        elif word == "--target":
-            found["target"] = value
-    return found
-
-
 def last_part(image: str) -> str:
     """The last path part of an image reference, without its tag or digest: `ghcr.io/o/r/bakery-web:latest` is `bakery-web`."""
     return image.split("@", 1)[0].rsplit("/", 1)[-1].split(":", 1)[0]
 
 
-def watches(spec: build.Spec, pieces: dict, root: str) -> Tuple[str, ...]:
+def watches(spec: build.Spec, root: str) -> Tuple[str, ...]:
     """The places of the catalog whose change rebuilds an image."""
     found = [spec.path]
-    if not pieces["context"].startswith(("http", "git", "ssh", "github.com")) and os.path.isabs(pieces["context"]):
-        found.append(os.path.relpath(pieces["context"], root).replace(os.sep, "/"))
-        if os.path.isabs(pieces["file"]):
-            found.append(os.path.relpath(pieces["file"], root).replace(os.sep, "/"))
+    if os.path.isabs(spec.context):
+        found.append(os.path.relpath(spec.context, root).replace(os.sep, "/"))
+        if os.path.isabs(spec.dockerfile):
+            found.append(os.path.relpath(spec.dockerfile, root).replace(os.sep, "/"))
     return tuple(dict.fromkeys(found))
 
 
@@ -312,7 +285,6 @@ def collect(root: str, prefix: str, lab=None) -> Collected:
     problems += more
     found: Dict[str, Image] = {}
     for spec in specs:
-        pieces = parts_of(spec.command)
         repository = image_rules.repository(spec.image)
         name = f"{prefix}/{last_part(spec.image)}".lower()
         if not repository or repository != name:
@@ -326,10 +298,10 @@ def collect(root: str, prefix: str, lab=None) -> Collected:
                 image_rules.MORE["IM02"][0], service=spec.service, image=report.printable(spec.image), prefix=prefix,
                 unit=spec.unit.partition(":")[2], app="app")))
             continue
-        remote = not os.path.isabs(pieces["context"])
-        found.setdefault(name, Image(name, spec.unit, spec.service, spec.path, pieces["context"], pieces["file"],
-                                     tuple(pieces["args"]), pieces["target"], tuple(pieces["labels"]), remote,
-                                     watches(spec, pieces, real)))
+        found.setdefault(name, Image(name, spec.unit, spec.service, spec.path, spec.context, spec.dockerfile,
+                                     tuple(f"{key}={spec.args[key]}" for key in sorted(spec.args)), spec.target,
+                                     tuple(f"{key}={spec.labels[key]}" for key in sorted(spec.labels)),
+                                     not os.path.isabs(spec.context), watches(spec, real)))
     return Collected([found[name] for name in sorted(found)], problems, notes)
 
 

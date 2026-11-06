@@ -1010,24 +1010,6 @@ class Places(unittest.TestCase):
 
 class Parts(unittest.TestCase):
 
-    def test_the_pieces_of_a_build_command_are_read_back_from_the_one_that_ci_build_makes(self):
-        from lab_ui.catalogs.ci import build
-        command = build.command_of("ghcr.io/o/r/x:1", "linux/amd64", "/c/Dockerfile", "/c", {"B": "2", "A": "1"}, "final",
-                                   {"k": "v", "a": "b"})
-        self.assertEqual(publish.parts_of(command), {"tag": "ghcr.io/o/r/x:1", "file": "/c/Dockerfile",
-                                                     "args": ["A=1", "B=2"], "target": "final", "labels": ["a=b", "k=v"],
-                                                     "context": "/c"})
-        bare = build.command_of("x:1", "linux/arm64", "/c/Dockerfile", "/c", {}, "", {})
-        self.assertEqual(publish.parts_of(bare)["args"], [])
-
-    def test_a_command_of_many_arguments_is_read_in_one_pass(self):
-        from lab_ui.catalogs.ci import build
-        args = {f"A{number}": "x" for number in range(60_000)}
-        command = build.command_of("x:1", "linux/amd64", "/c/Dockerfile", "/c", args, "", {})
-        found, spent = support.timed(publish.parts_of, command)
-        self.assertEqual(len(found["args"]), 60_000)
-        self.assertLess(spent, 1.0)
-
     def test_the_last_part_of_an_image(self):
         for image, expected in (("ghcr.io/o/r/bakery-web:latest", "bakery-web"), ("ghcr.io/o/r/bakery-web", "bakery-web"),
                                 ("bakery-web", "bakery-web"), ("localhost:5000/a/b@sha256:" + "a" * 64, "b")):
