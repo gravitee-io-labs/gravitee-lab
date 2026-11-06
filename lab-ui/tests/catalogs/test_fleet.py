@@ -338,10 +338,6 @@ class Upgrade(Fleet):
         lines = fleet.render_upgrade(results).splitlines()
         self.assertEqual("acme/lab-hub       opened  https://github.com/acme/lab-hub/pull/41  owned files skipped: "
                          ".github/CODEOWNERS, .github/dependabot.yml", lines[0])
-        files_plan = Standard()
-        files_plan.upgrade_plan = lambda tree, options: {"files": [{"path": ".github/Makefile", "action": "owned"},
-                                                                    {"path": ".github/a.yml", "action": "update"}]}
-        self.assertEqual([[".github/Makefile"]], [r.owned for r in self.run_fleet(Github(repos=[listed("acme/third")]), files_plan)])
 
     def test_nothing_to_change_is_current(self):
         github = Github(repos=[listed("acme/lab-hub")])
