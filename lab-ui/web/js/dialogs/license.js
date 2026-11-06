@@ -3,7 +3,7 @@
 // is the server's (`note`).
 
 import { $, $$, esc, icon, setHTML, loading, api, store, copyButton } from "../core.js";
-import { toast, emptyHtml, onRowKey, actionButton, paintActions, paintBusy, dockerDown, applyBadge } from "../components/ui.js";
+import { toast, emptyHtml, actionButton, paintActions, paintBusy, dockerDown, applyBadge } from "../components/ui.js";
 import { runJob, busy } from "../activity/jobs.js";
 import { openFile } from "./editor.js";
 
@@ -451,9 +451,12 @@ $("#license-packs").addEventListener("click", (e) => {
   const row = e.target.closest("[data-pack]");
   if (row) toggle(row);
 });
-onRowKey($("#license-packs"), "[data-pack]", (row) => {
-  toggle(row);
-  return `[data-pack="${CSS.escape(row.dataset.pack)}"]`;
+// Enter and Space open or close a pack, as a click does. It is drawn again: the focus goes back to it.
+$("#license-packs").addEventListener("keydown", (e) => {
+  if (!e.target.matches("[data-pack]") || (e.key !== "Enter" && e.key !== " ")) return;
+  e.preventDefault();
+  toggle(e.target);
+  $(`#license-packs [data-pack="${CSS.escape(e.target.dataset.pack)}"]`)?.focus();
 });
 
 // Read again once another license is saved (here or in .env itself), and after a job, when it was not read or its

@@ -333,7 +333,7 @@ Every page and dialog does the same thing the same way. Before adding a piece, f
   tint for the open row. A click anywhere on the row but its controls opens it too. The row itself is no button: its
   controls (its name's link, its badges, its buttons) are reached apart. A row that cannot be closed has no toggle. The
   lists, the groups of Containers and the lines of a detail that open work so; a pack of the license is a row that opens
-  with nothing inside it (`onRowKey`). An address opens one (`#/addons/<id>`, `#/setups/<id>`), in view, its toggle focused.
+  with nothing inside it. An address opens one (`#/addons/<id>`, `#/setups/<id>`), in view, its toggle focused.
   Back returns to the list as it was, with its filters and its page, unless they were changed by hand meanwhile.
 - **Row icons**: fixed slots in a fixed order (open, file, settings, logs, restart, stop or start, more). A missing
   one keeps its place (`GAP`). A file and its settings open from their icons (`fileButtons`), never from a menu.

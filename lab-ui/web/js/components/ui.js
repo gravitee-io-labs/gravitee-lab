@@ -1,7 +1,7 @@
 // Shared pieces of the interface: toasts, the dialogs, the menu, the buttons of a row, console links, a service's
 // cells, progress bars and what waits, the state and the note of a row, the badge of what runs behind what is saved and its
 // tooltip, where a link to the license leads, the button of an action that shows it at work, the keys of a segmented control, rows kept from one refresh to the next, the
-// pager and what an empty list says, the keys of a row that opens and of the search, the focus given back after a
+// pager and what an empty list says, the keys of the search, the focus given back after a
 // redraw, copy buttons, stars, the link to the catalog an item comes from, what the lists say while their content is on its way
 // or missing, and the dot of the Catalogs entry of the menu
 
@@ -1509,17 +1509,6 @@ export function Pager(el, size, onChange) {
       return items.slice(from, from + size);
     },
   };
-}
-
-// Enter and Space open or close a row that opens, as a click does: under `root`, the rows that match `selector`.
-// toggle(row) answers the selector of the row when it drew it again: the focus goes back to it.
-export function onRowKey(root, selector, toggle) {
-  root.addEventListener("keydown", (e) => {
-    if (!e.target.matches(selector) || (e.key !== "Enter" && e.key !== " ")) return;
-    e.preventDefault();
-    const drawn = toggle(e.target);
-    if (drawn) $(drawn, root)?.focus();
-  });
 }
 
 // What an address opened, in view and focused, once it is drawn and the router has set the page's scroll: `focus` is the control inside
