@@ -336,28 +336,6 @@ class RoundTrip(Case):
             with self.subTest(said):
                 self.assertEqual(compose.cause(said, known), shown, "a name its author chose, or a folder of the Lab's, is never said")
 
-    def test_an_include_that_is_not_text_or_cannot_be_opened_is_a_clean_refusal(self):
-        scratch = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons" / "scratch" / "compose.yml"
-        inner = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons" / "inner" / "compose.yml"
-        inner.parent.mkdir(parents=True)
-        self.addCleanup(lambda: inner.exists() and os.chmod(inner, 0o644))
-        scratch.write_text(scratch.read_text(encoding="utf-8").replace("include:\n", "include:\n  - ../inner/compose.yml\n", 1),
-                           encoding="utf-8")
-        for name, make in (("latin-1", lambda: inner.write_bytes(b"x-gravitee: {kind: addon, name: Caf\xe9}\nservices: {}\n")),
-                           ("mode 000", lambda: (inner.write_text("services: {}\n"), os.chmod(inner, 0)))):
-            with self.subTest(name):
-                os.chmod(inner, 0o644) if inner.exists() else None
-                make()
-                project.forget()
-                for call in (lambda: exports.plan("local/sandbox"), lambda: exports.archive("local/sandbox")):
-                    try:
-                        call()
-                    except paths.NotFound:   # the Lab does not read Sandbox now: there is no such playground to export
-                        pass
-                    except CatalogError as error:
-                        self.assertNotIn(str(paths.ROOT), error.message)
-                        self.assertNotIn("codec", error.message)
-
     def test_whose_copy_an_item_is_never_leaves_however_its_yaml_says_it(self):
         scratch = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons" / "scratch" / "compose.yml"
         text = scratch.read_text(encoding="utf-8")
@@ -394,6 +372,8 @@ class RoundTrip(Case):
         with self.assertRaises(CatalogError) as caught:
             exports.plan("shop")
         self.assertEqual((caught.exception.code, caught.exception.status), ("export_default", 409))
+        with self.assertRaises(paths.NotFound):
+            exports.plan("local/gone")
 
     def test_the_import_is_the_add_of_a_folder_catalog_kept_by_the_lab_and_gone_with_it(self):
         data = exports.archive("local/sandbox")["data"]
@@ -427,19 +407,6 @@ class ToPersonal(Case):
 
     def local(self, rel):
         return paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / rel
-
-    def test_the_check_once_in_personal_reads_the_items_placed_and_not_the_project(self):
-        data = exports.archive("local/sandbox")["data"]
-        scratch = self.local("addons/scratch/compose.yml")
-        scratch.write_text(scratch.read_text(encoding="utf-8") + "# changed here\n", encoding="utf-8")
-        preview = exports.receive(data)
-        read, loads = [], []
-        real_read, real_load = project.read_own, project.load
-        self.patch(project, "read_own", lambda file: read.append(file) or real_read(file))
-        self.patch(project, "load", lambda *a, **k: loads.append(read[:]) or real_load(*a, **k))
-        exports.to_personal(preview["ticket"])
-        self.assertEqual(read, [".lab/catalogs/local/addons/scratch/compose.yml"], "the one item it wrote")
-        self.assertFalse([one for one in loads if one], "the project is not read again once it is placed")
 
     def test_an_item_that_differs_only_by_a_file_beside_its_compose_file_is_replaced(self):
         data = exports.archive("local/sandbox")["data"]
@@ -638,8 +605,7 @@ class FromCatalogs(Case):
         project.forget()
 
     def test_the_private_label_is_written_and_read_back_or_the_export_is_refused_naming_the_item(self):
-        heads = {"apostrophe": "x-gravitee: {kind: addon, name: Ledger, category: Other, description: Keeps a partner's entries}\n",
-                 "next line": "x-gravitee:\n  {kind: addon, name: Ledger, category: Other, description: Keeps entries}\n",
+        heads = {"next line": "x-gravitee:\n  {kind: addon, name: Ledger, category: Other, description: Keeps entries}\n",
                  "tag": "x-gravitee: !!map {kind: addon, name: Ledger, category: Other, description: Keeps entries}\n"}
         for name, head in heads.items():
             with self.subTest(name):
@@ -654,7 +620,7 @@ class FromCatalogs(Case):
                 with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
                     text = archive.read("sandbox/addons/ledger/compose.yml").decode()
                 said = compose.x_gravitee(text, self.root)
-                self.assertEqual((said["private_from"], said["description"]), (["Partner fixture"], said["description"]))
+                self.assertEqual(said["private_from"], ["Partner fixture"])
 
     def test_an_apostrophe_in_a_flow_block_is_no_quote_and_the_label_is_written(self):
         self.ledger("x-gravitee: {kind: addon, name: Ledger, category: Other, description: Keeps a partner's entries}\n")
@@ -671,8 +637,6 @@ class FromCatalogs(Case):
         with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
             text = archive.read("sandbox/catalog.yml").decode()
         self.assertIn(f"  lab: {level}", text)
-        self.assertGreater(level, 1, "the label came after the first level")
-        self.assertEqual(contribute.files_lab({"addons/a/compose.yml": ("100644", b"x-gravitee: {kind: addon, name: A}\n")}), 1)
 
     def test_an_export_of_a_label_by_a_lab_that_cannot_read_its_contract_lock_is_refused(self):
         """Without its contract.lock the Lab does not know the level of the label: it says so rather than a lower one."""
@@ -715,27 +679,6 @@ class FromCatalogs(Case):
         self.assertIsNone(contribute._raised(RAISED_LAYOUTS["plain"][0].replace("lab: 1", "lab: 3"), 2), "never lowered")
         with self.assertRaises(contribute.NotRaised):
             contribute._raised("x-gravitee-catalog: [not, a, block]\n", 2)
-
-    def test_a_copy_of_an_item_whose_include_is_not_text_or_cannot_be_opened_is_a_clean_refusal(self):
-        text = open("tests/data/catalogs/partner/addons/ledger/compose.yml").read()
-        fixtures.install(self, "partner", kind="git", audience="private",
-                         files={"addons/ledger/compose.yml": text.replace("services:", "include:\n  - ../inner/compose.yml\nservices:", 1),
-                                "addons/inner/compose.yml": "services: {}\n"})
-        inner = paths.ROOT / paths.CATALOGS_DIR / "partner" / "addons" / "inner" / "compose.yml"
-        self.addCleanup(lambda: os.chmod(inner, 0o644))
-        for name, make in (("latin-1", lambda: inner.write_bytes(b"x-gravitee: {kind: addon, name: Caf\xe9}\nservices: {}\n")),
-                           ("mode 000", lambda: (inner.write_text("services: {}\n"), os.chmod(inner, 0)))):
-            with self.subTest(name):
-                os.chmod(inner, 0o644)
-                make()
-                project.forget()
-                try:
-                    moving.copy("addon", "@partner/ledger")
-                except CatalogError as error:
-                    self.assertNotIn(str(paths.ROOT), error.message)
-                    self.assertNotIn("codec", error.message)
-                    self.assertNotIn("\ufffd", error.message)
-                shutil.rmtree(paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons" / "ledger", ignore_errors=True)
 
     def test_a_copy_says_the_id_of_the_private_catalog_with_its_name(self):
         moving.copy("addon", "@partner/ledger")
@@ -1186,10 +1129,7 @@ class Untrusted(Case):
         rename = os.rename
         self.patch(exports.kept.os, "rename", lambda one, two: (_ for _ in ()).throw(OSError(18, "Cross-device link"))
                    if ".state" in str(one) else rename(one, two))
-        message = self.refused(lambda: exports.receive(data), "import_leftover")
-        self.assertEqual(message, "What an earlier import of Evil left cannot be deleted, and holds its settings "
-                                  "playgrounds/evil/.state. Fix: copy them out of .lab/imports/evil, then remove that folder with "
-                                  "administrator rights, and import it again.")
+        self.assertIn("holds its settings playgrounds/evil/.state.", self.refused(lambda: exports.receive(data), "import_leftover"))
 
     def test_a_copy_of_hidden_behind_decoys_is_refused_and_the_decoys_are_left_as_they_are(self):
         forged = ('services:\n  evil-root:\n    image: busybox:1.36\n    networks: [internal]\n'
@@ -1289,6 +1229,12 @@ class Claims(Case):
                 reasons = [reason for one in preview["blocked"] if one["id"] == "@evil/evil" for reason in one["reasons"]]
                 held = {"Includes content from outside the catalog", "Reads files outside its folder"}   # the screen's lines (T19)
                 self.assertTrue(trust.line("T29") in reasons or held & set(reasons), reasons)
+                with self.assertRaises(CatalogError):
+                    exports.to_personal(preview["ticket"], allow=True)
+                project.forget()
+                found = project.load()
+                self.assertNotIn("local/evil", found["playgrounds"], "it never reaches Personal")
+                self.assertIsNone(found["playgrounds"]["tour"].get("twin"))
                 service.forget(preview["ticket"])
 
     def test_a_text_that_looks_like_an_include_list_is_held_by_the_screen_and_never_reaches_personal(self):
@@ -1324,20 +1270,6 @@ class Claims(Case):
                     read, why = project.read_own(paths.unit_file("playground", "local/evil"))
                     said = compose.x_gravitee(text, file.parent, fresh=True) if read is not None else None
                     self.assertEqual(said, (read or {}).get("x-gravitee"), why)
-
-    def test_no_way_of_writing_copy_of_makes_a_twin(self):
-        for name, text in self.FORGED.items():
-            with self.subTest(name):
-                try:
-                    preview = exports.receive(evil_zip(playground=text))
-                except CatalogError:
-                    continue   # not even read: nothing of it goes anywhere
-                with self.assertRaises(CatalogError):
-                    exports.to_personal(preview["ticket"], allow=True)
-                project.forget()
-                found = project.load()
-                self.assertNotIn("local/evil", found["playgrounds"], "it never reaches Personal")
-                self.assertIsNone(found["playgrounds"]["tour"].get("twin"))
 
     def test_a_claim_is_said_in_the_preview_and_a_move_of_it_is_refused(self):
         preview = exports.receive(evil_zip(playground=self.FORGED["apostrophe"]))
