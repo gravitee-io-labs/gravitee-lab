@@ -1133,6 +1133,21 @@ class Documents(Portals):
         self.assertEqual((self.record()["items"], self.record()["legacy"], self.record()["count"]), (OVERVIEWS, [], 2))
         self.assertEqual(self.run_seed(), [])
 
+    def test_an_openapi_document_that_is_gone_or_changes_kind_takes_its_page(self):
+        openapi = "openapi: 3.0.3\ninfo: {title: Batch status, version: '1.0'}\npaths:\n  /batches: {get: {responses: {'200': {description: OK}}}}\n"
+        self.document(text=openapi)
+        self.run_seed()
+        self.document()
+        self.run_seed()
+        self.assertEqual(self.titles(0), ["Overview", "AsyncAPI"])
+        self.document(text=openapi)
+        self.run_seed()
+        self.assertEqual(self.titles(0), ["Overview", "OpenAPI"])
+        self.drop("api-docs/batch-status.yaml")
+        self.run_seed()
+        self.assertEqual(self.titles(0), ["Overview"])
+        self.assertEqual(self.run_seed(), [])
+
     def test_the_pages_of_the_menu_are_recorded_in_the_order_of_the_pages_of_each_api_and_counted(self):
         self.document()
         self.document("telemetry")

@@ -787,14 +787,17 @@ class Portals:
         platform changed."""
         env, api, base = folder.env, want["api"], f"{self.v2(folder.env)}/portal-navigation-items"
         title, kind, _ = DOC_KINDS[folder.kinds.get(api["crossId"], "asyncapi")]
-        page, doc = tree.child(item_id, title), folder.docs.get(want["api"]["crossId"])
-        if doc is None:
-            if page and page["id"] in before:
+        doc, changed = folder.docs.get(api["crossId"]), False
+        for other, *_ in DOC_KINDS.values():
+            page = tree.child(item_id, other)
+            if page and page["id"] in before and (doc is None or other != title):   # its document is gone or changed kind
                 self.ask(what, self.console, "DELETE", f"{base}/{page['id']}", passed=(404,))
                 tree.items.pop(page["id"], None)
-                return None, True
-            return None, False
-        changed = not page
+                changed = True
+        if doc is None:
+            return None, changed
+        page = tree.child(item_id, title)
+        changed |= not page
         if not page:
             page = self.ask(what, self.console, "POST", base, json={
                 "type": "PAGE", "title": title, "area": "TOP_NAVBAR", "parentId": item_id, "visibility": want["visibility"],
