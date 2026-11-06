@@ -29,7 +29,6 @@ It uses what your machine has, adds only what is missing, then opens the Lab UI 
 4. **Command**: it links the command `gravitee-lab` into `~/.local/bin`. When that folder is not on your `PATH`, it adds one
    line, marked `# Added by Gravitee Lab`, to the profile of your shell (`~/.zshrc`, `~/.bashrc`, `~/.bash_profile` on
    macOS, fish's `conf.d`, or `~/.profile`): open a new terminal to use the command.
-5. **Docker**: it only looks. The Lab UI's first page says how to install or start it.
 
 Run it again at any time: it skips what is done and never deletes anything. Next time, run `gravitee-lab`. Keep the terminal
 open while you use the Lab UI: Ctrl+C stops the Lab UI, and the containers keep running.

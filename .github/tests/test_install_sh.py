@@ -167,7 +167,7 @@ class Install(unittest.TestCase):
         link = self.home / ".local" / "bin" / "gravitee-lab"
         self.assertEqual(os.readlink(link), str(self.lab / "bin" / "gravitee-lab"))
         self.assertEqual((self.home / PROFILE).read_text().count(MARKER), 1)
-        for step in ("Tools", "Gravitee Lab", "Command", "Docker", "Ready in"):
+        for step in ("Tools", "Gravitee Lab", "Command", "Ready in"):
             self.assertIn(step, said)
         self.assertNotIn("\033", said, "no color and no live line out of a terminal")
 
