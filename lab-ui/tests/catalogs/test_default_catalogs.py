@@ -259,8 +259,8 @@ class Reading(Case):
 
     def test_a_name_and_a_description_are_text_for_a_person_and_never_remove_the_entry(self):
         (found,) = self.put(listing(entry(name="  Grаvi\x00tee \n demos‮  ", description="a\tb\x1b[0m" + "c" * 200)))
-        self.assertEqual(found["name"], "Grаvitee demos")
-        self.assertEqual(found["description"], "a b[0m" + "c" * (defaults.DESCRIPTION_LIMIT - 6))
+        self.assertEqual(found["name"], "Grаvi tee demos")
+        self.assertEqual(found["description"], "a b [0m" + "c" * (defaults.DESCRIPTION_LIMIT - 8) + "\u2026")
         for value in (5, None, [], {}, True, "", " \n"):
             with self.subTest(value):
                 (found,) = self.put(listing(entry("demos", name=value, description=value)))

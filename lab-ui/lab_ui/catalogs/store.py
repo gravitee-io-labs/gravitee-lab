@@ -16,12 +16,12 @@ import re
 import shutil
 import threading
 import time
-import unicodedata
 from pathlib import Path
 from typing import Callable, Dict, Iterable, Iterator, List, NamedTuple, Optional, Tuple
 
 from . import gitx
 from .gitx import CatalogError, fail
+from .registry import shown
 
 MIB = 1024 * 1024
 # A store over this size is removed and the catalog refused (the fetch is stopped as soon as it is known)
@@ -708,10 +708,6 @@ def read(store, commit: str, path: str, limit: int = MIB) -> Optional[bytes]:
     return _git(store, "cat-file", "blob", match.group(2).decode(), limit=limit + 1).out
 
 
-def _clip(text: str, length: int) -> str:
-    return text if len(text) <= length else text[:length - 1].rstrip() + "…"
-
-
 def log(store, old: Optional[str], new: str, folders: List[str], limit: int = 5) -> List[str]:
     """The subjects of the commits from `old` (not included; None for all) to `new` that touched `folders`, newest
     first, merges left out, those that start with `Bump `, `Merge ` or `Revert ` dropped (dependency bots and merge
@@ -723,11 +719,9 @@ def log(store, old: Optional[str], new: str, folders: List[str], limit: int = 5)
     out = _git(store, "log", "--no-merges", "--max-count=200", "--format=%s", span, "--", *paths).out
     subjects = []
     for line in out.decode("utf-8", "replace").splitlines():
-        text = " ".join("".join(" " if unicodedata.category(c) == "Cc" else c for c in line
-                                if unicodedata.category(c) != "Cf").split())
-        text = re.sub(r"\s*\(#\d+\)$", "", text)
+        text = shown(re.sub(r"\s*\(#\d+\)\s*$", "", line), 160)
         if text and not re.match(r"(Bump|Merge|Revert) ", text):
-            subjects.append(_clip(text, 160))
+            subjects.append(text)
         if len(subjects) >= limit:
             break
     return subjects

@@ -9,17 +9,16 @@ never repaired into a different catalog. A damaged first entry reads as no list 
 ids (paths.default_ns reads the same entry and must never be taken for the second). A name or a description that is not
 text only loses its text: it is shown until the installed catalog.yml is read, and nothing depends on it.
 
-This module imports no other module of the package at load time: the registry imports it, and git imports the
-registry. It asks the registry, when `not_added` is called, which catalogs the person has: what the registry holds, not
-a reading of .lab/catalogs.json of its own, so that the page and the rows it offers never disagree."""
+It asks the registry, when `not_added` is called, which catalogs the person has: what the registry holds, not a reading of
+.lab/catalogs.json of its own, so that the page and the rows it offers never disagree."""
 
 import json
 import re
 import stat
-import unicodedata
 from typing import List, Optional, Tuple
 
 from .. import paths
+from . import gitx, registry
 
 PATH = paths.DEFAULT_FILE   # relative to paths.ROOT
 SCHEMA = 1
@@ -33,20 +32,9 @@ _ROOT = re.compile(r"[0-9a-fA-F]{40}")
 _seen = (None, [])   # (what the file looked like, the entries read from it)
 
 
-def _shown(value, limit: int) -> str:
-    """A text for a person: NFKC, control characters out, white space collapsed, clipped; empty for anything but
-    text."""
-    if not isinstance(value, str):
-        return ""
-    text = "".join(c for c in unicodedata.normalize("NFKC", value)
-                   if c.isspace() or not unicodedata.category(c).startswith("C"))
-    return " ".join(text.split())[:limit].rstrip()
-
-
 def _address(value) -> Optional[str]:
     """The https address of a git repository, in the one spelling git is given it, or None: a full URL (never
     owner/repo, an ssh address or a folder) that the address grammar accepts, without a user name or a password."""
-    from . import gitx   # here: the registry imports this module, and gitx imports the registry
     if not isinstance(value, str) or "://" not in value:
         return None
     try:
@@ -58,7 +46,6 @@ def _address(value) -> Optional[str]:
 
 def _branch(value):
     """(True, the branch or None) for a branch that is absent or a valid name; (False, None) for anything else."""
-    from . import gitx   # as _address
     try:
         return True, gitx.asked_branch(value)
     except Exception:  # noqa: BLE001 - a name git cannot take
@@ -87,8 +74,9 @@ def _entry(raw) -> Optional[dict]:
     anchored, roots = _roots(raw.get("roots"))
     if not (fine and anchored):
         return None
-    entry = {"id": uid, "name": _shown(raw.get("name"), NAME_LIMIT) or uid,
-             "description": _shown(raw.get("description"), DESCRIPTION_LIMIT), "url": url}
+    name, description = raw.get("name"), raw.get("description")
+    entry = {"id": uid, "name": (isinstance(name, str) and registry.shown(name, NAME_LIMIT)) or uid,
+             "description": registry.shown(description, DESCRIPTION_LIMIT) if isinstance(description, str) else "", "url": url}
     if branch:
         entry["branch"] = branch
     if roots:
@@ -174,7 +162,6 @@ def not_added() -> List[dict]:
     one), as the rows of kind `suggested` that the Catalogs page draws with one Add: [{id, kind, listed, name,
     description, url, branch?}], in the order of the file. An entry the registry drops, as damaged, is not held, so that
     the listed catalog it stood for is offered again (the row is the reset)."""
-    from . import registry   # here: the registry imports this module
     have = {one["id"] for one in registry.entries()}
     rows = []
     for entry in read():
