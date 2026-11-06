@@ -294,7 +294,7 @@ The Lab pins the standard's files by commit in `.github/standard.json`; when the
 python3 lab-ui/catalog.py upgrade .
 ```
 
-prints the plan (`--write` applies it on a branch), and `upgrade --fleet OWNER --lab-ref COMMIT` opens one pull request per
+prints the plan (`--write` writes it in place, for you to commit), and `upgrade --fleet OWNER --lab-ref COMMIT` opens one pull request per
 catalog of an owner. A managed file that someone edited by hand is reported (`SD02`) and never overwritten silently.
 
 The pin, `lab.ref`, is the commit of a release of the Lab (a tag `vX.Y.Z` on its `main`), and CI refuses any other (`SD11`): a

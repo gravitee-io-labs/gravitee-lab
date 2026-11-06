@@ -654,11 +654,6 @@ class Leaks(unittest.TestCase):
                 self.assertIsNone(commits.CREDITS.search(line), f"{name}: {line}")
             self.assertNotIn("\U0001f916", text, name)
 
-    def test_the_commit_the_standard_writes_says_nothing_but_its_subject(self):
-        plan = {"level": 2, "lab": {"new": "", "old": "", "compare": "", "log": []}}
-        subject, body = standard.commit_message(plan)
-        self.assertEqual((subject, body), ("Update to catalog standard 2", ""))
-
     def test_no_file_of_the_template_holds_an_invisible_character(self):
         bad = re.compile("[\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\u00ad]")
         for name, text in self.files():
@@ -1409,7 +1404,7 @@ class Commands(Case):
 
 
 class Upgrading(Case):
-    """The plan, the writing, the commit."""
+    """The plan and the writing."""
 
     def setUp(self):
         support.identity(self)
@@ -1600,9 +1595,6 @@ class Upgrading(Case):
         self.assertEqual((code, err), (2, "Uncommitted changes in files the upgrade rewrites: .github/workflows/ci.yml. Commit or restore them, "
                                           "then run again.\n"))
         self.assertEqual((repo.root / ".github/workflows/ci.yml").read_text(), before)
-        code, out, err = self.upgrade(repo, "--commit")
-        self.assertEqual(code, 2)
-        self.assertEqual(repo.branches(), ["main"])
 
     def test_a_file_git_does_not_track_yet_is_not_overwritten_either(self):
         repo = support.Repo(self)                      # nothing is committed: every file is new to git
@@ -1611,11 +1603,10 @@ class Upgrading(Case):
         before = path.read_text()
         self.assertEqual(standard.dirty_files(repo.root, [".github/workflows/ci.yml", "Makefile", ".github/nothing.yml"]),
                          [".github/workflows/ci.yml", "Makefile"])            # only the paths that were asked about
-        for flag in ("--write", "--commit"):
-            code, out, err = self.upgrade(repo, flag)
-            self.assertEqual(code, 2, flag)
-            self.assertIn("Uncommitted changes in files the upgrade rewrites: .github/workflows/ci.yml", err)
-            self.assertEqual(path.read_text(), before, flag)
+        code, out, err = self.upgrade(repo, "--write")
+        self.assertEqual(code, 2)
+        self.assertIn("Uncommitted changes in files the upgrade rewrites: .github/workflows/ci.yml", err)
+        self.assertEqual(path.read_text(), before)
         repo.git("add", "-A")
         repo.git("commit", "--quiet", "-m", "Create the catalog")
         self.assertEqual(self.upgrade(repo, "--write")[0], 0)                     # committed, it is the person's to take back
@@ -1740,19 +1731,9 @@ class Upgrading(Case):
         self.assertNotIn("content", document["files"][0])
         code, out, err = self.upgrade(repo, "--write", "--format", "json")
         document = json.loads(out)
-        self.assertEqual((code, err, document["written"], document["branch"]), (0, "", [".github/workflows/ci.yml"], ""))
+        self.assertEqual((code, err, document["written"]), (0, "", [".github/workflows/ci.yml"]))
         code, out, err = self.upgrade(repo, "--write", "--format", "json")
         self.assertEqual((code, err, json.loads(out)["pending"], "written" in json.loads(out)), (0, "", False, False))
-        repo.git("add", "-A")
-        repo.git("commit", "--quiet", "-m", "Write it")
-        path = repo.root / ".github/workflows/ci.yml"
-        path.write_text(path.read_text() + "# again\n")
-        repo.git("add", "-A")
-        repo.git("commit", "--quiet", "-m", "Edit it again")
-        code, out, err = self.upgrade(repo, "--commit", "--format", "json")
-        document = json.loads(out)
-        self.assertEqual((code, err, document["written"]), (0, "", [".github/workflows/ci.yml"]))
-        self.assertRegex(document["branch"], r"^standard/9-\d{8}$")
 
     def test_json_stays_empty_on_standard_output_when_the_upgrade_cannot_be_done(self):
         repo = self.repo()
@@ -1787,32 +1768,7 @@ class Upgrading(Case):
         self.assertEqual((code, out), (2, ""))
         self.assertEqual(len(err.splitlines()), 1, err)
 
-    def test_commit_makes_a_branch_and_one_commit_with_no_trailer_and_pushes_nothing(self):
-        repo = self.repo(files=at(1))
-        plan = self.plan(repo, level=2)
-        before = repo.remote_refs()
-        branch, written = standard.apply_and_commit(repo.root, plan, today="20261017")
-        self.assertEqual(branch, "standard/2-20261017")
-        self.assertEqual(repo.git("symbolic-ref", "--short", "HEAD").strip(), branch)
-        self.assertEqual(repo.git("rev-list", "--count", "main..HEAD").strip(), "1")
-        self.assertEqual(repo.git("log", "-1", "--format=%B").strip(), "Update to catalog standard 2")
-        self.assertEqual(sorted(repo.git("diff", "--name-only", "main", "HEAD").split()), written)
-        self.assertEqual(repo.git("status", "--porcelain").strip(), "")
-        self.assertEqual(repo.remote_refs(), before)
-        self.assertNotIn(CO_AUTHORED.lower(), repo.git("log", "-1", "--format=%B%n%an%n%ae").lower())
-
-    def test_the_branch_name_is_never_reused(self):
-        repo = self.repo(files=at(1))
-        repo.git("branch", "standard/2-20261017")
-        branch, _ = standard.apply_and_commit(repo.root, self.plan(repo, level=2), today="20261017")
-        self.assertEqual(branch, "standard/2-20261017-2")
-        repo.git("switch", "--quiet", "main")
-        repo.git("branch", "-D", "standard/2-20261017-2")
-        repo.git("branch", "standard/2-20261017-2")
-        branch, _ = standard.apply_and_commit(repo.root, self.plan(repo, level=2), today="20261017")
-        self.assertEqual(branch, "standard/2-20261017-3")
-
-    def test_a_failure_after_the_third_write_leaves_the_base_branch_as_it_was(self):
+    def test_a_failure_after_the_third_write_leaves_the_files_as_they_were(self):
         repo = self.repo(files=at(1))
         plan = self.plan(repo, level=2)
         extra = {"path": ".github/zz.txt", "action": "add", "class": "managed", "why": "", "content": b"x\n"}
@@ -1828,25 +1784,12 @@ class Upgrading(Case):
             return real(target, text, mode)
         self.patch(standard, "_write", fail_after_three)
         with self.assertRaises(OSError):
-            standard.apply_and_commit(repo.root, plan, today="20261017")
+            standard.upgrade_apply(repo.root, plan)
         self.assertEqual(len(calls), 4)
-        self.assertEqual(repo.git("symbolic-ref", "--short", "HEAD").strip(), "main")
-        self.assertEqual(repo.branches(), ["main"])
         self.assertEqual(repo.git("status", "--porcelain").strip(), "")
         self.assertEqual({path: (repo.root / path).read_bytes() for path in before}, before)
         self.assertFalse((repo.root / ".github/workflows/nightly.yml").exists())
         self.assertFalse((repo.root / ".github/zz.txt").exists())
-
-    def test_a_failed_commit_puts_the_files_back_too(self):
-        repo = self.repo(files=at(1))
-        plan = self.plan(repo, level=2)
-        home = Path(os.environ["HOME"])
-        (home / ".gitconfig").write_text("[user]\n\tuseConfigOnly = true\n[init]\n\tdefaultBranch = main\n", encoding="utf-8")
-        with self.assertRaisesRegex(standard.UpgradeError, "no name and email"):
-            standard.apply_and_commit(repo.root, plan, today="20261017")
-        self.assertEqual(repo.branches(), ["main"])
-        self.assertEqual(repo.git("status", "--porcelain").strip(), "")
-        self.assertFalse((repo.root / ".github/workflows/nightly.yml").exists())
 
     def test_adopt_adds_what_is_missing_keeps_what_is_there_and_lists_what_the_catalog_owns(self):
         files = {"catalog.yml": render()["catalog.yml"], "README.md": b"# mine\n", ".github/workflows/ci.yml": b"name: mine\n", "addons/x/compose.yml":
@@ -2087,15 +2030,6 @@ class MovingThePin(Case):
         listed = self.lab.git("log", "--oneline", "--no-decorate", f"{self.old}..{self.new}", "--", "lab-ui", ".github").count("\n")
         self.assertGreater(listed, 50)   # more than the plan prints: it is cut
         self.assertEqual(len(plan["lab"]["log"]), 50)
-
-    def test_the_commit_puts_the_link_and_the_log_in_its_body(self):
-        standard.apply_and_commit(self.catalog.root, self.plan(), today="20261017")
-        body = self.catalog.git("log", "-1", "--format=%B")
-        self.assertTrue(body.startswith(f"Update to catalog standard {standard.LEVEL}\n\n"), body)
-        self.assertIn(f"https://github.com/acme/gravitee-lab/compare/{self.old}...{self.new}", body)
-        self.assertIn(f"git log --oneline {self.old}..{self.new} -- lab-ui .github", body)
-        self.assertLessEqual(len([line for line in body.split("\n") if line.startswith("    ")]), 50)
-        self.assertNotIn(CO_AUTHORED.lower(), body.lower())
 
     def test_the_pin_moves_in_standard_json_and_nothing_else_of_it_changes(self):
         before = json.loads((self.catalog.root / ".github/standard.json").read_text())

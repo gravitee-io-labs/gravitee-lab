@@ -6,7 +6,7 @@ catalog from the template and keep it in step with the Lab's standard. `python3 
                                       every rule that needs no Docker and no network; a folder is read where it is
     explain CODE                      the long form of a rule code
     new DIR --id ID --name NAME --maintainers @A[,@B]   a catalog from the template          (standard.main_new)
-    upgrade [DIR] [--write] [--commit]  --fleet OWNER --lab-ref COMMIT       the managed files, at the Lab's level
+    upgrade [DIR] [--write]  --fleet OWNER --lab-ref COMMIT                  the managed files, at the Lab's level
                                                                              (standard.main_upgrade, fleet.main)
     release VERSION [--tag] [--pr]    prepare a release, then tag it                         (release.main)
     repo-settings [OWNER/REPO or DIR] audit and apply the repository standard on GitHub      (settings.main)
@@ -1025,7 +1025,7 @@ HELP = {
             "                [--description TEXT] [--security-contact ADDRESS] [--lab-repo OWNER/REPO] [--lab-ref COMMIT]\n"
             "                [--platforms LIST] [--form inline|reusable] [--with e2e] [--local]"),
     "upgrade": ("bring the managed files of a catalog to the level of this Lab, or of every catalog of an owner",
-                "catalog.py upgrade [DIR] [--write] [--commit] [--lab-ref COMMIT|latest] [--refresh-pins] [--adopt]\n"
+                "catalog.py upgrade [DIR] [--write] [--lab-ref COMMIT|latest] [--refresh-pins] [--adopt]\n"
                 "                   [--replace PATH] [--form inline|reusable] [--with e2e] [--maintainers @A] [--lab-repo OWNER/REPO]\n"
                 "                   [--format text|json]\n"
                 "catalog.py upgrade --fleet OWNER --lab-ref COMMIT [--format text|json|github]"),

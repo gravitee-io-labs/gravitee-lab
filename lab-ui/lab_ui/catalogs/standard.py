@@ -34,7 +34,6 @@ import re
 import stat
 import sys
 import tempfile
-import time
 import unicodedata
 from pathlib import Path
 from typing import Dict, Iterable, List, NamedTuple, Optional, Tuple
@@ -905,11 +904,9 @@ def write_golden() -> Path:
 
 
 # ---------------------------------------------------------------------------------------------------------------------
-# Upgrade: the plan, the writing, the commit
+# Upgrade: the plan and the writing
 # ---------------------------------------------------------------------------------------------------------------------
 
-NO_IDENTITY = ("Please tell me who you are", "Author identity unknown", "unable to auto-detect email address", "auto-detection is disabled",
-               "empty ident name", "no email was given")
 ADD, UPDATE, REMOVE, CURRENT, OWNED = "add", "update", "remove", "current", "owned"
 
 
@@ -1293,12 +1290,11 @@ def _put_back(record: tuple) -> None:
         raise
 
 
-def upgrade_apply(root, plan: dict, journal: Optional[list] = None) -> List[str]:
+def upgrade_apply(root, plan: dict) -> List[str]:
     """Writes a plan in `root` and answers the paths it wrote or removed, sorted. Only the plan's own paths are touched, none
     through a link; each file is written through a temporary file and `os.replace`, keeps its execute bit, and is LF. When a
-    write fails, what was written is put back and the error goes on. `journal`, a list, is given the old state of each file
-    once all are written, so that a caller can put them back later (`rollback`). It refuses a folder that is a submodule or
-    holds a repository of its own: the standard's files do not go into another repository."""
+    write fails, what was written is put back and the error goes on. It refuses a folder that is a submodule or holds a
+    repository of its own: the standard's files do not go into another repository."""
     if plan.get("refused"):
         raise UpgradeError(plan["refused"])
     base = os.path.realpath(str(root))
@@ -1326,14 +1322,12 @@ def upgrade_apply(root, plan: dict, journal: Optional[list] = None) -> List[str]
     except BaseException:
         rollback(done)
         raise
-    if journal is not None:
-        journal.extend(done)
     return sorted(out)
 
 
-def rollback(journal: list) -> None:
-    """Puts back every file of a journal, last first: what `upgrade_apply` found before it wrote."""
-    for record in reversed(journal):
+def rollback(done: list) -> None:
+    """Puts back every file `upgrade_apply` wrote, last first."""
+    for record in reversed(done):
         try:
             _put_back(record)
         except OSError:
@@ -1342,13 +1336,8 @@ def rollback(journal: list) -> None:
 
 # ---- git around an upgrade
 
-def _git(root, *args, timeout: float = 60):
-    result = gitx.run(list(args), cwd=str(root), timeout=timeout)
-    return result
-
-
 def _asked(root, *args):
-    """`_git` for a question whose answer is short: a repository that makes git say more is one the upgrade does not touch."""
+    """git for a question whose answer is short: a repository that makes git say more is one the upgrade does not touch."""
     try:
         return gitx.run(list(args), cwd=str(root), timeout=60, limit=GIT_LIMIT)
     except gitx.OutputLimit:
@@ -1397,65 +1386,6 @@ def gitlinks(root, relative: Iterable[str]) -> List[str]:
         if mode == b"160000" and name in folders:
             found.append(name)
     return sorted(found)
-
-
-def _branch_name(root, level: int, today: str) -> str:
-    base = f"standard/{level}-{today}"
-    for number in range(1, 100):
-        name = base if number == 1 else f"{base}-{number}"
-        if _git(root, "rev-parse", "--verify", "--quiet", f"refs/heads/{name}").code != 0:
-            return name
-    raise UpgradeError(f"The branches {base} to {base}-99 all exist.")
-
-
-def commit_message(plan: dict) -> Tuple[str, str]:
-    """(subject, body) of the commit of an upgrade: 'Update to catalog standard N' and nothing else but, when the pin moved, the
-    compare link and the Lab's log (a reviewer of a pin reads what it brings). No trailer."""
-    subject = f"Update to catalog standard {plan['level']}"
-    lab = plan["lab"]
-    body = ""
-    if lab["new"]:
-        body = f"Lab pin: {lab['old'][:7]} to {lab['new'][:7]}\n{lab['compare']}"
-        if lab["log"]:
-            body += f"\n\ngit log --oneline {lab['old']}..{lab['new']} -- lab-ui .github\n\n" + "\n".join("    " + each for each in lab["log"])
-    return subject, body
-
-
-def apply_and_commit(root, plan: dict, today: Optional[str] = None) -> Tuple[str, List[str]]:
-    """`upgrade --commit`: makes the branch `standard/<level>-<yyyymmdd>` (a name that is free), writes the plan on it and makes
-    the one commit. Answers (the branch, the paths). If anything fails the files are put back, the first branch is checked
-    out again and the new branch is deleted: the branch the person was on is as it was. Nothing is pushed."""
-    if not _is_work_tree(root):
-        raise UpgradeError("--commit needs a git repository: this folder has none.")
-    start = _git(root, "symbolic-ref", "--short", "-q", "HEAD")
-    if start.code != 0:
-        raise UpgradeError("--commit needs a branch: HEAD is detached. Fix: git switch main.")
-    first = start.out.decode("utf-8", "replace").strip()
-    name = _branch_name(root, plan["level"], today or time.strftime("%Y%m%d", time.gmtime()))
-    made = _git(root, "switch", "--quiet", "-c", name)
-    if made.code != 0:
-        raise UpgradeError("The branch could not be made: " + printable(made.err)[:200])
-    journal: List[tuple] = []
-    try:
-        written = upgrade_apply(root, plan, journal)
-        subject, body = commit_message(plan)
-        added = _git(root, "add", "-A", "--", *written)
-        if added.code != 0:
-            raise UpgradeError("git add failed: " + printable(added.err)[:200])
-        command = ["commit", "--quiet", "-m", subject] + (["-m", body] if body else [])
-        committed = _git(root, *command)
-        if committed.code != 0:
-            text = committed.err + committed.out.decode("utf-8", "replace")
-            if any(each in text for each in NO_IDENTITY):
-                raise UpgradeError("git has no name and email for you. Fix: git config user.name and user.email, then run again.")
-            raise UpgradeError("git commit failed: " + printable(text)[:200])
-        return name, written
-    except BaseException:
-        rollback(journal)
-        _git(root, "reset", "--quiet", "--", ".")
-        _git(root, "switch", "--quiet", first)
-        _git(root, "branch", "-D", "--quiet", name)
-        raise
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1615,7 +1545,6 @@ def _upgrade_arguments(argv: List[str]):
     parser = _parser("catalog.py upgrade")
     parser.add_argument("dir", nargs="?", default=".")
     parser.add_argument("--write", action="store_true")
-    parser.add_argument("--commit", action="store_true")
     parser.add_argument("--lab-ref", dest="lab_ref")
     parser.add_argument("--refresh-pins", dest="refresh_pins", action="store_true")
     parser.add_argument("--adopt", action="store_true")
@@ -1633,7 +1562,7 @@ NOTICES = {ADD: "will be added", UPDATE: "will be updated", REMOVE: "will be rem
 
 def describe(plan: dict, fmt: str = "text", result: Optional[dict] = None) -> str:
     """The plan as text for a person, as `github` annotations (a warning for each file that will change, a notice for each
-    level that is new) or as JSON (no file content; `result`, when the plan was written, adds `written` and `branch`)."""
+    level that is new) or as JSON (no file content; `result`, when the plan was written, adds `written`)."""
     if fmt == "json":
         shown = {key: value for key, value in plan.items() if key != "files"}
         shown["files"] = [{key: value for key, value in each.items() if key != "content"} for each in plan["files"]]
@@ -1706,7 +1635,7 @@ def legacy_lab(root) -> Optional[int]:
 
 
 def main_upgrade(argv: List[str], lab: Optional[Path] = None) -> int:
-    """`catalog.py upgrade [DIR] [--write] [--commit] [--lab-ref COMMIT or latest] [--refresh-pins] [--adopt] [--form F]
+    """`catalog.py upgrade [DIR] [--write] [--lab-ref COMMIT or latest] [--refresh-pins] [--adopt] [--form F]
     [--with e2e] [--format text or github or json]`. Without `--write` it prints the plan and writes nothing (exit 1 when
     anything is pending, 0 when nothing is). With `--format json` standard output is the one JSON document and nothing else."""
     try:
@@ -1741,15 +1670,14 @@ def main_upgrade(argv: List[str], lab: Optional[Path] = None) -> int:
     if plan["refused"]:
         _complain(describe(plan))
         return 2
-    write = args.write or args.commit
-    if not write or not plan["pending"]:
+    if not args.write or not plan["pending"]:
         text = describe(plan, args.format)
         if text:
             _say(text)
-        if not write and plan["pending"] and args.format == "text":
+        if not args.write and plan["pending"] and args.format == "text":
             _say("")
             _say(f"Nothing was written. To apply: {apply_command(args)}")
-        return 1 if plan["pending"] and not write else 0
+        return 1 if plan["pending"] and not args.write else 0
     if args.format != "json":
         text = describe(plan, args.format)
         if text:
@@ -1760,11 +1688,7 @@ def main_upgrade(argv: List[str], lab: Optional[Path] = None) -> int:
         if dirty:
             raise UpgradeError("Uncommitted changes in files the upgrade rewrites: " + ", ".join(dirty) + ". Commit or restore "
                                "them, then run again.")
-        branch = ""
-        if args.commit:
-            branch, written = apply_and_commit(root, plan)
-        else:
-            written = upgrade_apply(root, plan)
+        written = upgrade_apply(root, plan)
     except (UpgradeError, gitx.CatalogError) as error:
         _complain(getattr(error, "message", None) or str(error))
         return 2
@@ -1772,13 +1696,10 @@ def main_upgrade(argv: List[str], lab: Optional[Path] = None) -> int:
         _complain(f"catalog.py upgrade: {error.strerror or error}")
         return 2
     if args.format == "json":
-        _say(describe(plan, "json", {"branch": branch, "written": written}))
+        _say(describe(plan, "json", {"written": written}))
         return 0
     _say("")
-    if branch:
-        _say(f"Wrote {len(written)} files on the branch {branch} and made one commit. Nothing was pushed.")
-    else:
-        _say(f"Wrote {len(written)} files.")
+    _say(f"Wrote {len(written)} files.")
     return 0
 
 
