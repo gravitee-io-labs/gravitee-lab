@@ -18,6 +18,7 @@ on *Re-seed*, and runs `seed.py --remove` for *Delete what it created*. The serv
 | Where | What |
 |---|---|
 | `lab_seeder/` | The seeder: one module for each thing it seeds, the helpers they share (`common.py`, `controls.py`, `refills.py`, `gamma.py`), the lint of seed files (`seedlint.py`) and the kit of the tests (`testkit.py`) |
+| `seed.py` | The command the image runs, and the path a playground's own entrypoint script runs (`python seed.py`): it calls `lab_seeder.seed.main` |
 | `seedlint.py` | The path a catalog runs the lint at (`python lab/seeder/seedlint.py`): it hands over to the module of the package |
 | `tests/` | The tests, and the invented samples they read (`fixtures/samples/`) |
 | `Dockerfile`, `requirements.txt` | The image |
