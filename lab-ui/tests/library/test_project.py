@@ -3877,9 +3877,6 @@ class Reading(Case):
 class Options(Case):
     """How a unit is asked of Compose ()."""
 
-    def setUp(self):
-        self.patch(project, "_no_env", True)
-
     def test_a_unit_is_resolved_without_reading_the_files_it_names(self):
         with mock.patch.object(compose, "_config", wraps=compose._config) as asked:
             read(self)
@@ -3888,72 +3885,6 @@ class Options(Case):
                    if call.kwargs.get("timeout", 120) <= project.UNIT_TIMEOUT and "--no-interpolate" not in call.args]
         self.assertGreater(len(options), 8)
         self.assertEqual(set(options), {("--no-env-resolution",)})
-
-    UNKNOWN = "unknown flag: --no-env-resolution"
-
-    def compose_that_says(self, help_text):
-        """A Compose that refuses the option with the words of the real one, and prints this for `config --help`: the calls
-        of the help are counted."""
-        real, run, helps = compose._config, compose.run, []
-
-        def config(files, *options, timeout=120):
-            if "--no-env-resolution" in options:
-                raise compose.ComposeError(self.UNKNOWN)
-            return real(files, *options, timeout=timeout)
-
-        def helping(cmd, *more, **how):
-            if cmd[-2:] == ["config", "--help"]:
-                helps.append(cmd)
-                return 0, help_text, ""
-            return run(cmd, *more, **how)
-        self.patch(project, "_option", {"known": None})
-        self.start(mock.patch.object(compose, "_config", config))
-        self.start(mock.patch.object(compose, "run", helping))
-        return helps
-
-    def test_a_compose_that_does_not_know_the_option_is_asked_without_it_from_then_on(self):
-        helps = self.compose_that_says("Usage:  docker compose config [OPTIONS]\n      --format string   Format the output\n")
-        _, built = read(self)
-        self.assertFalse(project._no_env)
-        self.assertEqual(built["addons"]["echo"]["blocked"], None)
-        self.assertEqual(built["addons"]["echo"]["services"], ["fixture-echo"])
-        self.assertEqual(len(helps), 1, "asked once, whatever the units")
-
-    def test_what_a_unit_makes_compose_print_does_not_take_the_option_away_from_the_others(self):
-        # An error that a unit makes Compose print, down to a last line that is the very one of the real refusal
-        self.patch(project, "_option", {"known": None})
-        hostile = [("same", 'image: "${EVIL:?' + self.UNKNOWN + '}"'), ("lines", 'image: "${EVIL:?x\\n' + self.UNKNOWN + '}"')]
-        helps, run = [], compose.run
-
-        def units(case):
-            for name, image in hostile:
-                case.write(f".lab/catalogs/fixture/addons/{name}/compose.yml", addon(name).replace("image: busybox", image))
-
-        def watched(cmd, *more, **how):
-            if cmd[-2:] == ["config", "--help"]:
-                helps.append(cmd)
-            return run(cmd, *more, **how)
-        with mock.patch.object(compose, "run", watched):
-            _, built = read(self, more=units)
-        self.assertTrue(project._no_env)
-        for name, _ in hostile:
-            self.assertEqual(built["addons"][name]["services"], [], name)
-            self.assertIn("unknown flag", " ".join(built["addons"][name]["blocked"]["reasons"]), name)
-        self.assertEqual(built["addons"]["echo"]["services"], ["fixture-echo"])
-        self.assertEqual(len(helps), 1, "Compose was asked once, whatever the units said")
-        self.assertTrue(project._option["known"])
-
-    def test_a_compose_that_cannot_print_its_help_is_taken_to_know_the_option(self):
-        self.patch(project, "_option", {"known": None})
-        with mock.patch.object(compose, "run", return_value=(2, "", "no")):
-            self.assertTrue(project._knows())
-        self.assertIsNone(project._option["known"], "not remembered: the help may be had later")
-        with mock.patch.object(compose, "run", return_value=(0, "      --no-env-resolution\n", "")) as run:
-            self.assertTrue(project._knows())
-            self.assertTrue(project._knows())
-        run.assert_called_once()
-        project.forget()
-        self.assertIsNone(project._option["known"], "forgotten with the rest")
 
 
 class Kept(Case):

@@ -497,7 +497,6 @@ def held_reasons(found, bad):
 # -- What the pool reads of a unit, and what it remembers --------------------------------------------------------------
 
 _memo, _memo_lock = {}, threading.Lock()   # what was read of each unit of a catalog, by the stamp of what it was read from
-_no_env = True   # Compose is asked `config --no-env-resolution` () until one that does not know it answers
 
 
 def _stamp(files, skip, core=False):
@@ -536,35 +535,10 @@ def _remembered(key, stamp, make, keep=None):
     return copy.deepcopy(hit[1])
 
 
-_option, _asking = {"known": None}, threading.Lock()   # whether Compose knows `config --no-env-resolution`, once it was asked (_knows)
-
-
-def _knows():
-    """Whether this Compose knows `config --no-env-resolution`, asked of its own help: an answer that comes from Compose and
-    not from the text of an error, which a unit's author can write. Asked once, for the pool asks together. True while the
-    help cannot be had."""
-    with _asking:
-        if _option["known"] is None:
-            code, out, _ = compose.run([*compose.COMPOSE, "config", "--help"], timeout=UNIT_TIMEOUT)
-            if code != 0:
-                return True
-            _option["known"] = "--no-env-resolution" in out
-        return _option["known"]
-
-
 def _config(files, timeout=UNIT_TIMEOUT):
     """compose._config, whole and with `--no-env-resolution`: `env_file` and `label_file` stay in the answer, where the
-    policy reads their real places (). A Compose that does not know the option is asked without it from then on: the
-    text screen refuses an env_file whatever the answer says. An error that says so is only a reason to ask the help of
-    Compose (_knows): a unit can make Compose print anything."""
-    global _no_env
-    try:
-        return compose._config(files, *(["--no-env-resolution"] if _no_env else []), timeout=timeout)
-    except compose.ComposeError as error:
-        if _no_env and "unknown flag" in str(error) and not _knows():
-            _no_env = False
-            return _config(files, timeout)
-        raise
+    policy reads their real places."""
+    return compose._config(files, "--no-env-resolution", timeout=timeout)
 
 
 def _alone(path, timeout=UNIT_TIMEOUT):
@@ -2276,7 +2250,6 @@ def forget():
     What was learned of each unit is forgotten too, as it was read with that variable."""
     with _lock:
         _cache["key"] = None
-        _option["known"] = None
         with _memo_lock:
             _memo.clear()
 
