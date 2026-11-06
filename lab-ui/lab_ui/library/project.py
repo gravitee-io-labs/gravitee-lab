@@ -554,7 +554,7 @@ def _knows():
 
 def _config(files, timeout=UNIT_TIMEOUT):
     """compose._config, whole and with `--no-env-resolution`: `env_file` and `label_file` stay in the answer, where the
-    policy reads their real places (). A Compose that does not know the option is asked without it from then on: the
+    policy refuses them (T01). A Compose that does not know the option is asked without it from then on: the
     text screen refuses an env_file whatever the answer says. An error that says so is only a reason to ask the help of
     Compose (_knows): a unit can make Compose print anything."""
     global _no_env
