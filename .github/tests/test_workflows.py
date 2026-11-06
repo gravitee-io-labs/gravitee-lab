@@ -153,24 +153,24 @@ class RunTest(unittest.TestCase):
         self.assertEqual(list(self.jobs), ["plan", "manifests", "e2e", "result"])
 
     def test_the_license_is_given_to_the_one_job_that_waits_for_a_maintainer(self):
-        found = {name for name, body in self.jobs.items() if re.search(r"secrets\.(?!(?:LAB|CATALOG|NEEDS_CATALOG)_DEPLOY_KEY)", body)}
+        found = {name for name, body in self.jobs.items() if re.search(r"secrets\.(?!CATALOG_DEPLOY_KEY)", body)}
         self.assertEqual(found, {"e2e"})
         body = self.jobs["e2e"]
         self.assertIn("environment:", body)
         self.assertIn("e2e-nightly", body)
         self.assertNotIn("environment:", self.jobs["plan"] + self.jobs["manifests"] + self.jobs["result"], "no other job holds a secret")
 
-    def test_the_other_secrets_are_keys_that_only_read_and_only_a_checkout_takes(self):
+    def test_the_other_secret_is_a_key_that_only_reads_and_only_a_checkout_takes(self):
         taken = 0
         for name, body in self.jobs.items():
             for step in steps(body):
                 for line in step.splitlines():
-                    if re.search(r"secrets\.(LAB|CATALOG|NEEDS_CATALOG)_DEPLOY_KEY", line):
+                    if "secrets.CATALOG_DEPLOY_KEY" in line:
                         taken += 1
                         with self.subTest(job=name, line=line.strip()):
                             self.assertIn("actions/checkout@", step)
                             self.assertRegex(line, r"^\s+ssh-key: \$\{\{ secrets\.\w+_DEPLOY_KEY \}\}$")
-        self.assertEqual(taken, 9, "three keys in each of the three jobs that check the repositories out")
+        self.assertEqual(taken, 3, "the key in each of the three jobs that check the catalog out")
 
     def test_the_license_reaches_the_step_that_writes_it_and_no_other(self):
         body = self.jobs["e2e"]
@@ -192,16 +192,13 @@ class RunTest(unittest.TestCase):
         body = self.jobs["e2e"]
         self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", body)
 
-    def test_the_change_is_read_from_the_history_of_the_repository_it_is_in_and_nothing_else_is_fetched_whole(self):
-        """`git diff base...head` needs the history of the repository the change is in: a depth of 1 there fails every plan that
-        reads a change, and a full history of the other one costs a download for nothing."""
+    def test_the_change_is_read_from_the_history_of_the_engine_and_nothing_else_is_fetched_whole(self):
+        """`git diff base...head` needs the history of the engine: a depth of 1 there fails every plan that reads a change, and a
+        full history of the catalog costs a download for nothing."""
         checkouts = {re.search(r"(?m)^          path: (\w+)$", one).group(1): one for one in steps(self.jobs["plan"]) if "actions/checkout@" in one}
-        self.assertEqual(sorted(checkouts), ["catalog", "lab", "needs"])
-        for path, change in (("lab", "engine"), ("catalog", "catalog")):
-            with self.subTest(path=path):
-                depth = re.findall(r"(?m)^          fetch-depth: (.+?)(?:\s+#.*)?$", checkouts[path])
-                self.assertEqual(depth, ["${{ inputs.change == '%s' && '0' || '1' }}" % change])
-        self.assertNotIn("fetch-depth", checkouts["needs"])
+        self.assertEqual(sorted(checkouts), ["catalog", "lab"])
+        self.assertEqual(re.findall(r"(?m)^          fetch-depth: (.+?)(?:\s+#.*)?$", checkouts["lab"]), ["0"])
+        self.assertNotIn("fetch-depth", checkouts["catalog"])
         for name in ("manifests", "e2e", "result"):
             self.assertNotIn("fetch-depth", self.jobs[name], f"{name} reads no change")
 
@@ -254,12 +251,12 @@ class RunTest(unittest.TestCase):
             return "\n".join(line for line in step.splitlines() if line.strip() and not line.lstrip().startswith("#")
                               and "fetch-depth:" not in line)
         for marker, where in (("The change is the one that was read", ("plan", "e2e")),
-                              ("Link the catalogs into the engine", ("plan", "manifests", "e2e"))):
+                              ("Link the catalog into the engine", ("plan", "manifests", "e2e"))):
             with self.subTest(step=marker):
                 self.assertEqual(len({plain(step_with(self.jobs[name], marker)) for name in where}), 1)
         checkouts = [[one for one in steps(self.jobs[name]) if "actions/checkout@" in one] for name in ("plan", "manifests", "e2e")]
-        self.assertEqual([len(one) for one in checkouts], [3, 3, 3], "the engine, the catalog, and the one it needs")
-        for index in range(3):
+        self.assertEqual([len(one) for one in checkouts], [2, 2, 2], "the engine and the catalog")
+        for index in range(2):
             with self.subTest(checkout=index):
                 self.assertEqual(len({plain(found[index]) for found in checkouts}), 1, "each job checks the same repository out")
 
@@ -313,9 +310,9 @@ class EngineCallerTest(unittest.TestCase):
     def test_it_passes_every_secret_the_run_s_environment_job_reads(self):
         """The bug this keeps away: the run's e2e job enters the environment that holds the license, but GitHub gives a called
         workflow an environment secret only when its caller names it, and an empty one, with no error, when it does not. Every
-        secret that job reads, except the deploy keys of repositories this one does not need, is passed here."""
+        secret that job reads is passed here."""
         run = jobs(RUN.read_text(encoding="utf-8"))["e2e"]
-        read = set(re.findall(r"secrets\.(\w+)", run)) - {"LAB_DEPLOY_KEY", "NEEDS_CATALOG_DEPLOY_KEY"}
+        read = set(re.findall(r"secrets\.(\w+)", run))
         self.assertEqual(read, {"CATALOG_DEPLOY_KEY", "GRAVITEE_LICENSE", "DOCKERHUB_USERNAME", "DOCKERHUB_TOKEN"})
         self.assertLessEqual(read, set(children(self.text, "jobs", "try", "secrets")))
 
@@ -330,8 +327,7 @@ class EngineCallerTest(unittest.TestCase):
         required = {name for name, lines in declared.items() if "required: true" in "\n".join(lines)}
         self.assertLessEqual(required, given)
 
-    def test_it_says_the_change_is_the_engine_s_and_only_the_night_may_write(self):
-        self.assertRegex(self.text, r"(?m)^      change: engine$")
+    def test_only_the_night_may_write(self):
         writers = [name for name, body in self.jobs.items() if re.search(r"(?m)^\s+[a-z-]+: write$", body)]
         self.assertEqual(writers, ["nightly"])
         self.assertNotRegex(self.text.split("\njobs:\n", 1)[0], r"(?m)^\s+[a-z-]+: write$")
@@ -460,18 +456,16 @@ class InputsTest(ShellTest):
     """The first step of the run: a name that reaches a path, a ref or a word is what it says and nothing else."""
 
     GOOD = {"LAB_REPOSITORY": "owner/lab", "LAB_REF": "a" * 40, "CATALOG_REPOSITORY": "owner/catalog", "CATALOG_REF": "refs/pull/12/head",
-            "CATALOG_ID": "hub", "CHANGE": "catalog", "ITEMS": "changed", "BASE": "origin/main", "EXPECT_SHA": "", "NEEDS_ID": "",
-            "NEEDS_REPOSITORY": "", "NEEDS_REF": ""}
+            "ITEMS": "changed", "BASE": "origin/main", "EXPECT_SHA": ""}
 
     def check(self, **env):
         text = RUN.read_text(encoding="utf-8")
         return self.execute(script(step_with(jobs(text)["plan"], "The inputs are what they say")), {**self.GOOD, **env})
 
     def test_what_the_callers_pass_is_accepted(self):
-        for env in ({}, {"LAB_REF": "main"}, {"LAB_REF": "refs/pull/7/head", "EXPECT_SHA": "b" * 40}, {"CATALOG_REF": ""}, {"CATALOG_ID": ""},
+        for env in ({}, {"LAB_REF": "main"}, {"LAB_REF": "refs/pull/7/head", "EXPECT_SHA": "b" * 40}, {"CATALOG_REF": ""},
                     {"ITEMS": "all"}, {"ITEMS": "canary"}, {"ITEMS": ""}, {"ITEMS": "playground:@hub/bank addon:echo"}, {"BASE": ""},
-                    {"BASE": "b" * 40}, {"CHANGE": "engine"}, {"NEEDS_ID": "base", "NEEDS_REPOSITORY": "owner/base", "NEEDS_REF": "c" * 40},
-                    {"NEEDS_ID": "base", "NEEDS_REPOSITORY": "owner/base", "NEEDS_REF": ""}):
+                    {"BASE": "b" * 40}):
             with self.subTest(env=env):
                 done = self.check(**env)
                 self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
@@ -480,9 +474,8 @@ class InputsTest(ShellTest):
         hostile = {"LAB_REPOSITORY": ["owner", "a/b/c", "o/l; id", "../x/y", "o/l\n::error::x", ""],
                    "LAB_REF": ["", "-x", "a b", "$(id)", "x\ny", "refs/pull/x/head;", "a" * 101],
                    "CATALOG_REPOSITORY": ["", "owner", "o/c$(id)"], "CATALOG_REF": ["-x", "a;b", "a b"],
-                   "CATALOG_ID": ["Hub", "h", "../x", "a" * 30, "hub;id"], "CHANGE": ["", "both", "engine; id"],
                    "ITEMS": ["a;b", "$(id)", "x" * 501, "a\nb", "a|b", "a&b", "`id`", "a>b"], "BASE": ["-x", "a b", "$(id)"],
-                   "EXPECT_SHA": ["short", "G" * 40, "a" * 41], "NEEDS_ID": ["Hub"]}
+                   "EXPECT_SHA": ["short", "G" * 40, "a" * 41]}
         for name, values in hostile.items():
             for value in values:
                 with self.subTest(**{name: value[:30]}):
@@ -491,71 +484,38 @@ class InputsTest(ShellTest):
                     self.assertIn("::error title=E2E04::", done.stdout)
                     self.assertTrue(done.stdout.count("\n::error") + done.stdout.startswith("::error") == 1, "one error, and ours")
 
-    def test_a_catalog_that_is_needed_is_checked_only_when_there_is_one(self):
-        done = self.check(NEEDS_REPOSITORY="not a repository", NEEDS_REF="a b")
-        self.assertEqual(done.returncode, 0, "the catalog that is needed is none: its repository is not read")
-        done = self.check(NEEDS_ID="base", NEEDS_REPOSITORY="not a repository", NEEDS_REF="")
-        self.assertEqual(done.returncode, 1)
-        self.assertIn("needs-catalog-repository", done.stdout)
-
 
 class PlanShellTest(ShellTest):
     """The step that asks for the matrix: which of its modes, and the words that follow."""
 
     def matrix(self, **env):
         text = RUN.read_text(encoding="utf-8")
-        base = {"CATALOG_ID": "hub", "CHANGE": "catalog", "ITEMS": "changed", "BASE": ""}
+        base = {"ITEMS": "changed", "BASE": ""}
         done = self.execute(script(step_with(jobs(text)["plan"], "id: matrix")), {**base, **env})
         self.assertEqual(done.returncode, 0, done.stderr)
         return self.called()
 
-    def test_a_catalog_and_what_a_change_touches_in_it(self):
-        self.assertEqual(self.matrix(), ["-I", "lab/.github/scripts/e2e_matrix.py", "--catalog", "hub", "--changed", "origin/main", "HEAD",
-                                         "--in", "catalog", "--github-output"])
-        self.assertEqual(self.matrix(BASE="b" * 40, CHANGE="engine", ITEMS="")[4:9], ["--changed", "b" * 40, "HEAD", "--in", "engine"])
-
-    def test_the_default_catalog_when_none_is_named(self):
-        self.assertEqual(self.matrix(CATALOG_ID="", ITEMS="all")[2:], ["--default-catalog", "--all", "--github-output"])
+    def test_what_a_change_of_the_engine_touches(self):
+        self.assertEqual(self.matrix(), ["-I", "lab/.github/scripts/e2e_matrix.py", "--default-catalog", "--changed", "origin/main", "HEAD",
+                                         "--in", "engine", "--github-output"])
+        self.assertEqual(self.matrix(BASE="b" * 40, ITEMS="")[3:6], ["--changed", "b" * 40, "HEAD"])
 
     def test_every_item_and_the_canary(self):
-        self.assertEqual(self.matrix(ITEMS="all")[2:], ["--catalog", "hub", "--all", "--github-output"])
-        self.assertEqual(self.matrix(ITEMS="canary")[2:], ["--catalog", "hub", "--canary", "--github-output"])
+        self.assertEqual(self.matrix(ITEMS="all")[2:], ["--default-catalog", "--all", "--github-output"])
+        self.assertEqual(self.matrix(ITEMS="canary")[2:], ["--default-catalog", "--canary", "--github-output"])
 
     def test_the_items_a_person_named_come_after_two_dashes_and_no_word_is_a_pattern_for_files(self):
         (self.folder / "a1").write_text("", encoding="utf-8")
         got = self.matrix(ITEMS="--all playground:a* addon:b  setup:@hub/c")
-        self.assertEqual(got[2:], ["--catalog", "hub", "--github-output", "--items", "--", "--all", "playground:a*", "addon:b",
+        self.assertEqual(got[2:], ["--default-catalog", "--github-output", "--items", "--", "--all", "playground:a*", "addon:b",
                                    "setup:@hub/c"])
 
 
 class StepsShellTest(ShellTest):
-    """The steps that link the catalogs, check the commit, and try the item."""
+    """The steps that check the commit, and try the item."""
 
     def step(self, job, marker):
         return script(step_with(jobs(RUN.read_text(encoding="utf-8"))[job], marker))
-
-    def test_the_catalog_that_is_needed_is_linked_first_and_the_one_tried_after_it(self):
-        text = self.step("e2e", "Link the catalogs into the engine")
-        done = self.execute(text, {"NEEDS_ID": "base", "ALLOW_MACHINE": "false"})
-        self.assertEqual((done.returncode, self.called()), (0, ["-I", "lab/lab-ui/catalog.py", "link", "catalog"]), done.stderr)
-        log = self.folder / "calls"
-        (self.bin / "python3").write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> {log}\n', encoding="utf-8")
-        done = self.execute(text, {"NEEDS_ID": "base", "ALLOW_MACHINE": "true"})
-        self.assertEqual(done.returncode, 0)
-        self.assertEqual(log.read_text(encoding="utf-8").splitlines(),
-                         ["-I lab/lab-ui/catalog.py link needs", "-I lab/lab-ui/catalog.py link catalog --allow-machine"])
-
-    def test_a_catalog_alone_is_linked_without_the_allowance_unless_it_is_asked(self):
-        text = self.step("manifests", "Link the catalogs into the engine")
-        for allow, wanted in (("false", ["link", "catalog"]), ("", ["link", "catalog"]), ("yes", ["link", "catalog"]),
-                              ("true", ["link", "catalog", "--allow-machine"])):
-            with self.subTest(allow=allow):
-                done = self.execute(text, {"NEEDS_ID": "", "ALLOW_MACHINE": allow})
-                self.assertEqual((done.returncode, self.called()[2:]), (0, wanted), done.stderr)
-
-    def test_a_link_that_fails_ends_the_job(self):
-        done = self.execute(self.step("e2e", "Link the catalogs into the engine"), {"NEEDS_ID": "", "ALLOW_MACHINE": "false"}, stub_exit=1)
-        self.assertEqual(done.returncode, 1)
 
     def test_not_tried_is_a_warning_and_a_failure_is_one(self):
         text = self.step("e2e", "Try it")
@@ -574,15 +534,12 @@ class StepsShellTest(ShellTest):
         text = self.step("plan", "The change is the one that was read")
         git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false"]
         env = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"}
-        for name in ("lab", "catalog"):
-            subprocess.run([*git, "init", "-q", name], cwd=self.folder, check=True, env=env)
-            subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", name], cwd=self.folder / name, check=True, env=env)
-        head = {name: subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.folder / name, capture_output=True, text=True, env=env).stdout.strip()
-                for name in ("lab", "catalog")}
-        for change, sha, wanted in (("catalog", head["catalog"], 0), ("engine", head["lab"], 0), ("catalog", head["lab"], 1),
-                                    ("engine", "f" * 40, 1)):
-            with self.subTest(change=change, sha=sha[:7]):
-                done = self.execute(text, {"CHANGE": change, "EXPECT_SHA": sha})
+        subprocess.run([*git, "init", "-q", "lab"], cwd=self.folder, check=True, env=env)
+        subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "lab"], cwd=self.folder / "lab", check=True, env=env)
+        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.folder / "lab", capture_output=True, text=True, env=env).stdout.strip()
+        for sha, wanted in ((head, 0), ("f" * 40, 1)):
+            with self.subTest(sha=sha[:7]):
+                done = self.execute(text, {"EXPECT_SHA": sha})
                 self.assertEqual(done.returncode, wanted, done.stdout + done.stderr)
                 if wanted:
                     self.assertIn("::error title=E2E03::The change is", done.stdout)

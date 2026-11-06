@@ -14,8 +14,8 @@
 # The license is in the environment of the repository that calls this, and reaches one step of one job. GitHub gives a called workflow
 # an environment secret only when its caller names it, and an empty one, with no error, when it does not: the caller passes the license
 # and the Docker Hub pair by name, as e2e.yml does, and the job of this file that declares the environment is what reads them. The
-# deploy keys that read a private repository (read-only, one for each repository, deleted when it becomes public) are secrets the
-# caller passes by name too, and reach only the checkout that needs them.
+# deploy key that reads a private catalog (read-only, deleted when it becomes public) is a secret the caller passes by name too, and
+# reaches only the checkout that needs it.
 name: E2E run
 
 on:
@@ -37,14 +37,6 @@ on:
         description: "Its commit, or refs/pull/<number>/head; empty is its default branch"
         type: string
         default: ""
-      catalog-id:
-        description: "Its namespace; empty is the catalog the engine lists first"
-        type: string
-        default: ""
-      change:
-        description: "Where the change is read: catalog or engine"
-        type: string
-        default: catalog
       items:
         description: "changed (what the change touches), all, canary, or items as kind:id separated by spaces"
         type: string
@@ -57,31 +49,9 @@ on:
         description: "The commit the change has to be, the one a maintainer read: 40 characters; empty for none"
         type: string
         default: ""
-      allow-machine:
-        description: "Let the items of the catalog use this machine, as the catalog asks (catalog.py link --allow-machine)"
-        type: boolean
-        default: false
-      needs-catalog-id:
-        description: "The namespace of the catalog the tried one includes from; empty for none"
-        type: string
-        default: ""
-      needs-catalog-repository:
-        description: "That catalog, as owner/name"
-        type: string
-        default: ""
-      needs-catalog-ref:
-        description: "Its commit; empty is its default branch"
-        type: string
-        default: ""
     secrets:
-      LAB_DEPLOY_KEY:
-        description: "A read-only deploy key of the engine's repository, while it is private"
-        required: false
       CATALOG_DEPLOY_KEY:
         description: "A read-only deploy key of the catalog's repository, while it is private"
-        required: false
-      NEEDS_CATALOG_DEPLOY_KEY:
-        description: "A read-only deploy key of the repository of the catalog it includes from, while it is private"
         required: false
       GRAVITEE_LICENSE:
         description: "The CI license, a secret of the environments e2e and e2e-nightly that the caller names; the e2e job fails without it"
@@ -92,10 +62,6 @@ on:
       DOCKERHUB_TOKEN:
         description: "A read-only access token of that account, named by the caller with it"
         required: false
-    outputs:
-      count:
-        description: "How many jobs the plan made"
-        value: ${{ jobs.plan.outputs.count }}
 
 permissions:
   contents: read
@@ -117,42 +83,28 @@ jobs:
           LAB_REF: ${{ inputs.lab-ref }}
           CATALOG_REPOSITORY: ${{ inputs.catalog-repository }}
           CATALOG_REF: ${{ inputs.catalog-ref }}
-          CATALOG_ID: ${{ inputs.catalog-id }}
-          CHANGE: ${{ inputs.change }}
           ITEMS: ${{ inputs.items }}
           BASE: ${{ inputs.base }}
           EXPECT_SHA: ${{ inputs.expect-sha }}
-          NEEDS_ID: ${{ inputs.needs-catalog-id }}
-          NEEDS_REPOSITORY: ${{ inputs.needs-catalog-repository }}
-          NEEDS_REF: ${{ inputs.needs-catalog-ref }}
         run: |
           fail() { echo "::error title=E2E04::$1 is not what it says. Fix: $2"; exit 1; }
           repository='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
           ref='^([0-9a-f]{40}|refs/pull/[0-9]{1,7}/head|[A-Za-z0-9_.][A-Za-z0-9._/-]{0,99})?$'
-          namespace='^([a-z][a-z0-9-]{0,22}[a-z0-9])?$'
           words='^[A-Za-z0-9:@/._ -]*$'
           [[ $LAB_REPOSITORY =~ $repository ]] || fail lab-repository "write owner/name"
           [[ $CATALOG_REPOSITORY =~ $repository ]] || fail catalog-repository "write owner/name"
           [[ $LAB_REF =~ $ref && -n $LAB_REF ]] || fail lab-ref "write a commit, a branch or refs/pull/<number>/head"
           [[ $CATALOG_REF =~ $ref ]] || fail catalog-ref "write a commit, a branch or refs/pull/<number>/head"
           [[ $BASE =~ $ref ]] || fail base "write a commit or a branch"
-          [[ $CATALOG_ID =~ $namespace ]] || fail catalog-id "write the namespace of the catalog"
-          [[ $NEEDS_ID =~ $namespace ]] || fail needs-catalog-id "write the namespace of the catalog"
-          [[ $CHANGE == catalog || $CHANGE == engine ]] || fail change "write catalog or engine"
           [[ $EXPECT_SHA =~ ^([0-9a-f]{40})?$ ]] || fail expect-sha "write the 40 characters of a commit"
           [[ ${#ITEMS} -le 500 && $ITEMS =~ $words ]] || fail items "write changed, all, canary, or kind:id words separated by spaces"
-          if [ -n "$NEEDS_ID" ]; then
-            [[ $NEEDS_REPOSITORY =~ $repository ]] || fail needs-catalog-repository "write owner/name"
-            [[ $NEEDS_REF =~ $ref ]] || fail needs-catalog-ref "write a commit or a branch"
-          fi
       - name: Check out the engine
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ inputs.lab-repository }}
           ref: ${{ inputs.lab-ref }}
-          ssh-key: ${{ secrets.LAB_DEPLOY_KEY }}
           path: lab
-          fetch-depth: ${{ inputs.change == 'engine' && '0' || '1' }}   # a change of the engine is read from the history
+          fetch-depth: 0   # a change of the engine is read from the history
           persist-credentials: false
       - name: Check out the catalog
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -161,58 +113,35 @@ jobs:
           ref: ${{ inputs.catalog-ref }}
           ssh-key: ${{ secrets.CATALOG_DEPLOY_KEY }}
           path: catalog
-          fetch-depth: ${{ inputs.change == 'catalog' && '0' || '1' }}
-          persist-credentials: false
-      - name: Check out the catalog it includes from
-        if: ${{ inputs.needs-catalog-id != '' }}
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ inputs.needs-catalog-repository }}
-          ref: ${{ inputs.needs-catalog-ref }}
-          ssh-key: ${{ secrets.NEEDS_CATALOG_DEPLOY_KEY }}
-          path: needs
           persist-credentials: false
       # The head can differ from what a maintainer read: the change has to be that commit
       - name: The change is the one that was read
         if: ${{ inputs.expect-sha != '' }}
         env:
-          CHANGE: ${{ inputs.change }}
           EXPECT_SHA: ${{ inputs.expect-sha }}
         run: |
-          [ "$CHANGE" = engine ] && folder=lab || folder=catalog
-          head=$(git -C "$folder" rev-parse HEAD)
+          head=$(git -C lab rev-parse HEAD)
           [ "$head" = "$EXPECT_SHA" ] || { echo "::error title=E2E03::The change is ${head:0:7}, not the commit you read (${EXPECT_SHA:0:7}). Fix: read the new commits, then run again with the new one."; exit 1; }
       - name: Install Compose
         uses: ./lab/.github/actions/compose
-      - name: Link the catalogs into the engine
-        env:
-          NEEDS_ID: ${{ inputs.needs-catalog-id }}
-          ALLOW_MACHINE: ${{ inputs.allow-machine }}
-        run: |
-          [ -z "$NEEDS_ID" ] || python3 -I lab/lab-ui/catalog.py link needs
-          link=(link catalog)
-          [ "$ALLOW_MACHINE" != true ] || link+=(--allow-machine)
-          python3 -I lab/lab-ui/catalog.py "${link[@]}"
+      - name: Link the catalog into the engine
+        run: python3 -I lab/lab-ui/catalog.py link catalog
       - name: Plan the jobs
         id: matrix
         env:
-          CATALOG_ID: ${{ inputs.catalog-id }}
-          CHANGE: ${{ inputs.change }}
           ITEMS: ${{ inputs.items }}
           BASE: ${{ inputs.base }}
         run: |
           set -f   # what is typed is split into words below, and no word is a pattern for files
-          which=(--default-catalog)
-          [ -z "$CATALOG_ID" ] || which=(--catalog "$CATALOG_ID")
           case "$ITEMS" in
-            all) python3 -I lab/.github/scripts/e2e_matrix.py "${which[@]}" --all --github-output ;;
-            canary) python3 -I lab/.github/scripts/e2e_matrix.py "${which[@]}" --canary --github-output ;;
-            changed | "") python3 -I lab/.github/scripts/e2e_matrix.py "${which[@]}" --changed "${BASE:-origin/main}" HEAD --in "$CHANGE" --github-output ;;
+            all) python3 -I lab/.github/scripts/e2e_matrix.py --default-catalog --all --github-output ;;
+            canary) python3 -I lab/.github/scripts/e2e_matrix.py --default-catalog --canary --github-output ;;
+            changed | "") python3 -I lab/.github/scripts/e2e_matrix.py --default-catalog --changed "${BASE:-origin/main}" HEAD --in engine --github-output ;;
             # Words after --, never an option and never a command: the script checks that each one names an item
-            *) python3 -I lab/.github/scripts/e2e_matrix.py "${which[@]}" --github-output --items -- $ITEMS ;;
+            *) python3 -I lab/.github/scripts/e2e_matrix.py --default-catalog --github-output --items -- $ITEMS ;;
           esac
 
-  # Every image exists: no secret but the keys that read, so it is for any pull request
+  # Every image exists: no secret but the key that reads, so it is for any pull request
   manifests:
     needs: plan
     if: needs.plan.outputs.count != '0'
@@ -228,7 +157,6 @@ jobs:
         with:
           repository: ${{ inputs.lab-repository }}
           ref: ${{ inputs.lab-ref }}
-          ssh-key: ${{ secrets.LAB_DEPLOY_KEY }}
           path: lab
           persist-credentials: false
       - name: Check out the catalog
@@ -239,26 +167,10 @@ jobs:
           ssh-key: ${{ secrets.CATALOG_DEPLOY_KEY }}
           path: catalog
           persist-credentials: false
-      - name: Check out the catalog it includes from
-        if: ${{ inputs.needs-catalog-id != '' }}
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ inputs.needs-catalog-repository }}
-          ref: ${{ inputs.needs-catalog-ref }}
-          ssh-key: ${{ secrets.NEEDS_CATALOG_DEPLOY_KEY }}
-          path: needs
-          persist-credentials: false
       - name: Install Compose
         uses: ./lab/.github/actions/compose
-      - name: Link the catalogs into the engine
-        env:
-          NEEDS_ID: ${{ inputs.needs-catalog-id }}
-          ALLOW_MACHINE: ${{ inputs.allow-machine }}
-        run: |
-          [ -z "$NEEDS_ID" ] || python3 -I lab/lab-ui/catalog.py link needs
-          link=(link catalog)
-          [ "$ALLOW_MACHINE" != true ] || link+=(--allow-machine)
-          python3 -I lab/lab-ui/catalog.py "${link[@]}"
+      - name: Link the catalog into the engine
+        run: python3 -I lab/lab-ui/catalog.py link catalog
       - name: Every image exists
         env:
           ITEM: ${{ matrix.item }}
@@ -285,7 +197,6 @@ jobs:
         with:
           repository: ${{ inputs.lab-repository }}
           ref: ${{ inputs.lab-ref }}
-          ssh-key: ${{ secrets.LAB_DEPLOY_KEY }}
           path: lab
           persist-credentials: false
       - name: Check out the catalog
@@ -296,24 +207,13 @@ jobs:
           ssh-key: ${{ secrets.CATALOG_DEPLOY_KEY }}
           path: catalog
           persist-credentials: false
-      - name: Check out the catalog it includes from
-        if: ${{ inputs.needs-catalog-id != '' }}
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ inputs.needs-catalog-repository }}
-          ref: ${{ inputs.needs-catalog-ref }}
-          ssh-key: ${{ secrets.NEEDS_CATALOG_DEPLOY_KEY }}
-          path: needs
-          persist-credentials: false
       # The head can move between the plan and this job: the commit that was read is checked again, before the license is given
       - name: The change is the one that was read
         if: ${{ inputs.expect-sha != '' }}
         env:
-          CHANGE: ${{ inputs.change }}
           EXPECT_SHA: ${{ inputs.expect-sha }}
         run: |
-          [ "$CHANGE" = engine ] && folder=lab || folder=catalog
-          head=$(git -C "$folder" rev-parse HEAD)
+          head=$(git -C lab rev-parse HEAD)
           [ "$head" = "$EXPECT_SHA" ] || { echo "::error title=E2E03::The change is ${head:0:7}, not the commit you read (${EXPECT_SHA:0:7}). Fix: read the new commits, then run again with the new one."; exit 1; }
       - name: Install Compose
         uses: ./lab/.github/actions/compose
@@ -338,15 +238,8 @@ jobs:
           [ -n "$GRAVITEE_LICENSE" ] || { echo "::error::The secret GRAVITEE_LICENSE is not set in this environment, or the caller does not pass it by name: see docs/maintaining.md"; exit 1; }
           make init
           printf '\nGRAVITEE_LICENSE=%s\n' "$GRAVITEE_LICENSE" >> .env
-      - name: Link the catalogs into the engine
-        env:
-          NEEDS_ID: ${{ inputs.needs-catalog-id }}
-          ALLOW_MACHINE: ${{ inputs.allow-machine }}
-        run: |
-          [ -z "$NEEDS_ID" ] || python3 -I lab/lab-ui/catalog.py link needs
-          link=(link catalog)
-          [ "$ALLOW_MACHINE" != true ] || link+=(--allow-machine)
-          python3 -I lab/lab-ui/catalog.py "${link[@]}"
+      - name: Link the catalog into the engine
+        run: python3 -I lab/lab-ui/catalog.py link catalog
       # Not `make e2e`: make answers 2 for any recipe that fails, and 2 here is "not tried" (a setting only a person can give), which is a
       # warning, where 1 is a failure
       - name: Try it

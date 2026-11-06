@@ -106,7 +106,6 @@ jobs:
       lab-ref: ${{ needs.prepare.outputs.lab_ref }}
       catalog-repository: ${{ vars.CATALOG_REPOSITORY }}
       catalog-ref: ${{ needs.prepare.outputs.catalog_ref }}
-      change: engine
       items: ${{ needs.prepare.outputs.items }}
       base: ${{ needs.prepare.outputs.base }}
       expect-sha: ${{ needs.prepare.outputs.expect_sha }}
