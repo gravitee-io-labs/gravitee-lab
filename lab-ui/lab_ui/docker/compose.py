@@ -516,7 +516,7 @@ def _closure(path, skip=(), text=None):
 
 def _targets(path, text):
     """The project files the include list of `text`, the compose file at `path`, names itself (includes())."""
-    return [target for _, _, target in _include_items(text, ROOT / path, ROOT if path == ON_FILE else None) if target]
+    return [target for _, _, target in _include_items(text, path) if target]
 
 
 def left_out(text, path):
@@ -532,11 +532,6 @@ def _there(file):
         return (ROOT / file).is_file()
     except (OSError, ValueError):
         return False
-
-
-def _items(file, text):
-    """The items of the `include` list in the text of a project file that a copy writes again (_include_items, `copied`)."""
-    return _include_items(text, ROOT / file, ROOT if file == ON_FILE else None, copied=True)
 
 
 def _extent(lines, number):
@@ -577,7 +572,7 @@ def _readable(path, skip=(), text=None):
         texts = {path: text, **{file: one for file, one in texts.items() if file != path}}
     changed = {file: _policies_written(one) for file, one in texts.items()}
     if changed == texts and not (skip and any(target in skip for file, one in texts.items()
-                                              for _, _, target in _items(file, one))):
+                                              for _, _, target in _include_items(one, file, copied=True))):
         if text is None:
             yield ["-f", path], {}
             return
@@ -591,7 +586,7 @@ def _readable(path, skip=(), text=None):
         for file, text in changed.items():
             written = text.split("\n")
             lines = list(written)
-            for number, _, target in _items(file, text):
+            for number, _, target in _include_items(text, file, copied=True):
                 if lines[number] is None:   # a line of an item left out
                     continue
                 if target in skip:   # left out whole, so that the line numbers of the others hold
@@ -903,12 +898,15 @@ def top_keys(text, block):
 FLOW_INCLUDE = re.compile(r"include:\s*\[([^\]]*)\]\s*(?:#.*)?$")
 
 
-def _include_items(text, file, base=None, copied=False):
-    """The items of a compose file's `include` list: (line number, the path as written, the project file it names, or
-    None outside the project). A list on one line gives its plain items. The next top-level key ends the list. An item in
-    long form holds keys below its dash, and a list under one of them (`env_file`) is not a list of items; but the files of
-    its `path:`, when it lists them, are. With `copied`, only the items a copy writes again in its place, each a line of
-    the list: not those of a list on one line nor the files an item lists under its `path:`, which are read where they are."""
+def _include_items(text, file, copied=False):
+    """The items of the `include` list in `text`, the compose file at the project path `file`: (line number, the path as
+    written, the project file it names, or None outside the project), each written relative to the file that includes it;
+    those of the on file relative to the project, as Compose reads a file it is given. A list on one line gives its plain
+    items. The next top-level key ends the list. An item in long form holds keys below its dash, and a list under one of them
+    (`env_file`) is not a list of items; but the files of its `path:`, when it lists them, are. With `copied`, only the items a
+    copy writes again in its place, each a line of the list: not those of a list on one line nor the files an item lists under
+    its `path:`, which are read where they are."""
+    base = ROOT if file == ON_FILE else (ROOT / file).parent
     inside, column, key = False, None, None   # the column of the dashes of the items, the last key opened without a value
     for number, line in enumerate(text.split("\n")):
         indent = len(line) - len(line.lstrip())
@@ -916,7 +914,7 @@ def _include_items(text, file, base=None, copied=False):
         if one_line:   # the list on one line: its plain items
             for written in (item.strip().strip("\"'") for item in one_line.group(1).split(",")):
                 if written and not re.search(r"[{}:#\s]", written):
-                    path = Path(os.path.normpath((base or file.parent) / written))
+                    path = Path(os.path.normpath(base / written))
                     yield number, written, path.relative_to(ROOT).as_posix() if path.is_relative_to(ROOT) else None
             inside = False
             continue
@@ -946,24 +944,21 @@ def _include_items(text, file, base=None, copied=False):
             yield number, target.group(1), _original(target.group(1))
         else:
             written = next(filter(None, item.groups()))
-            path = Path(os.path.normpath((base or file.parent) / written))
+            path = Path(os.path.normpath(base / written))
             yield number, written, path.relative_to(ROOT).as_posix() if path.is_relative_to(ROOT) else None
 
 
 def includes(path):
-    """The project files a compose file includes itself (_include_items), each written relative to the file that includes
-    it; those of the on file relative to the project, as Compose reads a file it is given."""
+    """The project files a compose file includes itself (_include_items)."""
     file = ROOT / path
-    text = file.read_text(encoding="utf-8") if file.is_file() else ""
-    base = ROOT if path == ON_FILE else None
-    return [target for _, _, target in _include_items(text, file, base) if target]
+    return _targets(path, file.read_text(encoding="utf-8") if file.is_file() else "")
 
 
 def retargeted(path, text, targets):
     """A compose file's text with the items of its `include` list that name one of `targets` ({project file: the file
     to include instead}) written again, relative to its folder: a copy next to it includes copies in their place."""
     file, lines = ROOT / path, text.split("\n")
-    for number, written, target in list(_include_items(text, file)):
+    for number, written, target in list(_include_items(text, path)):
         if target in targets:
             relative = Path(os.path.relpath(ROOT / targets[target], file.parent)).as_posix()
             lines[number] = lines[number].replace(written, relative, 1)

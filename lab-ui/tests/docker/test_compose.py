@@ -537,9 +537,9 @@ class SkippedIncludes(Copies):
     def test_a_line_that_an_item_took_is_not_read_as_an_item_again(self):
         self.write("playgrounds/mine/compose.yml", f"include:\n  - path: ../../{GONE}\n    env_file: ../x.env\n"
                    "  - ../../addons/tool/compose.yml\n" + self.MINE)
-        items = compose._items
-        self.patch(compose, "_items", side_effect=lambda file, text: [*items(file, text)] + (
-            [(2, "x", "addons/tool/compose.yml")] if file.startswith("playgrounds") else []))   # the line of a key, as an item
+        items = compose._include_items
+        self.patch(compose, "_include_items", side_effect=lambda text, file, copied=False: [*items(text, file, copied)] + (
+            [(2, "x", "addons/tool/compose.yml")] if copied and file.startswith("playgrounds") else []))   # the line of a key, as an item
         self.assertNotIn("gone", self.top(self.read("playgrounds/mine/compose.yml", skip=[GONE])))
 
     def test_a_hostile_include_list_is_read_or_refused_never_a_crash(self):

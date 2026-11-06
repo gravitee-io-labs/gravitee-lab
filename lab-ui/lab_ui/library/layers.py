@@ -251,7 +251,7 @@ def _copy_problems(project):
         except (OSError, ValueError):
             found.append({"file": original, "message": f"what {name} runs on its platform is missing: turn {name} off and on again"})
             continue
-        for _, _, target in compose._include_items(text, paths.ROOT / original):
+        for _, _, target in compose._include_items(text, original):
             if target and not (paths.ROOT / target).is_file():
                 found.append({"file": original, "message": f"what {name} runs on its platform includes "
                                                            f"{_named(project, target)}, which is not there any more: "
