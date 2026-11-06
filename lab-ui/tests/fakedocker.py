@@ -209,7 +209,6 @@ class FakeDocker:
         wrapper = self.bin / "docker"
         wrapper.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{self.folder}/fake_docker.py" "$@"\n', encoding="utf-8")
         wrapper.chmod(wrapper.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-        self.path = str(wrapper)
         self._rules: List[dict] = []
         self._save()
         (self.folder / "real.json").write_text(json.dumps(shutil.which("docker")), encoding="utf-8")
