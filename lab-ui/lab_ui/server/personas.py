@@ -109,5 +109,4 @@ def relay(handler, method):
         handler.send_header(key, value)
     handler.send_header("Content-Length", str(len(data)))
     handler.end_headers()
-    if method != "HEAD":
-        handler.wfile.write(data)
+    handler.wfile.write(data)
