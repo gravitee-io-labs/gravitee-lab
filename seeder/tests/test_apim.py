@@ -28,9 +28,7 @@ ACME_BAKERY = PLAYGROUNDS / "acme-bakery" / "seed" / "apim"
 
 # What the files of Acme Bakery use, as the seed service of the playground sets it
 VARIABLES = {
-    "OLLAMA_URL": "http://ollama:11434", "REDIS_URL": "redis://redis:6379", "REDIS_PASSWORD": "redis-secret",
-    "BAKERY_AGENT_URL": "http://bakery-agent:8000", "BAKERY_API_URL": "http://bakery-api:8000",
-    "AM_GATEWAY_URL": "http://am-gateway:8092", "MCP_RESOURCE_SECRET": "mcp-secret",
+    "OLLAMA_URL": "http://ollama:11434", "BAKERY_AGENT_URL": "http://bakery-agent:8000", "BAKERY_API_URL": "http://bakery-api:8000",
     "ACE_LLM_API_KEY": "ace-key-0001", "DEV_LLM_API_KEY": "dev-key-0001", "TRAFFIC_LLM_API_KEY": "traffic-key-0001",
 }
 
