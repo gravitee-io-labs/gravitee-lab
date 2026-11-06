@@ -46,13 +46,13 @@ RAN = re.compile(r"^Ran (\d+) tests? in ", re.M)
 # The last line of a run that never started a test: unittest cannot import the folder it was told to start from, or python cannot open it
 NO_START = "ImportError: Start directory is not importable"
 CANT_OPEN = "can't open file"
-# What Docker Hub or the network says when the fault is theirs (the same words as `ci/build.py` INFRA reads in a build's log)
+# What Docker Hub or the network says when the fault is theirs, in a pull here and in a build's log (`ci/build.py`)
 INFRA = re.compile(
     r"toomanyrequests|too many requests|rate limit|TLS handshake timeout|tls: |i/o timeout|dial tcp|no such host|"
     r"server misbehaving|temporary failure in name resolution|connection reset by peer|unexpected EOF|context deadline exceeded|"
     r"net/http: request canceled|(?:unexpected|received unexpected HTTP) status[^\n]*\b5\d\d\b|\b5\d\d (?:Internal Server Error|"
     r"Bad Gateway|Service Unavailable|Gateway Time-?out)", re.I)
-PULL_RETRIES = (20, 60)   # seconds before the first and the second new try of a pull that Docker Hub or the network refused
+PULL_RETRIES = (20, 60)   # seconds before the first and the second new try of what Docker Hub or the network refused
 
 Runner = Callable[[List[str], float, Optional[str]], Tuple[int, str, str]]
 

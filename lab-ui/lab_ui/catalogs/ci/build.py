@@ -45,12 +45,12 @@ from ..report import ERROR, Problem
 from ..rules.images import repository
 from . import (BD01_PLAIN, DOCKER_DOWN, IMAGE_NAME, Loaded, Unavailable, cell, conclude, docker_ready, entry, fence, load, megabytes,
                parse_units, parsed, parser, platform_of, problem, refusals, run_docker, seeder_anchor, seconds, tail)
+from .apptests import INFRA, PULL_RETRIES as RETRIES
 
 TARGET = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 ARG_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]{0,127}")
 LABEL_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,255}")
 REMOTE = re.compile(r"(?:https://|git@|git://|ssh://|github\.com/)")
-RETRIES = (20, 60)   # seconds before the first and the second new try of a build that Docker Hub or the network refused
 IMAGE_TIMEOUT = 600   # seconds for one image (BD04)
 TAIL = 15   # lines of a failed build that the summary shows
 
@@ -59,11 +59,6 @@ STEP_ERROR = re.compile(r"^#(\d+) ERROR: (.*)$")
 FINAL_ERROR = re.compile(r"^ERROR: (.*)$")
 STEP_HEADER = re.compile(r"^#(\d+) \[(?:[^\]]*?\s)?(\d+)/(\d+)\] (.*)$")
 PROCESS = re.compile(r"did not complete successfully: exit code: (\d+)")
-INFRA = re.compile(
-    r"toomanyrequests|too many requests|rate limit|TLS handshake timeout|tls: |i/o timeout|dial tcp|no such host|"
-    r"server misbehaving|temporary failure in name resolution|connection reset by peer|unexpected EOF|context deadline exceeded|"
-    r"net/http: request canceled|(?:unexpected|received unexpected HTTP) status[^\n]*\b5\d\d\b|\b5\d\d (?:Internal Server Error|"
-    r"Bad Gateway|Service Unavailable|Gateway Time-?out)", re.I)
 NO_BUILDX = re.compile(r"^(?:docker: unknown command: docker buildx|docker: 'buildx' is not a docker command)", re.M)
 
 SEEDER = "the Lab's own seeder, which the Lab's CI builds"

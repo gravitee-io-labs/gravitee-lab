@@ -290,13 +290,6 @@ class Runs(unittest.TestCase):
         self.assertIsNone(apptests.ensure_node(NODE, run, slept.append))
         self.assertEqual(slept, [20])
 
-    def test_what_is_infrastructure_here_is_what_it_is_in_a_build(self):
-        from lab_ui.catalogs.ci import build
-        for text in ("toomanyrequests: rate limit", "TLS handshake timeout", "dial tcp 1.2.3.4:443: i/o timeout", "no such host",
-                     "received unexpected HTTP status: 503 Service Unavailable", "unexpected status: 502 Bad Gateway",
-                     "manifest unknown", "unauthorized: x", "pull access denied", "exit code: 1", "denied: requested access is denied"):
-            self.assertEqual(bool(apptests.INFRA.search(text)), bool(build.INFRA.search(text)), text)
-
     def test_a_run_that_passed_its_time_limit_is_removed_by_its_name(self):
         folder = self.app({"tests/test_a.py": "", "tests/js/a.test.mjs": ""})
         run = self.runner([(["--entrypoint"], (124, "", "docker did not answer within 900 s")), ([NODE], (124, "", "docker did not answer within 600 s"))])
