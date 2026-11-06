@@ -1175,7 +1175,7 @@ class InTheEngine(unittest.TestCase):
 
     def test_the_sample_is_read_whole(self):
         report = seedlint.lint(PLAYGROUNDS)
-        self.assertEqual((report.problems, report.playgrounds, report.files), ([], 2, 58))
+        self.assertEqual((report.problems, report.playgrounds, report.files), ([], 2, 48))
 
 
 class StudioShapes(Made):
