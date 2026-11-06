@@ -180,11 +180,14 @@ SOURCE_CUT = 120   # an image or the address of a build, as the preview shows it
 NAME_CUT = 60   # the characters of one author's name in a reason line
 FIELD_CUT = 240   # and of a whole field: three names, the count of the rest
 
-# The names of what is secret (check.SECRET_NAME and check.NOT_SECRET, which a test keeps equal): a seed that reads one
-# gets no token to hold (N02)
+# The names of what is secret, in an environment, a label, an extension block or an account (an API key, not a public
+# one); then the endings of a name that says where a secret is, what kind it is, how it is reached or whether it is on,
+# which is none itself (AM_TOKEN_URL, KAFKA_TLS_TYPE, SECRET_MANAGER_HOST, TOKEN_TIMEOUT). A seed that reads one gets no
+# token to hold (N02), and `make check` and the rules of a catalog read the same ones
 SECRET_NAME = re.compile(r"PASSWORD|PASSWD|PASSPHRASE|SECRET|API[_.-]?KEY|(?:^|[_.-])TOKEN$|(?<!PUBLIC)[_.-]KEY$", re.I)
 NOT_SECRET = re.compile(r"(?:URL|URI|PATH|FILE|TYPE|ENDPOINT|ENABLED|HOST|PORT|METHOD|POLICY|REGEX|NAMESPACE|PROVIDER"
                         r"|TIMEOUT|TIMEOUTMS)$", re.I)
+SIGN_IN = re.compile(r"io\.gravitee\.console\.[a-z0-9-]+\.password")   # the demo sign-in a console shows next to it: no secret
 TOKEN_NAME = "APIM_TOKEN"   # what a deploy to a place hands the seed
 SEED_MOUNTS = ("/seed", "/state")   # the only places a seed service mounts: its data, and what it records
 LOADER_VARIABLE = re.compile(r"PYTHON|LD_|DYLD_|OPENSSL_|GCONV_|(?:PATH|HOME|LOCPATH|NLSPATH)$")

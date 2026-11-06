@@ -2347,12 +2347,6 @@ class Notes(Golden):
             with self.subTest(name=name):
                 self.assertNotIn(trust.SEED_TOKEN, self.changed(PLAYGROUND, edit, core_variables=[name])["notes"])
 
-    def test_n02_the_patterns_are_the_ones_of_make_check(self):
-        from lab_ui.library import check
-        self.assertEqual(trust.SECRET_NAME.pattern, check.SECRET_NAME.pattern)
-        self.assertEqual(trust.SECRET_NAME.flags, check.SECRET_NAME.flags)
-        self.assertEqual(trust.NOT_SECRET.pattern, check.NOT_SECRET.pattern)
-
     def test_n03_a_console_that_is_not_on_this_machine_is_not_opened(self):
         self.assertEqual(self.judge("n03-external-console")["notes"], [line("N03")])
 

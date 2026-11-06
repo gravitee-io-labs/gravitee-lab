@@ -24,6 +24,7 @@ from typing import Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
 
 from ..report import ERROR, WARNING, Problem
 from ..tree import REGULAR
+from ..trust import NOT_SECRET, SECRET_NAME, SIGN_IN
 from . import PER_FILE, Context, basename, is_compose, line_of, newlines, outline, problem, read_limit, say, scalar, \
     table, text_of, unit_of, walk
 
@@ -48,15 +49,6 @@ RULES = table([
     ("SE07", ERROR, "The text gitleaks:allow, or another scanner's allow marker",
      "{path}:{line} carries a scanner allow marker. Fix: remove it; a maintainer decides what the scan may skip."),
 ])
-
-# The names of what is secret in an environment, a label or an account (an API key, not a public one), then the endings of a
-# name that says where a secret is, what kind it is, how it is reached or whether it is on, which is none itself. The same as
-# `check.SECRET_NAME` and `check.NOT_SECRET`, which a test keeps equal: the engine's own check and this rule read one thing
-SECRET_NAME = re.compile(r"PASSWORD|PASSWD|PASSPHRASE|SECRET|API[_.-]?KEY|(?:^|[_.-])TOKEN$|(?<!PUBLIC)[_.-]KEY$", re.I)
-NOT_SECRET = re.compile(r"(?:URL|URI|PATH|FILE|TYPE|ENDPOINT|ENABLED|HOST|PORT|METHOD|POLICY|REGEX|NAMESPACE|PROVIDER"
-                        r"|TIMEOUT|TIMEOUTMS)$", re.I)
-# The demo sign-in a console shows next to it, which sets nothing: no secret (`check.SIGN_IN`, kept equal by the same test)
-SIGN_IN = re.compile(r"io\.gravitee\.console\.[a-z0-9-]+\.password")
 
 KINDS = {"github": "a GitHub token", "aws": "an AWS access key", "slack": "a Slack token", "google": "a Google API key",
          "jwt": "a JWT", "sk": "an API key that starts with sk-"}
@@ -164,7 +156,7 @@ def allow_markers(text: str) -> List[int]:
 
 
 def names_a_secret(key: str) -> bool:
-    """Whether the name of a setting says that its value is a secret (the engine's rule, `check.SECRET_NAME`)."""
+    """Whether the name of a setting says that its value is a secret (the engine's rule, `trust.SECRET_NAME`)."""
     return bool(SECRET_NAME.search(key) and not NOT_SECRET.search(key)) and not SIGN_IN.fullmatch(key)
 
 

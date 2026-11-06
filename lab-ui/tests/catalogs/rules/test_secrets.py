@@ -259,15 +259,10 @@ class Patterns(unittest.TestCase):
 
     def test_the_names_of_secrets_are_the_ones_of_the_engines_own_check(self):
         from lab_ui.library import check
-        self.assertEqual(check.SECRET_NAME.pattern, secrets.SECRET_NAME.pattern)
-        self.assertEqual(check.SECRET_NAME.flags, secrets.SECRET_NAME.flags)
-        self.assertEqual(check.SIGN_IN.pattern, secrets.SIGN_IN.pattern)
-        self.assertEqual(check.NOT_SECRET.pattern, secrets.NOT_SECRET.pattern)
-        if hasattr(check, "_secrets"):
-            sample = {"services": {"a": {"environment": {"DB_PASSWORD": "hunter2", "OK": "${X}", "A_TOKEN_URL": "u", "KEY": "v"}}}}
-            flagged = {key for _, key, _, why in check._secrets(sample) if why == "literal"}
-            text = "services:\n  a:\n    environment:\n      DB_PASSWORD: hunter2\n      OK: ${X}\n      A_TOKEN_URL: u\n      KEY: v\n"
-            self.assertEqual(flagged, {name for _, name in secrets.compose_literals(text)})
+        sample = {"services": {"a": {"environment": {"DB_PASSWORD": "hunter2", "OK": "${X}", "A_TOKEN_URL": "u", "KEY": "v"}}}}
+        flagged = {key for _, key, _, why in check._secrets(sample) if why == "literal"}
+        text = "services:\n  a:\n    environment:\n      DB_PASSWORD: hunter2\n      OK: ${X}\n      A_TOKEN_URL: u\n      KEY: v\n"
+        self.assertEqual(flagged, {name for _, name in secrets.compose_literals(text)})
 
 
 class Hostile(unittest.TestCase):
