@@ -1,19 +1,17 @@
 """What the catalog seed takes from a file since the Harbor playgrounds: the operations of an API that become tools,
 with the words written for a model in place of the generated ones, and the metadata of an agent. Run against a memory
-that these tests define: a tool that is read and saved whole as the platform does (the calls are those of the live scripts
-that import the tools of an API and then curate one), and an import that refuses a tool entry with a key it does not take."""
+that these tests define: an import that refuses a tool entry with a key it does not take."""
 
 import copy
 import unittest
 
 from lab_seeder import aim_catalog
 from lab_seeder import common
-from tests.test_aim_catalog import AGENT, CARD, SCOPE, Catalog, World, last, path
+from tests.test_aim_catalog import AGENT, CARD, Catalog, World
 
 ORDERS = "Harbor Orders API"
 CUSTOMERS = "Harbor Customers API"
 STUDIO = ("aim-proxies", "studio", "MCP studios", "Customer care", "studio-1")
-IMPORT = SCOPE + "/catalog/mcp-tools/_importFromApis"
 
 
 # --- The two APIs as the platform generates their tools ---------------------------------------
@@ -53,12 +51,9 @@ def customer_tools():
 
 class ToolWorld(World):
     """The catalog as Gamma keeps it where these tools are concerned: an import that takes the keys of a tool and no
-    other, and stores it with the mapping to its API in its extensions; a tool read whole; a save that replaces the
-    tool, its extensions with it, and refuses what the platform refuses. An API with `tools` gives them as its page
-    generates them."""
+    other. An API with `tools` gives them as its page generates them."""
 
     ENTRY = {"apiId", "gatewayMapping", "definition"}
-    refuses = None   # what a save is refused with
 
     def generate(self, call):
         api_id = call.json["apiIds"][0]
@@ -69,32 +64,10 @@ class ToolWorld(World):
         return 200, {"data": [{"apiId": api_id, "tools": copy.deepcopy(api["tools"]), "errors": errors}]}
 
     def import_tools(self, call):
-        tools = copy.deepcopy(call.json["tools"])
-        for tool in tools:
+        for tool in call.json["tools"]:
             if set(tool) != self.ENTRY:
                 return 400, {"message": f"Unrecognized field {sorted(set(tool) ^ self.ENTRY)}"}
-        code, body = super().import_tools(call)
-        if code == 201:
-            mappings = {t["definition"]["name"]: t["gatewayMapping"] for t in tools}
-            for item in body["data"]:
-                item.update(extensions={"gatewayMapping": mappings[item["definition"]["name"]]}, metadata={})
-        return code, body
-
-    def save_tool(self, call):
-        body, item = copy.deepcopy(call.json), self.items[last(call)]
-        if self.refuses:
-            return 400, {"message": self.refuses}
-        if not body.get("sourceId") or not body.get("entityId") or not isinstance(body.get("definition"), dict):
-            return 400, {"message": "sourceId, entityId and definition are required"}
-        if (body.get("extensions") or {}).get("referenceCost", 0) < 0:
-            return 400, {"message": "referenceCost.negative"}
-        item.update(sourceId=body["sourceId"], definition=body["definition"], extensions=body.get("extensions"),
-                    metadata=body.get("metadata"))
-        return 200, item
-
-    def routes(self):
-        return {**super().routes(), ("GET", path("/catalog/mcp-tools/*")): lambda call: (200, self.items[last(call)]),
-                ("PUT", path("/catalog/mcp-tools/*")): self.save_tool}
+        return super().import_tools(call)
 
     def tool(self, operation):
         return next(i for i in self.of_kind("mcp-tool") if i["definition"]["name"] == operation)
@@ -115,10 +88,6 @@ class Tools(Catalog):
         """The tools of the last run's imports, in the order they were sent, one list for each API."""
         return [[t["definition"]["name"] for t in call.json["tools"]]
                 for call in self.sent("POST", "/catalog/mcp-tools/_importFromApis")]
-
-    def saved(self):
-        """What the last run saved of the tools."""
-        return [call.json for call in self.sent("PUT", "/catalog/mcp-tools/*")]
 
     def writes(self):
         return [(m, p) for m, p in self.platform.changes() if not p.endswith("_generateCapabilities")]
@@ -189,13 +158,11 @@ class Operations(Tools):
             name = tool["definition"]["name"]
             self.assertEqual(tool["gatewayMapping"], page[name]["gatewayMapping"])
             self.assertEqual(tool["definition"], {k: v for k, v in page[name]["toolDefinition"].items() if k != "outputSchema"})
-        self.assertEqual(self.saved(), [])
 
     def test_an_operation_written_as_a_mapping_with_only_its_id_is_the_same_as_its_name(self):
         self.seed_files({"aim/api-tools/customers.yaml": "api: Harbor Customers API\noperations:\n  - {id: getCustomer}\n"})
         self.run_seed()
         self.assertEqual(self.imported(), [["getCustomer"]])
-        self.assertEqual(self.saved(), [])
         self.seed_files({"aim/api-tools/customers.yaml": customers("getCustomer")})
         self.assertEqual(self.run_seed(), [])
 
@@ -316,16 +283,13 @@ class Mistakes(Tools):
 
     def test_a_word_the_file_may_not_write_is_refused_naming_it_and_what_it_may_write(self):
         self.refused("operations:\n  - {id: getOrder, name: get_order}\n",
-                     "The operation getOrder of 'Harbor Orders API' cannot say name: only id, description, inputSchema, "
-                     "annotations, referenceCost, referenceValue")
+                     "The operation getOrder of 'Harbor Orders API' cannot say name: only id, description, inputSchema, annotations")
         self.refused("operations:\n  - {id: getOrder, outputSchema: {type: object}, gatewayMapping: {}}\n",
                      "cannot say outputSchema, gatewayMapping")
 
     def test_what_the_file_writes_has_the_type_the_platform_asks_for(self):
-        number = "a number, 0 or more"
         wrong = [("description", "''", "text"), ("description", "[a]", "text"), ("inputSchema", "[a, b]", "a JSON schema"),
-                 ("annotations", "readOnly", "a mapping of hints"), ("referenceCost", "-1", number),
-                 ("referenceCost", "true", number), ("referenceValue", "cheap", number)]
+                 ("annotations", "readOnly", "a mapping of hints")]
         for key, value, wanted in wrong:
             with self.subTest(key=key, value=value):
                 self.refused(f"operations:\n  - {{id: getOrder, {key}: {value}}}\n",
@@ -350,14 +314,13 @@ class Tailoring(Tools):
     def refund(self):
         return self.world.tool("createRefund")
 
-    def test_the_words_written_for_a_tool_are_part_of_its_import_and_nothing_is_saved_after(self):
+    def test_the_words_written_for_a_tool_are_part_of_its_import(self):
         self.assertEqual(self.run_seed(), [("POST", "/catalog/mcp-tools/_importFromApis")])
         self.assertEqual(self.imported(), [["listOrders", "getOrder", "listRefunds", "createRefund", "cancelOrder"]])
         [call] = self.sent("POST", "/catalog/mcp-tools/_importFromApis")
         sent = next(t for t in call.json["tools"] if t["definition"]["name"] == "createRefund")
         self.assertEqual(sorted(sent), ["apiId", "definition", "gatewayMapping"])
         self.assertEqual(sent["definition"]["inputSchema"]["required"], ["orderId", "amount", "reason"])
-        self.assertEqual(self.saved(), [])
 
     def test_the_tool_is_imported_with_the_words_of_the_file_in_place_of_those_of_the_page(self):
         self.run_seed()
@@ -375,36 +338,12 @@ class Tailoring(Tools):
                          {"title": "Refund an order", "readOnlyHint": False, "destructiveHint": True,
                           "idempotentHint": False, "openWorldHint": False})
 
-    def test_a_platform_that_refuses_every_save_of_an_api_tool_still_gets_the_words(self):
-        self.world.refuses = "parentId is required for this kind"   # API Management 4.13.1
-        self.run_seed()
-        self.assertEqual(self.refund()["definition"]["annotations"]["title"], "Refund an order")
-        self.assertIn("(5 tools, 1 tailored)", self.output())
-
-    def test_the_save_of_references_is_the_tool_as_read_with_the_references_in_its_extensions(self):
-        self.seed_files({"aim/api-tools/orders.yaml": REFUND.replace("    annotations:", "    referenceCost: 0.01\n    annotations:")})
-        self.run_seed()
-        [body] = self.saved()
-        tool = self.refund()
-        self.assertEqual(sorted(body), ["definition", "entityId", "extensions", "metadata", "sourceId"])
-        self.assertEqual((body["sourceId"], body["entityId"]),
-                         (tool["sourceId"], "mcp-tool.harbor-orders-api-createrefund"))
-        self.assertEqual(body["definition"]["annotations"]["title"], "Refund an order")
-        self.assertEqual(body["extensions"]["referenceCost"], 0.01)
-
-    def test_the_tool_keeps_its_mapping_to_the_api_which_a_save_would_otherwise_lose(self):
-        self.run_seed()
-        mapping = self.refund()["extensions"]["gatewayMapping"]
-        self.assertEqual(mapping, order_tools()[3]["gatewayMapping"])
-        self.assertEqual(mapping["http"]["pathParams"], ["orderId"])
-
     def test_a_tool_with_nothing_written_for_it_keeps_the_words_of_the_page(self):
         self.run_seed()
         for operation in ("listOrders", "getOrder", "listRefunds", "cancelOrder"):
             tool = self.world.tool(operation)
             self.assertEqual(tool["definition"]["description"], f"{operation} as the page says it")
             self.assertNotIn("outputSchema", tool["definition"])
-        self.assertEqual(self.saved(), [])
 
     def test_a_description_alone_leaves_the_rest_of_the_generated_definition(self):
         self.seed_files({"aim/api-tools/orders.yaml": orders("{id: getOrder, description: Read one order}")})
@@ -414,22 +353,9 @@ class Tailoring(Tools):
                          {"name": "getOrder", "description": "Read one order", "inputSchema": page["inputSchema"],
                           "annotations": page["annotations"]})
 
-    def test_the_references_go_in_the_extensions_of_the_tool_beside_its_mapping(self):
-        self.seed_files({"aim/api-tools/orders.yaml": orders("{id: getOrder, referenceCost: 0.002, referenceValue: 0}")})
-        self.run_seed()
-        tool = self.world.tool("getOrder")
-        self.assertEqual(tool["extensions"], {"gatewayMapping": order_tools()[1]["gatewayMapping"],
-                                              "referenceCost": 0.002, "referenceValue": 0})
-        self.assertNotIn("referenceCost", tool["definition"])
-        self.assertEqual(tool["definition"]["description"], "getOrder as the page says it")
-
     def test_a_second_run_writes_nothing(self):
         self.run_seed()
         self.assertEqual(self.run_seed(), [])
-
-    def test_the_log_counts_the_tools_that_were_tailored(self):
-        self.run_seed()
-        self.assertIn("[aim-catalog] ✓ API tool imported: Harbor Orders API (5 tools, 1 tailored)", self.output())
 
     def test_the_record_is_the_source_with_the_fingerprint_of_the_operations_and_the_words_written(self):
         self.run_seed()
@@ -441,7 +367,7 @@ class Tailoring(Tools):
         entries = [{"apiId": "orders", "gatewayMapping": tool["gatewayMapping"],
                     "definition": {k: v for k, v in tool["toolDefinition"].items() if k != "outputSchema"}}
                    for tool in order_tools()]
-        entries[3]["tailoring"] = wording
+        entries[3]["definition"].update(wording)
         self.assertEqual(record["digest"], aim_catalog.digest_of(entries))
 
     def test_other_words_replace_the_tools_with_their_source_and_the_studios_that_hold_them(self):
@@ -456,74 +382,21 @@ class Tailoring(Tools):
         self.assertIn("Studio 'Customer care' deleted: it is made again from the new tools", self.output())
         self.assertEqual(self.run_seed(), [])
 
-    def test_a_new_schema_a_new_hint_and_a_new_reference_each_replace_the_tools(self):
+    def test_a_new_schema_and_a_new_hint_each_replace_the_tools(self):
         self.run_seed()
         changes = {"inputSchema": REFUND.replace("minimum: 1", "minimum: 5"),
-                   "annotations": REFUND.replace("destructiveHint: true", "destructiveHint: false"),
-                   "reference": REFUND.replace("    annotations:", "    referenceCost: 0.01\n    annotations:")}
+                   "annotations": REFUND.replace("destructiveHint: true", "destructiveHint: false")}
         for what, text in changes.items():
             with self.subTest(what):
                 self.seed_files({"aim/api-tools/orders.yaml": text})
-                saves = ["PUT"] if what == "reference" else []
-                self.assertEqual([m for m, _ in self.run_seed()], ["DELETE", "POST", *saves])
+                self.assertEqual([m for m, _ in self.run_seed()], ["DELETE", "POST"])
                 self.assertEqual(self.run_seed(), [])
-        self.assertEqual(self.refund()["extensions"]["referenceCost"], 0.01)
 
-    def test_the_tools_of_an_api_that_changed_are_replaced_and_tailored_again(self):
+    def test_the_tools_of_an_api_that_changed_are_replaced_and_keep_the_words_of_the_file(self):
         self.run_seed()
         self.world.apis["orders"]["tools"][3]["gatewayMapping"]["http"]["path"] = "/orders/:orderId/refund"
         self.assertEqual([m for m, _ in self.run_seed()], ["DELETE", "POST"])
-        self.assertEqual(self.refund()["extensions"]["gatewayMapping"]["http"]["path"], "/orders/:orderId/refund")
         self.assertEqual(self.refund()["definition"]["inputSchema"]["required"], ["orderId", "amount", "reason"])
-
-    def test_a_refused_save_stops_the_seed_naming_the_tool_and_the_next_run_replaces_the_tools(self):
-        self.seed_files({"aim/api-tools/orders.yaml": REFUND.replace("    annotations:", "    referenceCost: 0.01\n    annotations:")})
-        self.world.refuses = "inputSchema.invalid"
-        with self.assertRaises(common.SeedError) as stopped:
-            self.run_seed()
-        self.assertRegex(str(stopped.exception),
-                         r"^The tool createRefund of 'Harbor Orders API' could not be tailored: "
-                         r"PUT /catalog/mcp-tools/\S+: HTTP 400 .*inputSchema.invalid")
-        self.assertNotIn("\n", str(stopped.exception))
-        [record] = self.records("api-tools")   # the tools are the seed's, so that its next run can replace them
-        self.assertNotIn("digest", record)
-        self.world.refuses = None
-        old = next(iter(self.world.sources))
-        changes = self.run_seed()
-        self.assertEqual(changes, [("DELETE", f"/catalog/sources/{old}"),
-                                   ("POST", "/catalog/mcp-tools/_importFromApis"),
-                                   ("PUT", f"/catalog/mcp-tools/{self.refund()['id']}")])
-        self.assertIn("digest", self.records("api-tools")[0])
-        self.assertEqual(self.refund()["extensions"]["referenceCost"], 0.01)
-        self.assertEqual(self.run_seed(), [])
-
-    def test_a_negative_reference_is_refused_by_the_file_and_not_left_for_the_platform(self):
-        self.seed_files({"aim/api-tools/orders.yaml": orders("{id: getOrder, referenceCost: -0.5}")})
-        message = "getOrder of 'Harbor Orders API': referenceCost must be a number, 0 or more"
-        with self.assertRaisesRegex(common.SeedError, message):
-            self.run_seed()
-        self.assertEqual(self.writes(), [])
-
-    def test_a_tool_the_import_did_not_give_back_is_named(self):
-        def partial(call):
-            code, body = ToolWorld.import_tools(self.world, call)
-            body["data"] = [t for t in body["data"] if t["definition"]["name"] != "createRefund"]
-            return code, body
-        self.platform.add({("POST", IMPORT): partial})
-        message = "The platform did not give back the tool createRefund of 'Harbor Orders API'"
-        with self.assertRaisesRegex(common.SeedError, message):
-            self.run_seed()
-
-    def test_a_tool_that_the_platform_gave_an_output_schema_back_does_not_send_it_again(self):
-        def keeps(call):
-            code, body = ToolWorld.import_tools(self.world, call)
-            for tool in body["data"]:
-                tool["definition"]["outputSchema"] = {"type": "object"}
-            return code, body
-        self.platform.add({("POST", IMPORT): keeps})
-        self.seed_files({"aim/api-tools/orders.yaml": REFUND.replace("    annotations:", "    referenceCost: 0.01\n    annotations:")})
-        self.run_seed()
-        self.assertNotIn("outputSchema", self.saved()[0]["definition"])
 
 
 class Studios(Tools):
@@ -577,13 +450,11 @@ class AcmeBakery(Catalog):
         operations = ["listBranches", "getBranch", "listRates"]
         self.world.apis["api-1"] = {"name": "Acme Bakery Open API", "operations": operations}
 
-    def test_every_operation_of_the_page_is_imported_as_before_and_nothing_is_read_or_saved(self):
+    def test_every_operation_of_the_page_is_imported_as_before(self):
         self.run_seed()
         [call] = self.sent("POST", "/catalog/mcp-tools/_importFromApis")
         self.assertEqual([t["definition"]["name"] for t in call.json["tools"]],
                          ["listBranches", "getBranch", "listRates"])
-        self.assertEqual(self.sent("PUT", "/catalog/mcp-tools/*"), [])
-        self.assertEqual(self.sent("GET", "/catalog/mcp-tools/*"), [])
         self.assertIn("[aim-catalog] ✓ API tool imported: Acme Bakery Open API (3 tools)", self.output())
 
     def test_the_fingerprint_is_that_of_the_tools_sent_so_that_a_record_made_before_still_counts(self):

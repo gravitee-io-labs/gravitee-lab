@@ -22,8 +22,8 @@ what the file writes in place of what the page gave, to tailor the tool for a mo
     operations:
       - listOrders
       - id: createRefund
-        description: ...         # description, inputSchema and annotations replace those of the generated definition;
-        inputSchema: {...}       # referenceCost and referenceValue (USD, 0 or more) go in the extensions of the tool
+        description: ...         # description, inputSchema and annotations replace those of the generated definition
+        inputSchema: {...}
         annotations: {...}
 
 A file may say `needs: NAME`: the seed skips it, and says so, while the environment variable NAME is empty. A provider of a
@@ -75,14 +75,10 @@ SLUG = re.compile(r"[a-z0-9_-]+")
 MCP_VERSION = "2025-11-25"   # asked at the start: the server answers with the version it speaks
 CARD_PATH = "/.well-known/agent-card.json"
 RISKS = ("negligible", "limited", "moderate", "high")   # what the catalog accepts as an agent's risk classification
-TOOL_PATH = "/catalog/mcp-tools"
-# What an operation of an api-tools file may write in place of what the OpenAPI page gave, and what each must be: the
-# keys of the tool's definition, then the references (USD) that the platform keeps in the extensions of the tool
+# What an operation of an api-tools file may write in place of what the OpenAPI page gave, and what each must be
 TAILORED = {"description": ("text", lambda v: isinstance(v, str) and bool(v.strip())),
             "inputSchema": ("a JSON schema", lambda v: isinstance(v, dict)),
             "annotations": ("a mapping of hints", lambda v: isinstance(v, dict))}
-REFERENCES = {key: ("a number, 0 or more", lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0)
-              for key in ("referenceCost", "referenceValue")}
 # What the catalog keeps of an agent card: it drops the rest
 CARD_FIELDS = ("name", "description", "url", "provider", "version", "documentationUrl", "capabilities",
                "defaultInputModes", "defaultOutputModes", "skills", "securitySchemes", "security")
@@ -492,13 +488,12 @@ def release_studios(aim):
 def checked(name, operation, overrides):
     """What a file writes in place of an operation's generated tool, checked now: the platform validates a tool when it
     is saved, after the tools of the API were replaced."""
-    rules = {**TAILORED, **REFERENCES}
-    unknown = [key for key in overrides if key not in rules]
+    unknown = [key for key in overrides if key not in TAILORED]
     if unknown:
         raise SeedError(f"The operation {operation} of '{name}' cannot say {', '.join(map(str, unknown))}: "
-                        f"only id, {', '.join(rules)}")
+                        f"only id, {', '.join(TAILORED)}")
     for key, value in overrides.items():
-        wanted, valid = rules[key]
+        wanted, valid = TAILORED[key]
         if not valid(value):
             raise SeedError(f"The operation {operation} of '{name}': {key} must be {wanted}")
     return overrides
@@ -530,8 +525,9 @@ def operations_of(spec):
 
 def tools_of(name, api_id, generated, operations):
     """What the import takes for an API, in the order of the file: {apiId, gatewayMapping, definition}, the definition
-    without its output schema. An operation with something written for it carries it as `tailoring`, which the import
-    does not take."""
+    without its output schema and with the words the file writes for a model. They are not saved after the import, because
+    API Management 4.13.1 refuses every save of a tool made from an API ("parentId is required for this kind": such a tool has
+    no parent server)."""
     problems = excerpt("; ".join(e["message"] for e in generated["errors"]))
     names = [t["toolDefinition"]["name"] for t in generated["tools"]]
     if operations is None:
@@ -550,52 +546,9 @@ def tools_of(name, api_id, generated, operations):
             raise SeedError(f"The OpenAPI page of '{name}' has no operation {', '.join(missing)}: it has "
                             f"{', '.join(names) or 'none'}")
         chosen = [(by_name[operation], overrides) for operation, overrides in operations]
-    tools = []
-    for tool, overrides in chosen:
-        entry = {"apiId": api_id, "gatewayMapping": tool["gatewayMapping"],
-                 "definition": {k: v for k, v in tool["toolDefinition"].items() if k != "outputSchema"}}
-        tools.append({**entry, "tailoring": overrides} if overrides else entry)
-    return tools
-
-
-def import_entry(tool):
-    """What the import takes for a tool: the words the file writes for a model are part of the definition it is imported
-    with. They are not saved after the import, because API Management 4.13.1 refuses every save of a tool made from an
-    API ("parentId is required for this kind": such a tool has no parent server)."""
-    entry = {k: v for k, v in tool.items() if k != "tailoring"}
-    words = {k: v for k, v in (tool.get("tailoring") or {}).items() if k in TAILORED}
-    if words:
-        entry["definition"] = {**entry["definition"], **words}
-    return entry
-
-
-def tailor(aim, name, imported, tools):
-    """Writes into the imported tools the references their file gives, which go in the extensions of a tool and which
-    the import does not take. A save replaces the tool, so it sends back the tool as it was read: the source, the
-    entity id, the definition, and the extensions, which hold the mapping to the API."""
-    stored = {t["definition"]["name"]: t for t in imported}
-    count = 0
-    for tool in tools:
-        overrides, operation = tool.get("tailoring"), tool["definition"]["name"]
-        if not overrides:
-            continue
-        if operation not in stored:
-            raise SeedError(f"The platform did not give back the tool {operation} of '{name}'")
-        count += 1
-        if not any(k in overrides for k in REFERENCES):
-            continue
-        try:
-            current = aim.get(f"{TOOL_PATH}/{stored[operation]['id']}").json()
-            definition = {k: v for k, v in current["definition"].items() if k != "outputSchema"}
-            definition.update({k: overrides[k] for k in TAILORED if k in overrides})
-            extensions = {**(current.get("extensions") or {}),
-                          **{k: overrides[k] for k in REFERENCES if k in overrides}}
-            aim.put(f"{TOOL_PATH}/{current['id']}",
-                    json={"sourceId": current["sourceId"], "entityId": current["entityId"], "definition": definition,
-                          "extensions": extensions, "metadata": current.get("metadata") or {}})
-        except SeedError as e:   # the platform's refusal does not say which tool it was
-            raise SeedError(f"The tool {operation} of '{name}' could not be tailored: {e}") from e
-    return count
+    return [{"apiId": api_id, "gatewayMapping": tool["gatewayMapping"],
+             "definition": {**{k: v for k, v in tool["toolDefinition"].items() if k != "outputSchema"}, **overrides}}
+            for tool, overrides in chosen]
 
 
 def api_source(aim, name):
@@ -624,9 +577,7 @@ def seed_api_tools(aim):
     What the file asks counts as a change of the API: another list of operations, or other words written for a tool,
     are a new fingerprint, and the tools are replaced. They could be edited in place, but a studio keeps a copy of each
     tool it was made with: a tool edited in place would leave the studio serving the old words, where a replacement
-    releases the studios, which are made again from the new tools. The words are part of the import (import_entry); the
-    references (REFERENCES) are written right after it, and the tools are recorded without their fingerprint until they
-    are: a seed that stops between the two replaces the tools on its next run."""
+    releases the studios, which are made again from the new tools."""
     # Every file is read first: one that asks what cannot be done stops the seed before anything changes
     asked = [(spec["api"], operations_of(spec)) for spec in specs("api-tools", "api")]
     for name, operations in asked:
@@ -644,15 +595,11 @@ def seed_api_tools(aim):
             release_studios(aim)
             aim.delete(f"{PATHS['api-tools']}/{found['id']}")
             common.forget(ours)   # gone: its import is noted
-        body = {"sources": [{"apiId": api["id"], "apiName": name}],
-                "tools": [import_entry(t) for t in tools]}
+        body = {"sources": [{"apiId": api["id"], "apiName": name}], "tools": tools}
         with common.making(SECTION, "api-tools", LABELS["api-tools"], name, missing=True):
             imported = aim.post("/catalog/mcp-tools/_importFromApis", json=body).json()["data"]
-            record(SECTION, "api-tools", LABELS["api-tools"], name, imported[0]["sourceId"])
-        tailored = tailor(aim, name, imported, tools)
-        record(SECTION, "api-tools", LABELS["api-tools"], name, imported[0]["sourceId"], digest=digest)
-        say("api-tools", "replaced" if found else "imported",
-            f"{name} ({len(imported)} tools{f', {tailored} tailored' if tailored else ''})")
+            record(SECTION, "api-tools", LABELS["api-tools"], name, imported[0]["sourceId"], digest=digest)
+        say("api-tools", "replaced" if found else "imported", f"{name} ({len(imported)} tools)")
 
 
 # --- The module -----------------------------------------------------------------------------
