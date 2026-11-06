@@ -317,7 +317,7 @@ def pins(text: str) -> Dict[str, Tuple[str, str]]:
 
 def carry_pins(rendered: str, current: str) -> str:
     """The rendered text with the pins that `current` already holds for the same actions: a commit that Dependabot bumped is
-    the catalog's, and an upgrade keeps it (`--refresh-pins` takes the template's)."""
+    the catalog's, and an upgrade keeps it."""
     held = pins(current)
     out = []
     for line in rendered.split("\n"):
@@ -914,11 +914,6 @@ def _entry(path: str, action: str, kind: str, why: str = "", content: Optional[b
     return {"path": path, "action": action, "class": kind, "why": why, "content": content}
 
 
-def _scalar_pins(a: str, b: str) -> bool:
-    """Whether two texts hold the same pins for the same actions."""
-    return pins(a) == pins(b)
-
-
 RELEASE_TAG = re.compile(r"v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})")   # a release of the Lab
 
 
@@ -1057,8 +1052,7 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
         refused     "" or why nothing can be done (the plan has no files then)
         pending     whether anything would be written
 
-    `options`: lab_ref (40 hex: the new pin), refresh_pins, adopt, replace (paths to replace though they have no marker, with
-    adopt), form, with (modules), maintainers / lab_repository / security_contact (for what adopt adds), level (default LEVEL),
+    `options`: lab_ref (40 hex: the new pin), adopt, form, with (modules), maintainers / lab_repository / security_contact (for what adopt adds), level (default LEVEL),
     lab (the Lab checkout: SD11 and the log of a moved pin are asked of it), legacy_lab (when the key is there, catalog.yml gets
     the lines older Gravitee Labs read, made true: `schema`, and `lab` as given, or as the file has it when None). Pure:
     it reads the tree and runs `git log` in the Lab checkout; it writes nothing."""
@@ -1111,8 +1105,6 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
         return refuse(f"--with takes {', '.join(MODULES)}.")
     if (form == "reusable" or extra) and level < 3:
         return refuse("The e2e module and the reusable form arrive with standard 3; this Lab has standard %d." % level)
-    replace = set(options.get("replace") or ()) if adopt else set()
-    refresh = bool(options.get("refresh_pins"))
     images = bool(meta.get("images"))
     data = manifest()
     # A module the catalog has, by any of its files: a file the new standard adds to that module comes with the upgrade
@@ -1135,19 +1127,14 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
             files.append(_entry(path, ADD, "managed", "missing", want.encode("utf-8")))
         elif kind == "odd":
             files.append(_entry(path, UPDATE, "managed", "it is not a file", want.encode("utf-8")))
-        elif marker_level(text, path) is None and path not in replace:
+        elif marker_level(text, path) is None:
             plan["owned"].append(path)
             files.append(_entry(path, OWNED, "managed", "the catalog removed the marker"))
+        elif comparable(text) == comparable(want):
+            files.append(_entry(path, CURRENT, "managed"))
         else:
-            if comparable(text) == comparable(want):
-                if refresh and not _scalar_pins(text, want):
-                    files.append(_entry(path, UPDATE, "managed", "the pins are the template's", want.encode("utf-8")))
-                else:
-                    files.append(_entry(path, CURRENT, "managed"))
-                continue
-            content = want if refresh or marker_level(text, path) is None else carry_pins(want, text)
             files.append(_entry(path, UPDATE, "managed", "behind" if (state.level or level) < level else "differs",
-                                content.encode("utf-8")))
+                                carry_pins(want, text).encode("utf-8")))
     for path in data["removed"]:
         kind, text = _file(tree, path)
         if kind == "missing":
@@ -1546,9 +1533,7 @@ def _upgrade_arguments(argv: List[str]):
     parser.add_argument("dir", nargs="?", default=".")
     parser.add_argument("--write", action="store_true")
     parser.add_argument("--lab-ref", dest="lab_ref")
-    parser.add_argument("--refresh-pins", dest="refresh_pins", action="store_true")
     parser.add_argument("--adopt", action="store_true")
-    parser.add_argument("--replace", action="append", default=[])
     parser.add_argument("--form")
     parser.add_argument("--with", dest="with_", action="append", default=[])
     parser.add_argument("--maintainers")
@@ -1608,17 +1593,14 @@ def describe(plan: dict, fmt: str = "text", result: Optional[dict] = None) -> st
 def apply_command(args) -> str:
     """The command that makes what the plan says, as the person would type it: the Makefile's when it carries every option that
     was given (it is run in the catalog and takes `LAB_REF`), else `catalog.py`'s own with all of them."""
-    plain = not (args.refresh_pins or args.adopt or args.replace or args.form or args.with_ or args.maintainers or args.lab_repo)
+    plain = not (args.adopt or args.form or args.with_ or args.maintainers or args.lab_repo)
     if plain and args.dir == ".":
         return "make upgrade WRITE=1" + (f" LAB_REF={shlex_quote(args.lab_ref)}" if args.lab_ref else "")
     words = ["catalog.py", "upgrade"] + ([] if args.dir == "." else [shlex_quote(args.dir)])
     for flag, value in (("--lab-ref", args.lab_ref), ("--form", args.form), ("--maintainers", args.maintainers),
                         ("--lab-repo", args.lab_repo)):
         words += [flag, shlex_quote(value)] if value else []
-    words += ["--refresh-pins"] if args.refresh_pins else []
     words += ["--adopt"] if args.adopt else []
-    for path in args.replace:
-        words += ["--replace", shlex_quote(path)]
     for word in args.with_:
         words += ["--with", shlex_quote(word)]
     return " ".join(words + ["--write"])
@@ -1635,7 +1617,7 @@ def legacy_lab(root) -> Optional[int]:
 
 
 def main_upgrade(argv: List[str], lab: Optional[Path] = None) -> int:
-    """`catalog.py upgrade [DIR] [--write] [--lab-ref COMMIT or latest] [--refresh-pins] [--adopt] [--form F]
+    """`catalog.py upgrade [DIR] [--write] [--lab-ref COMMIT or latest] [--adopt] [--form F]
     [--with e2e] [--format text or github or json]`. Without `--write` it prints the plan and writes nothing (exit 1 when
     anything is pending, 0 when nothing is). With `--format json` standard output is the one JSON document and nothing else."""
     try:
@@ -1654,8 +1636,7 @@ def main_upgrade(argv: List[str], lab: Optional[Path] = None) -> int:
         if args.adopt and not ref and tree.entry(STANDARD) is None:
             # a repository made by hand has no pin yet: it gets the latest release of the Lab this command runs from
             ref = latest_release(lab) or _lab_head(lab)
-        plan = upgrade_plan(tree, {"lab_ref": ref, "refresh_pins": args.refresh_pins, "adopt": args.adopt, "replace": args.replace,
-                                   "form": args.form, "with": args.with_, "maintainers": args.maintainers,
+        plan = upgrade_plan(tree, {"lab_ref": ref, "adopt": args.adopt, "form": args.form, "with": args.with_, "maintainers": args.maintainers,
                                    "lab_repository": args.lab_repo or (_lab_origin(lab) if args.adopt else ""),
                                    "lab": lab, "legacy_lab": legacy_lab(root)})
     except Usage as error:

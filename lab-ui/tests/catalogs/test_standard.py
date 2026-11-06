@@ -1548,7 +1548,7 @@ class Upgrading(Case):
         self.assertTrue(out.endswith("Wrote 1 files.\n"), out)
         self.assertEqual(standard.drift(FolderTree(repo.root), standard.LEVEL), [])
 
-    def test_the_pins_a_catalog_holds_are_kept_and_refresh_pins_takes_the_templates(self):
+    def test_the_pins_a_catalog_holds_are_kept(self):
         bumped = edited(at(1), ".github/workflows/ci.yml", lambda text: text.replace("3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1", "9" * 40 + " # v7.9.9"))
         repo = self.repo(files=bumped)
         self.assertFalse(self.plan(repo, level=1)["pending"])    # a bump is not drift
@@ -1557,21 +1557,6 @@ class Upgrading(Case):
         self.assertIn(b"actions/checkout@" + b"9" * 40 + b" # v7.9.9", ci["content"])
         self.assertNotIn(b"3d3c42e5aac5ba805825da76410c181273ba90b1", ci["content"])
         self.assertIn(b"ci smoke", ci["content"])
-        refreshed = self.plan(repo, level=2, refresh_pins=True)
-        ci = [each for each in refreshed["files"] if each["path"] == ".github/workflows/ci.yml"][0]
-        self.assertIn(b"3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1", ci["content"])
-        self.assertNotIn(b"9" * 40, ci["content"])
-
-    def test_refresh_pins_alone_updates_a_file_whose_only_difference_is_a_pin(self):
-        repo = self.repo(files=edited(render(), ".github/workflows/ci.yml", lambda text: text.replace(
-            "3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1", "9" * 40 + " # v7.9.9")))
-        self.assertFalse(self.plan(repo)["pending"])
-        plan = self.plan(repo, refresh_pins=True)
-        self.assertEqual(self.actions(plan), {".github/workflows/ci.yml": "update"})
-        standard.upgrade_apply(repo.root, plan)
-        self.assertEqual(standard.pins((repo.root / ".github/workflows/ci.yml").read_text())["actions/checkout"],
-                         ("3d3c42e5aac5ba805825da76410c181273ba90b1", "# v7.0.1"))
-        self.assertFalse(self.plan(repo, refresh_pins=True)["pending"])
 
     def test_a_file_that_left_the_template_is_removed_when_it_is_ours_and_listed_when_it_is_not(self):
         template = support.copy_template(self)
@@ -1703,11 +1688,9 @@ class Upgrading(Case):
         self.assertEqual(line("--lab-ref", NEWER_COMMIT), f"make upgrade WRITE=1 LAB_REF={NEWER_COMMIT}")
         self.assertEqual(line("../hub"), "catalog.py upgrade ../hub --write")
         self.assertEqual(line("a hub", "--lab-ref", "latest"), "catalog.py upgrade 'a hub' --lab-ref latest --write")
-        self.assertEqual(line("--refresh-pins"), "catalog.py upgrade --refresh-pins --write")
         self.assertEqual(line("--adopt", "--maintainers", "@acme/maintainers", "--lab-repo", "acme/lab"),
                          "catalog.py upgrade --maintainers @acme/maintainers --lab-repo acme/lab --adopt --write")
         self.assertEqual(line("--form", "reusable", "--with", "e2e", "--with", "x"), "catalog.py upgrade --form reusable --with e2e --with x --write")
-        self.assertEqual(line("--replace", ".github/dependabot.yml", "--adopt"), "catalog.py upgrade --adopt --replace .github/dependabot.yml --write")
         self.assertEqual(line("--lab-ref", "a b;rm -rf x"), "make upgrade WRITE=1 LAB_REF='a b;rm -rf x'")      # quoted for the shell
         self.assertEqual(line("a;b", "--form", "x y"), "catalog.py upgrade 'a;b' --form 'x y' --write")
 
@@ -1718,8 +1701,8 @@ class Upgrading(Case):
         code, out, err = self.upgrade_here(repo, "--lab-ref", tip, lab=lab.root)
         self.assertEqual((code, err), (1, ""))
         self.assertTrue(out.endswith(f"Nothing was written. To apply: make upgrade WRITE=1 LAB_REF={tip}\n"), out)
-        code, out, err = self.upgrade_here(repo, "--refresh-pins")
-        self.assertTrue(out.endswith("Nothing was written. To apply: catalog.py upgrade --refresh-pins --write\n"), out)
+        code, out, err = self.upgrade_here(repo, "--maintainers", "@a")
+        self.assertTrue(out.endswith("Nothing was written. To apply: catalog.py upgrade --maintainers @a --write\n"), out)
 
     def test_json_is_the_one_document_whether_or_not_the_plan_is_written(self):
         repo = self.repo(files=edited(render(), ".github/workflows/ci.yml", lambda text: text + "# x\n"))
@@ -1812,14 +1795,6 @@ class Upgrading(Case):
         self.assertEqual((repo.root / "addons/x/compose.yml").read_bytes(), b"services: {}\n")
         found = standard.drift(FolderTree(repo.root), standard.LEVEL)
         self.assertEqual(sorted(each.code for each in found), ["SD08"])   # the workflow it kept is the catalog's: no marker, no comparison
-
-    def test_adopt_replaces_a_file_on_request_only(self):
-        repo = self.repo(files={"catalog.yml": render()["catalog.yml"], ".github/workflows/ci.yml": b"name: mine\n"})
-        common = {"adopt": True, "maintainers": "@a", "lab_repository": "acme/lab", "lab_ref": LAB_COMMIT}
-        self.assertEqual(self.actions(standard.upgrade_plan(FolderTree(repo.root), common))[".github/workflows/ci.yml"], "owned")
-        replaced = standard.upgrade_plan(FolderTree(repo.root), {**common, "replace": [".github/workflows/ci.yml"]})
-        self.assertEqual(self.actions(replaced)[".github/workflows/ci.yml"], "update")
-        self.assertEqual(replaced["owned"], [])
 
     def test_adopt_needs_the_owners_to_write_codeowners(self):
         repo = self.repo(files={"catalog.yml": render()["catalog.yml"]})

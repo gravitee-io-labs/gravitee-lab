@@ -1025,8 +1025,8 @@ HELP = {
             "                [--description TEXT] [--security-contact ADDRESS] [--lab-repo OWNER/REPO] [--lab-ref COMMIT]\n"
             "                [--platforms LIST] [--form inline|reusable] [--with e2e] [--local]"),
     "upgrade": ("bring the managed files of a catalog to the level of this Lab, or of every catalog of an owner",
-                "catalog.py upgrade [DIR] [--write] [--lab-ref COMMIT|latest] [--refresh-pins] [--adopt]\n"
-                "                   [--replace PATH] [--form inline|reusable] [--with e2e] [--maintainers @A] [--lab-repo OWNER/REPO]\n"
+                "catalog.py upgrade [DIR] [--write] [--lab-ref COMMIT|latest] [--adopt]\n"
+                "                   [--form inline|reusable] [--with e2e] [--maintainers @A] [--lab-repo OWNER/REPO]\n"
                 "                   [--format text|json]\n"
                 "catalog.py upgrade --fleet OWNER --lab-ref COMMIT [--format text|json|github]"),
     "release": ("prepare a release of a catalog, then tag it",
