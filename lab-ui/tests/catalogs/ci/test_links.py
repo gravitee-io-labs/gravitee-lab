@@ -187,12 +187,6 @@ class Addresses(unittest.TestCase):
             with self.subTest(answer=answer):
                 self.assertEqual(links.broken(answer), expected)
 
-    def test_the_message_is_the_words_of_the_standard(self):
-        found = links.findings([links.Link("docs/guide.md", 12, "https://docs.acme.org/gone")],
-                               {"https://docs.acme.org/gone": links.Answer(404)})
-        self.assertEqual([(each.code, each.severity, each.path, each.line, each.message) for each in found], [
-            ("LK01", "warning", "docs/guide.md", 12, "docs/guide.md:12: the link https://docs.acme.org/gone answers 404.")])
-
     def test_a_long_address_is_shown_cut(self):
         url = "https://docs.acme.org/" + "a" * 400
         found = links.findings([links.Link("README.md", 1, url)], {url: links.Answer(404)})

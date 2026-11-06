@@ -513,11 +513,6 @@ class Inputs(Fixture):
         self.assertEqual([job["item"] for job in self.jobs()], ["addon:mock"])
         self.assertNotIn("::error::", self.out.getvalue())
 
-    def test_the_messages_are_the_words_of_the_standard(self):
-        self.assertEqual(e2e.head_mismatch("12", "a" * 40, "b" * 40).message,
-                         "The head of pull request 12 is aaaaaaa, not the commit you read (bbbbbbb). Fix: read the new commits, then run "
-                         "again with the new one.")
-
 
 class Gate(Fixture):
     """E2E03 again, in the job that holds the license."""

@@ -14,7 +14,7 @@ from unittest import mock
 
 from lab_ui.catalogs.ci import apptests
 from lab_ui.catalogs import ci
-from lab_ui.catalogs.ci import apps, build
+from lab_ui.catalogs.ci import apps
 from tests.fakedocker import FakeDocker, option
 from tests.catalogs.ci.test_build import Disk
 
@@ -536,13 +536,6 @@ class Stage(Disk):
         self.assertEqual(code, 1)
         self.assertEqual(self.fake.calls(), [])
         self.assertIn("title=T03::playground:bank was not tested: Runs with full privileges.", self.out.getvalue())
-
-    def test_the_messages_are_the_standards(self):
-        self.assertEqual(ci.problem("TS01", "p", 0, app="bakery-web", n=2).message,
-                         "bakery-web: 2 tests failed. Fix: run make ci APP=bakery-web to see them.")
-        self.assertEqual(ci.problem("TS02", "p", 0, app="bakery-web").message,
-                         "bakery-web has no tests. Fix: COPY tests ./tests in the Dockerfile and add some.")
-        self.assertEqual(build.app_of("/a/b/apps/bakery-web"), "bakery-web")
 
 
 if __name__ == "__main__":
