@@ -78,7 +78,7 @@ RULES = table([
     ("SD01", ERROR, "A managed file is missing", "{path} is missing from the shared files. Fix: catalog.py upgrade --write."),
     ("SD02", ERROR, "A managed file differs from the Lab's render at the repository's own level",
      "{path} was edited by hand. Fix: git checkout -- {path}. A change to a shared file is read by a maintainer."),
-    ("SD03", WARNING, "A managed file is behind: the repository's level is below the Lab's (an error when that level is urgent)",
+    ("SD03", WARNING, "A managed file is behind: the repository's level is below the Lab's",
      "{path} is from standard {have}; this Lab has {now}. Fix: catalog.py upgrade --write."),
     ("SD04", ERROR, "standard.json is unreadable, has a bad value, or is over 4 KB (a warning for an unknown key)",
      ".github/standard.json: {problem}."),
@@ -159,8 +159,7 @@ def _checked(data) -> dict:
     for number in range(1, top + 1):
         note = notes.get(str(number))
         need(isinstance(note, dict) and isinstance(note.get("summary"), str) and isinstance(note.get("manual"), list)
-             and isinstance(note.get("settings"), list) and isinstance(note.get("urgent"), bool), f"level {number} has no note "
-             "(summary, manual, settings, urgent)")
+             and isinstance(note.get("settings"), list), f"level {number} has no note (summary, manual, settings)")
     return data
 
 
@@ -719,12 +718,6 @@ def create(root, params: dict) -> List[str]:
 # Drift: SD01 to SD05 and SD08 to SD10
 # ---------------------------------------------------------------------------------------------------------------------
 
-def _urgent(have: int, now: int) -> bool:
-    """Whether a level the repository has not reached is a security fix (SD03 becomes an error)."""
-    notes = manifest()["notes"]
-    return any(notes.get(str(number), {}).get("urgent") for number in range(have + 1, now + 1))
-
-
 def _file(tree, path: str) -> Tuple[str, Optional[str]]:
     """('missing', None), ('odd', None) for something that is not a file that can be read, or ('file', the text)."""
     entry = tree.entry(path)
@@ -787,8 +780,6 @@ def drift(tree, level: int) -> List[Problem]:
             continue
         if kind == "missing":
             found.append(_issue("SD03", path, have=asked, now=level) if asked < entry["since"] else _issue("SD01", path))
-            if asked < entry["since"] and _urgent(asked, level):
-                found[-1] = found[-1]._replace(severity=ERROR)
             continue
         if kind == "odd":
             found.append(_issue("SD02", path))
@@ -807,8 +798,6 @@ def drift(tree, level: int) -> List[Problem]:
             found.append(_issue("SD02", path))
         else:
             found.append(_issue("SD03", path, have=asked, now=level))
-            if _urgent(asked, level):
-                found[-1] = found[-1]._replace(severity=ERROR)
     return found + _owned_checks(tree)
 
 
@@ -1047,7 +1036,7 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
         level       the Lab's level          have        the repository's (None when it has no standard.json)
         files       [{path, action, class, why, content}], action one of add, update, remove, current, owned
         owned       the paths the catalog owns (no marker): skipped, listed
-        notes       [{level, summary, manual, settings, urgent}] for the levels the repository has not reached
+        notes       [{level, summary, manual, settings}] for the levels the repository has not reached
         lab         {repository, old, new, compare, log}: the Lab pin, and what moving it brings
         refused     "" or why nothing can be done (the plan has no files then)
         pending     whether anything would be written

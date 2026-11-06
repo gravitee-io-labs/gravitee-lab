@@ -136,7 +136,7 @@ SD = (
     ("SD01", ERROR, "A managed file is missing", "{path} is missing from the shared files. Fix: catalog.py upgrade --write."),
     ("SD02", ERROR, "A managed file differs from the Lab's render at the repository's own level",
      "{path} was edited by hand. Fix: git checkout -- {path}. A change to a shared file is read by a maintainer."),
-    ("SD03", WARNING, "A managed file is behind: the repository's level is below the Lab's (an error when that level is urgent)",
+    ("SD03", WARNING, "A managed file is behind: the repository's level is below the Lab's",
      "{path} is from standard {have}; this Lab has {now}. Fix: catalog.py upgrade --write."),
     ("SD04", ERROR, "standard.json is unreadable, has a bad value, or is over 4 KB (a warning for an unknown key)",
      ".github/standard.json: {problem}."),

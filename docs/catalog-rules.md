@@ -47,7 +47,7 @@ Every rule that `catalog.py check` and the stages of `catalog.py ci` can print, 
 
 ### SD03
 
-*Warning.* A managed file is behind: the repository's level is below the Lab's (an error when that level is urgent).
+*Warning.* A managed file is behind: the repository's level is below the Lab's.
 
 - **Message**: {path} is from standard {have}; this Lab has {now}. Fix: catalog.py upgrade --write.
 - **Fix**: catalog.py upgrade --write.

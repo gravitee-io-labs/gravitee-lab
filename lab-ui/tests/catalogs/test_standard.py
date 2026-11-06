@@ -816,18 +816,6 @@ class Drift(Case):
             files = edited(at(2), ".catalog/standard.mk", change)
             self.assertNotEqual(self.check(files, level=2), [])
 
-    def test_a_level_that_is_urgent_makes_behind_an_error(self):
-        template = support.copy_template(self)
-        data = json.loads((template / "manifest.json").read_text(encoding="utf-8"))
-        data["notes"]["2"]["urgent"] = True
-        (template / "manifest.json").write_text(json.dumps(data), encoding="utf-8")
-        found = self.check(at(1), level=2)
-        self.assertEqual({each.severity for each in found}, {"error"})
-        found = self.check(at(1), level=3)
-        self.assertEqual((where(found, "SD03"), {each.severity for each in found}),
-                         ([".github/workflows/ci.yml", ".github/workflows/nightly.yml"], {"error"}))   # level 3 too: the levels between count
-        self.assertEqual({each.severity for each in self.check(at(2), level=3)}, {"warning"})   # level 2 is behind none that is urgent
-
     def test_the_declared_level_tells_behind_from_edited(self):
         for declared, code in ((2, "SD02"), (1, "SD03")):
             files = edited(at(2), ".github/workflows/ci.yml", lambda text: text + "# changed\n")
