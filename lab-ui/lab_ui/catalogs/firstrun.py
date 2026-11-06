@@ -45,7 +45,6 @@ _progress = threading.Lock()   # the only shared state the worker writes
 
 OPT_OUT = "LAB_NO_FIRST_RUN"   # set to 1: no intent written, no thread (for tests and tools)
 
-PROBE = 20.0   # seconds ls-remote may take
 STALL, CAP = 30.0, 600.0   # a fetch ends after this many seconds without a byte, and after this many in all
 SCHEDULE = (15.0, 60.0, 300.0)   # seconds before the first, second and third automatic retry of a failure
 LATER = 1800.0   # then every 30 minutes
@@ -272,15 +271,6 @@ def _contract() -> dict:
     return understood.levels() or {"contract": 1, "contract_min": 1}
 
 
-def _anonymous(address: gitx.Address) -> str:
-    """"public" when a stranger's ls-remote answers, else "private": an ssh address and any doubt are private."""
-    try:
-        gitx.ls_remote(address, None, anonymous=True, timeout=PROBE)
-    except (CatalogError, OSError):
-        return "private"
-    return "public"
-
-
 def _forget_stage(ns: str) -> None:
     shutil.rmtree(registry.stage_dir(ns), ignore_errors=True)
 
@@ -307,9 +297,10 @@ def _download(ns: str, entry: Optional[dict], row: Optional[dict]) -> None:
     branch = defaults.effective(stand_in)[1]
     _set(ns, "probe", 0.0)
     gitx.require()   # no git, or one too old, is known before anything is asked of the network
-    remote = gitx.ls_remote(address, branch, timeout=PROBE)
+    remote = gitx.ls_remote(address, branch)
     _set(ns, "probe", 0.5)
-    audience = _anonymous(address)
+    from . import service   # here and not above: the worker calls this module
+    audience = service._audience(address)
     _set(ns, "probe", 1.0)
     own = entry is not None
     store_path = registry.store_dir(ns) if own else registry.new_store_dir(secrets.token_hex(8))
