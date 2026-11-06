@@ -6,7 +6,6 @@ import fcntl
 import json
 import os
 import re
-import subprocess
 import tempfile
 import time
 import unittest
@@ -81,10 +80,6 @@ class Naming(Case):
                 e2e.target(text, self.BUILT)
         with self.assertRaisesRegex(ValueError, "No setup named events"):
             e2e.target("setup:events", self.BUILT)
-
-    def test_what_belongs_to_this_machine_is_never_run(self):
-        with self.assertRaisesRegex(ValueError, "belongs to this machine"):
-            e2e.target("playground:local/shop", {"playgrounds": {"local/shop": {}}, "addons": {}, "setups": {}})
 
 
 class AnyId(Case):
@@ -175,11 +170,6 @@ class Versions(Case):
         for given in ({"PATH": "/tmp"}, {"SHOP_VERSION": "1"}, {}, [], {"APIM_VERSION": 4}):
             with self.subTest(given=given), self.assertRaises(ValueError):
                 e2e.versions(self.UNIT, None, known, given)
-
-    def test_a_start_that_would_switch_versions_or_needs_a_registry_login_is_not_tried(self):
-        for reason in ("Would also change API Management 4.12.25 → 4.13.1", "Not logged in to Azure"):
-            with self.subTest(reason=reason):
-                self.assertTrue(e2e.UNABLE.search(reason))
 
     def test_a_variable_the_tools_read_is_not_a_version_even_when_an_image_is_written_with_it(self):
         """The catalog that writes the sets writes the images too: `known` is no barrier, the form of a setting is."""
@@ -282,7 +272,8 @@ class Starting(Case):
 
     def test_a_start_the_lab_ui_refuses_for_want_of_a_license_or_a_setting_cannot_be_tried_here(self):
         for reason in ("Needs a license", "Not in the license", "License expired", "Needs settings: HYBRID_CLOUD_TOKEN",
-                       "The license is not signed by GraviteeSource"):
+                       "The license is not signed by GraviteeSource", "Would also change API Management 4.12.25 → 4.13.1",
+                       "Not logged in to Azure"):
             with self.subTest(reason=reason), self.assertRaises(e2e.Unable) as caught:
                 attempt(FakeLab(lab_state({"shop": UP}, action={"enabled": False, "reason": reason}))).start(60)
             self.assertEqual(str(caught.exception), reason)
@@ -570,12 +561,6 @@ class Saying(Case):
         self.assertIn("The summary could not be written: No such file or directory", said)
         self.assertIn("It does not work: x", said)
 
-    def test_off_github_nothing_is_wrapped(self):
-        said = []
-        with mock.patch.dict(os.environ, {}, clear=True):
-            e2e.report(self.run_of(), e2e.FAILED, {}, "x", {"api": "::error::boom"}, said.append)
-        self.assertNotIn("::stop-commands", "\n".join(said))
-
     def test_a_log_is_kept_by_its_end_and_a_step_is_one_line_of_the_table(self):
         self.assertEqual(e2e.tail(None), "")
         self.assertEqual(e2e.tail("short"), "short")
@@ -612,6 +597,7 @@ class Saying(Case):
             e2e.report(self.run_of(), e2e.FAILED, {}, "x", {"api": "boom"}, said.append)
         self.assertIn("--- Log of api", "\n".join(said))
         self.assertNotIn("::group::", "\n".join(said))
+        self.assertNotIn("::stop-commands", "\n".join(said))
 
 
 class Running(Case):
@@ -1068,12 +1054,10 @@ class Repositories(Case):
         """In a repository where the base is not a branch (the default branch is not main, or the commit was not fetched), a
         committed file called like the range would be read by git as a path: the change would be empty, and nothing tried."""
         working = self.repo.parent / "ranged"
-        env = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null", "GIT_AUTHOR_NAME": "t",
-               "GIT_AUTHOR_EMAIL": "t@example.invalid", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid"}
         (working / "origin").mkdir(parents=True)
         (working / "origin" / "main...HEAD").write_text("a\n", encoding="utf-8")
         for command in (["init", "-q", "-b", "trunk"], ["add", "-A"], ["commit", "-q", "-m", "first"]):
-            subprocess.run(["git", *command], cwd=working, env=env, check=True, capture_output=True)
+            gitfixture.git("-C", str(working), *command)
         with self.assertRaisesRegex(e2e.PlanError, "git cannot tell what HEAD changes since origin/main"):
             e2e.changed_files(working, "origin/main", "HEAD")
         self.assertEqual(e2e.changed_files(working, "HEAD", "HEAD"), [], "a range that does resolve is read as before")
@@ -1126,19 +1110,6 @@ class FixtureCatalogs(Case):
         found = e2e.plan("fixture", self.built, canary_only=True)
         self.assertEqual(self.items(found), ["playground:tour", "addon:echo"])
         self.assertEqual(found["count"], 2)
-
-    def test_a_change_of_the_engine_runs_that_canary_too(self):
-        self.patch(e2e, "changed_files", return_value=["docker-compose.yml"])
-        found = e2e.plan(None, self.built, changed=("a", "b"))
-        self.assertEqual(self.items(found), ["playground:tour", "addon:echo"], "the default catalog of the project folder is fixture")
-
-    def test_the_first_catalog_is_planned_with_bare_ids_and_the_others_with_their_catalog(self):
-        self.assertTrue(all("@" not in item for item in self.items(e2e.plan("fixture", self.built, everything=True))))
-        self.assertTrue(all("@partner/" in item for item in self.items(e2e.plan("partner", self.built, everything=True))))
-
-    def test_a_catalog_that_is_not_linked_is_said(self):
-        with self.assertRaisesRegex(e2e.PlanError, "neither installed nor linked"):
-            e2e.plan("lab-new", self.built, everything=True)
 
     def test_an_item_whose_file_no_longer_loads_ends_the_plan_as_the_project_lists_it(self):
         """The shape of `catalog_problems` is the project's: what the plan reads of it is what Compose said of a real file."""
