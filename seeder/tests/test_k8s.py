@@ -48,7 +48,7 @@ def route(url):
     return re.sub(r"^https://k8s:6443", "", url)
 
 
-class Manifests(Seed):
+class Cluster(Seed):
 
     def setUp(self):
         super().setUp()
@@ -62,6 +62,9 @@ class Manifests(Seed):
                         ("GET", SERVER + "/apis/gravitee.io/v1alpha1"): (200, GRAVITEE),
                         ("PATCH", NAMESPACE): (200, {}), ("PATCH", SECRET): (200, {}), ("PATCH", CONTEXT): (200, {}),
                         ("GET", NAMESPACE): (404, {}), ("GET", SECRET): (404, {}), ("GET", CONTEXT): [(404, {}), (200, ACCEPTED)]}
+
+
+class Manifests(Cluster):
 
     def test_a_manifest_that_asks_the_loader_for_a_bomb_of_pairs_is_refused_before_anything_is_built(self):
         self.seed_files({"k8s/01-bomb.yaml": doubling(40)})
@@ -149,7 +152,7 @@ class Manifests(Seed):
         self.assertIn("needs metadata.namespace", str(e.exception))
 
 
-class Removal(Manifests):
+class Removal(Cluster):
 
     def records(self):
         return [{"product": "k8s", "kind": "namespace", "label": "namespaces", "name": "acme", "id": "acme"},
@@ -200,9 +203,7 @@ class Removal(Manifests):
         self.assertEqual(self.platform.calls, [])
 
 
-
-
-class Generated(Manifests):
+class Generated(Cluster):
     SECRET = "k8s/01-key.yaml"
     FILE = """
 apiVersion: v1

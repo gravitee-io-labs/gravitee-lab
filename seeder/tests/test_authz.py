@@ -248,7 +248,7 @@ class World:
         return 200, self.schemas[self.last(call)]
 
 
-class Authorization(Seed):
+class Case(Seed):
 
     def setUp(self):
         super().setUp()
@@ -264,6 +264,9 @@ class Authorization(Seed):
 
     def by_name(self, name):
         return next(p for p in self.world.policies.values() if p["name"] == name)
+
+
+class Authorization(Case):
 
     def test_the_seed_makes_the_schema_the_entities_and_the_policies_and_records_them(self):
         authz.seed()
@@ -431,7 +434,7 @@ class Authorization(Seed):
         self.assertLess(modules.index("am_link"), modules.index("aim_catalog"))
 
 
-class Protections(Authorization):
+class Protections(Case):
     """The cap on what an agent moves is a control: deployed while the mode protects, a draft while it does not."""
 
     def deploys(self):
