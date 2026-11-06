@@ -316,14 +316,8 @@ class Fake(Client):
         self.assertEqual(self.account(address)(), {"id": "acc"})
         method, path, headers, _ = server.asked[0]
         self.assertEqual((method, path, headers["Authorization"]), ("GET", "/management/accounts/acc",
-                                                                    f"{cloud.AUTH} {SECRET}"))
+                                                                    f"Bearer {SECRET}"))
         self.assertEqual(headers["Accept"], "application/json")
-
-    def test_the_scheme_is_one_constant(self):
-        address, server = self.scripted(lambda *asked: (200, '{"id": "acc"}', None))
-        self.patch(cloud, "AUTH", "Basic")
-        self.account(address)()
-        self.assertEqual(server.asked[0][2]["Authorization"], f"Basic {SECRET}")
 
     def test_a_token_the_cloud_refuses(self):
         self.raises("invalid", "refuses this token", self.account(self.url, account=ACCOUNT))
@@ -403,7 +397,6 @@ class GateFake(Client):
 
     def test_the_read_is_the_first_api_of_the_environment_with_the_token_as_bearer(self):
         address, server = self.scripted(lambda *asked: (200, '{"data": [], "pagination": {}}', None))
-        self.patch(cloud, "AUTH", "Basic")   # the scheme of the Cloud's own API is not the Gate's
         cloud.Gate(address, fake_cloud.CLOUD_TOKEN).check()
         method, path, headers, _ = server.asked[0]
         self.assertEqual((method, path), ("GET", self.read + "?perPage=1"))

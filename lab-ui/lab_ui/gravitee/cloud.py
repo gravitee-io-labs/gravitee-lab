@@ -18,7 +18,6 @@ from urllib.parse import quote, urlsplit
 
 from ..products import APIM
 
-AUTH = "Bearer"       # the Cloud's documentation says Bearer, its OpenAPI specification says HTTP basic
 PATH = "/management"
 GATE = "/apim/rest"   # the management API of API Management, as Cloud Gate serves it (no /management prefix)
 TIMEOUT = 15          # seconds the Cloud has to answer
@@ -142,9 +141,6 @@ class _Client:
             raise ValueError("The token is empty, or has spaces or characters that cannot be sent")
         self._token = token
 
-    def _scheme(self):
-        return "Bearer"
-
     def _refused(self, error):
         """The CloudError for an answer that is an error."""
         code = error.code
@@ -167,7 +163,7 @@ class _Client:
 
     def _open(self, method, path, body=None, accept="application/json"):
         """What the service answers, as bytes: empty when it says nothing."""
-        headers = {"Authorization": f"{self._scheme()} {self._token}", "Accept": accept,
+        headers = {"Authorization": f"Bearer {self._token}", "Accept": accept,
                    "User-Agent": "Gravitee-Lab-UI"}
         data = None
         if body is not None:
@@ -208,9 +204,6 @@ class Cloud(_Client):
 
     prefix = PATH
     forbidden = "This token is not allowed to do that: it needs an account owner"
-
-    def _scheme(self):
-        return AUTH
 
     def _list(self, path):
         """A list of objects, as the Cloud answers one."""
