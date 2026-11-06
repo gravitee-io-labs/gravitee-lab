@@ -4,7 +4,7 @@
 // contributions (the Lab UI runs the person's own git for that, with the credentials it already has), or a copy into a catalog that is a
 // folder. A short form: unlike the editor, Cancel and Escape drop what was typed without asking.
 
-import { $, $$, esc, icon, setHTML, api, store, splitKey, copyButton } from "../core.js";
+import { $, $$, esc, icon, setHTML, api, store, splitKey, copyButton, catalogRows } from "../core.js";
 import { toast, effectsDialog, confirmEffects, emptyHtml, contentStatus, actionButton, paintActions, safeHref } from "../components/ui.js";
 import { busy } from "../activity/jobs.js";
 import { selectField } from "../components/combo.js";
@@ -83,8 +83,6 @@ const submit = { hidden: false, reason: "" };   // Create, or Save: hidden for a
 // folder of the person's)
 const chosen = { how: "form", catalog: "" };
 
-// The rows of the catalogs the state lists
-const catalogRows = () => (Array.isArray(store.state?.catalogs) ? store.state.catalogs : []);
 // The catalogs an item can be made in besides this machine: those that are folders of the person's, which can be written
 const editable = () => catalogRows().filter((c) => c.kind === "folder" && c.writable);
 const nameOf = (id) => editable().find((c) => c.id === id)?.name || id;
@@ -360,12 +358,6 @@ function sharedNotice(item, done) {
     `${open ? `<a class="btn" href="${esc(open)}" target="_blank" rel="noopener">${icon("external")}Open pull request</a>` : ""}${CLOSE}`);
 }
 
-// The catalogs a share can go to, from the server's answer to the first check: its list, else (an answer that has none) the catalogs added
-// that are a repository or a folder, as the Catalogs page has them, the first catalog first. Whether one takes contributions, or can be pushed
-// to, is what the check of each says.
-const destinationsOf = (answer) => (Array.isArray(answer?.destinations) ? answer.destinations
-  : catalogRows().filter((c) => ["git", "folder"].includes(c.kind)).map((c) => ({ id: c.id, name: c.name, kind: c.kind, writable: true, audience: c.audience || "", reason: "" })));
-
 // Shares an item of this machine to a catalog that takes it, as a copy: the item stays, runs and keeps its settings. The server says first
 // which catalogs there are, and what sharing to each would do (a check that writes nothing); the dialog says it, the person chooses, and only
 // then is it done: a branch pushed to a catalog that is a repository, a copy into a folder. A problem that every destination finds is a
@@ -381,7 +373,7 @@ export async function share(item) {
     // The check of each destination that can take the item, said on the item's button as "Sharing"; in the error tone when nothing can be
     // shared until a problem is fixed
     const checking = (async () => {
-      const destinations = destinationsOf(await api(route, { check: true }));
+      const { destinations } = await api(route, { check: true });
       const checks = await Promise.all(destinations.map((d) => (d.reason || d.writable === false ? {}
         : api(route, { check: true, to: d.id }).catch((err) => ({ error: err.message })))));
       return { destinations, checks };
