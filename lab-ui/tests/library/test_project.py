@@ -9,7 +9,6 @@ import os
 import shutil
 import tempfile
 import threading
-import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -1957,19 +1956,19 @@ class Hostile(Case):
             "services:\n  fixture-evil:\n    image: busybox\n    env_file: /dev/zero\n")
 
     def asked(self, run):
-        """(what `run` made of the project, the files Compose was asked to read or resolve): compose.raw and the resolving of
-        one unit are watched, and answer as they would."""
-        asked = []
-        raw, alone = compose.raw, project._alone
+        """(what `run` made of the project, the files Compose was asked to read or resolve): every read comes to
+        compose._config, whoever asks, and what it reads from a scratch file was named to compose.all_files or is a copy read
+        from the folder of its original. Both answer as they would."""
+        asked, config, on_top, scratch = [], compose._config, compose.all_files, str(compose.scratch())
 
-        def watched_raw(path, *more, **how):
-            asked.append(path)
-            return raw(path, *more, **how)
+        def watched_config(files, *more, **how):
+            asked.extend(file.replace(f"{compose.ROOT}/", "") for file in files if scratch not in file)
+            return config(files, *more, **how)
 
-        def watched_alone(path, *more):
-            asked.append(path)
-            return alone(path, *more)
-        with mock.patch.object(compose, "raw", watched_raw), mock.patch.object(project, "_alone", watched_alone):
+        def watched_on_top(named, *more):
+            asked.extend(named)
+            return on_top(named, *more)
+        with mock.patch.object(compose, "_config", watched_config), mock.patch.object(compose, "all_files", watched_on_top):
             return run(), asked
 
     def evil(self, case):
@@ -2015,9 +2014,7 @@ class Hostile(Case):
         def many(case):
             for number in range(20):
                 case.write(f".lab/catalogs/fixture/addons/zero{number}/compose.yml", self.EVIL)
-        started = time.monotonic()
         (inputs, built), asked = self.asked(lambda: read(self, more=many))
-        self.assertLess(time.monotonic() - started, 10)
         self.assertEqual([file for file in asked if "zero" in file], [])
         self.assertEqual(sum(1 for uid, one in built["addons"].items() if uid.startswith("zero") and one["blocked"]), 20)
 
@@ -2103,18 +2100,16 @@ class Hostile(Case):
 
     def held(self, name, text, more=None, others=None):
         """The project with a unit `name` in the default catalog that has this text and what `more(case)` adds, read with a time
-        limit of three seconds so that a Compose that is asked to read what never ends is a failure of the test, not a
-        wait: (the inputs, the project, the files Compose was asked about)."""
+        limit of three seconds so that a Compose that is asked to read what never ends does not hold the test: (the inputs, the
+        project, the files Compose was asked about)."""
         def files(case):
             case.write(f".lab/catalogs/fixture/addons/{name}/compose.yml", text)
             if more:
                 more(case, case.root / f".lab/catalogs/fixture/addons/{name}")
             for other, content in (others or {}).items():
                 case.write(other, content)
-        started = time.monotonic()
         with mock.patch.object(project, "UNIT_TIMEOUT", 3):
             (inputs, built), asked = self.asked(lambda: read(self, more=files))
-        self.assertLess(time.monotonic() - started, 12, "Compose was not asked to read what never ends")
         return inputs, built, [file for file in asked if name in file or "mine" in file]
 
     def test_a_file_a_unit_includes_that_is_no_unit_is_never_given_to_compose_for_it_reads_what_its_include_says(self):
@@ -2265,13 +2260,8 @@ class Hostile(Case):
             file = case.root / ".lab/catalogs/fixture/catalog.yml"
             file.write_text(file.read_text(encoding="utf-8") + "  shared_settings: [FIXTURE_ONE]\ninclude:\n  - pipe.yml\n", encoding="utf-8")
             os.mkfifo(case.root / ".lab/catalogs/fixture/pipe.yml")
-        raw = compose.raw
-        asked = []
-        with mock.patch.object(project, "UNIT_TIMEOUT", 3), \
-                mock.patch.object(compose, "raw", lambda path, *more, **how: asked.append(path) or raw(path, *more, **how)):
-            started = time.monotonic()
-            inputs, _ = read(self, more=catalog)
-        self.assertLess(time.monotonic() - started, 12)
+        with mock.patch.object(project, "UNIT_TIMEOUT", 3):
+            (inputs, _), asked = self.asked(lambda: read(self, more=catalog))
         self.assertEqual([file for file in asked if file.endswith("catalog.yml")], [])
         self.assertEqual(inputs["shared_settings"]["fixture"], [])
 
@@ -2998,14 +2988,15 @@ class Fingerprints(Case):
         self.project()
         self.assertFalse(self.changes(lambda: self.write(".lab/catalogs/.stage-new/addons/x/compose.yml", "services: {}\n")))
 
-    def test_it_costs_little_for_a_hundred_units(self):
+    def test_a_poll_opens_no_file_of_a_hundred_units(self):
         files = {f"addons/unit-{number:03}/compose.yml": "services: {}\n" for number in range(100)}
         fixtures.project(self, paths, project, files=files)
         self.write(".lab/catalogs/fixture/addons/unit-000/.env", "A=1\n")
         self.assertGreater(len(paths.files()), 100)
         project.fingerprint()
-        best = min(timed(project.fingerprint) for _ in range(30))
-        self.assertLess(best, 0.015, f"{best * 1000:.1f} ms")
+        opened = AssertionError("a poll is a stat of each file")
+        with mock.patch("builtins.open", side_effect=opened), mock.patch("io.open", side_effect=opened):
+            project.fingerprint()
 
 
 class ReadAgain(Case):
@@ -3047,12 +3038,6 @@ class ReadAgain(Case):
         definition["api"]["description"] = "${AUDIT_FIXTURE_TOKEN}"
         self.edited(file, json.dumps(definition), 5)
         self.assertIn("AUDIT_FIXTURE_TOKEN", project.loaded()[1]["seed_references"][sandbox])
-
-
-def timed(function):
-    started = time.perf_counter()
-    function()
-    return time.perf_counter() - started
 
 
 class Exclusive(Case):
