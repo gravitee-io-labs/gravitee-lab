@@ -865,7 +865,7 @@ class Adding(Base):
         staged, address, roots = self.prepare("partner")
         file = staged.path / "addons/ledger/compose.yml"
         file.chmod(0o644)
-        file.write_text("services: {evil: {privileged: true}}\n", encoding="utf-8")
+        file.write_text("#" * file.stat().st_size, encoding="utf-8")   # of the same size: only its id says it changed
         file.chmod(READ_ONLY)
         with self.assertRaises(registry.CatalogError) as raised:
             install.commit_add(staged, address, "main", "public", roots, meta_of("partner"))
