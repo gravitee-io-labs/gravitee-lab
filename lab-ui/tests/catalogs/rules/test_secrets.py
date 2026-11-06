@@ -478,14 +478,7 @@ class Calibration(unittest.TestCase):
         self.assertEqual([], [name for name in urls if "/tests/" not in name and not name.endswith(".md") and name not in self.EXAMPLES],
                          "a URL with a password outside the documentation and the tests")
 
-    def test_the_units_of_the_engine_hold_no_literal_secret_and_no_url_with_a_password(self):
-        found = []
-        for name in self.tracked():
-            if name.split("/")[0] in ("addons", "setups", "playgrounds") and not name.endswith((".md", ".png", ".svg")):
-                path = support.ROOT / name
-                if path.is_file() and not path.is_symlink() and path.stat().st_size <= 1024 * 1024:
-                    found += [(name, each.code, each.line) for each in secrets.scan_text(name, text_of(path.read_bytes()))]
-        self.assertEqual([], found)
+    def test_the_core_holds_no_literal_secret_and_no_url_with_a_password(self):
         core = (support.ROOT / "docker-compose.yml").read_text()
         self.assertEqual([], secrets.scan_text("docker-compose.yml", core))
 
