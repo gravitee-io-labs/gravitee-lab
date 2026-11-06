@@ -9,6 +9,7 @@ import os
 import stat
 import time
 import unittest
+from unittest import mock
 
 from lab_ui.gravitee import cloud, platforms
 from lab_ui.docker import envfiles
@@ -52,8 +53,10 @@ class Platforms(Case):
         self.addCleanup(self.fake.shutdown)
         self.url = f"http://127.0.0.1:{self.fake.server_port}"
 
-    def add(self, name="Gravitee Cloud", token=fake_cloud.TOKEN, account=ACCOUNT, **more):
-        return platforms.add(name, "cloud", more.pop("url", self.url), token, account, **more)
+    def add(self, name="Gravitee Cloud", token=fake_cloud.TOKEN, account=ACCOUNT, url=None):
+        """Registers an account that the Cloud calls `name`."""
+        with mock.patch.dict(fake_cloud.ACCOUNT, name=name), mock.patch.dict(fake_cloud.SECOND_ACCOUNT, name=name):
+            return platforms.add(url or self.url, token, account)
 
     def second(self, name="Client Lab"):
         return self.add(name, token=fake_cloud.SECOND_TOKEN, account=SECOND)
@@ -90,7 +93,7 @@ class Register(Platforms):
     def test_a_platform_is_registered_once_it_accepts_the_token(self):
         record = self.add()
         self.assertEqual(record, {"id": "gravitee-cloud", "name": "Gravitee Cloud", "kind": "cloud", "url": self.url,
-                                  "account": {"id": ACCOUNT, "hrid": "my-account", "name": "My Account"},
+                                  "account": {"id": ACCOUNT, "hrid": "my-account", "name": "Gravitee Cloud"},
                                   "tokenSet": True})
         self.assertEqual(platforms.listing(), {"platforms": [record]})
         self.assertHidden(record, platforms.listing())
@@ -114,7 +117,7 @@ class Register(Platforms):
         self.assertFalse({"/accounts", "/me"} & {path for _, path in asked}, "a path of a user was called")
 
     def test_the_account_comes_from_the_id_given_and_what_the_cloud_says_of_it(self):
-        self.assertEqual(self.add(account=f"  {ACCOUNT}\n")["account"],
+        self.assertEqual(platforms.add(self.url, fake_cloud.TOKEN, f"  {ACCOUNT}\n")["account"],
                          {"id": ACCOUNT, "hrid": "my-account", "name": "My Account"})
         self.assertEqual(self.fake.state.asked, [("GET", f"/accounts/{ACCOUNT}")])
 
@@ -126,7 +129,7 @@ class Register(Platforms):
                                {"id": "acc", "hrid": "", "name": "N"})]:
             address = self.served(lambda *asked, text=text: (200, text, None))
             with self.subTest(text=text):
-                found = platforms.add("Odd", "cloud", address, "t", "acc")
+                found = platforms.add(address, "t", "acc")
                 self.assertEqual(found["account"], account)
                 platforms.remove(found["id"])
 
@@ -143,7 +146,7 @@ class Register(Platforms):
     def test_the_address_defaults_to_the_eu_cloud(self):
         with self.assertRaises(cloud.CloudError) as caught:   # nothing listens there in a test: only what is asked
             account = self.patch(cloud.Cloud, "account", side_effect=cloud.CloudError("stop"))
-            platforms.add("Gravitee Cloud", None, "", fake_cloud.TOKEN, ACCOUNT)
+            platforms.add("", fake_cloud.TOKEN, ACCOUNT)
         self.assertEqual(str(caught.exception), "stop")
         account.assert_called_once_with(ACCOUNT)
 
@@ -151,23 +154,16 @@ class Register(Platforms):
         names = ("Gravitee Cloud", "Gravitee  Cloud!", "Other", "gravitee-cloud")
         # Four accounts, since an account is connected once
         def account(name, n):
-            address = self.served(lambda *asked: (200, json.dumps({"id": f"acc-{n}", "name": "A"}), None))
-            return platforms.add(name, "cloud", address, "t", f"acc-{n}")
+            address = self.served(lambda *asked: (200, json.dumps({"id": f"acc-{n}", "name": name}), None))
+            return platforms.add(address, "t", f"acc-{n}")
         self.assertEqual([account(name, n)["id"] for n, name in enumerate(names)],
                          ["gravitee-cloud", "gravitee-cloud-2", "other", "gravitee-cloud-3"])
         self.assertEqual(sorted(envfiles.read(".env")),
                          ["GRAVITEE_LICENSE", "PLATFORM_GRAVITEE_CLOUD_2_TOKEN", "PLATFORM_GRAVITEE_CLOUD_3_TOKEN",
                           "PLATFORM_GRAVITEE_CLOUD_TOKEN", "PLATFORM_OTHER_TOKEN"])
 
-    def test_the_name_is_the_accounts_when_none_is_given(self):
-        for name in (None, "", "   "):
-            with self.subTest(name=name):
-                record = self.add(name)
-                self.assertEqual((record["id"], record["name"]), ("my-account", "My Account"))
-                platforms.remove(record["id"])
-
     def test_two_accounts_are_two_platforms_by_their_names(self):
-        first, second = self.add(None), self.add(None, token=fake_cloud.SECOND_TOKEN, account=SECOND)
+        first, second = platforms.add(self.url, fake_cloud.TOKEN, ACCOUNT), platforms.add(self.url, fake_cloud.SECOND_TOKEN, SECOND)
         self.assertEqual([(p["id"], p["name"]) for p in (first, second)],
                          [("my-account", "My Account"), ("client-lab", "Client Lab")])
         self.assertEqual(sorted(envfiles.read(".env")),
@@ -175,7 +171,11 @@ class Register(Platforms):
 
     def test_the_name_of_an_account_that_is_too_long_is_cut(self):
         address = self.served(lambda *asked: (200, json.dumps({"id": "acc", "name": "x" * 80}), None))
-        self.assertEqual(platforms.add(None, "cloud", address, "t", "acc")["name"], "x" * platforms.NAME_LIMIT)
+        self.assertEqual(platforms.add(address, "t", "acc")["name"], "x" * platforms.NAME_LIMIT)
+
+    def test_an_account_named_without_a_letter_or_a_digit_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "needs a letter"):
+            self.add("!!")
 
     def test_a_name_is_used_once(self):
         """Whatever its case: the second is refused, nothing is kept. Another account, so that it is the name that is refused."""
@@ -231,7 +231,7 @@ class Register(Platforms):
         for code in (401, 403, 404):
             address = self.served(lambda *asked, code=code: (code, '{"message": "which one it is"}', None))
             with self.subTest(code=code), self.assertRaises(cloud.CloudError) as caught:
-                platforms.add("Odd", "cloud", address, "t", "acc")
+                platforms.add(address, "t", "acc")
             self.assertEqual(str(caught.exception), "The token or the Account ID is not right")
         self.assertEqual(platforms.read(), [])
 
@@ -239,7 +239,7 @@ class Register(Platforms):
         for code, words in [(400, "Gravitee Cloud refuses it: no way"), (500, "answered an error .HTTP 500.")]:
             address = self.served(lambda *asked, code=code: (code, '{"message": "no way"}', None))
             with self.subTest(code=code), self.assertRaisesRegex(ValueError, words):
-                platforms.add("Odd", "cloud", address, "t", "acc")
+                platforms.add(address, "t", "acc")
         self.assertEqual(platforms.read(), [])
 
     def test_a_platform_that_is_not_there_registers_nothing(self):
@@ -250,10 +250,7 @@ class Register(Platforms):
         self.assertEqual((platforms.read(), envfiles.read(".env")), ([], {"GRAVITEE_LICENSE": "keep-me"}))
 
     def test_what_cannot_be_registered(self):
-        for fields, words in [(dict(name="x" * 61), "The name is"), (dict(name=4), "The name is"),
-                              (dict(name=["a"]), "The name is"), (dict(name="!!"), "needs a letter"),
-                              (dict(kind="aws"), "Only Gravitee Cloud"),
-                              (dict(kind=["cloud"]), "Only Gravitee Cloud"), (dict(url="ftp://x"), "must be http"),
+        for fields, words in [(dict(url="ftp://x"), "must be http"),
                               (dict(token=""), "token is empty"), (dict(token=None), "token is empty"),
                               (dict(account=None), "^Enter the Account ID$"),
                               (dict(account=""), "^Enter the Account ID$"),
@@ -267,8 +264,7 @@ class Register(Platforms):
                               (dict(account="café"), "letters, digits and dashes"),
                               (dict(account="a" * 65), "letters, digits and dashes")]:
             with self.subTest(fields=fields), self.assertRaisesRegex(ValueError, words):
-                platforms.add(**{"name": "Cloud", "kind": "cloud", "url": self.url, "token": fake_cloud.TOKEN,
-                                 "account": ACCOUNT, **fields})
+                platforms.add(**{"url": self.url, "token": fake_cloud.TOKEN, "account": ACCOUNT, **fields})
         self.assertEqual(platforms.read(), [])
 
     def test_an_account_id_that_is_none_is_not_asked_of_the_platform(self):
@@ -285,8 +281,8 @@ class Register(Platforms):
 
     def test_a_token_is_kept_as_it_was_given(self):
         token = "a$b#c'd\"e\\f"
-        address = self.served(lambda *asked: (200, '{"id": "a", "hrid": "h", "name": "N"}', None))
-        platforms.add("Odd", "cloud", address, f"  {token}\n", "a")
+        address = self.served(lambda *asked: (200, '{"id": "a", "hrid": "h", "name": "Odd"}', None))
+        platforms.add(address, f"  {token}\n", "a")
         self.assertEqual(envfiles.read(".env")["PLATFORM_ODD_TOKEN"], token)
 
     def test_a_record_that_cannot_be_written_takes_its_token_with_it(self):
@@ -604,7 +600,7 @@ class Check(Platforms):
                 return 200, json.dumps([{"id": i, "name": "g", "environmentId": "good-1", "type": "HYBRID"}
                                         for i in ("gw-1", "../y", "a/b", "a_b", "", None)]), None
             return 200, json.dumps({"id": "acc", "name": "Odd"}), None
-        platforms.add("Odd", "cloud", self.served(answer), "t", "acc")
+        platforms.add(self.served(answer), "t", "acc")
         found = platforms.check("odd", PROJECT)
         self.assertEqual(([e["id"] for e in found["environments"]], [g["id"] for g in found["gateways"]]),
                          (["good-1"], ["gw-1"]))
@@ -1138,7 +1134,7 @@ class Gateways(Platforms):
             if method == "POST":
                 return 200, json.dumps({"gateway": {"id": "../x", "name": "lab"}, "token": "gw-secret-token-1"}), None
             return 200, json.dumps({"id": "acc", "name": "Odd"}) if method == "GET" else "", None
-        platforms.add("Odd", "cloud", self.served(answer), "t", "acc")
+        platforms.add(self.served(answer), "t", "acc")
         with self.assertRaisesRegex(RuntimeError, r"^The gateway's token could not be saved \(ValueError\): "
                                                   "the gateway was removed from the platform$"):
             self.create(platform="odd")

@@ -1103,14 +1103,13 @@ class PlatformRoutes(LabUI):
 
     def test_registered_from_the_fields_of_the_form(self):
         add = self.patch(api.platforms, "add", return_value={"id": "gravitee-cloud"})
-        sent = {"name": "Gravitee Cloud", "kind": "cloud", "url": "https://eu.cloud.gravitee.io", "token": "t",
-                "account": "4b2f6a1e-8c3d-4e57-9a10-7d5c2b8e3f46"}
+        sent = {"url": "https://eu.cloud.gravitee.io", "token": "t", "account": "4b2f6a1e-8c3d-4e57-9a10-7d5c2b8e3f46"}
         status, _, body = self.request("POST", "/api/platforms", sent)
         self.assertEqual((status, json.loads(body)), (200, add.return_value))
         add.assert_called_once_with(**sent)
         add.reset_mock()
-        self.request("POST", "/api/platforms", {"name": "Gravitee Cloud", "url": "u", "token": "t"})
-        add.assert_called_once_with(name="Gravitee Cloud", kind=None, url="u", token="t", account=None)   # not sent: None
+        self.request("POST", "/api/platforms", {"url": "u", "token": "t"})
+        add.assert_called_once_with(url="u", token="t", account=None)   # not sent: None
 
     def test_checked_and_forgotten_by_id(self):
         check = self.patch(api.platforms, "check", return_value={"state": "ok"})
@@ -1130,7 +1129,7 @@ class PlatformRoutes(LabUI):
                                  ("create_gateway", {"gateway": {}}),
                                  ("delete_gateway", {}), ("remove", {})):
             self.patch(api.platforms, function, return_value=answer)
-        for path, sent in (("/api/platforms", {"name": "x"}), ("/api/platforms/gravitee-cloud/check", {}),
+        for path, sent in (("/api/platforms", {}), ("/api/platforms/gravitee-cloud/check", {}),
                            ("/api/platforms/gravitee-cloud/token", {"token": "t"}),
                            ("/api/platforms/gravitee-cloud/environments/env-1/token", {"token": "t"}),
                            ("/api/platforms/gravitee-cloud/environments/env-1/token/delete", {}),
@@ -1190,7 +1189,7 @@ class PlatformRoutes(LabUI):
             self.assertEqual(status, 404, path)
 
     def test_what_a_platform_refuses_is_a_bad_request_in_its_words(self):
-        for function, path, sent in [("add", "/api/platforms", {"name": "x"}),
+        for function, path, sent in [("add", "/api/platforms", {}),
                                      ("create_gateway", "/api/platforms/p/gateways", {}),
                                      ("delete_gateway", "/api/platforms/p/gateways/g/delete", {})]:
             refusal = cloud.CloudError("Gravitee Cloud refuses this token", "invalid")
@@ -1249,8 +1248,7 @@ class PlatformFlow(LabUI):
         return json.loads(text)
 
     def test_the_whole_flow(self):
-        sent = {"name": "Gravitee Cloud", "kind": "cloud", "url": f"http://127.0.0.1:{self.fake.server_port}",
-                "account": fake_cloud.ACCOUNT["id"]}
+        sent = {"url": f"http://127.0.0.1:{self.fake.server_port}", "account": fake_cloud.ACCOUNT["id"]}
         words = {"error": "The token or the Account ID is not right"}
         self.assertEqual(self.ask("POST", "/api/platforms", {**sent, "token": "not-the-token"}, 400), words)
         self.assertEqual(self.ask("POST", "/api/platforms", {**sent, "token": fake_cloud.TOKEN, "account": "my-account"},
@@ -1260,23 +1258,23 @@ class PlatformFlow(LabUI):
         self.assertEqual(self.ask("GET", "/api/platforms"), {"platforms": []})
         record = self.ask("POST", "/api/platforms", {**sent, "token": fake_cloud.TOKEN})
         self.assertEqual((record["id"], record["account"], record["tokenSet"]),
-                         ("gravitee-cloud", {"id": fake_cloud.ACCOUNT["id"], "hrid": "my-account",
+                         ("my-account", {"id": fake_cloud.ACCOUNT["id"], "hrid": "my-account",
                                              "name": "My Account"}, True))
         self.assertEqual(self.ask("GET", "/api/platforms"), {"platforms": [record]})
-        found = self.ask("POST", "/api/platforms/gravitee-cloud/check", {})
+        found = self.ask("POST", "/api/platforms/my-account/check", {})
         self.assertEqual((found["state"], [e["name"] for e in found["environments"]], found["gateways"]),
                          ("ok", ["Development", "Test", "Production"], []))
-        made = self.ask("POST", "/api/platforms/gravitee-cloud/gateways",
+        made = self.ask("POST", "/api/platforms/my-account/gateways",
                         {"environmentId": "fake-env-dev", "name": "lab"})
         self.assertEqual(made["gateway"]["domains"], ["localhost:8090", "apim-hybrid-gateway:8082"])
         (issued,) = self.fake.state.tokens.values()
         self.assertEqual(envfiles.read("addons/hybrid/.env"), {"HYBRID_CLOUD_TOKEN": issued})
-        found = self.ask("POST", "/api/platforms/gravitee-cloud/check", {})
+        found = self.ask("POST", "/api/platforms/my-account/check", {})
         self.assertEqual([(g["name"], g["connection"]) for g in found["gateways"]], [("lab", "CONNECTED")])
-        self.ask("POST", f"/api/platforms/gravitee-cloud/gateways/{made['gateway']['id']}/delete", {})
-        self.assertEqual(self.ask("POST", "/api/platforms/gravitee-cloud/check", {})["gateways"], [])
-        self.ask("POST", "/api/platforms/gravitee-cloud/delete", {})
-        self.ask("POST", "/api/platforms/gravitee-cloud/check", {}, 404)
+        self.ask("POST", f"/api/platforms/my-account/gateways/{made['gateway']['id']}/delete", {})
+        self.assertEqual(self.ask("POST", "/api/platforms/my-account/check", {})["gateways"], [])
+        self.ask("POST", "/api/platforms/my-account/delete", {})
+        self.ask("POST", "/api/platforms/my-account/check", {}, 404)
         self.assertEqual(self.ask("GET", "/api/platforms"), {"platforms": []})
         self.assertEqual(envfiles.read(".env"), {})
         self.assertFalse(any(token in "".join(self.answers) for token in (fake_cloud.TOKEN, issued, "not-the-token")),
@@ -1294,9 +1292,8 @@ class PlatformPlaces(PlatformFlow):
     URL = "http://127.0.0.1:{}"
     DEV, TEST = "fake-env-dev", "fake-env-test"
 
-    def register(self, name="My Account"):
-        sent = {"name": name, "kind": "cloud", "url": self.URL.format(self.fake.server_port),
-                "account": fake_cloud.ACCOUNT["id"], "token": fake_cloud.TOKEN}
+    def register(self):
+        sent = {"url": self.URL.format(self.fake.server_port), "account": fake_cloud.ACCOUNT["id"], "token": fake_cloud.TOKEN}
         return self.ask("POST", "/api/platforms", sent)
 
     def place(self, environment=None):

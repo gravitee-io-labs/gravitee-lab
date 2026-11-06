@@ -146,16 +146,10 @@ def _unique(name, records):
     return uid
 
 
-def add(name, kind, url, token, account):
-    """Registers a platform once it accepts the token for this account: answers its record. `name` is the account's
-    name when empty. `account` is the Account ID, the UUID that Gravitee Cloud shows next to its Account Tokens. The
-    token is kept as a setting, never answered."""
-    name = name.strip() if isinstance(name, str) else name
-    if name is not None and (not isinstance(name, str) or len(name) > NAME_LIMIT):
-        raise ValueError(f"The name is 1 to {NAME_LIMIT} characters")
-    kind = kind or "cloud"
-    if not isinstance(kind, str) or kind not in KINDS:
-        raise ValueError("Only Gravitee Cloud can be registered")
+def add(url, token, account):
+    """Registers a platform once it accepts the token for this account: answers its record, named as the account is.
+    `account` is the Account ID, the UUID that Gravitee Cloud shows next to its Account Tokens. The token is kept as a
+    setting, never answered."""
     account = account.strip() if isinstance(account, str) else ""
     if not account:
         raise ValueError("Enter the Account ID")
@@ -165,14 +159,14 @@ def add(name, kind, url, token, account):
     known = next((record for record in read() if record["account"]["id"].casefold() == account.casefold()), None)
     if known:
         raise ValueError(f"This account is already connected as {known['name']}")
-    client = cloud.Cloud(url or KINDS[kind], token)
+    client = cloud.Cloud(url or KINDS["cloud"], token)
     mine = _account(client, account)
-    name = name or mine["name"][:NAME_LIMIT].strip()
+    name = mine["name"][:NAME_LIMIT].strip()
     with _lock:
         records = read()
         if any(record["name"].casefold() == name.casefold() for record in records):
             raise ValueError(f"An account named {name} is already connected")
-        record = {"id": _unique(name, records), "name": name, "kind": kind, "url": client.url, "account": mine}
+        record = {"id": _unique(name, records), "name": name, "kind": "cloud", "url": client.url, "account": mine}
         key = _key(record["id"])
         envfiles.write(paths.ENV_FILE, {key: envfiles.quote(token.strip())})
         try:

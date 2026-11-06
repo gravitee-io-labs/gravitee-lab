@@ -362,7 +362,7 @@ def check_platform(req, pid):
 
 
 def register_platform(req):
-    record = platforms.add(**fields(req, "name", "kind", "url", "token", "account"))
+    record = platforms.add(**fields(req, "url", "token", "account"))
     return changed(record["id"], record)
 
 
