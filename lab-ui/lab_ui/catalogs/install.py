@@ -1302,11 +1302,13 @@ def _whatsnew(store_path, old, new, keys, limit=WHATSNEW):
 
 
 def _only(folder, rel, going) -> bool:
-    """Whether every file under `folder` (`rel` inside the install) is one of `going`: a folder that holds nothing else
-    is emptied by the update and its place is free."""
-    for here, _, files in os.walk(folder, followlinks=False):
+    """Whether the update takes `folder` (`rel` inside the install) away: all it holds is files of `going`. A folder with no
+    file in it or a link to a folder stays, and a file cannot replace it."""
+    for here, folders, files in os.walk(folder, followlinks=False):
+        if not folders and not files:
+            return False
         base = os.path.relpath(here, folder)
-        for name in files:
+        for name in files + [one for one in folders if os.path.islink(os.path.join(here, one))]:
             if (f"{rel}/{name}" if base == "." else f"{rel}/{base}/{name}".replace(os.sep, "/")) not in going:
                 return False
     return True

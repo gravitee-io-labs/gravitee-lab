@@ -3206,7 +3206,10 @@ class Failing(Base):
         wrong = {"another content": lambda place: place.write_text("Audit, but mine\n", encoding="utf-8"),
                  "one byte more": lambda place: place.write_text("Audit\n\n", encoding="utf-8"),
                  "a link to the same bytes": lambda place: place.symlink_to(outside),
-                 "a folder with a file": lambda place: (place.mkdir(), (place / "mine.txt").write_text("m\n", encoding="utf-8"))}
+                 "a folder with a file": lambda place: (place.mkdir(), (place / "mine.txt").write_text("m\n", encoding="utf-8")),
+                 "an empty folder": lambda place: place.mkdir(),
+                 "a folder with an empty folder": lambda place: (place / "docker-made").mkdir(parents=True),
+                 "a folder with a link to a folder": lambda place: (place.mkdir(), (place / "link").symlink_to(self.root))}
         for name, make in wrong.items():
             with self.subTest(name):
                 place = base / "addons/audit/README.md"
