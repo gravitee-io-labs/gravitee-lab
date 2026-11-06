@@ -457,6 +457,7 @@ class Images(Case):
         reasons = {"offline": images.urllib.error.URLError(OSError(8, "nodename nor servname provided, or not known")),
                    "limited": images.urllib.error.HTTPError("https://hub.docker.com", 429, "Too Many Requests", {}, None),
                    "refused": images.urllib.error.HTTPError("https://ghcr.io", 403, "Forbidden", {}, None),
+                   "absent": images.urllib.error.HTTPError("https://hub.docker.com", 404, "Not Found", {}, None),
                    "slow": images.urllib.error.URLError(TimeoutError("timed out"))}
         said = {}
         for name, error in reasons.items():
@@ -473,6 +474,8 @@ class Images(Case):
             ("limited", "MCP_LENS_VERSION"): "Too many requests to ghcr.io: try again later",
             ("refused", "ELASTICSEARCH_VERSION"): "Docker Hub refuses the request",
             ("refused", "MCP_LENS_VERSION"): "ghcr.io refuses the request",
+            ("absent", "ELASTICSEARCH_VERSION"): "Not found on Docker Hub",
+            ("absent", "MCP_LENS_VERSION"): "Not found on ghcr.io",
             ("slow", "ELASTICSEARCH_VERSION"): "Docker Hub does not answer in time",
             ("slow", "MCP_LENS_VERSION"): "ghcr.io does not answer in time"})
 

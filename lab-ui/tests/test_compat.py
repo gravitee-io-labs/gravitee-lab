@@ -100,7 +100,7 @@ class Review(unittest.TestCase):
         def tags(project, key, registry):
             if not said:
                 said.append("asked")
-                raise RuntimeError("Not published on Docker Hub")
+                raise RuntimeError("Not found on Docker Hub")
             return TAGS[key]
         jobs = compat.plan(built, "acme", tags, warn=said.append)
         self.assertEqual([job["item"] for job in jobs], ["playground:shop"])

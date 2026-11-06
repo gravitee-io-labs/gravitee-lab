@@ -350,7 +350,7 @@ class Products(Case):
         self.assertEqual(dashboard.products(self.project, {})[0][0]["stable"], "4.12.21")
 
     def test_a_registry_that_does_not_know_the_repository_is_quiet_too(self):
-        self.tags.side_effect = RuntimeError("Not published on Docker Hub")
+        self.tags.side_effect = RuntimeError("Not found on Docker Hub")
         dashboard.products(self.project, {})
         self.settle()
         self.assertEqual(dashboard.products(self.project, {})[1], False)

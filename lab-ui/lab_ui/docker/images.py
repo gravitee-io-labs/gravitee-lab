@@ -332,12 +332,7 @@ def _hub_tags(repository):
     """Docker Hub's own API: the latest 300 tags, with their dates."""
     tags, url = [], f"https://hub.docker.com/v2/repositories/{repository}/tags?page_size=100&ordering=last_updated"
     for _ in range(3):
-        try:
-            page = _json(url)
-        except urllib.error.HTTPError as error:
-            if error.code == 404:
-                raise RuntimeError("Not published on Docker Hub") from error
-            raise
+        page = _json(url)
         tags += [{"name": tag["name"], "updated": tag.get("last_updated")} for tag in page["results"]]
         url = page.get("next")
         if not url:
