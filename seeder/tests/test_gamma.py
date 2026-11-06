@@ -183,28 +183,65 @@ class Lists(Seed):
         self.assertEqual(g.aim.rows("/ai-workspaces", gamma.WORKSPACES), list(range(250)))
         self.assertEqual(self.asked(), [(0, 100), (1, 100), (2, 100)])
 
-    def test_a_list_that_starts_where_the_platform_says_is_read_from_there(self):
-        # The workspaces of a build whose lists start at page 1: its 400 says where, and the list is read again from there
+    def test_a_list_refused_from_page_0_is_read_from_page_1(self):
+        # A list the seed reads from page 0 on a build that counts from 1, whatever its refusal says
+        rows = list(range(250))
+
+        def page(call):
+            number, size = int(call.params["page"]) - 1, int(call.params["perPage"])
+            if number < 0:
+                return 400, {"message": "whatever the build says"}
+            return 200, content(rows[number * size:(number + 1) * size], len(rows))
+        self.answer({("GET", f"/gamma{SCOPE}/modules/aim/ai-workspaces"): page})
+        self.assertEqual(gamma.Gamma().aim.rows("/ai-workspaces", gamma.WORKSPACES), rows)
+        self.assertEqual([number for number, _ in self.asked()], [0, 1, 2, 3])
+        self.assertEqual(gamma.WORKSPACES.first, 0, "what the seed expects is not changed")
+
+    def test_a_list_refused_from_page_0_and_page_1_is_the_refusal_of_page_1(self):
+        for status in (400, 403):
+            with self.subTest(status=status):
+                self.platform.calls.clear()
+                self.answer({("GET", f"/gamma{SCOPE}/modules/aim/ai-workspaces"): lambda call: (
+                    (400, {"message": "page floor"}) if call.params["page"] == 0 else (status, {"message": "the real reason"}))})
+                with self.assertRaisesRegex(gamma.HttpError, "the real reason"):
+                    gamma.Gamma().aim.rows("/ai-workspaces", gamma.WORKSPACES)
+                self.assertEqual([number for number, _ in self.asked()], [0, 1])
+
+    def test_a_list_asked_from_page_1_is_never_asked_for_page_0(self):
+        self.answer({("GET", f"/gamma{SCOPE}/modules/aim/ai-workspaces/w1/users"): lambda call: (400, {"message": "the real reason"})})
+        with self.assertRaisesRegex(gamma.HttpError, "the real reason"):
+            gamma.Gamma().aim.rows("/ai-workspaces/w1/users", gamma.LISTS)
+        self.assertEqual([number for number, _ in self.asked()], [1])
+
+    def test_any_other_refusal_of_a_list_is_the_refusal(self):
+        self.answer({("GET", f"/gamma{SCOPE}/modules/aim/ai-workspaces"): lambda call: (403, {"message": "Forbidden"})})
+        with self.assertRaises(gamma.HttpError):
+            gamma.Gamma().aim.rows("/ai-workspaces", gamma.WORKSPACES)
+        self.assertEqual(len(self.asked()), 1)
+
+    def test_a_list_asked_from_page_1_that_counts_from_0_is_read_from_page_0(self):
+        for count in (5, 150):
+            with self.subTest(count=count):
+                g = self.serve("aim/ai-workspaces/w1/users", list(range(count)), data, first=0)
+                self.assertEqual(g.aim.rows("/ai-workspaces/w1/users", gamma.LISTS), list(range(count)))
+
+    def test_a_list_that_lost_rows_while_it_was_read_from_page_0_is_read_once(self):
+        rows = list(range(3))
+        self.answer({("GET", f"/gamma{SCOPE}/modules/aim/ai-workspaces"): lambda call: (
+            200, content(rows if call.params["page"] == 0 else [], 5))})
+        self.assertEqual(gamma.Gamma().aim.rows("/ai-workspaces", gamma.WORKSPACES), rows)
+        self.assertEqual([number for number, _ in self.asked()], [0, 1])
+
+    def test_a_refusal_after_the_first_page_is_the_refusal(self):
         rows = list(range(250))
 
         def page(call):
             number, size = int(call.params["page"]), int(call.params["perPage"])
-            if number < 1:
-                return 400, {"message": "Pagination page param must be >= 1", "path": "list.arg0"}
-            return 200, content(rows[(number - 1) * size:number * size], len(rows))
+            if number > 0:
+                return 400, {"message": "too far"}
+            return 200, content(rows[:size], len(rows))
         self.answer({("GET", f"/gamma{SCOPE}/modules/aim/ai-workspaces"): page})
-        g = gamma.Gamma()
-        self.assertEqual(g.aim.rows("/ai-workspaces", gamma.WORKSPACES), rows)
-        self.assertEqual(self.asked(), [(0, 100), (1, 100), (2, 100), (3, 100)])
-        self.assertEqual(gamma.WORKSPACES.first, 0, "what the seed expects is not changed")
-
-    def test_any_other_refusal_of_a_list_is_the_refusal(self):
-        self.answer({("GET", f"/gamma{SCOPE}/modules/aim/ai-workspaces"):
-                     lambda call: (400, {"message": "Pagination page param must be >= 0"})})
-        with self.assertRaises(gamma.HttpError):
-            gamma.Gamma().aim.rows("/ai-workspaces", gamma.WORKSPACES)   # it is asked for where it is already
-        self.answer({("GET", f"/gamma{SCOPE}/modules/aim/ai-workspaces"): lambda call: (400, {"message": "Invalid query"})})
-        with self.assertRaises(gamma.HttpError):
+        with self.assertRaisesRegex(gamma.HttpError, "too far"):
             gamma.Gamma().aim.rows("/ai-workspaces", gamma.WORKSPACES)
 
     def test_members_start_at_page_1_and_hold_100(self):

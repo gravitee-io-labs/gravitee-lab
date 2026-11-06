@@ -60,11 +60,11 @@ def nested(count, text):
     return text
 
 
-def run(*argv, variables=None):
+def run(*argv):
     """(exit code, what it printed, what it said as an error) of the command with these arguments and this environment."""
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stderr(err):
-        code = seedlint.main(list(argv), variables={} if variables is None else variables, out=out)
+        code = seedlint.main(list(argv), out=out)
     return code, out.getvalue(), err.getvalue()
 
 
@@ -299,12 +299,18 @@ class Studios(Made):
 
     def test_what_the_platform_or_the_seed_would_refuse_is_named(self):
         for text, studio, message in (
+                ("", STUDIO.replace("supportedProtocolVersions: ['2025-11-25']\n", ""), "one of the two"),
+                ("protocolVersion: '2025-11-25'\n", STUDIO, "one of the two"),
+                ("", STUDIO.replace("['2025-11-25']", "[2025-11-25]"), "a protocol version is text: quote it"),
+                ("", AGENTS_STUDIO.replace("'2025-11-25'", "2025-11-25"), "a protocol version is text: quote it"),
                 ("subscriptions: [{application: Copilot, apiKey: ${NUMBER}}]\n", STUDIO,
                  "the apiKey of Copilot is read as int, not as text: quote the variable in the file, '${NAME}'"),
                 ("subscriptions: [{application: Copilot, plan: Others}]\n", STUDIO, "'Others' is no plan of the studio"),
                 ("subscriptions: [{application: Copilot, apiKey: abc}]\n", STUDIO.replace("API_KEY", "JWT"),
                  "an apiKey needs a plan with API keys"),
                 ("subscriptions: [{application: Copilot}]\n", STUDIO.replace("API_KEY", "KEY_LESS"),
+                 "a keyless plan takes no subscription"),
+                ("subscriptions: [{application: Copilot}]\n", STUDIO.replace("API_KEY", "KEYLESS"),
                  "a keyless plan takes no subscription"),
                 ("subscriptions: [{application: Copilot, apiKey: abc}]\n", AGENTS_STUDIO, "an apiKey needs a plan with API keys"),
                 ("subscriptions: [{application: Copilot, plan: Registration}]\n", AGENTS_STUDIO, "'Registration' is no plan"),
@@ -320,6 +326,7 @@ class Studios(Made):
 
     def test_the_lint_and_the_seed_take_the_same_keys(self):
         self.assertEqual(seedlint.STUDIO_SUBSCRIPTION, aim_proxies.SUBSCRIPTION_KEYS)
+        self.assertEqual(seedlint.STUDIO_VERSIONS, aim_proxies.VERSION_KEYS)
 
     def test_a_file_of_another_folder_is_not_read_as_a_studio(self):
         folder = self.playground({**GOOD, "seed/aim/mcp-proxies/desk.yaml": STUDIO + "subscriptions: [{plan: 3}]\n"})
@@ -846,9 +853,6 @@ class Command(Made):
         self.assertEqual([p.check for p in seedlint.problems(folder)], ["playground"], "a playground that is a link is not read")
         self.link(self.root / "one", outside / "acme")
         self.assertEqual([p.check for p in seedlint.problems(self.root / "one")], ["playground"])
-        # the variable is the maintainer's own: the folder it names is the one it resolves to
-        self.assertEqual(run(variables={"LAB_PLAYGROUNDS": str(folder)})[0], 1)
-        self.assertIn("NOBODY has no value", run(variables={"LAB_PLAYGROUNDS": str(folder)})[1])
 
     def test_options_and_folders_may_come_in_any_order(self):
         self.bad(root=self.root / "one")
@@ -889,7 +893,7 @@ class Command(Made):
     def test_a_wrong_option_is_a_wrong_command_line(self):
         for argv in (["--format", "xml"], ["--nope"]):
             with self.subTest(argv=argv), contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as stop:
-                seedlint.main(argv, variables={})
+                seedlint.main(argv)
             self.assertEqual(stop.exception.code, 2)
 
     def test_several_folders_are_all_linted_and_the_worst_decides(self):
@@ -912,29 +916,9 @@ class Command(Made):
         self.assertEqual(code, 1)
         self.assertTrue(out.startswith("::error file=acme/seed/a.yaml,line=1,"), out[:80])
 
-    def test_the_variable_names_the_folder_of_a_catalog_that_is_linted_instead_of_the_sample(self):
-        self.bad()
-        self.assertEqual(run(variables={})[0], 0, "no catalog: the sample of the engine")
-        code, out, _ = run(variables={"LAB_PLAYGROUNDS": str(self.root)})
-        self.assertEqual(code, 1)
-        self.assertIn("acme/seed/a.yaml:1: NOBODY has no value", out)
-        self.assertEqual(run(variables={"LAB_PLAYGROUNDS": ""})[0], 0, "empty is unset")
-
-    def test_a_folder_on_the_command_line_wins_over_the_variable(self):
-        self.bad()
-        self.playground(root=self.root / "good")
-        self.assertEqual(run(str(self.root / "good"), variables={"LAB_PLAYGROUNDS": str(self.root)})[0], 0)
-
-    def test_without_a_folder_or_a_variable_it_lints_the_sample_of_the_engine(self):
+    def test_without_a_folder_it_lints_the_sample_of_the_engine(self):
         code, out, _ = run()
-        self.assertEqual((code, out.splitlines()[0].split(" (")[0]), (0, "All good: 57 seed files of 2 playgrounds"))
-        self.assertEqual(seedlint.playgrounds_root({}), seedlint.SAMPLES)
-        self.assertEqual(seedlint.playgrounds_root({"OTHER": "x"}), seedlint.SAMPLES)
-
-    def test_the_folder_a_variable_names_is_resolved_as_the_tests_resolve_it(self):
-        for named, resolved in (("/catalog/" + FOLDER, Path("/catalog") / FOLDER), (FOLDER, Path(FOLDER).resolve()),
-                                ("~/" + FOLDER, Path("~").expanduser() / FOLDER)):
-            self.assertEqual(seedlint.playgrounds_root({"LAB_PLAYGROUNDS": named}), resolved.resolve(), named)
+        self.assertEqual((code, out.splitlines()[0].split(" (")[0]), (0, "All good: 58 seed files of 2 playgrounds"))
 
     def test_only_the_first_problems_are_printed_and_the_others_counted(self):
         text = "".join(f"v{n}: http://h{n}\n" for n in range(seedlint.MANY))
@@ -946,17 +930,12 @@ class Command(Made):
         self.assertEqual(len(lines), seedlint.SHOWN + 2)
         self.assertEqual(lines[-2], f"{600 - seedlint.SHOWN} more problems not shown.")
 
-    def test_it_runs_as_a_script_with_the_folder_and_the_variable(self):
+    def test_it_runs_as_a_script_with_a_folder(self):
         self.bad()
-        environment = {**os.environ, "LAB_PLAYGROUNDS": str(self.root)}
         by_argument = subprocess.run([sys.executable, str(SEEDER / "seedlint.py"), str(self.root), "--format", "github"],
                                      capture_output=True, text=True, cwd=str(self.root), check=False)
-        by_variable = subprocess.run([sys.executable, str(SEEDER / "seedlint.py")], capture_output=True, text=True,
-                                     cwd=str(self.root), env=environment, check=False)
         self.assertEqual(by_argument.returncode, 1, by_argument.stderr)
-        self.assertEqual(by_variable.returncode, 1, by_variable.stderr)
         self.assertEqual(len([line for line in by_argument.stdout.splitlines() if line.startswith("::error file=")]), 2)
-        self.assertIn("a.yaml:1: NOBODY has no value", by_variable.stdout)
         self.assertEqual(subprocess.run([sys.executable, str(SEEDER / "seedlint.py"), str(self.root / "none")], capture_output=True,
                                         text=True, check=False).returncode, 0)
 
@@ -1003,7 +982,7 @@ class Annotations(unittest.TestCase):
             with self.subTest(format=fmt), mock.patch.object(seedlint, "lint", return_value=report):
                 out = io.StringIO()
                 with tempfile.TemporaryDirectory() as folder:
-                    self.assertEqual(seedlint.main([folder, "--format", fmt], variables={}, out=out), 1)
+                    self.assertEqual(seedlint.main([folder, "--format", fmt], out=out), 1)
                 self.assertNotRegex(out.getvalue(), "[\ud800-\udfff]")
 
     def test_a_name_with_control_characters_is_one_line_of_text(self):
@@ -1588,9 +1567,7 @@ class InTheEngine(unittest.TestCase):
         self.assertFalse(defined & {"_copied", "_merging", "merged_pairs", "parse_yaml", "parse_yaml_all"}, "the count and the guard are common.py's")
 
     def test_the_playgrounds_the_tests_read_have_nothing_to_lint_through_the_command(self):
-        """What a catalog's CI runs on its playgrounds is what the engine's tests run on theirs: LAB_PLAYGROUNDS, else the
-        sample."""
-        root = seedlint.playgrounds_root(os.environ)
+        root = seedlint.SAMPLES
         report = seedlint.lint(root)
         self.assertEqual(report.problems, [])
         self.assertGreater(report.playgrounds, 0, f"no playground of {root} has a seed")
@@ -1598,11 +1575,7 @@ class InTheEngine(unittest.TestCase):
 
     def test_the_sample_is_read_whole(self):
         report = seedlint.lint(seedlint.SAMPLES)
-        self.assertEqual((report.problems, report.playgrounds, report.files), ([], 2, 57))
-
-
-if __name__ == "__main__":
-    unittest.main()
+        self.assertEqual((report.problems, report.playgrounds, report.files), ([], 2, 58))
 
 
 class StudioShapes(Made):
@@ -1628,3 +1601,7 @@ class StudioShapes(Made):
     def test_an_empty_list_of_subscriptions_is_what_the_seed_takes(self):
         self.assertEqual(aim_proxies.read_subscriptions({"subscriptions": None}, "Desk"), [])
         self.assertEqual(self.studio(self.STUDIO + "subscriptions:\n"), [])
+
+
+if __name__ == "__main__":
+    unittest.main()

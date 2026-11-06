@@ -84,7 +84,7 @@ before sharing it, make it in **Personal** (the **New** buttons of the lists) an
 - The server uses only Python's standard library and runs on Python 3.9 or later. The page is plain ES modules and CSS, with no build step and no new dependency.
 - Keep the copy terse: sentence case, no helper sentences.
 - Reuse the existing components (the picker, the pager, the rows) before you add one.
-- Add tests in `lab-ui/tests` and run `make test`.
+- Add tests in `lab-ui/tests` and run `make test`. A fix adds its case to the test that holds the behavior ([Tests grow by cases](AGENTS.md#rules)).
 
 ## Documentation
 

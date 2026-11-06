@@ -2942,6 +2942,7 @@ class Fresh(Case):
                          ["api-management", "access-management", "alert-engine", "databases"])
         self.assertEqual(built["platform"], {"gateways": {"cloud": None}})
 
+    @unittest.skipUnless(fixtures.have_compose(), "the Docker CLI with Compose 5 or later is not installed")
     def test_with_no_default_file_the_project_is_what_it_was(self):
         # Before catalogs the units sit in the folders of their kind and are read together, none of them judged
         self.folder(paths, project, compose, envfiles, files={

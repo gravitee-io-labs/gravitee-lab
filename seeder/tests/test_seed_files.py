@@ -5,9 +5,7 @@ agree with themselves: a member of a group is a user, an application's group is 
 application, an API and a plan of the folder. The logins the Lab UI lists for Acme Bakery are the defaults of their settings.
 
 The checks themselves are those of seedlint.py, which a catalog's CI runs on the command line (test_seedlint.py tests the
-command); this file tests them on files made for it and runs them on the playgrounds of PLAYGROUNDS: the engine's sample, or
-the folder `LAB_PLAYGROUNDS` names, which is how a catalog runs these checks on its own playgrounds (`SeedFiles` and
-`Environments`). `Logins` moves to the catalog with the content."""
+command); this file tests them on files made for it and runs them on the engine's sample, PLAYGROUNDS."""
 
 import json
 import os
@@ -62,12 +60,7 @@ class SeedFiles(unittest.TestCase):
 
 
 class Environments(unittest.TestCase):
-    """The folders of seed/environments of every playground that has some. The engine's sample has none: a catalog gives its
-    own playgrounds with LAB_PLAYGROUNDS."""
-
-    def setUp(self):
-        if not any((folder / "seed" / "environments").is_dir() for folder, _ in seeded_playgrounds(PLAYGROUNDS)):
-            self.skipTest(f"no playground under {PLAYGROUNDS} has a folder seed/environments")
+    """The folders of seed/environments of every playground that has some: one in the engine's sample, Acme Hostels'."""
 
     def test_every_environment_folder_agrees_with_itself(self):
         for folder, environment in seeded_playgrounds(PLAYGROUNDS):

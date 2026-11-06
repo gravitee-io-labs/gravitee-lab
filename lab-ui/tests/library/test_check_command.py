@@ -8,11 +8,9 @@ Everything is on disk in a temporary project folder; git (a visible skip without
 (a visible skip without) for the units; no network and no Docker daemon."""
 
 import contextlib
-import importlib
 import json
 import os
 import shutil
-import subprocess
 import tempfile
 import time
 import unittest
@@ -285,6 +283,7 @@ class Placing(unittest.TestCase):
 class Codes(Folder):
     """A unit that cannot run is told with the code of the rule of the Lab's policy that refuses it, and the fix."""
 
+    @COMPOSE
     def test_the_findings_of_the_items_are_problems_with_the_code_of_the_policy_when_it_has_one(self):
         fixtures.install(self, PARTNER)
         folder = self.catalog("fixture")
@@ -300,6 +299,7 @@ class Codes(Folder):
         self.assertEqual(found[("addons/port-core/compose.yml", "")]["message"], "publishes port 8082, like docker-compose.yml")
         self.assertEqual(set(one["code"] for one in json.loads(out)) - {""}, {"T26", "DF22", "DF23"})
 
+    @COMPOSE
     def test_the_text_aligns_a_finding_that_has_no_code_with_the_others_and_explains_one_that_has(self):
         fixtures.install(self, PARTNER)
         folder = self.catalog("fixture")
@@ -1082,10 +1082,6 @@ class DayOne(Folder):
         super().setUp()
         isolated(self)
         project.forget()
-        try:
-            importlib.import_module("lab_ui.catalogs.standard")
-        except ImportError:
-            self.skipTest("lab_ui.catalogs.standard is not in this checkout yet, so `new` renders nothing")
         self.repo = self.work / "repo"
         folder = self.repo / "catalog"
         code, out, err = self.run_tool("new", str(folder), "--id", "newcat", "--name", "New cat", "--maintainers", "@acme/maintainers",
@@ -1120,54 +1116,6 @@ class DayOne(Folder):
         self.run_tool("check", "catalog", "--ci", "--base", "0" * 40)
         self.run_tool("index", "catalog", "--out", str(self.work / "catalog.json"))
         self.assertEqual((snapshot(self.root), contents(self.root)), before)
-
-
-@COMPOSE
-class Today(Folder):
-    """The content the engine holds today, as a catalog: the rules of the standard find in it what they found when they were
-    calibrated (: 56 GD01 errors and the DF22 and DF23 warnings of the Dockerfiles), and the layout that is not yet the
-    installed one (the extraction of a catalog rewrites it): the errors of the paths that reach the seeder and the plugin folders
-    with `../../`, which the extracted layout writes with five."""
-
-    def tracked(self):
-        try:
-            done = subprocess.run(["git", "ls-files", "-z", "--", "addons", "setups", "playgrounds"], cwd=REPO, capture_output=True,
-                                  timeout=60)
-            names = [name.decode() for name in done.stdout.split(b"\0") if name] if done.returncode == 0 else []
-        except (OSError, subprocess.SubprocessError):
-            names = []
-        return [name for name in names if (REPO / name).is_file() and not (REPO / name).is_symlink()]
-
-    def test_the_committed_content_has_the_gd01_findings_of_the_calibration_and_the_items_of_the_old_layout(self):
-        names = self.tracked()
-        if not names:
-            self.skipTest("this checkout holds no committed addons, setups or playgrounds")
-        folder = self.work / "content"
-        for name in names:
-            (folder / name).parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(REPO / name, folder / name)
-        default = json.loads((REPO / "catalogs.default.json").read_text(encoding="utf-8"))["catalogs"][0]
-        (folder / "catalog.yml").write_text(
-            f"x-gravitee-catalog:\n  schema: 1\n  id: {default['id']}\n  name: {default['name']}\n  description: The content\n"
-            f"  version: 1.0.0\n  lab: 1\n  images: {fixtures.seeder_image(self).rsplit('/', 1)[0]}\n"
-            "  shared_settings: [GEMINI_API_KEY, OLLAMA_URL]\n", encoding="utf-8")
-        (folder / "README.md").write_text("# Content\n", encoding="utf-8")
-        shutil.copy(REPO / "catalogs.default.json", self.root / "catalogs.default.json")
-        code, out, err = self.check(folder, "--format", "json")
-        self.assertEqual(err, "")
-        found = json.loads(out)
-        errors = [one for one in found if one["severity"] == "error"]
-        self.assertEqual({one["code"] for one in found if one["code"]} - {"GD01", "DF22", "DF23", "T18", "T28"}, set())
-        self.assertEqual(len([one for one in errors if one["code"] == "GD01"]), 56)
-        # Everything else is the one thing the extraction changes: the seeder and the plugin folders are reached with ../../, which
-        # is the engine's layout, and not the five folders of a catalog that is installed
-        rest = [one for one in errors if one["code"] != "GD01"]
-        self.assertTrue(rest)
-        for one in rest:
-            self.assertTrue(one["code"] in ("T18", "T28") or "outside the folder of this unit" in one["message"]
-                            or "mounts plugins/apim of this machine" in one["message"], one)
-        self.assertEqual([one for one in found if one["code"].startswith("IM")], [], "the seeder is the one named anchor")
-        self.assertEqual(code, 1)
 
 
 if __name__ == "__main__":

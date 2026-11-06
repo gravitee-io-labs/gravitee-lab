@@ -433,32 +433,5 @@ class Hostile(unittest.TestCase):
         self.assertEqual("a" * 100, images.repository("A" * 100))
 
 
-class Content(unittest.TestCase):
-    """The units this checkout holds: every service that builds has its policy and a name under the prefix, with the seeder as
-    the anchor (the calibration of the standard, 6.7)."""
-
-    def test_the_built_services_of_the_engines_units_pass_all_four(self):
-        import subprocess
-        try:
-            done = subprocess.run(["git", "ls-files", "-z", "--", "addons", "playgrounds"], cwd=support.ROOT, capture_output=True, timeout=60)
-        except (OSError, subprocess.SubprocessError):
-            done = None
-        if done is None or done.returncode != 0:
-            self.skipTest("this checkout is not a git work tree")
-        held = {name: (support.ROOT / name).read_bytes() for name in (each.decode() for each in done.stdout.split(b"\0") if each)
-                if name.endswith("/compose.yml") and (support.ROOT / name).is_file()}
-        from lab_ui.catalogs import audit
-        seeders = audit.lab_seeder_images()
-        if not held or not seeders:
-            self.skipTest("this checkout holds no units")
-        prefix = seeders[0].rsplit("/", 1)[0]
-        listing = support.ListTree.from_files({"catalog.yml": support.CATALOG + f"  images: {prefix}\n", **held})
-        ctx = context(listing, seeder_images=seeders, seeder_paths=("seeder",), repository=prefix.split("/", 1)[1], ci=True)
-        rows = [each for each in images.services_of_tree(listing) if each.built]
-        self.assertGreater(len(rows), 10)
-        self.assertEqual([], images.check(listing, ctx))
-        self.assertGreater(len([each for each in rows if each.image.startswith(seeders[0])]), 2, "the playgrounds with a seed")
-
-
 if __name__ == "__main__":
     unittest.main()

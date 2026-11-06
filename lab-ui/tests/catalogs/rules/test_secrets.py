@@ -266,14 +266,7 @@ class Patterns(unittest.TestCase):
                          "$(git merge-base origin/main HEAD), commit again, force-push).", secrets.RULES["SE02"].message)
 
     def test_the_names_of_secrets_are_the_ones_of_the_engines_own_check(self):
-        try:
-            from lab_ui.library import check
-        except ImportError as error:   # check.py is rewritten by another package: say so and do not pass for it
-            print(f"SKIP: lab_ui.library.check does not import ({error}), its SECRET_NAME was not compared")
-            self.skipTest("check.py does not import")
-        if not (hasattr(check, "SECRET_NAME") and hasattr(check, "NOT_SECRET")):
-            print("SKIP: lab_ui.library.check has no SECRET_NAME, it was not compared")
-            self.skipTest("check.py has no SECRET_NAME")
+        from lab_ui.library import check
         self.assertEqual(check.SECRET_NAME.pattern, secrets.SECRET_NAME.pattern)
         self.assertEqual(check.SECRET_NAME.flags, secrets.SECRET_NAME.flags)
         self.assertEqual(check.SIGN_IN.pattern, secrets.SIGN_IN.pattern)

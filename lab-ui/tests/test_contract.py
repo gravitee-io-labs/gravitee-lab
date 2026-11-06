@@ -42,9 +42,8 @@ Changing the contract is a decision, so the test fails until it is written down:
 - A lock that is lost is restored from git, never started again: once `contract` is past 1, a new one would give every
   item the current level.
 
-`LANDING` lists what level 1 holds and the files of this tree do not state yet; `DECLARED` what no file can state;
-`UNREAD` the reads of the seeder that no scan can resolve (a name that comes from a variable): a new one is a decision.
-A test says which rows of the first and the last the files no longer need."""
+`DECLARED` lists what no file can state; `UNREAD` the reads of the seeder that no scan can resolve (a name that comes from a
+variable): a new one is a decision, and a test fails on a row the seeder no longer needs."""
 
 import ast
 import os
@@ -71,18 +70,6 @@ COMMAND = "cd lab-ui && python3 -m tests.test_contract"
 # The first word of a line, in the order the lock lists them
 KINDS = ("core.service", "core.network", "core.variable", "core.image_variable", "core.category", "catalog.key", "unit.key",
          "label", "label.value", "seed.folder", "seed.file", "seed.setting", "frame.message", "anchor", "guide.block")
-# Level 1 is the state of the tree at the split, with the work that was in flight. These items belong to it and the
-# files cannot state them yet: the keys arrive with the terminal, the host declaration and the verification of `lab`
-# (check.META, check.REQUIRES), the seed folders with their seeder modules. A row that the files state is the files'
-# (their kind wins), so each row is deleted by whoever lands its source; a row left behind hides a later removal, and
-# Live.test_no_row_of_the_tables_outlives_its_source names it. Whoever lands `terminal` also sets
-# `KEY_OF["terminal"] = "playground"` in check.py: without it the live line reads `kinds=any`, a change that only a
-# raise of `contract_min` could accept.
-LANDING = {("unit.key", "x-gravitee.terminal"): "kinds=playground",
-           ("unit.key", "x-gravitee.host_access"): "kinds=any",
-           ("unit.key", "x-gravitee.requires.lab"): "kinds=any",
-           ("seed.folder", "environments"): "",
-           ("seed.folder", "k8s"): ""}
 # What a guide may carry and no file states: a `run` block is run in the terminal pane from a button of the guide
 DECLARED = {("guide.block", "run"): ""}
 # The reads and paths of the seeder that a scan cannot resolve, because the name comes from a variable: (module, source of
@@ -393,8 +380,8 @@ def stated(config=None, variables=None):
 
 
 def listing(config=None, variables=None):
-    """Every item of level 1 and after: what the files state, then what LANDING and DECLARED add that they do not."""
-    items = {**LANDING, **DECLARED}
+    """Every item of level 1 and after: what the files state, then what DECLARED adds that they do not."""
+    items = dict(DECLARED)
     items.update(stated(config, variables))
     for kind, name in items:
         if not name or re.search(r'[\x00-\x1f\x7f"]', name):
@@ -1082,15 +1069,9 @@ class Live(Case):
                       "the folder as a literal, or decide here, with its reason, in UNREAD:\n  "
                       + "\n  ".join(f"{module}: {source}" for module, source in new))
 
-    def test_no_row_of_the_tables_outlives_its_source(self):
-        """Not a failure, so that landing a source does not redden a package that does not own this file: it says which
-        rows to delete. A row left behind hides the removal of its item."""
-        states = stated(self.config)
-        landed = sorted(f"LANDING {kind} {name}" for kind, name in LANDING if (kind, name) in states)
-        gone = sorted(f"UNREAD {module}: {source}" for module, source in UNREAD
-                      if (module, source) not in scan_seed(ROOT / "seeder")[1])
-        if landed or gone:
-            self.skipTest("delete these rows of tests/test_contract.py, the files state them now:\n  " + "\n  ".join(landed + gone))
+    def test_no_row_of_unread_outlives_its_source(self):
+        """A row left behind hides the removal of its item."""
+        self.assertEqual(sorted((module, source) for module, source in UNREAD if (module, source) not in scan_seed(ROOT / "seeder")[1]), [])
 
     def test_a_label_a_seed_setting_and_a_frame_message_are_listed(self):
         found = listing(self.config)

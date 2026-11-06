@@ -470,8 +470,8 @@ serve the lessons:
   its check with `fga` and takes no `authorization`.
 - The tools come back to the file on every run. Tools a person adds or removes with *Edit tools* in Gamma are written
   back in place, with the keys of the APIs, and the flow of the authorization check is written again after them.
-- A file with `access` gives `supportedProtocolVersions`, a list, on API Management 4.13.1, as a file with a `plan` does
-  (`["2025-11-25"]`). The amp-demo build took one `protocolVersion` instead.
+- A studio file of either shape gives its protocol versions with the key its build takes:
+  [What differs from one build to another](#what-differs-from-one-build-to-another).
 
 Seed files use `${VAR}` for everything that depends on the target: service URLs, the Redis password of a vector store
 resource, the gateway and AM addresses shown to clients. Acme Shop's seed files use, among others, `${AM_GATEWAY_URL}`,
@@ -939,9 +939,7 @@ in `.env`, then run `make all`.
 ## How APIM and Gamma behave: what the seeder relies on
 
 - API exports carry no plan ids. An update maps plans by name to the live ones, or the import tries to replace them.
-- The Management API checks an endpoint's shared configuration against the schema of its plugin. API Management 4.12
-  names "no store" `NONE` and refuses `{"type": ""}` for a TLS key store or trust store, which a 4.11 export holds:
-  leave the store out.
+- The Management API checks an endpoint's shared configuration against the schema of its plugin.
 - LLM, A2A and MCP proxy APIs cannot be updated from a definition (`Unsupported API type`), so they are replaced. Any other
   API is updated, and a refusal of its update stops the seed: it is never replaced for that.
 - A deployment answers 202.
@@ -957,6 +955,26 @@ in `.env`, then run `make all`.
   the payloads of the spans. The Automation API has no field for them: an MCP proxy's are set on its API entity.
 - Gamma has no upsert and keeps no name unique. A module looks each object up by name, slug or id, writes it only when it
   differs, records only what it created, and stops, naming it, when it finds one it did not create.
+
+### What differs from one build to another
+
+The seeder reads no version. It does what the platform answers, and a seed file writes what its build takes: the
+playground says which build that is (`requires.images`). This table is what the seeder knows of them, and a row goes with
+the code it names once no build that the Lab runs needs it.
+
+| What differs | Builds | What the seed file writes | What the seeder does |
+|---|---|---|---|
+| A studio's protocol versions | A list on API Management 4.13.1, one value on the amp-demo build, which refuses the list | `supportedProtocolVersions: ["2025-11-25"]` or `protocolVersion: "2025-11-25"` | Sends the key the file gives (`aim_proxies.protocol_versions`) |
+| A studio's keyless plan | The amp-demo build makes it from `KEYLESS`, the name of Agent Management, and its plans read it back as `KEY_LESS` | `plan: {security: {type: KEYLESS}}` | Knows both names where it checks a subscription (`seedlint.studio_problems`) |
+| The module of a dashboard | Some platforms ask for it, with a 400 that holds the code `module_required` | `module`, when it is not the default | Asks again with the module when the answer holds that code (`aim_dashboards`) |
+| An update the platform does not offer | It answers 404, 405 or 501 | Nothing | Imports the API again (`apim.UNSUPPORTED`), or makes the studio again (`aim_proxies.UNSUPPORTED`) |
+| Models of an AI workspace with an endpoint of their own | The only kind the amp-demo build takes | A component with `target` and a price on each model | Makes the component the file describes (`aim_workspaces`) |
+| The application of an agent of the catalog | Served by the amp-demo build, not by 4.13.1 | `identity` and `access` in `seed/aim/agents/` on amp-demo; on 4.13.1, an application of `seed/apim/applications` whose `client_id` is the agent's | Stops with a line that says what to write instead (`aim_agents`) |
+| Where a Gamma list starts | Page 0 or page 1, depending on the list and the build | Nothing | Reads from the other start when page 0 is refused, or when the pages from 1 hold fewer rows than the list announces (`gamma.ManagementApi.rows`) |
+| The shape of a Gamma list | `content`, `data`, `items`, with a total or a `pagination` | Nothing | Reads all of them (`gamma.page_of`) |
+| Saving a tool imported from an API | Refused by 4.13.1 | On 4.13.1, no references in a tool's `tailoring` | Puts the tool's words in the import (`aim_catalog.import_entry`), and saves only its references after it (`aim_catalog.tailor`) |
+| Deleting a protected resource of Access Management | 4.12 answers 500 without its type | Nothing | Sends `type=MCP_SERVER` (`am.remove`) |
+| A TLS key store or trust store that is "no store" | 4.12 names it `NONE` and refuses `{"type": ""}`, which a 4.11 export holds | Leave the store out | Nothing |
 
 ### Environments and developer portals
 

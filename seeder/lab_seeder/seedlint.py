@@ -8,7 +8,7 @@ them, with an apiKey that is text.
 
 A FOLDER is a folder of playgrounds (each has a compose.yml with a seed service, and a seed/ folder) or one playground, or
 both: it is read as a playground, and so is each folder under it, so that a compose file beside the playgrounds hides none of
-them. With none, the folder is the one `LAB_PLAYGROUNDS` names (a catalog sets it), else the sample of the engine. A folder that
+them. With none, the folder is the sample of the engine. A folder that
 does not exist is nothing to lint, not an error: a catalog with add-ons and tests only has no `playgrounds/`. The exit code
 is 0 when nothing is wrong, 1 when something is, 2 when the command line is wrong. `--format github` prints one workflow
 annotation for each problem, on the file as the diff of the repository names it, escaped as the catalog tools escape theirs
@@ -69,9 +69,8 @@ except ImportError as e:
     raise ImportError("seedlint reads the seed as the seeder does and needs its requirements: pip install -r "
                       "seeder/requirements.txt (Python 3.10 or later), or run make setup") from e
 
-# The folder of playgrounds the command lints when none is given and no catalog is named: a frozen copy in the engine
+# The folder of playgrounds the command lints when none is given: a frozen copy in the engine
 SAMPLES = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "samples"
-NAME = "LAB_PLAYGROUNDS"
 
 TEXT = (".yaml", ".yml", ".json", ".md", ".gapl", ".cedar", ".txt")   # whatever the seed may read, not only what it parses
 # An address that is not a variable would break on a platform that is not this one (a scheme is written in any case). The
@@ -121,6 +120,8 @@ Problem = namedtuple("Problem", "check path line message")
 Report = namedtuple("Report", "problems playgrounds files")   # the playgrounds that have a seed, the seed files read
 # What a subscription of a studio's file may say (aim_proxies.SUBSCRIPTION_KEYS)
 STUDIO_SUBSCRIPTION = ("application", "plan", "apiKey")
+# The keys of a studio's file that give its protocol versions, one of the two (aim_proxies.VERSION_KEYS)
+STUDIO_VERSIONS = ("supportedProtocolVersions", "protocolVersion")
 TITLES = {"variable": "Seed variable", "address": "Seed address", "read": "Seed file", "parse": "Seed file",
           "environment": "Seed environment", "playground": "Seed service", "studio": "Seed studio"}
 
@@ -765,17 +766,21 @@ def _mapping(value):
 
 
 def studio_problems(spec):
-    """What the seed or the platform refuses of the `subscriptions` of a studio's file (seed/aim/studios), read as the seed
-    reads it: what aim_proxies.read_subscriptions refuses, then the plan each names, which its file holds: the `plan` of a
-    studio made in one go, or the plan of the agents (JWT) of one built in steps (`access`), whose registration plan is closed."""
-    if not isinstance(spec, dict) or "subscriptions" not in spec:
+    """What the seed or the platform refuses of a studio's file (seed/aim/studios), read as the seed reads it: its protocol
+    versions (aim_proxies.protocol_versions) and its `subscriptions`: what aim_proxies.read_subscriptions refuses, then the
+    plan each names, which its file holds: the `plan` of a studio made in one go, or the plan of the agents (JWT) of one built
+    in steps (`access`), whose registration plan is closed."""
+    if not isinstance(spec, dict):
         return []
-    listed = spec["subscriptions"]
-    if listed is None:   # `subscriptions:` with nothing under it, which the seed reads as none
-        return []
+    given = [spec[key] for key in STUDIO_VERSIONS if key in spec]
+    found = [] if len(given) == 1 else [f"it gives {' or '.join(STUDIO_VERSIONS)}, one of the two"]
+    if len(given) == 1 and not all(isinstance(v, str) for v in (given[0] if isinstance(given[0], list) else [given[0]])):
+        found.append("a protocol version is text: quote it")
+    listed = spec.get("subscriptions")
+    if listed is None:   # no `subscriptions`, or `subscriptions:` with nothing under it, which the seed reads as none
+        return found
     if not isinstance(listed, list) or not all(isinstance(sub, dict) for sub in listed):
-        return ["subscriptions is a list of {application, plan, apiKey}"]
-    found = []
+        return [*found, "subscriptions is a list of {application, plan, apiKey}"]
     for sub in listed:
         unknown = sorted(set(sub) - set(STUDIO_SUBSCRIPTION), key=str)
         if unknown:
@@ -802,7 +807,7 @@ def studio_problems(spec):
         name = sub.get("plan", next(iter(plans)))
         if name not in plans:
             found.append(f"{where}: {_brief(name, quoted=True)} is no plan of the studio that takes subscriptions")
-        elif plans[name] == "KEY_LESS":
+        elif plans[name] in ("KEYLESS", "KEY_LESS"):   # a studio's plan says KEYLESS (Agent Management), an API's KEY_LESS
             found.append(f"{where}: a keyless plan takes no subscription")
         elif sub.get("apiKey") and plans[name] != "API_KEY":
             found.append(f"{where}: an apiKey needs a plan with API keys")
@@ -996,13 +1001,6 @@ def render(found, fmt="text"):
     return "\n".join(f"{_named(p.path)}{':' + str(p.line) if p.line else ''}: {_plain(p.message)}" for p in found)
 
 
-def playgrounds_root(variables):
-    """The folder of playgrounds to lint when none is given: the one `LAB_PLAYGROUNDS` names in `variables` (a mapping, the
-    environment of the caller; empty is unset), else the sample of the engine."""
-    named = variables.get(NAME)
-    return Path(named).expanduser().resolve() if named else SAMPLES
-
-
 def _in_repository(path):
     """A path as GitHub names the files of a diff: relative to the work tree that holds it (the nearest folder above it with a
     .git, a folder or the file of a linked work tree), else as it is. A workflow that checks a catalog out into a folder of its
@@ -1031,19 +1029,18 @@ def _shown(folder):
 
 def _parser():
     parser = argparse.ArgumentParser(prog="seedlint.py", description="Lints the seed files of playgrounds, as the seeder reads them.",
-                                     epilog=f"With no FOLDER: the folder ${NAME} names, else the sample of the engine. Exit code "
+                                     epilog="With no FOLDER: the sample of the engine. Exit code "
                                             "0: nothing wrong, 1: problems, 2: wrong command line.")
     parser.add_argument("folders", nargs="*", metavar="FOLDER", help="a folder of playgrounds, or one playground")
     parser.add_argument("--format", choices=("text", "github", "json"), default="text")
     return parser
 
 
-def main(argv=None, variables=None, out=None):
-    """The command. `variables` is the environment (os.environ), `out` where it prints (sys.stdout)."""
+def main(argv=None, out=None):
+    """The command. `out` is where it prints (sys.stdout)."""
     args = _parser().parse_intermixed_args(argv)
-    variables = os.environ if variables is None else variables
     out = sys.stdout if out is None else out
-    folders = [_shown(folder) for folder in args.folders] or [_shown(playgrounds_root(variables))]
+    folders = [_shown(folder) for folder in args.folders] or [_shown(SAMPLES)]
     for folder in folders:
         if os.path.lexists(folder) and not os.path.isdir(folder):
             print(f"{folder} is not a folder", file=sys.stderr)

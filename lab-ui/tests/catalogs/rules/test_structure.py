@@ -1,20 +1,13 @@
 """ST, the shape of a catalog's tree and its files. For each code one failing fixture, in which only that code fires,
 and one that passes; the message equals word for word. The structure rules and the Lab's `store.rejections` are one
-definition. The calibration at the end runs every rule of this package over the content that the engine holds today, as a catalog."""
+definition."""
 
-import os
-import posixpath
 import re
-import shutil
-import subprocess
-import tempfile
 import unittest
-from pathlib import Path
-from urllib.parse import unquote
 
-from lab_ui.catalogs import audit, store
+from lab_ui.catalogs import store
 from lab_ui.catalogs.rules import Context, context, structure
-from lab_ui.catalogs.tree import FolderTree, ListTree
+from lab_ui.catalogs.tree import ListTree
 from tests.data.rules import support
 from tests.data.rules.support import codes, run
 
@@ -490,100 +483,6 @@ class Helpers(unittest.TestCase):
         self.assertEqual(sorted(first, key=key)[:1][0].code, sorted(second, key=key)[:1][0].code)
         self.assertEqual({"ST06", "ST08", "ST13"}, codes(first))
         self.assertEqual({"ST06", "ST08", "ST13"}, codes(second))
-
-
-# ---------------------------------------------------------------------------------------------------------------------
-# Calibration on the content the engine holds today
-# ---------------------------------------------------------------------------------------------------------------------
-
-class Content(unittest.TestCase):
-    """Every ST, SE, GD, IM and DF rule over `addons/`, `setups/` and `playgrounds/` of this checkout, as a catalog: zero errors.
-    The one exception is the link of a guide to a file of the engine's checkout that is not in the three folders (`../docs/...`,
-    `../AGENTS.md`): inside a catalog it leads nowhere, which is what GD01 says; the default catalog's extraction replaces them."""
-
-    OUTSIDE = ("docs/", "seeder/")
-    OUTSIDE_FILES = ("AGENTS.md", "CONTRIBUTING.md", "README.md", "SECURITY.md", "CLAUDE.md")
-
-    @classmethod
-    def tracked(cls):
-        folders = ("addons", "setups", "playgrounds")
-        try:
-            done = subprocess.run(["git", "ls-files", "-z", "--", *folders], cwd=support.ROOT, capture_output=True, timeout=60)
-            names = [name.decode() for name in done.stdout.split(b"\0") if name] if done.returncode == 0 else []
-        except (OSError, subprocess.SubprocessError):
-            names = []
-        if names:
-            return [name for name in names if (support.ROOT / name).is_file() and not (support.ROOT / name).is_symlink()]
-        found = []   # no git: the folders as a clone has them, without what .gitignore keeps out
-        for folder in folders:
-            for base, dirs, files in os.walk(support.ROOT / folder):
-                dirs[:] = [each for each in dirs if each not in ("local", ".state", "secrets", "__pycache__")]
-                found += [str((Path(base) / each).relative_to(support.ROOT)) for each in files if not each.startswith(".env")]
-        return found
-
-    def setUp(self):
-        self.names = self.tracked()
-        if not self.names:
-            self.skipTest("this checkout holds no addons, setups or playgrounds")
-        holder = tempfile.TemporaryDirectory()
-        self.addCleanup(holder.cleanup)
-        self.catalog = Path(holder.name).resolve() / "catalog"
-        for name in self.names:
-            target = self.catalog / name
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(support.ROOT / name, target)
-        seeders = audit.lab_seeder_images()
-        self.prefix = seeders[0].rsplit("/", 1)[0] if seeders else ""
-        meta = "x-gravitee-catalog:\n  schema: 1\n  id: content\n  name: Content\n  description: The content\n  version: 1.0.0\n  lab: 1\n"
-        (self.catalog / "catalog.yml").write_text(meta + (f"  images: {self.prefix}\n" if self.prefix else ""))
-        (self.catalog / "README.md").write_text("# Content\n")
-
-    def run_all(self, **how):
-        families = ("ST", "SE", "GD", "DF", "IM")
-        return audit.run(self.catalog, audit.Options(families=families, seeder_paths=("seeder",), **how))
-
-    def test_the_content_is_in_the_shape_of_a_catalog_and_has_the_five_kinds_of_unit(self):
-        listing = FolderTree(self.catalog)
-        self.assertEqual("walk", (listing.entries(), listing.source)[1])
-        self.assertGreater(len([each for each in listing.entries()]), 100)
-        self.assertTrue(any(name.startswith("playgrounds/") for name in self.names))
-        self.assertTrue(any(name.startswith("addons/") for name in self.names))
-        self.assertTrue(any(name.startswith("setups/") for name in self.names))
-
-    def test_no_rule_of_this_package_finds_an_error_in_the_content(self):
-        result = self.run_all()
-        self.assertEqual([], result.skipped)
-        errors = [each for each in result.problems if each.severity == "error" and each.code != "GD01"]
-        self.assertEqual([], errors, "\n".join(f"{each.code} {each.path}:{each.line} {each.message}" for each in errors))
-        broken = [each for each in result.problems if each.code == "GD01"]
-        for each in broken:
-            target = re.search(r"the link (.*) does not resolve", each.message).group(1)
-            leads = posixpath.normpath(posixpath.join(posixpath.dirname(each.path), unquote(re.split(r"[?#]", target)[0])))
-            self.assertTrue(leads.startswith(self.OUTSIDE) or leads in self.OUTSIDE_FILES,
-                            f"{each.path}:{each.line} {target} leads to {leads}")
-
-    def test_the_only_warnings_are_the_dockerfile_ones_the_standard_expects(self):
-        result = self.run_all()
-        warnings = {each.code for each in result.problems if each.severity == "warning"}
-        self.assertLessEqual(warnings, {"DF22", "DF23", "DF24", "ST20", "SE05"})
-
-    def test_the_seed_services_pass_all_four_image_rules_with_the_seeder_as_the_anchor(self):
-        result = self.run_all()
-        self.assertEqual([], [each for each in result.problems if each.code.startswith("IM")])
-        seeds = [name for name in self.names if name.endswith("/compose.yml") and "seed" in (support.ROOT / name).read_text()]
-        self.assertTrue(seeds, "the engine holds playgrounds with a seed")
-        without = audit.run(self.catalog, audit.Options(families=("IM",), seeder_images=(), seeder_paths=("seeder",)))
-        self.assertIn("IM02", {each.code for each in without.problems}, "without the anchor every seed fails its own standard")
-
-    def test_the_content_listing_is_the_one_the_lab_would_install(self):
-        listing = FolderTree(self.catalog)
-        entries = [store.Entry(each.mode, "0" * 40, each.size, each.path) for each in listing.entries()]
-        self.assertEqual([], [(each.path, code) for each, code in store.rejections(entries)])
-        kept, ignored = store.selected(entries)
-        self.assertEqual(0, ignored)
-        from lab_ui.catalogs.rules import unit_of
-        self.assertEqual({each.path for each in listing.entries() if each.path == "catalog.yml" or unit_of(each.path)},
-                         {each.path for each in kept}, "catalog.yml and the files of the units are installed, the guides of the kinds are not")
 
 
 if __name__ == "__main__":
