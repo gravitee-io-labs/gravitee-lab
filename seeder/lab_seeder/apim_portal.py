@@ -340,28 +340,17 @@ def api_document(scope, path):
         spec = common.parse_yaml(document, shown(path))
     except (yaml.YAMLError, ValueError) as e:   # ValueError: a value that YAML reads as a date that is none
         raise SeedError(common.unreadable(shown(path), e)) from None
-    if isinstance(spec, dict) and spec.get("openapi") is not None and spec.get("asyncapi") is None:
-        info = spec.get("info")
-        if not isinstance(info, dict) or any(info.get(key) in (None, "") for key in ("title", "version")):
-            raise SeedError(f"{shown(path)}: info needs a title and a version")
-        if not isinstance(spec.get("paths"), dict) or not spec["paths"]:
-            raise SeedError(f"{shown(path)}: paths is missing or empty")
-        return "openapi", document
-    return "asyncapi", asyncapi(path, spec, document)
-
-
-def asyncapi(path, spec, document):
-    """The text of an AsyncAPI document, once it is one the portal shows."""
-    if not isinstance(spec, dict) or spec.get("asyncapi") is None:
+    if not isinstance(spec, dict) or (spec.get("asyncapi") is None and spec.get("openapi") is None):
         raise SeedError(f"{shown(path)}: it is no AsyncAPI or OpenAPI document: it has no asyncapi or openapi key")
-    if str(spec["asyncapi"]) not in ASYNCAPI_VERSIONS:
+    kind, body = ("openapi", "paths") if spec.get("asyncapi") is None else ("asyncapi", "channels")
+    if kind == "asyncapi" and str(spec["asyncapi"]) not in ASYNCAPI_VERSIONS:
         raise SeedError(f"{shown(path)}: asyncapi {spec['asyncapi']} is a version the portal does not show ({', '.join(ASYNCAPI_VERSIONS)})")
     info = spec.get("info")
     if not isinstance(info, dict) or any(info.get(key) in (None, "") for key in ("title", "version")):
         raise SeedError(f"{shown(path)}: info needs a title and a version")
-    if not isinstance(spec.get("channels"), dict) or not spec["channels"]:
-        raise SeedError(f"{shown(path)}: channels is missing or empty")
-    return document
+    if not isinstance(spec.get(body), dict) or not spec[body]:
+        raise SeedError(f"{shown(path)}: {body} is missing or empty")
+    return kind, document
 
 
 class Folder:
@@ -377,10 +366,6 @@ class Folder:
         self.docs = {}   # the AsyncAPI or OpenAPI text of the listed APIs that have one, by crossId
         self.kinds = {}   # the kind of each of those documents (DOC_KINDS), by crossId
         self.sources = {}   # the file each of those comes from, as a message names it
-
-    @property
-    def empty(self):
-        return not (self.theme or self.portal or self.pages or self.links or self.listings)
 
     def read(self):
         scope, folder = Scope(self.env, self.name), common.SEED_DIR.joinpath(*self.parts, "portal")
@@ -548,7 +533,7 @@ class Portals:
             named = seed_file(*parts, "environment.yaml")
             name = (load(named, provided={"ENV_ID": env}) if named else {}).get("name")
             folder = Folder(env, self.environment(env, name), parts).read()
-            if not folder.empty:
+            if folder.portal:
                 out.append(folder)
         return out
 
