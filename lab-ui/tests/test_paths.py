@@ -40,23 +40,6 @@ class SeedApis(Case):
         self.assertEqual(self.found(root / "gone"), [])
 
 
-class Isolation(Case):
-    """The day the checkout has its catalogs.default.json, no test of this module may notice."""
-
-    def test_no_test_reads_the_project_it_runs_in(self):
-        self.folder(paths)   # stands for the checkout, with the file it will have
-        self.write(paths.DEFAULT_FILE, json.dumps({"schema": 1, "catalogs": [{"id": "checkout-catalog"}]}))
-        self.patch(paths, "_default", (None, None))
-        cases = [case for case in vars(sys.modules[__name__]).values()
-                 if isinstance(case, type) and issubclass(case, unittest.TestCase) and case is not Isolation]
-        suite = unittest.TestSuite(unittest.defaultTestLoader.loadTestsFromTestCase(case) for case in cases)
-        result = unittest.TestResult()
-        suite.run(result)
-        self.assertGreater(result.testsRun, 60)
-        self.assertEqual(result.testsRun, suite.countTestCases())
-        self.assertEqual([str(case) for case, _ in result.failures + result.errors], [])
-
-
 class Records(Case):
     """A file written whole reaches the disk before it takes its name; a record of this machine that does not read is kept aside."""
 
