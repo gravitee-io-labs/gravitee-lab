@@ -137,12 +137,10 @@ class Token(Case):
 
     def test_it_is_not_in_the_representation(self):
         client = cloud.Cloud("https://eu.cloud.gravitee.io/management/", f"  {SECRET}\n")
-        self.assertEqual(repr(client), "Cloud('https://eu.cloud.gravitee.io')")
         self.assertFalse(SECRET in repr(client), "the token is in it")
 
     def test_the_gate_keeps_a_token_as_quietly(self):
         gate = cloud.Gate("https://eu.cloudgate.gravitee.io/", f" {SECRET}\n")
-        self.assertEqual(repr(gate), "Gate('https://eu.cloudgate.gravitee.io')")
         self.assertFalse(SECRET in repr(gate), "the token is in it")
         for token in ("", "   ", None, 7, f"two words {SECRET}", f"café{SECRET}"):
             with self.subTest(token=bool(token)), self.assertRaises(ValueError) as caught:

@@ -142,9 +142,6 @@ class _Client:
             raise ValueError("The token is empty, or has spaces or characters that cannot be sent")
         self._token = token
 
-    def __repr__(self):
-        return f"{type(self).__name__}({self.url!r})"
-
     def _scheme(self):
         return "Bearer"
 
