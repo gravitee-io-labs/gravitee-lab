@@ -209,8 +209,7 @@ SPEC_FIXES = {
     "T16": "Point `file:` at a file inside the unit.",
     "T17": "Write the port as `127.0.0.1:HOST:CONTAINER`.",
     "T18": "Put the build context under the unit, pin a remote context to a 40-character commit after `#`, and remove ssh, "
-           "secrets and cache options. Only `context`, `dockerfile`, `args`, `target` and `labels` are accepted (default-deny; "
-           "`additional_contexts` only for the Lab's seeder).",
+           "secrets and cache options. Only `context`, `dockerfile`, `args`, `target` and `labels` are accepted (default-deny).",
     "T19": "Use a relative path inside the catalog.",
     "T20": "Prefix the setting with `{NS}_`, or read only `*_VERSION`, `*_REGISTRY`, `*_PULL_POLICY` and the shared settings.",
     "T21": "Prefix service, container and volume names with the catalog id.",
@@ -873,7 +872,6 @@ class Builds(Golden):
 
     def test_t18_the_five_keys_of_the_allow_list_are_the_whole_of_it(self):
         self.assertEqual(trust.BUILD_KEYS, ("context", "dockerfile", "args", "target", "labels"))
-        self.assertEqual(trust.SEEDER_BUILD_KEYS, ("additional_contexts",))
         self.assertFalse(hasattr(trust, "EXTRA_BUILD"), "the deny list is gone: one list, the allow-list")
 
     def test_t18_a_build_with_the_keys_of_the_allow_list_passes(self):
@@ -887,8 +885,8 @@ class Builds(Golden):
 
     def test_t18_any_other_key_blocks_whatever_its_value(self):
         for key in self.OTHER_BUILD_KEYS:
-            if key in ("additional_contexts", "privileged"):
-                continue   # their own tests: the first is for the seeder, the second says T03 too
+            if key == "privileged":
+                continue   # its own test: it says T03 too
             for value in (True, False, None, "", 0, 1, [], {}, ["x"], {"a": "b"}, "x"):
                 with self.subTest(key=key, value=value):
                     verdict = self.build_edit({"context": "@unit@", key: value})
@@ -919,16 +917,13 @@ class Builds(Golden):
         self.assertEqual(self.build_edit(None)["state"], "ok", "no build is no build")
 
     def test_t18_what_the_stage_that_builds_refuses_is_what_the_policy_blocks(self):
-        for build, seeder, wanted in (({"context": ".", "dockerfile": "D", "args": {}, "target": "t", "labels": {}}, False, []),
-                                      ("./app", False, []), ({"context": ".", "ssh": []}, False, ["ssh"]),
-                                      ({"pull": 1, "network": "host", "context": "."}, False, ["network", "pull"]),
-                                      ({"additional_contexts": {}}, False, ["additional_contexts"]),
-                                      ({"additional_contexts": {}}, True, []),
-                                      ({"additional_contexts": {}, "ssh": 1}, True, ["ssh"]), ({}, False, []),
-                                      ({"x-a": 1, "x-b": 1}, True, ["x-a", "x-b"]), (7, False, ["build"]), (None, False, ["build"]),
-                                      ([], False, ["build"])):
-            with self.subTest(build=build, seeder=seeder):
-                self.assertEqual(trust.build_extras(build, seeder), wanted)
+        for build, wanted in (({"context": ".", "dockerfile": "D", "args": {}, "target": "t", "labels": {}}, []),
+                              ("./app", []), ({"context": ".", "ssh": []}, ["ssh"]),
+                              ({"pull": 1, "network": "host", "context": "."}, ["network", "pull"]),
+                              ({"additional_contexts": {}}, ["additional_contexts"]), ({}, []),
+                              ({"x-a": 1, "x-b": 1}, ["x-a", "x-b"]), (7, ["build"]), (None, ["build"]), ([], ["build"])):
+            with self.subTest(build=build):
+                self.assertEqual(trust.build_extras(build), wanted)
         self.assertEqual(trust.build_extras({"b": 1, "a": 1, 3: 1}), ["3", "a", "b"], "sorted, as text")
 
     def test_t18_no_key_that_compose_prints_for_a_build_written_with_the_allowed_keys_is_outside_the_list(self):
@@ -968,44 +963,11 @@ class Builds(Golden):
             with self.subTest(dockerfile=dockerfile):
                 self.assertEqual(self.changed(CLEAN, edit)["state"], state)
 
-    CONTEXTS = (({"base": "docker-image://alpine:3"}, "ok", []), ({"base": "target:other"}, "ok", []),
-                ({"base": "service:other"}, "ok", []), ({"base": "/etc"}, "blocked", [0]),
-                ({"base": "https://example.invalid/x.git#main"}, "blocked", [1]),
-                ({"base": "https://example.invalid/x.git#0123456789abcdef0123456789abcdef01234567"}, "ok", []),
-                (["base=/etc"], "blocked", [0]), (["base=docker-image://alpine"], "ok", []), ({}, "ok", []), ([], "ok", []))
-
-    def test_t18_an_additional_context_of_the_lab_seeder_is_held_to_the_same_as_the_context(self):
-        for extra, state, variants in self.CONTEXTS:
-            with self.subTest(extra=extra):
-                verdict = self.build_edit({"context": "@seeder@", "additional_contexts": extra})
-                self.assertEqual((verdict["state"], verdict["reasons"]), (state, [line("T18", each) for each in variants]))
-
-    def test_t18_an_additional_context_of_any_other_build_blocks_whatever_it_names(self):
-        for extra, state, variants in self.CONTEXTS:
-            if extra in ({}, []):
-                continue   # a key with nothing in it is still the key
-            with self.subTest(extra=extra):
-                verdict = self.build_edit({"context": "@unit@", "additional_contexts": extra})
-                self.assertEqual((verdict["state"], verdict["reasons"]), ("blocked", [line("T18", each) for each in [*variants, 2]]))
-        for build in ({"context": "@unit@", "additional_contexts": {}}, {"context": "@unit@", "additional_contexts": []}):
-            self.assertEqual(self.build_edit(build)["reasons"], [line("T18", 2)], "the key alone is extra access")
-
-    def test_t18_the_seeders_other_keys_are_held_to_the_list_and_its_additional_contexts_do_not_widen_it(self):
-        base = {"context": "@seeder@", "additional_contexts": {"base": "docker-image://alpine:3"}}
-        self.assertEqual(self.build_edit({**base, "args": {"A": "1"}, "target": "t", "labels": {"k": "v"}})["state"], "ok")
-        self.assertEqual(self.build_edit({**base, "ssh": ["default"]})["reasons"], [line("T18", 2)])
-        self.assertEqual(self.build_edit({**base, "dockerfile_inline": "FROM scratch"})["reasons"], [line("T18", 2)])
-
-    def test_t18_a_seeder_that_takes_extra_contexts_is_not_the_labs_seeder_for_n01(self):
-        """T18 accepts the key for the seeder's build; N01 is what keeps the token from a seed built with anything more."""
-        def edit(arguments):
-            arguments["unit_config"]["services"]["fixture-seed"] = {
-                "image": "example.invalid/hostile/seeder", "labels": {"io.gravitee.role": "seed"},
-                "build": {"context": arguments["roots"]["seeder"], "additional_contexts": {"base": "docker-image://alpine:3"}}}
-            arguments["own"] = [*arguments["own"], "fixture-seed"]
-        verdict = self.changed(PLAYGROUND, edit)
-        self.assertNotIn("T18", verdict["codes"], verdict["reasons"])
-        self.assertIn(line("N01"), verdict["notes"])
+    def test_t18_additional_contexts_block_on_any_build_the_labs_seeder_included(self):
+        for context in ("@unit@", "@seeder@"):
+            for extra in ({"base": "docker-image://alpine:3"}, ["base=/etc"], {}, []):
+                with self.subTest(context=context, extra=extra):
+                    self.assertEqual(self.build_edit({"context": context, "additional_contexts": extra})["reasons"], [line("T18", 2)])
 
     def test_t18_a_context_and_a_pin_are_still_judged_with_the_keys_checked(self):
         self.assertEqual(self.build_edit({"context": "@unit@/../elsewhere"})["reasons"], [line("T18", 0)])

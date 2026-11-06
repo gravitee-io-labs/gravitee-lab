@@ -70,10 +70,8 @@ LOCAL_HOSTS = ("localhost", "127.0.0.1", "[::1]", "host.docker.internal")   # wh
 PINNED = re.compile(r"[0-9a-f]{40}(?::.*)?")   # what follows the # of a remote build context (T18)
 # The build keys a unit may use (T18), and no other: a key that is not here reaches beyond the build (ssh, secrets, the
 # cache, network, entitlements, tags, privileged), or takes the Dockerfile from the file (dockerfile_inline), or is one that a
-# later Compose adds. The list is default-deny, and the CI stage that builds (BD02) holds the same one. `additional_contexts`
-# is the one more key, for a build of the Lab's seeder alone
+# later Compose adds. The list is default-deny, and the CI stage that builds (BD02) holds the same one
 BUILD_KEYS = ("context", "dockerfile", "args", "target", "labels")
-SEEDER_BUILD_KEYS = ("additional_contexts",)
 
 # The reason lines of 8.3. A rule with several lines yields each that holds, except T06 and T26, which yield the first. `class`
 # P, H, or N (a restriction that does not block).
@@ -141,8 +139,7 @@ FIXES = {
     "T16": "Point `file:` at a file inside the unit.",
     "T17": "Write the port as `127.0.0.1:HOST:CONTAINER`.",
     "T18": "Put the build context under the unit, pin a remote context to a 40-character commit after `#`, and remove ssh, "
-           "secrets and cache options. Only `context`, `dockerfile`, `args`, `target` and `labels` are accepted "
-           "(default-deny; `additional_contexts` only for the Lab's seeder).",
+           "secrets and cache options. Only `context`, `dockerfile`, `args`, `target` and `labels` are accepted (default-deny).",
     "T19": "Use a relative path inside the catalog.",
     "T20": "Prefix the setting with `{NS}_`, or read only `*_VERSION`, `*_REGISTRY`, `*_PULL_POLICY` and the shared settings.",
     "T21": "Prefix service, container and volume names with the catalog id.",
@@ -998,17 +995,15 @@ def _pinned(context):
     return bool(git and PINNED.fullmatch(ref))
 
 
-def build_extras(build, seeder=False):
-    """The keys of a build that T18 does not accept, sorted, as the text Compose printed them: every key but BUILD_KEYS, and
-    `additional_contexts` unless the build is the Lab's seeder (`seeder`). The one list that the stage of the CI that builds
-    refuses by (BD02). A build given as a text is a context and has none; one that is neither text nor a mapping is not a
-    build the Lab can read, and has `build` itself as the key it does not accept."""
+def build_extras(build):
+    """The keys of a build that T18 does not accept, sorted, as the text Compose printed them: every key but BUILD_KEYS. A
+    build given as a text is a context and has none; one that is neither text nor a mapping is not a build the Lab can read,
+    and has `build` itself as the key it does not accept."""
     if isinstance(build, str):
         return []
     if not isinstance(build, dict):
         return ["build"]
-    allowed = BUILD_KEYS + (SEEDER_BUILD_KEYS if seeder else ())
-    return sorted(str(key) for key in build if key not in allowed)
+    return sorted(str(key) for key in build if key not in BUILD_KEYS)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1281,8 +1276,7 @@ class _Run:
     def build(self, service):
         """T18 on how a service is built: where from (the unit's folder, the Lab's seeder, or a git repository at a commit),
         and with which keys. The keys are default-deny (BUILD_KEYS): any other blocks, whatever its value, and so does a build
-        that is neither a mapping nor a text. `additional_contexts` is accepted for the Lab's seeder alone, and each of its
-        contexts is held to the same rule as the context."""
+        that is neither a mapping nor a text."""
         build = service.get("build")
         if build is None:
             return
@@ -1292,7 +1286,6 @@ class _Run:
         build = {"context": build} if isinstance(build, str) else build
         context, roots = str(build.get("context") or ""), self.roots
         seeder = roots["seeder"]
-        from_seeder = False
         if context and not posixpath.isabs(context):   # Compose gives a local context as an absolute path
             if not _pinned(context):
                 self.say("T18", 1)
@@ -1306,26 +1299,10 @@ class _Run:
                 where = self.resolve(dockerfile, path)
                 if not (_inside(where, roots["unit"]) or from_seeder and _inside(where, seeder)):
                     self.say("T18", 0)
-        extra = build.get("additional_contexts")
-        for value in (list(extra.values()) if isinstance(extra, dict) else
-                      [str(item).partition("=")[2] for item in _list(extra)]):
-            self.extra_context(str(value))
         image = _repository(service.get("image"))
         taken = {_repository(_dict(other).get("image")) for other in _dict(self.core.get("services")).values()}
-        if build_extras(build, from_seeder) or image and image in taken:   # a built image must not take the core's name
+        if build_extras(build) or image and image in taken:   # a built image must not take the core's name
             self.say("T18", 2)
-
-    def extra_context(self, value):
-        """T18 on one of the extra build contexts."""
-        if value.startswith(("docker-image://", "target:", "service:")):
-            return
-        if not posixpath.isabs(value):
-            if not _pinned(value):
-                self.say("T18", 1)
-            return
-        path = self.resolve(value)
-        if not (_inside(path, self.roots["unit"]) or self.roots["seeder"] and path == self.roots["seeder"]):
-            self.say("T18", 0)
 
     def top(self):
         """T14 to T16 on what the unit declares at the top of its file: what the core does not declare already."""

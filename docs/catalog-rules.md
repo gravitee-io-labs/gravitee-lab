@@ -1121,9 +1121,9 @@ Every rule that `catalog.py check` and the stages of `catalog.py ci` can print, 
 
 *Error.* The Lab's trust policy, class P.
 
-- **Message**: Builds from outside its folder. Fix: Put the build context under the unit, pin a remote context to a 40-character commit after `#`, and remove ssh, secrets and cache options. Only `context`, `dockerfile`, `args`, `target` and `labels` are accepted (default-deny; `additional_contexts` only for the Lab's seeder).
+- **Message**: Builds from outside its folder. Fix: Put the build context under the unit, pin a remote context to a 40-character commit after `#`, and remove ssh, secrets and cache options. Only `context`, `dockerfile`, `args`, `target` and `labels` are accepted (default-deny).
 - **Why**: The Lab will not run an item that breaks this rule without the person agreeing to what it takes of their machine.
-- **Fix**: Put the build context under the unit, pin a remote context to a 40-character commit after `#`, and remove ssh, secrets and cache options. Only `context`, `dockerfile`, `args`, `target` and `labels` are accepted (default-deny; `additional_contexts` only for the Lab's seeder).
+- **Fix**: Put the build context under the unit, pin a remote context to a 40-character commit after `#`, and remove ssh, secrets and cache options. Only `context`, `dockerfile`, `args`, `target` and `labels` are accepted (default-deny).
 - **At Add**: Blocked at Add, Update and Start, with this reason.
 
 ### T19

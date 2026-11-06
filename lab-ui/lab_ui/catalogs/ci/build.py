@@ -14,7 +14,7 @@ build needs the credentials of their own private base images; the untrusted lane
 - Only the build keys of the T18 allow-list are accepted: `context`, `dockerfile`, `args`, `target`, `labels`. Any other key is
   BD02, the service is not built, and the others still are (one run lists everything to fix). The allow-list is default-deny,
   which a deny list is not: `dockerfile_inline`, `extra_hosts`, `cache_from`, `ulimits` and `pull` pass a list of `ssh`, `secrets`
-  and `network`. `additional_contexts` is for the Lab's seeder, which is not built here.
+  and `network`.
 - A service built from the Lab's seeder is the Lab's own code, tested in the Lab's CI: it is left out.
 - A service with a `build:` and no `image:` is built too, under a name of this stage's own (`lab-ci/<kind>-<unit>-<service>:ci`,
   `local_tag`), and tested under it: the Lab builds such a service when it runs it, and a Dockerfile that is never built in CI
