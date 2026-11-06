@@ -190,7 +190,7 @@ make e2e ID=playground:acme-shop   # starts an item from nothing on a machine wi
   ([Set up your machine](../CONTRIBUTING.md#set-up-your-machine)) and are skipped without it: a skip did not pass.
 - `make check` needs the Docker CLI with Compose 5 or later, not a running daemon. `lab_ui/library/check.py` holds what it covers:
   each add-on, setup and playground (metadata, what a shared playground says of itself (tags, duration, first start) and its README,
-  includes, conflicts, image defaults, labels, restart policies, ports, literal secrets, what a service takes of this machine beyond its
+  includes, conflicts, image defaults, labels, restart policies, ports published twice, what a service takes of this machine beyond its
   container and says why (`host_access`), what a playground requires, its guide and the API definitions of its seed),
   then the project (catalog rows, image names, and the wiring of AI agents).
 - A change in `lab_ui/` needs a restart of `make ui`. The page's files are read at each load.

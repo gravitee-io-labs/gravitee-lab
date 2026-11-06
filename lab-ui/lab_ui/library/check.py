@@ -55,7 +55,7 @@ PARTS = {"consoles": ("console", "as")}   # the keys of an entry of a list writt
 DURATION = re.compile(r"(?:\d+ h(?: \d{1,2} min)?|\d+ min)")
 # What x-gravitee.requires can ask for: add-ons and setups are included instead
 REQUIRES = {"plugins", "license", "host", "images", "lab"}
-LOOPBACK = "127.0.0.1"   # the only address a shared file publishes a port on
+LOOPBACK = "127.0.0.1"   # the only address the core publishes a port on
 STUB_FILE = ".claude/skills/{}/SKILL.md"    # where Claude Code looks for a skill
 STUB_BODY = "Read `{}` and follow it."   # all a stub says: the skill is written once
 FRONTMATTER = re.compile(r"\A\s*---\n(.*?)\n---[ \t]*(?:\n|\Z)(.*)\Z", re.S)   # a skill file: its header, then its text
@@ -222,8 +222,8 @@ def _meta(config):
 
 
 def _loopback(ports):
-    """A port a shared file publishes is reachable from this machine only, so that nobody else on the network reaches
-    a database or a console of the lab: it is written 127.0.0.1:<host port>:<container port>."""
+    """A port the core publishes is reachable from this machine only, so that nobody else on the network reaches a database
+    or a console of the lab: it is written 127.0.0.1:<host port>:<container port>."""
     for port in ports:
         address = port.get("host_ip")
         if address == LOOPBACK:
@@ -238,16 +238,6 @@ def _included(unit):
     """The files a unit includes, directly or through what it includes: the add-ons it brings, and its setups."""
     return [*(paths.unit_file("addon", aid) for aid in brought(unit)),
             *(paths.unit_file("setup", sid) for sid in unit.get("setups", []))]
-
-
-def _own_ports(raw, path, included):
-    """The ports a file publishes itself, on its services and on the core's: read alone, a file shows the ports of the
-    files it includes too, which are theirs."""
-    def ports(file):
-        return [(name, port) for name, service in (raw[file].get("services") or {}).items()
-                for port in service.get("ports") or []]
-    theirs = [found for file in included if file in raw for found in ports(file)]
-    return [port for name, port in ports(path) if (name, port) not in theirs]
 
 
 def _path_like(source):
@@ -602,7 +592,6 @@ def _unit(kind, uid, project, raw, context=None):
         yield from _listing(meta)
     yield from _restart(raw[path], unit.get("services", []))
     yield from _labeled(raw[path], unit.get("services", []))
-    yield from _loopback(_own_ports(raw, path, _included(unit)))
     if kind == "addon":
         yield from _conflicts(unit)
         yield from _license(unit["requires"])

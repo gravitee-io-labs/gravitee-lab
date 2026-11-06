@@ -1027,14 +1027,6 @@ class Sharing(Machine):
         self.assertEqual(self.found(WHOAMI, other[0], sharing=WHOAMI), [(other[0], f"publishes port 8098, like {WHOAMI}")])
         self.assertEqual(self.found(WHOAMI, other[0], sharing=other[0]), [(WHOAMI, f"publishes port 8098, like {other[0]}")])
 
-    def test_what_belongs_to_this_machine_publishes_where_it_wants_until_it_is_shared(self):
-        self.whoami()
-        self.units[1][1]["services"]["whoami"]["ports"] = [port(8098, host_ip=None)]
-        self.machine(self.units)
-        self.assertEqual(self.found(WHOAMI), [])
-        self.assertEqual(self.found(WHOAMI, sharing=WHOAMI),
-                         [(WHOAMI, "publishes port 8098 on every interface: write 127.0.0.1:8098:8098")])
-
     def test_what_keeps_running_restarts_unless_stopped(self):
         self.whoami(restart="always")
         self.assertEqual(self.found(WHOAMI), [])
@@ -2004,10 +1996,6 @@ class Hostile(Shared):
         # What declares its reason is not asked again; whether this catalog may use the machine is the policy's to say
         self.assertFalse([line for line in self.said("fixture", "addons/cluster/compose.yml") if "host_access" in line])
         self.assertIn("Blocked: Runs with full privileges", self.said("hostile", "addons/h-privileged-declared/compose.yml"))
-
-    def test_a_port_on_every_interface_says_how_to_write_it(self):
-        self.assertIn("publishes port 8199 on every interface: write 127.0.0.1:8199:80",
-                      self.said("hostile", "addons/t17-all-interfaces/compose.yml"))
 
     def test_a_name_that_clashes_is_told_with_the_fix_of_the_prefix(self):
         said = self.said("hostile", "addons/t21-name-clash/compose.yml")

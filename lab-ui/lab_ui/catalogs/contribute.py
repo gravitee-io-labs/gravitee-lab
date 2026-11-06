@@ -9,7 +9,7 @@ unit are at one depth, so only an include of the catalog itself changes).
 Before anything leaves it is judged the way a consumer and the catalog's CI will judge it: its includes are in the target
 or in a catalog the target declares, no secret is in it and, for a Public target, no name of a private catalog; the text
 screen is clean, Compose loads it alone with the core, the trust policy lets it run, the rules every item of a catalog keeps
-(`check.problems(sharing=...)`: a category, a README, `unless-stopped`, a description on each service, ports on the loopback)
+(`check.problems(sharing=...)`: a category, a README, `unless-stopped`, a description on each service)
 are kept, and the rules of the catalog standard (ST, SE, DF, GD, IM) find nothing in the files that would be copied. The copy
 is judged in a hidden folder beside the installs, `.lab/catalogs/.stage-share~<token>`, at the depth of a unit so that its
 relative paths resolve as they will; an include of the target's own units is written there as the include of another catalog,
@@ -712,8 +712,7 @@ def _unwritten(copy, file, kind, slug, ns, row, skip=frozenset()) -> List[str]:
 
 def _own_rules(file) -> List[str]:
     """What the rules of an item of a catalog find in the personal compose file `file` (`check.problems(sharing=...)`: a
-    category, a README, `unless-stopped`, a description on each service, ports on the loopback, no literal secret, its ports
-    among the project's, a playground that loads alone), the lines the catalog's own check gives the copy."""
+    category, a README, `unless-stopped`, a description on each service, its ports among the project's, a playground that loads alone), the lines the catalog's own check gives the copy."""
     return [message for where, message in check.problems(sharing=file) if where == file]
 
 
