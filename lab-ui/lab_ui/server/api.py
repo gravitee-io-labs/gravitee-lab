@@ -541,7 +541,7 @@ def share_item(req, kind, uid):
 def created(req, make, *names, **given):
     """A new add-on, setup or playground from the form's fields. `catalog` (a catalog's namespace) says where it is kept: not
     given, it is Personal; the namespace of an editable folder catalog writes it there, and any other is `not_editable`
-    (personal.py). `shared`, the destination that was deleted, is ignored."""
+    (personal.py)."""
     asked = req.body.get("catalog")
     if asked is not None and not isinstance(asked, str):
         raise ValueError("The catalog must be text")

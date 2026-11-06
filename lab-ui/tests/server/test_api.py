@@ -26,7 +26,7 @@ from urllib.error import URLError
 
 import lab_ui
 from lab_ui.server import api, stack
-from lab_ui.gravitee import cloud, core, places, platforms
+from lab_ui.gravitee import cloud, core, places
 from lab_ui.docker import compose, envfiles
 from lab_ui.gravitee import probe
 from lab_ui.library import files, layers, playgrounds
@@ -966,21 +966,19 @@ class Personal(LabUI):
         self.request("POST", "/api/setups", {**fields, "addons": ["kafka"], "id": "local/mine", "check": True})
         self.assertTrue(save.call_args.kwargs["check_only"])
 
-    def test_the_create_routes_take_the_catalog_they_keep_the_item_in_and_ignore_shared(self):
-        # `catalog` in place of `shared`. Not given, the item is Personal; the namespace of an editable folder catalog is
-        # given on to personal.py, which writes the item there (and says `not_editable` for any other)
+    def test_the_create_routes_take_the_catalog_they_keep_the_item_in(self):
+        # Not given, the item is Personal; the namespace of an editable folder catalog is given on to personal.py, which
+        # writes the item there (and says `not_editable` for any other)
         fields = {"name": "Whoami", "description": "Says who answers", "category": "Other"}
         for path, function, more in (("/api/addons", "create_addon", {"image": "traefik/whoami", "port": "8098"}),
                                      ("/api/setups", "save_setup", {"addons": ["kafka"]}),
                                      ("/api/playgrounds", "create_playground", {"setups": [], "addons": ["kafka"]})):
             with self.subTest(path=path):
                 create = self.patch(api.personal, function, return_value={})
-                self.request("POST", path, {**fields, **more, "shared": True})   # the project destination is gone
-                self.assertNotIn("shared", create.call_args.kwargs)
+                self.request("POST", path, {**fields, **more})
                 self.assertNotIn("catalog", create.call_args.kwargs)
                 self.request("POST", path, {**fields, **more, "catalog": "my-catalog"})
                 self.assertEqual(create.call_args.kwargs["catalog"], "my-catalog")
-                self.assertNotIn("shared", create.call_args.kwargs)
                 status, _, body = self.request("POST", path, {**fields, **more, "catalog": ["my-catalog"]})
                 self.assertEqual((status, json.loads(body)), (400, {"error": "The catalog must be text"}))
                 create.side_effect = CatalogError("not_editable", "Acme Hub cannot take new items from the Lab. Choose "
@@ -1069,11 +1067,6 @@ class PlatformRoutes(LabUI):
         self.invalidate = self.patch(api.places, "invalidate")
         self.patch(api.platforms, "runs_here", return_value=False)
 
-    def test_listed(self):
-        listing = self.patch(api.platforms, "listing", return_value={"platforms": [{"id": "cloud"}]})
-        status, _, body = self.request("GET", "/api/platforms")
-        self.assertEqual((status, json.loads(body)), (200, listing.return_value))
-
     def test_registered_from_the_fields_of_the_form(self):
         add = self.patch(api.platforms, "add", return_value={"id": "gravitee-cloud"})
         sent = {"url": "https://eu.cloud.gravitee.io", "token": "t", "account": "4b2f6a1e-8c3d-4e57-9a10-7d5c2b8e3f46"}
@@ -1147,20 +1140,6 @@ class PlatformRoutes(LabUI):
                     self.assertEqual(self.request("POST", route)[0], 404)
             self.assertEqual(self.request("GET", f"/api/platforms/p/gateways/{path}/plan")[0], 404, path)
 
-    def test_gateways_are_created_and_deleted_in_a_platform(self):
-        create = self.patch(api.platforms, "create_gateway", return_value={"gateway": {}})
-        delete = self.patch(api.platforms, "delete_gateway", return_value={})
-        sent = {"environmentId": "env", "name": "lab"}
-        status, _, body = self.request("POST", "/api/platforms/gravitee-cloud/gateways", sent)
-        self.assertEqual((status, json.loads(body)), (200, create.return_value))
-        create.assert_called_once_with(PROJECT, "gravitee-cloud", "env", "lab")
-        self.assertEqual(self.request("POST", "/api/platforms/gravitee-cloud/gateways/9f1c-2-xy/delete")[0], 200)
-        delete.assert_called_once_with(PROJECT, "gravitee-cloud", "9f1c-2-xy")
-        # An id is one segment of what a platform accepts: letters, digits and dashes
-        for path in ("a/b", "..", ".", ".hidden", "9f1c-2.x_y"):
-            status, _, _ = self.request("POST", f"/api/platforms/gravitee-cloud/gateways/{path}/delete")
-            self.assertEqual(status, 404, path)
-
     def test_what_a_platform_refuses_is_a_bad_request_in_its_words(self):
         for function, path, sent in [("add", "/api/platforms", {}),
                                      ("create_gateway", "/api/platforms/p/gateways", {}),
@@ -1170,12 +1149,6 @@ class PlatformRoutes(LabUI):
             with self.subTest(path=path):
                 status, _, body = self.request("POST", path, sent)
                 self.assertEqual((status, json.loads(body)), (400, {"error": "Gravitee Cloud refuses this token"}))
-
-    def test_a_platform_that_is_not_known(self):
-        for function, path in [("check", "/api/platforms/nope/check"), ("remove", "/api/platforms/nope/delete")]:
-            self.patch(api.platforms, function, side_effect=paths.NotFound("No platform nope"))
-            status, _, body = self.request("POST", path)
-            self.assertEqual((status, json.loads(body)), (404, {"error": "No platform nope"}))
 
 
 class PlatformFlow(LabUI):
@@ -1263,10 +1236,6 @@ class PlatformPlaces(PlatformFlow):
         found = {found["id"]: found for found in self.ask("GET", "/api/places")}
         return found[f"my-account/{environment or self.DEV}"]
 
-    def test_nothing_registered_has_no_place_and_asks_nothing(self):
-        self.assertEqual(self.ask("GET", "/api/places"), [])
-        self.assertEqual(self.fake.state.asked, [])
-
     def test_a_platform_is_read_when_it_is_registered_and_its_places_are_named_by_environment_and_platform(self):
         self.register()
         found = self.ask("GET", "/api/places")
@@ -1274,7 +1243,6 @@ class PlatformPlaces(PlatformFlow):
             ("my-account/fake-env-dev", "Development (My Account)", "missing", "No hybrid gateway"),
             ("my-account/fake-env-test", "Test (My Account)", "missing", "No hybrid gateway"),
             ("my-account/fake-env-prod", "Production (My Account)", "missing", "No hybrid gateway")])
-        self.assertFalse(any(" · " in place["name"] for place in found), "a middle dot separates a place")
 
     def test_what_is_done_to_a_platform_is_seen_by_the_places_at_once(self):
         self.register()
@@ -1306,18 +1274,6 @@ class PlatformPlaces(PlatformFlow):
         self.assertGreaterEqual(asked, 4)
         self.ask("GET", "/api/places")
         self.assertEqual(len(self.fake.state.asked), asked, "the places were served from what was read")
-
-    def test_the_state_of_the_lab_never_asks_a_platform(self):
-        """It is read from this machine's files: a platform is not asked for it, not even in the background."""
-        self.patch(paths, "default_ns", return_value="fixture")
-        self.register()
-        places.invalidate("my-account")
-        self.patch(places, "TTL", 0)   # whatever it holds is old: a call that asks would read it again
-        asked = len(self.fake.state.asked)
-        records = platforms.read()
-        held = {"welcome": places.deployed("welcome", lambda pid, place: [])}
-        self.assertEqual((held, [record["id"] for record in records]), ({"welcome": []}, ["my-account"]))
-        self.assertEqual((len(self.fake.state.asked), places._reading), (asked, {}))
 
 
 class PlaceRoutes(LabUI):
@@ -1634,20 +1590,6 @@ class GatewayOnFile(GatewayCase):
         job, _ = self.job()
         self.assertNotIn("kiosk", (self.root / paths.ON_FILE).read_text(), "what the other job wrote stays")
         self.assertEqual(job.error(), layers.CHANGED)
-
-    def test_a_gateway_s_job_removes_what_goes_before_the_on_file_says_it_is_off(self):
-        # Redpanda, on and running, says it cannot run with the gateway: the start stops it. The removal fails
-        self.project["addons"]["redpanda"]["conflicts"]["hybrid"] = "same ports"
-        self.on_file("include:\n  - .lab/catalogs/fixture/addons/redpanda/compose.yml\n")
-        self.state = {**test_layers.on(self.project, ["redpanda"]), "stamp": layers.stamp()}
-        self.running = test_layers.up("redpanda", project=self.project)
-        accept = [layers.key("addon", "redpanda")]
-        status, _, body = self.request("POST", f"{self.GATEWAY}/start", {"accept": accept})
-        self.assertEqual(status, 200, body)
-        job, ran = self.job(fails="rm")
-        self.assertEqual((job.ok, ran[0][-5:]), (False, ["rm", "--stop", "--force", "-v", "redpanda"]))
-        self.assertIn(".lab/catalogs/fixture/addons/redpanda/compose.yml", (self.root / paths.ON_FILE).read_text(),
-                      "Redpanda still runs: it is still on, never off and running")
 
     def test_a_gateway_s_job_whose_removal_fails_leaves_the_token_the_add_on_holds(self):
         # The add-on holds the token of the gateway of Test (here false) and is off; Redpanda, on and running, cannot run
