@@ -361,15 +361,6 @@ Every rule that `catalog.py check` and the stages of `catalog.py ci` can print, 
 - **Fix**: take the password from a setting.
 - **At Add**: Not judged: the Lab cannot know a secret.
 
-### SE06
-
-*Error.* A private identifier: a registry host, an image prefix, a name or an address of any catalog this Lab has added (Share, target Public).
-
-- **Message**: {path}:{line} names {identifier}, which belongs to a private catalog. Fix: remove it, or share to a Private catalog.
-- **Why**: A catalog shared to a Public catalog must not name a private one: its registry, its image prefix or its address.
-- **Fix**: remove it, or share to a Private catalog.
-- **At Add**: Not applicable: Share only.
-
 ### SE07
 
 *Error.* The text gitleaks:allow, or another scanner's allow marker.

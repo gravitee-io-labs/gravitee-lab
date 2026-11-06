@@ -1,4 +1,4 @@
-"""SE, secrets and private identifiers, in the files of a tree and in the lines a change added. For each code one
+"""SE, secrets, in the files of a tree and in the lines a change added. For each code one
 failing fixture in which only that code fires, and one that passes; the message equals and never holds the secret. A
 secret that a test plants is made of pieces when the test runs (tests/data/rules/support.py), so no file holds one. A line of a
 megabyte finishes every pattern in under a second. The calibration at the end reads this checkout's tracked files."""
@@ -7,8 +7,8 @@ import re
 import subprocess
 import unittest
 
-from lab_ui.catalogs.rules import Context, context, secrets, text_of
-from lab_ui.catalogs.tree import Added, ListTree
+from lab_ui.catalogs.rules import context, secrets, text_of
+from lab_ui.catalogs.tree import Added
 from tests.data.rules import support
 from tests.data.rules.support import codes, run
 
@@ -234,14 +234,6 @@ class Patterns(unittest.TestCase):
                           "://user:hunter2@host", "-://user:hunter2@host"])
         self.assertEqual([], run(secrets, {"docs/a.md": text}))
 
-    def test_se06_a_private_identifier_when_share_targets_a_public_catalog(self):
-        message = "{p}:{n} names {name}, which belongs to a private catalog. Fix: remove it, or share to a Private catalog."
-        only(self, "SE06", "addons/hello/compose.yml", 5, message.format(p="addons/hello/compose.yml", n=5, name="registry.corp.example"),
-             {"addons/hello/compose.yml": "services:\n  a:\n    image: busybox\n    x: y\n    z: Registry.Corp.Example/a:1\n"},
-             private=("registry.corp.example",))
-        self.assertEqual([], run(secrets, {"docs/a.md": "ns here"}, private=("ns", "")), "an identifier shorter than four letters is none")
-        self.assertEqual([], run(secrets, {"docs/a.md": "registry.corp.example"}), "nothing is private until Share says so")
-
     def test_se07_an_allow_marker(self):
         message = "{p}:{n} carries a scanner allow marker. Fix: remove it; a maintainer decides what the scan may skip."
         for marker in ("# gitleaks:allow", "x = 1  // GITLEAKS:ALLOW", "a  # pragma: allowlist secret", "# pragma:allowlist nextline secret",
@@ -258,7 +250,7 @@ class Patterns(unittest.TestCase):
                          "and force-push your branch.", found.message)
 
     def test_the_messages_of_the_table_are_section_6(self):
-        self.assertEqual({"SE01", "SE02", "SE03", "SE04", "SE05", "SE06", "SE07"}, set(secrets.RULES))
+        self.assertEqual({"SE01", "SE02", "SE03", "SE04", "SE05", "SE07"}, set(secrets.RULES))
         self.assertEqual("{path}:{line}: {name} has a literal value. Fix: write ${NAME:-} and set the value in .env.",
                          secrets.RULES["SE04"].message)
         self.assertEqual("{path}:{line} looks like {kind}. Fix: make it a setting (${PREFIX_NAME}) and keep the value in .env. If "
@@ -296,10 +288,8 @@ class Hostile(unittest.TestCase):
     def test_every_pattern_finishes_on_a_line_of_a_megabyte_in_under_a_second(self):
         for piece in self.PIECES:
             line = piece * (1024 * 1024 // len(piece))
-            listing = ListTree.from_files({"addons/hello/compose.yml": line, "docs/a.md": line, ".env.example": line})
-            ctx = context(listing, private=("registry.corp.example",))
             for path in ("addons/hello/compose.yml", "docs/a.md"):
-                seconds = self.fast(secrets.scan_text, path, line, ctx)
+                seconds = self.fast(secrets.scan_text, path, line)
                 self.assertLess(seconds, 2.0, f"{piece[:20]!r} in {path}: {seconds:.2f} s")   # one second on a quiet machine, two on a shared runner
             added = [Added("a" * 40, "addons/hello/compose.yml", 1, line)]
 
@@ -307,15 +297,15 @@ class Hostile(unittest.TestCase):
                 def read(self, path, limit=0):
                     return line.encode()[:limit]
 
-            seconds = self.fast(lambda: secrets.scan_added(added, ctx, Here()))
+            seconds = self.fast(lambda: secrets.scan_added(added, Here()))
             self.assertLess(seconds, 1.0, f"{piece[:20]!r} as an added line: {seconds:.2f} s")
 
     def test_a_file_of_many_short_lines_is_read_in_proportion_to_its_size(self):
         text = "services:\n  a:\n    environment:\n" + "      K: v\n" * 60000
-        _, seconds = support.timed(secrets.scan_text, "addons/hello/compose.yml", text, Context())
+        _, seconds = support.timed(secrets.scan_text, "addons/hello/compose.yml", text)
         self.assertLess(seconds, 4.0)
         text = "x-a:\n" + "".join(f"  k{number}: &a{number} v\n" for number in range(30000))
-        _, seconds = support.timed(secrets.scan_text, "addons/hello/compose.yml", text, Context())
+        _, seconds = support.timed(secrets.scan_text, "addons/hello/compose.yml", text)
         self.assertLess(seconds, 4.0)
 
     def test_flow_collections_are_read_within_a_budget(self):
@@ -325,11 +315,11 @@ class Hostile(unittest.TestCase):
                   "quotes": "[" + "'" * 60000, "colons": "{" + ":" * 60000 + "}", "commas": "[" + "," * 60000 + "]"}
         for label, shape in shapes.items():
             text = head + shape + "\n"
-            _, seconds = support.timed(secrets.scan_text, "addons/hello/compose.yml", text, Context())
+            _, seconds = support.timed(secrets.scan_text, "addons/hello/compose.yml", text)
             self.assertLess(seconds, 1.0, f"{label}: {seconds:.2f} s")
         joined = head + "[\n" + "\n".join(["A_B=c, " * 1400 for _ in range(100)]) + "]\n"   # a megabyte over a hundred lines
         self.assertLess(len(joined), 1024 * 1024 + 100)
-        _, seconds = support.timed(secrets.scan_text, "addons/hello/compose.yml", joined, Context())
+        _, seconds = support.timed(secrets.scan_text, "addons/hello/compose.yml", joined)
         self.assertLess(seconds, 0.8, "a flow collection over a hundred lines is scanned once, not again for each line")
 
     def test_the_flow_reader_gives_what_a_flow_collection_sets(self):
@@ -494,10 +484,10 @@ class Calibration(unittest.TestCase):
             if name.split("/")[0] in ("addons", "setups", "playgrounds") and not name.endswith((".md", ".png", ".svg")):
                 path = support.ROOT / name
                 if path.is_file() and not path.is_symlink() and path.stat().st_size <= 1024 * 1024:
-                    found += [(name, each.code, each.line) for each in secrets.scan_text(name, text_of(path.read_bytes()), Context())]
+                    found += [(name, each.code, each.line) for each in secrets.scan_text(name, text_of(path.read_bytes()))]
         self.assertEqual([], found)
         core = (support.ROOT / "docker-compose.yml").read_text()
-        self.assertEqual([], secrets.scan_text("docker-compose.yml", core, Context()))
+        self.assertEqual([], secrets.scan_text("docker-compose.yml", core))
 
 
 if __name__ == "__main__":

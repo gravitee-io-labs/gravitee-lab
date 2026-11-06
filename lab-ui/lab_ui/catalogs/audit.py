@@ -57,7 +57,6 @@ class Options(NamedTuple):
     base_tree      the tree of the base commit, when `tree` is not a folder of a repository
     commits        a `tree.History` to read instead of the repository's own
     families       the families to run (None: all); Share asks for ST, SE, DF, GD and IM
-    private        identifiers of private catalogs (SE06, Share into a Public catalog)
     units          the units that the caller loaded with Compose (IM reads their services instead of the files)
     seeder_images  the repositories of the Lab's seeder; None reads `x-gravitee.seeder.image` of the Lab's core file
     seeder_paths   where the Lab's seeder is from the top of a catalog
@@ -77,7 +76,6 @@ class Options(NamedTuple):
     base_tree: Optional[object] = None
     commits: Optional[object] = None
     families: Optional[Tuple[str, ...]] = None
-    private: Tuple[str, ...] = ()
     units: Optional[list] = None
     seeder_images: Optional[Tuple[str, ...]] = None
     seeder_paths: Tuple[str, ...] = ("../../../seeder",)
@@ -171,7 +169,7 @@ def _context(tree, root, options: Options, history, base: str, notes: List[str])
     if not repository and (options.ci or options.online) and root is not None and trees.is_repository(root):
         repository = origin_repository(root)
     return context(tree, history=history, units=options.units, seeder_images=tuple(seeders), seeder_paths=options.seeder_paths,
-                   is_seeder=options.is_seeder, private=tuple(options.private), online=options.online, ci=options.ci,
+                   is_seeder=options.is_seeder, online=options.online, ci=options.ci,
                    repository=repository, base=base, notes=notes)
 
 
@@ -299,6 +297,6 @@ def _against_base(found: List[Problem], tree, root, options: Options, base: str,
         skipped.append("which errors were already there at the base: the files of the base could not be read, so they stay errors")
         return found
     quiet = context(before, units=None, seeder_images=ctx.seeder_images, seeder_paths=ctx.seeder_paths,
-                    is_seeder=ctx.is_seeder, private=(), repository=ctx.repository, ci=ctx.ci, online=ctx.online)
+                    is_seeder=ctx.is_seeder, repository=ctx.repository, ci=ctx.ci, online=ctx.online)
     earlier = _run_families(before, quiet, [code for code in FAMILIES if code in HYGIENE], [])
     return subtract(found, promote(earlier, ctx.standard, options.error))

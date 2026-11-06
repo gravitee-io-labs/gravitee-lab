@@ -84,7 +84,6 @@ class Context(NamedTuple):
     seeder_images  the repositories (no tag) of `x-gravitee.seeder.image` of the Lab's core file
     seeder_paths   where the Lab's seeder is from the root of a catalog (an installed catalog is three folders below the Lab)
     is_seeder      `f(unit_folder, context) -> bool` instead of seeder_paths, for a caller that knows the Lab's real folders
-    private        identifiers of private catalogs (SE06, when Share targets a Public catalog)
     online         the checks that need GitHub were asked for
     ci             the run is CI's
     repository     OWNER/REPO of this repository, when known (IM04)
@@ -100,7 +99,6 @@ class Context(NamedTuple):
     seeder_images: Tuple[str, ...] = ()
     seeder_paths: Tuple[str, ...] = ("../../../seeder",)
     is_seeder: Optional[Callable] = None
-    private: Tuple[str, ...] = ()
     online: bool = False
     ci: bool = False
     repository: str = ""

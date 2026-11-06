@@ -1,4 +1,4 @@
-"""SE: secrets and private identifiers, in the files of a tree and in every line a change added.
+"""SE: secrets, in the files of a tree and in every line a change added.
 
 Seven precise patterns (a private key, the tokens of GitHub, AWS, Slack and Google, a JWT, an `sk-` key) and the shapes that
 need a place to be read (a literal value under a secret's name in a Compose file, a password in a URL, an allow marker that
@@ -24,7 +24,7 @@ from typing import Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
 
 from ..report import ERROR, WARNING, Problem
 from ..tree import REGULAR
-from . import PER_FILE, Context, basename, context, is_compose, line_of, newlines, outline, problem, read_limit, say, scalar, \
+from . import PER_FILE, Context, basename, is_compose, line_of, newlines, outline, problem, read_limit, say, scalar, \
     table, text_of, unit_of, walk
 
 SUFFIX = " in commit {sha}, removed later in this pull request"
@@ -45,9 +45,6 @@ RULES = table([
     ("SE05", ERROR, "A URL with a password (scheme://user:secret@host): an error in Compose files and seed/**, a warning "
                     "elsewhere",
      "{path}:{line} holds a URL with a password. Fix: take the password from a setting."),
-    ("SE06", ERROR, "A private identifier: a registry host, an image prefix, a name or an address of any catalog this Lab has "
-                    "added (Share, target Public)",
-     "{path}:{line} names {identifier}, which belongs to a private catalog. Fix: remove it, or share to a Private catalog."),
     ("SE07", ERROR, "The text gitleaks:allow, or another scanner's allow marker",
      "{path}:{line} carries a scanner allow marker. Fix: remove it; a maintainer decides what the scan may skip."),
 ])
@@ -357,8 +354,8 @@ def _compose_like(path: str, text: str) -> bool:
         and bool(_SERVICES.search(text))
 
 
-def scan_text(path: str, text: str, ctx: Context) -> List[Problem]:
-    """SE01 to SE07 in one file's text."""
+def scan_text(path: str, text: str) -> List[Problem]:
+    """SE01, SE02, SE04, SE05 and SE07 in one file's text."""
     found: List[Problem] = []
     offsets: Optional[List[int]] = None
     count: Dict[str, int] = {}
@@ -389,16 +386,10 @@ def scan_text(path: str, text: str, ctx: Context) -> List[Problem]:
         else:
             for number, name in compose_literals(text)[:PER_FILE]:
                 found.append(problem(RULES, "SE04", path, number, name=name))
-    if ctx.private:
-        lowered = text.lower()
-        for identifier in ctx.private:
-            at = lowered.find(identifier.lower()) if len(identifier) >= 4 else -1
-            if at != -1:
-                add("SE06", at, identifier=identifier)
     return found
 
 
-def scan_added(added: Iterable, ctx: Context, tree) -> List[Problem]:
+def scan_added(added: Iterable, tree) -> List[Problem]:
     """SE01, SE02, SE04, SE05 and SE07 over the lines a change added. A line that is still in the file today was found by the
     scan of the tree; one that is not has been taken away since, and is reported with the commit that added it: it is public
     in the pull request all the same."""
@@ -459,15 +450,14 @@ def se03(path: str, line: int, rule: str) -> Problem:
 
 
 def check(tree, ctx: Optional[Context] = None) -> List[Problem]:
-    """SE01, SE02, SE04 to SE07 over the text files of a tree, and over the lines of `ctx.history`, if it has any."""
-    ctx = ctx if ctx is not None else context(tree)
+    """SE01, SE02, SE04, SE05 and SE07 over the text files of a tree, and over the lines of `ctx.history`, if it has any."""
     found: List[Problem] = []
     for entry in tree.entries():
         if entry.mode not in REGULAR or entry.size > read_limit(entry.path):
             continue
         data = tree.read(entry.path, read_limit(entry.path))
         if data is not None:
-            found += scan_text(entry.path, text_of(data), ctx)
-    if ctx.history is not None:
-        found += scan_added(ctx.history.added(), ctx, tree)
+            found += scan_text(entry.path, text_of(data))
+    if ctx is not None and ctx.history is not None:
+        found += scan_added(ctx.history.added(), tree)
     return found

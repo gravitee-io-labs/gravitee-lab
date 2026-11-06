@@ -80,8 +80,6 @@ DETAILS: Dict[str, Long] = {
                  "Not judged: the Lab cannot know a secret."),
     "SE05": Long("A password in a URL is a password in the file. In a Compose file or a seed it is used, in a guide it is "
                  "usually an example.", "Not judged: the Lab cannot know a secret."),
-    "SE06": Long("A catalog shared to a Public catalog must not name a private one: its registry, its image prefix or its "
-                 "address.", "Not applicable: Share only."),
     "SE07": Long("An allow marker in the catalog would silence the scan in the run that judges it.", NOT_AT_ADD),
     "CR01": Long("A squash merge copies names into the message of `main`. A tool's name as an author, a committer or a "
                  "co-author would travel from a branch into `main`.", NOT_AT_ADD),
