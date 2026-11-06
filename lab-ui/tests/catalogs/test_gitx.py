@@ -974,107 +974,69 @@ OTHER_ADDRESS = gitx.parse_address("https://git.example.test/team/hub.git")
 
 # The end of every failure of an ssh connection, the network's included
 TAIL = "fatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists."
-REACH = "Cannot reach git.example.test. Check your connection, then try again."
 
-# (what git or ssh said, the address, the code, the status, the line)
+# (what git or ssh said, the address, the code, and a fact of the line): test_every_code_gitx_can_raise holds the words of each code
 GOLDEN = [
-    ("fatal: could not read Username for 'https://github.com': terminal prompts disabled", GITHUB_ADDRESS, "no_access", 400,
-     "No access to acme/lab-hub. Run gh auth login in a terminal, then try again."),
-    ("fatal: could not read Username for 'https://git.example.test': No such device or address", OTHER_ADDRESS,
-     "no_access", 400, "No access to team/hub. Sign in with Git on this machine, then try again."),
+    ("fatal: could not read Username for 'https://github.com': terminal prompts disabled", GITHUB_ADDRESS, "no_access"),
+    ("fatal: could not read Username for 'https://git.example.test': No such device or address", OTHER_ADDRESS, "no_access"),
     ("remote: Invalid username or password.\nfatal: Authentication failed for 'https://github.com/acme/lab-hub.git/'",
-     GITHUB_ADDRESS, "no_access", 400, "No access to acme/lab-hub. Run gh auth login in a terminal, then try again."),
-    ("fatal: unable to access 'https://github.com/acme/lab-hub.git/': The requested URL returned error: 403",
-     GITHUB_ADDRESS, "no_access", 400, "No access to acme/lab-hub. Run gh auth login in a terminal, then try again."),
-    ("fatal: unable to access 'https://git.example.test/team/hub.git/': The requested URL returned error: 401",
-     OTHER_ADDRESS, "no_access", 400, "No access to team/hub. Sign in with Git on this machine, then try again."),
+     GITHUB_ADDRESS, "no_access"),
+    ("fatal: unable to access 'https://github.com/acme/lab-hub.git/': The requested URL returned error: 403", GITHUB_ADDRESS, "no_access"),
+    ("fatal: unable to access 'https://git.example.test/team/hub.git/': The requested URL returned error: 401", OTHER_ADDRESS, "no_access"),
     ("remote: HTTP Basic: Access denied\nfatal: Authentication failed for 'https://git.example.test/team/hub.git/'",
-     OTHER_ADDRESS, "no_access", 400, "No access to team/hub. Sign in with Git on this machine, then try again."),
+     OTHER_ADDRESS, "no_access"),
     ("remote: Permission to acme/lab-hub.git denied to someone.\nfatal: unable to access 'https://github.com/acme/lab-hub.git/'",
-     GITHUB_ADDRESS, "no_access", 400, "No access to acme/lab-hub. Run gh auth login in a terminal, then try again."),
-    ("remote: Repository not found.\nfatal: repository 'https://github.com/acme/lab-hub.git/' not found", GITHUB_ADDRESS,
-     "not_found", 400, "acme/lab-hub was not found. Check the address, or sign in with Git if it is private."),
-    ("ERROR: Repository not found.\nfatal: Could not read from remote repository.", SSH_ADDRESS, "not_found", 400,
-     "team/hub was not found. Check the address, or sign in with Git if it is private."),
-    ("fatal: unable to access 'https://git.example.test/team/hub.git/': The requested URL returned error: 404",
-     OTHER_ADDRESS, "not_found", 400, "team/hub was not found. Check the address, or sign in with Git if it is private."),
+     GITHUB_ADDRESS, "no_access"),
+    ("remote: Repository not found.\nfatal: repository 'https://github.com/acme/lab-hub.git/' not found", GITHUB_ADDRESS, "not_found"),
+    ("fatal: unable to access 'https://git.example.test/team/hub.git/': The requested URL returned error: 404", OTHER_ADDRESS, "not_found"),
     ("fatal: '/srv/git/hub.git' does not appear to be a git repository\nfatal: Could not read from remote repository.",
-     SSH_ADDRESS, "not_found", 400, "team/hub was not found. Check the address, or sign in with Git if it is private."),
-    ("git@git.example.test: Permission denied (publickey).\nfatal: Could not read from remote repository.", SSH_ADDRESS,
-     "ssh_denied", 400, "Permission denied for git.example.test. Add your SSH key to git.example.test, then try again."),
-    ("git@github.com: Permission denied (publickey,keyboard-interactive).", GITHUB_ADDRESS, "ssh_denied", 400,
-     "Permission denied for github.com. Add your SSH key to github.com, then try again."),
-    ("Host key verification failed.\nfatal: Could not read from remote repository.", SSH_ADDRESS, "host_key", 400,
-     "git.example.test is not a known SSH host. Connect to it once from a terminal, then try again."),
-    ("@@@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @@@\nHost key verification failed.", SSH_ADDRESS, "host_key", 400,
-     "git.example.test is not a known SSH host. Connect to it once from a terminal, then try again."),
-    ("fatal: unable to access 'https://github.com/acme/lab-hub.git/': Could not resolve host: github.com", GITHUB_ADDRESS,
-     "unreachable", 502, "Cannot reach github.com. Check your connection, then try again."),
-    ("ssh: Could not resolve hostname git.example.test: nodename nor servname provided, or not known\n"
-     "fatal: Could not read from remote repository.", SSH_ADDRESS, "unreachable", 502,
-     "Cannot reach git.example.test. Check your connection, then try again."),
-    ("ssh: connect to host git.example.test port 22: Connection refused", SSH_ADDRESS, "unreachable", 502,
-     "Cannot reach git.example.test. Check your connection, then try again."),
+     SSH_ADDRESS, "not_found"),
+    ("git@github.com: Permission denied (publickey,keyboard-interactive).", GITHUB_ADDRESS, "ssh_denied"),
+    ("@@@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @@@\nHost key verification failed.", SSH_ADDRESS, "host_key"),
+    ("fatal: unable to access 'https://github.com/acme/lab-hub.git/': Could not resolve host: github.com", GITHUB_ADDRESS, "unreachable"),
     ("fatal: unable to access 'https://git.example.test/team/hub.git/': Failed to connect to git.example.test port 443 "
-     "after 3 ms: Couldn't connect to server", OTHER_ADDRESS, "unreachable", 502,
-     "Cannot reach git.example.test. Check your connection, then try again."),
-    ("ssh: connect to host git.example.test port 22: No route to host", SSH_ADDRESS, "unreachable", 502,
-     "Cannot reach git.example.test. Check your connection, then try again."),
-    ("fatal: unable to access 'https://github.com/a/b.git/': Network is unreachable", GITHUB_ADDRESS, "unreachable", 502,
-     "Cannot reach github.com. Check your connection, then try again."),
-    ("ssh: Could not resolve hostname git.example.test: nodename nor servname provided, or not known\n" + TAIL,
-     SSH_ADDRESS, "unreachable", 502, REACH),
-    ("ssh: Could not resolve hostname git.example.test: Name or service not known\n" + TAIL, SSH_ADDRESS, "unreachable", 502, REACH),
-    ("ssh: connect to host git.example.test port 22: Connection refused\n" + TAIL, SSH_ADDRESS, "unreachable", 502, REACH),
-    ("ssh: connect to host git.example.test port 22: No route to host\n" + TAIL, SSH_ADDRESS, "unreachable", 502, REACH),
-    ("ssh: connect to host git.example.test port 22: Network is unreachable\n" + TAIL, SSH_ADDRESS, "unreachable", 502, REACH),
-    ("Connection closed by 192.0.2.1 port 22\n" + TAIL, SSH_ADDRESS, "unreachable", 502, REACH),
-    ("ssh: connect to host git.example.test port 22: Operation timed out\n" + TAIL, SSH_ADDRESS, "timeout", 502,
-     "git.example.test did not answer in time. Try again."),
-    ("git@git.example.test: Permission denied (publickey).\n" + TAIL, SSH_ADDRESS, "ssh_denied", 400,
-     "Permission denied for git.example.test. Add your SSH key to git.example.test, then try again."),
-    ("ERROR: Repository not found.\n" + TAIL, SSH_ADDRESS, "not_found", 400,
-     "team/hub was not found. Check the address, or sign in with Git if it is private."),
-    ("Host key verification failed.\n" + TAIL, SSH_ADDRESS, "host_key", 400,
-     "git.example.test is not a known SSH host. Connect to it once from a terminal, then try again."),
-    (TAIL, SSH_ADDRESS, "no_access", 400, "No access to team/hub. Sign in with Git on this machine, then try again."),
-    ("fatal: the remote end hung up unexpectedly", GITHUB_ADDRESS, "unreachable", 502,
-     "Cannot reach github.com. Check your connection, then try again."),
+     "after 3 ms: Couldn't connect to server", OTHER_ADDRESS, "unreachable"),
+    ("fatal: unable to access 'https://github.com/a/b.git/': Network is unreachable", GITHUB_ADDRESS, "unreachable"),
+    ("ssh: Could not resolve hostname git.example.test: nodename nor servname provided, or not known\n" + TAIL, SSH_ADDRESS, "unreachable"),
+    ("ssh: Could not resolve hostname git.example.test: Name or service not known\n" + TAIL, SSH_ADDRESS, "unreachable"),
+    ("ssh: connect to host git.example.test port 22: Connection refused\n" + TAIL, SSH_ADDRESS, "unreachable"),
+    ("ssh: connect to host git.example.test port 22: No route to host\n" + TAIL, SSH_ADDRESS, "unreachable"),
+    ("ssh: connect to host git.example.test port 22: Network is unreachable\n" + TAIL, SSH_ADDRESS, "unreachable"),
+    ("Connection closed by 192.0.2.1 port 22\n" + TAIL, SSH_ADDRESS, "unreachable"),
+    ("ssh: connect to host git.example.test port 22: Operation timed out\n" + TAIL, SSH_ADDRESS, "timeout"),
+    ("git@git.example.test: Permission denied (publickey).\n" + TAIL, SSH_ADDRESS, "ssh_denied"),
+    ("ERROR: Repository not found.\n" + TAIL, SSH_ADDRESS, "not_found"),
+    ("Host key verification failed.\n" + TAIL, SSH_ADDRESS, "host_key"),
+    (TAIL, SSH_ADDRESS, "no_access"),
+    ("fatal: the remote end hung up unexpectedly", GITHUB_ADDRESS, "unreachable"),
     ("fatal: unable to access 'https://github.com/a/b.git/': Failed to connect to github.com port 443 after 21050 ms: "
-     "Connection timed out", GITHUB_ADDRESS, "timeout", 502, "github.com did not answer in time. Try again."),
+     "Connection timed out", GITHUB_ADDRESS, "timeout"),
     ("fatal: unable to access 'https://github.com/a/b.git/': Operation timed out after 30001 milliseconds with 0 bytes "
-     "received", GITHUB_ADDRESS, "timeout", 502, "github.com did not answer in time. Try again."),
-    ("ssh: connect to host git.example.test port 22: Operation timed out", SSH_ADDRESS, "timeout", 502,
-     "git.example.test did not answer in time. Try again."),
-    ("git timed out (no byte for 30 s)", OTHER_ADDRESS, "timeout", 502, "git.example.test did not answer in time. Try again."),
+     "received", GITHUB_ADDRESS, "timeout"),
+    ("git timed out (no byte for 30 s)", OTHER_ADDRESS, "timeout"),
     ("fatal: unable to access 'https://git.example.test/team/hub.git/': SSL certificate problem: self-signed certificate "
-     "in certificate chain", OTHER_ADDRESS, "certificate", 502,
-     "The certificate of git.example.test was refused. A company proxy may be in the way."),
+     "in certificate chain", OTHER_ADDRESS, "certificate"),
     ("fatal: unable to access 'https://git.example.test/x.git/': server certificate verification failed. CAfile: "
-     "/etc/ssl/cert.pem CRLfile: none", OTHER_ADDRESS, "certificate", 502,
-     "The certificate of git.example.test was refused. A company proxy may be in the way."),
+     "/etc/ssl/cert.pem CRLfile: none", OTHER_ADDRESS, "certificate"),
     ("error: object 3b18e5d6: badTimezone: invalid author/committer line - bad time zone\n"
-     "fatal: fsck error in packed object", GITHUB_ADDRESS, "fsck", 400, "This repository is damaged. Ask its owners to check it."),
+     "fatal: fsck error in packed object", GITHUB_ADDRESS, "fsck"),
     ("error: object b029c74: hasDotgit: contains '.git'\nfatal: fsck error in packed object\nfatal: index-pack failed",
-     GITHUB_ADDRESS, "fsck", 400, "This repository is damaged. Ask its owners to check it."),
-    ("fatal: couldn't find remote ref refs/heads/nope", GITHUB_ADDRESS, "branch_missing", 400,
-     "acme/lab-hub has no branch nope. Check the name, or leave it empty for the default."),
-    ("fatal: couldn't find remote ref release/1.x", OTHER_ADDRESS, "branch_missing", 400,
-     "team/hub has no branch release/1.x. Check the name, or leave it empty for the default."),
-    ("fatal: transport 'file' not allowed", GITHUB_ADDRESS, "bad_address", 400, BAD_ADDRESS),
-    ("something git never says", GITHUB_ADDRESS, "git_failed", 502,
-     "Git could not read acme/lab-hub. Check the address and your connection, then try again."),
-    ("", GITHUB_ADDRESS, "git_failed", 502, "Git could not read acme/lab-hub. Check the address and your connection, then try again."),
+     GITHUB_ADDRESS, "fsck"),
+    ("fatal: couldn't find remote ref refs/heads/nope", GITHUB_ADDRESS, "branch_missing", ("branch", "nope")),
+    ("fatal: couldn't find remote ref release/1.x", OTHER_ADDRESS, "branch_missing", ("branch", "release/1.x")),
+    ("fatal: transport 'file' not allowed", GITHUB_ADDRESS, "bad_address"),
+    ("something git never says", GITHUB_ADDRESS, "git_failed"),
+    ("", GITHUB_ADDRESS, "git_failed"),
 ]
 
 
 class Classification(Case):
 
     def test_what_git_says_is_the_line_of_section_11(self):
-        for stderr, address, code, status, line in GOLDEN:
+        for stderr, address, code, *facts in GOLDEN:
             with self.subTest(stderr[:60]):
-                error = gitx.classify(stderr, address)
-                self.assertEqual((error.code, error.status, error.message), (code, status, line))
+                error, expected = gitx.classify(stderr, address), gitx.fail(code, address, **dict(facts))
+                self.assertEqual((error.code, error.status, error.message), (code, expected.status, expected.message))
 
     def test_the_words_of_git_never_reach_the_line_and_go_to_the_detail_without_credentials(self):
         said = "fatal: unable to access 'https://user:s3cr3t@github.com/a/b.git/': Could not resolve host: github.com"
