@@ -15,7 +15,7 @@ annotation for each problem, on the file as the diff of the repository names it,
 command of its own.
 
 `problems(playground_folder)` is the same check for one playground, and the functions the seeder's tests use on their own
-(`unset_variables`, `literal_addresses`, `provided_to`, `environment_problems`) live here, so that the engine's tests and a
+(`unset_variables`, `literal_addresses`, `environment_problems`) live here, so that the engine's tests and a
 catalog's CI run one set of checks.
 
 What is read is a stranger's pull request. Nothing of it runs: a file is parsed, never imported or executed. A link is
