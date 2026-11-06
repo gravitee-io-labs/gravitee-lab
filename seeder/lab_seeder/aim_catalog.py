@@ -229,21 +229,10 @@ def manual_source(aim, name):
     return found or aim.post("/catalog/sources", json={"sourceKind": "manual", "definition": {"type": "manual", "name": name}}).json()
 
 
-def with_stored(body, found, keep):
-    """What a replace sends: the body, and for each key of `keep` its mapping over the one the platform holds. A replace
-    drops what it does not send, and the catalog's metadata of an agent is also written by Compliance."""
-    sent = dict(body)
-    for key in keep:
-        merged = {**(found.get(key) or {}), **body.get(key, {})}
-        if merged:
-            sent[key] = merged
-    return sent
-
-
-def seed_item(aim, kind, spec, name, body, source, keep=()):
-    """Creates the item when it is missing, and replaces it, a PUT being a full replace, when what the seed sends
-    changed. The fingerprint is of the body alone: a key of `keep` that someone else wrote does not make the item
-    differ."""
+def seed_item(aim, kind, spec, name, body, source):
+    """Creates the item when it is missing, and replaces it when what the seed sends changed. A PUT is a full replace, so it
+    sends the file's `metadata` over what the platform holds, which Compliance also writes. The fingerprint is of the body
+    alone: metadata that someone else wrote does not make the item differ."""
     slug = spec["entityId"]
     if not SLUG.fullmatch(slug):
         raise SeedError(f"{slug}: an entity id is made of lower case letters, digits, - and _")
@@ -257,7 +246,8 @@ def seed_item(aim, kind, spec, name, body, source, keep=()):
             found, did = aim.post(PATHS[kind], json={**body, "entityId": slug}).json(), "created"
             record(SECTION, kind, LABELS[kind], name, found["id"], source=spec["source"], digest=digest)
     elif ours.get("digest") != digest:
-        aim.put(f"{PATHS[kind]}/{found['id']}", json=with_stored(body, found, keep))
+        metadata = {**(found.get("metadata") or {}), **body.get("metadata", {})}
+        aim.put(f"{PATHS[kind]}/{found['id']}", json={**body, **({"metadata": metadata} if metadata else {})})
         record(SECTION, kind, LABELS[kind], name, found["id"], source=spec["source"], digest=digest)
         did = "updated"
     else:
@@ -324,7 +314,7 @@ def seed_agents(aim):
     cards = parallel(lambda spec: catalog_card(fetch_card(spec["url"])), asked)   # the cards are read together
     for spec, metadata, definition in zip(asked, metadata_of, cards):
         body = {"definition": definition, **({"metadata": metadata} if metadata else {})}
-        seed_item(aim, "agent", spec, definition["name"], body, manual_source(aim, spec["source"]), keep=("metadata",))
+        seed_item(aim, "agent", spec, definition["name"], body, manual_source(aim, spec["source"]))
 
 
 # --- MCP servers: discovered from here, because the platform's own discovery refuses private addresses ---------
