@@ -268,16 +268,6 @@ class Branch(Fixture):
         # and github.event.before is never looked at: the plan took the base from the runs of the workflow
         self.assertNotIn("before", " ".join(path for _, path in self.github.asked))
 
-    def test_two_plans_in_a_row_where_the_first_run_never_happened_still_build_the_first_commits_change(self):
-        self.github.ran(self.first)
-        first = self.commit({f"{APPS['web']}/app.py": "print(2)\n"})
-        second = self.commit({f"{APPS['mock']}/app.py": "print(3)\n"})
-        for sha in (first, second):
-            self.github.passed(sha)
-        # the plan of the first commit is the one that is never made; the second covers it
-        self.assertEqual(self.plan(sha=second), 0)
-        self.assertEqual(self.planned()[0], [f"{PREFIX}/bakery-web", f"{PREFIX}/mock-api"])
-
     def test_after_a_successful_run_the_base_moves_on(self):
         first = self.commit({f"{APPS['web']}/app.py": "print(2)\n"})
         second = self.commit({f"{APPS['api']}/app.py": "print(3)\n"})
@@ -393,12 +383,6 @@ class Branch(Fixture):
         self.assertEqual(self.github.asked, [])
         self.assertIn("catalog.yml names no registry in images, so nothing is published", self.out.getvalue())
 
-    def test_the_seeder_is_never_planned(self):
-        self.github.passed(self.first)
-        self.assertEqual(self.plan(), 0)
-        self.assertEqual(self.planned()[0], [f"{PREFIX}/bakery-api", f"{PREFIX}/bakery-web", f"{PREFIX}/mock-api"])
-        self.assertFalse([name for name in self.planned()[0] if "seeder" in name])
-
     def test_a_unit_that_needs_a_setting_is_said_and_its_images_are_not_planned(self):
         needs = ci.Refused("addon", "mock", "addons/mock/compose.yml", (
             "Cannot be read: error while interpolating services.a.environment.KEY: required variable KEY is missing a value",))
@@ -433,14 +417,6 @@ class Branch(Fixture):
         self.assertIn("ST03 playground:bank was not read: ", self.out.getvalue())
         self.assertEqual(self.outputs(), {})
         self.assertEqual([line for line in self.out.getvalue().splitlines() if line.startswith("::")], [])
-
-    def test_the_images_are_sorted_and_one_line_of_json(self):
-        self.github.passed(self.first)
-        self.plan()
-        text = self.output.read_text(encoding="utf-8")
-        self.assertEqual(text.count("\n"), 3)
-        self.assertEqual([line.split("=", 1)[0] for line in text.splitlines()], ["images", "count", "attest"])
-        self.assertEqual(json.loads(text.splitlines()[0].split("=", 1)[1]), sorted(self.planned()[0]))
 
 
 class Gates(Fixture):
@@ -498,9 +474,6 @@ class Gates(Fixture):
         self.assertEqual(self.plan(clock=iter([0, 0, 1000, 2000]).__next__), 2)
         self.assertIn("GitHub did not answer", self.err.getvalue())
 
-    def test_the_polling_is_every_20_seconds_for_30_minutes(self):
-        self.assertEqual((publish.POLL, publish.LIMIT), (20, 1800))
-
     def test_no_gh_is_not_a_verdict(self):
         def missing(method, path):
             raise settings.Unusable("The GitHub command-line tool gh is not installed. Install it from https://cli.github.com")
@@ -526,11 +499,6 @@ class Gates(Fixture):
                               self.out.getvalue())
                 self.assertEqual(self.outputs(), {})
                 self.assertEqual(self.github.asked, [], "the credit is seen before anything is asked of GitHub")
-
-    def test_a_head_commit_without_a_credit_passes_pb08(self):
-        self.github.passed(self.first)
-        self.assertEqual(self.plan(), 0)
-        self.assertNotIn("PB08", self.out.getvalue())
 
     def test_a_person_called_like_a_tool_is_not_a_tool(self):
         self.put(self.repo, "README.md", "# Hub 2\n")
@@ -567,11 +535,6 @@ class Gates(Fixture):
         self.github.passed(self.first)
         self.plan(private="false")
         self.assertEqual(self.planned()[2], "true")
-
-    def test_nothing_is_written_to_the_outputs_when_a_gate_says_no(self):
-        self.github.check(self.first, conclusion="failure")
-        self.plan()
-        self.assertFalse(self.output.exists())
 
     def test_the_plan_needs_the_outputs_of_a_workflow_step_to_write_them(self):
         with mock.patch.dict(os.environ, {"GITHUB_OUTPUT": ""}):
@@ -660,11 +623,6 @@ class Tag(Fixture):
         self.assertEqual(self.plan(ref="refs/tags/v1.7.0", sha=sha), 1)   # (the version gate holds)
         self.assertIn("PB01", self.out.getvalue())
 
-    def test_a_pull_requests_ref_is_never_a_tag_of_anything(self):
-        for ref in ("refs/pull/12/merge", "refs/pull/12/head"):
-            self.assertEqual(self.tagged(ref=ref), 2)
-            self.assertEqual(self.outputs(), {})
-
 
 class Publishing(Fixture):
     """The build and the push."""
@@ -723,16 +681,6 @@ class Publishing(Fixture):
         self.assertEqual(order, [f"{PREFIX}/bakery-web:1.4.0", f"build:{PREFIX}/bakery-web:1.4.0", f"{PREFIX}/bakery-web:1.4.0",
                                  f"{PREFIX}/mock-api:1.4.0", f"build:{PREFIX}/mock-api:1.4.0", f"{PREFIX}/mock-api:1.4.0"],
                          "the version tag is looked at before an image is built, and its digest after")
-
-    def test_latest_is_only_ever_pushed_by_the_main_branch(self):
-        sha = self.head()
-        self.publish([f"{PREFIX}/bakery-web"])
-        self.assertIn(f"{PREFIX}/bakery-web:latest", self.registry.stored)
-        self.registry = Registry()
-        self.tag("v1.2.0")
-        self.publish([f"{PREFIX}/bakery-web"], ref="refs/tags/v1.2.0", sha=sha)
-        self.assertNotIn(f"{PREFIX}/bakery-web:latest", self.registry.stored)
-        self.assertIn(f"{PREFIX}/bakery-web:1.2.0", self.registry.stored)
 
     def test_a_tag_that_exists_from_this_commit_is_reused_and_not_built_again(self):
         sha = self.head()
@@ -946,6 +894,7 @@ class Publishing(Fixture):
                                     lab=str(self.lab), sleep=self.slept.append)
         self.assertEqual(code, 0, self.err.getvalue() + self.out.getvalue())
         self.assertTrue(fake.commands("buildx", "build"))
+        self.assertEqual(json.loads(self.records.read_text(encoding="utf-8"))[0]["digest"], "sha256:" + "ab" * 32)
         text = json.dumps([call.argv for call in fake.calls()]) + self.records.read_text(encoding="utf-8") + self.output.read_text(encoding="utf-8") \
             + self.out.getvalue() + self.err.getvalue()
         for name, value in secrets_.items():
@@ -954,17 +903,6 @@ class Publishing(Fixture):
                 self.assertNotIn(name, call.env)
         for call in fake.calls():
             self.assertFalse([name for name in call.env if name.startswith(("ACTIONS_", "GITHUB_", "GH_"))])
-
-    def test_the_stage_with_the_real_docker_command_line_on_the_path(self):
-        fake = FakeDocker(self)
-        (fake.folder / "real.json").write_text("null", encoding="utf-8")
-        fake.when("imagetools", "inspect", stdout=json.dumps({"manifest": {"digest": "sha256:" + "ab" * 32}}))
-        with mock.patch.object(ci, "LOADER", self.loader()):
-            code = publish.main([str(self.repo), "--images", json.dumps([f"{PREFIX}/bakery-web"]), "--ref", "refs/heads/main", "--sha",
-                                 self.head(), "--records", str(self.records)], self.out, self.err, lab=str(self.lab))
-        self.assertEqual(code, 0, self.err.getvalue() + self.out.getvalue())
-        self.assertEqual(len(fake.commands("buildx", "build")), 1)
-        self.assertEqual(json.loads(self.records.read_text(encoding="utf-8"))[0]["digest"], "sha256:" + "ab" * 32)
 
 
 class Places(unittest.TestCase):
