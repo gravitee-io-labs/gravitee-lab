@@ -1130,31 +1130,6 @@ def declared_ok(context):
     return bool(context.get("host_ok") or context.get("local"))
 
 
-def _terminal_services(value):
-    """The services an `x-gravitee.terminal` names, or None when it names none that the policy can read."""
-    if isinstance(value, str):
-        return [value]
-    if isinstance(value, dict):
-        return _terminal_services(value.get("service"))
-    if isinstance(value, list) and value:
-        names = [(_terminal_services(item) or [None])[0] for item in value]
-        return None if None in names else names
-    return None
-
-
-def terminal_ok(unit, own, closure_services):
-    """N05: whether the terminal a unit asks for (`x-gravitee.terminal`, or the unit's `terminal`) opens a shell in a service
-    that is the unit's own or one of its closure, and is not its seed service (`unit["seed"]`: a name or a list). A unit with
-    no terminal is fine; one the policy cannot read is not."""
-    unit = _dict(unit)
-    terminal = unit["terminal"] if "terminal" in unit else _dict(unit.get("meta")).get("terminal")
-    if terminal is None:
-        return True
-    names, seed = _terminal_services(terminal), unit.get("seed")
-    seeds = {seed} if isinstance(seed, str) else set(seed or ())
-    return bool(names) and all(name in set(own or ()) | set(closure_services or ()) and name not in seeds for name in names)
-
-
 # ---------------------------------------------------------------------------------------------------------------------
 # judge
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1500,8 +1475,9 @@ class _Run:
         return seeder_ok(self.config, self.roots, self.context.get("seeder_images"), self.realpath)
 
     def terminal(self):
-        unit = dict(self.unit, meta=self.meta, seed=self.seeds())
-        return terminal_ok(unit, self.own, set(self.context.get("closure_services") or ()) | set(self.own))
+        """N05: the terminal opens a shell in a service of the unit or of its closure, and not in its seed service."""
+        name = self.meta.get("terminal")
+        return isinstance(name, str) and name in self.members and name not in self.seeds()
 
     def addresses(self):
         """N03: a console or a host check that is not on this machine."""

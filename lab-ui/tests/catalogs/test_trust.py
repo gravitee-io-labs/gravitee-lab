@@ -2235,20 +2235,16 @@ class Notes(Golden):
         self.assertEqual(self.judge("p-terminal")["notes"], [])
 
     def test_n05_the_terminal_of_a_unit_in_the_services_it_brings_or_not_its_seed(self):
-        arguments = self.args(PLAYGROUND)
-        own = arguments["own"]
-        self.assertTrue(trust.terminal_ok({"meta": {"terminal": "hostile-clean-app"}, "seed": "hostile-clean-seed"}, own, set()))
-        self.assertFalse(trust.terminal_ok({"meta": {"terminal": "hostile-clean-seed"}, "seed": "hostile-clean-seed"}, own, set()))
-        self.assertFalse(trust.terminal_ok({"meta": {"terminal": "hostile-clean-seed"}, "seed": ["hostile-clean-seed"]}, own, set()))
-        self.assertFalse(trust.terminal_ok({"meta": {"terminal": "apim-gateway"}}, own, {"redis"}))
-        self.assertTrue(trust.terminal_ok({"meta": {"terminal": "redis"}}, own, {"redis"}))
-        self.assertTrue(trust.terminal_ok({"meta": {}}, own, set()))
-        self.assertTrue(trust.terminal_ok({"terminal": None, "meta": {"terminal": "apim-gateway"}}, own, set()))
-        self.assertFalse(trust.terminal_ok({"terminal": "apim-gateway"}, own, set()))
-        self.assertTrue(trust.terminal_ok({"meta": {"terminal": {"service": "hostile-clean-app"}}}, own, set()))
-        self.assertTrue(trust.terminal_ok({"meta": {"terminal": ["hostile-clean-app", {"service": "hostile-clean-seed2"}]}}, own + ["hostile-clean-seed2"], set()))
-        for odd in ("", [], {}, 7, [7], {"service": 7}, ["x", None], {"other": "x"}):
-            self.assertFalse(trust.terminal_ok({"meta": {"terminal": odd}}, own, set()), odd)
+        offered, refused = [], [line("N05")]
+        for terminal, brought, notes in (("hostile-clean-app", [], offered), ("hostile-clean-seed", [], refused), ("apim-gateway", ["redis"], refused),
+                                         ("redis", ["redis"], offered), (None, [], offered), ("", [], refused), ([], [], refused),
+                                         ({}, [], refused), (7, [], refused), (["hostile-clean-app"], [], refused),
+                                         ({"service": "hostile-clean-app"}, [], refused)):
+            def edit(arguments, terminal=terminal, brought=brought):
+                arguments["unit"]["meta"]["terminal"] = terminal
+                arguments["context"]["closure_services"] = brought
+            with self.subTest(terminal=terminal):
+                self.assertEqual(self.changed(PLAYGROUND, edit)["notes"], notes)
 
     def test_the_notes_never_block(self):
         for name in ("n01-own-seed-code", "n02-seed-reads-token", "n03-external-console", "n04-foreign-gateway", "n05-foreign-terminal"):
@@ -2731,7 +2727,6 @@ class Hostile(Golden):
             trust.combine([value])
             trust.sum_surfaces([trust.empty_surface()])
             trust.seeder_ok(value, value, [value])
-            trust.terminal_ok(value, [value], {value} if isinstance(value, (str, type(None), int)) else set())
 
     def test_a_hostile_unit_cannot_pass_by_a_value_that_looks_like_a_false(self):
         for value in ("false", "0", 0, None, False, ""):
@@ -2811,7 +2806,6 @@ class Pure(Golden):
             trust.combine([trust.empty_surface() and {"state": "ok", "reasons": [], "notes": [], "surface": trust.empty_surface()}])
             trust.seed_reads(["${A}"])
             trust.seeder_ok(arguments["unit_config"], arguments["roots"], [])
-            trust.terminal_ok({}, [], set())
             trust.declared_ok({})
             resolve.collisions([], {}, {})
             resolve.closure({}, "addon", "x")
