@@ -57,21 +57,15 @@ class Base(Case):
 
     def setUp(self):
         gitfixture.require()
-        fixtures.need_compose()
-        # The Docker CLI finds its Compose plugin in the person's configuration folder, which the isolated home hides
-        self.environ(DOCKER_CONFIG=os.path.join(os.path.expanduser("~"), ".docker"))
         fixtures.project(self, paths, project, compose, envfiles)
         self.patch(paths, "_default", (None, None))
         self.home = gitfixture.isolate(self)
         self.patch(gitx, "_ending", False)   # a test of the exit function elsewhere leaves it for good
-        self.patch(license, "status_of", lambda variable: None)
         self.patch(jobs, "JOBS", jobs.Jobs())
         self.patch(service, "TICKETS", {})
         self.patch(service, "_checking", {})
         self.patch(service, "_started", {})
         self.patch(service, "_known", {"at": None, "version": None})
-        project.forget()
-        self.addCleanup(project.forget)
         self.remotes = {}
 
     def environ(self, **values):
@@ -108,9 +102,31 @@ class Base(Case):
     def state(self, ns):
         return self.row(ns)["state"]["key"]
 
+    def digest(self):
+        """The files of the installed partner catalog, to see that nothing moved."""
+        base = self.root / ".lab" / "catalogs" / "partner"
+        return {str(path.relative_to(base)): path.read_bytes() for path in sorted(base.rglob("*")) if path.is_file()}
+
 
 class Real(Base):
     """Reads the fixtures with Compose, as the project does."""
+
+    def setUp(self):
+        fixtures.need_compose()
+        # The Docker CLI finds its Compose plugin in the person's configuration folder, which the isolated home hides
+        self.environ(DOCKER_CONFIG=os.path.join(os.path.expanduser("~"), ".docker"))
+        super().setUp()
+        self.patch(license, "status_of", lambda variable: None)
+        project.forget()
+        self.addCleanup(project.forget)
+
+    def refused(self, address):
+        with self.assertRaises(CatalogError) as raised:
+            service.check_address(address)
+        self.assertEqual(service.TICKETS, {})
+        self.assertEqual(sorted(path.name for path in (self.root / ".lab" / "catalogs").iterdir()), ["fixture"],
+                         "a refusal leaves nothing staged, and the readings of versions leave nothing either")
+        return lines_of(raised.exception)
 
 
 class Seam(Base):
@@ -119,19 +135,9 @@ class Seam(Base):
     against them unless `self.against` says so. Compose is not asked."""
 
     def setUp(self):
-        gitfixture.require()
-        fixtures.project(self, paths, project, compose, envfiles)
-        self.patch(paths, "_default", (None, None))
-        self.home = gitfixture.isolate(self)
-        self.patch(gitx, "_ending", False)
-        self.patch(jobs, "JOBS", jobs.Jobs())
-        self.patch(service, "TICKETS", {})
-        self.patch(service, "_checking", {})
-        self.patch(service, "_started", {})
-        self.patch(service, "_known", {"at": None, "version": None})
+        super().setUp()
         self.patch(manifest, "read_catalog", parsed)
         self.patch(install, "unknown_at", lambda store, commit: [])   # what the files use is the Real cases' (Understanding)
-        self.remotes = {}
         self.against = {}   # {unit id: [reasons]} the stand-in judgement blocks
         self.uses = {}   # {unit id: [{"service", "label", "what", "why"}]} what it says they take of this machine
         self.up = set()   # the kind:name of the units of any catalog that run
@@ -190,6 +196,12 @@ class Seam(Base):
         done = fixtures.install(self, ns, kind="git", store=True, **patch)
         self.remotes[ns] = done.remote
         return done
+
+    def job_running(self):
+        job = jobs.Job("Start Ledger", [["true"]], key="addon:x", verb="start")
+        jobs.JOBS.jobs.append(job)
+        jobs.JOBS.current = job
+        return job
 
 # ---------------------------------------------------------------------------------------------------------------------
 # describe: the rows of the state
@@ -617,9 +629,7 @@ class Holds(Seam):
         self.installed("partner")
         registry.set_lock("partner", previous="c" * 40)
         self.assertEqual(self.row("partner")["held"], {"update": "", "remove": "", "undo": ""})
-        job = jobs.Job("Start Ledger", [["true"]], key="addon:x", verb="start")
-        jobs.JOBS.jobs.append(job)
-        jobs.JOBS.current = job
+        job = self.job_running()
         self.assertEqual(self.row("partner")["held"], {"update": "Wait for Start Ledger", "remove": "Wait for Start Ledger",
                                                        "undo": "Wait for Start Ledger"})
         job.done = True
@@ -928,41 +938,28 @@ class Refusals(Seam):
 class Reading(Real):
     """The catalog.yml of a staged tree, read and checked, and the judgement of it, with Compose."""
 
-    def refused(self, remote_or_folder, **how):
-        with self.assertRaises(CatalogError) as raised:
-            service.check_address(remote_or_folder, **how)
-        self.assertEqual(service.TICKETS, {})
-        self.assertEqual(sorted(path.name for path in (self.root / ".lab" / "catalogs").iterdir()), ["fixture"],
-                         "a refusal leaves nothing staged")
-        return lines_of(raised.exception)
-
-    def meta(self, **fields):
-        base = {"schema": "1", "id": "partner", "name": "Partner fixture", "description": "Units", "version": "2.0.0", "lab": "1"}
-        base.update({key: str(value) for key, value in fields.items()})
-        return "x-gravitee-catalog:\n" + "".join(f"  {key}: {value}\n" for key, value in base.items())
-
     def test_a_repository_without_catalog_yml_is_not_a_catalog(self):
         code, status, line = self.refused(self.remote("partner", drop=["catalog.yml"]).url)
         self.assertEqual((code, status), ("not_catalog", 400))
         self.assertTrue(line.endswith("has no catalog.yml, so it is not a catalog."), line)
 
     def test_a_catalog_yml_that_breaks_the_format_is_catalog_invalid_with_the_first_problem(self):
-        remote = self.remote("partner", files={"catalog.yml": self.meta(id="Not_A_Namespace")})
+        remote = self.remote("partner", files={"catalog.yml": meta_text(id="Not_A_Namespace")})
         self.assertEqual(self.refused(remote.url), ("catalog_invalid", 400,
                                                     "catalog.yml: id must be 2 to 24 lowercase letters, digits and dashes."))
 
     def test_a_format_newer_than_this_lab_reads_is_a_version_that_needs_a_newer_lab(self):
-        remote = self.remote("partner", files={"catalog.yml": self.meta(schema=2)})
+        remote = self.remote("partner", files={"catalog.yml": meta_text(schema=2)})
         self.assertEqual(self.refused(remote.url), ("no_readable_version", 400, "Every version of this catalog needs a newer "
                                                                               "Gravitee Lab. Run make update, then add it again."))
 
     def test_a_reserved_name_is_refused_unless_the_listed_address_serves_it(self):
-        remote = self.remote("partner", files={"catalog.yml": self.meta(id="lab")})
+        remote = self.remote("partner", files={"catalog.yml": meta_text(id="lab")})
         self.assertEqual(self.refused(remote.url), ("name_reserved", 400,
                                                     "lab is a reserved name. Ask the owner of this catalog to choose another."))
 
     def test_a_name_another_catalog_uses_is_name_taken_with_where_that_one_is(self):
-        remote = self.remote("partner", files={"catalog.yml": self.meta(id="fixture")})
+        remote = self.remote("partner", files={"catalog.yml": meta_text(id="fixture")})
         code, status, line = self.refused(remote.url)
         self.assertEqual((code, status), ("name_taken", 409))
         self.assertTrue(line.startswith("Another catalog already uses the name fixture ("), line)
@@ -978,12 +975,12 @@ class Reading(Real):
     def test_a_level_the_quick_reading_cannot_be_sure_of_is_refused_on_the_real_one_with_the_line_of_lab_new(self):
         # the reading of the versions in the history is a restricted one (an anchor is beyond it); the staged file is read by
         # Compose, and what it says is the answer
-        remote = self.remote("partner", files={"catalog.yml": self.meta().replace("  lab: 1\n", "  lab: &level 99\n")})
+        remote = self.remote("partner", files={"catalog.yml": meta_text().replace("  lab: 1\n", "  lab: &level 99\n")})
         self.assertEqual(self.refused(remote.url), (
             "lab_new", 400, "This catalog needs a newer Gravitee Lab. Run make update, then add it again."))
 
     def test_the_address_the_engine_lists_must_serve_the_catalog_it_lists(self):
-        remote = self.remote("partner", files={"catalog.yml": self.meta(id="other-hub")})
+        remote = self.remote("partner", files={"catalog.yml": meta_text(id="other-hub")})
         self.list_at("partner", remote)
         code, status, line = self.refused(remote.url)
         self.assertEqual((code, status), ("wrong_catalog", 409))
@@ -992,7 +989,7 @@ class Reading(Real):
     def test_a_tip_that_needs_a_newer_lab_installs_the_newest_version_this_lab_reads_and_says_so(self):
         remote = self.remote("partner")
         older = remote.head()
-        remote.commit({"catalog.yml": self.meta(version="3.0.0", lab=99)}, "Needs a newer Gravitee Lab")
+        remote.commit({"catalog.yml": meta_text(version="3.0.0", lab=99)}, "Needs a newer Gravitee Lab")
         shown = service.check_address(remote.url)
         self.assertEqual((shown["catalog"]["version"], shown["newer"]), ("2.0.0", True))
         self.assertEqual(service.TICKETS[shown["ticket"]]["staged"].commit, older)
@@ -1025,14 +1022,6 @@ class Understanding(Real):
         if not legacy:
             text = "".join(line for line in text.splitlines(True) if line.strip().split(":")[0] not in ("schema", "lab"))
         return text + extra
-
-    def refused(self, address):
-        with self.assertRaises(CatalogError) as raised:
-            service.check_address(address)
-        self.assertEqual(service.TICKETS, {})
-        self.assertEqual(sorted(path.name for path in (self.root / ".lab" / "catalogs").iterdir()), ["fixture"],
-                         "a refusal leaves nothing staged, and the readings of versions leave nothing either")
-        return lines_of(raised.exception)
 
     def test_a_tip_that_uses_what_this_lab_does_not_read_installs_the_newest_version_it_reads(self):
         for name, files in (("a key of x-gravitee", {LEDGER: self.ledger()}),
@@ -1956,15 +1945,10 @@ class Updating(Seam):
 
     def test_a_plan_changes_nothing_on_disk_but_the_staged_candidate(self):
         self.news()
-        before = self.digest()
+        before = (self.digest(), registry.lock_of("partner"))
         self.plan()
-        self.assertEqual(self.digest(), before)
+        self.assertEqual((self.digest(), registry.lock_of("partner")), before)
         self.assertTrue((self.root / ".lab" / "catalogs" / ".stage-partner").is_dir())
-
-    def digest(self):
-        base = self.root / ".lab" / "catalogs" / "partner"
-        return {str(path.relative_to(base)): path.read_bytes() for path in sorted(base.rglob("*")) if path.is_file()}, \
-            registry.lock_of("partner")["pin"], registry.lock_of("partner")["pending"]
 
     def test_nothing_to_apply_is_up_to_date_and_so_is_a_version_that_changes_nothing_installable(self):
         self.assertEqual(self.plan(), {"upToDate": True})
@@ -2033,9 +2017,7 @@ class Updating(Seam):
     def test_a_job_that_runs_holds_the_plan_and_the_apply_is_job_running_and_the_ticket_is_kept(self):
         self.news()
         ticket = self.plan()["ticket"]
-        job = jobs.Job("Start Ledger", [["true"]], key="addon:x", verb="start")
-        jobs.JOBS.jobs.append(job)
-        jobs.JOBS.current = job
+        job = self.job_running()
         self.assertEqual(self.plan()["held"], "Wait for Start Ledger")
         ticket = next(iter(service.TICKETS))
         with self.assertRaises(CatalogError) as raised:
@@ -2363,10 +2345,6 @@ class GoingBack(Seam):
         self.patch(service, "_contract", lambda: {"contract": 2, "contract_min": 1, "seeder_image": ""})
         self.assertEqual(service.undo("partner", check=True)["to"], self.first[:7], "a Lab that still reads it goes back")
 
-    def digest(self):
-        base = self.root / ".lab" / "catalogs" / "partner"
-        return {str(path.relative_to(base)): path.read_bytes() for path in sorted(base.rglob("*")) if path.is_file()}
-
     def test_going_back_while_an_item_is_on_is_held_like_an_update(self):
         (self.root / ".lab" / "on.yml").write_text("include:\n  - .lab/catalogs/partner/addons/audit/compose.yml\n", encoding="utf-8")
         plan = service.undo("partner", check=True)
@@ -2529,9 +2507,7 @@ class Removing(Seam):
         self.assertEqual(service.remove("partner", check=True)["held"], "Turn off Ledger first")
 
     def test_a_job_that_runs_holds_it_and_the_request_is_job_running(self):
-        job = jobs.Job("Start Ledger", [["true"]], key="addon:x", verb="start")
-        jobs.JOBS.jobs.append(job)
-        jobs.JOBS.current = job
+        self.job_running()
         self.assertEqual(service.remove("partner", check=True)["held"], "Wait for Start Ledger")
         with self.assertRaises(CatalogError) as raised:
             service.remove("partner", keep_settings=True)
@@ -2668,9 +2644,7 @@ class Repairing(Seam):
         self.assertEqual(seen, {"lock": False})
 
     def test_a_job_that_runs_a_working_copy_a_folder_and_a_catalog_with_nothing_installed_refuse_it(self):
-        job = jobs.Job("Start Ledger", [["true"]], key="addon:x", verb="start")
-        jobs.JOBS.jobs.append(job)
-        jobs.JOBS.current = job
+        job = self.job_running()
         with self.assertRaises(CatalogError) as raised:
             service.repair("partner")
         self.assertEqual(lines_of(raised.exception), ("job_running", 409, "Wait for Start Ledger."))
@@ -2983,10 +2957,6 @@ class Planning(Real):
         self.assertEqual(self.digest(), before[1])
         held = registry.lock_of("partner")
         self.assertEqual((held["pin"], held["version"], held["lab"]), (before[0]["pin"], "2.0.0", 1))
-
-    def digest(self):
-        base = self.root / ".lab" / "catalogs" / "partner"
-        return {str(path.relative_to(base)): path.read_bytes() for path in sorted(base.rglob("*")) if path.is_file()}
 
     def test_an_item_of_the_catalog_that_the_same_release_rewrites_is_not_broken_by_the_unit_it_stopped_including(self):
         remote = self.added(files={"setups/combo.yml": SETUP_BOTH, "addons/vault/compose.yml": VAULT})
