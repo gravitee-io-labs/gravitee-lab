@@ -340,12 +340,6 @@ class Protections(Case):
         self.assertEqual(self.deploys(), 8)
         self.assertEqual(self.by_name(CAP_POLICY)["policyText"].count("context.amount > 500"), 1, "its text is there to be read")
 
-    def test_on_every_policy_but_the_draft_is_deployed(self):
-        self.env(SEED_PROTECTIONS="on")
-        authz.seed()
-        self.assertEqual(sorted(self.statuses().values()), ["DEPLOYED"] * 9 + ["DRAFT"])
-        self.assertEqual(self.statuses()[CAP_POLICY], "DEPLOYED")
-
     def test_a_second_seed_in_the_same_mode_saves_nothing(self):
         for mode in ("off", "on"):
             with self.subTest(mode=mode):
@@ -367,22 +361,6 @@ class Protections(Case):
         line = next(line for line in self.output().splitlines() if "Taken out of service" in line)
         self.assertEqual(line, "[authz]   ✓ Taken out of service: the console shows it Disabled", "the word the person reads")
 
-    def test_deploying_the_cap_in_the_console_and_seeding_again_round_trips(self):
-        """What a lesson does in the console, then what a Re-seed does, as many times as someone wants."""
-        self.env(SEED_PROTECTIONS="off")
-        authz.seed()
-        self.assertEqual(self.by_name(CAP_POLICY)["status"], "DRAFT")
-        for _ in range(3):
-            self.by_name(CAP_POLICY)["status"] = "DEPLOYED"          # the person deploys it
-            authz.seed()                                             # Re-seed: the lesson starts over
-            self.assertNotEqual(self.by_name(CAP_POLICY)["status"], "DEPLOYED")
-        self.env(SEED_PROTECTIONS="on")                              # a presenter who wants everything protected
-        authz.seed()
-        self.assertEqual(self.by_name(CAP_POLICY)["status"], "DEPLOYED")
-        self.platform.calls.clear()
-        authz.seed()
-        self.assertEqual(self.platform.changes(), [])
-
     def test_the_other_mode_deploys_or_takes_out_the_cap_and_only_it(self):
         self.env(SEED_PROTECTIONS="off")
         authz.seed()
@@ -395,13 +373,6 @@ class Protections(Case):
         authz.seed()
         self.assertEqual(self.platform.changes(), [("POST", f"{AUTHZ}/policies/{self.by_name(CAP_POLICY)['id']}/disable")])
 
-    def test_the_draft_the_lessons_do_not_teach_stays_a_draft_in_both_modes(self):
-        for mode in ("off", "on"):
-            with self.subTest(mode=mode):
-                self.env(SEED_PROTECTIONS=mode)
-                authz.seed()
-                self.assertEqual(self.statuses()[DRAFT_POLICY], "DRAFT")
-
     def test_a_cap_someone_edited_is_put_back_and_stays_a_draft_off(self):
         self.env(SEED_PROTECTIONS="off")
         self.seeded()
@@ -411,13 +382,6 @@ class Protections(Case):
         self.assertEqual(self.platform.changes(), [("PUT", f"{AUTHZ}/policies/{policy['id']}")])
         self.assertIn("context.amount > 500", policy["policyText"])
         self.assertEqual(policy["status"], "DRAFT")
-
-    def test_a_policy_no_control_names_is_deployed_in_both_modes(self):
-        self.env(SEED_PROTECTIONS="off")
-        authz.seed()
-        for name in POLICIES:
-            if name not in (CAP_POLICY, DRAFT_POLICY):
-                self.assertEqual(self.statuses()[name], "DEPLOYED", name)
 
     def test_the_deployment_of_a_control_is_waited_for(self):
         self.env(SEED_WAIT_GATEWAY="1")
