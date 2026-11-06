@@ -921,7 +921,7 @@ def _platform(c):
     states = {name: service["state"] for name, service in c["services"].items()}
     behind = _behind_rows(c)
     playground = project["playgrounds"].get(c["state"]["playground"])
-    found = {"name": project["name"], "state": state, "containers": _containers(c, groups),
+    return {"name": project["name"], "state": state, "containers": _containers(c, groups),
             "progress": _progress(c, "platform", [name for group in groups for name in group["services"]], state),
             "license_var": project["license_var"], "groups": groups, "start": _platform_start(c, behind),
             "update": _platform_runs(c, runs), "restart": _platform_runs(c, runs),
@@ -935,7 +935,6 @@ def _platform(c):
             "settings": [variable["key"] for variable in project["core_variables"]],
             # The add-on that runs the gateway of each kind of platform here, as the project chose it: the page reads it
             "gateways": (project.get("platform") or {}).get("gateways")}
-    return found
 
 
 def _problem(problem, readonly=()):
