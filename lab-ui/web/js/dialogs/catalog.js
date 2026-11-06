@@ -15,10 +15,7 @@ import { agentLinks, agentFolder, forAgent } from "../components/agent.js";
 
 export const NO_GIT = "Git is not installed";
 
-// The line of `ticket_expired`: the page's request throws the server's words alone, and this is the one refusal it acts on
-const EXPIRED = "This took too long. Start again.";
-// The refusal is the code when the request keeps it, else its line
-const expired = (err) => err?.code === "ticket_expired" || err?.message === EXPIRED;
+const expired = (err) => err?.code === "ticket_expired";
 const UP_TO_DATE = "Already up to date.";
 // The two requests of an update and of going back, each its own route: a path is written whole wherever it is used, so that a route that is
 // missing is found by reading the page's files (test_static)

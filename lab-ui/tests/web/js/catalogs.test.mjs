@@ -33,7 +33,7 @@ const page = installDom({
       return reply(store.state);
     }
     server.calls.push({ method, path, body });
-    if (server.refuse[path]) return reply({ error: server.refuse[path] }, 400);
+    if (server.refuse[path]) return reply(server.refuse[path].code ? server.refuse[path] : { error: server.refuse[path] }, 400);
     const answer = server.answers[path];
     return reply(typeof answer === "function" ? await answer(body) : answer ?? {});
   },
@@ -1182,7 +1182,7 @@ test("a refusal of the commit stays on the second screen in the problem line; a 
   await next(primary());
   assert.deepEqual([onScreen(), problemOf(), adding().hasAttribute("open")], ["effects", server.refuse["/api/catalogs"], true]);
   assert.equal(isOff(primary()), false, "it can be tried again, or canceled");
-  server.refuse["/api/catalogs"] = "This took too long. Start again.";
+  server.refuse["/api/catalogs"] = { error: "This took too long. Start again.", code: "ticket_expired" };
   await next(primary());
   assert.deepEqual([onScreen(), problemOf(), heading(), addressInput().value], ["address", "This took too long. Start again.", "Add catalog", "acme/lab-hub"]);
   delete server.refuse["/api/catalogs"];
@@ -1628,14 +1628,14 @@ test("closing the dialog while Update is at work leaves the allowance chosen wit
 test("a plan whose ticket expired is dead: its dialog closes and says so, whether the update or Show changes found out", async () => {
   const line = "This took too long. Start again.";
   await updating(PLAN());
-  server.refuse[at("/update")] = line;
+  server.refuse[at("/update")] = { error: line, code: "ticket_expired" };
   clearToasts();
   await next(primary());
   assert.deepEqual([adding().hasAttribute("open"), toasts()], [false, [line]]);
   assert.ok(page.doc.querySelector(".toast").classList.contains("error"));
   delete server.refuse[at("/update")];
   await updating(PLAN());
-  server.refuse[at("/changes")] = line;
+  server.refuse[at("/changes")] = { error: line, code: "ticket_expired" };
   clearToasts();
   click(secondary());
   await settle();
