@@ -38,8 +38,7 @@ class Paging:
         self.first, self.size = first, size
 
 
-WORKSPACES = Paging(first=0, size=100)   # AI workspaces and the MCP proxies
-BUDGETS = Paging(first=0, size=100)      # budgets of a workspace
+WORKSPACES = Paging(first=0, size=100)   # AI workspaces, their budgets and the MCP proxies
 LISTS = Paging(first=1, size=100)        # workspace members, access entities and policies, dashboards
 CATALOG = Paging(first=1, size=200)      # the catalog, providers and credentials
 

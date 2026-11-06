@@ -50,7 +50,7 @@ import requests
 
 from . import controls
 from . import gamma
-from .apim import ENDED, accept, find_application, held_subscription, merge, subscribe
+from .apim import ENDED, UNSUPPORTED, accept, find_application, held_subscription, merge, subscribe
 from .common import (OK, Api, SeedError, adopted, contains, created, files, forget, has_seed, load, log, making, owned, record, recorded,
                      setting, trouble, wait_until, waits_for_gateway)
 
@@ -77,8 +77,6 @@ V4_PLAN_READ_ONLY = ("id", "apiId", "createdAt", "updatedAt", "publishedAt", "cl
 FGA_FLOW, APPROVAL_FLOW = "FGA Authorization", "Human approval"
 PEP, ASSIGN, APPROVAL = "authz-pep", "policy-assign-attributes", "human-approval"
 KINDS = {"mcp-proxy": "MCP proxy", "studio": "MCP studio"}
-# What a platform answers for a write of a studio's tools it does not offer: the studio is made again instead
-UNSUPPORTED = (404, 405, 501)
 # The keys of a studio's file that give its protocol versions, one of the two: which one depends on the build
 VERSION_KEYS = ("supportedProtocolVersions", "protocolVersion")
 # What a subscription of a studio's file may say

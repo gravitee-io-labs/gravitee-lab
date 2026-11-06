@@ -119,7 +119,7 @@ class AiWorkspaces:
     def budgets(self, base, specs):
         """{name: budget} once each budget of the file exists as written. Names are not unique for the API: they are
         looked up here. The workspace starts with one budget, named Default, which becomes the first of the file."""
-        live = self.aim.rows(f"{base}/budgets", gamma.BUDGETS)
+        live = self.aim.rows(f"{base}/budgets", gamma.WORKSPACES)
         starting = next((b for b in live if b["name"] == "Default"), None)
         out = {}
         for spec in specs:
