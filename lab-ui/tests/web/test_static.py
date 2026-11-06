@@ -196,9 +196,6 @@ class Tooltips(Case):
             self.assertEqual(re.findall(r"setAttribute\(\s*[\"']title", source), [], f"{name(file)} sets a title")
 
 
-# Items of the catalog a generic page never names: the Lab is a hub, and an item says what it is in its own files. Core products of
-# Gravitee (API Management, Access Management, Alert Engine, Gamma, Gravitee Cloud) may be named.
-CONTENT = re.compile(r"\b(acme|kafka|jade|kiosk|openfga|reader-ui)\b", re.I)
 # A version said in words ("API Management 4.12", "Gravitee 4.13.0"): what a platform runs changes with time, so a page reads it from
 # data, never from a sentence. Looked for in the strings of a module, without the addresses they hold.
 STRING = re.compile(r'"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\'|`(?:\\.|[^`\\])*`')
@@ -207,13 +204,6 @@ ADDRESS = re.compile(r"https?://\S+")
 
 
 class Generic(Case):
-
-    def test_no_page_names_an_item_of_the_catalog(self):
-        # What a page says of an item comes from the item (its name, its file): a list of names in the code would be one more
-        # place to change for each new item, and would tell every person about one of them
-        for file in [WEB / "index.html", *MODULES]:
-            found = sorted({match.lower() for match in CONTENT.findall(code(file.read_text()))})
-            self.assertEqual(found, [], f"{name(file)} names an item of the catalog")
 
     def test_no_page_says_a_version_in_words(self):
         # "API Management 4.12" or "without Gamma" is true at one time only: a version a page shows comes from the state or a

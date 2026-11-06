@@ -272,7 +272,7 @@ Don't: a dropdown with a fixed height, one of its own placement, a native `selec
 **Generic words.** A page of the Lab UI is a hub: it never names an item of the catalog (a playground, a setup, an add-on) in its
 own words, nor states a version or what a platform runs or lacks as a sentence. What it says of an item comes from the item (its
 name, its file, its requirements); what it says of a platform comes from data (the state, a live read and what the gateways of an
-environment say they run, the reasons `project.judge` gives a playground). An example names paths with `<id>`. `test_static.py` refuses a name of its deny list and a
+environment say they run, the reasons `project.judge` gives a playground). An example names paths with `<id>`. `test_static.py` refuses a
 version said in words ("API Management 4.12") in the strings of a module.
 
 ### Measuring

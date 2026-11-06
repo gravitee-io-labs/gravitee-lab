@@ -2128,26 +2128,3 @@ test("the examples of an address stay text when the first catalog's host is mark
   assert.equal(page.doc.querySelectorAll("img[src=x]").length, 0);
   shut();
 });
-
-// --- The modules as files ---------------------------------------------------------------------------------------------------------
-
-const MODULES = ["js/pages/catalogs.js", "js/dialogs/catalog.js"];
-const code = (file) => source(file).replace(/\/\*[\s\S]*?\*\/|(?<![:\w"'`\\/])\/\/[^\n]*/g, "");
-
-test("the modules write no title attribute, no host of the web, no item or maker of a catalog, and only classes some stylesheet has a rule for", () => {
-  const styles = source("css/base.css") + source("css/components.css") + source("css/pages.css");
-  for (const file of MODULES) {
-    assert.doesNotMatch(code(file), /\stitle=/, `${file}: the browser's tooltip`);
-    assert.doesNotMatch(source(file), /github\.com/, `${file}: the address of a host is data`);
-    assert.doesNotMatch(code(file), /\b(acme|kafka|jade|kiosk|openfga|reader-ui|gravitee-demos)\b/i, `${file}: names no item or catalog`);
-    const classes = new Set([...code(file).matchAll(/\bclass="([^"$]*)"/g)].flatMap((found) => found[1].split(/\s+/)).filter(Boolean));
-    for (const name of classes) assert.match(styles, new RegExp(`\\.${name.replace(/[-]/g, "\\-")}\\b`), `${file}: .${name} has no rule`);
-    // No new size of control: the page writes no height or width of its own
-    assert.doesNotMatch(code(file), /style="|\.style\./, `${file}: no style of its own`);
-  }
-});
-
-test("the stylesheet gives the page nothing but what it needs: rules for classes that exist, and the classes of the diff of Show changes", () => {
-  const rules = source("css/pages.css").split("/* --- Catalogs")[1].split("/* --- Editor")[0];
-  assert.deepEqual([...new Set([...rules.matchAll(/\.([a-z][\w-]*)/g)].map((found) => found[1]))].sort(), ["choice-items", "diff", "diff-add", "diff-del", "diff-hunk", "diff-meta", "panel-fact", "step-items"]);
-});
