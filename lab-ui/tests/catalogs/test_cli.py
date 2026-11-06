@@ -928,6 +928,11 @@ class Explain(Tool):
         self.assertEqual(self.run_tool("explain", "st05"), (code, out, err), "the case of the code does not matter")
         self.assertEqual(self.run_tool("explain", " ST05 "), (code, out, err))
 
+    def test_a_note_of_the_policy_is_not_said_to_block(self):
+        out = self.run_tool("explain", "N01")[1]
+        self.assertTrue(out.startswith("N01 (info)\n"), out)
+        self.assertNotIn("Blocked", out)
+
     def test_the_policy_and_the_stages_are_codes_too_and_every_code_the_lab_knows_is_explained(self):
         from lab_ui.catalogs import explain
         for one in ("T11", "N01", "SD02", "BD01", "PB07", "E2E03"):

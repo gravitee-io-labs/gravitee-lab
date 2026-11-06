@@ -9,7 +9,7 @@ and `docs/catalog-rules.md` equals this table. Pure: it reads tables, runs nothi
 from typing import Dict, List, NamedTuple, Tuple
 
 from . import trust
-from .report import ERROR, WARNING, printable
+from .report import ERROR, INFO, WARNING, printable
 from .rules import FAMILIES, codeowners, commits, dockerfiles, guides, images, secrets, structure, workflows
 
 SAME = "Not judged: the Lab does not install this file, or a person never sees it."
@@ -238,10 +238,12 @@ def table() -> Dict[str, Entry]:
     for code, severity, stage, message in STAGES:
         found[code] = Entry(code, severity, f"{stage} stage of `catalog.py ci`", message, (), "", NOT_AT_ADD)
     for code, row in trust.RULES.items():
-        found[code] = Entry(code, ERROR, f"the Lab's trust policy, class {row['class']}",
-                            f"{row['lines'][0]}. Fix: {trust.FIXES[code]}", (), "The Lab will not run an item that breaks this "
-                            "rule without the person agreeing to what it takes of their machine.",
-                            "Blocked at Add, Update and Start, with this reason.")
+        blocks = row["class"] != "N"
+        found[code] = Entry(code, ERROR if blocks else INFO, f"the Lab's trust policy, class {row['class']}",
+                            f"{row['lines'][0]}. Fix: {trust.FIXES[code]}", (),
+                            "The Lab will not run an item that breaks this rule without the person agreeing to what it takes "
+                            "of their machine." if blocks else "",
+                            "Blocked at Add, Update and Start, with this reason." if blocks else "The item runs, with this note.")
     return found
 
 

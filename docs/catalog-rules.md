@@ -1229,45 +1229,40 @@ Every rule that `catalog.py check` and the stages of `catalog.py ci` can print, 
 
 ### N01
 
-*Error.* The Lab's trust policy, class N.
+*Info.* The Lab's trust policy, class N.
 
 - **Message**: Brings its own seed code. Fix: Run the Lab's seeder as it is: build its folder with no other key, set no entrypoint or command, and mount only `/seed` and `/state`.
-- **Why**: The Lab will not run an item that breaks this rule without the person agreeing to what it takes of their machine.
 - **Fix**: Run the Lab's seeder as it is: build its folder with no other key, set no entrypoint or command, and mount only `/seed` and `/state`.
-- **At Add**: Blocked at Add, Update and Start, with this reason.
+- **At Add**: The item runs, with this note.
 
 ### N02
 
-*Error.* The Lab's trust policy, class N.
+*Info.* The Lab's trust policy, class N.
 
 - **Message**: Seed data reads a token. Fix: Do not read `APIM_TOKEN` or a secret in `seed/`: the Lab hands the seeder what it needs.
-- **Why**: The Lab will not run an item that breaks this rule without the person agreeing to what it takes of their machine.
 - **Fix**: Do not read `APIM_TOKEN` or a secret in `seed/`: the Lab hands the seeder what it needs.
-- **At Add**: Blocked at Add, Update and Start, with this reason.
+- **At Add**: The item runs, with this note.
 
 ### N03
 
-*Error.* The Lab's trust policy, class N.
+*Info.* The Lab's trust policy, class N.
 
 - **Message**: Some of its addresses are not on this machine, so they are not opened. Fix: Point `io.gravitee.console.*.url` and `requires.host[].check` at localhost, 127.0.0.1, [::1] or host.docker.internal.
-- **Why**: The Lab will not run an item that breaks this rule without the person agreeing to what it takes of their machine.
 - **Fix**: Point `io.gravitee.console.*.url` and `requires.host[].check` at localhost, 127.0.0.1, [::1] or host.docker.internal.
-- **At Add**: Blocked at Add, Update and Start, with this reason.
+- **At Add**: The item runs, with this note.
 
 ### N04
 
-*Error.* The Lab's trust policy, class N.
+*Info.* The Lab's trust policy, class N.
 
 - **Message**: Its gateway is not used: the Cloud pages do not offer it. Fix: Remove `x-gravitee.gateway`: only a catalog the Lab lists, or one a person allowed to use their machine, may declare a gateway.
-- **Why**: The Lab will not run an item that breaks this rule without the person agreeing to what it takes of their machine.
 - **Fix**: Remove `x-gravitee.gateway`: only a catalog the Lab lists, or one a person allowed to use their machine, may declare a gateway.
-- **At Add**: Blocked at Add, Update and Start, with this reason.
+- **At Add**: The item runs, with this note.
 
 ### N05
 
-*Error.* The Lab's trust policy, class N.
+*Info.* The Lab's trust policy, class N.
 
 - **Message**: Its terminal is not offered by this catalog. Fix: Name one of the unit's own services, and not its seed, in `x-gravitee.terminal`.
-- **Why**: The Lab will not run an item that breaks this rule without the person agreeing to what it takes of their machine.
 - **Fix**: Name one of the unit's own services, and not its seed, in `x-gravitee.terminal`.
-- **At Add**: Blocked at Add, Update and Start, with this reason.
+- **At Add**: The item runs, with this note.
