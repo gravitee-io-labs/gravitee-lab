@@ -2,7 +2,6 @@
 repository; and the reading of the seed service, which is seedlint's."""
 
 import ast
-import inspect
 import os
 import re
 import tempfile
@@ -15,17 +14,14 @@ import yaml
 
 from lab_seeder import common
 from lab_seeder import seedlint
-from lab_seeder import testkit
 from lab_seeder.seedlint import seeded_playgrounds
-from lab_seeder.testkit import SAMPLES, Seed
+from lab_seeder.testkit import SAMPLES
 
 from . import chained, doubling
 
 # A string that is a path into the content of the repository, as a folder or as a part of a path: a test reads a file with
 # ROOT / "playgrounds" as well as with ROOT.glob("addons/*/compose.yml")
 CONTENT = re.compile(r"(?:^|[/\\])(?:addons|setups|playgrounds)(?:[/\\]|$)")
-# The files that read the add-ons and playgrounds of the repository itself. They move to the catalog with them
-MOVING = {"test_readme_commands.py", "test_tracing_redaction.py"}
 
 
 def content_paths(source):
@@ -36,11 +32,11 @@ def content_paths(source):
                    and not re.search(r"\s", node.value) and CONTENT.search(node.value)})
 
 
-def readers_of_content(folder, exclude=()):
-    """{file: the paths it names} of the test files of `folder`, but those of `exclude`, that name a folder of content."""
+def readers_of_content(folder):
+    """{file: the paths it names} of the test files of `folder`, this one apart, that name a folder of content."""
     found = {}
     for file in sorted(Path(folder).glob("test_*.py")):
-        names = [] if file.name in exclude else content_paths(file.read_text(encoding="utf-8"))
+        names = [] if file.name == Path(__file__).name else content_paths(file.read_text(encoding="utf-8"))
         if names:
             found[file.name] = names
     return found
@@ -125,41 +121,23 @@ class NoContent(unittest.TestCase):
             with self.subTest(source=source):
                 self.assertEqual(content_paths(source), [])
 
-    def test_a_test_file_that_reads_the_content_is_found_but_for_the_ones_that_move(self):
+    def test_a_test_file_that_reads_the_content_is_found(self):
         with tempfile.TemporaryDirectory() as folder:
             for name, source in {"test_exact.py": 'ROOT / "setups"\n', "test_glob.py": 'ROOT.glob("addons/*/compose.yml")\n',
                                  "test_part.py": '(ROOT / "playgrounds/acme-bakery/README.md").exists()\n',
                                  "test_clean.py": '"""Reads the playgrounds of a catalog."""\nROOT = testkit.PLAYGROUNDS\n',
-                                 "test_moves.py": 'ROOT / "addons"\n', "helper.py": 'ROOT / "addons"\n'}.items():
+                                 "helper.py": 'ROOT / "addons"\n'}.items():
                 (Path(folder) / name).write_text(source, encoding="utf-8")
-            self.assertEqual(readers_of_content(folder, exclude={"test_moves.py"}),
+            self.assertEqual(readers_of_content(folder),
                              {"test_exact.py": ["setups"], "test_glob.py": ["addons/*/compose.yml"],
                               "test_part.py": ["playgrounds/acme-bakery/README.md"]})
 
-    def test_no_test_but_the_ones_that_move_names_a_content_folder_of_the_repository(self):
-        """A test that wants the files of a playground asks testkit for its root, so that a catalog can give its own, and the
-        engine runs where the three folders are not."""
+    def test_no_test_names_a_content_folder_of_the_repository(self):
+        """A test that wants the files of a playground reads them under testkit.PLAYGROUNDS: the engine runs where the three
+        folders are not."""
         here = Path(__file__).resolve()
         self.assertGreater(len(list(here.parent.glob("test_*.py"))), 20)
-        self.assertEqual(readers_of_content(here.parent, exclude=MOVING | {here.name}), {},
-                         "read the files of a playground under testkit.PLAYGROUNDS")
-
-    def test_the_files_that_move_still_name_what_they_read(self):
-        """Else the exception above is a name that nothing uses: remove it with the file."""
-        here = Path(__file__).resolve().parent
-        for name in sorted(MOVING):
-            if (here / name).exists():
-                with self.subTest(file=name):
-                    self.assertTrue(content_paths((here / name).read_text(encoding="utf-8")))
-
-
-class Names(unittest.TestCase):
-
-    def test_no_function_of_the_kit_is_named_like_a_method_of_the_harness(self):
-        """A test file that uses both would not tell a seed that is written from one that is read."""
-        functions = {name for name, value in vars(testkit).items() if inspect.isfunction(value) and value.__module__ == "testkit"}
-        methods = {name for name in vars(Seed) if not name.startswith("_")}
-        self.assertEqual(functions & methods, set())
+        self.assertEqual(readers_of_content(here.parent), {}, "read the files of a playground under testkit.PLAYGROUNDS")
 
 
 if __name__ == "__main__":

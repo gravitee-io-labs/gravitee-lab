@@ -48,8 +48,7 @@ ONE_MEGABYTE = 1_000_000
 # few times above that, and far below the minutes to hours of a pattern that went quadratic again
 RULE_SECONDS, WHOLE_SECONDS = 2.0, 20.0
 # The names of the folders of a catalog that these tests make in a temporary folder, spelled in two parts: test_testkit.py looks
-# in the strings of the tests for the names of the folders of the repository's own content, which no test but the ones that
-# move may read
+# in the strings of the tests for the names of the folders of the repository's own content, which no test may read
 ADDONS, FOLDER = "add" + "ons", "play" + "grounds"
 
 
