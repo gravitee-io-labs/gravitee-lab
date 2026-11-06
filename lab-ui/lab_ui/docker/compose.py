@@ -1260,7 +1260,8 @@ def reference(image):
     """An image as Docker lists the ones it holds: repository:tag, without Docker Hub's own prefixes, `latest` when it
     names no tag."""
     name = re.sub(r"^(docker\.io/)?(library/)?", "", image)
-    return name if re.search(r"[:@][^/]*$", name) else f"{name}:latest"
+    last = name.rpartition("/")[2]
+    return name if ":" in last or "@" in last else f"{name}:latest"
 
 
 def image_ids():

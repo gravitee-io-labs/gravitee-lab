@@ -215,9 +215,7 @@ def state(project, is_on, outside):
         configured = sorted({services[name]["image"] for name in c["services"]})
         running = {containers[name]["image"] for name in c["services"]
                    if name in containers and containers[name]["state"] == "running"}
-        # docker images lists Docker Hub images without docker.io/ and library/
-        pulled = None if local is None else all(re.sub(r"^docker\.io/(library/)?", "", image) in local
-                                                for image in configured)
+        pulled = None if local is None else all(compose.reference(image) in local for image in configured)
         enabled = is_on(owner)
         listed.append({**c, "version": _bare(env.get(c["version_key"]), unset) or c["version_default"] or "",
                        "registry": _bare(env.get(c["registry_key"]), unset) or c["registry_default"],

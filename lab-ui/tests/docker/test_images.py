@@ -210,6 +210,14 @@ class Images(Case):
         self.assertFalse(self.state()["azure_in_use"])
         self.assertTrue(self.state(["tools"])["azure_in_use"])
 
+    def test_an_image_written_with_docker_hubs_own_prefixes_is_pulled_as_docker_lists_it(self):
+        self.patch(images, "local_images", return_value={"mongo:8.0.29"})
+        self.patch(compose, "containers", return_value=({}, None))
+        self.patch(envfiles, "read", return_value={})
+        for written in ("library/mongo:8.0.29", "docker.io/library/mongo:8.0.29"):
+            self.project["services"]["mongodb"]["image"] = written
+            self.assertTrue({c["id"]: c for c in self.state()["components"]}["MONGODB_VERSION"]["pulled"], written)
+
     def test_with_docker_not_answering_what_is_pulled_is_not_known(self):
         compose.CACHE.drop("local:image-ids")
         self.addCleanup(compose.CACHE.drop, "local:image-ids")

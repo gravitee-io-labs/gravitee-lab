@@ -116,17 +116,12 @@ def _event(line):
     return found if isinstance(found, dict) else None
 
 
-def _image(name):
-    """An image as Compose prints it and as a file writes it, alike: without Docker Hub's own prefixes."""
-    return re.sub(r"^(docker\.io/)?(library/)?", "", name)
-
-
 def awaited(services, start=(), stop=(), images=()):
     """What a command waits for, the units its stage counts: {unit: how}, a unit being ("Container", name) or
     ("Image", name). A container that starts ("start") is there once ready as the Lab UI judges it: healthy, or
     running when Docker checks no health; a one-shot ("once") once it ended well. One that stops ("stop") once stopped
     or removed; an image ("image") once pulled or built. A service both stopped and started is started: a restart."""
-    found = {("Image", _image(name)): "image" for name in images if name}
+    found = {("Image", compose.reference(name)): "image" for name in images if name}
     found.update({("Container", services[name]["container"]): "stop" for name in stop})
     found.update({("Container", services[name]["container"]): "once" if services[name]["oneshot"] else "start"
                   for name in start})
@@ -265,7 +260,7 @@ class Job:
         if not found:
             return
         kind, name, status = found.groups()
-        unit = (kind, _image(name) if kind == "Image" else name)
+        unit = (kind, compose.reference(name) if kind == "Image" else name)
         with self._lock:
             if kind == "Container":   # waited for until Compose says something else of it ("Healthy", "Error")
                 (self._waiting.add if status == "Waiting" else self._waiting.discard)(name)
@@ -387,7 +382,7 @@ class Job:
         for line in reversed(self.lines[-10:]):
             found = BASE_IMAGE.search(line.strip())
             if found:
-                return _image(found.group(1))
+                return compose.reference(found.group(1))
         return None
 
     def error(self):
@@ -541,7 +536,7 @@ class Job:
                 (event.get("parent_id") or "")[6:]
             fraction = self.pulls.fraction(name)
             if fraction is not None and event.get("text") != "Pulled":
-                self.unit(("Image", _image(name)), fraction * DOWNLOAD_SHARE)
+                self.unit(("Image", compose.reference(name)), fraction * DOWNLOAD_SHARE)
 
     def pull_view(self):
         """How far the images the job pulls are, and how fast: pulls.Pulls.view(); None when it pulls none."""
