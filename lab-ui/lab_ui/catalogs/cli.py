@@ -58,7 +58,6 @@ from .report import Problem
 ENVIRONMENT = ("bad_address", "bad_address_secret", "folder_missing", "folder_not_catalog", "folder_not_shared",
                "branch_missing", "not_listed", "symlink_unsupported", "git_missing", "git_old", "docker_missing", "unread",
                "busy")
-FORMATS = ("text", "github", "json")
 SUGGEST_LIMIT = 50   # as many entries as the Lab reads of the suggestions file
 POLL = 0.2   # seconds between two looks at where a download is
 # Why, when the download needs Docker that does not answer: the Makefile's words, since nothing runs to download later
@@ -1004,7 +1003,7 @@ def parser():
         return sub
 
     def formatted(sub):
-        sub.add_argument("--format", choices=FORMATS, help="text, github annotations or json (default text)")
+        sub.add_argument("--format", choices=report.FORMATS, help="text, github annotations or json (default text)")
         return sub
     sub = one("link", link, "link a folder as a catalog")
     sub.add_argument("path")

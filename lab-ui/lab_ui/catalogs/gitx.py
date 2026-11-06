@@ -51,6 +51,9 @@ OUTPUT_LIMIT = 64 * 1024 * 1024
 STDERR_TAIL = 128 * 1024
 # Appended to the errors of a command killed for its time; `classify` reads it
 TIMEOUT_MARK = "git timed out"
+# What git says when it has no name and email to sign a commit with
+NO_IDENTITY = ("Please tell me who you are", "Author identity unknown", "unable to auto-detect email address", "auto-detection is disabled",
+               "empty ident name", "no email was given")
 # Options of every command: a repository's hooks and file system monitor are programs, and none of ours may run one; and
 # a person's log.showSignature would run their gpg for every commit and print its lines among the subjects
 HARDEN = ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "log.showSignature=false"]

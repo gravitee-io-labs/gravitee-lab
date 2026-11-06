@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, NamedTuple, Optional, Tuple
 from urllib.parse import quote
 
+from .report import escape_data
 from .standard import LEVEL
 
 ACTIONS_APP_ID = 15368            # the integration id of GitHub Actions: only a workflow can pass the required check
@@ -1427,11 +1428,6 @@ def fix_lines(fix) -> List[str]:
     return [f"{req['method']} {req['path']}" for req in fix] if isinstance(fix, list) else []
 
 
-def escape(text: str) -> str:
-    """Data of a workflow command of GitHub Actions: nothing in it can end the command or begin another."""
-    return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-
-
 def render(findings, fmt: str = "text") -> str:
     """The audit as text (the table), as `github` annotations, or as one JSON document with sorted keys."""
     repo, about, level = getattr(findings, "repo", ""), getattr(findings, "about", ""), getattr(findings, "level", None)
@@ -1440,7 +1436,7 @@ def render(findings, fmt: str = "text") -> str:
                            "not_applicable": sorted(getattr(findings, "inapplicable", ())),
                            "findings": [finding._asdict() for finding in findings]}, indent=2, sort_keys=True)
     if fmt == "github":
-        return "\n".join(f"::{'error' if finding.status == FAIL else 'warning'} title={finding.id}::" + escape(
+        return "\n".join(f"::{'error' if finding.status == FAIL else 'warning'} title={finding.id}::" + escape_data(
             finding.title + (f": {finding.now}" if finding.now else "")) for finding in findings
             if finding.status in (FAIL, WARN))
     width = max([len(finding.id) for finding in findings] or [0])

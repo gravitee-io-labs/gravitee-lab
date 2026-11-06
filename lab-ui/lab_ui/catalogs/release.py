@@ -29,12 +29,9 @@ from .report import printable
 
 CATALOG = "catalog.yml"
 VERSION = re.compile(r"(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})")
-TAG = re.compile(r"v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})")
 BLOCK = re.compile(r"x-gravitee-catalog:[ \t]*(?:#.*)?\r?")
 LINE = re.compile(r"(?P<head>[ \t]+version:[ \t]*)(?P<quote>[\"']?)(?P<number>[0-9]+\.[0-9]+\.[0-9]+)(?P=quote)(?P<tail>[ \t]*(?:#.*)?\r?)")
 SHOWN = 200
-NO_IDENTITY = ("Please tell me who you are", "Author identity unknown", "unable to auto-detect email address", "auto-detection is disabled",
-               "empty ident name", "no email was given")
 
 
 class ReleaseError(Exception):
@@ -78,13 +75,8 @@ def with_legacy(root: Path, text: str) -> str:
     """The text of catalog.yml with the fields of older Gravitee Labs made true (`manifest.with_legacy`): the `lab` the
     items of the catalog need when this Lab can say it (`check.folder_lab`), else the one the file has. A release is a version
     that older Labs read too, so it carries them."""
-    from . import manifest   # here and not above: the reader of catalog.yml, which the rest of this command does without
-    from ..library import check
-    try:
-        lab = check.folder_lab(root)
-    except (check.Unavailable, OSError, ValueError, gitx.CatalogError):
-        lab = None
-    return manifest.with_legacy(text, lab)
+    from . import manifest, standard   # here and not above: the reader of catalog.yml, which the rest of this command does without
+    return manifest.with_legacy(text, standard.legacy_lab(root))
 
 
 def _run(root, *args, timeout: float = 120):
@@ -115,13 +107,11 @@ def _fetch(root) -> None:
 def latest_tag(root) -> Optional[str]:
     """The highest tag of the form vX.Y.Z, or None."""
     result = _run(root, "tag", "--list", "v[0-9]*.[0-9]*.[0-9]*")
-    tags = [line for line in _out(result).splitlines() if TAG.fullmatch(line)]
+    tags = [line for line in _out(result).splitlines() if line.startswith("v") and VERSION.fullmatch(line[1:])]
     return max(tags, key=lambda each: numbers(each[1:])) if tags else None
 
 
 def _check_version(root, version: str) -> None:
-    if not VERSION.fullmatch(version or ""):
-        raise ReleaseError("VERSION is three numbers, for example 1.5.0.")
     last = latest_tag(root)
     if last is not None and numbers(version) <= numbers(last[1:]):
         raise ReleaseError(f"VERSION {version} is not greater than the latest tag {last}. Fix: choose a higher version.")
@@ -210,7 +200,7 @@ def _prepare(root: Path, version: str, pr: bool, gh: Callable) -> List[str]:
         done = _run(root, "commit", "--quiet", "-m", f"Release {version}")
         if done.code != 0:
             text_ = done.err + done.out.decode("utf-8", "replace")
-            if any(each in text_ for each in NO_IDENTITY):
+            if any(each in text_ for each in gitx.NO_IDENTITY):
                 raise ReleaseError("git has no name and email for you. Fix: git config user.name and user.email, then run again.")
             raise ReleaseError("git commit failed: " + printable(text_).strip()[:SHOWN])
     except BaseException:
@@ -260,7 +250,7 @@ def _tag(root: Path, version: str) -> List[str]:
     made = _run(root, "tag", "-a", f"v{version}", "-m", f"Release {version}", tip)
     if made.code != 0:
         text = made.err
-        if any(each in text for each in NO_IDENTITY):
+        if any(each in text for each in gitx.NO_IDENTITY):
             raise ReleaseError("git has no name and email for you. Fix: git config user.name and user.email, then run again.")
         raise _fail(made, "The tag could not be made")
     return [f"Tagged v{version} on origin/main ({tip[:7]}). Nothing was pushed.", "", "Next",
