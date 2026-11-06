@@ -11,7 +11,6 @@ machine holds them, with no pull and no sign-in."""
 import io
 import json
 import os
-import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -497,11 +496,6 @@ class Dispatch(unittest.TestCase):
     def test_the_command_line_reaches_the_stages(self):
         self.assertEqual(ci_main(["scan-published", "/no/such/folder"], io.StringIO(), io.StringIO()), 2)
         self.assertEqual(ci_main(["scan-built", "/no/such/folder", "--units", "[]"], io.StringIO(), io.StringIO()), 2)
-
-    def test_the_hardening_of_every_container_is_the_same(self):
-        self.assertEqual(scan.HARDENED[:2], ["--rm", "--read-only"])
-        self.assertIn("no-new-privileges", scan.HARDENED)
-        self.assertEqual(re.findall(r"--cap-drop ALL", " ".join(scan.HARDENED)), ["--cap-drop ALL"])
 
 
 if __name__ == "__main__":

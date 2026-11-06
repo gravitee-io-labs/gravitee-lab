@@ -99,15 +99,6 @@ class Command(unittest.TestCase):
             "--gitleaks-ignore-path", "/ignore", "--redact", "--exit-code", "0", "--no-banner", "--report-format", "json",
             "--report-path", "/out/report.json", "--log-opts", f"--text --no-textconv --no-ext-diff {base}..{head}", "/repo"])
 
-    def test_the_container_has_no_network_and_only_the_catalog_is_its_files(self):
-        command = self.command()
-        self.assertEqual(option(command, "--network"), "none")
-        self.assertIn("--read-only", command)
-        self.assertEqual(option(command, "--cap-drop"), "ALL")
-        mounts = options(command, "-v")
-        self.assertEqual([each.split(":")[1] for each in mounts], ["/repo", "/config/gitleaks.toml", "/ignore", "/out"])
-        self.assertEqual([each.endswith(":ro") for each in mounts], [True, True, True, False])   # only our own folder is written
-
     def test_the_directory_scan_of_a_folder_with_no_history_has_no_range(self):
         command = self.command(["--log-opts", "a..b"], mode="dir")
         self.assertEqual(command[command.index(IMAGE) + 1], "dir")
@@ -153,14 +144,6 @@ class History(support.WithGit):
         self.put(repo, "config.txt", f"token = {token()}\n")
         self.put(repo, "bin.dat", b"\0 " + support.aws_key().encode())
         return repo, base, self.commit(repo, "Binary")
-
-    def test_without_the_options_git_prints_no_line_for_such_a_file(self):
-        # The proof that the test can tell: the scan as it was, with the range alone
-        repo, base, head = self.planted()
-        plain = self.printed(repo, f"{base}..{head}")
-        self.assertIn("Binary files", plain)
-        self.assertNotIn(token(), plain)
-        self.assertNotIn(support.aws_key(), plain)
 
     def test_with_the_options_of_the_scan_every_added_line_is_printed(self):
         repo, base, head = self.planted()

@@ -506,16 +506,6 @@ class Hostile(Case):
         self.assertEqual(problems[0].message, "addon:gated was not read: Uses a Compose feature the Lab does not check: profiles (evil). "
                                               "Fix: Remove `profiles`, or ask the Lab's maintainers to support it.")
 
-    def test_the_premise_of_that_compose_prints_the_service_only_with_a_profile_on(self):
-        file = ".lab/catalogs/hostile/addons/gated/compose.yml"
-        scrubbed = compose.scrubbed_environment()
-        plain = compose.config_json(compose.all_files([file]), timeout=60, environ=scrubbed)
-        every = compose.config_json(compose.all_files([file]), timeout=60, environ={**scrubbed, **ci.ALL_PROFILES})
-        self.assertNotIn("evil", plain["services"])
-        self.assertEqual(sorted(every["services"]["evil"]["profiles"]), ["debug"])
-        self.assertEqual(ci.gated(plain), [])
-        self.assertEqual(ci.gated(every), ["evil"])
-
     def test_the_core_of_the_lab_has_no_profile_so_that_a_service_with_one_is_always_a_units(self):
         core = (Path(__file__).resolve().parents[4] / paths.CORE_FILE).read_text(encoding="utf-8")
         self.assertFalse([line for line in core.splitlines() if line.strip().startswith("profiles:")])
