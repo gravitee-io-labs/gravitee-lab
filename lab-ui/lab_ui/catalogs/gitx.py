@@ -455,9 +455,6 @@ def _neutral():
 def _prepare(exe, args, cwd, env):
     """(argv, cwd, env) of a command: the executable, the options of HARDEN, the arguments checked to be text without
     NUL, and the environment with the ceiling that keeps git from looking for a repository above the neutral folder."""
-    args = list(args)
-    if args and args[0] == "git":
-        args = args[1:]
     for arg in args:
         if not isinstance(arg, str) or "\0" in arg:
             raise TypeError(f"git was given an argument that is not text: {arg!r}")

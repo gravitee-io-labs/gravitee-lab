@@ -402,10 +402,6 @@ class Running(Case):
         self.assertEqual(result.out.decode().splitlines(), [*gitx.HARDEN, *args])
         self.assertFalse(marker.exists())
 
-    def test_a_leading_git_in_the_arguments_is_dropped(self):
-        gitfixture.fake_git(self, "printf '%s\\n' \"$@\"")
-        self.assertEqual(gitx.run(["git", "status"]).out.decode().split(), [*gitx.HARDEN, "status"])
-
     def test_every_command_gets_the_options_that_stop_a_repository_running_a_program(self):
         self.assertEqual(gitx.HARDEN, ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false",
                                        "-c", "log.showSignature=false"])
