@@ -227,10 +227,6 @@ class Probe(Case):
         self.assertEqual(probe.look("file:///etc/passwd", PAGE)["answers"], False)
         self.assertEqual(probe.look("ftp://localhost/", PAGE)["answers"], False)
 
-
-class Declared(Probe):
-    """The look of a tab: the one address the page may have asked for."""
-
     def test_an_address_the_playground_does_not_declare_is_never_asked(self):
         url = self.base + "/deny"
         p = {"links": [link("Console", url, "ui")], "addons": {}, "services": {"ui": {}},
