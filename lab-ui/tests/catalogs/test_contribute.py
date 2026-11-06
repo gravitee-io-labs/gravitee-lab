@@ -10,7 +10,6 @@ import json
 import os
 import shutil
 import tempfile
-import threading
 import time
 import unittest
 from pathlib import Path
@@ -922,19 +921,7 @@ class Judged(Seam):
             self.share()
 
     def test_a_second_change_at_the_same_time_is_busy(self):
-        self.patch(registry, "FLOCK_WAIT", 0.2)
-        held, free = threading.Event(), threading.Event()
-
-        def hold():
-            with registry.flock():
-                held.set()
-                free.wait(10)
-        thread = threading.Thread(target=hold)
-        thread.start()
-        self.addCleanup(thread.join)
-        self.addCleanup(free.set)
-        held.wait(10)
-        with self.assertRaises(CatalogError) as raised:
+        with fixtures.lock_held(), self.assertRaises(CatalogError) as raised:
             self.share(check_only=True)
         self.assertEqual(lines_of(raised.exception), ("busy", 409, "Another catalog change is running. Try again in a moment."))
         self.assertEqual(self.stages(), [])
@@ -1893,20 +1880,8 @@ class Ended(Seam):
                          "include:\n  - ../../../fixture/setups/pair.yml\nservices: {}\n")
 
     def test_a_second_change_at_the_same_time_is_busy_and_nothing_moves(self):
-        self.patch(registry, "FLOCK_WAIT", 0.2)
-        held, free = threading.Event(), threading.Event()
-
-        def hold():
-            with registry.flock():
-                held.set()
-                free.wait(10)
-        thread = threading.Thread(target=hold)
-        thread.start()
-        self.addCleanup(thread.join)
-        self.addCleanup(free.set)
-        held.wait(10)
         before = self.tree()
-        with self.assertRaises(CatalogError) as raised:
+        with fixtures.lock_held(), self.assertRaises(CatalogError) as raised:
             self.use()
         self.assertEqual(raised.exception.code, "busy")
         self.assertEqual(self.tree(), before)

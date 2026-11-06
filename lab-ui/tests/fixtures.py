@@ -16,6 +16,7 @@ test must not touch the repository.
     local(case, name)                   a unit of data/local, in the personal area
     render(root, *files)                `docker compose config` of the core with unit files on top (never a daemon)
     oldest_compose(case)                Compose answers as 5.0 does, whatever release is installed
+    lock_held()                         another change holds the catalogs lock until the block ends
 
 A patch that no state of the Lab can be (an unknown key, a value of the wrong type, `link` for a git catalog) is a
 ValueError and writes nothing.
@@ -24,6 +25,7 @@ ValueError and writes nothing.
 named test_*, so discovery leaves them out of `make test`: they are run when the fixtures or the helpers change, and by
 a test_* file that imports FixtureCatalogs, which belongs to the package that owns the test plan."""
 
+import contextlib
 import hashlib
 import io
 import json
@@ -35,6 +37,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from collections import Counter
 from pathlib import Path
@@ -346,6 +349,28 @@ def need_git():
 def need_compose():
     if not have_compose():
         _skip("the Docker CLI with Compose 5 or later is not installed")
+
+
+@contextlib.contextmanager
+def lock_held():
+    """Another thread holds the catalogs lock until the block ends, as another change or another Lab would, and a change does not
+    wait long for it. The modules are read here because a helper of the fixtures is no reason for every test to load them."""
+    from lab_ui.catalogs import registry, service
+    taken, free = threading.Event(), threading.Event()
+
+    def hold():
+        with registry.flock():
+            taken.set()
+            free.wait(30)
+    thread = threading.Thread(target=hold, daemon=True)
+    thread.start()
+    taken.wait(10)
+    try:
+        with mock.patch.object(service, "PATIENCE", 0.05), mock.patch.object(registry, "FLOCK_WAIT", 0.05):
+            yield
+    finally:
+        free.set()
+        thread.join(10)
 
 
 # ---------------------------------------------------------------------------------------------------------------------

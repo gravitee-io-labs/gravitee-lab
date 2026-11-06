@@ -1031,11 +1031,10 @@ class Untrusted(Case):
                                   "administrator rights, and import it again.")
 
     def test_an_import_waits_for_another_change_of_catalogs(self):
-        from .test_moving import held
         preview = exports.receive(evil_zip(playground=evil_playground(privileged=False)))
-        held(self)
-        self.assertEqual(self.refused(lambda: exports.receive(evil_zip(top="other")), "busy"), "Another catalog change is running. Try again in a moment.")
-        self.refused(lambda: exports.to_personal(preview["ticket"]), "busy")
+        with fixtures.lock_held():
+            self.assertEqual(self.refused(lambda: exports.receive(evil_zip(top="other")), "busy"), "Another catalog change is running. Try again in a moment.")
+            self.refused(lambda: exports.to_personal(preview["ticket"]), "busy")
 
     def test_an_import_to_personal_that_fails_midway_leaves_nothing_half_written_and_can_be_tried_again(self):
         data = evil_zip(playground=evil_playground(privileged=False), extra={

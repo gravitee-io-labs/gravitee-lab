@@ -1301,26 +1301,6 @@ class Judging(Real):
         self.assertEqual(after[1]["catalogs"].keys(), before[1]["catalogs"].keys(), "the inputs it was given are as they were")
 
 
-@contextlib.contextmanager
-def held_by_another():
-    """Another thread holds the catalogs lock (as another change, or another Lab, would) until the block ends."""
-    taken, free = threading.Event(), threading.Event()
-
-    def hold():
-        with registry.flock():
-            taken.set()
-            free.wait(20)
-    thread = threading.Thread(target=hold, daemon=True)
-    thread.start()
-    taken.wait(5)
-    try:
-        with mock.patch.object(service, "PATIENCE", 0.05):
-            yield
-    finally:
-        free.set()
-        thread.join(5)
-
-
 class Adding(Seam):
     """The Add the check showed, and what it leaves."""
 
@@ -1381,7 +1361,7 @@ class Adding(Seam):
 
     def test_a_second_change_at_the_same_time_is_busy_and_the_ticket_is_still_good_afterwards(self):
         ticket = service.check_address(self.remote("partner").url)["ticket"]
-        with held_by_another(), self.assertRaises(CatalogError) as raised:
+        with fixtures.lock_held(), self.assertRaises(CatalogError) as raised:
             service.add(ticket)
         self.assertEqual(lines_of(raised.exception), ("busy", 409, "Another catalog change is running. Try again in a moment."))
         self.assertIn(ticket, service.TICKETS)
@@ -1532,7 +1512,7 @@ class Listed(Seam):
         self.assertEqual(service.add_listed("partner")["catalog"]["kind"], "git")
 
     def test_the_allowance_is_not_written_and_a_busy_lock_is_busy(self):
-        with held_by_another(), self.assertRaises(CatalogError) as raised:
+        with fixtures.lock_held(), self.assertRaises(CatalogError) as raised:
             service.add_listed("partner")
         self.assertEqual(raised.exception.code, "busy")
         self.assertIsNone(registry.entry("partner"))
@@ -1802,7 +1782,7 @@ class Checking(Seam):
         fixtures.install(self, "lab-new", kind="folder", store=True)
         self.assertEqual(service.check_now("lab-new")["catalog"]["state"]["key"], "linked")
         registry.set_lock("partner", pending={"op": "update", "from": self.done.commit, "to": "b" * 40})
-        with held_by_another():   # a change that runs is left alone
+        with fixtures.lock_held():   # a change that runs is left alone
             self.assertEqual(service.check_now("partner")["catalog"]["state"]["key"], "updating")
         self.assertIsNotNone(registry.lock_of("partner")["pending"])
 
@@ -2773,7 +2753,7 @@ class Allowing(Seam):
             service.set_auto("nowhere", True)
 
     def test_a_second_change_at_the_same_time_is_busy(self):
-        with held_by_another():
+        with fixtures.lock_held():
             for call in (lambda: service.set_auto("partner", False), lambda: service.allow_host("partner", True),
                          lambda: service.remove("partner"), lambda: service.repair("partner")):
                 with self.assertRaises(CatalogError) as raised:
@@ -2809,7 +2789,7 @@ class Starting(Seam):
         self.patch(install, "recover", side_effect=lambda: ran.append(True))
         service.recover()
         self.assertEqual(ran, [True])
-        with held_by_another():
+        with fixtures.lock_held():
             service.recover()
         self.assertEqual(ran, [True], "a Lab that is writing is not swept from under")
 
