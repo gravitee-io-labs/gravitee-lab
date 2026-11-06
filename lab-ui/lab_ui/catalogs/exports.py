@@ -53,7 +53,7 @@ from pathlib import Path
 from .. import paths
 from ..docker import images
 from ..library import moves, project
-from . import contribute, defaults, kept, manifest, meta as block, moving, registry, resolve, service, standard, trust
+from . import contribute, defaults, kept, manifest, meta as block, moving, registry, resolve, service, standard
 from . import store as bare
 from .registry import CatalogError
 
@@ -693,19 +693,9 @@ def to_personal(ticket, allow=False):
     base = (paths.ROOT / IMPORTS_DIR).resolve()
     if not folder.is_dir() or folder.resolve().parent != base or not data.get("imported"):
         raise _fail("not_an_import", "This is not a playground being imported. Choose its file again.", 409)
-    unread = data.get("unread") or []
-    if unread:
-        raise _fail("unread_personal", f"{', '.join(unread)} cannot be read: Compose does not load its compose file. Fix: import it "
-                                       "to Imported, where the Lab says why.", 409)
     blocked = data.get("blocked") or []
     if blocked:
         raise _fail("blocked_personal", f"{', '.join(blocked)} cannot run: import to Imported, where it stays blocked.", 409)
-    claimed = data.get("claimed") or []
-    if claimed:
-        one = len(claimed) == 1
-        raise _fail("twin_claimed", f"{', '.join(claimed)} {'says it is a copy' if one else 'say they are copies'} of an item of this "
-                                    f"Lab, which only this Lab writes: {'it' if one else 'they'} cannot run. Fix: ask for "
-                                    f"{'its file' if one else 'their file'} again, without copy_of.", 409)
     uses = data.get("uses") or []
     if uses and allow is not True:
         raise _fail("allow_machine", f"{', '.join(uses)} uses this machine: allow it to import it to Personal.")
@@ -863,9 +853,6 @@ def _extract(archive, members, folder):
         os.chmod(target, mode)
 
 
-TWIN_CLAIMED = trust.line("T29")   # an item that says whose copy it is: only this Lab writes copy_of, in Personal
-
-
 def _judged_import(final, top, content, reused):
     """The preview of the import placed at `final`, judged as the Add of a folder catalog, with what Personal would take of it."""
     placed = _digest(final)
@@ -876,19 +863,10 @@ def _judged_import(final, top, content, reused):
     items = _for_personal(final, top)
     # What the judgement did not produce, since Compose could not read it, is judged by nothing: it cannot go to Personal
     judged = set(service._held(preview["ticket"], "add").get("judged") or ())
-    unread = [name for _, slug, _, name, _ in items if f"@{top}/{slug}" not in judged]
     preview["blocked"] = [*(preview.get("blocked") or ()), *({"kind": kind, "id": f"@{top}/{slug}", "name": name,
                                                               "reasons": ["Its compose file cannot be read"]}
                                                              for kind, slug, _, name, _ in items if f"@{top}/{slug}" not in judged)]
-    # An item that says whose copy it is is blocked by the policy (T29), as the Lab reads it once added; Import to Personal says it
-    # in words of its own when that is all that blocks it. Items are told apart by id: two may have the same name
-    reasons, names = {}, {}
-    for one in preview["blocked"]:
-        reasons.setdefault(one.get("id"), []).extend(one.get("reasons") or ())
-        names.setdefault(one.get("id"), one.get("name"))
-    claimed_ids = [uid for uid, lines in reasons.items() if lines and all(line == TWIN_CLAIMED for line in lines)]
-    blocked = [names[uid] for uid in reasons if uid not in claimed_ids]
-    claimed = [names[uid] for uid in claimed_ids]
+    blocked = list(dict.fromkeys(one.get("name") for one in preview["blocked"]))
     # What Personal would run unjudged that takes more of this machine: the person allows it, as for a Move
     named = {f"@{top}/{slug}": name for _, slug, _, name, _ in items}
     uses = list(dict.fromkeys(named.get(one.get("id"), one.get("name")) for one in (preview.get("rows") or {}).get("uses_machine") or ()))
@@ -896,8 +874,7 @@ def _judged_import(final, top, content, reused):
         service.forget(preview.get("ticket"))
         raise _fail("import_changed", "The files of this import changed while it was read. Fix: choose its file again.", 409)
     shown = _kept_view(top, content)
-    service.note(preview.get("ticket"), imported=True, blocked=blocked, claimed=claimed, unread=unread, uses=uses, digest=placed,
-                 content=content)
+    service.note(preview.get("ticket"), imported=True, blocked=blocked, uses=uses, digest=placed, content=content)
     return {**preview, "imported": True, "reused": reused, "personal": _personal_plan(items), **({"kept": shown} if shown else {})}
 
 

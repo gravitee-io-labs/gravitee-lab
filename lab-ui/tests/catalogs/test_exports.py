@@ -14,7 +14,7 @@ import zipfile
 from pathlib import Path
 
 from lab_ui import paths
-from lab_ui.catalogs import contribute, exports, gitx, manifest, moving, registry, service, understood
+from lab_ui.catalogs import contribute, exports, gitx, manifest, moving, registry, service, trust, understood
 from lab_ui.catalogs.registry import CatalogError
 from lab_ui.docker import compose, envfiles
 from lab_ui.library import check, files, project
@@ -1021,9 +1021,8 @@ class Untrusted(Case):
         preview = exports.receive(evil_zip(playground=unread))
         self.assertIn({"kind": "playground", "id": "@evil/evil", "name": "Evil", "reasons": ["Its compose file cannot be read"]},
                       preview["blocked"])
-        message = self.refused(lambda: exports.to_personal(preview["ticket"], allow=True), "unread_personal")
-        self.assertEqual(message, "Evil cannot be read: Compose does not load its compose file. Fix: import it to Imported, where "
-                                  "the Lab says why.")
+        message = self.refused(lambda: exports.to_personal(preview["ticket"], allow=True), "blocked_personal")
+        self.assertEqual(message, "Evil cannot run: import to Imported, where it stays blocked.")
         self.assertFalse(self.personal().exists())
 
     def test_an_item_of_personal_it_replaces_comes_back_whole_when_the_import_fails(self):
@@ -1149,8 +1148,8 @@ class Untrusted(Case):
                   '    environment:\n      A: "copy_of: x, a"\n      B: "copy_of: x, b"\n'
                   'x-gravitee:\n  kind: playground\n  name: Evil\n  category: Other\n  description: d\n  copy_of: "tour"\n')
         preview = exports.receive(evil_zip(playground=forged))
-        self.assertIn(exports.TWIN_CLAIMED, [reason for one in preview["blocked"] for reason in one["reasons"]])
-        self.refused(lambda: exports.to_personal(preview["ticket"], allow=True), "twin_claimed")
+        self.assertIn(trust.line("T29"), [reason for one in preview["blocked"] for reason in one["reasons"]])
+        self.refused(lambda: exports.to_personal(preview["ticket"], allow=True), "blocked_personal")
         self.assertIn('A: "copy_of: x, a"', (paths.ROOT / exports.IMPORTS_DIR / "evil/playgrounds/evil/compose.yml").read_text(),
                       "the file is as it came: the Lab refuses, it does not rewrite")
 
@@ -1241,7 +1240,7 @@ class Claims(Case):
                     continue   # not even read: nothing of it goes anywhere
                 reasons = [reason for one in preview["blocked"] if one["id"] == "@evil/evil" for reason in one["reasons"]]
                 held = {"Includes content from outside the catalog", "Reads files outside its folder"}   # the screen's lines (T19)
-                self.assertTrue(exports.TWIN_CLAIMED in reasons or held & set(reasons), reasons)
+                self.assertTrue(trust.line("T29") in reasons or held & set(reasons), reasons)
                 service.forget(preview["ticket"])
 
     def test_a_text_that_looks_like_an_include_list_is_held_by_the_screen_and_never_reaches_personal(self):
@@ -1294,21 +1293,21 @@ class Claims(Case):
 
     def test_a_claim_is_said_in_the_preview_and_a_move_of_it_is_refused(self):
         preview = exports.receive(evil_zip(playground=self.FORGED["apostrophe"]))
-        self.assertIn({"kind": "playground", "id": "@evil/evil", "name": "Evil's", "reasons": [exports.TWIN_CLAIMED]}, preview["blocked"])
+        self.assertIn({"kind": "playground", "id": "@evil/evil", "name": "Evil's", "reasons": [trust.line("T29")]}, preview["blocked"])
         with self.assertRaises(CatalogError) as caught:
             exports.to_personal(preview["ticket"], allow=True)
-        self.assertEqual((caught.exception.code, caught.exception.message), ("twin_claimed", "Evil's says it is a copy of an item of "
-                         "this Lab, which only this Lab writes: it cannot run. Fix: ask for its file again, without copy_of."))
+        self.assertEqual((caught.exception.code, caught.exception.message),
+                         ("blocked_personal", "Evil's cannot run: import to Imported, where it stays blocked."))
         service.add(preview["ticket"])
         project.forget()
-        self.assertEqual(project.load()["playgrounds"]["@evil/evil"]["blocked"], {"reasons": [exports.TWIN_CLAIMED]},
+        self.assertEqual(project.load()["playgrounds"]["@evil/evil"]["blocked"], {"reasons": [trust.line("T29")]},
                          "blocked in Imported too, as any refusal of the policy")
         with self.assertRaises(CatalogError):
             moving.move("playground", "@evil/evil", False, allow=True)
 
     def test_what_slips_by_the_preview_is_caught_once_in_personal_and_undone(self):
         preview = exports.receive(evil_zip(playground=self.FORGED["apostrophe"]))
-        service.note(preview["ticket"], blocked=[], claimed=[])   # as if the preview had not seen it
+        service.note(preview["ticket"], blocked=[])   # as if the preview had not seen it
         with self.assertRaises(CatalogError) as caught:
             exports.to_personal(preview["ticket"], allow=True)
         self.assertEqual(caught.exception.code, "twin_claimed")
