@@ -60,7 +60,6 @@ LEDGER = unit("partner", "addon", "ledger")
 MISNAMED = "the Lab UI does not see it: name it with lowercase letters, digits and dashes"
 PERSONAL = "what belongs to this machine is not shared with the project"
 ALWAYS = "restart: always starts a stopped container again when Docker restarts: use unless-stopped"
-LITERAL = "is a literal: write ${NAME:-default} so that it is a setting (no password in a compose file)"
 
 
 class Machine(Case):
@@ -1048,162 +1047,6 @@ class Listings(Case):
         self.assertEqual(sorted(check.LISTINGS), ["addon", "playground", "setup"])
 
 
-class Literals(Case):
-    """No password, secret, key or token is written in a shared file: each is a setting, ${NAME:-default}."""
-
-    LITERAL = "is a literal: write ${NAME:-default} so that it is a setting (no password in a compose file)"
-    IN_URI = ("a literal password in its URI: write ${NAME:-default} for the password so that it is a setting "
-              "(no password in a compose file)")
-
-    def found(self, config, included=(), **others):
-        """What is wrong with a file of this config, `others` being the config of the files it includes (by path)."""
-        raw = {"a.yml": config, **others}
-        return list(check._literals(raw, "a.yml", list(included)))
-
-    def environment(self, **values):
-        return {"services": {"app": {"environment": values}}}
-
-    def test_a_literal_password_in_an_environment(self):
-        self.assertEqual(self.found(self.environment(DB_PASSWORD="hunter2")),
-                         [f"app environment: DB_PASSWORD {self.LITERAL}"])
-
-    def test_a_literal_in_labels_and_in_any_extension_block(self):
-        config = {"services": {"app": {"labels": {"io.example.api-key": "abc"}}},
-                  "x-bank-secrets": {"demo-password": "HelloWorld@123"}, "x-nested": {"deep": [{"client_secret": "s"}]}}
-        self.assertEqual(self.found(config), [
-            f"app labels: io.example.api-key {self.LITERAL}",
-            f"x-bank-secrets: demo-password {self.LITERAL}",
-            f"x-nested.deep[0]: client_secret {self.LITERAL}"])
-
-    def test_the_password_of_a_console_sign_in_is_shown_and_no_secret(self):
-        config = {"services": {"ui": {"labels": {"io.gravitee.console.ui.username": "admin", "io.gravitee.console.ui.password": "admin",
-                                                 "io.gravitee.console.password": "admin"}}}}
-        self.assertEqual(self.found(config), [f"ui labels: io.gravitee.console.password {self.LITERAL}"], "a label of no console is one")
-
-    def test_the_names_of_a_secret(self):
-        for key in ("PASSWORD", "DB_PASSWD", "KEYSTORE_PASSPHRASE", "CLIENT_SECRET", "LLM_API_KEY", "OPENAI_APIKEY",
-                    "ADMIN_TOKEN", "token", "gravitee_ratelimit_redis_password", "Admin_Password", "KAFKA_CLIENT_PASSWORDS"):
-            with self.subTest(key=key):
-                self.assertEqual(self.found(self.environment(**{key: "literal"})), [f"app environment: {key} {self.LITERAL}"])
-
-    def test_a_name_that_ends_with_key_is_an_api_key(self):
-        # Whatever the separator: a key of a service is a secret, named after its service or not
-        for key in ("ACME_KEY", "ADMIN_KEY", "encryption_key", "signing-key", "gravitee.license.key", "llm.Key"):
-            with self.subTest(key=key):
-                self.assertEqual(self.found(self.environment(**{key: "literal"})), [f"app environment: {key} {self.LITERAL}"])
-        # What only has key in its name is none: a key alone, a keystore, an id of a key, a public key
-        self.assertEqual(self.found(self.environment(KEY="a", KEYS="b", KEY_ID="c", KEYSTORE="d", MONKEY="e",
-                                                     PUBLIC_KEY="f", **{"public-key": "g", "ssl.public.key": "h"})), [])
-        # A setting passes, as for every secret
-        self.assertEqual(self.found(self.environment(ACME_KEY="${ACME_KEY:-demo}")), [])
-
-    def test_a_setting_passes_with_or_without_a_default(self):
-        self.assertEqual(self.found(self.environment(
-            DB_PASSWORD="${DB_PASSWORD:-demo}", API_KEY="${API_KEY}", SECRET="${A:-${B:-x}}", ADMIN_TOKEN="${T-}",
-            OTHER_PASSWORD="prefix-${X:-y}")), [])
-
-    def test_an_empty_value_passes(self):
-        self.assertEqual(self.found(self.environment(DB_PASSWORD="", API_KEY="", KAFKA_GRAVITEE_MANAGEMENTAPIORGADMINTOKEN="")),
-                         [])
-
-    def test_a_name_that_says_where_what_kind_or_whether_is_not_a_secret(self):
-        self.assertEqual(self.found(self.environment(
-            AM_TOKEN_URL="http://am-gateway:8092/oauth/token", AM_AUTHORIZE_URL="http://localhost/authorize",
-            DB_PASSWORD_FILE="/run/secrets/db", CLIENT_SECRET_PATH="/etc/secret", TLS_SECRET_URI="file:///x",
-            KAFKA_TLS_TYPE="PEM", KAFKA_SECRET_TYPE="pem", TOKEN_ENDPOINT="http://x/token", gravitee_secrets_enabled="true",
-            gravitee_secrets_kubernetes_kubeConfigFile="/kube", GOOGLE_APPLICATION_CREDENTIALS="/opt/secrets/key.json",
-            DELEGATION="on", KAFKA_TLS_CLIENT_AUTH="requested", gravitee_servers_1_ssl_keystore_type="pkcs12",
-            NEXTAUTH_URL="http://localhost:3010", TOKEN_URL="http://x", PUBLIC_KEY="not asked")), [])
-
-    def test_a_setting_that_only_mentions_a_secret_is_not_one(self):
-        # Where a secret manager is, how it is reached, which one it is, how long a token lasts, what a password must be
-        self.assertEqual(self.found(self.environment(
-            gravitee_secrets_vault_host="vault", gravitee_secrets_vault_port="8200", gravitee_secrets_vault_auth_method="token",
-            gravitee_secrets_vault_namespace="lab", gravitee_secrets_provider="vault", SECRET_PROVIDER="aws",
-            PASSWORD_POLICY="strong", PASSWORD_REGEX="[a-z]+", ADMIN_TOKEN_TIMEOUT="30", ADMIN_API_KEY_TIMEOUTMS="3000",
-            API_KEY_HOST="keys", KEY_PROVIDER_HOST="h", PASSWORD_METHOD="bcrypt")), [])
-        # What ends in anything else is still one
-        self.assertEqual(self.found(self.environment(SECRET_HOSTS="a", PASSWORD_PORTS="b")), [
-            f"app environment: SECRET_HOSTS {self.LITERAL}", f"app environment: PASSWORD_PORTS {self.LITERAL}"])
-
-    def test_only_text_is_read(self):
-        # A flag or a list of names is no password: "secrets" lists the secrets a service uses, by name
-        config = {"services": {"app": {"secrets": ["db_password"], "environment": {"A_PASSWORD_ENABLED": True,
-                                                                                    "SECRET_COUNT": None}}},
-                  "secrets": {"db_password": {"file": "./db_password.txt"}}}
-        self.assertEqual(self.found(config), [])
-        # A number written without quotes is one, where YAML keeps it a number
-        self.assertEqual(self.found({"x-demo": {"password": 1234}}), [f"x-demo: password {self.LITERAL}"])
-
-    def test_a_literal_password_in_a_uri(self):
-        self.assertEqual(self.found(self.environment(
-            OPENFGA_DATASTORE_URI="postgres://openfga:openfga@postgres:5432/openfga?sslmode=disable",
-            REDIS_URL="redis://:secret@redis:6379/0")), [
-            f"app environment: OPENFGA_DATASTORE_URI has {self.IN_URI}", f"app environment: REDIS_URL has {self.IN_URI}"])
-        self.assertEqual(self.found({"services": {"app": {"command": ["serve", "--db", "mongodb://u:p@mongo/db"]}}}),
-                         [f"app command: a URI has {self.IN_URI}"])
-        self.assertEqual(self.found({"x-demo": {"links": ["https://admin:admin@example.com/ui"]}}),
-                         [f"x-demo.links: a URI has {self.IN_URI}"])
-
-    def test_a_uri_whose_password_is_a_setting_passes(self):
-        self.assertEqual(self.found(self.environment(
-            OPENFGA_DATASTORE_URI="postgres://openfga:${OPENFGA_POSTGRES_PASSWORD:-openfga}@postgres:5432/openfga",
-            A="postgres://${DB_USER:-openfga}:${DB_PASSWORD:-openfga}@postgres/db", B="https://user@example.com/x",
-            C="http://localhost:8080/path:abc@x", D="postgres://user:@host/db", E="amqp://host:5672",
-            F="redis://:${REDIS_PASSWORD}@redis")), [])
-        # A setting elsewhere in the text does not make a literal password one
-        self.assertEqual(self.found(self.environment(A="postgres://u:literal@host/${DB:-db}")),
-                         [f"app environment: A has {self.IN_URI}"])
-
-    def test_a_secret_in_a_uri_is_said_once(self):
-        self.assertEqual(self.found(self.environment(DB_PASSWORD="postgres://u:p@h")),
-                         [f"app environment: DB_PASSWORD {self.LITERAL}"])
-
-    def test_the_password_and_the_key_of_an_account(self):
-        config = {"x-gravitee": {"accounts": [
-            {"for": "Console", "username": "admin", "password": "admin"},
-            {"for": "LLM proxy", "key": "acme-key"},
-            {"for": "Portal", "username": "john", "password": "${PORTAL_PASSWORD:-doe}"},
-            {"for": "Proxy", "key": "${LLM_KEY:-acme-key}"},
-            {"for": "Empty", "username": "john", "password": ""},
-            {"for": "Token", "token": "abc"}]}}
-        self.assertEqual(self.found(config), [
-            f"x-gravitee.accounts[0]: password {self.LITERAL}", f"x-gravitee.accounts[1]: key {self.LITERAL}",
-            f"x-gravitee.accounts[5]: token {self.LITERAL}"])
-
-    def test_the_rest_of_x_gravitee_is_not_asked(self):
-        # Its keys are read by the Lab UI; a license feature may be named after a secret manager
-        config = {"x-gravitee": {"name": "Demo", "key": "value", "requires": {"license": {
-            "apim-secrets-manager": "Step 4", "apim-secret-provider-vault": "Step 5"}}}}
-        self.assertEqual(self.found(config), [])
-        # Outside x-gravitee, a block named `accounts` or `key` is like any other
-        self.assertEqual(self.found({"x-other": {"accounts": [{"key": "k", "password": "p"}]}}), [
-            f"x-other.accounts[0]: password {self.LITERAL}"])
-
-    def test_a_shared_secret_anchor_is_a_setting_everywhere_it_is_used(self):
-        # Compose resolves the anchors: each use shows the setting the anchor was given
-        demo = "${ACME_BAKERY_DEMO_PASSWORD:-HelloWorld@123}"
-        config = {"x-bank-secrets": {"demo-password": demo},
-                  "x-gravitee": {"accounts": [{"username": "alice", "password": demo}]},
-                  "services": {"seed": {"environment": {"BANK_DEMO_PASSWORD": demo, "APIM_PASSWORD": "${P:-admin}"}}}}
-        self.assertEqual(self.found(config), [])
-
-    def test_what_an_included_file_writes_is_its_own(self):
-        # Read alone, a file shows the services of the files it includes: their secret is theirs, once
-        inner = self.environment(DB_PASSWORD="hunter2")
-        outer = {"services": {"app": {"environment": {"DB_PASSWORD": "hunter2", "API_KEY": "abc"}}}}
-        self.assertEqual(self.found(outer, included=["b.yml"], **{"b.yml": inner}), [f"app environment: API_KEY {self.LITERAL}"])
-        self.assertEqual(self.found(inner, **{"b.yml": inner}), [f"app environment: DB_PASSWORD {self.LITERAL}"])
-        # A different secret over the included one is the file's
-        outer["services"]["app"]["environment"] = {"DB_PASSWORD": "other"}
-        self.assertEqual(self.found(outer, included=["b.yml"], **{"b.yml": inner}),
-                         [f"app environment: DB_PASSWORD {self.LITERAL}"])
-
-    def test_a_build_argument_and_a_nested_block_are_named_by_their_path(self):
-        config = {"services": {"app": {"build": {"args": {"NPM_TOKEN": "abc"}}}}, "name": "demo"}
-        self.assertEqual(self.found(config), [f"app build.args: NPM_TOKEN {self.LITERAL}"])
-
-
 class Sharing(Machine):
     """An item of this machine about to be shared is checked as what it will be, and `make check` is silent about the rest."""
 
@@ -1278,11 +1121,6 @@ class Sharing(Machine):
         self.assertEqual(self.found(WHOAMI, sharing=WHOAMI),
                          [(WHOAMI, "publishes port 8098 on every interface: write 127.0.0.1:8098:8098")])
 
-    def test_no_secret_is_written_in_what_is_about_to_be_shared(self):
-        self.whoami(environment={"WHOAMI_API_KEY": "abc"})
-        self.assertEqual(self.found(WHOAMI), [])
-        self.assertEqual(self.found(WHOAMI, sharing=WHOAMI), [(WHOAMI, f"whoami environment: WHOAMI_API_KEY {LITERAL}")])
-
     def test_what_keeps_running_restarts_unless_stopped(self):
         self.whoami(restart="always")
         self.assertEqual(self.found(WHOAMI), [])
@@ -1313,10 +1151,9 @@ class Sharing(Machine):
     def test_the_core_is_checked_whoever_asks(self):
         self.whoami()
         self.machine(self.units, core=lambda core: core["services"]["apim-gateway"].update(
-            environment={"REDIS_PASSWORD": "redispassword"}, restart="always"))
+            restart="always"))
         said = [message for file, message in check.problems() if file == CORE]
         self.assertIn(f"apim-gateway: {ALWAYS}", said)
-        self.assertIn(f"apim-gateway environment: REDIS_PASSWORD {LITERAL}", said)
         self.assertEqual(said, [message for file, message in check.problems(sharing=WHOAMI) if file == CORE])
 
 
@@ -2001,6 +1838,15 @@ class Engine(Case):
         self.assertEqual(self.run_check(), (1, "✗ docker-compose.yml\n    x-gravitee.seeder.image is missing or is no repository: "
                                                "write the seeder's image without a tag, such as ghcr.io/owner/repo/seeder, the "
                                                "only image a seed service may have\n\n1 problem\n"))
+
+    def test_a_secret_written_in_the_core_is_told(self):
+        text = fixtures.CORE.read_text(encoding="utf-8")
+        self.write("docker-compose.yml", f"{text}\nx-demo:\n  password: hunter2\n  uri: postgres://u:hunter2@db/x\n")
+        project.forget()
+        code, out = self.run_check()
+        self.assertEqual(code, 1)
+        self.assertIn(": password has a literal value", out)
+        self.assertIn("holds a URL with a password", out)
 
     def test_the_wiring_of_the_agents_is_checked_with_the_core(self):
         (self.root / ".gemini/settings.json").unlink()

@@ -265,17 +265,27 @@ class Patterns(unittest.TestCase):
                          "it is a real token, revoke it first, then remove it from the commits of this branch (git reset --soft "
                          "$(git merge-base origin/main HEAD), commit again, force-push).", secrets.RULES["SE02"].message)
 
-    def test_the_names_of_secrets_are_the_ones_of_the_engines_own_check(self):
-        from lab_ui.library import check
-        self.assertEqual(check.SECRET_NAME.pattern, secrets.SECRET_NAME.pattern)
-        self.assertEqual(check.SECRET_NAME.flags, secrets.SECRET_NAME.flags)
-        self.assertEqual(check.SIGN_IN.pattern, secrets.SIGN_IN.pattern)
-        self.assertEqual(check.NOT_SECRET.pattern, secrets.NOT_SECRET.pattern)
-        if hasattr(check, "_secrets"):
-            sample = {"services": {"a": {"environment": {"DB_PASSWORD": "hunter2", "OK": "${X}", "A_TOKEN_URL": "u", "KEY": "v"}}}}
-            flagged = {key for _, key, _, why in check._secrets(sample) if why == "literal"}
-            text = "services:\n  a:\n    environment:\n      DB_PASSWORD: hunter2\n      OK: ${X}\n      A_TOKEN_URL: u\n      KEY: v\n"
-            self.assertEqual(flagged, {name for _, name in secrets.compose_literals(text)})
+    def test_se04_the_names_of_a_secret(self):
+        def literal(*names):
+            text = "services:\n  a:\n    environment:\n" + "".join(f"      {name}: literal\n" for name in names)
+            return [name for _, name in secrets.compose_literals(text)]
+        named = ["PASSWORD", "DB_PASSWD", "KEYSTORE_PASSPHRASE", "CLIENT_SECRET", "LLM_API_KEY", "OPENAI_APIKEY", "ADMIN_TOKEN", "token",
+                 "gravitee_ratelimit_redis_password", "Admin_Password", "KAFKA_CLIENT_PASSWORDS", "ACME_KEY", "encryption_key",
+                 "signing-key", "gravitee.license.key", "llm.Key", "SECRET_HOSTS", "PASSWORD_PORTS"]
+        self.assertEqual(literal(*named), named)
+        # What only has key in its name, and what says where a secret is, what kind it is, how it is reached or whether it is on
+        self.assertEqual(literal("KEY", "KEYS", "KEY_ID", "KEYSTORE", "MONKEY", "PUBLIC_KEY", "public-key", "ssl.public.key",
+                                 "AM_TOKEN_URL", "DB_PASSWORD_FILE", "CLIENT_SECRET_PATH", "TLS_SECRET_URI", "KAFKA_SECRET_TYPE",
+                                 "TOKEN_ENDPOINT", "gravitee_secrets_enabled", "gravitee_secrets_vault_host", "gravitee_secrets_vault_port",
+                                 "gravitee_secrets_vault_auth_method", "gravitee_secrets_vault_namespace", "SECRET_PROVIDER", "PASSWORD_POLICY",
+                                 "PASSWORD_REGEX", "ADMIN_TOKEN_TIMEOUT", "ADMIN_API_KEY_TIMEOUTMS", "NEXTAUTH_URL"), [])
+
+    def test_se04_a_label_an_extension_block_and_the_sign_in_a_console_shows(self):
+        text = ("services:\n  ui:\n    build:\n      args:\n        NPM_TOKEN: abc\n    labels:\n"
+                "      io.gravitee.console.ui.password: admin\n      io.gravitee.console.password: admin\n      io.example.api-key: abc\n"
+                "x-demo:\n  deep:\n    - client_secret: s\n  password: 1234\n")
+        self.assertEqual([name for _, name in secrets.compose_literals(text)],
+                         ["NPM_TOKEN", "io.gravitee.console.password", "io.example.api-key", "client_secret", "password"])
 
 
 class Hostile(unittest.TestCase):

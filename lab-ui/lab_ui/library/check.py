@@ -40,7 +40,8 @@ from ..catalogs import defaults, gitx, manifest, registry, trust, understood
 from ..catalogs import store as bare
 from ..catalogs.registry import CatalogError
 from ..catalogs.report import ERROR, WARNING, Problem
-from ..catalogs.tree import read_inside
+from ..catalogs.rules import secrets
+from ..catalogs.tree import ListTree, read_inside
 from ..paths import CORE_FILE, KINDS, NOUNS, ROOT
 from .project import PAGES, REACH_LIMIT, TEXT_LIMIT, _read as read_project_file, apart, brought, conflict_id, forget, loaded
 
@@ -68,14 +69,6 @@ LISTINGS = {"addon": ("addons/README.md", "| [{name}]({id}/) | {description} |")
             "playground": ("playgrounds/README.md", "| [{name}]({id}/) | {description} | {duration} |")}
 AREA = {"addon": "addons", "setup": "setups", "playground": "playgrounds"}   # the folder of each kind in a catalog
 ROW = re.compile(r"^\|\s*\[[^\]]*\]\(([^)\s]*)\)\s*\|")   # a row of a table that starts with a link: where it leads
-# The names of what is secret, in an environment, a label, an extension block or an account (an API key, not a public
-# one); then the endings of a name that says where a secret is, what kind it is, how it is reached or whether it is on,
-# which is none itself (AM_TOKEN_URL, KAFKA_TLS_TYPE, SECRET_MANAGER_HOST, TOKEN_TIMEOUT)
-SECRET_NAME = re.compile(r"PASSWORD|PASSWD|PASSPHRASE|SECRET|API[_.-]?KEY|(?:^|[_.-])TOKEN$|(?<!PUBLIC)[_.-]KEY$", re.I)
-NOT_SECRET = re.compile(r"(?:URL|URI|PATH|FILE|TYPE|ENDPOINT|ENABLED|HOST|PORT|METHOD|POLICY|REGEX|NAMESPACE|PROVIDER"
-                        r"|TIMEOUT|TIMEOUTMS)$", re.I)
-URI_USER = re.compile(r"://([^/?#\s@]*)@")   # what a URI holds before the @: user, or user:password
-SIGN_IN = re.compile(r"io\.gravitee\.console\.[a-z0-9-]+\.password")   # the demo sign-in a console shows next to it: no secret
 FEATURE = re.compile(r"[a-z0-9]+(?:[.-][a-z0-9]+)*")   # a license feature, as the license model writes it
 STEP = re.compile(r"^## (\d+)\.", re.M)   # a numbered section of a guide: one of its steps
 # An action link of a guide, [text](action:id), a title after it too
@@ -229,79 +222,6 @@ def _meta(config):
     a number), which the project says and nothing of it is read."""
     meta = config.get("x-gravitee") if isinstance(config, dict) else None
     return meta if isinstance(meta, dict) else {}
-
-
-def _is_account(path):
-    return len(path) == 2 and path[0] == "x-gravitee" and path[1].startswith("accounts[")
-
-
-def _text(value):
-    """A value as the text it is, None for what is none: a number is one, a password written 1234."""
-    return str(value) if isinstance(value, (str, int, float)) and not isinstance(value, bool) else None
-
-
-def _texts(node, path=()):
-    """(the path of the mapping or list that holds it, its key, the text) of every text a compose file holds, nested
-    mappings and lists included. A text in a list has no key."""
-    if isinstance(node, dict):
-        for name, value in node.items():
-            if isinstance(value, (dict, list)):
-                yield from _texts(value, (*path, str(name)))
-            elif _text(value) is not None:
-                yield path, str(name), _text(value)
-    elif isinstance(node, list):
-        for i, item in enumerate(node):
-            if isinstance(item, (dict, list)):
-                yield from _texts(item, (*path[:-1], f"{path[-1]}[{i}]") if path else (f"[{i}]",))
-            elif _text(item) is not None:
-                yield path, None, _text(item)
-
-
-def _names_a_secret(path, key):
-    """Whether the key of an entry says that it is a secret: by its name, or `key` in an account. Of x-gravitee only the
-    accounts hold secrets: the Lab UI reads the rest, and a license feature may be named after a secret manager. The
-    password of a console's sign-in is there to be shown."""
-    account = _is_account(path)
-    if (path[:1] == ("x-gravitee",) and not account) or SIGN_IN.fullmatch(key):
-        return False
-    return bool(SECRET_NAME.search(key) and not NOT_SECRET.search(key)) or (account and key.lower() == "key")
-
-
-def _secrets(config):
-    """Where a compose file writes a secret itself: (the path of the mapping, its key, the text, why) for an entry whose
-    name says it is a secret and whose text names no setting ("literal"), and for a URI with a password in it that is
-    no setting ("uri")."""
-    for path, key, text in _texts(config):
-        if key is not None and text and "${" not in text and _names_a_secret(path, key):
-            yield path, key, text, "literal"
-            continue
-        for user in URI_USER.findall(text):
-            colons = compose.outside(user, ":")
-            password = user[colons[0] + 1:] if colons else ""
-            if password and not password.startswith("${"):
-                yield path, key, text, "uri"
-
-
-def _where_in(path):
-    """A path in a compose file as a message names it: a service by its name, then what of it; the rest as written."""
-    if path[:1] == ("services",) and len(path) > 1:
-        return " ".join([path[1], ".".join(path[2:])]).strip()
-    return ".".join(path) or "top level"
-
-
-def _literals(raw, path, included):
-    """No secret is written in a shared file: a password, a secret, a key or a token is a setting, ${NAME:-default}
-    (the default may be a public demo value), so that nobody edits a shared file to change it. What the files it includes
-    write is theirs: read alone, a file shows it too."""
-    theirs = {found for file in included if file in raw for found in _secrets(raw[file])}
-    for where, key, _, why in dict.fromkeys(found for found in _secrets(raw.get(path) or {}) if found not in theirs):
-        if why == "uri":
-            what = f"{key} has" if key else "a URI has"
-            yield (f"{_where_in(where)}: {what} a literal password in its URI: write ${{NAME:-default}} for the password "
-                   "so that it is a setting (no password in a compose file)")
-        else:
-            yield (f"{_where_in(where)}: {key} is a literal: write ${{NAME:-default}} so that it is a setting "
-                   "(no password in a compose file)")
 
 
 def _loopback(ports):
@@ -730,7 +650,6 @@ def _unit(kind, uid, project, raw, context=None):
     yield from _restart(raw[path], unit.get("services", []))
     yield from _labeled(raw[path], unit.get("services", []))
     yield from _loopback(_own_ports(raw, path, _included(unit)))
-    yield from _literals(raw, path, _included(unit))
     if not inert and not context.get("audited"):   # a catalog that was audited has IM01 for it
         yield from _pull_policy(unit, project)
     if kind == "addon":
@@ -1845,7 +1764,7 @@ def problems(sharing=None):
     found += [(CORE_FILE, message) for message in _restart(core, services)]
     found += [(CORE_FILE, message) for message in _labeled(core, services)]
     found += [(CORE_FILE, message) for message in _described(project["core_variables"])]
-    found += [(CORE_FILE, message) for message in _literals(raw, CORE_FILE, [])]
+    found += [(CORE_FILE, one.message) for one in secrets.check(ListTree.from_files({CORE_FILE: _read(ROOT / CORE_FILE) or ""}))]
     found += [(CORE_FILE, message) for message in _loopback(
         port for service in services.values() for port in service.get("ports") or [])]
     found += [(CORE_FILE, message) for message in _contract_keys(core)]
