@@ -63,14 +63,6 @@ def _segments(place):
     return uid, environment
 
 
-def _record(pid, place=None):
-    """The file where the seed records what it created: This machine's, or the one in the folder of a place, which
-    the seed reaches as its STATE_DIR."""
-    if not _remote(place):
-        return _folder(pid) / CREATED_FILE
-    return _folder(pid) / platforms.STATE / Path(*_segments(place)) / places.RECORD
-
-
 def created(pid, place=None):
     """What the seed recorded as created in Gravitee, and only that: [{what, count}], under the label the seed gives
     each kind of thing. On This machine, or in the place given, each with a record of its own. A record that is no plain
@@ -110,7 +102,7 @@ def _remember(pid, place, environment):
     """Makes the folder of a place's record, which Docker would make as root, and writes beside the record the name of
     its environment, which nothing offline holds (places.deployed reads it). Not through a link a container planted:
     the job fails and nothing is written."""
-    folder = _record(pid, place).parent
+    folder = _folder(pid) / platforms.STATE / Path(*_segments(place))
     if not places.inside(pid, folder):
         raise JobFailed("The state folder of the playground leads out of its folder: nothing was written there")
     folder.mkdir(parents=True, exist_ok=True)
@@ -882,14 +874,14 @@ def _before(plan, step, steps, phases, waits, undo=None):
         ([None] + waits if step else waits)
 
 
-def stop(project, pid, remove, accept, place=None):
+def stop(project, pid, remove, accept):
     """Stops a playground: its apps, and the add-ons only it uses, removed by name, then the on file written without
     them; the core services it changed restart (layers.steps). A stop that fails before the on file is written leaves it
     on, to be stopped again; off after one that failed later, it stops again what of it still runs. `remove` first
     deletes what its seed created in Gravitee, on This machine and in every place that holds a record, refused while
     what the seed needs does not run, or when a place cannot be reached, with the reason of the first one; when a delete
     fails the job ends there and nothing else changes. Its job is named as its button: "Stop …", "Turn off …". A stop is
-    the same for every place: `place` is the one the page was on, and changes nothing of it."""
+    the same for every place."""
     playground = layers.lookup(project, "playground", pid)
     state, now = layers.current(project), _now(project)
     plan = _plan(project, state, now, pid, "stop", accept)

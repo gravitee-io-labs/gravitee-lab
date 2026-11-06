@@ -126,7 +126,7 @@ def snapshot():
     # What is saved is Compose's answer on the files: none while the on file names one it cannot read (the state waits on it)
     saved = project.saved(p) if known and not on.get("unread") else None
     # The settings and labels that differ in what runs behind by its configuration, for the reason a row gives
-    changed = drift.changes(p, read["raw"], containers, model.lateness(p, containers, saved), saved) if saved else None
+    changed = drift.changes(read["raw"], containers, model.lateness(p, containers, saved), saved) if saved else None
     # What the catalogs say is read from this machine's files and memory: the state never runs git, asks a network or waits for
     # the worker
     body = model.build(p, on, containers, job, JOBS.failed_job, license.features(p, ask=known), docker,
@@ -334,8 +334,7 @@ def reseed_playground(req, pid):
 
 def stop_playground(req, pid):
     """Stops a playground, and deletes what it created where it is asked to: every place that holds a record."""
-    return playgrounds.stop(project.load(), pid, bool(req.body.get("remove")), accepted(req),
-                            **at(req.body.get("place")))
+    return playgrounds.stop(project.load(), pid, bool(req.body.get("remove")), accepted(req))
 
 
 def delete(req, kind, uid):

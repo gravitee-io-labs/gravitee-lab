@@ -1604,7 +1604,7 @@ class Renamed(Machine):
                 ("playground", "tide-pools", built["playgrounds"]["tide-pools"])]
 
     def lines(self, **renamed):
-        return list(check._renamed_lines({"renamed": renamed}, self.units(), self.given["raw"]))
+        return list(check._renamed_lines({"renamed": renamed}, self.units()))
 
     def test_an_old_item_is_gone_from_the_catalog_and_the_end_of_its_chain_is_there(self):
         self.assertEqual(self.lines(items={"addon:gate": "addon:gate-keeper", "playground:tides": "playground:tide-lab",
@@ -1620,7 +1620,7 @@ class Renamed(Machine):
         units = self.units()
         reads = {units[0][2]["file"]: ["GATE_LICENSE"]}
         self.assertEqual(list(check._renamed_lines({"renamed": {"settings": {"GATE_LICENSE": "GATE_KEEPER_LICENSE"}}}, units,
-                                                   self.given["raw"], reads)),
+                                                   reads)),
                          ["renamed.settings: GATE_LICENSE is still read by gate-keeper: the Lab renames it in the .env of every "
                           "item of the catalog, so read GATE_KEEPER_LICENSE there"])
 
@@ -1637,7 +1637,7 @@ class Renamed(Machine):
         def read(path, also=None):
             return commits.get(path)
         meta = {"renamed": {"items": {"addon:gate": "addon:gate-keeper"}, "settings": {"GATE_TOKEN": "GATE_KEEPER_TOKEN"}}}
-        said = list(check._renamed_lines(meta, units, self.given["raw"], {}, read, {"GRAVITEE_LICENSE"}))
+        said = list(check._renamed_lines(meta, units, {}, read, {"GRAVITEE_LICENSE"}))
         self.assertEqual(said, [
             "renamed.items: addon:gate had the volume gate-data, which addon:gate-keeper does not: keep the name, or the people "
             "who have it lose its data",
@@ -1645,17 +1645,17 @@ class Renamed(Machine):
             "addon:gate-keeper reads, or the value people set is left behind"], "a setting of the core is the Lab's .env's")
         meta["renamed"]["settings"]["GATE_VERSION"] = "GATE_KEEPER_VERSION"
         commits["addons/gate/compose.yml"] = (before, None, then.replace("gate-keeper-data", "gate-data"))
-        self.assertEqual(list(check._renamed_lines(meta, units, self.given["raw"], {}, read, {"GRAVITEE_LICENSE"})), [])
+        self.assertEqual(list(check._renamed_lines(meta, units, {}, read, {"GRAVITEE_LICENSE"})), [])
         self.write(units[0][2]["file"], "services:\n  gate-keeper-proxy:\n    image: x:1\n")
-        self.assertEqual(list(check._renamed_lines(meta, units, self.given["raw"], {}, read, {"GRAVITEE_LICENSE"})), [],
+        self.assertEqual(list(check._renamed_lines(meta, units, {}, read, {"GRAVITEE_LICENSE"})), [],
                          "a later release that drops a setting or a volume is not the rename's: only its commit is read")
-        self.assertEqual(list(check._renamed_lines(meta, units, self.given["raw"], {}, lambda path, also=None: None)), [],
+        self.assertEqual(list(check._renamed_lines(meta, units, {}, lambda path, also=None: None)), [],
                          "with no history to read, nothing is said of it")
 
     def test_a_rename_into_an_item_the_release_before_had_is_refused(self):
         units = self.units()
         commits = {"addons/gate/compose.yml": ("services: {}\n", "services: {}\n", "services: {}\n")}
-        said = list(check._renamed_lines({"renamed": {"items": {"addon:gate": "addon:gate-keeper"}}}, units, self.given["raw"], {},
+        said = list(check._renamed_lines({"renamed": {"items": {"addon:gate": "addon:gate-keeper"}}}, units, {},
                                          lambda path, also=None: commits.get(path)))
         self.assertEqual(said, ["renamed.items: addon:gate-keeper was an item already when addon:gate was renamed into it: the "
                                 "Lab keeps the two apart, so addon:gate is removed, not renamed. Fix: rename it into a name that "
@@ -1663,7 +1663,7 @@ class Renamed(Machine):
 
     def test_a_setting_of_the_core_or_a_shared_one_is_never_renamed(self):
         said = list(check._renamed_lines({"renamed": {"settings": {"GRAVITEE_LICENSE": "GATE_LICENSE"}}}, self.units(),
-                                         self.given["raw"], {}, None, {"GRAVITEE_LICENSE"}))
+                                         {}, None, {"GRAVITEE_LICENSE"}))
         self.assertEqual(said, ["renamed.settings: GRAVITEE_LICENSE is a setting of the Lab's own .env (the core's, or shared by "
                                 "the catalog's items): the Lab renames only the settings of each item's .env"])
 
@@ -1673,14 +1673,14 @@ class Renamed(Machine):
 
         def read(path, also=None):
             return commits.get(path)
-        said = list(check._renamed_lines({"renamed": {"items": {"addon:gate": "addon:gate-keeper"}}}, units, self.given["raw"], {},
+        said = list(check._renamed_lines({"renamed": {"items": {"addon:gate": "addon:gate-keeper"}}}, units, {},
                                          read))
         self.assertEqual(said, [check.WARNING_MARK + "renamed.items: addon:gate-keeper is a name an earlier release gave another "
                                 "item: who updates from that release has both, so addon:gate is removed there, not renamed"])
 
     def test_settings_are_not_judged_against_the_tree_and_nothing_is_nothing(self):
         self.assertEqual(self.lines(settings={"GATE_LICENSE": "GATE_KEEPER_LICENSE"}), [])
-        self.assertEqual(list(check._renamed_lines({}, self.units(), self.given["raw"])), [])
+        self.assertEqual(list(check._renamed_lines({}, self.units())), [])
 
 
 class Availability(Case):

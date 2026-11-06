@@ -827,13 +827,13 @@ def _ports(project, raw, sharing=None, only=None, order=None):
                 yield other, f"publishes port {port}, like {file}"
 
 
-def _noticed(project, raw, found, only=None):
+def _noticed(project, raw, found, only):
     """What the project noticed while loading: a core service without a group, files that do not load together, and
     Compose's own words on a file it cannot read, unless an include found wrong already says why. `only`: the files that
     are of interest (the engine's check leaves the problems of a file of this machine to the page that shows them)."""
     explained = {path for path, _ in found if path not in raw}
     for problem in project["problems"]:
-        if only is not None and problem["file"] not in only:
+        if problem["file"] not in only:
             continue
         if problem["file"] in raw:
             yield problem["file"], problem["message"]
@@ -1299,8 +1299,7 @@ def folder_lab(folder):
             meta = manifest.read_catalog(f"{paths.CATALOGS_DIR}/{ns}/{manifest.FILE}")
         except CatalogError:
             meta = None   # the check says what is wrong with it
-        return needed_lab(catalog_units(ns, built), inputs["raw"], {**inputs, "products": _anchored(inputs.get("products") or ())},
-                          meta)
+        return needed_lab(catalog_units(ns, built), inputs["raw"], inputs, meta)
 
 
 WARNING_MARK = "Warning: "   # a line of `catalog_problems` that is a warning: the catalog works here, and something is left to do
@@ -1505,7 +1504,7 @@ def _in_catalog(kind, name):
     return f"setups/{name}.yml" if kind == "setup" else f"{kind}s/{name}/compose.yml"
 
 
-def _renamed_lines(meta, units, raw, reads=None, history=None, outside=()):
+def _renamed_lines(meta, units, reads=None, history=None, outside=()):
     """What catalog.yml renames, against what the catalog holds: an old item is no item of it, and the item a chain of renames
     ends at is one. An old setting is read by no item any more (`reads`: {unit file: [settings]}), since the Lab renames it in
     every item's .env, and no setting of the map is one of `outside` (the core's and the shared ones, in the Lab's own .env,
@@ -1636,9 +1635,9 @@ def catalog_problems(ns, project=None, inputs=None, audited=False):
         found += [(manifest.FILE, line) for line in _canary(meta, units)]
         outside = {*(one["key"] for one in (inputs.get("variables") or {}).get(CORE_FILE, ())), *(meta.get("shared_settings") or ())}
         history = _history(ns) if (meta.get("renamed") or {}).get("items") else None
-        found += [(manifest.FILE, line) for line in _renamed_lines(meta, units, raw, inputs.get("references") or {}, history,
+        found += [(manifest.FILE, line) for line in _renamed_lines(meta, units, inputs.get("references") or {}, history,
                                                                     outside)]
-        found += [(manifest.FILE, line) for line in _lab_lines(meta, units, raw, {**inputs, "products": products})]
+        found += [(manifest.FILE, line) for line in _lab_lines(meta, units, raw, inputs)]
     return found
 
 

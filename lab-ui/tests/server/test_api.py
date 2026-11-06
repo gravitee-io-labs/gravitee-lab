@@ -1414,16 +1414,14 @@ class PlaceRoutes(LabUI):
         self.calls["reseed"].reset_mock()
         self.request("POST", "/api/playgrounds/welcome/reseed", {"place": self.PLACE})
         self.calls["reseed"].assert_called_once_with(PROJECT, "welcome", place=self.PLACE, accept=[])
-        self.request("POST", "/api/playgrounds/welcome/stop", {"place": self.PLACE, "remove": True})
-        self.calls["stop"].assert_called_once_with(PROJECT, "welcome", True, [], place=self.PLACE)
 
     def test_a_place_that_is_no_text_is_refused_and_never_taken_for_this_machine(self):
         for sent in ("", 0, False, [], ["machine"], {"id": "machine"}, 12):
-            for path in ("start", "reseed", "stop", "delete"):
+            for path in ("start", "reseed", "delete"):
                 with self.subTest(sent=sent, path=path):
                     status, _, body = self.request("POST", f"/api/playgrounds/welcome/{path}", {"place": sent})
                     self.assertEqual((status, json.loads(body)["error"]), (400, json.loads(body)["error"]))
-        for name in ("start", "reseed", "stop", "delete_place"):
+        for name in ("start", "reseed", "delete_place"):
             self.calls[name].assert_not_called()
         self.delete.assert_not_called()
 

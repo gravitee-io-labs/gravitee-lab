@@ -32,7 +32,7 @@ class Changes(Case):
         return json.dumps(self.has) + "\n" + json.dumps(self.labels)
 
     def ask(self, raw=RAW):
-        return drift.changes({}, raw, {"engine": CONTAINER}, {"engine": "config"}, SAVED)
+        return drift.changes(raw, {"engine": CONTAINER}, {"engine": "config"}, SAVED)
 
     def test_a_setting_that_differs_is_named_by_the_setting_that_holds_it(self):
         self.assertEqual(self.ask(), {"engine": {"settings": ["GRAVITEE_LICENSE"], "labels": False}})
@@ -86,7 +86,7 @@ class Changes(Case):
         self.assertEqual(self.ask(), {})
 
     def test_only_what_runs_behind_by_its_configuration_is_read(self):
-        found = drift.changes({}, RAW, {"engine": CONTAINER}, {"engine": "image"}, SAVED)
+        found = drift.changes(RAW, {"engine": CONTAINER}, {"engine": "image"}, SAVED)
         self.assertEqual(found, {})
         self.run_.assert_not_called()
         self.resolved.assert_not_called()

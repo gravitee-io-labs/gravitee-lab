@@ -54,7 +54,7 @@ def _named(raw, service, variable):
     return sorted(refs) if len(written) == 1 and refs else [variable]
 
 
-def changes(p, raw, containers, causes, saved):
+def changes(raw, containers, causes, saved):
     """{service: {"settings": [the settings whose value differs, by name], "labels": whether a label differs}} for the services
     of `causes` (model.lateness) that run behind by their configuration, whose container differs from what Compose would
     give it in its environment or its labels. A service whose difference is in neither, or cannot be read, is left out:

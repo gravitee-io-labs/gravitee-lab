@@ -2286,7 +2286,7 @@ class Deleting(Deploys):
         self.record(PLACE, "APIs")
         self.record(TESTING, "APIs")
         self.on(*self.core)
-        playgrounds.stop(self.project, "hotels", True, [], place=PLACE)
+        playgrounds.stop(self.project, "hotels", True, [])
         title, steps, more = self.started(self.jobs)
         self.assertEqual((title, more["verb"], more["phases"]), ("Stop Hotels", "stop",
                                                                  ["Delete what it created", "Stop the apps"]))
