@@ -128,26 +128,15 @@ def guarded(request, timeout=TIMEOUT):
     return OPENER.open(request, timeout=timeout)
 
 
-def _release(error):
-    """Closes the socket of an answer that is an error, which nobody else will: left to the garbage collector it is a leak that
-    shows. An error made with no body (the tests make them) has nothing to close."""
-    try:
-        error.close()
-    except (AttributeError, KeyError, OSError, ValueError):
-        pass
-
-
-def answer(url, headers, opener=guarded, method="HEAD"):
-    """(status, headers) of a request; 0 and no headers when nothing answers."""
-    request = urllib.request.Request(url, headers=headers, method=method)
+def answer(url, headers, opener=guarded):
+    """(status, headers) of a HEAD request; 0 and no headers when nothing answers."""
+    request = urllib.request.Request(url, headers=headers, method="HEAD")
     try:
         with opener(request, timeout=TIMEOUT) as response:
             return response.status, response.headers
     except urllib.error.HTTPError as error:
-        try:
-            return error.code, error.headers
-        finally:
-            _release(error)
+        error.close()   # its socket, which nothing else closes
+        return error.code, error.headers
     except (OSError, ValueError):
         return 0, {}
 
@@ -166,7 +155,7 @@ def token(challenge, opener=guarded):
         with opener(request, timeout=TIMEOUT) as response:
             body = json.loads(response.read())
     except urllib.error.HTTPError as error:
-        _release(error)
+        error.close()
         return None
     except (OSError, ValueError):
         return None
@@ -187,18 +176,18 @@ def local(host):
     return not address.is_global
 
 
-def _addresses(name, port, resolve=None):
+def _addresses(name, port):
     """The addresses `name` resolves to, as the resolver gives them, when every one is on the public network; None when it does
     not resolve, answers nothing or answers an address that is not public. The one answer is what a connection is made to."""
     try:
-        found = (resolve or RESOLVE)(name, port, type=socket.SOCK_STREAM)
+        found = RESOLVE(name, port, type=socket.SOCK_STREAM)
         ours = [str(info[4][0]).partition("%")[0] for info in found]
         return ours if ours and all(ipaddress.ip_address(one).is_global for one in ours) else None
     except (OSError, UnicodeError, ValueError, IndexError):
         return None
 
 
-def public(host, resolve=None):
+def public(host):
     """Whether every address a registry host names is on the public network, by what the resolver says: `127.1`, `0x7f.1`, `10.1`,
     `localhost.`, `user@127.0.0.1` and a name that resolves to loopback (`127.0.0.1.nip.io`) are not written as an address, and the
     connection reaches this machine or its network all the same. False for a host that does not resolve and for what is no host:
@@ -209,7 +198,7 @@ def public(host, resolve=None):
         name, port = parts.hostname, parts.port or 443
     except ValueError:
         return False
-    return bool(name) and _addresses(name, port, resolve) is not None
+    return bool(name) and _addresses(name, port) is not None
 
 
 def exists(image, opener=guarded):
@@ -257,9 +246,8 @@ def pulled(services):
                    and not service.get("build")})
 
 
-def check(found, ask=None):
+def check(found, ask):
     """{image: True (there), False (missing) or None (the registry did not say)} for these images, asked in parallel."""
-    ask = ask or exists
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
         return dict(zip(found, pool.map(ask, found)))
 
@@ -293,10 +281,6 @@ def main(argv=None):
         else:
             print(f"\n{len(found)} images")
     return 1 if missing else 0
-
-
-__all__ = ["Pinned", "Pinning", "answer", "check", "exists", "guarded", "images", "local", "main", "public", "pulled", "reference",
-           "token"]
 
 
 if __name__ == "__main__":

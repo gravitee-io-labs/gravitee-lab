@@ -46,7 +46,7 @@ def registry(routes):
         if isinstance(found, Response) and found.status < 400:
             return found
         status, headers = (found.status, found.headers) if isinstance(found, Response) else (found, {})
-        raise urllib.error.HTTPError(request.full_url, status, "", headers, None)
+        raise urllib.error.HTTPError(request.full_url, status, "", headers, io.BytesIO(b""))
     opener.asked = []
     return opener
 
@@ -178,12 +178,11 @@ class ExistsTest(Offline):
                 self.assertFalse(image_manifests.public(host), "what is no host is not asked")
 
     def test_a_resolver_that_fails_or_answers_oddly_is_not_a_public_registry(self):
-        for failure in (OSError("down"), UnicodeError("label too long"), ValueError("x")):
-            with self.subTest(failure=type(failure).__name__):
-                self.assertFalse(image_manifests.public("registry.example.com", mock.Mock(side_effect=failure)))
-        self.assertFalse(image_manifests.public("registry.example.com", lambda *args, **more: []), "no address")
-        self.assertFalse(image_manifests.public("registry.example.com", lambda *args, **more: [(2, 1, 6, "", ())]), "no sockaddr")
-        self.assertFalse(image_manifests.public("registry.example.com", lambda *args, **more: [(2, 1, 6, "", ("not an address", 443))]))
+        answers = [mock.Mock(side_effect=failure) for failure in (OSError("down"), UnicodeError("label too long"), ValueError("x"))]
+        answers += [mock.Mock(return_value=found) for found in ([], [(2, 1, 6, "", ())], [(2, 1, 6, "", ("not an address", 443))])]
+        for resolve in answers:
+            with self.subTest(resolve=resolve), mock.patch.object(image_manifests, "RESOLVE", resolve):
+                self.assertFalse(image_manifests.public("registry.example.com"))
 
     def test_a_registry_whose_name_leads_to_this_network_is_not_asked(self):
         """`local` reads the name only; the machine connects by what the resolver says."""
