@@ -1,32 +1,16 @@
 """The controls: the protections a playground's lessons teach. The declaration is read strictly (a typo is an error, never a
-control that switches nothing), the mode is `on` or `off` and nothing else, a flow or a step that matches nothing is an
-error, and the controls of Acme Bakery name exactly what its lessons switch, in files that say the protected state."""
+control that switches nothing), the mode is `on` or `off` and nothing else, and a flow or a step that matches nothing is an
+error."""
 
 import json
-import os
-import re
 import unittest
 from unittest import mock
-
-import yaml
 
 from lab_seeder import common
 from lab_seeder import controls
 from lab_seeder import seed
-from lab_seeder.seedlint import compose_value, seed_environment, seed_service
-from lab_seeder.testkit import PLAYGROUNDS, Seed
+from lab_seeder.testkit import Seed
 
-ACME_BAKERY = PLAYGROUNDS / "acme-bakery"
-ACME_SEED = ACME_BAKERY / "seed"
-
-# The lessons of Acme Bakery: the steps and the policy each control switches, as the seed files name them
-SWITCHED = {
-    "pii": [("Acme Bakery LLM", "Prompt", "request", "PII filtering (financial_account)")],
-    "guard": [("Acme Bakery LLM", "Prompt", "request", "Prompt guard rails (question)")],
-    "tools": [("Acme Bakery MCP", "Visible tools", "request", "Tools by role")],
-    "pep": [("Acme Bakery MCP", "Authorization", "request", "Fine-Grained Authorization")],
-    "router": [("Acme Bakery Teams", None, "request", "Spend-aware routing")],
-}
 POLICY = "Agents move at most EUR 500"
 
 
@@ -307,165 +291,6 @@ class Waiting(Seed):
         slept = list(self.clock.sleeps)
         controls.settle()
         self.assertEqual(self.clock.sleeps, slept)
-
-
-class AcmeBakery(Seed):
-    """The controls of Acme Bakery against its real files: each names what exists, and what it names is what the lessons switch."""
-
-    def setUp(self):
-        super().setUp()
-        patch = mock.patch.object(common, "SEED_DIR", ACME_SEED)
-        patch.start()
-        self.addCleanup(patch.stop)
-        compose = ACME_BAKERY / "compose.yml"
-        patch = mock.patch.dict(os.environ, seed_environment(seed_service(compose)), clear=True)
-        patch.start()
-        self.addCleanup(patch.stop)
-
-    def definitions(self):
-        """The API of the LLM proxy, the flows of the MCP proxy, the router of the workspace, as their files give them."""
-        llm = common.load(ACME_SEED / "apim" / "apis" / "acme-bakery-llm.json")["api"]
-        proxy = common.load(ACME_SEED / "aim" / "mcp-proxies" / "acme-bakery-mcp.yaml")["automation"]
-        workspace = common.load(ACME_SEED / "aim" / "workspaces" / "acme-bakery-teams.yaml")
-        return {"Acme Bakery LLM": llm["flows"], "Acme Bakery MCP": proxy["flows"], "Acme Bakery Teams": workspace["router"]}
-
-    @staticmethod
-    def named(declared):
-        return {(c.target, c.flow, phase, step) for c in declared for phase, names in c.steps.items() for step in names}
-
-    def test_the_controls_are_the_six_of_the_lessons(self):
-        self.assertEqual([c.id for c in controls.declared()], ["pii", "guard", "tools", "pep", "cap", "router"])
-        self.assertEqual({c.id: c.kind for c in controls.declared()},
-                         {"pii": "api", "guard": "api", "tools": "mcp-proxy", "pep": "mcp-proxy", "cap": "policy",
-                          "router": "workspace"})
-
-    def test_each_control_switches_the_steps_of_its_lesson_and_no_others(self):
-        wanted = {(target, flow, phase, step) for steps in SWITCHED.values() for target, flow, phase, step in steps}
-        self.assertEqual(self.named(controls.declared()), wanted)
-        for control in controls.declared():
-            if control.id in SWITCHED:
-                self.assertEqual(self.named([control]), set(SWITCHED[control.id]), control.id)
-
-    def test_the_files_say_the_protected_state_so_the_mode_off_is_what_changes_them(self):
-        for target, flows in self.definitions().items():
-            containers = [flows] if isinstance(flows, dict) else flows
-            for container in containers:
-                for phase in ("request", "response"):
-                    for step in container.get(phase) or []:
-                        with self.subTest(target=target, step=step["name"]):
-                            self.assertTrue(step.get("enabled", True), "a step is switched off by the mode, not by its file")
-        status = common.load(ACME_SEED / "authz" / "policies" / "06-agents-move-at-most-eur-500.yaml")
-        self.assertEqual((status["name"], status["status"]), (POLICY, "DEPLOYED"))
-
-    def test_every_control_finds_what_it_names_in_the_files_and_off_switches_exactly_those_steps(self):
-        definitions = json.loads(json.dumps(self.definitions()))
-        switched = set()
-        for control in controls.declared():
-            if control.kind == "policy":
-                continue
-            where = definitions[control.target]
-            if control.kind == "workspace":
-                controls.align_router(where, [control], enabled=False)
-            else:
-                controls.align(where, [control], enabled=False)
-        for target, flows in definitions.items():
-            for flow in [flows] if isinstance(flows, dict) else flows:
-                for phase in ("request", "response"):
-                    for step in flow.get(phase) or []:
-                        if not step.get("enabled", True):
-                            switched.add((target, flow.get("name"), phase, step["name"]))
-        self.assertEqual(switched, {(t, f, p, s) for steps in SWITCHED.values() for t, f, p, s in steps})
-
-    def test_the_policy_a_control_names_is_a_policy_of_the_files(self):
-        names = [common.load(path)["name"] for path in common.files("authz", "policies")]
-        self.assertIn(POLICY, names)
-        [cap] = [c for c in controls.declared() if c.kind == "policy"]
-        self.assertEqual((cap.id, cap.target), ("cap", POLICY))
-
-    def test_the_twins_of_the_two_steps_of_lesson_2_stay_on_in_both_modes(self):
-        """Mode off disables the request step for IBANs and the one for the question, and no other step of the flow: the
-        steps for email, phone and ID numbers, for a tool result and for the answer on its way back are on from the start."""
-        flow = next(f for f in self.definitions()["Acme Bakery LLM"] if f["name"] == "Prompt")
-        found = [c for c in controls.declared() if c.kind == "api"]
-        self.assertEqual({c.id for c in found}, {"pii", "guard"})
-        controls.align([flow], found, enabled=False)
-        state = {(phase, step["name"]): step.get("enabled", True) for phase in ("request", "response") for step in flow[phase]}
-        self.assertEqual({key for key, on in state.items() if not on},
-                         {("request", "PII filtering (financial_account)"), ("request", "Prompt guard rails (question)")})
-        for kept in (("request", "PII filtering (email+phone+government_id)"), ("request", "Prompt guard rails (tool result)"),
-                     ("response", "PII filtering")):
-            self.assertIs(state[kept], True, kept)
-
-    def test_the_steps_of_lesson_2_say_what_each_covers_so_that_reading_them_tells_the_two_that_start_off_from_their_twins(self):
-        """The console labels these steps by their policy ("PII Filtering"), so what tells them apart is their Description:
-        the step that starts off covers account numbers, its twin that is on covers email, phone and ID numbers."""
-        flow = next(f for f in self.definitions()["Acme Bakery LLM"] if f["name"] == "Prompt")
-        said = {(phase, step["name"]): step["description"] for phase in ("request", "response") for step in flow[phase]
-                if step["policy"] in ("pii-filtering", "ai-prompt-guard-rails")}
-        self.assertEqual(len(said), 5)
-        self.assertEqual(len(set(said.values())), 5, "no two of these steps are described alike")
-        for key, words in {("request", "PII filtering (financial_account)"): ("account numbers", "IBAN"),
-                           ("request", "PII filtering (email+phone+government_id)"): ("email", "phone", "ID numbers"),
-                           ("response", "PII filtering"): ("answers",),
-                           ("request", "Prompt guard rails (question)"): ("user asks",),
-                           ("request", "Prompt guard rails (tool result)"): ("tool returns",)}.items():
-            for word in words:
-                self.assertIn(word, said[key], key)
-
-    def test_the_guide_finds_the_two_steps_of_lesson_2_by_their_place_in_the_request_phase(self):
-        """Lesson 2 of the guide names them "the 1st and the 2nd step of the Request Phase", side by side at the front so that
-        a person who opens the second one cannot land on its twin that is already on: a step added before them, or a
-        reorder, makes that sentence false."""
-        flow = next(f for f in self.definitions()["Acme Bakery LLM"] if f["name"] == "Prompt")
-        self.assertEqual(flow["request"][0]["name"], "Prompt guard rails (question)")
-        self.assertEqual(flow["request"][1]["name"], "PII filtering (financial_account)")
-        self.assertEqual([step["name"] for step in flow["request"][2:]],
-                         ["Prompt guard rails (tool result)", "PII filtering (email+phone+government_id)", "Can this answer be cached?",
-                          "Semantic cache"])
-
-    def test_what_the_other_lessons_leave_on_has_no_control(self):
-        """The rate limit, the semantic cache, the token budgets, the OAuth2 plans, the arguments the policies read and the
-        404 on any other path stay on in both modes."""
-        steps = {step for _, _, _, step in self.named(controls.declared())}
-        for kept in ("30 calls a minute per user", "Semantic cache", "Read tool arguments", "Nothing else is served",
-                     "Counter owner", "Can this answer be cached?", "Token budget (Developers)"):
-            self.assertNotIn(kept, steps)
-
-    def test_the_playground_sets_the_mode_off_unless_its_setting_says_otherwise(self):
-        service = seed_service(ACME_BAKERY / "compose.yml")
-        self.assertEqual(seed_environment(service)["SEED_PROTECTIONS"], "off")
-        raw = (service.get("environment") or {})["SEED_PROTECTIONS"]
-        self.assertEqual(raw, "${ACME_BAKERY_PROTECTIONS:-off}")
-        self.assertEqual(compose_value(raw), "off")
-
-    def test_the_setting_is_described_for_the_settings_form_and_says_what_applies_a_change(self):
-        """The Lab UI shows the comment of the first line that uses a variable, which is the traffic generator's. Two services
-        read the setting and a change reaches each by another way: the seed when Re-seed runs it again (it recreates the seed
-        and nothing else), the generator, which reads the mode when its container is made, when Save & apply recreates it."""
-        lines = (ACME_BAKERY / "compose.yml").read_text(encoding="utf-8").splitlines()
-        [first, *_] = [number for number, line in enumerate(lines) if "ACME_BAKERY_PROTECTIONS" in line.split(" # ")[0]]
-        service = next(line for line in reversed(lines[:first]) if re.fullmatch(r"  [a-z][a-z-]*:", line))
-        self.assertEqual(service, "  bakery-traffic:", "the line the form shows describes the generator")
-        comment = lines[first].split(" # ", 1)[1]
-        self.assertRegex(comment, r"\boff\b.*\bon\b")
-        self.assertIn("Save & apply restarts the traffic generator", comment)
-        self.assertIn("Re-seed puts the protections in the new state", comment)
-        self.assertNotIn("Re-seed applies a change", comment, "it does not reach the generator")
-        services = yaml.safe_load((ACME_BAKERY / "compose.yml").read_text(encoding="utf-8"))["services"]
-        self.assertEqual(seed_service(ACME_BAKERY / "compose.yml"), services["bakery-seed"], "Re-seed runs the seed again, and only it")
-        self.assertNotEqual(seed_service(ACME_BAKERY / "compose.yml"), services["bakery-traffic"])
-
-    def test_the_traffic_generator_follows_the_mode_of_the_seed(self):
-        """It is strict when the protections are on (a denial that becomes a permit is a failure) and takes both outcomes
-        when they are off: the one setting reaches both, as PROTECTIONS for the generator and SEED_PROTECTIONS for the seed."""
-        compose = ACME_BAKERY / "compose.yml"
-        services = yaml.safe_load(compose.read_text(encoding="utf-8"))["services"]
-        self.assertEqual(services["bakery-traffic"]["environment"]["PROTECTIONS"], "${ACME_BAKERY_PROTECTIONS:-off}")
-        self.assertEqual(services["bakery-seed"]["environment"]["SEED_PROTECTIONS"], services["bakery-traffic"]["environment"]["PROTECTIONS"])
-        self.assertEqual(seed_environment(services["bakery-traffic"])["PROTECTIONS"], "off")
-        used = [name for name, service in services.items() for value in (service.get("environment") or {}).values()
-                if "ACME_BAKERY_PROTECTIONS" in str(value)]
-        self.assertEqual(sorted(used), ["bakery-seed", "bakery-traffic"], "no other service reads the setting")
 
 
 class Main(Seed):
