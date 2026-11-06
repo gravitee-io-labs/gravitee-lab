@@ -586,7 +586,7 @@ def _suggested_row(one):
 
 
 def describe(project, inputs):
-    """The rows of `state.catalogs`, in the order the page shows them: the first listed catalog, Personal when it holds something,
+    """The rows of `state.catalogs`, in the order the page shows them: the first listed catalog, Personal,
     the others as they were added, then the ones that are not added, and last, while an Add is fetching, the entry
     {id: "check", kind: "progress", progress} that carries how far the fetch is (`check` is a reserved name, so no catalog is
     ever called so). `project` is what project.build made, `inputs` what project.gather read: the rows read the registry's
@@ -604,8 +604,7 @@ def describe(project, inputs):
     rows = []
     for ns, one in found.items():
         if one.get("kind") == "machine":
-            if sum(_counts(one.get("units") or {}).values()):
-                rows.append(_machine_row(one, summaries.get(ns) or {}))
+            rows.append(_machine_row(one, summaries.get(ns) or {}))
         else:
             rows.append(_git_row(ns, one, summaries.get(ns) or {}, project, entries.get(ns), contract, asked,
                                  on.get(ns, frozenset())))
