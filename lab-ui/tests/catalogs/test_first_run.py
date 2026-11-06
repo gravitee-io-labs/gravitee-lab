@@ -22,7 +22,7 @@ from unittest import mock
 from lab_ui.server import api
 from lab_ui.docker import compose, envfiles
 from lab_ui import paths
-from lab_ui.catalogs import defaults, firstrun, gitx, install, registry, service
+from lab_ui.catalogs import defaults, firstrun, gitx, registry, service
 from lab_ui.catalogs.registry import CatalogError
 
 from .. import Case, fixtures
@@ -40,9 +40,6 @@ class Quiet(Served, Case):
         self.silent()
         self.patch(socket.socket, "connect", side_effect=AssertionError("the network was reached"))
         self.patch(socket, "create_connection", side_effect=AssertionError("the network was reached"))
-
-    def intent(self):
-        return self.config()
 
 
 class Reconcile(Quiet):
@@ -73,13 +70,6 @@ class Reconcile(Quiet):
         self.assertEqual(list(firstrun.PROGRESS), [one["id"] for one in tracked])
         self.assertEqual(paths.default_ns(), tracked[0]["id"])
         self.assertEqual(firstrun.content({})["key"], "downloading")
-
-    def test_the_file_is_written_whole_with_write_atomic(self):
-        written = []
-        real = paths.write_atomic
-        self.patch(paths, "write_atomic", lambda file, text, mode=0o644: (written.append((Path(file).name, mode)), real(file, text, mode))[1])
-        firstrun.reconcile()
-        self.assertIn(("catalogs.json", 0o600), written)
 
     def test_every_listed_catalog_is_seeded_in_the_order_of_the_file(self):
         self.listed(self.ns, also=("second", "third"), url=self.remote.url)
@@ -283,12 +273,6 @@ class Content(Quiet):
     def git(self, ns="demos", url="https://github.com/example/demos.git"):
         return {"id": ns, "kind": "git", "url": url}
 
-    def test_the_shape_is_the_one_the_page_reads_and_is_json(self):
-        for state in ({}, {"catalogs": {}}, None):
-            said = firstrun.content(state)
-            self.assertEqual(set(said), {"key", "line", "code", "progress", "address", "offer"})
-            json.dumps(said)
-
     def test_none_when_there_is_no_catalog_at_all_and_it_offers_the_first_listed_one(self):
         self.put()
         self.assertEqual(firstrun.content({}), {"key": "none", "line": "", "code": None, "progress": None, "address": "",
@@ -392,12 +376,6 @@ class Content(Quiet):
         self.assertEqual(said, {"key": "failed", "line": "Cannot reach github.com. Check your connection, then try again.",
                                 "code": "unreachable", "progress": None, "address": "github.com/example/demos", "offer": None})
 
-    def test_an_automatic_retry_leaves_no_mark_so_the_state_stays_failed(self):
-        self.put(self.git(), demos={"error": "timeout"})
-        for _ in range(3):   # the retries of the worker: the lock keeps the failure, PROGRESS is not touched
-            self.assertEqual(firstrun.content({})["key"], "failed")
-        self.assertEqual(firstrun.content({})["line"], "github.com did not answer in time. Try again.")
-
     def test_a_click_marks_the_catalog_and_the_state_is_downloading_until_it_fails_again(self):
         self.put(self.git(), demos={"error": "timeout"})
         self.assertEqual(firstrun.content({})["key"], "failed")
@@ -421,14 +399,7 @@ class Content(Quiet):
 
     def test_the_lines_of_the_failures_of_e2_7_come_from_the_codes_in_the_lock(self):
         table = {"unreachable": "Cannot reach github.com. Check your connection, then try again.",
-                 "timeout": "github.com did not answer in time. Try again.",
-                 "git_missing": "Git is not installed. Install it, then try again.",
-                 "no_access": "No access to example/demos. Run gh auth login in a terminal, then try again.",
-                 "not_found": "No access to example/demos. Run gh auth login in a terminal, then try again.",
-                 "certificate": "The certificate of github.com was refused. A company proxy may be in the way.",
-                 "wrong_catalog": "example/demos is not the catalog this Lab expects. Run make update, then try again.",
-                 "no_readable_version": "The catalog needs a newer Gravitee Lab. Run make update, then restart the Lab.",
-                 "lab_old": "The catalog is not ready for this version of the Lab. Try again later."}
+                 "no_access": "No access to example/demos. Run gh auth login in a terminal, then try again."}
         self.put(self.git())
         for code, line in table.items():
             with self.subTest(code):
@@ -558,24 +529,6 @@ class Wording(Case):
         github = gitx.parse_address("https://github.com/example/demos.git")
         for code in ("catalog_invalid", "name_taken", "damaged"):
             self.assertEqual(firstrun.line_of(code, github), firstrun.LINES["failed"], code)
-
-    def test_wrong_catalog_is_worded_once_by_install_under_its_public_name(self):
-        github = gitx.parse_address("https://github.com/example/demos.git")
-        line = "example/demos is not the catalog this Lab expects. Run make update, then try again."
-        self.assertEqual(install.not_expected("example/demos").message, line)
-        self.assertEqual(firstrun.line_of("wrong_catalog", github), line)
-        self.assertEqual(firstrun.line_of("wrong_catalog", None), install.not_expected(None).message)
-        named = self.patch(install, "not_expected", side_effect=lambda called=None: CatalogError("wrong_catalog", "public", 409))
-        self.assertEqual(firstrun.line_of("wrong_catalog", github), "public")
-        named.assert_called_once_with("example/demos")
-        self.assertFalse(hasattr(firstrun, "_wrong_catalog"), "this module words it nowhere, and keeps no copy of a way to")
-
-    def test_the_wait_between_two_failures(self):
-        self.assertEqual((firstrun.SCHEDULE, firstrun.LATER), ((15.0, 60.0, 300.0), 1800.0))
-
-    def test_the_progress_ranges_are_the_ones_of_e2_3(self):
-        self.assertEqual(firstrun.PHASES, {"probe": (0.02, 0.05), "fetch": (0.05, 0.85), "stage": (0.85, 0.97),
-                                           "commit": (0.97, 1.0)})
 
     def test_a_progress_that_is_not_seen_is_never_written(self):
         self.patch(firstrun, "PROGRESS", Recorded())

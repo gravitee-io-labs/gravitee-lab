@@ -945,6 +945,7 @@ class Provision(Served, Case):
                  ("no_access", other, "", "No access to team/demos. Sign in with Git on this machine, then try again."),
                  ("certificate", github, "", "The certificate of github.com was refused. A company proxy may be in the way."),
                  ("wrong_catalog", github, "", "example/demos is not the catalog this Lab expects. Run make update, then try again."),
+                 ("wrong_catalog", None, "", "This repository is not the catalog this Lab expects. Run make update, then try again."),
                  ("no_readable_version", github, "", "The catalog needs a newer Gravitee Lab. Run make update, then restart the Lab."),
                  ("lab_new", github, "", "The catalog needs a newer Gravitee Lab. Run make update, then restart the Lab."),
                  ("lab_old", github, "", "The catalog is not ready for this version of the Lab. Try again later."),
