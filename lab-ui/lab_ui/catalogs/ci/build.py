@@ -40,7 +40,7 @@ import time
 from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple
 
 from ...docker import compose
-from .. import explain, report, trust
+from .. import report, trust
 from ..report import ERROR, Problem
 from ..rules.images import repository
 from . import (BD01_PLAIN, DOCKER_DOWN, IMAGE_NAME, Loaded, Unavailable, cell, conclude, docker_ready, entry, fence, load, megabytes,
@@ -107,8 +107,7 @@ def allowed() -> frozenset:
 def t18(path: str, service: str, variant: int = 0) -> Problem:
     """The trust policy's own T18 finding for a build that leaves the catalog or the pin: its reason and its fix, in the Lab's words."""
     reason = trust.RULES["T18"]["lines"][variant]
-    fix = (getattr(trust, "FIXES", None) or explain.T_FIXES).get("T18", "")
-    return Problem("T18", ERROR, path, 0, f"{service}: {reason}. Fix: {fix}".rstrip())
+    return Problem("T18", ERROR, path, 0, f"{service}: {reason}. Fix: {trust.FIXES['T18']}")
 
 
 def pinned(context: str) -> bool:

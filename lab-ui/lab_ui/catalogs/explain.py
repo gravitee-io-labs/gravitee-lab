@@ -2,8 +2,8 @@
 exists, the fix in full and what the Lab does with the same file when a person adds the catalog.
 
 The table of codes is built from the rule modules (`rules.structure.RULES` and the others, `workflows.RULES` and the tables of
-`standard` and `codeowners`), the Lab's trust policy (T and N, with `trust.FIXES` when it has
-them) and the codes of the CI stages, which are kept here. A test keeps every code of a module covered by a long form,
+`standard` and `codeowners`), the Lab's trust policy (T and N, with `trust.FIXES`) and the codes
+of the CI stages, which are kept here. A test keeps every code of a module covered by a long form,
 and `docs/catalog-rules.md` equals this table. Pure: it reads tables, runs nothing, writes nothing."""
 
 import importlib
@@ -203,29 +203,6 @@ STAGES = (
     ("SC02", WARNING, "scan", "{image}: {n} more flaws that fail nothing: {which}. Fix: update the base image or the packages once a "
                               "fix is out."),
 )
-T_FIXES = {
-    "T01": "Remove `{key}`, or ask the Lab's maintainers to support it.", "T02": "Remove `{key}`, or ask the Lab's maintainers "
-    "to support it.", "T03": "Remove `privileged`: a demo that needs it is a personal item.", "T04": "Remove `use_api_socket`.",
-    "T05": "Remove `provider`; use a container.", "T06": "Publish a port on 127.0.0.1 instead of sharing the host's network, "
-    "processes or memory.", "T07": "Remove `cap_add`; run the image as it is meant to run.",
-    "T08": "Remove `devices`, `gpus`, `runtime` and device reservations.", "T09": "Keep only `no-new-privileges` in "
-    "`security_opt`; remove `sysctls`.", "T10": "Remove the mount of the Docker socket.", "T11": "Move the files under the "
-    "unit's folder, or use a named volume.", "T12": "Mount it `:ro`, or put the data under `.state/`.",
-    "T13": "Use a named volume the unit declares itself.", "T14": "Use a named volume the unit declares itself.",
-    "T15": "Attach the service to `internal` or `edge` only.", "T16": "Point `file:` at a file inside the unit.",
-    "T17": "Write the port as `127.0.0.1:HOST:CONTAINER`.", "T18": "Put the build context under the unit, pin a remote context to "
-    "a 40-character commit after `#`, and remove ssh, secrets and cache options. Only `context`, `dockerfile`, `args`, `target` "
-    "and `labels` are accepted (default-deny; `additional_contexts` only for the Lab's seeder).",
-    "T19": "Use a relative path inside the catalog.", "T20": "Prefix the setting with `{NS}_`, or read only `*_VERSION`, "
-    "`*_REGISTRY`, `*_PULL_POLICY` and the shared settings.", "T21": "Prefix service, container and volume names with the "
-    "catalog id.", "T22": "On a platform service, set only `environment`, `extra_hosts`, `depends_on`, `labels`, read-only "
-    "binds from your folder and loopback ports.", "T23": "Include only units of the default catalog, of this catalog, or of "
-    "catalogs declared in `requires.catalogs`.", "T24": "A Public catalog cannot include a Private one: move the shared part "
-    "to a Public catalog.", "T25": "Fix {name} first.", "T26": "Remove what this Gravitee Lab does not read, or "
-    "check with the Gravitee Lab release that reads it (`catalog.py upgrade --lab-ref latest`). A `lab` is for older Gravitee "
-    "Labs: `catalog.py upgrade --write` writes the one of `catalog.yml`.", "T27": "Run `docker compose -f {file} config` and fix what it "
-    "prints.",
-}
 
 
 def _module_rules(name: str) -> Dict[str, Rule]:
@@ -252,9 +229,9 @@ def table() -> Dict[str, Entry]:
     for code, severity, stage, message in STAGES:
         found[code] = Entry(code, severity, f"{stage} stage of `catalog.py ci`", message, (), "", NOT_AT_ADD)
     trust = importlib.import_module(f"{__package__}.trust")
-    for code, row in (getattr(trust, "RULES", None) or {}).items():
+    for code, row in trust.RULES.items():
         lines = row.get("lines") or ("",)
-        fix = (getattr(trust, "FIXES", None) or T_FIXES).get(code, T_FIXES.get(code, ""))
+        fix = trust.FIXES.get(code, "")
         found[code] = Entry(code, ERROR, f"the Lab's trust policy, class {row.get('class', '')}".rstrip(", "),
                             f"{lines[0]}. Fix: {fix}" if fix else lines[0], (), "The Lab will not run an item that breaks this "
                             "rule without the person agreeing to what it takes of their machine.",
@@ -343,4 +320,4 @@ def document() -> str:
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
-__all__ = ["DETAILS", "FAMILY_NAMES", "T_FIXES", "codes", "document", "explain", "table"]
+__all__ = ["DETAILS", "FAMILY_NAMES", "codes", "document", "explain", "table"]
