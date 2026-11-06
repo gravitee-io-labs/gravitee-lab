@@ -591,14 +591,6 @@ class Reading(Case):
         self.file.mkdir()
         self.assertEqual(self.assertRaisesCatalog(lambda: manifest.read_catalog("catalog.yml")).code, "not_catalog")
 
-    def test_a_file_over_a_megabyte_is_refused_before_compose_reads_it(self):
-        self.file.write_text("# " + "x" * (manifest.FILE_LIMIT + 10) + "\n", encoding="utf-8")
-        raw = compose_returning(GOOD)
-        self.patch(compose, "raw", raw)
-        error = self.assertRaisesCatalog(lambda: manifest.read_catalog("catalog.yml"))
-        self.assertEqual((error.code, error.message), ("catalog_invalid", "catalog.yml: it is larger than 1 MB."))
-        raw.assert_not_called()
-
     def test_a_file_compose_cannot_read_is_invalid_and_its_output_is_for_the_dialog(self):
         self.patch(compose, "raw", mock.Mock(side_effect=compose.ComposeError("yaml: line 2: did not find expected key")))
         error = self.assertRaisesCatalog(lambda: manifest.read_catalog("catalog.yml"))
@@ -676,6 +668,8 @@ class Reading(Case):
                 "include:\n  - /etc/hosts\nx-gravitee-catalog: {}\n",   # before it
                 "include: [/etc/hosts]\nx-gravitee-catalog: {}\n",   # in the flow
                 "include:\n  - ../../..\nx-gravitee-catalog: {}\n",
+                "x-gravitee-catalog: {}\ninclude:\n  - other.yml\n",   # a file beside it
+                "services: {}\n",
                 "  include:\n    - /etc/hosts\n  x-gravitee-catalog: {}\n",   # the whole document, indented
                 "\tinclude: [a]\nx-gravitee-catalog: {}\n",
                 "# a comment\n  include: [a]\n",   # an indented first line after a comment
@@ -743,8 +737,9 @@ class Reading(Case):
         manifest.read_catalog("catalog.yml")
         raw.assert_called_once()
         self.file.write_text(head + "x" * (manifest.FILE_LIMIT - len(head) + 1), encoding="utf-8")
-        self.assertEqual(self.assertRaisesCatalog(lambda: manifest.read_catalog("catalog.yml")).message,
-                         "catalog.yml: it is larger than 1 MB.")
+        error = self.assertRaisesCatalog(lambda: manifest.read_catalog("catalog.yml"))
+        self.assertEqual((error.code, error.message), ("catalog_invalid", "catalog.yml: it is larger than 1 MB."))
+        raw.assert_called_once()   # Compose is not asked of the larger one
 
     def test_a_file_that_becomes_a_link_after_it_was_looked_at_is_not_followed(self):
         outside = self.root / "outside.yml"
@@ -868,25 +863,6 @@ class WithCompose(Case):
         with self.assertRaises(registry.CatalogError) as raised:
             manifest.read_catalog(name)
         self.assertEqual(raised.exception.message, "catalog.yml: it has no x-gravitee-catalog block.")
-
-    def test_a_file_that_is_a_compose_file_is_refused_for_what_it_holds_besides_its_block(self):
-        name = self.put("services: {}\n")
-        with self.assertRaises(registry.CatalogError) as raised:
-            manifest.read_catalog(name)
-        self.assertEqual(raised.exception.message, "catalog.yml: it may hold only the x-gravitee-catalog block.")
-
-    def test_an_include_of_a_pipe_or_of_a_file_outside_is_refused_at_once_and_compose_never_opens_it(self):
-        os.mkfifo(self.root / "pipe")
-        (self.root / "other.yml").write_text("x-gravitee-catalog: {id: other}\n", encoding="utf-8")
-        for target in ("pipe", "other.yml", "/etc/hosts", "../../.."):
-            with self.subTest(target):
-                name = self.put(f"x-gravitee-catalog:\n  schema: 1\n  id: acme-hub\n  name: A\n  description: B\n"
-                                f"  version: 1.0.0\n  lab: 1\ninclude:\n  - {target}\n")
-                began = time.monotonic()
-                with self.assertRaises(registry.CatalogError) as raised:
-                    manifest.read_catalog(name)
-                self.assertEqual(raised.exception.message, "catalog.yml: it may hold only the x-gravitee-catalog block.")
-                self.assertLess(time.monotonic() - began, 5, "nothing waited for a pipe")
 
     def test_a_variable_is_not_replaced(self):
         name = self.put("x-gravitee-catalog:\n  schema: 1\n  id: acme-hub\n  name: ${HOME}\n  description: B\n  version: 1.0.0\n  lab: 1\n")
