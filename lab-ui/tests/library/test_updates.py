@@ -114,7 +114,7 @@ class Versions(Case):
         self.patch(paths, "ROOT", self.top / "nowhere")
         updates.forget()
         self.assertEqual(updates.describe()["version"], None)
-        self.assertEqual(updates.blocked(), "This Lab is not a Git clone. Download the new version from GitHub")
+        self.assertEqual(updates._held(updates._local(), "v1.1.0"), "This Lab is not a Git clone. Download the new version from GitHub")
 
     def test_each_version_says_what_it_changed_newest_first_with_the_number_of_its_pull_request(self):
         self.at("v1.0.0")

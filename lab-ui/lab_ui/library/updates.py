@@ -79,17 +79,16 @@ def _cloned():
 
 
 def _versions():
-    """[(numbers, tag, commit, date)] of the tags of versions, newest first. `date`: when the tag was made (ISO), else its commit's.
+    """[(numbers, tag, date)] of the tags of versions, newest first. `date`: when the tag was made (ISO), else its commit's.
     Only the tags on the main branch of the origin, once it is known: a tag made on another commit is no version to offer."""
     on_main = ["--merged", MAIN] if _git("rev-parse", "--verify", "--quiet", MAIN)[0] == 0 else []
-    code, out = _git("for-each-ref", *on_main, "refs/tags/v*",
-                     "--format=%(refname:short)%00%(*objectname)%00%(objectname)%00%(creatordate:iso-strict)")
+    code, out = _git("for-each-ref", *on_main, "refs/tags/v*", "--format=%(refname:short)%00%(creatordate:iso-strict)")
     found = []
     for line in out.splitlines() if code == 0 else ():
-        tag, peeled, obj, date = (line.split("\0") + ["", "", ""])[:4]
+        tag, _, date = line.partition("\0")
         numbers = version_of(tag)
         if numbers:
-            found.append((numbers, tag, peeled or obj, date))
+            found.append((numbers, tag, date))
     return sorted(found, reverse=True)
 
 
@@ -101,7 +100,7 @@ def _repository():
 
 
 def _local():
-    """What this Lab is, from its repository: {cloned, commit, branch, base (numbers of the newest tag it holds), tag, ahead
+    """What this Lab is, from its repository: {cloned, commit, branch, base (numbers of the newest tag it holds), ahead
     (changes since), dirty (files of the repository changed here)}."""
     if not _cloned():
         return {"cloned": False}
@@ -119,8 +118,7 @@ def _local():
         ahead = int(count) if code == 0 and count.isdigit() else 0
     code, status = _git("status", "--porcelain", "--untracked-files=no")
     dirty = [line[3:].strip() for line in status.splitlines() if len(line) > 3] if code == 0 else []
-    return {"cloned": True, "commit": commit, "branch": branch or None, "base": base, "tag": tag if base else None,
-            "ahead": ahead, "dirty": dirty}
+    return {"cloned": True, "commit": commit, "branch": branch or None, "base": base, "ahead": ahead, "dirty": dirty}
 
 
 def _head():
@@ -168,12 +166,6 @@ def _newer(here, newest):
     return bool(here.get("cloned")) and newest is not None and (base is None or newest[0] > base)
 
 
-def blocked(found=None, target=None):
-    """Why this Lab cannot update itself to `target` (a tag) here, in the words the page shows; None when it can. Read now:
-    the update is refused or made on what the repository says at the click."""
-    return _held((found or _read())["local"], target) or _busy()
-
-
 def _held(here, target):
     """What of the repository keeps this Lab from moving to `target` (a tag) here, in the words the page shows; None when
     nothing does."""
@@ -186,18 +178,17 @@ def _held(here, target):
     if here["dirty"]:
         shown = ", ".join(here["dirty"][:3]) + (f" and {len(here['dirty']) - 3} more" if len(here["dirty"]) > 3 else "")
         return f"Files of the Lab were changed on this machine: {shown}. Undo or commit them to update"
-    if target:
-        code, _ = _git("merge-base", "--is-ancestor", "HEAD", target)
-        if code == 1:
-            return "This Lab has changes of its own that the new version does not have. Update it with Git"
-        # A file Git does not track where the new version adds one: the merge would stop on it
-        code_new, added = _git("diff", "--name-only", "--diff-filter=A", "HEAD", target)
-        code_own, untracked = _git("ls-files", "--others", "--exclude-standard")
-        if code_new == 0 and code_own == 0:
-            clash = sorted(set(added.splitlines()) & set(untracked.splitlines()))
-            if clash:
-                shown = ", ".join(clash[:3]) + (f" and {len(clash) - 3} more" if len(clash) > 3 else "")
-                return f"Files of this Lab that Git does not track are where the new version adds its own: {shown}. Move them to update"
+    code, _ = _git("merge-base", "--is-ancestor", "HEAD", target)
+    if code == 1:
+        return "This Lab has changes of its own that the new version does not have. Update it with Git"
+    # A file Git does not track where the new version adds one: the merge would stop on it
+    code_new, added = _git("diff", "--name-only", "--diff-filter=A", "HEAD", target)
+    code_own, untracked = _git("ls-files", "--others", "--exclude-standard")
+    if code_new == 0 and code_own == 0:
+        clash = sorted(set(added.splitlines()) & set(untracked.splitlines()))
+        if clash:
+            shown = ", ".join(clash[:3]) + (f" and {len(clash) - 3} more" if len(clash) > 3 else "")
+            return f"Files of this Lab that Git does not track are where the new version adds its own: {shown}. Move them to update"
     return None
 
 
@@ -224,8 +215,7 @@ def describe():
 def _changes(start, end, repository):
     """[{text, number, url}] of the commits between two commits on the first-parent line, newest first: the subjects of the
     merged pull requests, without their number, which is kept apart."""
-    span = f"{start}..{end}" if start else end
-    code, out = _git("log", "--first-parent", "--no-merges", f"--max-count={NOTES}", "--format=%s", span)
+    code, out = _git("log", "--first-parent", "--no-merges", f"--max-count={NOTES}", "--format=%s", f"{start}..{end}")
     found = []
     for subject in out.splitlines() if code == 0 else ():
         number = PULL.search(subject)
@@ -238,12 +228,11 @@ def _changes(start, end, repository):
 
 def releases():
     """The versions with what each changed, newest first, for the dialog of the Lab: {current: describe(), versions: [{version,
-    date, url, newer (than this Lab), current (this Lab's), changes}], repository, url (where all of them are listed)}. The oldest
-    version says what it changed since the first commit only when that is little."""
+    date, url, newer (than this Lab), current (this Lab's), changes}], repository, url (where all of them are listed)}."""
     found = _read()
     repository, versions, base = _repository(), found["versions"], found["local"].get("base")
     shown = []
-    for index, (numbers, tag, commit, date) in enumerate(versions):
+    for index, (numbers, tag, date) in enumerate(versions):
         before = versions[index + 1][1] if index + 1 < len(versions) else None
         shown.append({"version": said(numbers), "date": date or None, "newer": base is None or numbers > base,
                       "current": numbers == base,
@@ -333,7 +322,8 @@ def update(version):
     base = found["local"].get("base")
     if base is not None and match[0] <= base:
         raise _not_now(f"This Lab is {said(base)} already")
-    reason = blocked(found, match[1])
+    # Read now: the update is refused or made on what the repository says at the click
+    reason = _held(found["local"], match[1]) or _busy()
     if reason:
         raise _not_now(reason)
     tag, detached, before = match[1], found["local"]["branch"] is None, found["local"]["commit"]
