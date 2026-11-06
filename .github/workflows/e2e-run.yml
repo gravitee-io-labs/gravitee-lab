@@ -38,7 +38,7 @@ on:
         type: string
         default: ""
       items:
-        description: "changed (what the change touches), all, canary, or items as kind:id separated by spaces"
+        description: "changed (what the change touches), canary, or items as kind:id separated by spaces"
         type: string
         default: changed
       base:
@@ -134,11 +134,10 @@ jobs:
         run: |
           set -f   # what is typed is split into words below, and no word is a pattern for files
           case "$ITEMS" in
-            all) python3 -I lab/.github/scripts/e2e_matrix.py --default-catalog --all --github-output ;;
-            canary) python3 -I lab/.github/scripts/e2e_matrix.py --default-catalog --canary --github-output ;;
-            changed | "") python3 -I lab/.github/scripts/e2e_matrix.py --default-catalog --changed "${BASE:-origin/main}" HEAD --in engine --github-output ;;
+            canary) python3 -I lab/.github/scripts/e2e_matrix.py --canary --github-output ;;
+            changed | "") python3 -I lab/.github/scripts/e2e_matrix.py --changed "${BASE:-origin/main}" HEAD --github-output ;;
             # Words after --, never an option and never a command: the script checks that each one names an item
-            *) python3 -I lab/.github/scripts/e2e_matrix.py --default-catalog --github-output --items -- $ITEMS ;;
+            *) python3 -I lab/.github/scripts/e2e_matrix.py --github-output --items -- $ITEMS ;;
           esac
 
   # Every image exists: no secret but the key that reads, so it is for any pull request

@@ -496,19 +496,16 @@ class PlanShellTest(ShellTest):
         return self.called()
 
     def test_what_a_change_of_the_engine_touches(self):
-        self.assertEqual(self.matrix(), ["-I", "lab/.github/scripts/e2e_matrix.py", "--default-catalog", "--changed", "origin/main", "HEAD",
-                                         "--in", "engine", "--github-output"])
-        self.assertEqual(self.matrix(BASE="b" * 40, ITEMS="")[3:6], ["--changed", "b" * 40, "HEAD"])
+        self.assertEqual(self.matrix(), ["-I", "lab/.github/scripts/e2e_matrix.py", "--changed", "origin/main", "HEAD", "--github-output"])
+        self.assertEqual(self.matrix(BASE="b" * 40, ITEMS="")[2:5], ["--changed", "b" * 40, "HEAD"])
 
-    def test_every_item_and_the_canary(self):
-        self.assertEqual(self.matrix(ITEMS="all")[2:], ["--default-catalog", "--all", "--github-output"])
-        self.assertEqual(self.matrix(ITEMS="canary")[2:], ["--default-catalog", "--canary", "--github-output"])
+    def test_the_canary(self):
+        self.assertEqual(self.matrix(ITEMS="canary")[2:], ["--canary", "--github-output"])
 
     def test_the_items_a_person_named_come_after_two_dashes_and_no_word_is_a_pattern_for_files(self):
         (self.folder / "a1").write_text("", encoding="utf-8")
         got = self.matrix(ITEMS="--all playground:a* addon:b  setup:@hub/c")
-        self.assertEqual(got[2:], ["--default-catalog", "--github-output", "--items", "--", "--all", "playground:a*", "addon:b",
-                                   "setup:@hub/c"])
+        self.assertEqual(got[2:], ["--github-output", "--items", "--", "--all", "playground:a*", "addon:b", "setup:@hub/c"])
 
 
 class StepsShellTest(ShellTest):
