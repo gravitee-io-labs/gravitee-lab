@@ -2,8 +2,8 @@
 
 import { $, $$, esc, icon, setHTML, loading, ago, compareVersions, api, store, drafts } from "../core.js";
 import { Pager, emptyHtml, confirmEffects, refocus, actionButton, paintActions, paintBusy, dockerDown,
-  noteBadge, pluginWords, applyBadge, behindTip, behindWhy, setOff } from "../components/ui.js";
-import { runJob, busy, runPlatform } from "../activity/jobs.js";
+  noteBadge, pluginWords, setOff } from "../components/ui.js";
+import { runJob, busy } from "../activity/jobs.js";
 import { Combo, CategoryFilter } from "../components/combo.js";
 import { openFile } from "../dialogs/editor.js";
 import { License } from "../dialogs/license.js";

@@ -1,9 +1,9 @@
 // Images: the version of every component and, for the Gravitee ones, the registry it comes from.
 // Changes are a draft until they are saved.
 
-import { $, esc, icon, setHTML, loading, ago, compareVersions, api, store, drafts, recall, remember, VARIANTS, ofPlatform } from "../core.js";
+import { $, esc, icon, setHTML, loading, ago, compareVersions, api, store, drafts, recall, remember, VARIANTS, ofPlatform, bareTag } from "../core.js";
 import { toast, emptyHtml, applyBadge, dockerDown, paintProgress, paintBusy, refocus, actionButton,
-  paintActions, statusHtml, noteBadge, progressBar, setOff, behindTip, behindWhy } from "../components/ui.js";
+  paintActions, statusHtml, noteBadge, progressBar, setOff } from "../components/ui.js";
 import { runJob, runPlatform, busy, confirmApply, savedOnly } from "../activity/jobs.js";
 import { Combo } from "../components/combo.js";
 
@@ -118,12 +118,11 @@ async function tagsOf(c) {
   return tags[key];
 }
 
-// A tag's variant (the system its image is built on, "default" for none), the tag without it, and what kind of tag
-// it is: one that moves (latest, 4.9), a release (4.9.2), or a build
+// A tag's variant (the system its image is built on, "default" for none), and what kind of tag it is: one that moves
+// (latest, 4.9), a release (4.9.2), or a build
 const variantOf = (tag) => VARIANTS.find((v) => tag.endsWith(`-${v}`)) || "default";
-const baseOf = (tag) => { const v = variantOf(tag); return v === "default" ? tag : tag.slice(0, -(v.length + 1)); };
 function kindOf(tag) {
-  const base = baseOf(tag);
+  const base = bareTag(tag);
   if (/latest/.test(base) || /^\d+(\.\d+)?$/.test(base)) return "moving";
   if (/^v?\d+\.\d+\.\d+/.test(base)) return "release";
   return "build";
@@ -336,7 +335,7 @@ function pickTag(button, c) {
       return [
         { label: "Same as", items: follows.filter((it) => it.name.toLowerCase().includes(q)) },
         group("Moving tags", kind("moving"), newest),
-        group("Releases", kind("release"), (a, b) => compareVersions(baseOf(a.name), baseOf(b.name))),
+        group("Releases", kind("release"), (a, b) => compareVersions(bareTag(a.name), bareTag(b.name))),
         group("Builds", kind("build"), newest),
       ];
     },

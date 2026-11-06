@@ -3,7 +3,7 @@
 import { $, $$, esc, icon, setHTML, loading, api, store, router, recallObject, remember, bareTag, ofPlatform } from "../core.js";
 import { confirmDialog, confirmPlan, openMenu, paintLinks, progressBar, GAP, fileButtons,
   keyed, dockerDown, onKnown, serviceVersion, serviceCells, serviceOpen, actionButton,
-  paintActions, showing, noteBadge, itemLink, applyBadge, behindTip, behindWhy, statusHtml, holdOff } from "../components/ui.js";
+  paintActions, showing, noteBadge, itemLink, statusHtml, holdOff } from "../components/ui.js";
 import { runJob, runPlatform, showOutput } from "../activity/jobs.js";
 import { recordName } from "../platform/places.js";
 import { onCloud, coreOf, runCore, gatewayWhy } from "../platform/core-choice.js";

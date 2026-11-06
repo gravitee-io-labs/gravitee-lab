@@ -663,9 +663,7 @@ export function applyBadge(reason, cls = "pill warn", causes = null, more = []) 
   return tipHtml(`Apply needed${icon("info")}`, card || (reasons.length ? reasons : "Differs from what is saved"), cls, "Apply needed", { said, title: false });
 }
 
-// What the platform says runs behind what is saved: a line for each product, add-on or playground, as the state gives them
-export const behindTip = (platform) => platform.behind.map((row) => row.reason);
-// ... and as the popover of the head and the notice, when the server gives the causes
+// What the platform says runs behind what is saved, as the popover of the head and the notice, when the server gives the causes
 export const behindWhy = (platform) => (platform.behind.length && platform.behind.every((row) => row.causes) ? behindCard(platform.behind) : null);
 
 // Where a bubble goes: under its button, its left edge at the button's, kept 12 px inside the window; above it when there is more room
