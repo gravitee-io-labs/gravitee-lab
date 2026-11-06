@@ -1070,8 +1070,8 @@ def matrix(args):
 # ---------------------------------------------------------------------------------------------------------------------
 
 def explain_command(args):
-    """The long form of a rule code: the rule, why it exists, the fix in full and what the Lab does with the same file at Add.
-    A text that is no code is a usage error, with the families that exist."""
+    """The long form of a rule code: the rule, its fix and why it exists. A text that is no code is a usage error, with the
+    families that exist."""
     explain = _lab("explain")
     code = args.code.strip().upper()
     table = explain.table()

@@ -646,7 +646,7 @@ class Explain(unittest.TestCase):
         text = explain.explain("st05")
         self.assertTrue(text.startswith("ST05 (error)\n"))
         for part in ("Rule     .env, or .env.* other than .env.example", "Message  {path} is an environment file. Fix: git rm --cached {path}",
-                     "Why      ", "At Add   The Lab does not install it"):
+                     "Why      "):
             self.assertIn(part, text)
 
     def test_a_code_with_two_messages_shows_both(self):
@@ -665,8 +665,7 @@ class Explain(unittest.TestCase):
         for module in (structure, secrets, commits, guides, dockerfiles, images):
             for code in module.RULES:
                 self.assertIn(code, table)
-                self.assertIn(code, explain.DETAILS, f"{code} has no why and no word on the Lab at Add")
-                self.assertTrue(explain.DETAILS[code].why and explain.DETAILS[code].lab, code)
+                self.assertTrue(explain.DETAILS.get(code), f"{code} has no why")
                 self.assertIn("Why      ", explain.explain(code))
 
     def test_the_codes_of_every_family_are_known(self):
@@ -681,7 +680,7 @@ class Explain(unittest.TestCase):
     def test_no_text_has_a_middle_dot_and_every_message_names_its_fix_or_is_the_fix(self):
         missing = set()
         for code, entry in explain.table().items():
-            for text in (entry.message, entry.rule, entry.why, entry.lab, *entry.more):
+            for text in (entry.message, entry.rule, entry.why, *entry.more):
                 self.assertNotIn("·", text, code)
             if "Fix" not in entry.message:
                 missing.add(code)
