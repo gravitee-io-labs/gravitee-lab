@@ -1724,6 +1724,12 @@ class Files(Case):
         self.assertEqual(envfiles.read(".env")["COMPOSE_FILE"], "docker-compose.yml:.lab/on.yml")
         self.assertEqual(oct((self.root / ".env").stat().st_mode & 0o777), "0o600")
 
+    def test_prepare_leaves_a_env_that_is_not_utf8_as_it_is(self):
+        latin = "# R\u00e9glages\nA=1\n".encode("latin-1")
+        (self.root / ".env").write_bytes(latin)
+        layers.prepare()
+        self.assertEqual((self.root / ".env").read_bytes(), latin)
+
     def test_a_fresh_clone_starts_with_nothing_on(self):
         layers.prepare()
         self.assertEqual((self.root / paths.ON_FILE).read_text(encoding="utf-8"), "")
@@ -1795,6 +1801,15 @@ class Files(Case):
         self.assertEqual(layers.current(self.project)["missing"], ["hybrid"])
         (self.root / ".lab/catalogs/fixture/addons/hybrid/.env").unlink()
         self.assertEqual(layers.current(self.project)["missing"], ["hybrid"])
+
+    def test_a_setting_in_the_root_env_is_no_missing_setting_for_compose_reads_that_file_first(self):
+        env = paths.unit_env("addon", "hybrid")
+        self.write(env, "HYBRID_CLOUD_TOKEN=\n")
+        self.write(".env", "HYBRID_CLOUD_TOKEN=token\n")
+        self.assertEqual(layers.current(self.project)["missing"], [])
+        self.write(".env", "HYBRID_CLOUD_TOKEN=\n")
+        self.write(env, "HYBRID_CLOUD_TOKEN=token\n")
+        self.assertEqual(layers.current(self.project)["missing"], ["hybrid"], "the root's empty value wins, as with Compose")
 
     def applied(self, plan):
         """The job layers.apply() starts for a plan: (title, steps, its other arguments)."""

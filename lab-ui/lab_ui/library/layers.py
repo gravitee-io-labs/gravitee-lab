@@ -78,13 +78,14 @@ def conflicts(project, ids):
 
 
 def _unset(project):
-    """The add-ons with a required setting left without a value in their .env: {id: [the names of those settings]}. The .env
-    of a catalog's add-on is read as a catalog's file is (project._dotenv): one that is a link or a pipe holds none."""
+    """The add-ons with a required setting left without a value in their .env or the root one, which Compose gives
+    precedence: {id: [the names of those settings]}. The .env of a catalog's add-on is read as a catalog's file is
+    (project._dotenv): one that is a link or a pipe holds none."""
     found = {}
     for aid, addon in sorted(project["addons"].items()):
         required = [setting["key"] for setting in addon["settings"] if setting["required"]]
         if required:
-            values = _dotenv(addon["env_file"])
+            values = {**_dotenv(addon["env_file"]), **_dotenv(paths.ENV_FILE)}
             lacking = [key for key in required if not values.get(key)]
             if lacking:
                 found[aid] = lacking
@@ -1378,10 +1379,13 @@ def prepare():
     if not (root / paths.ON_FILE).exists():
         write(None, [])
     env = root / paths.ENV_FILE
-    if env.is_file() and "COMPOSE_FILE" not in envfiles.read(paths.ENV_FILE):
-        text = env.read_text(encoding="utf-8")
-        paths.write_atomic(env, text + ("" if text.endswith("\n") or not text else "\n") + COMPOSE_FILE_LINES,
-                           mode=0o600)
+    try:
+        if env.is_file() and "COMPOSE_FILE" not in envfiles.read(paths.ENV_FILE):
+            text = env.read_text(encoding="utf-8")
+            paths.write_atomic(env, text + ("" if text.endswith("\n") or not text else "\n") + COMPOSE_FILE_LINES,
+                               mode=0o600)
+    except ValueError:   # the person's own bytes: nothing is added to what cannot be read whole
+        pass
 
 
 def prepare_catalogs():
