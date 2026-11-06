@@ -201,11 +201,8 @@ def _named(project, chosen):
 
 
 def name(project):
-    """The name of the place of a Cloud choice, 'Development (My Account)'; None for This machine."""
-    chosen = current(project)
-    if chosen["place"] == MACHINE:
-        return None
-    record, environment = _named(project, chosen)
+    """The name of the place of a Cloud choice, 'Development (My Account)'."""
+    record, environment = _named(project, current(project))
     return places.label(record["name"], environment)
 
 
