@@ -307,8 +307,7 @@ def make_plan(root: str, change: Optional[str], sha: Optional[str], ref: str, mo
     for key in selected:
         item = engine.lab_item(ns, key)
         if key in lacking:
-            if folder_references_license(os.path.join(where, os.path.dirname(lacking[key].file))) \
-                    or references_license(tree.text(lacking[key].file, TEXT_LIMIT) or ""):
+            if unit_references_license(lacking[key], where, tree):
                 raise Unavailable(f"{item} needs a setting Compose cannot resolve without one, and its files reference "
                                   f"{LICENSE_VARIABLE}, so the plan cannot tell whether a service of its own reads it: it is not tried")
             notes.append(f"{item} needs settings: it is planned on the defaults and the run will say it was not tried")

@@ -334,6 +334,13 @@ class License(Fixture):
                       self.err.getvalue())
         self.assertEqual(self.outputs(), {})
 
+    def test_a_setup_that_needs_a_setting_is_judged_by_its_own_file_and_not_by_the_other_setups(self):
+        self.put(self.repo, "setups/lacking.yml", "services: {}\n")
+        self.put(self.repo, "setups/other.yml", "services:\n  a:\n    environment:\n      L: ${GRAVITEE_LICENSE}\n")
+        self.refused = {"setup:lacking": ci.Refused("setup", "lacking", "setups/lacking.yml", (
+            "Cannot be read: error while interpolating services.a.environment.KEY: required variable KEY is missing a value",))}
+        self.assertEqual(self.plan("--items", words=["setup:lacking"], change=False), 0, self.err.getvalue())
+
     def test_a_unit_the_trust_policy_blocks_ends_the_plan_and_is_never_left_out(self):
         self.refused = {"addon:mock": ci.Refused("addon", "mock", "addons/mock/compose.yml", ("Mounts the Docker socket",), "T10")}
         self.assertEqual(self.plan("--all", change=False), 1)
