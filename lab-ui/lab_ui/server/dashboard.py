@@ -2,14 +2,13 @@
 their channel in the registry, the gateway a platform of the Cloud runs here against the latest stable one, and Docker.
 What runs and what is on is the state's (`/api/state`), which the page draws live. What Docker says of
 itself and of its Compose is what the state reads (compose.docker_info, compose_version), what it holds is kept for a
-minute and the registry's answers for an hour; the load of the containers comes from one `docker stats` that every page
-following it shares."""
+minute and the registry's answers for an hour; the load of the containers comes from a `docker stats --no-stream` that the
+pages following it share."""
 
 import http.client
 import json
 import os
 import re
-import subprocess
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -23,8 +22,7 @@ DOCKER_TTL = 60       # seconds what Docker holds is kept: a quick back and fort
 DF_WAIT = 0.4         # seconds a read lasts at the most for what Docker holds, the slow one, before the page is drawn without it
 LATEST_TTL = 3600     # seconds the versions a registry lists are kept
 RETRY = 60            # seconds before a registry that did not answer is asked again
-STALE = 3             # seconds without a sample of `docker stats` after which no container is taken to run
-RESTART = 2           # seconds before `docker stats` is started again when it ended on its own
+LOAD_TTL = 1          # seconds a reading of the load is kept
 NAMES_TTL = 10        # seconds the names of the lab's containers are kept
 TYPES = ("images", "containers", "volumes", "cache")   # what `docker system df` counts, in the order it lists them
 # Docker writes sizes in powers of 1000 (`system df`: 58.89GB) or of 1024 (`stats`: 731.8MiB)
@@ -32,10 +30,6 @@ UNITS = {"B": 1,
          **{unit: 1000 ** power for power, unit in enumerate(["kB", "MB", "GB", "TB", "PB"], 1)},
          **{unit: 1024 ** power for power, unit in enumerate(["KiB", "MiB", "GiB", "TiB", "PiB"], 1)}}
 SIZE = re.compile(r"\s*(\d+(?:\.\d+)?)\s*([A-Za-z]+)")
-# What `docker stats` writes besides the lines: escapes that move the cursor or clear the screen. A screen drawn again
-# begins with the cursor sent home
-ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
-REDRAW = re.compile(r"\x1b\[(?:2J|H)")
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -246,12 +240,6 @@ def _percent(text):
         return 0.0
 
 
-def _stats_process():
-    """The `docker stats` that reads the load, started as a job's command is (compose.spawn): the Lab UI ends it as it
-    exits. None while it exits."""
-    return compose.spawn(["docker", "stats", "--format", "{{json .}}"], subprocess.DEVNULL)
-
-
 def lab_names():
     """The names of the containers of this project, which is the lab's: what Docker runs for something else is not its
     load. Kept a few seconds; None when they cannot be told, and the load is then every container's."""
@@ -267,96 +255,22 @@ def lab_names():
         return None
 
 
-class Stats:
-    """The load of the containers, from one `docker stats` for every page that follows it: the first to join starts it,
-    the last to leave kills it, and it does not run with nobody there. It draws its screen about twice a second, an
-    object per container: a sample is what lies between two screens (told by the cursor sent home, a blank line, or a
-    container that comes twice), and the latest complete one is kept. It is started again when it ends on its own,
-    Docker having stopped. `names`: the containers that count (the lab's, `lab_names`), every one when None."""
-
-    def __init__(self, spawn=_stats_process, clock=time.monotonic):
-        self.spawn, self.clock, self.lock = spawn, clock, threading.Lock()
-        self.clients, self.closed, self.process, self.thread = 0, None, None, None
-        self.batch, self.last, self.since, self.names = {}, None, 0, None
-
-    def join(self):
-        with self.lock:
-            self.clients += 1
-            if self.clients == 1:
-                self.closed, self.batch, self.last, self.since = threading.Event(), {}, None, self.clock()
-                self.thread = threading.Thread(target=self._run, args=(self.closed,), daemon=True)
-                self.thread.start()
-
-    def leave(self):
-        with self.lock:
-            self.clients -= 1
-            if self.clients == 0:
-                self.closed.set()
-                if self.process:
-                    self.process.kill()
-
-    def _start(self, closed):
-        """A `docker stats` started, unless the last client left meanwhile: none outlives them."""
-        with self.lock:
-            if closed.is_set():
-                return None
-            self.process = self.spawn()
-            return self.process
-
-    def _run(self, closed):
-        while True:
-            try:
-                process = self._start(closed)
-            except OSError:   # no docker command yet: it is asked again, Docker can be installed while the page is open
-                if closed.wait(RESTART):
-                    return
-                continue
-            if process is None:
-                return
-            for line in process.stdout:
-                if closed.is_set():
-                    break
-                self.feed(line)
-            process.wait()   # reaped: it ended, or was killed
-            compose.release(process)
-            if closed.wait(RESTART):
-                return
-
-    def feed(self, line):
-        """One line of `docker stats`."""
-        text = ANSI.sub("", line).strip()
-        if REDRAW.search(line) or not text:
-            self._finish()
-        row = _object(text)
-        key = row.get("ID") or row.get("Name")
-        if not key or (self.names is not None and row.get("Name") not in self.names):
-            return
-        if key in self.batch:
-            self._finish()
-        self.batch[key] = (_percent(row.get("CPUPerc")), size(str(row.get("MemUsage", "")).split("/")[0]), row.get("Name") or key)
-
-    def _finish(self):
-        if self.batch:
-            self.last = (self.clock(), sum(cpu for cpu, _, _ in self.batch.values()),
-                         sum(memory for _, memory, _ in self.batch.values()), len(self.batch), list(self.batch.values()))
-            self.batch = {}
-
-    def read(self, cores):
-        """The load as the stream sends it, {cpu_percent, memory_used, containers, top, at}: the CPU of the containers as a
-        share of the cores Docker has, 0 to 100, and `top`, each container's own, [{name, cpu, memory}] from the heaviest in
-        memory. None while the first sample is on its way. No sample for STALE seconds means nothing runs (`docker stats`
-        says nothing without a container) or Docker does not answer."""
-        last = self.last
-        if self.clock() - (last[0] if last else self.since) > STALE:
-            cpu, memory, count, each = 0.0, 0, 0, []
-        elif last:
-            _, cpu, memory, count, each = last
-        else:
-            return None
-        top = [{"name": name, "cpu": round(min(100.0, share / cores), 1), "memory": used}
-               for share, used, name in sorted(each, key=lambda one: -one[1])]
-        return {"cpu_percent": round(min(100.0, cpu / cores), 1), "memory_used": memory, "containers": count, "top": top,
-                "at": int(time.time())}
-
-
-STATS = Stats()
+def load(cores):
+    """The load of the lab's containers as the stream sends it, {cpu_percent, memory_used, containers, top, at}: the CPU of the
+    containers as a share of the cores Docker has, 0 to 100, and `top`, each container's own, [{name, cpu, memory}] from the
+    heaviest in memory. One `docker stats --no-stream`, about two seconds, kept LOAD_TTL seconds so that the pages that follow
+    it share it. Nothing runs, or Docker does not answer: no load. The containers that count are the lab's (`lab_names`), every
+    one when they cannot be told."""
+    def ask():
+        _, out, _ = compose.run(["docker", "stats", "--no-stream", "--format", "{{json .}}"], timeout=10)
+        names, found = lab_names(), []
+        for row in map(_object, out.splitlines()):
+            key = row.get("ID") or row.get("Name")
+            if key and (names is None or row.get("Name") in names):
+                found.append((_percent(row.get("CPUPerc")), size(str(row.get("MemUsage", "")).split("/")[0]), row.get("Name") or key))
+        return found
+    each = compose.CACHE.get("dashboard:load", LOAD_TTL, ask)
+    top = [{"name": name, "cpu": round(min(100.0, share / cores), 1), "memory": used}
+           for share, used, name in sorted(each, key=lambda one: -one[1])]
+    return {"cpu_percent": round(min(100.0, sum(one[0] for one in each) / cores), 1), "memory_used": sum(one[1] for one in each),
+            "containers": len(each), "top": top, "at": int(time.time())}

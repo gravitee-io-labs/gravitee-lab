@@ -44,7 +44,7 @@ ERRORS = [(TooLarge, 413), (ValueError, 400), (paths.NotFound, 404), (RuntimeErr
 TYPES = {".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".png": "image/png"}
 STAMP = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d")   # a log line's timestamp, as `logs --timestamps` writes it
 FOLLOW_AGAIN = 2   # seconds between two looks at a container whose logs ended, until it runs again
-STATS_EVERY = 1    # seconds between two events of the containers' load
+STATS_EVERY = 1    # seconds between an event of the containers' load and the reading of the next
 KEEP_ALIVE = 15    # seconds a stream says nothing before it writes a comment: that is how a closed page is noticed
 # The page is HTML in the origin that holds the keys to Docker, and a guide is third-party HTML in it: it runs only the scripts it
 # loads itself (its own files and the pinned directories of the CDN libraries it loads with their hash, never inline), and nothing
@@ -667,21 +667,13 @@ def stream_logs(req):
 
 
 def stream_stats(req):
-    """The load of the lab's containers, an event a second: {cpu_percent, memory_used, containers, top, at}. The one
-    `docker stats` that reads it runs while a page follows the stream (dashboard.STATS); a closed page is noticed by the
-    write."""
+    """The load of the lab's containers, an event every few seconds (dashboard.load): {cpu_percent, memory_used, containers,
+    top, at}. Nothing reads it once no page follows the stream: a closed page is noticed by the write."""
     cores = dashboard.cores()
-    dashboard.STATS.join()
-    try:
-        req.sse_start()
-        while True:
-            dashboard.STATS.names = dashboard.lab_names()
-            load = dashboard.STATS.read(cores)
-            if load:   # none while the first sample is on its way
-                req.sse_send(load)
-            time.sleep(STATS_EVERY if load else 0.1)
-    finally:
-        dashboard.STATS.leave()
+    req.sse_start()
+    while True:
+        req.sse_send(dashboard.load(cores))
+        time.sleep(STATS_EVERY)
 
 
 def send_batches(req, lines):

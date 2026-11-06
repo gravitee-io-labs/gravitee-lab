@@ -772,25 +772,6 @@ class Products(LabUI):
         login.assert_called_with("graviteeio.azurecr.io", None)
 
 
-class FakeStats:
-    """The `docker stats` that pages share: who joined and left, and the loads it reads in turn (None: the first sample
-    is on its way), the last one for good."""
-
-    def __init__(self, *loads):
-        self.loads, self.cores = list(loads), []
-        self.joined, self.left = threading.Event(), threading.Event()
-
-    def join(self):
-        self.joined.set()
-
-    def leave(self):
-        self.left.set()
-
-    def read(self, cores):
-        self.cores.append(cores)
-        return self.loads.pop(0) if len(self.loads) > 1 else self.loads[0]
-
-
 class Dashboard(LabUI):
     """The Dashboard's data, and the load of the containers as an event stream."""
 
@@ -814,9 +795,15 @@ class Dashboard(LabUI):
         status, _, body = self.request("GET", "/api/dashboard")
         self.assertEqual((status, json.loads(body)), (409, {"error": "Docker said no"}))
 
-    def test_the_load_is_streamed_once_the_first_sample_is_there_and_the_last_page_leaving_is_noticed(self):
-        stats = self.patch(api.dashboard, "STATS", FakeStats(None, None, {"cpu_percent": 2.5, "containers": 3},
-                                                            {"cpu_percent": 7.0, "containers": 3}))
+    def test_the_load_is_streamed_and_a_page_that_leaves_is_noticed(self):
+        loads = iter(({"cpu_percent": 2.5, "containers": 3}, {"cpu_percent": 7.0, "containers": 3}))
+        stopped = threading.Event()
+
+        def load(cores):
+            self.assertEqual(cores, 6)
+            stopped.clear()
+            return next(loads, {"cpu_percent": 7.0, "containers": 3})
+        self.patch(api.dashboard, "load", load)
         self.patch(api.dashboard, "cores", return_value=6)
         self.patch(api, "STATS_EVERY", 0.01)
         connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=10)
@@ -831,38 +818,26 @@ class Dashboard(LabUI):
             line, blank = response.readline(), response.readline()
             events.append(json.loads(line.decode()[len("data: "):]))
             self.assertEqual(blank, b"\n")
-        # Nothing was sent while there was no sample; every event is one the page can draw
         self.assertEqual(events, [{"cpu_percent": 2.5, "containers": 3}, {"cpu_percent": 7.0, "containers": 3},
                                   {"cpu_percent": 7.0, "containers": 3}])
-        self.assertTrue(stats.joined.is_set())
-        self.assertFalse(stats.left.is_set())
-        response.close()   # the page was closed: the next write fails
+        response.close()   # the page was closed: a write fails, and nothing is read any more
         connection.close()
-        self.assertTrue(stats.left.wait(5))
-        self.assertEqual(set(stats.cores), {6})
-
-    def test_a_page_that_goes_before_the_stream_starts_leaves_it_too(self):
-        stats = FakeStats({"cpu_percent": 1})
-        self.patch(api.dashboard, "STATS", stats)
-        self.patch(api.dashboard, "cores", return_value=6)
-
-        class Request:
-            def sse_start(self):
-                raise BrokenPipeError
-        with self.assertRaises(BrokenPipeError):
-            api.stream_stats(Request())
-        self.assertTrue(stats.joined.is_set() and stats.left.is_set())
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not stopped.is_set():
+            stopped.set()
+            time.sleep(0.2)
+        self.assertTrue(stopped.is_set(), "the load is still read")
 
     def test_it_is_for_the_lab_uis_own_page(self):
         read = self.patch(api.dashboard, "read")
-        stats = self.patch(api.dashboard, "STATS", FakeStats({"cpu_percent": 1}))
+        load = self.patch(api.dashboard, "load")
         for path in ("/api/dashboard", "/api/dashboard?refresh=1", "/api/dashboard/stats"):
             status, _, _ = self.request("GET", path, headers={"Sec-Fetch-Site": "cross-site"})
             self.assertEqual(status, 403, path)
             status, _, _ = self.request("GET", path, headers={"Host": "evil.example:9000"})
             self.assertEqual(status, 403, path)
         read.assert_not_called()
-        self.assertFalse(stats.joined.is_set())
+        load.assert_not_called()
 
 
 class FakeLogs:

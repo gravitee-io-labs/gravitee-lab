@@ -1825,7 +1825,7 @@ test("a chart is built once: a sample changes the figure beside it and the chart
   assert.equal(value("cpu"), "12%");
   assert.ok(section.querySelector('[data-chart="cpu"]') === svg && svg.querySelector(".chart-line") === path, "the same elements: nothing is built again");
   const before = line("cpu");
-  frame(1004);
+  frame(1006);
   assert.notEqual(line("cpu"), before, "a frame moves it");
   assert.equal(queued.size, 1, "and asks for the next");
   // A draw of the page (the lab moved) leaves the chart and its figure as they are
@@ -1835,12 +1835,12 @@ test("a chart is built once: a sample changes the figure beside it and the chart
   dashboardPage.hide();
 });
 
-test("the line ends at the right edge a second and a half behind the clock, read between the two samples around it, and slides left as the clock goes on", async () => {
+test("the line ends at the right edge three seconds and a half behind the clock, read between the two samples around it, and slides left as the clock goes on", async () => {
   await charts();
   send(1000, 10);
   send(1001, 30);
   send(1002, 50);
-  frame(1003);   // the edge is at 1001.5: half way between 30 and 50
+  frame(1005);   // the edge is at 1001.5: half way between 30 and 50
   let [first, ...rest] = points(line("cpu"));
   const end = rest.at(-1);
   assert.equal(end[0], 240, "the right edge");
@@ -1849,7 +1849,7 @@ test("the line ends at the right edge a second and a half behind the clock, read
   assert.deepEqual(points(line("cpu", "dot")), [[240, 5]], "the dot is at the edge");
   // As the clock goes on the same line moves left and a new end comes: no step, the same samples at other places
   const at = (seconds) => { frame(seconds); return points(line("cpu")); };
-  const x1 = at(1003.2)[0][0], x2 = at(1003.4)[0][0], x3 = at(1003.6)[0][0];
+  const x1 = at(1005.2)[0][0], x2 = at(1005.4)[0][0], x3 = at(1005.6)[0][0];
   assert.ok(x1 < first[0] && x2 < x1 && x3 < x2, "it goes left at each frame");
   assert.ok(Math.abs((x1 - x2) - (x2 - x3)) < 0.2 && x1 - x2 < 6, "a little and the same at each: a continuous slide, not a step a second");
   dashboardPage.hide();
@@ -1874,13 +1874,13 @@ test("a chart always shows the last minute: its scale never changes, the line gr
   await charts();
   send(1000);
   send(1001);
-  frame(1002.5);   // the edge is at 1001: a second of load in the 60 that make the width
+  frame(1004.5);   // the edge is at 1001: a second of load in the 60 that make the width
   assert.equal(points(line("cpu"))[0][0], 236);
   for (let at = 1002; at <= 1030; at++) send(at);
-  frame(1031.5);   // 30 seconds of it: half the width, at the same scale
+  frame(1033.5);   // 30 seconds of it: half the width, at the same scale
   assert.equal(points(line("cpu"))[0][0], 120);
   for (let at = 1031; at <= 1070; at++) send(at);
-  frame(1071.5);   // 70 seconds sent, one minute shown: the first is gone to the left
+  frame(1073.5);   // 70 seconds sent, one minute shown: the first is gone to the left
   assert.ok(points(line("cpu"))[0][0] < 0, "what is older is at the left of the edge, where the chart cuts it");
   assert.equal(points(line("cpu")).at(-1)[0], 240);
   assert.match(section.querySelector('[data-chart="cpu"] clipPath rect').getAttribute("x"), /^0$/);
@@ -1892,10 +1892,10 @@ test("a sample that is late holds the last value for a few seconds, then the lin
   send(1000, 20);
   send(1001, 20);
   send(1002, 20);
-  frame(1005);   // the edge is at 1003.5, a second and a half past the last sample: held
+  frame(1007);   // the edge is at 1003.5, a second and a half past the last sample: held
   assert.equal(points(line("cpu")).at(-1)[0], 240);
   assert.equal(points(line("cpu", "dot")).length, 1);
-  frame(1010);   // 6 seconds late: nothing was listening
+  frame(1012);   // 6 seconds late: nothing was listening
   assert.ok(points(line("cpu")).at(-1)[0] < 240, "the line ends before the edge");
   assert.equal(line("cpu", "dot"), "", "and no dot");
   dashboardPage.hide();
@@ -1948,7 +1948,7 @@ test("a chart has the numbers of its scale beside it, so that a line is read aga
   assert.deepEqual([plot("cpu"), plot("memory")], ["Last 60 seconds, 0 to 10%", "Last 60 seconds, 0 to 7.7 GB"], "and what the line covers");
   // A high point raises the top of the CPU's scale, at once, and its tooltip says it
   for (let at = 1000; at < 1004; at++) send(at, at === 1002 ? 42.4 : 5);
-  frame(1004.5);
+  frame(1006.5);
   assert.deepEqual(axis("cpu"), ["42%", "0"]);
   assert.equal(plot("cpu"), "Last 60 seconds, 0 to 42%");
   assert.equal(axis("memory")[0], "7.7 GB", "the memory's does not move");
@@ -2002,6 +2002,7 @@ test("folded, Resources draws no chart and asks for no frame, while its figures 
   assert.equal(value("cpu"), "9.0%", "the line says the load");
   assert.equal(queued.size, 0, "and asks for no frame");
   assert.equal(line("cpu"), before, "the chart is not drawn");
+  clock = 1006 * 1000;
   unfold(true);
   assert.notEqual(line("cpu"), before, "drawn as it unfolds");
   assert.equal(queued.size, 1, "and moving");
