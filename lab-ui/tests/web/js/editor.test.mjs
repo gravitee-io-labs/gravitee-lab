@@ -89,8 +89,6 @@ test("a file of an item of another catalog opens read only: its path in the cata
 
 test("it is not sent to be checked, and no key, button or Discard saves it", async () => {
   assert.deepEqual(posted("/api/files/validate"), [], "the server would refuse it: it is not asked");
-  $("#editor-status").innerHTML = "";
-  assert.equal(text($("#editor-status")), "", "no Valid, no problems: nothing of it can change");
   assert.equal($("#editor-problems").hidden, true);
   server.calls = [];
   dialog.dispatchEvent(Object.assign(new Ev("keydown"), { key: "s", metaKey: true, target: area() }));

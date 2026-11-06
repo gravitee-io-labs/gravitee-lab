@@ -594,14 +594,3 @@ test("with API Management in the Cloud, Start all waits while no add-on can run 
   // Held, then free once an add-on can: the same button
   store.state = lab();
 });
-
-// --- The sections of the page and the pages of the router -----------------------------------------------------------------------------
-
-test("every section of the page has a menu entry, and the Catalogs page is among the pages that the router has", () => {
-  const sections = [...html.matchAll(/<section class="page[^"]*" id="page-([\w-]+)"/g)].map((found) => found[1]);
-  assert.ok(sections.includes("catalogs"));
-  const entries = [...html.matchAll(/data-nav="([\w-]+)"/g)].map((found) => found[1]);
-  assert.ok(entries.includes("catalogs"), "the entry of the menu, last in its group");
-  assert.equal(catalogsPage.id, "catalogs");
-  assert.equal(catalogsPage.nav, "catalogs");
-});

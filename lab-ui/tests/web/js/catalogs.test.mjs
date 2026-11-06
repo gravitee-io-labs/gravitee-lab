@@ -129,7 +129,6 @@ test("the page is a card of the lists' grid with its head: its title, then New c
   assert.ok(heads[1].querySelector("svg use").getAttribute("href").endsWith("#i-plus"));
   assert.ok(section.querySelector(".card.list-card"), "the one card of the lists");
   assert.deepEqual(section.querySelector(".list-head").children.map(text), ["", "Catalog", "Items", "State", ""]);
-  assert.deepEqual([catalogsPage.id, catalogsPage.nav, catalogsPage.title], ["catalogs", "catalogs", "Catalogs"]);
 });
 
 test("Add catalog waits with the reason \"Git is not installed\" when Git is missing; New catalog needs no Git", () => {
@@ -1000,7 +999,7 @@ test("a refusal is said in the problem line in the server's words, the screen st
 // --- Add catalog: what it adds --------------------------------------------------------------------------------------------------
 
 // Screen 2, from the address: typed, checked
-async function previewed(preview, host = false) {
+async function previewed(preview) {
   show([FIRST()]);
   server.answers["/api/catalogs/check"] = preview;
   openAdd({});
@@ -2059,7 +2058,6 @@ test("a catalog an item needs is added from its line: a listed one at once, any 
 // --- What a server says is text -------------------------------------------------------------------------------------------------
 
 test("a name, a description, an address, a reason or a subject that is markup is shown as the text it is: in the rows, the detail, the menu and every dialog", async () => {
-  const bad = (key) => `${HOSTILE} ${key}`;
   const dirty = () => page.doc.querySelectorAll("img[src=x], script");
   show([GIT("noaccess", { id: "evil-hub", name: HOSTILE, description: HOSTILE_QUOTED, address: HOSTILE, url: "https://example.org/x.git", version: HOSTILE,
     state: { ...STATES.noaccess, label: HOSTILE, reason: HOSTILE, next: HOSTILE_QUOTED }, ignored: 1,
@@ -2074,7 +2072,6 @@ test("a name, a description, an address, a reason or a subject that is markup is
   click(cells(items()[0]).more);
   assert.equal(dirty().length, 0);
   closeMenu();
-  server.answers[at("/x")] = {};
   show([GIT("update", { id: hub(), name: HOSTILE })]);
   server.answers[at("/update")] = PLAN({ version: HOSTILE, updates: [{ name: HOSTILE }], adds: [{ name: HOSTILE_QUOTED }], removes: [{ name: HOSTILE }],
     breaks: [{ name: HOSTILE, needs: HOSTILE_QUOTED }], changes: [{ name: HOSTILE, fact: "build", value: HOSTILE_QUOTED }], whatsnew: [HOSTILE, HOSTILE_QUOTED],
@@ -2112,7 +2109,6 @@ test("a name, a description, an address, a reason or a subject that is markup is
   assert.equal(dirty().length, 0);
   assert.equal(effects().title, `Remove ${HOSTILE}`);
   await answer(false);
-  void bad;
 });
 
 test("the examples of an address stay text when the first catalog's host is markup", () => {

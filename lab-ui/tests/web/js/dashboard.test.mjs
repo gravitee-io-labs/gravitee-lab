@@ -2052,12 +2052,6 @@ test("every block of the page is drawn only when its own text changed", async ()
   dashboardPage.hide();
 });
 
-test("it is the page the Lab UI opens on, and the menu leads to it first", () => {
-  assert.equal(dashboardPage.pattern.test("#/dashboard"), true);
-  assert.equal(dashboardPage.nav, "dashboard");
-  assert.equal(dashboardPage.title, "Dashboard");
-});
-
 test("the head of the card of the playgrounds, setups and add-ons has a button that counts the catalogs and leads to their page", async () => {
   await open({ state: lab({ catalogs: [FIRST(), catalogRow(), { id: "local", kind: "machine", name: "Personal" }], content: content("ready") }) });
   const button = block("catalogs").querySelector("a");

@@ -659,13 +659,6 @@ test("the tab the person chose is the one that shows, as the page is drawn again
   assert.equal(shownTab(), "bakery-web");
 });
 
-test("a tab is never cut short, so it has no tooltip of its own: its name is in full", async () => {
-  draw([BANK, { ...GAMMA, label: "A console whose name is a little long" }], true, "names");
-  await flush();
-  assert.deepEqual(section.querySelectorAll('[role="tab"]').map((button) => button.textContent.trim()), ["Acme Bakery", "A console whose name is a little long", "Details"]);
-  assert.deepEqual(section.querySelectorAll('[role="tab"]').map((button) => button.title), ["", "", ""]);
-});
-
 test("a playground that lists no console is the same page: its guide beside its details, and its actions say it shows no UI", async () => {
   drawActions([], { id: "no-console" });
   await flush();

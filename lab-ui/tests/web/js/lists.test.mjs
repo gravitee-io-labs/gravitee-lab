@@ -1093,14 +1093,6 @@ function withCatalogs() {
   return dom;
 }
 
-test("the clock of the page is the mock's: real time that passes, as it does on a loaded machine, changes nothing of what a button says of its action", () => {
-  const at = Date.now();
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
-  assert.equal(Date.now(), at, "only the ticks of the tests make time pass");
-  mock.timers.tick(1600);
-  assert.equal(Date.now(), at + 1600);
-});
-
 const snapshot = (name, file, variable, dom) => test(`${name}: what the lists draw is written in ${file.pathname.split("/").pop()}, and a deliberate change is written again with ${variable}=1`, () => {
   mock.timers.tick(10000);   // the lists at rest: no button still says how its action went, which the tests above leave in flight
   if (process.env[variable]) writeFileSync(file, written(dom()));

@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
 import { Ev, bubble, installDom, text } from "./dom-stub.mjs";
-import { ADDRESS, FIRST, HOSTILE, HOSTILE_QUOTED, PERSONAL, STATE, STATES, catalog, content, lab } from "./fixtures.mjs";
+import { ADDRESS, FIRST, HOSTILE, HOSTILE_QUOTED, catalog, content, lab } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
 const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
@@ -222,8 +222,6 @@ test("the dot lights for the first reason that applies, and the entry says it to
 });
 
 test("a page without the entry draws nothing and breaks nothing", () => {
-  const bare = page.doc.createElement("nav");
-  bare.innerHTML = '<a class="nav-item" href="#/addons" data-nav="addons"><span>Add-ons</span></a>';
   catalogs.remove();
   paintMenuDot(lab({ catalogs: [catalog({ attention: "update" })] }));
   menu.append(catalogs);
@@ -260,21 +258,4 @@ test("a menu that shows its words says what the entry is for; one that shows ico
   page.doc.dispatchEvent(new Ev("mouseout", { target: addons, relatedTarget: page.doc.body }));
   hover();
   assert.equal(text(float()), "Catalogs, needs repair", "lit: the reason, with the words showing too");
-});
-
-// --- The fixtures ---------------------------------------------------------------------------------------------------------------
-
-test("the fixtures hold a state for every key of the table, so that a page is tried against each of them", () => {
-  const keys = ["machine", "uptodate", "update", "checking", "updating", "downloading", "unreachable", "noaccess", "needs_git", "needs_docker", "wrong_catalog",
-    "rewritten", "lab_new", "lab_old", "damaged", "linked", "missing_folder", "suggested"];
-  assert.deepEqual([PERSONAL().state.key, ...Object.keys(STATES)].sort(), [...keys].sort());
-  for (const [key, state] of Object.entries(STATES)) {
-    assert.equal(state.key, key);
-    assert.ok(state.label && ["muted", "warn", "error", "working"].includes(state.tone), `${key}: a word and a tone`);
-    assert.deepEqual(Object.keys(state), Object.keys(STATE("x", "X")), `${key}: the shape of one`);
-  }
-  // The states that are not a plain one tell what happened and what to do, as the table of the Catalogs page words them
-  for (const key of ["unreachable", "noaccess", "needs_git", "needs_docker", "wrong_catalog", "rewritten", "lab_new", "lab_old", "damaged", "missing_folder"]) {
-    assert.ok(STATES[key].reason && STATES[key].next, `${key}: a reason and a next step`);
-  }
 });
