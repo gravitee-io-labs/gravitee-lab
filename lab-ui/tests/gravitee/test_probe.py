@@ -146,7 +146,6 @@ class Probe(Case):
         self.addCleanup(self.server.server_close)
         self.addCleanup(self.server.shutdown)
         self.base = f"http://127.0.0.1:{self.server.server_port}"
-        self.patch(probe, "TIMEOUT", 0.3)
 
     def look(self, path):
         return probe.look(self.base + path, PAGE)
@@ -177,6 +176,7 @@ class Probe(Case):
         self.assertEqual(found, {"answers": False, "frameable": False, "reason": "Not listening yet"})
 
     def test_a_ui_that_is_too_slow_does_not_answer(self):
+        self.patch(probe, "TIMEOUT", 0.3)
         self.assertEqual(self.look("/slow"), {"answers": False, "frameable": False, "reason": "No answer within 0.3 s"})
 
     def test_what_does_not_answer_says_why_in_words_and_never_in_python_s(self):
