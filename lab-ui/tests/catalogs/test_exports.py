@@ -224,6 +224,11 @@ class RoundTrip(Case):
         self.assertEqual([one["id"] for one in plan["needs"]], ["fixture"])
         self.assertEqual((plan["file"], plan["blocked"], plan["problems"]), ("sandbox.zip", [], []))
 
+    def test_a_compose_file_too_large_to_read_is_taken_for_private_content(self):
+        file = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons/scratch/compose.yml"
+        file.write_text(file.read_text(encoding="utf-8") + "# padding\n" * 200000, encoding="utf-8")
+        self.assertEqual(exports.copies_of([("addon", "local/scratch")]), {("addon", "local/scratch"): [("", contribute.UNKNOWN)]})
+
     def test_a_description_goes_in_the_catalog_as_it_is_written(self):
         file = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "playgrounds/sandbox/compose.yml"
         said = 'Finds \\d in "a" name'

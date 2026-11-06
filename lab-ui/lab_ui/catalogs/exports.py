@@ -178,9 +178,11 @@ def copies_of(nodes):
     found = {}
     for kind, uid in nodes:
         file = paths.ROOT / paths.unit_file(kind, uid)
-        data = contribute._read(file, bare.TEXT_FILE + 1)
+        data = registry._read(file, bare.TEXT_FILE, follow=False)[0]
         own = contribute._origin_of(paths.origin(uid))   # said with the catalog the item is in, when it is a private one of Git
-        said = [one for one in contribute.origins(data.decode("utf-8", "replace"), uid, file.parent) if one != own] if data else []
+        # A file that cannot be read says no origin: what it holds is taken for private content
+        said = [("", contribute.UNKNOWN)] if data is None else \
+            [one for one in contribute.origins(data.decode("utf-8", "replace"), uid, file.parent) if one != own]
         if said:
             found[(kind, uid)] = said
     return found

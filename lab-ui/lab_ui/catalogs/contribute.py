@@ -369,21 +369,6 @@ def _named(text) -> List[str]:
     return sorted(found)
 
 
-def _read(file, limit=bare.OTHER_FILE + 1) -> Optional[bytes]:
-    """The bytes of a regular file without following a link, at most `limit` of them; None when it cannot be read."""
-    try:
-        descriptor = os.open(file, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
-    except OSError:
-        return None
-    try:
-        with os.fdopen(descriptor, "rb", closefd=False) as handle:
-            return handle.read(limit)
-    except OSError:
-        return None
-    finally:
-        os.close(descriptor)
-
-
 def _place(kind, slug, ns, source=LOCAL):
     """(the folder the compose file is in now, the folder it will be in, its path in the catalog). `source`: the catalog
     it is in now, this machine's own by default."""
@@ -415,12 +400,10 @@ def collect(kind, slug, ns, source=LOCAL, moved=()) -> Copy:
     compose file names."""
     before, after, head = _place(kind, slug, ns, source)
     uid = _uid(source, slug)
-    data, problems = _read(paths.ROOT / paths.unit_file(kind, uid), bare.TEXT_FILE + 1), []
+    data, why = registry._read(paths.ROOT / paths.unit_file(kind, uid), bare.TEXT_FILE, follow=False)
+    problems = []
     if data is None:
-        problems.append("compose.yml cannot be read.")
-    elif len(data) > bare.TEXT_FILE:
-        data = None
-        problems.append(REFUSED["ST09"].format(rel="compose.yml"))
+        problems.append(REFUSED["ST09"].format(rel="compose.yml") if "larger" in str(why) else "compose.yml cannot be read.")
     try:
         kept = (data or b"").decode("utf-8")
     except ValueError:
@@ -447,7 +430,7 @@ def collect(kind, slug, ns, source=LOCAL, moved=()) -> Copy:
         elif code:
             problems.append(REFUSED.get(code, "{rel} is not kept by a catalog.").format(rel=rel))
         elif rel != "compose.yml":
-            content = _read(os.path.join(base, rel))
+            content = registry._read(os.path.join(base, rel), bare.OTHER_FILE, follow=False)[0]
             if content is None:
                 problems.append(f"{rel} cannot be read.")
             else:
@@ -1299,7 +1282,7 @@ def _holds_private(units, items):
     file where it is; one Compose cannot read is taken to."""
     for kind, uid in items:
         file = paths.ROOT / paths.unit_file(kind, uid)
-        data = _read(file, bare.TEXT_FILE + 1)
+        data = registry._read(file, bare.TEXT_FILE, follow=False)[0]
         try:
             if data is None or origins(data.decode("utf-8", "replace"), uid, file.parent):
                 return True
@@ -1332,13 +1315,6 @@ def _relative(error):
     return text
 
 
-def _mode(file):
-    try:
-        return os.lstat(file).st_mode
-    except OSError:
-        return 0
-
-
 def _unread(name, error, known=()):
     """The refusal of an item whose file, or a file it includes, Compose cannot read: named by the item whose file Compose names
     among the files the Lab knows it reads (`known`: an add-on it includes, say), else by `name`."""
@@ -1346,8 +1322,7 @@ def _unread(name, error, known=()):
     said = _relative(error)
     for rel in sorted((one for one in known if paths.unit_of(one) and one in said), key=said.find):
         unit = paths.unit_of(rel)   # its name as its own block says it, else its folder's
-        file = paths.ROOT / rel
-        data = (_read(file, bare.TEXT_FILE + 1) if stat.S_ISREG(_mode(file)) else None) or b""
+        data = registry._read(paths.ROOT / rel, bare.TEXT_FILE, follow=False)[0] or b""
         try:
             said_name = block.value(data.decode("utf-8"), "name")
         except ValueError:   # not text: its folder names it
@@ -1731,7 +1706,7 @@ def _set_aside(kind, uid, slug) -> None:
     folder = str(paths.ROOT / paths.unit_folder(kind, uid))
     if not os.path.isdir(folder):
         return
-    text = _read(os.path.join(folder, "compose.yml"), bare.TEXT_FILE + 1)
+    text = registry._read(os.path.join(folder, "compose.yml"), bare.TEXT_FILE, follow=False)[0]
     stuck = []
     for rel in _unshared(folder, (text or b"").decode("utf-8", "replace"), set(_machine(folder))):
         if moves.relocate(os.path.join(folder, rel), _kept(kind, slug, rel), "use-catalog-leftover") not in ("moved", "copied", "gone"):
