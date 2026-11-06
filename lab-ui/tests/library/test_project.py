@@ -3539,6 +3539,14 @@ class Reading(Case):
         self.assertEqual(project._read("bytes.yml", strict=False), ("\ufffd\ufffd not text", None))
         self.assertEqual(project._read("big.yml", limit=2 << 20, strict=False)[1], None)
 
+    def test_a_guide_that_cannot_be_read_gives_no_chapters_and_stops_nothing(self):
+        guide = paths.unit_guide("playground", "local/mine")
+        self.write(guide, "# Mine\n")
+        self.assertEqual(project._guides(["local/mine"], ()), {"local/mine": "# Mine\n"})
+        self.assertEqual(project._guides(["local/mine"], {paths.unit_file("playground", "local/mine")}), {}, "a stub's is not read")
+        (self.root / guide).write_bytes(b"\xff not text")
+        self.assertEqual(project._guides(["local/mine"], ()), {})
+
     def test_a_file_that_is_read_is_opened_without_following_a_link_put_there_after_the_look(self):
         real = os.lstat
         swapped = []

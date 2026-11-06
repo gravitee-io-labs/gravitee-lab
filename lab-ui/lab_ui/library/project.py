@@ -687,20 +687,16 @@ def _variables(path):
         return []
 
 
-def _guides(ids, tiers, stubs):
-    """The guide of each playground that has one: the text of its guide.md. A catalog's is read as a plain file of at most
-    1 MB, and a stub's is not read."""
+def _guides(ids, stubs):
+    """The guide of each playground that has one: the text of its guide.md, read as a plain file of at most 1 MB. A stub's
+    is not read."""
     found = {}
     for pid in ids:
         file, guide = paths.unit_file("playground", pid), paths.unit_guide("playground", pid)
-        if file in stubs:
-            continue
-        if tiers.get(file) in JUDGED:
+        if file not in stubs:
             text, why = _read(guide)
             if why is None:
                 found[pid] = text
-        elif (ROOT / guide).is_file():
-            found[pid] = (ROOT / guide).read_text(encoding="utf-8")
     return found
 
 
@@ -798,7 +794,7 @@ def gather():
             "variables": {path: _variables(path) for path in raw},
             "resolved": _resolved(raw, problems, plain),
             "environ": dict(os.environ), "env": _env_values(),
-            "guides": _guides(by_kind["playground"], tiers, stubs),
+            "guides": _guides(by_kind["playground"], stubs),
             "seeds": {pid: _seed_names(pid, tiers.get(paths.unit_file("playground", pid)) in JUDGED)
                       for pid in by_kind["playground"]},
             "uses": {pid: _seed_uses(pid, tiers.get(paths.unit_file("playground", pid)) in JUDGED)
