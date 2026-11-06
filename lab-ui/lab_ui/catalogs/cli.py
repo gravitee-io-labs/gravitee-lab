@@ -799,7 +799,6 @@ def _write_summary(found, skipped):
         complain(f"catalog.py: the summary could not be written: {error.strerror or error}")
 
 
-SD11 = "The Lab commit {sha7} is not a release of the Lab. Fix: pin the latest release (catalog.py upgrade --lab-ref latest)."
 
 
 def _line_of(text, needle):
@@ -831,7 +830,8 @@ def _pin_problems(tree, notes):
     state = _on_main(sha)
     if state == "no":
         line = _line_of(data.decode("utf-8", "replace"), sha)
-        return [Problem("SD11", report.ERROR, ".github/standard.json", line, SD11.format(sha7=sha[:7]))]
+        message = _lab("standard").RULES["SD11"].message.format(sha7=sha[:7])
+        return [Problem("SD11", report.ERROR, ".github/standard.json", line, message)]
     if state != "yes":
         notes.append(f"SD11: {state}")
     return []

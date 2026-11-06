@@ -131,33 +131,7 @@ class Entry(NamedTuple):
     lab: str = ""
 
 
-# The rows of the tables of the stages and of the managed files, which no rule module holds
-SD = (
-    ("SD01", ERROR, "A managed file is missing", "{path} is missing from the shared files. Fix: catalog.py upgrade --write."),
-    ("SD02", ERROR, "A managed file differs from the Lab's render at the repository's own level",
-     "{path} was edited by hand. Fix: git checkout -- {path}. A change to a shared file is read by a maintainer."),
-    ("SD03", WARNING, "A managed file is behind: the repository's level is below the Lab's",
-     "{path} is from standard {have}; this Lab has {now}. Fix: catalog.py upgrade --write."),
-    ("SD04", ERROR, "standard.json is unreadable, has a bad value, or is over 4 KB (a warning for an unknown key)",
-     ".github/standard.json: {problem}."),
-    ("SD05", WARNING, "The repository's level is above the Lab's",
-     ".github/standard.json says standard {n}; this Lab knows {m}. Fix: update the Lab with git pull, then run again."),
-    ("SD07", ERROR, "The Lab could not be fetched (CI)",
-     "The Lab could not be fetched. This is the repository's settings, not your change: a maintainer will run it again. Fix "
-     "(maintainers): while the Lab is private this repository needs the secret LAB_DEPLOY_KEY (also as a Dependabot secret), "
-     "and .github/standard.json must name a commit that exists."),
-    ("SD08", "info", "A managed path has no marker: the catalog owns it",
-     "{path} is owned by this catalog; upgrade skips it. WF01 to WF21 still apply."),
-    ("SD09", WARNING, "The catalog owns dependabot.yml and it lacks github-actions or a cooldown",
-     ".github/dependabot.yml has no {ecosystem}. Fix: add it."),
-    ("SD10", ERROR, "The Makefile does not include .catalog/standard.mk",
-     "Makefile does not include .catalog/standard.mk. Fix: add the line: include .catalog/standard.mk"),
-    ("SD11", ERROR, "lab.ref is not the commit of a release of the Lab (a tag vX.Y.Z on its main) (CI)",
-     "The Lab commit {sha7} is not a release of the Lab. Fix: pin the latest release (catalog.py upgrade --lab-ref latest)."),
-    ("CO01", ERROR, "The file lacks the line * or the line /.github/, a line names no owner, or an owner is not @user or "
-                    "@organization/team",
-     ".github/CODEOWNERS: {path} has no owner. Fix: add the line: {path} {maintainers}"),
-)
+# The rows of the table of the stages, which no rule module holds
 STAGES = (
     ("BD01", ERROR, "build", "{image}: the build failed at step {n}/{m}, {instruction} (exit {code}). Fix: run make ci to see it on "
                              "your machine; the last 15 lines are in the summary."),
@@ -222,8 +196,8 @@ def table() -> Dict[str, Entry]:
         for code, rule in _module_rules(name).items():
             long = DETAILS.get(code, Long("", ""))
             found[code] = Entry(code, rule[1], rule[2], rule[3], tuple(more.get(code, ())), long.why, long.lab)
-    for code, severity, rule, message in SD:
-        found.setdefault(code, Entry(code, severity, rule, message, (), "", NOT_AT_ADD))
+    for code, rule in _module_rules("standard").items():
+        found[code] = Entry(code, rule[1], rule[2], rule[3], (), "", NOT_AT_ADD)
     for code, severity, stage, message in STAGES:
         found[code] = Entry(code, severity, f"{stage} stage of `catalog.py ci`", message, (), "", NOT_AT_ADD)
     trust = importlib.import_module(f"{__package__}.trust")
