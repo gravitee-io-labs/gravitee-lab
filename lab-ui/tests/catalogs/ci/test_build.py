@@ -111,15 +111,14 @@ class Commands(Disk):
                     "--file", f"{context}/Dockerfile", context])
 
     def test_arguments_target_and_labels_follow_the_order_of_the_standard(self):
-        service = self.service(args={"B": "2", "A": "1", "N": None, "OK": True, "NUM": 7}, target="final",
+        service = self.service(args={"B": "2", "A": "1"}, target="final",
                                labels={"org.example.b": "y", "org.example.a": "x"})
         specs, problems, _ = self.specs({"bakery-web": service})
         self.assertEqual(problems, [])
         command = specs[0].command
         self.assertEqual(command[command.index("--file") + 2:], [
-            "--build-arg", "A=1", "--build-arg", "B=2", "--build-arg", "NUM=7", "--build-arg", "OK=true", "--target", "final",
+            "--build-arg", "A=1", "--build-arg", "B=2", "--target", "final",
             "--label", "org.example.a=x", "--label", "org.example.b=y", service["build"]["context"]])
-        self.assertNotIn("N=", " ".join(command))   # an argument with no value is not set
 
     def test_a_dockerfile_of_another_name_is_given_at_its_real_place(self):
         context = self.app(dockerfile="Dockerfile.prod")

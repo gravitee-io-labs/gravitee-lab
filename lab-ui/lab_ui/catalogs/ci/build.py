@@ -111,16 +111,6 @@ def inside(path: str, root: str) -> bool:
     return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
 
 
-def text_of(value) -> Optional[str]:
-    """A build argument or a label as the text Docker is given, or None for what is not one (a null is an argument that is not
-    set; a number is its digits)."""
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, (int, float)):
-        return str(value)
-    return value if isinstance(value, str) and "\x00" not in value else None   # (a NUL cannot be an argument of a program)
-
-
 def command_of(image: str, platform: str, dockerfile: str, context: str, args: Dict[str, str], target: str,
                labels: Dict[str, str]) -> List[str]:
     """The `docker buildx build` of 5.6, exactly: the arguments and the labels in the order of their names."""
@@ -151,10 +141,6 @@ def one(unit: Loaded, name: str, service: dict, platform: str, root: str, seeder
     where = unit.file
     build = service.get("build")
     image = service.get("image")
-    if isinstance(build, str):
-        build = {"context": build}
-    if not isinstance(build, dict):
-        return None, [problem("BD02", where, 0, service=name, key="build")], None
     context, remote = build.get("context") or "", False
     seeder_images, seeder_dir = seeders
     if not isinstance(context, str) or "\x00" in context or "\x00" in str(build.get("dockerfile") or ""):
@@ -196,11 +182,10 @@ def one(unit: Loaded, name: str, service: dict, platform: str, root: str, seeder
         if not isinstance(given, dict):
             return None, [problem("BD02", where, 0, service=name, key=kind)], Row(unit.key, name, image, "refused")
         for key, value in given.items():
-            shown = text_of(value)
-            if not isinstance(key, str) or not pattern.fullmatch(key) or (shown is None and value is not None):
+            # (a NUL cannot be an argument of a program)
+            if not isinstance(key, str) or not pattern.fullmatch(key) or not isinstance(value, str) or "\x00" in value:
                 return None, [problem("BD02", where, 0, service=name, key=kind)], Row(unit.key, name, image, "refused")
-            if shown is not None:
-                into[key] = shown
+            into[key] = value
     target = build.get("target") or ""
     if target and (not isinstance(target, str) or not TARGET.fullmatch(target)):
         return None, [problem("BD02", where, 0, service=name, key="target")], Row(unit.key, name, image, "refused")

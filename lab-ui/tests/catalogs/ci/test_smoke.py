@@ -79,10 +79,6 @@ class Selection(unittest.TestCase):
         self.assertEqual(found.waves, [["bakery-mcp"]])
         self.assertEqual(found.left, [("bakery-seed", "it is the seed, which needs the platform")])
 
-    def test_the_labels_may_be_a_list_in_the_json_of_an_older_compose(self):
-        found = self.chosen({"a": service(labels=["io.gravitee.role=seed"]), "b": service()})
-        self.assertEqual(found.waves, [["b"]])
-
     def test_a_service_that_runs_once_starts_with_the_service_that_waits_for_it(self):
         done = {"condition": "service_completed_successfully"}
         found = self.chosen({"certs": service(), "db": service(),
@@ -218,15 +214,13 @@ class Reading(unittest.TestCase):
             self.assertFalse(smoke.needs_settings(refused), refused.reasons)
         self.assertFalse(smoke.needs_settings(ci.Refused("addon", "w", "w", ())))
 
-    def test_the_rows_of_ps_may_be_lines_or_an_array(self):
+    def test_the_rows_of_ps_are_lines_and_what_is_not_one_is_left_out(self):
         lines = ps_lines("a", ("b", "exited", "", 3))
-        array = json.dumps([json.loads(line) for line in lines.splitlines()])
-        for text in (lines, array, lines + "not json\n"):
+        for text in (lines, lines + "not json\n"):
             with self.subTest(text=text[:20]):
                 found = smoke.state_of(smoke.ps_rows(text), ["a", "b", "c"])
                 self.assertEqual(found, {"a": ("running", "", 0), "b": ("exited", "", 3), "c": ("missing", "", 0)})
         self.assertEqual(smoke.ps_rows(""), [])
-        self.assertEqual(smoke.ps_rows("[1, 2, {\"Service\": \"a\"}]"), [{"Service": "a"}])
 
 
 class Stage(Case):

@@ -122,26 +122,11 @@ def requires_license(text: Optional[str]) -> bool:
     return license_.value.strip() not in ("", "[]", "{}", "null", "~", '""', "''")
 
 
-def labels_of(service: dict) -> Dict[str, str]:
-    """The labels of a service in the shape of the resolved JSON (a mapping), or of a list of `key=value`."""
-    labels = service.get("labels")
-    if isinstance(labels, dict):
-        return {str(key): "" if value is None else str(value) for key, value in labels.items()}
-    if isinstance(labels, list):
-        return {str(each).partition("=")[0]: str(each).partition("=")[2] for each in labels}
-    return {}
-
-
 def dependencies(service: dict) -> Set[str]:
     """The names a service waits for or shares with: `depends_on`, and the other ways Compose ties one service to another (`links`,
     `volumes_from`, and the `service:` form of `network_mode`, `pid` and `ipc`). A `container:` reference is not a service of the
     unit: it is named as it is, which no own service is."""
-    found: Set[str] = set()
-    needs = service.get("depends_on")
-    if isinstance(needs, dict):
-        found |= {str(name) for name in needs}
-    elif isinstance(needs, list):
-        found |= {str(name) for name in needs}
+    found: Set[str] = {str(name) for name in service.get("depends_on") or ()}
     for key in ("links", "volumes_from"):
         for each in service.get(key) or ():
             found.add(str(each).split(":", 1)[0] if not str(each).startswith("container:") else str(each))
@@ -184,7 +169,7 @@ def select(unit: Loaded) -> Selection:
         if not isinstance(service, dict) or not SERVICE.fullmatch(str(name)):
             left[name] = "it cannot be read"
             continue
-        labels = labels_of(service)
+        labels = service.get("labels") or {}
         if labels.get(ROLE) == SEED:
             left[name] = "it is the seed, which needs the platform"
         elif labels.get(LICENSE_LABEL) == "required":
@@ -355,20 +340,13 @@ def up_command(project: str, files: Sequence[str], services: Sequence[str]) -> L
 
 
 def ps_rows(text: str) -> List[dict]:
-    """The containers `docker compose ps --all --format json` lists: one JSON object a line, or one array (Compose has done both)."""
-    text = (text or "").strip()
-    if not text:
-        return []
-    try:
-        data = json.loads(text)
-        rows = data if isinstance(data, list) else [data]
-    except (ValueError, RecursionError):
-        rows = []
-        for line in text.splitlines():
-            try:
-                rows.append(json.loads(line))
-            except (ValueError, RecursionError):
-                continue
+    """The containers `docker compose ps --all --format json` lists: one JSON object a line."""
+    rows = []
+    for line in (text or "").splitlines():
+        try:
+            rows.append(json.loads(line))
+        except (ValueError, RecursionError):
+            continue
     return [row for row in rows if isinstance(row, dict)]
 
 
