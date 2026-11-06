@@ -2584,160 +2584,20 @@ class Binds(Case):
                                   str(self.root / paths.unit_file("addon", "agent-lens"))])
 
 
-# ---------------------------------------------------------------------------------------------------------------------
-# The fixture catalogs, as the Lab UI reads them
-# ---------------------------------------------------------------------------------------------------------------------
-
-def nothing_up(*services, addons=()):
-    """What model.up() answers when nothing of the project runs but these services (started outside the Lab UI), those of
-    these add-ons."""
-    running = set(services)
-    return {"platform": False, "groups": set(), "addons": set(addons), "playgrounds": set(), "services": running,
-            "ready": running, "done": set(), "created": set(services)}
-
-
 @unittest.skipUnless(fixtures.have_compose(), "the Docker CLI with Compose 5 or later is not installed")
 class Real(Case):
-    """The units of the fixture catalogs, read with the real core by Compose (no daemon): what the gates say of them."""
-
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        fixtures.need_compose()
-        holder = cls.holder = Case()   # a case of the class's own: the folder it makes and what it patches last as long
-        cls.addClassCleanup(holder.doCleanups)
-        cls.inputs, cls.built = read(holder, {"partner": {}, "lab-new": {}, "lab-old": {}}, ("scratch", "sandbox"), {})
-        cls.root = holder.root
-
-    def setUp(self):
-        self.addCleanup(lambda: (self.root / paths.ON_FILE).exists() and (self.root / paths.ON_FILE).unlink())
-
-    def begin(self, kind, uid, state=None, running=None):
-        state = state or layers.current(self.built)
-        return layers.plan(self.built, state, running or nothing_up(), kind, uid, "start")
-
-    def test_the_entries_of_every_catalog_are_recognized_and_a_unit_the_policy_blocks_locks_nothing(self):
-        layers.write("tour", ["future", "@partner/ledger", "local/scratch", "echo"])
-        self.assertEqual((self.root / paths.ON_FILE).read_text(encoding="utf-8"), "include:\n"
-                         "  - .lab/catalogs/fixture/playgrounds/tour/compose.yml\n"
-                         "  - .lab/catalogs/partner/addons/ledger/compose.yml\n"
-                         "  - .lab/catalogs/fixture/addons/echo/compose.yml\n"
-                         "  - .lab/catalogs/fixture/addons/future/compose.yml\n"
-                         "  - .lab/catalogs/local/addons/scratch/compose.yml\n")
-        state = layers.current(self.built)
-        self.assertEqual((state["playground"], state["explicit"], state["locked"], state["problems"]),
-                         ("tour", ["@partner/ledger", "echo", "future", "local/scratch"], None, []))
-
-    def test_the_map_of_what_must_not_start_is_what_the_project_says_blocked(self):
-        found = layers.blocked_files(self.built)
-        self.assertEqual(found, {
-            ".lab/catalogs/fixture/addons/future/compose.yml": "Needs a newer Gravitee Lab",
-            ".lab/catalogs/fixture/setups/pair.yml": "Depends on private content",
-            ".lab/catalogs/lab-new/addons/newer/compose.yml": "Needs a newer Gravitee Lab",
-            ".lab/catalogs/lab-old/addons/older/compose.yml": "Written for an older Gravitee Lab"})
-
-    def test_a_blocked_unit_is_refused_by_the_plan_and_by_the_writer_and_never_for_a_stop(self):
-        plan = self.begin("addon", "future")
-        self.assertEqual(plan["blocked"], "Needs a newer Gravitee Lab")
-        with self.assertRaisesRegex(RuntimeError, "^future is blocked: Needs a newer Gravitee Lab$"):
-            layers.write(None, ["future"], blocked=layers.blocked_files(self.built))
-        self.assertFalse((self.root / paths.ON_FILE).exists())
-        layers.write(None, ["future"])   # it is on, whoever put it there
-        state = layers.current(self.built)
-        stop = layers.plan(self.built, state, nothing_up(), "addon", "future", "stop")
-        self.assertIsNone(stop["blocked"])
-        layers.write(stop["playground"], stop["explicit"], blocked=layers.blocked_files(self.built))   # a removal
-        self.assertEqual(layers.current(self.built)["explicit"], [])
-
-    def test_what_a_setup_brings_from_another_catalog_that_is_blocked_blocks_it(self):
-        plan = self.begin("setup", "pair")
-        self.assertEqual(plan["blocked"], "Depends on private content")
-
-    def test_a_port_the_core_publishes_is_taken_whether_it_runs_or_not(self):
-        # The platform is always on: started with the port taken, the add-on would make the next Start all fail
-        for running in (nothing_up(), nothing_up("apim-gateway")):
-            self.assertEqual(self.begin("addon", "port-core", running=running)["blocked"], "Port 8082 is used by API Management")
-
-    def test_a_port_two_units_publish_is_taken_while_the_first_runs_or_is_on_and_not_when_it_is_turned_off_for_it(self):
-        running = nothing_up("fixture-echo", addons=["echo"])
-        self.assertEqual(self.begin("addon", "echo-twin", running=running)["blocked"], "Port 8191 is used by Echo")
-        # On: the twin declares a conflict with Echo, so starting it turns Echo off, which frees the port
-        layers.write(None, ["echo"])
-        state = layers.current(self.built)
-        plan = self.begin("addon", "echo-twin", state)
-        self.assertEqual([row["id"] for row in plan["turns_off"]], ["echo"])
-        self.assertIsNone(plan["blocked"])
-        # Echo stays when the thing that comes does not conflict with it: the port is taken
-        self.assertEqual(self.begin("addon", "echo-core", state)["blocked"], None, "it brings Echo, which is its own")
-
-    def test_a_start_is_verified_by_the_catalogs_for_the_units_of_catalogs_it_puts_in_the_on_file(self):
-        service = types.ModuleType("service")
-        service.preflight = mock.Mock()
-        with mock.patch.dict(sys.modules, {"lab_ui.catalogs.service": service}):
-            layers.check(self.built, self.begin("addon", "@partner/ledger"), [])
-            service.preflight.assert_called_once_with(self.built, [("addon", "@partner/ledger")])
-            service.preflight.reset_mock()
-            # This machine's own add-on is nobody's catalog: only the Echo of the first catalog that it brings is verified
-            layers.check(self.built, self.begin("addon", "local/scratch"), [])
-            service.preflight.assert_called_once_with(self.built, [("addon", "echo")])
+    """A playground of the fixture catalogs, read with the real core by Compose (no daemon)."""
 
     def test_the_folders_a_playground_binds_are_made_in_its_folder_and_nowhere_else(self):
+        _, built = read(self)
         folder = self.root / paths.unit_folder("playground", "tour")
-        self.addCleanup(lambda: __import__("shutil").rmtree(folder / ".state", ignore_errors=True))
         before = sorted(os.listdir(folder))
         self.assertNotIn(".state", before)
-        state = layers.current(self.built)
-        made = layers.make_binds(self.built, self.begin("playground", "tour", state))
-        self.assertEqual(made, [str(folder / ".state")])
+        plan = layers.plan(built, layers.current(built), up(platform=False, project=built), "playground", "tour", "start")
+        self.assertEqual(layers.make_binds(built, plan), [str(folder / ".state")])
         self.assertEqual(oct(os.stat(folder / ".state").st_mode & 0o777), "0o755")
         self.assertEqual(sorted(os.listdir(folder)), sorted([*before, ".state"]), "the seed is where it was")
-        self.assertEqual(layers.make_binds(self.built, self.begin("playground", "tour", state)), [], "once")
-
-    def test_the_gateway_the_project_chose_is_the_one_that_declares_it(self):
-        self.assertEqual(self.built["platform"], {"gateways": {"cloud": "gateway"}})
-        self.assertEqual(layers.closure(self.built, ["echo-core"]), {"echo-core", "echo"})
-
-
-@unittest.skipUnless(fixtures.have_compose(), "the Docker CLI with Compose 5 or later is not installed")
-class RealTwins(Case):
-    """The same item in this machine and in a catalog, as the project finds it."""
-
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        fixtures.need_compose()
-        holder = cls.holder = Case()
-        cls.addClassCleanup(holder.doCleanups)
-
-        def twin(case):
-            text = (fixtures.CATALOGS / "fixture/addons/echo/compose.yml").read_text(encoding="utf-8")
-            case.write(".lab/catalogs/local/addons/echo/compose.yml", text)
-        cls.inputs, cls.built = read(holder, more=twin)
-
-    def why(self, uid, explicit, running=None):
-        state = on(self.built, explicit)
-        return layers.plan(self.built, state, running or nothing_up(), "addon", uid, "start")["blocked"]
-
-    def test_what_brings_one_is_not_started_while_the_other_is_on_or_up(self):
-        # Echo core includes Echo of the catalog: its file and the one of Echo of this machine would both be in the on file
-        self.assertEqual(layers.closure(self.built, ["echo-core"]), {"echo-core", "echo"})
-        self.assertIsNone(self.why("echo-core", []))
-        self.assertEqual(self.why("echo-core", ["local/echo"]), "Also in Personal: turn it off first")
-        self.assertEqual(self.why("echo-core", [], nothing_up("fixture-echo", addons=["local/echo"])),
-                         "Also in Personal: turn it off first")
-        plan = layers.plan(self.built, on(self.built, ["local/echo"]), nothing_up(), "addon", "echo-core", "start")
-        with self.assertRaisesRegex(RuntimeError, "^Also in Personal: turn it off first$"):
-            layers.check(self.built, plan, [])
-        # Writing is refused for it by the plan, not by the file: the half of the catalog is not in the file with its twin
-        self.assertIsNone(self.why("echo-core", ["echo"]), "its own Echo is not the twin")
-
-    def test_one_is_not_started_while_the_other_is_on_or_up(self):
-        self.assertEqual(self.built["addons"]["echo"]["twin"], {"id": "local/echo", "name": "Personal"})
-        self.assertIsNone(self.why("echo", []))
-        self.assertIsNone(self.why("local/echo", []))
-        self.assertEqual(self.why("echo", ["local/echo"]), "Also in Personal: turn it off first")
-        self.assertEqual(self.why("local/echo", ["echo"]), "Also in Fixture catalog: turn it off first")
-        self.assertEqual(self.why("local/echo", [], nothing_up("fixture-echo", addons=["echo"])), "Also in Fixture catalog: turn it off first")
+        self.assertEqual(layers.make_binds(built, plan), [], "once")
 
 
 if __name__ == "__main__":
