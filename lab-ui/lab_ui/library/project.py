@@ -272,8 +272,8 @@ def _outside(path):
         return True   # a doubt refuses
 
 
-def _read(path, limit=TEXT_LIMIT, strict=True):
-    """The text of a project file that is a plain file, at most `limit` bytes of it: (text, None), or (None, why): `link`
+def _read(path, strict=True):
+    """The text of a project file that is a plain file, of at most TEXT_LIMIT bytes: (text, None), or (None, why): `link`
     for a link, a pipe, a device or a folder, which could lead anywhere or never end (also a file of a catalog whose folder
     is a link out of it), `large`, `missing`, `refused` or `unreadable` (not UTF-8; unless `strict` is false, then what
     is not is replaced). Opened without following a link, so one put in place after the look is not followed either."""
@@ -291,8 +291,8 @@ def _read(path, limit=TEXT_LIMIT, strict=True):
     with os.fdopen(descriptor, "rb") as handle:
         if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
             return None, "link"
-        data = handle.read(limit + 1)
-    if len(data) > limit:
+        data = handle.read(TEXT_LIMIT + 1)
+    if len(data) > TEXT_LIMIT:
         return None, "large"
     try:
         return data.decode("utf-8", "strict" if strict else "replace"), None
@@ -484,7 +484,7 @@ def _stamp(files, skip, core=False):
     return hashlib.sha256("\n".join(parts).encode()).hexdigest()
 
 
-def _remembered(key, stamp, make, keep=None):
+def _remembered(key, stamp, make, keep):
     """What `make` gives for `key`, kept while `stamp` is the same, as a copy that nobody else holds. `keep`: whether an
     answer is worth keeping: a read that failed for a reason that is not in the files (a time limit, a Compose that did not
     answer) is made again at the next gather, not held until a file changes."""
@@ -493,7 +493,7 @@ def _remembered(key, stamp, make, keep=None):
         hit = _memo.get(key)
     if hit is None or hit[0] != stamp:
         value = make()
-        if keep and not keep(value):
+        if not keep(value):
             with _memo_lock:
                 _memo.pop(key, None)
             return value
@@ -1003,7 +1003,7 @@ def _unit(kind, uid, inputs, problems):
     meta = _meta(config, path, problems)
     return config, meta, {"id": uid, "kind": kind, "name": str(meta.get("name") or uid), "file": path,
                           "personal": paths.personal(uid), "category": meta.get("category") or "",
-                          "description": meta.get("description") or "", **_placed(uid, path, inputs),
+                          "description": meta.get("description") or "", **_placed(path, inputs),
                           # What the judgement settles (_judge_units): nothing is against a unit that is not judged
                           "blocked": None, "needs_catalogs": [], "compat": "ok", "unknown": [], "twin": None, "uses_machine": [],
                           "verdict": None}
@@ -1565,7 +1565,7 @@ def _with_stubs(inputs, default):
 IMPORTED = "imported"   # the origin the items of every imported playground say: one place, whichever file they came from
 
 
-def _placed(uid, path, inputs):
+def _placed(path, inputs):
     """Where a unit comes from: its catalog, `origin` (the catalog's name and version, for a unit of a catalog that is not
     the first, and for one of the first once there is another catalog to tell it from; the units of this machine say none),
     whether it is `readonly` (a git catalog's), and the
@@ -1733,14 +1733,14 @@ def _settle(unit, closure):
             unit["seed"] = None
 
 
-def _twins(units, tiers, own_of, names, order, catalogs, owned=None):
+def _twins(units, tiers, own_of, names, order, catalogs, owned):
     """The unit of this machine and the unit of a catalog that are the same item: each says the other as `twin`, {id, name}. The
     person's copy of a catalog unit (`copy_of`: resolve.copy_of) is the twin of that unit, and says so (`copy`: true); else a
     personal unit takes the first unit of a catalog, in the order of precedence, that is the same item (resolve.same_item). Nothing
     is stored."""
     def seen(key):
         return {"id": key[1], "kind": key[0], "name": names[key], "services": own_of[key],
-                "copy_of": ((owned or {}).get(key) or {}).get("copy_of")}
+                "copy_of": (owned.get(key) or {}).get("copy_of")}
     for key in order:
         if tiers[key] != "local":
             continue

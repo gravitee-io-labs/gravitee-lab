@@ -3199,7 +3199,7 @@ class Catalog(Case):
         self.assertEqual(built["addons"]["local/mine"]["file"], ".lab/catalogs/local/addons/mine/compose.yml", "the file is its own")
 
     def test_a_unit_of_this_machine_says_its_file_in_its_catalog(self):
-        self.assertEqual(project._placed("local/x", ".lab/catalogs/local/addons/x/compose.yml", {"default": "fixture"})["display_file"],
+        self.assertEqual(project._placed(".lab/catalogs/local/addons/x/compose.yml", {"default": "fixture"})["display_file"],
                          "addons/x/compose.yml")
 
     def test_a_unit_of_a_catalog_added_later_loses_a_name_the_earlier_one_holds_and_the_earlier_is_untouched(self):
@@ -3537,7 +3537,6 @@ class Reading(Case):
 
     def test_what_is_not_text_may_be_read_all_the_same_when_it_is_data(self):
         self.assertEqual(project._read("bytes.yml", strict=False), ("\ufffd\ufffd not text", None))
-        self.assertEqual(project._read("big.yml", limit=2 << 20, strict=False)[1], None)
 
     def test_a_guide_that_cannot_be_read_gives_no_chapters_and_stops_nothing(self):
         guide = paths.unit_guide("playground", "local/mine")
