@@ -15,7 +15,7 @@ Pure: nothing here reads a file, runs a command or writes. Standard library only
 
 import json
 import secrets
-from typing import Dict, Iterable, Iterator, List, NamedTuple, Sequence
+from typing import Dict, Iterable, List, NamedTuple, Sequence
 
 ERROR, WARNING, INFO = "error", "warning", "info"
 FORMATS = ("text", "github", "json")
@@ -239,26 +239,10 @@ def summary(problems: Sequence[Problem], command: str, skipped: Sequence[str] = 
 # What a stranger's program printed
 # ---------------------------------------------------------------------------------------------------------------------
 
-def untrusted(lines: Iterable[str]) -> Iterator[str]:
-    """The lines of output that a stranger's code made (a build log, a test run) between `::stop-commands::<token>` and
-    `::<token>::`, with a token that is new for each call and that nothing could have guessed: while it is open the runner
-    obeys no workflow command, so `::add-mask::` or `::error::` printed by a Dockerfile do nothing. Every line ends with a
-    line feed. If the source fails the region is closed before the error goes on."""
-    token = secrets.token_hex(16)
-    closing = f"::{token}::\n"
-    yield f"::stop-commands::{token}\n"
-    try:
-        for line in lines:
-            line = str(line)
-            yield line if line.endswith("\n") else line + "\n"
-    except GeneratorExit:
-        raise
-    except Exception:
-        yield closing
-        raise
-    yield closing
-
-
 def untrusted_text(text: str) -> str:
-    """`untrusted` for a text that is already whole."""
-    return "".join(untrusted(str(text).splitlines(True)))
+    """The output that a stranger's code made (a build log, a test run) between `::stop-commands::<token>` and `::<token>::`, with
+    a token that is new for each call and that nothing could have guessed: while it is open the runner obeys no workflow command,
+    so `::add-mask::` or `::error::` printed by a Dockerfile do nothing. Every line ends with a line feed."""
+    token = secrets.token_hex(16)
+    lines = [line if line.endswith("\n") else line + "\n" for line in str(text).splitlines(True)]
+    return "".join([f"::stop-commands::{token}\n", *lines, f"::{token}::\n"])

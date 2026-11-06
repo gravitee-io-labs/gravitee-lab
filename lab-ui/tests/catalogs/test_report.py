@@ -228,7 +228,7 @@ class Untrusted(unittest.TestCase):
 
     def test_what_a_build_prints_cannot_start_a_workflow_command(self):
         hostile = ["::add-mask::hunter2\n", "::error::pwned\n", "::set-output name=x::y\n", "plain line"]
-        out = "".join(report.untrusted(hostile))
+        out = report.untrusted_text("".join(hostile))
         self.assertEqual([], commands(out))
         lines = out.splitlines()
         self.assertTrue(lines[0].startswith("::stop-commands::"))
@@ -239,30 +239,11 @@ class Untrusted(unittest.TestCase):
         self.assertTrue(out.endswith("\n"))
 
     def test_before_the_region_and_after_it_commands_still_work(self):
-        out = report.render([ERROR], "github") + "".join(report.untrusted(["::error::pwned"])) + report.render([WARNING], "github")
+        out = report.render([ERROR], "github") + report.untrusted_text("::error::pwned") + report.render([WARNING], "github")
         self.assertEqual(2, len(commands(out)))
 
     def test_the_token_is_new_each_time(self):
-        first, second = "".join(report.untrusted([])), "".join(report.untrusted([]))
-        self.assertNotEqual(first, second)
-
-    def test_the_region_is_closed_when_the_source_fails(self):
-        def source():
-            yield "one\n"
-            raise RuntimeError("the build died")
-
-        taken = []
-        with self.assertRaises(RuntimeError):
-            for line in report.untrusted(source()):
-                taken.append(line)
-        self.assertEqual(3, len(taken))
-        token = taken[0][len("::stop-commands::"):].strip()
-        self.assertEqual(f"::{token}::\n", taken[2])
-
-    def test_a_text_that_is_whole(self):
-        out = report.untrusted_text("::error::x\nsecond")
-        self.assertEqual([], commands(out))
-        self.assertTrue(out.endswith("::\n"))
+        self.assertNotEqual(report.untrusted_text(""), report.untrusted_text(""))
 
 
 # ---------------------------------------------------------------------------------------------------------------------
