@@ -151,7 +151,6 @@ function modelWhy() {
 // Where a license, or no need of one, comes from: the Gravitee Cloud, which runs API Management for the person (an account of their own
 // or a trial of 14 days), or a self-hosted license for what runs on this machine (Gamma, Acme Bakery: Gravitee Cloud does not run them)
 const SELF_HOSTED_URL = "https://www.gravitee.io/self-hosted-trial";
-const link = (href, label, cls = "btn") => `<a class="${cls}" href="${href}" target="_blank" rel="noopener">${icon("external")}${label}</a>`;
 // The Cloud has no link of its own here: its button opens the form that connects an account, which asks whether there is one already and
 // offers the trial of 14 days if there is not
 const GET_ONE = `<p class="license-intro">Community edition: Enterprise features are off</p>
@@ -166,7 +165,7 @@ const GET_ONE = `<p class="license-intro">Community edition: Enterprise features
       <span class="cta-icon">${icon("key")}</span>
       <h3>Run it on this machine</h3>
       <p>A self-hosted license unlocks the Enterprise features of the platform on this machine</p>
-      <div class="cta-actions">${link(SELF_HOSTED_URL, "Request a license")}</div>
+      <div class="cta-actions"><a class="btn" href="${SELF_HOSTED_URL}" target="_blank" rel="noopener">${icon("external")}Request a license</a></div>
     </section>
   </div>`;
 
@@ -181,8 +180,7 @@ function renderFacts() {
     return;
   }
   if (info.error || !info.readable) {
-    const why = info.error ? `<span class="err-text">${esc(info.error)}</span>`
-      : esc(info.present ? "The license cannot be read" : "Community edition: Enterprise features are off");
+    const why = info.error ? `<span class="err-text">${esc(info.error)}</span>` : "The license cannot be read";
     setHTML($("#license-facts"), `<div class="empty">${why}</div>`);
     return;
   }
@@ -390,17 +388,11 @@ dialog.innerHTML = `
 document.body.append(dialog);
 
 $("#license-close").addEventListener("click", () => dialog.close());
-// A way out of the dialog to a page of the Lab UI
+// A way out of the dialog: the form that connects an account opens, wherever the Lab UI is
 dialog.addEventListener("click", (e) => {
-  if (e.target.closest?.("[data-connect-cloud]")) {
-    dialog.close();
-    document.dispatchEvent(new CustomEvent("lab:connect-cloud"));   // the form that connects an account opens, wherever the Lab UI is
-    return;
-  }
-  const go = e.target.closest?.("[data-go]");
-  if (!go) return;
+  if (!e.target.closest?.("[data-connect-cloud]")) return;
   dialog.close();
-  location.hash = go.dataset.go;
+  document.dispatchEvent(new CustomEvent("lab:connect-cloud"));
 });
 $("#license-settings").addEventListener("click", () => openForm(true));
 $("#license-cancel").addEventListener("click", () => openForm(false));
