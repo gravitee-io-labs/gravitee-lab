@@ -40,6 +40,8 @@ SEPARATE = re.compile(r"[ \t]+")
 SHOWN = 60            # characters of a stranger's word that a message shows
 MAX_OWNERS = 20       # owners of one line that `new` accepts
 MAX_PATTERN = 512     # a first folder longer than this is not matched: it counts as a shadow
+
+
 class OwnerError(ValueError):
     """The maintainers given to `new` are not names: the message is one line for the person."""
 

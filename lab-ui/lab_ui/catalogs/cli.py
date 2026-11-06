@@ -798,8 +798,6 @@ def _write_summary(found, skipped):
         complain(f"catalog.py: the summary could not be written: {error.strerror or error}")
 
 
-
-
 def _line_of(text, needle):
     """The line (from 1) of a text that holds `needle`, else 0."""
     return next((number for number, line in enumerate(text.split("\n"), 1) if needle in line), 0)

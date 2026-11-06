@@ -31,6 +31,7 @@ DOWNLOAD = "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333"
 FILES = {"ci": ".github/workflows/ci.yml", "publish": ".github/workflows/publish.yml", "nightly": ".github/workflows/nightly.yml",
          "e2e": ".github/workflows/e2e.yml", "versions": ".github/workflows/versions.yml", "lab": ".github/actions/lab/action.yml"}
 
+
 def text_of(name):
     return (MANAGED / FILES[name]).read_text(encoding="utf-8")
 
@@ -980,7 +981,7 @@ HOSTILE = {
         % number for number in range(3000)),
     "six thousand secrets": step_line("run: echo hi") + "        env:\n" + "".join("          K%d: ${{ secrets.S%d }}\n" % (n, n) for n in range(6000)),
     "twenty thousand tests of a result": step_line("if: ${{ " + " && ".join("needs.j%d.result != 'x'" % n for n in range(20000)) + " }}"),
-    # calls, groups and strings in a condition, each of which was a quadratic scan once
+    # calls, groups and strings in a condition, each of which could be a quadratic scan
     "calls, a result at the end of each": step_line("if: ${{ " + "!contains(needs.a.result, " * (MB // 30) + " }}"),
     "groups that are never closed": step_line("if: ${{ " + "!(" * (MB // 2) + "needs.a.result == 'x' }}"),
     "groups that close": step_line("if: ${{ " + "!(" * (MB // 4) + "needs.a.result == 'x'" + ")" * (MB // 4) + " }}"),
