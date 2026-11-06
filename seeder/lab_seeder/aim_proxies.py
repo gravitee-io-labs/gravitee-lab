@@ -51,8 +51,8 @@ import requests
 from . import controls
 from . import gamma
 from .apim import ENDED, UNSUPPORTED, accept, find_application, held_subscription, merge, subscribe
-from .common import (OK, Api, SeedError, adopted, contains, created, files, forget, has_seed, load, log, making, owned, record, recorded,
-                     setting, trouble, wait_until, waits_for_gateway)
+from .common import (OK, Api, SeedError, adopted, contains, created, excerpt, files, forget, has_seed, load, log, making, owned, record,
+                     recorded, setting, trouble, wait_until, waits_for_gateway)
 
 SECTION = "aim-proxies"
 # The folders of the seed it owns
@@ -133,12 +133,6 @@ def split(url):
     """An address as the origin a client is made for and the path it calls."""
     parts = urlsplit(url)
     return f"{parts.scheme}://{parts.netloc}", parts.path
-
-
-def one_line(text):
-    """A message on one line: the Lab UI shows the last line the seed printed as the reason it stopped, and the
-    body of an error answer spreads over many."""
-    return " ".join(str(text).split())
 
 
 def digest(body):
@@ -448,7 +442,7 @@ class McpProxies:
                 try:
                     offered(user)
                 except SeedError as e:
-                    raise SeedError(one_line(f"{user['username']}: {e}")) from None
+                    raise SeedError(excerpt(f"{user['username']}: {e}")) from None
 
         what = f"{spec['automation']['name']} on the gateway ({path})"
         wait_until(SECTION, what, check, int(setting("GATEWAY_READY_TIMEOUT", "300")))
