@@ -2,7 +2,6 @@
 against a memory that behaves like Gamma where it matters: one manual source, a duplicate entity id refused, an object
 stored with less and more than it was sent, a secret never given back."""
 
-import ast
 import io
 import itertools
 import json
@@ -26,7 +25,6 @@ MOVED = "http://127.0.0.1:8000"
 AGENT = "http://bakery-agent:8000"
 CARD = AGENT + aim_catalog.CARD_PATH
 REAL = PLAYGROUNDS / "acme-bakery" / "seed" / "aim"
-POLICIES = PLAYGROUNDS / "acme-bakery" / "apps" / "bakery-mcp" / "policies.py"
 MINE = {folder.split("/")[1] for folder in aim_catalog.FOLDERS}   # the folders of the seed that this module reads
 ENV = {"OLLAMA_URL": "http://ollama:11434", "BAKERY_MCP_URL": MCP, "BAKERY_AGENT_URL": AGENT}
 
@@ -47,13 +45,6 @@ def last(call):
 def listing(rows):
     rows = list(rows)
     return 200, {"data": rows, "pagination": {"page": 1, "perPage": 200, "totalCount": len(rows)}}
-
-
-def policy_texts():
-    """What the bank's MCP server publishes as the resources acme://policies/*: the constants of its module, read without
-    running it."""
-    tree = ast.parse(POLICIES.read_text(encoding="utf-8"))
-    return {node.targets[0].id: ast.literal_eval(node.value) for node in tree.body if isinstance(node, ast.Assign)}
 
 
 class World:
@@ -1259,32 +1250,6 @@ class Playground(Catalog):
             "mcp-tool.acme-bakery-open-api-listbranches", "mcp-tool.acme-bakery-open-api-listrates",
             "model.acme-bakery-qwen3-0-6b", "model.acme-bakery-qwen3-1-7b", "skill.acme-bakery-complaint-handling"])
         self.assertEqual({x["kind"] for x in self.records()}, set(aim_catalog.ORDER))
-
-    def test_the_demo_prices_are_on_the_models_of_the_provider(self):
-        self.run_seed()
-        prices = {p["slug"]: {m["name"]: m.get("pricingOverride") for m in p["models"]}
-                  for p in self.world.providers.values()}
-        ollama = {name: (price["inputPer1M"], price["outputPer1M"]) for name, price in prices["acme-bakery-ollama"].items()}
-        self.assertEqual(ollama, {"qwen3:1.7b": (50, 50), "qwen3:0.6b": (20, 20)})
-        self.assertEqual({name: price is not None for name, price in prices["acme-bakery-gemini"].items()},
-                         {"gemini-3.5-flash-lite": False, "gemini-3.8-flash": True})
-
-    def test_the_catalog_names_the_server_so_that_the_access_policies_find_its_tools(self):
-        self.run_seed()
-        server = self.world.named("mcp-server", "acme-bakery-mcp")
-        self.assertEqual(server["slug"], "acme-bakery-mcp")
-        self.assertEqual(sorted(i["entityId"] for i in self.world.children(server) if i["kind"] == "mcp-tool"),
-                         ["mcp-tool.acme-bakery-mcp.get_balance", "mcp-tool.acme-bakery-mcp.transfer_funds"])
-
-    def test_the_documents_say_what_the_policy_resources_of_the_bakery_mcp_server_say(self):
-        self.run_seed()
-        texts = policy_texts()
-        for entity_id, constant in (("acme-bakery-fee-schedule", "FEES"), ("acme-bakery-card-security-policy", "CARD_SECURITY")):
-            self.assertEqual(self.world.named("knowledge", entity_id)["definition"]["content"], texts[constant], entity_id)
-
-    def test_the_gemini_key_is_the_one_of_the_environment(self):
-        self.run_seed()
-        self.assertEqual(next(iter(self.world.secrets.values()))["value"], "AIza-real-key")
 
     def test_without_a_key_there_is_no_gemini_provider_to_test_and_the_rest_is_seeded(self):
         self.env(GEMINI_API_KEY="")

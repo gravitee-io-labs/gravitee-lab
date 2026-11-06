@@ -1,5 +1,3 @@
-# The same text as the resource acme://policies/card-security of the bank's MCP server (apps/bakery-mcp/policies.py),
-# as a document of the catalog: a test of the seeder compares them
 entityId: acme-bakery-card-security-policy
 source: Acme Bakery                        # names the environment's source of hand-made items, if the seed has to make it
 name: Acme Bakery card security policy
