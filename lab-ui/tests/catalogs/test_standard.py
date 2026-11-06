@@ -1518,20 +1518,6 @@ class Upgrading(Case):
         self.assertNotIn(b"3d3c42e5aac5ba805825da76410c181273ba90b1", ci["content"])
         self.assertIn(b"ci smoke", ci["content"])
 
-    def test_a_file_that_left_the_template_is_removed_when_it_is_ours_and_listed_when_it_is_not(self):
-        template = support.copy_template(self)
-        data = json.loads((template / "manifest.json").read_text(encoding="utf-8"))
-        data["removed"] = [".github/old.yml", ".github/mine.yml", ".github/gone.yml"]
-        (template / "manifest.json").write_text(json.dumps(data), encoding="utf-8")
-        repo = self.repo(files={**render(), ".github/old.yml": (standard.marker(1) + "\nold: true\n").encode(),
-                                ".github/mine.yml": b"mine: true\n"})
-        plan = self.plan(repo)
-        self.assertEqual(self.actions(plan), {".github/old.yml": "remove", ".github/mine.yml": "owned"})
-        self.assertEqual(plan["owned"], [".github/mine.yml"])
-        standard.upgrade_apply(repo.root, plan)
-        self.assertFalse((repo.root / ".github/old.yml").exists())
-        self.assertTrue((repo.root / ".github/mine.yml").exists())
-
     def test_a_dirty_tree_is_refused_with_exit_2_and_nothing_is_written(self):
         repo = self.repo()
         (repo.root / ".github/workflows/ci.yml").write_text((repo.root / ".github/workflows/ci.yml").read_text() + "# mine\n")

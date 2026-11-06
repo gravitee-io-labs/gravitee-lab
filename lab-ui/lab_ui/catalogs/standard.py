@@ -148,7 +148,6 @@ def _checked(data) -> dict:
         top = max(top, each["since"])
     # A level brings files, or changes those that are there: the levels that exist are the highest of both
     top = max(top, data["level"])
-    need(isinstance(data.get("removed"), list) and all(_clean(each) for each in data["removed"]), "removed is a list of paths")
     need(isinstance(data.get("edits"), list), "edits is a list")
     for each in data["edits"]:
         need(isinstance(each, dict) and each.get("path") in seen and isinstance(each.get("below"), int)
@@ -165,7 +164,7 @@ def _checked(data) -> dict:
 
 def manifest(folder=None) -> dict:
     """The template's `manifest.json` as a dict: `level`; `files`, each {path, class, since, when, scope} (and `local` for the
-    source a folder catalog uses, `tool`, `license`); `removed`, the paths that left the template; `edits`, what a level
+    source a folder catalog uses, `tool`, `license`); `edits`, what a level
     below `below` leaves out of a managed file (exact lines `from`, replaced by `to`); `notes`, one for each level. A copy:
     the caller may change it."""
     path = Path(folder or TEMPLATE) / "manifest.json"
@@ -196,11 +195,9 @@ def entries(local: bool = False) -> List[dict]:
 
 
 def managed_paths() -> Tuple[str, ...]:
-    """Every path a Lab upgrade may write or remove: the managed files of every level, those that left the template and
-    `.github/standard.json` (the fleet checks an upgrade against this)."""
-    data = manifest()
-    return tuple(sorted({each["path"] for each in data["files"] if each["class"] == "managed"} | set(data["removed"])
-                        | {STANDARD}))
+    """Every path a Lab upgrade may write: the managed files of every level and `.github/standard.json` (the fleet checks an
+    upgrade against this)."""
+    return tuple(sorted({each["path"] for each in manifest()["files"] if each["class"] == "managed"} | {STANDARD}))
 
 
 def managed_roots() -> Tuple[str, ...]:
@@ -896,7 +893,7 @@ def write_golden() -> Path:
 # Upgrade: the plan and the writing
 # ---------------------------------------------------------------------------------------------------------------------
 
-ADD, UPDATE, REMOVE, CURRENT, OWNED = "add", "update", "remove", "current", "owned"
+ADD, UPDATE, CURRENT, OWNED = "add", "update", "current", "owned"
 
 
 def _entry(path: str, action: str, kind: str, why: str = "", content: Optional[bytes] = None) -> dict:
@@ -1034,7 +1031,7 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
     """What an upgrade of the repository in `tree` would do, as a dict:
 
         level       the Lab's level          have        the repository's (None when it has no standard.json)
-        files       [{path, action, class, why, content}], action one of add, update, remove, current, owned
+        files       [{path, action, class, why, content}], action one of add, update, current, owned
         owned       the paths the catalog owns (no marker): skipped, listed
         notes       [{level, summary, manual, settings}] for the levels the repository has not reached
         lab         {repository, old, new, compare, log}: the Lab pin, and what moving it brings
@@ -1124,15 +1121,6 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
         else:
             files.append(_entry(path, UPDATE, "managed", "behind" if (state.level or level) < level else "differs",
                                 carry_pins(want, text).encode("utf-8")))
-    for path in data["removed"]:
-        kind, text = _file(tree, path)
-        if kind == "missing":
-            continue
-        if kind == "file" and marker_level(text, path) is None:
-            plan["owned"].append(path)
-            files.append(_entry(path, OWNED, "managed", "the catalog removed the marker"))
-        else:
-            files.append(_entry(path, REMOVE, "managed", "it left the template"))
     # standard.json: the level goes up, the pin moves when asked; every other key stays as the catalog wrote it
     new = copy.deepcopy(state.data) if state.data else {"platforms": list(options.get("platforms") or ["linux/amd64"])}
     new.update({"standard": level, "form": form})
@@ -1156,7 +1144,7 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
         if problem:
             return refuse(problem)
     plan["files"] = files
-    plan["pending"] = any(each["action"] in (ADD, UPDATE, REMOVE) for each in files)
+    plan["pending"] = any(each["action"] in (ADD, UPDATE) for each in files)
     plan["notes"] = [{"level": number, **data["notes"][str(number)]} for number in range((state.level or 0) + 1, level + 1)]
     moved = bool(ref_new) and old.get("ref") not in (None, ref_new)
     plan["lab"] = {"repository": repo, "old": old.get("ref") or "", "new": ref if moved else "", "compare": "", "log": []}
@@ -1200,10 +1188,10 @@ class UpgradeError(Exception):
 MAX_REWRITE = 8 * 1024 * 1024   # a managed file larger than this is not read back to be put back; it is not a managed file
 
 
-def _inside(root: str, relative: str, make: bool) -> str:
+def _inside(root: str, relative: str) -> str:
     """The path of `relative` below `root`, after checking that no folder on the way is a link, a file or the work tree of another
     repository (a write through a link would leave the repository, and one into a nested repository or a submodule would put the
-    standard's files in that one). Folders that are missing are made when `make`. The last name may be a link: it is replaced."""
+    standard's files in that one). Folders that are missing are made. The last name may be a link: it is replaced."""
     if not _clean(relative):
         raise UpgradeError(f"{printable(relative)[:SHOWN]} is not a path inside the repository.")
     here = root
@@ -1213,8 +1201,6 @@ def _inside(root: str, relative: str, make: bool) -> str:
         try:
             os.lstat(here)
         except FileNotFoundError:
-            if not make:
-                return os.path.join(root, *parts)
             os.mkdir(here)
             continue
         if os.path.islink(here) or not os.path.isdir(here):
@@ -1267,14 +1253,14 @@ def _put_back(record: tuple) -> None:
 
 
 def upgrade_apply(root, plan: dict) -> List[str]:
-    """Writes a plan in `root` and answers the paths it wrote or removed, sorted. Only the plan's own paths are touched, none
+    """Writes a plan in `root` and answers the paths it wrote, sorted. Only the plan's own paths are touched, none
     through a link; each file is written through a temporary file and `os.replace`, keeps its execute bit, and is LF. When a
     write fails, what was written is put back and the error goes on. It refuses a folder that is a submodule or holds a
     repository of its own: the standard's files do not go into another repository."""
     if plan.get("refused"):
         raise UpgradeError(plan["refused"])
     base = os.path.realpath(str(root))
-    modules = gitlinks(base, [each["path"] for each in plan["files"] if each["action"] in (ADD, UPDATE, REMOVE)])
+    modules = gitlinks(base, [each["path"] for each in plan["files"] if each["action"] in (ADD, UPDATE)])
     if modules:
         raise UpgradeError("The upgrade does not write into a submodule: " + ", ".join(modules) + ". Fix: make it a folder of this "
                            "repository, or take it out of the standard's paths.")
@@ -1282,18 +1268,13 @@ def upgrade_apply(root, plan: dict) -> List[str]:
     out: List[str] = []
     try:
         for each in plan["files"]:
-            if each["action"] not in (ADD, UPDATE, REMOVE):
+            if each["action"] not in (ADD, UPDATE):
                 continue
-            target = _inside(base, each["path"], make=each["action"] != REMOVE)
+            target = _inside(base, each["path"])
             before = _snapshot(target)
-            if before[0] == "none" and each["action"] == REMOVE:
-                continue
             mode = 0o755 if before[0] == "file" and before[3] & 0o111 else 0o644
             done.append(before)
-            if each["action"] == REMOVE:
-                os.unlink(target)
-            else:
-                _write(Path(target), each["content"].decode("utf-8"), mode)
+            _write(Path(target), each["content"].decode("utf-8"), mode)
             out.append(each["path"])
     except BaseException:
         rollback(done)
@@ -1529,11 +1510,11 @@ def describe(plan: dict) -> str:
         for note in plan["notes"]:
             lines += ["", f"What is new in standard {note['level']}", f"  {note['summary']}"]
             lines += [f"  {each}" for each in note["manual"] + note["settings"]]
-    groups = {ADD: [], UPDATE: [], REMOVE: [], OWNED: []}
+    groups = {ADD: [], UPDATE: [], OWNED: []}
     for each in plan["files"]:
         if each["action"] in groups:
             groups[each["action"]].append(each["path"])
-    changing = [(action, path) for action in (ADD, UPDATE, REMOVE) for path in sorted(groups[action])]
+    changing = [(action, path) for action in (ADD, UPDATE) for path in sorted(groups[action])]
     if changing:
         lines += ["", "Will change"] + [f"  {action:<8} {path}" for action, path in changing]
     if groups[OWNED]:
@@ -1616,7 +1597,7 @@ def main_upgrade(argv: List[str], lab: Optional[Path] = None) -> int:
         _say(f"Nothing was written. To apply: {apply_command(args)}")
         return 1
     try:
-        touched = [each["path"] for each in plan["files"] if each["action"] in (ADD, UPDATE, REMOVE)]
+        touched = [each["path"] for each in plan["files"] if each["action"] in (ADD, UPDATE)]
         dirty = dirty_files(root, touched)
         if dirty:
             raise UpgradeError("Uncommitted changes in files the upgrade rewrites: " + ", ".join(dirty) + ". Commit or restore "

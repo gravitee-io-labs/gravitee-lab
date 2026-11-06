@@ -36,7 +36,6 @@
     {"path": "addons/hello/compose.yml", "class": "sample", "since": 1, "when": "always", "scope": "both", "source": "addons/hello/compose.yml"},
     {"path": "addons/hello/README.md", "class": "sample", "since": 1, "when": "always", "scope": "both", "source": "addons/hello/README.md"}
   ],
-  "removed": [],
   "edits": [
     {
       "path": ".github/workflows/e2e.yml",
