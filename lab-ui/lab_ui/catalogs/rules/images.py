@@ -1,6 +1,5 @@
 """IM: images and names. A catalog publishes the images it builds under one prefix, `images` in `catalog.yml`, and each
-name must be built by one service from one place; the engine's `lab_images.py` lets the last item with a name silently win,
-and this closes that hole at pull request time.
+name must be built by one service from one place, said at pull request time.
 
     IM01  a service that builds an image has no `pull_policy` (so a person who sets `<ID>_PULL_POLICY` cannot choose)
     IM02  the image of a built service is outside the `images` prefix, or two units build the same name
