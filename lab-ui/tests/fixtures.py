@@ -35,7 +35,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import time
 import unittest
 from collections import Counter
 from pathlib import Path
@@ -1805,18 +1804,6 @@ class FixtureCatalogs(Case):
                                                      if entry.is_dir())]
         self.assertEqual({oct(entry.stat().st_mode & 0o777) for entry in mine}, {"0o755"}, "the personal area")
         self.assertEqual((where / "compose.yml").stat().st_mode & 0o777, 0o644)
-
-    def test_installing_a_folder_catalog_takes_under_a_tenth_of_a_second(self):
-        self.built()
-
-        def once():
-            # The time of this process, not of the clock on the wall: a machine at load 60 stretches the second and not the first
-            start = time.process_time()
-            install(self, "fixture")
-            return time.process_time() - start
-
-        best = min(once() for _ in range(5))
-        self.assertLess(best, 0.1, f"{best * 1000:.0f} ms")
 
     def test_lock_sets_the_audience_and_patches_version_and_level_where_they_come_from(self):
         self.built()

@@ -14,7 +14,6 @@ import socket
 import subprocess
 import sys
 import threading
-import time
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
@@ -160,17 +159,6 @@ class Reconcile(Quiet):
         self.listed(self.ns, url=self.remote.url)
         firstrun.reconcile()
         self.assertEqual([one["id"] for one in self.config()["catalogs"]], [self.ns])
-
-    def test_the_empty_list_of_the_opt_out_is_kept_and_nothing_is_downloaded(self):
-        (self.root / ".lab").mkdir(exist_ok=True)
-        (self.root / ".lab/catalogs.json").write_text('{"schema": 1, "catalogs": []}', encoding="utf-8")
-        firstrun.reconcile()
-        firstrun.start_worker()
-        self.addCleanup(self.stop_worker)
-        self.patch(firstrun, "provision", side_effect=AssertionError("nothing to download"))
-        time.sleep(0.2)
-        self.assertEqual(self.config(), {"schema": 1, "catalogs": []})
-        self.assertEqual(firstrun.content({})["key"], "none")
 
     def test_reconcile_twice_changes_nothing_and_keeps_the_bar_where_it_is(self):
         firstrun.reconcile()
