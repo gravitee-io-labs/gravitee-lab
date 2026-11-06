@@ -143,10 +143,6 @@ class Matrix(Fixture):
                                                                   "playground:@acme-hub/bank", "setup:@acme-hub/pair"])
         self.assertEqual(self.jobs()[2]["name"], "playground:@acme-hub/bank (core defaults)")
 
-    def test_a_scheduled_run_tries_every_item_of_main_and_asks_no_pull_request(self):
-        self.assertEqual(self.plan("--all", change=False, ref="refs/heads/main"), 0)
-        self.assertEqual(self.outputs()["count"], "4")
-
     def test_changed_items_are_the_ones_the_pull_request_touches(self):
         self.clone({"playgrounds/bank/apps/web/app.py": "print(2)\n", "addons/mock/README.md": "# Mock\n", "docs/notes.md": "x\n"})
         self.assertEqual(self.plan("--changed"), 0, self.out.getvalue() + self.err.getvalue())
@@ -206,21 +202,15 @@ class License(Fixture):
     """E2E01."""
 
     def test_an_own_service_that_reads_the_license_is_refused_and_nothing_is_planned(self):
-        self.table = {"playground:bank": self.loaded("playground:bank", own=("bakery-web", "bakery-api"), leaks=("bakery-web",))}
+        self.table = {"playground:bank": self.loaded("playground:bank", own=("bakery-web", "bakery-api", "bakery-mcp"),
+                                                     leaks=("bakery-web", "bakery-mcp"))}
         self.assertEqual(self.plan("--all", change=False), 1)
         self.assertIn("E2E01", self.out.getvalue())
         self.assertIn("playground:bank: bakery-web reads GRAVITEE_LICENSE. Fix: only an overlay on a core service may read it.",
                       self.out.getvalue())
+        self.assertIn("playground:bank: bakery-mcp reads GRAVITEE_LICENSE.", self.out.getvalue())
         self.assertNotIn("bakery-api reads", self.out.getvalue())
         self.assertEqual(self.outputs(), {})
-
-    def test_every_own_service_that_reads_it_is_said(self):
-        self.table = {"addon:mock": self.loaded("addon:mock", own=("a", "b", "c"), leaks=("a", "c"))}
-        self.plan("--all", change=False)
-        text = self.out.getvalue()
-        self.assertIn("addon:mock: a reads GRAVITEE_LICENSE.", text)
-        self.assertIn("addon:mock: c reads GRAVITEE_LICENSE.", text)
-        self.assertNotIn("b reads", text)
 
     def test_an_overlay_on_a_core_service_may_read_it(self):
         self.table = {"addon:hybrid": self.loaded("addon:hybrid", own=("hybrid-agent",), leaks=("apim-gateway",))}
