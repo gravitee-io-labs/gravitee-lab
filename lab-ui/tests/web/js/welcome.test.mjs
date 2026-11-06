@@ -18,8 +18,8 @@ const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "
 const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$/.test(id));
 const calls = [];
 const row = (id, state, detail, actions = []) => ({ id, state, title: id[0].toUpperCase() + id.slice(1), detail, actions });
-const READY = { ready: true, problems: 0, checks: [row("docker", "ok", "Docker Desktop 29.8.2, Compose 5.6.0"), row("git", "ok", "Git 2.43.2")] };
-const DOWN = { ready: false, problems: 1, checks: [
+const READY = { ready: true, checks: [row("docker", "ok", "Docker Desktop 29.8.2, Compose 5.6.0"), row("git", "ok", "Git 2.43.2")] };
+const DOWN = { ready: false, checks: [
   row("docker", "error", "Docker Desktop is not running", [{ id: "open-docker", label: "Open Docker Desktop", primary: true }]),
   row("git", "ok", "Git 2.43.2"),
 ] };

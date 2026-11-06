@@ -380,9 +380,7 @@ def report(fresh=False):
     docker, info = _docker()
     checks = [docker, _memory(info), _disk(info), _ports(info), _git(), _folder()]
     checks = [check for check in checks if check]
-    problems = sum(1 for c in checks if c["state"] in ("error", "warn", "working"))
-    result = {"checks": checks, "ready": all(c["state"] in ("ok", "warn", "idle") for c in checks), "problems": problems,
-              "system": system()}
+    result = {"checks": checks, "ready": all(c["state"] in ("ok", "warn", "idle") for c in checks)}
     with _lock:
         _last.update(at=time.monotonic(), report=result)
     return result
@@ -436,10 +434,3 @@ def agent():
                          "note": f"The lab runs in WSL: run its commands (make, git, python3) in {distro}, as "
                                  f"wsl.exe -d {distro} --cd {root} -- followed by the command."}
     return _agents[root]
-
-
-def summary():
-    """For the state: whether something keeps the platform from starting, and how many lines need a look"""
-    found = report()
-    return {"ready": found["ready"], "problems": found["problems"]}
-

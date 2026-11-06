@@ -12,9 +12,9 @@ const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "
 const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
 
 const row = (id, state, detail, actions = []) => ({ id, state, title: id[0].toUpperCase() + id.slice(1), detail, actions });
-const READY = { ready: true, problems: 0, checks: [row("docker", "ok", "Docker Desktop 29.8.2, Compose 5.6.0"), row("git", "ok", "Git 2.43.2")] };
-const LOOK = { ready: true, problems: 1, checks: [row("docker", "ok", "Docker Desktop 29.8.2, Compose 5.6.0"), row("memory", "warn", "6 GB: give it 8 GB in the settings of Docker Desktop")] };
-const DOWN = { ready: false, problems: 3, checks: [
+const READY = { ready: true, checks: [row("docker", "ok", "Docker Desktop 29.8.2, Compose 5.6.0"), row("git", "ok", "Git 2.43.2")] };
+const LOOK = { ready: true, checks: [row("docker", "ok", "Docker Desktop 29.8.2, Compose 5.6.0"), row("memory", "warn", "6 GB: give it 8 GB in the settings of Docker Desktop")] };
+const DOWN = { ready: false, checks: [
   row("docker", "error", "Docker Desktop is not running", [{ id: "open-docker", label: "Open Docker Desktop", primary: true }]),
   row("memory", "idle", "Known once Docker runs"),
   row("ports", "warn", "27017 (MongoDB) is used by another program", [{ id: "start-docker", label: "Copy the command", primary: true, copy: "sudo systemctl start docker" }]),
@@ -71,7 +71,7 @@ test("the whole says in one line whether the platform can start", async () => {
 });
 
 test("a fix on its way keeps the platform waiting and the whole says what it waits for", async () => {
-  server.machine = { ready: false, problems: 2, checks: [row("docker", "working", "Docker Desktop is starting"),
+  server.machine = { ready: false, checks: [row("docker", "working", "Docker Desktop is starting"),
     row("disk", "warn", "14 GB free: the first start downloads about 15 GB")] };
   await refreshMachine(true);
   assert.equal(machineBlocked(), true, "Continue and Start wait for Docker");
