@@ -801,8 +801,6 @@ class Stores(Remote):
         self.assertIsNone(store.resolve(self.store, "refs/lab/none"))
         self.assertEqual(store.resolve(self.store, "refs/lab/tip"), tip)
         self.assertEqual(store.resolve(self.store, tip), tip)
-        self.assertTrue(store.has(self.store, tip))
-        self.assertFalse(store.has(self.store, "1" * 40))
         self.assertIsNone(store.resolve(self.store, "1" * 40))
 
     def test_the_tip_may_be_named_short(self):
@@ -820,7 +818,7 @@ class Stores(Remote):
                 store.resolve(self.store, name)
         for value in ("--upload-pack=x", "HEAD", "main", "refs/heads/main", tip[:10], tip + "0", tip.upper(), "", None, 7,
                       tip + "^{tree}", f"{tip}..{tip}", "refs/lab/tip^{commit}"):
-            for call in (store.resolve, store.roots, store.listing, store.has):
+            for call in (store.resolve, store.roots, store.listing):
                 with self.assertRaises(ValueError, msg=(call.__name__, value)):
                     call(self.store, value)
         with self.assertRaises(ValueError):
@@ -843,8 +841,8 @@ class Stores(Remote):
         self.assertNotEqual(store.roots(self.store, "refs/lab/tip"), root, "another history has another root")
         self.assertFalse(store.is_ancestor(self.store, first, rewritten))
         self.assertFalse(store.is_ancestor(self.store, first, "refs/lab/tip"))
-        self.assertTrue(store.has(self.store, first), "the pinned commit and its objects are kept")
-        self.assertTrue(store.has(self.store, second))
+        self.assertEqual(store.resolve(self.store, first), first, "the pinned commit and its objects are kept")
+        self.assertEqual(store.resolve(self.store, second), second)
 
     def test_a_commit_the_store_does_not_hold_is_not_an_ancestor(self):
         tip = self.fetched()
@@ -877,7 +875,6 @@ class Stores(Remote):
                              lambda: store.log(target, None, sha, []), lambda: store.diff(target, sha, sha, "x")):
                     with self.assertRaises(gitx.CatalogError):
                         call()
-                self.assertFalse(store.has(target, sha))
                 self.assertIsNone(store.resolve(target, sha))
         self.assertEqual(gitfixture.git("for-each-ref", repo=outer / ".git"), before, "the outer repository was not touched")
         self.assertFalse((outer / ".git" / "refs" / "lab").exists())
@@ -950,7 +947,7 @@ class Fetching(Remote):
         self.assertEqual(store.fetch(self.address, "main", self.store), second)
         rewritten = gitfixture.force_push_over(self.repo, {"catalog.yml": "other\n"})
         self.assertEqual(store.fetch(self.address, "main", self.store), rewritten)
-        self.assertTrue(store.has(self.store, first))
+        self.assertEqual(store.resolve(self.store, first), first)
 
     def test_tags_are_not_tags_of_the_store_and_those_that_may_be_releases_are_kept_apart(self):
         gitfixture.git("tag", "v1", gitfixture.tip(self.repo), repo=self.repo)
@@ -1275,7 +1272,7 @@ class Reading(Remote):
         self.assertEqual(store.log(self.store, self.tip, tip, ["addons/new"]), ["Describe the new add-on", "A new beginning"])
         self.assertIn("-  name: Acme Hub", store.diff(self.store, self.tip, tip, "catalog.yml"))
         self.assertIn("+other", store.diff(self.store, self.tip, tip, "catalog.yml"))
-        self.assertEqual(store.touching(self.store, tip, "catalog.yml"), [rewritten])
+        self.assertEqual(store.changes(self.store, tip, ["catalog.yml"]), [(rewritten, None)])
         self.assertEqual(store.read(self.store, self.tip, "catalog.yml"), gitfixture.catalog_files()["catalog.yml"].encode())
         self.assertFalse(store.is_ancestor(self.store, self.tip, "refs/lab/tip"))
 
@@ -1333,16 +1330,16 @@ class Reading(Remote):
         gitfixture.commit(self.repo, {"README.md": "other\n"}, "Another file")
         second = gitfixture.commit(self.repo, {"catalog.yml": "version 3\n"}, "Version 3")
         tip = self.fetched()
-        self.assertEqual(store.touching(self.store, tip, "catalog.yml"), [second, first, self.tip])
-        self.assertEqual(store.touching(self.store, tip, "catalog.yml", limit=2), [second, first])
-        self.assertEqual(store.touching(self.store, "refs/lab/tip", "README.md")[1:], [self.tip])
-        self.assertEqual(store.touching(self.store, tip, "none.yml"), [])
+        self.assertEqual([one for one, _ in store.changes(self.store, tip, ["catalog.yml"])], [second, first, self.tip])
+        self.assertEqual([one for one, _ in store.changes(self.store, tip, ["catalog.yml"], limit=2)], [second, first])
+        self.assertEqual(store.changes(self.store, "refs/lab/tip", ["README.md"])[-1], (self.tip, None))
+        self.assertEqual(store.changes(self.store, tip, ["none.yml"]), [])
         for bad in (0, -1, 1001, "5", None):
             with self.assertRaises(ValueError, msg=bad):
-                store.touching(self.store, tip, "catalog.yml", limit=bad)
+                store.changes(self.store, tip, ["catalog.yml"], limit=bad)
         for path in ("--all", "../x", "a b", ""):
             with self.assertRaises(ValueError, msg=path):
-                store.touching(self.store, tip, path)
+                store.changes(self.store, tip, [path])
 
     def test_a_file_is_read_at_a_commit_only_when_it_is_a_regular_file_of_a_size_that_is_allowed(self):
         files = gitfixture.catalog_files()

@@ -328,11 +328,6 @@ def resolve(store, name: str) -> Optional[str]:
     return sha if result.code == 0 and _SHA.fullmatch(sha) else None
 
 
-def has(store, oid: str) -> bool:
-    """Whether the store holds an object."""
-    return _run(store, "cat-file", "-e", _sha(oid)).code == 0
-
-
 def roots(store, commit: str) -> List[str]:
     """The root commits of the history of `commit`, sorted: the identity of a catalog."""
     out = _git(store, "rev-list", "--max-parents=0", _rev(commit)).out.decode("utf-8", "replace")
@@ -677,12 +672,6 @@ def release_commit(store, version: str) -> Optional[str]:
     result = _run(store, "rev-parse", "--verify", "--quiet", f"{RELEASES}v{version}^{{commit}}")
     sha = result.out.decode("utf-8", "replace").strip()
     return sha if result.code == 0 and _SHA.fullmatch(sha) else None
-
-
-def touching(store, tip: str, path: str, limit: int = 50) -> List[str]:
-    """The commits, newest first and following first parents, that changed `path`, as `git log --first-parent` lists
-    them: where a file such as `catalog.yml` took each of its forms."""
-    return [commit for commit, _ in changes(store, tip, [path], limit)]
 
 
 def changes(store, tip: str, paths: Iterable[str], limit: int = 50, since: Optional[str] = None) -> List[Tuple[str, Optional[str]]]:
