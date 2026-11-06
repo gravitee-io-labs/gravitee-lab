@@ -2,15 +2,15 @@
 exists, the fix in full and what the Lab does with the same file when a person adds the catalog.
 
 The table of codes is built from the rule modules (`rules.structure.RULES` and the others, `workflows.RULES` and the tables of
-`standard` and `codeowners`), the Lab's trust policy (T and N, with `trust.FIXES` when it has
-them) and the codes of the CI stages, which are kept here. A test keeps every code of a module covered by a long form,
+`standard` and `codeowners`), the Lab's trust policy (T and N, with `trust.FIXES`) and the codes of the CI stages, which are
+kept here. A test keeps every code of a module covered by a long form,
 and `docs/catalog-rules.md` equals this table. Pure: it reads tables, runs nothing, writes nothing."""
 
-import importlib
 from typing import Dict, List, NamedTuple, Tuple
 
+from . import trust
 from .report import ERROR, WARNING, printable
-from .rules import FAMILIES, Rule
+from .rules import FAMILIES, codeowners, commits, dockerfiles, guides, images, secrets, structure, workflows
 
 SAME = "Not judged: the Lab does not install this file, or a person never sees it."
 NOT_AT_ADD = "Not judged at Add: this is a rule about the repository, and the Lab judges the files it installs."
@@ -156,9 +156,6 @@ SD = (
      "Makefile does not include .catalog/standard.mk. Fix: add the line: include .catalog/standard.mk"),
     ("SD11", ERROR, "lab.ref is not the commit of a release of the Lab (a tag vX.Y.Z on its main) (CI)",
      "The Lab commit {sha7} is not a release of the Lab. Fix: pin the latest release (catalog.py upgrade --lab-ref latest)."),
-    ("CO01", ERROR, "The file lacks the line * or the line /.github/, a line names no owner, or an owner is not @user or "
-                    "@organization/team",
-     ".github/CODEOWNERS: {path} has no owner. Fix: add the line: {path} {maintainers}"),
 )
 STAGES = (
     ("BD01", ERROR, "build", "{image}: the build failed at step {n}/{m}, {instruction} (exit {code}). Fix: run make ci to see it on "
@@ -228,35 +225,21 @@ T_FIXES = {
 }
 
 
-def _module_rules(name: str) -> Dict[str, Rule]:
-    """The RULES table of a rule module of this package."""
-    module = importlib.import_module(f"{__package__}.{name}")
-    return {code: rule for code, rule in getattr(module, "RULES", {}).items() if isinstance(rule, tuple) and len(rule) >= 4}
-
-
-def _more(name: str) -> Dict[str, Tuple[str, ...]]:
-    return getattr(importlib.import_module(f"{__package__}.{name}"), "MORE", {})
-
-
 def table() -> Dict[str, Entry]:
     """Every code this Lab knows, with what to say about it, from the rule modules, the trust policy and the tables above."""
     found: Dict[str, Entry] = {}
-    for name in ("rules.structure", "rules.secrets", "rules.commits", "rules.guides", "rules.dockerfiles", "rules.images",
-                 "rules.workflows", "rules.codeowners"):
-        more = _more(name)
-        for code, rule in _module_rules(name).items():
+    for module in (structure, secrets, commits, guides, dockerfiles, images, workflows, codeowners):
+        more = getattr(module, "MORE", {})
+        for code, rule in module.RULES.items():
             long = DETAILS.get(code, Long("", ""))
             found[code] = Entry(code, rule[1], rule[2], rule[3], tuple(more.get(code, ())), long.why, long.lab)
     for code, severity, rule, message in SD:
-        found.setdefault(code, Entry(code, severity, rule, message, (), "", NOT_AT_ADD))
+        found[code] = Entry(code, severity, rule, message, (), "", NOT_AT_ADD)
     for code, severity, stage, message in STAGES:
         found[code] = Entry(code, severity, f"{stage} stage of `catalog.py ci`", message, (), "", NOT_AT_ADD)
-    trust = importlib.import_module(f"{__package__}.trust")
-    for code, row in (getattr(trust, "RULES", None) or {}).items():
-        lines = row.get("lines") or ("",)
-        fix = (getattr(trust, "FIXES", None) or T_FIXES).get(code, T_FIXES.get(code, ""))
-        found[code] = Entry(code, ERROR, f"the Lab's trust policy, class {row.get('class', '')}".rstrip(", "),
-                            f"{lines[0]}. Fix: {fix}" if fix else lines[0], (), "The Lab will not run an item that breaks this "
+    for code, row in trust.RULES.items():
+        found[code] = Entry(code, ERROR, f"the Lab's trust policy, class {row['class']}",
+                            f"{row['lines'][0]}. Fix: {trust.FIXES[code]}", (), "The Lab will not run an item that breaks this "
                             "rule without the person agreeing to what it takes of their machine.",
                             "Blocked at Add, Update and Start, with this reason.")
     return found
@@ -314,19 +297,16 @@ def document() -> str:
              "`make explain CODE=ST05` prints the same for one code. A finding is an error, which fails the check, or a warning, which "
              "says what to look at. The Lab judges the files it installs when a person adds a catalog: *At Add* says what it does with "
              "the same file.", ""]
-    order = [family for family in (*FAMILIES, "BD", "MF", "TS", "ND", "SM", "PB", "E2E", "LK", "SC", "T", "N")]
+    order = (*FAMILIES, "BD", "MF", "TS", "ND", "SM", "PB", "E2E", "LK", "SC", "T", "N")
     lines += ["## Families", "", "| Family | Codes |", "|---|---|"]
     for family in order:
         found = [code for code in codes() if code.rstrip("0123456789") == family]
-        if found:
-            lines.append(f"| [{FAMILY_NAMES.get(family, family)}](#{FAMILY_NAMES.get(family, family).lower().replace(' ', '-').replace(chr(39), '')}) "
-                         f"| {'`' + found[0] + '`' + (' to `' + found[-1] + '`' if len(found) > 1 else '')} |")
+        lines.append(f"| [{FAMILY_NAMES[family]}](#{FAMILY_NAMES[family].lower().replace(' ', '-').replace(chr(39), '')}) "
+                     f"| {'`' + found[0] + '`' + (' to `' + found[-1] + '`' if len(found) > 1 else '')} |")
     lines.append("")
     for family in order:
         found = [code for code in codes() if code.rstrip("0123456789") == family]
-        if not found:
-            continue
-        lines += [f"## {FAMILY_NAMES.get(family, family)}", ""]
+        lines += [f"## {FAMILY_NAMES[family]}", ""]
         for code in found:
             entry = entries[code]
             fix = entry.message.partition("Fix:")[2].strip()
