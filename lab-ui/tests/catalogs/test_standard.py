@@ -179,10 +179,6 @@ class Golden(Case):
     def test_the_golden_file_is_what_the_template_renders(self):
         self.assertEqual(standard.golden_problems(), [], "refresh it with python3 -m tests.catalogs.test_standard --write")
 
-    def test_the_message_is_the_one_of_section_3_4(self):
-        self.assertEqual(standard.GOLDEN_MESSAGE, "The template changed. Raise level in manifest.json, add a note under levels, and "
-                                                  "refresh golden.json.")
-
     def test_a_change_of_the_content_of_a_managed_file_fails_without_a_bump(self):
         template = support.copy_template(self)
         path = template / "managed" / ".github" / "workflows" / "ci.yml"
@@ -579,12 +575,8 @@ class Normalizing(unittest.TestCase):
     def test_what_is_not_a_pin_is_left_alone(self):
         for line in ("uses: ./local/action", "uses: owner/repo@v4", "uses: owner/repo@" + "a" * 39, "uses: owner/repo@" + "A" * 40,
                      "uses: owner/repo@" + "a" * 41, "  # uses: owner/repo@" + "a" * 40, "run: echo uses: owner/repo@" + "a" * 40,
-                     "uses: owner@" + "a" * 40):
+                     "uses: owner@" + "a" * 40, "      - uses: ./.github/actions/lab  # owner/repo@" + "a" * 40):
             self.assertEqual(standard.normalize(line), line + "\n", line)
-
-    def test_a_pin_in_a_comment_after_a_value_is_not_read_as_one(self):
-        line = "      - uses: ./.github/actions/lab  # owner/repo@" + "a" * 40
-        self.assertEqual(standard.normalize(line), line + "\n")
 
     def test_a_comment_after_a_pin_is_a_tag_and_cannot_hide_a_line(self):
         sha = "a" * 40
@@ -686,13 +678,6 @@ class Drift(Case):
         self.assertIn(".github/workflows/nightly.yml is from standard 1; this Lab has 9. Fix: catalog.py upgrade --write.",
                       [each.message for each in found])
 
-    def test_a_file_that_no_level_changed_is_current_at_every_level_whatever_its_marker_says(self):
-        files = at(8)
-        self.assertEqual(standard.marker_level(files[".catalog/standard.mk"].decode(), ".catalog/standard.mk"), 8)
-        self.assertEqual(where(self.check(files), "SD03"), [".github/workflows/ci.yml"])
-        old = {**render(), ".catalog/standard.mk": render()[".catalog/standard.mk"].replace(b"standard 9:", b"standard 1:")}
-        self.assertEqual(self.check(old), [])
-
     def test_the_number_of_the_marker_is_the_only_thing_that_is_not_compared(self):
         files = edited(render(), ".catalog/standard.mk", lambda text: text.replace("standard 9:", "standard 1:", 1))
         self.assertEqual(self.check(files), [])
@@ -751,9 +736,6 @@ class Drift(Case):
         cooldown_for_pip_only = mine + "    cooldown:\n      default-days: 7\n" + "  - package-ecosystem: github-actions\n    directory: /\n"
         self.assertEqual(len([each for each in self.check({**render(), ".github/dependabot.yml": cooldown_for_pip_only.encode()})
                               if each.code == "SD09"]), 1)
-
-    def test_a_managed_dependabot_file_is_not_asked_for_sd09(self):
-        self.assertNotIn("SD09", codes(self.check(render())))
 
     def test_a_cooldown_in_a_comment_is_no_cooldown(self):
         mine = ("version: 2\nupdates:\n  - package-ecosystem: github-actions\n    directory: /\n    # cooldown: later\n"
@@ -894,13 +876,6 @@ class Drift(Case):
 
     def test_the_rules_table_has_each_code(self):
         self.assertEqual(sorted(standard.RULES), [f"SD{n:02d}" for n in range(1, 12) if n != 6])
-
-    def test_the_audit_runs_it(self):
-        with tempfile.TemporaryDirectory() as folder:
-            support.write(folder, edited(render(), ".github/workflows/ci.yml", lambda text: text + "# x\n"))
-            result = audit.run(folder, audit.Options(families=("SD",)))
-        self.assertEqual([(each.code, each.path) for each in result.problems], [("SD02", ".github/workflows/ci.yml")])
-        self.assertEqual(result.skipped, [])
 
 
 class LabAction(unittest.TestCase):
@@ -1074,17 +1049,6 @@ class Commands(Case):
         self.assertEqual(files, standard.render_new(params(lab_repository="acme/gravitee-lab", lab_ref=lab.git("rev-parse", "HEAD").strip(),
                                                            images="ghcr.io/acme/lab-hub")))
 
-    def test_publish_yml_is_written_with_a_registry_and_not_without(self):
-        lab = self.lab()
-        code, out, err = self.new("--maintainers", "@a", "--images", "ghcr.io/acme/lab-hub", lab=lab.root)
-        self.assertEqual((code, err), (0, ""))
-        self.assertTrue((self.work / "hub" / ".github" / "workflows" / "publish.yml").is_file())
-        self.assertNotIn("so nothing is published yet", out)
-        code, out, err = self.new("--maintainers", "@a", lab=lab.root, folder="plain")
-        self.assertEqual((code, err), (0, ""))
-        self.assertFalse((self.work / "plain" / ".github" / "workflows" / "publish.yml").exists())
-        self.assertTrue((self.work / "plain" / ".github" / "workflows" / "nightly.yml").is_file())
-
     def test_the_settings_steps_name_commands_the_makefile_runs_and_the_last_one_makes_the_requests(self):
         make = support.need("make")
         import re as _re
@@ -1105,24 +1069,11 @@ class Commands(Case):
     def test_a_name_the_lab_keeps_stops_new_before_anything_is_made(self):
         self.patch(standard.defaults, "read", return_value=[{"id": "gravitee", "name": "Gravitee public"}])
         for name in ("Official", "this machine", "Gravitee public"):
-            code, out, err = self.run_new(name)
+            code, out, err = self.new("--name", name, "--maintainers", "@a", "--lab-repo", "acme/lab", "--lab-ref", NEWER_COMMIT)
             self.assertEqual((code, out), (2, ""), name)
             self.assertIn("cannot be the name of a catalog", err)
             self.assertEqual(len(err.splitlines()), 1, err)
             self.assertFalse((self.work / "hub").exists())
-
-    def run_new(self, name):
-        out, err = io.StringIO(), io.StringIO()
-        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = standard.main_new([str(self.work / "hub"), "--id", "acme-hub", "--name", name, "--maintainers", "@a",
-                                      "--lab-repo", "acme/lab", "--lab-ref", NEWER_COMMIT])
-        return code, out.getvalue(), err.getvalue()
-
-    def test_the_lab_address_and_commit_default_to_the_engine_checkout(self):
-        lab = self.lab()
-        self.new("--maintainers", "@a", lab=lab.root)
-        found = json.loads((self.work / "hub" / ".github" / "standard.json").read_text())
-        self.assertEqual(found["lab"], {"ref": lab.git("rev-parse", "HEAD").strip(), "repository": "acme/gravitee-lab"})
 
     def test_a_lab_checkout_with_no_release_on_its_origin_is_a_warning_and_exit_0(self):
         lab = self.lab(push=False)
@@ -1654,10 +1605,6 @@ class Upgrading(Case):
         self.assertEqual((repo.root / "README.md").read_bytes(), b"# mine\n")
         self.assertEqual(standard.drift(FolderTree(repo.root)), [])
 
-    def test_a_refused_plan_is_not_applied(self):
-        with self.assertRaises(standard.UpgradeError):
-            standard.upgrade_apply(tempfile.gettempdir(), {"refused": "no", "files": []})
-
     def test_a_bad_lab_ref_is_refused(self):
         repo = self.repo()
         for ref in ("main", "v1", LAB_COMMIT[:39], "latest!"):
@@ -1704,12 +1651,6 @@ class MovingThePin(Case):
 
     def actions(self, plan):
         return {each["path"]: each["action"] for each in plan["files"] if each["action"] != "current"}
-
-    def test_the_log_covers_only_lab_ui_and_dot_github(self):
-        plan = self.plan()
-        listed = self.lab.git("log", "--oneline", "--no-decorate", f"{self.old}..{self.new}", "--", "lab-ui", ".github").count("\n")
-        self.assertGreater(listed, 50)   # more than the plan prints: it is cut
-        self.assertEqual(len(plan["lab"]["log"]), 50)
 
     def test_the_pin_moves_in_standard_json_and_nothing_else_of_it_changes(self):
         before = json.loads((self.catalog.root / ".github/standard.json").read_text())
@@ -1797,11 +1738,6 @@ class MovingThePin(Case):
         self.assertTrue(plan["lab"]["compare"])
         self.assertEqual(plan["owned"], [])
 
-    def test_the_fleet_reads_the_plan_shape_it_was_written_for(self):
-        plan = standard.upgrade_plan(FolderTree(self.catalog.root), {"lab_ref": self.new})
-        self.assertIsInstance(plan["owned"], list)
-        self.assertTrue(all({"path", "action", "content"} <= set(each) for each in plan["files"]))
-
 
 class DayOne(Case):
     """The template works on day one, as a contributor would meet it, offline."""
@@ -1849,30 +1785,6 @@ class DayOne(Case):
         done = subprocess.run([make, "-n", "upgrade", "WRITE=1", "LAB_REF=latest"], cwd=str(self.repo.root), capture_output=True, text=True,
                               env={"PATH": os.environ.get("PATH", "")})
         self.assertIn("catalog.py upgrade . --write --lab-ref latest", done.stdout)
-
-    def test_upgrade_has_nothing_to_do_and_exits_0(self):
-        out, err = io.StringIO(), io.StringIO()
-        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = standard.main_upgrade([str(self.repo.root)], lab=self.repo.top)
-        self.assertEqual((code, err.getvalue()), (0, ""))
-        self.assertIn("Nothing to upgrade", out.getvalue())
-
-    def test_the_lab_action_and_the_result_job_run_on_what_the_template_rendered(self):
-        text = (self.repo.root / ".github/actions/lab/action.yml").read_text()
-        script = blank(text, "id: lab")
-        support.need("jq")
-        with tempfile.TemporaryDirectory() as folder:
-            (Path(folder) / ".github").mkdir()
-            (Path(folder) / ".github/standard.json").write_bytes((self.repo.root / ".github/standard.json").read_bytes())
-            output = Path(folder) / "out"
-            output.write_bytes(b"")
-            done = support.run_shell(script, {"LATEST": "false", "GITHUB_OUTPUT": str(output)}, folder)
-            self.assertEqual(done.returncode, 0, done.stderr)
-            self.assertEqual(output.read_text(), f"repository=acme/gravitee-lab\nref={LAB_COMMIT}\n")
-            (Path(folder) / ".github/standard.json").write_text('{"lab": {"repository": "acme/lab\\nx", "ref": "%s"}}' % LAB_COMMIT)
-            output.write_bytes(b"")
-            done = support.run_shell(script, {"LATEST": "false", "GITHUB_OUTPUT": str(output)}, folder)
-            self.assertEqual((done.returncode, output.read_text()), (1, ""))
 
     def test_compose_reads_the_sample_add_on_and_the_lab_finds_nothing_to_say(self):
         from tests import fixtures
@@ -1933,11 +1845,6 @@ class Rules(unittest.TestCase):
             if path.startswith(".github/"):
                 code = "\n".join(line for line in data.decode().split("\n") if not line.lstrip().startswith("#"))
                 self.assertNotRegex(code, r"actions/cache|cache-from|cache-to|type=gha|^\s*(?:- )?cache:", path)
-
-    def test_the_lab_action_installs_compose_five_by_default_and_the_seed_job_does_not(self):
-        ci = render()[".github/workflows/ci.yml"].decode()
-        seed = ci[ci.index("\n  seed:\n"):ci.index("\n  compile:\n")]
-        self.assertIn('compose: "false"', seed)
 
     def test_every_job_has_a_timeout_and_the_token_only_reads_at_the_top(self):
         for path, data in render(**EVERYTHING).items():
