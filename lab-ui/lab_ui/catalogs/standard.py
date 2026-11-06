@@ -1708,14 +1708,9 @@ def legacy_lab(root) -> Optional[int]:
 def main_upgrade(argv: List[str], lab: Optional[Path] = None) -> int:
     """`catalog.py upgrade [DIR] [--write] [--commit] [--lab-ref COMMIT or latest] [--refresh-pins] [--adopt] [--form F]
     [--with e2e] [--format text or github or json]`. Without `--write` it prints the plan and writes nothing (exit 1 when
-    anything is pending, 0 when nothing is). `--fleet OWNER` is the loop over a topic: it is handed to `fleet.main`. With
-    `--format json` standard output is the one JSON document and nothing else."""
-    argv = list(argv)
-    if any(each == "--fleet" or each.startswith("--fleet=") for each in argv):
-        from . import fleet
-        return fleet.main(argv)
+    anything is pending, 0 when nothing is). With `--format json` standard output is the one JSON document and nothing else."""
     try:
-        args = _upgrade_arguments(argv)
+        args = _upgrade_arguments(list(argv))
         lab = lab or _lab_checkout()
         root = Path(args.dir)
         if not root.is_dir():

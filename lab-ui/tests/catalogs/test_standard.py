@@ -2012,13 +2012,6 @@ class Upgrading(Case):
         repo = self.repo(files=standard.render_files(params(), 6))
         self.assertNotIn(".github/workflows/versions.yml", self.actions(self.plan(repo, level=7)))
 
-    def test_a_fleet_command_is_handed_to_the_fleet_module(self):
-        from lab_ui.catalogs import fleet
-        with mock.patch.object(fleet, "main", return_value=7) as called:
-            self.assertEqual(standard.main_upgrade(["--fleet", "acme", "--lab-ref", LAB_COMMIT]), 7)
-            self.assertEqual(standard.main_upgrade(["--fleet=acme", "--lab-ref", LAB_COMMIT]), 7)
-        self.assertEqual(called.call_args_list[0][0], (["--fleet", "acme", "--lab-ref", LAB_COMMIT],))
-
     def test_adopt_from_the_command_line_takes_the_labs_address_and_commit_from_the_lab_checkout(self):
         lab = support.lab_checkout(self)
         repo = self.repo(files={"catalog.yml": render()["catalog.yml"], "README.md": b"# mine\n"})
