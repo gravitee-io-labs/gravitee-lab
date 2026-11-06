@@ -12,8 +12,7 @@ with `pull_policy: always` then pulls it.
 
 With --dry-run it prints the builds instead of running them, and REGISTRY is optional.
 
-Discovery (`items`, `builds`, `seeder`) is apart from building (`command`, `main`): the label and tag logic is what
-another builder of images imports.
+Discovery (`items`, `builds`, `seeder`) is apart from building (`command`, `main`).
 """
 
 import argparse
