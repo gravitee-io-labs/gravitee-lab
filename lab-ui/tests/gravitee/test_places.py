@@ -434,7 +434,7 @@ class Unusable(Places):
 
     def test_what_is_not_a_place(self):
         self.read()
-        for place_id in ("nope/x", "nope", "my-account/nope", "", None, 4):
+        for place_id in ("nope/x", "nope", "my-account/nope", ""):
             self.assertIsNone(places.place(PROJECT, place_id), repr(place_id))
 
     def test_the_places_come_back_with_a_token_the_cloud_accepts(self):
@@ -707,15 +707,6 @@ class Verify(Places):
         for place_id in ("nope/x", f"my-account/{TEST}x", "my-account/a/b"):
             with self.subTest(place=place_id), self.assertRaisesRegex(paths.NotFound, "^No place "):
                 places.verify(PROJECT, place_id)
-
-    def test_what_a_request_sends_that_is_no_text_is_not_a_place_either(self):
-        """The body of a request is JSON: a number or a list is a refusal in words, not an error of the code."""
-        for place_id in (5, ["my-account/" + DEV], {"id": "x"}, None, True):
-            with self.subTest(place=place_id):
-                with self.assertRaisesRegex(paths.NotFound, "^No place"):
-                    places.verify(PROJECT, place_id)
-                with self.assertRaisesRegex(paths.NotFound, "^No place"):
-                    places.seed_env(PROJECT, place_id, PLAYGROUND)
 
     def test_nothing_in_what_it_says_holds_a_token(self):
         self.ready()

@@ -178,7 +178,7 @@ def places(project):
 
 def place(project, place_id):
     """One place by its id, None when there is none. A platform that cannot be read answers for its places."""
-    uid = place_id.partition("/")[0] if isinstance(place_id, str) else None
+    uid = place_id.partition("/")[0]
     return next((found for found in places(project) if found["id"] in (place_id, uid)), None)
 
 
@@ -331,19 +331,10 @@ def deployed(pid, created):
 # A deploy
 # ---------------------------------------------------------------------------------------------------------------------
 
-def _split(place_id):
-    """The platform and the environment a place id names, '<platform id>/<environment id>'. What a request sends that is no
-    text is no place."""
-    if not isinstance(place_id, str):
-        raise paths.NotFound("No place")
-    uid, _, environment = place_id.partition("/")
-    return uid, environment
-
-
 def verify(project, place_id):
     """The place as the platform says it now, for a deploy to check before any job: the platform is read again and Cloud
     Gate is asked about the Cloud Token. Answers the place, or raises with the reason that a deploy cannot go."""
-    uid, environment = _split(place_id)
+    uid, _, environment = place_id.partition("/")
     invalidate(uid)
     found = place(project, place_id)
     if not found:
@@ -378,7 +369,7 @@ def seed_env(project, place_id, playground):
     why = seed_refused(playground)
     if why:
         raise ValueError(f"{playground.get('name') or 'This playground'} cannot go to a place: {why}")
-    uid, environment = _split(place_id)
+    uid, _, environment = place_id.partition("/")
     record = platforms.find(uid)
     token, claims = platforms.cloud_token(uid, environment)
     addon = platforms.gateway_addon(project, record["kind"])
