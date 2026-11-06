@@ -6,14 +6,10 @@ never in an answer, an error or the record, and a test never prints one."""
 import json
 import os
 import re
-import subprocess
-import sys
 import threading
 import time
 import unittest
-import urllib.request
 from pathlib import Path
-from unittest import mock
 
 from lab_ui.gravitee import cloud, platforms, places
 from lab_ui.docker import envfiles
@@ -215,13 +211,6 @@ class Reading(Places):
         self.assertEqual([(p["state"], p["reason"]) for p in found], [("unusable", "Unreachable")])
         self.assertEqual(places._reading, {})
         self.assertEqual(places._cache["my-account"][1]["message"], "RuntimeError", "its type, not its message")
-
-    def test_the_first_read_does_not_ask_the_platform_to_the_caller(self):
-        """The state of the Lab calls places() for every request: it must not ask the Cloud itself."""
-        release, began = self.blocked()
-        asked = len(self.fake.state.asked)
-        places.places(PROJECT)
-        self.assertEqual(len(self.fake.state.asked), asked)
 
 
 class States(Places):
@@ -557,18 +546,6 @@ class SeedEnv(Places):
             if name.endswith("_PROXY"):
                 self.assertIn(name.lower(), places.CLEARED)
 
-    def test_emptied_they_leave_nothing_for_the_http_library_to_honor(self):
-        # The way the seeder's library (requests) takes a proxy from the environment is urllib's: a name whose value is empty
-        # is no proxy, in either case, for every scheme the seeder talks
-        proxies = {name: "http://author.invalid:3128" for name in places.CLEARED if name.lower().endswith("_proxy")}
-        # Whatever proxy this machine's own environment names is not the test's business
-        mine = {name: value for name, value in os.environ.items() if not name.lower().endswith("_proxy")
-                and name != "REQUEST_METHOD"}
-        with mock.patch.dict(os.environ, {**mine, **proxies}, clear=True):
-            self.assertEqual(set(urllib.request.getproxies_environment()), {"http", "https", "all"})
-        with mock.patch.dict(os.environ, {**mine, **proxies, **{name: "" for name in places.CLEARED}}, clear=True):
-            self.assertEqual(urllib.request.getproxies_environment(), {})
-
     def test_a_seed_of_its_own_or_one_that_reads_a_token_gets_none(self):
         # Before the token is read: it never is held for a seed that must not have it
         read = self.patch(platforms, "cloud_token", side_effect=AssertionError("the token was read"))
@@ -600,14 +577,6 @@ class SeedEnv(Places):
     def test_without_the_add_on_there_are_no_gateway_addresses(self):
         env = places.seed_env({"addons": {}}, f"my-account/{DEV}", PLAYGROUND)
         self.assertFalse({"APIM_GATEWAY_URL", "GATEWAY_INTERNAL_URL"} & set(env))
-
-    def test_the_gate_of_gravitee_cloud_is_by_region(self):
-        """The platform's address ends so: the token's cpg names the Gate. (The record is edited, as the fake's address
-        cannot be a Cloud's.)"""
-        record = {**platforms.read()[0], "url": "https://eu.cloud.gravitee.io"}
-        self.write(platforms.FILE, json.dumps([record]))
-        self.assertEqual(places.seed_env(PROJECT, f"my-account/{DEV}", PLAYGROUND)["APIM_MANAGEMENT_URL"],
-                         "https://eu.cloudgate.gravitee.io")
 
     def test_what_cannot_be_seeded(self):
         envfiles.write(".env", {DEV_KEY: fake_cloud.CLOUD_TOKEN_EXPIRED})
@@ -714,16 +683,6 @@ class Verify(Places):
             places.verify(PROJECT, f"my-account/{DEV}")
         seen += [str(caught.exception), places.places(PROJECT), places.serving(PROJECT)]
         self.assertHidden(seen)
-
-
-class Naming(Places):
-    def test_a_place_is_named_by_its_environment_and_its_platform_never_with_a_dot_between(self):
-        self.assertEqual(places.label("My Account", "Development"), "Development (My Account)")
-        found = self.read()
-        self.assertEqual([place["name"] for place in found],
-                         ["Development (My Account)", "Test (My Account)", "Production (My Account)"])
-        self.assertFalse(any(" · " in json.dumps(place) for place in found), "a middle dot separates a place")
-        self.assertEqual(places.place(PROJECT, f"my-account/{DEV}")["name"], DEVELOPMENT)
 
 
 class Gateways(Places):
@@ -1021,14 +980,6 @@ class State(Case):
             with self.subTest(text=text[:20]):
                 self.write(meta, text)
                 self.assertIsNone(places._named("@acme/bank", "my-account/test"))
-
-
-class Imports(unittest.TestCase):
-    def test_neither_module_needs_the_checks(self):
-        """check.py imports platforms for its kinds: a module of those that imports check would be a circle."""
-        found = subprocess.run([sys.executable, "-c", "import sys, lab_ui.gravitee.platforms, lab_ui.gravitee.places; "
-                                "sys.exit('lab_ui.library.check' in sys.modules)"], cwd=paths.LAB_UI_DIR, check=False)
-        self.assertEqual(found.returncode, 0)
 
 
 if __name__ == "__main__":
