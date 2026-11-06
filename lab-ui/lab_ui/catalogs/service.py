@@ -264,8 +264,7 @@ def _failure(code, url, installed):
 
 def _state(key, **fields):
     label, tone = WORDS[key]
-    return {"key": key, "label": label, "tone": tone, "reason": fields.get("reason", ""), "next": fields.get("next", ""),
-            "whatsnew": []}
+    return {"key": key, "label": label, "tone": tone, "reason": fields.get("reason", ""), "next": fields.get("next", "")}
 
 
 def _seen(held):
@@ -540,7 +539,7 @@ def _git_row(ns, found, summary, project_, entry, contract, on=frozenset()):
         "checked": held.get("checked"), "audience": found.get("audience") or "private",
         "counts": _counts(found.get("units") or {}), "state": state, "progress": progress,
         "attention": _attention(ns, found, held, entry, state["key"]), "auto": (entry or {}).get("auto") is not False,
-        "has_previous": bool(held.get("previous")), "writable": found["kind"] == "folder",
+        "has_previous": bool(held.get("previous")),
         "host": found.get("host") or "no", "held": _held_of(ns, project_, held, on),
         "blocked": [dict(one) for one in summary.get("blocked") or []],
         "uses_machine": [_unit_text(one) for one in summary.get("uses_machine") or []],
@@ -553,7 +552,7 @@ def _git_row(ns, found, summary, project_, entry, contract, on=frozenset()):
 def _machine_row(found, summary):
     return {"id": paths.LOCAL, "kind": "machine", "listed": False, "name": found.get("name") or "Personal",
             "description": "", "counts": _counts(found.get("units") or {}), "state": _state("machine"),
-            "progress": None, "attention": None, "writable": True, "blocked": [], "uses_machine": [], "problems": [
+            "progress": None, "attention": None, "blocked": [], "uses_machine": [], "problems": [
                 f"{one.get('display') or one.get('file')}: {one.get('message')}"
                 for one in summary.get("problems") or [] if isinstance(one, dict)]}
 
@@ -831,8 +830,7 @@ def check_address(address, branch=None):
             judged, verdicts, mine = _review(meta["id"], meta, "git", audience, bool(listed_at),
                                              "listed" if listed_at else "allowed", ignored)
             _understood(meta, judged, mine)
-        preview = _preview(ticket, meta, "git", found_at, audience, bool(listed_at), ignored, judged, verdicts, mine,
-                           newer=offered.tip != "ok")
+        preview = _preview(ticket, meta, "git", found_at, audience, bool(listed_at), judged, verdicts, mine, newer=offered.tip != "ok")
         _keep(ticket, "add", ns=meta["id"], staged=staged, address=found_at, branch=remote["branch"], audience=audience,
               roots=roots, meta=meta, store=store_path, listed=bool(listed_at))
         return preview
@@ -856,7 +854,7 @@ def _check_folder(asked):
             meta = _read_meta(staged, asked, contract, [])
             staged = install.rename_stage(staged, meta["id"])
             judged, verdicts, mine = _review(meta["id"], meta, "folder", "private", False, "allowed", ignored)
-        preview = _preview(ticket, meta, "folder", asked, "private", False, ignored, judged, verdicts, mine)
+        preview = _preview(ticket, meta, "folder", asked, "private", False, judged, verdicts, mine)
         _keep(ticket, "add", ns=meta["id"], staged=staged, address=asked, branch=None, audience="private", roots=[],
               meta=meta, store=None, listed=False, judged=sorted(uid for _, uid in mine))
         return preview
@@ -893,15 +891,12 @@ def _read_meta(staged, address, contract, listed_at, published=False):
     return meta
 
 
-def _preview(ticket, meta, kind, address, audience, listed, ignored, judged, verdicts, mine, newer=False):
+def _preview(ticket, meta, kind, address, audience, listed, judged, verdicts, mine, newer=False):
     units = project.staged_units(meta["id"])   # what the tree holds, a unit that does not read included: the manifest counts the same
     counts = {k: sum(1 for knd, _, _ in units if knd == k) for k in ("playground", "setup", "addon")}
-    shown = {"ticket": ticket, "expires": int(TTL),
-             "catalog": {"id": meta["id"], "name": meta["name"], "description": meta.get("description") or "",
-                         "version": meta["version"], "lab": meta["lab"], "kind": kind},
-             "address": address.display, "url": address.url if kind == "git" else address.display, "audience": audience,
-             "counts": counts, "rows": _preview_rows(meta, judged, verdicts, mine, listed),
-             "blocked": _blocked_of(judged, mine), "ignored": ignored}
+    shown = {"ticket": ticket, "catalog": {"id": meta["id"], "name": meta["name"], "version": meta["version"], "kind": kind},
+             "address": address.display, "audience": audience, "counts": counts,
+             "rows": _preview_rows(meta, judged, verdicts, mine, listed), "blocked": _blocked_of(judged, mine)}
     if newer:
         shown["newer"] = True
     # What Compose could not read for want of a catalog was not judged: an import says it cannot run until that catalog comes
@@ -1303,7 +1298,7 @@ def _plan(ns, op):
         _keep(ticket, op, ns=ns, plan=plan)
     updates = [{**one, "what": plan["touched"].get(key, [])}
                for key, one in zip(sorted(plan["updates"]), _names_of_new(plan["updates"], ns, judged))]
-    return {"ticket": ticket, "expires": int(TTL), "from": _short(plan["from"]), "to": _short(plan["to"]),
+    return {"ticket": ticket, "from": _short(plan["from"]), "to": _short(plan["to"]),
             "version": plan["version"], "version_from": held.get("version"), "release": plan["release"],
             "rewritten": bool(plan["rewritten"]),
             "updates": updates, "adds": _names_of_new(plan["adds"], ns, judged),

@@ -1531,7 +1531,7 @@ def _raise_lab(ns, needed) -> Optional[str]:
 
 def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False) -> dict:
     """Shares the personal item `uid` to catalog `to`. With `check_only`, what it would do and what keeps it: ShareCheck
-    {destinations, to, audience, problems, changes, identity}, nothing written. Else the share: a repository gets a branch,
+    {audience, problems, changes, identity, carries, reuses, renames}, nothing written. Else the share: a repository gets a branch,
     ShareDone {branch, commit, repository, pull_request}; a folder gets a copy, {copied}. The item stays as it is, and runs.
     Refused with a CatalogError (the catalogue of errors): `contribute_none`, `no_write_access`, `share_exists`, `share_includes`,
     `share_secret`, `share_private`, `no_identity`, `push_rejected`; the other problems of the copy answer in `problems` and,
@@ -1594,7 +1594,7 @@ def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False)
         if kind == "playground":
             copy = _vouched(project, uid, copy)
         problems = _preflight(project, kind, uid, file, slug, to, row, rows, copy, along, allowed)
-    answer = {"destinations": destinations(project, kind, uid), "to": to, "audience": row["audience"], "problems": problems,
+    answer = {"audience": row["audience"], "problems": problems,
               "changes": [_shown(_place(kind, slug, to)[2], kind, slug)] if copy.text != copy.kept else [],
               "identity": who["email"] if who and row["audience"] == "public" else None,
               "carries": [named(k, one) for k, one, _, _ in members], "reuses": [named(k, one) for k, one, _ in reused],

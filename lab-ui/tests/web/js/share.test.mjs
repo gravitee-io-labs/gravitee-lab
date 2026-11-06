@@ -412,7 +412,7 @@ const send = async () => {
 };
 
 test("with no catalog that is a folder of the person's, Where it is kept is not drawn, and what is made is personal: no catalog is sent", async () => {
-  for (const rows of [catalogs(), catalogs(catalog({ id: "git-two", name: "Git two" })), [FIRST()], catalogs(FOLDER({ writable: false, id: "locked" })), []]) {
+  for (const rows of [catalogs(), catalogs(catalog({ id: "git-two", name: "Git two" })), [FIRST()], []]) {
     open2("addon", { catalogs: rows });
     assert.equal(where().hidden, true, JSON.stringify(rows.map((c) => [c.id, c.kind])));
     assert.equal(where().children.length, 0);
@@ -424,10 +424,10 @@ test("with no catalog that is a folder of the person's, Where it is kept is not 
 });
 
 test("with one, it offers Personal first and each folder catalog by name, Personal chosen; the one chosen is sent as catalog", async () => {
-  const folders = [FOLDER(), FOLDER({ id: "second", name: "Second" }), FOLDER({ id: "locked", name: "Locked", writable: false })];
+  const folders = [FOLDER(), FOLDER({ id: "second", name: "Second" })];
   open2("addon", { catalogs: catalogs(...folders) });
   assert.equal(where().hidden, false);
-  assert.deepEqual(kept(), [["Personal", "true"], ["My catalog", "false"], ["Second", "false"]], "a catalog that cannot be written is not offered");
+  assert.deepEqual(kept(), [["Personal", "true"], ["My catalog", "false"], ["Second", "false"]]);
   assert.equal(where().getAttribute("role"), "radiogroup");
   assert.equal(where().getAttribute("aria-label"), "Where it is kept");
   assert.deepEqual(where().querySelectorAll("button").map((b) => b.getAttribute("role")), ["radio", "radio", "radio"]);

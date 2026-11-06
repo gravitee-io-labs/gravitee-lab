@@ -484,11 +484,10 @@ class Judged(Seam):
 
     def test_a_check_answers_with_the_destinations_the_problems_what_changes_and_who_commits(self):
         answer = self.share(check_only=True)
-        self.assertEqual(sorted(answer), ["audience", "carries", "changes", "destinations", "identity", "problems", "renames", "reuses", "to"])
+        self.assertEqual(sorted(answer), ["audience", "carries", "changes", "identity", "problems", "renames", "reuses"])
         self.assertEqual((answer["carries"], answer["reuses"], answer["renames"]), ([], [], []), "nothing of this machine, no setting of its own")
-        self.assertEqual((answer["to"], answer["audience"], answer["problems"], answer["changes"], answer["identity"]),
-                         ("fixture", "public", [], ["compose.yml"], WHO["email"]))
-        self.assertEqual([one["id"] for one in answer["destinations"]], ["fixture", "partner"])
+        self.assertEqual((answer["audience"], answer["problems"], answer["changes"], answer["identity"]),
+                         ("public", [], ["compose.yml"], WHO["email"]))
 
     def test_who_commits_is_said_only_where_everyone_can_read_it(self):
         self.item("addon", "plain", "Plain", "services: {}\n")
@@ -1440,7 +1439,7 @@ class Copied(Seam):
         self.demo()
         answer = self.share("local/demo", "lab-new", "playground", True)
         self.assertEqual((answer["carries"], answer["reuses"]), (["Notes"], []))
-        there = next(one for one in answer["destinations"] if one["id"] == "lab-new")
+        there = next(one for one in contribute.destinations(self.units, "playground", "local/demo") if one["id"] == "lab-new")
         self.assertEqual(there["reason"], "", "what goes with it keeps no catalog from taking it")
         self.assertEqual(self.share("local/demo", "lab-new", "playground"), {"copied": "Newer Lab fixture"})
         self.assertIn("  - ../../addons/notes/compose.yml", (self.target / "playgrounds/demo/compose.yml").read_text())

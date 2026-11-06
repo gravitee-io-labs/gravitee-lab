@@ -306,7 +306,7 @@ test("an update that makes items use this machine is held the same way: the choi
     world.calls.length = 0;
     const li = catalogRow();
     // The row is up to date in this fixture: the update is asked for from its own button, which a catalog with a newer version has
-    store.state = lab({ catalogs: [FIRST(), { ...row(), state: { key: "update", label: "Update available", tone: "warn", reason: "Version 1.5.0", next: "", whatsnew: [] } }], addons: [k3s()] });
+    store.state = lab({ catalogs: [FIRST(), { ...row(), state: { key: "update", label: "Update available", tone: "warn", reason: "Version 1.5.0", next: "" } }], addons: [k3s()] });
     for (const entry of Object.values(pages)) entry.render(store.state);
     const button = catalogRow().querySelector("[data-update]");
     assert.ok(button && li);

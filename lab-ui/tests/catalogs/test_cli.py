@@ -1180,7 +1180,7 @@ class Service(Tool):
         members.setdefault("check_now", lambda ns: {})
         return mock.patch.dict(sys.modules, {"lab_ui.catalogs.service": module(**members)})
 
-    PREVIEW = {"ticket": "abc", "expires": 600, "address": "github.com/acme/hub", "audience": "private",
+    PREVIEW = {"ticket": "abc", "address": "github.com/acme/hub", "audience": "private",
                "catalog": {"id": "hub", "name": "Acme Hub", "version": "1.4.0"}, "counts": {"playground": 2, "addon": 1},
                "rows": {"builds": {"local": 2, "remote": ["github.com/acme/app"]}, "ports": [8140, 8141],
                         "core": ["API Management gateway"], "reads": ["license"],

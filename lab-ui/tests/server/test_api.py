@@ -2293,9 +2293,9 @@ class CatalogRoutes(LabUI):
         return status, json.loads(answer)
 
     def test_the_check_of_an_address_takes_the_address_and_a_branch_and_answers_the_preview(self):
-        self.calls["check_address"].return_value = {"ticket": "9f3a4c1d2e5b6a70", "expires": 600}
+        self.calls["check_address"].return_value = {"ticket": "9f3a4c1d2e5b6a70"}
         self.assertEqual(self.post("/api/catalogs/check", {"address": "acme/lab-hub", "branch": "main"}),
-                         (200, {"ticket": "9f3a4c1d2e5b6a70", "expires": 600}))
+                         (200, {"ticket": "9f3a4c1d2e5b6a70"}))
         self.calls["check_address"].assert_called_once_with("acme/lab-hub", "main")
         self.post("/api/catalogs/check", {"address": "acme/lab-hub"})
         self.calls["check_address"].assert_called_with("acme/lab-hub", None)

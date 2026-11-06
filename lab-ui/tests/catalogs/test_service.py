@@ -223,7 +223,7 @@ class Rows(Seam):
         row = next(row for row in service.describe(*project.loaded()) if row["id"] == "local")
         self.assertEqual((row["kind"], row["name"], row["counts"], row["state"]["key"]),
                          ("machine", "Personal", {"playground": 0, "setup": 0, "addon": 1}, "machine"))
-        self.assertEqual(sorted(row["state"]), ["key", "label", "next", "reason", "tone", "whatsnew"])
+        self.assertEqual(sorted(row["state"]), ["key", "label", "next", "reason", "tone"])
 
     def test_a_listed_catalog_the_person_does_not_have_and_a_suggestion_are_rows_that_are_not_added(self):
         config = self.root / ".lab" / "catalogs.json"
@@ -238,7 +238,7 @@ class Rows(Seam):
         self.assertEqual((listed["id"], listed["kind"], listed["listed"], listed["name"]),
                          ("fixture", "suggested", True, "Fixture catalog"))
         self.assertEqual(listed["state"], {"key": "suggested", "label": "Not added", "tone": "muted",
-                                           "reason": "Synthetic units for the tests of the Lab", "next": "", "whatsnew": []})
+                                           "reason": "Synthetic units for the tests of the Lab", "next": ""})
         self.assertEqual((suggested["id"], suggested["listed"], suggested["name"], suggested["url"], suggested["host_access"]),
                          (None, False, "Example internal", "https://git.example.invalid/team/hub.git", True))
         self.assertEqual(suggested["address"], "git.example.invalid/team/hub")
@@ -248,13 +248,13 @@ class Rows(Seam):
         row = next(row for row in service.describe(*project.loaded()) if row["id"] == "partner")
         self.assertEqual(sorted(row), sorted([
             "id", "kind", "listed", "name", "imported", "description", "address", "url", "web_url", "version", "commit", "updated",
-            "checked", "audience", "counts", "state", "progress", "attention", "auto", "has_previous", "writable", "host",
+            "checked", "audience", "counts", "state", "progress", "attention", "auto", "has_previous", "host",
             "held", "blocked", "uses_machine", "ignored", "problems"]))
         self.assertEqual((row["name"], row["version"], row["commit"], row["counts"], row["audience"]),
                          ("Partner fixture", "2.0.0", self.remotes["partner"].head()[:7],
                           {"playground": 0, "setup": 0, "addon": 1}, "private"))
-        self.assertEqual((row["auto"], row["has_previous"], row["writable"], row["host"], row["listed"], row["imported"]),
-                         (True, False, False, "no", False, False))
+        self.assertEqual((row["auto"], row["has_previous"], row["host"], row["listed"], row["imported"]),
+                         (True, False, "no", False, False))
         self.assertEqual(row["held"], {"update": "", "remove": "", "undo": "No previous version"})
         text = json.dumps(row)
         self.assertNotIn(str(self.root), text, "the place of the install is not said")
@@ -300,16 +300,13 @@ class Rows(Seam):
         rows = [one for one in service.describe({}, {}) if one["kind"] == "suggested"]
         self.assertEqual([(one["name"], one.get("host_access", False)) for one in rows], [("Other", True), ("Plain", False)])
 
-    def test_a_folder_catalog_is_editable_a_git_one_is_not_and_the_address_of_a_folder_is_its_folder(self):
+    def test_the_address_of_a_folder_is_its_folder(self):
         folder = self.folder_catalog("partner")
         shown = service.check_address(str(folder))
         service.add(shown["ticket"])
-        self.installed("lab-new")
         rows = self.rows()
-        self.assertEqual((rows["partner"]["writable"], rows["partner"]["kind"], rows["partner"]["url"], rows["partner"]["web_url"]),
-                         (True, "folder", "", None))
+        self.assertEqual((rows["partner"]["kind"], rows["partner"]["url"], rows["partner"]["web_url"]), ("folder", "", None))
         self.assertEqual(rows["partner"]["address"], registry.display_address(str(folder)))
-        self.assertEqual((rows["lab-new"]["writable"], rows["lab-new"]["kind"]), (False, "git"))
         self.assertEqual(rows["partner"]["state"]["key"], "linked")
 
     def test_a_listed_catalog_says_it_is_and_the_address_is_the_tracked_one(self):
@@ -474,7 +471,6 @@ class States(Seam):
     def test_a_newer_version_that_changes_something_is_an_update_available(self):
         self.given(seen={"target": "c" * 40, "update": True, "tip": "ok", "version": "2.1.0"})
         self.assertEqual(self.said(), ("update", "Update available", "warn", "Version 2.1.0", ""))
-        self.assertEqual(self.row("partner")["state"]["whatsnew"], [])
 
     def test_an_update_whose_version_was_not_raised_names_no_version(self):
         self.given(seen={"target": "c" * 40, "update": True, "tip": "ok", "version": "2.0.0"}, version="2.0.0")
@@ -765,17 +761,12 @@ class Check(Seam):
     def test_the_preview_is_the_shape_of_13_2_and_a_ticket_that_lives_ten_minutes(self):
         remote = self.remote("partner")
         shown = service.check_address(remote.url)
-        self.assertEqual(sorted(shown), ["address", "audience", "blocked", "catalog", "counts", "expires", "ignored", "rows",
-                                         "ticket", "url"])
+        self.assertEqual(sorted(shown), ["address", "audience", "blocked", "catalog", "counts", "rows", "ticket"])
         self.assertRegex(shown["ticket"], r"^[0-9a-f]{16}$")
-        self.assertEqual(shown["expires"], 600)
-        self.assertEqual(shown["catalog"], {"id": "partner", "name": "Partner fixture", "version": "2.0.0", "lab": 1,
-                                            "kind": "git", "description": "Synthetic units that another catalog includes"})
-        self.assertEqual((shown["audience"], shown["counts"], shown["blocked"], shown["ignored"]),
-                         ("public", {"playground": 0, "setup": 0, "addon": 1}, [], 0))
+        self.assertEqual(shown["catalog"], {"id": "partner", "name": "Partner fixture", "version": "2.0.0", "kind": "git"})
+        self.assertEqual((shown["audience"], shown["counts"], shown["blocked"]), ("public", {"playground": 0, "setup": 0, "addon": 1}, []))
         self.assertEqual(sorted(shown["rows"]), ["builds", "core", "needs", "ports", "reads", "uses_machine"])
         self.assertEqual(shown["rows"]["builds"], {"local": 0, "remote": []})
-        self.assertEqual(shown["url"], remote.url)
         self.assertIn(shown["ticket"], service.TICKETS)
         self.assertNotIn("newer", shown)
 
@@ -825,8 +816,8 @@ class Check(Seam):
         folder = self.folder_catalog("partner")
         self.patch(bare, "fetch", side_effect=AssertionError("a folder is not fetched"))
         shown = service.check_address(str(folder))
-        self.assertEqual((shown["catalog"]["kind"], shown["audience"], shown["address"], shown["url"]),
-                         ("folder", "private", registry.display_address(str(folder)), registry.display_address(str(folder))))
+        self.assertEqual((shown["catalog"]["kind"], shown["audience"], shown["address"]),
+                         ("folder", "private", registry.display_address(str(folder))))
         self.assertEqual(shown["rows"]["builds"]["local"], 0)
         self.assertTrue((self.root / ".lab" / "catalogs" / ".stage-partner").is_symlink())
         data = service.TICKETS[shown["ticket"]]
@@ -847,7 +838,6 @@ class Check(Seam):
         self.patch(bare, "fetch", lambda address, branch, store_path, **how: real(gitx.parse_address(remote.url), branch,
                                                                                     store_path, **how))
         shown = service.check_address("acme/lab-hub")
-        self.assertEqual(shown["url"], "git@github.com:acme/lab-hub.git")
         self.assertEqual(asked[:2], ["https://github.com/acme/lab-hub.git", "git@github.com:acme/lab-hub.git"])
         self.assertEqual(service.TICKETS[shown["ticket"]]["address"].url, "git@github.com:acme/lab-hub.git")
 
@@ -1140,7 +1130,7 @@ class Understanding(Real):
         older = remote.head()
         remote.commit({LEDGER: self.ledger()}, "Uses a key of a newer Lab, and catalog.yml says nothing")
         shown = service.check_address(remote.url)
-        self.assertEqual((shown["catalog"]["lab"], shown["newer"]), (None, True))
+        self.assertTrue(shown["newer"])
         self.assertEqual(service.TICKETS[shown["ticket"]]["staged"].commit, older)
         service.add(shown["ticket"])
         self.assertEqual(self.state("partner"), "uptodate")
@@ -1534,7 +1524,7 @@ class Adding(Seam):
         folder = self.folder_catalog("partner")
         before = sorted(str(path.relative_to(folder)) for path in folder.rglob("*"))
         row = service.add(service.check_address(str(folder))["ticket"])["catalog"]
-        self.assertEqual((row["kind"], row["writable"], row["commit"], row["state"]["key"]), ("folder", True, None, "linked"))
+        self.assertEqual((row["kind"], row["commit"], row["state"]["key"]), ("folder", None, "linked"))
         self.assertTrue((self.root / ".lab" / "catalogs" / "partner").is_symlink())
         self.assertEqual(sorted(str(path.relative_to(folder)) for path in folder.rglob("*")), before)
         self.assertEqual(registry.entry("partner")["path"], str(folder))
@@ -1667,8 +1657,8 @@ class Creating(Seam):
         folder = self.home / "gravitee-lab-catalogs" / "my-demo-catalog"
         self.assertEqual(made, [(folder, "my-demo-catalog", "My Demo Catalog")])
         row = answer["catalog"]
-        self.assertEqual((row["id"], row["kind"], row["writable"], row["name"], row["state"]["key"]),
-                         ("my-demo-catalog", "folder", True, "My Demo Catalog", "linked"))
+        self.assertEqual((row["id"], row["kind"], row["name"], row["state"]["key"]),
+                         ("my-demo-catalog", "folder", "My Demo Catalog", "linked"))
         self.assertTrue((self.root / ".lab" / "catalogs" / "my-demo-catalog").is_symlink())
         self.assertEqual(registry.entry("my-demo-catalog")["path"], str(folder))
         self.assertFalse((folder / ".git").exists(), "the Lab does not run git init")
@@ -2094,11 +2084,11 @@ class Updating(Seam):
     def test_the_plan_is_the_shape_of_13_2_and_a_ticket_that_lives_ten_minutes(self):
         target = self.news()
         plan = self.plan()
-        self.assertEqual(sorted(plan), ["adds", "blocked", "breaks", "changes", "expires", "from", "held", "release", "removes",
+        self.assertEqual(sorted(plan), ["adds", "blocked", "breaks", "changes", "from", "held", "release", "removes",
                                         "renames", "rewritten", "ticket", "to", "updates", "uses_machine", "version", "version_from",
                                         "whatsnew"])
-        self.assertEqual((plan["from"], plan["to"], plan["version"], plan["rewritten"], plan["expires"], plan["held"]),
-                         (self.first[:7], target[:7], "2.1.0", False, 600, None))
+        self.assertEqual((plan["from"], plan["to"], plan["version"], plan["rewritten"], plan["held"]),
+                         (self.first[:7], target[:7], "2.1.0", False, None))
         self.assertEqual(plan["updates"], [{"kind": "addon", "id": "@partner/ledger", "name": "Ledger", "what": ["compose.yml"]}],
                          "an item that changes says what changed in its folder")
         self.assertEqual(plan["version_from"], registry.lock_of("partner")["version"], "the version installed, beside the new one")
