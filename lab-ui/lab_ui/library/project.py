@@ -707,14 +707,7 @@ def gather():
     unit_files = paths.files()
     tiers = {file: _tier(file, default) for file in unit_files}
     judged = [file for file in unit_files if tiers[file] in JUDGED]
-    screen = {file: _screen(file) for file in judged}
-    seeds = {}
-    for file in judged:   # a playground's seed is read for the settings it reads (N02), and held to the size too
-        found = paths.unit_of(file)
-        if found and found[0] == "playground" and not screen[file][1] and not screen[file][2]:
-            seeds[file] = _seed_scan(_seed_folder(*found))
-    screened = {file: [*screen[file][1], *seeds.get(file, ((), ()))[1]] for file in judged}
-    unreadable = {file: screen[file][2] for file in judged if screen[file][2]}
+    screen, seeds, screened, unreadable = _screen_units([(*(paths.unit_of(file) or (None, None)), file) for file in judged])
     bad = {file for file in judged if screened[file] or file in unreadable}
     clean = set(judged) - bad   # the files of a catalog that the closure of a unit may follow: units the screen read, and found clean
     own_seeds = _own_seeds([file for file in unit_files if tiers[file] == "local"])
@@ -2008,17 +2001,15 @@ def staged_units(ns):
             for kind in KINDS for name in paths.names(folder, kind)]
 
 
-def _read_staged(ns, units):
-    """The first half of what `gather` reads of units, read of the staged ones: the screen of each text, and of a
-    playground's seed folder. Answers (the screen of each file, the seed scans, the lines of T19 for each file that failed,
-    why a file cannot be read at all). The same functions as `gather`'s, so that a catalog is read the same before it is
-    added and after."""
+def _screen_units(units):
+    """The first half of what is read of units of a catalog, [(kind, name, file)], installed or staged, so that a catalog is
+    read the same before it is added and after: the screen of each text, and of a playground's seed folder, read for the
+    settings it reads (N02) and held to the size too. Answers (the screen of each file, the seed scans, the lines of T19 for
+    each file that failed, why a file cannot be read at all)."""
     files = [file for _, _, file in units]
     screen = {file: _screen(file) for file in files}
-    seeds = {}
-    for kind, name, file in units:
-        if kind == "playground" and not screen[file][1] and not screen[file][2]:
-            seeds[file] = _seed_scan(f"{paths.CATALOGS_DIR}/.stage-{ns}/playgrounds/{name}/seed")
+    seeds = {file: _seed_scan(f"{file.rsplit('/', 1)[0]}/seed") for kind, _, file in units
+             if kind == "playground" and not screen[file][1] and not screen[file][2]}
     screened = {file: [*screen[file][1], *seeds.get(file, ((), ()))[1]] for file in files}
     unreadable = {file: screen[file][2] for file in files if screen[file][2]}
     return screen, seeds, screened, unreadable
@@ -2034,7 +2025,7 @@ def _staged_inputs(ns, meta, row, replacing, renamed=None):
     live = loaded()[1]
     swap, units = _alias(ns), staged_units(ns)
     final = f"{paths.CATALOGS_DIR}/{ns}/"
-    screen, seeds, screened, unreadable = _read_staged(ns, units)
+    screen, seeds, screened, unreadable = _screen_units(units)
     own_bad = {file for _, _, file in units if screened[file] or file in unreadable}
     world = {file for file in live["raw"] if _catalog_path(file) and not (replacing and file.startswith(final))}
     world_bad = {file for file in {*(live.get("screened") or ()), *(live.get("unreadable") or ())}
@@ -2104,7 +2095,7 @@ def staged_unknown(ns):
     if held is None:
         return []
     units = staged_units(ns)
-    screen, _, screened, unreadable = _read_staged(ns, units)
+    screen, _, screened, unreadable = _screen_units(units)
     live = loaded()[1]
     bad = {file for _, _, file in units if screened[file] or file in unreadable}
     world = {file for file in live["raw"] if _catalog_path(file)}
