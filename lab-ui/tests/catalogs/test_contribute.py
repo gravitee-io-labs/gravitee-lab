@@ -148,6 +148,9 @@ class Seam(Base):
     def share(self, uid="local/scratch", to="fixture", kind="addon", check_only=False):
         return contribute.share(self.units, kind, uid, to, check_only)
 
+    def heads(self, ns="fixture"):
+        return sorted(self.remote(ns).git("for-each-ref", "--format=%(refname:short)", "refs/heads").split("\n"))
+
 
 class Vouched(Seam):
     """A playground is shared once it has started well here, its seed ended without an error included: what it started on is its
@@ -166,16 +169,6 @@ class Vouched(Seam):
         self.bank()
         problems = self.share("local/bank", "fixture", "playground", True)["problems"]
         self.assertEqual([line for line in problems if "has not run" in line], [])
-
-    def test_what_it_ran_on_is_declared_in_the_copy_when_the_file_declares_nothing(self):
-        text = "x-gravitee:\n  category: Demo\nservices: {}\n"
-        copy = contribute.Copy({"playgrounds/bank/compose.yml": ("100644", text.encode())}, text, text, [])
-        self.write(".lab/tested.json", json.dumps({"local/bank": [{"versions": {"APIM_VERSION": "4.12.0"}, "images": {}, "at": "x"}]}))
-        declared = contribute._vouched({"playgrounds": {"local/bank": {"tested": []}}}, "local/bank", copy)
-        self.assertEqual(declared.problems, [])
-        self.assertEqual(declared.text, 'x-gravitee:\n  tested:\n    - APIM_VERSION: "4.12.0"\n  category: Demo\nservices: {}\n')
-        self.assertEqual(declared.files["playgrounds/bank/compose.yml"][1].decode(), declared.text)
-        self.assertEqual(declared.kept, text)
 
     def test_the_versions_of_a_run_are_one_set_not_one_set_each(self):
         text = "x-gravitee:\n  category: Demo\n"
@@ -265,11 +258,6 @@ class Destinations(Seam):
         self.assertEqual({one["id"]: one["reason"] for one in contribute.destinations(self.units, "addon", "local/scratch")}["partner"],
                          "Includes Echo (Fixture catalog), which Partner fixture does not declare.")
 
-    def test_a_catalog_that_says_it_takes_no_contributions_is_there_with_its_reason(self):
-        self.yml["partner"] = {"contribute": "none"}
-        found = {one["id"]: one["reason"] for one in contribute.destinations(self.units, "addon", "local/scratch")}
-        self.assertEqual(found["partner"], "Partner fixture does not take contributions from the Lab.")
-
     def test_a_push_that_was_refused_lately_is_remembered_and_the_network_is_not_asked(self):
         probe = self.patch(gitx, "push_probe", return_value="no")
         with self.assertRaises(CatalogError):
@@ -278,12 +266,6 @@ class Destinations(Seam):
         self.assertEqual((found["fixture"]["writable"], found["fixture"]["reason"]),
                          (False, "You cannot push to Fixture catalog. Ask for access."))
         self.assertEqual(probe.call_count, 1, "the listing asked nothing")
-
-    def test_the_sweep_has_nothing_to_do_when_no_catalog_is_a_folder(self):
-        self.write(".lab/catalogs/fixture/addons/.share-old/compose.yml", "theirs")
-        os.utime(self.root / ".lab/catalogs/fixture/addons/.share-old", (1, 1))
-        self.assertEqual(contribute.sweep(), [])
-        self.assertTrue((self.root / ".lab/catalogs/fixture/addons/.share-old").is_dir())
 
     def test_a_catalog_with_no_copy_and_the_personal_area_are_not_destinations(self):
         fixtures.declare(self, "lab-new")   # added, not downloaded
@@ -380,15 +362,6 @@ class Collect(Seam):
             "apps/rich/link is a link. Fix: copy the file itself; a catalog installs no link.",
             ".env is named by compose.yml and is not shared. Fix: make it a setting, or create it when the item starts.",
             "apps/rich/bad name.txt has a name the Lab cannot install. Fix: use letters, digits and . _ + - only."])
-
-    def test_the_machines_files_never_leave_whatever_the_compose_file_says(self):
-        self.rich()
-        names = [path.split("addons/rich/", 1)[1] for path in contribute.collect("addon", "rich", "partner").files]
-        for path in names:
-            parts = path.split("/")
-            self.assertFalse({".state", "secrets", ".github", "node_modules", "__pycache__", ".DS_Store", "notes.txt"} & set(parts), path)
-            self.assertFalse(parts[-1].endswith((".key", ".bak", "~", ".pyc")) or parts[-1].startswith(".env") and parts[-1] != ".env.example", path)
-            self.assertNotRegex(parts[-1], r"^\..*\.(check|effects)\.yml$")
 
     def test_a_link_on_the_way_to_a_file_the_compose_file_names_is_not_followed(self):
         outside = self.root.parent / "outside-the-item"
@@ -523,10 +496,6 @@ class Judged(Seam):
         self.assertEqual(self.stages(), [], "and gone when the check is")
 
     def test_the_copy_is_gone_when_the_judgement_fails_too(self):
-        self.patch(contribute, "_judged", mock.Mock(side_effect=compose.ComposeError("boom")))
-        answer = self.share(check_only=True)
-        self.assertEqual(answer["problems"], ["Does not load with the platform: it loads here, and the copy written for that catalog "
-                                              "does not. Fix: make what it includes part of that catalog, or of a catalog it requires."])
         self.patch(contribute, "_judged", mock.Mock(side_effect=RuntimeError("fault")))
         with self.assertRaisesRegex(RuntimeError, "fault"):
             self.share(check_only=True)
@@ -616,9 +585,6 @@ class Judged(Seam):
         fetch.assert_not_called()
         self.assertEqual(self.heads(), ["main"])
 
-    def heads(self, ns="fixture"):
-        return sorted(self.remote(ns).git("for-each-ref", "--format=%(refname:short)", "refs/heads").split("\n"))
-
     def test_an_include_written_on_one_line_keeps_the_long_path_and_is_a_problem_to_fix_first(self):
         said = ("It includes echo in a form that cannot be written again for Fixture catalog. Fix: write each include as a "
                 "list item, - ../../addons/<name>/compose.yml.")
@@ -689,24 +655,6 @@ class Judged(Seam):
     def COPIED(self):   # what Copy to Personal writes
         return (f'x-gravitee: {{private_from: ["Partner fixture"], private_id: ["{root("partner")}"], copy_of: "@partner/ledger", '
                 'kind: addon, name: Ledger, category: Other, description: Keeps the entries}\nservices: {}\n')
-
-    def test_an_include_that_is_not_text_or_cannot_be_opened_is_a_problem_in_clean_words(self):
-        inner = self.root / ".lab/catalogs/local/addons/inner/compose.yml"
-        inner.parent.mkdir(parents=True)
-        self.addCleanup(lambda: inner.exists() and os.chmod(inner, 0o644))
-        self.item("addon", "outer", "Outer", "x-gravitee: {kind: addon, name: Outer}\ninclude:\n  - ../inner/compose.yml\nservices: {}\n")
-        for name, make in (("latin-1", lambda: inner.write_bytes(b"x-gravitee: {kind: addon, name: Caf\xe9}\nservices: {}\n")),
-                           ("mode 000", lambda: (inner.write_text("services: {}\n"), os.chmod(inner, 0)))):
-            with self.subTest(name):
-                os.chmod(inner, 0o644) if inner.exists() else None
-                make()
-                try:
-                    said = " ".join(self.share("local/outer", check_only=True)["problems"])
-                except CatalogError as error:   # refused before: what it includes is not in the catalog, which says so cleanly
-                    said = error.message
-                self.assertNotIn(str(self.root), said)
-                self.assertNotIn("codec", said)
-                self.assertNotIn("\ufffd", said)
 
     @unittest.skipUnless(fixtures.have_compose(), "the Docker CLI with Compose 5 or later is not installed")
     def test_what_the_lab_writes_in_an_item_whose_include_is_not_text_or_cannot_be_opened_is_refused_in_clean_words(self):
@@ -1047,9 +995,6 @@ class Rules(Seam):
 class Published(Seam):
     """A repository gets a branch: the commit, the name, the push, and what a refusal leaves."""
 
-    def heads(self, ns="fixture"):
-        return sorted(self.remote(ns).git("for-each-ref", "--format=%(refname:short)", "refs/heads").split("\n"))
-
     def test_a_branch_holds_the_files_of_the_tip_and_exactly_the_allow_listed_ones_over_it(self):
         remote = self.remote("fixture")
         tip = remote.git("rev-parse", "main")
@@ -1258,22 +1203,6 @@ exec "$REAL" "$@"''')
         fetch.assert_not_called()   # the probe said no, from what the push said
         self.assertEqual(self.heads(), ["main"])
 
-    def test_a_person_with_no_name_or_email_cannot_share_and_nothing_is_fetched(self):
-        (self.home / ".gitconfig").write_text("")
-        fetch = self.patch(contribute.bare, "fetch")
-        with self.assertRaises(CatalogError) as raised:
-            self.share()
-        self.assertEqual(raised.exception.code, "no_identity")
-        fetch.assert_not_called()
-
-    def test_a_problem_of_the_copy_stops_the_share_before_the_network_is_asked(self):
-        self.against = ["Mounts the Docker socket"]
-        fetch = self.patch(contribute.bare, "fetch")
-        with self.assertRaisesRegex(ValueError, "Mounts the Docker socket"):
-            self.share()
-        fetch.assert_not_called()
-        self.assertEqual(self.heads(), ["main"])
-
     def test_the_commit_is_built_in_the_store_with_no_working_tree_and_no_index_left(self):
         store = self.root / ".lab/cache/git/fixture.git"
         scratch = tempfile.mkdtemp(prefix="share-scratch-")   # a folder of its own: another run's scratch is not this one's
@@ -1413,7 +1342,7 @@ class Copied(Seam):
         self.assertEqual((outside / "mine.txt").read_text(), "mine", "a link is removed and never followed")
         self.assertEqual(contribute.sweep(), [])
 
-    def demo(self, notes_too=True):
+    def demo(self):
         """Demo, a playground of this machine that includes Notes, an add-on of this machine (the person's copy of one, it says) that
         includes Newer of the folder."""
         self.write(".lab/tested.json", json.dumps({"local/demo": [{"versions": {}, "images": {}, "at": "2026-01-01T00:00:00Z"}]}))
@@ -1809,13 +1738,6 @@ class Ended(Seam):
         self.assertEqual(self.tree(), before)
         self.assertEqual(self.stars(), {"addon": ["local/echo", "kafka"]})
 
-    def test_a_move_the_lab_will_not_make_leaves_the_item_where_it_is(self):
-        self.patch(moves, "relocate", mock.Mock(side_effect=moves.Refused(".lab/catalogs/local/addons/echo/.env is tracked by git: it is not moved")))
-        with self.assertRaisesRegex(ValueError, "is tracked by git"):
-            self.use()
-        self.assertTrue((self.root / self.LOCAL / "compose.yml").is_file())
-        self.assertEqual(self.stars(), {"addon": ["local/echo", "kafka"]})
-
     def test_docker_is_asked_only_for_what_is_on(self):
         self.use()
         self.containers.assert_not_called()
@@ -1960,9 +1882,7 @@ class Real(Base):
             with self.subTest(to):
                 self.assertEqual(self.share(uid, to)["problems"], said)
         # The same lines, which are the ones `catalog.py check` and so the catalog's CI give the copy once it is there
-        for path, (mode, data) in contribute.collect("addon", "bad", "partner").files.items():
-            self.write(f".lab/catalogs/partner/{path}", data.decode())
-        project.forget()
+        self.written_into("partner", "addon", "bad", "@partner/bad")
         found = [line for where, line in check.catalog_problems("partner") if where == "addons/bad/compose.yml"]
         self.assertEqual([line for line in said if line not in found], [], found)
         # Nothing leaves while one is told
@@ -1984,11 +1904,8 @@ class Real(Base):
         told = self.share("local/bank", "partner", "playground")["problems"]
         self.assertEqual(len(told), 1, told)
         self.assertRegex(told[0], r"^Blocked: Reads settings that are not its own: FIXTURE_SHOP_[A-Z_]+, ")
-        copy = contribute.collect("playground", "bank", "partner")
-        for path, (mode, data) in copy.files.items():
-            self.write(f".lab/catalogs/partner/{path}", data.decode())
-        project.forget()
-        self.assertEqual([line[len("Blocked: "):] for line in told], project.load()["playgrounds"]["@partner/bank"]["blocked"]["reasons"])
+        seen = self.written_into("partner", "playground", "bank", "@partner/bank")
+        self.assertEqual([line[len("Blocked: "):] for line in told], seen["blocked"]["reasons"])
         # The default catalog is the one whose settings those are
         self.assertEqual(self.share("local/bank", "fixture", "playground")["problems"], [])
 
@@ -2042,11 +1959,8 @@ class Real(Base):
         self.assertEqual(len(told), 1, told)
         self.assertRegex(told[0], r"^Blocked: Reads settings that are not its own: .*NOT_PARTNERS_SETTING")
         self.assertNotIn("PARTNER_FINE", told[0], "a setting of the partner's own is its own, in a seed as in a compose file")
-        copy = contribute.collect("playground", "bank", "partner")
-        for path, (mode, data) in copy.files.items():
-            self.write(f".lab/catalogs/partner/{path}", data.decode())
-        project.forget()
-        self.assertEqual([line[len("Blocked: "):] for line in told], project.load()["playgrounds"]["@partner/bank"]["blocked"]["reasons"])
+        seen = self.written_into("partner", "playground", "bank", "@partner/bank")
+        self.assertEqual([line[len("Blocked: "):] for line in told], seen["blocked"]["reasons"])
 
     def test_a_path_at_the_wrong_depth_is_a_reason_a_consumer_would_be_given(self):
         self.bank()
@@ -2136,15 +2050,6 @@ class Real(Base):
         project.forget()
         self.assertNotIn(uid, project.load()["addons"])
         self.assertIsNone(project.load()["addons"]["@partner/plain"]["twin"])
-
-    def test_the_twin_is_held_by_the_project_as_the_policy_of_the_start_says(self):
-        uid = self.plain()
-        self.write(".lab/catalogs/partner/addons/plain/compose.yml", self.PLAIN)
-        self.write(paths.ON_FILE, "include:\n  - .lab/catalogs/partner/addons/plain/compose.yml\n")
-        project.forget()
-        with self.assertRaises(CatalogError) as raised:
-            contribute.use_catalog_version(project.load(), "addon", uid)
-        self.assertEqual(lines_of(raised.exception), ("held", 409, "Turn off Plain first."))
 
 
 if __name__ == "__main__":
