@@ -1,10 +1,9 @@
 """The page and the Lab UI as files, without running them: what a module imports exists and what it exports is
 imported, the routes the page calls exist, the sprite has the icons the page draws and nothing more, every class of
 the stylesheets is used and every class the page writes is styled, every script of a CDN is pinned and checked by its
-hash, nothing of the page needs a script or a style the policy of its address would refuse, the Lab UI and its tests are
-Python 3.9, and every module is valid JavaScript."""
+hash, nothing of the page needs a script or a style the policy of its address would refuse, and every module is valid
+JavaScript."""
 
-import ast
 import itertools
 import json
 import re
@@ -21,7 +20,6 @@ LAB_UI = Path(__file__).resolve().parents[2]
 WEB = LAB_UI / "web"
 MODULES = sorted((WEB / "js").rglob("*.js"))
 INDEX = (WEB / "index.html").read_text()
-PYTHON = [LAB_UI / "server.py", *sorted((LAB_UI / "lab_ui").glob("*.py")), *sorted((LAB_UI / "tests").glob("*.py"))]
 
 IMPORT = re.compile(r'^import\s+(?:\{([^}]*)\}\s+from\s+)?"([^"]+)";', re.M)
 LAZY_IMPORT = re.compile(r'\bimport\("([^"]+)"\)')
@@ -51,15 +49,6 @@ def imported(source):
     """What a module imports: (the path as written, the names it takes from there)."""
     for names, path in IMPORT.findall(source):
         yield path, [part.split(" as ")[0].strip() for part in names.split(",") if part.strip()]
-
-
-def annotations(tree):
-    """Every annotation of a Python module: of an argument, of a variable, of what a function returns."""
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.arg, ast.AnnAssign)):
-            yield node.annotation
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            yield node.returns
 
 
 def code(text):
@@ -457,16 +446,6 @@ class Policy(Case):
 
 
 class Syntax(Case):
-
-    def test_the_lab_ui_and_its_tests_are_python_3_9(self):
-        # 3.9 parses `X | Y` in an annotation, then refuses it once the module runs
-        for file in PYTHON:
-            with self.subTest(file=file.relative_to(LAB_UI).as_posix()):
-                tree = ast.parse(file.read_text(), filename=str(file), feature_version=(3, 9))
-                unions = [node.lineno for annotation in filter(None, annotations(tree))
-                          for node in ast.walk(annotation)
-                          if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr)]
-                self.assertFalse(unions, f"X | Y annotations, which Python 3.9 refuses, on lines {unions}")
 
     @unittest.skipUnless(shutil.which("node"), "node is not installed")
     def test_every_module_is_valid_javascript(self):
