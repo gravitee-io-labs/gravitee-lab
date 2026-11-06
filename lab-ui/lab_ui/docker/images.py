@@ -498,7 +498,7 @@ def _anonymous(host, repository, reference="latest"):
     manifest of that very image, without a login and then with the token it gives to anyone who asks. A registry may let anyone
     pull and still keep its list of tags to itself: the list is never what is asked."""
     if host is None:
-        code, _ = _status_get(f"https://hub.docker.com/v2/repositories/{repository}/")
+        code, _ = _status(f"https://hub.docker.com/v2/repositories/{repository}/")
         return True if code == 200 else False if code == 404 else None
     url = f"https://{host}/v2/{repository}/manifests/{reference}"
     code, asked = _status(url)
@@ -517,17 +517,6 @@ def _anonymous(host, repository, reference="latest"):
         return None
     code, _ = _status(url, granted.get("token") or granted.get("access_token"))
     return True if code in (200, 404) else False if code in (401, 403) else None
-
-
-def _status_get(url):
-    """The HTTP status of a GET of Docker Hub's API; None when it does not answer."""
-    try:
-        with urllib.request.urlopen(url, timeout=8) as response:
-            return response.status, ""
-    except urllib.error.HTTPError as error:
-        return error.code, ""
-    except (urllib.error.URLError, OSError, ValueError):
-        return None, ""
 
 
 def private_images(images):

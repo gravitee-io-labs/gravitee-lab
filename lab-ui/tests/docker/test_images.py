@@ -590,7 +590,6 @@ class Anonymous(Case):
     def setUp(self):
         self.answers = {}
         self.patch(images, "_status", side_effect=lambda url, token=None: self.answers.get((url, bool(token)), (None, "")))
-        self.patch(images, "_status_get", side_effect=lambda url: self.answers.get((url, False), (None, "")))
         self.patch(images, "_json", side_effect=lambda url, token=None: self.answers[("token", url)])
         self.patch(compose, "CACHE", compose.Cache())   # each test asks afresh
 
