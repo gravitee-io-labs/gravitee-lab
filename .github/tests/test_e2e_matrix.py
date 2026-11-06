@@ -17,11 +17,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 import e2e_matrix  # noqa: E402
 
-PROJECT = {"addons": {"mailer": {}, "beacon": {}, "local/mine": {}}, "setups": {"events": {}},
-           "playgrounds": {"shop": {"tested": [{"APIM_VERSION": "4.13.0"}, {"APIM_VERSION": "4.14.0"}]}, "tour": {"tested": []},
-                           "local/draft": {}}}
-
-
 class ItemOfTest(unittest.TestCase):
     def test_a_file_of_an_add_on_or_a_playground_belongs_to_its_folder(self):
         self.assertEqual(e2e_matrix.e2e.item_of("addons/mailer/compose.yml"), "addon:mailer")
@@ -38,24 +33,6 @@ class ItemOfTest(unittest.TestCase):
                      "addons/README.md", "docs/lab-ui.md", "addons/Mailer/compose.yml", "addons/mailer"):
             with self.subTest(path=path):
                 self.assertIsNone(e2e_matrix.e2e.item_of(path))
-
-
-class JobsTest(unittest.TestCase):
-    def sets(self, item):
-        return len(PROJECT[f"{item.partition(':')[0]}s"][item.partition(':')[2]].get("tested") or [])
-
-    def test_a_job_for_each_set_of_versions_of_an_item(self):
-        self.assertEqual(e2e_matrix.jobs(["playground:shop"], self.sets), [
-            {"item": "playground:shop", "tested": "0", "name": "playground:shop (versions 0)"},
-            {"item": "playground:shop", "tested": "1", "name": "playground:shop (versions 1)"}])
-
-    def test_an_item_that_says_no_versions_runs_once_on_the_defaults_of_the_core(self):
-        self.assertEqual(e2e_matrix.jobs(["playground:tour", "addon:mailer"], self.sets), [
-            {"item": "playground:tour", "tested": "", "name": "playground:tour (core defaults)"},
-            {"item": "addon:mailer", "tested": "", "name": "addon:mailer (core defaults)"}])
-
-    def test_no_item_no_job(self):
-        self.assertEqual(e2e_matrix.jobs([], self.sets), [])
 
 
 # The catalogs: the plan of a catalog linked into the engine, which the workflows ask for
@@ -241,37 +218,9 @@ class CommandTest(unittest.TestCase):
                            (["--canary"], "name the catalog"), (["--all"], "name the catalog"),
                            (["--all", "--in", "engine"], "name the catalog"),
                            (["--catalog", "hub", "--all", "--in", "engine"], "--in engine is for --changed of a catalog"),
-                           (["--catalog", "hub", "--triggered", "a", "b"], "takes no catalog"),
                            (["--all", "--", "addon:a"], "words after --"), (["--catalog", "hub", "--changed", "a"], "expected 2")):
             with self.subTest(argv=argv):
                 self.assertIn(said, self.refused(*argv))
-
-
-class TriggeredTest(unittest.TestCase):
-    """--triggered: whether a change of the engine is of what every item shares, for the jobs of the engine's CI."""
-
-    def run_main(self, files, *argv):
-        out = io.StringIO()
-        with mock.patch.object(e2e_matrix, "git_changes", return_value=files), contextlib.redirect_stdout(out):
-            e2e_matrix.main(["--triggered", "a", "b", *argv])
-        return json.loads(out.getvalue())
-
-    def test_a_change_of_what_every_item_shares_is_one(self):
-        self.assertEqual(self.run_main(["docs/a.md", "seeder/seed.py", "Makefile"]), {"triggered": True, "paths": ["seeder/seed.py", "Makefile"]})
-
-    def test_documentation_and_the_page_are_not(self):
-        self.assertEqual(self.run_main(["docs/a.md", "lab-ui/web/js/core.js"]), {"triggered": False, "paths": []})
-
-    def test_the_answer_is_for_the_next_job_to_read(self):
-        with tempfile.NamedTemporaryFile("r", suffix=".out") as file, mock.patch.dict(os.environ, {"GITHUB_OUTPUT": file.name}):
-            self.run_main(["Makefile"], "--github-output")
-            self.assertEqual(file.read(), "triggered=true\n")
-        with tempfile.NamedTemporaryFile("r", suffix=".out") as file, mock.patch.dict(os.environ, {"GITHUB_OUTPUT": file.name}):
-            self.run_main(["docs/a.md"], "--github-output")
-            self.assertEqual(file.read(), "triggered=false\n")
-
-    def test_the_paths_are_the_ones_the_plan_uses(self):
-        self.assertIs(e2e_matrix.SHARED, e2e_matrix.e2e.ENGINE_PATHS)
 
 
 class WordsTest(unittest.TestCase):

@@ -892,18 +892,6 @@ class Files(Case):
         self.assertEqual(e2e.touched(files, e2e.ENGINE_PATHS, self.canary, named=False), [])
         self.assertEqual(e2e.touched([*files, "seeder/seed.py"], e2e.ENGINE_PATHS, self.canary, named=False), ["playground:tour"])
 
-    def test_what_every_item_shares_in_the_engine_triggers_and_the_page_does_not(self):
-        for path in ("docker-compose.yml", ".env.example", "Makefile", "contract.lock", "catalogs.default.json", "seeder/seed.py",
-                     "lab-ui/lab_ui/library/layers.py", "lab-ui/lab_ui/catalogs/trust.py", "lab-ui/server.py", "lab-ui/catalog.py",
-                     "certs/mtls/generate.sh", "lab-ui/frames/x", ".github/actions/compose/action.yml", ".github/workflows/e2e.yml",
-                     ".github/workflows/e2e-run.yml", ".github/scripts/e2e_matrix.py", ".github/scripts/image_manifests.py"):
-            with self.subTest(path=path):
-                self.assertEqual(e2e.triggers([path, "docs/a.md"]), [path])
-        for path in ("README.md", "docs/a.md", "lab-ui/web/js/core.js", "lab-ui/tests/test_e2e.py", ".github/workflows/ci.yml",
-                     ".github/tests/test_e2e_matrix.py", "lab-ui/templates/catalog/README.md", "seeder.md"):
-            with self.subTest(path=path):
-                self.assertEqual(e2e.triggers([path]), [])
-
     def test_every_path_that_triggers_is_a_path_of_this_repository(self):
         # a file renamed or a folder moved must not turn the trigger off without a test saying so
         for path in e2e.ENGINE_PATHS:

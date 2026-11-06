@@ -9,7 +9,6 @@ The engine holds no item: the items are a catalog's, linked into the engine befo
     python3 -I .github/scripts/e2e_matrix.py --catalog ID --all                          # every shared item: the nightly run
     python3 -I .github/scripts/e2e_matrix.py --catalog ID --canary                       # the items its catalog.yml names
     python3 -I .github/scripts/e2e_matrix.py --catalog ID --items [KIND:ID ...] [-- KIND:ID ...]   # these items
-    python3 -I .github/scripts/e2e_matrix.py --triggered BASE HEAD                       # is a change of the engine of what items share
 
 `--default-catalog` is the catalog this engine lists first, in place of `--catalog ID`. An item is `kind:id` with the id of the
 Lab: bare for the first catalog, `@catalog/name` for another. Words after `--` are items too, and never an option.
@@ -36,10 +35,6 @@ if str(ROOT / "lab-ui") not in sys.path:   # python3 -I puts no folder of the re
     sys.path.insert(0, str(ROOT / "lab-ui"))
 
 from lab_ui import e2e   # noqa: E402
-
-# What every item shares in the engine: a change of it may break any of them. The same list triggers the engine's catalog job
-SHARED = e2e.ENGINE_PATHS
-jobs = e2e.jobs
 
 
 def git_changes(base, head, folder=None):
@@ -81,8 +76,6 @@ def parser():
     what.add_argument("--all", action="store_true", help="every shared item")
     what.add_argument("--canary", action="store_true", help="the items catalog.yml names as its canary")
     what.add_argument("--items", nargs="*", metavar="KIND:ID", help="these items")
-    what.add_argument("--triggered", nargs=2, metavar=("BASE", "HEAD"),
-                      help="whether a change of the engine touches what every item shares")
     top.add_argument("--in", dest="where", choices=("catalog", "engine"), default="catalog",
                      help="with --changed: the repository the change is in (the engine's, or the catalog's)")
     top.add_argument("--github-output", action="store_true", help="also append the result to the file GITHUB_OUTPUT names")
@@ -104,10 +97,7 @@ def read(argv):
         args.items += after
     if args.items is not None and not args.items:
         top.error("--items needs at least one item")
-    named_one = bool(args.catalog or args.default_catalog)
-    if args.triggered and named_one:
-        top.error("--triggered is about the engine: it takes no catalog")
-    if not args.triggered and not named_one:
+    if not args.catalog and not args.default_catalog:
         top.error("name the catalog: --catalog ID or --default-catalog")
     if args.where == "engine" and not args.changed:
         top.error("--in engine is for --changed of a catalog")
@@ -123,12 +113,6 @@ def write_output(**values):
 
 def main(argv=None):
     args = read(argv)
-    if args.triggered:
-        found = e2e.triggers(git_changes(*args.triggered), SHARED)
-        print(json.dumps({"triggered": bool(found), "paths": found}, indent=2))
-        if args.github_output:
-            write_output(triggered=json.dumps(bool(found)))
-        return
     try:
         found = matrix(args, load_project())
     except e2e.PlanError as error:

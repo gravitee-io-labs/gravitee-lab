@@ -572,7 +572,7 @@ JOBS_LIMIT = 256   # the most jobs one matrix of GitHub holds
 UNIT_PATH = re.compile(r"^(?:(addons|playgrounds)/([a-z0-9-]+)/.+|(setups)/([a-z0-9-]+)\.yml)$")
 FOLDER_KIND = {"addons": "addon", "playgrounds": "playground", "setups": "setup"}
 # What every item shares in the engine: a change of it may break any item of any catalog. A change that touches nothing else
-# runs the canary of a catalog, and the engine's catalog job runs when one of these changes. A folder ends in /
+# runs nothing, and one of these runs the canary of a catalog. A folder ends in /
 ENGINE_PATHS = ("docker-compose.yml", ".env.example", "Makefile", "contract.lock", "catalogs.default.json", "seeder/",
                 "lab-ui/lab_ui/", "lab-ui/server.py", "lab-ui/catalog.py", "certs/", "lab-ui/frames/", ".github/actions/",
                 ".github/workflows/e2e.yml", ".github/workflows/e2e-run.yml", ".github/scripts/e2e_matrix.py",
@@ -620,11 +620,6 @@ def touched(files, shared, canary, named=True, alive=None):
     if found or not any(path.startswith(shared) for path in files):
         return found
     return list(canary())
-
-
-def triggers(files, shared=ENGINE_PATHS):
-    """The files of a change that are of what every item shares: what makes a catalog worth trying again."""
-    return [path for path in files if path.startswith(shared)]
 
 
 def exists(item, built, ns=None):
