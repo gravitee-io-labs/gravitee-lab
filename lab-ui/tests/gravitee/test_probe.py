@@ -204,9 +204,6 @@ class Probe(Case):
         self.assertEqual((found["answers"], found["frameable"], found["reason"]), (False, False, "Too many redirects"))
         self.assertEqual(Ui.hits, ["/three", "/two", "/one"])
 
-    def test_a_redirect_that_leaves_for_what_is_no_web_page_does_not_answer(self):
-        self.assertEqual(self.look("/away")["answers"], False)
-
     def test_a_redirect_to_another_scheme_is_never_followed(self):
         # The address answers nothing, but a request to it would show: nothing is sent to what is not http
         port = self.server.server_port

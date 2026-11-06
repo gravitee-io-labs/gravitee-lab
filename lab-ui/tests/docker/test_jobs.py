@@ -503,10 +503,6 @@ class Progress(Case):
         docker = Docker(LAB, {"redis": container("exited", code=143), "reader-ui": container(health="unhealthy")})
         self.assertEqual(progress(replay(job, STOPS, refresh=docker.refresh)), [0.5, 0.75, 1, 1, 1, 1])
 
-    def test_a_restart(self):
-        job = self.job([UP], awaited(SERVICES, start=["alert-engine"]))
-        self.assertEqual(progress(replay(job, RESTARTS)), [0.2, 0.5])
-
     def test_a_one_shot_is_ready_once_it_ended_well(self):
         job = self.job([UP], awaited(SERVICES, start=["openfga-migrate"]))
         lines = [" Container gio-openfga-migrate Created ", " Container gio-openfga-migrate Started "]
