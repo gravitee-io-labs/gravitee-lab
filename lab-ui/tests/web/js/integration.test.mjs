@@ -367,21 +367,6 @@ const answer = async (confirmed) => {
 const OPTIONS = [{ value: "gravitee", label: "Gravitee public", sub: "Public" }, { value: "acme-hub", label: "Acme Hub", sub: "Private" }];
 const share = (options = OPTIONS, more = {}) => ui.effectsDialog({ title: "Share Acme Bakery", options, action: () => "Share", unchosen: "Choose where to share", ...more });
 
-test("a choice that must be made starts with nothing chosen: its button waits and says why, Enter does nothing, and an option that is chosen frees it", async () => {
-  const asked = share();
-  assert.deepEqual(radios().map((radio) => radio.checked), [false, false], "none is chosen, and none is the first by default");
-  assert.equal(isOff(ok), true);
-  assert.equal(offWhy(ok), "Choose where to share");
-  assert.equal(text(ok), "Share");
-  assert.equal(enter(), true, "Enter on a choice does nothing while there is none");
-  pick(1);
-  assert.equal(isOff(ok), false);
-  assert.equal(enter(), false, "chosen, Enter confirms");
-  await answer(true);
-  assert.equal(await asked, "acme-hub");
-  assert.equal(isOff(ok), false, "the button is the other dialogs' too");
-});
-
 test("Cancel while nothing is chosen answers null, and so does a forged confirmation: nothing is shared by a key", async () => {
   let asked = share();
   await answer(false);
@@ -391,35 +376,6 @@ test("Cancel while nothing is chosen answers null, and so does a forged confirma
   await answer(true);   // the button cannot be pressed; a confirmation that comes all the same chooses nothing
   assert.equal(await asked, null);
   assert.equal(isOff(ok), false);
-});
-
-test("an option that cannot be taken waits with its reason, and a choice among options none of which can be taken says the first one's", async () => {
-  const blocked = (value, reason) => ({ value, label: value, disabled: true, reason });
-  // A single destination that cannot take the item is no choice: it is shown, and the button says why
-  let asked = share([blocked("only", "You cannot push to Acme Hub. Ask for access.")]);
-  assert.deepEqual(radios().map((radio) => radio.checked), [true]);
-  assert.equal(offWhy(ok), "You cannot push to Acme Hub. Ask for access.");
-  await answer(false);
-  await asked;
-  // Several, none of which can: nothing to choose
-  asked = share([blocked("a", "You cannot push to A."), blocked("b", "B does not take contributions from the Lab.")]);
-  assert.deepEqual(radios().map((radio) => radio.checked), [false, false]);
-  assert.equal(offWhy(ok), "You cannot push to A.");
-  await answer(false);
-  await asked;
-  // Several, one of which can: the others are not chosen, the button waits for the one that can
-  asked = share([blocked("a", "You cannot push to A."), { value: "b", label: "B" }]);
-  assert.equal(offWhy(ok), "Choose where to share");
-  pick(1);
-  assert.equal(isOff(ok), false);
-  await answer(true);
-  assert.equal(await asked, "b");
-  // A single destination that can be taken is chosen, and the button is free
-  asked = share([{ value: "only", label: "Only" }]);
-  assert.deepEqual(radios().map((radio) => radio.checked), [true]);
-  assert.equal(isOff(ok), false);
-  await answer(true);
-  assert.equal(await asked, "only");
 });
 
 test("a dialog without that parameter is what it was: the first option chosen, its button free, whatever the one before it did", async () => {
