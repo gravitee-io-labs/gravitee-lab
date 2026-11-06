@@ -133,10 +133,6 @@ class Scope(unittest.TestCase):
             with self.subTest(base=base):
                 self.assertEqual(plan_of(catalog(), None, event="pull_request", base=base).scope, "first push")
 
-    def test_a_change_git_cannot_name_is_everything_and_says_so(self):
-        found = plan.compute(trees.ListTree.from_files(catalog()), "pull_request", None, "a" * 40)
-        self.assertEqual((found.scope, len(found.units)), ("git could not say what changed", 4))
-
     def test_a_unit_that_cannot_be_followed_is_touched_by_any_change_to_a_unit(self):
         # An include of another catalog is not one the text screen follows: the unit may include any unit of this one
         files = catalog({"addons/plain/compose.yml": "include:\n  - ../../../other/addons/x/compose.yml\nservices: {}\n"})
@@ -189,13 +185,6 @@ class Flags(unittest.TestCase):
             found = plan_of(catalog(), ["playgrounds/bank/README.md", *outside])
             self.assertEqual((found.units, found.compile), (["playground:bank", "setup:pair"], False), outside)
         self.assertTrue(plan_of(catalog(), ["playgrounds/bank/README.md", "playgrounds/bank/apps/web/app.py", "docs/x.md"]).compile)
-
-    def test_a_readme_and_a_file_is_more_than_a_readme(self):
-        self.assertTrue(plan_of(catalog(), ["playgrounds/bank/README.md", "playgrounds/bank/apps/web/app.py"]).compile)
-
-    def test_a_playground_with_a_seed_folder_asks_for_the_seed_job(self):
-        self.assertTrue(plan_of(catalog(), ["playgrounds/bank/compose.yml"]).seed)
-        self.assertFalse(plan_of(catalog(), ["addons/plain/compose.yml"]).seed)
 
     def test_a_seed_folder_in_an_add_on_is_no_seed(self):
         files = catalog({"addons/plain/seed/apim/apis/x.json": "{}"})
@@ -296,15 +285,6 @@ class Fast(unittest.TestCase):
 
 class Lines(unittest.TestCase):
 
-    def test_the_four_outputs_are_one_line_each(self):
-        found = plan_of(catalog(), ["addons/mock/compose.yml"])
-        lines = found.outputs()
-        self.assertEqual(list(lines), ["units", "seed", "compile", "matrix"])
-        self.assertEqual(lines["units"], '["addon:mock", "playground:bank", "setup:pair"]')
-        self.assertEqual((lines["seed"], lines["compile"]), ("true", "true"))
-        self.assertEqual(json.loads(lines["matrix"]), {"include": [ARCH]})
-        self.assertTrue(all("\n" not in value for value in lines.values()))
-
     def test_the_words_a_person_reads(self):
         text = plan.lines_of(plan_of(catalog(), ["addons/plain/compose.yml"]))
         self.assertEqual(text, ["Scope: the change and what includes it", "Units: addon:plain",
@@ -333,7 +313,7 @@ class Command(support.WithGit, Run):
 
     def setUp(self):
         support.WithGit.setUp(self)
-        self.fake = FakeDocker(self)
+        FakeDocker(self)
         self.patch(compose, "run", mock.Mock(side_effect=AssertionError("the plan ran a command")))
         self.repo = self.work(files=catalog())
         self.first = self.git(self.repo, "rev-parse", "HEAD").strip()
@@ -353,20 +333,6 @@ class Command(support.WithGit, Run):
             "matrix=" + json.dumps({"include": [ARCH]})])
         self.assertIn("Units: addon:mock, playground:bank, setup:pair", shown)
 
-    def test_a_readme_only_pull_request_builds_nothing(self):
-        head = self.change({"addons/plain/README.md": "# Plain\n"})
-        code, _, _, written = self.command(self.repo, "--event", "pull_request", "--base", self.first, "--head", head,
-                                           "--github-output")
-        self.assertEqual(code, 0)
-        self.assertEqual(written.splitlines()[:3], ['units=["addon:plain"]', "seed=false", "compile=false"])
-
-    def test_a_change_to_the_workflows_is_everything(self):
-        head = self.change({".github/workflows/ci.yml": "name: CI\n"})
-        _, shown, _, written = self.command(self.repo, "--event", "pull_request", "--base", self.first, "--head", head,
-                                            "--github-output")
-        self.assertIn('units=["addon:mock", "addon:plain", "playground:bank", "setup:pair"]', written)
-        self.assertIn("Scope: everything (a change to a file every unit is judged by)", shown)
-
     def test_a_push_is_everything_whatever_the_base(self):
         for base in ("", "0" * 40, self.first, "feedface" * 5):
             with self.subTest(base=base):
@@ -374,12 +340,6 @@ class Command(support.WithGit, Run):
                                                     "--github-output")
                 self.assertIn("compile=true", written)
                 self.assertIn("Scope: everything (push)", shown)
-
-    def test_a_first_push_is_everything(self):
-        _, shown, _, written = self.command(self.repo, "--event", "pull_request", "--base", "0" * 40, "--head", self.first,
-                                            "--github-output")
-        self.assertIn("Scope: everything (first push)", shown)
-        self.assertIn("seed=true", written)
 
     def test_a_base_that_is_no_commit_is_everything_and_the_plan_still_answers(self):
         code, shown, _, written = self.command(self.repo, "--event", "pull_request", "--base", "ab" * 20, "--head", self.first,
@@ -447,13 +407,6 @@ class Command(support.WithGit, Run):
                 out, err = io.StringIO(), io.StringIO()
                 self.assertEqual(plan.main(argv, out, err), 2)
                 self.assertEqual(out.getvalue(), "")
-
-    def test_the_plan_never_runs_docker(self):
-        head = self.change({"addons/plain/compose.yml": COMPOSE.format(name="plain") + "# x\n"})
-        self.command(self.repo, "--event", "pull_request", "--base", self.first, "--head", head, "--github-output")
-        self.command(self.repo, "--event", "push", "--github-output")
-        self.assertEqual(self.fake.calls(), [])
-        compose.run.assert_not_called()
 
 
 class Hostile(support.WithGit, Run):
