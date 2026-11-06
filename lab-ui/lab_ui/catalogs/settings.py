@@ -136,8 +136,6 @@ ENVIRONMENTS = {"publish": (("main", "branch"), ("v*", "tag")),
                 "versions": (("main", "branch"),)}
 PUBLISH_POLICY = {"protected_branches": False, "custom_branch_policies": True}
 
-SOLO_BYPASS = {"actor_id": ADMIN_ROLE, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}
-SOLO_TUPLE = ("RepositoryRole", ADMIN_ROLE, "pull_request")
 # The deploy keys of the repository: versions.yml pushes the versions it recorded to main and tags their release with one
 DEPLOY_KEY = {"actor_id": None, "actor_type": "DeployKey", "bypass_mode": "always"}
 DEPLOY_TUPLE = ("DeployKey", None, "always")
@@ -478,7 +476,6 @@ class _Audit:
         self.owner, self.name = repo.split("/", 1)
         self.reads = Reads(runner)
         self.found = Findings()
-        self.solo = options["solo"]
         self.effective_only = options["effective_only"]
         self.no_rulesets = False           # GitHub said the plan has none
         self.protected_paths_ok = False
@@ -553,28 +550,21 @@ class _Audit:
         except (ValueError, binascii.Error, RecursionError):      # a contributor's file: brackets nested deeper than Python reads
             return Standard(None, None, "it is not JSON")
 
-    def ruleset(self, key: str, solo: Optional[bool] = None) -> dict:
-        """The template's ruleset `key` as it is applied here: `main` with the administrator bypass under --solo and with
-        the checks the caller named."""
+    def ruleset(self, key: str) -> dict:
+        """The template's ruleset `key` as it is applied here: `main` with the checks the caller named."""
         body = copy.deepcopy(self.templates[key])
-        if key == "main":
-            keys = [dict(DEPLOY_KEY)] if DEPLOY_KEY in body.get("bypass_actors", []) else []
-            if self.solo if solo is None else solo:
-                body["bypass_actors"] = [dict(SOLO_BYPASS), *keys]
-            elif "bypass_actors" in body:
-                body["bypass_actors"] = keys
-            if self.options["required_checks"]:
-                for rule in body["rules"]:
-                    if isinstance(rule, dict) and rule.get("type") == "required_status_checks":
-                        rule.setdefault("parameters", {})["required_status_checks"] = [
-                            {"context": name, "integration_id": ACTIONS_APP_ID} for name in self.options["required_checks"]]
+        if key == "main" and self.options["required_checks"]:
+            for rule in body["rules"]:
+                if isinstance(rule, dict) and rule.get("type") == "required_status_checks":
+                    rule.setdefault("parameters", {})["required_status_checks"] = [
+                        {"context": name, "integration_id": ACTIONS_APP_ID} for name in self.options["required_checks"]]
         return body
 
-    def ruleset_fix(self, key: str, solo: Optional[bool] = None):
+    def ruleset_fix(self, key: str):
         """The request that makes the template's ruleset `key` the one in force: the replacement of the ruleset of its name
         when there is one, else its creation (`apply` asks again before it sends). The rulesets of main and of the tags come with
         their history (COMPANIONS): a deploy key passes the first, never the second."""
-        found = [self._ruleset_request(self.ruleset(key, solo))]
+        found = [self._ruleset_request(self.ruleset(key))]
         if key in COMPANIONS:
             found += self._companion(key)
         return found
@@ -1096,13 +1086,7 @@ class _Audit:
             return self.add("rules.bypass", MANUAL, now=hidden or "GitHub did not say which ruleset the rules come from")
         actors = sorted(set(actors) - {DEPLOY_TUPLE}, key=repr)   # a deploy key pushes what versions.yml recorded
         if not actors:
-            if self.solo:
-                return self.add("rules.bypass", FAIL, now="--solo asks for one administrator, in pull request mode, and there "
-                                                           "is none", fix=self.ruleset_fix("main", True))
             return self.add("rules.bypass", OK)
-        if actors == [SOLO_TUPLE]:
-            return self.add("rules.bypass", WARN, now="one administrator can merge their own pull request",
-                            fix=None if self.solo else self.ruleset_fix("main", False))
         self.add("rules.bypass", FAIL, now="bypass: " + clean(actors), fix=self.ruleset_fix("main"))
 
     def tags(self):
@@ -1345,13 +1329,13 @@ def _options(options) -> dict:
         if not all(isinstance(name, str) and 1 <= len(name) <= 100 and name.isprintable() for name in names):
             raise Usage(what)
         out[key] = names
-    return {"as": asked, "solo": bool(given.get("solo")), "effective_only": bool(given.get("effective_only")),
+    return {"as": asked, "effective_only": bool(given.get("effective_only")),
             "standard": given.get("standard"), **out}
 
 
 def audit(repo: str, runner: Callable, options: Optional[dict] = None) -> Findings:
     """The findings for `repo` ("OWNER/REPO"), read through `runner`. `options`: `as` (public, private or internal: the
-    visibility the repository is audited against, else its own), `solo`, `effective_only`, `required_checks` (names that
+    visibility the repository is audited against, else its own), `effective_only`, `required_checks` (names that
     replace "Catalog CI result"), `allow_org_secrets` (the names of the organization secrets and variables that are the
     maintainers' own), `standard` (the parsed `.github/standard.json`, else it is read from the repository). Writes nothing.
     Raises Unusable for a repository that cannot be read and for a sign-in that is missing."""
@@ -1597,7 +1581,7 @@ def _name(text: str) -> str:
     return text
 
 
-USAGE = """catalog.py repo-settings [OWNER/REPO or FOLDER] [--apply [--yes] [--warnings]] [--solo] [--effective-only]
+USAGE = """catalog.py repo-settings [OWNER/REPO or FOLDER] [--apply [--yes] [--warnings]] [--effective-only]
                          [--strict] [--as public or private or internal] [--required-check NAME]
                          [--allow-org-secret NAME] [--fleet OWNER] [--format text or json or github]
 
@@ -1612,7 +1596,6 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--apply", action="store_true")
     p.add_argument("--yes", action="store_true")
     p.add_argument("--warnings", action="store_true")
-    p.add_argument("--solo", action="store_true")
     p.add_argument("--effective-only", action="store_true")
     p.add_argument("--strict", action="store_true")
     p.add_argument("--as", dest="visibility", choices=("public", "private", "internal"))
@@ -1638,7 +1621,7 @@ def main(argv: Optional[List[str]] = None, runner: Optional[Callable] = None, gi
             raise Usage("--yes and --warnings go with --apply.")
         if args.fleet is not None and (args.target or args.apply):
             raise Usage("--fleet audits every catalog of an owner: it takes no repository and no --apply.")
-        options = {"as": args.visibility, "solo": args.solo, "effective_only": args.effective_only,
+        options = {"as": args.visibility, "effective_only": args.effective_only,
                    "required_checks": args.required_check, "allow_org_secrets": args.allow_org_secret}
         runner = runner or Gh()
         if args.fleet is not None:

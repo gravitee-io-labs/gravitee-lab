@@ -914,36 +914,23 @@ class Audit(Case):
     def test_rules_bypass(self):
         self.assertEqual(OK, Scene("public-standard").finding("rules.bypass").status)
         solo = {"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}
-        scene = Scene("public-standard")
-        detail = copy.deepcopy(scene.get("/rulesets/1001").body)
-        detail["bypass_actors"] = [solo]
-        scene.set("/rulesets/1001", detail)
-        found = scene.finding("rules.bypass")
-        self.assertEqual((WARN, "one administrator can merge their own pull request"), (found.status, found.now))
         key = {"actor_id": None, "actor_type": "DeployKey", "bypass_mode": "always"}
-        self.assertEqual([key], requests_of(found)[0][2]["bypass_actors"])     # without --solo the fix takes it away
-        found = scene.finding("rules.bypass", solo=True)
-        self.assertEqual((WARN, None), (found.status, found.fix))              # asked for, and it is there
-        # --solo with none: the ruleset is applied with exactly one administrator, in pull request mode
-        none = Scene("public-standard")
-        found = none.finding("rules.bypass", solo=True)
-        self.assertEqual(FAIL, found.status)
-        self.assertEqual([solo, key], requests_of(found)[0][2]["bypass_actors"])
-        for actors in ([{"actor_id": 1, "actor_type": "Team", "bypass_mode": "always"}],
+        for actors in ([solo], [solo, key], [{"actor_id": 1, "actor_type": "Team", "bypass_mode": "always"}],
                        [solo, {"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}],
                        [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}]):
             scene = Scene("public-standard")
             detail = copy.deepcopy(scene.get("/rulesets/1001").body)
             detail["bypass_actors"] = actors
             scene.set("/rulesets/1001", detail)
-            self.assertEqual(FAIL, scene.finding("rules.bypass").status, actors)
+            found = scene.finding("rules.bypass")
+            self.assertEqual(FAIL, found.status, actors)
+            self.assertEqual([key], requests_of(found)[0][2]["bypass_actors"])
         # The deploy key that versions.yml pushes the versions it recorded with is no one who merges a pull request
-        for actors, status in (([key], OK), ([solo, key], WARN)):
-            scene = Scene("public-standard")
-            detail = copy.deepcopy(scene.get("/rulesets/1001").body)
-            detail["bypass_actors"] = actors
-            scene.set("/rulesets/1001", detail)
-            self.assertEqual(status, scene.finding("rules.bypass").status, actors)
+        scene = Scene("public-standard")
+        detail = copy.deepcopy(scene.get("/rulesets/1001").body)
+        detail["bypass_actors"] = [key]
+        scene.set("/rulesets/1001", detail)
+        self.assertEqual(OK, scene.finding("rules.bypass").status)
         scene = Scene("public-standard")
         scene.remove("/rulesets/1001", "bypass_actors")             # a reader who is not an administrator is not told
         found = scene.finding("rules.bypass")
@@ -1114,19 +1101,14 @@ class Audit(Case):
     def test_the_bypass_of_a_push_ruleset_is_no_bypass_of_the_pull_request(self):
         """GitHub lists the rules of the push rulesets among those of the branch: on an internal repository the administrator who
         may change the files that run with a token must not read as someone who may merge past the review."""
-        solo = {"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}
         scene = Scene("public-standard")
-        detail = copy.deepcopy(scene.get("/rulesets/1001").body)
-        detail["bypass_actors"] = [solo]
-        scene.set("/rulesets/1001", detail)
         scene.set("/rulesets/1004", {"id": 1004, "name": "catalog-protected-paths", "target": "push", "enforcement": "active",
-                                     "bypass_actors": [{**solo, "bypass_mode": "always"}], "rules": []})
+                                     "bypass_actors": [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}], "rules": []})
         rules = copy.deepcopy(scene.get("/rules/branches/main").body)
         rules.append({"type": "file_path_restriction", "ruleset_id": 1004, "ruleset_source_type": "Repository",
                       "ruleset_source": "acme-labs/lab-hub", "parameters": {"restricted_file_paths": [".github/**"]}})
         scene.set("/rules/branches/main", rules)
-        found = scene.finding("rules.bypass", solo=True)
-        self.assertEqual((WARN, None), (found.status, found.fix))
+        self.assertEqual(OK, scene.finding("rules.bypass").status)
 
     def test_the_template_says_dot_pem_and_github_is_asked_for_star_dot_pem(self):
         """GitHub refuses a push ruleset whose extensions do not start with `*.` (422): the managed file keeps the extensions as a
@@ -1468,7 +1450,7 @@ class Whole(Case):
             for fmt in ("text", "json", "github"):
                 self.assertEqual(settings.render(first.audit(), fmt), settings.render(second.audit(), fmt), (name, fmt))
             self.assertEqual(settings.render(first.audit()), settings.render(first.audit()))              # the same hub, asked again
-            options = {"as": "public", "solo": True}
+            options = {"as": "public"}
             self.assertEqual(settings.render(Scene(name).audit(**options)), settings.render(Scene(name).audit(**options)))
 
     def test_the_json_is_one_document_with_sorted_keys(self):
@@ -1683,7 +1665,7 @@ class Hostile(Case):
                     for code in (200, 403, 404):
                         scene = Scene(name)
                         scene.table[key] = Reply(code, copy.deepcopy(value))
-                        for options in ({"effective_only": True}, {"as": "public", "solo": True}):
+                        for options in ({"effective_only": True}, {"as": "public"}):
                             found = scene.audit(**options)
                             self.assertTrue(all(f.status in settings.STATUSES for f in found), (name, key, value, code))
                             for fmt in ("text", "json", "github"):
@@ -1719,7 +1701,7 @@ class Hostile(Case):
                         changed[key] = Reply(reply.code, put(copy.deepcopy(reply.body), path, value))
                         scene = Scene(name, loaded=(repo, changed))
                         try:
-                            found = scene.audit(**{"as": "public", "solo": True})
+                            found = scene.audit(**{"as": "public"})
                         except settings.Unusable:
                             continue            # the repository itself no longer reads as one
                         self.assertTrue(all(f.status in settings.STATUSES for f in found), (name, key, path, value))
@@ -1949,20 +1931,6 @@ class Apply(Case):
             self.assertEqual(body, sent[body["name"]])
             self.assertNotIn("_managed", sent[body["name"]])
         self.assertEqual([{"actor_id": None, "actor_type": "DeployKey", "bypass_mode": "always"}], sent["catalog-main"]["bypass_actors"])
-
-    def test_solo_adds_exactly_one_administrator_in_pull_request_mode(self):
-        scene = self.broken()
-        findings = scene.audit(solo=True)
-        done = settings.apply(scene.repo, scene.hub, findings, True)
-        sent = {item.body["name"]: item.body for item in done if item.path.endswith("/rulesets")}
-        self.assertEqual([{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"},
-                          {"actor_id": None, "actor_type": "DeployKey", "bypass_mode": "always"}], sent["catalog-main"]["bypass_actors"])
-        self.assertEqual(TEMPLATE_RULESETS["tags"], sent["catalog-tags"])           # the other rulesets are as they are
-        self.assertEqual(TEMPLATE_RULESETS["push"], sent["catalog-push"])
-        found = {f.id: f for f in scene.audit(solo=True)}["rules.bypass"]
-        self.assertEqual((WARN, None), (found.status, found.fix))             # the audit warns while a bypass exists
-        self.assertEqual(WARN, {f.id: f for f in scene.audit()}["rules.bypass"].status)
-        self.assertEqual([], settings.apply(scene.repo, scene.hub, scene.audit(solo=True), True))
 
     def test_the_checks_asked_for_are_in_the_ruleset(self):
         scene = self.broken()
@@ -2431,7 +2399,7 @@ class Isolation(Case):
         scene = Apply.broken(Apply())
 
         def action():
-            findings = scene.audit(solo=True)
+            findings = scene.audit()
             settings.apply(scene.repo, scene.hub, findings, True, warnings=True)
             settings.render(scene.audit(), "text")
         opened, touched = self.watched(scene, action)
