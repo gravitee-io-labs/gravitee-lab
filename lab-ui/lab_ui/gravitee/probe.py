@@ -1,9 +1,9 @@
 """What a UI of a playground answers when the Lab UI's page asks, and whether that page may frame it: the
-X-Frame-Options and frame-ancestors of what it answers, judged as a browser would against the page. Only the addresses
-a playground declares (frames.py) are ever asked for."""
+X-Frame-Options and frame-ancestors of what it answers, judged against the page for what the lab's UIs write: the browser
+still enforces the header, and this only picks the frame or the notice. Only the addresses a playground declares (frames.py)
+are ever asked for."""
 
 import http.client
-import re
 import socket
 import ssl
 import threading
@@ -20,10 +20,6 @@ NOT_ANSWERING = (502, 503, 504)   # what a proxy says while what is behind it is
 # What a look says of a UI that does not answer, besides the words of the network (_why)
 TOO_FAR, NOWHERE = "Too many redirects", "Sends the page to what is no web address"
 UNTRUSTED = "Its certificate is not trusted"
-DEFAULT_PORT = {**frames.PORTS, "ws": 80, "wss": 443}   # the schemes a source of frame-ancestors can name
-NETWORK = tuple(DEFAULT_PORT) + ("ftp",)   # the schemes a `*` source stands for
-UPGRADES = {"http": ("https",), "ws": ("wss", "http", "https"), "wss": ("https",)}   # also allowed, as in CSP 3
-HOST_SOURCE = re.compile(r"^(?:([a-z][a-z0-9+.-]*)://)?(\*|\*\.[^/:]+|\[[^\]]+\]|[^/:*\[\]]+)(?::(\d+|\*))?(?:/.*)?$")
 LOCK = threading.Lock()
 KEPT = {}          # (address, page) -> (when, answer)
 
@@ -32,27 +28,11 @@ KEPT = {}          # (address, page) -> (when, answer)
 # Whether a page may frame it
 # ---------------------------------------------------------------------------------------------------------------------
 
-def _scheme_matches(wanted, scheme):
-    return wanted == scheme or scheme in UPGRADES.get(wanted, ())
-
-
 def _matches(source, framed, ancestor):
-    """Whether one source of a frame-ancestors list lets `ancestor` frame a document of the origin `framed`."""
+    """Whether one source of a frame-ancestors list lets `ancestor` frame a document of the origin `framed`: `*`, `'self'`,
+    or the address of `ancestor`. A source of any other form takes the notice."""
     source = source.lower()
-    if source == "'self'":
-        return framed == ancestor
-    if source == "*":
-        return ancestor[0] in NETWORK
-    if re.fullmatch(r"[a-z][a-z0-9+.-]*:", source):
-        return _scheme_matches(source[:-1], ancestor[0])
-    found = HOST_SOURCE.match(source)
-    if not found:   # 'none', and what is no source
-        return False
-    scheme, host, port = found.groups()
-    host = host.strip("[]")
-    named = host == ancestor[1] or host == "*" or (host.startswith("*.") and ancestor[1].endswith(host[1:]))
-    return named and _scheme_matches(scheme or framed[0], ancestor[0]) \
-        and (port == "*" or int(port or DEFAULT_PORT[ancestor[0]]) == ancestor[2])
+    return source == "*" or (source == "'self'" and framed == ancestor) or frames.origin(source) == ancestor
 
 
 def _policies(values):
@@ -86,9 +66,8 @@ def can_frame(url, page, csp=(), options=()):
     if policies:
         return True, ""   # frame-ancestors replaces X-Frame-Options
     for value in (word.strip() for header in options for word in header.split(",")):
-        kind, _, where = value.lower().partition(" ")
-        if kind == "deny" or (kind == "sameorigin" and framed != ancestor) \
-                or (kind == "allow-from" and frames.origin(where.strip()) != ancestor):
+        kind = value.lower()
+        if kind == "deny" or (kind == "sameorigin" and framed != ancestor):
             return False, f"X-Frame-Options: {value}"
     return True, ""
 
