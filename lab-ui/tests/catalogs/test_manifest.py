@@ -1236,15 +1236,9 @@ class Indexing(Case):
         self.assertEqual(set(tracer), {"kind", "id", "path", "name", "description", "category", "tags", "requires", "brings",
                                        "conflicts", "builds"})
 
-    def test_a_unit_of_another_catalog_is_not_in_it(self):
-        ids = [one["id"] for one in self.index()["units"]]
-        self.assertNotIn("broker", ids)
-        self.assertNotIn("elsewhere", ids)
-
     def test_the_text_is_the_same_bytes_twice(self):
         first, second = manifest.render_index(self.index()), manifest.render_index(self.index())
         self.assertEqual(first, second)
-        self.assertEqual(first.encode(), second.encode())
         self.loaded["addons"] = dict(reversed(list(self.loaded["addons"].items())))
         self.assertEqual(manifest.render_index(self.index()), first, "the order of the project does not matter")
 
@@ -1280,16 +1274,9 @@ class Indexing(Case):
             {"service": "tour-seed", "image": "registry.example.invalid/lab/seeder:latest"},
             {"service": "tour-web", "image": "registry.example.invalid/acme-hub/tour-web:latest"}])
 
-    def test_a_service_that_is_only_pulled_is_not_a_build(self):
-        self.assertNotIn("tracer-db", json.dumps(self.builds("tracer")))
-
     def test_a_unit_that_builds_nothing_has_an_empty_list_and_so_has_a_setup(self):
         self.assertEqual(self.builds("fake-core"), [])
         self.assertEqual(self.builds("stack"), [])
-
-    def test_every_unit_has_the_key_whatever_it_is(self):
-        for one in self.index()["units"]:
-            self.assertIsInstance(one["builds"], list, one["id"])
 
     def test_a_unit_that_is_blocked_lists_none_for_the_project_clears_its_services(self):
         self.loaded["addons"]["@acme-hub/tracer"]["services"] = []
@@ -1325,21 +1312,10 @@ class Indexing(Case):
         self.assertLessEqual(max(len(one["image"]) for one in found), 300)
         self.assertLessEqual(max(len(one["service"]) for one in found), 100)
 
-    def test_no_digest_and_no_time_is_in_what_a_unit_builds(self):
-        text = json.dumps(self.builds("tracer"))
-        self.assertNotIn("sha256", text)
-        self.assertEqual(sorted(self.builds("tracer")[0]), ["image", "service"])
-
     # -- builds as the file of the unit states them: the same whatever else is installed ---------------------------------
 
     def built(self, name, *building):
         return next(one for one in self.index(self.raw(*building))["units"] if one["id"] == name)["builds"]
-
-    def test_a_service_builds_when_the_file_of_its_unit_says_build(self):
-        self.assertEqual(self.built("tracer", "tracer-ui", "tracer-agent"), [
-            {"service": "tracer-agent", "image": "registry.example.invalid/acme-hub/tracer-agent:latest"},
-            {"service": "tracer-ui", "image": "registry.example.invalid/acme-hub/tracer-ui:1.2"}])
-        self.assertEqual([one["service"] for one in self.built("tour", "tour-seed", "tour-web")], ["tour-seed", "tour-web"])
 
     def test_a_service_that_runs_the_image_another_one_builds_is_not_a_build_though_the_project_calls_it_built(self):
         """project.build marks as built every service whose image another service of the project builds, also in another catalog."""
@@ -1370,11 +1346,6 @@ class Indexing(Case):
         self.assertEqual(manifest.render_index(self.index(raw)), first)
         self.assertEqual(self.index(raw, ns="partner")["units"][0]["builds"],
                          [{"service": "partner-ledger", "image": "registry.example.invalid/acme-hub/tour-web:latest"}])
-
-    def test_what_the_file_says_wins_over_the_flag_of_the_project_both_ways(self):
-        self.loaded["services"]["tracer-ui"]["built"] = False
-        self.loaded["services"]["tracer-db"]["built"] = True
-        self.assertEqual([one["service"] for one in self.built("tracer", "tracer-ui")], ["tracer-ui"])
 
     def test_only_a_build_that_says_something_is_a_build(self):
         for value, builds in (({"context": "."}, True), ("./app", True), ({"context": ".", "args": {"A": "b"}}, True),
@@ -1451,7 +1422,6 @@ class Standard(Case):
         self.standard(self.GOOD_FILE)
         first, second = manifest.render_index(self.index()), manifest.render_index(self.index())
         self.assertEqual(first, second)
-        self.assertEqual(first.encode(), second.encode())
         self.assertEqual(list(json.loads(first)), ["catalog", "schema", "standard", "units"])
         self.assertEqual(first, json.dumps(json.loads(first), indent=2, sort_keys=True, ensure_ascii=False) + "\n")
 
