@@ -16,7 +16,7 @@ from unittest import mock
 
 from lab_ui.gravitee import cloud, license, places, platforms
 from lab_ui.docker import compose, envfiles, jobs
-from lab_ui.library import layers, playgrounds, plugins, project as projects
+from lab_ui.library import layers, playgrounds, plugins
 from lab_ui import paths
 from lab_ui.catalogs import trust
 from lab_ui.docker.jobs import Job, JobFailed, awaited
@@ -2456,10 +2456,13 @@ class HostChecks(Case):
         self.assertEqual(playgrounds._host_check({"check": address, "expect": "llama"}),
                          (False, "Reachable, but llama is missing"))
 
-    def test_not_reachable_says_why(self):
-        found, why = playgrounds._host_check({"check": "http://localhost:9/api/tags"})   # nothing listens on 9
-        self.assertFalse(found)
-        self.assertRegex(why, r"^Not reachable \(.+\)$")
+    def test_not_reachable_says_why_and_an_answer_cut_short_is_not_reachable(self):
+        for failure in (playgrounds.urllib.error.URLError("refused"), playgrounds.http.client.IncompleteRead(b"{")):
+            with self.subTest(failure=failure), mock.patch.object(playgrounds.urllib.request, "build_opener") as opener:
+                opener.return_value.open.side_effect = failure
+                found, why = playgrounds._host_check({"check": "http://localhost:11434/api/tags"})
+            self.assertFalse(found)
+            self.assertRegex(why, r"^Not reachable \(.+\)$")
 
     def test_only_an_http_or_https_address_is_opened(self):
         secret = self.folder() / "secret.txt"
@@ -2484,13 +2487,6 @@ class HostChecks(Case):
         self.assertEqual(playgrounds._host_check({"check": "http://huggingface.co/api/models", "expect": "qwen3"}),
                          (True, "Ready"))
         self.assertEqual(asked, ["http://huggingface.co/api/models"])
-
-    def test_an_answer_cut_short_is_not_reachable(self):
-        with mock.patch.object(playgrounds.urllib.request, "build_opener") as opener:
-            opener.return_value.open.side_effect = playgrounds.http.client.IncompleteRead(b"{")
-            found, why = playgrounds._host_check({"check": "http://localhost:11434/api/tags"})
-        self.assertFalse(found)
-        self.assertTrue(why.startswith("Not reachable"))
 
 
 if __name__ == "__main__":
