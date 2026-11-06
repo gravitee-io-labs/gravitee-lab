@@ -490,7 +490,7 @@ class Inputs(Fixture):
     def test_a_pull_request_that_cannot_be_compared_with_main_is_not_a_verdict(self):
         self.clone({"addons/mock/README.md": "x\n"})
         self.git(self.change, "update-ref", "-d", "refs/remotes/origin/main")
-        with mock.patch.object(e2e, "head_of", side_effect=lambda folder: self.head if folder == str(self.change) else None):
+        with mock.patch.object(e2e.trees, "head_of", side_effect=lambda folder: self.head if folder == str(self.change) else None):
             self.assertEqual(self.plan("--changed"), 2)
         self.assertIn("cannot be compared with main", self.err.getvalue())
 

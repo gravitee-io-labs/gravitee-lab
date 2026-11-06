@@ -109,10 +109,6 @@ def check_inputs(sha: Optional[str], words: Optional[Sequence[str]]) -> List[Pro
     return bad
 
 
-def head_of(folder: str) -> Optional[str]:
-    return trees.head_of(folder)
-
-
 def merge_base(change: str, sha: str, main_tip: Optional[str]) -> Optional[str]:
     """The commit the change left main at: `git merge-base origin/main SHA` in the pull request's checkout, else with the tip of the
     main checkout when the pull request's clone has that commit. None when neither says."""
@@ -236,12 +232,6 @@ class Planned(NamedTuple):
     notes: List[str]
 
 
-def lab_item(ns: str, key: str) -> str:
-    """`kind:id` the way the Lab names an item: bare for the first catalog, `kind:@catalog/name` for the others."""
-    from ... import e2e as engine
-    return engine.lab_item(ns, key)
-
-
 def item_key(word: str, ns: str) -> Optional[str]:
     """`kind:name` of an `--items` word (`kind:name` or `kind:@ns/name` for this catalog), or None when it names another catalog."""
     found = WORD.fullmatch(word)
@@ -263,10 +253,10 @@ def make_plan(root: str, change: Optional[str], sha: Optional[str], ref: str, mo
     where = root
     changed: Optional[List[str]] = None
     if change is not None:
-        head = head_of(change)
+        head = trees.head_of(change)
         if head != sha:
             return Planned([], [head_mismatch(pull_request_number(), head or "0" * 40, sha or "")], [], notes)
-        base = merge_base(change, sha, head_of(root))
+        base = merge_base(change, sha, trees.head_of(root))
         if base is None:
             raise Unavailable("the pull request cannot be compared with main (is main fetched in its checkout?), so the plan cannot tell "
                               "whether it touches .github/, .catalog/, the Makefile or catalog.yml")
@@ -315,7 +305,7 @@ def make_plan(root: str, change: Optional[str], sha: Optional[str], ref: str, mo
         return len([one for one in (unit.tested if unit else ()) if one])
     items = []
     for key in selected:
-        item = lab_item(ns, key)
+        item = engine.lab_item(ns, key)
         if key in lacking:
             if folder_references_license(os.path.join(where, os.path.dirname(lacking[key].file))) \
                     or references_license(tree.text(lacking[key].file, TEXT_LIMIT) or ""):
@@ -408,7 +398,7 @@ def gate_main(argv, out, err, **seams) -> int:
     if not os.path.isdir(args.change):
         raise Usage(f"{report.printable(args.change)} is not a folder")
     if not bad:
-        head = head_of(os.path.abspath(args.change))
+        head = trees.head_of(os.path.abspath(args.change))
         if head != args.sha:
             problems.append(head_mismatch(pull_request_number(), head or "0" * 40, args.sha))
     if args.format != "json":

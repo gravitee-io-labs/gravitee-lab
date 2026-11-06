@@ -155,10 +155,6 @@ def carries_tool_credit(commit: trees.Commit) -> bool:
 # GitHub: the check run and the last successful run
 # ---------------------------------------------------------------------------------------------------------------------
 
-def gh_of(seams: dict) -> Callable:
-    return seams.get("gh") or settings.Gh()
-
-
 def read(call: Callable, path: str) -> settings.Reply:
     """A GET through `gh api`: the Reply, or Unavailable when `gh` is not there or not signed in."""
     try:
@@ -366,12 +362,7 @@ def make_plan(root: str, ref: Ref, sha: str, repository: str, private: bool, eve
     notes: List[str] = []
     problems: List[Problem] = []
     sleep, clock = seams.get("sleep") or time.sleep, seams.get("clock") or time.monotonic
-    call = None
-
-    def gh() -> Callable:
-        nonlocal call
-        call = call or gh_of(seams)
-        return call
+    call = seams.get("gh") or settings.Gh()
     previous: Optional[str] = None
     why = ""
     if ref.kind == "tag":
@@ -389,13 +380,13 @@ def make_plan(root: str, ref: Ref, sha: str, repository: str, private: bool, eve
             problems.append(problem("PB08", sha7=sha[:7]))
         if problems:
             return PlanResult([], problems, notes, not private)
-        previous, why = last_successful_run(repository, gh())
+        previous, why = last_successful_run(repository, call)
         if previous is not None and previous != sha and is_ancestor(root, sha, previous) is True:
             # A re-run of an old run, or a run that waited behind newer ones: what a run that came after it published includes this
             # commit, and publishing it again would move `latest` back to an old build
             return PlanResult([], [], [f"a run that succeeded after {sha[:7]} ({previous[:7]}) has published it: nothing is published "
                                        "again"], not private)
-    if not wait_for_check(repository, sha, gh(), sleep, clock, out, seams.get("interval", POLL), seams.get("limit", LIMIT)):
+    if not wait_for_check(repository, sha, call, sleep, clock, out, seams.get("interval", POLL), seams.get("limit", LIMIT)):
         return PlanResult([], [problem("PB03", sha7=sha[:7])], notes, not private)
     if not prefix:   # (a tag of a catalog that publishes no image still has its release)
         return PlanResult([], [], ["catalog.yml names no registry in images, so no image is published"], not private)

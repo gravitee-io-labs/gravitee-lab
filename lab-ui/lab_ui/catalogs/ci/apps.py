@@ -49,31 +49,23 @@ class Result(NamedTuple):
     seconds: float
 
 
-def tool():
-    """`apptests`, which builds an app and runs its tests in its image."""
-    return apptests
-
-
 def image_here(image: str, runner: Optional[Callable]) -> bool:
     return run_docker(["docker", "image", "inspect", image], timeout=60, runner=runner)[0] == 0
 
 
-def node_unavailable(reason: str, apptests) -> Unavailable:
+def node_unavailable(reason: str) -> Unavailable:
     """Why the Node image of the JavaScript tests could not be had, as the stage says it (exit 2): what Docker printed, and that it
     is not the author's change when the fault is Docker Hub's or the network's."""
     text = f"the Node image of the JavaScript tests could not be had: {report.printable(reason)[:300]}"
-    infra = getattr(apptests, "INFRA", None)
-    if infra is not None and infra.search(reason):
+    if apptests.INFRA.search(reason):
         text += ". This is not your change: run the job again in a few minutes"
     return Unavailable(text)
 
 
-def run_all(units: Sequence[Loaded], specs, runner: Optional[Callable] = None, apptests=None,
-            sleep: Optional[Callable] = None) -> List[Result]:
+def run_all(units: Sequence[Loaded], specs, runner: Optional[Callable] = None, sleep: Optional[Callable] = None) -> List[Result]:
     """Runs the tests of each spec (an image `ci build` makes) and answers the results in order. Unavailable when an image is
     not here, because it was not built, or when the Node image the JavaScript tests need cannot be had (asked once, before the
     first test: after the new tries of a pull that Docker Hub or the network refused)."""
-    apptests = apptests or tool()
     folders: Dict[str, str] = {unit.key: unit.folder for unit in units}
 
     def run(argv, timeout, cwd):
@@ -91,7 +83,7 @@ def run_all(units: Sequence[Loaded], specs, runner: Optional[Callable] = None, a
             raise Unavailable(report.printable(str(error))) from None
         reason = apptests.ensure_node(node, run, sleep or time.sleep)
         if reason:
-            raise node_unavailable(reason, apptests)
+            raise node_unavailable(reason)
     for spec, found in tests:
         name = app_of(spec.context)
         started = time.monotonic()
@@ -155,7 +147,7 @@ def main(argv, out, err, **seams) -> int:
     if specs:
         runner = seams.get("runner")
         docker_ready(runner)
-        results = run_all(loading.units, specs, runner, seams.get("apptests"), seams.get("sleep"))
+        results = run_all(loading.units, specs, runner, seams.get("sleep"))
         problems += findings(results)
     if args.format != "json":
         out.write("\n".join(lines_of(results)) + "\n")
