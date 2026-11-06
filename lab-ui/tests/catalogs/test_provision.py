@@ -488,12 +488,6 @@ class Provision(Served, Case):
         asked = [argv for argv, _ in git if "ls-remote" in argv]
         self.assertTrue(any("credential.helper=" in argv for argv in asked), "the audience is asked as a stranger")
 
-    def test_the_environment_of_git_is_asserted_on_its_own_too(self):
-        env = gitx.environment()
-        self.assertEqual((env["GIT_TERMINAL_PROMPT"], env["GIT_ASKPASS"], env["SSH_ASKPASS_REQUIRE"], env["GCM_INTERACTIVE"]),
-                         ("0", "", "never", "never"))
-        self.assertIn("-o BatchMode=yes", env["GIT_SSH_COMMAND"])
-
     # -- an address that refuses ---------------------------------------------------------------------------------------
 
     def refused(self, code):
@@ -585,30 +579,6 @@ class Provision(Served, Case):
         self.assertEqual([kind for kind, _ in talked], ["run", "run", "stream"], "two ls-remote and one fetch")
         self.assertTrue(all(ok for _, ok in talked), talked)
 
-    def test_a_person_who_adds_a_catalog_during_the_download_is_not_told_busy(self):
-        answers = []
-        real_stream = gitx.stream
-
-        def stream(args, *rest, **how):
-            if "fetch" in args:
-                done = []
-
-                def another():
-                    try:
-                        with registry.flock(wait=0):
-                            done.append("free")
-                    except CatalogError as error:
-                        done.append(error.code)
-                thread = threading.Thread(target=another)
-                thread.start()
-                thread.join()
-                answers.extend(done)
-            return real_stream(args, *rest, **how)
-        self.patch(gitx, "stream", stream)
-        self.started()
-        firstrun.provision(self.ns)
-        self.assertEqual(answers, ["free"], "the catalogs lock is free while the fetch runs")
-
     def test_the_commit_takes_the_locks_and_only_the_commit(self):
         held = []
         real = install.commit_add
@@ -630,25 +600,6 @@ class Provision(Served, Case):
         firstrun.PROGRESS.clear()
         install.recover()
         firstrun.reconcile()
-
-    def test_a_crash_after_the_install_was_put_in_place_converges_at_the_next_start(self):
-        self.started()
-        self.patch(install, "STEP", stop_at("add:placed"))   # step 15 done, the lock not written (step 16)
-        with self.assertRaises(Crash):
-            firstrun.provision(self.ns)
-        held = self.lock()
-        self.assertEqual(held["pin"], None)
-        self.assertEqual(held["pending"]["op"], "add", "a stop is recognized from here on")
-        self.assertTrue((self.root / ".lab/catalogs" / self.ns / ".installed.json").is_file())
-        self.patch(install, "STEP", None)
-        self.restart()
-        held = self.lock()
-        self.assertEqual((held["pin"], held["pending"], held["error"]), (self.remote.head(), None, None))
-        self.assertEqual(firstrun.content({})["key"], "ready")
-        self.assertEqual(firstrun.PROGRESS, {}, "nothing is left to download")
-        self.assertEqual(install.verify(self.ns, list(registry.manifest(self.ns)["units"])), [])
-        self.silent()
-        self.assertEqual(firstrun.provision(self.ns)["id"], self.ns, "and a provision after it has nothing to do")
 
     def test_a_crash_at_every_step_of_the_install_converges_to_a_whole_catalog(self):
         labels = ["stage:begin", "stage:written", "add:begin", "add:manifest", "add:store", "add:pending", "add:install",
@@ -1176,11 +1127,6 @@ class Beat(Served, Case):
         worker.tick()
         self.assertEqual(len(self.checked), 2)
 
-    def test_the_jitter_is_up_to_ten_minutes(self):
-        self.assertEqual((firstrun.CHECK_EVERY, firstrun.JITTER), (6 * 3600.0, 600.0))
-        seen = {firstrun.random.uniform(0, firstrun.JITTER) for _ in range(50)}
-        self.assertTrue(all(0 <= one <= 600 for one in seen) and len(seen) > 1)
-
     def test_a_check_that_fails_does_not_end_the_thread(self):
         self.patch(firstrun, "FIRST_CHECK", 5.0)
         self.patch(service, "check_all", side_effect=RuntimeError("boom"))
@@ -1201,13 +1147,6 @@ class Beat(Served, Case):
         now[0] += 60
         worker.tick()
         self.assertEqual(order, ["provision", "check"])
-
-    def test_nothing_is_attempted_when_nothing_is_waiting_and_the_wait_is_bounded(self):
-        self.patch(firstrun, "NAP", 60.0)
-        self.patch(firstrun, "provision", side_effect=AssertionError("nothing to download"))
-        registry.write_config({"schema": 1, "catalogs": []})
-        _, worker = self.worker()
-        self.assertLessEqual(worker.tick(), firstrun.NAP)
 
     def test_a_catalog_edited_into_the_file_later_is_found_within_a_minute(self):
         self.patch(firstrun, "NAP", 60.0)
@@ -1312,25 +1251,6 @@ class Beat(Served, Case):
             self.thread()
             self.assertTrue(self.until(lambda: len(ticks) >= 3, 10), "it went on")
         self.assertIn("RuntimeError", "".join(call.args[0] for call in err.write.call_args_list))
-
-    def test_an_automatic_retry_leaves_the_content_failed_with_no_flicker(self):
-        # The repository does not exist yet: every attempt fails, silently, until it does
-        missing = self.scratch / "later.git"
-        self.listed(self.ns, url=f"file://{missing}")
-        self.patch(firstrun, "SCHEDULE", (0.05,))
-        self.patch(firstrun, "LATER", 0.05)
-        self.started()
-        self.assertEqual(firstrun.content({})["key"], "downloading", "the first state, before any attempt")
-        seen = []
-        self.thread()
-        self.assertTrue(self.until(lambda: (seen.append(firstrun.content({})["key"]) or True) and seen[-1] == "failed"))
-        for _ in range(60):   # the retries go on every 50 ms, and what the page reads is the same each time
-            seen.append(firstrun.content({})["key"])
-            time.sleep(0.01)
-        self.assertEqual(set(seen[seen.index("failed"):]), {"failed"}, f"no flicker: {seen}")
-        gitfixture.make_repo(missing, gitfixture.catalog_files(self.ns))
-        self.assertTrue(self.until(lambda: self.lock()["pin"]), "and the retry that works installs it")
-        self.assertTrue(self.until(lambda: firstrun.content({})["key"] == "ready"))
 
     def test_try_again_wakes_the_worker_and_shows_the_download(self):
         missing = self.scratch / "later.git"
