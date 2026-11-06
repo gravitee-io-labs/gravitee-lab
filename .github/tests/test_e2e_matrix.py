@@ -241,37 +241,9 @@ class CommandTest(unittest.TestCase):
                            (["--canary"], "name the catalog"), (["--all"], "name the catalog"),
                            (["--all", "--in", "engine"], "name the catalog"),
                            (["--catalog", "hub", "--all", "--in", "engine"], "--in engine is for --changed of a catalog"),
-                           (["--catalog", "hub", "--triggered", "a", "b"], "takes no catalog"),
                            (["--all", "--", "addon:a"], "words after --"), (["--catalog", "hub", "--changed", "a"], "expected 2")):
             with self.subTest(argv=argv):
                 self.assertIn(said, self.refused(*argv))
-
-
-class TriggeredTest(unittest.TestCase):
-    """--triggered: whether a change of the engine is of what every item shares, for the jobs of the engine's CI."""
-
-    def run_main(self, files, *argv):
-        out = io.StringIO()
-        with mock.patch.object(e2e_matrix, "git_changes", return_value=files), contextlib.redirect_stdout(out):
-            e2e_matrix.main(["--triggered", "a", "b", *argv])
-        return json.loads(out.getvalue())
-
-    def test_a_change_of_what_every_item_shares_is_one(self):
-        self.assertEqual(self.run_main(["docs/a.md", "seeder/seed.py", "Makefile"]), {"triggered": True, "paths": ["seeder/seed.py", "Makefile"]})
-
-    def test_documentation_and_the_page_are_not(self):
-        self.assertEqual(self.run_main(["docs/a.md", "lab-ui/web/js/core.js"]), {"triggered": False, "paths": []})
-
-    def test_the_answer_is_for_the_next_job_to_read(self):
-        with tempfile.NamedTemporaryFile("r", suffix=".out") as file, mock.patch.dict(os.environ, {"GITHUB_OUTPUT": file.name}):
-            self.run_main(["Makefile"], "--github-output")
-            self.assertEqual(file.read(), "triggered=true\n")
-        with tempfile.NamedTemporaryFile("r", suffix=".out") as file, mock.patch.dict(os.environ, {"GITHUB_OUTPUT": file.name}):
-            self.run_main(["docs/a.md"], "--github-output")
-            self.assertEqual(file.read(), "triggered=false\n")
-
-    def test_the_paths_are_the_ones_the_plan_uses(self):
-        self.assertIs(e2e_matrix.SHARED, e2e_matrix.e2e.ENGINE_PATHS)
 
 
 class WordsTest(unittest.TestCase):
