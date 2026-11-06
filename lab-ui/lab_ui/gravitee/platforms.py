@@ -14,7 +14,7 @@ import threading
 import time
 from urllib.parse import urlsplit
 
-from . import cloud, license
+from . import cloud
 from ..docker import envfiles
 from .. import paths
 from ..catalogs import resolve
@@ -317,23 +317,13 @@ def _scopes(organization):
 
 
 def _entitled(record, client):
-    """What the account's plan and its organizations' licenses say it can do: {plan: {gamma}, organizations: {id: {scopes,
-    tier, expires}}}. The license is the signed text, which license.decode reads here, never kept nor sent."""
+    """What the account's plan and its organizations say it can do: {plan: {gamma}, organizations: {id: {scopes}}}."""
     uid, account = record["id"], record["account"]["id"]
     plan = _remembered((uid, "plan"), lambda: client.subscription(account))
     organizations = _remembered((uid, "organizations"), lambda: client.organizations(account)) or []
-    found = {}
-    for organization in organizations:
-        if not isinstance(organization, dict) or not _listed(organization):
-            continue
-        def read(organization=organization):
-            features, _ = license.decode(client.license(account, organization["id"]))
-            expires = features.get("expiryDate")
-            return {"tier": features.get("tier"), "expires": expires.isoformat() if hasattr(expires, "isoformat") else None}
-        found[organization["id"]] = {"scopes": _scopes(organization),
-                                     "license": _remembered((uid, "license", organization["id"]), read)}
     return {"plan": {"gamma": bool(plan.get("gammaEnabled"))} if isinstance(plan, dict) else None,
-            "organizations": found}
+            "organizations": {organization["id"]: {"scopes": _scopes(organization)} for organization in organizations
+                              if isinstance(organization, dict) and _listed(organization)}}
 
 
 def _installed(record, environment, env):
@@ -359,7 +349,7 @@ def fetch(record):
     """A live read of a platform: {state, message, environments, gateways, entitled}. `state` is ok, invalid when the
     platform refuses the token or the rights, unreachable when it gives no usable answer; then `message` says it. An
     environment or a gateway with an id that is no segment of letters, digits and dashes is left out. `entitled` is
-    what the account's plan and licenses say (_entitled); an environment with a valid Cloud Token also has `installed`,
+    what the account's plan and organizations say (_entitled); an environment with a valid Cloud Token also has `installed`,
     what its Management API has (_installed)."""
     try:
         client = _client(record)

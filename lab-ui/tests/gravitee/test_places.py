@@ -656,10 +656,8 @@ class Verify(Places):
         found = places.verify(PROJECT, f"my-account/{DEV}")
         self.assertEqual((found["id"], found["state"]), (f"my-account/{DEV}", "ready"))
         asked = self.fake.state.asked[len(before):]
-        # The plan and the organizations were read with the platform and are kept; the fake's license text cannot be
-        # decoded, so it is asked again, as anything the Cloud did not say is
+        # The plan and the organizations were read with the platform and are kept
         self.assertEqual(asked, [("GET", f"/accounts/{ACCOUNT}/environments"), ("GET", f"/accounts/{ACCOUNT}/gateways"),
-                                 ("GET", f"/accounts/{ACCOUNT}/organizations/fake-organization/license"),
                                  ("GET", f"{cloud.GATE}/v2/organizations/fake-organization/environments/{DEV}/apis")])
 
     def test_it_reads_the_platform_again_whatever_was_served(self):

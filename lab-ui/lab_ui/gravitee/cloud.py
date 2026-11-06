@@ -159,9 +159,9 @@ class _Client:
             return CloudError(f"{self.host} sends the request to another address: check the URL", status=code)
         return CloudError(f"{self.host} answered an error (HTTP {code})", status=code)
 
-    def _open(self, method, path, body=None, accept="application/json"):
+    def _open(self, method, path, body=None):
         """What the service answers, as bytes: empty when it says nothing."""
-        headers = {"Authorization": f"Bearer {self._token}", "Accept": accept,
+        headers = {"Authorization": f"Bearer {self._token}", "Accept": "application/json",
                    "User-Agent": "Gravitee-Lab-UI"}
         data = None
         if body is not None:
@@ -179,10 +179,6 @@ class _Client:
         except (urllib.error.URLError, OSError, http.client.HTTPException, ValueError) as error:
             # A ValueError: a host name that is none, as in "a..b"
             raise CloudError(_unreachable(error, self.host)) from None
-
-    def _text(self, path):
-        """What the service answers to a read as plain text, "" when it says nothing."""
-        return self._open("GET", path, accept="text/plain").decode("utf-8", "replace").strip()
 
     def _call(self, method, path, body=None):
         """The JSON the service answers, None when the answer is empty."""
@@ -236,10 +232,6 @@ class Cloud(_Client):
     def organizations(self, account):
         """The organizations of an account, with the access points of each: [{id, name, accessPoints: [{target, scope}]}]."""
         return self._list(f"/accounts/{_id(account)}/organizations")
-
-    def license(self, account, organization):
-        """The license of an organization, as the signed text the Lab reads like any other (license.decode)."""
-        return self._text(f"/accounts/{_id(account)}/organizations/{_id(organization)}/license")
 
     def create_gateway(self, account, environment, name, domains):
         """A hybrid gateway of API Management: (the gateway, its Cloud Token). The Cloud shows the token once, here:

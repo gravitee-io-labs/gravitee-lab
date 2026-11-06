@@ -522,9 +522,7 @@ class Check(Platforms):
              "installed": None},
             {"id": "fake-env-prod", "hrid": "", "name": "Production", "organizationId": "fake-organization",
              "token": unset, "installed": None}],
-            # What the account's plan and license say; the fake's license text cannot be decoded: not said
-            "entitled": {"plan": {"gamma": False},
-                         "organizations": {"fake-organization": {"scopes": ["APIM"], "license": None}}}})
+            "entitled": {"plan": {"gamma": False}, "organizations": {"fake-organization": {"scopes": ["APIM"]}}}})
         self.assertHidden(found)
 
     def test_the_gateways_with_their_connection_and_domains(self):

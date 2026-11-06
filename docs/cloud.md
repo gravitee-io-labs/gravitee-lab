@@ -338,7 +338,6 @@ minute for the gateways and every five minutes for the rest, and keeps none of i
 | The gateways of the account | The Account Token | Their scope, `APIM` for API Management or `AM` for Access Management, and their version. An environment runs the products of its gateways' scopes, each at the version of its oldest gateway: two gateways of API Management at 4.12.21 and 4.13.2 make it 4.12.21 |
 | The plan of the account | The Account Token | `gammaEnabled`: whether Gamma is available to the account |
 | The organizations | The Account Token | The scopes of their access points: Access Management is offered when one has the scope `AM` |
-| The license of the organization | The Account Token | Its tier and its expiry (the signed text, read here as any license is) |
 | The plugins of the Management API | The Cloud Token of the environment | The policies, endpoints, entrypoints and resources that Cloud's Management API has, each with whether the license of the organization deploys it |
 | The license as the Management API says it | The Cloud Token of the environment | Its tier, packs and features |
 
