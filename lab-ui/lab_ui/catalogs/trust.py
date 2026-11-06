@@ -35,8 +35,8 @@ includes, which the closure follows; `unescaped` is the text as they read its le
 `combine` for T25 once the units of a project are judged.
 
 What a caller says to a person: the reason lines are the Lab's (`RULES`, `line`) and are all a popover shows. The command line
-and CI add the fix (`FIXES`, `fix`) after the reason, so a message is "reason. Fix: fix"; no fix names a place the Lab keeps
-its own files, because the reader of a catalog never has them."""
+and CI add the fix (`FIXES`) after the reason, so a message is "reason. Fix: fix"; no fix names a place the Lab keeps its own
+files, because the reader of a catalog never has them."""
 
 import posixpath
 import re
@@ -117,9 +117,9 @@ RULES = {
     "N05": {"class": "N", "lines": ("Its terminal is not offered by this catalog",)},
 }
 # What to do about a rule, for the author who reads it in `make check` or in CI (the standard's 6.10): one line for each rule,
-# said after its reason as "Fix: ...". T01 to T27 are the standard's own words. The blanks are the ones `fix` fills: {key}
-# (what the Lab does not check), {NS} (the namespace as a setting prefix), {name} (the unit that is blocked), {min} and {max}
-# (the levels this Lab reads), {file} (the unit's file). No fix names a place under `.lab/`: a git install is read only, and
+# said after its reason as "Fix: ...". T01 to T27 are the standard's own words. The blanks are what the caller fills: {key}
+# (what the Lab does not check), {NS} (the namespace as a setting prefix), {name} (the unit that is blocked), {file} (the
+# unit's file). No fix names a place under `.lab/`: a git install is read only, and
 # the person who reads the fix is writing the catalog, where there is no such folder. A restriction (N01 to N05) blocks
 # nothing: its fix says what lifts it.
 FIXES = {
@@ -194,20 +194,6 @@ def line(code, variant=0, **fields):
     state the page polls, so a field is cleaned and cut."""
     return RULES[code]["lines"][variant].format(**{name: _clean(value, FIELD_CUT) if isinstance(value, str) else value
                                                    for name, value in fields.items()})
-
-
-_BLANK = re.compile(r"\{(\w+)\}")
-
-
-def fix(code, **fields):
-    """The fix of a rule (FIXES), with the blanks the caller can fill: fix("T26", min=1, max=2). A blank it is given no field
-    for stays as written. `NS` is also made from `ns`, the namespace as the Lab keeps it (acme-hub), as the prefix a setting
-    takes (ACME_HUB). What an author wrote goes through a person's eyes, so a field is cleaned and cut like a reason's. An
-    unknown code is a KeyError, as for `line`."""
-    if "NS" not in fields and isinstance(fields.get("ns"), str):
-        fields["NS"] = _env_name(fields["ns"])
-    return _BLANK.sub(lambda found: _clean(str(fields[found.group(1)]), FIELD_CUT) if found.group(1) in fields
-                      else found.group(0), FIXES[code])
 
 
 def _dict(value):

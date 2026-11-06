@@ -227,8 +227,8 @@ SPEC_FIXES = {
 
 
 class Fixes(Case):
-    """trust.FIXES (the standard's 6.10): the fix that CI and the command line say after the reason of a rule, and `fix`, which
-    fills its blanks. The popover of the Lab keeps the reason lines alone."""
+    """trust.FIXES (the standard's 6.10): the fix that CI and the command line say after the reason of a rule. The popover of
+    the Lab keeps the reason lines alone."""
 
     def test_every_rule_of_the_policy_has_a_fix_and_there_is_none_for_another(self):
         self.assertEqual(sorted(trust.FIXES), sorted(trust.RULES))
@@ -268,54 +268,16 @@ class Fixes(Case):
                 self.assertNotRegex(text, r"(?<![\w`])/(?:Users|home|private|tmp|var|etc|root)\b")
                 self.assertNotIn("lab-ui", text)
 
-    def test_the_only_blanks_are_the_ones_fix_fills(self):
+    def test_the_only_blanks_are_the_ones_a_caller_fills(self):
         found = {code: set(re.findall(r"\{(\w+)\}", text)) for code, text in trust.FIXES.items()}
         self.assertEqual({code: names for code, names in found.items() if names},
                          {"T01": {"key"}, "T02": {"key"}, "T20": {"NS"}, "T25": {"name"}, "T27": {"file"}})
-
-    def test_a_blank_is_filled_with_what_the_caller_knows_and_left_as_written_otherwise(self):
-        self.assertEqual(trust.fix("T26", min=1, max=2), trust.FIXES["T26"], "it names no level")
-        self.assertEqual(trust.fix("T01", key="frobnicate"), "Remove `frobnicate`, or ask the Lab's maintainers to support it.")
-        self.assertEqual(trust.fix("T20", NS="ACME"), trust.FIXES["T20"].replace("{NS}", "ACME"))
-        self.assertEqual(trust.fix("T27", file="addons/x/compose.yml"),
-                         "Run `docker compose -f addons/x/compose.yml config` and fix what it prints.")
-        self.assertEqual(trust.fix("T25", name="Echo"), "Fix Echo first.")
-        self.assertEqual(trust.fix("T03"), trust.FIXES["T03"])
-        self.assertEqual(trust.fix("T01", other="x"), trust.FIXES["T01"], "a field no blank names is not used")
-
-    def test_the_setting_prefix_is_the_namespace_as_the_lab_spells_it(self):
-        self.assertEqual(trust.fix("T20", ns="acme-hub"), trust.FIXES["T20"].replace("{NS}", "ACME_HUB"))
-        self.assertEqual(trust.fix("T20", NS="ACME"), trust.FIXES["T20"].replace("{NS}", "ACME"))
-        self.assertEqual(trust.fix("T20", NS="MINE", ns="acme-hub"), trust.FIXES["T20"].replace("{NS}", "MINE"))
-        self.assertEqual(trust.fix("T20", ns=3), trust.FIXES["T20"], "not a namespace")
-
-    def test_what_an_author_wrote_is_cleaned_and_cut_and_is_never_read_as_a_blank(self):
-        self.assertEqual(trust.fix("T01", key="a\n::error::b\x1b[31m"), "Remove `a ::error::b [31m`, or ask the Lab's maintainers to support it.")
-        self.assertEqual(trust.fix("T25", name="{name} {min} {0} {x.y} %s {}"), "Fix {name} {min} {0} {x.y} %s {} first.",
-                         "a value is put in once and not read again")
-        long = trust.fix("T01", key="k" * 1000000)
-        self.assertLess(len(long), 400)
-        self.assertEqual(trust.fix("T25", name="  Echo \t two  "), "Fix Echo two first.")
-
-    def test_fix_changes_nothing_it_is_handed(self):
-        before = dict(trust.FIXES)
-        fields = {"ns": "acme-hub", "key": "k"}
-        trust.fix("T20", **fields)
-        self.assertEqual(fields, {"ns": "acme-hub", "key": "k"})
-        self.assertEqual(trust.FIXES, before)
-
-    def test_an_unknown_code_is_a_key_error_as_for_the_reason_lines(self):
-        for code in ("T99", "ST01", "t03", "", None):
-            with self.subTest(code=code), self.assertRaises(KeyError):
-                trust.fix(code)
-        with self.assertRaises(KeyError):
-            trust.line("T99")
 
     def test_a_fix_said_after_its_reason_makes_one_message_of_the_standard(self):
         for code, rule in trust.RULES.items():
             for variant, reason in enumerate(rule["lines"]):
                 blanks = {name: "x" for name in re.findall(r"[{](\w+)[}]", reason)}
-                said = f"{trust.line(code, variant, **blanks)}. Fix: {trust.fix(code)}"
+                said = f"{trust.line(code, variant, **blanks)}. Fix: {trust.FIXES[code]}"
                 with self.subTest(code=code, variant=variant):
                     self.assertEqual(said.count("Fix:"), 1)
                     self.assertNotIn("..", said)
