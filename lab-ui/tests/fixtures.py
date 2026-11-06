@@ -25,7 +25,6 @@ named test_*, so discovery leaves them out of `make test`: they are run when the
 a test_* file that imports FixtureCatalogs, which belongs to the package that owns the test plan."""
 
 import hashlib
-import importlib
 import io
 import json
 import os
@@ -44,8 +43,10 @@ from typing import Any, NamedTuple, Optional
 from unittest import mock
 
 from lab_ui import paths
+from lab_ui.catalogs import gitx, resolve, store, trust
+from lab_ui.docker import compose
 
-from . import Case
+from . import Case, gitfixture
 from .data import regen
 
 __all__ = ["CATALOGS", "DATA", "EXPECTED", "KINDS", "LOCAL", "Installed", "Remote", "RenderError", "catalog_meta",
@@ -108,14 +109,14 @@ class Remote:
 
     @property
     def url(self):
-        return _gitfixture().url(self.bare)
+        return gitfixture.url(self.bare)
 
     def git(self, *args):
         """The output of a git command run on the bare repository, without its final newline."""
-        return _gitfixture().git(*args, repo=self.bare).strip()
+        return gitfixture.git(*args, repo=self.bare).strip()
 
     def head(self):
-        return _gitfixture().tip(self.bare)
+        return gitfixture.tip(self.bare)
 
     def commit(self, files=None, message="Update the catalog", remove=()):
         """A new commit on main: `files` ({path: text}) laid over its tree, the paths of `remove` (a file, or a folder
@@ -127,7 +128,7 @@ class Remote:
             if not gone:
                 raise ValueError(f"remove {rel!r}: the repository has no such path")
             changes.update(dict.fromkeys(gone))
-        return _gitfixture().commit(self.bare, changes, message)
+        return gitfixture.commit(self.bare, changes, message)
 
 
 class Installed(NamedTuple):
@@ -327,7 +328,6 @@ def _as_oldest(value):
 def oldest_compose(case):
     """Compose answers `config --format json` the way 5.0 does, the oldest the Lab accepts and the one CI installs, whatever
     release this machine has: an empty list under an x- key is null there (5.6 prints [])."""
-    from lab_ui.docker import compose
     real = compose.run
 
     def run(cmd, *args, **how):
@@ -339,36 +339,9 @@ def oldest_compose(case):
     case.patch(compose, "run", run)
 
 
-def _module(name, wp, *names):
-    """The module `name` (importable as it stands), with the attributes `names` it must have. While the module does not
-    exist the test is skipped, and says so (`wp` made it); once it exists, a name it lost, or an error inside it, is
-    the failure it is: a check that went quiet because something was renamed is no check."""
-    try:
-        module = importlib.import_module(name)
-    except ModuleNotFoundError as error:
-        if not (error.name and (name == error.name or name.startswith(error.name + "."))):
-            raise
-        _skip(f"{name} does not exist yet ({wp})")
-    gone = [one for one in names if not hasattr(module, one)]
-    if gone:
-        raise AssertionError(f"{name} has no {', '.join(gone)}: renamed or removed, and the check that reads it with it")
-    return module
-
-
-def _lab(name, wp, *names):
-    """lab_ui.<name> (_module)."""
-    return _module(f"lab_ui.{name}", wp, *names)
-
-
-def _gitfixture():
-    """tests.gitfixture, which makes the repositories: a skip that shows while it does not exist."""
-    return _module(f"{__package__}.gitfixture", "the Lab", "make_repo", "git", "url", "tip", "commit")
-
-
 def need_git():
     if not have_git():
         _skip("git is not installed, or is the macOS shim without the Command Line Tools")
-    _gitfixture()
 
 
 def need_compose():
@@ -739,7 +712,7 @@ def _remote(case, ns, tree):
     author and the dates, so the commit id is the same on every run."""
     bare = _scratch(case, "remotes") / f"{ns}.git"
     _clear(bare)
-    return Remote(_gitfixture().make_repo(bare, tree, message=f"Add the {ns} catalog"))
+    return Remote(gitfixture.make_repo(bare, tree, message=f"Add the {ns} catalog"))
 
 
 def remote(case, ns, **patch):
@@ -759,7 +732,7 @@ def _make_store(root, ns, remote_):
     """The Lab's own bare store of a catalog, .lab/cache/git/<ns>.git, made the way store.init and store.fetch make one:
     no templates, so no hooks, STORE_SETTINGS, `refs/lab/tip` fetched from the remote.
     It has no origin and no branch of its own: the Lab names the address on each fetch."""
-    git = _gitfixture().git
+    git = gitfixture.git
     store = root / paths.LAB_DIR / "cache" / "git" / f"{ns}.git"
     store.parent.mkdir(parents=True, exist_ok=True)
     _clear(store)
@@ -1363,9 +1336,6 @@ class FixtureCatalogs(Case):
         alone and as written, the services it owns, what it overlays, the roots it may mount, the settings of the core),
         are those of expected.json. The audience (T24) is the resolver's. `lint` is not compared: no check of a catalog
         exists yet to say it."""
-        trust = _lab("catalogs.trust", "the Lab", "judge", "overlays", "build_roots", "reads", "seed_reads", "add_reason", "line")
-        resolve = _lab("catalogs.resolve", "the Lab", "audience_blocked", "rank")
-        compose = _lab("compose", "the engine", "raw", "includes", "ROOT")
         need_compose()
         found = self.rendered()
         install(self, "partner")
@@ -1426,8 +1396,7 @@ class FixtureCatalogs(Case):
                     for variant in wanted.get("variants", {}).values():   # a unit that is judged the same without T24
                         self.assertEqual(alone, (variant["verdict"], variant["reasons"]))
 
-    def test_the_closure_agrees_with_the_resolver_once_it_exists(self):
-        resolve = _lab("catalogs.resolve", "the Lab", "closure")
+    def test_the_closure_agrees_with_the_resolver(self):
         direct = {}
         for ns in ("fixture", "partner", "local"):
             for kind, name in units(ns):
@@ -1602,7 +1571,6 @@ class FixtureCatalogs(Case):
             default(self, "nope")
 
     def test_the_default_address_and_the_catalog_ids_are_those_the_lab_accepts(self):
-        gitx = _lab("catalogs.gitx", "the Lab", "parse_address")
         self.folder(paths)
         for ns in CATALOG_IDS:
             entry = json.loads(default(self, ns).read_text(encoding="utf-8"))["catalogs"][0]
@@ -1794,7 +1762,7 @@ class FixtureCatalogs(Case):
         self.assertEqual((done.lock["pin"], done.lock["tip"], done.lock["shadowed"]), (done.commit, done.commit, True))
         self.assertEqual(done.lock["roots"], [done.commit])
         store = self.root / ".lab/cache/git/partner.git"
-        self.assertEqual(_gitfixture().git("rev-parse", "refs/lab/tip", repo=store).strip(), done.commit)
+        self.assertEqual(gitfixture.git("rev-parse", "refs/lab/tip", repo=store).strip(), done.commit)
         self.assertFalse((done.path / ".installed.json").exists(), "a folder catalog has no manifest")
         self.assertEqual(read_config(self)["catalogs"][-1], done.entry)
         mine = install(self, "partner", link=True, store=True, shadows={"url": "https://example.invalid/other.git"})
@@ -1927,40 +1895,6 @@ class FixtureCatalogs(Case):
                      lambda: local(self, "scratch"), lambda: core(self), lambda: declare(self, "partner")):
             with self.assertRaisesRegex(RuntimeError, "project folder"):
                 call()
-
-    def test_a_module_that_is_missing_is_a_skip_and_one_that_lost_a_name_or_cannot_be_imported_is_a_failure(self):
-        holder = tempfile.TemporaryDirectory()
-        self.addCleanup(holder.cleanup)
-        folder = Path(holder.name).resolve()
-        (folder / "wpf_probe_there.py").write_text("KEPT = 1\n", encoding="utf-8")
-        (folder / "wpf_probe_broken.py").write_text("import wpf_probe_nothing_at_all\n", encoding="utf-8")
-        self.patch(sys, "path", [str(folder), *sys.path])
-        self.addCleanup(lambda: [sys.modules.pop(one, None) for one in ("wpf_probe_there", "wpf_probe_broken")])
-        importlib.invalidate_caches()
-        err = io.StringIO()
-        self.patch(sys, "stderr", err)
-        for missing in ("wpf_probe_absent", "wpf_probe_absent.child"):
-            with self.assertRaises(unittest.SkipTest):
-                _module(missing, "the Lab", "anything")
-        self.assertRegex(err.getvalue(), r"\ASKIP wpf_probe_absent does not exist yet \(the Lab\)\nSKIP wpf_probe_absent.child")
-
-        def fails(call, error):   # a skip here would be the quiet pass that this test is about
-            try:
-                call()
-            except unittest.SkipTest as skipped:
-                self.fail(f"skipped, and said {skipped}: it must fail with {error.__name__}")
-            except error as raised:
-                return raised
-            self.fail(f"did not fail with {error.__name__}")
-
-        self.assertIs(_module("wpf_probe_there", "the Lab", "KEPT"), sys.modules["wpf_probe_there"])
-        self.assertIn("wpf_probe_there has no RENAMED, GONE",
-                      str(fails(lambda: _module("wpf_probe_there", "the Lab", "KEPT", "RENAMED", "GONE"), AssertionError)))
-        broken = fails(lambda: _module("wpf_probe_broken", "the Lab"), ModuleNotFoundError)
-        self.assertEqual(broken.name, "wpf_probe_nothing_at_all", "the fault is shown, not skipped")
-        self.assertIn("lab_ui.catalogs has no nothing_of_this_name",
-                      str(fails(lambda: _lab("catalogs", "the Lab", "nothing_of_this_name"), AssertionError)))
-        self.assertIs(_lab("catalogs", "the Lab"), sys.modules["lab_ui.catalogs"])
 
     def test_a_missing_tool_is_a_skip_that_shows(self):
         self.patch(sys.modules[__name__], "have_git", lambda: False)
@@ -2100,7 +2034,6 @@ class FixtureCatalogs(Case):
             self.assertFalse((done.path / name).exists(), name)
 
     def test_the_filter_agrees_with_the_one_of_the_store(self):
-        store = _lab("catalogs.store", "the Lab", "selected", "Entry")
         selected = store.selected
         names = ["README.md", "Makefile", ".github/ci.yml", ".env", "Notes.md", "bad name.md", "addons/ledger/.env",
                  "addons/ledger/.ENV.local", "addons/ledger/.env.example", "addons/.env.example/x",
@@ -2121,8 +2054,7 @@ class FixtureCatalogs(Case):
         self.assertIn("addons/ledger/data/ok.json", ours[0])
         self.assertNotIn("addons/ledger/Agents.MD", ours[0])
 
-    def test_the_manifest_agrees_with_the_store_once_it_exists(self):
-        store = _lab("catalogs.store", "the Lab", "selected", "unit_digests", "listing")
+    def test_the_manifest_agrees_with_the_store(self):
         selected, digests, listing = store.selected, store.unit_digests, store.listing
         done = self.git_built(files={"addons/ledger/data/ok.json": "{}\n", "addons/ledger/.env": "B=2\n"})
         kept, ignored = selected(listing(done.remote.bare, done.commit))
@@ -2135,7 +2067,7 @@ class FixtureCatalogs(Case):
     def test_the_lab_store_is_made_on_request_with_the_refs_and_the_settings_of_section_2(self):
         done = self.git_built(store=True)
         store = self.root / ".lab/cache/git/partner.git"
-        git = _gitfixture().git
+        git = gitfixture.git
         self.assertEqual(git("rev-parse", "refs/lab/tip", repo=store).strip(), done.commit)
         self.assertEqual(git("for-each-ref", "--format=%(refname)", repo=store).split(), ["refs/lab/tip"], "no branch of its own")
         for key, value in STORE_SETTINGS:
@@ -2150,25 +2082,21 @@ class FixtureCatalogs(Case):
         self.assertEqual(git("for-each-ref", "--format=%(refname)", repo=store).split(), ["refs/lab/tip"])
 
     def test_the_lab_store_is_what_the_stores_module_makes_of_a_fetch(self):
-        store_module = _lab("catalogs.store", "the Lab", "init", "resolve", "roots", "listing", "selected")
         done = self.git_built(store=True)
-        store = self.root / ".lab/cache/git/partner.git"
-        git = _gitfixture().git
+        bare = self.root / ".lab/cache/git/partner.git"
         made = _scratch(self, "reference") / "reference.git"
-        store_module.init(made)
+        store.init(made)
         for key, value in STORE_SETTINGS:
-            self.assertEqual(git("config", "--get", key, repo=made).strip(), value, "store.init sets it too")
-        self.assertEqual(store_module.resolve(store, "tip"), done.commit)
-        self.assertEqual(store_module.roots(store, "tip"), sorted(done.lock["roots"]))
-        kept, ignored = store_module.selected(store_module.listing(store, done.commit))
+            self.assertEqual(gitfixture.git("config", "--get", key, repo=made).strip(), value, "store.init sets it too")
+        self.assertEqual(store.resolve(bare, "tip"), done.commit)
+        self.assertEqual(store.roots(bare, "tip"), sorted(done.lock["roots"]))
+        kept, ignored = store.selected(store.listing(bare, done.commit))
         self.assertEqual((sorted(entry.path for entry in kept), ignored),
                          (sorted(json.loads((done.path / ".installed.json").read_text(encoding="utf-8"))["files"]), 0))
 
     def test_the_lab_fetches_the_remote_of_a_git_install_and_gets_the_pin_the_roots_and_the_files_the_lock_names(self):
-        gitx = _lab("catalogs.gitx", "the Lab", "parse_address")
-        store = _lab("catalogs.store", "the Lab", "fetch", "roots", "listing", "selected")
         done = self.git_built()
-        _gitfixture().isolate(self)
+        gitfixture.isolate(self)
         fetched = self.root / ".lab/cache/git/fetched.git"
         tip = store.fetch(gitx.parse_address(done.entry["url"]), done.entry["branch"], fetched)
         self.assertEqual(tip, done.lock["pin"])
@@ -2195,7 +2123,7 @@ class FixtureCatalogs(Case):
     def test_a_catalog_can_be_cloned_from_its_remote(self):
         done = self.git_built()
         clone = _scratch(self, "clones") / "partner"
-        _gitfixture().git("clone", "--quiet", "--", done.entry["url"], str(clone))
+        gitfixture.git("clone", "--quiet", "--", done.entry["url"], str(clone))
         self.assertEqual((clone / "catalog.yml").read_bytes(), (done.path / "catalog.yml").read_bytes())
 
     def test_lock_on_a_git_install_keeps_the_manifest_true_to_the_file(self):
