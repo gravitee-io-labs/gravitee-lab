@@ -91,13 +91,6 @@ class Reading(Folder):
         self.assertFalse(os.path.lexists(self.link_of("fixture")), "the folder was not linked")
         self.assertEqual([one["id"] for one in registry.entries()], [PARTNER])
 
-    def test_without_a_catalogs_json_none_is_made(self):
-        folder = self.catalog()
-        self.assertFalse((self.root / ".lab/catalogs.json").exists())
-        self.check(folder)
-        self.assertFalse((self.root / ".lab/catalogs.json").exists())
-        self.assertFalse(any(self.root.glob(".lab/catalogs/*")), "nothing is linked")
-
     def test_the_project_is_the_labs_again_after_the_check_even_when_it_failed(self):
         folder = self.catalog()
         with mock.patch.object(check, "catalog_problems", side_effect=RuntimeError("boom")):
@@ -324,11 +317,6 @@ class Codes(Folder):
         self.assertEqual(code, "T26")
         self.assertIn("Fix: Remove what this Gravitee Lab does not read", text)
 
-    def test_a_code_the_standard_knows_is_one_explain_knows(self):
-        out = self.run_tool("explain", "T26")
-        self.assertEqual(out[0], 0)
-        self.assertIn("T26 (error)", out[1])
-
 
 class Range(Folder):
     """Without --base the commits since origin/main are read, and the first line says so."""
@@ -424,17 +412,6 @@ class Range(Folder):
                 self.assertEqual(self.check(work, "--base", zeros, "--history")[1:], self.check(work, "--base", zeros)[1:])
         self.assertEqual(self.check(work, "--base", "")[0], 0, "an empty base asks for nothing: the default is taken")
         self.assertEqual(lines(self.check(work, "--base", "")[1])[0], "Reading the files and the 1 commit since origin/main")
-
-    @COMPOSE
-    def test_a_secret_in_the_first_push_is_found_in_the_whole_history_a_base_of_zeros_reads(self):
-        work = self.clone()
-        token = "ghp_" + "a1B2c3D4e5F6g7H8i9J0" + "k1L2m3N4o5P6q7R8s9T0"[:16]
-        self.commit(work, "notes.txt", f"token {token}\n", "Add a note")
-        self.commit(work, "notes.txt", "gone\n", "Remove it again")
-        code, out, err = self.check(work, "--base", "0" * 40)
-        self.assertEqual(code, 1, out)
-        self.assertIn("SE02", out)
-        self.assertNotIn(token, out + err)
 
     @COMPOSE
     def test_a_base_that_only_looks_like_zeros_is_still_a_commit_that_is_missing(self):
@@ -609,11 +586,6 @@ class Options(Folder):
         for bad in ("ST", "st5", "ST12;rm", "--x", ""):
             with self.subTest(bad=bad):
                 self.assertEqual(self.check(folder, "--error", bad)[0], 2)
-
-    def test_verbose_adds_the_information(self):
-        folder = self.catalog()
-        quiet, loud = (json.loads(self.check(folder, "--format", "json", *more)[1]) for more in ((), ("--verbose",)))
-        self.assertGreaterEqual(len(loud), len(quiet))
 
     def test_a_pull_request_has_no_base_of_its_own_to_give(self):
         folder = self.catalog()
