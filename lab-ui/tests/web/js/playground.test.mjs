@@ -708,7 +708,7 @@ test("the plus opens Create hybrid gateway in the environment of the place, and 
 
 test("for a remote place the notes of the core's start are not drawn", async () => {
   await visit({ ...off, created: [], first_start: "5 min", note: "Apply needed", note_tone: "warn" });
-  assert.equal(section.querySelectorAll(".pg-start-note").length, 2, "This machine: the first start and the note");
+  assert.deepEqual(section.querySelectorAll(".pg-start-note").map(text), ["First start: about 5 min", "Apply needed"], "This machine: the first start and the note");
   await pick("Development (My Account)");
   assert.equal(section.querySelectorAll(".pg-start-note").length, 0);
   await leave();

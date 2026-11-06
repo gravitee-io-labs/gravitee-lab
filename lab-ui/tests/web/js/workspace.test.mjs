@@ -492,6 +492,7 @@ test("a UI that went away and came back is another page: it says again that it l
   refresh(true);
   await flush();
   assert.deepEqual(state(), [[false, ""], [false, ""]], "back");
+  assert.deepEqual(frameOf("http://localhost:8110").contentWindow.replaced, ["http://localhost:8110"], "its page is gone: its address is loaded again, in place of the entry");
   assert.equal(Workspace.send("leak-an-iban"), true);
   assert.equal(got("http://localhost:8110").length, 1, "the page it was loaded again: it must say that it listens first");
   loaded("http://localhost:8110");
