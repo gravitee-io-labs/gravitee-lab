@@ -919,11 +919,11 @@ class Linked(Tool):
 class Explain(Tool):
     """explain CODE: the long form of a rule code."""
 
-    def test_the_rule_why_it_exists_the_fix_in_full_and_what_the_lab_does_with_the_file(self):
+    def test_the_rule_its_fix_why_it_exists_and_what_the_lab_does_with_the_file(self):
         code, out, err = self.run_tool("explain", "ST05")
         self.assertEqual((code, err), (0, ""))
         self.assertTrue(out.startswith("ST05 (error)\n"), out)
-        for word in ("Rule     ", "Message  ", "Why      ", "Fix      git rm --cached {path}", "At Add   "):
+        for word in ("Rule     ", "Message  ", "Why      ", "Fix: git rm --cached {path}", "At Add   "):
             self.assertIn(word, out)
         self.assertEqual(self.run_tool("explain", "st05"), (code, out, err), "the case of the code does not matter")
         self.assertEqual(self.run_tool("explain", " ST05 "), (code, out, err))

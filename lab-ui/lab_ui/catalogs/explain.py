@@ -1,5 +1,5 @@
-"""`catalog.py explain CODE`: the long form of a rule code. It says what the rule is, the message CI prints, why the rule
-exists, the fix in full and what the Lab does with the same file when a person adds the catalog.
+"""`catalog.py explain CODE`: the long form of a rule code. It says what the rule is, the message CI prints with its fix, why
+the rule exists and what the Lab does with the same file when a person adds the catalog.
 
 The table of codes is built from the rule modules (`rules.structure.RULES` and the others, `workflows.RULES` and the tables of
 `standard` and `codeowners`), the Lab's trust policy (T and N, with `trust.FIXES`) and the codes of the CI stages, which are
@@ -266,11 +266,8 @@ def explain(code: str) -> str:
         return f"{printable(code)} is not a rule code. The families are {', '.join(known)}; try make explain CODE=ST05.\n"
     lines = [f"{entry.code} ({entry.severity})", "", f"Rule     {entry.rule}", f"Message  {entry.message}"]
     lines += [f"         {more}" for more in entry.more]
-    fix = entry.message.partition("Fix:")[2].strip()
     if entry.why:
         lines += ["", f"Why      {entry.why}"]
-    if fix:
-        lines += ["", f"Fix      {fix}"]
     if entry.lab:
         lines += ["", f"At Add   {entry.lab}"]
     return "\n".join(lines) + "\n"
@@ -311,14 +308,11 @@ def document() -> str:
         lines += [f"## {FAMILY_NAMES[family]}", ""]
         for code in found:
             entry = entries[code]
-            fix = entry.message.partition("Fix:")[2].strip()
             rule = entry.rule if entry.rule.endswith((".", ":", "?")) else entry.rule + "."
             lines += [f"### {code}", "", f"*{entry.severity.capitalize()}.* {_text(rule[0].upper() + rule[1:])}", "", f"- **Message**: {_text(entry.message)}"]
             lines += [f"  {_text(more)}" for more in entry.more]
             if entry.why:
                 lines.append(f"- **Why**: {_text(entry.why)}")
-            if fix:
-                lines.append(f"- **Fix**: {_text(fix)}")
             if entry.lab:
                 lines.append(f"- **At Add**: {_text(entry.lab)}")
             lines.append("")

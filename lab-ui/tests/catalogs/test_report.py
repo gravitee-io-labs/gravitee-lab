@@ -645,8 +645,8 @@ class Explain(unittest.TestCase):
     def test_the_long_form_of_a_code(self):
         text = explain.explain("st05")
         self.assertTrue(text.startswith("ST05 (error)\n"))
-        for part in ("Rule     .env, or .env.* other than .env.example", "Message  {path} is an environment file. Fix:",
-                     "Why      ", "Fix      git rm --cached {path}", "At Add   The Lab does not install it"):
+        for part in ("Rule     .env, or .env.* other than .env.example", "Message  {path} is an environment file. Fix: git rm --cached {path}",
+                     "Why      ", "At Add   The Lab does not install it"):
             self.assertIn(part, text)
 
     def test_a_code_with_two_messages_shows_both(self):
