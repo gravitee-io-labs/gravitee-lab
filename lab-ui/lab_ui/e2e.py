@@ -601,9 +601,9 @@ def item_of(path):
 
 def lab_item(ns, item):
     """`kind:id` for the `kind:name` item of catalog `ns`: the name for the first catalog, whose ids are bare, and
-    `@catalog/name` for the others. `ns` None is a repository that held its items itself: the names are the ids."""
+    `@catalog/name` for the others."""
     kind, _, name = item.partition(":")
-    if ns is None or ns == paths.default_ns():
+    if ns == paths.default_ns():
         return f"{kind}:{name}"
     return f"{kind}:@{ns}/{name}"
 

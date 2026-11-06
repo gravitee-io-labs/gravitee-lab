@@ -849,7 +849,6 @@ class Files(Case):
     def test_the_id_of_an_item_is_bare_in_the_first_catalog_and_qualified_in_the_others(self):
         self.assertEqual(e2e.lab_item("base", "addon:echo"), "addon:echo")
         self.assertEqual(e2e.lab_item("hub", "playground:bank"), "playground:@hub/bank")
-        self.assertEqual(e2e.lab_item(None, "setup:pair"), "setup:pair", "a repository that held its items itself")
 
     def test_the_ids_are_not_bare_when_the_engine_lists_no_catalog(self):
         self.patch(paths, "default_ns", return_value=None)
