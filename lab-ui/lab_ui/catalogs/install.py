@@ -791,6 +791,16 @@ def _target(ns, kept) -> str:
 
 # ---------------------------------------------------------------- adding a catalog
 
+def already(address) -> str:
+    """The address as a person reads it; `already_added` when a catalog the person has is at it, in any spelling."""
+    shown = registry.display_address(address.url if address.kind == "git" else address.path)
+    for other in registry.entries():
+        there = defaults.effective(other)[0] if other["kind"] == "git" else other.get("path")
+        if shown and registry.display_address(there or "") == shown:
+            raise CatalogError("already_added", f"Already added as {_called(other['id'])}.", 409, id=other["id"])
+    return shown
+
+
 def _free(ns, entry, held, address):
     """Whether `ns` can be added now: an entry that is a download that has not ended is the provision of a
     listed catalog and is let through; any other entry is `already_added`; the namespace must pass the registry's rules
@@ -799,14 +809,9 @@ def _free(ns, entry, held, address):
         if entry.get("kind") == "git" and not held.get("pin"):
             return
         raise CatalogError("already_added", f"Already added as {_called(ns)}.", 409, id=ns)
-    others = registry.entries()
-    shown = registry.display_address(address.url if address.kind == "git" else address.path)
-    for other in others:
-        there = defaults.effective(other)[0] if other["kind"] == "git" else other.get("path")
-        if shown and registry.display_address(there or "") == shown:
-            raise CatalogError("already_added", f"Already added as {_called(other['id'])}.", 409, id=other["id"])
+    shown = already(address)
     listed = {row["id"] for row in defaults.read() if registry.display_address(row["url"]) == shown}
-    registry.check_namespace(ns, taken=[one["id"] for one in others], listed=listed)
+    registry.check_namespace(ns, taken=[one["id"] for one in registry.entries()], listed=listed)
 
 
 def taken(ns) -> CatalogError:

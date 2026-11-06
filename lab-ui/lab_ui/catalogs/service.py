@@ -764,16 +764,6 @@ def _listed_ids_at(display):
     return [one["id"] for one in defaults.read() if registry.display_address(one["url"]) == display]
 
 
-def _already(address):
-    """`already_added` when a catalog the person has is at this address, in any spelling (asked first so that the
-    fetch is not made for nothing)."""
-    shown = address.display
-    for entry in registry.entries():
-        there = defaults.effective(entry)[0] if entry["kind"] == "git" else entry.get("path")
-        if shown and registry.display_address(there or "") == shown:
-            raise CatalogError("already_added", f"Already added as {_called(entry['id'])}.", 409, id=entry["id"])
-
-
 def _shorthand(text):
     """Whether the text is the short form owner/repo, which means GitHub and may be tried over ssh."""
     return bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}", text))
@@ -830,7 +820,7 @@ def check_address(address, branch=None):
     the fetch reports how far it is in the state (`catalogs[]`, the entry `check`)."""
     text, branch = _address_text(address, branch)
     asked = gitx.parse_address(text)
-    _already(asked)
+    install.already(asked)
     if asked.kind == "folder":
         return _check_folder(asked)
     gitx.require()
