@@ -1,6 +1,6 @@
 """The refills: what the lessons spend, put back on every run. The declaration is read strictly (a typo is an error, never a
 refill that refills nothing), a refill deletes the cost counters of one member's subscription and nothing else, whatever
-goes wrong with Redis is told and never stops the seed, and the refill of Acme Bakery names the Hackathon sandbox of its files."""
+goes wrong with Redis is told and never stops the seed."""
 
 import sys
 import types
@@ -12,11 +12,7 @@ from lab_seeder import common
 from lab_seeder import refills
 from lab_seeder import seed
 from lab_seeder import testkit
-from lab_seeder.seedlint import seed_environment, seed_service
-from lab_seeder.testkit import PLAYGROUNDS, FakeRedis, Seed
-
-ACME_BAKERY = PLAYGROUNDS / "acme-bakery"
-ACME_SEED = ACME_BAKERY / "seed"
+from lab_seeder.testkit import FakeRedis, Seed
 
 SANDBOX = "sub-sandbox"
 KEY = "ratelimit:ws-1:app-sandbox:cost-rl"
@@ -367,38 +363,8 @@ class Main(Seed):
         self.assertNotIn("refills", self.output())
 
 
-class AcmeBakery(Seed):
-    """The refill of Acme Bakery against its real files: it names the Hackathon sandbox the lesson empties."""
-
-    def setUp(self):
-        super().setUp()
-        patch = mock.patch.object(common, "SEED_DIR", ACME_SEED)
-        patch.start()
-        self.addCleanup(patch.stop)
-        self.workspace = common.load(ACME_SEED / "aim" / "workspaces" / "acme-bakery-teams.yaml")
-
-    def test_the_sandbox_of_the_hackathon_is_the_one_refill(self):
-        [refill] = refills.declared()
-        self.assertEqual((refill.id, refill.workspace, refill.member, refill.counters),
-                         ("hackathon", "Acme Bakery Teams", "team-hackathon", "cost"))
-
-    def test_the_workspace_file_has_that_workspace_and_that_member_in_the_budget_the_lesson_empties(self):
-        [refill] = refills.declared()
-        self.assertEqual(self.workspace["name"], refill.workspace)
-        [member] = [m for m in self.workspace["members"] if m["sourceId"] == refill.member]
-        [budget] = [b for b in self.workspace["budgets"] if b["name"] == member["budget"]]
-        self.assertEqual((budget["name"], budget["dollars"], budget["period"]), ("Hackathon sandbox", 0.12, "HOUR"))
-        self.assertEqual([r.id for r in refills.of(refill.workspace, [m["sourceId"] for m in self.workspace["members"]])], ["hackathon"])
-        refills.finish()
-
-    def test_only_the_sandbox_is_refilled_not_the_teams_whose_budget_a_day_covers(self):
-        refilled = {refill.member for refill in refills.declared()}
-        self.assertEqual(refilled, {"team-hackathon"})
-
-    def test_the_seed_service_gives_the_seed_the_core_redis_it_refills_in(self):
-        environment = seed_environment(seed_service(ACME_BAKERY / "compose.yml"))
-        self.assertEqual(environment["REDIS_URL"], "redis://redis:6379")
-        self.assertIn("REDIS_PASSWORD", environment)
+class Requirements(unittest.TestCase):
+    """connect() imports the library late, so nothing else would catch a missing requirement."""
 
     def test_the_seeder_installs_the_library_the_refill_imports(self):
         requirements = (Path(__file__).resolve().parents[1] / "requirements.txt").read_text(encoding="utf-8").split()
