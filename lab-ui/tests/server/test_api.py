@@ -127,6 +127,21 @@ class Access(LabUI):
         state.assert_not_called()
         action.assert_not_called()
 
+    def test_every_family_of_routes_is_for_the_lab_uis_own_page(self):
+        # route() asks before it calls one: what reads the lab, uses a token or types in a shell has no gate of its own
+        self.assertEqual(self.request("GET", "/api/platforms/p/check")[0], 404, "a read is no way to use the token")
+        called = self.patch(api.Handler, "call")
+        shell = "/api/playgrounds/welcome/terminal"
+        for method, path in (("GET", "/api/dashboard"), ("GET", "/api/dashboard/stats"), ("GET", "/api/places"),
+                             ("GET", "/api/playgrounds/welcome/frame"), ("GET", shell), ("POST", shell),
+                             ("POST", "/api/platforms"), ("POST", "/api/platforms/p/check"),
+                             ("POST", "/api/platforms/p/gateways/g/start"), ("POST", "/api/catalogs/acme-hub/check")):
+            foreign = [{"Sec-Fetch-Site": "cross-site"}, {"Host": "evil.example"}]
+            for headers in foreign + ([{"X-Gravitee-Lab-UI": None}] if method == "POST" else []):
+                with self.subTest(method=method, path=path, headers=headers):
+                    self.assertEqual(self.request(method, path, headers=headers)[0], 403)
+        called.assert_not_called()
+
     def test_the_home_page_of_a_refused_host_says_where_to_open_the_lab_ui(self):
         action = self.patch(api.stack, "action")
         for host in ("0.0.0.0:9777", "[::1]:9777", "evil.example"):
@@ -566,12 +581,6 @@ class Frame(LabUI):
         self.assertEqual(status, 400)
         looked.assert_not_called()
 
-    def test_it_is_for_the_lab_uis_own_page(self):
-        looked = self.patch(probe, "look")
-        status, _ = self.ask("/api/playgrounds/welcome/frame?url=http%3A%2F%2Flocalhost%3A8086", **{"Sec-Fetch-Site": "cross-site"})
-        self.assertEqual(status, 403)
-        looked.assert_not_called()
-
 
 class Switch(LabUI):
     """Start and stop of an add-on or a setup: the plan is made again and checked against what the page showed."""
@@ -827,17 +836,6 @@ class Dashboard(LabUI):
             stopped.set()
             time.sleep(0.2)
         self.assertTrue(stopped.is_set(), "the load is still read")
-
-    def test_it_is_for_the_lab_uis_own_page(self):
-        read = self.patch(api.dashboard, "read")
-        load = self.patch(api.dashboard, "load")
-        for path in ("/api/dashboard", "/api/dashboard?refresh=1", "/api/dashboard/stats"):
-            status, _, _ = self.request("GET", path, headers={"Sec-Fetch-Site": "cross-site"})
-            self.assertEqual(status, 403, path)
-            status, _, _ = self.request("GET", path, headers={"Host": "evil.example:9000"})
-            self.assertEqual(status, 403, path)
-        read.assert_not_called()
-        load.assert_not_called()
 
 
 class FakeLogs:
@@ -1179,16 +1177,6 @@ class PlatformRoutes(LabUI):
             status, _, body = self.request("POST", path)
             self.assertEqual((status, json.loads(body)), (404, {"error": "No platform nope"}))
 
-    def test_nothing_is_asked_of_a_platform_but_by_the_page(self):
-        check = self.patch(api.platforms, "check")
-        add = self.patch(api.platforms, "add")
-        self.assertEqual(self.request("POST", "/api/platforms/p/check", headers={"X-Gravitee-Lab-UI": None})[0], 403)
-        self.assertEqual(self.request("POST", "/api/platforms", {"token": "t"},
-                                      headers={"Sec-Fetch-Site": "cross-site"})[0], 403)
-        self.assertEqual(self.request("GET", "/api/platforms/p/check")[0], 404)   # a read is no way to use the token
-        check.assert_not_called()
-        add.assert_not_called()
-
 
 class PlatformFlow(LabUI):
     """A platform registered, read, given a gateway and forgotten through the routes, against the fake Cloud and the
@@ -1433,8 +1421,6 @@ class PlaceRoutes(LabUI):
         status, _, body = self.request("GET", "/api/places")
         self.assertEqual((status, json.loads(body)), (200, [{"id": "my-account/fake-env-dev"}]))
         found.assert_called_once_with(PROJECT)
-        # A read: the page's own, like the state
-        self.assertEqual(self.request("GET", "/api/places", headers={"Sec-Fetch-Site": "cross-site"})[0], 403)
 
 
 class GatewayCase(LabUI):
@@ -1608,10 +1594,6 @@ class GatewayRoutes(GatewayCase):
         self.assertEqual((status, json.loads(body)), (409, {"error": "'Start Kafka' is still running"}))
         self.swap.assert_not_called()   # the token is the job's to write: nothing was written
         self.write.assert_not_called()
-
-    def test_only_the_page_starts_a_gateway(self):
-        self.assertEqual(self.request("POST", f"{self.GATEWAY}/start", {}, headers={"X-Gravitee-Lab-UI": None})[0], 403)
-        self.jobs.start.assert_not_called()
 
 
 class GatewayOnFile(GatewayCase):
@@ -2355,14 +2337,11 @@ class CatalogRoutes(LabUI):
         self.calls["check_now"].side_effect = KeyError("boom")
         self.assertEqual(self.post("/api/catalogs/acme-hub/check", {}), (500, {"error": "KeyError: 'boom'"}))
 
-    def test_only_the_page_asks_and_never_by_a_get(self):
+    def test_no_get_ever_runs_git_or_asks_a_network(self):
         for path in ("/api/catalogs/check", "/api/catalogs", "/api/catalogs/new", "/api/catalogs/acme-hub/check",
                      "/api/catalogs/acme-hub/delete", "/api/catalogs/acme-hub/allow"):
             with self.subTest(path=path):
-                self.assertEqual(self.request("POST", path, {}, headers={"X-Gravitee-Lab-UI": None})[0], 403)
-                self.assertEqual(self.request("POST", path, {}, headers={"Sec-Fetch-Site": "cross-site"})[0], 403)
-                self.assertEqual(self.request("POST", path, {}, headers={"Host": "evil.example"})[0], 403)
-                self.assertEqual(self.request("GET", path)[0], 404, "no GET ever runs git or asks a network")
+                self.assertEqual(self.request("GET", path)[0], 404)
         for function in self.calls.values():
             function.assert_not_called()
 
@@ -2817,17 +2796,6 @@ class Terminal(LabUI):
         status, _, body = self.request("POST", f"{self.PATH}/close", {})
         self.assertEqual((status, json.loads(body)), (200, {"closed": True}))
         dropped.assert_called_once_with("welcome")
-
-    def test_it_is_for_the_lab_uis_own_page(self):
-        status, _, _ = self.request("POST", self.PATH, {"data": "x"}, headers={"X-Gravitee-Lab-UI": None})
-        self.assertEqual(status, 403)
-        status, _, _ = self.request("POST", self.PATH, {"data": "x"}, headers={"Sec-Fetch-Site": "cross-site"})
-        self.assertEqual(status, 403)
-        status, _, _ = self.request("GET", self.PATH, headers={"Sec-Fetch-Site": "cross-site"})
-        self.assertEqual(status, 403)
-        status, _, _ = self.request("POST", self.PATH, {"data": "x"}, headers={"Host": "evil.example"})
-        self.assertEqual(status, 403)
-        self.session.write.assert_not_called()
 
     def test_the_output_is_streamed_from_the_offset_asked_for_until_the_shell_ends(self):
         self.session.read.side_effect = [(5, b"hello", True), (5, b"", False)]
