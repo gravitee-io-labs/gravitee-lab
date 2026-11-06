@@ -1517,32 +1517,28 @@ def repair(ns: str) -> None:
         _roll(ns, held["pin"], held["pin"], "repair")
 
 
+def _differing(root, files) -> List[str]:
+    """The paths of `files`, what a manifest lists, that are not in the folder `root` with the sha256 it says: gone, no regular
+    file or changed. Reads each file once, never through a link, and nothing else."""
+    bad = []
+    for path in files:
+        try:
+            if not _safe(path) or hashlib.sha256(_read(os.path.join(root, path))[0]).hexdigest() != _rec(files, path).get("sha256"):
+                bad.append(path)
+        except Unsafe:
+            bad.append(path)
+    return bad
+
+
 def verify(ns: str, names: Iterable[str]) -> List[str]:
-    """The installed files whose sha256 differs from the manifest's, or that are gone, or are no longer regular files,
-    among those of the units `names` (`kind:name`; `catalog.yml` is always checked), sorted. Reads each file once, never
-    through a link, and nothing else. A catalog with no valid manifest is `damaged`."""
+    """The installed files that `_differing` finds among those of the units `names` (`kind:name`; `catalog.yml` is always
+    checked), sorted. A catalog with no valid manifest is `damaged`."""
     found = registry.manifest(ns)
     if found is None:
         raise Unsafe("no manifest the pin accepts", ns)
-    wanted = set(names)
-    root = os.fspath(registry.install_dir(ns))
-    bad = []
-    for path, record in found["files"].items():
-        unit = unit_key(path)
-        if unit is not None and unit not in wanted:
-            continue
-        info = _lstat(os.path.join(root, path)) if _safe(path) and isinstance(record, dict) else None
-        if info is None or not stat.S_ISREG(info.st_mode) or info.st_size != record.get("size"):
-            bad.append(path)
-            continue
-        try:
-            data, _ = _read(os.path.join(root, path))
-        except Unsafe:
-            bad.append(path)
-            continue
-        if hashlib.sha256(data).hexdigest() != record.get("sha256"):
-            bad.append(path)
-    return sorted(bad)
+    wanted = {None, *names}
+    return sorted(_differing(os.fspath(registry.install_dir(ns)),
+                             {path: record for path, record in found["files"].items() if unit_key(path) in wanted}))
 
 
 def unit_key(path):
@@ -1823,20 +1819,6 @@ def _settle(ns):
         _finish(ns)
 
 
-def _intact(root, found) -> bool:
-    """Whether every file a manifest lists is in the folder `root` with the sha256 it says."""
-    for path, record in found["files"].items():
-        if not (_safe(path) and isinstance(record, dict)):
-            return False
-        try:
-            data, _ = _read(os.path.join(root, path))
-        except Unsafe:
-            return False
-        if hashlib.sha256(data).hexdigest() != record.get("sha256"):
-            return False
-    return True
-
-
 def _complete(ns, commit) -> bool:
     """Whether the install of `ns` is whole for `commit`: its manifest says `commit`, every file it lists is there with
     the sha256 it says, and the store holds the commit."""
@@ -1844,7 +1826,7 @@ def _complete(ns, commit) -> bool:
     found = _manifest_in(root, ns)
     if found is None or found["commit"] != commit or not os.path.isdir(registry.store_dir(ns)):
         return False
-    return bare.resolve(registry.store_dir(ns), commit) == commit and _intact(root, found)
+    return bare.resolve(registry.store_dir(ns), commit) == commit and not _differing(root, found["files"])
 
 
 def _finish(ns):
