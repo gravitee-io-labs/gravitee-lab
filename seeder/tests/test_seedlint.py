@@ -133,7 +133,8 @@ class Problems(Made):
         self.assertEqual(self.found(self.playground({"seed/a.yaml": "a: ${EMPTY}\n"})), [("variable", "seed/a.yaml", 1)])
 
     def test_the_names_the_engine_gives_are_set_for_the_files_of_an_environment_only(self):
-        files = {"seed/environments/novo/environment.yaml": "id: ${ENV_ID}\nname: Novo\n", "seed/apim/a.yaml": "id: ${ENV_ID}\n"}
+        files = {"seed/environments/novo/environment.yaml": "id: ${ENV_ID}\nname: Novo\n", "seed/environments/novo/settings.yaml": "name: ${ENV_NAME}\n",
+                 "seed/apim/a.yaml": "id: ${ENV_ID}\n"}
         self.assertEqual(self.found(self.playground(files)), [("variable", "seed/apim/a.yaml", 1)])
 
     def test_an_address_that_is_written_out_is_found_with_its_line(self):
