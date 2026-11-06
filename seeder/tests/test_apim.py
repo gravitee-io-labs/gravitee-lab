@@ -1234,7 +1234,7 @@ AUTOMATION = "/automation/organizations/DEFAULT/environments/[^/]+"
 PORTAL = "/portal/environments/[^/]+"
 
 
-class Estate:
+class Estate(Apim):
     """API Management with several environments, as far as the seed uses it: users and their identity providers, groups, APIs,
     applications and subscriptions of each environment. It keeps what it is given and answers from it, the way the platform
     was seen to answer a seed (each comment that says "the platform" is a behavior found on a running 4.13 platform)."""
@@ -1249,18 +1249,12 @@ class Estate:
         self.settings = {}
         self.deployed, self.groups_by_import = [], []
 
-    def new(self, kind):
-        return f"{kind}-{next(self.ids)}"
-
     @staticmethod
     def after(call, marker):
         return call.path.split(marker)[1].split("/")[0]
 
     def env(self, call):
         return self.after(call, "/environments/")
-
-    def api_id(self, call):
-        return self.after(call, "/apis/")
 
     # --- The environment and who acts in it ------------------------------------------------------
 
@@ -1411,40 +1405,18 @@ class Estate:
         return 201, {"id": api_id}
 
     def update_api(self, call):
-        api = self.apis[self.api_id(call)]
+        api = self.apis[self.id_in(call)]
         api.update(definition=call.json, groups=[], deploymentState="NEED_REDEPLOY")   # an update by import clears the groups
         return 200, {}
 
     def get_api(self, call):
-        api = self.apis.get(self.api_id(call))
+        api = self.apis.get(self.id_in(call))
         return (200, {**self.row(api), "flows": [], "deploymentState": api["deploymentState"]}) if api else (404, {"message": "not found"})
 
     def put_api(self, call):
-        api = self.apis[self.api_id(call)]
+        api = self.apis[self.id_in(call)]
         api["lifecycleState"], api["groups"] = call.json["lifecycleState"], call.json.get("groups", api["groups"])
         return 200, {}
-
-    def deploy(self, call):
-        self.deployed.append(self.api_id(call))
-        self.apis[self.api_id(call)]["deploymentState"] = "DEPLOYED"
-        return 202
-
-    def start(self, call):
-        self.apis[self.api_id(call)]["state"] = "STARTED"
-        return 204
-
-    def stop(self, call):
-        api = self.apis[self.api_id(call)]
-        was, api["state"] = api["state"] == "STOPPED", "STOPPED"
-        return 400 if was else 204
-
-    def delete_api(self, call):
-        api_id = self.api_id(call)
-        self.subscriptions = {i: s for i, s in self.subscriptions.items() if s["apiId"] != api_id}
-        return 204 if self.apis.pop(api_id, None) else 404
-
-    def plans(self, call):
-        return 200, {"data": [dict(plan) for plan in self.apis[self.api_id(call)]["plans"]]}
 
     # --- Applications ----------------------------------------------------------------------------
 
@@ -1455,10 +1427,6 @@ class Estate:
         application = {"id": self.new("application"), "env": self.env(call), "groups": [], **call.json}
         self.applications[application["id"]] = application
         return 201, application
-
-    def update_application(self, call):
-        self.applications[call.path.rsplit("/", 1)[1]].update(call.json)
-        return 200, {}
 
     def delete_application(self, call):
         self.applications.pop(call.path.rsplit("/", 1)[1], None)
@@ -1474,7 +1442,7 @@ class Estate:
         statuses = call.params.get("statuses", "ACCEPTED")
         # The platform reads the first of a repeated parameter and all of a comma-separated one
         statuses = statuses[:1] if isinstance(statuses, list) else statuses.split(",")
-        found = [self.view(s) for s in self.subscriptions.values() if s["apiId"] == self.api_id(call)
+        found = [self.view(s) for s in self.subscriptions.values() if s["apiId"] == self.id_in(call)
                  and s["plan"]["id"] == call.params["planIds"] and s["application"]["id"] == call.params.get("applicationIds", s["application"]["id"])
                  and s["status"] in statuses]
         return 200, {"data": found}
@@ -1502,7 +1470,7 @@ class Estate:
         if refused:
             return refused
         fields = {"consumerConfiguration": call.json["consumerConfiguration"]} if "consumerConfiguration" in call.json else {}
-        sub = self.add_subscription(self.api_id(call), call.json["applicationId"], call.json["planId"], "ACCEPTED", **fields)
+        sub = self.add_subscription(self.id_in(call), call.json["applicationId"], call.json["planId"], "ACCEPTED", **fields)
         if call.json.get("customApiKey"):
             sub["key"] = call.json["customApiKey"]
         return 201, self.view(sub)
@@ -1640,6 +1608,7 @@ class Estates(Seed):
     """The module's seed files for the platform's own environment and two others, and a platform that has them."""
 
     FILES = {**OWN, **NOVO, **MODERNA}
+    run_seed, edit, record = Playground.run_seed, Playground.edit, Playground.record
 
     def setUp(self):
         super().setUp()
@@ -1647,19 +1616,6 @@ class Estates(Seed):
         self.answer(self.estate.routes())
         self.env(RECEIVER="http://receiver:8000", HOOK_TOKEN="hook-token", NOVO_KEY="novo-key-0001")
         self.seed_files(self.FILES)
-
-    def run_seed(self):
-        """One run of the module, and what it asked the platform to change."""
-        before = len(self.platform.calls)
-        apim.seed()
-        return [(call.method, call.path) for call in self.platform.calls[before:] if call.method != "GET"]
-
-    def edit(self, name, change):
-        path = common.SEED_DIR / name
-        path.write_text(change(path.read_text(encoding="utf-8")), encoding="utf-8")
-
-    def record(self, name):
-        return next(x for x in common.created() if x["name"] == name)
 
     def records(self, kind):
         return sorted(x["name"] for x in common.created() if x["kind"] == kind)
