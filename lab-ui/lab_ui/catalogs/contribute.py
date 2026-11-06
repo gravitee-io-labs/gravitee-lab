@@ -375,7 +375,7 @@ def _named(text) -> List[str]:
 def _read(file, limit=bare.OTHER_FILE + 1) -> Optional[bytes]:
     """The bytes of a regular file without following a link, at most `limit` of them; None when it cannot be read."""
     try:
-        descriptor = os.open(file, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0))
+        descriptor = os.open(file, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
     except OSError:
         return None
     try:

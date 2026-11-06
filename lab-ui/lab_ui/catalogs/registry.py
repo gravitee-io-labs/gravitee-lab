@@ -20,6 +20,7 @@ under way names."""
 
 import contextlib
 import copy
+import fcntl
 import json
 import math
 import os
@@ -31,11 +32,6 @@ import time
 import unicodedata
 from pathlib import Path
 from typing import Iterable, Optional
-
-try:
-    import fcntl
-except ImportError:   # no advisory locks on this system: the lock of this process is all there is
-    fcntl = None
 
 from .. import paths
 
@@ -113,10 +109,8 @@ def busy() -> CatalogError:
 
 def _acquire(path, wait):
     """The descriptor that holds the advisory lock of `path`, taken within `wait` seconds (the change is `busy` after);
-    None where there is nothing to lock with (no fcntl, a file that cannot be made, a file system that cannot lock)."""
-    if fcntl is None:
-        return None
-    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    None where there is nothing to lock with (a file that cannot be made, a file system that cannot lock)."""
+    flags = os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         descriptor = os.open(path, flags, 0o600)
@@ -147,7 +141,7 @@ def flock(wait: Optional[float] = None):
     `busy`. LOCK is taken here, first: a thread that holds the advisory lock holds LOCK too, so it can go on to call a
     writer while another thread of this process waits for the lock, and neither waits for the other. A thread that
     holds it takes it again at no cost, so a function may take it whether its caller did or not (`with LOCK, flock()`
-    works as well). Without fcntl, and where the lock file cannot be made, LOCK is all there is."""
+    works as well). Where the lock file cannot be made, LOCK is all there is."""
     path = str(Path(paths.ROOT) / FLOCK_FILE)
     held = _held.__dict__.setdefault("held", {})
     if path in held:
@@ -185,9 +179,9 @@ def _root(*parts):
 def _read(path, limit, follow=True):
     """(content, None), (None, _MISSING) for a file that does not exist, or (None, why) for one that cannot be used: not
     a regular file, over `limit`, unreadable. Never blocks on a pipe. `follow` False refuses a link as the file."""
-    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0)
+    flags = os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC
     if not follow:
-        flags |= getattr(os, "O_NOFOLLOW", 0)
+        flags |= os.O_NOFOLLOW
     try:
         descriptor = os.open(path, flags)
     except (FileNotFoundError, NotADirectoryError):

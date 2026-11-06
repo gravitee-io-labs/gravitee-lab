@@ -78,7 +78,7 @@ _NS = re.compile(paths.NS)
 _REMOVED = re.compile(r"\.removed-({ns})-([0-9]{{8}}T[0-9]{{6}}Z)".format(ns=paths.NS))
 _SHA = re.compile(r"[0-9a-f]{40}")
 _SECRET_DIRS = (".state", "secrets")
-_DIR = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+_DIR = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 
 # What a start survives in one catalog and goes on: a refusal, the disk, a name that is none, a move the Lab will not
 # make
@@ -235,7 +235,7 @@ def safe_write(root: Path, rel: str, data: bytes, mode: int) -> None:
     directory = _open_dir(root, parts[:-1], True)
     try:
         try:
-            fd = os.open(parts[-1], os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0),
+            fd = os.open(parts[-1], os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
                          mode, dir_fd=directory)
         except OSError as error:
             raise Unsafe(f"{rel} cannot be made: {error.strerror}", _owner(root)) from None

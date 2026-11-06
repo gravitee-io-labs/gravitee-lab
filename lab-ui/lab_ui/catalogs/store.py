@@ -222,7 +222,7 @@ def _flock(store, deadline, address):
     path = os.path.join(store, FETCH_LOCK)
     while True:
         os.makedirs(store, exist_ok=True)
-        descriptor = os.open(path, os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        descriptor = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
         keep = False
         try:
             while True:

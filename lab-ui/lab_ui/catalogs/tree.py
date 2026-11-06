@@ -104,9 +104,9 @@ def read_inside(root: str, path: str, limit: int = LIMIT) -> Optional[bytes]:
     before with O_NOFOLLOW and the file is opened the same way (and without blocking, so a pipe cannot hold the reader), so a
     link anywhere in the path, a file that was swapped for one after the listing and a path with `..` all give None: the read
     never leaves the tree."""
-    if not _clean_path(path) or limit < 0 or not hasattr(os, "O_NOFOLLOW"):
+    if not _clean_path(path) or limit < 0:
         return None
-    extra = getattr(os, "O_CLOEXEC", 0)
+    extra = os.O_CLOEXEC
     parts = path.split("/")
     try:
         handle = os.open(root, os.O_RDONLY | os.O_DIRECTORY | extra)
