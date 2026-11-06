@@ -256,17 +256,6 @@ def _catalog_path(path):
     return len(parts) > 3 and f"{parts[0]}/{parts[1]}" == paths.CATALOGS_DIR and parts[2] != paths.LOCAL
 
 
-_REAL = {}   # the real place of a folder, for the length of one gather: the same few are asked for by every file of a catalog
-
-
-def _real(folder):
-    """The folder of the project with every link followed, remembered until the next gather."""
-    key = (ROOT, folder)
-    if key not in _REAL:
-        _REAL[key] = os.path.realpath(os.path.join(ROOT, folder))
-    return _REAL[key]
-
-
 def _outside(path):
     """Whether a file of a catalog that is not this machine's leads out of the catalog's folder once the links on the way
     are followed: a link in place of a unit's folder, which the look at the last name of a file does not see. A catalog
@@ -276,8 +265,8 @@ def _outside(path):
         return False
     parts = path.split("/")
     try:
-        top = _real("/".join(parts[:3]))
-        where = os.path.join(_real("/".join(parts[:-1])), parts[-1])
+        top = os.path.realpath(os.path.join(ROOT, *parts[:3]))
+        where = os.path.join(os.path.realpath(os.path.join(ROOT, *parts[:-1])), parts[-1])
         return os.path.commonpath([where, top]) != top
     except (OSError, ValueError):
         return True   # a doubt refuses
@@ -744,7 +733,6 @@ def gather():
     banner's. The units of this machine are read together (each file as written is kept as a catalog's unit is, the core's
     too); an add-on or a playground of this machine is also resolved alone with the core (`own_configs`) and its seed read
     (`seed_references`), for the notes of the policy, which judges them and blocks none."""
-    _REAL.clear()
     default = paths.default_ns()
     unit_files = paths.files()
     tiers = {file: _tier(file, default) for file in unit_files}

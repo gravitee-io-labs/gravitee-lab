@@ -3547,6 +3547,17 @@ class Reading(Case):
         (self.root / guide).write_bytes(b"\xff not text")
         self.assertEqual(project._guides(["local/mine"], ()), {})
 
+    def test_a_unit_folder_that_becomes_a_link_is_refused_at_the_next_read(self):
+        env = ".lab/catalogs/xx/addons/x/.env"
+        self.write(env, "A=1\n")
+        self.write("outside/.env", "A=secret\n")
+        self.assertEqual(project._read(env), ("A=1\n", None))
+        folder = self.root / ".lab/catalogs/xx/addons/x"
+        (folder / ".env").unlink()
+        folder.rmdir()
+        os.symlink(self.root / "outside", folder)
+        self.assertEqual(project._read(env), (None, "link"))
+
     def test_a_file_that_is_read_is_opened_without_following_a_link_put_there_after_the_look(self):
         real = os.lstat
         swapped = []
