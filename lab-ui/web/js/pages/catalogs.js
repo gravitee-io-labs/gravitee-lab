@@ -7,7 +7,7 @@
 // says so in its state (a menu entry has no button to show it on) and offers nothing else to press. The dialogs are dialogs/catalog.js's.
 
 import { $, esc, icon, setHTML, api, store, router, ago, copyButton } from "../core.js";
-import { toast, openMenu, keyed, statusHtml, progressBar, tipHtml, paintActions, actionButton, holdOff, contentStatus, confirmEffects, GAP, copyAddress } from "../components/ui.js";
+import { toast, openMenu, keyed, statusHtml, progressBar, tipHtml, paintActions, actionButton, holdOff, contentStatus, confirmEffects, GAP, copyAddress, reveal } from "../components/ui.js";
 import { busy } from "../activity/jobs.js";
 import { selectCatalog } from "./list.js";
 import { NO_GIT, usesCard, openAdd, addCatalog, tryAgain, openUpdate, openGoBack, openRemove, openAllow, openNew } from "../dialogs/catalog.js";
@@ -309,18 +309,9 @@ function draw(state) {
   paintActions(section);
   if (again && !at.isConnected) $(again, section)?.focus({ preventScroll: true });
   if (target && rows.some((row) => keyOf(row) === target)) {
-    reveal(target);
+    reveal(`.list-item[data-key="${CSS.escape(target)}"]`, section, ".s-toggle");
     target = null;
   }
-}
-
-// The row an address opened, in view and its toggle focused, once it is drawn and the router has set the page's scroll
-function reveal(id) {
-  requestAnimationFrame(() => {
-    const li = $(`.list-item[data-key="${CSS.escape(id)}"]`, section);
-    li?.scrollIntoView({ block: "nearest" });
-    $(".s-toggle", li)?.focus({ preventScroll: true });
-  });
 }
 
 function toggle(id) {

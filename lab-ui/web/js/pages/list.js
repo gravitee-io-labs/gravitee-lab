@@ -4,10 +4,10 @@
 // catalog when there is more than one to tell apart, each row then naming its catalog in a column of its own on a wide card. While the
 // catalogs download or are missing, the list says so in place of its rows.
 
-import { $, $$, esc, icon, setHTML, loading, api, store, router, recall, remember, ID_PATTERN, splitKey, catalogRows } from "../core.js";
+import { $, esc, icon, setHTML, loading, api, store, router, recall, remember, ID_PATTERN, splitKey, catalogRows } from "../core.js";
 import { toast, effectsDialog, openMenu, GAP, openButton, Pager, emptyHtml, paintActions, contentStatus, originLink,
   actionButton, keyed, dockerDown, stateDot, serviceCells, serviceOpen, noteHtml, noteBadge, blockerButton, itemLink, unopened, starButton,
-  toggleStar, statusHtml, progressBar, TURNS, fileButtons } from "../components/ui.js";
+  toggleStar, statusHtml, progressBar, TURNS, fileButtons, reveal } from "../components/ui.js";
 import { CategoryFilter } from "../components/combo.js";
 import { runJob, runAction, busy, showOutput } from "../activity/jobs.js";
 import { selectLogs, hasLogs } from "./logs.js";
@@ -379,23 +379,13 @@ function list(kind, title, noun) {
     const sub = (x) => (id) => opened.has(`${x.id}>${id}`);
     drawRows(rowsEl, pager.slice(shown), (x) => ({ row: row(x), detail: opened.has(x.id) ? detail(x, sub(x)) : "" }));
     paintActions(section);
-    if (known) reveal(target);
+    if (known) reveal(`.list-item[data-key="${CSS.escape(target)}"]`, section, ".s-toggle");
     else if (target && !waiting) {
       // Given up: it is not there, and it is not coming
       opened.delete(target);
       routed.delete(target);
     }
     if (!waiting) target = null;
-  }
-
-  // The row an address opened, in view and focused, once the router has set the page's scroll
-  function reveal(id) {
-    requestAnimationFrame(() => {
-      const li = $$(".list-item", section).find((one) => one.dataset.key === id);
-      if (!li) return;   // drawn again meanwhile, without it
-      li.scrollIntoView({ block: "nearest" });
-      $(".s-toggle", li)?.focus({ preventScroll: true });
-    });
   }
 
   // Filtering, paging and opening a row draw again from the last state

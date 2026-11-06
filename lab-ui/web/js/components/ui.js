@@ -1530,6 +1530,16 @@ export function onRowKey(root, selector, toggle) {
   });
 }
 
+// What an address opened, in view and focused, once it is drawn and the router has set the page's scroll: `focus` is the control inside
+// it that takes the keyboard, else itself. Drawn again meanwhile without it, nothing is left to do.
+export function reveal(selector, root, focus = "") {
+  requestAnimationFrame(() => {
+    const el = $(selector, root);
+    el?.scrollIntoView({ block: "nearest" });
+    (focus && el ? $(focus, el) : el)?.focus({ preventScroll: true });
+  });
+}
+
 // After rows were drawn again whole: the focus goes to `selector` (the control the keyboard used, in its row drawn
 // again) when it is lost, on the body or on what is hidden (the picker that closed), not when it went elsewhere
 export function refocus(selector) {

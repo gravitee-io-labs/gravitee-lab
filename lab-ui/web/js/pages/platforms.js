@@ -7,7 +7,7 @@
 // the same plan and confirmation as a Start.
 
 import { $, esc, icon, setHTML, loading, api, store, router, copyButton } from "../core.js";
-import { toast, effectsDialog, paintActions, paintBusy, actionButton, openMenu, tipHtml, keyed, noticeHtml, statusHtml, copyAddress } from "../components/ui.js";
+import { toast, effectsDialog, paintActions, paintBusy, actionButton, openMenu, tipHtml, keyed, noticeHtml, statusHtml, copyAddress, reveal } from "../components/ui.js";
 import { busy } from "../activity/jobs.js";
 import { selectLogs, hasLogs } from "./logs.js";
 import { seeded } from "./playground.js";
@@ -283,18 +283,9 @@ function draw() {
   paintActions(section);
   if (key && !at.isConnected) $(key, section)?.focus({ preventScroll: true });
   if (target && platforms?.some((p) => p.id === target)) {
-    reveal(target);
+    reveal(`.plat-card[data-key="${CSS.escape(target)}"]`, section);
     target = null;
   }
-}
-
-// The card an address opened, in view and focused, once it is drawn
-function reveal(id) {
-  requestAnimationFrame(() => {
-    const card = $(`.plat-card[data-key="${CSS.escape(id)}"]`, section);
-    card?.scrollIntoView({ block: "nearest" });
-    card?.focus({ preventScroll: true });
-  });
 }
 
 // --- Reading --------------------------------------------------------------------------
