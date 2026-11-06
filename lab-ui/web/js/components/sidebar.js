@@ -15,9 +15,7 @@ export function initSidebar() {
   // goes on to the next one, back to the system's after light: what follows the system again is no theme kept.
   const THEMES = { system: ["auto", "System theme", "dark"], dark: ["moon", "Dark theme", "light"],
     light: ["sun", "Light theme", "system"] };
-  // Light or dark when one is chosen; any other value is no theme, the system's applies
-  const chosen = () => (root.dataset.theme === "light" || root.dataset.theme === "dark" ? root.dataset.theme : "system");
-  if (chosen() === "system") delete root.dataset.theme;
+  const chosen = () => root.dataset.theme || "system";
   const paintTheme = () => {
     const [glyph, label] = THEMES[chosen()];
     button.innerHTML = icon(glyph);
