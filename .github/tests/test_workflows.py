@@ -393,7 +393,7 @@ class PrepareTest(ShellTest):
     """What an event and a maintainer's words become before anything is checked out: the first job of e2e.yml."""
 
     ENV = {"EVENT": "pull_request", "REF": "refs/pull/7/merge", "HEAD": SHA, "BASE": "b" * 40, "PR": "", "SHA": "", "ITEMS": "",
-           "CATALOG_REPOSITORY": "owner/catalog", "CATALOG_REF": "c" * 40, "E2E_ENABLED": "true"}
+           "CATALOG_REPOSITORY": "owner/catalog", "CATALOG_REF": "c" * 40}
 
     def prepare(self, **env):
         text = E2E.read_text(encoding="utf-8")
@@ -404,14 +404,6 @@ class PrepareTest(ShellTest):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(self.outputs(), {"lab_ref": SHA, "catalog_ref": "c" * 40, "items": "changed", "base": "b" * 40, "expect_sha": "",
                                           "skip": "false"})
-
-    def test_an_engine_whose_repository_has_not_enabled_end_to_end_tries_nothing(self):
-        for enabled in ("", "false", "yes"):
-            with self.subTest(enabled=enabled):
-                done = self.prepare(E2E_ENABLED=enabled)
-                self.assertEqual(done.returncode, 0, done.stderr)
-                self.assertIn("The variable E2E_ENABLED is not true", done.stdout)
-                self.assertEqual(self.outputs()["skip"], "true")
 
     def test_the_night_tries_the_canary_on_the_default_branch_of_the_catalog(self):
         done = self.prepare(EVENT="schedule", REF="refs/heads/main", BASE="")

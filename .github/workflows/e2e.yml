@@ -65,7 +65,6 @@ jobs:
           ITEMS: ${{ inputs.items }}
           CATALOG_REPOSITORY: ${{ vars.CATALOG_REPOSITORY }}
           CATALOG_REF: ${{ vars.CATALOG_REF }}
-          E2E_ENABLED: ${{ vars.E2E_ENABLED }}
         run: |
           fail() { echo "::error title=$1::$2"; exit 1; }
           [[ $PR =~ ^([0-9]{1,7})?$ ]] || fail E2E04 "pr is the number of a pull request. Fix: write digits only."
@@ -84,10 +83,7 @@ jobs:
           words='^[A-Za-z0-9:@/._ -]+$'
           [[ ${#items} -le 500 && $items =~ $words ]] || fail E2E04 "items are canary, or items written kind:id and separated by spaces."
           [[ $CATALOG_REF =~ ^[A-Za-z0-9_.][A-Za-z0-9._/-]{0,99}$ || -z $CATALOG_REF ]] || fail E2E04 "CATALOG_REF is a commit or a branch."
-          if [ "$E2E_ENABLED" != true ]; then
-            echo "::notice title=E2E not tried::The variable E2E_ENABLED is not true: end to end starts containers with the license, which only the environment e2e holds: see docs/maintaining.md"
-            skip=true
-          elif [ -z "$CATALOG_REPOSITORY" ]; then
+          if [ -z "$CATALOG_REPOSITORY" ]; then
             echo "::notice title=E2E not tried::The variable CATALOG_REPOSITORY is not set, so there is no catalog to try this engine on: see docs/maintaining.md"
             skip=true
           fi
