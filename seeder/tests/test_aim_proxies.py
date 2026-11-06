@@ -506,7 +506,7 @@ class Gateway(Proxies):
         with self.assertRaises(common.SeedError) as raised:
             self.seed()
         self.assertEqual(str(raised.exception), "Acme Bakery MCP on the gateway (/acme-bakery/mcp) not ready after 20 s: alice@acme-bakery.test: "
-                         'POST /acme-bakery/oauth/token: HTTP 400 { "error" : "invalid_grant", '
+                         f'POST {TOKEN_URL}: HTTP 400 {{ "error" : "invalid_grant", '
                          '"error_description" : "The credentials entered are invalid" }')
 
     def test_a_gateway_that_never_serves_it_stops_the_seed_with_the_last_answer(self):

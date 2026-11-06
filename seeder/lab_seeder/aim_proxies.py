@@ -44,7 +44,6 @@ import hashlib
 import json
 import os
 import re
-from urllib.parse import urlsplit
 
 import requests
 
@@ -127,12 +126,6 @@ def jsonrpc(answer):
     if "event-stream" in answer.headers.get("Content-Type", ""):
         return json.loads(next(line[5:] for line in answer.text.splitlines() if line.startswith("data:")))
     return answer.json()
-
-
-def split(url):
-    """An address as the origin a client is made for and the path it calls."""
-    parts = urlsplit(url)
-    return f"{parts.scheme}://{parts.netloc}", parts.path
 
 
 def digest(body):
@@ -425,9 +418,8 @@ class McpProxies:
         def offered(user):
             sign_in = {"grant_type": "password", "username": user["username"], "password": user["password"],
                        "scope": "openid profile email"}
-            origin, endpoint = split(token["url"])
-            access = Api(origin).post(endpoint, data=sign_in, auth=(token["client"], token["secret"]),
-                                      headers={"Content-Type": None}, timeout=15).json()["access_token"]
+            access = Api(token["url"]).post("", data=sign_in, auth=(token["client"], token["secret"]), what=f"POST {token['url']}",
+                                            headers={"Content-Type": None}, timeout=15).json()["access_token"]
             headers = {"Authorization": f"Bearer {access}", "Accept": "application/json, text/event-stream"}
             answer = Api(gateway).post(path, json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
                                        headers=headers, timeout=15)
