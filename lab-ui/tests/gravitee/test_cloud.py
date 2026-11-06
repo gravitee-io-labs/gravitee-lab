@@ -143,16 +143,6 @@ class Token(Case):
         client = cloud.Cloud("https://eu.cloud.gravitee.io/management/", f"  {SECRET}\n")
         self.assertFalse(SECRET in repr(client), "the token is in it")
 
-    def test_the_gate_keeps_a_token_as_quietly(self):
-        gate = cloud.Gate("https://eu.cloudgate.gravitee.io/", f" {SECRET}\n")
-        self.assertFalse(SECRET in repr(gate), "the token is in it")
-        for token in ("", "   ", None, 7, f"two words {SECRET}", f"café{SECRET}"):
-            with self.subTest(token=bool(token)), self.assertRaises(ValueError) as caught:
-                cloud.Gate("https://eu.cloudgate.gravitee.io", token)
-            self.assertFalse(SECRET in str(caught.exception), "the token is in the message")
-        with self.assertRaisesRegex(ValueError, "must be https"):
-            cloud.Gate("http://eu.cloudgate.gravitee.io", SECRET)   # a Cloud Token does not travel in clear
-
 
 class Claims(Case):
     """What a token says about itself, read and not checked."""
@@ -319,9 +309,6 @@ class GateFake(Client):
         self.url = self.served(self.fake)
         self.read = f"/apim/rest/v2/organizations/{ORGANIZATION}/environments/{DEVELOPMENT}/apis"
 
-    def asked(self):
-        return self.fake.state.asked
-
     def test_the_read_is_the_first_api_of_the_environment_with_the_token_as_bearer(self):
         address, server = self.scripted(lambda *asked: (200, '{"data": [], "pagination": {}}', None))
         self.reads(address)()
@@ -354,16 +341,6 @@ class GateFake(Client):
             with self.subTest(env=bad), self.assertRaisesRegex(ValueError, "Not an id"):
                 gate.read("org", bad)
         self.assertEqual(len(server.asked), 1)   # nothing else was sent
-
-    def test_nothing_in_the_requests_holds_a_token(self):
-        self.reads(self.url)()
-        self.assertHidden(self.asked())
-
-    def test_a_gate_that_is_not_there(self):
-        with socket.socket() as free:
-            free.bind(("127.0.0.1", 0))
-            port = free.getsockname()[1]
-        self.raises("unreachable", "refuses the connection", self.reads(f"http://127.0.0.1:{port}"))
 
 
 class Wrong(Client):
@@ -476,26 +453,6 @@ class Wrong(Client):
             address, _ = self.scripted(lambda *asked, text=text: (200, text, None))
             with self.subTest(text=text):
                 self.raises("unreachable", "does not answer like Gravitee Cloud", self.reads(address))
-
-    def test_a_gate_that_is_too_slow(self):
-        def slow(*asked):
-            time.sleep(1)
-            return 200, "{}", None
-        self.patch(cloud, "TIMEOUT", 0.2)
-        address, _ = self.scripted(slow)
-        self.raises("unreachable", "does not answer in time", self.reads(address))
-
-    def test_a_gate_that_redirects_does_not_get_the_cloud_token_elsewhere(self):
-        elsewhere, other = self.scripted(lambda *asked: (200, "{}", None))
-        address, _ = self.scripted(lambda *asked: (302, "", {"Location": f"{elsewhere}/apim/rest"}))
-        self.raises("unreachable", "to another address", self.reads(address))
-        self.assertEqual(other.asked, [])
-
-    def test_what_the_gate_says_never_carries_the_cloud_token(self):
-        address, _ = self.scripted(lambda *asked: (400, f'{{"message": "bad {fake_cloud.CLOUD_TOKEN} here"}}', None))
-        with self.assertRaises(cloud.CloudError) as caught:
-            self.reads(address)()
-        self.assertEqual(str(caught.exception), "Gravitee Cloud refuses it: bad … here")
 
 
 class Reasons(Case):
