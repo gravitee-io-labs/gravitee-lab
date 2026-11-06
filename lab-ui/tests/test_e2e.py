@@ -719,12 +719,6 @@ class Running(Case):
         self.stub_run.return_value.stop.side_effect = lambda: "docker compose down failed"   # still there: still recorded
         self.go()
         forget.assert_not_called()
-        self.go(keep=True)
-        forget.assert_not_called()
-
-    def test_what_is_left_to_look_at_is_not_removed(self):
-        self.assertEqual(self.go(keep=True), e2e.OK)
-        self.assertEqual((self.removed, self.restored), ([], []), "what stays running stays on")
 
     def test_a_failure_is_one_and_reads_the_logs_before_the_lab_goes(self):
         self.stub_run.return_value.settle.side_effect = e2e.Failed("api in an issue")

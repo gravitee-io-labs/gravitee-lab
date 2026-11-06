@@ -37,6 +37,7 @@ from .paths import ON_FILE, ROOT
 
 OK, FAILED, CANNOT = 0, 1, 2
 POLL = 3            # seconds between two readings of the state while waiting
+START = 1800        # seconds a start has to end
 SETTLE = 300        # seconds a started item has to be up: its containers healthy, nothing in an issue
 # Seconds a container may stay in an issue once the start ended, while the item settles. Longer than the Lab UI says Keeps
 # restarting of one that Docker started again and that runs since (compose.RESTART_WINDOW). While the start runs, the job
@@ -499,7 +500,7 @@ def report(run, outcome, versions_used, message="", logs=None, out=print):
 # The run
 # ---------------------------------------------------------------------------------------------------------------------
 
-def run(text, tested=None, timeout=1800, keep=False, out=print, given=None):
+def run(text, tested=None, out=print, given=None):
     """Tries the item named `text` (`kind:id`) on set `tested` of its versions, or on the set `given`, and answers the exit
     code."""
     built = project.load()
@@ -522,12 +523,12 @@ def run(text, tested=None, timeout=1800, keep=False, out=print, given=None):
             "terminal")
         return CANNOT
     try:
-        return _tried(lab, built, kind, uid, used, timeout, keep, out)
+        return _tried(lab, built, kind, uid, used, out)
     finally:
         paths.stop_serving()
 
 
-def _tried(lab, built, kind, uid, used, timeout, keep, out):
+def _tried(lab, built, kind, uid, used, out):
     """The run itself, with the Lab UI `lab` serving it: the exit code."""
     os.environ.update(used)   # Compose reads the process before .env: no file of this machine changes
     compose.CACHE.drop()
@@ -536,7 +537,7 @@ def _tried(lab, built, kind, uid, used, timeout, keep, out):
     attempt = Run(lab, kind, uid)
     outcome, message, logs = OK, "", None
     try:
-        attempt.start(timeout)
+        attempt.start(START)
         attempt.settle()
         attempt.consoles()
     except Unable as error:
@@ -546,12 +547,11 @@ def _tried(lab, built, kind, uid, used, timeout, keep, out):
     except RuntimeError as error:   # what the Lab UI refused, or Docker did not answer
         outcome, message = FAILED, str(error)
     finally:
-        removal = None if keep else attempt.stop()
+        removal = attempt.stop()
         lab.close()
-        if not keep:
-            restore()
+        restore()
         # What the seeds recorded is gone with the volumes, as after a Reset: no page lists what is no longer there
-        kept = [] if keep or removal else [pid for pid in built["playgrounds"] if not playgrounds.forget(pid)]
+        kept = [] if removal else [pid for pid in built["playgrounds"] if not playgrounds.forget(pid)]
     report(attempt, outcome, used, message, logs, out)
     if removal:
         out(f"The lab could not be removed: {removal}")
