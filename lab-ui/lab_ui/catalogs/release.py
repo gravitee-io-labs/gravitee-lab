@@ -20,10 +20,10 @@ import os
 import re
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
+from .. import paths
 from . import gitx
 from .report import printable
 
@@ -203,17 +203,7 @@ def _prepare(root: Path, version: str, pr: bool, gh: Callable) -> List[str]:
     if made.code != 0:
         raise _fail(made, "The branch could not be made")
     try:
-        mode = file.stat().st_mode & 0o777
-        handle, tmp = tempfile.mkstemp(dir=str(root), prefix=".catalog.yml.")
-        try:
-            with os.fdopen(handle, "wb") as out:
-                out.write(text.encode("utf-8"))
-            os.chmod(tmp, mode)
-            os.replace(tmp, file)
-        except BaseException:
-            if os.path.exists(tmp):
-                os.unlink(tmp)
-            raise
+        paths.write_atomic(file, text, file.stat().st_mode & 0o777)
         added = _run(root, "add", "--", CATALOG)
         if added.code != 0:
             raise _fail(added, "git add failed")
