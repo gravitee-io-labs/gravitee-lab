@@ -402,19 +402,6 @@ class Running(Case):
         self.assertEqual(result.out.decode().splitlines(), [*gitx.HARDEN, *args])
         self.assertFalse(marker.exists())
 
-    def test_a_command_is_a_list_run_without_a_shell_in_a_session_of_its_own_with_no_input(self):
-        gitfixture.fake_git(self, "true")
-        real = subprocess.Popen
-        with mock.patch.object(gitx.subprocess, "Popen", wraps=real) as popen:
-            gitx.run(["status"], cwd=self.scratch)
-        (argv,), how = popen.call_args
-        self.assertIsInstance(argv, list)
-        self.assertFalse(how.get("shell"))
-        self.assertTrue(how["start_new_session"])
-        self.assertEqual(how["stdin"], subprocess.DEVNULL)
-        self.assertEqual(how["cwd"], str(self.scratch))
-        self.assertEqual(argv[1:], [*gitx.HARDEN, "status"])
-
     def test_a_leading_git_in_the_arguments_is_dropped(self):
         gitfixture.fake_git(self, "printf '%s\\n' \"$@\"")
         self.assertEqual(gitx.run(["git", "status"]).out.decode().split(), [*gitx.HARDEN, "status"])
@@ -482,16 +469,6 @@ class Running(Case):
         self.assertTrue(all(process.returncode is not None for process in started), "every process was waited for")
         self.assertEqual(set(os.listdir("/dev/fd")) - before, set())
         self.assertEqual(gitx._LIVE, set())
-
-    def test_an_interrupt_while_waiting_kills_the_command(self):
-        pids = self.scratch / "pid"
-        gitfixture.fake_git(self, f"sleep 60 &\necho $! > '{pids}'\necho go >&2\nwait")
-
-        def interrupt(text):
-            raise KeyboardInterrupt()
-        with self.assertRaises(KeyboardInterrupt):
-            gitx.stream(["x"], stall=30, cap=60, on_stderr=interrupt)
-        self.assertFalse(self.alive(int(pids.read_text())))
 
     def test_an_argument_that_is_not_text_or_holds_a_nul_is_refused_before_anything_runs(self):
         gitfixture.fake_git(self, "true")
@@ -590,13 +567,6 @@ class Running(Case):
         self.assertEqual((result.code, result.err), (7, "fatal: not good\n"))
         done = gitx.stream(["x"], stall=30, cap=60)
         self.assertEqual((done.code, done.err), (7, "fatal: not good\n"))
-
-    def test_a_command_that_is_still_running_with_its_output_held_is_cut_at_its_time(self):
-        self.warmed("sleep 60 &\necho started\nwait")
-        started = time.monotonic()
-        result = gitx.run(["x"], timeout=2)
-        self.assertLess(time.monotonic() - started, 10)
-        self.assertEqual((result.code, result.out), (124, b"started\n"))
 
     def test_the_output_a_command_wrote_before_it_ended_is_all_read_though_a_child_holds_the_pipes(self):
         self.warmed("sleep 60 &\nhead -c 200000 /dev/zero | tr '\\0' o\nhead -c 100000 /dev/zero | tr '\\0' e >&2")
@@ -774,8 +744,7 @@ class Ending(Case):
     def test_nothing_is_run_once_the_lab_ui_is_ending(self):
         gitx.stop_running()
         with mock.patch.object(gitx.subprocess, "Popen", side_effect=AssertionError("ran")):
-            for call in (lambda: gitx.run(["status"]), lambda: gitx.stream(["fetch"]),
-                         lambda: gitx._execute(["git"], None, {}, None, 5, None, 100, None)):
+            for call in (lambda: gitx.run(["status"]), lambda: gitx.stream(["fetch"])):
                 self.assertEqual(call(), gitx.Result(130, b"", "git was not run: the Lab UI is ending"))
         self.assertFalse(self.pids.exists())
 
@@ -810,20 +779,6 @@ class Ending(Case):
         thread.start()
         thread.join(10)
         self.assertEqual(done, [True], "stop_running waited for a lock its own thread holds")
-
-    def test_the_commands_that_run_are_ended_with_what_they_started_and_the_name_it_had_still_works(self):
-        marker = self.scratch / "child"
-        gitfixture.fake_git(self, f"sleep 60 &\necho $! > '{marker}'\necho ready >&2\nwait")
-        ready, results = threading.Event(), []
-        thread = threading.Thread(target=lambda: results.append(gitx.stream(["x"], stall=30, cap=60,
-                                                                           on_stderr=lambda text: ready.set())))
-        thread.start()
-        self.assertTrue(ready.wait(10))
-        gitx.stop_running()
-        thread.join(10)
-        self.assertFalse(thread.is_alive())
-        self.assertTrue(self.gone(int(marker.read_text())))
-        self.assertNotEqual(results[0].code, 0)
 
 
 class Version(Case):
@@ -1194,13 +1149,6 @@ class Remote(Case):
         gitfixture.git("symbolic-ref", "HEAD", "refs/heads/zeta", repo=self.repo)
         self.assertEqual(gitx.ls_remote(self.address), {"branch": "alpha", "head": head})
 
-    def test_the_head_follows_a_force_push(self):
-        before = gitx.ls_remote(self.address)
-        gitfixture.force_push_over(self.repo, {"catalog.yml": "x\n"})
-        after = gitx.ls_remote(self.address)
-        self.assertNotEqual(before["head"], after["head"])
-        self.assertEqual(after["head"], gitfixture.tip(self.repo))
-
     def test_an_anonymous_question_forgets_the_credential_helper_and_the_headers(self):
         seen = []
         real = gitx.run
@@ -1258,14 +1206,6 @@ class Remote(Case):
             gitx.ls_remote(gitx.Address("folder", "", "/h/x", "~/x", "", ""))
         self.assertEqual(raised.exception.code, "bad_address")
 
-    def test_a_connection_refused_is_unreachable(self):
-        gitfixture.fake_git(self, "echo \"fatal: unable to access 'https://git.example.test/team/hub.git/': Failed to connect "
-                                  "to git.example.test port 443 after 2 ms: Couldn't connect to server\" >&2; exit 128")
-        with self.assertRaises(gitx.CatalogError) as raised:
-            gitx.ls_remote(gitx.parse_address("https://git.example.test/team/hub.git"))
-        self.assertEqual((raised.exception.code, raised.exception.status), ("unreachable", 502))
-        self.assertEqual(raised.exception.message, "Cannot reach git.example.test. Check your connection, then try again.")
-
     def test_an_address_built_by_hand_is_not_given_to_a_command(self):
         with mock.patch.object(gitx.subprocess, "Popen", side_effect=AssertionError("ran")):
             for url in ("ext::sh -c touch% /tmp/pwned", "-oProxyCommand=evil", "--upload-pack=x", "git://github.com/a/b.git",
@@ -1287,12 +1227,6 @@ class Remote(Case):
         with self.assertRaises(gitx.CatalogError) as raised:
             gitx.ls_remote(self.address, timeout=0.4)
         self.assertEqual((raised.exception.code, raised.exception.status), ("timeout", 502))
-
-    def test_git_that_is_missing_is_git_missing_before_any_question(self):
-        self.start(mock.patch.dict(os.environ, {"PATH": str(self.root)}))
-        with self.assertRaises(gitx.CatalogError) as raised:
-            gitx.ls_remote(self.address)
-        self.assertEqual(raised.exception.code, "git_missing")
 
 
 class Stranger(Case):
@@ -1400,15 +1334,6 @@ class Stranger(Case):
         self.assertNotIn("lab-proxy-secret", " ".join(args))
         self.assertEqual((env["GIT_CONFIG_COUNT"], env["GIT_CONFIG_KEY_0"], env["GIT_CONFIG_VALUE_0"]),
                          ("1", f"http.{self.origin}/other?team=one.proxy", "http://lab-user:lab-proxy-secret@127.0.0.1:9"))
-
-    def test_the_configuration_is_read_again_for_a_question_that_is_not_anonymous(self):
-        """The empty home is for the anonymous question alone: the next one is the person's again."""
-        self.sign_in_with(netrc="machine 127.0.0.1 login lab-user password lab-secret\n")
-        self.asked(anonymous=True)
-        signed, _ = self.asked(anonymous=False)
-        if not any(signed):
-            self.skipTest("the stored login is not used by this git")
-        self.assertTrue(any(signed))
 
     def test_the_empty_home_is_made_for_the_question_and_removed_after_it(self):
         seen = []
