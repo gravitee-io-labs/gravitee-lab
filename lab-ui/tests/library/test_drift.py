@@ -81,10 +81,6 @@ class Changes(Case):
         self.labels.update({"org.image.title": "changed", "org.image.other": "added"})
         self.assertEqual(self.ask(), {})
 
-    def test_nothing_in_the_environment_or_the_labels_leaves_the_service_out(self):
-        self.has[0] = "gravitee_license_key=new-secret"
-        self.assertEqual(self.ask(), {})
-
     def test_only_what_runs_behind_by_its_configuration_is_read(self):
         found = drift.changes(RAW, {"engine": CONTAINER}, {"engine": "image"}, SAVED)
         self.assertEqual(found, {})

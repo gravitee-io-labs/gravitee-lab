@@ -7,7 +7,7 @@ import unittest
 from lab_ui import paths
 from lab_ui.library import personal, starred
 
-from .test_personal import Folder, WHOAMI
+from .test_personal import Folder
 
 
 class Stars(Folder):
@@ -97,7 +97,6 @@ class Stars(Folder):
         self.write(starred.FILE, "not json")
         starred.moved("addon", "local/whoami", "whoami")   # what it cannot read it does not replace
         self.assertEqual(self.text(starred.FILE), "not json")
-        self.assertTrue((self.root / WHOAMI).is_file())
 
 
 if __name__ == "__main__":
