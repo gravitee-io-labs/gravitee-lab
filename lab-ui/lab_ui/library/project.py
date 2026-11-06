@@ -1837,7 +1837,7 @@ def _twins(units, tiers, own_of, names, order, catalogs, owned=None):
             there["twin"] = there["twin"] or {"id": units[key]["id"], "name": "Personal", **copy}
 
 
-def _apart(problems, default, given):
+def _apart(problems, given):
     """The problems of the files of a catalog's units, which are the catalog's and not the banner's: ([the banner's],
     {namespace: [the catalog's]}). A problem found while reading (`given`) is kept as it is."""
     banner, catalog = [], {ns: list(found) for ns, found in (given or {}).items()}
@@ -1973,8 +1973,8 @@ def _gateways(addons, default, catalogs):
     missing no catalog (resolve.gateway_addon, the one definition)."""
     by_namespace = {}
     for uid, addon in addons.items():
-        by_namespace.setdefault(paths.LOCAL if addon["personal"] else addon["catalog"] or "", []).append(("addon", uid))
-    known = [default or "", paths.LOCAL, *(ns for ns in catalogs if ns not in (default, paths.LOCAL))]
+        by_namespace.setdefault(addon["catalog"], []).append(("addon", uid))
+    known = [default, paths.LOCAL, *(ns for ns in catalogs if ns not in (default, paths.LOCAL))]
     order = [uid for _, uid in resolve.precedence_order(by_namespace, known)]
     return {kind: resolve.gateway_addon(addons, kind, order) for kind in platforms.KINDS}
 
@@ -2023,7 +2023,7 @@ def build(inputs):
     groups = _groups(names, core, services, products, core_variables)
     _gateway_groups(addons, services, groups)
     catalogs = inputs.get("catalogs") or {}
-    banner, apart = _apart(problems, default, inputs.get("catalog_problems"))
+    banner, apart = _apart(problems, inputs.get("catalog_problems"))
     units = {(unit["kind"], unit["id"]): unit for group in (addons, setups, playgrounds) for unit in group.values()}
     return {"name": meta.get("name") or core.get("name") or "", "categories": meta.get("categories") or [],
             # Compose reads every other file on top of the core's: without it, nothing starts or stops

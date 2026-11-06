@@ -40,7 +40,7 @@ class AsOwn(Case):
     def setUpClass(cls):
         super().setUpClass()
         for target, name, how in ((paths, "default_ns", {"return_value": "fixture"}), (project, "_tier", {"return_value": "local"}),
-                                  (project, "_apart", {"side_effect": lambda problems, default, given: (problems, {})})):
+                                  (project, "_apart", {"side_effect": lambda problems, given: (problems, {})})):
             patcher = mock.patch.object(target, name, **how)
             patcher.start()
             cls.addClassCleanup(patcher.stop)
