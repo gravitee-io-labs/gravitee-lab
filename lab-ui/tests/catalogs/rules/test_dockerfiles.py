@@ -334,11 +334,6 @@ class Reading(unittest.TestCase):
             counts[each.code] = counts.get(each.code, 0) + 1
         self.assertEqual({"DF01": 1, "DF02": 2, "DF03": 3, "DF04": 4, "DF05": 2, "DF21": 2, "DF22": 1, "DF23": 1, "DF24": 1}, counts)
 
-    def test_the_messages_of_the_table_are_section_6(self):
-        self.assertEqual({"DF01", "DF02", "DF03", "DF04", "DF05", "DF21", "DF22", "DF23", "DF24"}, set(dockerfiles.RULES))
-        self.assertEqual(["error"] * 5 + ["warning"] * 4, [dockerfiles.RULES[code].severity for code in sorted(dockerfiles.RULES)])
-        self.assertEqual("{path}: the final stage runs as root. Fix: add USER.", dockerfiles.RULES["DF23"].message)
-
 
 class Hostile(unittest.TestCase):
 

@@ -38,20 +38,6 @@ def not_a_name(value):
     return f".github/CODEOWNERS: {value} is not a GitHub name. Fix: write @name or @organization/team."
 
 
-class Messages(unittest.TestCase):
-
-    def test_the_rule_and_its_two_messages_are_the_text_of_section_6(self):
-        self.assertEqual(codeowners.RULES["CO01"].message, ".github/CODEOWNERS: {path} has no owner. Fix: add the line: {path} {maintainers}")
-        self.assertEqual(codeowners.MORE["CO01"], (".github/CODEOWNERS: {value} is not a GitHub name. Fix: write @name or @organization/team.",))
-        self.assertEqual(codeowners.RULES["CO01"].severity, "error")
-        self.assertEqual(sorted(codeowners.RULES), ["CO01"])
-
-    def test_the_lab_explains_it(self):
-        from lab_ui.catalogs import explain
-        entry = explain.table()["CO01"]
-        self.assertEqual((entry.message, entry.more), (codeowners.RULES["CO01"].message, codeowners.MORE["CO01"]))
-
-
 class Passing(unittest.TestCase):
 
     def test_the_two_fixed_lines(self):

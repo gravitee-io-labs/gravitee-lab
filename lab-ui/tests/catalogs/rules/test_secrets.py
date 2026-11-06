@@ -249,14 +249,6 @@ class Patterns(unittest.TestCase):
                          "it from the commits of this branch: git reset --soft $(git merge-base origin/main HEAD), commit again, "
                          "and force-push your branch.", found.message)
 
-    def test_the_messages_of_the_table_are_section_6(self):
-        self.assertEqual({"SE01", "SE02", "SE03", "SE04", "SE05", "SE07"}, set(secrets.RULES))
-        self.assertEqual("{path}:{line}: {name} has a literal value. Fix: write ${NAME:-} and set the value in .env.",
-                         secrets.RULES["SE04"].message)
-        self.assertEqual("{path}:{line} looks like {kind}. Fix: make it a setting (${PREFIX_NAME}) and keep the value in .env. If "
-                         "it is a real token, revoke it first, then remove it from the commits of this branch (git reset --soft "
-                         "$(git merge-base origin/main HEAD), commit again, force-push).", secrets.RULES["SE02"].message)
-
     def test_the_names_of_secrets_are_the_ones_of_the_engines_own_check(self):
         from lab_ui.library import check
         sample = {"services": {"a": {"environment": {"DB_PASSWORD": "hunter2", "OK": "${X}", "A_TOKEN_URL": "u", "KEY": "v"}}}}

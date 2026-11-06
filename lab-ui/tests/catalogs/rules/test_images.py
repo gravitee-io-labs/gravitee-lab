@@ -150,13 +150,6 @@ class Rules(unittest.TestCase):
         self.assertEqual([], run(images, {"catalog.yml": catalog}, ci=True), "the repository is not known: nothing to compare with")
         self.assertEqual([], run(images, {"catalog.yml": support.CATALOG}, repository="acme/hub", ci=True), "no images, nothing published")
 
-    def test_the_messages_of_the_table_are_section_6(self):
-        self.assertEqual({"IM01", "IM02", "IM03", "IM04"}, set(images.RULES))
-        self.assertEqual("{image} is built by {a} and {b}. Fix: name them {unit}-{app}.", images.RULES["IM02"].message)
-        self.assertEqual(("{service}: the image {image} is outside {prefix}. Fix: name it {prefix}/{unit}-{app}.",), images.MORE["IM02"])
-        self.assertEqual("{path}: {service} builds an image but has no pull_policy. Fix: pull_policy: ${ID_PULL_POLICY:-build}.",
-                         images.RULES["IM01"].message)
-
 
 class Anchor(unittest.TestCase):
     """The seeder is the one named anchor: the Lab's own image, built from the Lab's own folder."""

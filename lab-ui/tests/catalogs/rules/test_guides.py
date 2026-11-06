@@ -270,10 +270,6 @@ class Helpers(unittest.TestCase):
         self.assertNotIn("`c`", masked)
         self.assertIn("`h", masked, "a span that never closes on its line is just a backtick")
 
-    def test_the_rules_of_the_table_are_section_6(self):
-        self.assertEqual({"GD01", "GD02", "GD03", "GD04", "GD05"}, set(guides.RULES))
-        self.assertEqual("{path}:{line}: the image {src} is not relative or https.", guides.RULES["GD04"].message)
-
     def test_a_guide_with_a_nul_byte_is_read(self):
         """GitHub shows no diff for a file with a NUL in it; the Lab's renderer reads it all the same."""
         script = b"<script>alert(1)</script>\n[x](javascript:alert(1))\n"

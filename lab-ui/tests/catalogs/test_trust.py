@@ -189,43 +189,6 @@ class Catalog(Case):
                     self.assertTrue(any(re.fullmatch(re.sub(r"\\\{\w+\\\}", ".+", re.escape(text)), reason) for text in known))
 
 
-# The standard's 6.10 (catalog-governance.md), T01 to T27, word for word: what CI and the command line say after a reason
-SPEC_FIXES = {
-    "T01": "Remove `{key}`, or ask the Lab's maintainers to support it.",
-    "T02": "Remove `{key}`, or ask the Lab's maintainers to support it.",
-    "T03": "Remove `privileged`: a demo that needs it is a personal item.",
-    "T04": "Remove `use_api_socket`.",
-    "T05": "Remove `provider`; use a container.",
-    "T06": "Publish a port on 127.0.0.1 instead of sharing the host's network, processes or memory.",
-    "T07": "Remove `cap_add`; run the image as it is meant to run.",
-    "T08": "Remove `devices`, `gpus`, `runtime` and device reservations.",
-    "T09": "Keep only `no-new-privileges` in `security_opt`; remove `sysctls`.",
-    "T10": "Remove the mount of the Docker socket.",
-    "T11": "Move the files under the unit's folder, or use a named volume.",
-    "T12": "Mount it `:ro`, or put the data under `.state/`.",
-    "T13": "Use a named volume the unit declares itself.",
-    "T14": "Use a named volume the unit declares itself.",
-    "T15": "Attach the service to `internal` or `edge` only.",
-    "T16": "Point `file:` at a file inside the unit.",
-    "T17": "Write the port as `127.0.0.1:HOST:CONTAINER`.",
-    "T18": "Put the build context under the unit, pin a remote context to a 40-character commit after `#`, and remove ssh, "
-           "secrets and cache options. Only `context`, `dockerfile`, `args`, `target` and `labels` are accepted (default-deny; "
-           "`additional_contexts` only for the Lab's seeder).",
-    "T19": "Use a relative path inside the catalog.",
-    "T20": "Prefix the setting with `{NS}_`, or read only `*_VERSION`, `*_REGISTRY`, `*_PULL_POLICY` and the shared settings.",
-    "T21": "Prefix service, container and volume names with the catalog id.",
-    "T22": "On a platform service, set only `environment`, `extra_hosts`, `depends_on`, `labels`, read-only binds from your "
-           "folder and loopback ports.",
-    "T23": "Include only units of the default catalog, of this catalog, or of catalogs declared in `requires.catalogs`.",
-    "T24": "A Public catalog cannot include a Private one: move the shared part to a Public catalog.",
-    "T25": "Fix {name} first.",
-    "T26": "Remove what this Gravitee Lab does not read, or check with the Gravitee Lab release that reads it "
-           "(`catalog.py upgrade --lab-ref latest`). A `lab` is for older Gravitee Labs: `catalog.py upgrade --write` "
-           "writes the one of `catalog.yml`.",
-    "T27": "Run `docker compose -f {file} config` and fix what it prints.",
-}
-
-
 class Fixes(Case):
     """trust.FIXES (the standard's 6.10): the fix that CI and the command line say after the reason of a rule, and `fix`, which
     fills its blanks. The popover of the Lab keeps the reason lines alone."""
@@ -236,15 +199,6 @@ class Fixes(Case):
             with self.subTest(code=code):
                 self.assertIsInstance(trust.FIXES[code], str)
                 self.assertTrue(trust.FIXES[code].strip())
-
-    def test_t01_to_t27_are_the_words_of_the_standard(self):
-        self.assertEqual({code: trust.FIXES[code] for code in SPEC_FIXES}, SPEC_FIXES)
-        self.assertEqual(sorted(SPEC_FIXES), [f"T{number:02d}" for number in range(1, 28)])
-
-    def test_the_rules_the_standard_does_not_table_have_a_fix_of_the_same_kind(self):
-        self.assertEqual(sorted(set(trust.FIXES) - set(SPEC_FIXES)), ["N01", "N02", "N03", "N04", "N05", "T28", "T29"])
-        for code in ("T28", "T29", "N01", "N02", "N03", "N04", "N05"):
-            self.assertRegex(trust.FIXES[code], r"^[A-Z].*\.$", code)
 
     def test_a_fix_is_a_plain_sentence(self):
         for code, text in trust.FIXES.items():

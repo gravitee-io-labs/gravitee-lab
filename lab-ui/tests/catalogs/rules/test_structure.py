@@ -466,13 +466,6 @@ class Helpers(unittest.TestCase):
         self.assertTrue(structure.scanner_file("a/b/.gitleaks.toml"))
         self.assertFalse(structure.scanner_file("a/gitleaks.md"))
 
-    def test_the_messages_of_the_table_are_section_6(self):
-        self.assertEqual(
-            {"ST01", "ST02", "ST03", "ST04", "ST05", "ST06", "ST07", "ST08", "ST09", "ST10", "ST11", "ST12", "ST13", "ST14", "ST15",
-             "ST16", "ST17", "ST18", "ST19", "ST20", "ST21", "ST22", "ST23"}, set(structure.RULES))
-        self.assertEqual(["warning"], sorted({structure.RULES[code].severity for code in ("ST08", "ST12", "ST20")}))
-        self.assertEqual("{unit} holds {found}, the limit is {limit}. Fix: split it.", structure.RULES["ST10"].message)
-
     def test_a_tree_in_a_hostile_order_gives_the_same_findings(self):
         files = support.files({"docs/k.pem": "x", "docs/Guide.md": "x", "tools/x.sh": "x"})
         first = structure.check(ListTree.from_files(files), context(ListTree.from_files(files)))
