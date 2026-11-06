@@ -21,16 +21,10 @@ import re
 from typing import Dict, Iterable, Iterator, List, NamedTuple, Optional, Tuple
 
 from ..report import Problem
+from ..store import OTHER_FILE as OTHER_LIMIT, TEXT_FILE as TEXT_LIMIT, TEXT_SUFFIXES, _unit_of
 
-# The most a rule reads of a file, which is what ST09 lets it be: 1 MB for the files the Lab reads as text (`TEXT_SUFFIXES`), 2 MB
-# for any other. A file over its limit is an error of its own, so no file is left unread without a finding
-TEXT_LIMIT = 1024 * 1024
-OTHER_LIMIT = 2 * 1024 * 1024
-TEXT_SUFFIXES = (".yml", ".yaml", ".md", ".json")
 # A rule reports at most this many findings of one code in one file
 PER_FILE = 100
-# The folders of a catalog that hold units , and the kind of each
-AREAS = {"addons": "addon", "setups": "setup", "playgrounds": "playground"}
 # The Compose files of a unit and of the catalog
 COMPOSE_NAMES = ("compose.yml", "compose.yaml", "docker-compose.yml", "docker-compose.yaml")
 FAMILIES = ("SD", "ST", "SE", "CR", "WF", "DF", "GD", "CO", "IM")
@@ -149,20 +143,15 @@ def basename(path: str) -> str:
 
 
 def read_limit(path: str) -> int:
-    """The most a rule reads of the file at `path`: what ST09 lets it be (a test keeps this equal to the Lab's own limits)."""
+    """The most a rule reads of the file at `path`, which is what ST09 lets it be: a file over its limit is an error of its own, so
+    no file is left unread without a finding."""
     return TEXT_LIMIT if path.lower().endswith(TEXT_SUFFIXES) else OTHER_LIMIT
 
 
 def unit_of(path: str) -> Optional[Tuple[str, str]]:
     """(kind, name) of the unit a path belongs to, or None: `addons/<name>/...` and `playgrounds/<name>/...` below the folder
     and `setups/<name>.yml`. The guides directly under a kind folder belong to no unit."""
-    parts = path.split("/")
-    kind = AREAS.get(parts[0])
-    if kind == "setup":
-        return (kind, parts[1][:-4]) if len(parts) == 2 and parts[1].endswith(".yml") else None
-    if kind and len(parts) >= 3:
-        return kind, parts[1]
-    return None
+    return _unit_of(path.split("/"))
 
 
 def is_compose(path: str) -> bool:

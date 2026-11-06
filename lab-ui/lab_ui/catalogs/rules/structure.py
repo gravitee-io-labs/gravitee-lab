@@ -23,7 +23,7 @@ from .. import store
 from ..report import ERROR, WARNING, Problem
 from ..tree import REGULAR
 from .secrets import flow_items, flow_key
-from . import AREAS, TEXT_LIMIT, Context, basename, garbled, is_binary, line_of, newlines, outline, problem, read_limit, scalar, \
+from . import TEXT_LIMIT, Context, basename, garbled, is_binary, line_of, newlines, outline, problem, read_limit, scalar, \
     table, text_of, unit_of
 
 RULES = table([
@@ -173,7 +173,7 @@ def case_twins(paths: List[str]) -> List[Tuple[str, str]]:
 def _folder(path: str) -> str:
     """The unit folder a path is in, as ST14 and ST15 name it: `playgrounds/x` for what is below it, else the path itself."""
     parts = path.split("/")
-    return "/".join(parts[:2]) if len(parts) >= 3 and parts[0] in AREAS and parts[0] != "setups" else path
+    return "/".join(parts[:2]) if len(parts) >= 3 and parts[0] in store.AREAS and parts[0] != "setups" else path
 
 
 def _scope_folder(scope: str) -> str:
@@ -202,9 +202,7 @@ def _from_store(entries) -> List[Problem]:
             unit_codes.add((code, where))
             found.append(problem(RULES, code, where))
         elif code == "ST09":
-            base = basename(entry.path).lower()
-            limit = store.TEXT_FILE if base.endswith(store.TEXT_SUFFIXES) else store.OTHER_FILE
-            found.append(problem(RULES, code, entry.path, n=-(-entry.size // 1024), m=limit // 1024))
+            found.append(problem(RULES, code, entry.path, n=-(-entry.size // 1024), m=read_limit(entry.path) // 1024))
         else:
             found.append(problem(RULES, code, entry.path))
     for over in store.overflows(listing):
@@ -221,15 +219,13 @@ def _outside(entries, skip: Set[str]) -> List[Problem]:
     found: List[Problem] = []
     for entry in entries:
         parts = entry.path.split("/")
-        if entry.path in skip or entry.path == "catalog.yml" or parts[0] in AREAS:
+        if entry.path in skip or entry.path == "catalog.yml" or parts[0] in store.AREAS:
             continue
         code = store.refusal(store.Entry(entry.mode, "0" * 40, entry.size, entry.path))
         if code is None or code == "ST07":
             continue
         if code == "ST09":
-            base = basename(entry.path).lower()
-            limit = store.TEXT_FILE if base.endswith(store.TEXT_SUFFIXES) else store.OTHER_FILE
-            found.append(problem(RULES, code, entry.path, n=-(-entry.size // 1024), m=limit // 1024))
+            found.append(problem(RULES, code, entry.path, n=-(-entry.size // 1024), m=read_limit(entry.path) // 1024))
         else:
             found.append(problem(RULES, code, entry.path))
     return found
@@ -241,7 +237,7 @@ def _place(entries, flagged: Set[str]) -> List[Problem]:
     for entry in entries:
         path = entry.path
         parts = path.split("/")
-        if path in flagged or parts[0] in AREAS or parts[0] in TOP_FOLDERS or path in TOP_FILES:
+        if path in flagged or parts[0] in store.AREAS or parts[0] in TOP_FOLDERS or path in TOP_FILES:
             continue
         if any("/".join(parts[:count]) in flagged for count in range(1, min(len(parts), FOLDERS + 1))):
             continue   # a folder that is already an error (case twins) is not also a warning for each file below it

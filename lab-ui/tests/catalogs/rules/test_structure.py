@@ -431,7 +431,6 @@ class Limits(unittest.TestCase):
 
     def test_the_limits_of_the_rules_are_the_ones_of_the_lab(self):
         from lab_ui.catalogs import rules
-        self.assertEqual((store.TEXT_FILE, store.OTHER_FILE, store.TEXT_SUFFIXES), (rules.TEXT_LIMIT, rules.OTHER_LIMIT, rules.TEXT_SUFFIXES))
         for name in ("a.yml", "A.YAML", "x/y.md", "z.JSON"):
             self.assertEqual(store.TEXT_FILE, rules.read_limit(name), name)
         for name in ("Dockerfile", "a.txt", "run.sh", "a.markdown", "x.svg", "a.md.txt"):
