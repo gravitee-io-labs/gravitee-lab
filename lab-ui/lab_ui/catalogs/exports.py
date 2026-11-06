@@ -48,6 +48,7 @@ import stat
 import tempfile
 import time
 import zipfile
+import zlib
 from pathlib import Path
 
 from .. import paths
@@ -426,7 +427,8 @@ def _members(archive):
         kind = (info.external_attr >> 16) & 0o170000
         parts = name.split("/")
         if "\\" in name or name.startswith("/") or any(part in ("", ".", "..") for part in parts) or len(parts) < 2 \
-                or (kind and kind != stat.S_IFREG):
+                or (kind and kind != stat.S_IFREG) or info.flag_bits & 0x61 \
+                or info.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):   # encrypted, patched, or packed as no export is
             raise _fail("import_invalid", NOT_A_PLAYGROUND)
         if top is None:
             top = parts[0]
@@ -775,7 +777,6 @@ def receive(data):
     archive = _opened(data)
     with archive:
         top, members = _members(archive)
-        _refused_id(archive, top)
         base = paths.ROOT / IMPORTS_DIR
         base.mkdir(parents=True, exist_ok=True)
         incoming = base / f".incoming-{secrets.token_hex(4)}"
@@ -838,19 +839,22 @@ def _refused_id(archive, top):
 
 def _extract(archive, members, folder):
     written = 0
-    for rel, mode, info in members:
-        target = folder / rel
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with archive.open(info) as source, open(target, "xb") as out:
-            while True:   # what the archive says of a size is not trusted: what is read is counted
-                chunk = source.read(1 << 16)
-                if not chunk:
-                    break
-                written += len(chunk)
-                if written > MAX_BYTES:
-                    raise _fail("import_too_large", "This playground holds more than a catalog may: 10,000 files, 100 MB.", 413)
-                out.write(chunk)
-        os.chmod(target, mode)
+    try:
+        for rel, mode, info in members:
+            target = folder / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with archive.open(info) as source, open(target, "xb") as out:
+                while True:   # what the archive says of a size is not trusted: what is read is counted
+                    chunk = source.read(1 << 16)
+                    if not chunk:
+                        break
+                    written += len(chunk)
+                    if written > MAX_BYTES:
+                        raise _fail("import_too_large", "This playground holds more than a catalog may: 10,000 files, 100 MB.", 413)
+                    out.write(chunk)
+            os.chmod(target, mode)
+    except (zipfile.BadZipFile, zlib.error, EOFError, FileExistsError, NotADirectoryError):   # damaged, or a file and a folder of one name
+        raise _fail("import_invalid", NOT_A_PLAYGROUND) from None
 
 
 def _judged_import(final, top, content, reused):

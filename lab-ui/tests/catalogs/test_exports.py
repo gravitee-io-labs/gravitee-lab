@@ -127,6 +127,21 @@ class Archives(Case):
         self.assertTrue(message.startswith(exports.NOT_A_PLAYGROUND))
         self.assertIn("addons/x/.env", message)
 
+    def test_a_damaged_archive_is_refused_in_one_sentence(self):
+        self.folder(paths)
+        good = zipped({"demo/catalog.yml": CATALOG.encode()})
+
+        def said(offset, value):   # a field of the first entry of the archive's directory
+            data = bytearray(good)
+            data[good.index(b"PK\x01\x02") + offset] = value
+            return bytes(data)
+        flipped = bytearray(good)
+        flipped[good.index(CATALOG.encode())] ^= 1
+        for name, data in (("a byte flipped", bytes(flipped)), ("an unknown method", said(10, 99)), ("encrypted", said(8, 1)),
+                           ("a file and a folder of one name", zipped({"demo/catalog.yml": CATALOG.encode(), "demo/a": b"x", "demo/a/b": b"y"}))):
+            with self.subTest(name):
+                self.assertEqual(self.refused(data), exports.NOT_A_PLAYGROUND)
+
     def test_more_than_a_catalog_may_hold_is_refused_whatever_the_archive_says_of_its_sizes(self):
         self.patch(exports, "MAX_FILES", 2)
         self.refused(zipped({"demo/catalog.yml": CATALOG.encode(), "demo/a": b"a", "demo/b": b"b"}), "import_too_large")
